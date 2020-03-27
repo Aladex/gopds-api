@@ -8,6 +8,7 @@ import (
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/models"
+	"gopds-api/utils"
 	"io"
 	"net/http"
 	"strings"
@@ -50,25 +51,37 @@ func GetBookFile(c *gin.Context) {
 				return
 			}
 		}()
-		if bookRequest.Format == "fb2" {
-			for _, f := range r.File {
-				if f.Name == book.FileName {
-					rc, err := f.Open()
-					header := c.Writer.Header()
-					header["Content-type"] = []string{"application/octet-stream"}
-					header["Content-Disposition"] = []string{"attachment; filename= " + downloadName}
-					if err != nil {
-						httputil.NewError(c, http.StatusInternalServerError, err)
-						return
-					}
-					_, err = io.Copy(c.Writer, rc)
-					if err != nil {
-						httputil.NewError(c, http.StatusBadRequest, err)
-						return
-					}
-					return
-				}
+		header := c.Writer.Header()
+		header["Content-type"] = []string{"application/octet-stream"}
+		header["Content-Disposition"] = []string{"attachment; filename= " + downloadName}
+		switch bookRequest.Format {
+		case "fb2":
+			rc, err := utils.FB2Book(book.FileName, zipPath)
+			if err != nil {
+				httputil.NewError(c, http.StatusBadRequest, err)
+				return
 			}
+			_, err = io.Copy(c.Writer, rc)
+			if err != nil {
+				httputil.NewError(c, http.StatusBadRequest, err)
+				return
+			}
+			return
+		case "zip":
+			rc, err := utils.ZipBook(downloadName, book.FileName, zipPath)
+			if err != nil {
+				httputil.NewError(c, http.StatusBadRequest, err)
+				return
+			}
+			_, err = io.Copy(c.Writer, rc)
+			if err != nil {
+				httputil.NewError(c, http.StatusBadRequest, err)
+				return
+			}
+			return
+		default:
+			httputil.NewError(c, http.StatusBadRequest, errors.New("unknown file format"))
+			return
 		}
 	}
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
