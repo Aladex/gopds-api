@@ -1,0 +1,17 @@
+postgres:
+  dbuser: sopds
+  dbpass: sopds
+  dbname: sopds
+  dbhost: "127.0.0.1:5432"
+
+redis:
+  host: 127.0.0.1
+  port: 6379
+  db: 0
+
+sessions:
+  key: fZ8vAKITrRpLxacsdKuWT1BLSmc1kDoo
+
+app:
+  devel_mode: yes
+  files_path: "/mnt/ssd/sopds/books/_Lib.rus.ec - Официальная/lib.rus.ec"
