@@ -1,7 +1,7 @@
 # gopds-api
 Implementation of SOPDS project
 
-This repository contains an implementation for SOPDS database from [SOPDS mitshel project](https://github.com/mitshel/sopds) 
+This repository contains an API implementation for SOPDS database from [SOPDS mitshel project](https://github.com/mitshel/sopds) 
 
 It works with database and can to authorize users from SOPDS typical django database with pbkdf2.
  
