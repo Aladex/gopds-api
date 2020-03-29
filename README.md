@@ -31,3 +31,6 @@ Documentation is realized with swaggo swagger and generates automatically.
 2. Book scanner for fb2 and epub formats
 3. Converter from fb2 to epub, mobi
 
+## Thanks 
+
+Thanks for source code of EPUB-converter to [reinventer](https://github.com/reinventer/fb2epub)
