@@ -1,4 +1,6 @@
+<p align="center">
 <img src="https://raw.githubusercontent.com/Aladex/gopds-api/master/logo/logo.png" width="350">
+</p>
 
 # gopds-api
 Implementation of SOPDS project
