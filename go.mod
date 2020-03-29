@@ -8,6 +8,7 @@ require (
 	github.com/gin-gonic/gin v1.6.2
 	github.com/go-pg/pg/v9 v9.1.5
 	github.com/go-redis/redis v6.15.7+incompatible
+	github.com/google/uuid v1.1.1
 	github.com/spf13/viper v1.6.2
 	github.com/swaggo/files v0.0.0-20190704085106-630677cd5c14
 	github.com/swaggo/gin-swagger v1.2.0

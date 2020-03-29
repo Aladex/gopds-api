@@ -22,22 +22,24 @@ SET default_tablespace = '';
 -- Name: auth_user; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE public.auth_user (
-    id integer NOT NULL,
-    password character varying(128) NOT NULL,
-    last_login timestamp with time zone,
-    is_superuser boolean NOT NULL,
-    username character varying(150) NOT NULL,
-    first_name character varying(30) NOT NULL,
-    last_name character varying(150) NOT NULL,
-    email character varying(254) NOT NULL,
-    is_staff boolean NOT NULL,
-    is_active boolean NOT NULL,
-    date_joined timestamp with time zone NOT NULL
+CREATE TABLE public.auth_user
+(
+    id           integer                  NOT NULL,
+    password     character varying(128)   NOT NULL,
+    last_login   timestamp with time zone,
+    is_superuser boolean                  NOT NULL,
+    username     character varying(150)   NOT NULL,
+    first_name   character varying(30)    NOT NULL,
+    last_name    character varying(150)   NOT NULL,
+    email        character varying(254)   NOT NULL,
+    is_staff     boolean                  NOT NULL,
+    is_active    boolean                  NOT NULL,
+    date_joined  timestamp with time zone NOT NULL
 );
 
 
-ALTER TABLE public.auth_user OWNER TO postgres;
+ALTER TABLE public.auth_user
+    OWNER TO postgres;
 
 --
 -- Name: auth_user_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -52,7 +54,8 @@ CREATE SEQUENCE public.auth_user_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.auth_user_id_seq OWNER TO postgres;
+ALTER TABLE public.auth_user_id_seq
+    OWNER TO postgres;
 
 --
 -- Name: auth_user_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
@@ -65,15 +68,17 @@ ALTER SEQUENCE public.auth_user_id_seq OWNED BY public.auth_user.id;
 -- Name: opds_catalog_author; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE public.opds_catalog_author (
-    id integer NOT NULL,
-    full_name character varying(128) NOT NULL,
+CREATE TABLE public.opds_catalog_author
+(
+    id               integer                NOT NULL,
+    full_name        character varying(128) NOT NULL,
     search_full_name character varying(128) NOT NULL,
-    lang_code integer NOT NULL
+    lang_code        integer                NOT NULL
 );
 
 
-ALTER TABLE public.opds_catalog_author OWNER TO postgres;
+ALTER TABLE public.opds_catalog_author
+    OWNER TO postgres;
 
 --
 -- Name: opds_catalog_author_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -88,7 +93,8 @@ CREATE SEQUENCE public.opds_catalog_author_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.opds_catalog_author_id_seq OWNER TO postgres;
+ALTER TABLE public.opds_catalog_author_id_seq
+    OWNER TO postgres;
 
 --
 -- Name: opds_catalog_author_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
@@ -101,14 +107,16 @@ ALTER SEQUENCE public.opds_catalog_author_id_seq OWNED BY public.opds_catalog_au
 -- Name: opds_catalog_bauthor; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE public.opds_catalog_bauthor (
-    id integer NOT NULL,
+CREATE TABLE public.opds_catalog_bauthor
+(
+    id        integer NOT NULL,
     author_id integer NOT NULL,
-    book_id integer NOT NULL
+    book_id   integer NOT NULL
 );
 
 
-ALTER TABLE public.opds_catalog_bauthor OWNER TO postgres;
+ALTER TABLE public.opds_catalog_bauthor
+    OWNER TO postgres;
 
 --
 -- Name: opds_catalog_bauthor_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -123,7 +131,8 @@ CREATE SEQUENCE public.opds_catalog_bauthor_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.opds_catalog_bauthor_id_seq OWNER TO postgres;
+ALTER TABLE public.opds_catalog_bauthor_id_seq
+    OWNER TO postgres;
 
 --
 -- Name: opds_catalog_bauthor_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
@@ -136,14 +145,16 @@ ALTER SEQUENCE public.opds_catalog_bauthor_id_seq OWNED BY public.opds_catalog_b
 -- Name: opds_catalog_bgenre; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE public.opds_catalog_bgenre (
-    id integer NOT NULL,
-    book_id integer NOT NULL,
+CREATE TABLE public.opds_catalog_bgenre
+(
+    id       integer NOT NULL,
+    book_id  integer NOT NULL,
     genre_id integer NOT NULL
 );
 
 
-ALTER TABLE public.opds_catalog_bgenre OWNER TO postgres;
+ALTER TABLE public.opds_catalog_bgenre
+    OWNER TO postgres;
 
 --
 -- Name: opds_catalog_bgenre_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -158,7 +169,8 @@ CREATE SEQUENCE public.opds_catalog_bgenre_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.opds_catalog_bgenre_id_seq OWNER TO postgres;
+ALTER TABLE public.opds_catalog_bgenre_id_seq
+    OWNER TO postgres;
 
 --
 -- Name: opds_catalog_bgenre_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
@@ -171,27 +183,29 @@ ALTER SEQUENCE public.opds_catalog_bgenre_id_seq OWNED BY public.opds_catalog_bg
 -- Name: opds_catalog_book; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE public.opds_catalog_book (
-    id integer NOT NULL,
-    filename character varying(512) NOT NULL,
-    path character varying(512) NOT NULL,
-    filesize integer NOT NULL,
-    format character varying(8) NOT NULL,
-    cat_type integer NOT NULL,
+CREATE TABLE public.opds_catalog_book
+(
+    id           integer                  NOT NULL,
+    filename     character varying(512)   NOT NULL,
+    path         character varying(512)   NOT NULL,
+    filesize     integer                  NOT NULL,
+    format       character varying(8)     NOT NULL,
+    cat_type     integer                  NOT NULL,
     registerdate timestamp with time zone NOT NULL,
-    docdate character varying(32) NOT NULL,
-    lang character varying(16) NOT NULL,
-    title character varying(512) NOT NULL,
-    search_title character varying(512) NOT NULL,
-    annotation character varying(10000) NOT NULL,
-    lang_code integer NOT NULL,
-    avail integer NOT NULL,
-    catalog_id integer NOT NULL
+    docdate      character varying(32)    NOT NULL,
+    lang         character varying(16)    NOT NULL,
+    title        character varying(512)   NOT NULL,
+    search_title character varying(512)   NOT NULL,
+    annotation   character varying(10000) NOT NULL,
+    lang_code    integer                  NOT NULL,
+    avail        integer                  NOT NULL,
+    catalog_id   integer                  NOT NULL
 )
-WITH (fillfactor='50');
+    WITH (fillfactor = '50');
 
 
-ALTER TABLE public.opds_catalog_book OWNER TO postgres;
+ALTER TABLE public.opds_catalog_book
+    OWNER TO postgres;
 
 --
 -- Name: opds_catalog_book_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -206,7 +220,8 @@ CREATE SEQUENCE public.opds_catalog_book_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.opds_catalog_book_id_seq OWNER TO postgres;
+ALTER TABLE public.opds_catalog_book_id_seq
+    OWNER TO postgres;
 
 --
 -- Name: opds_catalog_book_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
@@ -219,15 +234,17 @@ ALTER SEQUENCE public.opds_catalog_book_id_seq OWNED BY public.opds_catalog_book
 -- Name: opds_catalog_bookshelf; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE public.opds_catalog_bookshelf (
-    id integer NOT NULL,
+CREATE TABLE public.opds_catalog_bookshelf
+(
+    id       integer                  NOT NULL,
     readtime timestamp with time zone NOT NULL,
-    book_id integer NOT NULL,
-    user_id integer NOT NULL
+    book_id  integer                  NOT NULL,
+    user_id  integer                  NOT NULL
 );
 
 
-ALTER TABLE public.opds_catalog_bookshelf OWNER TO postgres;
+ALTER TABLE public.opds_catalog_bookshelf
+    OWNER TO postgres;
 
 --
 -- Name: opds_catalog_bookshelf_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -242,7 +259,8 @@ CREATE SEQUENCE public.opds_catalog_bookshelf_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.opds_catalog_bookshelf_id_seq OWNER TO postgres;
+ALTER TABLE public.opds_catalog_bookshelf_id_seq
+    OWNER TO postgres;
 
 --
 -- Name: opds_catalog_bookshelf_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
@@ -255,15 +273,17 @@ ALTER SEQUENCE public.opds_catalog_bookshelf_id_seq OWNED BY public.opds_catalog
 -- Name: opds_catalog_bseries; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE public.opds_catalog_bseries (
-    id integer NOT NULL,
-    ser_no integer NOT NULL,
+CREATE TABLE public.opds_catalog_bseries
+(
+    id      integer NOT NULL,
+    ser_no  integer NOT NULL,
     book_id integer NOT NULL,
-    ser_id integer NOT NULL
+    ser_id  integer NOT NULL
 );
 
 
-ALTER TABLE public.opds_catalog_bseries OWNER TO postgres;
+ALTER TABLE public.opds_catalog_bseries
+    OWNER TO postgres;
 
 --
 -- Name: opds_catalog_bseries_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -278,7 +298,8 @@ CREATE SEQUENCE public.opds_catalog_bseries_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.opds_catalog_bseries_id_seq OWNER TO postgres;
+ALTER TABLE public.opds_catalog_bseries_id_seq
+    OWNER TO postgres;
 
 --
 -- Name: opds_catalog_bseries_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
@@ -291,17 +312,19 @@ ALTER SEQUENCE public.opds_catalog_bseries_id_seq OWNED BY public.opds_catalog_b
 -- Name: opds_catalog_catalog; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE public.opds_catalog_catalog (
-    id integer NOT NULL,
-    cat_name character varying(190) NOT NULL,
-    path character varying(512) NOT NULL,
-    cat_type integer NOT NULL,
-    cat_size bigint,
+CREATE TABLE public.opds_catalog_catalog
+(
+    id        integer                NOT NULL,
+    cat_name  character varying(190) NOT NULL,
+    path      character varying(512) NOT NULL,
+    cat_type  integer                NOT NULL,
+    cat_size  bigint,
     parent_id integer
 );
 
 
-ALTER TABLE public.opds_catalog_catalog OWNER TO postgres;
+ALTER TABLE public.opds_catalog_catalog
+    OWNER TO postgres;
 
 --
 -- Name: opds_catalog_catalog_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -316,7 +339,8 @@ CREATE SEQUENCE public.opds_catalog_catalog_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.opds_catalog_catalog_id_seq OWNER TO postgres;
+ALTER TABLE public.opds_catalog_catalog_id_seq
+    OWNER TO postgres;
 
 --
 -- Name: opds_catalog_catalog_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
@@ -329,28 +353,32 @@ ALTER SEQUENCE public.opds_catalog_catalog_id_seq OWNED BY public.opds_catalog_c
 -- Name: opds_catalog_counter; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE public.opds_catalog_counter (
-    name character varying(16) NOT NULL,
-    value integer NOT NULL,
+CREATE TABLE public.opds_catalog_counter
+(
+    name        character varying(16)    NOT NULL,
+    value       integer                  NOT NULL,
     update_time timestamp with time zone NOT NULL
 );
 
 
-ALTER TABLE public.opds_catalog_counter OWNER TO postgres;
+ALTER TABLE public.opds_catalog_counter
+    OWNER TO postgres;
 
 --
 -- Name: opds_catalog_genre; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE public.opds_catalog_genre (
-    id integer NOT NULL,
-    genre character varying(32) NOT NULL,
-    section character varying(64) NOT NULL,
+CREATE TABLE public.opds_catalog_genre
+(
+    id         integer                NOT NULL,
+    genre      character varying(32)  NOT NULL,
+    section    character varying(64)  NOT NULL,
     subsection character varying(100) NOT NULL
 );
 
 
-ALTER TABLE public.opds_catalog_genre OWNER TO postgres;
+ALTER TABLE public.opds_catalog_genre
+    OWNER TO postgres;
 
 --
 -- Name: opds_catalog_genre_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -365,7 +393,8 @@ CREATE SEQUENCE public.opds_catalog_genre_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.opds_catalog_genre_id_seq OWNER TO postgres;
+ALTER TABLE public.opds_catalog_genre_id_seq
+    OWNER TO postgres;
 
 --
 -- Name: opds_catalog_genre_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
@@ -378,15 +407,17 @@ ALTER SEQUENCE public.opds_catalog_genre_id_seq OWNED BY public.opds_catalog_gen
 -- Name: opds_catalog_series; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE public.opds_catalog_series (
-    id integer NOT NULL,
-    ser character varying(150) NOT NULL,
+CREATE TABLE public.opds_catalog_series
+(
+    id         integer                NOT NULL,
+    ser        character varying(150) NOT NULL,
     search_ser character varying(150) NOT NULL,
-    lang_code integer NOT NULL
+    lang_code  integer                NOT NULL
 );
 
 
-ALTER TABLE public.opds_catalog_series OWNER TO postgres;
+ALTER TABLE public.opds_catalog_series
+    OWNER TO postgres;
 
 --
 -- Name: opds_catalog_series_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -401,7 +432,8 @@ CREATE SEQUENCE public.opds_catalog_series_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.opds_catalog_series_id_seq OWNER TO postgres;
+ALTER TABLE public.opds_catalog_series_id_seq
+    OWNER TO postgres;
 
 --
 -- Name: opds_catalog_series_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
@@ -414,70 +446,80 @@ ALTER SEQUENCE public.opds_catalog_series_id_seq OWNED BY public.opds_catalog_se
 -- Name: auth_user id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.auth_user ALTER COLUMN id SET DEFAULT nextval('public.auth_user_id_seq'::regclass);
+ALTER TABLE ONLY public.auth_user
+    ALTER COLUMN id SET DEFAULT nextval('public.auth_user_id_seq'::regclass);
 
 
 --
 -- Name: opds_catalog_author id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.opds_catalog_author ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_author_id_seq'::regclass);
+ALTER TABLE ONLY public.opds_catalog_author
+    ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_author_id_seq'::regclass);
 
 
 --
 -- Name: opds_catalog_bauthor id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.opds_catalog_bauthor ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_bauthor_id_seq'::regclass);
+ALTER TABLE ONLY public.opds_catalog_bauthor
+    ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_bauthor_id_seq'::regclass);
 
 
 --
 -- Name: opds_catalog_bgenre id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.opds_catalog_bgenre ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_bgenre_id_seq'::regclass);
+ALTER TABLE ONLY public.opds_catalog_bgenre
+    ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_bgenre_id_seq'::regclass);
 
 
 --
 -- Name: opds_catalog_book id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.opds_catalog_book ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_book_id_seq'::regclass);
+ALTER TABLE ONLY public.opds_catalog_book
+    ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_book_id_seq'::regclass);
 
 
 --
 -- Name: opds_catalog_bookshelf id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.opds_catalog_bookshelf ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_bookshelf_id_seq'::regclass);
+ALTER TABLE ONLY public.opds_catalog_bookshelf
+    ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_bookshelf_id_seq'::regclass);
 
 
 --
 -- Name: opds_catalog_bseries id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.opds_catalog_bseries ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_bseries_id_seq'::regclass);
+ALTER TABLE ONLY public.opds_catalog_bseries
+    ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_bseries_id_seq'::regclass);
 
 
 --
 -- Name: opds_catalog_catalog id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.opds_catalog_catalog ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_catalog_id_seq'::regclass);
+ALTER TABLE ONLY public.opds_catalog_catalog
+    ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_catalog_id_seq'::regclass);
 
 
 --
 -- Name: opds_catalog_genre id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.opds_catalog_genre ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_genre_id_seq'::regclass);
+ALTER TABLE ONLY public.opds_catalog_genre
+    ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_genre_id_seq'::regclass);
 
 
 --
 -- Name: opds_catalog_series id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.opds_catalog_series ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_series_id_seq'::regclass);
+ALTER TABLE ONLY public.opds_catalog_series
+    ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_series_id_seq'::regclass);
 
 
 --
@@ -896,7 +938,7 @@ CREATE INDEX opds_catalog_series_ser_7d15929e_like ON public.opds_catalog_series
 --
 
 ALTER TABLE ONLY public.opds_catalog_bauthor
-    ADD CONSTRAINT opds_catalog_bauthor_author_id_f7332d70_fk_opds_cata FOREIGN KEY (author_id) REFERENCES public.opds_catalog_author(id) DEFERRABLE INITIALLY DEFERRED;
+    ADD CONSTRAINT opds_catalog_bauthor_author_id_f7332d70_fk_opds_cata FOREIGN KEY (author_id) REFERENCES public.opds_catalog_author (id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -904,7 +946,7 @@ ALTER TABLE ONLY public.opds_catalog_bauthor
 --
 
 ALTER TABLE ONLY public.opds_catalog_bauthor
-    ADD CONSTRAINT opds_catalog_bauthor_book_id_b5787ec8_fk_opds_catalog_book_id FOREIGN KEY (book_id) REFERENCES public.opds_catalog_book(id) DEFERRABLE INITIALLY DEFERRED;
+    ADD CONSTRAINT opds_catalog_bauthor_book_id_b5787ec8_fk_opds_catalog_book_id FOREIGN KEY (book_id) REFERENCES public.opds_catalog_book (id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -912,7 +954,7 @@ ALTER TABLE ONLY public.opds_catalog_bauthor
 --
 
 ALTER TABLE ONLY public.opds_catalog_bgenre
-    ADD CONSTRAINT opds_catalog_bgenre_book_id_dc74ba5a_fk_opds_catalog_book_id FOREIGN KEY (book_id) REFERENCES public.opds_catalog_book(id) DEFERRABLE INITIALLY DEFERRED;
+    ADD CONSTRAINT opds_catalog_bgenre_book_id_dc74ba5a_fk_opds_catalog_book_id FOREIGN KEY (book_id) REFERENCES public.opds_catalog_book (id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -920,7 +962,7 @@ ALTER TABLE ONLY public.opds_catalog_bgenre
 --
 
 ALTER TABLE ONLY public.opds_catalog_bgenre
-    ADD CONSTRAINT opds_catalog_bgenre_genre_id_8b5bd007_fk_opds_catalog_genre_id FOREIGN KEY (genre_id) REFERENCES public.opds_catalog_genre(id) DEFERRABLE INITIALLY DEFERRED;
+    ADD CONSTRAINT opds_catalog_bgenre_genre_id_8b5bd007_fk_opds_catalog_genre_id FOREIGN KEY (genre_id) REFERENCES public.opds_catalog_genre (id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -928,7 +970,7 @@ ALTER TABLE ONLY public.opds_catalog_bgenre
 --
 
 ALTER TABLE ONLY public.opds_catalog_book
-    ADD CONSTRAINT opds_catalog_book_catalog_id_f35decc4_fk_opds_cata FOREIGN KEY (catalog_id) REFERENCES public.opds_catalog_catalog(id) DEFERRABLE INITIALLY DEFERRED;
+    ADD CONSTRAINT opds_catalog_book_catalog_id_f35decc4_fk_opds_cata FOREIGN KEY (catalog_id) REFERENCES public.opds_catalog_catalog (id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -936,7 +978,7 @@ ALTER TABLE ONLY public.opds_catalog_book
 --
 
 ALTER TABLE ONLY public.opds_catalog_bookshelf
-    ADD CONSTRAINT opds_catalog_bookshelf_book_id_6868526f_fk_opds_catalog_book_id FOREIGN KEY (book_id) REFERENCES public.opds_catalog_book(id) DEFERRABLE INITIALLY DEFERRED;
+    ADD CONSTRAINT opds_catalog_bookshelf_book_id_6868526f_fk_opds_catalog_book_id FOREIGN KEY (book_id) REFERENCES public.opds_catalog_book (id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -944,7 +986,7 @@ ALTER TABLE ONLY public.opds_catalog_bookshelf
 --
 
 ALTER TABLE ONLY public.opds_catalog_bookshelf
-    ADD CONSTRAINT opds_catalog_bookshelf_user_id_9adf9486_fk_auth_user_id FOREIGN KEY (user_id) REFERENCES public.auth_user(id) DEFERRABLE INITIALLY DEFERRED;
+    ADD CONSTRAINT opds_catalog_bookshelf_user_id_9adf9486_fk_auth_user_id FOREIGN KEY (user_id) REFERENCES public.auth_user (id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -952,7 +994,7 @@ ALTER TABLE ONLY public.opds_catalog_bookshelf
 --
 
 ALTER TABLE ONLY public.opds_catalog_bseries
-    ADD CONSTRAINT opds_catalog_bseries_book_id_04da58e5_fk_opds_catalog_book_id FOREIGN KEY (book_id) REFERENCES public.opds_catalog_book(id) DEFERRABLE INITIALLY DEFERRED;
+    ADD CONSTRAINT opds_catalog_bseries_book_id_04da58e5_fk_opds_catalog_book_id FOREIGN KEY (book_id) REFERENCES public.opds_catalog_book (id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -960,7 +1002,7 @@ ALTER TABLE ONLY public.opds_catalog_bseries
 --
 
 ALTER TABLE ONLY public.opds_catalog_bseries
-    ADD CONSTRAINT opds_catalog_bseries_ser_id_8a80f5c7_fk_opds_catalog_series_id FOREIGN KEY (ser_id) REFERENCES public.opds_catalog_series(id) DEFERRABLE INITIALLY DEFERRED;
+    ADD CONSTRAINT opds_catalog_bseries_ser_id_8a80f5c7_fk_opds_catalog_series_id FOREIGN KEY (ser_id) REFERENCES public.opds_catalog_series (id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -968,7 +1010,7 @@ ALTER TABLE ONLY public.opds_catalog_bseries
 --
 
 ALTER TABLE ONLY public.opds_catalog_catalog
-    ADD CONSTRAINT opds_catalog_catalog_parent_id_ac149f35_fk_opds_cata FOREIGN KEY (parent_id) REFERENCES public.opds_catalog_catalog(id) DEFERRABLE INITIALLY DEFERRED;
+    ADD CONSTRAINT opds_catalog_catalog_parent_id_ac149f35_fk_opds_cata FOREIGN KEY (parent_id) REFERENCES public.opds_catalog_catalog (id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
