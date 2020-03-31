@@ -91,6 +91,18 @@ func GetBookFile(c *gin.Context) {
 				return
 			}
 			return
+		case "mobi":
+			rc, err := utils.MobiBook(book.FileName, zipPath)
+			if err != nil {
+				httputil.NewError(c, http.StatusBadRequest, err)
+				return
+			}
+			_, err = io.Copy(c.Writer, rc)
+			if err != nil {
+				httputil.NewError(c, http.StatusBadRequest, err)
+				return
+			}
+			return
 		default:
 			httputil.NewError(c, http.StatusBadRequest, errors.New("unknown file format"))
 			return
