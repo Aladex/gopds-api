@@ -11,6 +11,7 @@ import (
 	"hash"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Token структура токена для работы с API
@@ -43,7 +44,8 @@ func CreateToken(username string) (string, error) {
 	tk := Token{
 		UserID: username,
 		StandardClaims: jwt.StandardClaims{
-			Issuer: "dashboard-api",
+			Issuer:   "dashboard-api",
+			IssuedAt: time.Now().Unix(),
 		},
 	}
 	token := jwt.NewWithClaims(jwt.GetSigningMethod("HS256"), tk)
@@ -61,7 +63,7 @@ func CheckToken(token string) (string, error) {
 	})
 
 	if tokenCheck == nil {
-		return "", errors.New("Token is not valid")
+		return "", errors.New("token is not valid")
 	}
 
 	if claims, ok := tokenCheck.Claims.(*Token); ok && tokenCheck.Valid {

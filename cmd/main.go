@@ -37,7 +37,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 		username, err := utils.CheckToken(userToken)
 		if err != nil {
-			c.JSON(403, "Token is invalid")
+			c.JSON(403, "token is invalid")
 			c.Abort()
 			return
 		}
@@ -46,7 +46,7 @@ func AuthMiddleware() gin.HandlerFunc {
 			Token: userToken,
 		}
 		if !sessions.CheckSessionKey(thisUser) {
-			c.JSON(403, "Token is invalid")
+			c.JSON(403, "token is invalid")
 			c.Abort()
 			return
 		}
