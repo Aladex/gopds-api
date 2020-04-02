@@ -37,7 +37,10 @@ func GetBooks(c *gin.Context) {
 			c.JSON(500, err)
 			return
 		}
-		lenght := (count / 10) + 1
+		lenght := count / 10
+		if count-lenght*10 > 0 {
+			lenght += 1
+		}
 		c.JSON(200, ExportAnswer{
 			Books:     books,
 			Languages: langs,
