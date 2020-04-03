@@ -60,6 +60,40 @@ ALTER SEQUENCE public.auth_user_id_seq OWNED BY public.auth_user.id;
 
 
 --
+-- Name: invites; Type: TABLE; Schema: public; Owner: sopds
+--
+
+CREATE TABLE public.invites (
+    id integer NOT NULL,
+    invite character varying(128) NOT NULL
+);
+
+
+ALTER TABLE public.invites OWNER TO sopds;
+
+--
+-- Name: invites_id_seq; Type: SEQUENCE; Schema: public; Owner: sopds
+--
+
+CREATE SEQUENCE public.invites_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.invites_id_seq OWNER TO sopds;
+
+--
+-- Name: invites_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: sopds
+--
+
+ALTER SEQUENCE public.invites_id_seq OWNED BY public.invites.id;
+
+
+--
 -- Name: opds_catalog_author; Type: TABLE; Schema: public; Owner: sopds
 --
 
@@ -377,6 +411,13 @@ ALTER SEQUENCE public.opds_catalog_series_id_seq OWNED BY public.opds_catalog_se
 --
 
 ALTER TABLE ONLY public.auth_user ALTER COLUMN id SET DEFAULT nextval('public.auth_user_id_seq'::regclass);
+
+
+--
+-- Name: invites id; Type: DEFAULT; Schema: public; Owner: sopds
+--
+
+ALTER TABLE ONLY public.invites ALTER COLUMN id SET DEFAULT nextval('public.invites_id_seq'::regclass);
 
 
 --
