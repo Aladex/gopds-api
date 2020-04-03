@@ -341,6 +341,10 @@ paths:
           description: Created
           schema:
             $ref: '#/definitions/string'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
         "409":
           description: Conflict
           schema:

@@ -25,11 +25,13 @@ type LoggedInUser struct {
 	Token string `json:"token"`
 }
 
+// LoginRequest структура для логина в библиотеку
 type LoginRequest struct {
 	Login    string `form:"username" json:"username" binding:"required"`
 	Password string `form:"password" json:"password" binding:"required"`
 }
 
+// RegisterRequest структура формы регистрации
 type RegisterRequest struct {
 	Login    string `form:"username" json:"username" binding:"required"`
 	Password string `form:"password" json:"password" binding:"required"`
@@ -37,12 +39,14 @@ type RegisterRequest struct {
 	Invite   string `form:"invite" json:"invite" binding:"required"`
 }
 
+// Invite структура инвайта в бд
 type Invite struct {
 	tableName struct{} `pg:"invites,discard_unknown_columns" json:"-"`
 	ID        int64    `pg:"id,pk"`
 	Invite    string   `pg:"invite"`
 }
 
+// CheckValues проверка формы на валидность email, имени пользователя и длины пароля
 func (r RegisterRequest) CheckValues() bool {
 	emailRegex := regexp.MustCompile("^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+" +
 		"@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9]" +

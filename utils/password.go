@@ -61,6 +61,7 @@ func GetRandomString(length int) string {
 	return string(b)
 }
 
+// CreatePasswordHash создание хэша для записи в базу для нового пользователя
 func CreatePasswordHash(password string) string {
 	salt := GetRandomString(12)
 	if strings.Contains(salt, "$") {

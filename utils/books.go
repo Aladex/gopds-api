@@ -11,6 +11,7 @@ import (
 	"os/exec"
 )
 
+// DeleteTmpFile deletes tmp file for converting result
 func DeleteTmpFile(filename string, format string) error {
 	err := os.Remove(filename + ".fb2")
 	if err != nil {
@@ -29,6 +30,7 @@ func DeleteTmpFile(filename string, format string) error {
 	return nil
 }
 
+// ZipBook makes an zip with book
 func ZipBook(df, filename string, path string) (io.ReadCloser, error) {
 	buf := new(bytes.Buffer)
 	w := zip.NewWriter(buf)
@@ -66,6 +68,7 @@ func ZipBook(df, filename string, path string) (io.ReadCloser, error) {
 
 }
 
+// EpubBook makes epub from fb2
 func EpubBook(filename string, path string) (io.ReadCloser, error) {
 	r, err := zip.OpenReader(path)
 	if err != nil {
@@ -106,6 +109,7 @@ func EpubBook(filename string, path string) (io.ReadCloser, error) {
 	return nil, errors.New("book is not found")
 }
 
+// MobiBook makes a mobi book from fb2
 func MobiBook(filename string, path string) (io.ReadCloser, error) {
 	r, err := zip.OpenReader(path)
 	if err != nil {
@@ -146,6 +150,7 @@ func MobiBook(filename string, path string) (io.ReadCloser, error) {
 	return nil, errors.New("book is not found")
 }
 
+// FB2Book returns io readcloser with fb2 book
 func FB2Book(filename string, path string) (io.ReadCloser, error) {
 	r, err := zip.OpenReader(path)
 	if err != nil {

@@ -17,6 +17,7 @@ func CheckUser(u models.LoginRequest) (bool, error) {
 	return utils.CheckPbkdf2(u.Password, userDB.Password, sha256.Size, sha256.New)
 }
 
+// CreateUser function creates a new user in database
 func CreateUser(u models.RegisterRequest) error {
 	userDB := models.User{
 		Login:       u.Login,
@@ -32,6 +33,7 @@ func CreateUser(u models.RegisterRequest) error {
 	return nil
 }
 
+// CheckInvite check for invite in database
 func CheckInvite(i string) (bool, error) {
 	err := db.Model(&models.Invite{}).Where("invite = ?", i).First()
 	if err != nil {

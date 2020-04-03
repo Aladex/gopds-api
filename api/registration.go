@@ -19,18 +19,19 @@ import (
 // @Param  body body models.RegisterRequest true "User Data"
 // @Success 201 {object} string
 // @Failure 409 {object} httputil.HTTPError
+// @Failure 400 {object} httputil.HTTPError
 // @Router /register [post]
 func Registration(c *gin.Context) {
 	var newUser models.RegisterRequest
 	if err := c.ShouldBindJSON(&newUser); err == nil {
 		if !newUser.CheckValues() {
-			httputil.NewError(c, http.StatusConflict, errors.New("bad form"))
+			httputil.NewError(c, http.StatusBadRequest, errors.New("bad form"))
 			return
 		}
 
 		_, err := database.CheckInvite(newUser.Invite)
 		if err != nil {
-			httputil.NewError(c, http.StatusConflict, errors.New("bad invite"))
+			httputil.NewError(c, http.StatusBadRequest, errors.New("bad invite"))
 			return
 		}
 
