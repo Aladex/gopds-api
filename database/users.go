@@ -31,3 +31,11 @@ func CreateUser(u models.RegisterRequest) error {
 	}
 	return nil
 }
+
+func CheckInvite(i string) (bool, error) {
+	err := db.Model(&models.Invite{}).Where("invite = ?", i).First()
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}

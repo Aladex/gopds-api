@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"regexp"
+	"time"
+)
 
 // User структура пользователя в БД
 type User struct {
@@ -32,4 +35,27 @@ type RegisterRequest struct {
 	Password string `form:"password" json:"password" binding:"required"`
 	Email    string `form:"email" json:"email" binding:"required"`
 	Invite   string `form:"invite" json:"invite" binding:"required"`
+}
+
+type Invite struct {
+	tableName struct{} `pg:"invites,discard_unknown_columns" json:"-"`
+	ID        int64    `pg:"id,pk"`
+	Invite    string   `pg:"invite"`
+}
+
+func (r RegisterRequest) CheckValues() bool {
+	emailRegex := regexp.MustCompile("^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+" +
+		"@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9]" +
+		"(?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
+	if !emailRegex.MatchString(r.Email) {
+		return false
+	}
+	loginMatch, err := regexp.Match("[a-zA-Z0-9]", []byte(r.Login))
+	if err != nil {
+		return loginMatch
+	}
+	if len(r.Password) < 8 {
+		return false
+	}
+	return true
 }

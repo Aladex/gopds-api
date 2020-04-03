@@ -23,7 +23,18 @@ import (
 func Registration(c *gin.Context) {
 	var newUser models.RegisterRequest
 	if err := c.ShouldBindJSON(&newUser); err == nil {
-		err := database.CreateUser(newUser)
+		if !newUser.CheckValues() {
+			httputil.NewError(c, http.StatusConflict, errors.New("bad form"))
+			return
+		}
+
+		_, err := database.CheckInvite(newUser.Invite)
+		if err != nil {
+			httputil.NewError(c, http.StatusConflict, errors.New("bad invite"))
+			return
+		}
+
+		err = database.CreateUser(newUser)
 		if err != nil {
 			httputil.NewError(c, http.StatusConflict, errors.New("user is already exists"))
 			return
