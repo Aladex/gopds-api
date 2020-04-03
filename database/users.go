@@ -7,7 +7,7 @@ import (
 )
 
 // CheckUser функция проверки пользователя и пароля в формате pbkdf2 (django)
-func CheckUser(u models.User) (bool, error) {
+func CheckUser(u models.LoginRequest) (bool, error) {
 	userDB := new(models.User)
 	err := db.Model(userDB).Where("username = ?", u.Login).First()
 	if err != nil {

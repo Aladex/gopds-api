@@ -19,14 +19,14 @@ import (
 // @Tags login
 // @Accept  json
 // @Produce  json
-// @Param  body body models.User true "Login Data"
+// @Param  body body models.LoginRequest true "Login Data"
 // @Success 200 {object} models.LoggedInUser
 // @Failure 400 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError
 // @Failure 500 {object} httputil.HTTPError
 // @Router /login [post]
 func AuthCheck(c *gin.Context) {
-	var user models.User
+	var user models.LoginRequest
 	if err := c.ShouldBindJSON(&user); err == nil {
 		res, err := database.CheckUser(user)
 		if err != nil {
