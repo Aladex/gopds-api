@@ -6,6 +6,7 @@ type User struct {
 	ID        int64    `json:"-" form:"-"`
 	Login     string   `form:"username" json:"username" pg:"username" binding:"required"`
 	Password  string   `form:"password" json:"password" pg:"password" binding:"required"`
+	EMail     string   `form:"email" json:"email" pg:"email"`
 }
 
 // LoggedInUser структура для возвращения логина и токена доступа
