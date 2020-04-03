@@ -214,42 +214,6 @@ ALTER SEQUENCE public.opds_catalog_book_id_seq OWNED BY public.opds_catalog_book
 
 
 --
--- Name: opds_catalog_bookshelf; Type: TABLE; Schema: public; Owner: sopds
---
-
-CREATE TABLE public.opds_catalog_bookshelf (
-    id integer NOT NULL,
-    readtime timestamp with time zone NOT NULL,
-    book_id integer NOT NULL,
-    user_id integer NOT NULL
-);
-
-
-ALTER TABLE public.opds_catalog_bookshelf OWNER TO sopds;
-
---
--- Name: opds_catalog_bookshelf_id_seq; Type: SEQUENCE; Schema: public; Owner: sopds
---
-
-CREATE SEQUENCE public.opds_catalog_bookshelf_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER TABLE public.opds_catalog_bookshelf_id_seq OWNER TO sopds;
-
---
--- Name: opds_catalog_bookshelf_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: sopds
---
-
-ALTER SEQUENCE public.opds_catalog_bookshelf_id_seq OWNED BY public.opds_catalog_bookshelf.id;
-
-
---
 -- Name: opds_catalog_bseries; Type: TABLE; Schema: public; Owner: sopds
 --
 
@@ -444,13 +408,6 @@ ALTER TABLE ONLY public.opds_catalog_book ALTER COLUMN id SET DEFAULT nextval('p
 
 
 --
--- Name: opds_catalog_bookshelf id; Type: DEFAULT; Schema: public; Owner: sopds
---
-
-ALTER TABLE ONLY public.opds_catalog_bookshelf ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_bookshelf_id_seq'::regclass);
-
-
---
 -- Name: opds_catalog_bseries id; Type: DEFAULT; Schema: public; Owner: sopds
 --
 
@@ -476,6 +433,14 @@ ALTER TABLE ONLY public.opds_catalog_genre ALTER COLUMN id SET DEFAULT nextval('
 --
 
 ALTER TABLE ONLY public.opds_catalog_series ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_series_id_seq'::regclass);
+
+
+--
+-- Name: auth_user app_user_email_key; Type: CONSTRAINT; Schema: public; Owner: sopds
+--
+
+ALTER TABLE ONLY public.auth_user
+    ADD CONSTRAINT app_user_email_key UNIQUE (email);
 
 
 --
@@ -524,14 +489,6 @@ ALTER TABLE ONLY public.opds_catalog_bgenre
 
 ALTER TABLE ONLY public.opds_catalog_book
     ADD CONSTRAINT opds_catalog_book_pkey PRIMARY KEY (id);
-
-
---
--- Name: opds_catalog_bookshelf opds_catalog_bookshelf_pkey; Type: CONSTRAINT; Schema: public; Owner: sopds
---
-
-ALTER TABLE ONLY public.opds_catalog_bookshelf
-    ADD CONSTRAINT opds_catalog_bookshelf_pkey PRIMARY KEY (id);
 
 
 --
@@ -736,27 +693,6 @@ CREATE INDEX opds_catalog_book_title_ef02eb01_like ON public.opds_catalog_book U
 
 
 --
--- Name: opds_catalog_bookshelf_book_id_6868526f; Type: INDEX; Schema: public; Owner: sopds
---
-
-CREATE INDEX opds_catalog_bookshelf_book_id_6868526f ON public.opds_catalog_bookshelf USING btree (book_id);
-
-
---
--- Name: opds_catalog_bookshelf_readtime_64d1e1c5; Type: INDEX; Schema: public; Owner: sopds
---
-
-CREATE INDEX opds_catalog_bookshelf_readtime_64d1e1c5 ON public.opds_catalog_bookshelf USING btree (readtime);
-
-
---
--- Name: opds_catalog_bookshelf_user_id_9adf9486; Type: INDEX; Schema: public; Owner: sopds
---
-
-CREATE INDEX opds_catalog_bookshelf_user_id_9adf9486 ON public.opds_catalog_bookshelf USING btree (user_id);
-
-
---
 -- Name: opds_catalog_bseries_book_id_04da58e5; Type: INDEX; Schema: public; Owner: sopds
 --
 
@@ -927,22 +863,6 @@ ALTER TABLE ONLY public.opds_catalog_bgenre
 
 ALTER TABLE ONLY public.opds_catalog_book
     ADD CONSTRAINT opds_catalog_book_catalog_id_f35decc4_fk_opds_cata FOREIGN KEY (catalog_id) REFERENCES public.opds_catalog_catalog(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
--- Name: opds_catalog_bookshelf opds_catalog_bookshelf_book_id_6868526f_fk_opds_catalog_book_id; Type: FK CONSTRAINT; Schema: public; Owner: sopds
---
-
-ALTER TABLE ONLY public.opds_catalog_bookshelf
-    ADD CONSTRAINT opds_catalog_bookshelf_book_id_6868526f_fk_opds_catalog_book_id FOREIGN KEY (book_id) REFERENCES public.opds_catalog_book(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
--- Name: opds_catalog_bookshelf opds_catalog_bookshelf_user_id_9adf9486_fk_auth_user_id; Type: FK CONSTRAINT; Schema: public; Owner: sopds
---
-
-ALTER TABLE ONLY public.opds_catalog_bookshelf
-    ADD CONSTRAINT opds_catalog_bookshelf_user_id_9adf9486_fk_auth_user_id FOREIGN KEY (user_id) REFERENCES public.auth_user(id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
