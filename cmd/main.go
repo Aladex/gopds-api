@@ -94,6 +94,7 @@ func main() {
 	booksGroup.POST("/file", api.GetBookFile)
 
 	route.POST("/api/login", api.AuthCheck)
+	route.POST("/api/register", api.Registration)
 	route.GET("/api/logout", api.LogOut)
 	err := route.Run("0.0.0.0:8085")
 	if err != nil {

@@ -2,6 +2,8 @@ package utils
 
 import (
 	"bytes"
+	crand "crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -9,15 +11,64 @@ import (
 	"github.com/spf13/viper"
 	"golang.org/x/crypto/pbkdf2"
 	"hash"
+	"math/big"
+	"math/rand"
 	"strconv"
 	"strings"
 	"time"
 )
 
+const (
+	allowedChars     = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	allowedCharsSize = len(allowedChars)
+	maxInt           = 1<<63 - 1
+)
+
+type source struct{}
+
+func (s *source) Int63() int64 {
+	return int64(s.Uint64() & ^uint64(1<<63))
+}
+
+func (s *source) Uint64() uint64 {
+	i, err := crand.Int(crand.Reader, big.NewInt(maxInt))
+
+	if err != nil {
+		panic(err)
+	}
+
+	return i.Uint64()
+}
+
+func (s *source) Seed(seed int64) {}
+
 // Token структура токена для работы с API
 type Token struct {
 	UserID string
 	jwt.StandardClaims
+}
+
+// GetRandomString returns a securely generated random string.
+func GetRandomString(length int) string {
+	b := make([]byte, length)
+	rnd := rand.New(&source{})
+
+	for i := range b {
+		c := rnd.Intn(allowedCharsSize)
+		b[i] = allowedChars[c]
+	}
+
+	return string(b)
+}
+
+func CreatePasswordHash(password string) string {
+	salt := GetRandomString(12)
+	if strings.Contains(salt, "$") {
+		return ""
+	}
+	pHash := pbkdf2.Key([]byte(password), []byte(salt), 100000, sha256.Size, sha256.New)
+	b64Hash := base64.StdEncoding.EncodeToString(pHash)
+	return fmt.Sprintf("%s$%d$%s$%s", "pbkdf2_sha256", 100000, salt, b64Hash)
 }
 
 // CheckPbkdf2 проверка пароля в pbdkf2

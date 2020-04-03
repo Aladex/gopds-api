@@ -20,7 +20,7 @@ func CheckUser(u models.LoginRequest) (bool, error) {
 func CreateUser(u models.RegisterRequest) error {
 	userDB := models.User{
 		Login:       u.Login,
-		Password:    u.Password,
+		Password:    utils.CreatePasswordHash(u.Password),
 		IsSuperUser: false,
 		Email:       u.Email,
 		DateJoined:  time.Now(),
