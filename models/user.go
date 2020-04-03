@@ -9,7 +9,7 @@ type User struct {
 	Login       string    `pg:"username"`
 	Password    string    `pg:"password"`
 	LastLogin   time.Time `pg:"last_login"`
-	IsSuperUser bool      `pg:"is_super_user"`
+	IsSuperUser bool      `pg:"is_superuser"`
 	FirstName   string    `pg:"first_name"`
 	LastName    string    `pg:"last_name"`
 	Email       string    `pg:"email"`
