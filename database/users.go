@@ -13,7 +13,7 @@ import (
 // CheckUser функция проверки пользователя и пароля в формате pbkdf2 (django)
 func CheckUser(u models.LoginRequest) (bool, error) {
 	userDB := new(models.User)
-	err := db.Model(userDB).Where("username = ?", strings.ToLower(u.Login)).First()
+	err := db.Model(userDB).Where("username ILIKE ?", strings.ToLower(u.Login)).First()
 	if err != nil {
 		return false, err
 	}
@@ -70,6 +70,12 @@ func GetSuperUserRole(u string) bool {
 
 func GetUserList(filters models.UserFilters) ([]models.User, int, error) {
 	users := []models.User{}
+	orderBy := "%s %s"
+	if filters.Order == "" {
+		orderBy = "id DESC"
+	} else {
+		orderBy = fmt.Sprintf(orderBy, filters.Order, "DESC")
+	}
 	likeUser := fmt.Sprintf("%%%s%%", filters.Username)
 	likeEmail := fmt.Sprintf("%%%s%%", filters.Email)
 	count, err := db.Model(&users).
@@ -77,7 +83,7 @@ func GetUserList(filters models.UserFilters) ([]models.User, int, error) {
 		Offset(filters.Offset).
 		Where("username ILIKE ?", likeUser).
 		Where("email ILIKE ?", likeEmail).
-		Order("id DESC").
+		Order(orderBy).
 		SelectAndCount()
 	if err != nil {
 		return users, 0, err

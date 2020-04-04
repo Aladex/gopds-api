@@ -71,4 +71,6 @@ type UserFilters struct {
 	Offset   int    `form:"offset" json:"offset"`
 	Username string `form:"username" json:"username"`
 	Email    string `form:"email" json:"email"`
+	Order    string `form:"order" json:"order"`
+	DESC     bool   `form:"desc" json:"desc"`
 }
