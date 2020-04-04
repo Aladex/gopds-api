@@ -8,15 +8,15 @@ import (
 // User структура пользователя в БД
 type User struct {
 	tableName   struct{}  `pg:"auth_user,discard_unknown_columns" json:"-"`
-	ID          int64     `pg:"id,pk"`
-	Login       string    `pg:"username"`
-	Password    string    `pg:"password"`
-	LastLogin   time.Time `pg:"last_login"`
-	IsSuperUser bool      `pg:"is_superuser"`
-	FirstName   string    `pg:"first_name"`
-	LastName    string    `pg:"last_name"`
-	Email       string    `pg:"email"`
-	DateJoined  time.Time `pg:"date_joined"`
+	ID          int64     `pg:"id,pk" json:"id"`
+	Login       string    `pg:"username" json:"username"`
+	Password    string    `pg:"password" json:"password"`
+	LastLogin   time.Time `pg:"last_login" json:"last_login"`
+	IsSuperUser bool      `pg:"is_superuser" json:"is_superuser"`
+	FirstName   string    `pg:"first_name" json:"first_name"`
+	LastName    string    `pg:"last_name" json:"last_name"`
+	Email       string    `pg:"email" json:"email"`
+	DateJoined  time.Time `pg:"date_joined" json:"date_joined"`
 }
 
 // LoggedInUser структура для возвращения логина и токена доступа
@@ -63,4 +63,12 @@ func (r RegisterRequest) CheckValues() bool {
 		return false
 	}
 	return true
+}
+
+// UserFilters фильтры для запроса списка пользователей
+type UserFilters struct {
+	Limit    int    `form:"limit" json:"limit"`
+	Offset   int    `form:"offset" json:"offset"`
+	Username string `form:"username" json:"username"`
+	Email    string `form:"email" json:"email"`
 }

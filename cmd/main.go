@@ -7,9 +7,7 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"gopds-api/api"
 	_ "gopds-api/docs"
-	"gopds-api/models"
-	"gopds-api/sessions"
-	"gopds-api/utils"
+	"gopds-api/middlewares"
 	"log"
 	"net/http"
 )
@@ -22,36 +20,6 @@ func init() {
 	err := viper.ReadInConfig() // Find and read the config file
 	if err != nil {             // Handle errors reading the config file
 		log.Fatalf("Fatal error config file: %s \n", err)
-	}
-}
-
-// AuthMiddleware Мидлварь для проверки токена пользователя в методах GET и POST
-func AuthMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		userToken := c.Request.Header.Get("Authorization")
-
-		if userToken == "" {
-			c.JSON(401, "token is required")
-			c.Abort()
-			return
-		}
-		username, err := utils.CheckToken(userToken)
-		if err != nil {
-			c.JSON(401, "token is invalid")
-			c.Abort()
-			return
-		}
-		thisUser := models.LoggedInUser{
-			User:  username,
-			Token: &userToken,
-		}
-		if !sessions.CheckSessionKey(thisUser) {
-			c.JSON(401, "session is invalid")
-			c.Abort()
-			return
-		}
-		sessions.SetSessionKey(thisUser)
-		c.Next()
 	}
 }
 
@@ -80,22 +48,41 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 	route := gin.New()
+
 	if viper.GetBool("app.devel_mode") {
 		route.Use(Options)
 	}
 	route.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
-	booksGroup := route.Group("/api/books")
-	booksGroup.Use(AuthMiddleware())
-	booksGroup.GET("/list", api.GetBooks)
-	booksGroup.GET("/self-user", api.SelfUser)
-	booksGroup.GET("/authors", api.GetAuthors)
-	// Метод скачивания файла
-	booksGroup.POST("/file", api.GetBookFile)
+	// Default group without auth
+	{
+		route.POST("/api/login", api.AuthCheck)
+		route.POST("/api/register", api.Registration)
+		route.GET("/api/logout", api.LogOut)
+	}
 
-	route.POST("/api/login", api.AuthCheck)
-	route.POST("/api/register", api.Registration)
-	route.GET("/api/logout", api.LogOut)
+	apiGroup := route.Group("/api")
+	apiGroup.Use(middlewares.AuthMiddleware())
+
+	booksGroup := apiGroup.Group("/books")
+	adminGroup := apiGroup.Group("/admin")
+
+	adminGroup.Use(middlewares.AdminMiddleware())
+
+	// Books group for all users
+	{
+		booksGroup.GET("/list", api.GetBooks)
+		booksGroup.GET("/self-user", api.SelfUser)
+		booksGroup.GET("/authors", api.GetAuthors)
+		// Метод скачивания файла
+		booksGroup.POST("/file", api.GetBookFile)
+	}
+
+	// Admin group
+	{
+		adminGroup.POST("/users", api.GetUsers)
+	}
+
 	err := route.Run("0.0.0.0:8085")
 	if err != nil {
 		log.Fatalln(err)

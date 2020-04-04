@@ -2,6 +2,7 @@ package database
 
 import (
 	"crypto/sha256"
+	"fmt"
 	"gopds-api/models"
 	"gopds-api/utils"
 	"log"
@@ -56,6 +57,7 @@ func CheckInvite(i string) (bool, error) {
 	return true, nil
 }
 
+// GetSuperUserRole function for check user role
 func GetSuperUserRole(u string) bool {
 	userDB := new(models.User)
 	err := db.Model(userDB).Where("username = ?", u).First()
@@ -63,4 +65,21 @@ func GetSuperUserRole(u string) bool {
 		return false
 	}
 	return userDB.IsSuperUser
+}
+
+func GetUserList(filters models.UserFilters) ([]models.User, int, error) {
+	users := []models.User{}
+	likeUser := fmt.Sprintf("%%%s%%", filters.Username)
+	likeEmail := fmt.Sprintf("%%%s%%", filters.Email)
+	count, err := db.Model(&users).
+		Limit(filters.Limit).
+		Offset(filters.Offset).
+		Where("username ILIKE ?", likeUser).
+		Where("email ILIKE ?", likeEmail).
+		Order("id DESC").
+		SelectAndCount()
+	if err != nil {
+		return users, 0, err
+	}
+	return users, count, nil
 }
