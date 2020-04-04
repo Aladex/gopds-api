@@ -31,7 +31,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		userToken := c.Request.Header.Get("Authorization")
 
 		if userToken == "" {
-			c.JSON(401, "Token is required")
+			c.JSON(401, "token is required")
 			c.Abort()
 			return
 		}
