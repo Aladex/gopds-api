@@ -12,6 +12,15 @@ definitions:
       length:
         type: integer
     type: object
+  api.UsersAnswer:
+    properties:
+      length:
+        type: integer
+      users:
+        items:
+          $ref: '#/definitions/models.User'
+        type: array
+    type: object
   httputil.HTTPError:
     properties:
       code:
@@ -94,6 +103,8 @@ definitions:
     type: array
   models.LoggedInUser:
     properties:
+      is_superuser:
+        type: boolean
       token:
         type: string
       username:
@@ -136,6 +147,42 @@ definitions:
       ser:
         type: string
     type: object
+  models.User:
+    properties:
+      date_joined:
+        type: string
+      email:
+        type: string
+      first_name:
+        type: string
+      id:
+        type: integer
+      is_superuser:
+        type: boolean
+      last_login:
+        type: string
+      last_name:
+        type: string
+      password:
+        type: string
+      username:
+        type: string
+    type: object
+  models.UserFilters:
+    properties:
+      desc:
+        type: boolean
+      email:
+        type: string
+      limit:
+        type: integer
+      offset:
+        type: integer
+      order:
+        type: string
+      username:
+        type: string
+    type: object
 info:
   contact:
     email: aladex@gmail.com
@@ -145,6 +192,40 @@ info:
   title: GOPDS API
   version: "1.0"
 paths:
+  /admin/users:
+    post:
+      consumes:
+      - application/json
+      description: users list for admin space
+      parameters:
+      - description: User filters
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.UserFilters'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.UsersAnswer'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+      summary: Returns users list
+      tags:
+      - admin
   /books/authors:
     get:
       consumes:
