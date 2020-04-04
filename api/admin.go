@@ -23,8 +23,8 @@ func GetUsers(c *gin.Context) {
 			c.JSON(500, err)
 			return
 		}
-		lenght := count / 10
-		if count-lenght*10 > 0 {
+		lenght := count / 50
+		if count-lenght*50 > 0 {
 			lenght++
 		}
 		c.JSON(200, UsersAnswer{
