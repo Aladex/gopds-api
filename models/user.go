@@ -21,8 +21,9 @@ type User struct {
 
 // LoggedInUser структура для возвращения логина и токена доступа
 type LoggedInUser struct {
-	User  string `json:"username"`
-	Token string `json:"token"`
+	User        string  `json:"username"`
+	Token       *string `json:"token,omitempty"`
+	IsSuperuser *bool   `json:"is_superuser,omitempty"`
 }
 
 // LoginRequest структура для логина в библиотеку

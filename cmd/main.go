@@ -43,10 +43,10 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 		thisUser := models.LoggedInUser{
 			User:  username,
-			Token: userToken,
+			Token: &userToken,
 		}
 		if !sessions.CheckSessionKey(thisUser) {
-			c.JSON(401, "token is invalid")
+			c.JSON(401, "session is invalid")
 			c.Abort()
 			return
 		}

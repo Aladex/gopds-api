@@ -40,9 +40,12 @@ func AuthCheck(c *gin.Context) {
 				httputil.NewError(c, http.StatusForbidden, err)
 				return
 			}
+			role := database.GetSuperUserRole(user.Login)
+
 			thisUser := models.LoggedInUser{
-				User:  user.Login,
-				Token: userToken,
+				User:        user.Login,
+				Token:       &userToken,
+				IsSuperuser: &role,
 			}
 			sessions.SetSessionKey(thisUser)
 			c.JSON(200, thisUser)
@@ -77,7 +80,7 @@ func LogOut(c *gin.Context) {
 	}
 	sessions.DeleteSessionKey(models.LoggedInUser{
 		User:  username,
-		Token: userToken,
+		Token: &userToken,
 	})
 	c.JSON(200, gin.H{"result": "ok"})
 }
@@ -101,7 +104,10 @@ func SelfUser(c *gin.Context) {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
 	}
-	c.JSON(200, models.LoggedInUser{
+	selfUser := models.LoggedInUser{
 		User: username,
-	})
+	}
+	role := database.GetSuperUserRole(username)
+	selfUser.IsSuperuser = &role
+	c.JSON(200, selfUser)
 }

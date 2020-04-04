@@ -55,3 +55,12 @@ func CheckInvite(i string) (bool, error) {
 	}
 	return true, nil
 }
+
+func GetSuperUserRole(u string) bool {
+	userDB := new(models.User)
+	err := db.Model(userDB).Where("username = ?", u).First()
+	if err != nil {
+		return false
+	}
+	return userDB.IsSuperUser
+}
