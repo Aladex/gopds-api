@@ -9,12 +9,25 @@ import (
 	"net/http"
 )
 
-// ExportAnswer структура ответа найденных книг и полного списка языков для компонента Books.vue
+// UsersAnswer структура ответа найденных пользователей для компонента Admin.vue
 type UsersAnswer struct {
 	Users  []models.User `json:"users"`
 	Length int           `json:"length"`
 }
 
+// GetUsers метод для запроса списка книг из БД opds
+// Auth godoc
+// @Summary Returns users list
+// @Description users list for admin space
+// @Tags admin
+// @Accept  json
+// @Produce  json
+// @Param  body body models.UserFilters true "User filters"
+// @Success 200 {object} UsersAnswer
+// @Failure 400 {object} httputil.HTTPError
+// @Failure 403 {object} httputil.HTTPError
+// @Failure 500 {object} httputil.HTTPError
+// @Router /admin/users [post]
 func GetUsers(c *gin.Context) {
 	var filters models.UserFilters
 	if err := c.ShouldBindJSON(&filters); err == nil {

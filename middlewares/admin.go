@@ -6,7 +6,7 @@ import (
 	"gopds-api/utils"
 )
 
-// AuthMiddleware Мидлварь для проверки токена пользователя в методах GET и POST
+// AdminMiddleware мидлварь для проверки админских прав
 func AdminMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userToken := c.Request.Header.Get("Authorization")

@@ -68,6 +68,7 @@ func GetSuperUserRole(u string) bool {
 	return userDB.IsSuperUser
 }
 
+// GetUserList function returns an users list
 func GetUserList(filters models.UserFilters) ([]models.User, int, error) {
 	users := []models.User{}
 	orderBy := "%s %s"
