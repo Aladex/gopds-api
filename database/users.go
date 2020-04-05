@@ -103,9 +103,9 @@ func ActionUser(action models.AdminCommandToUser) (models.User, error) {
 	switch action.Action {
 	case "get":
 		return userToChange, nil
-	case "change":
+	case "update":
 		if action.User.Password != "" {
-			tmpPass = utils.CreatePasswordHash(u.Password)
+			tmpPass = utils.CreatePasswordHash(action.User.Password)
 		} else {
 			tmpPass = userToChange.Password
 		}
