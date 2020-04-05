@@ -74,3 +74,9 @@ type UserFilters struct {
 	Order    string `form:"order" json:"order"`
 	DESC     bool   `form:"desc" json:"desc"`
 }
+
+// AdminCommandToUser команда для работы с пользователем для получения или изменения объекта пользователя
+type AdminCommandToUser struct {
+	Action string `form:"action"`
+	User   User   `form:"user"`
+}

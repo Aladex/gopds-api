@@ -9,55 +9,28 @@ import (
 	"net/http"
 )
 
-// GetUser метод для запроса объекта пользователя
+// GetUser метод для запроса объекта пользователя или его изменения
 // Auth godoc
 // @Summary Returns an users object
 // @Description user object
 // @Tags admin
 // @Accept  json
 // @Produce  json
-// @Param  body body models.User true "User filter"
+// @Param  body body models.AdminCommandToUser true "User фсешщт"
 // @Success 200 {object} models.User
 // @Failure 400 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError
 // @Failure 500 {object} httputil.HTTPError
 // @Router /admin/user [post]
-func GetUser(c *gin.Context) {
-	var user models.User
-	if err := c.ShouldBindJSON(&user); err == nil {
-		err := database.GetUser(&user)
+func ActionUser(c *gin.Context) {
+	var action models.AdminCommandToUser
+	if err := c.ShouldBindJSON(&action); err == nil {
+		user, err := database.ActionUser(action)
 		if err != nil {
 			c.JSON(500, err)
 			return
 		}
 		c.JSON(200, user)
-		return
-	}
-	httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
-}
-
-// ChangeUser метод для изменения пользователя в бд
-// Auth godoc
-// @Summary Returns an user object
-// @Description user object
-// @Tags admin
-// @Accept  json
-// @Produce  json
-// @Param  body body models.User true "User filter"
-// @Success 200 {object} models.User
-// @Failure 400 {object} httputil.HTTPError
-// @Failure 403 {object} httputil.HTTPError
-// @Failure 500 {object} httputil.HTTPError
-// @Router /admin/change-user [post]
-func ChangeUser(c *gin.Context) {
-	var user models.User
-	if err := c.ShouldBindJSON(&user); err == nil {
-		changedUser, err := database.ChangeUser(user)
-		if err != nil {
-			c.JSON(500, err)
-			return
-		}
-		c.JSON(200, changedUser)
 		return
 	}
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))

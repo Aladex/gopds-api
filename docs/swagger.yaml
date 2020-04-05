@@ -30,6 +30,14 @@ definitions:
         example: status bad request
         type: string
     type: object
+  models.AdminCommandToUser:
+    properties:
+      action:
+        type: string
+      user:
+        $ref: '#/definitions/models.User'
+        type: object
+    type: object
   models.Author:
     properties:
       full_name:
@@ -192,52 +200,18 @@ info:
   title: GOPDS API
   version: "1.0"
 paths:
-  /admin/change-user:
-    post:
-      consumes:
-      - application/json
-      description: user object
-      parameters:
-      - description: User filter
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/models.User'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/models.User'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/httputil.HTTPError'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/httputil.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/httputil.HTTPError'
-      summary: Returns an user object
-      tags:
-      - admin
   /admin/user:
     post:
       consumes:
       - application/json
       description: user object
       parameters:
-      - description: User filter
+      - description: User фсешщт
         in: body
         name: body
         required: true
         schema:
-          $ref: '#/definitions/models.User'
+          $ref: '#/definitions/models.AdminCommandToUser'
       produces:
       - application/json
       responses:

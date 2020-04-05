@@ -2,6 +2,7 @@ package database
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"gopds-api/models"
 	"gopds-api/utils"
@@ -92,32 +93,30 @@ func GetUserList(filters models.UserFilters) ([]models.User, int, error) {
 	return users, count, nil
 }
 
-// GetUser returns database info about user
-func GetUser(u *models.User) error {
-	err := db.Select(u)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func ChangeUser(u models.User) (models.User, error) {
+func ActionUser(action models.AdminCommandToUser) (models.User, error) {
 	var userToChange models.User
 	var tmpPass string
-	err := db.Model(&userToChange).Where("id = ?", u.ID).Select()
+	err := db.Model(&userToChange).Where("id = ?", action.User.ID).Select()
 	if err != nil {
 		return userToChange, err
 	}
-	if u.Password != "" {
-		tmpPass = utils.CreatePasswordHash(u.Password)
-	} else {
-		tmpPass = userToChange.Password
+	switch action.Action {
+	case "get":
+		return userToChange, nil
+	case "change":
+		if action.User.Password != "" {
+			tmpPass = utils.CreatePasswordHash(u.Password)
+		} else {
+			tmpPass = userToChange.Password
+		}
+		userToChange = action.User
+		userToChange.Password = tmpPass
+		err = db.Update(&userToChange)
+		if err != nil {
+			return userToChange, err
+		}
+		return userToChange, nil
+	default:
+		return userToChange, errors.New("unknown action")
 	}
-	userToChange = u
-	userToChange.Password = tmpPass
-	err = db.Update(&userToChange)
-	if err != nil {
-		return userToChange, err
-	}
-	return userToChange, nil
 }

@@ -12,58 +12,6 @@
     },
     "basePath": "/api",
     "paths": {
-        "/admin/change-user": {
-            "post": {
-                "description": "user object",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "admin"
-                ],
-                "summary": "Returns an user object",
-                "parameters": [
-                    {
-                        "description": "User filter",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/models.User"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/models.User"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/httputil.HTTPError"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/httputil.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/httputil.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
         "/admin/user": {
             "post": {
                 "description": "user object",
@@ -79,12 +27,12 @@
                 "summary": "Returns an users object",
                 "parameters": [
                     {
-                        "description": "User filter",
+                        "description": "User фсешщт",
                         "name": "body",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/models.User"
+                            "$ref": "#/definitions/models.AdminCommandToUser"
                         }
                     }
                 ],
@@ -560,6 +508,18 @@
                 "message": {
                     "type": "string",
                     "example": "status bad request"
+                }
+            }
+        },
+        "models.AdminCommandToUser": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string"
+                },
+                "user": {
+                    "type": "object",
+                    "$ref": "#/definitions/models.User"
                 }
             }
         },

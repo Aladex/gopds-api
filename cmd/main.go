@@ -81,8 +81,7 @@ func main() {
 	// Admin group
 	{
 		adminGroup.POST("/users", api.GetUsers)
-		adminGroup.POST("/user", api.GetUser)
-		adminGroup.POST("/change-user", api.ChangeUser)
+		adminGroup.POST("/user", api.ActionUser)
 	}
 
 	err := route.Run("0.0.0.0:8085")
