@@ -99,9 +99,7 @@ ALTER SEQUENCE public.invites_id_seq OWNED BY public.invites.id;
 
 CREATE TABLE public.opds_catalog_author (
     id integer NOT NULL,
-    full_name character varying(128) NOT NULL,
-    search_full_name character varying(128) NOT NULL,
-    lang_code integer NOT NULL
+    full_name character varying(128) NOT NULL
 );
 
 
@@ -207,18 +205,12 @@ CREATE TABLE public.opds_catalog_book (
     id integer NOT NULL,
     filename character varying(512) NOT NULL,
     path character varying(512) NOT NULL,
-    filesize integer NOT NULL,
     format character varying(8) NOT NULL,
-    cat_type integer NOT NULL,
     registerdate timestamp with time zone NOT NULL,
     docdate character varying(32) NOT NULL,
     lang character varying(16) NOT NULL,
     title character varying(512) NOT NULL,
-    search_title character varying(512) NOT NULL,
-    annotation character varying(10000) NOT NULL,
-    lang_code integer NOT NULL,
-    avail integer NOT NULL,
-    catalog_id integer NOT NULL
+    annotation character varying(10000) NOT NULL
 )
 WITH (fillfactor='50');
 
@@ -377,7 +369,6 @@ ALTER SEQUENCE public.opds_catalog_genre_id_seq OWNED BY public.opds_catalog_gen
 CREATE TABLE public.opds_catalog_series (
     id integer NOT NULL,
     ser character varying(150) NOT NULL,
-    search_ser character varying(150) NOT NULL,
     lang_code integer NOT NULL
 );
 
@@ -594,27 +585,6 @@ CREATE INDEX opds_catalog_author_full_name_444f34db_like ON public.opds_catalog_
 
 
 --
--- Name: opds_catalog_author_lang_code_0ff5d448; Type: INDEX; Schema: public; Owner: sopds
---
-
-CREATE INDEX opds_catalog_author_lang_code_0ff5d448 ON public.opds_catalog_author USING btree (lang_code);
-
-
---
--- Name: opds_catalog_author_search_full_name_eb4efc23; Type: INDEX; Schema: public; Owner: sopds
---
-
-CREATE INDEX opds_catalog_author_search_full_name_eb4efc23 ON public.opds_catalog_author USING btree (search_full_name);
-
-
---
--- Name: opds_catalog_author_search_full_name_eb4efc23_like; Type: INDEX; Schema: public; Owner: sopds
---
-
-CREATE INDEX opds_catalog_author_search_full_name_eb4efc23_like ON public.opds_catalog_author USING btree (search_full_name varchar_pattern_ops);
-
-
---
 -- Name: opds_catalog_bauthor_author_id_f7332d70; Type: INDEX; Schema: public; Owner: sopds
 --
 
@@ -640,20 +610,6 @@ CREATE INDEX opds_catalog_bgenre_book_id_dc74ba5a ON public.opds_catalog_bgenre 
 --
 
 CREATE INDEX opds_catalog_bgenre_genre_id_8b5bd007 ON public.opds_catalog_bgenre USING btree (genre_id);
-
-
---
--- Name: opds_catalog_book_avail_c46a59b5; Type: INDEX; Schema: public; Owner: sopds
---
-
-CREATE INDEX opds_catalog_book_avail_c46a59b5 ON public.opds_catalog_book USING btree (avail);
-
-
---
--- Name: opds_catalog_book_catalog_id_f35decc4; Type: INDEX; Schema: public; Owner: sopds
---
-
-CREATE INDEX opds_catalog_book_catalog_id_f35decc4 ON public.opds_catalog_book USING btree (catalog_id);
 
 
 --
@@ -685,13 +641,6 @@ CREATE INDEX opds_catalog_book_filename_f1827569_like ON public.opds_catalog_boo
 
 
 --
--- Name: opds_catalog_book_lang_code_4688aac1; Type: INDEX; Schema: public; Owner: sopds
---
-
-CREATE INDEX opds_catalog_book_lang_code_4688aac1 ON public.opds_catalog_book USING btree (lang_code);
-
-
---
 -- Name: opds_catalog_book_path_ba0516b8; Type: INDEX; Schema: public; Owner: sopds
 --
 
@@ -703,20 +652,6 @@ CREATE INDEX opds_catalog_book_path_ba0516b8 ON public.opds_catalog_book USING b
 --
 
 CREATE INDEX opds_catalog_book_path_ba0516b8_like ON public.opds_catalog_book USING btree (path varchar_pattern_ops);
-
-
---
--- Name: opds_catalog_book_search_title_23b7dd56; Type: INDEX; Schema: public; Owner: sopds
---
-
-CREATE INDEX opds_catalog_book_search_title_23b7dd56 ON public.opds_catalog_book USING btree (search_title);
-
-
---
--- Name: opds_catalog_book_search_title_23b7dd56_like; Type: INDEX; Schema: public; Owner: sopds
---
-
-CREATE INDEX opds_catalog_book_search_title_23b7dd56_like ON public.opds_catalog_book USING btree (search_title varchar_pattern_ops);
 
 
 --
@@ -839,20 +774,6 @@ CREATE INDEX opds_catalog_series_lang_code_d62fcb5f ON public.opds_catalog_serie
 
 
 --
--- Name: opds_catalog_series_search_ser_0b7b3ee9; Type: INDEX; Schema: public; Owner: sopds
---
-
-CREATE INDEX opds_catalog_series_search_ser_0b7b3ee9 ON public.opds_catalog_series USING btree (search_ser);
-
-
---
--- Name: opds_catalog_series_search_ser_0b7b3ee9_like; Type: INDEX; Schema: public; Owner: sopds
---
-
-CREATE INDEX opds_catalog_series_search_ser_0b7b3ee9_like ON public.opds_catalog_series USING btree (search_ser varchar_pattern_ops);
-
-
---
 -- Name: opds_catalog_series_ser_7d15929e; Type: INDEX; Schema: public; Owner: sopds
 --
 
@@ -896,14 +817,6 @@ ALTER TABLE ONLY public.opds_catalog_bgenre
 
 ALTER TABLE ONLY public.opds_catalog_bgenre
     ADD CONSTRAINT opds_catalog_bgenre_genre_id_8b5bd007_fk_opds_catalog_genre_id FOREIGN KEY (genre_id) REFERENCES public.opds_catalog_genre(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
--- Name: opds_catalog_book opds_catalog_book_catalog_id_f35decc4_fk_opds_cata; Type: FK CONSTRAINT; Schema: public; Owner: sopds
---
-
-ALTER TABLE ONLY public.opds_catalog_book
-    ADD CONSTRAINT opds_catalog_book_catalog_id_f35decc4_fk_opds_cata FOREIGN KEY (catalog_id) REFERENCES public.opds_catalog_catalog(id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
