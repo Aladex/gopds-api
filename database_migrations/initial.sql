@@ -282,10 +282,7 @@ ALTER SEQUENCE public.opds_catalog_bseries_id_seq OWNED BY public.opds_catalog_b
 CREATE TABLE public.opds_catalog_catalog (
     id integer NOT NULL,
     cat_name character varying(190) NOT NULL,
-    path character varying(512) NOT NULL,
-    cat_type integer NOT NULL,
-    cat_size bigint,
-    parent_id integer
+    is_scanned boolean DEFAULT false
 );
 
 
@@ -312,19 +309,6 @@ ALTER TABLE public.opds_catalog_catalog_id_seq OWNER TO sopds;
 
 ALTER SEQUENCE public.opds_catalog_catalog_id_seq OWNED BY public.opds_catalog_catalog.id;
 
-
---
--- Name: opds_catalog_counter; Type: TABLE; Schema: public; Owner: sopds
---
-
-CREATE TABLE public.opds_catalog_counter (
-    name character varying(16) NOT NULL,
-    value integer NOT NULL,
-    update_time timestamp with time zone NOT NULL
-);
-
-
-ALTER TABLE public.opds_catalog_counter OWNER TO sopds;
 
 --
 -- Name: opds_catalog_genre; Type: TABLE; Schema: public; Owner: sopds
@@ -540,14 +524,6 @@ ALTER TABLE ONLY public.opds_catalog_catalog
 
 
 --
--- Name: opds_catalog_counter opds_catalog_counter_pkey; Type: CONSTRAINT; Schema: public; Owner: sopds
---
-
-ALTER TABLE ONLY public.opds_catalog_counter
-    ADD CONSTRAINT opds_catalog_counter_pkey PRIMARY KEY (name);
-
-
---
 -- Name: opds_catalog_genre opds_catalog_genre_pkey; Type: CONSTRAINT; Schema: public; Owner: sopds
 --
 
@@ -697,34 +673,6 @@ CREATE INDEX opds_catalog_catalog_cat_name_75c73cd5_like ON public.opds_catalog_
 
 
 --
--- Name: opds_catalog_catalog_parent_id_ac149f35; Type: INDEX; Schema: public; Owner: sopds
---
-
-CREATE INDEX opds_catalog_catalog_parent_id_ac149f35 ON public.opds_catalog_catalog USING btree (parent_id);
-
-
---
--- Name: opds_catalog_catalog_path_5d0ee60b; Type: INDEX; Schema: public; Owner: sopds
---
-
-CREATE INDEX opds_catalog_catalog_path_5d0ee60b ON public.opds_catalog_catalog USING btree (path);
-
-
---
--- Name: opds_catalog_catalog_path_5d0ee60b_like; Type: INDEX; Schema: public; Owner: sopds
---
-
-CREATE INDEX opds_catalog_catalog_path_5d0ee60b_like ON public.opds_catalog_catalog USING btree (path varchar_pattern_ops);
-
-
---
--- Name: opds_catalog_counter_name_cfca2854_like; Type: INDEX; Schema: public; Owner: sopds
---
-
-CREATE INDEX opds_catalog_counter_name_cfca2854_like ON public.opds_catalog_counter USING btree (name varchar_pattern_ops);
-
-
---
 -- Name: opds_catalog_genre_genre_aef7d330; Type: INDEX; Schema: public; Owner: sopds
 --
 
@@ -833,14 +781,6 @@ ALTER TABLE ONLY public.opds_catalog_bseries
 
 ALTER TABLE ONLY public.opds_catalog_bseries
     ADD CONSTRAINT opds_catalog_bseries_ser_id_8a80f5c7_fk_opds_catalog_series_id FOREIGN KEY (ser_id) REFERENCES public.opds_catalog_series(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
--- Name: opds_catalog_catalog opds_catalog_catalog_parent_id_ac149f35_fk_opds_cata; Type: FK CONSTRAINT; Schema: public; Owner: sopds
---
-
-ALTER TABLE ONLY public.opds_catalog_catalog
-    ADD CONSTRAINT opds_catalog_catalog_parent_id_ac149f35_fk_opds_cata FOREIGN KEY (parent_id) REFERENCES public.opds_catalog_catalog(id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
