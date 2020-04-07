@@ -24,6 +24,7 @@ type Book struct {
 	Lang         string    `pg:"lang" json:"lang"`
 	Title        string    `pg:"title" json:"title"`
 	Annotation   string    `pg:"annotation" json:"annotation"`
+	Cover        bool      `pg:"cover" json:"cover"`
 	Authors      []*Author `pg:"many2many:opds_catalog_bauthor" json:"authors"`
 	Series       []*Series `pg:"many2many:opds_catalog_bseries,joinFK:ser_id" json:"series"`
 }
