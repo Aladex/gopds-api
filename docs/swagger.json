@@ -177,6 +177,58 @@
                 }
             }
         },
+        "/books/change-me": {
+            "post": {
+                "description": "user object",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Returns an users object",
+                "parameters": [
+                    {
+                        "description": "User object",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.SelfUserChangeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.LoggedInUser"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/books/file": {
             "post": {
                 "description": "returns file of book in answered type",
@@ -531,12 +583,6 @@
                 },
                 "id": {
                     "type": "integer"
-                },
-                "lang_code": {
-                    "type": "integer"
-                },
-                "search_full_name": {
-                    "type": "string"
                 }
             }
         },
@@ -552,23 +598,14 @@
                         "$ref": "#/definitions/models.Author"
                     }
                 },
-                "avail": {
-                    "type": "integer"
-                },
-                "cat_type": {
-                    "type": "string"
-                },
-                "catalog_id": {
-                    "type": "integer"
+                "cover": {
+                    "type": "boolean"
                 },
                 "docdate": {
                     "type": "string"
                 },
                 "filename": {
                     "type": "string"
-                },
-                "filesize": {
-                    "type": "integer"
                 },
                 "format": {
                     "type": "string"
@@ -579,16 +616,10 @@
                 "lang": {
                     "type": "string"
                 },
-                "lang_code": {
-                    "type": "integer"
-                },
                 "path": {
                     "type": "string"
                 },
                 "registerdate": {
-                    "type": "string"
-                },
-                "search_title": {
                     "type": "string"
                 },
                 "series": {
@@ -634,8 +665,14 @@
         "models.LoggedInUser": {
             "type": "object",
             "properties": {
+                "first_name": {
+                    "type": "string"
+                },
                 "is_superuser": {
                     "type": "boolean"
+                },
+                "last_name": {
+                    "type": "string"
                 },
                 "token": {
                     "type": "string"
@@ -683,6 +720,23 @@
                 }
             }
         },
+        "models.SelfUserChangeRequest": {
+            "type": "object",
+            "properties": {
+                "first_name": {
+                    "type": "string"
+                },
+                "last_name": {
+                    "type": "string"
+                },
+                "new_password": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                }
+            }
+        },
         "models.Series": {
             "type": "object",
             "properties": {
@@ -691,9 +745,6 @@
                 },
                 "lang_code": {
                     "type": "integer"
-                },
-                "search_ser": {
-                    "type": "string"
                 },
                 "ser": {
                     "type": "string"

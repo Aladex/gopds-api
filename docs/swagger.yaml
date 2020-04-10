@@ -44,10 +44,6 @@ definitions:
         type: string
       id:
         type: integer
-      lang_code:
-        type: integer
-      search_full_name:
-        type: string
     type: object
   models.Book:
     properties:
@@ -57,31 +53,21 @@ definitions:
         items:
           $ref: '#/definitions/models.Author'
         type: array
-      avail:
-        type: integer
-      cat_type:
-        type: string
-      catalog_id:
-        type: integer
+      cover:
+        type: boolean
       docdate:
         type: string
       filename:
         type: string
-      filesize:
-        type: integer
       format:
         type: string
       id:
         type: integer
       lang:
         type: string
-      lang_code:
-        type: integer
       path:
         type: string
       registerdate:
-        type: string
-      search_title:
         type: string
       series:
         items:
@@ -111,8 +97,12 @@ definitions:
     type: array
   models.LoggedInUser:
     properties:
+      first_name:
+        type: string
       is_superuser:
         type: boolean
+      last_name:
+        type: string
       token:
         type: string
       username:
@@ -144,14 +134,23 @@ definitions:
     - password
     - username
     type: object
+  models.SelfUserChangeRequest:
+    properties:
+      first_name:
+        type: string
+      last_name:
+        type: string
+      new_password:
+        type: string
+      password:
+        type: string
+    type: object
   models.Series:
     properties:
       id:
         type: integer
       lang_code:
         type: integer
-      search_ser:
-        type: string
       ser:
         type: string
     type: object
@@ -309,6 +308,40 @@ paths:
           schema:
             $ref: '#/definitions/httputil.HTTPError'
       summary: возвращает JSON с авторами
+  /books/change-me:
+    post:
+      consumes:
+      - application/json
+      description: user object
+      parameters:
+      - description: User object
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.SelfUserChangeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.LoggedInUser'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+      summary: Returns an users object
+      tags:
+      - users
   /books/file:
     post:
       consumes:
