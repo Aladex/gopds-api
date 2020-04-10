@@ -43,11 +43,15 @@ func AuthCheck(c *gin.Context) {
 			}
 			thisUser := models.LoggedInUser{
 				User:        strings.ToLower(user.Login),
+				FirstName:   dbUser.FirstName,
+				LastName:    dbUser.LastName,
 				Token:       &userToken,
 				IsSuperuser: &dbUser.IsSuperUser,
 			}
 			sessions.SetSessionKey(thisUser)
+			go database.LoginDateSet(&dbUser)
 			c.JSON(200, thisUser)
+			return
 		default:
 			httputil.NewError(c, http.StatusForbidden, errors.New("bad password"))
 			return
@@ -149,13 +153,17 @@ func ChangeUser(c *gin.Context) {
 		if !result && userNewData.Password != "" || err != nil {
 			httputil.NewError(c, http.StatusForbidden, errors.New("bad login or password"))
 			return
+		} else if result && len(userNewData.NewPassword) > 7 {
+			dbUser.Password = userNewData.NewPassword
+		} else if userNewData.Password == "" {
+			dbUser.Password = ""
+		} else {
+			httputil.NewError(c, http.StatusBadRequest, errors.New("new password is bad"))
+			return
 		}
-		dbUser.Password = ""
+
 		dbUser.FirstName = userNewData.FirstName
 		dbUser.LastName = userNewData.LastName
-		if result {
-			dbUser.Password = userNewData.NewPassword
-		}
 
 		user, err := database.ActionUser(models.AdminCommandToUser{
 			Action: "update",
