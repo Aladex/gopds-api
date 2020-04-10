@@ -13,8 +13,8 @@ type User struct {
 	Password    string    `pg:"password" json:"password" form:"password"`
 	LastLogin   time.Time `pg:"last_login" json:"last_login"`
 	IsSuperUser bool      `pg:"is_superuser,use_zero" json:"is_superuser"`
-	FirstName   string    `pg:"first_name" json:"first_name"`
-	LastName    string    `pg:"last_name" json:"last_name"`
+	FirstName   string    `pg:"first_name" json:"first_name" form:"first_name"`
+	LastName    string    `pg:"last_name" json:"last_name" form:"last_name"`
 	Email       string    `pg:"email" json:"email"`
 	DateJoined  time.Time `pg:"date_joined" json:"date_joined"`
 }
@@ -22,6 +22,8 @@ type User struct {
 // LoggedInUser структура для возвращения логина и токена доступа
 type LoggedInUser struct {
 	User        string  `json:"username"`
+	FirstName   string  `json:"first_name"`
+	LastName    string  `json:"last_name"`
 	Token       *string `json:"token,omitempty"`
 	IsSuperuser *bool   `json:"is_superuser,omitempty"`
 }
@@ -79,4 +81,12 @@ type UserFilters struct {
 type AdminCommandToUser struct {
 	Action string `form:"action"`
 	User   User   `form:"user"`
+}
+
+// SelfUserChangeRequest structure
+type SelfUserChangeRequest struct {
+	FirstName   string `json:"first_name" form:"first_name"`
+	LastName    string `json:"last_name" form:"last_name"`
+	Password    string `json:"password" form:"password"`
+	NewPassword string `json:"new_password" form:"new_password"`
 }

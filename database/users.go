@@ -12,18 +12,18 @@ import (
 )
 
 // CheckUser функция проверки пользователя и пароля в формате pbkdf2 (django)
-func CheckUser(u models.LoginRequest) (bool, error) {
+func CheckUser(u models.LoginRequest) (bool, models.User, error) {
 	userDB := new(models.User)
 	err := db.Model(userDB).Where("username ILIKE ?", strings.ToLower(u.Login)).First()
 	if err != nil {
-		return false, err
+		return false, *userDB, err
 	}
 	pCheck, err := utils.CheckPbkdf2(u.Password, userDB.Password, sha256.Size, sha256.New)
 	if err != nil {
-		return false, err
+		return false, *userDB, err
 	}
 	go loginDateSet(userDB)
-	return pCheck, nil
+	return pCheck, *userDB, nil
 }
 
 // loginDateSet goroutine for update user login date
@@ -59,14 +59,14 @@ func CheckInvite(i string) (bool, error) {
 	return true, nil
 }
 
-// GetSuperUserRole function for check user role
-func GetSuperUserRole(u string) bool {
+// GetUser function for return users object by username
+func GetUser(u string) (models.User, error) {
 	userDB := new(models.User)
-	err := db.Model(userDB).Where("username = ?", u).First()
+	err := db.Model(userDB).Where("username ILIKE ?", u).First()
 	if err != nil {
-		return false
+		return *userDB, err
 	}
-	return userDB.IsSuperUser
+	return *userDB, nil
 }
 
 // GetUserList function returns an users list
@@ -93,6 +93,7 @@ func GetUserList(filters models.UserFilters) ([]models.User, int, error) {
 	return users, count, nil
 }
 
+// ActionUser function for change user from admin panel
 func ActionUser(action models.AdminCommandToUser) (models.User, error) {
 	var userToChange models.User
 	var tmpPass string

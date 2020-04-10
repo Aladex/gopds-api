@@ -10,6 +10,7 @@ import (
 	"gopds-api/utils"
 	"log"
 	"net/http"
+	"strings"
 )
 
 // AuthCheck Returns an user and token for header
@@ -28,24 +29,22 @@ import (
 func AuthCheck(c *gin.Context) {
 	var user models.LoginRequest
 	if err := c.ShouldBindJSON(&user); err == nil {
-		res, err := database.CheckUser(user)
+		res, dbUser, err := database.CheckUser(user)
 		if err != nil {
 			httputil.NewError(c, http.StatusForbidden, err)
 			return
 		}
 		switch res {
 		case true:
-			userToken, err := utils.CreateToken(user.Login)
+			userToken, err := utils.CreateToken(strings.ToLower(user.Login))
 			if err != nil {
 				httputil.NewError(c, http.StatusForbidden, err)
 				return
 			}
-			role := database.GetSuperUserRole(user.Login)
-
 			thisUser := models.LoggedInUser{
-				User:        user.Login,
+				User:        strings.ToLower(user.Login),
 				Token:       &userToken,
-				IsSuperuser: &role,
+				IsSuperuser: &dbUser.IsSuperUser,
 			}
 			sessions.SetSessionKey(thisUser)
 			c.JSON(200, thisUser)
@@ -79,7 +78,7 @@ func LogOut(c *gin.Context) {
 		return
 	}
 	sessions.DeleteSessionKey(models.LoggedInUser{
-		User:  username,
+		User:  strings.ToLower(username),
 		Token: &userToken,
 	})
 	c.JSON(200, gin.H{"result": "ok"})
@@ -105,9 +104,76 @@ func SelfUser(c *gin.Context) {
 		return
 	}
 	selfUser := models.LoggedInUser{
-		User: username,
+		User: strings.ToLower(username),
 	}
-	role := database.GetSuperUserRole(username)
-	selfUser.IsSuperuser = &role
+	dbUser, err := database.GetUser(strings.ToLower(username))
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+	selfUser.IsSuperuser = &dbUser.IsSuperUser
+	selfUser.FirstName = dbUser.FirstName
+	selfUser.LastName = dbUser.LastName
 	c.JSON(200, selfUser)
+}
+
+// ChangeUser метод для изменения объекта пользователя
+// Auth godoc
+// @Summary Returns an users object
+// @Description user object
+// @Tags users
+// @Accept  json
+// @Produce  json
+// @Param  body body models.SelfUserChangeRequest true "User object"
+// @Success 200 {object} models.LoggedInUser
+// @Failure 400 {object} httputil.HTTPError
+// @Failure 403 {object} httputil.HTTPError
+// @Failure 500 {object} httputil.HTTPError
+// @Router /books/change-me [post]
+func ChangeUser(c *gin.Context) {
+	userToken := c.Request.Header.Get("Authorization")
+	username, err := utils.CheckToken(userToken)
+	if err != nil {
+		log.Printf("%s with token %s tried to get username", username, userToken)
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	var userNewData models.SelfUserChangeRequest
+	if err := c.ShouldBindJSON(&userNewData); err == nil {
+		u := models.LoginRequest{
+			Login:    username,
+			Password: userNewData.Password,
+		}
+		result, dbUser, err := database.CheckUser(u)
+		if !result && userNewData.Password != "" {
+			httputil.NewError(c, http.StatusForbidden, errors.New("bad login or password"))
+			return
+		}
+		dbUser.Password = ""
+		dbUser.FirstName = userNewData.FirstName
+		dbUser.LastName = userNewData.LastName
+		if result {
+			dbUser.Password = userNewData.NewPassword
+		}
+
+		user, err := database.ActionUser(models.AdminCommandToUser{
+			Action: "update",
+			User:   dbUser,
+		})
+		if err != nil {
+			c.JSON(500, err)
+			return
+		}
+		selfUser := models.LoggedInUser{
+			User:        user.Login,
+			FirstName:   user.FirstName,
+			LastName:    user.LastName,
+			IsSuperuser: &user.IsSuperUser,
+		}
+		c.JSON(200, selfUser)
+		return
+
+	}
+
 }

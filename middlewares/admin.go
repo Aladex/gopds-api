@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gopds-api/database"
 	"gopds-api/utils"
+	"strings"
 )
 
 // AdminMiddleware мидлварь для проверки админских прав
@@ -22,8 +23,14 @@ func AdminMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+		dbUser, err := database.GetUser(strings.ToLower(username))
+		if err != nil {
+			c.JSON(403, "restricted zone")
+			c.Abort()
+			return
+		}
 
-		if !database.GetSuperUserRole(username) {
+		if !dbUser.IsSuperUser {
 			c.JSON(403, "restricted zone")
 			c.Abort()
 			return

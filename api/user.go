@@ -9,7 +9,7 @@ import (
 	"net/http"
 )
 
-// GetUser метод для запроса объекта пользователя или его изменения
+// ActionUser метод для запроса объекта пользователя или его изменения
 // Auth godoc
 // @Summary Returns an users object
 // @Description user object
