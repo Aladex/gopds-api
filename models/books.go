@@ -32,8 +32,8 @@ type Book struct {
 // Author структура автора в БД
 type Author struct {
 	tableName struct{} `pg:"opds_catalog_author,discard_unknown_columns" json:"-"`
-	ID        int64    `json:"id"`
-	FullName  string   `json:"full_name"`
+	ID        int64    `json:"id" form:"id"`
+	FullName  string   `json:"full_name" form:"full_name"`
 }
 
 // OrderToAuthor структура для many2many связи книг и авторов

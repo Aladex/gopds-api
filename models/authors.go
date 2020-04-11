@@ -6,3 +6,7 @@ type AuthorFilters struct {
 	Offset int    `form:"offset" json:"offset"`
 	Author string `form:"author" json:"author"`
 }
+
+type AuthorRequest struct {
+	ID int64 `json:"author_id" form:"author_id"`
+}

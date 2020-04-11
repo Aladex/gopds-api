@@ -210,7 +210,8 @@ CREATE TABLE public.opds_catalog_book (
     docdate character varying(32) NOT NULL,
     lang character varying(16) NOT NULL,
     title character varying(512) NOT NULL,
-    annotation character varying(10000) NOT NULL
+    annotation character varying(10000) NOT NULL,
+    cover boolean DEFAULT false
 )
 WITH (fillfactor='50');
 

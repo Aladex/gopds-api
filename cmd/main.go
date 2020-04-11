@@ -75,6 +75,7 @@ func main() {
 		booksGroup.GET("/self-user", api.SelfUser)
 		booksGroup.POST("/change-me", api.ChangeUser)
 		booksGroup.GET("/authors", api.GetAuthors)
+		booksGroup.POST("/author", api.GetAuthor)
 		// Метод скачивания файла
 		booksGroup.POST("/file", api.GetBookFile)
 	}
