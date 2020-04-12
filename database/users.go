@@ -73,9 +73,14 @@ func GetUserList(filters models.UserFilters) ([]models.User, int, error) {
 	users := []models.User{}
 	orderBy := "%s %s"
 	if filters.Order == "" {
-		orderBy = "id DESC"
+		orderBy = "id"
 	} else {
-		orderBy = fmt.Sprintf(orderBy, filters.Order, "DESC")
+		orderBy = filters.Order
+	}
+	if filters.DESC {
+		orderBy += " DESC"
+	} else {
+		orderBy += " ASC"
 	}
 	likeUser := fmt.Sprintf("%%%s%%", filters.Username)
 	likeEmail := fmt.Sprintf("%%%s%%", filters.Email)

@@ -47,6 +47,7 @@ type OrderToAuthor struct {
 type Series struct {
 	tableName struct{} `pg:"opds_catalog_series,discard_unknown_columns" json:"-"`
 	ID        int64    `json:"id"`
+	SerNo     int      `json:"ser_no" pg:"-"`
 	Ser       string   `json:"ser"`
 	LangCode  int      `json:"lang_code"`
 }
@@ -54,6 +55,7 @@ type Series struct {
 // OrderToSeries структура связи серий и книг через many2many
 type OrderToSeries struct {
 	tableName struct{} `pg:"opds_catalog_bseries,discard_unknown_columns" json:"-"`
+	SerNo     int      `pg:"ser_no"`
 	SeriesID  int      `pg:"ser_id"`
 	BookID    int      `pg:"book_id"`
 }
