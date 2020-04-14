@@ -8,13 +8,13 @@ import (
 
 // SetSessionKey запись сессии в Redis с продлением ее, если пользователь остается активным в течение суток
 func SetSessionKey(lu models.LoggedInUser) {
-	rdb.Set(strings.ToLower(lu.User), *lu.Token, time.Hour*24)
+	rdb.Set(*lu.Token, strings.ToLower(lu.User), time.Hour*24)
 }
 
 // CheckSessionKey структура проверки наличия сессии в Redis
 func CheckSessionKey(lu models.LoggedInUser) bool {
-	userSession := rdb.Get(strings.ToLower(lu.User))
-	if userSession.Val() != *lu.Token {
+	userSession := rdb.Get(*lu.Token)
+	if userSession.Val() != strings.ToLower(lu.User) {
 		return false
 	}
 	return true
@@ -22,8 +22,8 @@ func CheckSessionKey(lu models.LoggedInUser) bool {
 
 // DeleteSessionKey функция удаления ключа при разлогине пользователя
 func DeleteSessionKey(lu models.LoggedInUser) {
-	userSession := rdb.Get(strings.ToLower(lu.User))
-	if userSession.Val() == *lu.Token {
-		rdb.Del(lu.User)
+	userSession := rdb.Get(*lu.Token)
+	if userSession.Val() == strings.ToLower(lu.User) {
+		rdb.Del(*lu.Token)
 	}
 }
