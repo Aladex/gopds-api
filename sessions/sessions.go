@@ -30,6 +30,7 @@ func DeleteSessionKey(lu models.LoggedInUser) {
 	}
 }
 
+// DropAllSessions function for remove all jwt keys of user
 func DropAllSessions(token string) {
 	username, err := utils.CheckToken(token)
 	if err != nil {

@@ -25,7 +25,7 @@ func CheckUser(u models.LoginRequest) (bool, models.User, error) {
 	return pCheck, *userDB, nil
 }
 
-// loginDateSet goroutine for update user login date
+// LoginDateSet goroutine for update user login date
 func LoginDateSet(u *models.User) {
 	_, err := db.Model(u).Set("last_login = NOW()").WherePK().Update()
 	if err != nil {

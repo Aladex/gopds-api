@@ -7,6 +7,7 @@ type AuthorFilters struct {
 	Author string `form:"author" json:"author"`
 }
 
+// AuthorRequest request for an object of author for search bar
 type AuthorRequest struct {
 	ID int64 `json:"author_id" form:"author_id"`
 }
