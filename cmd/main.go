@@ -59,6 +59,7 @@ func main() {
 		route.POST("/api/login", api.AuthCheck)
 		route.POST("/api/register", api.Registration)
 		route.GET("/api/logout", api.LogOut)
+		route.GET("/api/drop-sessions", api.DropAllSessions)
 	}
 
 	apiGroup := route.Group("/api")

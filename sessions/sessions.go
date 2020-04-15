@@ -2,6 +2,8 @@ package sessions
 
 import (
 	"gopds-api/models"
+	"gopds-api/utils"
+	"log"
 	"strings"
 	"time"
 )
@@ -25,5 +27,22 @@ func DeleteSessionKey(lu models.LoggedInUser) {
 	userSession := rdb.Get(*lu.Token)
 	if userSession.Val() == strings.ToLower(lu.User) {
 		rdb.Del(*lu.Token)
+	}
+}
+
+func DropAllSessions(token string) {
+	username, err := utils.CheckToken(token)
+	if err != nil {
+		log.Println(err)
+	}
+	keys := rdb.Keys("*")
+	for _, k := range keys.Val() {
+		checkedUser, err := utils.CheckToken(k)
+		if err != nil {
+			log.Println(err)
+		}
+		if checkedUser == username {
+			rdb.Del(k)
+		}
 	}
 }

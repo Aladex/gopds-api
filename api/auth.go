@@ -13,6 +13,33 @@ import (
 	"strings"
 )
 
+// DropAllSessions Метод сброса всех сессий пользователя
+// Auth godoc
+// @Summary Метод для сброса всех сессий пользователя
+// @Description Метод для сброса всех сессий пользователя
+// @Tags login
+// @Accept  json
+// @Produce  json
+// @Success 200 {object} models.LoggedInUser
+// @Failure 400 {object} httputil.HTTPError
+// @Failure 403 {object} httputil.HTTPError
+// @Router /drop-sessions [get]
+func DropAllSessions(c *gin.Context) {
+	userToken := c.Request.Header.Get("Authorization")
+	username, err := utils.CheckToken(userToken)
+	if err != nil {
+		log.Printf("user with token %s tried to drop all sessions", userToken)
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+	sessions.DeleteSessionKey(models.LoggedInUser{
+		User:  strings.ToLower(username),
+		Token: &userToken,
+	})
+	go sessions.DropAllSessions(userToken)
+	c.JSON(200, gin.H{"result": "ok"})
+}
+
 // AuthCheck Returns an user and token for header
 // Auth godoc
 // @Summary Returns an user and token for header
