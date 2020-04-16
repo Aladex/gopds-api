@@ -177,7 +177,7 @@ func ChangeUser(c *gin.Context) {
 			Password: userNewData.Password,
 		}
 		result, dbUser, err := database.CheckUser(u)
-		if !result && userNewData.Password != "" || err != nil {
+		if !result || err != nil {
 			httputil.NewError(c, http.StatusForbidden, errors.New("bad login or password"))
 			return
 		} else if result && len(userNewData.NewPassword) > 7 {

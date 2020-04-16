@@ -23,6 +23,20 @@ type passwordChangeRequest struct {
 	Email string `json:"email" form:"email" bindings:"required"`
 }
 
+func TokenValidation(c *gin.Context) {
+	var token passwordToken
+	if err := c.ShouldBindJSON(&token); err == nil {
+		username := sessions.CheckTokenPassword(token.Token)
+		if username == "" {
+			httputil.NewError(c, http.StatusNotFound, errors.New("invalid_token"))
+			return
+		}
+		c.JSON(200, "valid_token")
+		return
+	}
+	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
+}
+
 func ChangeRequest(c *gin.Context) {
 	var changeRequest passwordChangeRequest
 	if err := c.ShouldBindJSON(&changeRequest); err == nil {
@@ -74,15 +88,12 @@ func ChangeUserState(c *gin.Context) {
 			return
 		}
 
-		if !dbUser.Active {
-			dbUser.Password = ""
-		} else {
-			if len(token.Password) < 8 {
-				httputil.NewError(c, http.StatusBadRequest, errors.New("bad_password"))
-				return
-			}
-			dbUser.Password = token.Password
+		if len(token.Password) < 8 && len(token.Password) > 0 {
+			httputil.NewError(c, http.StatusBadRequest, errors.New("bad_password"))
+			return
 		}
+
+		dbUser.Password = token.Password
 		dbUser.Active = true
 
 		user, err := database.ActionUser(models.AdminCommandToUser{
@@ -105,4 +116,5 @@ func ChangeUserState(c *gin.Context) {
 		c.JSON(200, selfUser)
 		return
 	}
+	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
 }

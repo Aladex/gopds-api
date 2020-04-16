@@ -60,6 +60,7 @@ func main() {
 		route.POST("/api/register", api.Registration)
 		route.POST("/api/change-password", api.ChangeUserState)
 		route.POST("/api/change-request", api.ChangeRequest)
+		route.POST("/api/token", api.TokenValidation)
 
 		route.GET("/api/logout", api.LogOut)
 		route.GET("/api/drop-sessions", api.DropAllSessions)
