@@ -1,10 +1,10 @@
-package email
+package main
 
 import (
 	"bytes"
-	"crypto/tls"
 	"fmt"
 	"github.com/spf13/viper"
+	"gopds-api/email"
 	"html/template"
 	"log"
 	"net"
@@ -12,41 +12,11 @@ import (
 	"net/smtp"
 )
 
-func init() {
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath(".")
-
-	err := viper.ReadInConfig() // Find and read the config file
-	if err != nil {             // Handle errors reading the config file
-		log.Fatalf("Fatal error config file: %s \n", err)
-	}
-}
-
-func MailConnection() (*smtp.Client, error) {
-	servername := viper.GetString("email.smtp_server")
-	host, _, _ := net.SplitHostPort(servername)
-
-	tlsconfig := &tls.Config{
-		InsecureSkipVerify: true,
-		ServerName:         host,
-	}
-	conn, err := tls.Dial("tcp", servername, tlsconfig)
-	if err != nil {
-		return nil, err
-	}
-	c, err := smtp.NewClient(conn, host)
-	if err != nil {
-		return c, err
-	}
-	return c, nil
-}
-
-func SendResetEmail(toEmail string, token string) error {
+func main() {
 	var b bytes.Buffer
 
 	from := mail.Address{"Робот", "no-reply@booksdump.com"}
-	to := mail.Address{"", toEmail}
+	to := mail.Address{"Таня", "aladex@gmail.com"}
 	subj := "Сброс пароля"
 
 	// Setup headers
@@ -64,9 +34,9 @@ func SendResetEmail(toEmail string, token string) error {
 	}
 	message += "\r\n"
 	b.WriteString(message)
-	ss, err := MailConnection()
+	ss, err := email.MailConnection()
 	if err != nil {
-		return err
+		log.Panicln(err)
 	}
 	servername := viper.GetString("email.smtp_server")
 	host, _, _ := net.SplitHostPort(servername)
@@ -75,45 +45,39 @@ func SendResetEmail(toEmail string, token string) error {
 		viper.GetString("email.password"),
 		host)
 	if err = ss.Auth(auth); err != nil {
-		return err
+		log.Panic(err)
 	}
-
+	// To && From
 	if err = ss.Mail(from.Address); err != nil {
-		return err
+		log.Panic(err)
 	}
 
 	if err = ss.Rcpt(to.Address); err != nil {
-		return err
+		log.Panic(err)
 	}
 
+	// Data
 	w, err := ss.Data()
 	if err != nil {
-		return err
+		log.Panic(err)
 	}
 
 	tpl := template.Must(template.ParseGlob("email/templates/*"))
-	err = tpl.ExecuteTemplate(&b, "reset_password.gohtml", struct {
-		Token string
-	}{
-		Token: token,
-	})
+	err = tpl.ExecuteTemplate(&b, "reset_password.gohtml", "")
 	if err != nil {
-		return err
+		log.Panicln(err)
 	}
 
 	_, err = w.Write(b.Bytes())
 	if err != nil {
-		return err
+		log.Panic(err)
 	}
 
 	err = w.Close()
 	if err != nil {
-		return err
+		log.Panic(err)
 	}
 
-	err = ss.Quit()
-	if err != nil {
-		return err
-	}
-	return nil
+	ss.Quit()
+
 }
