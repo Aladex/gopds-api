@@ -83,8 +83,8 @@ definitions:
       format:
         type: string
     required:
-    - book_id
-    - format
+      - book_id
+      - format
     type: object
   models.Languages:
     items:
@@ -115,8 +115,8 @@ definitions:
       username:
         type: string
     required:
-    - password
-    - username
+      - password
+      - username
     type: object
   models.RegisterRequest:
     properties:
@@ -129,10 +129,10 @@ definitions:
       username:
         type: string
     required:
-    - email
-    - invite
-    - password
-    - username
+      - email
+      - invite
+      - password
+      - username
     type: object
   models.SelfUserChangeRequest:
     properties:
@@ -202,17 +202,17 @@ paths:
   /admin/user:
     post:
       consumes:
-      - application/json
+        - application/json
       description: user object
       parameters:
-      - description: User фсешщт
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/models.AdminCommandToUser'
+        - description: User фсешщт
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/models.AdminCommandToUser'
       produces:
-      - application/json
+        - application/json
       responses:
         "200":
           description: OK
@@ -232,21 +232,21 @@ paths:
             $ref: '#/definitions/httputil.HTTPError'
       summary: Returns an users object
       tags:
-      - admin
+        - admin
   /admin/users:
     post:
       consumes:
-      - application/json
+        - application/json
       description: users list for admin space
       parameters:
-      - description: User filters
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/models.UserFilters'
+        - description: User filters
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/models.UserFilters'
       produces:
-      - application/json
+        - application/json
       responses:
         "200":
           description: OK
@@ -266,34 +266,34 @@ paths:
             $ref: '#/definitions/httputil.HTTPError'
       summary: Returns users list
       tags:
-      - admin
+        - admin
   /books/authors:
     get:
       consumes:
-      - application/json
+        - application/json
       description: возвращает JSON с авторами
       parameters:
-      - description: Just token without bearer
-        in: header
-        name: Authorization
-        required: true
-        type: string
-      - description: Limit
-        in: query
-        name: limit
-        required: true
-        type: integer
-      - description: Offset
-        in: query
-        name: offset
-        required: true
-        type: integer
-      - description: Author ID
-        in: query
-        name: author
-        type: string
+        - description: Just token without bearer
+          in: header
+          name: Authorization
+          required: true
+          type: string
+        - description: Limit
+          in: query
+          name: limit
+          required: true
+          type: integer
+        - description: Offset
+          in: query
+          name: offset
+          required: true
+          type: integer
+        - description: Author ID
+          in: query
+          name: author
+          type: string
       produces:
-      - application/json
+        - application/json
       responses:
         "200":
           description: OK
@@ -311,17 +311,17 @@ paths:
   /books/change-me:
     post:
       consumes:
-      - application/json
+        - application/json
       description: user object
       parameters:
-      - description: User object
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/models.SelfUserChangeRequest'
+        - description: User object
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/models.SelfUserChangeRequest'
       produces:
-      - application/json
+        - application/json
       responses:
         "200":
           description: OK
@@ -341,21 +341,21 @@ paths:
             $ref: '#/definitions/httputil.HTTPError'
       summary: Returns an users object
       tags:
-      - users
+        - users
   /books/file:
     post:
       consumes:
-      - application/json
+        - application/json
       description: returns file of book in answered type
       parameters:
-      - description: Book Data
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/models.BookDownload'
+        - description: Book Data
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/models.BookDownload'
       produces:
-      - application/json
+        - application/json
       responses:
         "200":
           description: OK
@@ -375,38 +375,38 @@ paths:
             $ref: '#/definitions/httputil.HTTPError'
       summary: returns file of book in answered type
       tags:
-      - files
+        - files
   /books/list:
     get:
       consumes:
-      - application/json
+        - application/json
       description: возвращает JSON с книгами
       parameters:
-      - description: Just token without bearer
-        in: header
-        name: Authorization
-        required: true
-        type: string
-      - description: Limit
-        in: query
-        name: limit
-        required: true
-        type: integer
-      - description: Offset
-        in: query
-        name: offset
-        required: true
-        type: integer
-      - description: Title of book
-        in: query
-        name: title
-        type: string
-      - description: Author ID
-        in: query
-        name: author
-        type: integer
+        - description: Just token without bearer
+          in: header
+          name: Authorization
+          required: true
+          type: string
+        - description: Limit
+          in: query
+          name: limit
+          required: true
+          type: integer
+        - description: Offset
+          in: query
+          name: offset
+          required: true
+          type: integer
+        - description: Title of book
+          in: query
+          name: title
+          type: string
+        - description: Author ID
+          in: query
+          name: author
+          type: integer
       produces:
-      - application/json
+        - application/json
       responses:
         "200":
           description: OK
@@ -424,17 +424,17 @@ paths:
   /login:
     post:
       consumes:
-      - application/json
+        - application/json
       description: Login method for token generation
       parameters:
-      - description: Login Data
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/models.LoginRequest'
+        - description: Login Data
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/models.LoginRequest'
       produces:
-      - application/json
+        - application/json
       responses:
         "200":
           description: OK
@@ -454,14 +454,14 @@ paths:
             $ref: '#/definitions/httputil.HTTPError'
       summary: Returns an user and token for header
       tags:
-      - login
+        - login
   /logout:
     get:
       consumes:
-      - application/json
+        - application/json
       description: Метод разлогина
       produces:
-      - application/json
+        - application/json
       responses:
         "200":
           description: OK
@@ -477,21 +477,21 @@ paths:
             $ref: '#/definitions/httputil.HTTPError'
       summary: Метод разлогина
       tags:
-      - login
+        - login
   /register:
     post:
       consumes:
-      - application/json
+        - application/json
       description: creates a new user
       parameters:
-      - description: User Data
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/models.RegisterRequest'
+        - description: User Data
+          in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/models.RegisterRequest'
       produces:
-      - application/json
+        - application/json
       responses:
         "201":
           description: Created
@@ -507,14 +507,14 @@ paths:
             $ref: '#/definitions/httputil.HTTPError'
       summary: creates a new user
       tags:
-      - login
+        - login
   /self-user:
     get:
       consumes:
-      - application/json
+        - application/json
       description: Метод для получения информации по пользователю
       produces:
-      - application/json
+        - application/json
       responses:
         "200":
           description: OK
@@ -530,5 +530,5 @@ paths:
             $ref: '#/definitions/httputil.HTTPError'
       summary: Метод для получения информации по пользователю
       tags:
-      - login
+        - login
 swagger: "2.0"

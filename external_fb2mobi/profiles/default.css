@@ -201,7 +201,8 @@ p.title {
     max-height: 100%;
 }
 
-.inlineimage {}
+.inlineimage {
+}
 
 .poem {
     text-indent: 0em;
