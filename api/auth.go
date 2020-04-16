@@ -177,20 +177,25 @@ func ChangeUser(c *gin.Context) {
 			Password: userNewData.Password,
 		}
 		result, dbUser, err := database.CheckUser(u)
-		if !result || err != nil {
-			httputil.NewError(c, http.StatusForbidden, errors.New("bad login or password"))
+
+		if !result && len(userNewData.Password) > 0 || err != nil {
+			httputil.NewError(c, http.StatusForbidden, errors.New("auth_error"))
 			return
-		} else if result && len(userNewData.NewPassword) > 7 {
-			dbUser.Password = userNewData.NewPassword
-		} else if userNewData.Password == "" {
-			dbUser.Password = ""
-		} else {
-			httputil.NewError(c, http.StatusBadRequest, errors.New("new password is bad"))
+		}
+
+		if len(userNewData.Password) > 0 && len(userNewData.NewPassword) < 8 {
+			httputil.NewError(c, http.StatusBadRequest, errors.New("bad_password"))
+			return
+		}
+
+		if len(userNewData.Password) > 0 && userNewData.NewPassword == userNewData.Password {
+			httputil.NewError(c, http.StatusBadRequest, errors.New("same_password"))
 			return
 		}
 
 		dbUser.FirstName = userNewData.FirstName
 		dbUser.LastName = userNewData.LastName
+		dbUser.Password = userNewData.NewPassword
 
 		user, err := database.ActionUser(models.AdminCommandToUser{
 			Action: "update",
