@@ -15,3 +15,8 @@ sessions:
 app:
   devel_mode: yes
   files_path: "/mnt/ssd/sopds/books/_Lib.rus.ec - Официальная/lib.rus.ec"
+
+email:
+  user: no-reply@example.com
+  password: 6dSrmTAc7WfoY9WCSMVc
+  smtp_server: smtp.yandex.ru:465
