@@ -21,6 +21,23 @@ definitions:
           $ref: '#/definitions/models.User'
         type: array
     type: object
+  api.changeAnswer:
+    properties:
+      message:
+        type: string
+    type: object
+  api.passwordChangeRequest:
+    properties:
+      email:
+        type: string
+    type: object
+  api.passwordToken:
+    properties:
+      password:
+        type: string
+      token:
+        type: string
+    type: object
   httputil.HTTPError:
     properties:
       code:
@@ -43,6 +60,11 @@ definitions:
       full_name:
         type: string
       id:
+        type: integer
+    type: object
+  models.AuthorRequest:
+    properties:
+      author_id:
         type: integer
     type: object
   models.Book:
@@ -83,8 +105,8 @@ definitions:
       format:
         type: string
     required:
-      - book_id
-      - format
+    - book_id
+    - format
     type: object
   models.Languages:
     items:
@@ -115,8 +137,8 @@ definitions:
       username:
         type: string
     required:
-      - password
-      - username
+    - password
+    - username
     type: object
   models.RegisterRequest:
     properties:
@@ -129,10 +151,10 @@ definitions:
       username:
         type: string
     required:
-      - email
-      - invite
-      - password
-      - username
+    - email
+    - invite
+    - password
+    - username
     type: object
   models.SelfUserChangeRequest:
     properties:
@@ -153,9 +175,13 @@ definitions:
         type: integer
       ser:
         type: string
+      ser_no:
+        type: integer
     type: object
   models.User:
     properties:
+      active:
+        type: boolean
       date_joined:
         type: string
       email:
@@ -202,17 +228,17 @@ paths:
   /admin/user:
     post:
       consumes:
-        - application/json
+      - application/json
       description: user object
       parameters:
-        - description: User фсешщт
-          in: body
-          name: body
-          required: true
-          schema:
-            $ref: '#/definitions/models.AdminCommandToUser'
+      - description: User фсешщт
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.AdminCommandToUser'
       produces:
-        - application/json
+      - application/json
       responses:
         "200":
           description: OK
@@ -232,21 +258,21 @@ paths:
             $ref: '#/definitions/httputil.HTTPError'
       summary: Returns an users object
       tags:
-        - admin
+      - admin
   /admin/users:
     post:
       consumes:
-        - application/json
+      - application/json
       description: users list for admin space
       parameters:
-        - description: User filters
-          in: body
-          name: body
-          required: true
-          schema:
-            $ref: '#/definitions/models.UserFilters'
+      - description: User filters
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.UserFilters'
       produces:
-        - application/json
+      - application/json
       responses:
         "200":
           description: OK
@@ -266,34 +292,65 @@ paths:
             $ref: '#/definitions/httputil.HTTPError'
       summary: Returns users list
       tags:
-        - admin
+      - admin
+  /books/author:
+    post:
+      consumes:
+      - application/json
+      description: возвращает JSON с автором
+      parameters:
+      - description: Just token without bearer
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      - description: Author ID
+        in: query
+        name: author
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.AuthorRequest'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+      summary: возвращает JSON с автором
   /books/authors:
     get:
       consumes:
-        - application/json
+      - application/json
       description: возвращает JSON с авторами
       parameters:
-        - description: Just token without bearer
-          in: header
-          name: Authorization
-          required: true
-          type: string
-        - description: Limit
-          in: query
-          name: limit
-          required: true
-          type: integer
-        - description: Offset
-          in: query
-          name: offset
-          required: true
-          type: integer
-        - description: Author ID
-          in: query
-          name: author
-          type: string
+      - description: Just token without bearer
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      - description: Limit
+        in: query
+        name: limit
+        required: true
+        type: integer
+      - description: Offset
+        in: query
+        name: offset
+        required: true
+        type: integer
+      - description: Author ID
+        in: query
+        name: author
+        type: string
       produces:
-        - application/json
+      - application/json
       responses:
         "200":
           description: OK
@@ -311,17 +368,17 @@ paths:
   /books/change-me:
     post:
       consumes:
-        - application/json
+      - application/json
       description: user object
       parameters:
-        - description: User object
-          in: body
-          name: body
-          required: true
-          schema:
-            $ref: '#/definitions/models.SelfUserChangeRequest'
+      - description: User object
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.SelfUserChangeRequest'
       produces:
-        - application/json
+      - application/json
       responses:
         "200":
           description: OK
@@ -341,21 +398,21 @@ paths:
             $ref: '#/definitions/httputil.HTTPError'
       summary: Returns an users object
       tags:
-        - users
+      - users
   /books/file:
     post:
       consumes:
-        - application/json
+      - application/json
       description: returns file of book in answered type
       parameters:
-        - description: Book Data
-          in: body
-          name: body
-          required: true
-          schema:
-            $ref: '#/definitions/models.BookDownload'
+      - description: Book Data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.BookDownload'
       produces:
-        - application/json
+      - application/json
       responses:
         "200":
           description: OK
@@ -375,38 +432,38 @@ paths:
             $ref: '#/definitions/httputil.HTTPError'
       summary: returns file of book in answered type
       tags:
-        - files
+      - files
   /books/list:
     get:
       consumes:
-        - application/json
+      - application/json
       description: возвращает JSON с книгами
       parameters:
-        - description: Just token without bearer
-          in: header
-          name: Authorization
-          required: true
-          type: string
-        - description: Limit
-          in: query
-          name: limit
-          required: true
-          type: integer
-        - description: Offset
-          in: query
-          name: offset
-          required: true
-          type: integer
-        - description: Title of book
-          in: query
-          name: title
-          type: string
-        - description: Author ID
-          in: query
-          name: author
-          type: integer
+      - description: Just token without bearer
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      - description: Limit
+        in: query
+        name: limit
+        required: true
+        type: integer
+      - description: Offset
+        in: query
+        name: offset
+        required: true
+        type: integer
+      - description: Title of book
+        in: query
+        name: title
+        type: string
+      - description: Author ID
+        in: query
+        name: author
+        type: integer
       produces:
-        - application/json
+      - application/json
       responses:
         "200":
           description: OK
@@ -421,20 +478,111 @@ paths:
           schema:
             $ref: '#/definitions/httputil.HTTPError'
       summary: возвращает JSON с книгами
+  /change-password:
+    post:
+      consumes:
+      - application/json
+      description: method for change user
+      parameters:
+      - description: user info
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.passwordToken'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.LoggedInUser'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+      summary: method for change user
+      tags:
+      - login
+  /change-request:
+    post:
+      consumes:
+      - application/json
+      description: method for change request
+      parameters:
+      - description: user info
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.passwordChangeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.changeAnswer'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+      summary: method for change request
+      tags:
+      - login
+  /drop-sessions:
+    get:
+      consumes:
+      - application/json
+      description: Метод для сброса всех сессий пользователя
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.LoggedInUser'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+      summary: Метод для сброса всех сессий пользователя
+      tags:
+      - login
   /login:
     post:
       consumes:
-        - application/json
+      - application/json
       description: Login method for token generation
       parameters:
-        - description: Login Data
-          in: body
-          name: body
-          required: true
-          schema:
-            $ref: '#/definitions/models.LoginRequest'
+      - description: Login Data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.LoginRequest'
       produces:
-        - application/json
+      - application/json
       responses:
         "200":
           description: OK
@@ -454,14 +602,14 @@ paths:
             $ref: '#/definitions/httputil.HTTPError'
       summary: Returns an user and token for header
       tags:
-        - login
+      - login
   /logout:
     get:
       consumes:
-        - application/json
+      - application/json
       description: Метод разлогина
       produces:
-        - application/json
+      - application/json
       responses:
         "200":
           description: OK
@@ -477,21 +625,21 @@ paths:
             $ref: '#/definitions/httputil.HTTPError'
       summary: Метод разлогина
       tags:
-        - login
+      - login
   /register:
     post:
       consumes:
-        - application/json
+      - application/json
       description: creates a new user
       parameters:
-        - description: User Data
-          in: body
-          name: body
-          required: true
-          schema:
-            $ref: '#/definitions/models.RegisterRequest'
+      - description: User Data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.RegisterRequest'
       produces:
-        - application/json
+      - application/json
       responses:
         "201":
           description: Created
@@ -507,14 +655,14 @@ paths:
             $ref: '#/definitions/httputil.HTTPError'
       summary: creates a new user
       tags:
-        - login
+      - login
   /self-user:
     get:
       consumes:
-        - application/json
+      - application/json
       description: Метод для получения информации по пользователю
       produces:
-        - application/json
+      - application/json
       responses:
         "200":
           description: OK
@@ -530,5 +678,39 @@ paths:
             $ref: '#/definitions/httputil.HTTPError'
       summary: Метод для получения информации по пользователю
       tags:
-        - login
+      - login
+  /token:
+    post:
+      consumes:
+      - application/json
+      description: check for token validation
+      parameters:
+      - description: Token Info
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.passwordToken'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/string'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+      summary: check for token validation
+      tags:
+      - login
 swagger: "2.0"
