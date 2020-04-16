@@ -14,7 +14,10 @@ import (
 // CheckUser функция проверки пользователя и пароля в формате pbkdf2 (django)
 func CheckUser(u models.LoginRequest) (bool, models.User, error) {
 	userDB := new(models.User)
-	err := db.Model(userDB).Where("username ILIKE ?", strings.ToLower(u.Login)).First()
+	err := db.Model(userDB).
+		Where("username ILIKE ?", strings.ToLower(u.Login)).
+		Where("active = true").
+		First()
 	if err != nil {
 		return false, *userDB, err
 	}

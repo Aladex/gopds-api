@@ -17,6 +17,7 @@ type User struct {
 	LastName    string    `pg:"last_name" json:"last_name" form:"last_name"`
 	Email       string    `pg:"email" json:"email"`
 	DateJoined  time.Time `pg:"date_joined" json:"date_joined"`
+	Active      bool      `pg:"active" json:"active"`
 }
 
 // LoggedInUser структура для возвращения логина и токена доступа

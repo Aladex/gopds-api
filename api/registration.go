@@ -25,23 +25,23 @@ func Registration(c *gin.Context) {
 	var newUser models.RegisterRequest
 	if err := c.ShouldBindJSON(&newUser); err == nil {
 		if !newUser.CheckValues() {
-			httputil.NewError(c, http.StatusBadRequest, errors.New("bad form"))
+			httputil.NewError(c, http.StatusBadRequest, errors.New("bad_form"))
 			return
 		}
 
 		_, err := database.CheckInvite(newUser.Invite)
 		if err != nil {
-			httputil.NewError(c, http.StatusBadRequest, errors.New("bad invite"))
+			httputil.NewError(c, http.StatusBadRequest, errors.New("bad_invite"))
 			return
 		}
 
 		err = database.CreateUser(newUser)
 		if err != nil {
-			httputil.NewError(c, http.StatusConflict, errors.New("user is already exists"))
+			httputil.NewError(c, http.StatusConflict, errors.New("user_exists"))
 			return
 		}
-		c.JSON(201, "user is successfully created")
+		c.JSON(201, "user_created")
 		return
 	}
-	httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
+	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
 }
