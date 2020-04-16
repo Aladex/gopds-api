@@ -13,25 +13,25 @@ func AdminMiddleware() gin.HandlerFunc {
 		userToken := c.Request.Header.Get("Authorization")
 
 		if userToken == "" {
-			c.JSON(401, "token is required")
+			c.JSON(401, "required_token")
 			c.Abort()
 			return
 		}
 		username, err := utils.CheckToken(userToken)
 		if err != nil {
-			c.JSON(401, "token is invalid")
+			c.JSON(401, "invalid_token")
 			c.Abort()
 			return
 		}
 		dbUser, err := database.GetUser(strings.ToLower(username))
 		if err != nil {
-			c.JSON(403, "restricted zone")
+			c.JSON(403, "restricted_zone")
 			c.Abort()
 			return
 		}
 
 		if !dbUser.IsSuperUser {
-			c.JSON(403, "restricted zone")
+			c.JSON(403, "restricted_zone")
 			c.Abort()
 			return
 		}

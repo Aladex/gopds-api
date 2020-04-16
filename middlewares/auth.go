@@ -13,13 +13,13 @@ func AuthMiddleware() gin.HandlerFunc {
 		userToken := c.Request.Header.Get("Authorization")
 
 		if userToken == "" {
-			c.JSON(401, "token is required")
+			c.JSON(401, "required_token")
 			c.Abort()
 			return
 		}
 		username, err := utils.CheckToken(userToken)
 		if err != nil {
-			c.JSON(401, "token is invalid")
+			c.JSON(401, "invalid_token")
 			c.Abort()
 			return
 		}
@@ -28,7 +28,7 @@ func AuthMiddleware() gin.HandlerFunc {
 			Token: &userToken,
 		}
 		if !sessions.CheckSessionKey(thisUser) {
-			c.JSON(401, "session is invalid")
+			c.JSON(401, "invalid_session")
 			c.Abort()
 			return
 		}
