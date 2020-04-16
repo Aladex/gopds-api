@@ -58,6 +58,9 @@ func main() {
 	{
 		route.POST("/api/login", api.AuthCheck)
 		route.POST("/api/register", api.Registration)
+		route.POST("/api/change-password", api.ChangeUserState)
+
+		route.GET("/api/token", api.CheckPasswordToken)
 		route.GET("/api/logout", api.LogOut)
 		route.GET("/api/drop-sessions", api.DropAllSessions)
 	}

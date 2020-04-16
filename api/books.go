@@ -1,10 +1,13 @@
 package api
 
 import (
+	"errors"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"gopds-api/database"
+	"gopds-api/httputil"
 	"gopds-api/models"
+	"net/http"
 )
 
 // ExportAnswer структура ответа найденных книг и полного списка языков для компонента Books.vue
@@ -46,5 +49,7 @@ func GetBooks(c *gin.Context) {
 			Languages: langs,
 			Length:    lenght,
 		})
+		return
 	}
+	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
 }

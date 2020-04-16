@@ -69,5 +69,5 @@ func GetAuthor(c *gin.Context) {
 		c.JSON(200, author)
 		return
 	}
-	httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
+	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
 }
