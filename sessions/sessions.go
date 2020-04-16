@@ -1,6 +1,7 @@
 package sessions
 
 import (
+	uuid "github.com/satori/go.uuid"
 	"gopds-api/models"
 	"gopds-api/utils"
 	"log"
@@ -46,4 +47,15 @@ func DropAllSessions(token string) {
 			rdb.Del(k)
 		}
 	}
+}
+
+func GenerateTokenPassword(user string) string {
+	passwordToken := uuid.NewV4().String()
+	rdbToken.Set(passwordToken, user, time.Minute*90)
+	return passwordToken
+}
+
+func CheckTokenPassword(token string) string {
+	username := rdbToken.Get(token).String()
+	return username
 }

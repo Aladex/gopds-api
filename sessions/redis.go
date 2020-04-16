@@ -8,6 +8,7 @@ import (
 )
 
 var rdb *redis.Client
+var rdbToken *redis.Client
 
 func init() {
 	viper.SetConfigName("config")
@@ -19,6 +20,7 @@ func init() {
 		log.Fatalf("Fatal error config file: %s \n", err)
 	}
 	rdb = RedisConnection(0)
+	rdbToken = RedisConnection(1)
 }
 
 // RedisConnection Connection to redis-master to DB

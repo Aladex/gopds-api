@@ -1,3 +1,5 @@
+project_domain: "127.0.0.1:8085"
+
 postgres:
   dbuser: sopds
   dbpass: sopds
@@ -20,3 +22,16 @@ email:
   user: no-reply@example.com
   password: 6dSrmTAc7WfoY9WCSMVc
   smtp_server: smtp.yandex.ru:465
+  messages:
+    registration:
+      subject: "Регистрация в BOOKSDUMP"
+      title: "Регистрация в BOOKSDUMP"
+      message: "Нажми на кнопку для активации учетной записи"
+      button: "Активировать"
+      thanks: "С уважением, BOOKSDUMP"
+    reset:
+      subject: "Сброс пароля в библиотеку"
+      title: "Сброс пароля в библиотеку"
+      message: "Нажми на кнопку для сброса пароля. Если пароль сбрасывать не нужно, то просто проигнорируй это письмо."
+      button: "Сбросить пароль"
+      thanks: "С уважением, BOOKSDUMP"

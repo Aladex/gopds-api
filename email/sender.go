@@ -12,6 +12,16 @@ import (
 	"net/smtp"
 )
 
+type SendType struct {
+	Title   string
+	Token   string
+	Button  string
+	Message string
+	Email   string
+	Subject string
+	Thanks  string
+}
+
 func init() {
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
@@ -42,12 +52,11 @@ func MailConnection() (*smtp.Client, error) {
 	return c, nil
 }
 
-func SendResetEmail(toEmail string, token string) error {
+func SendActivationEmail(data SendType) error {
 	var b bytes.Buffer
 
-	from := mail.Address{"Робот", "no-reply@booksdump.com"}
-	to := mail.Address{"", toEmail}
-	subj := "Сброс пароля"
+	from := mail.Address{"Робот", viper.GetString("email.user")}
+	to := mail.Address{"", data.Email}
 
 	// Setup headers
 	headers := make(map[string]string)
@@ -55,7 +64,7 @@ func SendResetEmail(toEmail string, token string) error {
 	headers["To"] = to.String()
 	headers["MIME-version"] = "1.0"
 	headers["Content-Type"] = "text/html; charset=UTF-8"
-	headers["Subject"] = subj
+	headers["Subject"] = data.Subject
 
 	// Setup message
 	message := ""
@@ -92,11 +101,7 @@ func SendResetEmail(toEmail string, token string) error {
 	}
 
 	tpl := template.Must(template.ParseGlob("email/templates/*"))
-	err = tpl.ExecuteTemplate(&b, "reset_password.gohtml", struct {
-		Token string
-	}{
-		Token: token,
-	})
+	err = tpl.ExecuteTemplate(&b, "reset_password.gohtml", data)
 	if err != nil {
 		return err
 	}

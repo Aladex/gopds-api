@@ -2,12 +2,16 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
+	"github.com/spf13/viper"
 	"gopds-api/database"
+	"gopds-api/email"
 	"gopds-api/httputil"
 	"gopds-api/models"
-	"gopds-api/utils"
+	"gopds-api/sessions"
+	"log"
 	"net/http"
 )
 
@@ -19,7 +23,7 @@ type passwordToken struct {
 func CheckPasswordToken(c *gin.Context) {
 	var token passwordToken
 	if err := c.ShouldBindWith(&token, binding.Query); err == nil {
-		if utils.CheckTokenPassword(token.Token) == "" {
+		if sessions.CheckTokenPassword(token.Token) == "" {
 			httputil.NewError(c, http.StatusNotFound, errors.New("invalid_token"))
 			return
 		}
@@ -31,7 +35,7 @@ func CheckPasswordToken(c *gin.Context) {
 func ChangeUserState(c *gin.Context) {
 	var token passwordToken
 	if err := c.ShouldBindJSON(&token); err == nil {
-		username := utils.CheckTokenPassword(token.Token)
+		username := sessions.CheckTokenPassword(token.Token)
 		if username == "" {
 			httputil.NewError(c, http.StatusNotFound, errors.New("invalid_token"))
 			return
@@ -71,6 +75,27 @@ func ChangeUserState(c *gin.Context) {
 			LastName:    user.LastName,
 			IsSuperuser: &user.IsSuperUser,
 		}
+
+		resetMessage := email.SendType{
+			Title: viper.GetString("email.reset.title"),
+			Token: fmt.Sprintf("%s/change-password/%s",
+				viper.GetString("project_domain"),
+				token.Token,
+			),
+			Button:  viper.GetString("email.reset.button"),
+			Message: viper.GetString("email.reset.message"),
+			Email:   dbUser.Email,
+			Subject: viper.GetString("email.reset.subject"),
+			Thanks:  viper.GetString("email.reset.thanks"),
+		}
+
+		go func() {
+			err := email.SendActivationEmail(resetMessage)
+			if err != nil {
+				log.Println(err)
+			}
+		}()
+
 		c.JSON(200, selfUser)
 		return
 	}
