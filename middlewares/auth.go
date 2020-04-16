@@ -32,7 +32,7 @@ func AuthMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		sessions.SetSessionKey(thisUser)
+		go sessions.SetSessionKey(thisUser)
 		c.Next()
 	}
 }
