@@ -11,10 +11,11 @@ import (
 	"time"
 )
 
-func UserObject(u models.LoginRequest) (models.User, error) {
+func UserObject(search string) (models.User, error) {
 	userDB := new(models.User)
 	err := db.Model(userDB).
-		Where("username ILIKE ?", strings.ToLower(u.Login)).
+		WhereOr("username ILIKE ?", search).
+		WhereOr("email ILIKE ?", search).
 		First()
 	if err != nil {
 		return *userDB, err

@@ -2,12 +2,15 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/binding"
+	"github.com/spf13/viper"
 	"gopds-api/database"
+	"gopds-api/email"
 	"gopds-api/httputil"
 	"gopds-api/models"
 	"gopds-api/sessions"
+	"log"
 	"net/http"
 )
 
@@ -16,14 +19,42 @@ type passwordToken struct {
 	Password string `json:"password" form:"password"`
 }
 
-func CheckPasswordToken(c *gin.Context) {
-	var token passwordToken
-	if err := c.ShouldBindWith(&token, binding.Query); err == nil {
-		if sessions.CheckTokenPassword(token.Token) == "" {
-			httputil.NewError(c, http.StatusNotFound, errors.New("invalid_token"))
+type passwordChangeRequest struct {
+	Email string `json:"email" form:"email" bindings:"required"`
+}
+
+func ChangeRequest(c *gin.Context) {
+	var changeRequest passwordChangeRequest
+	if err := c.ShouldBindJSON(&changeRequest); err == nil {
+		dbUser, err := database.UserObject(changeRequest.Email)
+		if err != nil {
+			httputil.NewError(c, http.StatusBadRequest, errors.New("invalid_user"))
 			return
 		}
-		c.JSON(200, "valid_token")
+		token := sessions.GenerateTokenPassword(dbUser.Login)
+
+		registrationMessage := email.SendType{
+			Title: viper.GetString("email.messages.reset.title"),
+			Token: fmt.Sprintf("%s/change-password/%s",
+				viper.GetString("project_domain"),
+				token,
+			),
+			Button:  viper.GetString("email.messages.reset.button"),
+			Message: viper.GetString("email.messages.reset.message"),
+			Email:   dbUser.Email,
+			Subject: viper.GetString("email.messages.reset.subject"),
+			Thanks:  viper.GetString("email.messages.reset.thanks"),
+		}
+
+		go func() {
+			err := email.SendActivationEmail(registrationMessage)
+			if err != nil {
+				log.Println(err)
+			}
+		}()
+
+		c.JSON(200, "token_created")
+		return
 	}
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
 }
@@ -36,11 +67,8 @@ func ChangeUserState(c *gin.Context) {
 			httputil.NewError(c, http.StatusNotFound, errors.New("invalid_token"))
 			return
 		}
-		u := models.LoginRequest{
-			Login:    username,
-			Password: token.Password,
-		}
-		dbUser, err := database.UserObject(u)
+
+		dbUser, err := database.UserObject(username)
 		if err != nil {
 			httputil.NewError(c, http.StatusBadRequest, errors.New("invalid_user"))
 			return
