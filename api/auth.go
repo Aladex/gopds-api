@@ -58,7 +58,7 @@ func AuthCheck(c *gin.Context) {
 	if err := c.ShouldBindJSON(&user); err == nil {
 		res, dbUser, err := database.CheckUser(user)
 		if err != nil {
-			httputil.NewError(c, http.StatusForbidden, err)
+			httputil.NewError(c, http.StatusForbidden, errors.New("bad_credentials"))
 			return
 		}
 		switch res {

@@ -49,13 +49,30 @@ func DropAllSessions(token string) {
 	}
 }
 
+// GenerateTokenPassword generates and temporary token for password change
 func GenerateTokenPassword(user string) string {
 	passwordToken := uuid.NewV4().String()
-	rdbToken.Set(passwordToken, user, time.Minute*90)
+	rdbToken.Set(user, passwordToken, time.Minute*90)
 	return passwordToken
 }
 
+// CheckTokenPassword search for an user with tokens
 func CheckTokenPassword(token string) string {
-	username := rdbToken.Get(token).String()
-	return username
+	keys := rdbToken.Keys("*")
+	for _, k := range keys.Val() {
+		if rdbToken.Get(k).Val() == token {
+			return k
+		}
+	}
+	return ""
+}
+
+// DeleteTokenPassword removes all temporary tokens for user
+func DeleteTokenPassword(token string) {
+	keys := rdbToken.Keys("*")
+	for _, k := range keys.Val() {
+		if rdbToken.Get(k).Val() == token {
+			rdbToken.Del(k)
+		}
+	}
 }

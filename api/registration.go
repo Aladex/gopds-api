@@ -48,21 +48,21 @@ func Registration(c *gin.Context) {
 
 		token := sessions.GenerateTokenPassword(newUser.Login)
 
-		resetMessage := email.SendType{
-			Title: viper.GetString("email.registration.title"),
+		registrationMessage := email.SendType{
+			Title: viper.GetString("email.messages.registration.title"),
 			Token: fmt.Sprintf("%s/activate/%s",
 				viper.GetString("project_domain"),
 				token,
 			),
-			Button:  viper.GetString("email.registration.button"),
-			Message: viper.GetString("email.registration.message"),
+			Button:  viper.GetString("email.messages.registration.button"),
+			Message: viper.GetString("email.messages.registration.message"),
 			Email:   newUser.Email,
-			Subject: viper.GetString("email.registration.subject"),
-			Thanks:  viper.GetString("email.registration.thanks"),
+			Subject: viper.GetString("email.messages.registration.subject"),
+			Thanks:  viper.GetString("email.messages.registration.thanks"),
 		}
 
 		go func() {
-			err := email.SendActivationEmail(resetMessage)
+			err := email.SendActivationEmail(registrationMessage)
 			if err != nil {
 				log.Println(err)
 			}

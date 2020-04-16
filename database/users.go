@@ -11,6 +11,17 @@ import (
 	"time"
 )
 
+func UserObject(u models.LoginRequest) (models.User, error) {
+	userDB := new(models.User)
+	err := db.Model(userDB).
+		Where("username ILIKE ?", strings.ToLower(u.Login)).
+		First()
+	if err != nil {
+		return *userDB, err
+	}
+	return *userDB, nil
+}
+
 // CheckUser функция проверки пользователя и пароля в формате pbkdf2 (django)
 func CheckUser(u models.LoginRequest) (bool, models.User, error) {
 	userDB := new(models.User)
@@ -23,7 +34,7 @@ func CheckUser(u models.LoginRequest) (bool, models.User, error) {
 	}
 	pCheck, err := utils.CheckPbkdf2(u.Password, userDB.Password, sha256.Size, sha256.New)
 	if err != nil {
-		return false, *userDB, err
+		return false, *userDB, nil
 	}
 	return pCheck, *userDB, nil
 }

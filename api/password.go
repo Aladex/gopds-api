@@ -2,16 +2,12 @@ package api
 
 import (
 	"errors"
-	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
-	"github.com/spf13/viper"
 	"gopds-api/database"
-	"gopds-api/email"
 	"gopds-api/httputil"
 	"gopds-api/models"
 	"gopds-api/sessions"
-	"log"
 	"net/http"
 )
 
@@ -44,7 +40,7 @@ func ChangeUserState(c *gin.Context) {
 			Login:    username,
 			Password: token.Password,
 		}
-		_, dbUser, err := database.CheckUser(u)
+		dbUser, err := database.UserObject(u)
 		if err != nil {
 			httputil.NewError(c, http.StatusBadRequest, errors.New("invalid_user"))
 			return
@@ -76,25 +72,7 @@ func ChangeUserState(c *gin.Context) {
 			IsSuperuser: &user.IsSuperUser,
 		}
 
-		resetMessage := email.SendType{
-			Title: viper.GetString("email.reset.title"),
-			Token: fmt.Sprintf("%s/change-password/%s",
-				viper.GetString("project_domain"),
-				token.Token,
-			),
-			Button:  viper.GetString("email.reset.button"),
-			Message: viper.GetString("email.reset.message"),
-			Email:   dbUser.Email,
-			Subject: viper.GetString("email.reset.subject"),
-			Thanks:  viper.GetString("email.reset.thanks"),
-		}
-
-		go func() {
-			err := email.SendActivationEmail(resetMessage)
-			if err != nil {
-				log.Println(err)
-			}
-		}()
+		go sessions.DeleteTokenPassword(token.Token)
 
 		c.JSON(200, selfUser)
 		return
