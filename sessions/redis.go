@@ -18,14 +18,14 @@ func init() {
 	if err != nil {             // Handle errors reading the config file
 		log.Fatalf("Fatal error config file: %s \n", err)
 	}
-	rdb = RedisConnection()
+	rdb = RedisConnection(0)
 }
 
-// RedisConnection Connection to redis-master to DB 30 for terminals section
-func RedisConnection() *redis.Client {
+// RedisConnection Connection to redis-master to DB
+func RedisConnection(dbNum int) *redis.Client {
 	return redis.NewClient(&redis.Options{
 		Addr:     fmt.Sprintf("%v:%v", viper.GetString("redis.host"), viper.GetString("redis.port")),
-		Password: "",                       // no password set
-		DB:       viper.GetInt("redis.db"), // use default DB
+		Password: "",    // no password set
+		DB:       dbNum, // use default DB
 	})
 }
