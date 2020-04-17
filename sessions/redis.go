@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"github.com/go-redis/redis"
 	"github.com/spf13/viper"
-	"log"
+	"gopds-api/logging"
 )
 
 var rdb *redis.Client
 var rdbToken *redis.Client
+var customLog = logging.SetLog()
 
 func init() {
 	viper.SetConfigName("config")
@@ -17,7 +18,7 @@ func init() {
 
 	err := viper.ReadInConfig() // Find and read the config file
 	if err != nil {             // Handle errors reading the config file
-		log.Fatalf("Fatal error config file: %s \n", err)
+		customLog.Fatalf("Fatal error config file: %s \n", err)
 	}
 	rdb = RedisConnection(0)
 	rdbToken = RedisConnection(1)

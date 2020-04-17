@@ -10,7 +10,6 @@ import (
 	"gopds-api/httputil"
 	"gopds-api/models"
 	"gopds-api/sessions"
-	"log"
 	"net/http"
 )
 
@@ -64,7 +63,7 @@ func Registration(c *gin.Context) {
 		go func() {
 			err := email.SendActivationEmail(registrationMessage)
 			if err != nil {
-				log.Println(err)
+				customLog.Println(err)
 			}
 		}()
 

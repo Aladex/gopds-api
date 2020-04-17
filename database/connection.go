@@ -3,10 +3,11 @@ package database
 import (
 	"github.com/go-pg/pg/v9"
 	"github.com/spf13/viper"
-	"log"
+	"gopds-api/logging"
 )
 
 var db *pg.DB
+var customLog = logging.SetLog()
 
 func init() {
 	viper.SetConfigName("config")
@@ -15,7 +16,7 @@ func init() {
 
 	err := viper.ReadInConfig() // Find and read the config file
 	if err != nil {             // Handle errors reading the config file
-		log.Fatalf("Fatal error config file: %s \n", err)
+		customLog.Fatalf("Fatal error config file: %s \n", err)
 	}
 	db = pgConn()
 }

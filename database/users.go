@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"gopds-api/models"
 	"gopds-api/utils"
-	"log"
 	"strings"
 	"time"
 )
@@ -44,7 +43,7 @@ func CheckUser(u models.LoginRequest) (bool, models.User, error) {
 func LoginDateSet(u *models.User) {
 	_, err := db.Model(u).Set("last_login = NOW()").WherePK().Update()
 	if err != nil {
-		log.Println(err)
+		customLog.Println(err)
 	}
 }
 

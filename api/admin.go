@@ -5,9 +5,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"gopds-api/database"
 	"gopds-api/httputil"
+	"gopds-api/logging"
 	"gopds-api/models"
 	"net/http"
 )
+
+var customLog = logging.SetLog()
 
 // UsersAnswer структура ответа найденных пользователей для компонента Admin.vue
 type UsersAnswer struct {

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/go-pg/pg/v9/orm"
 	"gopds-api/models"
-	"log"
 	"strings"
 )
 
@@ -25,7 +24,7 @@ func GetBooks(filters models.BookFilters) ([]models.Book, models.Languages, int,
 		Select(&langRes)
 
 	if err != nil {
-		log.Print(err)
+		customLog.Print(err)
 		return nil, langRes, 0, err
 	}
 
@@ -69,7 +68,7 @@ func GetBooks(filters models.BookFilters) ([]models.Book, models.Languages, int,
 		Order("id DESC").
 		SelectAndCount()
 	if err != nil {
-		log.Print(err)
+		customLog.Print(err)
 		return nil, langRes, 0, err
 	}
 	return books, langRes, count, nil

@@ -7,10 +7,13 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"gopds-api/api"
 	_ "gopds-api/docs"
+	"gopds-api/logging"
 	"gopds-api/middlewares"
 	"log"
 	"net/http"
 )
+
+var customLog = logging.SetLog()
 
 func init() {
 	viper.SetConfigName("config")
@@ -48,7 +51,7 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 	route := gin.New()
-
+	route.Use(logging.GinrusLogger(customLog))
 	if viper.GetBool("app.devel_mode") {
 		route.Use(Options)
 	}

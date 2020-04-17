@@ -8,7 +8,6 @@ import (
 	"gopds-api/models"
 	"gopds-api/sessions"
 	"gopds-api/utils"
-	"log"
 	"net/http"
 	"strings"
 )
@@ -28,7 +27,7 @@ func DropAllSessions(c *gin.Context) {
 	userToken := c.Request.Header.Get("Authorization")
 	username, err := utils.CheckToken(userToken)
 	if err != nil {
-		log.Printf("user with token %s tried to drop all sessions", userToken)
+		customLog.Printf("user with token %s tried to drop all sessions", userToken)
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
 	}
@@ -104,7 +103,7 @@ func LogOut(c *gin.Context) {
 	userToken := c.Request.Header.Get("Authorization")
 	username, err := utils.CheckToken(userToken)
 	if err != nil {
-		log.Printf("%s with token %s tried to logout", username, userToken)
+		customLog.Printf("%s with token %s tried to logout", username, userToken)
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
 	}
@@ -130,7 +129,7 @@ func SelfUser(c *gin.Context) {
 	userToken := c.Request.Header.Get("Authorization")
 	username, err := utils.CheckToken(userToken)
 	if err != nil {
-		log.Printf("%s with token %s tried to get username", username, userToken)
+		customLog.Printf("%s with token %s tried to get username", username, userToken)
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
 	}
@@ -165,7 +164,7 @@ func ChangeUser(c *gin.Context) {
 	userToken := c.Request.Header.Get("Authorization")
 	username, err := utils.CheckToken(userToken)
 	if err != nil {
-		log.Printf("%s with token %s tried to get username", username, userToken)
+		customLog.Printf("%s with token %s tried to get username", username, userToken)
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
 	}
