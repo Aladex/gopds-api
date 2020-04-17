@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"github.com/go-pg/pg/v9/orm"
 	"gopds-api/models"
 	"gopds-api/utils"
 	"strings"
@@ -26,7 +27,11 @@ func UserObject(search string) (models.User, error) {
 func CheckUser(u models.LoginRequest) (bool, models.User, error) {
 	userDB := new(models.User)
 	err := db.Model(userDB).
-		Where("username ILIKE ?", strings.ToLower(u.Login)).
+		WhereGroup(func(q *orm.Query) (*orm.Query, error) {
+			q = q.WhereOr("username ILIKE ?", strings.ToLower(u.Login)).
+				WhereOr("email ILIKE ?", strings.ToLower(u.Login))
+			return q, nil
+		}).
 		Where("active = true").
 		First()
 	if err != nil {

@@ -68,13 +68,13 @@ func AuthCheck(c *gin.Context) {
 		}
 		switch res {
 		case true:
-			userToken, err := utils.CreateToken(strings.ToLower(user.Login))
+			userToken, err := utils.CreateToken(strings.ToLower(dbUser.Login))
 			if err != nil {
 				httputil.NewError(c, http.StatusForbidden, err)
 				return
 			}
 			thisUser := models.LoggedInUser{
-				User:        strings.ToLower(user.Login),
+				User:        strings.ToLower(dbUser.Login),
 				FirstName:   dbUser.FirstName,
 				LastName:    dbUser.LastName,
 				Token:       &userToken,
