@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/models"
@@ -57,6 +58,11 @@ func AuthCheck(c *gin.Context) {
 	if err := c.ShouldBindJSON(&user); err == nil {
 		res, dbUser, err := database.CheckUser(user)
 		if err != nil {
+			customLog.WithFields(logrus.Fields{
+				"action":   "login",
+				"result":   "user is not found",
+				"username": user.Login,
+			}).Info()
 			httputil.NewError(c, http.StatusForbidden, errors.New("bad_credentials"))
 			return
 		}
@@ -79,6 +85,11 @@ func AuthCheck(c *gin.Context) {
 			c.JSON(200, thisUser)
 			return
 		default:
+			customLog.WithFields(logrus.Fields{
+				"action":   "login",
+				"result":   "invalid password",
+				"username": user.Login,
+			}).Info()
 			httputil.NewError(c, http.StatusForbidden, errors.New("bad password"))
 			return
 		}
