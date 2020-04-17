@@ -124,7 +124,7 @@ func LogOut(c *gin.Context) {
 // @Success 200 {object} models.LoggedInUser
 // @Failure 400 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError
-// @Router /self-user [get]
+// @Router /books/self-user [get]
 func SelfUser(c *gin.Context) {
 	userToken := c.Request.Header.Get("Authorization")
 	username, err := utils.CheckToken(userToken)

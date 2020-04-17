@@ -1,0 +1,19 @@
+[Unit]
+Description=gopds-api
+After=network.target auditd.service
+ConditionPathExists=!/opt/gopds-api/do_not_run
+
+[Service]
+#Type=forking
+Type=simple
+WorkingDirectory=/opt/gopds-api
+EnvironmentFile=-/opt/gopds-api/
+ExecStart=/opt/gopds-api/gopds-api
+
+StandardOutput=file:/var/log/gopds-api.log
+
+KillMode=process
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

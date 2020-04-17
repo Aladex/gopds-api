@@ -478,6 +478,29 @@ paths:
           schema:
             $ref: '#/definitions/httputil.HTTPError'
       summary: возвращает JSON с книгами
+  /books/self-user:
+    get:
+      consumes:
+      - application/json
+      description: Метод для получения информации по пользователю
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.LoggedInUser'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+      summary: Метод для получения информации по пользователю
+      tags:
+      - login
   /change-password:
     post:
       consumes:
@@ -654,29 +677,6 @@ paths:
           schema:
             $ref: '#/definitions/httputil.HTTPError'
       summary: creates a new user
-      tags:
-      - login
-  /self-user:
-    get:
-      consumes:
-      - application/json
-      description: Метод для получения информации по пользователю
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/models.LoggedInUser'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/httputil.HTTPError'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/httputil.HTTPError'
-      summary: Метод для получения информации по пользователю
       tags:
       - login
   /token:
