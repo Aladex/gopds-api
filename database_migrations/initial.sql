@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
--- Dumped from database version 10.9
+-- Dumped from database version 10.12
 -- Dumped by pg_dump version 12.2 (Ubuntu 12.2-2.pgdg18.04+1)
 
 SET statement_timeout = 0;
@@ -31,7 +31,8 @@ CREATE TABLE public.auth_user (
     first_name character varying(30),
     last_name character varying(150),
     email character varying(254) NOT NULL,
-    date_joined timestamp with time zone NOT NULL
+    date_joined timestamp with time zone NOT NULL,
+    active boolean DEFAULT false
 );
 
 
