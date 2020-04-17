@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"errors"
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"gopds-api/database"
 	"gopds-api/httputil"
@@ -63,7 +64,14 @@ func GetBookFile(c *gin.Context) {
 			}
 			_, err = io.Copy(c.Writer, rc)
 			if err != nil {
-				httputil.NewError(c, http.StatusBadRequest, err)
+				customLog.WithFields(logrus.Fields{
+					"status":      c.Writer.Status(),
+					"method":      c.Request.Method,
+					"error":       "client was dropped connection",
+					"ip":          c.ClientIP(),
+					"book_format": "fb2",
+					"user-agent":  c.Request.UserAgent(),
+				}).Info()
 				return
 			}
 			return
@@ -75,14 +83,28 @@ func GetBookFile(c *gin.Context) {
 			}
 			_, err = io.Copy(c.Writer, rc)
 			if err != nil {
-				httputil.NewError(c, http.StatusBadRequest, err)
+				customLog.WithFields(logrus.Fields{
+					"status":      c.Writer.Status(),
+					"method":      c.Request.Method,
+					"error":       "client was dropped connection",
+					"ip":          c.ClientIP(),
+					"book_format": "zip",
+					"user-agent":  c.Request.UserAgent(),
+				}).Info()
 				return
 			}
 			return
 		case "epub":
 			rc, err := utils.EpubBook(book.FileName, zipPath)
 			if err != nil {
-				httputil.NewError(c, http.StatusBadRequest, err)
+				customLog.WithFields(logrus.Fields{
+					"status":      c.Writer.Status(),
+					"method":      c.Request.Method,
+					"error":       "client was dropped connection",
+					"ip":          c.ClientIP(),
+					"book_format": "epub",
+					"user-agent":  c.Request.UserAgent(),
+				}).Info()
 				return
 			}
 			_, err = io.Copy(c.Writer, rc)
@@ -99,7 +121,14 @@ func GetBookFile(c *gin.Context) {
 			}
 			_, err = io.Copy(c.Writer, rc)
 			if err != nil {
-				httputil.NewError(c, http.StatusBadRequest, err)
+				customLog.WithFields(logrus.Fields{
+					"status":      c.Writer.Status(),
+					"method":      c.Request.Method,
+					"error":       "client was dropped connection",
+					"ip":          c.ClientIP(),
+					"book_format": "mobi",
+					"user-agent":  c.Request.UserAgent(),
+				}).Info()
 				return
 			}
 			return
