@@ -164,41 +164,6 @@ ALTER SEQUENCE public.opds_catalog_bauthor_id_seq OWNED BY public.opds_catalog_b
 
 
 --
--- Name: opds_catalog_bgenre; Type: TABLE; Schema: public; Owner: sopds
---
-
-CREATE TABLE public.opds_catalog_bgenre (
-    id integer NOT NULL,
-    book_id integer NOT NULL,
-    genre_id integer NOT NULL
-);
-
-
-ALTER TABLE public.opds_catalog_bgenre OWNER TO sopds;
-
---
--- Name: opds_catalog_bgenre_id_seq; Type: SEQUENCE; Schema: public; Owner: sopds
---
-
-CREATE SEQUENCE public.opds_catalog_bgenre_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER TABLE public.opds_catalog_bgenre_id_seq OWNER TO sopds;
-
---
--- Name: opds_catalog_bgenre_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: sopds
---
-
-ALTER SEQUENCE public.opds_catalog_bgenre_id_seq OWNED BY public.opds_catalog_bgenre.id;
-
-
---
 -- Name: opds_catalog_book; Type: TABLE; Schema: public; Owner: sopds
 --
 
@@ -313,42 +278,6 @@ ALTER SEQUENCE public.opds_catalog_catalog_id_seq OWNED BY public.opds_catalog_c
 
 
 --
--- Name: opds_catalog_genre; Type: TABLE; Schema: public; Owner: sopds
---
-
-CREATE TABLE public.opds_catalog_genre (
-    id integer NOT NULL,
-    genre character varying(32) NOT NULL,
-    section character varying(64) NOT NULL,
-    subsection character varying(100) NOT NULL
-);
-
-
-ALTER TABLE public.opds_catalog_genre OWNER TO sopds;
-
---
--- Name: opds_catalog_genre_id_seq; Type: SEQUENCE; Schema: public; Owner: sopds
---
-
-CREATE SEQUENCE public.opds_catalog_genre_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER TABLE public.opds_catalog_genre_id_seq OWNER TO sopds;
-
---
--- Name: opds_catalog_genre_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: sopds
---
-
-ALTER SEQUENCE public.opds_catalog_genre_id_seq OWNED BY public.opds_catalog_genre.id;
-
-
---
 -- Name: opds_catalog_series; Type: TABLE; Schema: public; Owner: sopds
 --
 
@@ -412,13 +341,6 @@ ALTER TABLE ONLY public.opds_catalog_bauthor ALTER COLUMN id SET DEFAULT nextval
 
 
 --
--- Name: opds_catalog_bgenre id; Type: DEFAULT; Schema: public; Owner: sopds
---
-
-ALTER TABLE ONLY public.opds_catalog_bgenre ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_bgenre_id_seq'::regclass);
-
-
---
 -- Name: opds_catalog_book id; Type: DEFAULT; Schema: public; Owner: sopds
 --
 
@@ -437,13 +359,6 @@ ALTER TABLE ONLY public.opds_catalog_bseries ALTER COLUMN id SET DEFAULT nextval
 --
 
 ALTER TABLE ONLY public.opds_catalog_catalog ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_catalog_id_seq'::regclass);
-
-
---
--- Name: opds_catalog_genre id; Type: DEFAULT; Schema: public; Owner: sopds
---
-
-ALTER TABLE ONLY public.opds_catalog_genre ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_genre_id_seq'::regclass);
 
 
 --
@@ -494,14 +409,6 @@ ALTER TABLE ONLY public.opds_catalog_bauthor
 
 
 --
--- Name: opds_catalog_bgenre opds_catalog_bgenre_pkey; Type: CONSTRAINT; Schema: public; Owner: sopds
---
-
-ALTER TABLE ONLY public.opds_catalog_bgenre
-    ADD CONSTRAINT opds_catalog_bgenre_pkey PRIMARY KEY (id);
-
-
---
 -- Name: opds_catalog_book opds_catalog_book_pkey; Type: CONSTRAINT; Schema: public; Owner: sopds
 --
 
@@ -523,14 +430,6 @@ ALTER TABLE ONLY public.opds_catalog_bseries
 
 ALTER TABLE ONLY public.opds_catalog_catalog
     ADD CONSTRAINT opds_catalog_catalog_pkey PRIMARY KEY (id);
-
-
---
--- Name: opds_catalog_genre opds_catalog_genre_pkey; Type: CONSTRAINT; Schema: public; Owner: sopds
---
-
-ALTER TABLE ONLY public.opds_catalog_genre
-    ADD CONSTRAINT opds_catalog_genre_pkey PRIMARY KEY (id);
 
 
 --
@@ -574,20 +473,6 @@ CREATE INDEX opds_catalog_bauthor_author_id_f7332d70 ON public.opds_catalog_baut
 --
 
 CREATE INDEX opds_catalog_bauthor_book_id_b5787ec8 ON public.opds_catalog_bauthor USING btree (book_id);
-
-
---
--- Name: opds_catalog_bgenre_book_id_dc74ba5a; Type: INDEX; Schema: public; Owner: sopds
---
-
-CREATE INDEX opds_catalog_bgenre_book_id_dc74ba5a ON public.opds_catalog_bgenre USING btree (book_id);
-
-
---
--- Name: opds_catalog_bgenre_genre_id_8b5bd007; Type: INDEX; Schema: public; Owner: sopds
---
-
-CREATE INDEX opds_catalog_bgenre_genre_id_8b5bd007 ON public.opds_catalog_bgenre USING btree (genre_id);
 
 
 --
@@ -675,48 +560,6 @@ CREATE INDEX opds_catalog_catalog_cat_name_75c73cd5_like ON public.opds_catalog_
 
 
 --
--- Name: opds_catalog_genre_genre_aef7d330; Type: INDEX; Schema: public; Owner: sopds
---
-
-CREATE INDEX opds_catalog_genre_genre_aef7d330 ON public.opds_catalog_genre USING btree (genre);
-
-
---
--- Name: opds_catalog_genre_genre_aef7d330_like; Type: INDEX; Schema: public; Owner: sopds
---
-
-CREATE INDEX opds_catalog_genre_genre_aef7d330_like ON public.opds_catalog_genre USING btree (genre varchar_pattern_ops);
-
-
---
--- Name: opds_catalog_genre_section_43ee441e; Type: INDEX; Schema: public; Owner: sopds
---
-
-CREATE INDEX opds_catalog_genre_section_43ee441e ON public.opds_catalog_genre USING btree (section);
-
-
---
--- Name: opds_catalog_genre_section_43ee441e_like; Type: INDEX; Schema: public; Owner: sopds
---
-
-CREATE INDEX opds_catalog_genre_section_43ee441e_like ON public.opds_catalog_genre USING btree (section varchar_pattern_ops);
-
-
---
--- Name: opds_catalog_genre_subsection_4b8b119e; Type: INDEX; Schema: public; Owner: sopds
---
-
-CREATE INDEX opds_catalog_genre_subsection_4b8b119e ON public.opds_catalog_genre USING btree (subsection);
-
-
---
--- Name: opds_catalog_genre_subsection_4b8b119e_like; Type: INDEX; Schema: public; Owner: sopds
---
-
-CREATE INDEX opds_catalog_genre_subsection_4b8b119e_like ON public.opds_catalog_genre USING btree (subsection varchar_pattern_ops);
-
-
---
 -- Name: opds_catalog_series_lang_code_d62fcb5f; Type: INDEX; Schema: public; Owner: sopds
 --
 
@@ -751,22 +594,6 @@ ALTER TABLE ONLY public.opds_catalog_bauthor
 
 ALTER TABLE ONLY public.opds_catalog_bauthor
     ADD CONSTRAINT opds_catalog_bauthor_book_id_b5787ec8_fk_opds_catalog_book_id FOREIGN KEY (book_id) REFERENCES public.opds_catalog_book(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
--- Name: opds_catalog_bgenre opds_catalog_bgenre_book_id_dc74ba5a_fk_opds_catalog_book_id; Type: FK CONSTRAINT; Schema: public; Owner: sopds
---
-
-ALTER TABLE ONLY public.opds_catalog_bgenre
-    ADD CONSTRAINT opds_catalog_bgenre_book_id_dc74ba5a_fk_opds_catalog_book_id FOREIGN KEY (book_id) REFERENCES public.opds_catalog_book(id) DEFERRABLE INITIALLY DEFERRED;
-
-
---
--- Name: opds_catalog_bgenre opds_catalog_bgenre_genre_id_8b5bd007_fk_opds_catalog_genre_id; Type: FK CONSTRAINT; Schema: public; Owner: sopds
---
-
-ALTER TABLE ONLY public.opds_catalog_bgenre
-    ADD CONSTRAINT opds_catalog_bgenre_genre_id_8b5bd007_fk_opds_catalog_genre_id FOREIGN KEY (genre_id) REFERENCES public.opds_catalog_genre(id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
