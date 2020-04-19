@@ -28,15 +28,15 @@ func GetBooks(filters models.BookFilters) ([]models.Book, models.Languages, int,
 		return nil, langRes, 0, err
 	}
 
-	titles := strings.Split(filters.Title, " ")
-
 	count, err := db.Model(&books).
 		Relation("Authors").
 		Relation("Series").
 		WhereGroup(func(q *orm.Query) (*orm.Query, error) {
-			for _, t := range titles {
-				likeTitle := fmt.Sprintf("%%%s%%", t)
-				q = q.Where("title ILIKE ?", likeTitle)
+			if filters.Title != "" && filters.Author == 0 {
+				q = q.Where("title % ?", filters.Title).
+					OrderExpr("title <-> ? ASC", filters.Title)
+			} else {
+				q = q.Order("id DESC")
 			}
 			if filters.Lang != "" {
 				q = q.Where("lang = ?", filters.Lang)
@@ -48,6 +48,9 @@ func GetBooks(filters models.BookFilters) ([]models.Book, models.Languages, int,
 					Where("author_id = ?", filters.Author).
 					Select(&booksIds)
 				if err == nil {
+					for _, title := range strings.Split(filters.Title, " ") {
+						q = q.Where("title ILIKE ?", fmt.Sprintf("%%%s%%", title))
+					}
 					q = q.WhereIn("id IN (?)", booksIds)
 				}
 			}
@@ -65,7 +68,6 @@ func GetBooks(filters models.BookFilters) ([]models.Book, models.Languages, int,
 		}).
 		Limit(filters.Limit).
 		Offset(filters.Offset).
-		Order("id DESC").
 		SelectAndCount()
 	if err != nil {
 		customLog.Print(err)
