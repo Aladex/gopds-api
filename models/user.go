@@ -46,8 +46,8 @@ type RegisterRequest struct {
 // Invite структура инвайта в бд
 type Invite struct {
 	tableName struct{} `pg:"invites,discard_unknown_columns" json:"-"`
-	ID        int64    `pg:"id,pk"`
-	Invite    string   `pg:"invite"`
+	ID        int64    `pg:"id,pk" json:"id"`
+	Invite    string   `pg:"invite" json:"invite"`
 }
 
 // CheckValues проверка формы на валидность email, имени пользователя и длины пароля
@@ -58,7 +58,7 @@ func (r RegisterRequest) CheckValues() bool {
 	if !emailRegex.MatchString(r.Email) {
 		return false
 	}
-	loginMatch, err := regexp.Match("[a-zA-Z0-9]", []byte(r.Login))
+	loginMatch, err := regexp.Match("^[a-zA-Z0-9-_]+$", []byte(r.Login))
 	if err != nil {
 		return loginMatch
 	}
@@ -73,7 +73,6 @@ type UserFilters struct {
 	Limit    int    `form:"limit" json:"limit"`
 	Offset   int    `form:"offset" json:"offset"`
 	Username string `form:"username" json:"username"`
-	Email    string `form:"email" json:"email"`
 	Order    string `form:"order" json:"order"`
 	DESC     bool   `form:"desc" json:"desc"`
 }

@@ -77,6 +77,15 @@ func CheckInvite(i string) (bool, error) {
 	return true, nil
 }
 
+// GetInvites returns a list of all invites in db
+func GetInvites(invites *[]models.Invite) error {
+	err := db.Model(invites).Select()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // GetUser function for return users object by username
 func GetUser(u string) (models.User, error) {
 	userDB := new(models.User)
@@ -102,12 +111,11 @@ func GetUserList(filters models.UserFilters) ([]models.User, int, error) {
 		orderBy += " ASC"
 	}
 	likeUser := fmt.Sprintf("%%%s%%", filters.Username)
-	likeEmail := fmt.Sprintf("%%%s%%", filters.Email)
 	count, err := db.Model(&users).
 		Limit(filters.Limit).
 		Offset(filters.Offset).
-		Where("username ILIKE ?", likeUser).
-		Where("email ILIKE ?", likeEmail).
+		WhereOr("username ILIKE ?", likeUser).
+		WhereOr("email ILIKE ?", likeUser).
 		Order(orderBy).
 		SelectAndCount()
 	if err != nil {

@@ -51,3 +51,13 @@ func GetUsers(c *gin.Context) {
 	}
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
 }
+
+func GetInvites(c *gin.Context) {
+	var invites []models.Invite
+	err := database.GetInvites(&invites)
+	if err != nil {
+		httputil.NewError(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(200, invites)
+}
