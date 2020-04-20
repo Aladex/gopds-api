@@ -92,6 +92,7 @@ func main() {
 	{
 		adminGroup.POST("/users", api.GetUsers)
 		adminGroup.GET("/invites", api.GetInvites)
+		adminGroup.POST("/invite", api.ChangeInvite)
 		adminGroup.POST("/user", api.ActionUser)
 	}
 

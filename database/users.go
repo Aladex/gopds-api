@@ -77,6 +77,37 @@ func CheckInvite(i string) (bool, error) {
 	return true, nil
 }
 
+func ChangeInvite(request models.InviteRequest) error {
+	var invite models.Invite
+
+	switch request.Action {
+	case "create":
+		invite.Invite = request.Invite.Invite
+		_, err := db.Model(&invite).Insert()
+		if err != nil {
+			return err
+		}
+		return nil
+	case "delete":
+		_, err := db.Model(&invite).Where("id = ?", request.Invite.ID).Delete()
+		if err != nil {
+			return err
+		}
+		return nil
+	case "update":
+		_, err := db.Model(&invite).
+			Set("invite = ?", request.Invite.Invite).
+			Where("id = ?", request.Invite.ID).
+			Update()
+		if err != nil {
+			return err
+		}
+		return nil
+	default:
+		return errors.New("invalid_action")
+	}
+}
+
 // GetInvites returns a list of all invites in db
 func GetInvites(invites *[]models.Invite) error {
 	err := db.Model(invites).Select()

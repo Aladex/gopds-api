@@ -52,6 +52,18 @@ func GetUsers(c *gin.Context) {
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
 }
 
+// GetInvites возвращает лист из инвайтов
+// Auth godoc
+// @Summary возвращает лист из инвайтов
+// @Description возвращает лист из инвайтов
+// @Tags admin
+// @Param Authorization header string true "Just token without bearer"
+// @Accept  json
+// @Produce  json
+// @Success 200 {object} []models.Invite
+// @Failure 500 {object} httputil.HTTPError
+// @Failure 403 {object} httputil.HTTPError
+// @Router /admin/invites [get]
 func GetInvites(c *gin.Context) {
 	var invites []models.Invite
 	err := database.GetInvites(&invites)
@@ -60,4 +72,21 @@ func GetInvites(c *gin.Context) {
 		return
 	}
 	c.JSON(200, invites)
+}
+
+func ChangeInvite(c *gin.Context) {
+	var inviteRequest models.InviteRequest
+	if err := c.ShouldBindJSON(&inviteRequest); err == nil {
+		err := database.ChangeInvite(inviteRequest)
+		if err != nil {
+			httputil.NewError(c, http.StatusInternalServerError, err)
+			return
+		}
+		c.JSON(200, models.Result{
+			Result: "result_ok",
+			Error:  nil,
+		})
+		return
+	}
+	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
 }
