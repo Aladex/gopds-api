@@ -45,9 +45,10 @@ type RegisterRequest struct {
 
 // Invite структура инвайта в бд
 type Invite struct {
-	tableName struct{} `pg:"invites,discard_unknown_columns" json:"-"`
-	ID        int64    `pg:"id,pk" json:"id"`
-	Invite    string   `pg:"invite" json:"invite"`
+	tableName  struct{}  `pg:"invites,discard_unknown_columns" json:"-"`
+	ID         int64     `pg:"id,pk" json:"id" form:"id"`
+	Invite     string    `pg:"invite" json:"invite" form:"invite"`
+	BeforeDate time.Time `pg:"before_date" json:"before_date" form:"before_date" time_format:"2006-01-02T15:04:05Z07:00"`
 }
 
 // CheckValues проверка формы на валидность email, имени пользователя и длины пароля

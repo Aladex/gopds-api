@@ -70,7 +70,10 @@ func CreateUser(u models.RegisterRequest) error {
 
 // CheckInvite check for invite in database
 func CheckInvite(i string) (bool, error) {
-	err := db.Model(&models.Invite{}).Where("invite = ?", i).First()
+	err := db.Model(&models.Invite{}).
+		Where("invite = ?", i).
+		Where("before_date > ?", time.Now()).
+		First()
 	if err != nil {
 		return false, err
 	}
@@ -97,6 +100,7 @@ func ChangeInvite(request models.InviteRequest) error {
 	case "update":
 		_, err := db.Model(&invite).
 			Set("invite = ?", request.Invite.Invite).
+			Set("before_date = ?", request.Invite.BeforeDate).
 			Where("id = ?", request.Invite.ID).
 			Update()
 		if err != nil {

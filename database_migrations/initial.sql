@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
--- Dumped from database version 10.12
+-- Dumped from database version 12.2
 -- Dumped by pg_dump version 12.2 (Ubuntu 12.2-2.pgdg18.04+1)
 
 SET statement_timeout = 0;
@@ -16,7 +16,23 @@ SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
 
+--
+-- Name: pg_trgm; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
+
+
+--
+-- Name: EXTENSION pg_trgm; Type: COMMENT; Schema: -; Owner: 
+--
+
+COMMENT ON EXTENSION pg_trgm IS 'text similarity measurement and index searching based on trigrams';
+
+
 SET default_tablespace = '';
+
+SET default_table_access_method = heap;
 
 --
 -- Name: auth_user; Type: TABLE; Schema: public; Owner: sopds
@@ -66,7 +82,8 @@ ALTER SEQUENCE public.auth_user_id_seq OWNED BY public.auth_user.id;
 
 CREATE TABLE public.invites (
     id integer NOT NULL,
-    invite character varying(128) NOT NULL
+    invite character varying(128) NOT NULL,
+    before_date timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
