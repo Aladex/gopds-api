@@ -12,6 +12,102 @@
     },
     "basePath": "/api",
     "paths": {
+        "/admin/invite": {
+            "post": {
+                "description": "метод для изменения или добавления инвайта",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "метод для изменения или добавления инвайта",
+                "parameters": [
+                    {
+                        "description": "Invite params",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.InviteRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.Result"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/invites": {
+            "get": {
+                "description": "возвращает лист из инвайтов",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "возвращает лист из инвайтов",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Just token without bearer",
+                        "name": "Authorization",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.Result"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/user": {
             "post": {
                 "description": "user object",
@@ -921,6 +1017,29 @@
                 }
             }
         },
+        "models.Invite": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "invite": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.InviteRequest": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string"
+                },
+                "invite": {
+                    "type": "object",
+                    "$ref": "#/definitions/models.Invite"
+                }
+            }
+        },
         "models.Languages": {
             "type": "array",
             "items": {
@@ -990,6 +1109,17 @@
                 },
                 "username": {
                     "type": "string"
+                }
+            }
+        },
+        "models.Result": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "object"
+                },
+                "result": {
+                    "type": "object"
                 }
             }
         },
@@ -1067,9 +1197,6 @@
             "properties": {
                 "desc": {
                     "type": "boolean"
-                },
-                "email": {
-                    "type": "string"
                 },
                 "limit": {
                     "type": "integer"

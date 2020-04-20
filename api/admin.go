@@ -60,7 +60,7 @@ func GetUsers(c *gin.Context) {
 // @Param Authorization header string true "Just token without bearer"
 // @Accept  json
 // @Produce  json
-// @Success 200 {object} []models.Invite
+// @Success 200 {object} models.Result
 // @Failure 500 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError
 // @Router /admin/invites [get]
@@ -71,9 +71,25 @@ func GetInvites(c *gin.Context) {
 		httputil.NewError(c, http.StatusInternalServerError, err)
 		return
 	}
-	c.JSON(200, invites)
+	c.JSON(200, models.Result{
+		Result: invites,
+		Error:  nil,
+	})
 }
 
+// ChangeInvite метод для изменения или добавления инвайта
+// Auth godoc
+// @Summary метод для изменения или добавления инвайта
+// @Description метод для изменения или добавления инвайта
+// @Tags admin
+// @Accept  json
+// @Produce  json
+// @Param  body body models.InviteRequest true "Invite params"
+// @Success 200 {object} models.Result
+// @Failure 400 {object} httputil.HTTPError
+// @Failure 403 {object} httputil.HTTPError
+// @Failure 500 {object} httputil.HTTPError
+// @Router /admin/invite [post]
 func ChangeInvite(c *gin.Context) {
 	var inviteRequest models.InviteRequest
 	if err := c.ShouldBindJSON(&inviteRequest); err == nil {

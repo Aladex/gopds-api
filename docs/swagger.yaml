@@ -108,6 +108,21 @@ definitions:
     - book_id
     - format
     type: object
+  models.Invite:
+    properties:
+      id:
+        type: integer
+      invite:
+        type: string
+    type: object
+  models.InviteRequest:
+    properties:
+      action:
+        type: string
+      invite:
+        $ref: '#/definitions/models.Invite'
+        type: object
+    type: object
   models.Languages:
     items:
       properties:
@@ -155,6 +170,13 @@ definitions:
     - invite
     - password
     - username
+    type: object
+  models.Result:
+    properties:
+      error:
+        type: object
+      result:
+        type: object
     type: object
   models.SelfUserChangeRequest:
     properties:
@@ -205,8 +227,6 @@ definitions:
     properties:
       desc:
         type: boolean
-      email:
-        type: string
       limit:
         type: integer
       offset:
@@ -225,6 +245,69 @@ info:
   title: GOPDS API
   version: "1.0"
 paths:
+  /admin/invite:
+    post:
+      consumes:
+      - application/json
+      description: метод для изменения или добавления инвайта
+      parameters:
+      - description: Invite params
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.InviteRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Result'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+      summary: метод для изменения или добавления инвайта
+      tags:
+      - admin
+  /admin/invites:
+    get:
+      consumes:
+      - application/json
+      description: возвращает лист из инвайтов
+      parameters:
+      - description: Just token without bearer
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Result'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+      summary: возвращает лист из инвайтов
+      tags:
+      - admin
   /admin/user:
     post:
       consumes:
