@@ -85,7 +85,7 @@ func ChangeInvite(request models.InviteRequest) error {
 
 	switch request.Action {
 	case "create":
-		invite.Invite = request.Invite.Invite
+		invite = request.Invite
 		_, err := db.Model(&invite).Insert()
 		if err != nil {
 			return err

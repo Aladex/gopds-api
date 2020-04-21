@@ -65,7 +65,7 @@ func GetUsers(c *gin.Context) {
 // @Failure 403 {object} httputil.HTTPError
 // @Router /admin/invites [get]
 func GetInvites(c *gin.Context) {
-	var invites []models.Invite
+	invites := []models.Invite{}
 	err := database.GetInvites(&invites)
 	if err != nil {
 		httputil.NewError(c, http.StatusInternalServerError, err)
