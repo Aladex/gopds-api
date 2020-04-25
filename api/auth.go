@@ -74,7 +74,7 @@ func AuthCheck(c *gin.Context) {
 				return
 			}
 			thisUser := models.LoggedInUser{
-				User:        strings.ToLower(dbUser.Login),
+				User:        dbUser.Login,
 				FirstName:   dbUser.FirstName,
 				LastName:    dbUser.LastName,
 				Token:       &userToken,
@@ -144,17 +144,19 @@ func SelfUser(c *gin.Context) {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
 	}
-	selfUser := models.LoggedInUser{
-		User: strings.ToLower(username),
-	}
+
 	dbUser, err := database.GetUser(strings.ToLower(username))
 	if err != nil {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
 	}
-	selfUser.IsSuperuser = &dbUser.IsSuperUser
-	selfUser.FirstName = dbUser.FirstName
-	selfUser.LastName = dbUser.LastName
+	selfUser := models.LoggedInUser{
+		User:        dbUser.Login,
+		IsSuperuser: &dbUser.IsSuperUser,
+		FirstName:   dbUser.FirstName,
+		LastName:    dbUser.LastName,
+	}
+
 	c.JSON(200, selfUser)
 }
 

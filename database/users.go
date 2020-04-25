@@ -55,7 +55,7 @@ func LoginDateSet(u *models.User) {
 // CreateUser function creates a new user in database
 func CreateUser(u models.RegisterRequest) error {
 	userDB := models.User{
-		Login:       strings.ToLower(u.Login),
+		Login:       u.Login,
 		Password:    utils.CreatePasswordHash(u.Password),
 		IsSuperUser: false,
 		Email:       strings.ToLower(u.Email),
