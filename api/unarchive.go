@@ -12,8 +12,11 @@ import (
 	"gopds-api/utils"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 )
+
+var nameRegExp = regexp.MustCompile(`[^A-Za-z0-9а-яА-ЯёЁ]`)
 
 // GetBookFile returns file of book in answered type
 // Auth godoc
@@ -37,7 +40,7 @@ func GetBookFile(c *gin.Context) {
 			httputil.NewError(c, http.StatusNotFound, err)
 			return
 		}
-		downloadName := strings.Join(strings.Split(strings.ToLower(book.Title), " "), "_")
+		downloadName := nameRegExp.ReplaceAllString(strings.ToLower(book.Title), `_`)
 
 		zipPath := viper.GetString("app.files_path") + book.Path
 		r, err := zip.OpenReader(zipPath)
