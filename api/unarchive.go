@@ -3,6 +3,7 @@ package api
 import (
 	"archive/zip"
 	"errors"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -17,6 +18,12 @@ import (
 )
 
 var nameRegExp = regexp.MustCompile(`[^A-Za-z0-9а-яА-ЯёЁ]`)
+var bookTypes = map[string]string{
+	"fb2":  "application/x-fictionbook",
+	"zip":  "application/zip",
+	"epub": "application/epub+zip",
+	"mobi": "application/x-mobipocket-ebook",
+}
 
 // GetBookFile returns file of book in answered type
 // Auth godoc
@@ -33,6 +40,8 @@ var nameRegExp = regexp.MustCompile(`[^A-Za-z0-9а-яА-ЯёЁ]`)
 // @Router /books/file [post]
 func GetBookFile(c *gin.Context) {
 	var bookRequest models.BookDownload
+	var rc io.ReadCloser
+	contentDisp := "attachment; filename=%s.%s"
 	if err := c.ShouldBindJSON(&bookRequest); err == nil {
 
 		book, err := database.GetBook(bookRequest.BookID)
@@ -41,6 +50,7 @@ func GetBookFile(c *gin.Context) {
 			return
 		}
 		downloadName := nameRegExp.ReplaceAllString(strings.ToLower(book.Title), `_`)
+		downloadName = utils.Translit(downloadName)
 
 		zipPath := viper.GetString("app.files_path") + book.Path
 		r, err := zip.OpenReader(zipPath)
@@ -55,90 +65,58 @@ func GetBookFile(c *gin.Context) {
 				return
 			}
 		}()
-		header := c.Writer.Header()
-		header["Content-type"] = []string{"application/octet-stream"}
-		header["Content-Disposition"] = []string{"attachment; filename= " + downloadName}
+
 		switch bookRequest.Format {
 		case "fb2":
-			rc, err := utils.FB2Book(book.FileName, zipPath)
+			c.Header("Content-Disposition", fmt.Sprintf(contentDisp, downloadName, bookRequest.Format))
+			rc, err = utils.FB2Book(book.FileName, zipPath)
 			if err != nil {
 				httputil.NewError(c, http.StatusBadRequest, err)
 				return
 			}
-			_, err = io.Copy(c.Writer, rc)
-			if err != nil {
-				customLog.WithFields(logrus.Fields{
-					"status":      c.Writer.Status(),
-					"method":      c.Request.Method,
-					"error":       "client was dropped connection",
-					"ip":          c.ClientIP(),
-					"book_format": "fb2",
-					"user-agent":  c.Request.UserAgent(),
-				}).Info()
-				return
-			}
-			return
+
 		case "zip":
-			rc, err := utils.ZipBook(downloadName, book.FileName, zipPath)
+			rc, err = utils.ZipBook(downloadName, book.FileName, zipPath)
 			if err != nil {
 				httputil.NewError(c, http.StatusBadRequest, err)
 				return
 			}
-			_, err = io.Copy(c.Writer, rc)
-			if err != nil {
-				customLog.WithFields(logrus.Fields{
-					"status":      c.Writer.Status(),
-					"method":      c.Request.Method,
-					"error":       "client was dropped connection",
-					"ip":          c.ClientIP(),
-					"book_format": "zip",
-					"user-agent":  c.Request.UserAgent(),
-				}).Info()
-				return
-			}
-			return
+
 		case "epub":
-			rc, err := utils.EpubBook(book.FileName, zipPath)
-			if err != nil {
-				customLog.WithFields(logrus.Fields{
-					"status":      c.Writer.Status(),
-					"method":      c.Request.Method,
-					"error":       "client was dropped connection",
-					"ip":          c.ClientIP(),
-					"book_format": "epub",
-					"user-agent":  c.Request.UserAgent(),
-				}).Info()
-				return
-			}
-			_, err = io.Copy(c.Writer, rc)
+			rc, err = utils.EpubBook(book.FileName, zipPath)
 			if err != nil {
 				httputil.NewError(c, http.StatusBadRequest, err)
 				return
 			}
-			return
+
 		case "mobi":
-			rc, err := utils.MobiBook(book.FileName, zipPath)
+			rc, err = utils.MobiBook(book.FileName, zipPath)
 			if err != nil {
 				httputil.NewError(c, http.StatusBadRequest, err)
 				return
 			}
-			_, err = io.Copy(c.Writer, rc)
-			if err != nil {
-				customLog.WithFields(logrus.Fields{
-					"status":      c.Writer.Status(),
-					"method":      c.Request.Method,
-					"error":       "client was dropped connection",
-					"ip":          c.ClientIP(),
-					"book_format": "mobi",
-					"user-agent":  c.Request.UserAgent(),
-				}).Info()
-				return
-			}
-			return
+
 		default:
 			httputil.NewError(c, http.StatusBadRequest, errors.New("unknown file format"))
 			return
 		}
+		c.Header("Content-Disposition", fmt.Sprintf(contentDisp, downloadName, bookRequest.Format))
+		c.Header("Content-Type", bookTypes[bookRequest.Format])
+		_, err = io.Copy(c.Writer, rc)
+
+		if err != nil {
+			customLog.WithFields(logrus.Fields{
+				"status":      c.Writer.Status(),
+				"method":      c.Request.Method,
+				"error":       "client was dropped connection",
+				"ip":          c.ClientIP(),
+				"book_format": bookRequest.Format,
+				"user-agent":  c.Request.UserAgent(),
+			}).Info()
+			return
+		}
+		return
+
 	}
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
 }
