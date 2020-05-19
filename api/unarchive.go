@@ -17,7 +17,7 @@ import (
 	"strings"
 )
 
-var nameRegExp = regexp.MustCompile(`[^A-Za-z0-9а-яА-ЯёЁ]`)
+var nameRegExp = regexp.MustCompile(`[^A-Za-z0-9а-яА-ЯёЁ]+`)
 var bookTypes = map[string]string{
 	"fb2":  "application/x-fictionbook",
 	"zip":  "application/zip",
