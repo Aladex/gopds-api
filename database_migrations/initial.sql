@@ -2,8 +2,8 @@
 -- PostgreSQL database dump
 --
 
--- Dumped from database version 12.2
--- Dumped by pg_dump version 12.2 (Ubuntu 12.2-2.pgdg18.04+1)
+-- Dumped from database version 12.2 (Ubuntu 12.2-2.pgdg18.04+1)
+-- Dumped by pg_dump version 12.2 (Ubuntu 12.2-4)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -35,7 +35,7 @@ SET default_tablespace = '';
 SET default_table_access_method = heap;
 
 --
--- Name: auth_user; Type: TABLE; Schema: public; Owner: sopds
+-- Name: auth_user; Type: TABLE; Schema: public; Owner: gopds
 --
 
 CREATE TABLE public.auth_user (
@@ -52,10 +52,10 @@ CREATE TABLE public.auth_user (
 );
 
 
-ALTER TABLE public.auth_user OWNER TO sopds;
+ALTER TABLE public.auth_user OWNER TO gopds;
 
 --
--- Name: auth_user_id_seq; Type: SEQUENCE; Schema: public; Owner: sopds
+-- Name: auth_user_id_seq; Type: SEQUENCE; Schema: public; Owner: gopds
 --
 
 CREATE SEQUENCE public.auth_user_id_seq
@@ -67,17 +67,17 @@ CREATE SEQUENCE public.auth_user_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.auth_user_id_seq OWNER TO sopds;
+ALTER TABLE public.auth_user_id_seq OWNER TO gopds;
 
 --
--- Name: auth_user_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: sopds
+-- Name: auth_user_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: gopds
 --
 
 ALTER SEQUENCE public.auth_user_id_seq OWNED BY public.auth_user.id;
 
 
 --
--- Name: invites; Type: TABLE; Schema: public; Owner: sopds
+-- Name: invites; Type: TABLE; Schema: public; Owner: gopds
 --
 
 CREATE TABLE public.invites (
@@ -87,10 +87,10 @@ CREATE TABLE public.invites (
 );
 
 
-ALTER TABLE public.invites OWNER TO sopds;
+ALTER TABLE public.invites OWNER TO gopds;
 
 --
--- Name: invites_id_seq; Type: SEQUENCE; Schema: public; Owner: sopds
+-- Name: invites_id_seq; Type: SEQUENCE; Schema: public; Owner: gopds
 --
 
 CREATE SEQUENCE public.invites_id_seq
@@ -102,17 +102,17 @@ CREATE SEQUENCE public.invites_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.invites_id_seq OWNER TO sopds;
+ALTER TABLE public.invites_id_seq OWNER TO gopds;
 
 --
--- Name: invites_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: sopds
+-- Name: invites_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: gopds
 --
 
 ALTER SEQUENCE public.invites_id_seq OWNED BY public.invites.id;
 
 
 --
--- Name: opds_catalog_author; Type: TABLE; Schema: public; Owner: sopds
+-- Name: opds_catalog_author; Type: TABLE; Schema: public; Owner: gopds
 --
 
 CREATE TABLE public.opds_catalog_author (
@@ -121,10 +121,10 @@ CREATE TABLE public.opds_catalog_author (
 );
 
 
-ALTER TABLE public.opds_catalog_author OWNER TO sopds;
+ALTER TABLE public.opds_catalog_author OWNER TO gopds;
 
 --
--- Name: opds_catalog_author_id_seq; Type: SEQUENCE; Schema: public; Owner: sopds
+-- Name: opds_catalog_author_id_seq; Type: SEQUENCE; Schema: public; Owner: gopds
 --
 
 CREATE SEQUENCE public.opds_catalog_author_id_seq
@@ -136,17 +136,17 @@ CREATE SEQUENCE public.opds_catalog_author_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.opds_catalog_author_id_seq OWNER TO sopds;
+ALTER TABLE public.opds_catalog_author_id_seq OWNER TO gopds;
 
 --
--- Name: opds_catalog_author_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: sopds
+-- Name: opds_catalog_author_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: gopds
 --
 
 ALTER SEQUENCE public.opds_catalog_author_id_seq OWNED BY public.opds_catalog_author.id;
 
 
 --
--- Name: opds_catalog_bauthor; Type: TABLE; Schema: public; Owner: sopds
+-- Name: opds_catalog_bauthor; Type: TABLE; Schema: public; Owner: gopds
 --
 
 CREATE TABLE public.opds_catalog_bauthor (
@@ -156,10 +156,10 @@ CREATE TABLE public.opds_catalog_bauthor (
 );
 
 
-ALTER TABLE public.opds_catalog_bauthor OWNER TO sopds;
+ALTER TABLE public.opds_catalog_bauthor OWNER TO gopds;
 
 --
--- Name: opds_catalog_bauthor_id_seq; Type: SEQUENCE; Schema: public; Owner: sopds
+-- Name: opds_catalog_bauthor_id_seq; Type: SEQUENCE; Schema: public; Owner: gopds
 --
 
 CREATE SEQUENCE public.opds_catalog_bauthor_id_seq
@@ -171,17 +171,17 @@ CREATE SEQUENCE public.opds_catalog_bauthor_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.opds_catalog_bauthor_id_seq OWNER TO sopds;
+ALTER TABLE public.opds_catalog_bauthor_id_seq OWNER TO gopds;
 
 --
--- Name: opds_catalog_bauthor_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: sopds
+-- Name: opds_catalog_bauthor_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: gopds
 --
 
 ALTER SEQUENCE public.opds_catalog_bauthor_id_seq OWNED BY public.opds_catalog_bauthor.id;
 
 
 --
--- Name: opds_catalog_book; Type: TABLE; Schema: public; Owner: sopds
+-- Name: opds_catalog_book; Type: TABLE; Schema: public; Owner: gopds
 --
 
 CREATE TABLE public.opds_catalog_book (
@@ -199,10 +199,10 @@ CREATE TABLE public.opds_catalog_book (
 WITH (fillfactor='50');
 
 
-ALTER TABLE public.opds_catalog_book OWNER TO sopds;
+ALTER TABLE public.opds_catalog_book OWNER TO gopds;
 
 --
--- Name: opds_catalog_book_id_seq; Type: SEQUENCE; Schema: public; Owner: sopds
+-- Name: opds_catalog_book_id_seq; Type: SEQUENCE; Schema: public; Owner: gopds
 --
 
 CREATE SEQUENCE public.opds_catalog_book_id_seq
@@ -214,17 +214,17 @@ CREATE SEQUENCE public.opds_catalog_book_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.opds_catalog_book_id_seq OWNER TO sopds;
+ALTER TABLE public.opds_catalog_book_id_seq OWNER TO gopds;
 
 --
--- Name: opds_catalog_book_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: sopds
+-- Name: opds_catalog_book_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: gopds
 --
 
 ALTER SEQUENCE public.opds_catalog_book_id_seq OWNED BY public.opds_catalog_book.id;
 
 
 --
--- Name: opds_catalog_bseries; Type: TABLE; Schema: public; Owner: sopds
+-- Name: opds_catalog_bseries; Type: TABLE; Schema: public; Owner: gopds
 --
 
 CREATE TABLE public.opds_catalog_bseries (
@@ -235,10 +235,10 @@ CREATE TABLE public.opds_catalog_bseries (
 );
 
 
-ALTER TABLE public.opds_catalog_bseries OWNER TO sopds;
+ALTER TABLE public.opds_catalog_bseries OWNER TO gopds;
 
 --
--- Name: opds_catalog_bseries_id_seq; Type: SEQUENCE; Schema: public; Owner: sopds
+-- Name: opds_catalog_bseries_id_seq; Type: SEQUENCE; Schema: public; Owner: gopds
 --
 
 CREATE SEQUENCE public.opds_catalog_bseries_id_seq
@@ -250,17 +250,17 @@ CREATE SEQUENCE public.opds_catalog_bseries_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.opds_catalog_bseries_id_seq OWNER TO sopds;
+ALTER TABLE public.opds_catalog_bseries_id_seq OWNER TO gopds;
 
 --
--- Name: opds_catalog_bseries_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: sopds
+-- Name: opds_catalog_bseries_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: gopds
 --
 
 ALTER SEQUENCE public.opds_catalog_bseries_id_seq OWNED BY public.opds_catalog_bseries.id;
 
 
 --
--- Name: opds_catalog_catalog; Type: TABLE; Schema: public; Owner: sopds
+-- Name: opds_catalog_catalog; Type: TABLE; Schema: public; Owner: gopds
 --
 
 CREATE TABLE public.opds_catalog_catalog (
@@ -270,10 +270,10 @@ CREATE TABLE public.opds_catalog_catalog (
 );
 
 
-ALTER TABLE public.opds_catalog_catalog OWNER TO sopds;
+ALTER TABLE public.opds_catalog_catalog OWNER TO gopds;
 
 --
--- Name: opds_catalog_catalog_id_seq; Type: SEQUENCE; Schema: public; Owner: sopds
+-- Name: opds_catalog_catalog_id_seq; Type: SEQUENCE; Schema: public; Owner: gopds
 --
 
 CREATE SEQUENCE public.opds_catalog_catalog_id_seq
@@ -285,17 +285,17 @@ CREATE SEQUENCE public.opds_catalog_catalog_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.opds_catalog_catalog_id_seq OWNER TO sopds;
+ALTER TABLE public.opds_catalog_catalog_id_seq OWNER TO gopds;
 
 --
--- Name: opds_catalog_catalog_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: sopds
+-- Name: opds_catalog_catalog_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: gopds
 --
 
 ALTER SEQUENCE public.opds_catalog_catalog_id_seq OWNED BY public.opds_catalog_catalog.id;
 
 
 --
--- Name: opds_catalog_series; Type: TABLE; Schema: public; Owner: sopds
+-- Name: opds_catalog_series; Type: TABLE; Schema: public; Owner: gopds
 --
 
 CREATE TABLE public.opds_catalog_series (
@@ -305,10 +305,10 @@ CREATE TABLE public.opds_catalog_series (
 );
 
 
-ALTER TABLE public.opds_catalog_series OWNER TO sopds;
+ALTER TABLE public.opds_catalog_series OWNER TO gopds;
 
 --
--- Name: opds_catalog_series_id_seq; Type: SEQUENCE; Schema: public; Owner: sopds
+-- Name: opds_catalog_series_id_seq; Type: SEQUENCE; Schema: public; Owner: gopds
 --
 
 CREATE SEQUENCE public.opds_catalog_series_id_seq
@@ -320,73 +320,73 @@ CREATE SEQUENCE public.opds_catalog_series_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.opds_catalog_series_id_seq OWNER TO sopds;
+ALTER TABLE public.opds_catalog_series_id_seq OWNER TO gopds;
 
 --
--- Name: opds_catalog_series_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: sopds
+-- Name: opds_catalog_series_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: gopds
 --
 
 ALTER SEQUENCE public.opds_catalog_series_id_seq OWNED BY public.opds_catalog_series.id;
 
 
 --
--- Name: auth_user id; Type: DEFAULT; Schema: public; Owner: sopds
+-- Name: auth_user id; Type: DEFAULT; Schema: public; Owner: gopds
 --
 
 ALTER TABLE ONLY public.auth_user ALTER COLUMN id SET DEFAULT nextval('public.auth_user_id_seq'::regclass);
 
 
 --
--- Name: invites id; Type: DEFAULT; Schema: public; Owner: sopds
+-- Name: invites id; Type: DEFAULT; Schema: public; Owner: gopds
 --
 
 ALTER TABLE ONLY public.invites ALTER COLUMN id SET DEFAULT nextval('public.invites_id_seq'::regclass);
 
 
 --
--- Name: opds_catalog_author id; Type: DEFAULT; Schema: public; Owner: sopds
+-- Name: opds_catalog_author id; Type: DEFAULT; Schema: public; Owner: gopds
 --
 
 ALTER TABLE ONLY public.opds_catalog_author ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_author_id_seq'::regclass);
 
 
 --
--- Name: opds_catalog_bauthor id; Type: DEFAULT; Schema: public; Owner: sopds
+-- Name: opds_catalog_bauthor id; Type: DEFAULT; Schema: public; Owner: gopds
 --
 
 ALTER TABLE ONLY public.opds_catalog_bauthor ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_bauthor_id_seq'::regclass);
 
 
 --
--- Name: opds_catalog_book id; Type: DEFAULT; Schema: public; Owner: sopds
+-- Name: opds_catalog_book id; Type: DEFAULT; Schema: public; Owner: gopds
 --
 
 ALTER TABLE ONLY public.opds_catalog_book ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_book_id_seq'::regclass);
 
 
 --
--- Name: opds_catalog_bseries id; Type: DEFAULT; Schema: public; Owner: sopds
+-- Name: opds_catalog_bseries id; Type: DEFAULT; Schema: public; Owner: gopds
 --
 
 ALTER TABLE ONLY public.opds_catalog_bseries ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_bseries_id_seq'::regclass);
 
 
 --
--- Name: opds_catalog_catalog id; Type: DEFAULT; Schema: public; Owner: sopds
+-- Name: opds_catalog_catalog id; Type: DEFAULT; Schema: public; Owner: gopds
 --
 
 ALTER TABLE ONLY public.opds_catalog_catalog ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_catalog_id_seq'::regclass);
 
 
 --
--- Name: opds_catalog_series id; Type: DEFAULT; Schema: public; Owner: sopds
+-- Name: opds_catalog_series id; Type: DEFAULT; Schema: public; Owner: gopds
 --
 
 ALTER TABLE ONLY public.opds_catalog_series ALTER COLUMN id SET DEFAULT nextval('public.opds_catalog_series_id_seq'::regclass);
 
 
 --
--- Name: auth_user app_user_email_key; Type: CONSTRAINT; Schema: public; Owner: sopds
+-- Name: auth_user app_user_email_key; Type: CONSTRAINT; Schema: public; Owner: gopds
 --
 
 ALTER TABLE ONLY public.auth_user
@@ -394,7 +394,7 @@ ALTER TABLE ONLY public.auth_user
 
 
 --
--- Name: auth_user auth_user_pkey; Type: CONSTRAINT; Schema: public; Owner: sopds
+-- Name: auth_user auth_user_pkey; Type: CONSTRAINT; Schema: public; Owner: gopds
 --
 
 ALTER TABLE ONLY public.auth_user
@@ -402,7 +402,7 @@ ALTER TABLE ONLY public.auth_user
 
 
 --
--- Name: auth_user auth_user_username_key; Type: CONSTRAINT; Schema: public; Owner: sopds
+-- Name: auth_user auth_user_username_key; Type: CONSTRAINT; Schema: public; Owner: gopds
 --
 
 ALTER TABLE ONLY public.auth_user
@@ -410,7 +410,7 @@ ALTER TABLE ONLY public.auth_user
 
 
 --
--- Name: opds_catalog_author opds_catalog_author_pkey; Type: CONSTRAINT; Schema: public; Owner: sopds
+-- Name: opds_catalog_author opds_catalog_author_pkey; Type: CONSTRAINT; Schema: public; Owner: gopds
 --
 
 ALTER TABLE ONLY public.opds_catalog_author
@@ -418,7 +418,7 @@ ALTER TABLE ONLY public.opds_catalog_author
 
 
 --
--- Name: opds_catalog_bauthor opds_catalog_bauthor_pkey; Type: CONSTRAINT; Schema: public; Owner: sopds
+-- Name: opds_catalog_bauthor opds_catalog_bauthor_pkey; Type: CONSTRAINT; Schema: public; Owner: gopds
 --
 
 ALTER TABLE ONLY public.opds_catalog_bauthor
@@ -426,7 +426,7 @@ ALTER TABLE ONLY public.opds_catalog_bauthor
 
 
 --
--- Name: opds_catalog_book opds_catalog_book_pkey; Type: CONSTRAINT; Schema: public; Owner: sopds
+-- Name: opds_catalog_book opds_catalog_book_pkey; Type: CONSTRAINT; Schema: public; Owner: gopds
 --
 
 ALTER TABLE ONLY public.opds_catalog_book
@@ -434,7 +434,7 @@ ALTER TABLE ONLY public.opds_catalog_book
 
 
 --
--- Name: opds_catalog_bseries opds_catalog_bseries_pkey; Type: CONSTRAINT; Schema: public; Owner: sopds
+-- Name: opds_catalog_bseries opds_catalog_bseries_pkey; Type: CONSTRAINT; Schema: public; Owner: gopds
 --
 
 ALTER TABLE ONLY public.opds_catalog_bseries
@@ -442,7 +442,7 @@ ALTER TABLE ONLY public.opds_catalog_bseries
 
 
 --
--- Name: opds_catalog_catalog opds_catalog_catalog_pkey; Type: CONSTRAINT; Schema: public; Owner: sopds
+-- Name: opds_catalog_catalog opds_catalog_catalog_pkey; Type: CONSTRAINT; Schema: public; Owner: gopds
 --
 
 ALTER TABLE ONLY public.opds_catalog_catalog
@@ -450,7 +450,7 @@ ALTER TABLE ONLY public.opds_catalog_catalog
 
 
 --
--- Name: opds_catalog_series opds_catalog_series_pkey; Type: CONSTRAINT; Schema: public; Owner: sopds
+-- Name: opds_catalog_series opds_catalog_series_pkey; Type: CONSTRAINT; Schema: public; Owner: gopds
 --
 
 ALTER TABLE ONLY public.opds_catalog_series
@@ -458,147 +458,147 @@ ALTER TABLE ONLY public.opds_catalog_series
 
 
 --
--- Name: auth_user_username_6821ab7c_like; Type: INDEX; Schema: public; Owner: sopds
+-- Name: auth_user_username_6821ab7c_like; Type: INDEX; Schema: public; Owner: gopds
 --
 
 CREATE INDEX auth_user_username_6821ab7c_like ON public.auth_user USING btree (username varchar_pattern_ops);
 
 
 --
--- Name: opds_catalog_author_full_name_444f34db; Type: INDEX; Schema: public; Owner: sopds
+-- Name: opds_catalog_author_full_name_444f34db; Type: INDEX; Schema: public; Owner: gopds
 --
 
 CREATE INDEX opds_catalog_author_full_name_444f34db ON public.opds_catalog_author USING btree (full_name);
 
 
 --
--- Name: opds_catalog_author_full_name_444f34db_like; Type: INDEX; Schema: public; Owner: sopds
+-- Name: opds_catalog_author_full_name_444f34db_like; Type: INDEX; Schema: public; Owner: gopds
 --
 
 CREATE INDEX opds_catalog_author_full_name_444f34db_like ON public.opds_catalog_author USING btree (full_name varchar_pattern_ops);
 
 
 --
--- Name: opds_catalog_bauthor_author_id_f7332d70; Type: INDEX; Schema: public; Owner: sopds
+-- Name: opds_catalog_bauthor_author_id_f7332d70; Type: INDEX; Schema: public; Owner: gopds
 --
 
 CREATE INDEX opds_catalog_bauthor_author_id_f7332d70 ON public.opds_catalog_bauthor USING btree (author_id);
 
 
 --
--- Name: opds_catalog_bauthor_book_id_b5787ec8; Type: INDEX; Schema: public; Owner: sopds
+-- Name: opds_catalog_bauthor_book_id_b5787ec8; Type: INDEX; Schema: public; Owner: gopds
 --
 
 CREATE INDEX opds_catalog_bauthor_book_id_b5787ec8 ON public.opds_catalog_bauthor USING btree (book_id);
 
 
 --
--- Name: opds_catalog_book_docdate_1faf4fdf; Type: INDEX; Schema: public; Owner: sopds
+-- Name: opds_catalog_book_docdate_1faf4fdf; Type: INDEX; Schema: public; Owner: gopds
 --
 
 CREATE INDEX opds_catalog_book_docdate_1faf4fdf ON public.opds_catalog_book USING btree (docdate);
 
 
 --
--- Name: opds_catalog_book_docdate_1faf4fdf_like; Type: INDEX; Schema: public; Owner: sopds
+-- Name: opds_catalog_book_docdate_1faf4fdf_like; Type: INDEX; Schema: public; Owner: gopds
 --
 
 CREATE INDEX opds_catalog_book_docdate_1faf4fdf_like ON public.opds_catalog_book USING btree (docdate varchar_pattern_ops);
 
 
 --
--- Name: opds_catalog_book_filename_f1827569; Type: INDEX; Schema: public; Owner: sopds
+-- Name: opds_catalog_book_filename_f1827569; Type: INDEX; Schema: public; Owner: gopds
 --
 
 CREATE INDEX opds_catalog_book_filename_f1827569 ON public.opds_catalog_book USING btree (filename);
 
 
 --
--- Name: opds_catalog_book_filename_f1827569_like; Type: INDEX; Schema: public; Owner: sopds
+-- Name: opds_catalog_book_filename_f1827569_like; Type: INDEX; Schema: public; Owner: gopds
 --
 
 CREATE INDEX opds_catalog_book_filename_f1827569_like ON public.opds_catalog_book USING btree (filename varchar_pattern_ops);
 
 
 --
--- Name: opds_catalog_book_path_ba0516b8; Type: INDEX; Schema: public; Owner: sopds
+-- Name: opds_catalog_book_path_ba0516b8; Type: INDEX; Schema: public; Owner: gopds
 --
 
 CREATE INDEX opds_catalog_book_path_ba0516b8 ON public.opds_catalog_book USING btree (path);
 
 
 --
--- Name: opds_catalog_book_path_ba0516b8_like; Type: INDEX; Schema: public; Owner: sopds
+-- Name: opds_catalog_book_path_ba0516b8_like; Type: INDEX; Schema: public; Owner: gopds
 --
 
 CREATE INDEX opds_catalog_book_path_ba0516b8_like ON public.opds_catalog_book USING btree (path varchar_pattern_ops);
 
 
 --
--- Name: opds_catalog_book_title_ef02eb01; Type: INDEX; Schema: public; Owner: sopds
+-- Name: opds_catalog_book_title_ef02eb01; Type: INDEX; Schema: public; Owner: gopds
 --
 
 CREATE INDEX opds_catalog_book_title_ef02eb01 ON public.opds_catalog_book USING btree (title);
 
 
 --
--- Name: opds_catalog_book_title_ef02eb01_like; Type: INDEX; Schema: public; Owner: sopds
+-- Name: opds_catalog_book_title_ef02eb01_like; Type: INDEX; Schema: public; Owner: gopds
 --
 
 CREATE INDEX opds_catalog_book_title_ef02eb01_like ON public.opds_catalog_book USING btree (title varchar_pattern_ops);
 
 
 --
--- Name: opds_catalog_bseries_book_id_04da58e5; Type: INDEX; Schema: public; Owner: sopds
+-- Name: opds_catalog_bseries_book_id_04da58e5; Type: INDEX; Schema: public; Owner: gopds
 --
 
 CREATE INDEX opds_catalog_bseries_book_id_04da58e5 ON public.opds_catalog_bseries USING btree (book_id);
 
 
 --
--- Name: opds_catalog_bseries_ser_id_8a80f5c7; Type: INDEX; Schema: public; Owner: sopds
+-- Name: opds_catalog_bseries_ser_id_8a80f5c7; Type: INDEX; Schema: public; Owner: gopds
 --
 
 CREATE INDEX opds_catalog_bseries_ser_id_8a80f5c7 ON public.opds_catalog_bseries USING btree (ser_id);
 
 
 --
--- Name: opds_catalog_catalog_cat_name_75c73cd5; Type: INDEX; Schema: public; Owner: sopds
+-- Name: opds_catalog_catalog_cat_name_75c73cd5; Type: INDEX; Schema: public; Owner: gopds
 --
 
 CREATE INDEX opds_catalog_catalog_cat_name_75c73cd5 ON public.opds_catalog_catalog USING btree (cat_name);
 
 
 --
--- Name: opds_catalog_catalog_cat_name_75c73cd5_like; Type: INDEX; Schema: public; Owner: sopds
+-- Name: opds_catalog_catalog_cat_name_75c73cd5_like; Type: INDEX; Schema: public; Owner: gopds
 --
 
 CREATE INDEX opds_catalog_catalog_cat_name_75c73cd5_like ON public.opds_catalog_catalog USING btree (cat_name varchar_pattern_ops);
 
 
 --
--- Name: opds_catalog_series_lang_code_d62fcb5f; Type: INDEX; Schema: public; Owner: sopds
+-- Name: opds_catalog_series_lang_code_d62fcb5f; Type: INDEX; Schema: public; Owner: gopds
 --
 
 CREATE INDEX opds_catalog_series_lang_code_d62fcb5f ON public.opds_catalog_series USING btree (lang_code);
 
 
 --
--- Name: opds_catalog_series_ser_7d15929e; Type: INDEX; Schema: public; Owner: sopds
+-- Name: opds_catalog_series_ser_7d15929e; Type: INDEX; Schema: public; Owner: gopds
 --
 
 CREATE INDEX opds_catalog_series_ser_7d15929e ON public.opds_catalog_series USING btree (ser);
 
 
 --
--- Name: opds_catalog_series_ser_7d15929e_like; Type: INDEX; Schema: public; Owner: sopds
+-- Name: opds_catalog_series_ser_7d15929e_like; Type: INDEX; Schema: public; Owner: gopds
 --
 
 CREATE INDEX opds_catalog_series_ser_7d15929e_like ON public.opds_catalog_series USING btree (ser varchar_pattern_ops);
 
 
 --
--- Name: opds_catalog_bauthor opds_catalog_bauthor_author_id_f7332d70_fk_opds_cata; Type: FK CONSTRAINT; Schema: public; Owner: sopds
+-- Name: opds_catalog_bauthor opds_catalog_bauthor_author_id_f7332d70_fk_opds_cata; Type: FK CONSTRAINT; Schema: public; Owner: gopds
 --
 
 ALTER TABLE ONLY public.opds_catalog_bauthor
@@ -606,7 +606,7 @@ ALTER TABLE ONLY public.opds_catalog_bauthor
 
 
 --
--- Name: opds_catalog_bauthor opds_catalog_bauthor_book_id_b5787ec8_fk_opds_catalog_book_id; Type: FK CONSTRAINT; Schema: public; Owner: sopds
+-- Name: opds_catalog_bauthor opds_catalog_bauthor_book_id_b5787ec8_fk_opds_catalog_book_id; Type: FK CONSTRAINT; Schema: public; Owner: gopds
 --
 
 ALTER TABLE ONLY public.opds_catalog_bauthor
@@ -614,7 +614,7 @@ ALTER TABLE ONLY public.opds_catalog_bauthor
 
 
 --
--- Name: opds_catalog_bseries opds_catalog_bseries_book_id_04da58e5_fk_opds_catalog_book_id; Type: FK CONSTRAINT; Schema: public; Owner: sopds
+-- Name: opds_catalog_bseries opds_catalog_bseries_book_id_04da58e5_fk_opds_catalog_book_id; Type: FK CONSTRAINT; Schema: public; Owner: gopds
 --
 
 ALTER TABLE ONLY public.opds_catalog_bseries
@@ -622,7 +622,7 @@ ALTER TABLE ONLY public.opds_catalog_bseries
 
 
 --
--- Name: opds_catalog_bseries opds_catalog_bseries_ser_id_8a80f5c7_fk_opds_catalog_series_id; Type: FK CONSTRAINT; Schema: public; Owner: sopds
+-- Name: opds_catalog_bseries opds_catalog_bseries_ser_id_8a80f5c7_fk_opds_catalog_series_id; Type: FK CONSTRAINT; Schema: public; Owner: gopds
 --
 
 ALTER TABLE ONLY public.opds_catalog_bseries
