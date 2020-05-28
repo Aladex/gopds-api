@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/viper"
 	"gopds-api/logging"
 	"html/template"
+	"log"
 	"net"
 	"net/mail"
 	"net/smtp"
@@ -102,7 +103,16 @@ func SendActivationEmail(data SendType) error {
 		return err
 	}
 
-	tpl := template.Must(template.ParseGlob("email/templates/*"))
+	asset, err := Asset("reset_password.gohtml")
+	if err != nil {
+		log.Fatalln(err)
+		return err
+	}
+	tpl, err := template.New("reset_password.gohtml").Parse(string(asset))
+	if err != nil {
+		log.Fatalln(err)
+		return err
+	}
 	err = tpl.ExecuteTemplate(&b, "reset_password.gohtml", data)
 	if err != nil {
 		return err
