@@ -16,13 +16,6 @@ import (
 
 var customLog = logging.SetLog()
 
-// ExportAnswer структура ответа найденных книг и полного списка языков для компонента Books.vue
-type ExportAnswer struct {
-	Books     []models.Book    `json:"books"`
-	Languages models.Languages `json:"langs"`
-	Length    int              `json:"length"`
-}
-
 func GetNewBooks(c *gin.Context) {
 	filters := models.BookFilters{
 		Limit:  10,
@@ -51,7 +44,7 @@ func GetNewBooks(c *gin.Context) {
 	now := time.Now()
 	rootLinks := []opdsutils.Link{
 		{
-			Href: fmt.Sprintf("/opds/%d/new/", pageNum+1),
+			Href: fmt.Sprintf("/opds/new/%d", pageNum+1),
 			Rel:  "next",
 			Type: "application/atom+xml;profile=opds-catalog",
 		},

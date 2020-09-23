@@ -66,7 +66,7 @@ type AtomFeed struct {
 	Category    string   `xml:"category,omitempty"`
 	Icon        string   `xml:"icon,omitempty"`
 	Logo        string   `xml:"logo,omitempty"`
-	Rights      string   `xml:"rights,omitempty"` // copyright used
+	Content     string   `xml:"content,omitempty"`
 	Subtitle    string   `xml:"subtitle,omitempty"`
 	Links       []AtomLink
 	Authors     []AtomAuthor `xml:"author,omitempty"`

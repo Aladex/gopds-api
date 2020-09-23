@@ -18,6 +18,7 @@ type XmlFeed interface {
 type Feed struct {
 	Title       string
 	Links       []Link
+	Content     string
 	Description string
 	Authors     []Author
 	Updated     time.Time
@@ -25,7 +26,6 @@ type Feed struct {
 	Id          string
 	Subtitle    string
 	Items       []*Item
-	Copyright   string
 	Image       *Image
 }
 

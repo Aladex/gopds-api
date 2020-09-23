@@ -45,7 +45,6 @@ func (a *Atom) AtomFeed() *AtomFeed {
 		Subtitle: a.Description,
 		Id:       a.Id,
 		Updated:  updated,
-		Rights:   a.Copyright,
 	}
 	if len(a.Authors) > 0 {
 		authors := []AtomAuthor{}
@@ -109,7 +108,7 @@ func newAtomEntry(i *Item) *AtomEntry {
 
 	// if there's a content, assume it's html
 	if len(i.Content) > 0 {
-		x.Content = &AtomContent{Content: i.Content, Type: "html"}
+		x.Content = &AtomContent{Content: i.Content, Type: "text"}
 	}
 
 	if len(atomAuthors) > 0 {
