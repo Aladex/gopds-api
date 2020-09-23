@@ -71,6 +71,7 @@ var dictionary = map[string]string{
 	"я": "ja",
 }
 
+// Translit transliterate from russian to latin
 func Translit(s string) string {
 	var buffer bytes.Buffer
 

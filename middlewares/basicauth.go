@@ -6,8 +6,8 @@ import (
 	"gopds-api/models"
 )
 
+// BasicAuth Get the Basic Authentication credentials
 func BasicAuth() gin.HandlerFunc {
-	// Get the Basic Authentication credentials
 	return func(c *gin.Context) {
 		user, password, hasAuth := c.Request.BasicAuth()
 		res, _, err := database.CheckUser(models.LoginRequest{

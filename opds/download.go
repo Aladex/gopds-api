@@ -26,13 +26,14 @@ var bookTypes = map[string]string{
 	"mobi": "application/x-mobipocket-ebook",
 }
 
+// DownloadBook returns a book file
 func DownloadBook(c *gin.Context) {
-	bookId, err := strconv.ParseInt(c.Param("id"), 10, 0)
+	bookID, err := strconv.ParseInt(c.Param("id"), 10, 0)
 	if err != nil {
 		httputil.NewError(c, http.StatusBadRequest, errors.New("bad_book_id"))
 	}
 	bookRequest := models.BookDownload{
-		BookID: bookId,
+		BookID: bookID,
 		Format: c.Param("format"),
 	}
 	book, err := database.GetBook(bookRequest.BookID)
@@ -109,6 +110,4 @@ func DownloadBook(c *gin.Context) {
 		}).Info()
 		return
 	}
-	return
-
 }

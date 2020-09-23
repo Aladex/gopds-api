@@ -14,26 +14,25 @@ import (
 	"time"
 )
 
-type OpdsBookFilters struct {
+type searchTerms struct {
 	Search string `form:"searchTerms" json:"searchTerms" binding:"required"`
 }
 
-type OpdsAuthorRequest struct {
-	Search string `form:"searchTerms" json:"searchTerms" binding:"required"`
-}
-
+// OpdsBooksSearch struct for book search
 type OpdsBooksSearch struct {
 	Title string `form:"title" json:"title" binding:"required"`
 	Page  int    `form:"page" json:"page"`
 }
 
+// OpdsAuthorSearch struct for author search
 type OpdsAuthorSearch struct {
 	Name string `form:"name" json:"name" binding:"required"`
 	Page int    `form:"page" json:"page"`
 }
 
+// Search basic search XML view for books and author search
 func Search(c *gin.Context) {
-	var filters OpdsBookFilters
+	var filters searchTerms
 	if err := c.ShouldBindWith(&filters, binding.Query); err == nil {
 		now := time.Now()
 		searchRootLinks := []opdsutils.Link{
@@ -103,6 +102,7 @@ func Search(c *gin.Context) {
 
 }
 
+// GetBooks returns an list of books
 func GetBooks(c *gin.Context) {
 	var filters OpdsBooksSearch
 	if err := c.ShouldBindWith(&filters, binding.Query); err == nil {
@@ -173,6 +173,7 @@ func GetBooks(c *gin.Context) {
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
 }
 
+// GetAuthor returns authors from search request
 func GetAuthor(c *gin.Context) {
 	var filters OpdsAuthorSearch
 	if err := c.ShouldBindWith(&filters, binding.Query); err == nil {

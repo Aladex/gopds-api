@@ -32,7 +32,7 @@ func GetNewBooks(c *gin.Context) {
 		httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
 		return
 	}
-	authorId, err := strconv.Atoi(c.Param("author"))
+	authorID, err := strconv.Atoi(c.Param("author"))
 	if err != nil {
 		customLog.Println(err)
 		httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
@@ -42,8 +42,8 @@ func GetNewBooks(c *gin.Context) {
 		filters.Offset = pageNum * 10
 	}
 
-	if authorId > 0 {
-		filters.Author = authorId
+	if authorID > 0 {
+		filters.Author = authorID
 	}
 
 	books, _, _, err := database.GetBooks(filters)
@@ -54,7 +54,7 @@ func GetNewBooks(c *gin.Context) {
 	now := time.Now()
 	rootLinks := []opdsutils.Link{
 		{
-			Href: fmt.Sprintf("/opds/new/%d/%d", pageNum+1, authorId),
+			Href: fmt.Sprintf("/opds/new/%d/%d", pageNum+1, authorID),
 			Rel:  "next",
 			Type: "application/atom+xml;profile=opds-catalog",
 		},
