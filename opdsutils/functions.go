@@ -2,6 +2,7 @@ package opdsutils
 
 import (
 	"encoding/xml"
+	"fmt"
 	"time"
 )
 
@@ -28,7 +29,7 @@ func anyTimeFormat(format string, times ...time.Time) string {
 func (a *Atom) AtomFeed() *AtomFeed {
 	updated := anyTimeFormat(time.RFC3339, a.Updated, a.Created)
 	links := []AtomLink{}
-	for _, l := range a.Link {
+	for _, l := range a.Links {
 		links = append(links, AtomLink{
 			Href:  l.Href,
 			Rel:   l.Rel,
@@ -36,17 +37,26 @@ func (a *Atom) AtomFeed() *AtomFeed {
 			Title: l.Title,
 		})
 	}
+
 	feed := &AtomFeed{
 		Xmlns:    ns,
 		Title:    a.Title,
-		Link:     links,
+		Links:    links,
 		Subtitle: a.Description,
 		Id:       a.Id,
 		Updated:  updated,
 		Rights:   a.Copyright,
 	}
-	if a.Author != nil {
-		feed.Author = &AtomAuthor{AtomPerson: AtomPerson{Name: a.Author.Name, Email: a.Author.Email}}
+	if len(a.Authors) > 0 {
+		authors := []AtomAuthor{}
+		for _, author := range a.Authors {
+			authors = append(authors, AtomAuthor{
+				AtomPerson: AtomPerson{
+					Name: author.Name,
+					Uri:  fmt.Sprintf("/opds/author/%d", author.ID),
+				},
+			})
+		}
 	}
 	for _, e := range a.Items {
 		feed.Entries = append(feed.Entries, newAtomEntry(e))
@@ -70,10 +80,16 @@ func newAtomEntry(i *Item) *AtomEntry {
 	// assume the description is html
 	s := &AtomSummary{Content: i.Description, Type: "html"}
 
-	var name, email string
-	if i.Author != nil {
-		name, email = i.Author.Name, i.Author.Email
+	atomAuthors := []AtomAuthor{}
+	for _, a := range i.Authors {
+		atomAuthors = append(atomAuthors, AtomAuthor{
+			AtomPerson: AtomPerson{
+				Name: a.Name,
+				Uri:  fmt.Sprintf("/opds/author/%d", a.ID),
+			},
+		})
 	}
+
 	atomLinks := []AtomLink{}
 	for _, l := range i.Link {
 		atomLinks = append(atomLinks, AtomLink{
@@ -96,8 +112,8 @@ func newAtomEntry(i *Item) *AtomEntry {
 		x.Content = &AtomContent{Content: i.Content, Type: "html"}
 	}
 
-	if len(name) > 0 || len(email) > 0 {
-		x.Author = &AtomAuthor{AtomPerson: AtomPerson{Name: name, Email: email}}
+	if len(atomAuthors) > 0 {
+		x.Authors = atomAuthors
 	}
 	return x
 }

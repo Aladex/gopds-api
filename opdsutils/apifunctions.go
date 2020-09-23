@@ -1,0 +1,63 @@
+package opdsutils
+
+import (
+	"fmt"
+	"gopds-api/models"
+	"strconv"
+	"strings"
+)
+
+func rels() []string {
+	return []string{
+		"http://opds-spec.org/image",
+		"x-stanza-cover-image",
+		"http://opds-spec.org/thumbnail",
+		"x-stanza-cover-image-thumbnail",
+	}
+}
+
+func createPostersLink(book models.Book) []Link {
+	links := []Link{}
+	for _, r := range rels() {
+		links = append(links, Link{
+			Href: fmt.Sprintf("/books-posters/%s/%s.jpg",
+				strings.ReplaceAll(book.Path, ".", "-"),
+				strings.ReplaceAll(book.FileName, ".", "-")),
+			Rel:  r,
+			Type: "image/jpeg",
+		})
+	}
+	return links
+}
+
+func CreateItem(book models.Book) Item {
+	posterLinks := createPostersLink(book)
+	links := []Link{
+		{
+			Href: "/opds/download/fb2/" + strconv.FormatInt(book.ID, 10),
+			Rel:  "http://opds-spec.org/acquisition/open-access",
+			Type: "application/fb2+zip",
+		},
+	}
+	links = append(links, posterLinks...)
+	itemAuthors := []Author{}
+	for _, author := range book.Authors {
+		itemAuthors = append(itemAuthors, Author{
+			Name: author.FullName,
+			ID:   author.ID,
+		})
+	}
+
+	return Item{
+		Title:       book.Title,
+		Link:        links,
+		Source:      nil,
+		Authors:     itemAuthors,
+		Description: book.Annotation,
+		Id:          strconv.FormatInt(book.ID, 10),
+		Updated:     book.RegisterDate,
+		Created:     book.RegisterDate,
+		Enclosure:   nil,
+		Content:     "",
+	}
+}

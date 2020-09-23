@@ -17,9 +17,9 @@ type XmlFeed interface {
 
 type Feed struct {
 	Title       string
-	Link        []Link
+	Links       []Link
 	Description string
-	Author      *Author
+	Authors     []Author
 	Updated     time.Time
 	Created     time.Time
 	Id          string
@@ -34,14 +34,15 @@ type Link struct {
 }
 
 type Author struct {
-	Name, Email string
+	Name string
+	ID   int64
 }
 
 type Item struct {
 	Title       string
 	Link        []Link
 	Source      *Link
-	Author      *Author
+	Authors     []Author
 	Description string // used as description in rss, summary in atom
 	Id          string // used as guid in rss, id in atom
 	Updated     time.Time

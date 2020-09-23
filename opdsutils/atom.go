@@ -19,9 +19,8 @@ type AtomAuthor struct {
 }
 
 type AtomPerson struct {
-	Name  string `xml:"name,omitempty"`
-	Uri   string `xml:"uri,omitempty"`
-	Email string `xml:"email,omitempty"`
+	Name string `xml:"name,omitempty"`
+	Uri  string `xml:"uri,omitempty"`
 }
 
 type AtomContributor struct {
@@ -55,7 +54,7 @@ type AtomEntry struct {
 	Contributor *AtomContributor
 	Links       []AtomLink   // required if no child 'content' elements
 	Summary     *AtomSummary // required if content has src or content is base64
-	Author      *AtomAuthor  // required if feed lacks an author
+	Authors     []AtomAuthor // required if feed lacks an author
 }
 
 type AtomFeed struct {
@@ -69,8 +68,8 @@ type AtomFeed struct {
 	Logo        string   `xml:"logo,omitempty"`
 	Rights      string   `xml:"rights,omitempty"` // copyright used
 	Subtitle    string   `xml:"subtitle,omitempty"`
-	Link        []AtomLink
-	Author      *AtomAuthor `xml:"author,omitempty"`
+	Links       []AtomLink
+	Authors     []AtomAuthor `xml:"author,omitempty"`
 	Contributor *AtomContributor
 	Entries     []*AtomEntry `xml:"entry"`
 }
