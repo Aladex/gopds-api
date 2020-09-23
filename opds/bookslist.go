@@ -76,7 +76,7 @@ func GetNewBooks(c *gin.Context) {
 	}
 
 	feed := &opdsutils.Feed{
-		Title:       "Новые книги",
+		Title:       "Лепробиблиотека",
 		Links:       rootLinks,
 		Id:          fmt.Sprintf("tag:search:new:book:%d", pageNum),
 		Description: "Books Feed",
