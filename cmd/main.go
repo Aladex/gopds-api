@@ -80,6 +80,8 @@ func main() {
 		})
 		opdsGroup.GET("/new/:page", opds.GetNewBooks)
 		opdsGroup.GET("/search", opds.Search)
+		opdsGroup.GET("/books", opds.GetBooks)
+		opdsGroup.GET("/search-author", opds.GetAuthor)
 	}
 
 	apiGroup := route.Group("/api")

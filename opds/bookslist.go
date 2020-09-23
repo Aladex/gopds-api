@@ -59,7 +59,7 @@ func GetNewBooks(c *gin.Context) {
 			Type: "application/opensearchdescription+xml",
 		},
 		{
-			Href: "/opds/search?searchTerm={searchTerms}",
+			Href: "/opds/search?searchTerms={searchTerms}",
 			Rel:  "search",
 			Type: "application/atom+xml",
 		},
