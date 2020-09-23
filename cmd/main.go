@@ -9,6 +9,7 @@ import (
 	_ "gopds-api/docs"
 	"gopds-api/logging"
 	"gopds-api/middlewares"
+	"gopds-api/opds"
 	"log"
 	"net/http"
 )
@@ -67,6 +68,11 @@ func main() {
 
 		route.GET("/api/logout", api.LogOut)
 		route.GET("/api/drop-sessions", api.DropAllSessions)
+	}
+
+	// XML routes
+	{
+		route.GET("/opds/new", opds.GetNewBooks)
 	}
 
 	apiGroup := route.Group("/api")

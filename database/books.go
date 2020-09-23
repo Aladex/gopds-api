@@ -13,7 +13,7 @@ func GetBooks(filters models.BookFilters) ([]models.Book, models.Languages, int,
 
 	var langRes models.Languages
 
-	if filters.Limit > 100 {
+	if filters.Limit > 100 || filters.Limit == 0 {
 		filters.Limit = 100
 	}
 	err := db.Model(&models.Book{}).
