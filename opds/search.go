@@ -98,10 +98,8 @@ func Search(c *gin.Context) {
 
 		c.Data(200, "application/atom+xml;charset=utf-8", []byte(atom))
 		return
-	} else {
-		fmt.Println(err)
-		httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
 	}
+	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
 
 }
 
@@ -193,7 +191,6 @@ func GetAuthor(c *gin.Context) {
 			c.XML(500, err)
 			return
 		}
-		fmt.Println(authors)
 		now := time.Now()
 		rootLinks := []opdsutils.Link{
 			{
@@ -231,7 +228,7 @@ func GetAuthor(c *gin.Context) {
 				Title: a.FullName,
 				Link: []opdsutils.Link{
 					{
-						Href:  fmt.Sprintf("/opds/author-profile?id=%d", a.ID),
+						Href:  fmt.Sprintf("/opds/new/0/%d", a.ID),
 						Rel:   "search",
 						Type:  "application/atom+xml;profile=opds-catalog",
 						Title: a.FullName,

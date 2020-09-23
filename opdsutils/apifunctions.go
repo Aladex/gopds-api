@@ -61,13 +61,10 @@ func CreateItem(book models.Book) Item {
 	return Item{
 		Title:       book.Title,
 		Link:        links,
-		Source:      nil,
 		Authors:     itemAuthors,
 		Description: book.Annotation,
 		Id:          strconv.FormatInt(book.ID, 10),
 		Updated:     book.RegisterDate,
 		Created:     book.RegisterDate,
-		Enclosure:   nil,
-		Content:     "",
 	}
 }

@@ -72,16 +72,16 @@ func main() {
 
 	// XML routes
 	opdsGroup := route.Group("/opds")
-
+	opdsGroup.Use(middlewares.BasicAuth())
 	{
 		opdsGroup.GET("/", func(c *gin.Context) {
-			c.Redirect(http.StatusMovedPermanently, "/opds"+
-				"/new/0")
+			c.Redirect(http.StatusMovedPermanently, "/opds/new/0/0")
 		})
-		opdsGroup.GET("/new/:page", opds.GetNewBooks)
+		opdsGroup.GET("/new/:page/:author", opds.GetNewBooks)
 		opdsGroup.GET("/search", opds.Search)
 		opdsGroup.GET("/books", opds.GetBooks)
 		opdsGroup.GET("/search-author", opds.GetAuthor)
+		opdsGroup.GET("/download/:format/:id", opds.DownloadBook)
 	}
 
 	apiGroup := route.Group("/api")
