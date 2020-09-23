@@ -2,14 +2,15 @@ package opds
 
 import (
 	"errors"
+	"fmt"
 	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/binding"
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/opdsutils"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -23,39 +24,75 @@ type ExportAnswer struct {
 }
 
 func GetNewBooks(c *gin.Context) {
-	var filters models.BookFilters
-	if err := c.ShouldBindWith(&filters, binding.Query); err == nil {
-		books, _, _, err := database.GetBooks(filters)
-		if err != nil {
-			c.JSON(500, err)
-			return
-		}
-		now := time.Now()
-		feed := &opdsutils.Feed{
-			Title: "Новые книги",
-			Links: []opdsutils.Link{
-				{Href: "/opds/new"},
-			},
-			Id:          "tag:search:new:book:0",
-			Description: "Books Feed",
-			Created:     now,
-		}
-		feed.Items = []*opdsutils.Item{}
-		for _, book := range books {
-			authors := []string{}
-			bookItem := opdsutils.CreateItem(book)
-			for _, author := range book.Authors {
-				authors = append(authors, author.FullName)
-			}
-			feed.Items = append(feed.Items, &bookItem)
-		}
-		atom, err := feed.ToAtom()
-		if err != nil {
-			customLog.Fatal(err)
-		}
+	filters := models.BookFilters{
+		Limit:  10,
+		Offset: 0,
+		Title:  "",
+		Author: 0,
+		Series: 0,
+		Lang:   "",
+	}
 
-		c.Data(200, "application/atom+xml;charset=utf-8", []byte(atom))
+	pageNum, err := strconv.Atoi(c.Param("page"))
+	if err != nil {
+		customLog.Println(err)
+		httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
 		return
 	}
-	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
+	if pageNum > 0 {
+		filters.Offset = pageNum * 10
+	}
+
+	books, _, _, err := database.GetBooks(filters)
+	if err != nil {
+		c.XML(500, err)
+		return
+	}
+	now := time.Now()
+	rootLinks := []opdsutils.Link{
+		{
+			Href: fmt.Sprintf("/opds/%d/new/", pageNum+1),
+			Rel:  "next",
+			Type: "application/atom+xml;profile=opds-catalog",
+		},
+		{
+			Href: "/opds",
+			Rel:  "start",
+			Type: "application/atom+xml;profile=opds-catalog",
+		},
+		{
+			Href: "/opds-opensearch.xml",
+			Rel:  "search",
+			Type: "application/opensearchdescription+xml",
+		},
+		{
+			Href: "/opds/search?searchTerm={searchTerms}",
+			Rel:  "search",
+			Type: "application/atom+xml",
+		},
+	}
+
+	feed := &opdsutils.Feed{
+		Title:       "Новые книги",
+		Links:       rootLinks,
+		Id:          fmt.Sprintf("tag:search:new:book:%d", pageNum),
+		Description: "Books Feed",
+		Created:     now,
+	}
+	feed.Items = []*opdsutils.Item{}
+	for _, book := range books {
+		authors := []string{}
+		bookItem := opdsutils.CreateItem(book)
+		for _, author := range book.Authors {
+			authors = append(authors, author.FullName)
+		}
+		feed.Items = append(feed.Items, &bookItem)
+	}
+	atom, err := feed.ToAtom()
+	if err != nil {
+		customLog.Println(err)
+	}
+
+	c.Data(200, "application/atom+xml;charset=utf-8", []byte(atom))
+	return
 }

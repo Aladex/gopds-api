@@ -72,7 +72,10 @@ func main() {
 
 	// XML routes
 	{
-		route.GET("/opds/new", opds.GetNewBooks)
+		route.GET("/opds/", func(c *gin.Context) {
+			c.Redirect(http.StatusMovedPermanently, "/opds/0/new")
+		})
+		route.GET("/opds/:page/new", opds.GetNewBooks)
 	}
 
 	apiGroup := route.Group("/api")

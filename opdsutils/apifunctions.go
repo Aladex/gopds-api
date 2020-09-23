@@ -38,6 +38,16 @@ func CreateItem(book models.Book) Item {
 			Rel:  "http://opds-spec.org/acquisition/open-access",
 			Type: "application/fb2+zip",
 		},
+		{
+			Href: "/opds/download/epub/" + strconv.FormatInt(book.ID, 10),
+			Rel:  "http://opds-spec.org/acquisition/open-access",
+			Type: "application/epub+zip",
+		},
+		{
+			Href: "/opds/download/mobi/" + strconv.FormatInt(book.ID, 10),
+			Rel:  "http://opds-spec.org/acquisition/open-access",
+			Type: "application/x-mobipocket-ebook",
+		},
 	}
 	links = append(links, posterLinks...)
 	itemAuthors := []Author{}
