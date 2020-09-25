@@ -10,6 +10,7 @@ import (
 	"gopds-api/models"
 	"gopds-api/opdsutils"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 )
@@ -65,7 +66,7 @@ func Search(c *gin.Context) {
 				Title: "Поиск авторов",
 				Link: []opdsutils.Link{
 					{
-						Href: "/opds/search-author?name=" + filters.Search,
+						Href: "/opds/search-author?name=" + url.QueryEscape(filters.Search),
 						Type: "application/atom+xml;profile=opds-catalog",
 					},
 				},
@@ -78,7 +79,7 @@ func Search(c *gin.Context) {
 				Title: "Поиск книг",
 				Link: []opdsutils.Link{
 					{
-						Href:  "/opds/books?title=" + filters.Search,
+						Href:  "/opds/books?title=" + url.QueryEscape(filters.Search),
 						Type:  "application/atom+xml;profile=opds-catalog",
 						Title: "",
 					},
@@ -125,7 +126,7 @@ func GetBooks(c *gin.Context) {
 		now := time.Now()
 		rootLinks := []opdsutils.Link{
 			{
-				Href: fmt.Sprintf("/opds/books?title=%s&page=%d", filters.Title, filters.Page+1),
+				Href: fmt.Sprintf("/opds/books?title=%s&page=%d", url.QueryEscape(filters.Title), filters.Page+1),
 				Rel:  "next",
 				Type: "application/atom+xml;profile=opds-catalog",
 			},
@@ -195,7 +196,7 @@ func GetAuthor(c *gin.Context) {
 		now := time.Now()
 		rootLinks := []opdsutils.Link{
 			{
-				Href: fmt.Sprintf("/opds/search-author?name=%s&page=%d", filters.Name, filters.Page+1),
+				Href: fmt.Sprintf("/opds/search-author?name=%s&page=%d", url.QueryEscape(filters.Name), filters.Page+1),
 				Rel:  "next",
 				Type: "application/atom+xml;profile=opds-catalog",
 			},
