@@ -10,11 +10,15 @@ import (
 func BasicAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, password, hasAuth := c.Request.BasicAuth()
-		res, _, err := database.CheckUser(models.LoginRequest{
-			Login:    user,
-			Password: password,
-		})
-		if !hasAuth || !res || err != nil {
+
+		if !hasAuth {
+			c.Writer.Header().Set("WWW-Authenticate", "Basic realm=Restricted")
+			c.Status(401)
+			c.Abort()
+			return
+		}
+
+		if res, _, err := database.CheckUser(models.LoginRequest{user, password}); err != nil || !res {
 			c.Writer.Header().Set("WWW-Authenticate", "Basic realm=Restricted")
 			c.Status(401)
 			c.Abort()
