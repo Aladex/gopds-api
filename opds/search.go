@@ -16,7 +16,8 @@ import (
 )
 
 const notFound = `<?xml version="1.0" encoding="utf-8"?>
- <feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/terms/" xmlns:os="http://a9.com/-/spec/opensearch/1.1/" xmlns:opds="http://opds-spec.org/2010/catalog"> <id>tag:search:books:notfound:</id>
+ <feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/terms/" xmlns:os="http://a9.com/-/spec/opensearch/1.1/" xmlns:opds="http://opds-spec.org/2010/catalog"> 
+ <id>tag:search:books:notfound:</id>
  <title>Результат поиска</title>
  <link href="/opds-opensearch.xml" rel="search" type="application/opensearchdescription+xml" />
  <link href="/opds/search?searchTerm={searchTerms}" rel="search" type="application/atom+xml" />
