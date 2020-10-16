@@ -15,6 +15,14 @@ import (
 	"time"
 )
 
+const notFound = `<?xml version="1.0" encoding="utf-8"?>
+ <feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/terms/" xmlns:os="http://a9.com/-/spec/opensearch/1.1/" xmlns:opds="http://opds-spec.org/2010/catalog"> <id>tag:search:books:notfound:</id>
+ <title>Результат поиска</title>
+ <link href="/opds-opensearch.xml" rel="search" type="application/opensearchdescription+xml" />
+ <link href="/opds/search?searchTerm={searchTerms}" rel="search" type="application/atom+xml" />
+ <link href="/opds" rel="start" type="application/atom+xml;profile=opds-catalog" />
+</feed>`
+
 type searchTerms struct {
 	Search string `form:"searchTerms" json:"searchTerms" binding:"required"`
 }
@@ -122,6 +130,10 @@ func GetBooks(c *gin.Context) {
 			c.XML(500, err)
 			return
 		}
+		if len(books) == 0 {
+			c.Data(200, "application/atom+xml;charset=utf-8", []byte(notFound))
+			return
+		}
 
 		now := time.Now()
 		rootLinks := []opdsutils.Link{
@@ -189,6 +201,12 @@ func GetAuthor(c *gin.Context) {
 		}
 
 		authors, _, err := database.GetAuthors(dbFilters)
+
+		if len(authors) == 0 {
+			c.Data(200, "application/atom+xml;charset=utf-8", []byte(notFound))
+			return
+		}
+
 		if err != nil {
 			c.XML(500, err)
 			return
