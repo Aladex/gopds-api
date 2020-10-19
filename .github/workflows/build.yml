@@ -28,7 +28,7 @@ jobs:
           go-version: 1.13
 
       - name: Make a binary
-        run: go build -ldflags "-w -s" -o bin/gopds cmd/*
+        run: go build -ldflags "-w -s" -o bin/gopds cmd/* && rm -Rf external_fb2mobi
 
       - name: Download fb2mobi
         run: |
