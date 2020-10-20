@@ -1,31 +1,40 @@
-# This is a basic workflow to help you get started with Actions
-
 name: CI
-
-# Controls when the action will run. Triggers the workflow on push or pull request
-# events but only for the master branch
 on:
   push:
     tags:
       - 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This workflow contains a single job called "build"
   build:
-    # The type of runner that the job will run on
     runs-on: ubuntu-latest
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
 
-      # Runs a single command using the runners shell
+      - name: Checkout frontend repo
+        uses: actions/checkout@v2
+        with:
+          repository: Aladex/gopds-frontend
+          path: frontend
+
       - name: Set up Go
         uses: actions/setup-go@v2.1.2
         with:
           go-version: 1.13
+
+      - name: Use Node.js
+        uses: actions/setup-node@v1
+        with:
+          node-version: '12.x'
+
+      - name: Install dependencies
+        run: cd frontend && yarn install && yarn build
+
+      - name: Create bindata for frontend
+        run: go-bindata -o cmd/bindata.go -fs -prefix "frontend/dist" frontend/dist/...
+
+      - name: Install bindata and build templates for email
+        run: go get -u github.com/go-bindata/go-bindata/... && go mod download && go-bindata -pkg email -o email/bindata.go -fs -prefix "email/templates" email/templates/...
 
       - name: Make a binary
         run: go build -ldflags "-w -s" -o bin/gopds cmd/* && rm -Rf external_fb2mobi
@@ -37,7 +46,11 @@ jobs:
               && mkdir external_fb2mobi && tar -xf fb2mobi.tar.xz -C external_fb2mobi
 
       - name: Create artifacts
-        run: mkdir gopds && mv bin/gopds gopds/gopds && mv external_fb2mobi gopds/external_fb2mobi && zip -r gopds.zip gopds
+        run: |
+              mkdir gopds && \
+              mv bin/gopds gopds/gopds &&  \
+              mv external_fb2mobi gopds/external_fb2mobi && \
+              zip -r gopds.zip gopds
 
       - name: Create Release
         id: create_release
