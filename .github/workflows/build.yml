@@ -30,11 +30,11 @@ jobs:
       - name: Install dependencies
         run: cd frontend && yarn install && yarn build
 
-      - name: Create bindata for frontend
-        run: go-bindata -o cmd/bindata.go -fs -prefix "frontend/dist" frontend/dist/...
-
       - name: Install bindata and build templates for email
         run: go get -u github.com/go-bindata/go-bindata/... && go mod download && go-bindata -pkg email -o email/bindata.go -fs -prefix "email/templates" email/templates/...
+
+      - name: Create bindata for frontend
+        run: go-bindata -o cmd/bindata.go -fs -prefix "frontend/dist" frontend/dist/...
 
       - name: Make a binary
         run: go build -ldflags "-w -s" -o bin/gopds cmd/* && rm -Rf external_fb2mobi
