@@ -79,7 +79,7 @@ func GetNewBooks(c *gin.Context) {
 		Title:       "Лепробиблиотека",
 		Links:       rootLinks,
 		Id:          fmt.Sprintf("tag:search:new:book:%d", pageNum),
-		Description: "Books Feed",
+		Description: "Книги",
 		Created:     now,
 	}
 	feed.Items = []*opdsutils.Item{}

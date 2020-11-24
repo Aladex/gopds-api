@@ -67,7 +67,7 @@ func Search(c *gin.Context) {
 			Title:       "Поиск книг",
 			Links:       searchRootLinks,
 			Id:          "tag:search:::",
-			Description: "Books Feed",
+			Description: "Поиск книг",
 			Created:     now,
 		}
 		feed.Items = []*opdsutils.Item{
@@ -164,7 +164,7 @@ func GetBooks(c *gin.Context) {
 			Title:       "Новые книги",
 			Links:       rootLinks,
 			Id:          fmt.Sprintf("tag:search:new:book:%d", filters.Page),
-			Description: "Books Feed",
+			Description: "Поиск книги",
 			Created:     now,
 		}
 		feed.Items = []*opdsutils.Item{}
