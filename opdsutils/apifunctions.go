@@ -17,12 +17,16 @@ func rels() []string {
 }
 
 func createPostersLink(book models.Book) []Link {
-	links := []Link{}
+	var links []Link
+	posterLink := "/books-posters/no-cover.png"
+	if book.Cover {
+		posterLink = fmt.Sprintf("/books-posters/%s/%s.jpg",
+			strings.ReplaceAll(book.Path, ".", "-"),
+			strings.ReplaceAll(book.FileName, ".", "-"))
+	}
 	for _, r := range rels() {
 		links = append(links, Link{
-			Href: fmt.Sprintf("/books-posters/%s/%s.jpg",
-				strings.ReplaceAll(book.Path, ".", "-"),
-				strings.ReplaceAll(book.FileName, ".", "-")),
+			Href: posterLink,
 			Rel:  r,
 			Type: "image/jpeg",
 		})
@@ -33,6 +37,7 @@ func createPostersLink(book models.Book) []Link {
 // CreateItem creates an BookItem for xml generate
 func CreateItem(book models.Book) Item {
 	posterLinks := createPostersLink(book)
+
 	links := []Link{
 		{
 			Href: "/opds/download/fb2/" + strconv.FormatInt(book.ID, 10),
