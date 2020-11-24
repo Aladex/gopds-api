@@ -17,7 +17,7 @@ jobs:
           repository: Aladex/gopds-frontend
           path: frontend
 
-      - name: Set up Go
+      - name: Setup Go
         uses: actions/setup-go@v2
         with:
           go-version: '^1.13.1'
