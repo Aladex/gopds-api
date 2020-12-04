@@ -17,7 +17,7 @@ func AdminMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		username, err := utils.CheckToken(userToken)
+		username, _, err := utils.CheckToken(userToken)
 		if err != nil {
 			c.JSON(401, "invalid_token")
 			c.Abort()

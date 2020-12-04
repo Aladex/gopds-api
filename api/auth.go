@@ -26,12 +26,8 @@ import (
 // @Router /drop-sessions [get]
 func DropAllSessions(c *gin.Context) {
 	userToken := c.Request.Header.Get("Authorization")
-	username, err := utils.CheckToken(userToken)
-	if err != nil {
-		customLog.Printf("user with token %s tried to drop all sessions", userToken)
-		httputil.NewError(c, http.StatusBadRequest, err)
-		return
-	}
+	username := c.GetString("username")
+
 	sessions.DeleteSessionKey(models.LoggedInUser{
 		User:  strings.ToLower(username),
 		Token: &userToken,
@@ -68,7 +64,7 @@ func AuthCheck(c *gin.Context) {
 		}
 		switch res {
 		case true:
-			userToken, err := utils.CreateToken(strings.ToLower(dbUser.Login))
+			userToken, err := utils.CreateToken(dbUser)
 			if err != nil {
 				httputil.NewError(c, http.StatusForbidden, err)
 				return
@@ -112,12 +108,7 @@ func AuthCheck(c *gin.Context) {
 // @Router /logout [get]
 func LogOut(c *gin.Context) {
 	userToken := c.Request.Header.Get("Authorization")
-	username, err := utils.CheckToken(userToken)
-	if err != nil {
-		customLog.Printf("%s with token %s tried to logout", username, userToken)
-		httputil.NewError(c, http.StatusBadRequest, err)
-		return
-	}
+	username := c.GetString("username")
 	sessions.DeleteSessionKey(models.LoggedInUser{
 		User:  strings.ToLower(username),
 		Token: &userToken,
@@ -137,14 +128,7 @@ func LogOut(c *gin.Context) {
 // @Failure 403 {object} httputil.HTTPError
 // @Router /books/self-user [get]
 func SelfUser(c *gin.Context) {
-	userToken := c.Request.Header.Get("Authorization")
-	username, err := utils.CheckToken(userToken)
-	if err != nil {
-		customLog.Printf("%s with token %s tried to get username", username, userToken)
-		httputil.NewError(c, http.StatusBadRequest, err)
-		return
-	}
-
+	username := c.GetString("username")
 	dbUser, err := database.GetUser(strings.ToLower(username))
 	if err != nil {
 		httputil.NewError(c, http.StatusBadRequest, err)
@@ -174,14 +158,7 @@ func SelfUser(c *gin.Context) {
 // @Failure 500 {object} httputil.HTTPError
 // @Router /books/change-me [post]
 func ChangeUser(c *gin.Context) {
-	userToken := c.Request.Header.Get("Authorization")
-	username, err := utils.CheckToken(userToken)
-	if err != nil {
-		customLog.Printf("%s with token %s tried to get username", username, userToken)
-		httputil.NewError(c, http.StatusBadRequest, err)
-		return
-	}
-
+	username := c.GetString("username")
 	var userNewData models.SelfUserChangeRequest
 	if err := c.ShouldBindJSON(&userNewData); err == nil {
 		u := models.LoginRequest{

@@ -101,6 +101,7 @@ func main() {
 		booksGroup.POST("/author", api.GetAuthor)
 		// Метод скачивания файла
 		booksGroup.POST("/file", api.GetBookFile)
+		booksGroup.POST("/fav", api.FavBook)
 	}
 
 	// Admin group

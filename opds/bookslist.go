@@ -25,6 +25,7 @@ func GetNewBooks(c *gin.Context) {
 		Series: 0,
 		Lang:   "",
 	}
+	userID := c.GetInt64("user_id")
 
 	pageNum, err := strconv.Atoi(c.Param("page"))
 	if err != nil {
@@ -46,7 +47,7 @@ func GetNewBooks(c *gin.Context) {
 		filters.Author = authorID
 	}
 
-	books, _, _, err := database.GetBooks(filters)
+	books, _, _, err := database.GetBooks(userID, filters)
 	if err != nil {
 		c.XML(500, err)
 		return

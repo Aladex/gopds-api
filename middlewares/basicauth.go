@@ -18,11 +18,14 @@ func BasicAuth() gin.HandlerFunc {
 			return
 		}
 
-		if res, _, err := database.CheckUser(models.LoginRequest{user, password}); err != nil || !res {
+		res, dbUser, err := database.CheckUser(models.LoginRequest{user, password})
+		if err != nil || !res {
 			c.Writer.Header().Set("WWW-Authenticate", "Basic realm=Restricted")
 			c.Status(401)
 			c.Abort()
 			return
 		}
+		c.Set("username", user)
+		c.Set("user_id", dbUser.ID)
 	}
 }

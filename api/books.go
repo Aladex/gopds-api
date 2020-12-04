@@ -34,8 +34,9 @@ type ExportAnswer struct {
 // @Router /books/list [get]
 func GetBooks(c *gin.Context) {
 	var filters models.BookFilters
+	userID := c.GetInt64("user_id")
 	if err := c.ShouldBindWith(&filters, binding.Query); err == nil {
-		books, langs, count, err := database.GetBooks(filters)
+		books, langs, count, err := database.GetBooks(userID, filters)
 		if err != nil {
 			c.JSON(500, err)
 			return
@@ -52,4 +53,16 @@ func GetBooks(c *gin.Context) {
 		return
 	}
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
+}
+
+func FavBook(c *gin.Context) {
+	dbId := c.GetInt64("user_id")
+	var favBook models.FavBook
+	if err := c.ShouldBindJSON(&favBook); err == nil {
+		_, err = database.FavBook(dbId, favBook)
+		if err != nil {
+			httputil.NewError(c, http.StatusBadRequest, err)
+			return
+		}
+	}
 }

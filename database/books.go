@@ -1,22 +1,34 @@
 package database
 
 import (
+	"errors"
 	"fmt"
 	"github.com/go-pg/pg/v9/orm"
 	"gopds-api/models"
 	"strings"
 )
 
+func isFav(ids []int64, book models.Book) bool {
+	for _, id := range ids {
+		if book.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 // GetBooks Возвращает список книг и общее количество при селекте
-func GetBooks(filters models.BookFilters) ([]models.Book, models.Languages, int, error) {
+func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, models.Languages, int, error) {
 	books := []models.Book{}
+	var userFavs []int64
+	err := db.Model(&models.UserToBook{}).Where("user_id = ?", userID).Select(&userFavs)
 
 	var langRes models.Languages
 
 	if filters.Limit > 100 || filters.Limit == 0 {
 		filters.Limit = 100
 	}
-	err := db.Model(&models.Book{}).
+	err = db.Model(&models.Book{}).
 		Column("lang").
 		ColumnExpr("count(*) AS language_count").
 		Group("lang").
@@ -30,6 +42,7 @@ func GetBooks(filters models.BookFilters) ([]models.Book, models.Languages, int,
 
 	count, err := db.Model(&books).
 		Relation("Authors").
+		Relation("Users").
 		Relation("Series").
 		WhereGroup(func(q *orm.Query) (*orm.Query, error) {
 			if filters.Title != "" && filters.Author == 0 {
@@ -54,6 +67,18 @@ func GetBooks(filters models.BookFilters) ([]models.Book, models.Languages, int,
 					q = q.WhereIn("id IN (?)", booksIds)
 				}
 			}
+			if filters.Fav {
+				var booksIds []int64
+				err = db.Model(&models.UserToBook{}).
+					Column("book_id").
+					Where("user_id = ?", userID).
+					Select(&booksIds)
+				if err == nil {
+					if len(booksIds) > 0 {
+						q = q.WhereIn("id IN (?)", booksIds)
+					}
+				}
+			}
 			if filters.Series != 0 {
 				var booksIds []int64
 				err := db.Model(&models.OrderToSeries{}).
@@ -73,6 +98,11 @@ func GetBooks(filters models.BookFilters) ([]models.Book, models.Languages, int,
 		customLog.Print(err)
 		return nil, langRes, 0, err
 	}
+
+	for i, book := range books {
+		books[i].Fav = isFav(userFavs, book)
+	}
+
 	return books, langRes, count, nil
 }
 
@@ -83,5 +113,34 @@ func GetBook(bookID int64) (models.Book, error) {
 	if err != nil {
 		return *book, err
 	}
+	return *book, nil
+}
+
+// FavBook добавляет книгу в избранное
+func FavBook(userID int64, fav models.FavBook) (models.Book, error) {
+	book := &models.Book{ID: fav.BookID}
+	err := db.Select(book)
+	if err != nil {
+		return *book, err
+	}
+	if fav.Fav {
+		favBookObj := models.UserToBook{
+			UserID: userID,
+			BookID: fav.BookID,
+		}
+		_, err = db.Model(&favBookObj).Insert()
+		if err != nil {
+			return *book, errors.New("duplicated_favorites")
+		}
+	} else {
+		_, err := db.Model(&models.UserToBook{}).
+			Where("book_id = ?", fav.BookID).
+			Where("user_id = ?", userID).
+			Delete()
+		if err != nil {
+			return *book, errors.New("cannot_unfav")
+		}
+	}
+
 	return *book, nil
 }

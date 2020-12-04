@@ -25,8 +25,10 @@ type Book struct {
 	Title        string    `pg:"title" json:"title"`
 	Annotation   string    `pg:"annotation" json:"annotation"`
 	Cover        bool      `pg:"cover" json:"cover"`
+	Fav          bool      `pg:"-" json:"fav"`
 	Authors      []*Author `pg:"many2many:opds_catalog_bauthor" json:"authors"`
 	Series       []*Series `pg:"many2many:opds_catalog_bseries,joinFK:ser_id" json:"series"`
+	Users        []*User   `pg:"many2many:favorite_books,joinFK:user_id" json:"favorites"`
 }
 
 // Author структура автора в БД
@@ -41,6 +43,13 @@ type OrderToAuthor struct {
 	tableName struct{} `pg:"opds_catalog_bauthor,discard_unknown_columns" json:"-"`
 	AuthorID  int
 	BookID    int
+}
+
+// UserToBook структура для many2many связи книг и пользователей для избранного
+type UserToBook struct {
+	tableName struct{} `pg:"favorite_books,discard_unknown_columns" json:"-"`
+	UserID    int64
+	BookID    int64
 }
 
 // Series структура серии книг
@@ -68,12 +77,19 @@ type BookFilters struct {
 	Author int    `form:"author" json:"author"`
 	Series int    `form:"series" json:"series"`
 	Lang   string `form:"lang" json:"lang"`
+	Fav    bool   `form:"fav" json:"fav"`
 }
 
 // BookDownload структура для запроса файла книги
 type BookDownload struct {
 	BookID int64  `json:"book_id" form:"book_id" binding:"required"`
 	Format string `json:"format" form:"format" binding:"required"`
+}
+
+// FavBook структура для добавления книги в избранное
+type FavBook struct {
+	BookID int64 `json:"book_id" form:"book_id" binding:"required"`
+	Fav    bool  `json:"fav" form:"fav"`
 }
 
 // Languages структура общего списка языков с подсчетом количества книг

@@ -115,6 +115,7 @@ func Search(c *gin.Context) {
 // GetBooks returns an list of books
 func GetBooks(c *gin.Context) {
 	var filters OpdsBooksSearch
+	userID := c.GetInt64("user_id")
 	if err := c.ShouldBindWith(&filters, binding.Query); err == nil {
 		dbFilters := models.BookFilters{
 			Limit:  10,
@@ -126,7 +127,7 @@ func GetBooks(c *gin.Context) {
 			dbFilters.Offset = filters.Page * 10
 		}
 
-		books, _, _, err := database.GetBooks(dbFilters)
+		books, _, _, err := database.GetBooks(userID, dbFilters)
 		if err != nil {
 			c.XML(500, err)
 			return

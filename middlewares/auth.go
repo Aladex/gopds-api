@@ -17,7 +17,7 @@ func AuthMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		username, err := utils.CheckToken(userToken)
+		username, dbID, err := utils.CheckToken(userToken)
 		if err != nil {
 			c.JSON(401, "invalid_token")
 			c.Abort()
@@ -33,6 +33,8 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 		go sessions.SetSessionKey(thisUser)
+		c.Set("username", username)
+		c.Set("user_id", dbID)
 		c.Next()
 	}
 }

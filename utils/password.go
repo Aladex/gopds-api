@@ -10,6 +10,7 @@ import (
 	"github.com/dgrijalva/jwt-go"
 	"github.com/spf13/viper"
 	"golang.org/x/crypto/pbkdf2"
+	"gopds-api/models"
 	"hash"
 	"math/big"
 	"math/rand"
@@ -44,7 +45,8 @@ func (s *source) Seed(seed int64) {}
 
 // Token структура токена для работы с API
 type Token struct {
-	UserID string
+	UserID     string
+	DatabaseID int64
 	jwt.StandardClaims
 }
 
@@ -92,9 +94,10 @@ func CheckPbkdf2(password, encoded string, keyLen int, h func() hash.Hash) (bool
 }
 
 // CreateToken Создание токена при логине пользователя в систему
-func CreateToken(username string) (string, error) {
+func CreateToken(user models.User) (string, error) {
 	tk := Token{
-		UserID: username,
+		UserID:     user.Login,
+		DatabaseID: user.ID,
 		StandardClaims: jwt.StandardClaims{
 			Issuer:   "dashboard-api",
 			IssuedAt: time.Now().Unix(),
@@ -109,17 +112,17 @@ func CreateToken(username string) (string, error) {
 }
 
 // CheckToken Проверка токена на подмену
-func CheckToken(token string) (string, error) {
+func CheckToken(token string) (string, int64, error) {
 	tokenCheck, err := jwt.ParseWithClaims(token, &Token{}, func(token *jwt.Token) (interface{}, error) {
 		return []byte(viper.GetString("sessions.key")), nil
 	})
 
 	if tokenCheck == nil {
-		return "", errors.New("token is not valid")
+		return "", 0, errors.New("token is not valid")
 	}
 
 	if claims, ok := tokenCheck.Claims.(*Token); ok && tokenCheck.Valid {
-		return claims.UserID, nil
+		return claims.UserID, claims.DatabaseID, nil
 	}
-	return "", err
+	return "", 0, err
 }
