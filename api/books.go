@@ -69,11 +69,10 @@ func FavBook(c *gin.Context) {
 	dbId := c.GetInt64("user_id")
 	var favBook models.FavBook
 	if err := c.ShouldBindJSON(&favBook); err == nil {
-		res, err := database.FavBook(dbId, favBook)
+		_, err = database.FavBook(dbId, favBook)
 		if err != nil {
 			httputil.NewError(c, http.StatusBadRequest, err)
 			return
 		}
-		c.JSON(200, gin.H{"have_favs": res})
 	}
 }
