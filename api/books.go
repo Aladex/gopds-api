@@ -62,17 +62,18 @@ func GetBooks(c *gin.Context) {
 // @Accept  json
 // @Produce  json
 // @Param  body body models.FavBook true "Book Data"
-// @Success 201 {object} string
+// @Success 200 {object} json
 // @Failure 400 {object} httputil.HTTPError
 // @Router /fav [post]
 func FavBook(c *gin.Context) {
 	dbId := c.GetInt64("user_id")
 	var favBook models.FavBook
 	if err := c.ShouldBindJSON(&favBook); err == nil {
-		_, err = database.FavBook(dbId, favBook)
+		res, err := database.FavBook(dbId, favBook)
 		if err != nil {
 			httputil.NewError(c, http.StatusBadRequest, err)
 			return
 		}
+		c.JSON(200, gin.H{"have_favs": res})
 	}
 }

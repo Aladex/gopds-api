@@ -67,6 +67,16 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, models.L
 					q = q.WhereIn("id IN (?)", booksIds)
 				}
 			}
+			if filters.Series != 0 {
+				var booksIds []int64
+				err := db.Model(&models.OrderToSeries{}).
+					Column("book_id").
+					Where("ser_id = ?", filters.Series).
+					Select(&booksIds)
+				if err == nil {
+					q = q.WhereIn("id IN (?)", booksIds)
+				}
+			}
 			if filters.Fav {
 				var booksIds []int64
 				err = db.Model(&models.UserToBook{}).
@@ -76,17 +86,12 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, models.L
 				if err == nil {
 					if len(booksIds) > 0 {
 						q = q.WhereIn("id IN (?)", booksIds)
+						exprArr := []string{}
+						for _, bid := range booksIds {
+							exprArr = append(exprArr, fmt.Sprintf("id=%d ASC", bid))
+						}
+						q.OrderExpr(strings.Join(exprArr, ", "))
 					}
-				}
-			}
-			if filters.Series != 0 {
-				var booksIds []int64
-				err := db.Model(&models.OrderToSeries{}).
-					Column("book_id").
-					Where("ser_id = ?", filters.Series).
-					Select(&booksIds)
-				if err == nil {
-					q = q.WhereIn("id IN (?)", booksIds)
 				}
 			}
 			return q, nil
@@ -116,12 +121,20 @@ func GetBook(bookID int64) (models.Book, error) {
 	return *book, nil
 }
 
+func HaveFavs(userID int64) (bool, error) {
+	count, err := db.Model(&models.UserToBook{}).Where("user_id = ?", userID).Count()
+	if count == 0 || err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // FavBook добавляет книгу в избранное
-func FavBook(userID int64, fav models.FavBook) (models.Book, error) {
+func FavBook(userID int64, fav models.FavBook) (bool, error) {
 	book := &models.Book{ID: fav.BookID}
 	err := db.Select(book)
 	if err != nil {
-		return *book, err
+		return false, err
 	}
 	if fav.Fav {
 		favBookObj := models.UserToBook{
@@ -130,7 +143,7 @@ func FavBook(userID int64, fav models.FavBook) (models.Book, error) {
 		}
 		_, err = db.Model(&favBookObj).Insert()
 		if err != nil {
-			return *book, errors.New("duplicated_favorites")
+			return false, errors.New("duplicated_favorites")
 		}
 	} else {
 		_, err := db.Model(&models.UserToBook{}).
@@ -138,9 +151,10 @@ func FavBook(userID int64, fav models.FavBook) (models.Book, error) {
 			Where("user_id = ?", userID).
 			Delete()
 		if err != nil {
-			return *book, errors.New("cannot_unfav")
+			return false, errors.New("cannot_unfav")
 		}
 	}
 
-	return *book, nil
+	hf, err := HaveFavs(userID)
+	return hf, err
 }

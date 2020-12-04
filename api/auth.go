@@ -134,11 +134,13 @@ func SelfUser(c *gin.Context) {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
 	}
+	hf, err := database.HaveFavs(dbUser.ID)
 	selfUser := models.LoggedInUser{
 		User:        dbUser.Login,
 		IsSuperuser: &dbUser.IsSuperUser,
 		FirstName:   dbUser.FirstName,
 		LastName:    dbUser.LastName,
+		HaveFavs:    &hf,
 	}
 
 	c.JSON(200, selfUser)

@@ -25,6 +25,7 @@ type LoggedInUser struct {
 	User        string  `json:"username"`
 	FirstName   string  `json:"first_name"`
 	LastName    string  `json:"last_name"`
+	HaveFavs    *bool   `json:"have_favs,omitempty"`
 	Token       *string `json:"token,omitempty"`
 	IsSuperuser *bool   `json:"is_superuser,omitempty"`
 }
