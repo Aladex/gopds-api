@@ -168,12 +168,10 @@ func ChangeUser(c *gin.Context) {
 			Password: userNewData.Password,
 		}
 		result, dbUser, err := database.CheckUser(u)
-
 		if !result && len(userNewData.Password) > 0 || err != nil {
 			httputil.NewError(c, http.StatusForbidden, errors.New("auth_error"))
 			return
 		}
-
 		if len(userNewData.Password) > 0 && len(userNewData.NewPassword) < 8 {
 			httputil.NewError(c, http.StatusBadRequest, errors.New("bad_password"))
 			return

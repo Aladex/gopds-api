@@ -103,11 +103,9 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, models.L
 		customLog.Print(err)
 		return nil, langRes, 0, err
 	}
-
 	for i, book := range books {
 		books[i].Fav = isFav(userFavs, book)
 	}
-
 	return books, langRes, count, nil
 }
 
