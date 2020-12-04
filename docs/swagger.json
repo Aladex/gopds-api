@@ -665,6 +665,43 @@
                 }
             }
         },
+        "/fav": {
+            "post": {
+                "description": "add or remove book from favorites for user",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "add or remove book from favorites for user",
+                "parameters": [
+                    {
+                        "description": "Book Data",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.FavBook"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/string"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/login": {
             "post": {
                 "description": "Login method for token generation",
@@ -973,6 +1010,15 @@
                 "docdate": {
                     "type": "string"
                 },
+                "fav": {
+                    "type": "boolean"
+                },
+                "favorites": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.User"
+                    }
+                },
                 "filename": {
                     "type": "string"
                 },
@@ -1017,9 +1063,26 @@
                 }
             }
         },
+        "models.FavBook": {
+            "type": "object",
+            "required": [
+                "book_id"
+            ],
+            "properties": {
+                "book_id": {
+                    "type": "integer"
+                },
+                "fav": {
+                    "type": "boolean"
+                }
+            }
+        },
         "models.Invite": {
             "type": "object",
             "properties": {
+                "before_date": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "integer"
                 },

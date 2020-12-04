@@ -79,6 +79,12 @@ definitions:
         type: boolean
       docdate:
         type: string
+      fav:
+        type: boolean
+      favorites:
+        items:
+          $ref: '#/definitions/models.User'
+        type: array
       filename:
         type: string
       format:
@@ -108,8 +114,19 @@ definitions:
     - book_id
     - format
     type: object
+  models.FavBook:
+    properties:
+      book_id:
+        type: integer
+      fav:
+        type: boolean
+    required:
+    - book_id
+    type: object
   models.Invite:
     properties:
+      before_date:
+        type: string
       id:
         type: integer
       invite:
@@ -675,6 +692,30 @@ paths:
       summary: Метод для сброса всех сессий пользователя
       tags:
       - login
+  /fav:
+    post:
+      consumes:
+      - application/json
+      description: add or remove book from favorites for user
+      parameters:
+      - description: Book Data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.FavBook'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/string'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+      summary: add or remove book from favorites for user
   /login:
     post:
       consumes:

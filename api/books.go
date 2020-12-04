@@ -55,6 +55,16 @@ func GetBooks(c *gin.Context) {
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
 }
 
+// FavBook add or remove book from favorites for user
+// Auth godoc
+// @Summary add or remove book from favorites for user
+// @Description add or remove book from favorites for user
+// @Accept  json
+// @Produce  json
+// @Param  body body models.FavBook true "Book Data"
+// @Success 201 {object} string
+// @Failure 400 {object} httputil.HTTPError
+// @Router /fav [post]
 func FavBook(c *gin.Context) {
 	dbId := c.GetInt64("user_id")
 	var favBook models.FavBook
