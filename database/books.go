@@ -45,6 +45,23 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, models.L
 		Relation("Users").
 		Relation("Series").
 		WhereGroup(func(q *orm.Query) (*orm.Query, error) {
+			if filters.Fav {
+				var booksIds []int64
+				err = db.Model(&models.UserToBook{}).
+					Column("book_id").
+					Where("user_id = ?", userID).
+					Select(&booksIds)
+				if err == nil {
+					if len(booksIds) > 0 {
+						q = q.WhereIn("id IN (?)", booksIds)
+						exprArr := []string{}
+						for _, bid := range booksIds {
+							exprArr = append(exprArr, fmt.Sprintf("id=%d ASC", bid))
+						}
+						q.OrderExpr(strings.Join(exprArr, ", "))
+					}
+				}
+			}
 			if filters.Title != "" && filters.Author == 0 {
 				q = q.Where("title % ?", filters.Title).
 					OrderExpr("title <-> ? ASC", filters.Title)
@@ -77,23 +94,7 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, models.L
 					q = q.WhereIn("id IN (?)", booksIds)
 				}
 			}
-			if filters.Fav {
-				var booksIds []int64
-				err = db.Model(&models.UserToBook{}).
-					Column("book_id").
-					Where("user_id = ?", userID).
-					Select(&booksIds)
-				if err == nil {
-					if len(booksIds) > 0 {
-						q = q.WhereIn("id IN (?)", booksIds)
-						exprArr := []string{}
-						for _, bid := range booksIds {
-							exprArr = append(exprArr, fmt.Sprintf("id=%d ASC", bid))
-						}
-						q.OrderExpr(strings.Join(exprArr, ", "))
-					}
-				}
-			}
+
 			return q, nil
 		}).
 		Limit(filters.Limit).
