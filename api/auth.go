@@ -135,6 +135,10 @@ func SelfUser(c *gin.Context) {
 		return
 	}
 	hf, err := database.HaveFavs(dbUser.ID)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
 	selfUser := models.LoggedInUser{
 		User:        dbUser.Login,
 		IsSuperuser: &dbUser.IsSuperUser,
@@ -196,11 +200,17 @@ func ChangeUser(c *gin.Context) {
 			c.JSON(500, err)
 			return
 		}
+		hf, err := database.HaveFavs(dbUser.ID)
+		if err != nil {
+			httputil.NewError(c, http.StatusBadRequest, err)
+			return
+		}
 		selfUser := models.LoggedInUser{
 			User:        user.Login,
 			FirstName:   user.FirstName,
 			LastName:    user.LastName,
 			IsSuperuser: &user.IsSuperUser,
+			HaveFavs:    &hf,
 		}
 		c.JSON(200, selfUser)
 		return
