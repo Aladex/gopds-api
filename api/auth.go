@@ -69,12 +69,19 @@ func AuthCheck(c *gin.Context) {
 				httputil.NewError(c, http.StatusForbidden, err)
 				return
 			}
+			hf, err := database.HaveFavs(dbUser.ID)
+
+			if err != nil {
+				httputil.NewError(c, http.StatusBadRequest, err)
+				return
+			}
 			thisUser := models.LoggedInUser{
 				User:        dbUser.Login,
 				FirstName:   dbUser.FirstName,
 				LastName:    dbUser.LastName,
 				Token:       &userToken,
 				IsSuperuser: &dbUser.IsSuperUser,
+				HaveFavs:    &hf,
 			}
 			sessions.SetSessionKey(thisUser)
 			go database.LoginDateSet(&dbUser)
