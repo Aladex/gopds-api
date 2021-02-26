@@ -15,6 +15,7 @@ type User struct {
 	IsSuperUser bool      `pg:"is_superuser,use_zero" json:"is_superuser"`
 	FirstName   string    `pg:"first_name" json:"first_name" form:"first_name"`
 	LastName    string    `pg:"last_name" json:"last_name" form:"last_name"`
+	BooksLang   string    `pg:"books_lang" json:"books_lang" form:"books_lang"`
 	Email       string    `pg:"email" json:"email"`
 	DateJoined  time.Time `pg:"date_joined" json:"date_joined"`
 	Active      bool      `pg:"active" json:"active"`
@@ -25,6 +26,7 @@ type LoggedInUser struct {
 	User        string  `json:"username"`
 	FirstName   string  `json:"first_name"`
 	LastName    string  `json:"last_name"`
+	BooksLang   string  `json:"books_lang"`
 	HaveFavs    *bool   `json:"have_favs,omitempty"`
 	Token       *string `json:"token,omitempty"`
 	IsSuperuser *bool   `json:"is_superuser,omitempty"`
@@ -91,4 +93,5 @@ type SelfUserChangeRequest struct {
 	LastName    string `json:"last_name" form:"last_name"`
 	Password    string `json:"password" form:"password"`
 	NewPassword string `json:"new_password" form:"new_password"`
+	BooksLang   string `json:"books_lang" form:"books_lang"`
 }

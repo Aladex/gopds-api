@@ -148,6 +148,7 @@ func SelfUser(c *gin.Context) {
 	}
 	selfUser := models.LoggedInUser{
 		User:        dbUser.Login,
+		BooksLang:   dbUser.BooksLang,
 		IsSuperuser: &dbUser.IsSuperUser,
 		FirstName:   dbUser.FirstName,
 		LastName:    dbUser.LastName,
@@ -198,6 +199,7 @@ func ChangeUser(c *gin.Context) {
 		dbUser.FirstName = userNewData.FirstName
 		dbUser.LastName = userNewData.LastName
 		dbUser.Password = userNewData.NewPassword
+		dbUser.BooksLang = userNewData.BooksLang
 
 		user, err := database.ActionUser(models.AdminCommandToUser{
 			Action: "update",
@@ -224,4 +226,59 @@ func ChangeUser(c *gin.Context) {
 
 	}
 
+}
+
+// ChangeUser метод для изменения языков книг пользователя
+// Auth godoc
+// @Summary Returns an users object
+// @Description user object
+// @Tags users
+// @Accept  json
+// @Produce  json
+// @Param  body body models.SelfUserChangeRequest true "User object"
+// @Success 200 {object} models.LoggedInUser
+// @Failure 400 {object} httputil.HTTPError
+// @Failure 403 {object} httputil.HTTPError
+// @Failure 500 {object} httputil.HTTPError
+// @Router /books/change-books-lang [post]
+func ChangeBooksLang(c *gin.Context) {
+	username := c.GetString("username")
+	var userNewData models.SelfUserChangeRequest
+	if err := c.ShouldBindJSON(&userNewData); err == nil {
+		u := models.LoginRequest{
+			Login:    username,
+			Password: userNewData.Password,
+		}
+
+		result, dbUser, err := database.CheckUser(u)
+		user := models.User{}
+		var hf bool = false
+		if result {
+			dbUser.BooksLang = userNewData.BooksLang
+			hf, err = database.HaveFavs(dbUser.ID)
+			if err != nil {
+				httputil.NewError(c, http.StatusBadRequest, err)
+				return
+			}
+			user, err = database.ActionUser(models.AdminCommandToUser{
+				Action: "update",
+				User:   dbUser,
+			})
+			if err != nil {
+				c.JSON(500, err)
+				return
+			}
+		}
+
+		selfUser := models.LoggedInUser{
+			User:        user.Login,
+			FirstName:   user.FirstName,
+			LastName:    user.LastName,
+			IsSuperuser: &user.IsSuperUser,
+			HaveFavs:    &hf,
+		}
+		c.JSON(200, selfUser)
+		return
+
+	}
 }
