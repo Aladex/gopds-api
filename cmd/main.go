@@ -95,6 +95,7 @@ func main() {
 	// Books group for all users
 	{
 		booksGroup.GET("/list", api.GetBooks)
+		booksGroup.GET("/langs", api.GetLangs)
 		booksGroup.GET("/self-user", api.SelfUser)
 		booksGroup.POST("/change-me", api.ChangeUser)
 		booksGroup.GET("/authors", api.GetAuthors)

@@ -17,18 +17,10 @@ func isFav(ids []int64, book models.Book) bool {
 	return false
 }
 
-// GetBooks Возвращает список книг и общее количество при селекте
-func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, models.Languages, int, error) {
-	books := []models.Book{}
-	var userFavs []int64
-	err := db.Model(&models.UserToBook{}).Where("user_id = ?", userID).Select(&userFavs)
-
+// GetLanguages возвращает список языков из БД
+func GetLanguages() models.Languages {
 	var langRes models.Languages
-
-	if filters.Limit > 100 || filters.Limit == 0 {
-		filters.Limit = 100
-	}
-	err = db.Model(&models.Book{}).
+	err := db.Model(&models.Book{}).
 		Column("lang").
 		ColumnExpr("count(*) AS language_count").
 		Group("lang").
@@ -37,7 +29,19 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, models.L
 
 	if err != nil {
 		customLog.Print(err)
-		return nil, langRes, 0, err
+		return nil
+	}
+	return langRes
+}
+
+// GetBooks Возвращает список книг и общее количество при селекте
+func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, error) {
+	books := []models.Book{}
+	var userFavs []int64
+	err := db.Model(&models.UserToBook{}).Where("user_id = ?", userID).Select(&userFavs)
+
+	if filters.Limit > 100 || filters.Limit == 0 {
+		filters.Limit = 100
 	}
 
 	count, err := db.Model(&books).
@@ -102,14 +106,14 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, models.L
 		SelectAndCount()
 	if err != nil {
 		customLog.Print(err)
-		return nil, langRes, 0, err
+		return nil, 0, err
 	}
 
 	for i, book := range books {
 		books[i].Fav = isFav(userFavs, book)
 	}
 
-	return books, langRes, count, nil
+	return books, count, nil
 }
 
 // GetBook возвращает информацию по книге для того, чтобы вытащить ее из архива

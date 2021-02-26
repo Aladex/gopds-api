@@ -47,7 +47,7 @@ func GetNewBooks(c *gin.Context) {
 		filters.Author = authorID
 	}
 
-	books, _, _, err := database.GetBooks(userID, filters)
+	books, _, err := database.GetBooks(userID, filters)
 	if err != nil {
 		c.XML(500, err)
 		return

@@ -12,9 +12,28 @@ import (
 
 // ExportAnswer структура ответа найденных книг и полного списка языков для компонента Books.vue
 type ExportAnswer struct {
-	Books     []models.Book    `json:"books"`
-	Languages models.Languages `json:"langs"`
-	Length    int              `json:"length"`
+	Books  []models.Book `json:"books"`
+	Length int           `json:"length"`
+}
+
+// GetLangs метод для запроса списка языков из БД opds
+// Auth godoc
+// @Summary список языков
+// @Description список языков
+// @Param Authorization header string true "Just token without bearer"
+// @Accept  json
+// @Produce  json
+// @Success 200 {object} json
+// @Failure 401 {object} httputil.HTTPError
+// @Failure 403 {object} httputil.HTTPError
+// @Router /books/langs [get]
+func GetLangs(c *gin.Context) {
+	langs := database.GetLanguages()
+	if langs != nil {
+		c.JSON(200, gin.H{"langs": langs})
+		return
+	}
+	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
 }
 
 // GetBooks метод для запроса списка книг из БД opds
@@ -36,7 +55,7 @@ func GetBooks(c *gin.Context) {
 	var filters models.BookFilters
 	userID := c.GetInt64("user_id")
 	if err := c.ShouldBindWith(&filters, binding.Query); err == nil {
-		books, langs, count, err := database.GetBooks(userID, filters)
+		books, count, err := database.GetBooks(userID, filters)
 		if err != nil {
 			c.JSON(500, err)
 			return
@@ -46,9 +65,8 @@ func GetBooks(c *gin.Context) {
 			lenght++
 		}
 		c.JSON(200, ExportAnswer{
-			Books:     books,
-			Languages: langs,
-			Length:    lenght,
+			Books:  books,
+			Length: lenght,
 		})
 		return
 	}

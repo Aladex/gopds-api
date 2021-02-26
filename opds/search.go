@@ -127,7 +127,7 @@ func GetBooks(c *gin.Context) {
 			dbFilters.Offset = filters.Page * 10
 		}
 
-		books, _, _, err := database.GetBooks(userID, dbFilters)
+		books, _, err := database.GetBooks(userID, dbFilters)
 		if err != nil {
 			c.XML(500, err)
 			return
