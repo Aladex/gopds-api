@@ -78,6 +78,7 @@ func main() {
 			c.Redirect(http.StatusMovedPermanently, "/opds/new/0/0")
 		})
 		opdsGroup.GET("/new/:page/:author", opds.GetNewBooks)
+		opdsGroup.GET("/favorites/:page", opds.GetNewBooks)
 		opdsGroup.GET("/search", opds.Search)
 		opdsGroup.GET("/books", opds.GetBooks)
 		opdsGroup.GET("/search-author", opds.GetAuthor)

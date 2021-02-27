@@ -27,6 +27,17 @@ func GetNewBooks(c *gin.Context) {
 	}
 	userID := c.GetInt64("user_id")
 
+	hf, err := database.HaveFavs(userID)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	if c.FullPath() == "/opds/favorites/:page" {
+		filters.Fav = true
+
+	}
+
 	pageNum, err := strconv.Atoi(c.Param("page"))
 	if err != nil {
 		customLog.Println(err)
@@ -35,9 +46,7 @@ func GetNewBooks(c *gin.Context) {
 	}
 	authorID, err := strconv.Atoi(c.Param("author"))
 	if err != nil {
-		customLog.Println(err)
-		httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
-		return
+		authorID = 0
 	}
 	if pageNum > 0 {
 		filters.Offset = pageNum * 10
@@ -91,6 +100,22 @@ func GetNewBooks(c *gin.Context) {
 			authors = append(authors, author.FullName)
 		}
 		feed.Items = append(feed.Items, &bookItem)
+	}
+
+	if !filters.Fav && hf {
+		feed.Items = append(feed.Items, &opdsutils.Item{
+			Title: "Избранное",
+			Link: []opdsutils.Link{
+				{
+					Href: "/opds/favorites/0",
+					Type: "application/atom+xml;profile=opds-catalog",
+				},
+			},
+			Id:      "tag:search:book",
+			Updated: time.Now(),
+			Created: time.Now(),
+			Content: "Избранное",
+		})
 	}
 	atom, err := feed.ToAtom()
 	if err != nil {
