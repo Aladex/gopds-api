@@ -72,5 +72,7 @@ func CreateItem(book models.Book) Item {
 		Id:          strconv.FormatInt(book.ID, 10),
 		Updated:     book.RegisterDate,
 		Created:     book.RegisterDate,
+		Language:    book.Lang,
+		Issued:      book.DocDate,
 	}
 }

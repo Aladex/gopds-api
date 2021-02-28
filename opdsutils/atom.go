@@ -48,6 +48,8 @@ type AtomEntry struct {
 	Id          string   `xml:"id"`      // required
 	Category    string   `xml:"category,omitempty"`
 	Content     *AtomContent
+	Language    string `xml:"dc:language,omitempty"`
+	Issued      string `xml:"dc:issued,omitempty"`
 	Rights      string `xml:"rights,omitempty"`
 	Source      string `xml:"source,omitempty"`
 	Published   string `xml:"published,omitempty"`
@@ -58,18 +60,12 @@ type AtomEntry struct {
 }
 
 type AtomFeed struct {
-	XMLName     xml.Name `xml:"feed"`
-	Xmlns       string   `xml:"xmlns,attr"`
-	Title       string   `xml:"title"`   // required
-	Id          string   `xml:"id"`      // required
-	Updated     string   `xml:"updated"` // required
-	Category    string   `xml:"category,omitempty"`
-	Icon        string   `xml:"icon,omitempty"`
-	Logo        string   `xml:"logo,omitempty"`
-	Content     string   `xml:"content,omitempty"`
-	Subtitle    string   `xml:"subtitle,omitempty"`
-	Links       []AtomLink
-	Authors     []AtomAuthor `xml:"author,omitempty"`
-	Contributor *AtomContributor
-	Entries     []*AtomEntry `xml:"entry"`
+	XMLName  xml.Name `xml:"feed"`
+	Xmlns    string   `xml:"xmlns,attr"`
+	Title    string   `xml:"title"`   // required
+	Id       string   `xml:"id"`      // required
+	Updated  string   `xml:"updated"` // required
+	Subtitle string   `xml:"subtitle,omitempty"`
+	Links    []AtomLink
+	Entries  []*AtomEntry `xml:"entry"`
 }

@@ -47,6 +47,8 @@ type Item struct {
 	Id          string // used as guid in rss, id in atom
 	Updated     time.Time
 	Created     time.Time
+	Language    string // used as guid in rss, id in atom
+	Issued      string // used as guid in rss, id in atom
 	Enclosure   *Enclosure
 	Content     string
 }

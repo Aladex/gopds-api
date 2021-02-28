@@ -45,18 +45,8 @@ func (a *Atom) AtomFeed() *AtomFeed {
 		Links:    links,
 		Subtitle: a.Description,
 		Id:       a.Id,
-		Updated:  updated,
-	}
-	if len(a.Authors) > 0 {
-		authors := []AtomAuthor{}
-		for _, author := range a.Authors {
-			authors = append(authors, AtomAuthor{
-				AtomPerson: AtomPerson{
-					Name: author.Name,
-					Uri:  fmt.Sprintf("/opds/author/%d", author.ID),
-				},
-			})
-		}
+
+		Updated: updated,
 	}
 	for _, e := range a.Items {
 		feed.Entries = append(feed.Entries, newAtomEntry(e))
@@ -100,11 +90,13 @@ func newAtomEntry(i *Item) *AtomEntry {
 		})
 	}
 	x := &AtomEntry{
-		Title:   i.Title,
-		Links:   atomLinks,
-		Id:      id,
-		Updated: anyTimeFormat(time.RFC3339, i.Updated, i.Created),
-		Summary: s,
+		Title:    i.Title,
+		Links:    atomLinks,
+		Id:       id,
+		Updated:  anyTimeFormat(time.RFC3339, i.Updated, i.Created),
+		Summary:  s,
+		Language: i.Language,
+		Issued:   i.Issued,
 	}
 
 	// if there's a content, assume it's html
