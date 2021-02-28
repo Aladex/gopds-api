@@ -62,9 +62,15 @@ func GetNewBooks(c *gin.Context) {
 		return
 	}
 	now := time.Now()
+	var np string
+	if filters.Fav {
+		np = fmt.Sprintf("/favorites/%d", pageNum+1)
+	} else {
+		np = fmt.Sprintf("/opds/new/%d/%d", pageNum+1, authorID)
+	}
 	rootLinks := []opdsutils.Link{
 		{
-			Href: fmt.Sprintf("/opds/new/%d/%d", pageNum+1, authorID),
+			Href: np,
 			Rel:  "next",
 			Type: "application/atom+xml;profile=opds-catalog",
 		},
@@ -93,16 +99,8 @@ func GetNewBooks(c *gin.Context) {
 		Created:     now,
 	}
 	feed.Items = []*opdsutils.Item{}
-	for _, book := range books {
-		authors := []string{}
-		bookItem := opdsutils.CreateItem(book)
-		for _, author := range book.Authors {
-			authors = append(authors, author.FullName)
-		}
-		feed.Items = append(feed.Items, &bookItem)
-	}
 
-	if !filters.Fav && hf {
+	if !filters.Fav && hf && pageNum == 0 {
 		feed.Items = append(feed.Items, &opdsutils.Item{
 			Title: "Избранное",
 			Link: []opdsutils.Link{
@@ -117,6 +115,16 @@ func GetNewBooks(c *gin.Context) {
 			Content: "Избранное",
 		})
 	}
+
+	for _, book := range books {
+		authors := []string{}
+		bookItem := opdsutils.CreateItem(book)
+		for _, author := range book.Authors {
+			authors = append(authors, author.FullName)
+		}
+		feed.Items = append(feed.Items, &bookItem)
+	}
+
 	atom, err := feed.ToAtom()
 	if err != nil {
 		customLog.Println(err)
