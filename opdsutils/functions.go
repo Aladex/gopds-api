@@ -7,8 +7,7 @@ import (
 )
 
 const header = `<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/terms/" xmlns:os="http://a9.com/-/spec/opensearch/1.1/" xmlns:opds="http://opds-spec.org/2010/catalog">`
-const ns = "http://www.w3.org/2005/Atom"
+`
 
 // creates an Atom representation of this feed
 func (f *Feed) ToAtom() (string, error) {
@@ -40,11 +39,13 @@ func (a *Atom) AtomFeed() *AtomFeed {
 	}
 
 	feed := &AtomFeed{
-		Xmlns:    ns,
-		Title:    a.Title,
-		Links:    links,
-		Subtitle: a.Description,
-		Id:       a.Id,
+		XmlnsDc:   "http://purl.org/dc/terms/",
+		XmlnsOs:   "http://a9.com/-/spec/opensearch/1.1/",
+		XmlnsOpds: "http://opds-spec.org/2010/catalog",
+		Title:     a.Title,
+		Links:     links,
+		Subtitle:  a.Description,
+		Id:        a.Id,
 
 		Updated: updated,
 	}

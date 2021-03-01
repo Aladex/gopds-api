@@ -4,13 +4,15 @@ import "encoding/xml"
 
 // Multiple links with different rel can coexist
 type AtomLink struct {
-	//Atom 1.0 <link rel="enclosure" type="audio/mpeg" title="MP3" href="http://www.example.org/myaudiofile.mp3" length="1234" />
 	XMLName xml.Name `xml:"link"`
 	Href    string   `xml:"href,attr"`
 	Rel     string   `xml:"rel,attr,omitempty"`
 	Type    string   `xml:"type,attr,omitempty"`
 	Length  string   `xml:"length,attr,omitempty"`
 	Title   string   `xml:"title,attr,omitempty"`
+}
+
+type AtomNs struct {
 }
 
 type AtomAuthor struct {
@@ -60,12 +62,14 @@ type AtomEntry struct {
 }
 
 type AtomFeed struct {
-	XMLName  xml.Name `xml:"feed"`
-	Xmlns    string   `xml:"xmlns,attr"`
-	Title    string   `xml:"title"`   // required
-	Id       string   `xml:"id"`      // required
-	Updated  string   `xml:"updated"` // required
-	Subtitle string   `xml:"subtitle,omitempty"`
-	Links    []AtomLink
-	Entries  []*AtomEntry `xml:"entry"`
+	XMLName   xml.Name `xml:"feed"`
+	XmlnsDc   string   `xml:"xmlns:dc,attr"`
+	XmlnsOs   string   `xml:"xmlns:os,attr"`
+	XmlnsOpds string   `xml:"xmlns:opds,attr,omitempty"`
+	Title     string   `xml:"title"`   // required
+	Id        string   `xml:"id"`      // required
+	Updated   string   `xml:"updated"` // required
+	Subtitle  string   `xml:"subtitle,omitempty"`
+	Links     []AtomLink
+	Entries   []*AtomEntry `xml:"entry"`
 }
