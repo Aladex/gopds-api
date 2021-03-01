@@ -27,7 +27,7 @@ func anyTimeFormat(format string, times ...time.Time) string {
 
 // create a new AtomFeed with a generic Feed struct's data
 func (a *Atom) AtomFeed() *AtomFeed {
-	updated := anyTimeFormat(time.RFC3339, a.Updated, a.Created)
+	updated := anyTimeFormat(time.RFC3339, a.Updated)
 	links := []AtomLink{}
 	for _, l := range a.Links {
 		links = append(links, AtomLink{
@@ -39,13 +39,12 @@ func (a *Atom) AtomFeed() *AtomFeed {
 	}
 
 	feed := &AtomFeed{
+		Xmlns:     "http://www.w3.org/2005/Atom",
 		XmlnsDc:   "http://purl.org/dc/terms/",
 		XmlnsOs:   "http://a9.com/-/spec/opensearch/1.1/",
 		XmlnsOpds: "http://opds-spec.org/2010/catalog",
 		Title:     a.Title,
 		Links:     links,
-		Subtitle:  a.Description,
-		Id:        a.Id,
 
 		Updated: updated,
 	}
@@ -94,7 +93,7 @@ func newAtomEntry(i *Item) *AtomEntry {
 		Title:    i.Title,
 		Links:    atomLinks,
 		Id:       id,
-		Updated:  anyTimeFormat(time.RFC3339, i.Updated, i.Created),
+		Updated:  anyTimeFormat(time.RFC3339, i.Updated),
 		Summary:  s,
 		Language: i.Language,
 		Issued:   i.Issued,

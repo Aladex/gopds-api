@@ -16,17 +16,10 @@ type XmlFeed interface {
 }
 
 type Feed struct {
-	Title       string
-	Links       []Link
-	Content     string
-	Description string
-	Authors     []Author
-	Updated     time.Time
-	Created     time.Time
-	Id          string
-	Subtitle    string
-	Items       []*Item
-	Image       *Image
+	Title   string
+	Links   []Link
+	Updated time.Time
+	Items   []*Item
 }
 
 type Link struct {
@@ -46,18 +39,7 @@ type Item struct {
 	Description string // used as description in rss, summary in atom
 	Id          string // used as guid in rss, id in atom
 	Updated     time.Time
-	Created     time.Time
 	Language    string // used as guid in rss, id in atom
 	Issued      string // used as guid in rss, id in atom
-	Enclosure   *Enclosure
 	Content     string
-}
-
-type Enclosure struct {
-	Url, Length, Type string
-}
-
-type Image struct {
-	Url, Title, Link string
-	Width, Height    int
 }

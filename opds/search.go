@@ -44,7 +44,6 @@ type OpdsAuthorSearch struct {
 func Search(c *gin.Context) {
 	var filters searchTerms
 	if err := c.ShouldBindWith(&filters, binding.Query); err == nil {
-		now := time.Now()
 		searchRootLinks := []opdsutils.Link{
 			{
 				Href: "/opds",
@@ -64,11 +63,8 @@ func Search(c *gin.Context) {
 		}
 
 		feed := &opdsutils.Feed{
-			Title:       "Поиск книг",
-			Links:       searchRootLinks,
-			Id:          "tag:search:::",
-			Description: "Поиск книг",
-			Created:     now,
+			Title: "Поиск книг",
+			Links: searchRootLinks,
 		}
 		feed.Items = []*opdsutils.Item{
 			{
@@ -81,7 +77,6 @@ func Search(c *gin.Context) {
 				},
 				Id:      "tag:search:author",
 				Updated: time.Now(),
-				Created: time.Now(),
 				Content: "Поиск авторов по фамилии",
 			},
 			{
@@ -95,7 +90,6 @@ func Search(c *gin.Context) {
 				},
 				Id:      "tag:search:book",
 				Updated: time.Now(),
-				Created: time.Now(),
 				Content: "Поиск книг по названию",
 			},
 		}
@@ -137,7 +131,6 @@ func GetBooks(c *gin.Context) {
 			return
 		}
 
-		now := time.Now()
 		rootLinks := []opdsutils.Link{
 			{
 				Href: fmt.Sprintf("/opds/books?title=%s&page=%d", url.QueryEscape(filters.Title), filters.Page+1),
@@ -162,11 +155,8 @@ func GetBooks(c *gin.Context) {
 		}
 
 		feed := &opdsutils.Feed{
-			Title:       "Новые книги",
-			Links:       rootLinks,
-			Id:          fmt.Sprintf("tag:search:new:book:%d", filters.Page),
-			Description: "Поиск книги",
-			Created:     now,
+			Title: "Новые книги",
+			Links: rootLinks,
 		}
 		feed.Items = []*opdsutils.Item{}
 		for _, book := range books {
@@ -213,7 +203,6 @@ func GetAuthor(c *gin.Context) {
 			c.XML(500, err)
 			return
 		}
-		now := time.Now()
 		rootLinks := []opdsutils.Link{
 			{
 				Href: fmt.Sprintf("/opds/search-author?name=%s&page=%d", url.QueryEscape(filters.Name), filters.Page+1),
@@ -238,11 +227,8 @@ func GetAuthor(c *gin.Context) {
 		}
 
 		feed := &opdsutils.Feed{
-			Title:       "Поиск автора",
-			Links:       rootLinks,
-			Id:          fmt.Sprintf("tag:search:new:author:%d", filters.Page),
-			Description: "Author Feed",
-			Created:     now,
+			Title: "Поиск автора",
+			Links: rootLinks,
 		}
 		feed.Items = []*opdsutils.Item{}
 		for _, a := range authors {
@@ -258,7 +244,6 @@ func GetAuthor(c *gin.Context) {
 				},
 				Id:      strconv.FormatInt(a.ID, 10),
 				Updated: time.Now(),
-				Created: time.Now(),
 				Content: a.FullName,
 			})
 		}

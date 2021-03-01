@@ -61,7 +61,6 @@ func GetNewBooks(c *gin.Context) {
 		c.XML(500, err)
 		return
 	}
-	now := time.Now()
 	var np string
 	if filters.Fav {
 		np = fmt.Sprintf("/favorites/%d", pageNum+1)
@@ -92,11 +91,9 @@ func GetNewBooks(c *gin.Context) {
 	}
 
 	feed := &opdsutils.Feed{
-		Title:       "Лепробиблиотека",
-		Links:       rootLinks,
-		Id:          fmt.Sprintf("tag:search:new:book:%d", pageNum),
-		Description: "Книги",
-		Created:     now,
+		Title:   "Лепробиблиотека",
+		Links:   rootLinks,
+		Updated: time.Now(),
 	}
 	feed.Items = []*opdsutils.Item{}
 
@@ -109,9 +106,8 @@ func GetNewBooks(c *gin.Context) {
 					Type: "application/atom+xml;profile=opds-catalog",
 				},
 			},
-			Id:      "tag:search:book",
+			Id:      "tag:search:favorites",
 			Updated: time.Now(),
-			Created: time.Now(),
 			Content: "Избранное",
 		})
 	}

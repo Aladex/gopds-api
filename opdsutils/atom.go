@@ -63,13 +63,12 @@ type AtomEntry struct {
 
 type AtomFeed struct {
 	XMLName   xml.Name `xml:"feed"`
+	Xmlns     string   `xml:"xmlns,attr"`
 	XmlnsDc   string   `xml:"xmlns:dc,attr"`
 	XmlnsOs   string   `xml:"xmlns:os,attr"`
 	XmlnsOpds string   `xml:"xmlns:opds,attr,omitempty"`
 	Title     string   `xml:"title"`   // required
-	Id        string   `xml:"id"`      // required
 	Updated   string   `xml:"updated"` // required
-	Subtitle  string   `xml:"subtitle,omitempty"`
 	Links     []AtomLink
 	Entries   []*AtomEntry `xml:"entry"`
 }
