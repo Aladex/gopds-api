@@ -11,7 +11,6 @@ import (
 	"gopds-api/opdsutils"
 	"net/http"
 	"net/url"
-	"strconv"
 	"time"
 )
 
@@ -236,13 +235,11 @@ func GetAuthor(c *gin.Context) {
 				Title: a.FullName,
 				Link: []opdsutils.Link{
 					{
-						Href:  fmt.Sprintf("/opds/new/0/%d", a.ID),
-						Rel:   "search",
-						Type:  "application/atom+xml;profile=opds-catalog",
-						Title: a.FullName,
+						Href: fmt.Sprintf("/opds/new/0/%d", a.ID),
+						Type: "application/atom+xml;profile=opds-catalog",
 					},
 				},
-				Id:      strconv.FormatInt(a.ID, 10),
+				Id:      fmt.Sprintf("tag:author:%d", a.ID),
 				Updated: time.Now(),
 				Content: a.FullName,
 			})
