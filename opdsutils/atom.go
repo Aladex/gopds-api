@@ -67,7 +67,8 @@ type AtomFeed struct {
 	XmlnsDc   string   `xml:"xmlns:dc,attr"`
 	XmlnsOs   string   `xml:"xmlns:os,attr"`
 	XmlnsOpds string   `xml:"xmlns:opds,attr,omitempty"`
-	Title     string   `xml:"title"`   // required
+	Title     string   `xml:"title"` // required
+	Icon      string   `xml:"icon,omitempty"`
 	Updated   string   `xml:"updated"` // required
 	Links     []AtomLink
 	Entries   []*AtomEntry `xml:"entry"`

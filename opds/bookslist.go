@@ -96,7 +96,6 @@ func GetNewBooks(c *gin.Context) {
 			Href: np,
 			Rel:  "next",
 			Type: "application/atom+xml;profile=opds-catalog"})
-		fmt.Println(np)
 	}
 
 	feed := &opdsutils.Feed{

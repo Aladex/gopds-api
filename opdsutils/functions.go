@@ -45,6 +45,7 @@ func (a *Atom) AtomFeed() *AtomFeed {
 		XmlnsOpds: "http://opds-spec.org/2010/catalog",
 		Title:     a.Title,
 		Links:     links,
+		Icon:      "/favicon.ico",
 
 		Updated: updated,
 	}
