@@ -14,8 +14,6 @@ import (
 	"time"
 )
 
-var customLog = logging.SetLog()
-
 func hasNextPage(limit, currentPage, totalCount int) bool {
 	totalPages := totalCount / limit
 	if currentPage < totalPages {
@@ -48,7 +46,7 @@ func GetNewBooks(c *gin.Context) {
 
 	pageNum, err := strconv.Atoi(c.Param("page"))
 	if err != nil {
-		customLog.Println(err)
+		logging.CustomLog.Println(err)
 		httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
 		return
 	}
@@ -134,7 +132,7 @@ func GetNewBooks(c *gin.Context) {
 
 	atom, err := feed.ToAtom()
 	if err != nil {
-		customLog.Println(err)
+		logging.CustomLog.Println(err)
 	}
 
 	c.Data(200, "application/atom+xml;charset=utf-8", []byte(atom))

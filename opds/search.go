@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin/binding"
 	"gopds-api/database"
 	"gopds-api/httputil"
+	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/opdsutils"
 	"net/http"
@@ -95,7 +96,7 @@ func Search(c *gin.Context) {
 
 		atom, err := feed.ToAtom()
 		if err != nil {
-			customLog.Println(err)
+			logging.CustomLog.Println(err)
 		}
 
 		c.Data(200, "application/atom+xml;charset=utf-8", []byte(atom))
@@ -168,7 +169,7 @@ func GetBooks(c *gin.Context) {
 		}
 		atom, err := feed.ToAtom()
 		if err != nil {
-			customLog.Println(err)
+			logging.CustomLog.Println(err)
 		}
 
 		c.Data(200, "application/atom+xml;charset=utf-8", []byte(atom))
@@ -246,7 +247,7 @@ func GetAuthor(c *gin.Context) {
 		}
 		atom, err := feed.ToAtom()
 		if err != nil {
-			customLog.Println(err)
+			logging.CustomLog.Println(err)
 		}
 		c.Data(200, "application/atom+xml;charset=utf-8", []byte(atom))
 		return

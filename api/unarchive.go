@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/viper"
 	"gopds-api/database"
 	"gopds-api/httputil"
+	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/utils"
 	"io"
@@ -105,7 +106,7 @@ func GetBookFile(c *gin.Context) {
 		_, err = io.Copy(c.Writer, rc)
 
 		if err != nil {
-			customLog.WithFields(logrus.Fields{
+			logging.CustomLog.WithFields(logrus.Fields{
 				"status":      c.Writer.Status(),
 				"method":      c.Request.Method,
 				"error":       "client was dropped connection",

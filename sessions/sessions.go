@@ -2,6 +2,7 @@ package sessions
 
 import (
 	uuid "github.com/satori/go.uuid"
+	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/utils"
 	"strings"
@@ -34,13 +35,13 @@ func DeleteSessionKey(lu models.LoggedInUser) {
 func DropAllSessions(token string) {
 	username, _, err := utils.CheckToken(token)
 	if err != nil {
-		customLog.Println(err)
+		logging.CustomLog.Println(err)
 	}
 	keys := rdb.Keys("*")
 	for _, k := range keys.Val() {
 		checkedUser, _, err := utils.CheckToken(k)
 		if err != nil {
-			customLog.Println(err)
+			logging.CustomLog.Println(err)
 		}
 		if checkedUser == username {
 			rdb.Del(k)

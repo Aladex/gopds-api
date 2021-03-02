@@ -7,7 +7,6 @@ import (
 )
 
 var db *pg.DB
-var customLog = logging.SetLog()
 
 func init() {
 	viper.SetConfigName("config")
@@ -16,7 +15,7 @@ func init() {
 
 	err := viper.ReadInConfig() // Find and read the config file
 	if err != nil {             // Handle errors reading the config file
-		customLog.Fatalf("Fatal error config file: %s \n", err)
+		logging.CustomLog.Fatalf("Fatal error config file: %s \n", err)
 	}
 	db = pgConn()
 }

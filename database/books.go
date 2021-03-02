@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/go-pg/pg/v9/orm"
+	"gopds-api/logging"
 	"gopds-api/models"
 	"strings"
 )
@@ -28,7 +29,7 @@ func GetLanguages() models.Languages {
 		Select(&langRes)
 
 	if err != nil {
-		customLog.Print(err)
+		logging.CustomLog.Print(err)
 		return nil
 	}
 	return langRes
@@ -105,7 +106,7 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, err
 		Offset(filters.Offset).
 		SelectAndCount()
 	if err != nil {
-		customLog.Print(err)
+		logging.CustomLog.Print(err)
 		return nil, 0, err
 	}
 

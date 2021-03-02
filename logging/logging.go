@@ -10,6 +10,12 @@ import (
 	"time"
 )
 
+var CustomLog *logrus.Logger
+
+func init() {
+	CustomLog = SetLog()
+}
+
 // Formatter - logrus formatter, implements logrus.Formatter
 type Formatter struct {
 	FieldsOrder     []string // default: fields sorted alphabetically

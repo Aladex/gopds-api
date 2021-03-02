@@ -13,8 +13,6 @@ import (
 	"net/smtp"
 )
 
-var customLog = logging.SetLog()
-
 type SendType struct {
 	Title   string
 	Token   string
@@ -32,7 +30,7 @@ func init() {
 
 	err := viper.ReadInConfig() // Find and read the config file
 	if err != nil {             // Handle errors reading the config file
-		customLog.Fatalf("Fatal error config file: %s \n", err)
+		logging.CustomLog.Fatalf("Fatal error config file: %s \n", err)
 	}
 }
 

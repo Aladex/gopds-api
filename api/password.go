@@ -8,6 +8,7 @@ import (
 	"gopds-api/database"
 	"gopds-api/email"
 	"gopds-api/httputil"
+	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/sessions"
 	"net/http"
@@ -92,7 +93,7 @@ func ChangeRequest(c *gin.Context) {
 		go func() {
 			err := email.SendActivationEmail(registrationMessage)
 			if err != nil {
-				customLog.Println(err)
+				logging.CustomLog.Println(err)
 			}
 		}()
 

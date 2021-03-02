@@ -14,8 +14,6 @@ import (
 	"net/http"
 )
 
-var customLog = logging.SetLog()
-
 func init() {
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
@@ -52,7 +50,7 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 	route := gin.New()
-	route.Use(logging.GinrusLogger(customLog))
+	route.Use(logging.GinrusLogger(logging.CustomLog))
 	if viper.GetBool("app.devel_mode") {
 		route.Use(Options)
 	}
