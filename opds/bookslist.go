@@ -16,6 +16,14 @@ import (
 
 var customLog = logging.SetLog()
 
+func hasNextPage(limit, currentPage, totalCount int) bool {
+	totalPages := totalCount / limit
+	if currentPage < totalPages {
+		return true
+	}
+	return false
+}
+
 func GetNewBooks(c *gin.Context) {
 	filters := models.BookFilters{
 		Limit:  10,
@@ -56,7 +64,7 @@ func GetNewBooks(c *gin.Context) {
 		filters.Author = authorID
 	}
 
-	books, _, err := database.GetBooks(userID, filters)
+	books, tc, err := database.GetBooks(userID, filters)
 	if err != nil {
 		c.XML(500, err)
 		return
@@ -68,11 +76,6 @@ func GetNewBooks(c *gin.Context) {
 		np = fmt.Sprintf("/opds/new/%d/%d", pageNum+1, authorID)
 	}
 	rootLinks := []opdsutils.Link{
-		{
-			Href: np,
-			Rel:  "next",
-			Type: "application/atom+xml;profile=opds-catalog",
-		},
 		{
 			Href: "/opds",
 			Rel:  "start",
@@ -88,6 +91,14 @@ func GetNewBooks(c *gin.Context) {
 			Rel:  "search",
 			Type: "application/atom+xml",
 		},
+	}
+
+	if hasNextPage(filters.Limit, pageNum, tc) {
+		rootLinks = append(rootLinks, opdsutils.Link{
+			Href: np,
+			Rel:  "next",
+			Type: "application/atom+xml;profile=opds-catalog"})
+		fmt.Println(np)
 	}
 
 	feed := &opdsutils.Feed{
