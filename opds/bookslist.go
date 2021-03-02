@@ -105,7 +105,7 @@ func GetNewBooks(c *gin.Context) {
 	}
 	feed.Items = []*opdsutils.Item{}
 
-	if !filters.Fav && hf && pageNum == 0 {
+	if !filters.Fav && hf && pageNum == 0 && filters.Author == 0 {
 		feed.Items = append(feed.Items, &opdsutils.Item{
 			Title: "Избранное",
 			Link: []opdsutils.Link{
