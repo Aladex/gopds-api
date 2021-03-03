@@ -23,7 +23,7 @@ type ExportAnswer struct {
 // @Param Authorization header string true "Just token without bearer"
 // @Accept  json
 // @Produce  json
-// @Success 200 {object} json
+// @Success 200 {object} ExportAnswer
 // @Failure 401 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError
 // @Router /books/langs [get]
@@ -80,7 +80,7 @@ func GetBooks(c *gin.Context) {
 // @Accept  json
 // @Produce  json
 // @Param  body body models.FavBook true "Book Data"
-// @Success 200 {object} json
+// @Success 200 {object} ExportAnswer
 // @Failure 400 {object} httputil.HTTPError
 // @Router /fav [post]
 func FavBook(c *gin.Context) {

@@ -6,9 +6,6 @@ definitions:
         items:
           $ref: '#/definitions/models.Book'
         type: array
-      langs:
-        $ref: '#/definitions/models.Languages'
-        type: object
       length:
         type: integer
     type: object
@@ -140,19 +137,14 @@ definitions:
         $ref: '#/definitions/models.Invite'
         type: object
     type: object
-  models.Languages:
-    items:
-      properties:
-        count:
-          type: integer
-        language:
-          type: string
-      type: object
-    type: array
   models.LoggedInUser:
     properties:
+      books_lang:
+        type: string
       first_name:
         type: string
+      have_favs:
+        type: boolean
       is_superuser:
         type: boolean
       last_name:
@@ -197,6 +189,8 @@ definitions:
     type: object
   models.SelfUserChangeRequest:
     properties:
+      books_lang:
+        type: string
       first_name:
         type: string
       last_name:
@@ -221,6 +215,8 @@ definitions:
     properties:
       active:
         type: boolean
+      books_lang:
+        type: string
       date_joined:
         type: string
       email:
@@ -533,6 +529,33 @@ paths:
       summary: returns file of book in answered type
       tags:
       - files
+  /books/langs:
+    get:
+      consumes:
+      - application/json
+      description: список языков
+      parameters:
+      - description: Just token without bearer
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.ExportAnswer'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+      summary: список языков
   /books/list:
     get:
       consumes:
@@ -707,10 +730,10 @@ paths:
       produces:
       - application/json
       responses:
-        "201":
-          description: Created
+        "200":
+          description: OK
           schema:
-            $ref: '#/definitions/string'
+            $ref: '#/definitions/api.ExportAnswer'
         "400":
           description: Bad Request
           schema:

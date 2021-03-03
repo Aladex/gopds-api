@@ -424,6 +424,47 @@
                 }
             }
         },
+        "/books/langs": {
+            "get": {
+                "description": "список языков",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "список языков",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Just token without bearer",
+                        "name": "Authorization",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.ExportAnswer"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httputil.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/books/list": {
             "get": {
                 "description": "возвращает JSON с книгами",
@@ -687,10 +728,10 @@
                     }
                 ],
                 "responses": {
-                    "201": {
-                        "description": "Created",
+                    "200": {
+                        "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/string"
+                            "$ref": "#/definitions/api.ExportAnswer"
                         }
                     },
                     "400": {
@@ -898,10 +939,6 @@
                         "$ref": "#/definitions/models.Book"
                     }
                 },
-                "langs": {
-                    "type": "object",
-                    "$ref": "#/definitions/models.Languages"
-                },
                 "length": {
                     "type": "integer"
                 }
@@ -1103,25 +1140,17 @@
                 }
             }
         },
-        "models.Languages": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "count": {
-                        "type": "integer"
-                    },
-                    "language": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
         "models.LoggedInUser": {
             "type": "object",
             "properties": {
+                "books_lang": {
+                    "type": "string"
+                },
                 "first_name": {
                     "type": "string"
+                },
+                "have_favs": {
+                    "type": "boolean"
                 },
                 "is_superuser": {
                     "type": "boolean"
@@ -1189,6 +1218,9 @@
         "models.SelfUserChangeRequest": {
             "type": "object",
             "properties": {
+                "books_lang": {
+                    "type": "string"
+                },
                 "first_name": {
                     "type": "string"
                 },
@@ -1225,6 +1257,9 @@
             "properties": {
                 "active": {
                     "type": "boolean"
+                },
+                "books_lang": {
+                    "type": "string"
                 },
                 "date_joined": {
                     "type": "string"
