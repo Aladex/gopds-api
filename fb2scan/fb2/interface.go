@@ -9,6 +9,13 @@ import (
 
 // FB2 represents FB2 structure
 //proteus:generate
+
+type Sequence struct {
+	XMLName xml.Name `xml:"sequence"`
+	Name    string   `xml:"name,attr"`
+	Number  string   `xml:"number,attr"`
+}
+
 type FB2 struct {
 	ID          string   `bson:"_id"`
 	FictionBook xml.Name `xml:"FictionBook" bson:"FictionBook"`
@@ -30,7 +37,7 @@ type FB2 struct {
 			Lang       string     `xml:"lang" bson:"lang"`
 			SrcLang    string     `xml:"src-lang" bson:"src-lang"`
 			Translator AuthorType `xml:"translator" bson:"translator"`
-			Sequence   string     `xml:"sequence" bson:"sequence"`
+			Sequence   []Sequence `xml:"sequence" bson:"sequence"`
 		} `xml:"title-info" bson:"title-info"`
 		DocumentInfo struct {
 			Author      []AuthorType `xml:"author" bson:"author"`
