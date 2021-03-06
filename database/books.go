@@ -35,6 +35,11 @@ func GetLanguages() models.Languages {
 	return langRes
 }
 
+// AddBook
+func AddBook(book models.Book) {
+
+}
+
 // GetBooks Возвращает список книг и общее количество при селекте
 func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, error) {
 	books := []models.Book{}
