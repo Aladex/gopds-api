@@ -16,6 +16,11 @@ type Sequence struct {
 	Number  string   `xml:"number,attr"`
 }
 
+type Annotation struct {
+	XMLName xml.Name `xml:"annotation"`
+	Value   string   `xml:",innerxml"`
+}
+
 type FB2 struct {
 	ID          string   `bson:"_id"`
 	FictionBook xml.Name `xml:"FictionBook" bson:"FictionBook"`
@@ -26,9 +31,9 @@ type FB2 struct {
 			GenreType  []string     `xml:"genreType" bson:"genreType"`
 			Author     []AuthorType `xml:"author" bson:"author"`
 			BookTitle  string       `xml:"book-title" bson:"book-title"`
-			Annotation string       `xml:"annotation" bson:"annotation"`
-			Keywords   string       `xml:"keywords" bson:"keywords"`
-			Date       string       `xml:"date" bson:"date"`
+			Annotation Annotation
+			Keywords   string `xml:"keywords" bson:"keywords"`
+			Date       string `xml:"date" bson:"date"`
 			Coverpage  struct {
 				Image struct {
 					Href string `xml:"xlink:href,attr" bson:"href"`

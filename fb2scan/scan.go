@@ -4,10 +4,14 @@ import (
 	"archive/zip"
 	"encoding/base64"
 	"fmt"
+	"github.com/spf13/viper"
+	"gopds-api/database"
 	fb2scan "gopds-api/fb2scan/fb2"
 	"gopds-api/logging"
 	"gopds-api/models"
 	"io/ioutil"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -21,7 +25,33 @@ var bookChan chan models.Book
 
 func addBook(b chan models.Book) {
 	for {
-		fmt.Println(<-b)
+		err := database.AddBook(<-b)
+		if err != nil {
+			logging.CustomLog.Println(err)
+		}
+	}
+}
+
+func visit(files *[]string) filepath.WalkFunc {
+	return func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			logging.CustomLog.Println(err)
+		}
+		if strings.HasSuffix(path, ".zip") {
+			*files = append(*files, path)
+		}
+		return nil
+	}
+}
+
+func GetArchivesList() {
+	var files []string
+	err := filepath.Walk(viper.GetString("app.files_path"), visit(&files))
+	if err != nil {
+		logging.CustomLog.Println(err)
+	}
+	for _, f := range files {
+		ScanNewArchive(f)
 	}
 }
 
@@ -41,7 +71,7 @@ func ExtractCover(name, cover, path string) bool {
 }
 
 // ScanNewArchives функция для сканирования новых архивов после скачивания
-func ScanNewArchives(path string) {
+func ScanNewArchive(path string) {
 	r, err := zip.OpenReader(path)
 	if err != nil {
 		return
@@ -68,7 +98,7 @@ func ScanNewArchives(path string) {
 			DocDate:      result.Description.DocumentInfo.Date,
 			Lang:         result.Description.TitleInfo.Lang,
 			Title:        result.Description.TitleInfo.BookTitle,
-			Annotation:   result.Description.TitleInfo.Annotation,
+			Annotation:   result.Description.TitleInfo.Annotation.Value,
 			Cover:        false,
 			Series:       nil,
 		}
@@ -88,11 +118,16 @@ func ScanNewArchives(path string) {
 				Ser:   s.Name,
 			})
 		}
+		fmt.Println(newBook.FileName)
+		fmt.Println(newBook.Title)
+		fmt.Println(newBook.Format)
+		fmt.Println(newBook.Annotation)
+
 		// TODO: здесь надо будет обдумать извлечение обложки книги. Может перетереться значение
-		for _, c := range result.Binary {
-			if c.ContentType == "image/jpeg" {
-				newBook.Cover = ExtractCover(f.Name, c.Value, "")
-			}
-		}
+		//for _, c := range result.Binary {
+		//	if c.ContentType == "image/jpeg" {
+		//		newBook.Cover = ExtractCover(f.Name, c.Value, "")
+		//	}
+		//}
 	}
 }

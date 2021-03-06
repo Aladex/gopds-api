@@ -107,6 +107,7 @@ func main() {
 	// Admin group
 	{
 		adminGroup.POST("/users", api.GetUsers)
+		adminGroup.GET("/scan", api.StartScan)
 		adminGroup.GET("/invites", api.GetInvites)
 		adminGroup.POST("/invite", api.ChangeInvite)
 		adminGroup.POST("/user", api.ActionUser)

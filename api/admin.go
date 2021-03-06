@@ -4,6 +4,7 @@ import (
 	"errors"
 	"github.com/gin-gonic/gin"
 	"gopds-api/database"
+	"gopds-api/fb2scan"
 	"gopds-api/httputil"
 	"gopds-api/models"
 	"net/http"
@@ -13,6 +14,26 @@ import (
 type UsersAnswer struct {
 	Users  []models.User `json:"users"`
 	Length int           `json:"length"`
+}
+
+// StartScan запускает сканирование книг
+// Auth godoc
+// @Summary запускает сканирование книг
+// @Description запускает сканирование книг
+// @Tags admin
+// @Param Authorization header string true "Just token without bearer"
+// @Accept  json
+// @Produce  json
+// @Success 200 {object} models.Result
+// @Failure 500 {object} httputil.HTTPError
+// @Failure 403 {object} httputil.HTTPError
+// @Router /admin/scan [get]
+func StartScan(c *gin.Context) {
+	go fb2scan.GetArchivesList()
+	c.JSON(200, models.Result{
+		Result: "ok",
+		Error:  nil,
+	})
 }
 
 // GetUsers метод для запроса списка книг из БД opds

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"io"
+	"strings"
 )
 
 // Parser struct
@@ -29,9 +30,12 @@ func NewReader(data io.Reader) *Parser {
 
 // CharsetReader required for change encodings
 func (p *Parser) CharsetReader(c string, i io.Reader) (r io.Reader, e error) {
+	c = strings.ToLower(c)
 	switch c {
 	case "windows-1251":
 		r = decodeWin1251(i)
+	case "windows-1252":
+		r = decodeWin1252(i)
 	}
 	return
 }

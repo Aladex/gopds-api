@@ -36,8 +36,12 @@ func GetLanguages() models.Languages {
 }
 
 // AddBook
-func AddBook(book models.Book) {
-
+func AddBook(book models.Book) error {
+	_, err := db.Model(&book).Insert()
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // GetBooks Возвращает список книг и общее количество при селекте

@@ -35,24 +35,11 @@ func decodeWin1251(i io.Reader) (r io.Reader) {
 	return
 }
 
-// ToPB converts fb2 to protobuf fb2
-func ToPB(target FB2) fb2scan.PFB2 {
-	var result = NewPFB2()
+func decodeWin1252(i io.Reader) (r io.Reader) {
+	decoder := charmap.Windows1252.NewDecoder()
+	r = decoder.Reader(i)
 
-	result.Description.TitleInfo.Annotation = target.Description.TitleInfo.Annotation
-	for i, v := range target.Description.TitleInfo.Author {
-		result.Description.TitleInfo.Author[i].FirstName = v.FirstName
-		result.Description.TitleInfo.Author[i].MiddleName = v.MiddleName
-		result.Description.TitleInfo.Author[i].LastName = v.LastName
-		result.Description.TitleInfo.Author[i].Email = v.Email
-		result.Description.TitleInfo.Author[i].HomePage = v.HomePage
-		result.Description.TitleInfo.Author[i].Nickname = v.Nickname
-	}
-	result.Description.TitleInfo.Annotation = target.Description.TitleInfo.Annotation
-	result.Description.TitleInfo.Annotation = target.Description.TitleInfo.Annotation
-	result.ID = target.ID
-
-	return result
+	return
 }
 
 func NewPFB2() fb2scan.PFB2 {

@@ -12,9 +12,6 @@ type AtomLink struct {
 	Title   string   `xml:"title,attr,omitempty"`
 }
 
-type AtomNs struct {
-}
-
 type AtomAuthor struct {
 	XMLName xml.Name `xml:"author"`
 	AtomPerson
