@@ -55,11 +55,23 @@ func AddCover(cover models.Cover) error {
 	return nil
 }
 
+func AddAuthorBook(book models.Book) {
+	for _, a := range book.Authors {
+		_, err := db.Model(&models.OrderToAuthor{
+			AuthorID: a.ID,
+			BookID:   book.ID,
+		}).Insert()
+		if err != nil {
+			logging.CustomLog.Println(err)
+		}
+	}
+}
+
 func GetCover(book int64) (models.Cover, error) {
 	var cover models.Cover
 	err := db.Model(&cover).Where("book_id = ?", book).First()
 	if err != nil {
-		logging.CustomLog.Println(err)
+		logging.CustomLog.Println(errors.New(fmt.Sprintf("no cover for book_id: %d", book)))
 		return cover, err
 	}
 	return cover, nil
@@ -87,6 +99,7 @@ func AddBook(book models.Book) error {
 
 	_, err := db.Model(&book).Returning("id").Insert()
 	if err != nil {
+		fmt.Println(book)
 		return err
 	}
 	for _, c := range book.Covers {
@@ -96,6 +109,7 @@ func AddBook(book models.Book) error {
 			logging.CustomLog.Print(err)
 		}
 	}
+	AddAuthorBook(book)
 	return nil
 }
 

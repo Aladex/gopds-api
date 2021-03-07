@@ -28,8 +28,8 @@ type Book struct {
 	Format       string    `pg:"format" json:"format"`
 	FileName     string    `pg:"filename" json:"filename"`
 	RegisterDate time.Time `pg:"registerdate" json:"registerdate"`
-	DocDate      string    `pg:"docdate" json:"docdate"`
-	Lang         string    `pg:"lang" json:"lang"`
+	DocDate      string    `pg:"docdate,use_zero" json:"docdate"`
+	Lang         string    `pg:"lang,use_zero" json:"lang"`
 	Title        string    `pg:"title" json:"title"`
 	Annotation   string    `pg:"annotation" json:"annotation"`
 	Fav          bool      `pg:"-" json:"fav"`
@@ -49,8 +49,8 @@ type Author struct {
 // OrderToAuthor структура для many2many связи книг и авторов
 type OrderToAuthor struct {
 	tableName struct{} `pg:"opds_catalog_bauthor,discard_unknown_columns" json:"-"`
-	AuthorID  int
-	BookID    int
+	AuthorID  int64
+	BookID    int64
 }
 
 // UserToBook структура для many2many связи книг и пользователей для избранного
@@ -60,20 +60,13 @@ type UserToBook struct {
 	BookID    int64
 }
 
-// OrderToCovers структура для many2many связи книг и обложек
-//type OrderToCovers struct {
-//	tableName struct{} `pg:"covers,discard_unknown_columns" json:"-"`
-//	BookID    int64
-//	CoverID   int64
-//}
-
 // Series структура серии книг
 type Series struct {
 	tableName struct{} `pg:"opds_catalog_series,discard_unknown_columns" json:"-"`
-	ID        int64    `json:"id"`
+	ID        int64    `pg:"id" json:"id"`
 	SerNo     int      `json:"ser_no" pg:"-"`
-	Ser       string   `json:"ser"`
-	LangCode  int      `json:"lang_code"`
+	Ser       string   `pg:"ser,use_zero" json:"ser"`
+	LangCode  int      `pg:"lang_code,use_zero" json:"lang_code,default:0"`
 }
 
 // OrderToSeries структура связи серий и книг через many2many

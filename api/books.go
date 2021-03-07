@@ -10,6 +10,7 @@ import (
 	"gopds-api/httputil"
 	"gopds-api/logging"
 	"gopds-api/models"
+	"gopds-api/static_assets"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -87,16 +88,22 @@ func GetBookPoster(c *gin.Context) {
 		httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
 		return
 	}
+	var coverData []byte
 	cover, err := database.GetCover(bookId)
 	if err != nil {
-		c.JSON(404, err)
-		return
+		coverData, err = static_assets.Asset("static_assets/posters/no-cover.png")
+		if err != nil {
+			c.JSON(500, err)
+			return
+		}
+	} else {
+		coverData, err = base64.StdEncoding.DecodeString(cover.Cover)
+		if err != nil {
+			c.JSON(500, err)
+			return
+		}
 	}
-	coverData, err := base64.StdEncoding.DecodeString(cover.Cover)
-	if err != nil {
-		c.JSON(500, err)
-		return
-	}
+
 	r := ioutil.NopCloser(bytes.NewReader(coverData)) // r type is io.ReadCloser
 
 	// example to test r

@@ -103,6 +103,9 @@ func ScanNewArchive(path string) {
 			Annotation:   AnnotationTagRemove(result.Description.TitleInfo.Annotation.Value),
 			Series:       nil,
 		}
+		if newBook.Annotation == "" {
+			newBook.Annotation = "Нет описания"
+		}
 		for _, a := range result.Description.TitleInfo.Author {
 			authorName := fmt.Sprintf("%s %s", a.FirstName, a.LastName)
 			newBook.Authors = append(newBook.Authors, &models.Author{
@@ -119,10 +122,6 @@ func ScanNewArchive(path string) {
 				Ser:   s.Name,
 			})
 		}
-		fmt.Println(newBook.FileName)
-		fmt.Println(newBook.Title)
-		fmt.Println(newBook.Format)
-		fmt.Println(newBook.Annotation)
 
 		for _, c := range result.Binary {
 			if c.ContentType == "image/jpeg" && strings.ToLower(c.ID) == "cover.jpg" {
