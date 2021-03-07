@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"gopds-api/models"
 	"strconv"
-	"strings"
 )
 
 func rels() []string {
@@ -19,10 +18,8 @@ func rels() []string {
 func createPostersLink(book models.Book) []Link {
 	var links []Link
 	posterLink := "/books-posters/no-cover.png"
-	if book.Cover {
-		posterLink = fmt.Sprintf("/books-posters/%s/%s.jpg",
-			strings.ReplaceAll(book.Path, ".", "-"),
-			strings.ReplaceAll(book.FileName, ".", "-"))
+	if len(book.Covers) > 0 {
+		posterLink = fmt.Sprintf("/books-posters/%d/cover.jpg", book.ID)
 	}
 	for _, r := range rels() {
 		links = append(links, Link{

@@ -10,6 +10,14 @@ func init() {
 	// This should be done before dependant models are used.
 	orm.RegisterTable((*OrderToAuthor)(nil))
 	orm.RegisterTable((*OrderToSeries)(nil))
+	// orm.RegisterTable((*OrderToCovers)(nil))
+}
+
+type Cover struct {
+	tableName struct{} `pg:"covers,discard_unknown_columns" json:"-"`
+	ID        int64    `json:"id" form:"id"`
+	BookID    int64    `json:"book_id" form:"book_id"`
+	Cover     string   `json:"cover" form:"cover"`
 }
 
 // Book структура книги в БД
@@ -24,11 +32,11 @@ type Book struct {
 	Lang         string    `pg:"lang" json:"lang"`
 	Title        string    `pg:"title" json:"title"`
 	Annotation   string    `pg:"annotation" json:"annotation"`
-	Cover        bool      `pg:"cover" json:"cover"`
 	Fav          bool      `pg:"-" json:"fav"`
 	Authors      []*Author `pg:"many2many:opds_catalog_bauthor" json:"authors"`
 	Series       []*Series `pg:"many2many:opds_catalog_bseries,joinFK:ser_id" json:"series"`
 	Users        []*User   `pg:"many2many:favorite_books,joinFK:user_id" json:"favorites"`
+	Covers       []*Cover  `pg:"covers" json:"covers"`
 }
 
 // Author структура автора в БД
@@ -51,6 +59,13 @@ type UserToBook struct {
 	UserID    int64
 	BookID    int64
 }
+
+// OrderToCovers структура для many2many связи книг и обложек
+//type OrderToCovers struct {
+//	tableName struct{} `pg:"covers,discard_unknown_columns" json:"-"`
+//	BookID    int64
+//	CoverID   int64
+//}
 
 // Series структура серии книг
 type Series struct {

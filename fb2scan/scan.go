@@ -62,19 +62,14 @@ func GetArchivesList() {
 	}
 }
 
-func ExtractCover(name, cover, path string) bool {
+func ExtractCover(name, cover, path string) string {
 	jpegVal := strings.Join(strings.Split(cover, "\n"), "")
-	decoded, err := base64.StdEncoding.DecodeString(jpegVal)
+	_, err := base64.StdEncoding.DecodeString(jpegVal)
 	if err != nil {
 		logging.CustomLog.Println("decode error:", err)
-		return false
+		return ""
 	}
-	err = ioutil.WriteFile(fmt.Sprintf("%s/%s", path, name), decoded, 0644)
-	if err != nil {
-		logging.CustomLog.Println("decode error:", err)
-		return false
-	}
-	return true
+	return jpegVal
 }
 
 // ScanNewArchives функция для сканирования новых архивов после скачивания
@@ -106,7 +101,6 @@ func ScanNewArchive(path string) {
 			Lang:         result.Description.TitleInfo.Lang,
 			Title:        result.Description.TitleInfo.BookTitle,
 			Annotation:   AnnotationTagRemove(result.Description.TitleInfo.Annotation.Value),
-			Cover:        false,
 			Series:       nil,
 		}
 		for _, a := range result.Description.TitleInfo.Author {
@@ -129,13 +123,18 @@ func ScanNewArchive(path string) {
 		fmt.Println(newBook.Title)
 		fmt.Println(newBook.Format)
 		fmt.Println(newBook.Annotation)
+
+		for _, c := range result.Binary {
+			if c.ContentType == "image/jpeg" && strings.ToLower(c.ID) == "cover.jpg" {
+				cover := ExtractCover(f.Name, c.Value, "")
+				if cover != "" {
+					newBook.Covers = append(newBook.Covers, &models.Cover{
+						Cover: cover,
+					})
+				}
+			}
+		}
 		bookChan <- newBook
 
-		// TODO: здесь надо будет обдумать извлечение обложки книги. Может перетереться значение
-		//for _, c := range result.Binary {
-		//	if c.ContentType == "image/jpeg" {
-		//		newBook.Cover = ExtractCover(f.Name, c.Value, "")
-		//	}
-		//}
 	}
 }

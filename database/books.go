@@ -46,6 +46,25 @@ func AddSeries(series models.Series) (models.Series, error) {
 	return series, nil
 }
 
+// AddSeries returns an id of series after select or after insert if not exists
+func AddCover(cover models.Cover) error {
+	_, err := db.Model(&cover).Insert()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func GetCover(book int64) (models.Cover, error) {
+	var cover models.Cover
+	err := db.Model(&cover).Where("book_id = ?", book).First()
+	if err != nil {
+		logging.CustomLog.Println(err)
+		return cover, err
+	}
+	return cover, nil
+}
+
 // AddBook
 func AddBook(book models.Book) error {
 	for ai, author := range book.Authors {
@@ -66,9 +85,16 @@ func AddBook(book models.Book) error {
 		book.Series[si] = &s
 	}
 
-	_, err := db.Model(&book).Insert()
+	_, err := db.Model(&book).Returning("id").Insert()
 	if err != nil {
 		return err
+	}
+	for _, c := range book.Covers {
+		c.BookID = book.ID
+		err = AddCover(*c)
+		if err != nil {
+			logging.CustomLog.Print(err)
+		}
 	}
 	return nil
 }

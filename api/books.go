@@ -1,13 +1,19 @@
 package api
 
 import (
+	"bytes"
+	"encoding/base64"
 	"errors"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"gopds-api/database"
 	"gopds-api/httputil"
+	"gopds-api/logging"
 	"gopds-api/models"
+	"io"
+	"io/ioutil"
 	"net/http"
+	"strconv"
 )
 
 // ExportAnswer структура ответа найденных книг и полного списка языков для компонента Books.vue
@@ -71,6 +77,43 @@ func GetBooks(c *gin.Context) {
 		return
 	}
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
+}
+
+// GetBookPoster метод для запроса обложки
+func GetBookPoster(c *gin.Context) {
+	bookId, err := strconv.ParseInt(c.Param("book"), 10, 64)
+	if err != nil {
+		logging.CustomLog.Println(err)
+		httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
+		return
+	}
+	cover, err := database.GetCover(bookId)
+	if err != nil {
+		c.JSON(404, err)
+		return
+	}
+	coverData, err := base64.StdEncoding.DecodeString(cover.Cover)
+	if err != nil {
+		c.JSON(500, err)
+		return
+	}
+	r := ioutil.NopCloser(bytes.NewReader(coverData)) // r type is io.ReadCloser
+
+	// example to test r
+	buf := new(bytes.Buffer)
+	_, err = buf.ReadFrom(r)
+	if err != nil {
+		c.JSON(500, err)
+		return
+	}
+	err = r.Close()
+	if err != nil {
+		c.JSON(500, err)
+		return
+	}
+	c.Header("Content-Type", "image/jpeg")
+	_, err = io.Copy(c.Writer, buf)
+	return
 }
 
 // FavBook add or remove book from favorites for user

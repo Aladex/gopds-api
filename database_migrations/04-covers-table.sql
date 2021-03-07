@@ -28,5 +28,5 @@ ALTER TABLE ONLY public.covers
 
 CREATE INDEX covers_book_id_index ON public.covers USING btree (book_id);
 ALTER TABLE ONLY public.covers
-    ADD CONSTRAINT favorite_books_user_id_index_fk_opds_cata FOREIGN KEY (book_id) REFERENCES public.opds_catalog_book(id) DEFERRABLE INITIALLY DEFERRED;
+    ADD CONSTRAINT covers_id_index_fk_opds_cata FOREIGN KEY (book_id) REFERENCES public.opds_catalog_book(id) DEFERRABLE INITIALLY DEFERRED;
 

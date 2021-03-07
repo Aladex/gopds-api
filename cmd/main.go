@@ -58,6 +58,8 @@ func main() {
 
 	// Default group without auth
 	{
+		route.GET("/book-posters/:book/cover.jpg", api.GetBookPoster)
+
 		route.POST("/api/login", api.AuthCheck)
 		route.POST("/api/register", api.Registration)
 		route.POST("/api/change-password", api.ChangeUserState)
@@ -94,6 +96,7 @@ func main() {
 	// Books group for all users
 	{
 		booksGroup.GET("/list", api.GetBooks)
+
 		booksGroup.GET("/langs", api.GetLangs)
 		booksGroup.GET("/self-user", api.SelfUser)
 		booksGroup.POST("/change-me", api.ChangeUser)
