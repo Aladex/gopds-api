@@ -21,6 +21,11 @@ type Annotation struct {
 	Value   string   `xml:",innerxml"`
 }
 
+type Date struct {
+	XMLName xml.Name `xml:"date"`
+	Value   string   `xml:"value,attr"`
+}
+
 type FB2 struct {
 	ID          string   `bson:"_id"`
 	FictionBook xml.Name `xml:"FictionBook" bson:"FictionBook"`
@@ -47,12 +52,12 @@ type FB2 struct {
 		DocumentInfo struct {
 			Author      []AuthorType `xml:"author" bson:"author"`
 			ProgramUsed string       `xml:"program-used" bson:"program-used"`
-			Date        string       `xml:"date" bson:"date"`
-			SrcURL      []string     `xml:"src-url" bson:"src-url"`
-			SrcOcr      string       `xml:"src-ocr" bson:"src-ocr"`
-			ID          string       `xml:"id" bson:"id"`
-			Version     float64      `xml:"version" bson:"version"`
-			History     string       `xml:"history" bson:"history"`
+			Date        Date
+			SrcURL      []string `xml:"src-url" bson:"src-url"`
+			SrcOcr      string   `xml:"src-ocr" bson:"src-ocr"`
+			ID          string   `xml:"id" bson:"id"`
+			Version     float64  `xml:"version" bson:"version"`
+			History     string   `xml:"history" bson:"history"`
 		} `xml:"document-info" bson:"document-info"`
 		PublishInfo struct {
 			BookName  string `xml:"book-name" bson:"book-name"`

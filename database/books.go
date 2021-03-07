@@ -36,17 +36,6 @@ func GetLanguages() models.Languages {
 }
 
 // AddSeries returns an id of series after select or after insert if not exists
-func AddSeries(series models.Series) (models.Series, error) {
-	_, err := db.Model(&series).
-		Where("ser = ?ser").
-		SelectOrInsert()
-	if err != nil {
-		return models.Series{}, err
-	}
-	return series, nil
-}
-
-// AddSeries returns an id of series after select or after insert if not exists
 func AddCover(cover models.Cover) error {
 	_, err := db.Model(&cover).Insert()
 	if err != nil {
@@ -65,6 +54,17 @@ func AddAuthorBook(book models.Book) {
 			logging.CustomLog.Println(err)
 		}
 	}
+}
+
+// AddSeries returns an id of series after select or after insert if not exists
+func AddSeries(series models.Series) (models.Series, error) {
+	_, err := db.Model(&series).
+		Where("ser = ?ser").
+		SelectOrInsert()
+	if err != nil {
+		return models.Series{}, err
+	}
+	return series, nil
 }
 
 func GetCover(book int64) (models.Cover, error) {
@@ -88,20 +88,30 @@ func AddBook(book models.Book) error {
 		book.Authors[ai] = &a
 	}
 
-	for si, series := range book.Series {
-		s, err := AddSeries(*series)
-		if err != nil {
-			logging.CustomLog.Print(err)
-			return nil
-		}
-		book.Series[si] = &s
-	}
-
 	_, err := db.Model(&book).Returning("id").Insert()
 	if err != nil {
 		fmt.Println(book)
 		return err
 	}
+
+	for _, series := range book.Series {
+		s, err := AddSeries(*series)
+		if err != nil {
+			logging.CustomLog.Print(err)
+			continue
+		}
+		serieBook := models.OrderToSeries{
+			SerNo:    s.SerNo,
+			SeriesID: s.ID,
+			BookID:   book.ID,
+		}
+		_, err = db.Model(&serieBook).Insert()
+		if err != nil {
+			logging.CustomLog.Print(err)
+			continue
+		}
+	}
+
 	for _, c := range book.Covers {
 		c.BookID = book.ID
 		err = AddCover(*c)

@@ -64,7 +64,7 @@ type UserToBook struct {
 type Series struct {
 	tableName struct{} `pg:"opds_catalog_series,discard_unknown_columns" json:"-"`
 	ID        int64    `pg:"id" json:"id"`
-	SerNo     int      `json:"ser_no" pg:"-"`
+	SerNo     int64    `json:"ser_no" pg:"-"`
 	Ser       string   `pg:"ser,use_zero" json:"ser"`
 	LangCode  int      `pg:"lang_code,use_zero" json:"lang_code,default:0"`
 }
@@ -72,9 +72,9 @@ type Series struct {
 // OrderToSeries структура связи серий и книг через many2many
 type OrderToSeries struct {
 	tableName struct{} `pg:"opds_catalog_bseries,discard_unknown_columns" json:"-"`
-	SerNo     int      `pg:"ser_no"`
-	SeriesID  int      `pg:"ser_id"`
-	BookID    int      `pg:"book_id"`
+	SerNo     int64    `pg:"ser_no,use_zero"`
+	SeriesID  int64    `pg:"ser_id"`
+	BookID    int64    `pg:"book_id"`
 }
 
 // BookFilters фильтры для query get-запроса при фильтрации по клубам
