@@ -12,6 +12,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -21,7 +22,13 @@ func init() {
 	go addBook(bookChan)
 }
 
-var bookChan chan models.Book
+var bookChan = make(chan models.Book)
+
+// AnnotationTagRemove удаление тегов по регулярке из аннотации
+func AnnotationTagRemove(annotation string) string {
+	tagRegExp := regexp.MustCompile(`<[^>]*>`)
+	return tagRegExp.ReplaceAllString(annotation, "")
+}
 
 func addBook(b chan models.Book) {
 	for {
@@ -98,7 +105,7 @@ func ScanNewArchive(path string) {
 			DocDate:      result.Description.DocumentInfo.Date,
 			Lang:         result.Description.TitleInfo.Lang,
 			Title:        result.Description.TitleInfo.BookTitle,
-			Annotation:   result.Description.TitleInfo.Annotation.Value,
+			Annotation:   AnnotationTagRemove(result.Description.TitleInfo.Annotation.Value),
 			Cover:        false,
 			Series:       nil,
 		}
@@ -122,6 +129,7 @@ func ScanNewArchive(path string) {
 		fmt.Println(newBook.Title)
 		fmt.Println(newBook.Format)
 		fmt.Println(newBook.Annotation)
+		bookChan <- newBook
 
 		// TODO: здесь надо будет обдумать извлечение обложки книги. Может перетереться значение
 		//for _, c := range result.Binary {

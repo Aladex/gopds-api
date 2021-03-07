@@ -35,8 +35,37 @@ func GetLanguages() models.Languages {
 	return langRes
 }
 
+// AddSeries returns an id of series after select or after insert if not exists
+func AddSeries(series models.Series) (models.Series, error) {
+	_, err := db.Model(&series).
+		Where("ser = ?ser").
+		SelectOrInsert()
+	if err != nil {
+		return models.Series{}, err
+	}
+	return series, nil
+}
+
 // AddBook
 func AddBook(book models.Book) error {
+	for ai, author := range book.Authors {
+		a, err := AddAuthor(*author)
+		if err != nil {
+			logging.CustomLog.Print(err)
+			return nil
+		}
+		book.Authors[ai] = &a
+	}
+
+	for si, series := range book.Series {
+		s, err := AddSeries(*series)
+		if err != nil {
+			logging.CustomLog.Print(err)
+			return nil
+		}
+		book.Series[si] = &s
+	}
+
 	_, err := db.Model(&book).Insert()
 	if err != nil {
 		return err
