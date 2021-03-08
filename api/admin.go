@@ -36,6 +36,26 @@ func StartScan(c *gin.Context) {
 	})
 }
 
+// UpdateCovers запускает обновление всех обложек
+// Auth godoc
+// @Summary запускает сканирование книг
+// @Description запускает сканирование книг
+// @Tags admin
+// @Param Authorization header string true "Just token without bearer"
+// @Accept  json
+// @Produce  json
+// @Success 200 {object} models.Result
+// @Failure 500 {object} httputil.HTTPError
+// @Failure 403 {object} httputil.HTTPError
+// @Router /admin/covers [get]
+func UpdateCovers(c *gin.Context) {
+	go fb2scan.UpdateCovers()
+	c.JSON(200, models.Result{
+		Result: "ok",
+		Error:  nil,
+	})
+}
+
 // GetUsers метод для запроса списка книг из БД opds
 // Auth godoc
 // @Summary Returns users list

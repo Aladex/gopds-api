@@ -20,9 +20,11 @@ import (
 
 func init() {
 	go addBook(bookChan)
+	go updateCover(coverChan)
 }
 
 var bookChan = make(chan models.Book)
+var coverChan = make(chan models.Book)
 
 func isArcScanned(file string, catalogs []string) bool {
 	for _, c := range catalogs {
@@ -58,13 +60,22 @@ func addBook(b chan models.Book) {
 	}
 }
 
+func updateCover(b chan models.Book) {
+	for {
+		err := database.UpdateBookCover(<-b)
+		if err != nil {
+			logging.CustomLog.Println(err)
+		}
+	}
+}
+
 func visit(files *[]string) filepath.WalkFunc {
 	return func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			logging.CustomLog.Println(err)
 		}
 		if strings.HasSuffix(path, ".zip") {
-			*files = append(*files, strings.ReplaceAll(path, viper.GetString("app.files_path")+"/", ""))
+			*files = append(*files, strings.ReplaceAll(path, viper.GetString("app.files_path"), ""))
 		}
 		return nil
 	}
@@ -84,7 +95,7 @@ func GetArchivesList() {
 	}
 	unscannedFiles := GetUnscannedFiles(scannedCatalogs, files)
 	for _, f := range unscannedFiles {
-		ScanNewArchive(path + "/" + f)
+		ScanNewArchive(path + f)
 		err := database.AddCatalog(models.Catalog{
 			CatName:   f,
 			IsScanned: true,
@@ -103,6 +114,53 @@ func ExtractCover(cover string) string {
 		return ""
 	}
 	return jpegVal
+}
+
+func UpdateCovers() {
+	scannedCatalogs, err := database.GetCatalogs(true)
+	if err != nil {
+		logging.CustomLog.Println(err)
+		return
+	}
+	for _, a := range scannedCatalogs {
+		r, err := zip.OpenReader(viper.GetString("app.files_path") + a)
+		if err != nil {
+			logging.CustomLog.Println(err)
+			return
+		}
+		for _, f := range r.File {
+			rc, err := f.Open()
+			if err != nil {
+				return
+			}
+			data, err := ioutil.ReadAll(rc)
+			if err != nil {
+				return
+			}
+			p := fb2scan.New(data)
+			result, err := p.Unmarshal()
+			if err != nil {
+				return
+			}
+			newBook := models.Book{
+				FileName: f.Name,
+				Path:     a,
+			}
+
+			for _, c := range result.Binary {
+				if c.ContentType == "image/jpeg" && strings.ToLower(c.ID) == "cover.jpg" {
+					cover := ExtractCover(c.Value)
+					if cover != "" {
+						newBook.Covers = append(newBook.Covers, &models.Cover{
+							Cover: cover,
+						})
+					}
+				}
+			}
+			coverChan <- newBook
+		}
+
+	}
 }
 
 // ScanNewArchives функция для сканирования новых архивов после скачивания

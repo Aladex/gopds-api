@@ -20,7 +20,7 @@ func isFav(ids []int64, book models.Book) bool {
 
 func GetCatalogs(scanned bool) ([]string, error) {
 	var catalogs []string
-	err := db.Model(&models.Catalog{}).Where("is_scanned = ?", scanned).Select(&catalogs)
+	err := db.Model(&models.Catalog{}).Column("cat_name").Where("is_scanned = ?", scanned).Select(&catalogs)
 	if err != nil {
 		return nil, err
 	}
@@ -92,6 +92,28 @@ func GetCover(book int64) (models.Cover, error) {
 		return cover, err
 	}
 	return cover, nil
+}
+
+func UpdateBookCover(book models.Book) error {
+	var bookId int64
+	err := db.Model(&models.Book{}).
+		Column("id").
+		Where("filename = ?", book.FileName).
+		Where("path = ?", book.Path).
+		Order("id ASC").
+		Select(&bookId)
+	if err != nil {
+		logging.CustomLog.Print(err)
+		return err
+	}
+	for _, c := range book.Covers {
+		c.BookID = bookId
+		err = AddCover(*c)
+		if err != nil {
+			logging.CustomLog.Print(err)
+		}
+	}
+	return nil
 }
 
 // AddBook

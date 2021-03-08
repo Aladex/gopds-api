@@ -72,8 +72,10 @@ definitions:
         items:
           $ref: '#/definitions/models.Author'
         type: array
-      cover:
-        type: boolean
+      covers:
+        items:
+          $ref: '#/definitions/models.Cover'
+        type: array
       docdate:
         type: string
       fav:
@@ -110,6 +112,15 @@ definitions:
     required:
     - book_id
     - format
+    type: object
+  models.Cover:
+    properties:
+      book_id:
+        type: integer
+      cover:
+        type: string
+      id:
+        type: integer
     type: object
   models.FavBook:
     properties:
@@ -258,6 +269,35 @@ info:
   title: GOPDS API
   version: "1.0"
 paths:
+  /admin/covers:
+    get:
+      consumes:
+      - application/json
+      description: запускает сканирование книг
+      parameters:
+      - description: Just token without bearer
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Result'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httputil.HTTPError'
+      summary: запускает сканирование книг
+      tags:
+      - admin
   /admin/invite:
     post:
       consumes:
