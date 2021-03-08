@@ -42,6 +42,13 @@ func decodeWin1252(i io.Reader) (r io.Reader) {
 	return
 }
 
+func decodeKoi8r(i io.Reader) (r io.Reader) {
+	decoder := charmap.KOI8R.NewDecoder()
+	r = decoder.Reader(i)
+
+	return
+}
+
 func NewPFB2() fb2scan.PFB2 {
 	var result fb2scan.PFB2
 	result.Description = new(fb2scan.Description)

@@ -60,9 +60,9 @@ func addBook(b chan models.Book) {
 	}
 }
 
-func updateCover(b chan models.Book) {
+func updateCover(c chan models.Book) {
 	for {
-		err := database.UpdateBookCover(<-b)
+		err := database.UpdateBookCover(<-c)
 		if err != nil {
 			logging.CustomLog.Println(err)
 		}
@@ -131,16 +131,19 @@ func UpdateCovers() {
 		for _, f := range r.File {
 			rc, err := f.Open()
 			if err != nil {
-				return
+				logging.CustomLog.Println(err)
+				continue
 			}
 			data, err := ioutil.ReadAll(rc)
 			if err != nil {
-				return
+				logging.CustomLog.Println(err)
+				continue
 			}
 			p := fb2scan.New(data)
 			result, err := p.Unmarshal()
 			if err != nil {
-				return
+				logging.CustomLog.Println(err)
+				continue
 			}
 			newBook := models.Book{
 				FileName: f.Name,
@@ -172,16 +175,19 @@ func ScanNewArchive(path string) {
 	for _, f := range r.File {
 		rc, err := f.Open()
 		if err != nil {
-			return
+			logging.CustomLog.Println(err)
+			continue
 		}
 		data, err := ioutil.ReadAll(rc)
 		if err != nil {
-			return
+			logging.CustomLog.Println(err)
+			continue
 		}
 		p := fb2scan.New(data)
 		result, err := p.Unmarshal()
 		if err != nil {
-			return
+			logging.CustomLog.Println(err)
+			continue
 		}
 		newBook := models.Book{
 			Path:         strings.ReplaceAll(path, viper.GetString("app.files_path"), ""),

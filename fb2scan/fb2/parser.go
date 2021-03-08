@@ -36,6 +36,8 @@ func (p *Parser) CharsetReader(c string, i io.Reader) (r io.Reader, e error) {
 		r = decodeWin1251(i)
 	case "windows-1252":
 		r = decodeWin1252(i)
+	case "koi8-r":
+		r = decodeKoi8r(i)
 	}
 	return
 }
