@@ -20,6 +20,13 @@ type Cover struct {
 	Cover     string   `json:"cover" form:"cover"`
 }
 
+type Catalog struct {
+	tableName struct{} `pg:"opds_catalog_catalog,discard_unknown_columns" json:"-"`
+	ID        int64    `pg:"id,pk" json:"id" form:"id"`
+	CatName   string   `pg:"cat_name" json:"cat_name" form:"cat_name"`
+	IsScanned bool     `pg:"is_scanned" json:"is_scanned" form:"is_scanned"`
+}
+
 // Book структура книги в БД
 type Book struct {
 	tableName    struct{}  `pg:"opds_catalog_book,discard_unknown_columns" json:"-"`

@@ -24,6 +24,25 @@ func init() {
 
 var bookChan = make(chan models.Book)
 
+func isArcScanned(file string, catalogs []string) bool {
+	for _, c := range catalogs {
+		if c == file {
+			return true
+		}
+	}
+	return false
+}
+
+func GetUnscannedFiles(catalogs, files []string) []string {
+	var unscannedFiles []string
+	for _, f := range files {
+		if !isArcScanned(f, catalogs) {
+			unscannedFiles = append(unscannedFiles, f)
+		}
+	}
+	return unscannedFiles
+}
+
 // AnnotationTagRemove удаление тегов по регулярке из аннотации
 func AnnotationTagRemove(annotation string) string {
 	tagRegExp := regexp.MustCompile(`<[^>]*>`)
@@ -45,7 +64,7 @@ func visit(files *[]string) filepath.WalkFunc {
 			logging.CustomLog.Println(err)
 		}
 		if strings.HasSuffix(path, ".zip") {
-			*files = append(*files, path)
+			*files = append(*files, strings.ReplaceAll(path, viper.GetString("app.files_path")+"/", ""))
 		}
 		return nil
 	}
@@ -53,12 +72,26 @@ func visit(files *[]string) filepath.WalkFunc {
 
 func GetArchivesList() {
 	var files []string
-	err := filepath.Walk(viper.GetString("app.files_path"), visit(&files))
+	path := viper.GetString("app.files_path")
+	err := filepath.Walk(path, visit(&files))
 	if err != nil {
 		logging.CustomLog.Println(err)
 	}
-	for _, f := range files {
-		ScanNewArchive(f)
+	scannedCatalogs, err := database.GetCatalogs(true)
+	if err != nil {
+		logging.CustomLog.Println(err)
+		return
+	}
+	unscannedFiles := GetUnscannedFiles(scannedCatalogs, files)
+	for _, f := range unscannedFiles {
+		ScanNewArchive(path + "/" + f)
+		err := database.AddCatalog(models.Catalog{
+			CatName:   f,
+			IsScanned: true,
+		})
+		if err != nil {
+			logging.CustomLog.Println(err)
+		}
 	}
 }
 
@@ -93,7 +126,7 @@ func ScanNewArchive(path string) {
 			return
 		}
 		newBook := models.Book{
-			Path:         path,
+			Path:         strings.ReplaceAll(path, viper.GetString("app.files_path"), ""),
 			Format:       "fb2",
 			FileName:     f.Name,
 			RegisterDate: time.Now(),
@@ -134,6 +167,5 @@ func ScanNewArchive(path string) {
 			}
 		}
 		bookChan <- newBook
-
 	}
 }

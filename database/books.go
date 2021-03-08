@@ -18,6 +18,23 @@ func isFav(ids []int64, book models.Book) bool {
 	return false
 }
 
+func GetCatalogs(scanned bool) ([]string, error) {
+	var catalogs []string
+	err := db.Model(&models.Catalog{}).Where("is_scanned = ?", scanned).Select(&catalogs)
+	if err != nil {
+		return nil, err
+	}
+	return catalogs, nil
+}
+
+func AddCatalog(catalog models.Catalog) error {
+	_, err := db.Model(&catalog).Insert()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // GetLanguages возвращает список языков из БД
 func GetLanguages() models.Languages {
 	var langRes models.Languages
