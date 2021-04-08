@@ -31,21 +31,23 @@ _loop:
 func decodeWin1251(i io.Reader) (r io.Reader) {
 	decoder := charmap.Windows1251.NewDecoder()
 	r = decoder.Reader(i)
-
 	return
 }
 
 func decodeWin1252(i io.Reader) (r io.Reader) {
 	decoder := charmap.Windows1252.NewDecoder()
 	r = decoder.Reader(i)
-
 	return
 }
 
 func decodeKoi8r(i io.Reader) (r io.Reader) {
 	decoder := charmap.KOI8R.NewDecoder()
 	r = decoder.Reader(i)
-
+	return
+}
+func decodeISO8859_1(i io.Reader) (r io.Reader) {
+	decoder := charmap.ISO8859_1.NewDecoder()
+	r = decoder.Reader(i)
 	return
 }
 

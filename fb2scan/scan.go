@@ -116,6 +116,44 @@ func ExtractCover(cover string) string {
 	return jpegVal
 }
 
+func scanBookCover(f *zip.File, path string) (models.Book, error) {
+	newBook := models.Book{
+		FileName: f.Name,
+		Path:     path,
+	}
+
+	rc, err := f.Open()
+	if err != nil {
+		logging.CustomLog.Println(err)
+		return models.Book{}, err
+	}
+	data, err := ioutil.ReadAll(rc)
+	if err != nil {
+		logging.CustomLog.Println(err)
+		return models.Book{}, err
+	}
+	p := fb2scan.New(data)
+	result, err := p.Unmarshal()
+	if err != nil {
+		logging.CustomLog.Println(err)
+		return models.Book{}, err
+	}
+
+	coverTag := strings.ReplaceAll(result.Description.TitleInfo.Coverpage.Image.Href, "#", "")
+	for _, c := range result.Binary {
+		if c.ID == coverTag {
+			cover := ExtractCover(c.Value)
+			if cover != "" {
+				newBook.Covers = append(newBook.Covers, &models.Cover{
+					Cover:       cover,
+					ContentType: c.ContentType,
+				})
+			}
+		}
+	}
+	return newBook, nil
+}
+
 func UpdateCovers() {
 	scannedCatalogs, err := database.GetCatalogs(true)
 	if err != nil {
@@ -129,40 +167,13 @@ func UpdateCovers() {
 			return
 		}
 		for _, f := range r.File {
-			rc, err := f.Open()
+			r, err := scanBookCover(f, a)
 			if err != nil {
 				logging.CustomLog.Println(err)
-				continue
+			} else {
+				coverChan <- r
 			}
-			data, err := ioutil.ReadAll(rc)
-			if err != nil {
-				logging.CustomLog.Println(err)
-				continue
-			}
-			p := fb2scan.New(data)
-			result, err := p.Unmarshal()
-			if err != nil {
-				logging.CustomLog.Println(err)
-				continue
-			}
-			newBook := models.Book{
-				FileName: f.Name,
-				Path:     a,
-			}
-
-			for _, c := range result.Binary {
-				if c.ContentType == "image/jpeg" && strings.ToLower(c.ID) == "cover.jpg" {
-					cover := ExtractCover(c.Value)
-					if cover != "" {
-						newBook.Covers = append(newBook.Covers, &models.Cover{
-							Cover: cover,
-						})
-					}
-				}
-			}
-			coverChan <- newBook
 		}
-
 	}
 }
 
@@ -219,13 +230,14 @@ func ScanNewArchive(path string) {
 				Ser:   s.Name,
 			})
 		}
-
+		coverTag := strings.ReplaceAll(result.Description.TitleInfo.Coverpage.Image.Href, "#", "")
 		for _, c := range result.Binary {
-			if c.ContentType == "image/jpeg" && strings.ToLower(c.ID) == "cover.jpg" {
+			if c.ID == coverTag {
 				cover := ExtractCover(c.Value)
 				if cover != "" {
 					newBook.Covers = append(newBook.Covers, &models.Cover{
-						Cover: cover,
+						Cover:       cover,
+						ContentType: c.ContentType,
 					})
 				}
 			}

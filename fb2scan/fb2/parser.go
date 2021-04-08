@@ -38,6 +38,8 @@ func (p *Parser) CharsetReader(c string, i io.Reader) (r io.Reader, e error) {
 		r = decodeWin1252(i)
 	case "koi8-r":
 		r = decodeKoi8r(i)
+	case "iso-8859-1":
+		r = decodeISO8859_1(i)
 	}
 	return
 }
@@ -50,9 +52,7 @@ func (p *Parser) Unmarshal() (result FB2, err error) {
 		if err = decoder.Decode(&result); err != nil {
 			return
 		}
-
 		result.UnmarshalCoverpage(p.book)
-
 		return
 	}
 	reader := bytes.NewReader(p.book)
@@ -61,8 +61,6 @@ func (p *Parser) Unmarshal() (result FB2, err error) {
 	if err = decoder.Decode(&result); err != nil {
 		return
 	}
-
 	result.UnmarshalCoverpage(p.book)
-
 	return
 }

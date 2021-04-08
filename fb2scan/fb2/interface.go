@@ -56,7 +56,7 @@ type FB2 struct {
 			SrcURL      []string `xml:"src-url" bson:"src-url"`
 			SrcOcr      string   `xml:"src-ocr" bson:"src-ocr"`
 			ID          string   `xml:"id" bson:"id"`
-			Version     float64  `xml:"version" bson:"version"`
+			Version     string   `xml:"version" bson:"version"`
 			History     string   `xml:"history" bson:"history"`
 		} `xml:"document-info" bson:"document-info"`
 		PublishInfo struct {

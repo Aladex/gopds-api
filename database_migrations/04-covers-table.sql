@@ -5,7 +5,8 @@
 CREATE TABLE public.covers (
                                        id integer NOT NULL,
                                        book_id integer NOT NULL,
-                                       cover   TEXT    NOT NULL
+                                       cover   TEXT    NOT NULL,
+                                       content_type character varying(30) DEFAULT ''
 );
 
 ALTER TABLE public.covers OWNER TO gopds;

@@ -58,7 +58,7 @@ func main() {
 
 	// Default group without auth
 	{
-		route.GET("/book-posters/:book/cover.jpg", api.GetBookPoster)
+		route.GET("/book-posters/:book", api.GetBookPoster)
 
 		route.POST("/api/login", api.AuthCheck)
 		route.POST("/api/register", api.Registration)

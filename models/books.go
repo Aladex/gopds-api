@@ -14,10 +14,11 @@ func init() {
 }
 
 type Cover struct {
-	tableName struct{} `pg:"covers,discard_unknown_columns" json:"-"`
-	ID        int64    `json:"id" form:"id"`
-	BookID    int64    `json:"book_id" form:"book_id"`
-	Cover     string   `json:"cover" form:"cover"`
+	tableName   struct{} `pg:"covers,discard_unknown_columns" json:"-"`
+	ID          int64    `json:"id" form:"id"`
+	BookID      int64    `json:"book_id" form:"book_id"`
+	Cover       string   `json:"cover" form:"cover"`
+	ContentType string   `json:"content_type" form:"content_type"`
 }
 
 type Catalog struct {

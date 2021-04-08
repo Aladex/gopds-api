@@ -89,6 +89,7 @@ func GetBookPoster(c *gin.Context) {
 		return
 	}
 	var coverData []byte
+	contentType := "image/png"
 	cover, err := database.GetCover(bookId)
 	if err != nil {
 		coverData, err = static_assets.Asset("static_assets/posters/no-cover.png")
@@ -98,6 +99,9 @@ func GetBookPoster(c *gin.Context) {
 		}
 	} else {
 		coverData, err = base64.StdEncoding.DecodeString(cover.Cover)
+		if cover.ContentType != "" {
+			contentType = cover.ContentType
+		}
 		if err != nil {
 			c.JSON(500, err)
 			return
@@ -106,7 +110,6 @@ func GetBookPoster(c *gin.Context) {
 
 	r := ioutil.NopCloser(bytes.NewReader(coverData)) // r type is io.ReadCloser
 
-	// example to test r
 	buf := new(bytes.Buffer)
 	_, err = buf.ReadFrom(r)
 	if err != nil {
@@ -118,7 +121,7 @@ func GetBookPoster(c *gin.Context) {
 		c.JSON(500, err)
 		return
 	}
-	c.Header("Content-Type", "image/jpeg")
+	c.Header("Content-Type", contentType)
 	_, err = io.Copy(c.Writer, buf)
 	return
 }
