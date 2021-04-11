@@ -4,6 +4,7 @@ package fb2scan
 import (
 	"bytes"
 	"encoding/xml"
+	"golang.org/x/net/html/charset"
 	"io"
 	"strings"
 )
@@ -40,6 +41,10 @@ func (p *Parser) CharsetReader(c string, i io.Reader) (r io.Reader, e error) {
 		r = decodeKoi8r(i)
 	case "iso-8859-1":
 		r = decodeISO8859_1(i)
+	case "iso-8859-5":
+		r = decodeISO8859_5(i)
+	case "utf-16":
+		r = decodeUTF16(i)
 	}
 	return
 }
@@ -55,9 +60,18 @@ func (p *Parser) Unmarshal() (result FB2, err error) {
 		result.UnmarshalCoverpage(p.book)
 		return
 	}
+	_, name, _ := charset.DetermineEncoding(p.book, "")
+
 	reader := bytes.NewReader(p.book)
 	decoder := xml.NewDecoder(reader)
-	decoder.CharsetReader = p.CharsetReader
+	if strings.Contains(name, "utf") {
+		byteReader := bytes.NewReader(p.book)
+		reader, _ := charset.NewReaderLabel(name, byteReader)
+		decoder = xml.NewDecoder(reader)
+	} else {
+		decoder.CharsetReader = p.CharsetReader
+	}
+
 	if err = decoder.Decode(&result); err != nil {
 		return
 	}

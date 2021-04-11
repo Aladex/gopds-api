@@ -1,6 +1,7 @@
 package fb2scan
 
 import (
+	"golang.org/x/text/encoding/unicode"
 	fb2scan "gopds-api/fb2scan/protoype"
 	"io"
 
@@ -45,8 +46,21 @@ func decodeKoi8r(i io.Reader) (r io.Reader) {
 	r = decoder.Reader(i)
 	return
 }
+
 func decodeISO8859_1(i io.Reader) (r io.Reader) {
 	decoder := charmap.ISO8859_1.NewDecoder()
+	r = decoder.Reader(i)
+	return
+}
+
+func decodeISO8859_5(i io.Reader) (r io.Reader) {
+	decoder := charmap.ISO8859_5.NewDecoder()
+	r = decoder.Reader(i)
+	return
+}
+
+func decodeUTF16(i io.Reader) (r io.Reader) {
+	decoder := unicode.UTF16(true, 0).NewDecoder()
 	r = decoder.Reader(i)
 	return
 }

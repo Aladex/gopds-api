@@ -106,14 +106,14 @@ func GetArchivesList() {
 	}
 }
 
-func ExtractCover(cover string) string {
-	jpegVal := strings.TrimSpace(strings.ReplaceAll(cover, "\n", ""))
-	_, err := base64.StdEncoding.DecodeString(jpegVal)
+func ExtractCover(cover string) (jpegVal string, err error) {
+	jpegVal = strings.TrimSpace(strings.ReplaceAll(cover, "\n", ""))
+	_, err = base64.StdEncoding.DecodeString(jpegVal)
 	if err != nil {
-		logging.CustomLog.Println("decode error:", err)
-		return ""
+		logging.CustomLog.Println("decode cover error:", err)
+		return
 	}
-	return jpegVal
+	return
 }
 
 func scanBookCover(f *zip.File, path string) (models.Book, error) {
@@ -135,14 +135,17 @@ func scanBookCover(f *zip.File, path string) (models.Book, error) {
 	p := fb2scan.New(data)
 	result, err := p.Unmarshal()
 	if err != nil {
-		logging.CustomLog.Println(err)
+		logging.CustomLog.Println(err, fmt.Sprintf("book_path: %s, filename: %s", path, f.Name))
 		return models.Book{}, err
 	}
 
 	coverTag := strings.ReplaceAll(result.Description.TitleInfo.Coverpage.Image.Href, "#", "")
 	for _, c := range result.Binary {
 		if c.ID == coverTag {
-			cover := ExtractCover(c.Value)
+			cover, err := ExtractCover(c.Value)
+			if err != nil {
+				continue
+			}
 			if cover != "" {
 				newBook.Covers = append(newBook.Covers, &models.Cover{
 					Cover:       cover,
@@ -233,7 +236,10 @@ func ScanNewArchive(path string) {
 		coverTag := strings.ReplaceAll(result.Description.TitleInfo.Coverpage.Image.Href, "#", "")
 		for _, c := range result.Binary {
 			if c.ID == coverTag {
-				cover := ExtractCover(c.Value)
+				cover, err := ExtractCover(c.Value)
+				if err != nil {
+					continue
+				}
 				if cover != "" {
 					newBook.Covers = append(newBook.Covers, &models.Cover{
 						Cover:       cover,

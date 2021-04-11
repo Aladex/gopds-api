@@ -39,6 +39,7 @@ type Book struct {
 	DocDate      string    `pg:"docdate,use_zero" json:"docdate"`
 	Lang         string    `pg:"lang,use_zero" json:"lang"`
 	Title        string    `pg:"title" json:"title"`
+	Cover        bool      `pg:"cover" json:"cover"`
 	Annotation   string    `pg:"annotation" json:"annotation"`
 	Fav          bool      `pg:"-" json:"fav"`
 	Authors      []*Author `pg:"many2many:opds_catalog_bauthor" json:"authors"`
