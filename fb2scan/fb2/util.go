@@ -1,12 +1,18 @@
 package fb2scan
 
 import (
-	"golang.org/x/text/encoding/unicode"
-	fb2scan "gopds-api/fb2scan/protoype"
-	"io"
-
 	"golang.org/x/text/encoding/charmap"
+	fb2scan "gopds-api/fb2scan/protoype"
 )
+
+var charMapEncondig = map[string]*charmap.Charmap{
+	"windows-1251": charmap.Windows1251,
+	"windows-1252": charmap.Windows1252,
+	"windows-1255": charmap.Windows1255,
+	"koi8-r":       charmap.KOI8R,
+	"iso-8859-1":   charmap.ISO8859_1,
+	"iso-8859-5":   charmap.ISO8859_5,
+}
 
 // get xlink from enclosed tag image
 func parseImage(data []byte) string {
@@ -26,43 +32,6 @@ _loop:
 		}
 	}
 	return result
-}
-
-// decode windows-1251
-func decodeWin1251(i io.Reader) (r io.Reader) {
-	decoder := charmap.Windows1251.NewDecoder()
-	r = decoder.Reader(i)
-	return
-}
-
-func decodeWin1252(i io.Reader) (r io.Reader) {
-	decoder := charmap.Windows1252.NewDecoder()
-	r = decoder.Reader(i)
-	return
-}
-
-func decodeKoi8r(i io.Reader) (r io.Reader) {
-	decoder := charmap.KOI8R.NewDecoder()
-	r = decoder.Reader(i)
-	return
-}
-
-func decodeISO8859_1(i io.Reader) (r io.Reader) {
-	decoder := charmap.ISO8859_1.NewDecoder()
-	r = decoder.Reader(i)
-	return
-}
-
-func decodeISO8859_5(i io.Reader) (r io.Reader) {
-	decoder := charmap.ISO8859_5.NewDecoder()
-	r = decoder.Reader(i)
-	return
-}
-
-func decodeUTF16(i io.Reader) (r io.Reader) {
-	decoder := unicode.UTF16(true, 0).NewDecoder()
-	r = decoder.Reader(i)
-	return
 }
 
 func NewPFB2() fb2scan.PFB2 {
