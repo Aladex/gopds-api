@@ -4,7 +4,10 @@ package fb2scan
 import (
 	"bytes"
 	"encoding/xml"
+	"golang.org/x/net/html/charset"
 	"io"
+	"io/ioutil"
+	"regexp"
 	"strings"
 )
 
@@ -38,11 +41,24 @@ func (p *Parser) CharsetReader(c string, i io.Reader) (r io.Reader, e error) {
 	return
 }
 
+func (p *Parser) RemoveBody() []byte {
+	bodyRegExp := regexp.MustCompile(`(?s)(.*)<body>.*</body>(.*)`)
+	return bodyRegExp.ReplaceAll(p.book, []byte(`$1$2`))
+}
+
 // Unmarshal parse data to FB2 type
 func (p *Parser) Unmarshal() (result FB2, err error) {
-	reader := bytes.NewReader(p.book)
-	decoder := xml.NewDecoder(reader)
-	decoder.CharsetReader = p.CharsetReader
+	_, name, _ := charset.DetermineEncoding(p.book, "")
+	byteReader := bytes.NewReader(p.book)
+	if strings.Contains(name, "utf-16") {
+		reader, _ := charset.NewReaderLabel(name, byteReader)
+		p.book, err = ioutil.ReadAll(reader)
+	}
+	bookData := p.RemoveBody()
+	byteReader = bytes.NewReader(bookData)
+	decoder := *xml.NewDecoder(byteReader)
+
+	decoder.CharsetReader = charset.NewReaderLabel
 
 	if err = decoder.Decode(&result); err != nil {
 		return
