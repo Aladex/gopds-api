@@ -69,7 +69,7 @@ func GetNewBooks(c *gin.Context) {
 	}
 	var np string
 	if filters.Fav {
-		np = fmt.Sprintf("/favorites/%d", pageNum+1)
+		np = fmt.Sprintf("/opds/favorites/%d", pageNum+1)
 	} else {
 		np = fmt.Sprintf("/opds/new/%d/%d", pageNum+1, authorID)
 	}
