@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/base64"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"gopds-api/database"
+	"gopds-api/fb2scan"
 	"gopds-api/httputil"
 	"gopds-api/logging"
 	"gopds-api/models"
@@ -15,7 +17,6 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
-	"path/filepath"
 	"strconv"
 )
 
@@ -31,11 +32,18 @@ func UploadBook(c *gin.Context) {
 		c.String(http.StatusBadRequest, fmt.Sprintf("get form err: %s", err.Error()))
 		return
 	}
-	filename := filepath.Base(file.Filename)
-	if err := c.SaveUploadedFile(file, filename); err != nil {
+
+	f, err := file.Open()
+
+	fileReader := bufio.NewReader(f)
+
+	fileBuffer := bytes.NewBuffer(nil)
+	if _, err := io.Copy(fileBuffer, fileReader); err != nil {
 		c.String(http.StatusBadRequest, fmt.Sprintf("upload file err: %s", err.Error()))
 		return
 	}
+	userBook, err := fb2scan.ScanFb2File(fileBuffer.Bytes(), "123", file.Filename)
+	fmt.Println(userBook)
 }
 
 // GetLangs метод для запроса списка языков из БД opds

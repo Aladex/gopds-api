@@ -180,6 +180,61 @@ func UpdateCovers() {
 	}
 }
 
+func ScanFb2File(data []byte, path string, filename string) (models.Book, error) {
+	p := fb2scan.New(data)
+	result, err := p.Unmarshal()
+	if err != nil {
+		logging.CustomLog.Println(err)
+		return models.Book{}, err
+	}
+	newBook := models.Book{
+		Path:         strings.ReplaceAll(path, viper.GetString("app.files_path"), ""),
+		Format:       "fb2",
+		FileName:     filename,
+		RegisterDate: time.Now(),
+		DocDate:      result.Description.DocumentInfo.Date.Value,
+		Lang:         result.Description.TitleInfo.Lang,
+		Title:        result.Description.TitleInfo.BookTitle,
+		Annotation:   AnnotationTagRemove(result.Description.TitleInfo.Annotation.Value),
+		Series:       nil,
+	}
+	if newBook.Annotation == "" {
+		newBook.Annotation = "Нет описания"
+	}
+	for _, a := range result.Description.TitleInfo.Author {
+		authorName := fmt.Sprintf("%s %s", a.FirstName, a.LastName)
+		newBook.Authors = append(newBook.Authors, &models.Author{
+			FullName: strings.TrimSpace(authorName),
+		})
+	}
+	for _, s := range result.Description.TitleInfo.Sequence {
+		seqNum, err := strconv.ParseInt(s.Number, 10, 64)
+		if err != nil {
+			seqNum = 0
+		}
+		newBook.Series = append(newBook.Series, &models.Series{
+			SerNo: seqNum,
+			Ser:   s.Name,
+		})
+	}
+	coverTag := strings.ReplaceAll(result.Description.TitleInfo.Coverpage.Image.Href, "#", "")
+	for _, c := range result.Binary {
+		if c.ID == coverTag {
+			cover, err := ExtractCover(c.Value)
+			if err != nil {
+				continue
+			}
+			if cover != "" {
+				newBook.Covers = append(newBook.Covers, &models.Cover{
+					Cover:       cover,
+					ContentType: c.ContentType,
+				})
+			}
+		}
+	}
+	return newBook, nil
+}
+
 // ScanNewArchives функция для сканирования новых архивов после скачивания
 func ScanNewArchive(path string) {
 	r, err := zip.OpenReader(path)
@@ -197,57 +252,13 @@ func ScanNewArchive(path string) {
 			logging.CustomLog.Println(err)
 			continue
 		}
-		p := fb2scan.New(data)
-		result, err := p.Unmarshal()
+		newBook, err := ScanFb2File(data, path, f.Name)
+
 		if err != nil {
 			logging.CustomLog.Println(err)
 			continue
 		}
-		newBook := models.Book{
-			Path:         strings.ReplaceAll(path, viper.GetString("app.files_path"), ""),
-			Format:       "fb2",
-			FileName:     f.Name,
-			RegisterDate: time.Now(),
-			DocDate:      result.Description.DocumentInfo.Date.Value,
-			Lang:         result.Description.TitleInfo.Lang,
-			Title:        result.Description.TitleInfo.BookTitle,
-			Annotation:   AnnotationTagRemove(result.Description.TitleInfo.Annotation.Value),
-			Series:       nil,
-		}
-		if newBook.Annotation == "" {
-			newBook.Annotation = "Нет описания"
-		}
-		for _, a := range result.Description.TitleInfo.Author {
-			authorName := fmt.Sprintf("%s %s", a.FirstName, a.LastName)
-			newBook.Authors = append(newBook.Authors, &models.Author{
-				FullName: strings.TrimSpace(authorName),
-			})
-		}
-		for _, s := range result.Description.TitleInfo.Sequence {
-			seqNum, err := strconv.ParseInt(s.Number, 10, 64)
-			if err != nil {
-				seqNum = 0
-			}
-			newBook.Series = append(newBook.Series, &models.Series{
-				SerNo: seqNum,
-				Ser:   s.Name,
-			})
-		}
-		coverTag := strings.ReplaceAll(result.Description.TitleInfo.Coverpage.Image.Href, "#", "")
-		for _, c := range result.Binary {
-			if c.ID == coverTag {
-				cover, err := ExtractCover(c.Value)
-				if err != nil {
-					continue
-				}
-				if cover != "" {
-					newBook.Covers = append(newBook.Covers, &models.Cover{
-						Cover:       cover,
-						ContentType: c.ContentType,
-					})
-				}
-			}
-		}
+
 		bookChan <- newBook
 	}
 }
