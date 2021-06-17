@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
+	"gopds-api/config"
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/logging"
@@ -45,7 +45,7 @@ func DownloadBook(c *gin.Context) {
 	downloadName := nameRegExp.ReplaceAllString(strings.ToLower(book.Title), `_`)
 	downloadName = utils.Translit(downloadName)
 
-	zipPath := viper.GetString("app.files_path") + book.Path
+	zipPath := config.AppConfig.GetString("app.files_path") + book.Path
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
 		httputil.NewError(c, http.StatusNotFound, err)

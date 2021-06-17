@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
-	"github.com/spf13/viper"
+	"gopds-api/config"
 	"gopds-api/database"
 	"gopds-api/email"
 	"gopds-api/httputil"
@@ -78,16 +78,16 @@ func ChangeRequest(c *gin.Context) {
 		token := sessions.GenerateTokenPassword(dbUser.Login)
 
 		registrationMessage := email.SendType{
-			Title: viper.GetString("email.messages.reset.title"),
+			Title: config.AppConfig.GetString("email.messages.reset.title"),
 			Token: fmt.Sprintf("%s/change-password/%s",
-				viper.GetString("project_domain"),
+				config.AppConfig.GetString("project_domain"),
 				token,
 			),
-			Button:  viper.GetString("email.messages.reset.button"),
-			Message: viper.GetString("email.messages.reset.message"),
+			Button:  config.AppConfig.GetString("email.messages.reset.button"),
+			Message: config.AppConfig.GetString("email.messages.reset.message"),
 			Email:   dbUser.Email,
-			Subject: viper.GetString("email.messages.reset.subject"),
-			Thanks:  viper.GetString("email.messages.reset.thanks"),
+			Subject: config.AppConfig.GetString("email.messages.reset.subject"),
+			Thanks:  config.AppConfig.GetString("email.messages.reset.thanks"),
 		}
 
 		go func() {

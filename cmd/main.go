@@ -2,26 +2,26 @@ package main
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/spf13/viper"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"gopds-api/api"
+	"gopds-api/config"
 	_ "gopds-api/docs"
 	"gopds-api/logging"
 	"gopds-api/middlewares"
 	"gopds-api/opds"
 	"log"
 	"net/http"
+	"os"
 )
 
 func init() {
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath(".")
-
-	err := viper.ReadInConfig() // Find and read the config file
-	if err != nil {             // Handle errors reading the config file
-		log.Fatalf("Fatal error config file: %s \n", err)
+	path := config.AppConfig.GetString("app.users_path")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		err := os.Mkdir(path, 0755)
+		if err != nil {
+			log.Fatalln(err)
+		}
 	}
 }
 
@@ -46,12 +46,12 @@ func Options(c *gin.Context) {
 // @contact.email aladex@gmail.com
 // @BasePath /api
 func main() {
-	if !viper.GetBool("app.devel_mode") {
+	if !config.AppConfig.GetBool("app.devel_mode") {
 		gin.SetMode(gin.ReleaseMode)
 	}
 	route := gin.New()
 	route.Use(logging.GinrusLogger(logging.CustomLog))
-	if viper.GetBool("app.devel_mode") {
+	if config.AppConfig.GetBool("app.devel_mode") {
 		route.Use(Options)
 	}
 	route.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))

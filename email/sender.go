@@ -4,8 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"fmt"
-	"github.com/spf13/viper"
-	"gopds-api/logging"
+	"gopds-api/config"
 	"html/template"
 	"log"
 	"net"
@@ -23,19 +22,8 @@ type SendType struct {
 	Thanks  string
 }
 
-func init() {
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath(".")
-
-	err := viper.ReadInConfig() // Find and read the config file
-	if err != nil {             // Handle errors reading the config file
-		logging.CustomLog.Fatalf("Fatal error config file: %s \n", err)
-	}
-}
-
 func MailConnection() (*smtp.Client, error) {
-	servername := viper.GetString("email.smtp_server")
+	servername := config.AppConfig.GetString("email.smtp_server")
 	host, _, _ := net.SplitHostPort(servername)
 
 	tlsconfig := &tls.Config{
@@ -56,7 +44,7 @@ func MailConnection() (*smtp.Client, error) {
 func SendActivationEmail(data SendType) error {
 	var b bytes.Buffer
 
-	from := mail.Address{"Робот", viper.GetString("email.user")}
+	from := mail.Address{"Робот", config.AppConfig.GetString("email.user")}
 	to := mail.Address{"", data.Email}
 
 	// Setup headers
@@ -78,11 +66,11 @@ func SendActivationEmail(data SendType) error {
 	if err != nil {
 		return err
 	}
-	servername := viper.GetString("email.smtp_server")
+	servername := config.AppConfig.GetString("email.smtp_server")
 	host, _, _ := net.SplitHostPort(servername)
 	auth := smtp.PlainAuth("",
-		viper.GetString("email.user"),
-		viper.GetString("email.password"),
+		config.AppConfig.GetString("email.user"),
+		config.AppConfig.GetString("email.password"),
 		host)
 	if err = ss.Auth(auth); err != nil {
 		return err

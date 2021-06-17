@@ -4,7 +4,7 @@ import (
 	"archive/zip"
 	"encoding/base64"
 	"fmt"
-	"github.com/spf13/viper"
+	"gopds-api/config"
 	"gopds-api/database"
 	fb2scan "gopds-api/fb2scan/fb2"
 	"gopds-api/logging"
@@ -75,7 +75,7 @@ func visit(files *[]string) filepath.WalkFunc {
 			logging.CustomLog.Println(err)
 		}
 		if strings.HasSuffix(path, ".zip") {
-			*files = append(*files, strings.ReplaceAll(path, viper.GetString("app.files_path"), ""))
+			*files = append(*files, strings.ReplaceAll(path, config.AppConfig.GetString("app.files_path"), ""))
 		}
 		return nil
 	}
@@ -83,7 +83,7 @@ func visit(files *[]string) filepath.WalkFunc {
 
 func GetArchivesList() {
 	var files []string
-	path := viper.GetString("app.files_path")
+	path := config.AppConfig.GetString("app.files_path")
 	err := filepath.Walk(path, visit(&files))
 	if err != nil {
 		logging.CustomLog.Println(err)
@@ -164,7 +164,7 @@ func UpdateCovers() {
 		return
 	}
 	for _, a := range scannedCatalogs {
-		r, err := zip.OpenReader(viper.GetString("app.files_path") + a)
+		r, err := zip.OpenReader(config.AppConfig.GetString("app.files_path") + a)
 		if err != nil {
 			logging.CustomLog.Println(err)
 			return
@@ -188,7 +188,7 @@ func ScanFb2File(data []byte, path string, filename string) (models.Book, error)
 		return models.Book{}, err
 	}
 	newBook := models.Book{
-		Path:         strings.ReplaceAll(path, viper.GetString("app.files_path"), ""),
+		Path:         strings.ReplaceAll(path, config.AppConfig.GetString("app.files_path"), ""),
 		Format:       "fb2",
 		FileName:     filename,
 		RegisterDate: time.Now(),

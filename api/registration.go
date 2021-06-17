@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
-	"github.com/spf13/viper"
+	"gopds-api/config"
 	"gopds-api/database"
 	"gopds-api/email"
 	"gopds-api/httputil"
@@ -49,16 +49,16 @@ func Registration(c *gin.Context) {
 		token := sessions.GenerateTokenPassword(newUser.Login)
 
 		registrationMessage := email.SendType{
-			Title: viper.GetString("email.messages.registration.title"),
+			Title: config.AppConfig.GetString("email.messages.registration.title"),
 			Token: fmt.Sprintf("%s/activate/%s",
-				viper.GetString("project_domain"),
+				config.AppConfig.GetString("project_domain"),
 				token,
 			),
-			Button:  viper.GetString("email.messages.registration.button"),
-			Message: viper.GetString("email.messages.registration.message"),
+			Button:  config.AppConfig.GetString("email.messages.registration.button"),
+			Message: config.AppConfig.GetString("email.messages.registration.message"),
 			Email:   newUser.Email,
-			Subject: viper.GetString("email.messages.registration.subject"),
-			Thanks:  viper.GetString("email.messages.registration.thanks"),
+			Subject: config.AppConfig.GetString("email.messages.registration.subject"),
+			Thanks:  config.AppConfig.GetString("email.messages.registration.thanks"),
 		}
 
 		go func() {

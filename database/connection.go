@@ -2,31 +2,22 @@ package database
 
 import (
 	"github.com/go-pg/pg/v9"
-	"github.com/spf13/viper"
-	"gopds-api/logging"
+	"gopds-api/config"
 )
 
 var db *pg.DB
 
 func init() {
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath(".")
-
-	err := viper.ReadInConfig() // Find and read the config file
-	if err != nil {             // Handle errors reading the config file
-		logging.CustomLog.Fatalf("Fatal error config file: %s \n", err)
-	}
 	db = pgConn()
 }
 
 // Функция возвращает подключение к БД
 func pgConn() *pg.DB {
 	db := pg.Connect(&pg.Options{
-		User:     viper.GetString("postgres.dbuser"),
-		Password: viper.GetString("postgres.dbpass"),
-		Database: viper.GetString("postgres.dbname"),
-		Addr:     viper.GetString("postgres.dbhost"),
+		User:     config.AppConfig.GetString("postgres.dbuser"),
+		Password: config.AppConfig.GetString("postgres.dbpass"),
+		Database: config.AppConfig.GetString("postgres.dbname"),
+		Addr:     config.AppConfig.GetString("postgres.dbhost"),
 	})
 
 	var n int
