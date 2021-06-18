@@ -4,7 +4,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"github.com/go-pg/pg/v9/orm"
+	"github.com/go-pg/pg/v10/orm"
 	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/utils"
@@ -179,7 +179,7 @@ func ActionUser(action models.AdminCommandToUser) (models.User, error) {
 		}
 		userToChange = action.User
 		userToChange.Password = tmpPass
-		err = db.Update(&userToChange)
+		_, err := db.Model(&userToChange).WherePK().Update()
 		if err != nil {
 			return userToChange, err
 		}

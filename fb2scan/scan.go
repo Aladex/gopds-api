@@ -203,7 +203,7 @@ func ScanFb2File(data []byte, path string, filename string) (models.Book, error)
 	}
 	for _, a := range result.Description.TitleInfo.Author {
 		authorName := fmt.Sprintf("%s %s", a.FirstName, a.LastName)
-		newBook.Authors = append(newBook.Authors, &models.Author{
+		newBook.Authors = append(newBook.Authors, models.Author{
 			FullName: strings.TrimSpace(authorName),
 		})
 	}

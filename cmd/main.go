@@ -116,6 +116,7 @@ func main() {
 		adminGroup.GET("/invites", api.GetInvites)
 		adminGroup.POST("/invite", api.ChangeInvite)
 		adminGroup.POST("/user", api.ActionUser)
+		adminGroup.POST("/update-book", api.UpdateBook)
 	}
 
 	err := route.Run("0.0.0.0:8085")

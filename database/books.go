@@ -3,7 +3,7 @@ package database
 import (
 	"errors"
 	"fmt"
-	"github.com/go-pg/pg/v9/orm"
+	"github.com/go-pg/pg/v10/orm"
 	"gopds-api/logging"
 	"gopds-api/models"
 	"strings"
@@ -119,12 +119,12 @@ func UpdateBookCover(book models.Book) error {
 // AddBook
 func AddBook(book models.Book) error {
 	for ai, author := range book.Authors {
-		a, err := AddAuthor(*author)
+		a, err := AddAuthor(author)
 		if err != nil {
 			logging.CustomLog.Print(err)
 			return nil
 		}
-		book.Authors[ai] = &a
+		book.Authors[ai] = a
 	}
 
 	_, err := db.Model(&book).Returning("id").Insert()
@@ -203,6 +203,9 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, err
 			if filters.Lang != "" {
 				q = q.Where("lang = ?", filters.Lang)
 			}
+			if filters.UnApproved {
+				q = q.Where("approved = false")
+			}
 			if filters.Author != 0 {
 				var booksIds []int64
 				err := db.Model(&models.OrderToAuthor{}).
@@ -247,7 +250,7 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, err
 // GetBook возвращает информацию по книге для того, чтобы вытащить ее из архива
 func GetBook(bookID int64) (models.Book, error) {
 	book := &models.Book{ID: bookID}
-	err := db.Select(book)
+	err := db.Model(book).Select()
 	if err != nil {
 		return *book, err
 	}
@@ -265,7 +268,7 @@ func HaveFavs(userID int64) (bool, error) {
 // FavBook добавляет книгу в избранное
 func FavBook(userID int64, fav models.FavBook) (bool, error) {
 	book := &models.Book{ID: fav.BookID}
-	err := db.Select(book)
+	err := db.Model(book).Select()
 	if err != nil {
 		return false, err
 	}
@@ -290,4 +293,18 @@ func FavBook(userID int64, fav models.FavBook) (bool, error) {
 
 	hf, err := HaveFavs(userID)
 	return hf, err
+}
+
+// UpdateBook
+func UpdateBook(book models.Book) (models.Book, error) {
+	var bookToChange models.Book
+	err := db.Model(&bookToChange).Where("id = ?", book.ID).Select()
+	if err != nil {
+		return bookToChange, err
+	}
+	_, err = db.Model(&book).Set("approved = ?", book.Approved).Where("id = ?", book.ID).Update(&bookToChange)
+	if err != nil {
+		return bookToChange, err
+	}
+	return bookToChange, nil
 }

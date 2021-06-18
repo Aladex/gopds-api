@@ -1,7 +1,7 @@
 package models
 
 import (
-	"github.com/go-pg/pg/v9/orm"
+	"github.com/go-pg/pg/v10/orm"
 	"time"
 )
 
@@ -10,7 +10,7 @@ func init() {
 	// This should be done before dependant models are used.
 	orm.RegisterTable((*OrderToAuthor)(nil))
 	orm.RegisterTable((*OrderToSeries)(nil))
-	// orm.RegisterTable((*OrderToCovers)(nil))
+	orm.RegisterTable((*UserToBook)(nil))
 }
 
 type Cover struct {
@@ -42,10 +42,11 @@ type Book struct {
 	Cover        bool      `pg:"cover" json:"cover"`
 	Annotation   string    `pg:"annotation" json:"annotation"`
 	Fav          bool      `pg:"-" json:"fav"`
-	Authors      []*Author `pg:"many2many:opds_catalog_bauthor" json:"authors"`
-	Series       []*Series `pg:"many2many:opds_catalog_bseries,joinFK:ser_id" json:"series"`
-	Users        []*User   `pg:"many2many:favorite_books,joinFK:user_id" json:"favorites"`
-	Covers       []*Cover  `pg:"covers" json:"covers"`
+	Approved     bool      `pg:"approved" json:"approved"`
+	Authors      []Author  `pg:"many2many:opds_catalog_bauthor,join_fk:author_id" json:"authors"`
+	Series       []*Series `pg:"many2many:opds_catalog_bseries,join_fk:ser_id" json:"series"`
+	Users        []*User   `pg:"many2many:favorite_books,join_fk:user_id" json:"favorites"`
+	Covers       []*Cover  `pg:"covers,rel:has-many" json:"covers"`
 }
 
 // Author структура автора в БД
@@ -86,15 +87,16 @@ type OrderToSeries struct {
 	BookID    int64    `pg:"book_id"`
 }
 
-// BookFilters фильтры для query get-запроса при фильтрации по клубам
+// BookFilters фильтры для query get-запроса при фильтрации по книгам
 type BookFilters struct {
-	Limit  int    `form:"limit" json:"limit"`
-	Offset int    `form:"offset" json:"offset"`
-	Title  string `form:"title" json:"title"`
-	Author int    `form:"author" json:"author"`
-	Series int    `form:"series" json:"series"`
-	Lang   string `form:"lang" json:"lang"`
-	Fav    bool   `form:"fav" json:"fav"`
+	Limit      int    `form:"limit" json:"limit"`
+	Offset     int    `form:"offset" json:"offset"`
+	Title      string `form:"title" json:"title"`
+	Author     int    `form:"author" json:"author"`
+	Series     int    `form:"series" json:"series"`
+	Lang       string `form:"lang" json:"lang"`
+	Fav        bool   `form:"fav" json:"fav"`
+	UnApproved bool   `form:"unapproved" json:"unapproved"`
 }
 
 // BookDownload структура для запроса файла книги

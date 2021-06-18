@@ -1,0 +1,1 @@
+ALTER TABLE opds_catalog_book ADD COLUMN approved BOOLEAN DEFAULT TRUE NOT NULL;

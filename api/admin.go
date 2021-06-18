@@ -144,3 +144,15 @@ func ChangeInvite(c *gin.Context) {
 	}
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
 }
+
+func UpdateBook(c *gin.Context) {
+	var bookToUpdate models.Book
+	if err := c.ShouldBindJSON(&bookToUpdate); err == nil {
+		res, err := database.UpdateBook(bookToUpdate)
+		if err != nil {
+			httputil.NewError(c, http.StatusBadRequest, err)
+			return
+		}
+		c.JSON(200, gin.H{"have_favs": res})
+	}
+}
