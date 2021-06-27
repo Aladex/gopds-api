@@ -178,27 +178,33 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, err
 		Relation("Series").
 		WhereGroup(func(q *orm.Query) (*orm.Query, error) {
 			if filters.Fav {
-				var booksIds []int64
-				err = db.Model(&models.UserToBook{}).
+				var booksIds []models.UserToBook
+				var exprArr []string
+				err = db.Model(&booksIds).
 					Column("book_id").
 					Where("user_id = ?", userID).
+					Order("id ASC").
 					Select(&booksIds)
 				if err == nil {
 					if len(booksIds) > 0 {
-						q = q.WhereIn("id IN (?)", booksIds)
-						exprArr := []string{}
+						var bIds []int64
+
 						for _, bid := range booksIds {
-							exprArr = append(exprArr, fmt.Sprintf("id=%d ASC", bid))
+							bIds = append(bIds, bid.BookID)
+							exprArr = append(exprArr, fmt.Sprintf("id=%d ASC", bid.BookID))
 						}
-						q.OrderExpr(strings.Join(exprArr, ", "))
+						q = q.WhereIn("id IN (?)", bIds)
+
 					}
+					// q = q.Order("user_to_book.id")
+					q = q.OrderExpr(strings.Join(exprArr, ","))
 				}
+			} else {
+				q = q.Order("id DESC")
 			}
 			if filters.Title != "" && filters.Author == 0 {
 				q = q.Where("title % ?", filters.Title).
 					OrderExpr("title <-> ? ASC", filters.Title)
-			} else {
-				q = q.Order("id DESC")
 			}
 			if filters.Lang != "" {
 				q = q.Where("lang = ?", filters.Lang)
@@ -268,7 +274,7 @@ func HaveFavs(userID int64) (bool, error) {
 // FavBook добавляет книгу в избранное
 func FavBook(userID int64, fav models.FavBook) (bool, error) {
 	book := &models.Book{ID: fav.BookID}
-	err := db.Model(book).Select()
+	err := db.Model(book).WherePK().Select()
 	if err != nil {
 		return false, err
 	}

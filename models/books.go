@@ -45,7 +45,7 @@ type Book struct {
 	Approved     bool      `pg:"approved" json:"approved"`
 	Authors      []Author  `pg:"many2many:opds_catalog_bauthor,join_fk:author_id" json:"authors"`
 	Series       []*Series `pg:"many2many:opds_catalog_bseries,join_fk:ser_id" json:"series"`
-	Users        []*User   `pg:"many2many:favorite_books,join_fk:user_id" json:"favorites"`
+	Users        []*User   `pg:"many2many:favorite_books,join_fk:book_id" json:"favorites"`
 	Covers       []*Cover  `pg:"covers,rel:has-many" json:"covers"`
 }
 
@@ -66,8 +66,9 @@ type OrderToAuthor struct {
 // UserToBook структура для many2many связи книг и пользователей для избранного
 type UserToBook struct {
 	tableName struct{} `pg:"favorite_books,discard_unknown_columns" json:"-"`
-	UserID    int64
-	BookID    int64
+	ID        int64    `pg:"id" json:"id"`
+	UserID    int64    `pg:"user_id" json:"user_id"`
+	BookID    int64    `pg:"book_id" json:"book_id"`
 }
 
 // Series структура серии книг
