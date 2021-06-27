@@ -196,15 +196,14 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, err
 						q = q.WhereIn("id IN (?)", bIds)
 
 					}
-					// q = q.Order("user_to_book.id")
 					q = q.OrderExpr(strings.Join(exprArr, ","))
 				}
-			} else {
-				q = q.Order("id DESC")
 			}
 			if filters.Title != "" && filters.Author == 0 {
 				q = q.Where("title % ?", filters.Title).
 					OrderExpr("title <-> ? ASC", filters.Title)
+			} else {
+				q = q.Order("id DESC")
 			}
 			if filters.Lang != "" {
 				q = q.Where("lang = ?", filters.Lang)
@@ -256,7 +255,7 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, err
 // GetBook возвращает информацию по книге для того, чтобы вытащить ее из архива
 func GetBook(bookID int64) (models.Book, error) {
 	book := &models.Book{ID: bookID}
-	err := db.Model(book).Select()
+	err := db.Model(book).WherePK().Select()
 	if err != nil {
 		return *book, err
 	}
