@@ -262,3 +262,33 @@ func ScanNewArchive(path string) {
 		bookChan <- newBook
 	}
 }
+
+func SaveBook(bookData []byte, filename string) {
+	path := config.AppConfig.GetString("app.users_path")
+
+	userBook, err := ScanFb2File(bookData, path, filename)
+	if err != nil {
+		logging.CustomLog.Println(err)
+	}
+	archiveFileName := fmt.Sprintf("%s/book.zip", path)
+
+	bookZip, err := os.Create(archiveFileName)
+	if err != nil {
+		logging.CustomLog.Println(err)
+	}
+
+	zipWriter := zip.NewWriter(bookZip)
+	defer func() {
+		err := zipWriter.Close()
+		if err != nil {
+			logging.CustomLog.Println(err)
+		}
+	}()
+
+	zf, err := zipWriter.Create("book.fb2")
+	_, err = zf.Write(bookData)
+	if err != nil {
+		logging.CustomLog.Println(err)
+	}
+	fmt.Println(userBook)
+}

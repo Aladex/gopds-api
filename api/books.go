@@ -42,8 +42,7 @@ func UploadBook(c *gin.Context) {
 		c.String(http.StatusBadRequest, fmt.Sprintf("upload file err: %s", err.Error()))
 		return
 	}
-	userBook, err := fb2scan.ScanFb2File(fileBuffer.Bytes(), "123", file.Filename)
-	fmt.Println(userBook)
+	fb2scan.SaveBook(fileBuffer.Bytes(), file.Filename)
 }
 
 // GetLangs метод для запроса списка языков из БД opds
