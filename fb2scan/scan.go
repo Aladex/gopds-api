@@ -263,14 +263,15 @@ func ScanNewArchive(path string) {
 	}
 }
 
-func SaveBook(bookData []byte, filename string) {
+func SaveBook(bookData []byte, filename, username string) {
 	path := config.AppConfig.GetString("app.users_path")
 
 	userBook, err := ScanFb2File(bookData, path, filename)
 	if err != nil {
 		logging.CustomLog.Println(err)
 	}
-	archiveFileName := fmt.Sprintf("%s/book.zip", path)
+	archiveFileName := fmt.Sprintf("%s/%d-%s-user-book.zip", path, time.Now().Unix(), username)
+	fmt.Println(archiveFileName)
 
 	bookZip, err := os.Create(archiveFileName)
 	if err != nil {

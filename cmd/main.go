@@ -65,8 +65,6 @@ func main() {
 		route.POST("/api/change-password", api.ChangeUserState)
 		route.POST("/api/change-request", api.ChangeRequest)
 		route.POST("/api/token", api.TokenValidation)
-		route.POST("/api/upload-book", api.UploadBook)
-
 		route.GET("/api/logout", api.LogOut)
 		route.GET("/api/drop-sessions", api.DropAllSessions)
 	}
@@ -103,6 +101,7 @@ func main() {
 		booksGroup.POST("/change-me", api.ChangeUser)
 		booksGroup.GET("/authors", api.GetAuthors)
 		booksGroup.POST("/author", api.GetAuthor)
+		booksGroup.POST("/upload-book", api.UploadBook)
 		// Метод скачивания файла
 		booksGroup.POST("/file", api.GetBookFile)
 		booksGroup.POST("/fav", api.FavBook)

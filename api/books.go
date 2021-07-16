@@ -28,6 +28,8 @@ type ExportAnswer struct {
 
 func UploadBook(c *gin.Context) {
 	file, err := c.FormFile("file")
+	username := c.GetString("username")
+	fmt.Println(c.GetString("username"))
 	if err != nil {
 		c.String(http.StatusBadRequest, fmt.Sprintf("get form err: %s", err.Error()))
 		return
@@ -42,7 +44,7 @@ func UploadBook(c *gin.Context) {
 		c.String(http.StatusBadRequest, fmt.Sprintf("upload file err: %s", err.Error()))
 		return
 	}
-	fb2scan.SaveBook(fileBuffer.Bytes(), file.Filename)
+	fb2scan.SaveBook(fileBuffer.Bytes(), file.Filename, username)
 }
 
 // GetLangs метод для запроса списка языков из БД opds
