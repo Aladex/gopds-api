@@ -110,7 +110,7 @@ func ChangeInvite(request models.InviteRequest) error {
 
 // GetInvites returns a list of all invites in db
 func GetInvites(invites *[]models.Invite) error {
-	err := db.Model(invites).WherePK().Select()
+	err := db.Model(invites).Select()
 	if err != nil {
 		return err
 	}
