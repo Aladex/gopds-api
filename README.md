@@ -29,9 +29,8 @@ Documentation is realized with swaggo swagger and generates automatically.
 
 ## Roadmap
 
-1. Projects database with own structure
-2. Book scanner for fb2 and epub formats
-3. Converter from fb2 to epub, mobi
+1. Book scanner for fb2 and epub formats
+2. Converter from fb2 to epub, mobi
 
 ## Bindata create
 

@@ -7,7 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"github.com/dgrijalva/jwt-go"
+	"github.com/golang-jwt/jwt/v4"
 	"golang.org/x/crypto/pbkdf2"
 	"gopds-api/config"
 	"gopds-api/models"
