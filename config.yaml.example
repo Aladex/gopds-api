@@ -18,6 +18,7 @@ app:
   devel_mode: yes
   files_path: "/mnt/ssd/sopds/books/_Lib.rus.ec - Официальная/lib.rus.ec"
   users_path: "/mnt/ssd/sopds/books/users-arc/"
+  cdn: ""
 
 email:
   user: no-reply@example.com

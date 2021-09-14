@@ -5,6 +5,7 @@ go 1.15
 require (
 	github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751
 	github.com/gin-gonic/gin v1.7.0
+	github.com/go-bindata/go-bindata v3.1.2+incompatible // indirect
 	github.com/go-pg/pg/v10 v10.10.0
 	github.com/go-redis/redis v6.15.7+incompatible
 	github.com/golang-jwt/jwt/v4 v4.0.0

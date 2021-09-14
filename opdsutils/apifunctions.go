@@ -2,6 +2,7 @@ package opdsutils
 
 import (
 	"fmt"
+	"gopds-api/config"
 	"gopds-api/models"
 	"strconv"
 	"strings"
@@ -18,12 +19,10 @@ func rels() []string {
 
 func createPostersLink(book models.Book) []Link {
 	var links []Link
-	posterLink := "/books-posters/no-cover.png"
-	//if len(book.Covers) > 0 {
-	//	posterLink = fmt.Sprintf("/books-posters/%d/cover.jpg", book.ID)
-	//}
+	posterLink := config.AppConfig.GetString("app.cdn") + "/books-posters/no-cover.png"
 	if book.Cover {
-		posterLink = fmt.Sprintf("/books-posters/%s/%s.jpg",
+		posterLink = fmt.Sprintf("%s/books-posters/%s/%s.jpg",
+			config.AppConfig.GetString("app.cdn"),
 			strings.ReplaceAll(book.Path, ".", "-"),
 			strings.ReplaceAll(book.FileName, ".", "-"))
 	}
