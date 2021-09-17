@@ -2,13 +2,13 @@
 FROM golang:1.16-stretch as build-stage
 COPY . /app
 WORKDIR /app
-RUN go get -u github.com/go-bindata/go-bindata/... && go mod download
-RUN go-bindata -pkg email -o email/bindata.go -fs -prefix "email/templates" email/templates/...
-RUN go build -o bin/gopds cmd/*
+RUN go get -u github.com/go-bindata/go-bindata/... && go mod download && \
+    go-bindata -pkg email -o email/bindata.go -fs -prefix "email/templates" email/templates/... && \
+    go build -ldflags "-w -s" -o gopds-bin cmd/*
 
 # production stage
 FROM ubuntu:20.04 as production-stage
-COPY --from=build-stage /app/bin /gopds
+COPY --from=build-stage /app/gopds-bin /gopds
 RUN apt update && apt install xz-utils curl -y && \
     curl -L https://github.com/rupor-github/fb2mobi/releases/download/3.6.67/fb2mobi_cli_linux_x86_64_glibc_2.23.tar.xz -o fb2mobi.tar.xz && \
     mkdir /gopds/external_fb2mobi && tar -xf fb2mobi.tar.xz -C /gopds/external_fb2mobi && \
