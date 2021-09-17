@@ -15,5 +15,6 @@ RUN apt update && apt install xz-utils curl -y && \
     apt remove curl -y && \
     apt autoremove -y && \
     apt clean
-EXPOSE 80
-CMD ["/gopds/gopds-api"]
+WORKDIR /gopds
+EXPOSE 8085
+CMD ["/gopds/gopds"]
