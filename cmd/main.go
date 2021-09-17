@@ -59,7 +59,13 @@ func main() {
 	// Default group without auth
 	{
 		route.GET("/book-posters/:book", api.GetBookPoster)
-
+		route.GET("/status", func(context *gin.Context) {
+			context.JSON(200, struct {
+				Status string `json:"status"`
+			}{
+				Status: "ok",
+			})
+		})
 		route.POST("/api/login", api.AuthCheck)
 		route.POST("/api/register", api.Registration)
 		route.POST("/api/change-password", api.ChangeUserState)
