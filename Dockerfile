@@ -2,8 +2,8 @@
 FROM golang:1.16-stretch as build-stage
 COPY . /app
 WORKDIR /app
-RUN go get -u github.com/go-bindata/go-bindata/... && go mod download && \
-    go-bindata -pkg email -o email/bindata.go -fs -prefix "email/templates" email/templates/... && \
+RUN go get -u github.com/go-bindata/go-bindata/... && go mod download
+RUN go-bindata -pkg email -o email/bindata.go -fs -prefix "email/templates" email/templates/... && \
     go build -ldflags "-w -s" -o bin/gopds cmd/*
 
 # production stage
