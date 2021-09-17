@@ -12,6 +12,8 @@ COPY --from=build-stage /app/bin /gopds
 RUN apt update && apt install xz-utils curl -y && \
     curl -L https://github.com/rupor-github/fb2mobi/releases/download/3.6.67/fb2mobi_cli_linux_x86_64_glibc_2.23.tar.xz -o fb2mobi.tar.xz && \
     mkdir /gopds/external_fb2mobi && tar -xf fb2mobi.tar.xz -C /gopds/external_fb2mobi && \
+    chmod +x /gopds/external_fb2mobi/fb2mobi && \
+    chmod +x /gopds/external_fb2mobi/kindlegen && \
     apt remove curl -y && \
     apt autoremove -y && \
     apt clean
