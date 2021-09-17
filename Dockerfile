@@ -4,7 +4,7 @@ COPY . /app
 WORKDIR /app
 RUN go get -u github.com/go-bindata/go-bindata/... && go mod download
 RUN go-bindata -pkg email -o email/bindata.go -fs -prefix "email/templates" email/templates/...
-RUN go build -ldflags "-w -s" -o bin/gopds cmd/*
+RUN go build -o bin/gopds cmd/*
 
 # production stage
 FROM ubuntu:20.04 as production-stage
