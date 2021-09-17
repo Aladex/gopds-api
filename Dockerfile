@@ -1,5 +1,5 @@
 # build stage
-FROM golang:1.16-stretch as build-stage
+FROM golang:1.15 as build-stage
 COPY . /app
 WORKDIR /app
 RUN go get -u github.com/go-bindata/go-bindata/... && go mod download && \
