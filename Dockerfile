@@ -2,7 +2,7 @@
 FROM golang:1.16 as build-stage
 COPY . /app
 WORKDIR /app
-RUN go mod download && go get -u github.com/go-bindata/go-bindata/... && \
+RUN go get -u github.com/go-bindata/go-bindata/... && go mod download && \
     go-bindata -pkg email -o email/bindata.go -fs -prefix "email/templates" email/templates/... && \
     go build -ldflags "-w -s" -o bin/gopds cmd/*
 
