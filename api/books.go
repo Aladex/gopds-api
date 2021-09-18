@@ -199,6 +199,6 @@ func CdnBookGenerate(c *gin.Context) {
 	path := fmt.Sprintf("/download/%s/%d", bookFormat, bookID)
 	secret := config.AppConfig.GetString("app.cdn_key")
 	token := generateCdnHash(fmt.Sprintf("%d%s %s", expires, path, secret))
-	newLink := fmt.Sprintf("%s%s?md5=%s&expires=%s", config.AppConfig.GetString("app.file_book_cdn"), path, token, expires)
+	newLink := fmt.Sprintf("%s%s?md5=%s&expires=%d", config.AppConfig.GetString("app.file_book_cdn"), path, token, expires)
 	c.Redirect(301, newLink)
 }
