@@ -30,4 +30,6 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           push: true
-          tags: aladex/gopds-api:${{ steps.get_version.outputs.VERSION }}
+          tags: |
+            aladex/gopds-api:${{ steps.get_version.outputs.VERSION }}
+            aladex/gopds-api:latest
