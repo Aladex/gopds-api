@@ -33,11 +33,12 @@ type ExportAnswer struct {
 
 func generateCdnHash(s string) string {
 	hash := md5.Sum([]byte(s))
-	hashStr := strings.ReplaceAll(hex.EncodeToString(hash[:]), "+", "-")
-	hashStr = strings.ReplaceAll(hashStr, "/", "_")
-	hashStr = strings.ReplaceAll(hashStr, "\n", "")
-	hashStr = strings.ReplaceAll(hashStr, "=", "")
 	b64hash := base64.StdEncoding.EncodeToString([]byte(hex.EncodeToString(hash[:])))
+	b64hash = strings.ReplaceAll(b64hash, "+", "-")
+	b64hash = strings.ReplaceAll(b64hash, "/", "_")
+	b64hash = strings.ReplaceAll(b64hash, "\n", "")
+	b64hash = strings.ReplaceAll(b64hash, "=", "")
+
 	return b64hash
 }
 
