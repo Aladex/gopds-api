@@ -39,7 +39,7 @@ func createPostersLink(book models.Book) []Link {
 // CreateItem creates an BookItem for xml generate
 func CreateItem(book models.Book) Item {
 	posterLinks := createPostersLink(book)
-	linkPath := "/api/books/download/"
+	linkPath := "/opds/get/"
 	// linkPath := "/opds/download/"
 
 	links := []Link{
