@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
@@ -32,13 +31,14 @@ type ExportAnswer struct {
 }
 
 func generateCdnHash(s string) string {
-	hash := md5.Sum([]byte(s))
-	b64hash := base64.StdEncoding.EncodeToString([]byte(hex.EncodeToString(hash[:])))
+	hash := md5.New()
+	hash.Write([]byte(s))
+	b := hash.Sum(nil)
+	b64hash := base64.StdEncoding.EncodeToString(b)
+	b64hash = strings.ReplaceAll(b64hash, "\n", "")
 	b64hash = strings.ReplaceAll(b64hash, "+", "-")
 	b64hash = strings.ReplaceAll(b64hash, "/", "_")
-	b64hash = strings.ReplaceAll(b64hash, "\n", "")
 	b64hash = strings.ReplaceAll(b64hash, "=", "")
-
 	return b64hash
 }
 
