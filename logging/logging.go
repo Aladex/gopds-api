@@ -206,7 +206,7 @@ func GinrusLogger(logger loggerEntryWithFields) gin.HandlerFunc {
 			"status":     c.Writer.Status(),
 			"method":     c.Request.Method,
 			"path":       path,
-			"ip":         c.ClientIP(),
+			"ip":         c.Request.RemoteAddr,
 			"latency":    fmt.Sprintf("%d ms", latency.Milliseconds()),
 			"user-agent": c.Request.UserAgent(),
 			"time":       end.Format("Mon, Jan 2 2006 15:04:05"),
