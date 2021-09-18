@@ -31,12 +31,24 @@ var bookTypes = map[string]string{
 func DownloadBook(c *gin.Context) {
 	bookID, err := strconv.ParseInt(c.Param("id"), 10, 0)
 	if err != nil {
+		if c.Request.Method == "HEAD" {
+			httputil.NewError(c, http.StatusNotFound, errors.New("not_found"))
+			return
+		}
 		httputil.NewError(c, http.StatusBadRequest, errors.New("bad_book_id"))
+		return
 	}
 	bookRequest := models.BookDownload{
 		BookID: bookID,
 		Format: c.Param("format"),
 	}
+
+	if c.Request.Method == "HEAD" {
+		c.Header("Content-Type", bookTypes[bookRequest.Format])
+		c.JSON(200, "ok")
+		return
+	}
+
 	book, err := database.GetBook(bookRequest.BookID)
 	if err != nil {
 		httputil.NewError(c, http.StatusNotFound, err)

@@ -74,6 +74,7 @@ func main() {
 		route.GET("/api/logout", api.LogOut)
 		route.GET("/api/drop-sessions", api.DropAllSessions)
 		route.GET("/download/:format/:id", opds.DownloadBook)
+		route.HEAD("/download/:format/:id", opds.DownloadBook)
 	}
 
 	// XML routes
