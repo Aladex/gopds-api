@@ -39,20 +39,22 @@ func createPostersLink(book models.Book) []Link {
 // CreateItem creates an BookItem for xml generate
 func CreateItem(book models.Book) Item {
 	posterLinks := createPostersLink(book)
+	linkPath := "/api/books/download/"
+	// linkPath := "/opds/download/"
 
 	links := []Link{
 		{
-			Href: "/opds/download/fb2/" + strconv.FormatInt(book.ID, 10),
+			Href: linkPath + "fb2/" + strconv.FormatInt(book.ID, 10),
 			Rel:  "http://opds-spec.org/acquisition/open-access",
 			Type: "application/fb2+zip",
 		},
 		{
-			Href: "/opds/download/epub/" + strconv.FormatInt(book.ID, 10),
+			Href: linkPath + "epub/" + strconv.FormatInt(book.ID, 10),
 			Rel:  "http://opds-spec.org/acquisition/open-access",
 			Type: "application/epub+zip",
 		},
 		{
-			Href: "/opds/download/mobi/" + strconv.FormatInt(book.ID, 10),
+			Href: linkPath + "mobi/" + strconv.FormatInt(book.ID, 10),
 			Rel:  "http://opds-spec.org/acquisition/open-access",
 			Type: "application/x-mobipocket-ebook",
 		},
