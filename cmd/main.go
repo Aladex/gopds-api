@@ -73,6 +73,7 @@ func main() {
 		route.POST("/api/token", api.TokenValidation)
 		route.GET("/api/logout", api.LogOut)
 		route.GET("/api/drop-sessions", api.DropAllSessions)
+		route.GET("/download/:format/:id", opds.DownloadBook)
 	}
 
 	// XML routes
@@ -88,6 +89,7 @@ func main() {
 		opdsGroup.GET("/books", opds.GetBooks)
 		opdsGroup.GET("/search-author", opds.GetAuthor)
 		opdsGroup.GET("/download/:format/:id", opds.DownloadBook)
+		opdsGroup.GET("/get/:format/:id", api.CdnBookGenerate)
 	}
 
 	apiGroup := route.Group("/api")
@@ -101,6 +103,7 @@ func main() {
 	// Books group for all users
 	{
 		booksGroup.GET("/list", api.GetBooks)
+		booksGroup.GET("/get/:format/:id", api.CdnBookGenerate)
 
 		booksGroup.GET("/langs", api.GetLangs)
 		booksGroup.GET("/self-user", api.SelfUser)

@@ -3,11 +3,14 @@ package api
 import (
 	"bufio"
 	"bytes"
+	"crypto/md5"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
+	"gopds-api/config"
 	"gopds-api/database"
 	"gopds-api/fb2scan"
 	"gopds-api/httputil"
@@ -18,12 +21,24 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 )
 
 // ExportAnswer структура ответа найденных книг и полного списка языков для компонента Books.vue
 type ExportAnswer struct {
 	Books  []models.Book `json:"books"`
 	Length int           `json:"length"`
+}
+
+func generateCdnHash(s string) string {
+	hash := md5.Sum([]byte(s))
+	hashStr := strings.ReplaceAll(hex.EncodeToString(hash[:]), "+", "-")
+	hashStr = strings.ReplaceAll(hashStr, "/", "_")
+	hashStr = strings.ReplaceAll(hashStr, "\n", "")
+	hashStr = strings.ReplaceAll(hashStr, "=", "")
+	b64hash := base64.StdEncoding.EncodeToString([]byte(hex.EncodeToString(hash[:])))
+	return b64hash
 }
 
 func UploadBook(c *gin.Context) {
@@ -171,4 +186,19 @@ func FavBook(c *gin.Context) {
 		}
 		c.JSON(200, gin.H{"have_favs": res})
 	}
+}
+
+// CdnBookGenerate
+func CdnBookGenerate(c *gin.Context) {
+	bookID, err := strconv.ParseInt(c.Param("id"), 10, 0)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, errors.New("bad_book_id"))
+	}
+	bookFormat := c.Param("format")
+	expires := time.Now().Add(time.Minute * 10).Unix()
+	path := fmt.Sprintf("/download/%s/%d", bookFormat, bookID)
+	secret := config.AppConfig.GetString("app.cdn_key")
+	token := generateCdnHash(fmt.Sprintf("%d%s %s", expires, path, secret))
+	newLink := fmt.Sprintf("%s%s?md5=%s&expires=%s", config.AppConfig.GetString("app.file_book_cdn"), path, token, expires)
+	c.Redirect(301, newLink)
 }
