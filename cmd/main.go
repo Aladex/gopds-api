@@ -57,7 +57,7 @@ func main() {
 	route.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	linkGen := route.Group("/files")
 	linkGen.Use(middlewares.TokenMiddleware())
-	linkGen.GET("/get/:format/:id", api.CdnBookGenerate)
+	linkGen.GET("/books/get/:format/:id", api.CdnBookGenerate)
 	// Default group without auth
 	{
 		route.GET("/book-posters/:book", api.GetBookPoster)
