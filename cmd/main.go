@@ -55,7 +55,9 @@ func main() {
 		route.Use(Options)
 	}
 	route.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
-
+	linkGen := route.Group("/api")
+	linkGen.Use(middlewares.TokenMiddleware())
+	linkGen.GET("/get/:format/:id", api.CdnBookGenerate)
 	// Default group without auth
 	{
 		route.GET("/book-posters/:book", api.GetBookPoster)
@@ -90,7 +92,7 @@ func main() {
 		opdsGroup.GET("/books", opds.GetBooks)
 		opdsGroup.GET("/search-author", opds.GetAuthor)
 		opdsGroup.GET("/download/:format/:id", opds.DownloadBook)
-		opdsGroup.GET("/get/:format/:id", api.CdnBookGenerate)
+		// opdsGroup.GET("/get/:format/:id", api.CdnBookGenerate)
 	}
 
 	apiGroup := route.Group("/api")
