@@ -5,8 +5,8 @@ import (
 	"crypto/tls"
 	"fmt"
 	"gopds-api/config"
+	"gopds-api/logging"
 	"html/template"
-	"log"
 	"net"
 	"net/mail"
 	"net/smtp"
@@ -73,49 +73,57 @@ func SendActivationEmail(data SendType) error {
 		config.AppConfig.GetString("email.password"),
 		host)
 	if err = ss.Auth(auth); err != nil {
+		logging.CustomLog.Println(err)
 		return err
 	}
 
 	if err = ss.Mail(from.Address); err != nil {
+		logging.CustomLog.Println(err)
 		return err
 	}
 
 	if err = ss.Rcpt(to.Address); err != nil {
+		logging.CustomLog.Println(err)
 		return err
 	}
 
 	w, err := ss.Data()
 	if err != nil {
+		logging.CustomLog.Println(err)
 		return err
 	}
 
 	asset, err := Asset("reset_password.gohtml")
 	if err != nil {
-		log.Fatalln(err)
+		logging.CustomLog.Println(err)
 		return err
 	}
 	tpl, err := template.New("reset_password.gohtml").Parse(string(asset))
 	if err != nil {
-		log.Fatalln(err)
+		logging.CustomLog.Println(err)
 		return err
 	}
 	err = tpl.ExecuteTemplate(&b, "reset_password.gohtml", data)
 	if err != nil {
+		logging.CustomLog.Println(err)
 		return err
 	}
 
 	_, err = w.Write(b.Bytes())
 	if err != nil {
+		logging.CustomLog.Println(err)
 		return err
 	}
 
 	err = w.Close()
 	if err != nil {
+		logging.CustomLog.Println(err)
 		return err
 	}
 
 	err = ss.Quit()
 	if err != nil {
+		logging.CustomLog.Println(err)
 		return err
 	}
 	return nil
