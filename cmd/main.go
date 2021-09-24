@@ -15,16 +15,6 @@ import (
 	"os"
 )
 
-func init() {
-	path := config.AppConfig.GetString("app.users_path")
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		err := os.Mkdir(path, 0755)
-		if err != nil {
-			log.Fatalln(err)
-		}
-	}
-}
-
 func Options(c *gin.Context) {
 	if c.Request.Method != "OPTIONS" {
 		c.Header("Access-Control-Allow-Origin", "*")
@@ -48,6 +38,13 @@ func Options(c *gin.Context) {
 func main() {
 	if !config.AppConfig.GetBool("app.devel_mode") {
 		gin.SetMode(gin.ReleaseMode)
+	}
+	path := config.AppConfig.GetString("app.users_path")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		err := os.Mkdir(path, 0755)
+		if err != nil {
+			log.Fatalln(err)
+		}
 	}
 	route := gin.New()
 	route.Use(logging.GinrusLogger(logging.CustomLog))
