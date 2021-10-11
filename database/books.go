@@ -210,6 +210,8 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, err
 			}
 			if filters.UnApproved {
 				q = q.Where("approved = false")
+			} else {
+				q = q.Where("approved = true")
 			}
 			if filters.Author != 0 {
 				var booksIds []int64
