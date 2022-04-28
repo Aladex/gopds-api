@@ -1,0 +1,1 @@
+ALTER TABLE auth_user ADD COLUMN bot_token character varying(30) DEFAULT '';
