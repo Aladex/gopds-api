@@ -17,6 +17,7 @@ type User struct {
 	LastName    string    `pg:"last_name" json:"last_name" form:"last_name"`
 	BooksLang   string    `pg:"books_lang" json:"books_lang" form:"books_lang"`
 	Email       string    `pg:"email" json:"email"`
+	BotToken    string    `pg:"bot_token" json:"bot_token" form:"bot_token"`
 	DateJoined  time.Time `pg:"date_joined" json:"date_joined"`
 	Active      bool      `pg:"active" json:"active"`
 }
