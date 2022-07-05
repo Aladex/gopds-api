@@ -97,6 +97,7 @@ func main() {
 
 	booksGroup := apiGroup.Group("/books")
 	adminGroup := apiGroup.Group("/admin")
+	telegramGroup := apiGroup.Group("/telegram")
 
 	adminGroup.Use(middlewares.AdminMiddleware())
 
@@ -125,6 +126,11 @@ func main() {
 		adminGroup.POST("/invite", api.ChangeInvite)
 		adminGroup.POST("/user", api.ActionUser)
 		adminGroup.POST("/update-book", api.UpdateBook)
+	}
+
+	// Telegram Bot Group
+	{
+		telegramGroup.POST("/:id", api.TokenApiEndpoint)
 	}
 
 	err := route.Run("0.0.0.0:8085")

@@ -127,6 +127,15 @@ func GetUser(u string) (models.User, error) {
 	return *userDB, nil
 }
 
+func GetUserByToken(token string) (models.User, error) {
+	userDB := new(models.User)
+	err := db.Model(userDB).Where("token = ?", token).First()
+	if err != nil {
+		return *userDB, err
+	}
+	return *userDB, nil
+}
+
 // GetUserList function returns an users list
 func GetUserList(filters models.UserFilters) ([]models.User, int, error) {
 	users := []models.User{}
