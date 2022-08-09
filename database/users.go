@@ -185,7 +185,7 @@ func ActionUser(action models.AdminCommandToUser) (models.User, error) {
 			tmpPass = userToChange.Password
 		}
 		if action.User.BotToken != "" {
-			_, err = http.Get(fmt.Sprintf("https://api.telegram.org/%s/setWebhook?url=%s/telegram/%s", action.User.BotToken,
+			_, err = http.Get(fmt.Sprintf("https://api.telegram.org/bot%s/setWebhook?url=%s/telegram/%s", action.User.BotToken,
 				config.AppConfig.GetString("project_domain"),
 				action.User.BotToken))
 			if err != nil {
