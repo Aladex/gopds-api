@@ -1,6 +1,14 @@
 package api
 
-import "github.com/gin-gonic/gin"
+import (
+	"errors"
+	"github.com/gin-gonic/gin"
+	"gopds-api/database"
+	"gopds-api/httputil"
+	"gopds-api/logging"
+	"gopds-api/models"
+	"net/http"
+)
 
 type TelegramCommand struct {
 	UpdateID int `json:"update_id"`
@@ -24,10 +32,24 @@ type TelegramCommand struct {
 	} `json:"message"`
 }
 
-func RegisterBot() {
-
-}
-
 func TokenApiEndpoint(c *gin.Context) {
+	botToken := c.Param("id")
+	user, err := database.GetUserByToken(botToken)
+	if err != nil {
+		c.JSON(500, err)
+		return
+	}
+	var telegramCmd TelegramCommand
 
+	if err := c.ShouldBindJSON(&telegramCmd); err == nil {
+		if user.TelegramID == 0 {
+			user.TelegramID = telegramCmd.Message.From.ID
+			_, err := database.ActionUser(models.AdminCommandToUser{Action: "update", User: user})
+			if err != nil {
+				logging.CustomLog.Println(err)
+				httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
+				return
+			}
+		}
+	}
 }

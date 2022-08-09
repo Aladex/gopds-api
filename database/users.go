@@ -127,6 +127,7 @@ func GetUser(u string) (models.User, error) {
 	return *userDB, nil
 }
 
+// GetUserByToken search user by telegram token
 func GetUserByToken(token string) (models.User, error) {
 	userDB := new(models.User)
 	err := db.Model(userDB).Where("token = ?", token).First()
