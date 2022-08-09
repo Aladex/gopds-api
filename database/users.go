@@ -4,9 +4,11 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"gopds-api/config"
 	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/utils"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -181,6 +183,12 @@ func ActionUser(action models.AdminCommandToUser) (models.User, error) {
 			tmpPass = utils.CreatePasswordHash(action.User.Password)
 		} else {
 			tmpPass = userToChange.Password
+		}
+		if action.User.BotToken != "" {
+			_, err = http.Get(fmt.Sprintf("https://api.telegram.org/bot(New token)/setWebhook?url=https://%s/telegram/%s", config.AppConfig.GetString(""), action.User.BotToken))
+			if err != nil {
+				return userToChange, err
+			}
 		}
 		userToChange = action.User
 		userToChange.Password = tmpPass

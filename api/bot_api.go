@@ -36,7 +36,7 @@ func TokenApiEndpoint(c *gin.Context) {
 	botToken := c.Param("id")
 	user, err := database.GetUserByToken(botToken)
 	if err != nil {
-		c.JSON(500, err)
+		httputil.NewError(c, http.StatusNotFound, errors.New("user_is_not_found"))
 		return
 	}
 	var telegramCmd TelegramCommand
@@ -45,6 +45,7 @@ func TokenApiEndpoint(c *gin.Context) {
 		if user.TelegramID == 0 {
 			user.TelegramID = telegramCmd.Message.From.ID
 			_, err := database.ActionUser(models.AdminCommandToUser{Action: "update", User: user})
+
 			if err != nil {
 				logging.CustomLog.Println(err)
 				httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
