@@ -97,7 +97,7 @@ func main() {
 
 	booksGroup := apiGroup.Group("/books")
 	adminGroup := apiGroup.Group("/admin")
-	telegramGroup := apiGroup.Group("/telegram")
+	telegramGroup := route.Group("/telegram")
 
 	adminGroup.Use(middlewares.AdminMiddleware())
 
