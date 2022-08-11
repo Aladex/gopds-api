@@ -10,6 +10,74 @@ import (
 	"net/http"
 )
 
+// NewInlineKeyboardRow creates an inline keyboard row with buttons.
+func NewInlineKeyboardRow(buttons ...InlineKeyboardButton) []InlineKeyboardButton {
+	var row []InlineKeyboardButton
+
+	row = append(row, buttons...)
+
+	return row
+}
+
+// NewInlineKeyboardMarkup creates a new inline keyboard.
+func NewInlineKeyboardMarkup(rows ...[]InlineKeyboardButton) InlineKeyboardMarkup {
+	var keyboard [][]InlineKeyboardButton
+
+	keyboard = append(keyboard, rows...)
+
+	return InlineKeyboardMarkup{
+		InlineKeyboard: keyboard,
+	}
+}
+
+// NewInlineKeyboardButtonData creates an inline keyboard button with text
+// and data for a callback.
+func NewInlineKeyboardButtonData(text, data string) InlineKeyboardButton {
+	return InlineKeyboardButton{
+		Text:         text,
+		CallbackData: &data,
+	}
+}
+
+// InlineKeyboardButton represents one button of an inline keyboard. You must
+// use exactly one of the optional fields.
+//
+// Note that some values are references as even an empty string
+// will change behavior.
+//
+// CallbackGame, if set, MUST be first button in first row.
+type InlineKeyboardButton struct {
+	// Text label text on the button
+	Text         string  `json:"text"`
+	CallbackData *string `json:"callback_data,omitempty"`
+}
+
+// InlineKeyboardMarkup represents an inline keyboard that appears right next to
+// the message it belongs to.
+type InlineKeyboardMarkup struct {
+	// InlineKeyboard array of button rows, each represented by an Array of
+	// InlineKeyboardButton objects
+	InlineKeyboard [][]InlineKeyboardButton `json:"inline_keyboard"`
+}
+
+type BaseChat struct {
+	ChatID                   int64 // required
+	ChannelUsername          string
+	ProtectContent           bool
+	ReplyToMessageID         int
+	ReplyMarkup              interface{}
+	DisableNotification      bool
+	AllowSendingWithoutReply bool
+}
+
+// MessageConfig Message represents a message.
+type MessageConfig struct {
+	BaseChat
+	Text                  string
+	ParseMode             string
+	DisableWebPagePreview bool
+}
+
 type TelegramCommand struct {
 	UpdateID int `json:"update_id"`
 	Message  struct {
@@ -54,4 +122,26 @@ func TokenApiEndpoint(c *gin.Context) {
 			}
 		}
 	}
+
+	var numericKeyboard = NewInlineKeyboardMarkup(
+		NewInlineKeyboardRow(
+			NewInlineKeyboardButtonData("2", "2"),
+			NewInlineKeyboardButtonData("3", "3"),
+		),
+		NewInlineKeyboardRow(
+			NewInlineKeyboardButtonData("4", "4"),
+			NewInlineKeyboardButtonData("5", "5"),
+			NewInlineKeyboardButtonData("6", "6"),
+		),
+	)
+
+	c.JSON(200, MessageConfig{
+		BaseChat: BaseChat{
+			ChatID:           int64(user.TelegramID),
+			ReplyToMessageID: 0,
+			ReplyMarkup:      numericKeyboard,
+		},
+		Text:                  "werwuyer",
+		DisableWebPagePreview: false,
+	})
 }
