@@ -44,6 +44,7 @@ func TokenApiEndpoint(c *gin.Context) {
 	if err := c.ShouldBindJSON(&telegramCmd); err == nil {
 		if user.TelegramID == 0 {
 			user.TelegramID = telegramCmd.Message.From.ID
+			user.Password = ""
 			_, err := database.ActionUser(models.AdminCommandToUser{Action: "update", User: user})
 
 			if err != nil {
