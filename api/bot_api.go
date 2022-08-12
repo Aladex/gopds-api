@@ -64,21 +64,22 @@ type InlineKeyboardMarkup struct {
 }
 
 type BaseChat struct {
-	ChatID                   int64 // required
-	ChannelUsername          string
-	ProtectContent           bool
-	ReplyToMessageID         int
-	ReplyMarkup              interface{}
-	DisableNotification      bool
-	AllowSendingWithoutReply bool
+	ChatID int64 `json:"chat_id"` // required
+	//ChannelUsername          string `json:"channel_username"`
+	//ProtectContent           bool `json:"protect_content"`
+	//ReplyToMessageID         int `json:"reply_to_message_id"`
+	ReplyMarkup interface{} `json:"reply_markup"`
+	//DisableNotification      bool `json:"disable_notification"`
+	//AllowSendingWithoutReply bool `json:"allow_sending_without_reply"`
+	Text string `json:"text"`
 }
 
 // MessageConfig Message represents a message.
 type MessageConfig struct {
-	BaseChat
-	Text                  string
-	ParseMode             string
-	DisableWebPagePreview bool
+	BaseChat              `json:"base_chat"`
+	Text                  string `json:"text"`
+	ParseMode             string `json:"parse_mode"`
+	DisableWebPagePreview bool   `json:"disable_web_page_preview"`
 }
 
 type TelegramCommand struct {
@@ -103,12 +104,13 @@ type TelegramCommand struct {
 	} `json:"message"`
 }
 
-func SendCommand(token string, m MessageConfig) {
+func SendCommand(token string, m BaseChat) {
 	b, err := json.Marshal(m)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
+	fmt.Println(string(b))
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(b))
@@ -156,14 +158,11 @@ func TokenApiEndpoint(c *gin.Context) {
 			NewInlineKeyboardButtonData("6", "6"),
 		),
 	)
-	m := MessageConfig{
-		BaseChat: BaseChat{
-			ChatID:           int64(user.TelegramID),
-			ReplyToMessageID: 0,
-			ReplyMarkup:      numericKeyboard,
-		},
-		Text:                  "werwuyer",
-		DisableWebPagePreview: false,
+	m := BaseChat{
+		ChatID: int64(user.TelegramID),
+		//ReplyToMessageID: 0,
+		Text:        "test",
+		ReplyMarkup: numericKeyboard,
 	}
 	go SendCommand(user.BotToken, m)
 	c.JSON(200, "Ok")
