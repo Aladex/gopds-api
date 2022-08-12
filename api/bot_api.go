@@ -1,7 +1,10 @@
 package api
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"gopds-api/database"
 	"gopds-api/httputil"
@@ -100,6 +103,25 @@ type TelegramCommand struct {
 	} `json:"message"`
 }
 
+func SendCommand(token string, m MessageConfig) {
+	b, err := json.Marshal(m)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(b))
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	defer resp.Body.Close()
+}
+
 func TokenApiEndpoint(c *gin.Context) {
 	botToken := c.Param("id")
 	user, err := database.GetUserByToken(botToken)
@@ -134,8 +156,7 @@ func TokenApiEndpoint(c *gin.Context) {
 			NewInlineKeyboardButtonData("6", "6"),
 		),
 	)
-
-	c.JSON(200, MessageConfig{
+	m := MessageConfig{
 		BaseChat: BaseChat{
 			ChatID:           int64(user.TelegramID),
 			ReplyToMessageID: 0,
@@ -143,5 +164,7 @@ func TokenApiEndpoint(c *gin.Context) {
 		},
 		Text:                  "werwuyer",
 		DisableWebPagePreview: false,
-	})
+	}
+	go SendCommand(user.BotToken, m)
+	c.JSON(200, "Ok")
 }
