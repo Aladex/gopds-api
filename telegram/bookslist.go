@@ -130,23 +130,57 @@ func SendCommand(token string, m BaseChat) {
 	defer resp.Body.Close()
 }
 
-func CreateKeyboard(books []models.Book) InlineKeyboardMarkup {
+type TelegramPages struct {
+	Prev int
+	Next int
+}
+
+func BothPages(filters models.BookFilters, totalCount int) []InlineKeyboardButton {
+	booksPages := []InlineKeyboardButton{}
+	currentPage := (filters.Offset / filters.Limit) + 1
+	totalPages := totalCount / filters.Limit
+
+	if filters.Offset >= 10 {
+		pp := fmt.Sprintf(`{ "page": %d }`, currentPage-1)
+		booksPages = append(booksPages, InlineKeyboardButton{
+			Text:         "<<",
+			CallbackData: &pp,
+		})
+	}
+
+	if filters.Offset/5 < totalPages {
+		np := fmt.Sprintf(`{ "page": %d }`, currentPage+1)
+		booksPages = append(booksPages, InlineKeyboardButton{
+			Text:         ">>",
+			CallbackData: &np,
+		})
+	}
+
+	return booksPages
+}
+
+func CreateKeyboard(filters models.BookFilters, books []models.Book, tc int) InlineKeyboardMarkup {
 	buttons := []InlineKeyboardButton{}
 	for i, b := range books {
-		callBack := fmt.Sprintf("%d", b.ID)
+		callBack := fmt.Sprintf(`{ "book_id": %d }`, b.ID)
 		buttons = append(buttons, InlineKeyboardButton{
 			Text:         fmt.Sprintf("%d", i+1),
 			CallbackData: &callBack,
 		})
 	}
-	return NewInlineKeyboardMarkup(buttons)
+	booksKeyboard := NewInlineKeyboardRow(buttons...)
+	pagesInlineKeyboard := BothPages(filters, tc)
+	return NewInlineKeyboardMarkup(booksKeyboard, pagesInlineKeyboard)
 
 }
 
 func TelegramBooksList(user models.User, filters models.BookFilters) (BaseChat, error) {
 	m := NewBaseChat(int64(user.TelegramID), "")
 	booksTxt := []string{}
-	books, _, _ := database.GetBooks(user.ID, filters)
+	books, tc, err := database.GetBooks(user.ID, filters)
+	if err != nil {
+		return m, err
+	}
 	for i, b := range books {
 		authors := []string{}
 		for _, a := range b.Authors {
@@ -154,9 +188,11 @@ func TelegramBooksList(user models.User, filters models.BookFilters) (BaseChat, 
 		}
 		booksTxt = append(booksTxt, fmt.Sprintf(`%d. <b>Название:</b> %s
 <b>Автор:</b> %s
-`, i+1, b.Title, strings.Join(authors, ", ")))
+<b>Дата документа:</b> %s
+<b>Дата добавления:</b> %s
+`, i+1, b.Title, strings.Join(authors, ", "), b.DocDate, b.RegisterDate.Format("2006-01-02")))
 	}
 	m.Text = strings.Join(booksTxt, "\n")
-	m.ReplyMarkup = CreateKeyboard(books)
+	m.ReplyMarkup = CreateKeyboard(filters, books, tc)
 	return m, nil
 }
