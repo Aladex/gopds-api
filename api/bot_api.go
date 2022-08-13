@@ -19,6 +19,9 @@ func TokenApiEndpoint(c *gin.Context) {
 		return
 	}
 	var telegramCmd telegram.TelegramCommand
+	var telegramCallback telegram.CallbackMessage
+
+	tgMessage := telegram.NewBaseChat(int64(user.TelegramID), "")
 
 	if err := c.ShouldBindJSON(&telegramCmd); err == nil {
 		if user.TelegramID == 0 {
@@ -32,10 +35,12 @@ func TokenApiEndpoint(c *gin.Context) {
 				return
 			}
 		}
+	} else if err := c.ShouldBindJSON(&telegramCallback); err == nil {
+		tgMessage.InlineMessageID = telegramCallback.CallbackQuery.InlineMessageID
 	}
-	tgMessage := telegram.NewBaseChat(int64(user.TelegramID), "")
+
 	if telegramCmd.Message.Text == "/start" {
-		tgMessage, err = telegram.TelegramBooksList(user, models.BookFilters{
+		tgMessage, err = telegram.TgBooksList(user, models.BookFilters{
 			Limit:      5,
 			Offset:     0,
 			Title:      "",

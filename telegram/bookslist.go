@@ -47,6 +47,23 @@ func NewInlineKeyboardButtonData(text, data string) InlineKeyboardButton {
 	}
 }
 
+// CallbackMessage
+type CallbackMessage struct {
+	UpdateID      int `json:"update_id"`
+	CallbackQuery struct {
+		ID   string `json:"id"`
+		From struct {
+			LastName  string `json:"last_name"`
+			Type      string `json:"type"`
+			ID        int    `json:"id"`
+			FirstName string `json:"first_name"`
+			Username  string `json:"username"`
+		} `json:"from"`
+		Data            string `json:"data"`
+		InlineMessageID string `json:"inline_message_id"`
+	} `json:"callback_query"`
+}
+
 // InlineKeyboardButton represents one button of an inline keyboard. You must
 // use exactly one of the optional fields.
 //
@@ -76,8 +93,10 @@ type BaseChat struct {
 	ReplyMarkup interface{} `json:"reply_markup"`
 	//DisableNotification      bool `json:"disable_notification"`
 	//AllowSendingWithoutReply bool `json:"allow_sending_without_reply"`
-	Text      string `json:"text"`
-	ParseMode string `json:"parse_mode"`
+	Text            string `json:"text"`
+	ParseMode       string `json:"parse_mode"`
+	MessageID       int    `json:"message_id,omitempty"`
+	InlineMessageID string `json:"inline_message_id,omitempty"`
 }
 
 // MessageConfig Message represents a message.
@@ -174,7 +193,7 @@ func CreateKeyboard(filters models.BookFilters, books []models.Book, tc int) Inl
 
 }
 
-func TelegramBooksList(user models.User, filters models.BookFilters) (BaseChat, error) {
+func TgBooksList(user models.User, filters models.BookFilters) (BaseChat, error) {
 	m := NewBaseChat(int64(user.TelegramID), "")
 	booksTxt := []string{}
 	books, tc, err := database.GetBooks(user.ID, filters)
