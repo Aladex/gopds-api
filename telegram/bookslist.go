@@ -7,8 +7,52 @@ import (
 	"gopds-api/database"
 	"gopds-api/models"
 	"net/http"
-	"strings"
+	"text/template"
 )
+
+type TelegramBook struct {
+	EmojiNum     string          `json:"emoji_num"`
+	Title        string          `json:"title"`
+	Authors      []models.Author `json:"authors"`
+	DocDate      string          `json:"doc_date"`
+	RegisterDate string          `json:"register_date"`
+}
+
+// TelegramBookListTemplate - template for telegram book list
+const TelegramBookListTemplate = `{{range $i, $b := .}}{{$b.EmojiNum}}<b>Название:</b> {{$b.Title}}
+<b>Авторы:</b> {{ range $j, $a := $b.Authors }}{{if $j}}, {{end}}{{$a.FullName}}{{end}} 
+<b>Дата документа:</b> {{$b.DocDate}}
+<b>Дата добавления</b> {{$b.RegisterDate}}
+
+{{end}}`
+
+// DefaultNumToEmoji Convert number to emoji
+func DefaultNumToEmoji(num int) string {
+	switch num {
+	case 1:
+		return "1️⃣"
+	case 2:
+		return "2️⃣"
+	case 3:
+		return "3️⃣"
+	case 4:
+		return "4️⃣"
+	case 5:
+		return "5️⃣"
+	case 6:
+		return "6️⃣"
+	case 7:
+		return "7️⃣"
+	case 8:
+		return "8️⃣"
+	case 9:
+		return "9️⃣"
+	case 10:
+		return "🔟"
+	default:
+		return ""
+	}
+}
 
 func NewBaseChat(chatID int64, text string) BaseChat {
 	return BaseChat{
@@ -197,23 +241,31 @@ func CreateKeyboard(filters models.BookFilters, books []models.Book, tc int) Inl
 
 func TgBooksList(user models.User, filters models.BookFilters) (BaseChat, error) {
 	m := NewBaseChat(int64(user.TelegramID), "")
-	var booksTxt []string
+	var telegramBooksList []TelegramBook
 	books, tc, err := database.GetBooks(user.ID, filters)
 	if err != nil {
 		return m, err
 	}
 	for i, b := range books {
-		var authors []string
-		for _, a := range b.Authors {
-			authors = append(authors, a.FullName)
-		}
-		booksTxt = append(booksTxt, fmt.Sprintf(`%d. <b>Название:</b> %s
-<b>Автор:</b> %s
-<b>Дата документа:</b> %s
-<b>Дата добавления:</b> %s
-`, i+1, b.Title, strings.Join(authors, ", "), b.DocDate, b.RegisterDate.Format("2006-01-02")))
+		telegramBooksList = append(telegramBooksList, TelegramBook{
+			EmojiNum:     DefaultNumToEmoji(i + 1),
+			Title:        b.Title,
+			Authors:      b.Authors,
+			DocDate:      b.DocDate,
+			RegisterDate: b.RegisterDate.Format("2006-01-02"),
+		})
 	}
-	m.Text = strings.Join(booksTxt, "\n")
+	// Process the template to fill in the books
+	t, err := template.New("books").Parse(TelegramBookListTemplate)
+	if err != nil {
+		return m, err
+	}
+	var tpl bytes.Buffer
+	err = t.Execute(&tpl, telegramBooksList)
+	if err != nil {
+		return m, err
+	}
+	m.Text = tpl.String()
 	m.ReplyMarkup = CreateKeyboard(filters, books, tc)
 	return m, nil
 }

@@ -11,10 +11,30 @@ import (
 	"net/http"
 )
 
+func DefaultApiErrorHandler(c *gin.Context, err error) {
+	logging.CustomLog.Println(err)
+	httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
+}
+
 type UserRequest struct {
 	Username      string `json:"username"`
 	RequestString string `json:"request_string"`
 	LastResponse  string `json:"last_response"`
+}
+
+// CreateBookFiltersFromMessage Create model models.BookFilters from telegram message
+func CreateBookFiltersFromMessage(message string) models.BookFilters {
+	var bookFilters models.BookFilters
+	bookFilters.Limit = 5
+	bookFilters.Offset = 0
+	bookFilters.Title = message
+	bookFilters.Author = 0
+	bookFilters.Series = 0
+	bookFilters.Lang = ""
+	bookFilters.Fav = false
+	bookFilters.UnApproved = false
+
+	return bookFilters
 }
 
 func TokenApiEndpoint(c *gin.Context) {
@@ -36,33 +56,53 @@ func TokenApiEndpoint(c *gin.Context) {
 			_, err := database.ActionUser(models.AdminCommandToUser{Action: "update", User: user})
 
 			if err != nil {
-				logging.CustomLog.Println(err)
-				httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
+				DefaultApiErrorHandler(c, err)
+			}
+		}
+		// Case of telegram message and callback
+		switch telegramCmd.Message.Text {
+		case "/start":
+			tgMessage, err = telegram.TgBooksList(user, CreateBookFiltersFromMessage(telegramCmd.Message.Text))
+			if err != nil {
+				DefaultApiErrorHandler(c, err)
+				return
+			}
+		default:
+			tgMessage, err = telegram.TgBooksList(user, CreateBookFiltersFromMessage(telegramCmd.Message.Text))
+			if err != nil {
+				DefaultApiErrorHandler(c, err)
 				return
 			}
 		}
+		// Send message to telegram
+		go telegram.SendCommand(user.BotToken, tgMessage)
+		if err != nil {
+			DefaultApiErrorHandler(c, err)
+		}
+
 	} else if err := c.ShouldBindJSON(&telegramCallback); err == nil {
 		tgMessage.InlineMessageID = telegramCallback.CallbackQuery.InlineMessageID
+	} else {
+		httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
+		return
 	}
 
-	if telegramCmd.Message.Text == "/start" {
-		tgMessage, err = telegram.TgBooksList(user, models.BookFilters{
-			Limit:      5,
-			Offset:     0,
-			Title:      "",
-			Author:     0,
-			Series:     0,
-			Lang:       "",
-			Fav:        false,
-			UnApproved: false,
-		})
-		if err != nil {
-			logging.CustomLog.Println(err)
-			httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
-			return
-		}
-	}
+	//if telegramCmd.Message.Text == "/start" {
+	//	tgMessage, err = telegram.TgBooksList(user, models.BookFilters{
+	//		Limit:      5,
+	//		Offset:     0,
+	//		Title:      "",
+	//		Author:     0,
+	//		Series:     0,
+	//		Lang:       "",
+	//		Fav:        false,
+	//		UnApproved: false,
+	//	})
+	//	if err != nil {
+	//		logging.CustomLog.Println(err)
+	//		httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
+	//		return
+	//	}
+	//}
 
-	go telegram.SendCommand(user.BotToken, tgMessage)
-	c.JSON(200, "Ok")
 }
