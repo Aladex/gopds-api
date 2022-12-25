@@ -3,6 +3,7 @@ package database
 import (
 	"github.com/go-pg/pg/v10"
 	"gopds-api/config"
+	"log"
 )
 
 var db *pg.DB
@@ -25,7 +26,7 @@ func pgConn() *pg.DB {
 	// Checking for connection
 	_, err := db.QueryOne(pg.Scan(&n), "SELECT 1")
 	if err != nil {
-		panic(err)
+		log.Fatalln("Connection to database failed:", err)
 	}
 	return db
 }

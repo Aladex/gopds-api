@@ -11,6 +11,12 @@ import (
 	"net/http"
 )
 
+type UserRequest struct {
+	Username      string `json:"username"`
+	RequestString string `json:"request_string"`
+	LastResponse  string `json:"last_response"`
+}
+
 func TokenApiEndpoint(c *gin.Context) {
 	botToken := c.Param("id")
 	user, err := database.GetUserByToken(botToken)

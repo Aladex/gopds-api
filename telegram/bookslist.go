@@ -47,7 +47,7 @@ func NewInlineKeyboardButtonData(text, data string) InlineKeyboardButton {
 	}
 }
 
-// CallbackMessage
+// CallbackMessage CallbackQuery represents an incoming callback query from a callback button in an inline keyboard.
 type CallbackMessage struct {
 	UpdateID      int `json:"update_id"`
 	CallbackQuery struct {
@@ -107,6 +107,7 @@ type MessageConfig struct {
 	DisableWebPagePreview bool   `json:"disable_web_page_preview"`
 }
 
+// TelegramCommand returns a list of books. It is used to display a list of books in the telegram bot.
 type TelegramCommand struct {
 	UpdateID int `json:"update_id"`
 	Message  struct {
@@ -149,13 +150,14 @@ func SendCommand(token string, m BaseChat) {
 	defer resp.Body.Close()
 }
 
+// TelegramPages returns a page of books. It is used to display a page of books in the telegram bot.
 type TelegramPages struct {
 	Prev int
 	Next int
 }
 
 func BothPages(filters models.BookFilters, totalCount int) []InlineKeyboardButton {
-	booksPages := []InlineKeyboardButton{}
+	var booksPages []InlineKeyboardButton
 	currentPage := (filters.Offset / filters.Limit) + 1
 	totalPages := totalCount / filters.Limit
 
@@ -179,7 +181,7 @@ func BothPages(filters models.BookFilters, totalCount int) []InlineKeyboardButto
 }
 
 func CreateKeyboard(filters models.BookFilters, books []models.Book, tc int) InlineKeyboardMarkup {
-	buttons := []InlineKeyboardButton{}
+	var buttons []InlineKeyboardButton
 	for i, b := range books {
 		callBack := fmt.Sprintf(`{ "book_id": %d }`, b.ID)
 		buttons = append(buttons, InlineKeyboardButton{
@@ -195,13 +197,13 @@ func CreateKeyboard(filters models.BookFilters, books []models.Book, tc int) Inl
 
 func TgBooksList(user models.User, filters models.BookFilters) (BaseChat, error) {
 	m := NewBaseChat(int64(user.TelegramID), "")
-	booksTxt := []string{}
+	var booksTxt []string
 	books, tc, err := database.GetBooks(user.ID, filters)
 	if err != nil {
 		return m, err
 	}
 	for i, b := range books {
-		authors := []string{}
+		var authors []string
 		for _, a := range b.Authors {
 			authors = append(authors, a.FullName)
 		}
