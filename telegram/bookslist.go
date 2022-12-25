@@ -5,17 +5,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"gopds-api/database"
+	"gopds-api/logging"
 	"gopds-api/models"
+	"gopds-api/utils"
 	"net/http"
 	"text/template"
 )
 
+// TelegramBook struct for telegram book list
 type TelegramBook struct {
 	EmojiNum     string          `json:"emoji_num"`
 	Title        string          `json:"title"`
 	Authors      []models.Author `json:"authors"`
 	DocDate      string          `json:"doc_date"`
 	RegisterDate string          `json:"register_date"`
+}
+
+// InlineRequest user for the type of search in inline mode
+type InlineRequest struct {
+	SearchType string `json:"search_type"`
 }
 
 // TelegramBookListTemplate - template for telegram book list
@@ -191,11 +199,16 @@ func SendCommand(token string, m BaseChat) {
 	if err != nil {
 		panic(err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		err = resp.Body.Close()
+		if err != nil {
+			logging.CustomLog.Println(err)
+		}
+	}()
 }
 
-// TelegramPages returns a page of books. It is used to display a page of books in the telegram bot.
-type TelegramPages struct {
+// Pages returns a page of books. It is used to display a page of books in the telegram bot.
+type Pages struct {
 	Prev int
 	Next int
 }
@@ -267,5 +280,24 @@ func TgBooksList(user models.User, filters models.BookFilters) (BaseChat, error)
 	}
 	m.Text = tpl.String()
 	m.ReplyMarkup = CreateKeyboard(filters, books, tc)
+	return m, nil
+}
+
+// TgSearchType Request user for the type of search
+func TgSearchType(user models.User) (BaseChat, error) {
+	m := NewBaseChat(int64(user.TelegramID), "")
+	m.Text = "<b>Текст поиска:</b> " + user.TelegramRequest.Request
+	m.ReplyMarkup = NewInlineKeyboardMarkup(
+		NewInlineKeyboardRow(
+			InlineKeyboardButton{
+				Text:         "Название книги",
+				CallbackData: utils.StrPtr(`{ "search_type": "title" }`),
+			},
+			InlineKeyboardButton{
+				Text:         "Автор",
+				CallbackData: utils.StrPtr(`{ "search_type": "author" }`),
+			},
+		),
+	)
 	return m, nil
 }

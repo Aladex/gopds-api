@@ -44,7 +44,7 @@ func DropAllSessions(c *gin.Context) {
 // @Tags login
 // @Accept  json
 // @Produce  json
-// @Param  body body models.LoginRequest true "Login Data"
+// @Param  body models.LoginRequest true "Login Data"
 // @Success 200 {object} models.LoggedInUser
 // @Failure 400 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError

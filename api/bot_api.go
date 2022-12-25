@@ -9,7 +9,18 @@ import (
 	"gopds-api/models"
 	"gopds-api/telegram"
 	"net/http"
+	"sync"
 )
+
+type TgUsers struct {
+	Users map[int64]models.User
+	// mutex for protecting Users
+	Mu sync.Mutex
+}
+
+var TelegramUsers = TgUsers{
+	Users: make(map[int64]models.User),
+}
 
 func DefaultApiErrorHandler(c *gin.Context, err error) {
 	logging.CustomLog.Println(err)
@@ -17,17 +28,26 @@ func DefaultApiErrorHandler(c *gin.Context, err error) {
 }
 
 type UserRequest struct {
-	Username      string `json:"username"`
-	RequestString string `json:"request_string"`
-	LastResponse  string `json:"last_response"`
+	User          models.User `json:"user"`
+	RequestString string      `json:"request_string"`
+	LastResponse  string      `json:"last_response"`
+}
+
+func PageNumToLimitOffset(pageNum int) (int, int) {
+	if pageNum == 0 {
+		return 5, 0
+	} else {
+		return 5, pageNum * 5
+	}
 }
 
 // CreateBookFiltersFromMessage Create model models.BookFilters from telegram message
-func CreateBookFiltersFromMessage(message string) models.BookFilters {
+func CreateBookFiltersFromMessage(user models.User) models.BookFilters {
+	limit, offset := PageNumToLimitOffset(user.TelegramRequest.Page)
 	var bookFilters models.BookFilters
-	bookFilters.Limit = 5
-	bookFilters.Offset = 0
-	bookFilters.Title = message
+	bookFilters.Limit = limit
+	bookFilters.Offset = offset
+	bookFilters.Title = user.TelegramRequest.Request
 	bookFilters.Author = 0
 	bookFilters.Series = 0
 	bookFilters.Lang = ""
@@ -35,6 +55,16 @@ func CreateBookFiltersFromMessage(message string) models.BookFilters {
 	bookFilters.UnApproved = false
 
 	return bookFilters
+}
+
+// CreateAuthorFiltersFromMessage Create model models.AuthorFilters from telegram message
+func CreateAuthorFiltersFromMessage(user models.User) models.AuthorFilters {
+	limit, offset := PageNumToLimitOffset(user.TelegramRequest.Page)
+	var authorFilters models.AuthorFilters
+	authorFilters.Limit = limit
+	authorFilters.Offset = offset
+	authorFilters.Author = user.TelegramRequest.Request
+	return authorFilters
 }
 
 func TokenApiEndpoint(c *gin.Context) {
@@ -62,20 +92,37 @@ func TokenApiEndpoint(c *gin.Context) {
 		// Case of telegram message and callback
 		switch telegramCmd.Message.Text {
 		case "/start":
-			tgMessage, err = telegram.TgBooksList(user, CreateBookFiltersFromMessage(telegramCmd.Message.Text))
+			tgMessage, err = telegram.TgBooksList(user, CreateBookFiltersFromMessage(user))
 			if err != nil {
 				DefaultApiErrorHandler(c, err)
 				return
 			}
 		default:
-			tgMessage, err = telegram.TgBooksList(user, CreateBookFiltersFromMessage(telegramCmd.Message.Text))
+			user.TelegramRequest.Request = telegramCmd.Message.Text
+			user.TelegramRequest.Page = 0
+			go func(tgUsers *TgUsers) {
+				tgUsers.Mu.Lock()
+				defer tgUsers.Mu.Unlock()
+				tgUsers.Users[int64(user.TelegramID)] = user
+			}(&TelegramUsers)
+
 			if err != nil {
 				DefaultApiErrorHandler(c, err)
 				return
 			}
 		}
 		// Send message to telegram
-		go telegram.SendCommand(user.BotToken, tgMessage)
+		if user.TelegramRequest.Page != 0 {
+			go telegram.SendCommand(user.BotToken, tgMessage)
+		} else {
+			baseChat, err := telegram.TgSearchType(user)
+			if err != nil {
+				DefaultApiErrorHandler(c, err)
+				return
+			}
+			go telegram.SendCommand(user.BotToken, baseChat)
+		}
+
 		if err != nil {
 			DefaultApiErrorHandler(c, err)
 		}
@@ -86,23 +133,5 @@ func TokenApiEndpoint(c *gin.Context) {
 		httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
 		return
 	}
-
-	//if telegramCmd.Message.Text == "/start" {
-	//	tgMessage, err = telegram.TgBooksList(user, models.BookFilters{
-	//		Limit:      5,
-	//		Offset:     0,
-	//		Title:      "",
-	//		Author:     0,
-	//		Series:     0,
-	//		Lang:       "",
-	//		Fav:        false,
-	//		UnApproved: false,
-	//	})
-	//	if err != nil {
-	//		logging.CustomLog.Println(err)
-	//		httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
-	//		return
-	//	}
-	//}
 
 }

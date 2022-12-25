@@ -5,22 +5,30 @@ import (
 	"time"
 )
 
+type UserTelegramRequest struct {
+	TelegramID  int64  `json:"telegram_id"`
+	Request     string `json:"request"`
+	Page        int    `json:"page"`
+	RequestType string `json:"request_type"`
+}
+
 // User структура пользователя в БД
 type User struct {
-	tableName   struct{}  `pg:"auth_user,discard_unknown_columns" json:"-"`
-	ID          int64     `pg:"id,pk" json:"id"`
-	Login       string    `pg:"username" json:"username"`
-	Password    string    `pg:"password" json:"-" form:"password"`
-	LastLogin   time.Time `pg:"last_login" json:"last_login"`
-	IsSuperUser bool      `pg:"is_superuser,use_zero" json:"is_superuser"`
-	FirstName   string    `pg:"first_name" json:"first_name" form:"first_name"`
-	LastName    string    `pg:"last_name" json:"last_name" form:"last_name"`
-	BooksLang   string    `pg:"books_lang" json:"books_lang" form:"books_lang"`
-	Email       string    `pg:"email" json:"email"`
-	BotToken    string    `pg:"bot_token" json:"bot_token" form:"bot_token"`
-	TelegramID  int       `pg:"telegram_id" json:"telegram_id" form:"telegram_id"`
-	DateJoined  time.Time `pg:"date_joined" json:"date_joined"`
-	Active      bool      `pg:"active" json:"active"`
+	tableName       struct{}            `pg:"auth_user,discard_unknown_columns" json:"-"`
+	ID              int64               `pg:"id,pk" json:"id"`
+	Login           string              `pg:"username" json:"username"`
+	Password        string              `pg:"password" json:"-" form:"password"`
+	LastLogin       time.Time           `pg:"last_login" json:"last_login"`
+	IsSuperUser     bool                `pg:"is_superuser,use_zero" json:"is_superuser"`
+	FirstName       string              `pg:"first_name" json:"first_name" form:"first_name"`
+	LastName        string              `pg:"last_name" json:"last_name" form:"last_name"`
+	BooksLang       string              `pg:"books_lang" json:"books_lang" form:"books_lang"`
+	Email           string              `pg:"email" json:"email"`
+	BotToken        string              `pg:"bot_token" json:"bot_token" form:"bot_token"`
+	TelegramID      int                 `pg:"telegram_id" json:"telegram_id" form:"telegram_id"`
+	DateJoined      time.Time           `pg:"date_joined" json:"date_joined"`
+	Active          bool                `pg:"active" json:"active"`
+	TelegramRequest UserTelegramRequest `pg:"-" json:"-"`
 }
 
 // LoggedInUser структура для возвращения логина и токена доступа
