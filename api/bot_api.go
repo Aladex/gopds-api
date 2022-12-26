@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"github.com/gin-gonic/gin"
 	"gopds-api/database"
@@ -57,6 +58,12 @@ func CreateBookFiltersFromMessage(user models.User) models.BookFilters {
 	return bookFilters
 }
 
+func UpdateTgUser(user *models.User) {
+	TelegramUsers.Mu.Lock()
+	TelegramUsers.Users[int64(user.TelegramID)] = *user
+	TelegramUsers.Mu.Unlock()
+}
+
 // CreateAuthorFiltersFromMessage Create model models.AuthorFilters from telegram message
 func CreateAuthorFiltersFromMessage(user models.User) models.AuthorFilters {
 	limit, offset := PageNumToLimitOffset(user.TelegramRequest.Page)
@@ -79,20 +86,29 @@ func TokenApiEndpoint(c *gin.Context) {
 
 	tgMessage := telegram.NewBaseChat(int64(user.TelegramID), "")
 
-	if err := c.ShouldBindJSON(&telegramCmd); err == nil {
-		if user.TelegramID == 0 {
-			user.TelegramID = telegramCmd.Message.From.ID
-			user.Password = ""
-			_, err := database.ActionUser(models.AdminCommandToUser{Action: "update", User: user})
-
-			if err != nil {
-				DefaultApiErrorHandler(c, err)
-			}
-		}
-		// Case of telegram message and callback
+	// get message from request
+	message, err := c.GetRawData()
+	if err != nil {
+		DefaultApiErrorHandler(c, err)
+		return
+	}
+	// unmarshal message
+	telegramMessage, err := UnmarshalTelegramMessage(message)
+	if err != nil {
+		DefaultApiErrorHandler(c, err)
+		return
+	}
+	// get type of message
+	switch telegramMessage.(type) {
+	case telegram.TelegramCommand:
+		telegramCmd = telegramMessage.(telegram.TelegramCommand)
+		// if message is command
 		switch telegramCmd.Message.Text {
 		case "/start":
+			// Send first 5 books
 			tgMessage, err = telegram.TgBooksList(user, CreateBookFiltersFromMessage(user))
+			user.TelegramRequest.Page = 0
+			user.TelegramRequest.Request = ""
 			if err != nil {
 				DefaultApiErrorHandler(c, err)
 				return
@@ -110,9 +126,15 @@ func TokenApiEndpoint(c *gin.Context) {
 				DefaultApiErrorHandler(c, err)
 				return
 			}
+			tgMessage, err = telegram.TgBooksList(user, CreateBookFiltersFromMessage(user))
+			if err != nil {
+				DefaultApiErrorHandler(c, err)
+				return
+			}
+
+			go telegram.SendCommand(user.BotToken, tgMessage)
 		}
-		// Send message to telegram
-		if user.TelegramRequest.Page != 0 {
+		if user.TelegramRequest.Page == 0 {
 			go telegram.SendCommand(user.BotToken, tgMessage)
 		} else {
 			baseChat, err := telegram.TgSearchType(user)
@@ -126,12 +148,45 @@ func TokenApiEndpoint(c *gin.Context) {
 		if err != nil {
 			DefaultApiErrorHandler(c, err)
 		}
+	case telegram.CallbackMessage:
+		telegramCallback = telegramMessage.(telegram.CallbackMessage)
+		// if message is callback
+		switch telegramCallback.CallbackQuery.Data {
+		case "next":
+			user.TelegramRequest.Page++
+			UpdateTgUser(&user)
+			tgMessage, err = telegram.TgBooksList(user, CreateBookFiltersFromMessage(user))
+			if err != nil {
+				DefaultApiErrorHandler(c, err)
+				return
+			}
+			go telegram.SendCommand(user.BotToken, tgMessage)
 
-	} else if err := c.ShouldBindJSON(&telegramCallback); err == nil {
-		tgMessage.InlineMessageID = telegramCallback.CallbackQuery.InlineMessageID
-	} else {
+		case "prev":
+			user.TelegramRequest.Page--
+			UpdateTgUser(&user)
+			tgMessage, err = telegram.TgBooksList(user, CreateBookFiltersFromMessage(user))
+			if err != nil {
+				DefaultApiErrorHandler(c, err)
+				return
+			}
+			go telegram.SendCommand(user.BotToken, tgMessage)
+		}
+	default:
 		httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
 		return
 	}
+}
 
+// Unmarshal and get type of telegram message
+func UnmarshalTelegramMessage(message []byte) (interface{}, error) {
+	var telegramCmd telegram.TelegramCommand
+	var telegramCallback telegram.CallbackMessage
+	if err := json.Unmarshal(message, &telegramCmd); err == nil && telegramCmd.Message.MessageID != 0 {
+		return telegramCmd, nil
+	} else if err = json.Unmarshal(message, &telegramCallback); err == nil && telegramCallback.CallbackQuery.Id != "" {
+		return telegramCallback, nil
+	} else {
+		return nil, errors.New("bad request")
+	}
 }

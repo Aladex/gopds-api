@@ -30,7 +30,7 @@ type InlineRequest struct {
 const TelegramBookListTemplate = `{{range $i, $b := .}}{{$b.EmojiNum}}<b>Название:</b> {{$b.Title}}
 <b>Авторы:</b> {{ range $j, $a := $b.Authors }}{{if $j}}, {{end}}{{$a.FullName}}{{end}} 
 <b>Дата документа:</b> {{$b.DocDate}}
-<b>Дата добавления</b> {{$b.RegisterDate}}
+<b>Дата добавления:</b> {{$b.RegisterDate}}
 
 {{end}}`
 
@@ -57,6 +57,22 @@ func DefaultNumToEmoji(num int) string {
 		return "9️⃣"
 	case 10:
 		return "🔟"
+	default:
+		return ""
+	}
+}
+
+// DefaultNavigationEmoji - default navigation emoji
+func DefaultNavigationEmoji(nav string) string {
+	switch nav {
+	case "next":
+		return "➡️"
+	case "prev":
+		return "⬅️"
+	case "first":
+		return "⏪"
+	case "last":
+		return "⏩"
 	default:
 		return ""
 	}
@@ -101,18 +117,18 @@ func NewInlineKeyboardButtonData(text, data string) InlineKeyboardButton {
 
 // CallbackMessage CallbackQuery represents an incoming callback query from a callback button in an inline keyboard.
 type CallbackMessage struct {
-	UpdateID      int `json:"update_id"`
+	UpdateId      int `json:"update_id"`
 	CallbackQuery struct {
-		ID   string `json:"id"`
+		Id   string `json:"id"`
 		From struct {
 			LastName  string `json:"last_name"`
 			Type      string `json:"type"`
-			ID        int    `json:"id"`
+			Id        int    `json:"id"`
 			FirstName string `json:"first_name"`
 			Username  string `json:"username"`
 		} `json:"from"`
 		Data            string `json:"data"`
-		InlineMessageID string `json:"inline_message_id"`
+		InlineMessageId string `json:"inline_message_id"`
 	} `json:"callback_query"`
 }
 
@@ -215,22 +231,19 @@ type Pages struct {
 
 func BothPages(filters models.BookFilters, totalCount int) []InlineKeyboardButton {
 	var booksPages []InlineKeyboardButton
-	currentPage := (filters.Offset / filters.Limit) + 1
 	totalPages := totalCount / filters.Limit
 
 	if filters.Offset >= 10 {
-		pp := fmt.Sprintf(`{ "page": %d }`, currentPage-1)
 		booksPages = append(booksPages, InlineKeyboardButton{
-			Text:         "<<",
-			CallbackData: &pp,
+			Text:         DefaultNavigationEmoji("prev"),
+			CallbackData: utils.StrPtr("prev"),
 		})
 	}
 
 	if filters.Offset/5 < totalPages {
-		np := fmt.Sprintf(`{ "page": %d }`, currentPage+1)
 		booksPages = append(booksPages, InlineKeyboardButton{
-			Text:         ">>",
-			CallbackData: &np,
+			Text:         DefaultNavigationEmoji("next"),
+			CallbackData: utils.StrPtr("next"),
 		})
 	}
 
@@ -242,7 +255,7 @@ func CreateKeyboard(filters models.BookFilters, books []models.Book, tc int) Inl
 	for i, b := range books {
 		callBack := fmt.Sprintf(`{ "book_id": %d }`, b.ID)
 		buttons = append(buttons, InlineKeyboardButton{
-			Text:         fmt.Sprintf("%d", i+1),
+			Text:         DefaultNumToEmoji(i + 1),
 			CallbackData: &callBack,
 		})
 	}
