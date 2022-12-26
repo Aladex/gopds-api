@@ -178,7 +178,7 @@ func TokenApiEndpoint(c *gin.Context) {
 	}
 }
 
-// Unmarshal and get type of telegram message
+// UnmarshalTelegramMessage Unmarshal and get type of telegram message
 func UnmarshalTelegramMessage(message []byte) (interface{}, error) {
 	var telegramCmd telegram.TelegramCommand
 	var telegramCallback telegram.CallbackMessage
