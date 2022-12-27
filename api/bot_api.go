@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"gopds-api/database"
 	"gopds-api/httputil"
@@ -36,9 +37,9 @@ type UserRequest struct {
 
 func PageNumToLimitOffset(pageNum int) (int, int) {
 	if pageNum == 0 {
-		return 5, 0
+		return 0, 5
 	} else {
-		return 5, pageNum * 5
+		return pageNum * 5, pageNum*5 - 5
 	}
 }
 
@@ -81,8 +82,6 @@ func TokenApiEndpoint(c *gin.Context) {
 		httputil.NewError(c, http.StatusNotFound, errors.New("user_is_not_found"))
 		return
 	}
-	var telegramCmd telegram.TelegramCommand
-	var telegramCallback telegram.CallbackMessage
 
 	tgMessage := telegram.NewBaseChat(int64(user.TelegramID), "")
 
@@ -101,32 +100,26 @@ func TokenApiEndpoint(c *gin.Context) {
 	// get type of message
 	switch telegramMessage.(type) {
 	case telegram.TelegramCommand:
-		telegramCmd = telegramMessage.(telegram.TelegramCommand)
 		// if message is command
-		switch telegramCmd.Message.Text {
+		switch telegramMessage.(telegram.TelegramCommand).Message.Text {
 		case "/start":
 			// Send first 5 books
 			tgMessage, err = telegram.TgBooksList(user, CreateBookFiltersFromMessage(user))
 			user.TelegramRequest.Page = 0
 			user.TelegramRequest.Request = ""
+			UpdateTgUser(&user)
 			if err != nil {
 				DefaultApiErrorHandler(c, err)
 				return
 			}
 		default:
-			user.TelegramRequest.Request = telegramCmd.Message.Text
+			user.TelegramRequest.Request = telegramMessage.(telegram.TelegramCommand).Message.Text
 			user.TelegramRequest.Page = 0
-			go func(tgUsers *TgUsers) {
-				tgUsers.Mu.Lock()
-				defer tgUsers.Mu.Unlock()
-				tgUsers.Users[int64(user.TelegramID)] = user
-			}(&TelegramUsers)
+			UpdateTgUser(&user)
 
-			if err != nil {
-				DefaultApiErrorHandler(c, err)
-				return
-			}
-			tgMessage, err = telegram.TgBooksList(user, CreateBookFiltersFromMessage(user))
+			// Answer to user that the type of search string
+			tgMessage, err = telegram.TgSearchType(user)
+
 			if err != nil {
 				DefaultApiErrorHandler(c, err)
 				return
@@ -149,9 +142,8 @@ func TokenApiEndpoint(c *gin.Context) {
 			DefaultApiErrorHandler(c, err)
 		}
 	case telegram.CallbackMessage:
-		telegramCallback = telegramMessage.(telegram.CallbackMessage)
 		// if message is callback
-		switch telegramCallback.CallbackQuery.Data {
+		switch telegramMessage.(telegram.CallbackMessage).CallbackQuery.Data {
 		case "next":
 			user.TelegramRequest.Page++
 			UpdateTgUser(&user)
@@ -166,6 +158,29 @@ func TokenApiEndpoint(c *gin.Context) {
 			user.TelegramRequest.Page--
 			UpdateTgUser(&user)
 			tgMessage, err = telegram.TgBooksList(user, CreateBookFiltersFromMessage(user))
+			if err != nil {
+				DefaultApiErrorHandler(c, err)
+				return
+			}
+			go telegram.SendCommand(user.BotToken, tgMessage)
+		case "search_by_title":
+			// Get last request from user
+			user.TelegramRequest.Request = TelegramUsers.Users[int64(user.TelegramID)].TelegramRequest.Request
+			user.TelegramRequest.Page = 1
+			UpdateTgUser(&user)
+			// Fins user from TgUsers
+
+			tgUser := TelegramUsers.Users[int64(user.TelegramID)]
+
+			tgMessage, err = telegram.TgBooksList(user, CreateBookFiltersFromMessage(tgUser))
+			if err != nil {
+				DefaultApiErrorHandler(c, err)
+				return
+			}
+			go telegram.SendCommand(user.BotToken, tgMessage)
+		case "search_by_author":
+			user.TelegramRequest.Page = 1
+			tgMessage, err = telegram.TgAuthorsList(user, CreateAuthorFiltersFromMessage(user))
 			if err != nil {
 				DefaultApiErrorHandler(c, err)
 				return
@@ -187,6 +202,6 @@ func UnmarshalTelegramMessage(message []byte) (interface{}, error) {
 	} else if err = json.Unmarshal(message, &telegramCallback); err == nil && telegramCallback.CallbackQuery.Id != "" {
 		return telegramCallback, nil
 	} else {
-		return nil, errors.New("bad request")
+		return nil, errors.New(fmt.Sprintf("can't unmarshal message: %s", err))
 	}
 }
