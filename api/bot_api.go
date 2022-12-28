@@ -37,9 +37,9 @@ type UserRequest struct {
 
 func PageNumToLimitOffset(pageNum int) (int, int) {
 	if pageNum == 0 {
-		return 0, 5
+		return 5, 0
 	} else {
-		return pageNum * 5, pageNum*5 - 5
+		return 5, pageNum*5 - 5
 	}
 }
 
@@ -145,9 +145,11 @@ func TokenApiEndpoint(c *gin.Context) {
 		// if message is callback
 		switch telegramMessage.(telegram.CallbackMessage).CallbackQuery.Data {
 		case "next":
-			user.TelegramRequest.Page++
+			tgUser := TelegramUsers.Users[int64(user.TelegramID)]
+			tgUser.TelegramRequest.Page++
 			UpdateTgUser(&user)
-			tgMessage, err = telegram.TgBooksList(user, CreateBookFiltersFromMessage(user))
+			filters := CreateBookFiltersFromMessage(tgUser)
+			tgMessage, err = telegram.TgBooksList(tgUser, filters)
 			if err != nil {
 				DefaultApiErrorHandler(c, err)
 				return
@@ -155,9 +157,11 @@ func TokenApiEndpoint(c *gin.Context) {
 			go telegram.SendCommand(user.BotToken, tgMessage)
 
 		case "prev":
-			user.TelegramRequest.Page--
+			tgUser := TelegramUsers.Users[int64(user.TelegramID)]
+			tgUser.TelegramRequest.Page--
 			UpdateTgUser(&user)
-			tgMessage, err = telegram.TgBooksList(user, CreateBookFiltersFromMessage(user))
+			filters := CreateBookFiltersFromMessage(tgUser)
+			tgMessage, err = telegram.TgBooksList(tgUser, filters)
 			if err != nil {
 				DefaultApiErrorHandler(c, err)
 				return

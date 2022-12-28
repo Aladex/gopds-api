@@ -237,25 +237,39 @@ type Pages struct {
 	Next int
 }
 
-func BothPages(filters models.BookFilters, totalCount int) []InlineKeyboardButton {
-	var booksPages []InlineKeyboardButton
+// PrevNextPages return []InlineKeyboardButton with prev and next buttons
+func PrevNextPages(filters models.BookFilters, totalCount int) []InlineKeyboardButton {
+	var buttons []InlineKeyboardButton
+
+	// Get page number from filters limit and offset
+	if filters.Offset == 0 {
+		filters.Offset = filters.Limit
+	}
+	page := filters.Limit / filters.Offset
+
+	// Get total pages
 	totalPages := totalCount / filters.Limit
 
-	if filters.Offset >= 10 {
-		booksPages = append(booksPages, InlineKeyboardButton{
-			Text:         DefaultNavigationEmoji("prev"),
-			CallbackData: utils.StrPtr("prev"),
-		})
+	// If total pages is 0, set it to 1
+	if totalPages == 0 {
+		totalPages = 1
 	}
 
-	if filters.Offset/5 < totalPages {
-		booksPages = append(booksPages, InlineKeyboardButton{
-			Text:         DefaultNavigationEmoji("next"),
-			CallbackData: utils.StrPtr("next"),
-		})
+	// If page is 0, set it to 1
+	if page == 0 {
+		page = 1
 	}
 
-	return booksPages
+	// If page is 1, disable prev button
+	if page != 1 {
+		buttons = append(buttons, NewInlineKeyboardButtonData(DefaultNavigationEmoji("prev"), "prev"))
+	}
+
+	// If page is last page, disable next button
+	if (totalCount - totalPages*filters.Limit) > 0 {
+		buttons = append(buttons, NewInlineKeyboardButtonData(DefaultNavigationEmoji("next"), "next"))
+	}
+	return buttons
 }
 
 func AuthorPages(filters models.AuthorFilters, totalCount int) []InlineKeyboardButton {
@@ -281,6 +295,7 @@ func AuthorPages(filters models.AuthorFilters, totalCount int) []InlineKeyboardB
 
 func CreateKeyboard(filters models.BookFilters, books []models.Book, tc int) InlineKeyboardMarkup {
 	var buttons []InlineKeyboardButton
+	newInlineKeyboardMarkup := InlineKeyboardMarkup{}
 	for i, b := range books {
 		callBack := fmt.Sprintf(`{ "book_id": %d }`, b.ID)
 		buttons = append(buttons, InlineKeyboardButton{
@@ -289,8 +304,13 @@ func CreateKeyboard(filters models.BookFilters, books []models.Book, tc int) Inl
 		})
 	}
 	booksKeyboard := NewInlineKeyboardRow(buttons...)
-	pagesInlineKeyboard := BothPages(filters, tc)
-	return NewInlineKeyboardMarkup(booksKeyboard, pagesInlineKeyboard)
+	pagesInlineKeyboard := PrevNextPages(filters, tc)
+	newInlineKeyboardMarkup = NewInlineKeyboardMarkup(booksKeyboard)
+	if len(pagesInlineKeyboard) > 0 {
+		newInlineKeyboardMarkup.InlineKeyboard = append(newInlineKeyboardMarkup.InlineKeyboard, pagesInlineKeyboard)
+	}
+
+	return newInlineKeyboardMarkup
 }
 
 func CreateAuthorKeyboard(filters models.AuthorFilters, authors []models.Author, tc int) InlineKeyboardMarkup {
