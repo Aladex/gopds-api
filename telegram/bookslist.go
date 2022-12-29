@@ -21,11 +21,6 @@ type TelegramBook struct {
 	RegisterDate string          `json:"register_date"`
 }
 
-type TelegramAuthor struct {
-	EmojiNum string        `json:"emoji_num"`
-	Author   models.Author `json:"author"`
-}
-
 // InlineRequest user for the type of search in inline mode
 type InlineRequest struct {
 	SearchType string `json:"search_type"`
@@ -39,7 +34,8 @@ const TelegramBookListTemplate = `{{range $i, $b := .}}{{$b.EmojiNum}}<b>Наз�
 
 {{end}}`
 
-const TelegramAuthorListTemplate = `{{range $i, $a := .}}{{$a.EmojiNum}}<i>{{$a.Author.FullName}}</i>
+const TelegramAuthorListTemplate = `{{range $i, $a := .}}{{$a.EmojiNum}} <i>{{$a.Author.FullName}}</i>
+
 {{end}}`
 
 // DefaultNumToEmoji Convert number to emoji
@@ -264,27 +260,6 @@ func PrevNextPages(filters models.BookFilters, totalCount int) []InlineKeyboardB
 	return buttons
 }
 
-func AuthorPages(filters models.AuthorFilters, totalCount int) []InlineKeyboardButton {
-	var authorPages []InlineKeyboardButton
-	totalPages := totalCount / filters.Limit
-
-	if filters.Offset >= 10 {
-		authorPages = append(authorPages, InlineKeyboardButton{
-			Text:         DefaultNavigationEmoji("prev"),
-			CallbackData: utils.StrPtr("prev"),
-		})
-	}
-
-	if filters.Offset/5 < totalPages {
-		authorPages = append(authorPages, InlineKeyboardButton{
-			Text:         DefaultNavigationEmoji("next"),
-			CallbackData: utils.StrPtr("next"),
-		})
-	}
-
-	return authorPages
-}
-
 func CreateKeyboard(filters models.BookFilters, books []models.Book, tc int) InlineKeyboardMarkup {
 	var buttons []InlineKeyboardButton
 	newInlineKeyboardMarkup := InlineKeyboardMarkup{}
@@ -303,20 +278,6 @@ func CreateKeyboard(filters models.BookFilters, books []models.Book, tc int) Inl
 	}
 
 	return newInlineKeyboardMarkup
-}
-
-func CreateAuthorKeyboard(filters models.AuthorFilters, authors []models.Author, tc int) InlineKeyboardMarkup {
-	var buttons []InlineKeyboardButton
-	for i, a := range authors {
-		callBack := fmt.Sprintf(`{ "author_id": %d }`, a.ID)
-		buttons = append(buttons, InlineKeyboardButton{
-			Text:         DefaultNumToEmoji(i + 1),
-			CallbackData: &callBack,
-		})
-	}
-	authorsKeyboard := NewInlineKeyboardRow(buttons...)
-	pagesInlineKeyboard := AuthorPages(filters, tc)
-	return NewInlineKeyboardMarkup(authorsKeyboard, pagesInlineKeyboard)
 }
 
 func TgBooksList(user models.User, filters models.BookFilters) error {
@@ -352,35 +313,6 @@ func TgBooksList(user models.User, filters models.BookFilters) error {
 		return err
 	}
 	return nil
-}
-
-// TgAuthorsList returns a list of authors. It is used to display a list of authors in the telegram bot.
-func TgAuthorsList(user models.User, filters models.AuthorFilters) (BaseChat, error) {
-	m := NewBaseChat(int64(user.TelegramID), "")
-	var telegramAuthorsList []TelegramAuthor
-	authors, tc, err := database.GetAuthors(filters)
-	if err != nil {
-		return m, err
-	}
-	for i, a := range authors {
-		telegramAuthorsList = append(telegramAuthorsList, TelegramAuthor{
-			EmojiNum: DefaultNumToEmoji(i + 1),
-			Author:   a,
-		})
-	}
-	// Process the template to fill in the authors
-	t, err := template.New("authors").Parse(TelegramAuthorListTemplate)
-	if err != nil {
-		return m, err
-	}
-	var tpl bytes.Buffer
-	err = t.Execute(&tpl, telegramAuthorsList)
-	if err != nil {
-		return m, err
-	}
-	m.Text = tpl.String()
-	m.ReplyMarkup = CreateAuthorKeyboard(filters, authors, tc)
-	return m, nil
 }
 
 // TgSearchType Request user for the type of search

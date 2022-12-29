@@ -21,6 +21,7 @@ func init() {
 	TelegramUsers.UserChannel = make(chan models.User)
 	// Create goroutine for getting users from channel
 	go GetUserFromChannel(TelegramUsers.UserChannel)
+
 }
 
 // TelegramUsers Telegram users map
@@ -58,16 +59,29 @@ func GetUserFromChannel(channel chan models.User) {
 					}
 				}()
 			case "callback":
-				// Create book filters
-				bookFilters := CreateBookFiltersFromMessage(user)
+				if user.TelegramRequest.RequestType == "book" {
+					// Create book filters
+					bookFilters := CreateBookFiltersFromMessage(user)
 
-				// Get books and send to telegram
-				go func() {
-					err := telegram.TgBooksList(user, bookFilters)
-					if err != nil {
-						logging.CustomLog.Println(err)
-					}
-				}()
+					// Get books and send to telegram
+					go func() {
+						err := telegram.TgBooksList(user, bookFilters)
+						if err != nil {
+							logging.CustomLog.Println(err)
+						}
+					}()
+				} else if user.TelegramRequest.RequestType == "author" {
+					// Create author filters
+					authorFilters := CreateAuthorFiltersFromMessage(user)
+
+					// Get authors and send to telegram
+					go func() {
+						err := telegram.TgAuthorsList(user, authorFilters)
+						if err != nil {
+							logging.CustomLog.Println(err)
+						}
+					}()
+				}
 			}
 		}
 	}
@@ -168,8 +182,9 @@ func TokenApiEndpoint(c *gin.Context) {
 		// Set type of message to callback
 		tgUser := TelegramUsers.Users[int64(user.TelegramID)]
 		tgUser.TelegramRequest.MessageType = "callback"
+		callbackData := telegramMessage.(telegram.CallbackMessage).CallbackQuery.Data
 
-		switch telegramMessage.(telegram.CallbackMessage).CallbackQuery.Data {
+		switch callbackData {
 		case "next":
 			tgUser.TelegramRequest.Page++
 			// Send user to channel
@@ -187,13 +202,18 @@ func TokenApiEndpoint(c *gin.Context) {
 		case "search_by_title":
 			// Send user to channel
 			tgUser.TelegramRequest.Page = 1
+			tgUser.TelegramRequest.RequestType = "book"
 			TelegramUsers.UserChannel <- tgUser
 			c.JSON(http.StatusOK, gin.H{
 				"message": "ok",
 			})
 		case "search_by_author":
-			user.TelegramRequest.Page = 1
-
+			tgUser.TelegramRequest.Page = 1
+			tgUser.TelegramRequest.RequestType = "author"
+			TelegramUsers.UserChannel <- tgUser
+			c.JSON(http.StatusOK, gin.H{
+				"message": "ok",
+			})
 		}
 	default:
 		httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
