@@ -206,22 +206,27 @@ type TelegramCommand struct {
 	} `json:"message"`
 }
 
-func SendCommand(token string, m BaseChat) {
+func SendCommand(token string, m BaseChat) error {
 	b, err := json.Marshal(m)
 	if err != nil {
-		fmt.Println(err)
-		return
+		logging.CustomLog.Println(err)
+		return err
 	}
-	fmt.Println(string(b))
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(b))
+	if err != nil {
+		logging.CustomLog.Println(err)
+		return err
+	}
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{}
+
 	resp, err := client.Do(req)
 	if err != nil {
-		panic(err)
+		logging.CustomLog.Println(err)
+		return err
 	}
 	defer func() {
 		err = resp.Body.Close()
@@ -229,6 +234,7 @@ func SendCommand(token string, m BaseChat) {
 			logging.CustomLog.Println(err)
 		}
 	}()
+	return nil
 }
 
 // PrevNextPages return []InlineKeyboardButton with prev and next buttons
@@ -313,12 +319,12 @@ func CreateAuthorKeyboard(filters models.AuthorFilters, authors []models.Author,
 	return NewInlineKeyboardMarkup(authorsKeyboard, pagesInlineKeyboard)
 }
 
-func TgBooksList(user models.User, filters models.BookFilters) (BaseChat, error) {
+func TgBooksList(user models.User, filters models.BookFilters) error {
 	m := NewBaseChat(int64(user.TelegramID), "")
 	var telegramBooksList []TelegramBook
 	books, tc, err := database.GetBooks(user.ID, filters)
 	if err != nil {
-		return m, err
+		return err
 	}
 	for i, b := range books {
 		telegramBooksList = append(telegramBooksList, TelegramBook{
@@ -332,16 +338,20 @@ func TgBooksList(user models.User, filters models.BookFilters) (BaseChat, error)
 	// Process the template to fill in the books
 	t, err := template.New("books").Parse(TelegramBookListTemplate)
 	if err != nil {
-		return m, err
+		return err
 	}
 	var tpl bytes.Buffer
 	err = t.Execute(&tpl, telegramBooksList)
 	if err != nil {
-		return m, err
+		return err
 	}
 	m.Text = tpl.String()
 	m.ReplyMarkup = CreateKeyboard(filters, books, tc)
-	return m, nil
+	err = SendCommand(user.BotToken, m)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // TgAuthorsList returns a list of authors. It is used to display a list of authors in the telegram bot.

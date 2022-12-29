@@ -43,26 +43,31 @@ func GetUserFromChannel(channel chan models.User) {
 		select {
 		case user := <-channel:
 			UpdateTgUser(&user)
-			// If page is 0, send message with keyboard
-			if user.TelegramRequest.Page == 0 {
+			// switch by type of request
+			switch user.TelegramRequest.MessageType {
+			case "message":
 				baseChat, err := telegram.TgSearchType(user)
 				if err != nil {
 					logging.CustomLog.Println(err)
 					continue
 				}
-				go telegram.SendCommand(user.BotToken, baseChat)
-			} else {
-				// Send message without keyboard
+				go func() {
+					err = telegram.SendCommand(user.BotToken, baseChat)
+					if err != nil {
+						logging.CustomLog.Println(err)
+					}
+				}()
+			case "callback":
 				// Create book filters
 				bookFilters := CreateBookFiltersFromMessage(user)
 
-				// Create tg message from book filters
-				tgMessage, err := telegram.TgBooksList(user, bookFilters)
-				if err != nil {
-					logging.CustomLog.Println(err)
-					continue
-				}
-				go telegram.SendCommand(user.BotToken, tgMessage)
+				// Get books and send to telegram
+				go func() {
+					err := telegram.TgBooksList(user, bookFilters)
+					if err != nil {
+						logging.CustomLog.Println(err)
+					}
+				}()
 			}
 		}
 	}
@@ -128,8 +133,6 @@ func TokenApiEndpoint(c *gin.Context) {
 		return
 	}
 
-	tgMessage := telegram.NewBaseChat(int64(user.TelegramID), "")
-
 	// get message from request
 	message, err := c.GetRawData()
 	if err != nil {
@@ -146,34 +149,28 @@ func TokenApiEndpoint(c *gin.Context) {
 	switch telegramMessage.(type) {
 	case telegram.TelegramCommand:
 		// if message is command
-		switch telegramMessage.(telegram.TelegramCommand).Message.Text {
-		case "/start":
-			user.TelegramRequest.Page = 0
+		user.TelegramRequest.Page = 0
+		messageText := telegramMessage.(telegram.TelegramCommand).Message.Text
+		if messageText == "/start" {
 			user.TelegramRequest.Request = ""
-			if err != nil {
-				DefaultApiErrorHandler(c, err)
-				return
-			}
-			// Send user to channel
-			TelegramUsers.UserChannel <- user
-			// Send response to API user
-			c.JSON(http.StatusOK, gin.H{
-				"message": "ok",
-			})
-		default:
-			user.TelegramRequest.Request = telegramMessage.(telegram.TelegramCommand).Message.Text
-			user.TelegramRequest.Page = 0
-			// Send user to channel
-			TelegramUsers.UserChannel <- user
-			c.JSON(http.StatusOK, gin.H{
-				"message": "ok",
-			})
+		} else {
+			user.TelegramRequest.Request = messageText
 		}
+		user.TelegramRequest.MessageType = "message"
+		// Send user to channel
+		TelegramUsers.UserChannel <- user
+		// Send response to API user
+		c.JSON(http.StatusOK, gin.H{
+			"message": "ok",
+		})
 	case telegram.CallbackMessage:
 		// if message is callback
+		// Set type of message to callback
+		tgUser := TelegramUsers.Users[int64(user.TelegramID)]
+		tgUser.TelegramRequest.MessageType = "callback"
+
 		switch telegramMessage.(telegram.CallbackMessage).CallbackQuery.Data {
 		case "next":
-			tgUser := TelegramUsers.Users[int64(user.TelegramID)]
 			tgUser.TelegramRequest.Page++
 			// Send user to channel
 			TelegramUsers.UserChannel <- tgUser
@@ -181,7 +178,6 @@ func TokenApiEndpoint(c *gin.Context) {
 				"message": "ok",
 			})
 		case "prev":
-			tgUser := TelegramUsers.Users[int64(user.TelegramID)]
 			tgUser.TelegramRequest.Page--
 			// Send user to channel
 			TelegramUsers.UserChannel <- tgUser
@@ -189,25 +185,15 @@ func TokenApiEndpoint(c *gin.Context) {
 				"message": "ok",
 			})
 		case "search_by_title":
-			// Get last request from user
-			user.TelegramRequest.Request = TelegramUsers.Users[int64(user.TelegramID)].TelegramRequest.Request
-			user.TelegramRequest.Page = 1
 			// Send user to channel
-			TelegramUsers.UserChannel <- user
+			tgUser.TelegramRequest.Page = 1
+			TelegramUsers.UserChannel <- tgUser
 			c.JSON(http.StatusOK, gin.H{
 				"message": "ok",
 			})
 		case "search_by_author":
 			user.TelegramRequest.Page = 1
-			tgMessage, err = telegram.TgAuthorsList(user, CreateAuthorFiltersFromMessage(user))
-			if err != nil {
-				DefaultApiErrorHandler(c, err)
-				return
-			}
-			go telegram.SendCommand(user.BotToken, tgMessage)
-			c.JSON(http.StatusOK, gin.H{
-				"message": "ok",
-			})
+
 		}
 	default:
 		httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
