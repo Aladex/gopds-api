@@ -231,21 +231,12 @@ func SendCommand(token string, m BaseChat) {
 	}()
 }
 
-// Pages returns a page of books. It is used to display a page of books in the telegram bot.
-type Pages struct {
-	Prev int
-	Next int
-}
-
 // PrevNextPages return []InlineKeyboardButton with prev and next buttons
 func PrevNextPages(filters models.BookFilters, totalCount int) []InlineKeyboardButton {
 	var buttons []InlineKeyboardButton
 
 	// Get page number from filters limit and offset
-	if filters.Offset == 0 {
-		filters.Offset = filters.Limit
-	}
-	page := filters.Limit / filters.Offset
+	page := filters.Offset / filters.Limit
 
 	// Get total pages
 	totalPages := totalCount / filters.Limit
@@ -255,13 +246,8 @@ func PrevNextPages(filters models.BookFilters, totalCount int) []InlineKeyboardB
 		totalPages = 1
 	}
 
-	// If page is 0, set it to 1
-	if page == 0 {
-		page = 1
-	}
-
-	// If page is 1, disable prev button
-	if page != 1 {
+	// If page is 0, disable prev button
+	if page != 0 {
 		buttons = append(buttons, NewInlineKeyboardButtonData(DefaultNavigationEmoji("prev"), "prev"))
 	}
 

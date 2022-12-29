@@ -14,16 +14,61 @@ import (
 	"sync"
 )
 
-type TgUsers struct {
-	Users map[int64]models.User
-	// mutex for protecting Users
-	Mu sync.Mutex
+// init Initialize telegram users map and channel
+func init() {
+	TelegramUsers.Users = make(map[int64]models.User)
+	// Create channel for users
+	TelegramUsers.UserChannel = make(chan models.User)
+	// Create goroutine for getting users from channel
+	go GetUserFromChannel(TelegramUsers.UserChannel)
 }
 
+// TelegramUsers Telegram users map
 var TelegramUsers = TgUsers{
 	Users: make(map[int64]models.User),
 }
 
+// TgUsers struct for storing users
+type TgUsers struct {
+	Users map[int64]models.User
+	// mutex for protecting Users
+	Mu          sync.Mutex
+	UserChannel chan models.User
+}
+
+// GetUserFromChannel Get user from channel and send message to telegram
+func GetUserFromChannel(channel chan models.User) {
+	// Check if something in channel
+	for {
+		select {
+		case user := <-channel:
+			UpdateTgUser(&user)
+			// If page is 0, send message with keyboard
+			if user.TelegramRequest.Page == 0 {
+				baseChat, err := telegram.TgSearchType(user)
+				if err != nil {
+					logging.CustomLog.Println(err)
+					continue
+				}
+				go telegram.SendCommand(user.BotToken, baseChat)
+			} else {
+				// Send message without keyboard
+				// Create book filters
+				bookFilters := CreateBookFiltersFromMessage(user)
+
+				// Create tg message from book filters
+				tgMessage, err := telegram.TgBooksList(user, bookFilters)
+				if err != nil {
+					logging.CustomLog.Println(err)
+					continue
+				}
+				go telegram.SendCommand(user.BotToken, tgMessage)
+			}
+		}
+	}
+}
+
+// DefaultApiErrorHandler Default error handler
 func DefaultApiErrorHandler(c *gin.Context, err error) {
 	logging.CustomLog.Println(err)
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
@@ -103,43 +148,26 @@ func TokenApiEndpoint(c *gin.Context) {
 		// if message is command
 		switch telegramMessage.(telegram.TelegramCommand).Message.Text {
 		case "/start":
-			// Send first 5 books
-			tgMessage, err = telegram.TgBooksList(user, CreateBookFiltersFromMessage(user))
 			user.TelegramRequest.Page = 0
 			user.TelegramRequest.Request = ""
-			UpdateTgUser(&user)
 			if err != nil {
 				DefaultApiErrorHandler(c, err)
 				return
 			}
+			// Send user to channel
+			TelegramUsers.UserChannel <- user
+			// Send response to API user
+			c.JSON(http.StatusOK, gin.H{
+				"message": "ok",
+			})
 		default:
 			user.TelegramRequest.Request = telegramMessage.(telegram.TelegramCommand).Message.Text
 			user.TelegramRequest.Page = 0
-			UpdateTgUser(&user)
-
-			// Answer to user that the type of search string
-			tgMessage, err = telegram.TgSearchType(user)
-
-			if err != nil {
-				DefaultApiErrorHandler(c, err)
-				return
-			}
-
-			go telegram.SendCommand(user.BotToken, tgMessage)
-		}
-		if user.TelegramRequest.Page == 0 {
-			go telegram.SendCommand(user.BotToken, tgMessage)
-		} else {
-			baseChat, err := telegram.TgSearchType(user)
-			if err != nil {
-				DefaultApiErrorHandler(c, err)
-				return
-			}
-			go telegram.SendCommand(user.BotToken, baseChat)
-		}
-
-		if err != nil {
-			DefaultApiErrorHandler(c, err)
+			// Send user to channel
+			TelegramUsers.UserChannel <- user
+			c.JSON(http.StatusOK, gin.H{
+				"message": "ok",
+			})
 		}
 	case telegram.CallbackMessage:
 		// if message is callback
@@ -147,41 +175,28 @@ func TokenApiEndpoint(c *gin.Context) {
 		case "next":
 			tgUser := TelegramUsers.Users[int64(user.TelegramID)]
 			tgUser.TelegramRequest.Page++
-			UpdateTgUser(&user)
-			filters := CreateBookFiltersFromMessage(tgUser)
-			tgMessage, err = telegram.TgBooksList(tgUser, filters)
-			if err != nil {
-				DefaultApiErrorHandler(c, err)
-				return
-			}
-			go telegram.SendCommand(user.BotToken, tgMessage)
-
+			// Send user to channel
+			TelegramUsers.UserChannel <- tgUser
+			c.JSON(http.StatusOK, gin.H{
+				"message": "ok",
+			})
 		case "prev":
 			tgUser := TelegramUsers.Users[int64(user.TelegramID)]
 			tgUser.TelegramRequest.Page--
-			UpdateTgUser(&user)
-			filters := CreateBookFiltersFromMessage(tgUser)
-			tgMessage, err = telegram.TgBooksList(tgUser, filters)
-			if err != nil {
-				DefaultApiErrorHandler(c, err)
-				return
-			}
-			go telegram.SendCommand(user.BotToken, tgMessage)
+			// Send user to channel
+			TelegramUsers.UserChannel <- tgUser
+			c.JSON(http.StatusOK, gin.H{
+				"message": "ok",
+			})
 		case "search_by_title":
 			// Get last request from user
 			user.TelegramRequest.Request = TelegramUsers.Users[int64(user.TelegramID)].TelegramRequest.Request
 			user.TelegramRequest.Page = 1
-			UpdateTgUser(&user)
-			// Fins user from TgUsers
-
-			tgUser := TelegramUsers.Users[int64(user.TelegramID)]
-
-			tgMessage, err = telegram.TgBooksList(user, CreateBookFiltersFromMessage(tgUser))
-			if err != nil {
-				DefaultApiErrorHandler(c, err)
-				return
-			}
-			go telegram.SendCommand(user.BotToken, tgMessage)
+			// Send user to channel
+			TelegramUsers.UserChannel <- user
+			c.JSON(http.StatusOK, gin.H{
+				"message": "ok",
+			})
 		case "search_by_author":
 			user.TelegramRequest.Page = 1
 			tgMessage, err = telegram.TgAuthorsList(user, CreateAuthorFiltersFromMessage(user))
@@ -190,6 +205,9 @@ func TokenApiEndpoint(c *gin.Context) {
 				return
 			}
 			go telegram.SendCommand(user.BotToken, tgMessage)
+			c.JSON(http.StatusOK, gin.H{
+				"message": "ok",
+			})
 		}
 	default:
 		httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
