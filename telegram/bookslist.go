@@ -19,11 +19,18 @@ type TelegramBook struct {
 	Authors      []models.Author `json:"authors"`
 	DocDate      string          `json:"doc_date"`
 	RegisterDate string          `json:"register_date"`
+	Annotation   string          `json:"annotation"`
+	Lang         string          `json:"lang"`
 }
 
 // InlineRequest user for the type of search in inline mode
 type InlineRequest struct {
 	SearchType string `json:"search_type"`
+}
+
+// Default file formats for books
+func DefaultFileFormats() []string {
+	return []string{"fb2.zip", "fb2", "epub", "mobi"}
 }
 
 // TelegramBookListTemplate - template for telegram book list
@@ -37,6 +44,18 @@ const TelegramBookListTemplate = `{{range $i, $b := .}}{{$b.EmojiNum}}<b>Наз�
 const TelegramAuthorListTemplate = `{{range $i, $a := .}}{{$a.EmojiNum}} <i>{{$a.Author.FullName}}</i>
 
 {{end}}`
+
+const TelegramBookTemplate = `<b>Название:</b> {{.Title}}
+
+<b>Авторы:</b> {{ range $j, $a := .Authors }}{{if $j}}, {{end}}{{$a.FullName}}{{end}}
+
+<b>Язык:</b> {{.Lang}}
+
+<b>Дата документа:</b> {{.DocDate}}
+<b>Дата добавления:</b> {{.RegisterDate}}
+
+<b>Описание:</b> {{.Annotation}}
+`
 
 // DefaultNumToEmoji Convert number to emoji
 func DefaultNumToEmoji(num int) string {
@@ -179,6 +198,40 @@ type MessageConfig struct {
 	DisableWebPagePreview bool   `json:"disable_web_page_preview"`
 }
 
+func CreateBookFileFormatMarkup(book *models.Book) InlineKeyboardMarkup {
+	var rows [][]InlineKeyboardButton
+
+	for _, f := range DefaultFileFormats() {
+		rows = append(rows, NewInlineKeyboardRow(NewInlineKeyboardButtonData(f, fmt.Sprintf("download:%d:%s", book.ID, f))))
+	}
+
+	return NewInlineKeyboardMarkup(rows...)
+}
+
+func TgBook(book *models.Book) (string, error) {
+	tgBook := TelegramBook{
+		Title:        book.Title,
+		Authors:      book.Authors,
+		Annotation:   book.Annotation,
+		DocDate:      book.DocDate,
+		RegisterDate: book.RegisterDate.Format("2006-01-02"),
+		Lang:         book.Lang,
+	}
+
+	tmpl, err := template.New("book").Parse(TelegramBookTemplate)
+	if err != nil {
+		return "", err
+	}
+
+	var buf bytes.Buffer
+	err = tmpl.Execute(&buf, tgBook)
+	if err != nil {
+		return "", err
+	}
+
+	return buf.String(), nil
+}
+
 // TelegramCommand returns a list of books. It is used to display a list of books in the telegram bot.
 type TelegramCommand struct {
 	UpdateID int `json:"update_id"`
@@ -264,7 +317,7 @@ func CreateKeyboard(filters models.BookFilters, books []models.Book, tc int) Inl
 	var buttons []InlineKeyboardButton
 	newInlineKeyboardMarkup := InlineKeyboardMarkup{}
 	for i, b := range books {
-		callBack := fmt.Sprintf(`{ "book_id": %d }`, b.ID)
+		callBack := fmt.Sprintf(`get_book_%d`, b.ID)
 		buttons = append(buttons, InlineKeyboardButton{
 			Text:         DefaultNumToEmoji(i + 1),
 			CallbackData: &callBack,

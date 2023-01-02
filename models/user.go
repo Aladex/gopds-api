@@ -12,6 +12,7 @@ type UserTelegramRequest struct {
 	RequestType string `json:"request_type"`
 	UpdateID    int    `json:"update_id"`
 	MessageType string `json:"message_type"`
+	BookID      int64  `json:"book_id"`
 }
 
 // User структура пользователя в БД

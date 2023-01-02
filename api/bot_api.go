@@ -11,8 +11,17 @@ import (
 	"gopds-api/models"
 	"gopds-api/telegram"
 	"net/http"
+	"regexp"
+	"strconv"
+	"strings"
 	"sync"
 )
+
+// bookIdRegex Regex for book id
+const bookIdRegex = `^get_book_(\d+)`
+
+// Compile regex for book id
+var bookIdRegexCompiled = regexp.MustCompile(bookIdRegex)
 
 // init Initialize telegram users map and channel
 func init() {
@@ -59,8 +68,18 @@ func GetUserFromChannel(channel chan models.User) {
 					}
 				}()
 			case "callback":
-				if user.TelegramRequest.RequestType == "book" {
-					// Create book filters
+				switch user.TelegramRequest.RequestType {
+				case "author":
+					authorFilters := CreateAuthorFiltersFromMessage(user)
+
+					// Get authors and send to telegram
+					go func() {
+						err := telegram.TgAuthorsList(user, authorFilters)
+						if err != nil {
+							logging.CustomLog.Println(err)
+						}
+					}()
+				case "book":
 					bookFilters := CreateBookFiltersFromMessage(user)
 
 					// Get books and send to telegram
@@ -70,16 +89,30 @@ func GetUserFromChannel(channel chan models.User) {
 							logging.CustomLog.Println(err)
 						}
 					}()
-				} else if user.TelegramRequest.RequestType == "author" {
-					// Create author filters
-					authorFilters := CreateAuthorFiltersFromMessage(user)
-
-					// Get authors and send to telegram
+				case "get_book":
+					// Get book and send to telegram full book info with download buttons
+					book, err := database.GetBook(user.TelegramRequest.BookID)
+					if err != nil {
+						logging.CustomLog.Println(err)
+						continue
+					}
 					go func() {
-						err := telegram.TgAuthorsList(user, authorFilters)
+						tgBook, err := telegram.TgBook(&book)
 						if err != nil {
 							logging.CustomLog.Println(err)
 						}
+						m := telegram.NewBaseChat(int64(user.TelegramID), "")
+						m.Text = tgBook
+						// Create keyboard with formats of book
+						m.ReplyMarkup = telegram.CreateBookFileFormatMarkup(&book)
+
+						err = telegram.SendCommand(user.BotToken, m)
+						if err != nil {
+							logging.CustomLog.Println(err)
+						}
+						// Set user to default state
+						user.TelegramRequest = models.UserTelegramRequest{}
+						UpdateTgUser(&user)
 					}()
 				}
 			}
@@ -183,6 +216,8 @@ func TokenApiEndpoint(c *gin.Context) {
 		tgUser := TelegramUsers.Users[int64(user.TelegramID)]
 		tgUser.TelegramRequest.MessageType = "callback"
 		callbackData := telegramMessage.(telegram.CallbackMessage).CallbackQuery.Data
+		// Check regex for book id
+		isBookID := bookIdRegexCompiled.MatchString(callbackData)
 
 		switch callbackData {
 		case "next":
@@ -214,6 +249,30 @@ func TokenApiEndpoint(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{
 				"message": "ok",
 			})
+		default:
+			if isBookID {
+				// Unmarshal book id
+				bookID, err := strconv.Atoi(strings.Split(callbackData, "_")[2])
+				if err != nil {
+					DefaultApiErrorHandler(c, err)
+					return
+				}
+				// Get book from database by converted book id
+				book, err := database.GetBook(int64(bookID))
+				if err != nil {
+					DefaultApiErrorHandler(c, err)
+					return
+				}
+				// Send book to user
+				tgUser.TelegramRequest.Page = 0
+				tgUser.TelegramRequest.Request = ""
+				tgUser.TelegramRequest.RequestType = "get_book"
+				tgUser.TelegramRequest.BookID = book.ID
+				TelegramUsers.UserChannel <- tgUser
+				c.JSON(http.StatusOK, gin.H{
+					"message": "ok",
+				})
+			}
 		}
 	default:
 		httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
