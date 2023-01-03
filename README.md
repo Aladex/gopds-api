@@ -18,12 +18,15 @@ The gopds-api has several features, including:
 - The ability to download raw FB2 books from .zip archives
 - Login and logout functionality similar to Django
 - Authentication of all requests using JWT tokens and the session store
+- Adding books to a user's favorite list
+- An OPDS server with authentication to allow users to access their favorite books from different devices
 
 ## Roadmap
 
 In the future, we have plans to add:
 - A book scanner for FB2 and EPUB formats
 - A converter that can transform FB2 files into EPUB and MOBI formats
+- A Telegram bot to allow users to access their favorite books and perform actions such as adding books to their favorite list through the messaging platform.
 
 ## Bindata create
 
