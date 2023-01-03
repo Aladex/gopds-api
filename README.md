@@ -3,37 +3,31 @@
 </p>
 
 # gopds-api
-Implementation of SOPDS project
 
-This repository contains an API implementation for SOPDS database from [SOPDS mitshel project](https://github.com/mitshel/sopds) 
-
-It works with database and can to authorize users from SOPDS typical django database with pbkdf2.
- 
-Documentation is realized with swaggo swagger and generates automatically.
+Welcome to the gopds-api project! This project is an implementation of the SOPDS database, and provides an API for interacting with it.
 
 ## Technologies
 
-* Redis (for sessions store)
-* PostgreSQL (An django database, that generated from SOPDS project)
-* Go libs from go.mod
-
+The gopds-api is implemented using Go, and utilizes Redis for session store. The documentation for the API is generated automatically using Swaggo swagger.
 
 ## Features
 
-1. List of scanned books
-2. Search for users and authors in database
-3. Download of raw fb2 book from .zip archive
-4. login and logout methods like in django
-5. Authentication of all requests by JWT token and session store
-
+The gopds-api has several features, including:
+- A list of scanned books
+- The ability to search for users and authors in the database
+- The ability to download raw FB2 books from .zip archives
+- Login and logout functionality similar to Django
+- Authentication of all requests using JWT tokens and the session store
 
 ## Roadmap
 
-1. Book scanner for fb2 and epub formats
-2. Converter from fb2 to epub, mobi
+In the future, we have plans to add:
+- A book scanner for FB2 and EPUB formats
+- A converter that can transform FB2 files into EPUB and MOBI formats
 
 ## Bindata create
 
+To create bindata, you can use the following command:
 ```
-go-bindata -o static_assets/bindata.go -fs -prefix "posters" -pkg static_assets  static_assets/posters/...
+go-bindata -o static_assets/bindata.go -fs -prefix "posters" -pkg static_assets static_assets/posters/...
 ```
