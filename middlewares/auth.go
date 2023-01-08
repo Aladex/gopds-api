@@ -12,7 +12,7 @@ type LinkToken struct {
 	Token string `form:"token" json:"token"`
 }
 
-// AuthMiddleware Мидлварь для проверки токена пользователя в методах GET и POST
+// AuthMiddleware checks if user is logged in and sets username in context
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userToken := c.Request.Header.Get("Authorization")

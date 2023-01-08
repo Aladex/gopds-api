@@ -10,16 +10,16 @@ import (
 	"net/http"
 )
 
-// UsersAnswer структура ответа найденных пользователей для компонента Admin.vue
+// UsersAnswer struct for users list in admin space
 type UsersAnswer struct {
 	Users  []models.User `json:"users"`
 	Length int           `json:"length"`
 }
 
-// StartScan запускает сканирование книг
+// StartScan func for start scan books
 // Auth godoc
-// @Summary запускает сканирование книг
-// @Description запускает сканирование книг
+// @Summary start scan books
+// @Description start scan books
 // @Tags admin
 // @Param Authorization header string true "Just token without bearer"
 // @Accept  json
@@ -36,10 +36,10 @@ func StartScan(c *gin.Context) {
 	})
 }
 
-// UpdateCovers запускает обновление всех обложек
+// UpdateCovers start update covers
 // Auth godoc
-// @Summary запускает сканирование книг
-// @Description запускает сканирование книг
+// @Summary start update covers
+// @Description start update covers
 // @Tags admin
 // @Param Authorization header string true "Just token without bearer"
 // @Accept  json
@@ -56,7 +56,7 @@ func UpdateCovers(c *gin.Context) {
 	})
 }
 
-// GetUsers метод для запроса списка книг из БД opds
+// GetUsers method for get users list in admin space
 // Auth godoc
 // @Summary Returns users list
 // @Description users list for admin space
@@ -90,10 +90,10 @@ func GetUsers(c *gin.Context) {
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
 }
 
-// GetInvites возвращает лист из инвайтов
+// GetInvites return invites list
 // Auth godoc
-// @Summary возвращает лист из инвайтов
-// @Description возвращает лист из инвайтов
+// @Summary return invites list
+// @Description return invites list
 // @Tags admin
 // @Param Authorization header string true "Just token without bearer"
 // @Accept  json
@@ -115,10 +115,10 @@ func GetInvites(c *gin.Context) {
 	})
 }
 
-// ChangeInvite метод для изменения или добавления инвайта
+// ChangeInvite method for change or create invite
 // Auth godoc
-// @Summary метод для изменения или добавления инвайта
-// @Description метод для изменения или добавления инвайта
+// @Summary method for change or create invite
+// @Description method for change or create invite
 // @Tags admin
 // @Accept  json
 // @Produce  json
@@ -145,6 +145,7 @@ func ChangeInvite(c *gin.Context) {
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
 }
 
+// UpdateBook method for update book
 func UpdateBook(c *gin.Context) {
 	var bookToUpdate models.Book
 	if err := c.ShouldBindJSON(&bookToUpdate); err == nil {

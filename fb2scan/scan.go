@@ -45,7 +45,7 @@ func GetUnscannedFiles(catalogs, files []string) []string {
 	return unscannedFiles
 }
 
-// AnnotationTagRemove удаление тегов по регулярке из аннотации
+// AnnotationTagRemove removes annotation tags from string
 func AnnotationTagRemove(annotation string) string {
 	tagRegExp := regexp.MustCompile(`<[^>]*>`)
 	return tagRegExp.ReplaceAllString(annotation, "")
@@ -235,7 +235,7 @@ func ScanFb2File(data []byte, path string, filename string) (models.Book, error)
 	return newBook, nil
 }
 
-// ScanNewArchives функция для сканирования новых архивов после скачивания
+// ScanNewArchive scans new archives in the files directory
 func ScanNewArchive(path string) {
 	r, err := zip.OpenReader(path)
 	if err != nil {

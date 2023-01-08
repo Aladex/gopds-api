@@ -43,7 +43,7 @@ func (s *source) Uint64() uint64 {
 
 func (s *source) Seed(seed int64) {}
 
-// Token структура токена для работы с API
+// Token struct for token creation and checking
 type Token struct {
 	UserID     string
 	DatabaseID int64
@@ -63,7 +63,7 @@ func GetRandomString(length int) string {
 	return string(b)
 }
 
-// CreatePasswordHash создание хэша для записи в базу для нового пользователя
+// CreatePasswordHash creates a password hash using pbkdf2
 func CreatePasswordHash(password string) string {
 	salt := GetRandomString(12)
 	if strings.Contains(salt, "$") {
@@ -74,7 +74,7 @@ func CreatePasswordHash(password string) string {
 	return fmt.Sprintf("%s$%d$%s$%s", "pbkdf2_sha256", 100000, salt, b64Hash)
 }
 
-// CheckPbkdf2 проверка пароля в pbdkf2
+// CheckPbkdf2 checks if the password matches the hash using pbkdf2
 func CheckPbkdf2(password, encoded string, keyLen int, h func() hash.Hash) (bool, error) {
 	parts := strings.SplitN(encoded, "$", 4)
 	if len(parts) != 4 {
@@ -93,13 +93,13 @@ func CheckPbkdf2(password, encoded string, keyLen int, h func() hash.Hash) (bool
 	return bytes.Equal(k, dk), nil
 }
 
-// CreateToken Создание токена при логине пользователя в систему
+// CreateToken creates a token for the user
 func CreateToken(user models.User) (string, error) {
 	tk := Token{
 		UserID:     user.Login,
 		DatabaseID: user.ID,
 		StandardClaims: jwt.StandardClaims{
-			Issuer:   "dashboard-api",
+			Issuer:   "gopds-api",
 			IssuedAt: time.Now().Unix(),
 		},
 	}
@@ -111,7 +111,7 @@ func CreateToken(user models.User) (string, error) {
 	return tokenString, nil
 }
 
-// CheckToken Проверка токена на подмену
+// CheckToken checks if the token is valid
 func CheckToken(token string) (string, int64, error) {
 	tokenCheck, err := jwt.ParseWithClaims(token, &Token{}, func(token *jwt.Token) (interface{}, error) {
 		return []byte(config.AppConfig.GetString("sessions.key")), nil

@@ -112,7 +112,7 @@ func main() {
 		booksGroup.GET("/authors", api.GetAuthors)
 		booksGroup.POST("/author", api.GetAuthor)
 		booksGroup.POST("/upload-book", api.UploadBook)
-		// Метод скачивания файла
+		// Download book API endpoint
 		booksGroup.POST("/file", api.GetBookFile)
 		booksGroup.POST("/fav", api.FavBook)
 	}

@@ -35,7 +35,7 @@ func AddCatalog(catalog models.Catalog) error {
 	return nil
 }
 
-// GetLanguages возвращает список языков из БД
+// GetLanguages returns a list of languages
 func GetLanguages() models.Languages {
 	var langRes models.Languages
 	err := db.Model(&models.Book{}).
@@ -52,7 +52,7 @@ func GetLanguages() models.Languages {
 	return langRes
 }
 
-// AddSeries returns an id of series after select or after insert if not exists
+// AddCover adds cover to database
 func AddCover(cover models.Cover) error {
 	_, err := db.Model(&cover).Insert()
 	if err != nil {
@@ -162,7 +162,7 @@ func AddBook(book models.Book) error {
 	return nil
 }
 
-// GetBooks Возвращает список книг и общее количество при селекте
+// GetBooks returns a list of books by query params
 func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, error) {
 	books := []models.Book{}
 	var userFavs []int64
@@ -254,7 +254,7 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, err
 	return books, count, nil
 }
 
-// GetBook возвращает информацию по книге для того, чтобы вытащить ее из архива
+// GetBook returns a book by id from archive
 func GetBook(bookID int64) (models.Book, error) {
 	book := &models.Book{ID: bookID}
 	err := db.Model(book).WherePK().Select()
@@ -272,7 +272,7 @@ func HaveFavs(userID int64) (bool, error) {
 	return true, nil
 }
 
-// FavBook добавляет книгу в избранное
+// FavBook adds a book to user favs
 func FavBook(userID int64, fav models.FavBook) (bool, error) {
 	book := &models.Book{ID: fav.BookID}
 	err := db.Model(book).WherePK().Select()

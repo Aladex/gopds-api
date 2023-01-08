@@ -4,7 +4,7 @@ import (
 	"gopds-api/models"
 )
 
-// GetAuthors возвращает найденных авторов и счетчик количества найденного
+// GetAuthors returns an array of authors and total count of authors
 func GetAuthors(filters models.AuthorFilters) ([]models.Author, int, error) {
 	authors := []models.Author{}
 	count, err := db.Model(&authors).

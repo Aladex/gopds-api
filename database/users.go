@@ -25,7 +25,7 @@ func UserObject(search string) (models.User, error) {
 	return *userDB, nil
 }
 
-// CheckUser функция проверки пользователя и пароля в формате pbkdf2 (django)
+// CheckUser function for check user in database by username and password
 func CheckUser(u models.LoginRequest) (bool, models.User, error) {
 	userDB := new(models.User)
 	err := db.Model(userDB).

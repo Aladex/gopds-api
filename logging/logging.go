@@ -168,7 +168,7 @@ type loggerEntryWithFields interface {
 	WithFields(fields logrus.Fields) *logrus.Entry
 }
 
-// SetLog настройка логов проекта
+// SetLog set logrus logger with custom formatter
 func SetLog() *logrus.Logger {
 	log := logrus.New()
 
@@ -191,7 +191,7 @@ func SetLog() *logrus.Logger {
 	return log
 }
 
-// GinrusLogger функция для имплементации расширенного логирования в GIN
+// GinrusLogger - ginrus logger with custom formatter and logrus logger
 func GinrusLogger(logger loggerEntryWithFields) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()

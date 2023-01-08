@@ -10,16 +10,16 @@ import (
 	"net/http"
 )
 
-// AuthorAnswer структура ответа для списка авторов при поиске
+// AuthorAnswer struct for authors list on search page
 type AuthorAnswer struct {
 	Authors []models.Author `json:"authors"`
 	Length  int             `json:"length"`
 }
 
-// GetAuthors метод для запроса списка авторов из БД opds
+// GetAuthors method for get authors list on search page
 // Auth godoc
-// @Summary возвращает JSON с авторами
-// @Description возвращает JSON с авторами
+// @Summary method for get authors list on search page
+// @Description method for get authors list on search page
 // @Param Authorization header string true "Just token without bearer"
 // @Param  limit query int true "Limit"
 // @Param  offset query int true "Offset"
@@ -46,10 +46,10 @@ func GetAuthors(c *gin.Context) {
 	}
 }
 
-// GetAuthor метод для запроса информации по автору из БД opds
+// GetAuthor method for get author info from db
 // Auth godoc
-// @Summary возвращает JSON с автором
-// @Description возвращает JSON с автором
+// @Summary method for get author info from db
+// @Description method for get author info from db
 // @Param Authorization header string true "Just token without bearer"
 // @Param  author query string false "Author ID"
 // @Accept  json

@@ -6,13 +6,14 @@ import (
 )
 
 func init() {
-	// Register many to many model so ORM can better recognize m2m relation.
+	// Register many-to-many model so ORM can better recognize m2m relation.
 	// This should be done before dependant models are used.
 	orm.RegisterTable((*OrderToAuthor)(nil))
 	orm.RegisterTable((*OrderToSeries)(nil))
 	orm.RegisterTable((*UserToBook)(nil))
 }
 
+// Cover struct for storing covers
 type Cover struct {
 	tableName   struct{} `pg:"covers,discard_unknown_columns" json:"-"`
 	ID          int64    `json:"id" form:"id"`
@@ -21,6 +22,7 @@ type Cover struct {
 	ContentType string   `json:"content_type" form:"content_type"`
 }
 
+// Catalog struct for catalog
 type Catalog struct {
 	tableName struct{} `pg:"opds_catalog_catalog,discard_unknown_columns" json:"-"`
 	ID        int64    `pg:"id,pk" json:"id" form:"id"`
@@ -28,7 +30,7 @@ type Catalog struct {
 	IsScanned bool     `pg:"is_scanned" json:"is_scanned" form:"is_scanned"`
 }
 
-// Book структура книги в БД
+// Book struct for books
 type Book struct {
 	tableName    struct{}  `pg:"opds_catalog_book,discard_unknown_columns" json:"-"`
 	ID           int64     `pg:"id" json:"id"`
@@ -49,21 +51,21 @@ type Book struct {
 	Covers       []*Cover  `pg:"covers,rel:has-many" json:"covers"`
 }
 
-// Author структура автора в БД
+// Author struct for authors
 type Author struct {
 	tableName struct{} `pg:"opds_catalog_author,discard_unknown_columns" json:"-"`
 	ID        int64    `json:"id" form:"id"`
 	FullName  string   `json:"full_name" form:"full_name"`
 }
 
-// OrderToAuthor структура для many2many связи книг и авторов
+// OrderToAuthor struct for many-to-many relation between orders and authors
 type OrderToAuthor struct {
 	tableName struct{} `pg:"opds_catalog_bauthor,discard_unknown_columns" json:"-"`
 	AuthorID  int64
 	BookID    int64
 }
 
-// UserToBook структура для many2many связи книг и пользователей для избранного
+// UserToBook struct for many-to-many relation between users and books
 type UserToBook struct {
 	tableName struct{} `pg:"favorite_books,discard_unknown_columns" json:"-"`
 	ID        int64    `pg:"id" json:"id"`
@@ -71,7 +73,7 @@ type UserToBook struct {
 	BookID    int64    `pg:"book_id" json:"book_id"`
 }
 
-// Series структура серии книг
+// Series struct for series
 type Series struct {
 	tableName struct{} `pg:"opds_catalog_series,discard_unknown_columns" json:"-"`
 	ID        int64    `pg:"id" json:"id"`
@@ -80,7 +82,7 @@ type Series struct {
 	LangCode  int      `pg:"lang_code,use_zero" json:"lang_code,default:0"`
 }
 
-// OrderToSeries структура связи серий и книг через many2many
+// OrderToSeries struct for many-to-many relation between orders and series
 type OrderToSeries struct {
 	tableName struct{} `pg:"opds_catalog_bseries,discard_unknown_columns" json:"-"`
 	SerNo     int64    `pg:"ser_no,use_zero"`
@@ -88,7 +90,7 @@ type OrderToSeries struct {
 	BookID    int64    `pg:"book_id"`
 }
 
-// BookFilters фильтры для query get-запроса при фильтрации по книгам
+// BookFilters params for filtering books list
 type BookFilters struct {
 	Limit      int    `form:"limit" json:"limit"`
 	Offset     int    `form:"offset" json:"offset"`
@@ -100,19 +102,19 @@ type BookFilters struct {
 	UnApproved bool   `form:"unapproved" json:"unapproved"`
 }
 
-// BookDownload структура для запроса файла книги
+// BookDownload struct for book download
 type BookDownload struct {
 	BookID int64  `json:"book_id" form:"book_id" binding:"required"`
 	Format string `json:"format" form:"format" binding:"required"`
 }
 
-// FavBook структура для добавления книги в избранное
+// FavBook struct for favorite book
 type FavBook struct {
 	BookID int64 `json:"book_id" form:"book_id" binding:"required"`
 	Fav    bool  `json:"fav" form:"fav"`
 }
 
-// Languages структура общего списка языков с подсчетом количества книг
+// Languages struct for languages list with codes and counts
 type Languages []struct {
 	Language      string `pg:"lang" json:"language"`
 	LanguageCount int    `json:"count"`

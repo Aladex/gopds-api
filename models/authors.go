@@ -1,6 +1,6 @@
 package models
 
-// AuthorFilters фильтры для поиска авторов
+// AuthorFilters filters for authors list
 type AuthorFilters struct {
 	Limit  int    `form:"limit" json:"limit"`
 	Offset int    `form:"offset" json:"offset"`

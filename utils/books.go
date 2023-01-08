@@ -30,7 +30,7 @@ func DeleteTmpFile(filename string, format string) error {
 	return nil
 }
 
-// ZipBook makes an zip with book
+// ZipBook makes a zip with book
 func ZipBook(df, filename string, path string) (io.ReadCloser, error) {
 	buf := new(bytes.Buffer)
 	w := zip.NewWriter(buf)
@@ -40,12 +40,12 @@ func ZipBook(df, filename string, path string) (io.ReadCloser, error) {
 	}
 	for _, f := range r.File {
 		if f.Name == filename {
-			// Создаем новый архив
+			// Create a new file in the zip archive.
 			zf, err := w.Create(df + ".fb2")
 			if err != nil {
 				return nil, err
 			}
-			// Открываем файл
+			// Open the file from the archive.
 			rc, err := f.Open()
 			if err != nil {
 				return nil, err

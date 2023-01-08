@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// AdminMiddleware мидлварь для проверки админских прав
+// AdminMiddleware middleware for admin actions
 func AdminMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userToken := c.Request.Header.Get("Authorization")

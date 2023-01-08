@@ -15,7 +15,7 @@ type UserTelegramRequest struct {
 	BookID      int64  `json:"book_id"`
 }
 
-// User структура пользователя в БД
+// User struct for user table
 type User struct {
 	tableName       struct{}            `pg:"auth_user,discard_unknown_columns" json:"-"`
 	ID              int64               `pg:"id,pk" json:"id"`
@@ -34,7 +34,7 @@ type User struct {
 	TelegramRequest UserTelegramRequest `pg:"-" json:"-"`
 }
 
-// LoggedInUser структура для возвращения логина и токена доступа
+// LoggedInUser struct for user table with token
 type LoggedInUser struct {
 	User        string  `json:"username"`
 	FirstName   string  `json:"first_name"`
@@ -45,13 +45,13 @@ type LoggedInUser struct {
 	IsSuperuser *bool   `json:"is_superuser,omitempty"`
 }
 
-// LoginRequest структура для логина в библиотеку
+// LoginRequest struct for login request
 type LoginRequest struct {
 	Login    string `form:"username" json:"username" binding:"required"`
 	Password string `form:"password" json:"password" binding:"required"`
 }
 
-// RegisterRequest структура формы регистрации
+// RegisterRequest struct for register request
 type RegisterRequest struct {
 	Login    string `form:"username" json:"username" binding:"required"`
 	Password string `form:"password" json:"password" binding:"required"`
@@ -59,7 +59,7 @@ type RegisterRequest struct {
 	Invite   string `form:"invite" json:"invite" binding:"required"`
 }
 
-// Invite структура инвайта в бд
+// Invite struct for invite table
 type Invite struct {
 	tableName  struct{}  `pg:"invites,discard_unknown_columns" json:"-"`
 	ID         int64     `pg:"id,pk" json:"id" form:"id"`
@@ -67,7 +67,7 @@ type Invite struct {
 	BeforeDate time.Time `pg:"before_date" json:"before_date" form:"before_date" time_format:"2006-01-02T15:04:05Z07:00"`
 }
 
-// CheckValues проверка формы на валидность email, имени пользователя и длины пароля
+// CheckValues check values for register request
 func (r RegisterRequest) CheckValues() bool {
 	emailRegex := regexp.MustCompile("^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+" +
 		"@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9]" +
@@ -85,7 +85,7 @@ func (r RegisterRequest) CheckValues() bool {
 	return true
 }
 
-// UserFilters фильтры для запроса списка пользователей
+// UserFilters params for user filters
 type UserFilters struct {
 	Limit    int    `form:"limit" json:"limit"`
 	Offset   int    `form:"offset" json:"offset"`
@@ -94,7 +94,7 @@ type UserFilters struct {
 	DESC     bool   `form:"desc" json:"desc"`
 }
 
-// AdminCommandToUser команда для работы с пользователем для получения или изменения объекта пользователя
+// AdminCommandToUser command to user from admin panel
 type AdminCommandToUser struct {
 	Action string `form:"action"`
 	User   User   `form:"user"`

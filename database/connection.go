@@ -12,7 +12,7 @@ func init() {
 	db = pgConn()
 }
 
-// Функция возвращает подключение к БД
+// pgConn func for connect to postgres
 func pgConn() *pg.DB {
 	db := pg.Connect(&pg.Options{
 		User:     config.AppConfig.GetString("postgres.dbuser"),

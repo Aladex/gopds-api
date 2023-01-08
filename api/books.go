@@ -24,7 +24,7 @@ import (
 	"time"
 )
 
-// ExportAnswer структура ответа найденных книг и полного списка языков для компонента Books.vue
+// ExportAnswer struct for books list response
 type ExportAnswer struct {
 	Books  []models.Book `json:"books"`
 	Length int           `json:"length"`
@@ -63,10 +63,10 @@ func UploadBook(c *gin.Context) {
 	fb2scan.SaveBook(fileBuffer.Bytes(), file.Filename, username)
 }
 
-// GetLangs метод для запроса списка языков из БД opds
+// GetLangs method for get langs from db
 // Auth godoc
-// @Summary список языков
-// @Description список языков
+// @Summary method for get langs from db
+// @Description method for get langs from db
 // @Param Authorization header string true "Just token without bearer"
 // @Accept  json
 // @Produce  json
@@ -83,10 +83,10 @@ func GetLangs(c *gin.Context) {
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
 }
 
-// GetBooks метод для запроса списка книг из БД opds
+// GetBooks method for get books from db and return them in json
 // Auth godoc
-// @Summary возвращает JSON с книгами
-// @Description возвращает JSON с книгами
+// @Summary method for get books from db and return them in json
+// @Description method for get books from db and return them in json
 // @Param Authorization header string true "Just token without bearer"
 // @Param  limit query int true "Limit"
 // @Param  offset query int true "Offset"
@@ -120,7 +120,7 @@ func GetBooks(c *gin.Context) {
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
 }
 
-// GetBookPoster метод для запроса обложки
+// GetBookPoster return book poster by id if it exists
 func GetBookPoster(c *gin.Context) {
 	bookId, err := strconv.ParseInt(c.Param("book"), 10, 64)
 	if err != nil {

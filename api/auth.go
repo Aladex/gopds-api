@@ -14,10 +14,10 @@ import (
 	"strings"
 )
 
-// DropAllSessions Метод сброса всех сессий пользователя
+// DropAllSessions drops all sessions from redis
 // Auth godoc
-// @Summary Метод для сброса всех сессий пользователя
-// @Description Метод для сброса всех сессий пользователя
+// @Summary drops all sessions from redis
+// @Description drops all sessions from redis
 // @Tags login
 // @Accept  json
 // @Produce  json
@@ -103,10 +103,10 @@ func AuthCheck(c *gin.Context) {
 	}
 }
 
-// LogOut Метод разлогина
+// LogOut method for logout user
 // Auth godoc
-// @Summary Метод разлогина
-// @Description Метод разлогина
+// @Summary method for logout user
+// @Description method for logout user
 // @Tags login
 // @Accept  json
 // @Produce  json
@@ -124,10 +124,10 @@ func LogOut(c *gin.Context) {
 	c.JSON(200, gin.H{"result": "ok"})
 }
 
-// SelfUser Метод для получения информации по пользователю
+// SelfUser method for get user info by token
 // Auth godoc
-// @Summary Метод для получения информации по пользователю
-// @Description Метод для получения информации по пользователю
+// @Summary method for get user info by token
+// @Description method for get user info by token
 // @Tags login
 // @Accept  json
 // @Produce  json
@@ -159,7 +159,7 @@ func SelfUser(c *gin.Context) {
 	c.JSON(200, selfUser)
 }
 
-// ChangeUser метод для изменения объекта пользователя
+// ChangeUser method for change user info by token
 // Auth godoc
 // @Summary Returns an users object
 // @Description user object

@@ -9,14 +9,14 @@ import (
 	"net/http"
 )
 
-// ActionUser метод для запроса объекта пользователя или его изменения
+// ActionUser method for change user info
 // Auth godoc
 // @Summary Returns an users object
 // @Description user object
 // @Tags admin
 // @Accept  json
 // @Produce  json
-// @Param  body body models.AdminCommandToUser true "User фсешщт"
+// @Param  body body models.AdminCommandToUser true "User action"
 // @Success 200 {object} models.User
 // @Failure 400 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError
