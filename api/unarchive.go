@@ -98,7 +98,7 @@ func GetBookFile(c *gin.Context) {
 			}
 
 		default:
-			httputil.NewError(c, http.StatusBadRequest, errors.New("unknown file format"))
+			httputil.NewError(c, http.StatusBadRequest, errors.New("unknown book format"))
 			return
 		}
 		c.Header("Content-Disposition", fmt.Sprintf(contentDisp, downloadName, bookRequest.Format))
@@ -109,7 +109,7 @@ func GetBookFile(c *gin.Context) {
 			logging.CustomLog.WithFields(logrus.Fields{
 				"status":      c.Writer.Status(),
 				"method":      c.Request.Method,
-				"error":       "client was dropped connection",
+				"error":       "Client closed connection",
 				"ip":          c.ClientIP(),
 				"book_format": bookRequest.Format,
 				"user-agent":  c.Request.UserAgent(),

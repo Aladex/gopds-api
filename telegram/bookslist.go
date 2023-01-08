@@ -176,6 +176,7 @@ type InlineKeyboardMarkup struct {
 	InlineKeyboard [][]InlineKeyboardButton `json:"inline_keyboard"`
 }
 
+// BaseChat - base chat struct
 type BaseChat struct {
 	ChatID int64 `json:"chat_id"` // required
 	//ChannelUsername          string `json:"channel_username"`
@@ -198,6 +199,7 @@ type MessageConfig struct {
 	DisableWebPagePreview bool   `json:"disable_web_page_preview"`
 }
 
+// CreateBookFileFormatMarkup - create book file format markup for telegram
 func CreateBookFileFormatMarkup(book *models.Book) InlineKeyboardMarkup {
 	var rows [][]InlineKeyboardButton
 
@@ -208,6 +210,7 @@ func CreateBookFileFormatMarkup(book *models.Book) InlineKeyboardMarkup {
 	return NewInlineKeyboardMarkup(rows...)
 }
 
+// TgBook - telegram book struct for send to user
 func TgBook(book *models.Book) (string, error) {
 	tgBook := TelegramBook{
 		Title:        book.Title,

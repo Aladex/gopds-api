@@ -1,7 +1,9 @@
 package models
 
 import (
+	"bytes"
 	"github.com/go-pg/pg/v10/orm"
+	"regexp"
 	"time"
 )
 
@@ -11,6 +13,93 @@ func init() {
 	orm.RegisterTable((*OrderToAuthor)(nil))
 	orm.RegisterTable((*OrderToSeries)(nil))
 	orm.RegisterTable((*UserToBook)(nil))
+}
+
+func TranslitDict() map[string]string {
+	return map[string]string{
+		"А": "A",
+		"а": "a",
+		"Б": "B",
+		"б": "b",
+		"В": "V",
+		"в": "v",
+		"Г": "G",
+		"г": "g",
+		"Д": "D",
+		"д": "d",
+		"Е": "E",
+		"е": "e",
+		"Ё": "Jo",
+		"ё": "jo",
+		"Ж": "Zh",
+		"ж": "zh",
+		"З": "Z",
+		"з": "z",
+		"И": "I",
+		"и": "i",
+		"Й": "J",
+		"й": "j",
+		"К": "K",
+		"к": "k",
+		"Л": "L",
+		"л": "l",
+		"М": "M",
+		"м": "m",
+		"Н": "N",
+		"н": "n",
+		"О": "O",
+		"о": "o",
+		"П": "P",
+		"п": "p",
+		"Р": "R",
+		"р": "r",
+		"С": "S",
+		"с": "s",
+		"Т": "T",
+		"т": "t",
+		"У": "U",
+		"у": "u",
+		"Ф": "F",
+		"ф": "f",
+		"Х": "H",
+		"х": "h",
+		"Ц": "C",
+		"ц": "c",
+		"Ч": "Ch",
+		"ч": "ch",
+		"Ш": "Sh",
+		"ш": "sh",
+		"Щ": "Shh",
+		"щ": "shh",
+		"Ъ": "",
+		"ъ": "",
+		"Ы": "Y",
+		"ы": "y",
+		"Ь": "",
+		"ь": "",
+		"Э": "Je",
+		"э": "je",
+		"Ю": "Ju",
+		"ю": "ju",
+		"Я": "Ja",
+		"я": "ja",
+	}
+}
+
+// Translit transliterate from russian to latin
+func Translit(s string) string {
+	var buffer bytes.Buffer
+	dictionary := TranslitDict()
+
+	for _, v := range s {
+		if char, ok := dictionary[string(v)]; ok {
+			buffer.WriteString(char)
+		} else {
+			buffer.WriteString(string(v))
+		}
+	}
+
+	return buffer.String()
 }
 
 // Cover struct for storing covers
@@ -49,6 +138,12 @@ type Book struct {
 	Series       []*Series `pg:"many2many:opds_catalog_bseries,join_fk:ser_id" json:"series"`
 	Users        []*User   `pg:"many2many:favorite_books,join_fk:book_id" json:"favorites"`
 	Covers       []*Cover  `pg:"covers,rel:has-many" json:"covers"`
+}
+
+func (b *Book) DownloadName() string {
+	var nameRegExp = regexp.MustCompile(`[^A-Za-z0-9а-яА-ЯёЁ]+`)
+	var name = nameRegExp.ReplaceAllString(b.Title, "")
+	return Translit(name) + "." + b.Format
 }
 
 // Author struct for authors
