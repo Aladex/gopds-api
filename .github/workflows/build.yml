@@ -15,7 +15,7 @@ jobs:
       # Extract the version from the Git tag
       - name: Extract version from Git tag
         id: get_version
-        run: echo ::set-output name=VERSION::$(echo $GITHUB_REF | cut -d / -f 3)
+        run: echo name=VERSION::$(echo $GITHUB_REF | cut -d / -f 3) >> $GITHUB_OUTPUT
       # Set up QEMU, which allows the Docker daemon to build and run multi-architecture images
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v1
@@ -33,8 +33,6 @@ jobs:
         id: docker_build
         uses: docker/build-push-action@v2
         with:
-          # Set the build context to the current directory
-          context: .
           # Push the built image to DockerHub
           push: true
           # Set the tags for the built image
