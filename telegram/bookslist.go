@@ -204,7 +204,7 @@ func CreateBookFileFormatMarkup(book *models.Book) InlineKeyboardMarkup {
 	var rows [][]InlineKeyboardButton
 
 	for _, f := range DefaultFileFormats() {
-		rows = append(rows, NewInlineKeyboardRow(NewInlineKeyboardButtonData(f, fmt.Sprintf("download:%d:%s", book.ID, f))))
+		rows = append(rows, NewInlineKeyboardRow(NewInlineKeyboardButtonData(f, fmt.Sprintf("download_book_%s_%d", f, book.ID))))
 	}
 
 	return NewInlineKeyboardMarkup(rows...)

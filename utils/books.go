@@ -6,7 +6,6 @@ import (
 	"errors"
 	uuid "github.com/satori/go.uuid"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/exec"
 )
@@ -58,7 +57,7 @@ func ZipBook(df, filename string, path string) (io.ReadCloser, error) {
 			if err != nil {
 				return nil, err
 			}
-			zipAnswer := ioutil.NopCloser(bytes.NewReader(buf.Bytes()))
+			zipAnswer := io.NopCloser(bytes.NewReader(buf.Bytes()))
 
 			return zipAnswer, nil
 		}

@@ -20,8 +20,14 @@ import (
 // bookIdRegex Regex for book id
 const bookIdRegex = `^get_book_(\d+)`
 
+// bookFormatDownloadRegex Regex for book format download
+const bookFormatDownloadRegex = `^download_book_fb2|epub|zip|mobi_(\d+)`
+
 // Compile regex for book id
 var bookIdRegexCompiled = regexp.MustCompile(bookIdRegex)
+
+// Compile regex for book format download
+var bookFormatDownloadRegexCompiled = regexp.MustCompile(bookFormatDownloadRegex)
 
 // init Initialize telegram users map and channel
 func init() {
@@ -218,6 +224,7 @@ func TokenApiEndpoint(c *gin.Context) {
 		callbackData := telegramMessage.(telegram.CallbackMessage).CallbackQuery.Data
 		// Check regex for book id
 		isBookID := bookIdRegexCompiled.MatchString(callbackData)
+		isDownload := bookFormatDownloadRegexCompiled.MatchString(callbackData)
 
 		switch callbackData {
 		case "next":
@@ -272,6 +279,24 @@ func TokenApiEndpoint(c *gin.Context) {
 				c.JSON(http.StatusOK, gin.H{
 					"message": "ok",
 				})
+			} else if isDownload {
+				// Get file format from callback data
+				fileFormat := strings.Split(callbackData, "_")[2]
+				// Get book from database by converted book id
+				bookID := strings.Split(callbackData, "_")[3]
+				// convert book id to int64
+				bookIDInt64, err := strconv.ParseInt(bookID, 10, 64)
+
+				book, err := database.GetBook(bookIDInt64)
+				if err != nil {
+					DefaultApiErrorHandler(c, err)
+					return
+				}
+				err = telegram.SendBookFile(fileFormat, user, book)
+				if err != nil {
+					DefaultApiErrorHandler(c, err)
+					return
+				}
 			}
 		}
 	default:

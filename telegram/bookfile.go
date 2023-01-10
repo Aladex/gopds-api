@@ -58,8 +58,7 @@ func SendBookFile(fileFormat string, user models.User, book models.Book) error {
 				return
 			}
 		}()
-		err = SendFile(url, user.TelegramID, &rc, book.DownloadName())
-
+		err = SendFile(url, user.TelegramID, &rc, book.DownloadName()+".fb2")
 	}
 
 	return nil

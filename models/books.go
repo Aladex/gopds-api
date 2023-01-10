@@ -143,7 +143,7 @@ type Book struct {
 func (b *Book) DownloadName() string {
 	var nameRegExp = regexp.MustCompile(`[^A-Za-z0-9а-яА-ЯёЁ]+`)
 	var name = nameRegExp.ReplaceAllString(b.Title, "")
-	return Translit(name) + "." + b.Format
+	return Translit(name)
 }
 
 // Author struct for authors

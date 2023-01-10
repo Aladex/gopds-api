@@ -14,11 +14,8 @@ import (
 	"gopds-api/utils"
 	"io"
 	"net/http"
-	"regexp"
-	"strings"
 )
 
-var nameRegExp = regexp.MustCompile(`[^A-Za-z0-9а-яА-ЯёЁ]+`)
 var bookTypes = map[string]string{
 	"fb2":  "application/fb2+xml",
 	"zip":  "application/zip",
@@ -50,9 +47,6 @@ func GetBookFile(c *gin.Context) {
 			httputil.NewError(c, http.StatusNotFound, err)
 			return
 		}
-		downloadName := nameRegExp.ReplaceAllString(strings.ToLower(book.Title), `_`)
-		downloadName = utils.Translit(downloadName)
-
 		zipPath := config.AppConfig.GetString("app.files_path") + book.Path
 		r, err := zip.OpenReader(zipPath)
 		if err != nil {
@@ -69,7 +63,6 @@ func GetBookFile(c *gin.Context) {
 
 		switch bookRequest.Format {
 		case "fb2":
-			c.Header("Content-Disposition", fmt.Sprintf(contentDisp, downloadName, bookRequest.Format))
 			rc, err = utils.FB2Book(book.FileName, zipPath)
 			if err != nil {
 				httputil.NewError(c, http.StatusBadRequest, err)
@@ -77,7 +70,7 @@ func GetBookFile(c *gin.Context) {
 			}
 
 		case "zip":
-			rc, err = utils.ZipBook(downloadName, book.FileName, zipPath)
+			rc, err = utils.ZipBook(book.DownloadName(), book.FileName, zipPath)
 			if err != nil {
 				httputil.NewError(c, http.StatusBadRequest, err)
 				return
@@ -101,7 +94,7 @@ func GetBookFile(c *gin.Context) {
 			httputil.NewError(c, http.StatusBadRequest, errors.New("unknown book format"))
 			return
 		}
-		c.Header("Content-Disposition", fmt.Sprintf(contentDisp, downloadName, bookRequest.Format))
+		c.Header("Content-Disposition", fmt.Sprintf(contentDisp, book.DownloadName(), bookRequest.Format))
 		c.Header("Content-Type", bookTypes[bookRequest.Format])
 		_, err = io.Copy(c.Writer, rc)
 
