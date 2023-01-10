@@ -59,6 +59,18 @@ func SendBookFile(fileFormat string, user models.User, book models.Book) error {
 			}
 		}()
 		err = SendFile(url, user.TelegramID, &rc, book.DownloadName()+".fb2")
+	case "epub":
+		rc, err := utils.EpubBook(book.FileName, zipPath)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			err := rc.Close()
+			if err != nil {
+				return
+			}
+		}()
+		err = SendFile(url, user.TelegramID, &rc, book.DownloadName()+".epub")
 	}
 
 	return nil
