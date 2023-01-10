@@ -41,6 +41,3 @@ jobs:
           tags: |
             aladex/gopds-api:${{ steps.get_version.outputs.VERSION }}
             aladex/gopds-api:latest
-          # Pass the extracted version as an argument to the build process
-          build_args:
-            - VERSION=${{ steps.get_version.outputs.VERSION }}
