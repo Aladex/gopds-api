@@ -92,7 +92,7 @@ func EpubBook(filename string, path string) (io.ReadCloser, error) {
 
 			_, err = io.Copy(tmpFile, rc)
 
-			cmd := exec.Command("external_fb2mobi/fb2mobi", tmpFilename+".fb2", "-f", "epub")
+			cmd := exec.Command("external_fb2mobi/fb2c", "convert", "--to", "epub", tmpFilename+".fb2", ".")
 			err = cmd.Run()
 			if err != nil {
 				return nil, err
@@ -133,7 +133,7 @@ func MobiBook(filename string, path string) (io.ReadCloser, error) {
 
 			_, err = io.Copy(tmpFile, rc)
 
-			cmd := exec.Command("external_fb2mobi/fb2mobi", tmpFilename+".fb2", "-f", "mobi")
+			cmd := exec.Command("external_fb2mobi/fb2c", "convert", "--to", "mobi", tmpFilename+".fb2", ".")
 			err = cmd.Run()
 			if err != nil {
 				return nil, err

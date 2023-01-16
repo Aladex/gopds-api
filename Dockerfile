@@ -2,11 +2,12 @@
 FROM golang:1.15-alpine as build-stage
 
 # Install dependencies and download fb2mobi
-RUN apk add --no-cache xz curl expat && \
-    curl -L https://github.com/rupor-github/fb2mobi/releases/download/3.6.67/fb2mobi_cli_linux_x86_64_glibc_2.23.tar.xz -o fb2mobi.tar.xz && \
+RUN apk add --no-cache unzip curl expat && \
+    curl -L https://github.com/rupor-github/fb2converter/releases/download/v1.67.1/fb2c_linux_amd64.zip -o fb2c_linux_amd64.zip && \
     mkdir /external_fb2mobi && \
-    tar -xf fb2mobi.tar.xz -C /external_fb2mobi && \
-    chmod +x /external_fb2mobi/fb2mobi && \
+    # Unzip fb2c_linux_amd64.zip to /external_fb2mobi  \
+    unzip fb2c_linux_amd64.zip -d /external_fb2mobi && \
+    chmod +x /external_fb2mobi/fb2c && \
     chmod +x /external_fb2mobi/kindlegen
 
 # Copy the source code and set the working directory
