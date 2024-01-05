@@ -44,7 +44,7 @@ func MailConnection() (*smtp.Client, error) {
 func SendActivationEmail(data SendType) error {
 	var b bytes.Buffer
 
-	from := mail.Address{"Робот", config.AppConfig.GetString("email.user")}
+	from := mail.Address{"Робот", config.AppConfig.GetString("email.from")}
 	to := mail.Address{"", data.Email}
 
 	// Setup headers
