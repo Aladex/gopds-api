@@ -31,6 +31,7 @@ func Options(c *gin.Context) {
 
 func HeadToGetMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		log.Printf("HeadToGetMiddleware: Original Method: %s, Path: %s", c.Request.Method, c.Request.URL.Path)
 		if c.Request.Method == "HEAD" {
 			c.Request.Method = "GET"
 		}
