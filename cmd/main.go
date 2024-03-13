@@ -13,6 +13,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 )
 
 func Options(c *gin.Context) {
@@ -26,16 +27,6 @@ func Options(c *gin.Context) {
 		c.Header("Allow", "HEAD,GET,POST,PUT,PATCH,DELETE,OPTIONS")
 		c.Header("Content-Type", "application/json")
 		c.AbortWithStatus(http.StatusOK)
-	}
-}
-
-func HeadToGetMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		log.Printf("HeadToGetMiddleware: Original Method: %s, Path: %s", c.Request.Method, c.Request.URL.Path)
-		if c.Request.Method == "HEAD" {
-			c.Request.Method = "GET"
-		}
-		c.Next()
 	}
 }
 
@@ -61,7 +52,6 @@ func main() {
 	if config.AppConfig.GetBool("app.devel_mode") {
 		route.Use(Options)
 	}
-	route.Use(HeadToGetMiddleware())
 	route.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	linkGen := route.Group("/files")
 	linkGen.Use(middlewares.TokenMiddleware())
@@ -143,8 +133,21 @@ func main() {
 		telegramGroup.POST("/:id", api.TokenApiEndpoint)
 	}
 
-	err := route.Run("0.0.0.0:8085")
-	if err != nil {
-		log.Fatalln(err)
+	s := &http.Server{
+		Addr: ":8085",
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == "HEAD" {
+				r.Method = "GET"
+			}
+			route.ServeHTTP(w, r)
+		}),
+		ReadTimeout:    10 * time.Second,
+		WriteTimeout:   10 * time.Second,
+		MaxHeaderBytes: 1 << 20,
+	}
+
+	// Запуск сервера
+	if err := s.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("Server failed to start: %v", err)
 	}
 }
