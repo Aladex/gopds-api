@@ -29,6 +29,15 @@ func Options(c *gin.Context) {
 	}
 }
 
+func HeadToGetMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Request.Method == "HEAD" {
+			c.Request.Method = "GET"
+		}
+		c.Next()
+	}
+}
+
 // @title GOPDS API
 // @version 1.0
 // @description GOPDS API implementation to django service
@@ -51,6 +60,7 @@ func main() {
 	if config.AppConfig.GetBool("app.devel_mode") {
 		route.Use(Options)
 	}
+	route.Use(HeadToGetMiddleware())
 	route.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	linkGen := route.Group("/files")
 	linkGen.Use(middlewares.TokenMiddleware())
@@ -73,7 +83,6 @@ func main() {
 		route.GET("/api/logout", api.LogOut)
 		route.GET("/api/drop-sessions", api.DropAllSessions)
 		route.GET("/download/:format/:id", opds.DownloadBook)
-		route.HEAD("/download/:format/:id", opds.DownloadBook)
 	}
 
 	// XML routes
