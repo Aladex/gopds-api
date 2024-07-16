@@ -11,6 +11,7 @@ import (
 	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/sessions"
+	"log"
 	"net/http"
 )
 
@@ -133,27 +134,38 @@ func ChangeUserState(c *gin.Context) {
 			return
 		}
 
-		if len(token.Password) < 8 && len(token.Password) > 0 {
+		// Check password length
+		if len(token.Password) > 0 && len(token.Password) < 8 {
 			httputil.NewError(c, http.StatusBadRequest, errors.New("bad_password"))
 			return
 		}
 
+		// Update password and activate user
 		dbUser.Password = token.Password
 		dbUser.Active = true
 
-		user, err := database.ActionUser(models.AdminCommandToUser{
+		// Update user in database
+		updatedUser, err := database.ActionUser(models.AdminCommandToUser{
 			Action: "update",
 			User:   dbUser,
 		})
 		if err != nil {
+			log.Printf("failed to update user: %v", err)
 			c.JSON(500, err)
 			return
 		}
+
+		// Check if user is active
+		if !updatedUser.Active {
+			httputil.NewError(c, http.StatusInternalServerError, errors.New("user_not_activated"))
+			return
+		}
+
 		selfUser := models.LoggedInUser{
-			User:        user.Login,
-			FirstName:   user.FirstName,
-			LastName:    user.LastName,
-			IsSuperuser: &user.IsSuperUser,
+			User:        updatedUser.Login,
+			FirstName:   updatedUser.FirstName,
+			LastName:    updatedUser.LastName,
+			IsSuperuser: &updatedUser.IsSuperUser,
 		}
 
 		go sessions.DeleteTokenPassword(token.Token)

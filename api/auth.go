@@ -63,6 +63,18 @@ func AuthCheck(c *gin.Context) {
 			httputil.NewError(c, http.StatusForbidden, errors.New("bad_credentials"))
 			return
 		}
+
+		// Check if user is active
+		if !dbUser.Active {
+			logging.CustomLog.WithFields(logrus.Fields{
+				"action":   "login",
+				"result":   "user not active",
+				"username": user.Login,
+			}).Info()
+			httputil.NewError(c, http.StatusForbidden, errors.New("user not active"))
+			return
+		}
+
 		switch res {
 		case true:
 			userToken, err := utils.CreateToken(dbUser)

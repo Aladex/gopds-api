@@ -25,21 +25,24 @@ func UserObject(search string) (models.User, error) {
 	return *userDB, nil
 }
 
-// CheckUser function for check user in database by username and password
+// CheckUser function for checking user in the database by login and password
 func CheckUser(u models.LoginRequest) (bool, models.User, error) {
-	userDB := new(models.User)
-	err := db.Model(userDB).
+	var userDB models.User
+	err := db.Model(&userDB).
 		WhereOr("username ILIKE ?", strings.ToLower(u.Login)).
 		WhereOr("email ILIKE ?", strings.ToLower(u.Login)).
 		First()
 	if err != nil {
-		return false, *userDB, err
+		return false, userDB, err
 	}
+
+	// Check password
 	pCheck, err := utils.CheckPbkdf2(u.Password, userDB.Password, sha256.Size, sha256.New)
-	if err != nil {
-		return false, *userDB, nil
+	if err != nil || !pCheck {
+		return false, userDB, nil
 	}
-	return pCheck, *userDB, nil
+
+	return true, userDB, nil
 }
 
 // LoginDateSet goroutine for update user login date
@@ -175,29 +178,43 @@ func ActionUser(action models.AdminCommandToUser) (models.User, error) {
 	if err != nil {
 		return userToChange, err
 	}
+
 	switch action.Action {
 	case "get":
 		return userToChange, nil
 	case "update":
+		// Update user password if it is not empty
 		if action.User.Password != "" {
 			tmpPass = utils.CreatePasswordHash(action.User.Password)
 		} else {
 			tmpPass = userToChange.Password
 		}
+
+		// Set new password and active user
 		if action.User.BotToken != "" {
-			_, err = http.Get(fmt.Sprintf("https://api.telegram.org/bot%s/setWebhook?url=%s/telegram/%s", action.User.BotToken,
+			webhookURL := fmt.Sprintf("https://api.telegram.org/bot%s/setWebhook?url=%s/telegram/%s",
+				action.User.BotToken,
 				config.AppConfig.GetString("project_domain"),
-				action.User.BotToken))
+				action.User.BotToken)
+			resp, err := http.Get(webhookURL)
 			if err != nil {
 				return userToChange, err
 			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				return userToChange, fmt.Errorf("failed to set webhook, status code: %d", resp.StatusCode)
+			}
 		}
+
+		// Update user info
 		userToChange = action.User
 		userToChange.Password = tmpPass
-		_, err := db.Model(&userToChange).WherePK().Update()
+		_, err = db.Model(&userToChange).WherePK().Update()
 		if err != nil {
 			return userToChange, err
 		}
+
 		return userToChange, nil
 	default:
 		return userToChange, errors.New("unknown action")
