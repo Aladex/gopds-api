@@ -9,6 +9,7 @@ require (
 	github.com/go-redis/redis v6.15.7+incompatible
 	github.com/golang-jwt/jwt/v4 v4.0.0
 	github.com/golang/protobuf v1.4.3
+	github.com/google/uuid v1.6.0
 	github.com/satori/go.uuid v1.2.0
 	github.com/sirupsen/logrus v1.2.0
 	github.com/spf13/viper v1.6.3

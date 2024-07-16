@@ -1,7 +1,6 @@
 package api
 
 import (
-	"archive/zip"
 	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
@@ -14,6 +13,7 @@ import (
 	"gopds-api/utils"
 	"io"
 	"net/http"
+	"strings"
 )
 
 var bookTypes = map[string]string{
@@ -38,64 +38,41 @@ var bookTypes = map[string]string{
 // @Router /books/file [post]
 func GetBookFile(c *gin.Context) {
 	var bookRequest models.BookDownload
-	var rc io.ReadCloser
 	contentDisp := "attachment; filename=%s.%s"
 	if err := c.ShouldBindJSON(&bookRequest); err == nil {
-
 		book, err := database.GetBook(bookRequest.BookID)
 		if err != nil {
 			httputil.NewError(c, http.StatusNotFound, err)
 			return
 		}
 		zipPath := config.AppConfig.GetString("app.files_path") + book.Path
-		r, err := zip.OpenReader(zipPath)
-		if err != nil {
-			httputil.NewError(c, http.StatusNotFound, err)
-			return
-		}
-		defer func() {
-			err := r.Close()
-			if err != nil {
-				httputil.NewError(c, http.StatusNotFound, err)
-				return
-			}
-		}()
 
-		switch bookRequest.Format {
-		case "fb2":
-			rc, err = utils.FB2Book(book.FileName, zipPath)
-			if err != nil {
-				httputil.NewError(c, http.StatusBadRequest, err)
-				return
-			}
+		bp := utils.NewBookProcessor(book.FileName, zipPath)
+		var rc io.ReadCloser
 
-		case "zip":
-			rc, err = utils.ZipBook(book.DownloadName(), book.FileName, zipPath)
-			if err != nil {
-				httputil.NewError(c, http.StatusBadRequest, err)
-				return
-			}
-
+		switch strings.ToLower(bookRequest.Format) {
 		case "epub":
-			rc, err = utils.EpubBook(book.FileName, zipPath)
-			if err != nil {
-				httputil.NewError(c, http.StatusBadRequest, err)
-				return
-			}
-
+			rc, err = bp.Epub()
 		case "mobi":
-			rc, err = utils.MobiBook(book.FileName, zipPath)
-			if err != nil {
-				httputil.NewError(c, http.StatusBadRequest, err)
-				return
-			}
-
+			rc, err = bp.Mobi()
+		case "fb2":
+			rc, err = bp.FB2()
+		case "zip":
+			rc, err = bp.Zip(book.FileName)
 		default:
 			httputil.NewError(c, http.StatusBadRequest, errors.New("unknown book format"))
 			return
 		}
+
+		if err != nil {
+			httputil.NewError(c, http.StatusBadRequest, err)
+			return
+		}
+
+		defer rc.Close()
+
 		c.Header("Content-Disposition", fmt.Sprintf(contentDisp, book.DownloadName(), bookRequest.Format))
-		c.Header("Content-Type", bookTypes[bookRequest.Format])
+		c.Header("Content-Type", bookTypes[strings.ToLower(bookRequest.Format)])
 		_, err = io.Copy(c.Writer, rc)
 
 		if err != nil {
@@ -110,7 +87,6 @@ func GetBookFile(c *gin.Context) {
 			return
 		}
 		return
-
 	}
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
 }
