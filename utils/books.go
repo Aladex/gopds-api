@@ -41,6 +41,15 @@ func (bp *BookProcessor) process(format string, cmdArgs []string, convert bool) 
 
 	for _, f := range r.File {
 		if f.Name == bp.filename {
+			rc, err := f.Open()
+			if err != nil {
+				return nil, err
+			}
+
+			if !convert {
+				return rc, nil
+			}
+
 			tmpFilename := uuid.New().String()
 			defer func() {
 				if err := DeleteTmpFile(tmpFilename, format); err != nil {
@@ -48,43 +57,33 @@ func (bp *BookProcessor) process(format string, cmdArgs []string, convert bool) 
 				}
 			}()
 
-			rc, err := f.Open()
+			tmpFile, err := os.Create(tmpFilename + ".fb2")
+			if err != nil {
+				rc.Close()
+				return nil, err
+			}
+			defer func() {
+				if err := tmpFile.Close(); err != nil {
+					log.Printf("failed to close tmp file: %v", err)
+				}
+			}()
+
+			if _, err = io.Copy(tmpFile, rc); err != nil {
+				rc.Close()
+				return nil, err
+			}
+			rc.Close()
+
+			cmdArgs = append(cmdArgs, tmpFilename+".fb2", ".")
+			cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
+			if err := cmd.Run(); err != nil {
+				return nil, err
+			}
+			convertedBook, err := os.Open(tmpFilename + format)
 			if err != nil {
 				return nil, err
 			}
-			defer rc.Close()
-
-			if convert {
-				tmpFile, err := os.Create(tmpFilename + ".fb2")
-				if err != nil {
-					return nil, err
-				}
-				defer func() {
-					if err := tmpFile.Close(); err != nil {
-						log.Printf("failed to close tmp file: %v", err)
-					}
-				}()
-
-				if _, err = io.Copy(tmpFile, rc); err != nil {
-					return nil, err
-				}
-
-				cmdArgs = append(cmdArgs, tmpFilename+".fb2", ".")
-
-				cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
-				if err := cmd.Run(); err != nil {
-					return nil, err
-				}
-
-				convertedBook, err := os.Open(tmpFilename + format)
-				if err != nil {
-					return nil, err
-				}
-
-				return convertedBook, nil
-			} else {
-				return rc, nil
-			}
+			return convertedBook, nil
 		}
 	}
 	return nil, errors.New("book not found")
