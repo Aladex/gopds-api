@@ -32,7 +32,7 @@ func NewBookProcessor(filename, path string) *BookProcessor {
 	}
 }
 
-func (bp *BookProcessor) process(format string, cmd []string, convert bool) (io.ReadCloser, error) {
+func (bp *BookProcessor) process(format string, cmdArgs []string, convert bool) (io.ReadCloser, error) {
 	r, err := zip.OpenReader(bp.path)
 	if err != nil {
 		return nil, err
@@ -59,14 +59,19 @@ func (bp *BookProcessor) process(format string, cmd []string, convert bool) (io.
 				if err != nil {
 					return nil, err
 				}
-				defer tmpFile.Close()
+				defer func() {
+					if err := tmpFile.Close(); err != nil {
+						log.Printf("failed to close tmp file: %v", err)
+					}
+				}()
 
-				_, err = io.Copy(tmpFile, rc)
-				if err != nil {
+				if _, err = io.Copy(tmpFile, rc); err != nil {
 					return nil, err
 				}
 
-				cmd := exec.Command(cmd[0], cmd[1:]...)
+				cmdArgs = append(cmdArgs, tmpFilename+".fb2", ".")
+
+				cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 				if err := cmd.Run(); err != nil {
 					return nil, err
 				}
@@ -86,11 +91,11 @@ func (bp *BookProcessor) process(format string, cmd []string, convert bool) (io.
 }
 
 func (bp *BookProcessor) Epub() (io.ReadCloser, error) {
-	return bp.process(".epub", []string{"external_fb2mobi/fb2c", "convert", "--to", "epub", bp.filename + ".fb2", "."}, true)
+	return bp.process(".epub", []string{"external_fb2mobi/fb2c", "convert", "--to", "epub"}, true)
 }
 
 func (bp *BookProcessor) Mobi() (io.ReadCloser, error) {
-	return bp.process(".mobi", []string{"external_fb2mobi/fb2c", "convert", "--to", "mobi", bp.filename + ".fb2", "."}, true)
+	return bp.process(".mobi", []string{"external_fb2mobi/fb2c", "convert", "--to", "mobi"}, true)
 }
 
 func (bp *BookProcessor) FB2() (io.ReadCloser, error) {
