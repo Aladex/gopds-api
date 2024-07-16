@@ -1,7 +1,6 @@
 package opds
 
 import (
-	"archive/zip"
 	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
@@ -13,6 +12,7 @@ import (
 	"gopds-api/models"
 	"gopds-api/utils"
 	"io"
+	"log"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -48,65 +48,44 @@ func DownloadBook(c *gin.Context) {
 	downloadName = utils.Translit(downloadName)
 
 	zipPath := config.AppConfig.GetString("app.files_path") + book.Path
-	r, err := zip.OpenReader(zipPath)
-	if err != nil {
-		httputil.NewError(c, http.StatusNotFound, err)
-		return
-	}
-	defer func() {
-		err := r.Close()
-		if err != nil {
-			httputil.NewError(c, http.StatusNotFound, err)
-			return
-		}
-	}()
+	bp := utils.NewBookProcessor(book.FileName, zipPath)
 
 	var rc io.ReadCloser
 	contentDisp := "attachment; filename=%s.%s"
 
-	switch bookRequest.Format {
+	switch strings.ToLower(bookRequest.Format) {
 	case "fb2":
-		c.Header("Content-Disposition", fmt.Sprintf(contentDisp, downloadName, bookRequest.Format))
-		rc, err = utils.FB2Book(book.FileName, zipPath)
-		if err != nil {
-			httputil.NewError(c, http.StatusBadRequest, err)
-			return
-		}
-
+		rc, err = bp.FB2()
 	case "zip":
-		rc, err = utils.ZipBook(downloadName, book.FileName, zipPath)
-		if err != nil {
-			httputil.NewError(c, http.StatusBadRequest, err)
-			return
-		}
-
+		rc, err = bp.Zip(downloadName)
 	case "epub":
-		rc, err = utils.EpubBook(book.FileName, zipPath)
-		if err != nil {
-			httputil.NewError(c, http.StatusBadRequest, err)
-			return
-		}
-
+		rc, err = bp.Epub()
 	case "mobi":
-		rc, err = utils.MobiBook(book.FileName, zipPath)
-		if err != nil {
-			httputil.NewError(c, http.StatusBadRequest, err)
-			return
-		}
-
+		rc, err = bp.Mobi()
 	default:
 		httputil.NewError(c, http.StatusBadRequest, errors.New("unknown file format"))
 		return
 	}
+
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+	defer func() {
+		if cerr := rc.Close(); cerr != nil {
+			log.Printf("failed to close file: %v", cerr)
+		}
+	}()
+
 	c.Header("Content-Disposition", fmt.Sprintf(contentDisp, downloadName, bookRequest.Format))
-	c.Header("Content-Type", bookTypes[bookRequest.Format])
+	c.Header("Content-Type", bookTypes[strings.ToLower(bookRequest.Format)])
 	_, err = io.Copy(c.Writer, rc)
 
 	if err != nil {
 		logging.CustomLog.WithFields(logrus.Fields{
 			"status":      c.Writer.Status(),
 			"method":      c.Request.Method,
-			"error":       "client was dropped connection",
+			"error":       "client closed connection",
 			"ip":          c.ClientIP(),
 			"book_format": bookRequest.Format,
 			"user-agent":  c.Request.UserAgent(),

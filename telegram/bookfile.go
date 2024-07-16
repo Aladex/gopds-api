@@ -2,14 +2,17 @@ package telegram
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"gopds-api/config"
 	"gopds-api/models"
 	"gopds-api/utils"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 func SendFile(url string, chatID int, file *io.ReadCloser, fileName string) error {
@@ -46,37 +49,36 @@ func SendFile(url string, chatID int, file *io.ReadCloser, fileName string) erro
 func SendBookFile(fileFormat string, user models.User, book models.Book) error {
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendDocument", user.BotToken)
 	zipPath := config.AppConfig.GetString("app.files_path") + book.Path
-	switch fileFormat {
+
+	bp := utils.NewBookProcessor(book.FileName, zipPath)
+	var rc io.ReadCloser
+	var err error
+
+	switch strings.ToLower(fileFormat) {
 	case "fb2":
-		rc, err := utils.FB2Book(book.FileName, zipPath)
-		if err != nil {
-			return err
-		}
-		defer func() {
-			err := rc.Close()
-			if err != nil {
-				return
-			}
-		}()
-		err = SendFile(url, user.TelegramID, &rc, book.DownloadName()+".fb2")
-		if err != nil {
-			return err
-		}
+		rc, err = bp.FB2()
 	case "epub":
-		rc, err := utils.EpubBook(book.FileName, zipPath)
-		if err != nil {
-			return err
+		rc, err = bp.Epub()
+	case "mobi":
+		rc, err = bp.Mobi()
+	case "zip":
+		rc, err = bp.Zip(book.FileName)
+	default:
+		return errors.New("unsupported file format")
+	}
+
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cerr := rc.Close(); cerr != nil {
+			log.Printf("failed to close file: %v", cerr)
 		}
-		defer func() {
-			err := rc.Close()
-			if err != nil {
-				return
-			}
-		}()
-		err = SendFile(url, user.TelegramID, &rc, book.DownloadName()+".epub")
-		if err != nil {
-			return err
-		}
+	}()
+
+	err = SendFile(url, user.TelegramID, &rc, fmt.Sprintf("%s.%s", book.DownloadName(), fileFormat))
+	if err != nil {
+		return err
 	}
 
 	return nil
