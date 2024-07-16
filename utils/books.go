@@ -48,7 +48,7 @@ func (bp *BookProcessor) process(format string, cmdArgs []string, convert bool) 
 
 			if !convert {
 				buf := new(bytes.Buffer)
-				err, _ := buf.ReadFrom(rc)
+				_, err := buf.ReadFrom(rc)
 				if err != nil {
 					rc.Close()
 					return nil, errors.New("failed to read book")
