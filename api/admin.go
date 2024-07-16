@@ -145,7 +145,22 @@ func ChangeInvite(c *gin.Context) {
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
 }
 
-// UpdateBook method for update book
+// UpdateBook updates the information of a specific book.
+//
+// This method attempts to bind the incoming JSON payload to a Book model. If the binding is successful,
+// it proceeds to update the book's information in the database using the UpdateBook function. If the database
+// operation is successful, it responds with a JSON payload indicating whether the book has favorites.
+// In case of an error during JSON binding or the database operation, it responds with an appropriate HTTP error status and message.
+//
+// @Summary Update book information
+// @Description Updates the information for a specific book based on the provided JSON payload.
+// @Tags books
+// @Accept json
+// @Produce json
+// @Param body body models.Book true "Book update information"
+// @Success 200 {object} gin.H "have_favs indicates whether the book has favorites"
+// @Failure 400 {object} httputil.HTTPError "Bad request - invalid input parameters"
+// @Failure 500 {object} httputil.HTTPError "Internal server error"
 func UpdateBook(c *gin.Context) {
 	var bookToUpdate models.Book
 	if err := c.ShouldBindJSON(&bookToUpdate); err == nil {
