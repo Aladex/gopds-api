@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/google/uuid"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 )
@@ -43,26 +44,32 @@ func (bp *BookProcessor) process(format string, cmdArgs []string, convert bool) 
 			if err != nil {
 				return nil, err
 			}
-			defer rc.Close()
 
 			if !convert {
 				return io.NopCloser(rc), nil
 			}
 
-			tmpFilename := uuid.New().String() + ".fb2"
-			tmpFile, err := os.Create(tmpFilename)
+			tmpFilename := uuid.New().String()
+			tmpFile, err := os.Create(tmpFilename + ".fb2")
 			if err != nil {
+				rc.Close()
 				return nil, err
 			}
 			defer tmpFile.Close()
 
 			if _, err = io.Copy(tmpFile, rc); err != nil {
+				rc.Close()
 				return nil, err
 			}
+			rc.Close()
 
-			defer DeleteTmpFile(tmpFilename, format)
+			defer func() {
+				if err := DeleteTmpFile(tmpFilename, format); err != nil {
+					log.Printf("failed to delete tmp file: %v", err)
+				}
+			}()
 
-			cmdArgs = append(cmdArgs, tmpFilename, ".")
+			cmdArgs = append(cmdArgs, tmpFilename+".fb2", ".")
 			cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 			if err := cmd.Run(); err != nil {
 				return nil, err
