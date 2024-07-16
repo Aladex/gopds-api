@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/google/uuid"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -46,7 +47,7 @@ func (bp *BookProcessor) process(format string, cmdArgs []string, convert bool) 
 			}
 
 			if !convert {
-				return io.NopCloser(rc), nil
+				return ioutil.NopCloser(rc), nil
 			}
 
 			tmpFilename := uuid.New().String()
@@ -123,7 +124,7 @@ func (bp *BookProcessor) Zip(df string) (io.ReadCloser, error) {
 			if err != nil {
 				return nil, err
 			}
-			zipAnswer := io.NopCloser(bytes.NewReader(buf.Bytes()))
+			zipAnswer := ioutil.NopCloser(bytes.NewReader(buf.Bytes()))
 
 			return zipAnswer, nil
 		}
