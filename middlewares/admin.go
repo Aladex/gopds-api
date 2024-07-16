@@ -4,37 +4,31 @@ import (
 	"github.com/gin-gonic/gin"
 	"gopds-api/database"
 	"gopds-api/utils"
+	"net/http"
 	"strings"
 )
 
-// AdminMiddleware middleware for admin actions
+// AdminMiddleware checks for admin privileges using the Authorization token.
 func AdminMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userToken := c.Request.Header.Get("Authorization")
-
+		userToken := c.GetHeader("Authorization")
 		if userToken == "" {
-			c.JSON(401, "required_token")
-			c.Abort()
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "required_token"})
 			return
 		}
+
 		username, _, err := utils.CheckToken(userToken)
 		if err != nil {
-			c.JSON(401, "invalid_token")
-			c.Abort()
-			return
-		}
-		dbUser, err := database.GetUser(strings.ToLower(username))
-		if err != nil {
-			c.JSON(403, "restricted_zone")
-			c.Abort()
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid_token"})
 			return
 		}
 
-		if !dbUser.IsSuperUser {
-			c.JSON(403, "restricted_zone")
-			c.Abort()
+		dbUser, err := database.GetUser(strings.ToLower(username))
+		if err != nil || !dbUser.IsSuperUser {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "restricted_zone"})
 			return
 		}
+
 		c.Next()
 	}
 }

@@ -5,6 +5,10 @@ import (
 	"time"
 )
 
+type LinkToken struct {
+	Token string `form:"token" json:"token"`
+}
+
 type UserTelegramRequest struct {
 	TelegramID  int64  `json:"telegram_id"`
 	Request     string `json:"request"`

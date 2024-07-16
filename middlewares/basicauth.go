@@ -1,6 +1,8 @@
 package middlewares
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 	"gopds-api/database"
 	"gopds-api/models"
@@ -12,20 +14,23 @@ func BasicAuth() gin.HandlerFunc {
 		user, password, hasAuth := c.Request.BasicAuth()
 
 		if !hasAuth {
-			c.Writer.Header().Set("WWW-Authenticate", "Basic realm=Restricted")
-			c.Status(401)
-			c.Abort()
+			abortWithAuthRequired(c)
 			return
 		}
 
-		res, dbUser, err := database.CheckUser(models.LoginRequest{user, password})
+		res, dbUser, err := database.CheckUser(models.LoginRequest{Login: user, Password: password})
 		if err != nil || !res {
-			c.Writer.Header().Set("WWW-Authenticate", "Basic realm=Restricted")
-			c.Status(401)
-			c.Abort()
+			abortWithAuthRequired(c)
 			return
 		}
+
 		c.Set("username", user)
 		c.Set("user_id", dbUser.ID)
+		c.Next()
 	}
+}
+
+func abortWithAuthRequired(c *gin.Context) {
+	c.Writer.Header().Set("WWW-Authenticate", "Basic realm=Restricted")
+	c.AbortWithStatus(http.StatusUnauthorized)
 }
