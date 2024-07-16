@@ -79,10 +79,12 @@ func (bp *BookProcessor) process(format string, cmdArgs []string, convert bool) 
 			if err := cmd.Run(); err != nil {
 				return nil, err
 			}
+
 			convertedBook, err := os.Open(tmpFilename + format)
 			if err != nil {
 				return nil, err
 			}
+
 			return convertedBook, nil
 		}
 	}
