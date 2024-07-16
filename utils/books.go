@@ -47,7 +47,14 @@ func (bp *BookProcessor) process(format string, cmdArgs []string, convert bool) 
 			}
 
 			if !convert {
-				return ioutil.NopCloser(rc), nil
+				buf := new(bytes.Buffer)
+				err, _ := buf.ReadFrom(rc)
+				if err != nil {
+					rc.Close()
+					return nil, errors.New("failed to read book")
+				}
+				rc.Close()
+				return ioutil.NopCloser(bytes.NewReader(buf.Bytes())), nil
 			}
 
 			tmpFilename := uuid.New().String()
