@@ -6,8 +6,6 @@ import (
 	"errors"
 	"github.com/google/uuid"
 	"io"
-	"io/ioutil"
-	"log"
 	"os"
 	"os/exec"
 )
@@ -45,36 +43,26 @@ func (bp *BookProcessor) process(format string, cmdArgs []string, convert bool) 
 			if err != nil {
 				return nil, err
 			}
+			defer rc.Close()
 
 			if !convert {
-				return rc, nil
+				return io.NopCloser(rc), nil
 			}
 
-			tmpFilename := uuid.New().String()
-			defer func() {
-				if err := DeleteTmpFile(tmpFilename, format); err != nil {
-					log.Printf("failed to delete tmp file: %v", err)
-				}
-			}()
-
-			tmpFile, err := os.Create(tmpFilename + ".fb2")
+			tmpFilename := uuid.New().String() + ".fb2"
+			tmpFile, err := os.Create(tmpFilename)
 			if err != nil {
-				rc.Close()
 				return nil, err
 			}
-			defer func() {
-				if err := tmpFile.Close(); err != nil {
-					log.Printf("failed to close tmp file: %v", err)
-				}
-			}()
+			defer tmpFile.Close()
 
 			if _, err = io.Copy(tmpFile, rc); err != nil {
-				rc.Close()
 				return nil, err
 			}
-			rc.Close()
 
-			cmdArgs = append(cmdArgs, tmpFilename+".fb2", ".")
+			defer DeleteTmpFile(tmpFilename, format)
+
+			cmdArgs = append(cmdArgs, tmpFilename, ".")
 			cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 			if err := cmd.Run(); err != nil {
 				return nil, err
@@ -128,7 +116,7 @@ func (bp *BookProcessor) Zip(df string) (io.ReadCloser, error) {
 			if err != nil {
 				return nil, err
 			}
-			zipAnswer := ioutil.NopCloser(bytes.NewReader(buf.Bytes()))
+			zipAnswer := io.NopCloser(bytes.NewReader(buf.Bytes()))
 
 			return zipAnswer, nil
 		}
