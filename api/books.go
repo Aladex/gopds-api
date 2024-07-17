@@ -3,7 +3,6 @@ package api
 import (
 	"bufio"
 	"bytes"
-	"crypto/md5"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -19,25 +18,12 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strconv"
-	"strings"
 )
 
 // ExportAnswer struct for books list response
 type ExportAnswer struct {
 	Books  []models.Book `json:"books"`
 	Length int           `json:"length"`
-}
-
-func generateCdnHash(s string) string {
-	hash := md5.New()
-	hash.Write([]byte(s))
-	b := hash.Sum(nil)
-	b64hash := base64.StdEncoding.EncodeToString(b)
-	b64hash = strings.ReplaceAll(b64hash, "\n", "")
-	b64hash = strings.ReplaceAll(b64hash, "+", "-")
-	b64hash = strings.ReplaceAll(b64hash, "/", "_")
-	b64hash = strings.ReplaceAll(b64hash, "=", "")
-	return b64hash
 }
 
 func UploadBook(c *gin.Context) {
