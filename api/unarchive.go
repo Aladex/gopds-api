@@ -9,10 +9,10 @@ import (
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/logging"
-	"gopds-api/models"
 	"gopds-api/utils"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -37,56 +37,64 @@ var bookTypes = map[string]string{
 // @Failure 500 {object} httputil.HTTPError
 // @Router /books/file [post]
 func GetBookFile(c *gin.Context) {
-	var bookRequest models.BookDownload
-	contentDisp := "attachment; filename=%s.%s"
-	if err := c.ShouldBindJSON(&bookRequest); err == nil {
-		book, err := database.GetBook(bookRequest.BookID)
-		if err != nil {
-			httputil.NewError(c, http.StatusNotFound, err)
-			return
-		}
-		zipPath := config.AppConfig.GetString("app.files_path") + book.Path
-
-		bp := utils.NewBookProcessor(book.FileName, zipPath)
-		var rc io.ReadCloser
-
-		switch strings.ToLower(bookRequest.Format) {
-		case "epub":
-			rc, err = bp.Epub()
-		case "mobi":
-			rc, err = bp.Mobi()
-		case "fb2":
-			rc, err = bp.FB2()
-		case "zip":
-			rc, err = bp.Zip(book.FileName)
-		default:
-			httputil.NewError(c, http.StatusBadRequest, errors.New("unknown book format"))
-			return
-		}
-
-		if err != nil {
-			httputil.NewError(c, http.StatusBadRequest, err)
-			return
-		}
-
-		defer rc.Close()
-
-		c.Header("Content-Disposition", fmt.Sprintf(contentDisp, book.DownloadName(), bookRequest.Format))
-		c.Header("Content-Type", bookTypes[strings.ToLower(bookRequest.Format)])
-		_, err = io.Copy(c.Writer, rc)
-
-		if err != nil {
-			logging.CustomLog.WithFields(logrus.Fields{
-				"status":      c.Writer.Status(),
-				"method":      c.Request.Method,
-				"error":       "Client closed connection",
-				"ip":          c.ClientIP(),
-				"book_format": bookRequest.Format,
-				"user-agent":  c.Request.UserAgent(),
-			}).Info()
-			return
-		}
+	bookID, err := strconv.ParseInt(c.Param("id"), 10, 0) // Parse the book ID from the request parameters.
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, errors.New("bad_book_id")) // Send a 400 Bad Request if the book ID is invalid.
 		return
 	}
-	httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
+	format := strings.ToLower(c.Param("format")) // Normalize the requested format to lowercase.
+	if _, ok := bookTypes[format]; !ok {
+		httputil.NewError(c, http.StatusBadRequest, errors.New("unknown book format")) // Send a 400 Bad Request if the format is unsupported.
+		return
+	}
+	contentDisp := "attachment; filename=%s.%s" // Template for the Content-Disposition header.
+	book, err := database.GetBook(bookID)       // Retrieve the book details from the database.
+	if err != nil {
+		httputil.NewError(c, http.StatusNotFound, err) // Send a 404 Not Found if the book is not in the database.
+		return
+	}
+	zipPath := config.AppConfig.GetString("app.files_path") + book.Path // Construct the path to the book file.
+
+	bp := utils.NewBookProcessor(book.FileName, zipPath) // Create a new BookProcessor for the book file.
+	var rc io.ReadCloser                                 // Declare a variable to hold the file reader.
+
+	// Use the appropriate method of the BookProcessor to get the file reader based on the requested format.
+	switch strings.ToLower(c.Param("format")) {
+	case "epub":
+		rc, err = bp.Epub()
+	case "mobi":
+		rc, err = bp.Mobi()
+	case "fb2":
+		rc, err = bp.FB2()
+	case "zip":
+		rc, err = bp.Zip(book.FileName)
+	default:
+		httputil.NewError(c, http.StatusBadRequest, errors.New("unknown book format")) // Send a 400 Bad Request if the format is not handled.
+		return
+	}
+
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err) // Send a 400 Bad Request if there is an error getting the file reader.
+		return
+	}
+
+	defer rc.Close() // Ensure the file reader is closed after serving the file.
+
+	c.Header("Content-Disposition", fmt.Sprintf(contentDisp, book.DownloadName(), c.Param("format"))) // Set the Content-Disposition header.
+	c.Header("Content-Type", bookTypes[strings.ToLower(c.Param("format"))])                           // Set the Content-Type header based on the book format.
+	_, err = io.Copy(c.Writer, rc)                                                                    // Copy the book content to the response writer.
+
+	if err != nil {
+		// Log the error if there is an issue copying the book content to the response writer.
+		logging.CustomLog.WithFields(logrus.Fields{
+			"status":      c.Writer.Status(),
+			"method":      c.Request.Method,
+			"error":       "Client closed connection",
+			"ip":          c.ClientIP(),
+			"book_format": c.Param("format"),
+			"user-agent":  c.Request.UserAgent(),
+		}).Info()
+		return
+	}
+	return
 }

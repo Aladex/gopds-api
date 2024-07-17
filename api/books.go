@@ -189,17 +189,20 @@ func FavBook(c *gin.Context) {
 	}
 }
 
-// CdnBookGenerate
+// CdnBookGenerate generates a CDN link for a book and redirects the user to it.
 func CdnBookGenerate(c *gin.Context) {
 	bookID, err := strconv.ParseInt(c.Param("id"), 10, 0)
 	if err != nil {
 		httputil.NewError(c, http.StatusBadRequest, errors.New("bad_book_id"))
+		return // Added return to prevent further execution on error
 	}
-	bookFormat := c.Param("format")
-	expires := time.Now().Add(time.Minute * 10).Unix()
-	path := fmt.Sprintf("/download/%s/%d", bookFormat, bookID)
-	secret := config.AppConfig.GetString("app.book_cdn_key")
-	token := generateCdnHash(fmt.Sprintf("%d%s %s", expires, path, secret))
-	newLink := fmt.Sprintf("%s%s?md5=%s&expires=%d", config.AppConfig.GetString("app.file_book_cdn"), path, token, expires)
-	c.Redirect(301, newLink)
+	expires := time.Now().Add(10 * time.Minute).Unix()
+	path := fmt.Sprintf("/download/%s/%d", c.Param("format"), bookID)
+	token := generateCdnHash(fmt.Sprintf("%d%s %s", expires, path, config.AppConfig.GetString("app.book_cdn_key")))
+	c.Redirect(http.StatusMovedPermanently,
+		fmt.Sprintf("%s%s?md5=%s&expires=%d",
+			config.AppConfig.GetString("app.file_book_cdn"),
+			path,
+			token,
+			expires))
 }

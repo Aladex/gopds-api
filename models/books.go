@@ -199,8 +199,10 @@ type BookFilters struct {
 
 // BookDownload struct for book download
 type BookDownload struct {
-	BookID int64  `json:"book_id" form:"book_id" binding:"required"`
-	Format string `json:"format" form:"format" binding:"required"`
+	BookID  int64  `json:"book_id" form:"book_id" binding:"required"`
+	Format  string `json:"format" form:"format" binding:"required"`
+	Hash    string `json:"md5" form:"md5"`
+	Expires int64  `json:"expires" form:"expires"`
 }
 
 // FavBook struct for favorite book

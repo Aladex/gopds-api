@@ -5,7 +5,7 @@ import "github.com/gin-gonic/gin"
 // SetupBookRoutes sets up routes for books
 func SetupBookRoutes(r *gin.RouterGroup) {
 	r.GET("/list", GetBooks)
-	r.GET("/get/:format/:id", CdnBookGenerate)
+	r.GET("/get/:format/:id", GetBookFile)
 	r.GET("/langs", GetLangs)
 	r.GET("/self-user", SelfUser)
 	r.POST("/change-me", ChangeUser)
