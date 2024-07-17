@@ -1,5 +1,5 @@
 # build stage
-FROM golang:1.15-alpine as build-stage
+FROM golang:1.20-alpine as build-stage
 
 # Install dependencies and download fb2mobi
 RUN apk add --no-cache unzip curl expat && \
@@ -13,11 +13,6 @@ RUN apk add --no-cache unzip curl expat && \
 # Copy the source code and set the working directory
 COPY . /app
 WORKDIR /app
-
-# Get the required dependencies and create the bindata
-RUN go get -u github.com/go-bindata/go-bindata/... && \
-    go mod download && \
-    go-bindata -pkg email -o email/bindata.go -fs -prefix "email/templates" email/templates/...
 
 # Build the binary
 RUN go build -o bin/gopds cmd/*

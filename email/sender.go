@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"fmt"
+	assets "gopds-api"
 	"gopds-api/config"
 	"gopds-api/logging"
 	"html/template"
@@ -93,7 +94,7 @@ func SendActivationEmail(data SendType) error {
 		return err
 	}
 
-	asset, err := Asset("reset_password.gohtml")
+	asset, err := assets.Assets.ReadFile("email/templates/reset_password.gohtml")
 	if err != nil {
 		logging.CustomLog.Println(err)
 		return err

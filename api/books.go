@@ -1,19 +1,16 @@
 package api
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/base64"
 	"errors"
-	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
+	assets "gopds-api"
 	"gopds-api/database"
-	"gopds-api/fb2scan"
 	"gopds-api/httputil"
 	"gopds-api/logging"
 	"gopds-api/models"
-	"gopds-api/static_assets"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -24,27 +21,6 @@ import (
 type ExportAnswer struct {
 	Books  []models.Book `json:"books"`
 	Length int           `json:"length"`
-}
-
-func UploadBook(c *gin.Context) {
-	file, err := c.FormFile("file")
-	username := c.GetString("username")
-	fmt.Println(c.GetString("username"))
-	if err != nil {
-		c.String(http.StatusBadRequest, fmt.Sprintf("get form err: %s", err.Error()))
-		return
-	}
-
-	f, err := file.Open()
-
-	fileReader := bufio.NewReader(f)
-
-	fileBuffer := bytes.NewBuffer(nil)
-	if _, err := io.Copy(fileBuffer, fileReader); err != nil {
-		c.String(http.StatusBadRequest, fmt.Sprintf("upload file err: %s", err.Error()))
-		return
-	}
-	fb2scan.SaveBook(fileBuffer.Bytes(), file.Filename, username)
 }
 
 // GetLangs method for get langs from db
@@ -116,7 +92,7 @@ func GetBookPoster(c *gin.Context) {
 	contentType := "image/png"
 	cover, err := database.GetCover(bookId)
 	if err != nil {
-		coverData, err = static_assets.Asset("static_assets/posters/no-cover.png")
+		coverData, err = assets.Assets.ReadFile("static_assets/posters/no-cover.png")
 		if err != nil {
 			c.JSON(500, err)
 			return

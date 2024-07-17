@@ -11,7 +11,6 @@ func SetupBookRoutes(r *gin.RouterGroup) {
 	r.POST("/change-me", ChangeUser)
 	r.GET("/authors", GetAuthors)
 	r.POST("/author", GetAuthor)
-	r.POST("/upload-book", UploadBook)
 	r.POST("/file", GetBookFile)
 	r.POST("/fav", FavBook)
 }

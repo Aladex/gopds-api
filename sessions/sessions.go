@@ -1,7 +1,7 @@
 package sessions
 
 import (
-	uuid "github.com/satori/go.uuid"
+	"github.com/google/uuid"
 	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/utils"
@@ -51,7 +51,7 @@ func DropAllSessions(token string) {
 
 // GenerateTokenPassword generates and temporary token for password change
 func GenerateTokenPassword(user string) string {
-	passwordToken := uuid.NewV4().String()
+	passwordToken := uuid.New().String()
 	rdbToken.Set(user, passwordToken, time.Minute*90)
 	return passwordToken
 }

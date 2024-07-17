@@ -4,7 +4,6 @@ import (
 	"errors"
 	"github.com/gin-gonic/gin"
 	"gopds-api/database"
-	"gopds-api/fb2scan"
 	"gopds-api/httputil"
 	"gopds-api/models"
 	"net/http"
@@ -13,8 +12,6 @@ import (
 // SetupAdminRoutes sets up the admin routes
 func SetupAdminRoutes(r *gin.RouterGroup) {
 	r.POST("/users", GetUsers)
-	r.GET("/scan", StartScan)
-	r.GET("/covers", UpdateCovers)
 	r.GET("/invites", GetInvites)
 	r.POST("/invite", ChangeInvite)
 	r.POST("/user", ActionUser)
@@ -25,46 +22,6 @@ func SetupAdminRoutes(r *gin.RouterGroup) {
 type UsersAnswer struct {
 	Users  []models.User `json:"users"`
 	Length int           `json:"length"`
-}
-
-// StartScan func for start scan books
-// Auth godoc
-// @Summary start scan books
-// @Description start scan books
-// @Tags admin
-// @Param Authorization header string true "Just token without bearer"
-// @Accept  json
-// @Produce  json
-// @Success 200 {object} models.Result
-// @Failure 500 {object} httputil.HTTPError
-// @Failure 403 {object} httputil.HTTPError
-// @Router /admin/scan [get]
-func StartScan(c *gin.Context) {
-	go fb2scan.GetArchivesList()
-	c.JSON(200, models.Result{
-		Result: "ok",
-		Error:  nil,
-	})
-}
-
-// UpdateCovers start update covers
-// Auth godoc
-// @Summary start update covers
-// @Description start update covers
-// @Tags admin
-// @Param Authorization header string true "Just token without bearer"
-// @Accept  json
-// @Produce  json
-// @Success 200 {object} models.Result
-// @Failure 500 {object} httputil.HTTPError
-// @Failure 403 {object} httputil.HTTPError
-// @Router /admin/covers [get]
-func UpdateCovers(c *gin.Context) {
-	go fb2scan.UpdateCovers()
-	c.JSON(200, models.Result{
-		Result: "ok",
-		Error:  nil,
-	})
 }
 
 // GetUsers method for get users list in admin space
