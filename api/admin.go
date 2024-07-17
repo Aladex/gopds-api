@@ -10,6 +10,17 @@ import (
 	"net/http"
 )
 
+// SetupAdminRoutes sets up the admin routes
+func SetupAdminRoutes(r *gin.RouterGroup) {
+	r.POST("/users", GetUsers)
+	r.GET("/scan", StartScan)
+	r.GET("/covers", UpdateCovers)
+	r.GET("/invites", GetInvites)
+	r.POST("/invite", ChangeInvite)
+	r.POST("/user", ActionUser)
+	r.POST("/update-book", UpdateBook)
+}
+
 // UsersAnswer struct for users list in admin space
 type UsersAnswer struct {
 	Users  []models.User `json:"users"`

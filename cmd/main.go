@@ -6,7 +6,7 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"gopds-api/api"
 	"gopds-api/config"
-	_ "gopds-api/docs"
+	_ "gopds-api/docs" // Import to include documentation for Swagger UI
 	"gopds-api/logging"
 	"gopds-api/middlewares"
 	"gopds-api/opds"
@@ -16,138 +16,106 @@ import (
 	"time"
 )
 
-func Options(c *gin.Context) {
-	if c.Request.Method != "OPTIONS" {
-		c.Header("Access-Control-Allow-Origin", "*")
-		c.Next()
-	} else {
-		c.Header("Access-Control-Allow-Origin", "*")
-		c.Header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "authorization, origin, content-type, accept, token")
-		c.Header("Allow", "HEAD,GET,POST,PUT,PATCH,DELETE,OPTIONS")
-		c.Header("Content-Type", "application/json")
-		c.AbortWithStatus(http.StatusOK)
+// setupMiddleware configures global middleware for the gin.Engine instance.
+// It includes a custom logger and, if in development mode, a CORS middleware.
+func setupMiddleware(route *gin.Engine) {
+	route.Use(logging.GinrusLogger(logging.CustomLog))
+	if config.AppConfig.GetBool("app.devel_mode") {
+		route.Use(corsOptionsMiddleware())
 	}
 }
 
-// @title GOPDS API
-// @version 1.0
-// @description GOPDS API implementation to django service
-// @contact.name API Support
-// @contact.email aladex@gmail.com
-// @BasePath /api
+// setupRoutes defines all route handlers and groups them by their functionality.
+// It includes routes for Swagger UI, file handling, default operations, OPDS feed, API, admin, and Telegram bot interactions.
+func setupRoutes(route *gin.Engine) {
+	route.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	setupFileRoutes(route.Group("/files", middlewares.TokenMiddleware()))
+	setupDefaultRoutes(route)
+	setupOpdsRoutes(route.Group("/opds", middlewares.BasicAuth()))
+	setupApiRoutes(route.Group("/api", middlewares.AuthMiddleware()))
+	setupAdminRoutes(route.Group("/admin", middlewares.AdminMiddleware()))
+	setupTelegramRoutes(route.Group("/telegram"))
+}
+
+// setupFileRoutes configures routes related to file operations.
+func setupFileRoutes(group *gin.RouterGroup) {
+	group.GET("/books/get/:format/:id", api.CdnBookGenerate)
+}
+
+// setupDefaultRoutes configures default routes for the application.
+func setupDefaultRoutes(route *gin.Engine) {
+	route.GET("/book-posters/:book", api.GetBookPoster)
+	route.GET("/status", api.StatusCheck)
+	route.POST("/api/login", api.AuthCheck)
+}
+
+// setupOpdsRoutes configures routes for OPDS feed interactions.
+func setupOpdsRoutes(group *gin.RouterGroup) {
+	opds.SetupOpdsRoutes(group)
+}
+
+// setupApiRoutes configures API routes for book operations and other functionalities.
+func setupApiRoutes(group *gin.RouterGroup) {
+	booksGroup := group.Group("/books")
+	api.SetupBookRoutes(booksGroup)
+}
+
+// setupAdminRoutes configures routes for administrative functionalities.
+func setupAdminRoutes(group *gin.RouterGroup) {
+	api.SetupAdminRoutes(group)
+}
+
+// setupTelegramRoutes configures routes for Telegram bot interactions.
+func setupTelegramRoutes(group *gin.RouterGroup) {
+	api.SetupTelegramRoutes(group)
+}
+
+// corsOptionsMiddleware returns a middleware that enables CORS support.
+// It is only used in development mode for easier testing and development.
+func corsOptionsMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Request.Method == "OPTIONS" {
+			c.Header("Access-Control-Allow-Origin", "*")
+			c.Header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
+			c.Header("Access-Control-Allow-Headers", "authorization, origin, content-type, accept, token")
+			c.Header("Allow", "HEAD,GET,POST,PUT,PATCH,DELETE,OPTIONS")
+			c.Header("Content-Type", "application/json")
+			c.AbortWithStatus(http.StatusOK)
+		} else {
+			c.Next()
+		}
+	}
+}
+
+// main initializes the application.
+// It sets the gin mode based on the application configuration, ensures the user path exists,
+// sets up middleware, routes, and starts the HTTP server.
 func main() {
 	if !config.AppConfig.GetBool("app.devel_mode") {
 		gin.SetMode(gin.ReleaseMode)
 	}
-	path := config.AppConfig.GetString("app.users_path")
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		err := os.MkdirAll(path, 0755)
-		if err != nil {
-			log.Fatalln(err)
-		}
-	}
+
+	ensureUserPathExists(config.AppConfig.GetString("app.users_path"))
+
 	route := gin.New()
-	route.Use(logging.GinrusLogger(logging.CustomLog))
-	if config.AppConfig.GetBool("app.devel_mode") {
-		route.Use(Options)
-	}
-	route.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
-	linkGen := route.Group("/files")
-	linkGen.Use(middlewares.TokenMiddleware())
-	linkGen.GET("/books/get/:format/:id", api.CdnBookGenerate)
-	// Default group without auth
-	{
-		route.GET("/book-posters/:book", api.GetBookPoster)
-		route.GET("/status", func(context *gin.Context) {
-			context.JSON(200, struct {
-				Status string `json:"status"`
-			}{
-				Status: "ok",
-			})
-		})
-		route.POST("/api/login", api.AuthCheck)
-		route.POST("/api/register", api.Registration)
-		route.POST("/api/change-password", api.ChangeUserState)
-		route.POST("/api/change-request", api.ChangeRequest)
-		route.POST("/api/token", api.TokenValidation)
-		route.GET("/api/logout", api.LogOut)
-		route.GET("/api/drop-sessions", api.DropAllSessions)
-		route.GET("/download/:format/:id", opds.DownloadBook)
-	}
+	setupMiddleware(route)
+	setupRoutes(route)
 
-	// XML routes
-	opdsGroup := route.Group("/opds")
-	opdsGroup.Use(middlewares.BasicAuth())
-	{
-		opdsGroup.GET("/", func(c *gin.Context) {
-			c.Redirect(http.StatusMovedPermanently, "/opds/new/0/0")
-		})
-		opdsGroup.GET("/new/:page/:author", opds.GetNewBooks)
-		opdsGroup.GET("/favorites/:page", opds.GetNewBooks)
-		opdsGroup.GET("/search", opds.Search)
-		opdsGroup.GET("/books", opds.GetBooks)
-		opdsGroup.GET("/search-author", opds.GetAuthor)
-		opdsGroup.GET("/download/:format/:id", opds.DownloadBook)
-		opdsGroup.GET("/get/:format/:id", api.CdnBookGenerate)
-	}
-
-	apiGroup := route.Group("/api")
-	apiGroup.Use(middlewares.AuthMiddleware())
-
-	booksGroup := apiGroup.Group("/books")
-	adminGroup := apiGroup.Group("/admin")
-	telegramGroup := route.Group("/telegram")
-
-	adminGroup.Use(middlewares.AdminMiddleware())
-
-	// Books group for all users
-	{
-		booksGroup.GET("/list", api.GetBooks)
-		booksGroup.GET("/get/:format/:id", api.CdnBookGenerate)
-
-		booksGroup.GET("/langs", api.GetLangs)
-		booksGroup.GET("/self-user", api.SelfUser)
-		booksGroup.POST("/change-me", api.ChangeUser)
-		booksGroup.GET("/authors", api.GetAuthors)
-		booksGroup.POST("/author", api.GetAuthor)
-		booksGroup.POST("/upload-book", api.UploadBook)
-		// Download book API endpoint
-		booksGroup.POST("/file", api.GetBookFile)
-		booksGroup.POST("/fav", api.FavBook)
-	}
-
-	// Admin group
-	{
-		adminGroup.POST("/users", api.GetUsers)
-		adminGroup.GET("/scan", api.StartScan)
-		adminGroup.GET("/covers", api.UpdateCovers)
-		adminGroup.GET("/invites", api.GetInvites)
-		adminGroup.POST("/invite", api.ChangeInvite)
-		adminGroup.POST("/user", api.ActionUser)
-		adminGroup.POST("/update-book", api.UpdateBook)
-	}
-
-	// Telegram Bot Group
-	{
-		telegramGroup.POST("/:id", api.TokenApiEndpoint)
-	}
-
-	s := &http.Server{
-		Addr: ":8085",
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == "HEAD" {
-				r.Method = "GET"
-			}
-			route.ServeHTTP(w, r)
-		}),
+	server := &http.Server{
+		Addr:           ":8085",
+		Handler:        route,
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   10 * time.Second,
 		MaxHeaderBytes: 1 << 20,
 	}
 
-	// Запуск сервера
-	if err := s.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("Server failed to start: %v", err)
+	log.Fatal(server.ListenAndServe())
+}
+
+// ensureUserPathExists checks if the specified path exists and creates it if it does not.
+// It is used to ensure necessary directories are available at application start.
+func ensureUserPathExists(path string) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		log.Fatalln(os.MkdirAll(path, 0755))
 	}
 }
