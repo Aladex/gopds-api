@@ -47,6 +47,13 @@ func setupDefaultRoutes(route *gin.Engine) {
 	route.GET("/book-posters/:book", api.GetBookPoster)
 	route.GET("/status", api.StatusCheck)
 	route.POST("/api/login", api.AuthCheck)
+	route.POST("/api/register", api.Registration)
+	route.POST("/api/change-password", api.ChangeUserState)
+	route.POST("/api/change-request", api.ChangeRequest)
+	route.POST("/api/token", api.TokenValidation)
+	route.GET("/api/logout", api.LogOut)
+	route.GET("/api/drop-sessions", api.DropAllSessions)
+	route.GET("/download/:format/:id", opds.DownloadBook)
 }
 
 // setupOpdsRoutes configures routes for OPDS feed interactions.
