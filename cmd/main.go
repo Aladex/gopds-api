@@ -38,7 +38,7 @@ func setupRoutes(route *gin.Engine) {
 
 // setupFileRoutes configures routes related to file operations.
 func setupFileRoutes(group *gin.RouterGroup) {
-	group.GET("/books/get/:format/:id", api.CdnBookGenerate)
+	group.GET("/books/get/:format/:id", api.GetBookFile)
 }
 
 // setupDefaultRoutes configures default routes for the application.
