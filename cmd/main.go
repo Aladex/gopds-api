@@ -19,7 +19,7 @@ import (
 // setupMiddleware configures global middleware for the gin.Engine instance.
 // It includes a custom logger and, if in development mode, a CORS middleware.
 func setupMiddleware(route *gin.Engine) {
-	route.Use(logging.GinrusLogger(logging.CustomLog))
+	route.Use(logging.GinrusLogger())
 	if config.AppConfig.GetBool("app.devel_mode") {
 		route.Use(corsOptionsMiddleware())
 	}

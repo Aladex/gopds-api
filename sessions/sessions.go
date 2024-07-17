@@ -9,57 +9,57 @@ import (
 	"time"
 )
 
-// SetSessionKey creates a new session key in Redis for user login
+// SetSessionKey sets a new session key for a user login.
 func SetSessionKey(lu models.LoggedInUser) {
-	rdb.Set(*lu.Token, strings.ToLower(lu.User), time.Hour*24)
+	rdb.Set(*lu.Token, strings.ToLower(lu.User), 24*time.Hour)
 }
 
-// CheckSessionKey search for an user with tokens
+// CheckSessionKey checks if a session key exists for a user.
 func CheckSessionKey(lu models.LoggedInUser) bool {
-	userSession := rdb.Get(*lu.Token)
-	if userSession.Val() != strings.ToLower(lu.User) {
-		return false
-	}
-	return true
+	return rdb.Get(*lu.Token).Val() == strings.ToLower(lu.User)
 }
 
-// DeleteSessionKey deletes a session key in Redis for user logout
+// DeleteSessionKey deletes a user's session key.
 func DeleteSessionKey(lu models.LoggedInUser) {
-	userSession := rdb.Get(*lu.Token)
-	if userSession.Val() == strings.ToLower(lu.User) {
+	if CheckSessionKey(lu) {
 		rdb.Del(*lu.Token)
 	}
 }
 
-// DropAllSessions function for remove all jwt keys of user
+// DropAllSessions removes all session keys for a user.
 func DropAllSessions(token string) {
 	username, _, err := utils.CheckToken(token)
 	if err != nil {
 		logging.CustomLog.Println(err)
+		return
 	}
-	keys := rdb.Keys("*")
-	for _, k := range keys.Val() {
-		checkedUser, _, err := utils.CheckToken(k)
-		if err != nil {
-			logging.CustomLog.Println(err)
-		}
-		if checkedUser == username {
+	keys, err := rdb.Keys("*").Result()
+	if err != nil {
+		logging.CustomLog.Println(err)
+		return
+	}
+	for _, k := range keys {
+		if checkedUser, _, err := utils.CheckToken(k); err == nil && checkedUser == username {
 			rdb.Del(k)
 		}
 	}
 }
 
-// GenerateTokenPassword generates and temporary token for password change
+// GenerateTokenPassword generates a temporary token for password change.
 func GenerateTokenPassword(user string) string {
 	passwordToken := uuid.New().String()
-	rdbToken.Set(user, passwordToken, time.Minute*90)
+	rdbToken.Set(user, passwordToken, 90*time.Minute)
 	return passwordToken
 }
 
-// CheckTokenPassword search for an user with tokens
+// CheckTokenPassword checks if a temporary token exists for a user.
 func CheckTokenPassword(token string) string {
-	keys := rdbToken.Keys("*")
-	for _, k := range keys.Val() {
+	keys, err := rdbToken.Keys("*").Result()
+	if err != nil {
+		logging.CustomLog.Println(err)
+		return ""
+	}
+	for _, k := range keys {
 		if rdbToken.Get(k).Val() == token {
 			return k
 		}
@@ -67,10 +67,14 @@ func CheckTokenPassword(token string) string {
 	return ""
 }
 
-// DeleteTokenPassword removes all temporary tokens for user
+// DeleteTokenPassword removes a user's temporary token.
 func DeleteTokenPassword(token string) {
-	keys := rdbToken.Keys("*")
-	for _, k := range keys.Val() {
+	keys, err := rdbToken.Keys("*").Result()
+	if err != nil {
+		logging.CustomLog.Println(err)
+		return
+	}
+	for _, k := range keys {
 		if rdbToken.Get(k).Val() == token {
 			rdbToken.Del(k)
 		}
