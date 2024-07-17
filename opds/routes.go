@@ -13,5 +13,5 @@ func SetupOpdsRoutes(r *gin.RouterGroup) {
 	r.GET("/search", Search)
 	r.GET("/books", GetBooks)
 	r.GET("/search-author", GetAuthor)
-	r.GET("/download/:format/:id", DownloadBook)
+	r.GET("/get/:format/:id", DownloadBook)
 }
