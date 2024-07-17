@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"github.com/go-pg/pg/v10/orm"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -142,8 +143,9 @@ type Book struct {
 
 func (b *Book) DownloadName() string {
 	var nameRegExp = regexp.MustCompile(`[^A-Za-z0-9а-яА-ЯёЁ]+`)
-	var name = nameRegExp.ReplaceAllString(b.Title, "")
-	return Translit(name)
+	var name = nameRegExp.ReplaceAllString(b.Title, "_")
+	name = Translit(name)        // Transliterate the name to Latin characters.
+	return strings.ToLower(name) // Convert to lowercase and return.
 }
 
 // Author struct for authors
