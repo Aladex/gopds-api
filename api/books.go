@@ -12,7 +12,6 @@ import (
 	"gopds-api/logging"
 	"gopds-api/models"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"strconv"
 )
@@ -108,7 +107,7 @@ func GetBookPoster(c *gin.Context) {
 		}
 	}
 
-	r := ioutil.NopCloser(bytes.NewReader(coverData)) // r type is io.ReadCloser
+	r := io.NopCloser(bytes.NewReader(coverData)) // r type is io.ReadCloser
 
 	buf := new(bytes.Buffer)
 	_, err = buf.ReadFrom(r)
