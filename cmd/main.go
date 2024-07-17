@@ -33,7 +33,6 @@ func setupRoutes(route *gin.Engine) {
 	setupDefaultRoutes(route)
 	setupOpdsRoutes(route.Group("/opds", middlewares.BasicAuth()))
 	setupApiRoutes(route.Group("/api", middlewares.AuthMiddleware()))
-	setupAdminRoutes(route.Group("/admin", middlewares.AdminMiddleware()))
 	setupTelegramRoutes(route.Group("/telegram"))
 }
 
@@ -65,6 +64,9 @@ func setupOpdsRoutes(group *gin.RouterGroup) {
 func setupApiRoutes(group *gin.RouterGroup) {
 	booksGroup := group.Group("/books")
 	api.SetupBookRoutes(booksGroup)
+	// Setup admin routes with admin middleware
+	adminGroup := group.Group("/admin", middlewares.AdminMiddleware())
+	setupAdminRoutes(adminGroup)
 }
 
 // setupAdminRoutes configures routes for administrative functionalities.
