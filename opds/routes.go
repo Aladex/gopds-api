@@ -2,7 +2,6 @@ package opds
 
 import (
 	"github.com/gin-gonic/gin"
-	"gopds-api/api"
 	"net/http"
 )
 
@@ -15,5 +14,4 @@ func SetupOpdsRoutes(r *gin.RouterGroup) {
 	r.GET("/books", GetBooks)
 	r.GET("/search-author", GetAuthor)
 	r.GET("/download/:format/:id", DownloadBook)
-	r.GET("/get/:format/:id", api.CdnBookGenerate) // Предполагается использование функции из пакета api
 }

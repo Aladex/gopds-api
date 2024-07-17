@@ -52,7 +52,6 @@ func setupDefaultRoutes(route *gin.Engine) {
 	route.POST("/api/token", api.TokenValidation)
 	route.GET("/api/logout", api.LogOut)
 	route.GET("/api/drop-sessions", api.DropAllSessions)
-	route.GET("/download/:format/:id", opds.DownloadBook)
 }
 
 // setupOpdsRoutes configures routes for OPDS feed interactions.

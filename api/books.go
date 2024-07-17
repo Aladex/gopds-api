@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
-	"gopds-api/config"
 	"gopds-api/database"
 	"gopds-api/fb2scan"
 	"gopds-api/httputil"
@@ -21,7 +20,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // ExportAnswer struct for books list response
@@ -187,22 +185,4 @@ func FavBook(c *gin.Context) {
 		}
 		c.JSON(200, gin.H{"have_favs": res})
 	}
-}
-
-// CdnBookGenerate generates a CDN link for a book and redirects the user to it.
-func CdnBookGenerate(c *gin.Context) {
-	bookID, err := strconv.ParseInt(c.Param("id"), 10, 0)
-	if err != nil {
-		httputil.NewError(c, http.StatusBadRequest, errors.New("bad_book_id"))
-		return // Added return to prevent further execution on error
-	}
-	expires := time.Now().Add(10 * time.Minute).Unix()
-	path := fmt.Sprintf("/download/%s/%d", c.Param("format"), bookID)
-	token := generateCdnHash(fmt.Sprintf("%d%s %s", expires, path, config.AppConfig.GetString("app.book_cdn_key")))
-	c.Redirect(http.StatusMovedPermanently,
-		fmt.Sprintf("%s%s?md5=%s&expires=%d",
-			config.AppConfig.GetString("app.file_book_cdn"),
-			path,
-			token,
-			expires))
 }
