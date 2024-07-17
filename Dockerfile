@@ -14,6 +14,9 @@ RUN apk add --no-cache unzip curl expat && \
 COPY . /app
 WORKDIR /app
 
+# Install the dependencies
+RUN go mod download
+
 # Build the binary
 RUN go build -o bin/gopds cmd/*
 
