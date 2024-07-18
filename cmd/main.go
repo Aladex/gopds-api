@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/go-pg/pg/v10"
 	"github.com/spf13/viper"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
@@ -103,13 +104,19 @@ func corsOptionsMiddleware() gin.HandlerFunc {
 // It sets the gin mode based on the application configuration, ensures the user path exists,
 // sets up middleware, routes, and starts the HTTP server.
 func main() {
-	// Connect to the database and defer closing the connection.
-	db := database.ConnectDB()
-	defer func() {
-		if err := db.Close(); err != nil {
-			log.Fatalf("Error closing database connection: %v", err)
-		}
-	}()
+	options := &pg.Options{
+		User:     viper.GetString("postgres.dbuser"),
+		Password: viper.GetString("postgres.dbpass"),
+		Database: viper.GetString("postgres.dbname"),
+		Addr:     viper.GetString("postgres.dbhost"),
+	}
+	db := pg.Connect(options)
+	if _, err := db.Exec("SELECT 1"); err != nil {
+		log.Fatalln("Failed to connect to database:", err)
+	}
+	defer db.Close()
+
+	database.SetDB(db)
 
 	// Set the Gin mode based on the application configuration.
 	if !viper.GetBool("app.devel_mode") {

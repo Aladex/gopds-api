@@ -20,4 +20,8 @@ func ConnectDB() *pg.DB {
 	return db
 }
 
+func SetDB(connection *pg.DB) {
+	db = connection
+}
+
 var db *pg.DB
