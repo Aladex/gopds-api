@@ -7,11 +7,15 @@ import (
 )
 
 var (
-	rdb      = RedisConnection(0)
-	rdbToken = RedisConnection(1)
+	rdb      *redis.Client
+	rdbToken *redis.Client
 )
 
-// RedisConnection creates a connection to a Redis database.
+func SetRedisConnections(mainClient, tokenClient *redis.Client) {
+	rdb = mainClient
+	rdbToken = tokenClient
+}
+
 func RedisConnection(dbNum int) *redis.Client {
 	return redis.NewClient(&redis.Options{
 		Addr: fmt.Sprintf("%v:%v",

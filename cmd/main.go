@@ -12,6 +12,7 @@ import (
 	"gopds-api/logging"
 	"gopds-api/middlewares"
 	"gopds-api/opds"
+	"gopds-api/sessions"
 	"log"
 	"net/http"
 	"os"
@@ -121,6 +122,13 @@ func main() {
 	}()
 
 	database.SetDB(db)
+
+	// Initialize Redis connections for session management.
+	mainRedisClient := sessions.RedisConnection(0)
+	// Use a separate Redis database for token storage.
+	tokenRedisClient := sessions.RedisConnection(1)
+	// Set the Redis connections for the session manager
+	sessions.SetRedisConnections(mainRedisClient, tokenRedisClient)
 
 	// Set the Gin mode based on the application configuration.
 	if !viper.GetBool("app.devel_mode") {
