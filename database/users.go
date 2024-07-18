@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/viper"
 	"gopds-api/models"
 	"gopds-api/utils"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -132,16 +133,6 @@ func GetUser(u string) (models.User, error) {
 	return *userDB, nil
 }
 
-// GetUserByToken search user by telegram token
-func GetUserByToken(token string) (models.User, error) {
-	userDB := new(models.User)
-	err := db.Model(userDB).Where("bot_token = ?", token).First()
-	if err != nil {
-		return *userDB, err
-	}
-	return *userDB, nil
-}
-
 // GetUserList function returns an users list
 func GetUserList(filters models.UserFilters) ([]models.User, int, error) {
 	users := []models.User{}
@@ -200,7 +191,12 @@ func ActionUser(action models.AdminCommandToUser) (models.User, error) {
 			if err != nil {
 				return userToChange, err
 			}
-			defer resp.Body.Close()
+			defer func(Body io.ReadCloser) {
+				err := Body.Close()
+				if err != nil {
+					logrus.Println(err)
+				}
+			}(resp.Body)
 
 			if resp.StatusCode != http.StatusOK {
 				return userToChange, fmt.Errorf("failed to set webhook, status code: %d", resp.StatusCode)

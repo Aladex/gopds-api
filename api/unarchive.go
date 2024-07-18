@@ -64,7 +64,19 @@ func GetBookFile(c *gin.Context) {
 		return
 	}
 
-	defer rc.Close() // Ensure the file reader is closed after serving the file.
+	defer func(rc io.ReadCloser) {
+		err := rc.Close()
+		if err != nil {
+			logrus.WithFields(logrus.Fields{
+				"status":      c.Writer.Status(),
+				"method":      c.Request.Method,
+				"error":       "Client closed connection",
+				"ip":          c.ClientIP(),
+				"book_format": c.Param("format"),
+				"user-agent":  c.Request.UserAgent(),
+			}).Info()
+		}
+	}(rc) // Ensure the file reader is closed after serving the file.
 
 	c.Header("Content-Disposition", fmt.Sprintf(contentDisp, book.DownloadName(), c.Param("format"))) // Set the Content-Disposition header.
 	c.Header("Content-Type", bookTypes[strings.ToLower(c.Param("format"))])                           // Set the Content-Type header based on the book format.

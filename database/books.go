@@ -18,23 +18,6 @@ func isFav(ids []int64, book models.Book) bool {
 	return false
 }
 
-func GetCatalogs(scanned bool) ([]string, error) {
-	var catalogs []string
-	err := db.Model(&models.Catalog{}).Column("cat_name").Where("is_scanned = ?", scanned).Select(&catalogs)
-	if err != nil {
-		return nil, err
-	}
-	return catalogs, nil
-}
-
-func AddCatalog(catalog models.Catalog) error {
-	_, err := db.Model(&catalog).Insert()
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 // GetLanguages returns a list of languages
 func GetLanguages() models.Languages {
 	var langRes models.Languages
@@ -94,75 +77,7 @@ func GetCover(book int64) (models.Cover, error) {
 	return cover, nil
 }
 
-func UpdateBookCover(book models.Book) error {
-	var bookId int64
-	err := db.Model(&models.Book{}).
-		Column("id").
-		Where("filename = ?", book.FileName).
-		Where("path = ?", book.Path).
-		Order("id ASC").
-		Select(&bookId)
-	if err != nil {
-		logrus.Print(err)
-		return err
-	}
-	for _, c := range book.Covers {
-		c.BookID = bookId
-		err = AddCover(*c)
-		if err != nil {
-			logrus.Print(err)
-		}
-	}
-	return nil
-}
-
-// AddBook
-func AddBook(book models.Book) error {
-	for ai, author := range book.Authors {
-		a, err := AddAuthor(author)
-		if err != nil {
-			logrus.Print(err)
-			return nil
-		}
-		book.Authors[ai] = a
-	}
-
-	_, err := db.Model(&book).Returning("id").Insert()
-	if err != nil {
-		fmt.Println(book)
-		return err
-	}
-
-	for _, series := range book.Series {
-		s, err := AddSeries(*series)
-		if err != nil {
-			logrus.Print(err)
-			continue
-		}
-		serieBook := models.OrderToSeries{
-			SerNo:    s.SerNo,
-			SeriesID: s.ID,
-			BookID:   book.ID,
-		}
-		_, err = db.Model(&serieBook).Insert()
-		if err != nil {
-			logrus.Print(err)
-			continue
-		}
-	}
-
-	for _, c := range book.Covers {
-		c.BookID = book.ID
-		err = AddCover(*c)
-		if err != nil {
-			logrus.Print(err)
-		}
-	}
-	AddAuthorBook(book)
-	return nil
-}
-
-// GetBooks returns a list of books by query params
+// GetBooks returns a list of books
 func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, error) {
 	books := []models.Book{}
 	var userFavs []int64

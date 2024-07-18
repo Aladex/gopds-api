@@ -7,7 +7,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/exec"
 )
@@ -32,12 +31,25 @@ func NewBookProcessor(filename, path string) *BookProcessor {
 	}
 }
 
+// Encapsulate the logic in a separate function
+func closeTmpFile(tmpFile *os.File) {
+	err := tmpFile.Close()
+	if err != nil {
+		logrus.Printf("failed to close tmp file: %v", err)
+	}
+}
+
 func (bp *BookProcessor) process(format string, cmdArgs []string, convert bool) (io.ReadCloser, error) {
 	r, err := zip.OpenReader(bp.path)
 	if err != nil {
 		return nil, err
 	}
-	defer r.Close()
+	defer func(r *zip.ReadCloser) {
+		err := r.Close()
+		if err != nil {
+			logrus.Printf("failed to close zip file: %v", err)
+		}
+	}(r)
 
 	for _, f := range r.File {
 		if f.Name == bp.filename {
@@ -50,26 +62,41 @@ func (bp *BookProcessor) process(format string, cmdArgs []string, convert bool) 
 				buf := new(bytes.Buffer)
 				_, err := buf.ReadFrom(rc)
 				if err != nil {
-					rc.Close()
+					err := rc.Close()
+					if err != nil {
+						return nil, err
+					}
 					return nil, errors.New("failed to read book")
 				}
-				rc.Close()
-				return ioutil.NopCloser(bytes.NewReader(buf.Bytes())), nil
+				err = rc.Close()
+				if err != nil {
+					return nil, err
+				}
+				return io.NopCloser(bytes.NewReader(buf.Bytes())), nil
 			}
 
 			tmpFilename := uuid.New().String()
 			tmpFile, err := os.Create(tmpFilename + ".fb2")
 			if err != nil {
-				rc.Close()
+				err := rc.Close()
+				if err != nil {
+					return nil, err
+				}
 				return nil, err
 			}
-			defer tmpFile.Close()
+			closeTmpFile(tmpFile)
 
 			if _, err = io.Copy(tmpFile, rc); err != nil {
-				rc.Close()
+				err := rc.Close()
+				if err != nil {
+					return nil, err
+				}
 				return nil, err
 			}
-			rc.Close()
+			err = rc.Close()
+			if err != nil {
+				return nil, err
+			}
 
 			defer func() {
 				if err := DeleteTmpFile(tmpFilename, format); err != nil {
@@ -144,7 +171,7 @@ func (bp *BookProcessor) Zip(df string) (io.ReadCloser, error) {
 			if err != nil {
 				return nil, err
 			}
-			zipAnswer := ioutil.NopCloser(bytes.NewReader(buf.Bytes()))
+			zipAnswer := io.NopCloser(bytes.NewReader(buf.Bytes()))
 
 			return zipAnswer, nil
 		}
