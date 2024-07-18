@@ -35,38 +35,6 @@ func GetLanguages() models.Languages {
 	return langRes
 }
 
-// AddCover adds cover to database
-func AddCover(cover models.Cover) error {
-	_, err := db.Model(&cover).Insert()
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func AddAuthorBook(book models.Book) {
-	for _, a := range book.Authors {
-		_, err := db.Model(&models.OrderToAuthor{
-			AuthorID: a.ID,
-			BookID:   book.ID,
-		}).Insert()
-		if err != nil {
-			logrus.Println(err)
-		}
-	}
-}
-
-// AddSeries returns an id of series after select or after insert if not exists
-func AddSeries(series models.Series) (models.Series, error) {
-	_, err := db.Model(&series).
-		Where("ser = ?ser").
-		SelectOrInsert()
-	if err != nil {
-		return models.Series{}, err
-	}
-	return series, nil
-}
-
 func GetCover(book int64) (models.Cover, error) {
 	var cover models.Cover
 	err := db.Model(&cover).Where("book_id = ?", book).First()
