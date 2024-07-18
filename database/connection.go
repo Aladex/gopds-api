@@ -7,6 +7,10 @@ import (
 )
 
 func ConnectDB() *pg.DB {
+	// Log the configuration kv
+	for _, key := range viper.AllKeys() {
+		log.Printf("DB: Key: %s, Value: %s\n", key, viper.Get(key))
+	}
 	options := &pg.Options{
 		User:     viper.GetString("postgres.dbuser"),
 		Password: viper.GetString("postgres.dbpass"),

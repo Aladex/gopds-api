@@ -12,4 +12,10 @@ func init() {
 	if err := viper.ReadInConfig(); err != nil {
 		log.Fatalf("Fatal error config file: %s \n", err)
 	}
+	// Log the configuration
+	log.Printf("Using config file: %s\n", viper.ConfigFileUsed())
+	// Log the configuration kv
+	for _, key := range viper.AllKeys() {
+		log.Printf("Key: %s, Value: %s\n", key, viper.Get(key))
+	}
 }
