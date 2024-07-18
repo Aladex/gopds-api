@@ -122,11 +122,6 @@ func main() {
 	setupMiddleware(route)
 	setupRoutes(route)
 
-	// Log registered routes
-	for _, r := range route.Routes() {
-		logrus.Println(r.Method, r.Path)
-	}
-
 	server := &http.Server{
 		Addr:           ":8085",
 		Handler:        route,
