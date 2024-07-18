@@ -6,6 +6,7 @@ import (
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"gopds-api/api"
+	"gopds-api/database"
 	_ "gopds-api/docs" // Import to include documentation for Swagger UI
 	"gopds-api/logging"
 	"gopds-api/middlewares"
@@ -15,6 +16,15 @@ import (
 	"os"
 	"time"
 )
+
+func init() {
+	viper.SetConfigName("config")
+	viper.SetConfigType("yaml")
+	viper.AddConfigPath(".")
+	if err := viper.ReadInConfig(); err != nil {
+		log.Fatalf("Fatal error config file: %s \n", err)
+	}
+}
 
 // setupMiddleware configures global middleware for the gin.Engine instance.
 // It includes a custom logger and, if in development mode, a CORS middleware.
@@ -93,6 +103,15 @@ func corsOptionsMiddleware() gin.HandlerFunc {
 // It sets the gin mode based on the application configuration, ensures the user path exists,
 // sets up middleware, routes, and starts the HTTP server.
 func main() {
+	// Connect to the database and defer closing the connection.
+	db := database.ConnectDB()
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Fatalf("Error closing database connection: %v", err)
+		}
+	}()
+
+	// Set the Gin mode based on the application configuration.
 	if !viper.GetBool("app.devel_mode") {
 		gin.SetMode(gin.ReleaseMode)
 	}

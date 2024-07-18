@@ -20,4 +20,4 @@ func ConnectDB() *pg.DB {
 	return db
 }
 
-var db = ConnectDB()
+var db *pg.DB
