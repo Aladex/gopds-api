@@ -5,9 +5,9 @@ import (
 	"bytes"
 	"errors"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"io"
 	"io/ioutil"
-	"log"
 	"os"
 	"os/exec"
 )
@@ -73,7 +73,7 @@ func (bp *BookProcessor) process(format string, cmdArgs []string, convert bool) 
 
 			defer func() {
 				if err := DeleteTmpFile(tmpFilename, format); err != nil {
-					log.Printf("failed to delete tmp file: %v", err)
+					logrus.Printf("failed to delete tmp file: %v", err)
 				}
 			}()
 

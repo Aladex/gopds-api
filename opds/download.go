@@ -8,11 +8,9 @@ import (
 	"github.com/spf13/viper"
 	"gopds-api/database"
 	"gopds-api/httputil"
-	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/utils"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -58,7 +56,7 @@ func DownloadBook(c *gin.Context) {
 
 	defer func() {
 		if cerr := rc.Close(); cerr != nil {
-			log.Printf("failed to close file: %v", cerr)
+			logrus.Printf("failed to close file: %v", cerr)
 		}
 	}()
 
@@ -67,7 +65,7 @@ func DownloadBook(c *gin.Context) {
 	_, err = io.Copy(c.Writer, rc)
 
 	if err != nil {
-		logging.CustomLog.WithFields(logrus.Fields{
+		logrus.WithFields(logrus.Fields{
 			"status":      c.Writer.Status(),
 			"method":      c.Request.Method,
 			"error":       "client closed connection",

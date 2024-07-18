@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/go-pg/pg/v10/orm"
-	"gopds-api/logging"
+	"github.com/sirupsen/logrus"
 	"gopds-api/models"
 	"strings"
 )
@@ -46,7 +46,7 @@ func GetLanguages() models.Languages {
 		Select(&langRes)
 
 	if err != nil {
-		logging.CustomLog.Print(err)
+		logrus.Print(err)
 		return nil
 	}
 	return langRes
@@ -68,7 +68,7 @@ func AddAuthorBook(book models.Book) {
 			BookID:   book.ID,
 		}).Insert()
 		if err != nil {
-			logging.CustomLog.Println(err)
+			logrus.Println(err)
 		}
 	}
 }
@@ -88,7 +88,7 @@ func GetCover(book int64) (models.Cover, error) {
 	var cover models.Cover
 	err := db.Model(&cover).Where("book_id = ?", book).First()
 	if err != nil {
-		logging.CustomLog.Println(errors.New(fmt.Sprintf("no cover for book_id: %d", book)))
+		logrus.Println(errors.New(fmt.Sprintf("no cover for book_id: %d", book)))
 		return cover, err
 	}
 	return cover, nil
@@ -103,14 +103,14 @@ func UpdateBookCover(book models.Book) error {
 		Order("id ASC").
 		Select(&bookId)
 	if err != nil {
-		logging.CustomLog.Print(err)
+		logrus.Print(err)
 		return err
 	}
 	for _, c := range book.Covers {
 		c.BookID = bookId
 		err = AddCover(*c)
 		if err != nil {
-			logging.CustomLog.Print(err)
+			logrus.Print(err)
 		}
 	}
 	return nil
@@ -121,7 +121,7 @@ func AddBook(book models.Book) error {
 	for ai, author := range book.Authors {
 		a, err := AddAuthor(author)
 		if err != nil {
-			logging.CustomLog.Print(err)
+			logrus.Print(err)
 			return nil
 		}
 		book.Authors[ai] = a
@@ -136,7 +136,7 @@ func AddBook(book models.Book) error {
 	for _, series := range book.Series {
 		s, err := AddSeries(*series)
 		if err != nil {
-			logging.CustomLog.Print(err)
+			logrus.Print(err)
 			continue
 		}
 		serieBook := models.OrderToSeries{
@@ -146,7 +146,7 @@ func AddBook(book models.Book) error {
 		}
 		_, err = db.Model(&serieBook).Insert()
 		if err != nil {
-			logging.CustomLog.Print(err)
+			logrus.Print(err)
 			continue
 		}
 	}
@@ -155,7 +155,7 @@ func AddBook(book models.Book) error {
 		c.BookID = book.ID
 		err = AddCover(*c)
 		if err != nil {
-			logging.CustomLog.Print(err)
+			logrus.Print(err)
 		}
 	}
 	AddAuthorBook(book)
@@ -243,7 +243,7 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, err
 		Offset(filters.Offset).
 		SelectAndCount()
 	if err != nil {
-		logging.CustomLog.Print(err)
+		logrus.Print(err)
 		return nil, 0, err
 	}
 

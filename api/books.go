@@ -6,10 +6,10 @@ import (
 	"errors"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
+	"github.com/sirupsen/logrus"
 	assets "gopds-api"
 	"gopds-api/database"
 	"gopds-api/httputil"
-	"gopds-api/logging"
 	"gopds-api/models"
 	"io"
 	"net/http"
@@ -83,7 +83,7 @@ func GetBooks(c *gin.Context) {
 func GetBookPoster(c *gin.Context) {
 	bookId, err := strconv.ParseInt(c.Param("book"), 10, 64)
 	if err != nil {
-		logging.CustomLog.Println(err)
+		logrus.Println(err)
 		httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
 		return
 	}

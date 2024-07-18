@@ -4,11 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"gopds-api/database"
 	"gopds-api/email"
 	"gopds-api/httputil"
-	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/sessions"
 	"net/http"
@@ -64,7 +64,7 @@ func Registration(c *gin.Context) {
 		go func() {
 			err := email.SendActivationEmail(registrationMessage)
 			if err != nil {
-				logging.CustomLog.Println(err)
+				logrus.Println(err)
 			}
 		}()
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
@@ -12,7 +13,6 @@ import (
 	"gopds-api/middlewares"
 	"gopds-api/opds"
 	"gopds-api/sessions"
-	"log"
 	"net/http"
 	"os"
 	"time"
@@ -23,7 +23,7 @@ func init() {
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath(".")
 	if err := viper.ReadInConfig(); err != nil {
-		log.Fatalf("Fatal error config file: %s \n", err)
+		logrus.Fatalf("Fatal error config file: %s \n", err)
 	}
 }
 
@@ -124,7 +124,7 @@ func main() {
 
 	// Log registered routes
 	for _, r := range route.Routes() {
-		log.Println(r.Method, r.Path)
+		logrus.Println(r.Method, r.Path)
 	}
 
 	server := &http.Server{
@@ -135,13 +135,13 @@ func main() {
 		MaxHeaderBytes: 1 << 20,
 	}
 
-	log.Fatal(server.ListenAndServe())
+	logrus.Fatal(server.ListenAndServe())
 }
 
 // ensureUserPathExists checks if the specified path exists and creates it if it does not.
 // It is used to ensure necessary directories are available at application start.
 func ensureUserPathExists(path string) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		log.Fatalln(os.MkdirAll(path, 0755))
+		logrus.Fatalln(os.MkdirAll(path, 0755))
 	}
 }

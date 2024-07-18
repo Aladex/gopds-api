@@ -3,9 +3,9 @@ package main
 import (
 	"github.com/go-pg/pg/v10"
 	"github.com/go-redis/redis"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"gopds-api/sessions"
-	"log"
 )
 
 func initializeDatabase() *pg.DB {
@@ -17,14 +17,14 @@ func initializeDatabase() *pg.DB {
 	}
 	db := pg.Connect(options)
 	if _, err := db.Exec("SELECT 1"); err != nil {
-		log.Fatalln("Failed to connect to database:", err)
+		logrus.Fatalln("Failed to connect to database:", err)
 	}
 	return db
 }
 
 func closeDatabaseConnection(db *pg.DB) {
 	if err := db.Close(); err != nil {
-		log.Println("Error closing database connection:", err)
+		logrus.Println("Error closing database connection:", err)
 	}
 }
 

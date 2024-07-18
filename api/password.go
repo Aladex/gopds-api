@@ -4,14 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"gopds-api/database"
 	"gopds-api/email"
 	"gopds-api/httputil"
-	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/sessions"
-	"log"
 	"net/http"
 )
 
@@ -94,7 +93,7 @@ func ChangeRequest(c *gin.Context) {
 		go func() {
 			err := email.SendActivationEmail(registrationMessage)
 			if err != nil {
-				logging.CustomLog.Println(err)
+				logrus.Println(err)
 			}
 		}()
 
@@ -150,7 +149,7 @@ func ChangeUserState(c *gin.Context) {
 			User:   dbUser,
 		})
 		if err != nil {
-			log.Printf("failed to update user: %v", err)
+			logrus.Printf("failed to update user: %v", err)
 			c.JSON(500, err)
 			return
 		}

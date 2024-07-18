@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/viper"
 	"gopds-api/database"
 	"gopds-api/httputil"
-	"gopds-api/logging"
 	"gopds-api/utils"
 	"io"
 	"net/http"
@@ -73,7 +72,7 @@ func GetBookFile(c *gin.Context) {
 
 	if err != nil {
 		// Log the error if there is an issue copying the book content to the response writer.
-		logging.CustomLog.WithFields(logrus.Fields{
+		logrus.WithFields(logrus.Fields{
 			"status":      c.Writer.Status(),
 			"method":      c.Request.Method,
 			"error":       "Client closed connection",

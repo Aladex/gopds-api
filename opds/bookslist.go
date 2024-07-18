@@ -4,9 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 	"gopds-api/database"
 	"gopds-api/httputil"
-	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/opdsutils"
 	"net/http"
@@ -46,7 +46,7 @@ func GetNewBooks(c *gin.Context) {
 
 	pageNum, err := strconv.Atoi(c.Param("page"))
 	if err != nil {
-		logging.CustomLog.Println(err)
+		logrus.Println(err)
 		httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
 		return
 	}
@@ -131,7 +131,7 @@ func GetNewBooks(c *gin.Context) {
 
 	atom, err := feed.ToAtom()
 	if err != nil {
-		logging.CustomLog.Println(err)
+		logrus.Println(err)
 	}
 
 	c.Data(200, "application/atom+xml;charset=utf-8", []byte(atom))

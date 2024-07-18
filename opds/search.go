@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
+	"github.com/sirupsen/logrus"
 	"gopds-api/database"
 	"gopds-api/httputil"
-	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/opdsutils"
 	"net/http"
@@ -96,7 +96,7 @@ func Search(c *gin.Context) {
 
 		atom, err := feed.ToAtom()
 		if err != nil {
-			logging.CustomLog.Println(err)
+			logrus.Println(err)
 		}
 
 		c.Data(200, "application/atom+xml;charset=utf-8", []byte(atom))
@@ -169,7 +169,7 @@ func GetBooks(c *gin.Context) {
 		}
 		atom, err := feed.ToAtom()
 		if err != nil {
-			logging.CustomLog.Println(err)
+			logrus.Println(err)
 		}
 
 		c.Data(200, "application/atom+xml;charset=utf-8", []byte(atom))
@@ -247,7 +247,7 @@ func GetAuthor(c *gin.Context) {
 		}
 		atom, err := feed.ToAtom()
 		if err != nil {
-			logging.CustomLog.Println(err)
+			logrus.Println(err)
 		}
 		c.Data(200, "application/atom+xml;charset=utf-8", []byte(atom))
 		return

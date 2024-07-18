@@ -4,8 +4,8 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
-	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/utils"
 	"net/http"
@@ -49,7 +49,7 @@ func CheckUser(u models.LoginRequest) (bool, models.User, error) {
 func LoginDateSet(u *models.User) {
 	_, err := db.Model(u).Set("last_login = NOW()").WherePK().Update()
 	if err != nil {
-		logging.CustomLog.Println(err)
+		logrus.Println(err)
 	}
 }
 

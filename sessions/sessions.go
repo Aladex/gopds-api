@@ -2,7 +2,7 @@ package sessions
 
 import (
 	"github.com/google/uuid"
-	"gopds-api/logging"
+	"github.com/sirupsen/logrus"
 	"gopds-api/models"
 	"gopds-api/utils"
 	"strings"
@@ -30,12 +30,12 @@ func DeleteSessionKey(lu models.LoggedInUser) {
 func DropAllSessions(token string) {
 	username, _, err := utils.CheckToken(token)
 	if err != nil {
-		logging.CustomLog.Println(err)
+		logrus.Println(err)
 		return
 	}
 	keys, err := rdb.Keys("*").Result()
 	if err != nil {
-		logging.CustomLog.Println(err)
+		logrus.Println(err)
 		return
 	}
 	for _, k := range keys {
@@ -56,7 +56,7 @@ func GenerateTokenPassword(user string) string {
 func CheckTokenPassword(token string) string {
 	keys, err := rdbToken.Keys("*").Result()
 	if err != nil {
-		logging.CustomLog.Println(err)
+		logrus.Println(err)
 		return ""
 	}
 	for _, k := range keys {
@@ -71,7 +71,7 @@ func CheckTokenPassword(token string) string {
 func DeleteTokenPassword(token string) {
 	keys, err := rdbToken.Keys("*").Result()
 	if err != nil {
-		logging.CustomLog.Println(err)
+		logrus.Println(err)
 		return
 	}
 	for _, k := range keys {

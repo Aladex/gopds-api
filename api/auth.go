@@ -6,7 +6,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"gopds-api/database"
 	"gopds-api/httputil"
-	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/sessions"
 	"gopds-api/utils"
@@ -55,7 +54,7 @@ func AuthCheck(c *gin.Context) {
 	if err := c.ShouldBindJSON(&user); err == nil {
 		res, dbUser, err := database.CheckUser(user)
 		if err != nil {
-			logging.CustomLog.WithFields(logrus.Fields{
+			logrus.WithFields(logrus.Fields{
 				"action":   "login",
 				"result":   "user is not found",
 				"username": user.Login,
@@ -66,7 +65,7 @@ func AuthCheck(c *gin.Context) {
 
 		// Check if user is active
 		if !dbUser.Active {
-			logging.CustomLog.WithFields(logrus.Fields{
+			logrus.WithFields(logrus.Fields{
 				"action":   "login",
 				"result":   "user not active",
 				"username": user.Login,
@@ -101,7 +100,7 @@ func AuthCheck(c *gin.Context) {
 			c.JSON(200, thisUser)
 			return
 		default:
-			logging.CustomLog.WithFields(logrus.Fields{
+			logrus.WithFields(logrus.Fields{
 				"action":   "login",
 				"result":   "invalid password",
 				"username": user.Login,
