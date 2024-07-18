@@ -16,14 +16,6 @@ type BookProcessor struct {
 	path     string
 }
 
-func DeleteTmpFile(filename, format string) error {
-	err := os.Remove(filename + format)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 func NewBookProcessor(filename, path string) *BookProcessor {
 	return &BookProcessor{
 		filename: filename,
