@@ -57,10 +57,17 @@ func GetBookFile(c *gin.Context) {
 	bp := utils.NewBookProcessor(book.FileName, zipPath) // Create a new BookProcessor for the book file.
 	var rc io.ReadCloser                                 // Declare a variable to hold the file reader.
 
-	// Get the file reader for the requested format
-	rc, err = bp.GetConverter(c.Param("format"))
-	if err != nil {
-		httputil.NewError(c, http.StatusBadRequest, err) // Send a 400 Bad Request if there is an error getting the file reader.
+	switch strings.ToLower(c.Param("format")) {
+	case "epub":
+		rc, err = bp.Epub()
+	case "mobi":
+		rc, err = bp.Mobi()
+	case "fb2":
+		rc, err = bp.FB2()
+	case "zip":
+		rc, err = bp.Zip(book.FileName)
+	default:
+		httputil.NewError(c, http.StatusBadRequest, errors.New("unknown book format")) // Send a 400 Bad Request if the format is not handled.
 		return
 	}
 
