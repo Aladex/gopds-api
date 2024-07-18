@@ -31,11 +31,24 @@ func NewBookProcessor(filename, path string) *BookProcessor {
 	}
 }
 
-// Encapsulate the logic in a separate function
-func closeTmpFile(tmpFile *os.File) {
-	err := tmpFile.Close()
-	if err != nil {
+func closeResource(rc io.Closer) {
+	if err := rc.Close(); err != nil {
+		logrus.Printf("failed to close resource: %v", err)
+	}
+}
+
+func closeTmpFile(file *os.File) {
+	if err := file.Close(); err != nil {
 		logrus.Printf("failed to close tmp file: %v", err)
+	}
+}
+
+func deleteTmpFile(filename, format string) {
+	if err := os.Remove(filename + ".fb2"); err != nil {
+		logrus.Printf("failed to delete tmp file: %v", err)
+	}
+	if err := os.Remove(filename + format); err != nil {
+		logrus.Printf("failed to delete converted file: %v", err)
 	}
 }
 
@@ -44,81 +57,60 @@ func (bp *BookProcessor) process(format string, cmdArgs []string, convert bool) 
 	if err != nil {
 		return nil, err
 	}
-	defer func(r *zip.ReadCloser) {
-		err := r.Close()
-		if err != nil {
-			logrus.Printf("failed to close zip file: %v", err)
-		}
-	}(r)
+	defer closeResource(r)
 
 	for _, f := range r.File {
 		if f.Name == bp.filename {
-			rc, err := f.Open()
-			if err != nil {
-				return nil, err
-			}
-
-			if !convert {
-				buf := new(bytes.Buffer)
-				_, err := buf.ReadFrom(rc)
-				if err != nil {
-					err := rc.Close()
-					if err != nil {
-						return nil, err
-					}
-					return nil, errors.New("failed to read book")
-				}
-				err = rc.Close()
-				if err != nil {
-					return nil, err
-				}
-				return io.NopCloser(bytes.NewReader(buf.Bytes())), nil
-			}
-
-			tmpFilename := uuid.New().String()
-			tmpFile, err := os.Create(tmpFilename + ".fb2")
-			if err != nil {
-				err := rc.Close()
-				if err != nil {
-					return nil, err
-				}
-				return nil, err
-			}
-			closeTmpFile(tmpFile)
-
-			if _, err = io.Copy(tmpFile, rc); err != nil {
-				err := rc.Close()
-				if err != nil {
-					return nil, err
-				}
-				return nil, err
-			}
-			err = rc.Close()
-			if err != nil {
-				return nil, err
-			}
-
-			defer func() {
-				if err := DeleteTmpFile(tmpFilename, format); err != nil {
-					logrus.Printf("failed to delete tmp file: %v", err)
-				}
-			}()
-
-			cmdArgs = append(cmdArgs, tmpFilename+".fb2", ".")
-			cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
-			if err := cmd.Run(); err != nil {
-				return nil, err
-			}
-
-			convertedBook, err := os.Open(tmpFilename + format)
-			if err != nil {
-				return nil, err
-			}
-
-			return convertedBook, nil
+			return bp.processFile(f, format, cmdArgs, convert)
 		}
 	}
 	return nil, errors.New("book not found")
+}
+
+func (bp *BookProcessor) processFile(f *zip.File, format string, cmdArgs []string, convert bool) (io.ReadCloser, error) {
+	rc, err := f.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer closeResource(rc)
+
+	if !convert {
+		return bp.readWithoutConversion(rc)
+	}
+
+	tmpFilename := uuid.New().String()
+	tmpFile, err := os.Create(tmpFilename + ".fb2")
+	if err != nil {
+		return nil, err
+	}
+	defer closeTmpFile(tmpFile)
+
+	if _, err = io.Copy(tmpFile, rc); err != nil {
+		return nil, err
+	}
+
+	defer deleteTmpFile(tmpFilename, format)
+
+	cmdArgs = append(cmdArgs, tmpFilename+".fb2", ".")
+	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
+	if err := cmd.Run(); err != nil {
+		return nil, err
+	}
+
+	convertedBook, err := os.Open(tmpFilename + format)
+	if err != nil {
+		return nil, err
+	}
+
+	return convertedBook, nil
+}
+
+func (bp *BookProcessor) readWithoutConversion(rc io.ReadCloser) (io.ReadCloser, error) {
+	buf := new(bytes.Buffer)
+	if _, err := buf.ReadFrom(rc); err != nil {
+		return nil, errors.New("failed to read book")
+	}
+	return io.NopCloser(bytes.NewReader(buf.Bytes())), nil
 }
 
 func (bp *BookProcessor) Epub() (io.ReadCloser, error) {
