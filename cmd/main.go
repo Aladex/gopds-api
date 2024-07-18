@@ -6,6 +6,7 @@ import (
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"gopds-api/api"
+	"gopds-api/config"
 	_ "gopds-api/docs" // Import to include documentation for Swagger UI
 	"gopds-api/logging"
 	"gopds-api/middlewares"
@@ -93,6 +94,8 @@ func corsOptionsMiddleware() gin.HandlerFunc {
 // It sets the gin mode based on the application configuration, ensures the user path exists,
 // sets up middleware, routes, and starts the HTTP server.
 func main() {
+	config.LoadConfig() // Load the application configuration
+
 	if !viper.GetBool("app.devel_mode") {
 		gin.SetMode(gin.ReleaseMode)
 	}
