@@ -114,7 +114,11 @@ func main() {
 	if _, err := db.Exec("SELECT 1"); err != nil {
 		log.Fatalln("Failed to connect to database:", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Println("Error closing database connection")
+		}
+	}()
 
 	database.SetDB(db)
 
