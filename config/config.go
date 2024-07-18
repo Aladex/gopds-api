@@ -14,3 +14,7 @@ func LoadConfig() {
 		log.Fatalf("Fatal error config file: %s \n", err)
 	}
 }
+
+func init() {
+	LoadConfig()
+}
