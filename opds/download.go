@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
-	"gopds-api/config"
+	"github.com/spf13/viper"
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/logging"
@@ -14,12 +14,10 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 )
 
-var nameRegExp = regexp.MustCompile(`[^A-Za-z0-9а-яА-ЯёЁ]+`)
 var bookTypes = map[string]string{
 	"fb2":  "application/fb2+xml",
 	"zip":  "application/zip",
@@ -44,40 +42,27 @@ func DownloadBook(c *gin.Context) {
 		httputil.NewError(c, http.StatusNotFound, err)
 		return
 	}
-	downloadName := nameRegExp.ReplaceAllString(strings.ToLower(book.Title), `_`)
-	downloadName = utils.Translit(downloadName)
 
-	zipPath := config.AppConfig.GetString("app.files_path") + book.Path
+	zipPath := viper.GetString("app.files_path") + book.Path
 	bp := utils.NewBookProcessor(book.FileName, zipPath)
 
 	var rc io.ReadCloser
 	contentDisp := "attachment; filename=%s.%s"
 
-	switch strings.ToLower(bookRequest.Format) {
-	case "fb2":
-		rc, err = bp.FB2()
-	case "zip":
-		rc, err = bp.Zip(downloadName)
-	case "epub":
-		rc, err = bp.Epub()
-	case "mobi":
-		rc, err = bp.Mobi()
-	default:
-		httputil.NewError(c, http.StatusBadRequest, errors.New("unknown file format"))
+	// Get the file reader for the requested format
+	rc, err = bp.GetConverter(c.Param("format"))
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err) // Send a 400 Bad Request if there is an error getting the file reader.
 		return
 	}
 
-	if err != nil {
-		httputil.NewError(c, http.StatusBadRequest, err)
-		return
-	}
 	defer func() {
 		if cerr := rc.Close(); cerr != nil {
 			log.Printf("failed to close file: %v", cerr)
 		}
 	}()
 
-	c.Header("Content-Disposition", fmt.Sprintf(contentDisp, downloadName, bookRequest.Format))
+	c.Header("Content-Disposition", fmt.Sprintf(contentDisp, book.DownloadName(), bookRequest.Format))
 	c.Header("Content-Type", bookTypes[strings.ToLower(bookRequest.Format)])
 	_, err = io.Copy(c.Writer, rc)
 

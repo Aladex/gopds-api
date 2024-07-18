@@ -94,6 +94,19 @@ func (bp *BookProcessor) process(format string, cmdArgs []string, convert bool) 
 	return nil, errors.New("book not found")
 }
 
+func (bp *BookProcessor) GetConverter(bookFormat string) (io.ReadCloser, error) {
+	switch bookFormat {
+	case "fb2":
+		return bp.FB2()
+	case "epub":
+		return bp.Epub()
+	case "mobi":
+		return bp.Mobi()
+	default:
+		return nil, errors.New("unsupported file format")
+	}
+}
+
 func (bp *BookProcessor) Epub() (io.ReadCloser, error) {
 	return bp.process(".epub", []string{"external_fb2mobi/fb2c", "convert", "--to", "epub"}, true)
 }

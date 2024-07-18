@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
-	"gopds-api/config"
+	"github.com/spf13/viper"
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/logging"
@@ -53,26 +53,13 @@ func GetBookFile(c *gin.Context) {
 		httputil.NewError(c, http.StatusNotFound, err) // Send a 404 Not Found if the book is not in the database.
 		return
 	}
-	zipPath := config.AppConfig.GetString("app.files_path") + book.Path // Construct the path to the book file.
+	zipPath := viper.GetString("app.files_path") + book.Path // Construct the path to the book file.
 
 	bp := utils.NewBookProcessor(book.FileName, zipPath) // Create a new BookProcessor for the book file.
 	var rc io.ReadCloser                                 // Declare a variable to hold the file reader.
 
-	// Use the appropriate method of the BookProcessor to get the file reader based on the requested format.
-	switch strings.ToLower(c.Param("format")) {
-	case "epub":
-		rc, err = bp.Epub()
-	case "mobi":
-		rc, err = bp.Mobi()
-	case "fb2":
-		rc, err = bp.FB2()
-	case "zip":
-		rc, err = bp.Zip(book.FileName)
-	default:
-		httputil.NewError(c, http.StatusBadRequest, errors.New("unknown book format")) // Send a 400 Bad Request if the format is not handled.
-		return
-	}
-
+	// Get the file reader for the requested format
+	rc, err = bp.GetConverter(c.Param("format"))
 	if err != nil {
 		httputil.NewError(c, http.StatusBadRequest, err) // Send a 400 Bad Request if there is an error getting the file reader.
 		return

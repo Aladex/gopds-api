@@ -8,8 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/spf13/viper"
 	"golang.org/x/crypto/pbkdf2"
-	"gopds-api/config"
 	"gopds-api/models"
 	"hash"
 	"math/big"
@@ -104,7 +104,7 @@ func CreateToken(user models.User) (string, error) {
 		},
 	}
 	token := jwt.NewWithClaims(jwt.GetSigningMethod("HS256"), tk)
-	tokenString, err := token.SignedString([]byte(config.AppConfig.GetString("sessions.key")))
+	tokenString, err := token.SignedString([]byte(viper.GetString("sessions.key")))
 	if err != nil {
 		return "", err
 	}
@@ -114,7 +114,7 @@ func CreateToken(user models.User) (string, error) {
 // CheckToken checks if the token is valid
 func CheckToken(token string) (string, int64, error) {
 	tokenCheck, err := jwt.ParseWithClaims(token, &Token{}, func(token *jwt.Token) (interface{}, error) {
-		return []byte(config.AppConfig.GetString("sessions.key")), nil
+		return []byte(viper.GetString("sessions.key")), nil
 	})
 
 	if tokenCheck == nil {

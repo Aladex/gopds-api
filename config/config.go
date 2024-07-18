@@ -5,15 +5,11 @@ import (
 	"log"
 )
 
-var AppConfig = viper.New()
-
 func init() {
-	AppConfig.SetConfigName("config")
-	AppConfig.SetConfigType("yaml")
-	AppConfig.AddConfigPath(".")
-
-	err := AppConfig.ReadInConfig() // Find and read the config file
-	if err != nil {                 // Handle errors reading the config file
+	viper.SetConfigName("config")
+	viper.SetConfigType("yaml")
+	viper.AddConfigPath(".")
+	if err := viper.ReadInConfig(); err != nil {
 		log.Fatalf("Fatal error config file: %s \n", err)
 	}
 }

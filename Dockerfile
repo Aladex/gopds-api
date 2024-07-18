@@ -1,5 +1,5 @@
 # build stage
-FROM golang:1.20-alpine as build-stage
+FROM golang:1.20-alpine AS build-stage
 
 # Install dependencies and download fb2mobi
 RUN apk add --no-cache unzip curl expat && \
@@ -21,7 +21,7 @@ RUN go mod download
 RUN go build -o bin/gopds cmd/*
 
 # production stage
-FROM alpine:3.12 as production-stage
+FROM alpine:3.12 AS production-stage
 
 # Copy the built binary and fb2mobi from the build stage
 COPY --from=build-stage /app/bin/gopds /gopds/gopds

@@ -25,7 +25,7 @@ func AdminMiddleware() gin.HandlerFunc {
 
 		dbUser, err := database.GetUser(strings.ToLower(username))
 		if err != nil || !dbUser.IsSuperUser {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "restricted_zone"})
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "not_found"})
 			return
 		}
 

@@ -2,10 +2,10 @@ package main
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/spf13/viper"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"gopds-api/api"
-	"gopds-api/config"
 	_ "gopds-api/docs" // Import to include documentation for Swagger UI
 	"gopds-api/logging"
 	"gopds-api/middlewares"
@@ -20,7 +20,7 @@ import (
 // It includes a custom logger and, if in development mode, a CORS middleware.
 func setupMiddleware(route *gin.Engine) {
 	route.Use(logging.GinrusLogger())
-	if config.AppConfig.GetBool("app.devel_mode") {
+	if viper.GetBool("app.devel_mode") {
 		route.Use(corsOptionsMiddleware())
 	}
 }
@@ -33,7 +33,6 @@ func setupRoutes(route *gin.Engine) {
 	setupDefaultRoutes(route)
 	setupOpdsRoutes(route.Group("/opds", middlewares.BasicAuth()))
 	setupApiRoutes(route.Group("/api", middlewares.AuthMiddleware()))
-	setupTelegramRoutes(route.Group("/telegram"))
 }
 
 // setupFileRoutes configures routes related to file operations.
@@ -73,11 +72,6 @@ func setupAdminRoutes(group *gin.RouterGroup) {
 	api.SetupAdminRoutes(group)
 }
 
-// setupTelegramRoutes configures routes for Telegram bot interactions.
-func setupTelegramRoutes(group *gin.RouterGroup) {
-	api.SetupTelegramRoutes(group)
-}
-
 // corsOptionsMiddleware returns a middleware that enables CORS support.
 // It is only used in development mode for easier testing and development.
 func corsOptionsMiddleware() gin.HandlerFunc {
@@ -99,11 +93,11 @@ func corsOptionsMiddleware() gin.HandlerFunc {
 // It sets the gin mode based on the application configuration, ensures the user path exists,
 // sets up middleware, routes, and starts the HTTP server.
 func main() {
-	if !config.AppConfig.GetBool("app.devel_mode") {
+	if !viper.GetBool("app.devel_mode") {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	ensureUserPathExists(config.AppConfig.GetString("app.users_path"))
+	ensureUserPathExists(viper.GetString("app.users_path"))
 
 	route := gin.New()
 	setupMiddleware(route)

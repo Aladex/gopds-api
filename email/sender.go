@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"crypto/tls"
 	"fmt"
+	"github.com/spf13/viper"
 	assets "gopds-api"
-	"gopds-api/config"
 	"gopds-api/logging"
 	"html/template"
 	"net"
@@ -14,17 +14,11 @@ import (
 )
 
 type SendType struct {
-	Title   string
-	Token   string
-	Button  string
-	Message string
-	Email   string
-	Subject string
-	Thanks  string
+	Title, Token, Button, Message, Email, Subject, Thanks string
 }
 
 func MailConnection() (*smtp.Client, error) {
-	servername := config.AppConfig.GetString("email.smtp_server")
+	servername := viper.GetString("email.smtp_server")
 	host, _, _ := net.SplitHostPort(servername)
 
 	tlsconfig := &tls.Config{
@@ -35,55 +29,40 @@ func MailConnection() (*smtp.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	c, err := smtp.NewClient(conn, host)
-	if err != nil {
-		return c, err
-	}
-	return c, nil
+	return smtp.NewClient(conn, host)
 }
 
 func SendActivationEmail(data SendType) error {
-	var b bytes.Buffer
-
-	from := mail.Address{"Робот", config.AppConfig.GetString("email.from")}
-	to := mail.Address{"", data.Email}
-
-	// Setup headers
-	headers := make(map[string]string)
-	headers["From"] = from.String()
-	headers["To"] = to.String()
-	headers["MIME-version"] = "1.0"
-	headers["Content-Type"] = "text/html; charset=UTF-8"
-	headers["Subject"] = data.Subject
-
-	// Setup message
-	message := ""
-	for k, v := range headers {
-		message += fmt.Sprintf("%s: %s\r\n", k, v)
+	from := mail.Address{Name: "Робот", Address: viper.GetString("email.from")}
+	to := mail.Address{Address: data.Email}
+	headers := map[string]string{
+		"From":         from.String(),
+		"To":           to.String(),
+		"MIME-version": "1.0",
+		"Content-Type": "text/html; charset=UTF-8",
+		"Subject":      data.Subject,
 	}
-	message += "\r\n"
-	b.WriteString(message)
+
+	var b bytes.Buffer
+	for k, v := range headers {
+		b.WriteString(fmt.Sprintf("%s: %s\r\n", k, v))
+	}
+	b.WriteString("\r\n")
+
 	ss, err := MailConnection()
 	if err != nil {
+		logging.CustomLog.Println(err)
 		return err
 	}
-	servername := config.AppConfig.GetString("email.smtp_server")
+	servername := viper.GetString("email.smtp_server")
 	host, _, _ := net.SplitHostPort(servername)
-	auth := smtp.PlainAuth("",
-		config.AppConfig.GetString("email.user"),
-		config.AppConfig.GetString("email.password"),
-		host)
-	if err = ss.Auth(auth); err != nil {
+	auth := smtp.PlainAuth("", viper.GetString("email.user"), viper.GetString("email.password"), host)
+	if err := ss.Auth(auth); err != nil {
 		logging.CustomLog.Println(err)
 		return err
 	}
 
-	if err = ss.Mail(from.Address); err != nil {
-		logging.CustomLog.Println(err)
-		return err
-	}
-
-	if err = ss.Rcpt(to.Address); err != nil {
+	if err := ss.Mail(from.Address); err != nil || ss.Rcpt(to.Address) != nil {
 		logging.CustomLog.Println(err)
 		return err
 	}
@@ -104,26 +83,17 @@ func SendActivationEmail(data SendType) error {
 		logging.CustomLog.Println(err)
 		return err
 	}
-	err = tpl.ExecuteTemplate(&b, "reset_password.gohtml", data)
-	if err != nil {
+	if err := tpl.ExecuteTemplate(&b, "reset_password.gohtml", data); err != nil {
 		logging.CustomLog.Println(err)
 		return err
 	}
 
-	_, err = w.Write(b.Bytes())
-	if err != nil {
+	if _, err := w.Write(b.Bytes()); err != nil || w.Close() != nil {
 		logging.CustomLog.Println(err)
 		return err
 	}
 
-	err = w.Close()
-	if err != nil {
-		logging.CustomLog.Println(err)
-		return err
-	}
-
-	err = ss.Quit()
-	if err != nil {
+	if err := ss.Quit(); err != nil {
 		logging.CustomLog.Println(err)
 		return err
 	}

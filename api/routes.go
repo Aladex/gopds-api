@@ -15,11 +15,6 @@ func SetupBookRoutes(r *gin.RouterGroup) {
 	r.POST("/fav", FavBook)
 }
 
-// SetupTelegramRoutes sets up the admin routes
-func SetupTelegramRoutes(r *gin.RouterGroup) {
-	r.POST("/telegram/:id", TokenApiEndpoint)
-}
-
 // StatusCheck returns status of the service
 func StatusCheck(c *gin.Context) {
 	c.JSON(200, gin.H{"status": "ok"})

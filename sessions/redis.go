@@ -3,7 +3,7 @@ package sessions
 import (
 	"fmt"
 	"github.com/go-redis/redis"
-	"gopds-api/config"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -15,8 +15,8 @@ var (
 func RedisConnection(dbNum int) *redis.Client {
 	return redis.NewClient(&redis.Options{
 		Addr: fmt.Sprintf("%v:%v",
-			config.AppConfig.GetString("redis.host"),
-			config.AppConfig.GetString("redis.port")),
+			viper.GetString("redis.host"),
+			viper.GetString("redis.port")),
 		Password: "", // no password set
 		DB:       dbNum,
 	})

@@ -4,7 +4,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"gopds-api/config"
+	"github.com/spf13/viper"
 	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/utils"
@@ -194,7 +194,7 @@ func ActionUser(action models.AdminCommandToUser) (models.User, error) {
 		if action.User.BotToken != "" {
 			webhookURL := fmt.Sprintf("https://api.telegram.org/bot%s/setWebhook?url=%s/telegram/%s",
 				action.User.BotToken,
-				config.AppConfig.GetString("project_domain"),
+				viper.GetString("project_domain"),
 				action.User.BotToken)
 			resp, err := http.Get(webhookURL)
 			if err != nil {
