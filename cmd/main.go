@@ -95,6 +95,8 @@ func corsOptionsMiddleware() gin.HandlerFunc {
 // sets up middleware, routes, and starts the HTTP server.
 func main() {
 	config.LoadConfig() // Load the application configuration
+	// Log the application configuration
+	log.Printf("Application configuration: %v", viper.AllSettings())
 
 	if !viper.GetBool("app.devel_mode") {
 		gin.SetMode(gin.ReleaseMode)
