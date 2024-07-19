@@ -1,5 +1,5 @@
 <p align="center">
-<img src="image.jpg" style="float:left;" alt="Description of the image"> <img src="https://raw.githubusercontent.com/Aladex/gopds-api/master/logo/logo.png" alt="GOPDS Mascot" width="350">
+<img src="https://raw.githubusercontent.com/Aladex/gopds-api/master/logo/logo.png" width="350">
 </p>
 
 # gopds-api
