@@ -101,6 +101,6 @@ func FavBook(c *gin.Context) {
 			httputil.NewError(c, http.StatusBadRequest, err)
 			return
 		}
-		c.JSON(200, gin.H{"result": res})
+		c.JSON(200, favAnswer{HaveFavs: res})
 	}
 }
