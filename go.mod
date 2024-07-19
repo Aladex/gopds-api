@@ -4,6 +4,7 @@ go 1.20
 
 require (
 	github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751
+	github.com/gin-contrib/static v1.1.2
 	github.com/gin-gonic/gin v1.10.0
 	github.com/go-pg/pg/v10 v10.13.0
 	github.com/go-redis/redis v6.15.9+incompatible

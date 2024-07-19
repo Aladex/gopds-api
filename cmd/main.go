@@ -1,104 +1,19 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
-	swaggerFiles "github.com/swaggo/files"
-	ginSwagger "github.com/swaggo/gin-swagger"
-	"gopds-api/api"
 	"gopds-api/database"
 	_ "gopds-api/docs" // Import to include documentation for Swagger UI
-	"gopds-api/logging"
-	"gopds-api/middlewares"
-	"gopds-api/opds"
 	"gopds-api/sessions"
 	"net/http"
 	"os"
+	"os/signal"
 	"time"
 )
-
-func init() {
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath(".")
-	if err := viper.ReadInConfig(); err != nil {
-		logrus.Fatalf("Fatal error config file: %s \n", err)
-	}
-}
-
-// setupMiddleware configures global middleware for the gin.Engine instance.
-// It includes a custom logger and, if in development mode, a CORS middleware.
-func setupMiddleware(route *gin.Engine) {
-	route.Use(logging.GinrusLogger())
-	if viper.GetBool("app.devel_mode") {
-		route.Use(corsOptionsMiddleware())
-	}
-}
-
-// setupRoutes defines all route handlers and groups them by their functionality.
-// It includes routes for Swagger UI, file handling, default operations, OPDS feed, API, admin, and Telegram bot interactions.
-func setupRoutes(route *gin.Engine) {
-	route.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
-	setupFileRoutes(route.Group("/files", middlewares.TokenMiddleware()))
-	setupDefaultRoutes(route)
-	setupOpdsRoutes(route.Group("/opds", middlewares.BasicAuth()))
-	setupApiRoutes(route.Group("/api", middlewares.AuthMiddleware()))
-}
-
-// setupFileRoutes configures routes related to file operations.
-func setupFileRoutes(group *gin.RouterGroup) {
-	group.GET("/books/get/:format/:id", api.GetBookFile)
-}
-
-// setupDefaultRoutes configures default routes for the application.
-func setupDefaultRoutes(route *gin.Engine) {
-	route.GET("/books-posters/*filepath", api.Posters)
-	route.GET("/status", api.StatusCheck)
-	route.POST("/api/login", api.AuthCheck)
-	route.POST("/api/register", api.Registration)
-	route.POST("/api/change-password", api.ChangeUserState)
-	route.POST("/api/change-request", api.ChangeRequest)
-	route.POST("/api/token", api.TokenValidation)
-	route.GET("/api/logout", api.LogOut)
-	route.GET("/api/drop-sessions", api.DropAllSessions)
-}
-
-// setupOpdsRoutes configures routes for OPDS feed interactions.
-func setupOpdsRoutes(group *gin.RouterGroup) {
-	opds.SetupOpdsRoutes(group)
-}
-
-// setupApiRoutes configures API routes for book operations and other functionalities.
-func setupApiRoutes(group *gin.RouterGroup) {
-	booksGroup := group.Group("/books")
-	api.SetupBookRoutes(booksGroup)
-	// Setup admin routes with admin middleware
-	adminGroup := group.Group("/admin", middlewares.AdminMiddleware())
-	setupAdminRoutes(adminGroup)
-}
-
-// setupAdminRoutes configures routes for administrative functionalities.
-func setupAdminRoutes(group *gin.RouterGroup) {
-	api.SetupAdminRoutes(group)
-}
-
-// corsOptionsMiddleware returns a middleware that enables CORS support.
-// It is only used in development mode for easier testing and development.
-func corsOptionsMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if c.Request.Method == "OPTIONS" {
-			c.Header("Access-Control-Allow-Origin", "*")
-			c.Header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
-			c.Header("Access-Control-Allow-Headers", "authorization, origin, content-type, accept, token")
-			c.Header("Allow", "HEAD,GET,POST,PUT,PATCH,DELETE,OPTIONS")
-			c.Header("Content-Type", "application/json")
-			c.AbortWithStatus(http.StatusOK)
-		} else {
-			c.Next()
-		}
-	}
-}
 
 // main initializes the application.
 // It sets the gin mode based on the application configuration, ensures the user path exists,
@@ -130,13 +45,39 @@ func main() {
 		MaxHeaderBytes: 1 << 20,
 	}
 
-	logrus.Fatal(server.ListenAndServe())
-}
+	// Channel to listen for server start errors
+	serverErrors := make(chan error, 1)
 
-// ensureUserPathExists checks if the specified path exists and creates it if it does not.
-// It is used to ensure necessary directories are available at application start.
-func ensureUserPathExists(path string) {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		logrus.Fatalln(os.MkdirAll(path, 0755))
+	// Start the server in a goroutine
+	go func() {
+		logrus.Info("Server is starting at http://127.0.0.1:8085")
+		serverErrors <- server.ListenAndServe()
+	}()
+
+	// Wait for server to start and then log successful start message
+	select {
+	case err := <-serverErrors:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logrus.Fatalf("Could not listen on %s: %v\n", server.Addr, err)
+		}
+	case <-time.After(1 * time.Second):
+		logrus.Info("Server started successfully")
 	}
+
+	// Wait for interrupt signal to gracefully shutdown the server with
+	// a timeout of 5 seconds.
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt)
+	<-quit
+	logrus.Info("Shutting down server...")
+
+	// The context is used to inform the server it has 5 seconds to finish
+	// the request it is currently handling
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		logrus.Fatal("Server forced to shutdown:", err)
+	}
+
+	logrus.Info("Server exiting")
 }
