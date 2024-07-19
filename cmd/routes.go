@@ -8,6 +8,8 @@ import (
 	"gopds-api/api"
 	"gopds-api/middlewares"
 	"gopds-api/opds"
+	"net/http"
+	"strings"
 )
 
 // setupRoutes defines all route handlers and groups them by their functionality.
@@ -25,8 +27,14 @@ func setupRoutes(route *gin.Engine) {
 	})
 
 	// Adjust the NoRoute handler to serve index.html for unmatched routes
+	registeredRoutes := getRegisteredRoutes(route)
 	route.NoRoute(func(c *gin.Context) {
-		c.FileFromFS("frontend_src/dist/index.html", NewHTTPFS(assets.Assets))
+		// Check if the request path is not a registered route
+		if !isRegisteredRoute(c.Request.URL.Path, registeredRoutes) {
+			c.FileFromFS("frontend_src/dist/index.html", NewHTTPFS(assets.Assets))
+		} else {
+			c.AbortWithStatus(http.StatusNotFound)
+		}
 	})
 }
 
@@ -65,4 +73,23 @@ func setupApiRoutes(group *gin.RouterGroup) {
 // setupAdminRoutes configures routes for administrative functionalities.
 func setupAdminRoutes(group *gin.RouterGroup) {
 	api.SetupAdminRoutes(group)
+}
+
+// getRegisteredRoutes retrieves all registered routes in the Gin engine
+func getRegisteredRoutes(route *gin.Engine) map[string]struct{} {
+	registeredRoutes := make(map[string]struct{})
+	for _, r := range route.Routes() {
+		registeredRoutes[r.Path] = struct{}{}
+	}
+	return registeredRoutes
+}
+
+// isRegisteredRoute checks if a given path matches any of the registered routes
+func isRegisteredRoute(path string, registeredRoutes map[string]struct{}) bool {
+	for route := range registeredRoutes {
+		if path == route || strings.HasPrefix(path, route) {
+			return true
+		}
+	}
+	return false
 }
