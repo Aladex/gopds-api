@@ -211,6 +211,9 @@ func setWebhookIfNeeded(botToken string) error {
 // Helper function to update user details
 func updateUserDetails(userToChange, newUserDetails models.User) models.User {
 	userToChange.Login = newUserDetails.Login
+	userToChange.FirstName = newUserDetails.FirstName
+	userToChange.LastName = newUserDetails.LastName
+	userToChange.BooksLang = newUserDetails.BooksLang
 	userToChange.Email = newUserDetails.Email
 	userToChange.IsSuperUser = newUserDetails.IsSuperUser
 	userToChange.BotToken = newUserDetails.BotToken
