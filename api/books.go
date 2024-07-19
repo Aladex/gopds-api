@@ -79,7 +79,7 @@ func GetBooks(c *gin.Context) {
 // @Description add or remove book from favorites for user
 // @Accept  json
 // @Produce  json
-// @Param  body models.FavBook true "Book Data"
+// @Param  body body models.FavBook true "Book Data"
 // @Success 200 {object} ExportAnswer
 // @Failure 400 {object} httputil.HTTPError
 // @Router /fav [post]

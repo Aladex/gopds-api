@@ -24,10 +24,10 @@ type UsersAnswer struct {
 	Length int           `json:"length"`
 }
 
-// GetUsers method for get users list in admin space
+// GetUsers method for fetching the list of users in the admin space
 // Auth godoc
-// @Summary Returns users list
-// @Description users list for admin space
+// @Summary Retrieve the list of users
+// @Description Get a list of users for the admin space
 // @Tags admin
 // @Accept  json
 // @Produce  json
@@ -58,12 +58,12 @@ func GetUsers(c *gin.Context) {
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
 }
 
-// GetInvites return invites list
+// GetInvites method for retrieving the list of invites
 // Auth godoc
-// @Summary return invites list
-// @Description return invites list
+// @Summary Retrieve the list of invites
+// @Description Get a list of invites
 // @Tags admin
-// @Param Authorization header string true "Just token without bearer"
+// @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Accept  json
 // @Produce  json
 // @Success 200 {object} models.Result
@@ -83,14 +83,14 @@ func GetInvites(c *gin.Context) {
 	})
 }
 
-// ChangeInvite method for change or create invite
+// ChangeInvite method for changing or creating an invite
 // Auth godoc
-// @Summary method for change or create invite
-// @Description method for change or create invite
+// @Summary Change or create an invite
+// @Description Change or create an invite
 // @Tags admin
 // @Accept  json
 // @Produce  json
-// @Param  body body models.InviteRequest true "Invite params"
+// @Param  body body models.InviteRequest true "Invite parameters"
 // @Success 200 {object} models.Result
 // @Failure 400 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError
@@ -114,19 +114,13 @@ func ChangeInvite(c *gin.Context) {
 }
 
 // UpdateBook updates the information of a specific book.
-//
-// This method attempts to bind the incoming JSON payload to a Book model. If the binding is successful,
-// it proceeds to update the book's information in the database using the UpdateBook function. If the database
-// operation is successful, it responds with a JSON payload indicating whether the book has favorites.
-// In case of an error during JSON binding or the database operation, it responds with an appropriate HTTP error status and message.
-//
 // @Summary Update book information
-// @Description Updates the information for a specific book based on the provided JSON payload.
+// @Description Update the information of a specific book based on the provided JSON payload.
 // @Tags books
 // @Accept json
 // @Produce json
 // @Param body body models.Book true "Book update information"
-// @Success 200 {object} gin.H "have_favs indicates whether the book has favorites"
+// @Success 200 {object} models.Result "Book updated successfully"
 // @Failure 400 {object} httputil.HTTPError "Bad request - invalid input parameters"
 // @Failure 500 {object} httputil.HTTPError "Internal server error"
 func UpdateBook(c *gin.Context) {
@@ -137,6 +131,10 @@ func UpdateBook(c *gin.Context) {
 			httputil.NewError(c, http.StatusBadRequest, err)
 			return
 		}
-		c.JSON(200, gin.H{"have_favs": res})
+		// Return the result of the operation
+		c.JSON(200, models.Result{
+			Result: res,
+			Error:  nil,
+		})
 	}
 }

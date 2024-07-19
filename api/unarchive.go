@@ -22,18 +22,20 @@ var bookTypes = map[string]string{
 	"mobi": "application/x-mobipocket-ebook",
 }
 
-// GetBookFile returns file of book in answered type
+// GetBookFile returns the file of a book in the requested format
 // Auth godoc
-// @Summary returns file of book in answered type
-// @Description returns file of book in answered type
+// @Summary Return book file in the specified format
+// @Description Retrieve the file of a book in the specified format
 // @Tags files
 // @Accept  json
 // @Produce  json
-// @Param  body body models.BookDownload true "Book Data"
+// @Param  format path string true "Book format" Enums(fb2, zip, epub, mobi)
+// @Param  id path int true "Book ID"
 // @Success 200 {object} models.BookDownload
-// @Failure 400 {object} httputil.HTTPError
-// @Failure 403 {object} httputil.HTTPError
-// @Failure 500 {object} httputil.HTTPError
+// @Failure 400 {object} httputil.HTTPError "Bad request - invalid input parameters"
+// @Failure 403 {object} httputil.HTTPError "Forbidden - access denied"
+// @Failure 404 {object} httputil.HTTPError "Not found - book not found"
+// @Failure 500 {object} httputil.HTTPError "Internal server error"
 // @Router /books/file [post]
 func GetBookFile(c *gin.Context) {
 	bookID, err := strconv.ParseInt(c.Param("id"), 10, 0) // Parse the book ID from the request parameters.

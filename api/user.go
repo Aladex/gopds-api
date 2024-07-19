@@ -9,18 +9,18 @@ import (
 	"net/http"
 )
 
-// ActionUser method for change user info
+// ActionUser method for changing user information
 // Auth godoc
-// @Summary Returns an users object
-// @Description user object
+// @Summary Change user information
+// @Description Perform an action on a user based on the provided data
 // @Tags admin
 // @Accept  json
 // @Produce  json
-// @Param  body body models.AdminCommandToUser true "User action"
-// @Success 200 {object} models.User
-// @Failure 400 {object} httputil.HTTPError
-// @Failure 403 {object} httputil.HTTPError
-// @Failure 500 {object} httputil.HTTPError
+// @Param  body body models.AdminCommandToUser true "User action data"
+// @Success 200 {object} models.User "User object after the action"
+// @Failure 400 {object} httputil.HTTPError "Bad request - invalid input parameters"
+// @Failure 403 {object} httputil.HTTPError "Forbidden - access denied"
+// @Failure 500 {object} httputil.HTTPError "Internal server error"
 // @Router /admin/user [post]
 func ActionUser(c *gin.Context) {
 	var action models.AdminCommandToUser

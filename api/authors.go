@@ -16,11 +16,11 @@ type AuthorAnswer struct {
 	Length  int             `json:"length"`
 }
 
-// GetAuthors method for get authors list on search page
+// GetAuthors method for retrieving the list of authors on the search page
 // Auth godoc
-// @Summary method for get authors list on search page
-// @Description method for get authors list on search page
-// @Param Authorization header string true "Just token without bearer"
+// @Summary Retrieve authors list for the search page
+// @Description Get a list of authors available on the search page
+// @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Param  limit query int true "Limit"
 // @Param  offset query int true "Offset"
 // @Param  author query string false "Author ID"
@@ -46,11 +46,11 @@ func GetAuthors(c *gin.Context) {
 	}
 }
 
-// GetAuthor method for get author info from db
+// GetAuthor method for retrieving author information from the database
 // Auth godoc
-// @Summary method for get author info from db
-// @Description method for get author info from db
-// @Param Authorization header string true "Just token without bearer"
+// @Summary Retrieve author information
+// @Description Get information about a specific author from the database
+// @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Param  author query string false "Author ID"
 // @Accept  json
 // @Produce  json

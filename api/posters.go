@@ -23,6 +23,16 @@ import (
 // The relative file path is expected to be provided as a parameter in the route.
 // For example, if the route is defined as "/book-posters/*filepath", the "*filepath" parameter
 // can be retrieved and used to construct the full path to the file.
+//
+// @Summary Serve a file from the specified path
+// @Description Serve a file from the specified path, or a default image if not found
+// @Tags posters
+// @Param  filepath path string true "Relative file path"
+// @Produce  image/png
+// @Success 200 {file} file "Requested file"
+// @Failure 403 {object} httputil.HTTPError "Invalid file path"
+// @Failure 500 {object} httputil.HTTPError "Internal server error"
+// @Router /book-posters/{filepath} [get]
 func Posters(c *gin.Context) {
 	postersPath := viper.GetString("app.posters_path") // Retrieve the base path for posters from the app's configuration.
 	relativePath := c.Param("filepath")                // Extract the relative path from the request's parameters.

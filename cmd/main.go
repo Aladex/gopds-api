@@ -15,9 +15,12 @@ import (
 	"time"
 )
 
-// main initializes the application.
-// It sets the gin mode based on the application configuration, ensures the user path exists,
-// sets up middleware, routes, and starts the HTTP server.
+// @title GOPDS API
+// @version 1.0
+// @description GOPDS API for a comprehensive book management system
+// @contact.name API Support
+// @contact.email aladex@gmail.com
+// @BasePath /api
 func main() {
 	db := initializeDatabase()
 	defer closeDatabaseConnection(db)

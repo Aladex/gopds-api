@@ -15,7 +15,11 @@ RUN apk add --no-cache unzip curl expat && \
 COPY . /app
 WORKDIR /app
 COPY --from=frontend-build /app/dist /app/frontend_src/dist
-RUN go mod download && go build -o bin/gopds cmd/*
+RUN go mod download && \
+    go install github.com/swaggo/swag/cmd/swag@latest && \
+    swag init --generalInfo cmd/main.go && \
+    go build -o bin/gopds cmd/*
+
 
 # Production stage
 FROM alpine:3.14 AS production-stage

@@ -29,8 +29,8 @@ type passwordChangeRequest struct {
 
 // TokenValidation check for token validation
 // Auth godoc
-// @Summary check for token validation
-// @Description check for token validation
+// @Summary Check for token validation
+// @Description Validate the provided token
 // @Tags login
 // @Accept  json
 // @Produce  json
@@ -54,14 +54,14 @@ func TokenValidation(c *gin.Context) {
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
 }
 
-// ChangeRequest method for change request
+// ChangeRequest method for initiating a change request
 // Auth godoc
-// @Summary method for change request
-// @Description method for change request
+// @Summary Initiate a change request
+// @Description Initiate a change request for password reset
 // @Tags login
 // @Accept  json
 // @Produce  json
-// @Param  body body passwordChangeRequest true "user info"
+// @Param  body body passwordChangeRequest true "User info"
 // @Success 200 {object} changeAnswer
 // @Failure 400 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError
@@ -105,14 +105,14 @@ func ChangeRequest(c *gin.Context) {
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
 }
 
-// ChangeUserState method for change user
+// ChangeUserState method for changing user state
 // Auth godoc
-// @Summary method for change user
-// @Description method for change user
+// @Summary Change user state
+// @Description Change user state based on the provided token and password
 // @Tags login
 // @Accept  json
 // @Produce  json
-// @Param  body body passwordToken true "user info"
+// @Param  body body passwordToken true "User info"
 // @Success 200 {object} models.LoggedInUser
 // @Failure 400 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError

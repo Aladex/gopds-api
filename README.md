@@ -28,9 +28,3 @@ In the future, we have plans to add:
 - A converter that can transform FB2 files into EPUB and MOBI formats
 - A Telegram bot to allow users to access their favorite books and perform actions such as adding books to their favorite list through the messaging platform.
 
-## Bindata create
-
-To create bindata, you can use the following command:
-```
-go-bindata -o static_assets/bindata.go -fs -prefix "posters" -pkg static_assets static_assets/posters/...
-```

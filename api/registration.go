@@ -16,15 +16,15 @@ import (
 
 // Registration creates a new user
 // Auth godoc
-// @Summary creates a new user
-// @Description creates a new user
+// @Summary Create a new user
+// @Description Register a new user
 // @Tags login
 // @Accept  json
 // @Produce  json
 // @Param  body body models.RegisterRequest true "User Data"
-// @Success 201 {object} string
-// @Failure 409 {object} httputil.HTTPError
-// @Failure 400 {object} httputil.HTTPError
+// @Success 201 {object} string "User created successfully"
+// @Failure 409 {object} httputil.HTTPError "Conflict - user already exists"
+// @Failure 400 {object} httputil.HTTPError "Bad request - invalid input parameters"
 // @Router /register [post]
 func Registration(c *gin.Context) {
 	var newUser models.RegisterRequest

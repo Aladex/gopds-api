@@ -14,10 +14,10 @@ import (
 	"time"
 )
 
-// DropAllSessions drops all sessions from redis
+// DropAllSessions method for dropping all sessions from Redis
 // Auth godoc
-// @Summary drops all sessions from redis
-// @Description drops all sessions from redis
+// @Summary Drop all sessions from Redis
+// @Description Remove all sessions from Redis
 // @Tags login
 // @Accept  json
 // @Produce  json
@@ -40,14 +40,14 @@ func DropAllSessions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"result": "ok"})
 }
 
-// AuthCheck Returns an user and token for header
+// AuthCheck method for returning a user and token for header
 // Auth godoc
-// @Summary Returns an user and token for header
+// @Summary Return user and token for header
 // @Description Login method for token generation
 // @Tags login
 // @Accept  json
 // @Produce  json
-// @Param  body models.LoginRequest true "Login Data"
+// @Param  body body models.LoginRequest true "Login Data"
 // @Success 200 {object} models.LoggedInUser
 // @Failure 400 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError
@@ -111,10 +111,10 @@ func AuthCheck(c *gin.Context) {
 	c.JSON(200, thisUser)
 }
 
-// LogOut method for logout user
+// LogOut method for logging out the user
 // Auth godoc
-// @Summary method for logout user
-// @Description method for logout user
+// @Summary Log out user
+// @Description Log out the user by invalidating their session
 // @Tags login
 // @Accept  json
 // @Produce  json
@@ -141,10 +141,10 @@ func LogOut(c *gin.Context) {
 	c.JSON(200, gin.H{"result": "ok"})
 }
 
-// SelfUser method for get user info by token
+// SelfUser method for retrieving user information by token
 // Auth godoc
-// @Summary method for get user info by token
-// @Description method for get user info by token
+// @Summary Get user information by token
+// @Description Retrieve user information using the provided token
 // @Tags login
 // @Accept  json
 // @Produce  json
@@ -174,14 +174,14 @@ func SelfUser(c *gin.Context) {
 	}
 }
 
-// ChangeUser method for change user info by token
+// ChangeUser method for updating user information by token
 // Auth godoc
-// @Summary Returns an users object
-// @Description user object
+// @Summary Update user information
+// @Description Update user information based on the provided token
 // @Tags users
 // @Accept  json
 // @Produce  json
-// @Param  body body models.SelfUserChangeRequest true "User object"
+// @Param  body body models.SelfUserChangeRequest true "User update information"
 // @Success 200 {object} models.LoggedInUser
 // @Failure 400 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError
