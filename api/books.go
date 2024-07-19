@@ -1,19 +1,13 @@
 package api
 
 import (
-	"bytes"
-	"encoding/base64"
 	"errors"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
-	"github.com/sirupsen/logrus"
-	assets "gopds-api"
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/models"
-	"io"
 	"net/http"
-	"strconv"
 )
 
 // ExportAnswer struct for books list response
@@ -77,52 +71,6 @@ func GetBooks(c *gin.Context) {
 		return
 	}
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
-}
-
-// GetBookPoster return book poster by id if it exists
-func GetBookPoster(c *gin.Context) {
-	bookId, err := strconv.ParseInt(c.Param("book"), 10, 64)
-	if err != nil {
-		logrus.Println(err)
-		httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
-		return
-	}
-	var coverData []byte
-	contentType := "image/png"
-	cover, err := database.GetCover(bookId)
-	if err != nil {
-		coverData, err = assets.Assets.ReadFile("static_assets/posters/no-cover.png")
-		if err != nil {
-			c.JSON(500, err)
-			return
-		}
-	} else {
-		coverData, err = base64.StdEncoding.DecodeString(cover.Cover)
-		if cover.ContentType != "" {
-			contentType = cover.ContentType
-		}
-		if err != nil {
-			c.JSON(500, err)
-			return
-		}
-	}
-
-	r := io.NopCloser(bytes.NewReader(coverData)) // r type is io.ReadCloser
-
-	buf := new(bytes.Buffer)
-	_, err = buf.ReadFrom(r)
-	if err != nil {
-		c.JSON(500, err)
-		return
-	}
-	err = r.Close()
-	if err != nil {
-		c.JSON(500, err)
-		return
-	}
-	c.Header("Content-Type", contentType)
-	_, err = io.Copy(c.Writer, buf)
-	return
 }
 
 // FavBook add or remove book from favorites for user
