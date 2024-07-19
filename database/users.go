@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/viper"
 	"gopds-api/models"
 	"gopds-api/utils"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -161,10 +160,8 @@ func GetUserList(filters models.UserFilters) ([]models.User, int, error) {
 	return users, count, nil
 }
 
-// ActionUser function for change user from admin panel
 func ActionUser(action models.AdminCommandToUser) (models.User, error) {
 	var userToChange models.User
-	var tmpPass string
 	err := db.Model(&userToChange).Where("id = ?", action.User.ID).Select()
 	if err != nil {
 		return userToChange, err
@@ -174,45 +171,42 @@ func ActionUser(action models.AdminCommandToUser) (models.User, error) {
 	case "get":
 		return userToChange, nil
 	case "update":
-		// Update user password if it is not empty
-		if action.User.Password != "" {
-			tmpPass = utils.CreatePasswordHash(action.User.Password)
-		} else {
-			tmpPass = userToChange.Password
-		}
-
-		// Set new password and active user
-		if action.User.BotToken != "" {
-			webhookURL := fmt.Sprintf("https://api.telegram.org/bot%s/setWebhook?url=%s/telegram/%s",
-				action.User.BotToken,
-				viper.GetString("project_domain"),
-				action.User.BotToken)
-			resp, err := http.Get(webhookURL)
-			if err != nil {
-				return userToChange, err
-			}
-			defer func(Body io.ReadCloser) {
-				err := Body.Close()
-				if err != nil {
-					logrus.Println(err)
-				}
-			}(resp.Body)
-
-			if resp.StatusCode != http.StatusOK {
-				return userToChange, fmt.Errorf("failed to set webhook, status code: %d", resp.StatusCode)
-			}
-		}
-
-		// Update user info
-		userToChange = action.User
-		userToChange.Password = tmpPass
-		_, err = db.Model(&userToChange).WherePK().Update()
-		if err != nil {
+		userToChange.Password = utils.CreatePasswordHashIfNeeded(action.User.Password, userToChange.Password)
+		if err := setWebhookIfNeeded(action.User.BotToken); err != nil {
 			return userToChange, err
 		}
-
+		userToChange = updateUserDetails(userToChange, action.User)
+		if _, err := db.Model(&userToChange).WherePK().Update(); err != nil {
+			return userToChange, err
+		}
 		return userToChange, nil
 	default:
 		return userToChange, errors.New("unknown action")
 	}
+}
+
+// Helper function to set webhook if bot token is provided
+func setWebhookIfNeeded(botToken string) error {
+	if botToken != "" {
+		webhookURL := fmt.Sprintf("https://api.telegram.org/bot%s/setWebhook?url=%s/telegram/%s",
+			botToken, viper.GetString("project_domain"), botToken)
+		resp, err := http.Get(webhookURL)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("failed to set webhook, status code: %d", resp.StatusCode)
+		}
+	}
+	return nil
+}
+
+// Helper function to update user details
+func updateUserDetails(userToChange, newUserDetails models.User) models.User {
+	userToChange.Login = newUserDetails.Login
+	userToChange.Email = newUserDetails.Email
+	userToChange.IsSuperUser = newUserDetails.IsSuperUser
+	userToChange.BotToken = newUserDetails.BotToken
+	return userToChange
 }

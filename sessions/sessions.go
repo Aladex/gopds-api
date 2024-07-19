@@ -1,6 +1,7 @@
 package sessions
 
 import (
+	"context"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"gopds-api/models"
@@ -9,21 +10,44 @@ import (
 	"time"
 )
 
-// SetSessionKey sets a new session key for a user login.
-func SetSessionKey(lu models.LoggedInUser) {
-	rdb.Set(*lu.Token, strings.ToLower(lu.User), 24*time.Hour)
+func SetSessionKey(ctx context.Context, lu models.LoggedInUser) error {
+	_, err := rdb.WithContext(ctx).Set(*lu.Token, strings.ToLower(lu.User), 24*time.Hour).Result()
+	if err != nil {
+		logrus.Println(err)
+		return err
+	}
+	return nil
 }
 
 // CheckSessionKey checks if a session key exists for a user.
-func CheckSessionKey(lu models.LoggedInUser) bool {
-	return rdb.Get(*lu.Token).Val() == strings.ToLower(lu.User)
+func CheckSessionKey(ctx context.Context, lu models.LoggedInUser) bool {
+	// return rdb.Get(*lu.Token).Val() == strings.ToLower(lu.User)
+	val, err := rdb.WithContext(ctx).Get(*lu.Token).Result()
+	if err != nil {
+		logrus.Println(err)
+		return false
+	}
+	return val == strings.ToLower(lu.User)
+}
+
+// UpdateSessionKey updates a user's session key.
+func UpdateSessionKey(ctx context.Context, lu models.LoggedInUser) error {
+	_, err := rdb.WithContext(ctx).Expire(*lu.Token, 24*time.Hour).Result()
+	if err != nil {
+		logrus.Println(err)
+		return err
+	}
+	return nil
 }
 
 // DeleteSessionKey deletes a user's session key.
-func DeleteSessionKey(lu models.LoggedInUser) {
-	if CheckSessionKey(lu) {
-		rdb.Del(*lu.Token)
+func DeleteSessionKey(ctx context.Context, lu models.LoggedInUser) error {
+	_, err := rdb.WithContext(ctx).Del(*lu.Token).Result()
+	if err != nil {
+		logrus.Println(err)
+		return err
 	}
+	return nil
 }
 
 // DropAllSessions removes all session keys for a user.

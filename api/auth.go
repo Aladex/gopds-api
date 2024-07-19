@@ -1,9 +1,9 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"github.com/gin-gonic/gin"
-	"github.com/sirupsen/logrus"
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/models"
@@ -11,6 +11,7 @@ import (
 	"gopds-api/utils"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // DropAllSessions drops all sessions from redis
@@ -25,15 +26,18 @@ import (
 // @Failure 403 {object} httputil.HTTPError
 // @Router /drop-sessions [get]
 func DropAllSessions(c *gin.Context) {
-	userToken := c.Request.Header.Get("Authorization")
-	username := c.GetString("username")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 
-	sessions.DeleteSessionKey(models.LoggedInUser{
-		User:  strings.ToLower(username),
-		Token: &userToken,
-	})
+	userToken, username := c.Request.Header.Get("Authorization"), c.GetString("username")
+
+	if err := sessions.DeleteSessionKey(ctx, models.LoggedInUser{User: strings.ToLower(username), Token: &userToken}); err != nil {
+		httputil.NewError(c, http.StatusForbidden, err)
+		return
+	}
+
 	go sessions.DropAllSessions(userToken)
-	c.JSON(200, gin.H{"result": "ok"})
+	c.JSON(http.StatusOK, gin.H{"result": "ok"})
 }
 
 // AuthCheck Returns an user and token for header
@@ -51,67 +55,60 @@ func DropAllSessions(c *gin.Context) {
 // @Router /login [post]
 func AuthCheck(c *gin.Context) {
 	var user models.LoginRequest
-	if err := c.ShouldBindJSON(&user); err == nil {
-		res, dbUser, err := database.CheckUser(user)
-		if err != nil {
-			logrus.WithFields(logrus.Fields{
-				"action":   "login",
-				"result":   "user is not found",
-				"username": user.Login,
-			}).Info()
-			httputil.NewError(c, http.StatusForbidden, errors.New("bad_credentials"))
-			return
-		}
-
-		// Check if user is active
-		if !dbUser.Active {
-			logrus.WithFields(logrus.Fields{
-				"action":   "login",
-				"result":   "user not active",
-				"username": user.Login,
-			}).Info()
-			httputil.NewError(c, http.StatusForbidden, errors.New("user not active"))
-			return
-		}
-
-		switch res {
-		case true:
-			userToken, err := utils.CreateToken(dbUser)
-			if err != nil {
-				httputil.NewError(c, http.StatusForbidden, err)
-				return
-			}
-			hf, err := database.HaveFavs(dbUser.ID)
-
-			if err != nil {
-				httputil.NewError(c, http.StatusBadRequest, err)
-				return
-			}
-			thisUser := models.LoggedInUser{
-				User:        dbUser.Login,
-				FirstName:   dbUser.FirstName,
-				LastName:    dbUser.LastName,
-				Token:       &userToken,
-				IsSuperuser: &dbUser.IsSuperUser,
-				HaveFavs:    &hf,
-			}
-			sessions.SetSessionKey(thisUser)
-			go database.LoginDateSet(&dbUser)
-			c.JSON(200, thisUser)
-			return
-		default:
-			logrus.WithFields(logrus.Fields{
-				"action":   "login",
-				"result":   "invalid password",
-				"username": user.Login,
-			}).Info()
-			httputil.NewError(c, http.StatusForbidden, errors.New("bad password"))
-			return
-		}
-	} else {
+	if err := c.ShouldBindJSON(&user); err != nil {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
 	}
+
+	res, dbUser, err := database.CheckUser(user)
+	if err != nil || !dbUser.Active {
+		status := http.StatusForbidden
+		var errMsg error
+		if err != nil {
+			errMsg = errors.New("bad_credentials")
+		} else {
+			errMsg = errors.New("user not active")
+		}
+		httputil.NewError(c, status, errMsg)
+		return
+	}
+
+	if !res {
+		httputil.NewError(c, http.StatusForbidden, errors.New("bad password"))
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	userToken, err := utils.CreateToken(dbUser)
+	if err != nil {
+		httputil.NewError(c, http.StatusForbidden, err)
+		return
+	}
+
+	hf, err := database.HaveFavs(dbUser.ID)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	thisUser := models.LoggedInUser{
+		User:        dbUser.Login,
+		FirstName:   dbUser.FirstName,
+		LastName:    dbUser.LastName,
+		Token:       &userToken,
+		IsSuperuser: &dbUser.IsSuperUser,
+		HaveFavs:    &hf,
+	}
+
+	if err := sessions.SetSessionKey(ctx, thisUser); err != nil {
+		httputil.NewError(c, http.StatusForbidden, err)
+		return
+	}
+
+	go database.LoginDateSet(&dbUser)
+	c.JSON(200, thisUser)
 }
 
 // LogOut method for logout user
@@ -126,12 +123,21 @@ func AuthCheck(c *gin.Context) {
 // @Failure 403 {object} httputil.HTTPError
 // @Router /logout [get]
 func LogOut(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
 	userToken := c.Request.Header.Get("Authorization")
 	username := c.GetString("username")
-	sessions.DeleteSessionKey(models.LoggedInUser{
+	err := sessions.DeleteSessionKey(ctx, models.LoggedInUser{
 		User:  strings.ToLower(username),
 		Token: &userToken,
 	})
+
+	if err != nil {
+		httputil.NewError(c, http.StatusForbidden, err)
+		return
+	}
+
 	c.JSON(200, gin.H{"result": "ok"})
 }
 
@@ -147,27 +153,25 @@ func LogOut(c *gin.Context) {
 // @Failure 403 {object} httputil.HTTPError
 // @Router /books/self-user [get]
 func SelfUser(c *gin.Context) {
-	username := c.GetString("username")
-	dbUser, err := database.GetUser(strings.ToLower(username))
+	username := strings.ToLower(c.GetString("username"))
+	dbUser, err := database.GetUser(username)
 	if err != nil {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
-	}
-	hf, err := database.HaveFavs(dbUser.ID)
-	if err != nil {
-		httputil.NewError(c, http.StatusBadRequest, err)
-		return
-	}
-	selfUser := models.LoggedInUser{
-		User:        dbUser.Login,
-		BooksLang:   dbUser.BooksLang,
-		IsSuperuser: &dbUser.IsSuperUser,
-		FirstName:   dbUser.FirstName,
-		LastName:    dbUser.LastName,
-		HaveFavs:    &hf,
 	}
 
-	c.JSON(200, selfUser)
+	if hf, err := database.HaveFavs(dbUser.ID); err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+	} else {
+		c.JSON(http.StatusOK, models.LoggedInUser{
+			User:        dbUser.Login,
+			BooksLang:   dbUser.BooksLang,
+			IsSuperuser: &dbUser.IsSuperUser,
+			FirstName:   dbUser.FirstName,
+			LastName:    dbUser.LastName,
+			HaveFavs:    &hf,
+		})
+	}
 }
 
 // ChangeUser method for change user info by token
@@ -184,58 +188,52 @@ func SelfUser(c *gin.Context) {
 // @Failure 500 {object} httputil.HTTPError
 // @Router /books/change-me [post]
 func ChangeUser(c *gin.Context) {
-	username := c.GetString("username")
 	var userNewData models.SelfUserChangeRequest
-	if err := c.ShouldBindJSON(&userNewData); err == nil {
-		u := models.LoginRequest{
-			Login:    username,
-			Password: userNewData.Password,
-		}
-		result, dbUser, err := database.CheckUser(u)
+	if err := c.ShouldBindJSON(&userNewData); err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
 
-		if !result && len(userNewData.Password) > 0 || err != nil {
-			httputil.NewError(c, http.StatusForbidden, errors.New("auth_error"))
-			return
-		}
+	username := c.GetString("username")
+	u := models.LoginRequest{Login: username, Password: userNewData.Password}
+	result, dbUser, err := database.CheckUser(u)
 
-		if len(userNewData.Password) > 0 && len(userNewData.NewPassword) < 8 {
+	if err != nil || !result && len(userNewData.Password) > 0 {
+		httputil.NewError(c, http.StatusForbidden, errors.New("auth_error"))
+		return
+	}
+
+	if len(userNewData.Password) > 0 {
+		if len(userNewData.NewPassword) < 8 {
 			httputil.NewError(c, http.StatusBadRequest, errors.New("bad_password"))
 			return
 		}
-
-		if len(userNewData.Password) > 0 && userNewData.NewPassword == userNewData.Password {
+		if userNewData.NewPassword == userNewData.Password {
 			httputil.NewError(c, http.StatusBadRequest, errors.New("same_password"))
 			return
 		}
-
-		dbUser.FirstName = userNewData.FirstName
-		dbUser.LastName = userNewData.LastName
-		dbUser.Password = userNewData.NewPassword
-		dbUser.BooksLang = userNewData.BooksLang
-
-		user, err := database.ActionUser(models.AdminCommandToUser{
-			Action: "update",
-			User:   dbUser,
-		})
-		if err != nil {
-			c.JSON(500, err)
-			return
-		}
-		hf, err := database.HaveFavs(dbUser.ID)
-		if err != nil {
-			httputil.NewError(c, http.StatusBadRequest, err)
-			return
-		}
-		selfUser := models.LoggedInUser{
-			User:        user.Login,
-			FirstName:   user.FirstName,
-			LastName:    user.LastName,
-			IsSuperuser: &user.IsSuperUser,
-			HaveFavs:    &hf,
-		}
-		c.JSON(200, selfUser)
-		return
-
 	}
 
+	dbUser.FirstName = userNewData.FirstName
+	dbUser.LastName = userNewData.LastName
+	dbUser.Password = userNewData.NewPassword
+	dbUser.BooksLang = userNewData.BooksLang
+
+	if _, err := database.ActionUser(models.AdminCommandToUser{Action: "update", User: dbUser}); err != nil {
+		httputil.NewError(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	if hf, err := database.HaveFavs(dbUser.ID); err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	} else {
+		c.JSON(http.StatusOK, models.LoggedInUser{
+			User:        dbUser.Login,
+			FirstName:   dbUser.FirstName,
+			LastName:    dbUser.LastName,
+			IsSuperuser: &dbUser.IsSuperUser,
+			HaveFavs:    &hf,
+		})
+	}
 }

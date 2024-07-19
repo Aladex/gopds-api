@@ -1,9 +1,11 @@
 package middlewares
 
 import (
+	"context"
 	"errors"
 	"gopds-api/sessions"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gopds-api/models"
@@ -12,16 +14,18 @@ import (
 
 // validateToken simplifies token validation by consolidating error handling.
 func validateToken(token string) (string, int64, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
 	username, dbID, err := utils.CheckToken(token)
 	if err != nil {
 		return "", 0, err
 	}
 
-	if !sessions.CheckSessionKey(models.LoggedInUser{User: username, Token: &token}) {
+	err = sessions.UpdateSessionKey(ctx, models.LoggedInUser{User: username, Token: &token})
+	if err != nil {
 		return "", 0, errors.New("invalid_session")
 	}
-
-	go sessions.SetSessionKey(models.LoggedInUser{User: username, Token: &token})
 	return username, dbID, nil
 }
 

@@ -126,3 +126,11 @@ func CheckToken(token string) (string, int64, error) {
 	}
 	return "", 0, err
 }
+
+// Helper function to create password hash if new password is provided
+func CreatePasswordHashIfNeeded(newPassword, oldPassword string) string {
+	if newPassword != "" {
+		return CreatePasswordHash(newPassword)
+	}
+	return oldPassword
+}
