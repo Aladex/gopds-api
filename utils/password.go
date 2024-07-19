@@ -41,7 +41,7 @@ func (s *source) Uint64() uint64 {
 	return i.Uint64()
 }
 
-func (s *source) Seed(seed int64) {}
+func (s *source) Seed(int64) {}
 
 // Token struct for token creation and checking
 type Token struct {
