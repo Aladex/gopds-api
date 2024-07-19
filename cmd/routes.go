@@ -10,6 +10,7 @@ import (
 	"gopds-api/opds"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // setupRoutes defines all route handlers and groups them by their functionality.
@@ -31,7 +32,14 @@ func setupRoutes(route *gin.Engine) {
 	route.NoRoute(func(c *gin.Context) {
 		// Check if the request path is not a registered route
 		if !isRegisteredRoute(c.Request.URL.Path, registeredRoutes) {
-			c.FileFromFS("frontend_src/dist/index.html", NewHTTPFS(assets.Assets))
+			indexFile, err := NewHTTPFS(assets.Assets).Open("frontend_src/dist/index.html")
+			if err != nil {
+				c.AbortWithStatus(http.StatusNotFound)
+				return
+			}
+			defer indexFile.Close()
+			http.ServeContent(c.Writer, c.Request, "index.html", time.Now(), indexFile)
+			c.Abort()
 		} else {
 			c.AbortWithStatus(http.StatusNotFound)
 		}
