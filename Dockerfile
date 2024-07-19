@@ -1,3 +1,14 @@
+# Frontend build stage
+FROM node:16-alpine3.11 AS frontend-build
+# Set working directory
+WORKDIR /app
+# Copy frontend files
+COPY frontend_src/ /app
+# Install dependencies
+RUN yarn
+# Build frontend
+RUN yarn build
+
 # build stage
 FROM golang:1.20-alpine AS build-stage
 
@@ -13,6 +24,9 @@ RUN apk add --no-cache unzip curl expat && \
 # Copy the source code and set the working directory
 COPY . /app
 WORKDIR /app
+
+# Copy the frontend build to the build stage
+COPY --from=frontend-build /app/dist /app/frontend_src/dist
 
 # Install the dependencies
 RUN go mod download
