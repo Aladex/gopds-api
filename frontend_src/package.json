@@ -18,7 +18,7 @@
     "vuetify": "^2.2.11",
     "vuetify-datetime-picker": "^2.1.1",
     "vuex": "^3.0.1",
-    "yarn": "^1.22.10"
+    "yarn": "^1.22.13"
   },
   "devDependencies": {
     "@mdi/font": "^3.9.97",
