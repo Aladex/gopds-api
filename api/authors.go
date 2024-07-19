@@ -29,7 +29,7 @@ type AuthorAnswer struct {
 // @Success 200 {object} ExportAnswer
 // @Failure 500 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError
-// @Router /books/authors [get]
+// @Router /api/books/authors [get]
 func GetAuthors(c *gin.Context) {
 	var filters models.AuthorFilters
 	if err := c.ShouldBindWith(&filters, binding.Query); err == nil {
@@ -57,7 +57,7 @@ func GetAuthors(c *gin.Context) {
 // @Success 200 {object} models.AuthorRequest
 // @Failure 500 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError
-// @Router /books/author [post]
+// @Router /api/books/author [post]
 func GetAuthor(c *gin.Context) {
 	var filter models.AuthorRequest
 	if err := c.ShouldBindJSON(&filter); err == nil {

@@ -39,7 +39,7 @@ type passwordChangeRequest struct {
 // @Failure 400 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError
 // @Failure 500 {object} httputil.HTTPError
-// @Router /token [post]
+// @Router /api/token [post]
 func TokenValidation(c *gin.Context) {
 	var token passwordToken
 	if err := c.ShouldBindJSON(&token); err == nil {
@@ -66,7 +66,7 @@ func TokenValidation(c *gin.Context) {
 // @Failure 400 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError
 // @Failure 500 {object} httputil.HTTPError
-// @Router /change-request [post]
+// @Router /api/change-request [post]
 func ChangeRequest(c *gin.Context) {
 	var changeRequest passwordChangeRequest
 	if err := c.ShouldBindJSON(&changeRequest); err == nil {
@@ -117,7 +117,7 @@ func ChangeRequest(c *gin.Context) {
 // @Failure 400 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError
 // @Failure 500 {object} httputil.HTTPError
-// @Router /change-password [post]
+// @Router /api/change-password [post]
 func ChangeUserState(c *gin.Context) {
 	var token passwordToken
 	if err := c.ShouldBindJSON(&token); err == nil {

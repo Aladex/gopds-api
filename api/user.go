@@ -13,6 +13,7 @@ import (
 // Auth godoc
 // @Summary Change user information
 // @Description Perform an action on a user based on the provided data
+// @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Tags admin
 // @Accept  json
 // @Produce  json

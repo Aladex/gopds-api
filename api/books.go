@@ -30,12 +30,13 @@ type favAnswer struct {
 // @Summary Retrieve languages from the database
 // @Description Get the list of languages from the database
 // @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Tags books
 // @Accept  json
 // @Produce  json
 // @Success 200 {object} langsAnswer "List of languages"
 // @Failure 401 {object} httputil.HTTPError "Unauthorized"
 // @Failure 403 {object} httputil.HTTPError "Forbidden"
-// @Router /books/langs [get]
+// @Router /api/books/langs [get]
 func GetLangs(c *gin.Context) {
 	langs := database.GetLanguages()
 	if langs != nil {
@@ -54,12 +55,13 @@ func GetLangs(c *gin.Context) {
 // @Param  offset query int true "Offset"
 // @Param  title query string false "Title of the book"
 // @Param  author query int false "Author ID"
+// @Tags books
 // @Accept  json
 // @Produce  json
 // @Success 200 {object} ExportAnswer "List of books and length"
 // @Failure 500 {object} httputil.HTTPError "Internal server error"
 // @Failure 403 {object} httputil.HTTPError "Forbidden"
-// @Router /books/list [get]
+// @Router /api/books/list [get]
 func GetBooks(c *gin.Context) {
 	var filters models.BookFilters
 	userID := c.GetInt64("user_id")
@@ -86,12 +88,14 @@ func GetBooks(c *gin.Context) {
 // Auth godoc
 // @Summary Add or remove a book from favorites
 // @Description Add or remove a book from a user's favorites
+// @Tags books
+// @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Accept  json
 // @Produce  json
 // @Param  body body models.FavBook true "Book Data"
 // @Success 200 {object} favAnswer "Status of the favorite action"
 // @Failure 400 {object} httputil.HTTPError "Bad request"
-// @Router /fav [post]
+// @Router /api/books/fav [post]
 func FavBook(c *gin.Context) {
 	dbId := c.GetInt64("user_id")
 	var favBook models.FavBook

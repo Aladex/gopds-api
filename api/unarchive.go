@@ -36,7 +36,7 @@ var bookTypes = map[string]string{
 // @Failure 403 {object} httputil.HTTPError "Forbidden - access denied"
 // @Failure 404 {object} httputil.HTTPError "Not found - book not found"
 // @Failure 500 {object} httputil.HTTPError "Internal server error"
-// @Router /books/file [post]
+// @Router /files/books/get [get]
 func GetBookFile(c *gin.Context) {
 	bookID, err := strconv.ParseInt(c.Param("id"), 10, 0) // Parse the book ID from the request parameters.
 	if err != nil {

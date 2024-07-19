@@ -25,7 +25,7 @@ import (
 // @Success 201 {object} string "User created successfully"
 // @Failure 409 {object} httputil.HTTPError "Conflict - user already exists"
 // @Failure 400 {object} httputil.HTTPError "Bad request - invalid input parameters"
-// @Router /register [post]
+// @Router /api/register [post]
 func Registration(c *gin.Context) {
 	var newUser models.RegisterRequest
 	if err := c.ShouldBindJSON(&newUser); err == nil {

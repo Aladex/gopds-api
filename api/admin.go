@@ -29,6 +29,7 @@ type UsersAnswer struct {
 // @Summary Retrieve the list of users
 // @Description Get a list of users for the admin space
 // @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Accept  json
 // @Produce  json
 // @Param  body body models.UserFilters true "User filters"
@@ -36,7 +37,7 @@ type UsersAnswer struct {
 // @Failure 400 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError
 // @Failure 500 {object} httputil.HTTPError
-// @Router /admin/users [post]
+// @Router /api/admin/users [post]
 func GetUsers(c *gin.Context) {
 	var filters models.UserFilters
 	if err := c.ShouldBindJSON(&filters); err == nil {
@@ -69,7 +70,7 @@ func GetUsers(c *gin.Context) {
 // @Success 200 {object} models.Result
 // @Failure 500 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError
-// @Router /admin/invites [get]
+// @Router /api/admin/invites [get]
 func GetInvites(c *gin.Context) {
 	invites := []models.Invite{}
 	err := database.GetInvites(&invites)
@@ -88,6 +89,7 @@ func GetInvites(c *gin.Context) {
 // @Summary Change or create an invite
 // @Description Change or create an invite
 // @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Accept  json
 // @Produce  json
 // @Param  body body models.InviteRequest true "Invite parameters"
@@ -95,7 +97,7 @@ func GetInvites(c *gin.Context) {
 // @Failure 400 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError
 // @Failure 500 {object} httputil.HTTPError
-// @Router /admin/invite [post]
+// @Router /api/admin/invite [post]
 func ChangeInvite(c *gin.Context) {
 	var inviteRequest models.InviteRequest
 	if err := c.ShouldBindJSON(&inviteRequest); err == nil {
@@ -116,13 +118,15 @@ func ChangeInvite(c *gin.Context) {
 // UpdateBook updates the information of a specific book.
 // @Summary Update book information
 // @Description Update the information of a specific book based on the provided JSON payload.
-// @Tags books
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Accept json
 // @Produce json
 // @Param body body models.Book true "Book update information"
 // @Success 200 {object} models.Result "Book updated successfully"
 // @Failure 400 {object} httputil.HTTPError "Bad request - invalid input parameters"
 // @Failure 500 {object} httputil.HTTPError "Internal server error"
+// @Router /api/admin/update-book [post]
 func UpdateBook(c *gin.Context) {
 	var bookToUpdate models.Book
 	if err := c.ShouldBindJSON(&bookToUpdate); err == nil {

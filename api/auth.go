@@ -19,12 +19,13 @@ import (
 // @Summary Drop all sessions from Redis
 // @Description Remove all sessions from Redis
 // @Tags login
+// @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Accept  json
 // @Produce  json
 // @Success 200 {object} models.LoggedInUser
 // @Failure 400 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError
-// @Router /drop-sessions [get]
+// @Router /api/drop-sessions [get]
 func DropAllSessions(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -52,7 +53,7 @@ func DropAllSessions(c *gin.Context) {
 // @Failure 400 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError
 // @Failure 500 {object} httputil.HTTPError
-// @Router /login [post]
+// @Router /api/login [post]
 func AuthCheck(c *gin.Context) {
 	var user models.LoginRequest
 	if err := c.ShouldBindJSON(&user); err != nil {
@@ -116,12 +117,13 @@ func AuthCheck(c *gin.Context) {
 // @Summary Log out user
 // @Description Log out the user by invalidating their session
 // @Tags login
+// @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Accept  json
 // @Produce  json
 // @Success 200 {object} models.LoggedInUser
 // @Failure 400 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError
-// @Router /logout [get]
+// @Router /api/logout [get]
 func LogOut(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -146,12 +148,13 @@ func LogOut(c *gin.Context) {
 // @Summary Get user information by token
 // @Description Retrieve user information using the provided token
 // @Tags login
+// @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Accept  json
 // @Produce  json
 // @Success 200 {object} models.LoggedInUser
 // @Failure 400 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError
-// @Router /books/self-user [get]
+// @Router /api/books/self-user [get]
 func SelfUser(c *gin.Context) {
 	username := strings.ToLower(c.GetString("username"))
 	dbUser, err := database.GetUser(username)
@@ -179,6 +182,7 @@ func SelfUser(c *gin.Context) {
 // @Summary Update user information
 // @Description Update user information based on the provided token
 // @Tags users
+// @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Accept  json
 // @Produce  json
 // @Param  body body models.SelfUserChangeRequest true "User update information"
@@ -186,7 +190,7 @@ func SelfUser(c *gin.Context) {
 // @Failure 400 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError
 // @Failure 500 {object} httputil.HTTPError
-// @Router /books/change-me [post]
+// @Router /api/books/change-me [post]
 func ChangeUser(c *gin.Context) {
 	var userNewData models.SelfUserChangeRequest
 	if err := c.ShouldBindJSON(&userNewData); err != nil {
