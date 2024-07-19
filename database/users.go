@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/viper"
 	"gopds-api/models"
 	"gopds-api/utils"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -194,7 +195,12 @@ func setWebhookIfNeeded(botToken string) error {
 		if err != nil {
 			return err
 		}
-		defer resp.Body.Close()
+		defer func(Body io.ReadCloser) {
+			err := Body.Close()
+			if err != nil {
+				logrus.Println(err)
+			}
+		}(resp.Body)
 		if resp.StatusCode != http.StatusOK {
 			return fmt.Errorf("failed to set webhook, status code: %d", resp.StatusCode)
 		}

@@ -47,7 +47,7 @@ func (s *source) Seed(seed int64) {}
 type Token struct {
 	UserID     string
 	DatabaseID int64
-	jwt.StandardClaims
+	jwt.RegisteredClaims
 }
 
 // GetRandomString returns a securely generated random string.
@@ -98,9 +98,9 @@ func CreateToken(user models.User) (string, error) {
 	tk := Token{
 		UserID:     user.Login,
 		DatabaseID: user.ID,
-		StandardClaims: jwt.StandardClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:   "gopds-api",
-			IssuedAt: time.Now().Unix(),
+			IssuedAt: jwt.NewNumericDate(time.Now()),
 		},
 	}
 	token := jwt.NewWithClaims(jwt.GetSigningMethod("HS256"), tk)

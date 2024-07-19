@@ -19,17 +19,6 @@ func SetSessionKey(ctx context.Context, lu models.LoggedInUser) error {
 	return nil
 }
 
-// CheckSessionKey checks if a session key exists for a user.
-func CheckSessionKey(ctx context.Context, lu models.LoggedInUser) bool {
-	// return rdb.Get(*lu.Token).Val() == strings.ToLower(lu.User)
-	val, err := rdb.WithContext(ctx).Get(*lu.Token).Result()
-	if err != nil {
-		logrus.Println(err)
-		return false
-	}
-	return val == strings.ToLower(lu.User)
-}
-
 // UpdateSessionKey updates a user's session key.
 func UpdateSessionKey(ctx context.Context, lu models.LoggedInUser) error {
 	_, err := rdb.WithContext(ctx).Expire(*lu.Token, 24*time.Hour).Result()
