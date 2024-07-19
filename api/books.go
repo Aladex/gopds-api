@@ -16,40 +16,49 @@ type ExportAnswer struct {
 	Length int           `json:"length"`
 }
 
-// GetLangs method for get langs from db
+// langsAnswer struct for languages list response
+type langsAnswer struct {
+	Langs models.Languages `json:"langs"`
+}
+
+type favAnswer struct {
+	HaveFavs bool `json:"have_favs"`
+}
+
+// GetLangs method for retrieving languages from the database
 // Auth godoc
-// @Summary method for get langs from db
-// @Description method for get langs from db
-// @Param Authorization header string true "Just token without bearer"
+// @Summary Retrieve languages from the database
+// @Description Get the list of languages from the database
+// @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Accept  json
 // @Produce  json
-// @Success 200 {object} ExportAnswer
-// @Failure 401 {object} httputil.HTTPError
-// @Failure 403 {object} httputil.HTTPError
+// @Success 200 {object} langsAnswer "List of languages"
+// @Failure 401 {object} httputil.HTTPError "Unauthorized"
+// @Failure 403 {object} httputil.HTTPError "Forbidden"
 // @Router /books/langs [get]
 func GetLangs(c *gin.Context) {
 	langs := database.GetLanguages()
 	if langs != nil {
-		c.JSON(200, gin.H{"langs": langs})
+		c.JSON(200, langsAnswer{Langs: langs})
 		return
 	}
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
 }
 
-// GetBooks method for get books from db and return them in json
+// GetBooks method for retrieving books from the database and returning them in JSON format
 // Auth godoc
-// @Summary method for get books from db and return them in json
-// @Description method for get books from db and return them in json
-// @Param Authorization header string true "Just token without bearer"
+// @Summary Retrieve books from the database
+// @Description Get the list of books from the database and return them in JSON format
+// @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Param  limit query int true "Limit"
 // @Param  offset query int true "Offset"
-// @Param  title query string false "Title of book"
+// @Param  title query string false "Title of the book"
 // @Param  author query int false "Author ID"
 // @Accept  json
 // @Produce  json
-// @Success 200 {object} ExportAnswer
-// @Failure 500 {object} httputil.HTTPError
-// @Failure 403 {object} httputil.HTTPError
+// @Success 200 {object} ExportAnswer "List of books and length"
+// @Failure 500 {object} httputil.HTTPError "Internal server error"
+// @Failure 403 {object} httputil.HTTPError "Forbidden"
 // @Router /books/list [get]
 func GetBooks(c *gin.Context) {
 	var filters models.BookFilters
@@ -73,15 +82,15 @@ func GetBooks(c *gin.Context) {
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
 }
 
-// FavBook add or remove book from favorites for user
+// FavBook method for adding or removing a book from a user's favorites
 // Auth godoc
-// @Summary add or remove book from favorites for user
-// @Description add or remove book from favorites for user
+// @Summary Add or remove a book from favorites
+// @Description Add or remove a book from a user's favorites
 // @Accept  json
 // @Produce  json
 // @Param  body body models.FavBook true "Book Data"
-// @Success 200 {object} ExportAnswer
-// @Failure 400 {object} httputil.HTTPError
+// @Success 200 {object} favAnswer "Status of the favorite action"
+// @Failure 400 {object} httputil.HTTPError "Bad request"
 // @Router /fav [post]
 func FavBook(c *gin.Context) {
 	dbId := c.GetInt64("user_id")
@@ -92,6 +101,6 @@ func FavBook(c *gin.Context) {
 			httputil.NewError(c, http.StatusBadRequest, err)
 			return
 		}
-		c.JSON(200, gin.H{"have_favs": res})
+		c.JSON(200, gin.H{"result": res})
 	}
 }
