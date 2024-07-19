@@ -22,7 +22,7 @@ import (
 // @Failure 400 {object} httputil.HTTPError "Bad request - invalid input parameters"
 // @Failure 403 {object} httputil.HTTPError "Forbidden - access denied"
 // @Failure 500 {object} httputil.HTTPError "Internal server error"
-// @Router /admin/user [post]
+// @Router /api/admin/user [post]
 func ActionUser(c *gin.Context) {
 	var action models.AdminCommandToUser
 	if err := c.ShouldBindJSON(&action); err == nil {
