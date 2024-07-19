@@ -37,7 +37,12 @@ func setupRoutes(route *gin.Engine) {
 				c.AbortWithStatus(http.StatusNotFound)
 				return
 			}
-			defer indexFile.Close()
+			defer func(indexFile http.File) {
+				err := indexFile.Close()
+				if err != nil {
+					c.AbortWithStatus(http.StatusInternalServerError)
+				}
+			}(indexFile)
 			http.ServeContent(c.Writer, c.Request, "index.html", time.Now(), indexFile)
 			c.Abort()
 		} else {
