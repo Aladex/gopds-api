@@ -21,6 +21,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import BookPagination from "../common/BookPagination";
 import SkeletonCard from "../common/SkeletonCard";
+import AuthorsList from "../common/AuthorsList";
 
 interface Book {
     id: number;
@@ -140,12 +141,7 @@ const BooksList: React.FC = () => {
                                                                 </Box>
                                                             </Typography>
                                                             <Box mt={2}>
-                                                                <Typography variant="subtitle1">{t('authors')}:</Typography>
-                                                                {book.authors.map((author) => (
-                                                                    <Typography key={author.id} variant="body2">
-                                                                        &#8226; {author.full_name}
-                                                                    </Typography>
-                                                                ))}
+                                                                <AuthorsList authors={book.authors} />
                                                             </Box>
                                                             {book.series && (
                                                                 <Box mt={2}>

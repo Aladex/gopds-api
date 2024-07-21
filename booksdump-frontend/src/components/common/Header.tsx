@@ -28,7 +28,7 @@ const Header: React.FC = () => {
         };
 
         fetchUser();
-    }, [token]);
+    }, [token, updateUser]);
 
     const handleLogout = () => {
         logout();
