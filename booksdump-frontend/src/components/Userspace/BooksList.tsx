@@ -22,6 +22,7 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import BookPagination from "../common/BookPagination";
 import SkeletonCard from "../common/SkeletonCard";
 import AuthorsList from "../common/AuthorsList";
+import SearchBar from "../common/SearchBar";
 
 interface Book {
     id: number;
@@ -94,9 +95,6 @@ const BooksList: React.FC = () => {
 
     return (
         <Box p={2}>
-            <Typography variant="h4" gutterBottom>
-                Books List - Page {page}
-            </Typography>
             {loading ? (
                 Array.from({length: 10}).map((_, index) => (
                     <Grid item xs={12} key={index}>
@@ -109,6 +107,7 @@ const BooksList: React.FC = () => {
                 <Typography variant="h6">No books found</Typography>
             ) : (
                 <>
+                    <SearchBar />
                     <Grid container justifyContent="center">
                         {books.map((book) => (
                             <Grid item xs={12} key={book.id}>
