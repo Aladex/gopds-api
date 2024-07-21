@@ -16,5 +16,8 @@
   "bookPublished": "Published",
   "bookAdded": "Added",
   "annotation": "Annotation",
-  "readMore": "Read more"
+  "routeTitles.books": "New books",
+  "routeTitles.admin": "Admin",
+  "routeTitles.default": "Booksdump",
+  "language": "Language"
 }

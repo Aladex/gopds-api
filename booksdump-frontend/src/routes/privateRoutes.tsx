@@ -2,14 +2,13 @@
 import React from 'react';
 import { Route } from 'react-router-dom';
 import PrivateRoute from '../components/PrivateRoute';
-import Userspace from '../components/Userspace/BooksList';
-import Adminspace from '../components/Adminspace/AdminPanel';
+import BooksList from '../components/Userspace/BooksList';
+import TitleSetter from '../components/common/TitleSetter';
 
 const privateRoutes = (
-    <Route>
-        <Route path="books/page/:page" element={<PrivateRoute element={<Userspace />} />} />
-        <Route path="admin/*" element={<PrivateRoute element={<Adminspace />} />} />
-    </Route>
+    <>
+        <Route path="/books/page/:page" element={<PrivateRoute element={<TitleSetter titleKey="routeTitles.books"><BooksList /></TitleSetter>} />} />
+    </>
 );
 
 export default privateRoutes;
