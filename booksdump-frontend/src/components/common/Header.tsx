@@ -11,18 +11,19 @@ const Header: React.FC = () => {
     const { logout, token } = useAuth();
     const navigate = useNavigate();
     const theme = useTheme();
-    const [user, setUser] = useState<{ username: string; is_superuser: boolean } | null>(null);
+    const { updateUser } = useAuth();
+    const [user] = useState<{ username: string; is_superuser: boolean } | null>(null);
     const [value, setValue] = useState(0);
 
     useEffect(() => {
         const fetchUser = async () => {
             try {
                 const response = await axios.get(`${API_URL}/books/self-user`, {
-                    headers: { Authorization: `Bearer ${token}` },
+                    headers: { Authorization: `${token}` },
                 });
-                setUser(response.data);
+                updateUser(response.data); // Update user data in context
             } catch (error) {
-                console.error('Ошибка при получении данных пользователя', error);
+                console.error('Error fetching user data', error);
             }
         };
 

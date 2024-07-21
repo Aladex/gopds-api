@@ -37,22 +37,15 @@ interface Book {
 }
 
 const BooksList: React.FC = () => {
-    const {token} = useAuth();
+    const { user, token } = useAuth();
     const {page} = useParams<{ page: string }>();
     const [books, setBooks] = useState<Book[]>([]);
     const [totalPages, setTotalPages] = useState(0);
     const [loading, setLoading] = useState(true);
     const [opened, setOpened] = useState<number[]>([]);
-    const [user] = useState<{ is_superuser: boolean, books_lang?: string } | null>(null);
     const {t} = useTranslation();
-    // Destructure books_lang from user outside of useEffect
-    const books_lang = user?.books_lang;
 
     useEffect(() => {
-        const fetchUser = async () => {
-            // Implementation remains the same
-        };
-
         const fetchBooks = async () => {
             setLoading(true);
             const limit = 10; // Количество книг на страницу
@@ -66,7 +59,7 @@ const BooksList: React.FC = () => {
                         limit: limit,
                         offset: offset,
                         fav: false,
-                        lang: books_lang || '', // Use the destructured variable directly
+                        lang: user?.books_lang || '',
                     },
                 });
                 setBooks(response.data.books);
@@ -77,10 +70,8 @@ const BooksList: React.FC = () => {
                 setLoading(false);
             }
         };
-
-        fetchUser();
         fetchBooks();
-    }, [token, page, books_lang]); // Include books_lang in the dependency array
+    }, [token, page, user]); // Include books_lang in the dependency array
 
     const handleOpenAnnotation = (id: number) => {
         setOpened((prev) => (prev.includes(id) ? prev.filter((bookId) => bookId !== id) : [...prev, id]));
@@ -117,11 +108,11 @@ const BooksList: React.FC = () => {
                 <Typography variant="h6">No books found</Typography>
             ) : (
                 <>
-                    <Grid container spacing={3} justifyContent="center">
+                    <Grid container justifyContent="center">
                         {books.map((book) => (
                             <Grid item xs={12} key={book.id}>
                                 <Box maxWidth={1200} mx="auto">
-                                    <Card sx={{ boxShadow: 2 }}>
+                                    <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
                                         <Grid container spacing={2}>
                                             <Grid item xs={12} md={9}>
                                                 <Grid container spacing={2}>
@@ -188,7 +179,7 @@ const BooksList: React.FC = () => {
                                                 </CardContent>
                                             </Grid>
                                             <Grid item xs={12} md={3}>
-                                                <Box display="flex" flexWrap="wrap" justifyContent="center" gap={1} sx={{ mt: 2 }}>
+                                                <Box display="flex" flexWrap="wrap" justifyContent={{ xs: 'center', md: 'end' }} gap={1} sx={{ mt: 2 }}>
                                                     <Button
                                                         variant="contained"
                                                         color="secondary"

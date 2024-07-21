@@ -8,7 +8,7 @@ export const fetchWithAuth = async (url: string, options = {}) => {
     const response = await fetch(`${API_URL}${url}`, {
         ...options,
         headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: `${token}`,
         },
     });
 
