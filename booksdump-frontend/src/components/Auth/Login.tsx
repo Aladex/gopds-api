@@ -6,11 +6,13 @@ import { useAuth } from '../../context/AuthContext';
 import { QuestionMark, Person, Lock } from '@mui/icons-material';
 import { API_URL } from '../../api/config';
 import LoginCenteredBox from "../common/CenteredBox";
+import { useTranslation } from 'react-i18next';
 
 
 const Login: React.FC = () => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
+    const { t } = useTranslation();
     const { login } = useAuth();
     const navigate = useNavigate();
 
@@ -40,9 +42,9 @@ const Login: React.FC = () => {
     return (
         <LoginCenteredBox>
                 <CardContent>
-                    <Typography variant="h6" textAlign="left">Авторизация</Typography>
+                    <Typography variant="h6" textAlign="left">{t('login')}</Typography>
                     <TextField
-                        label="Логин или почта"
+                        label={t('username')}
                         value={username}
                         onChange={(e) => setUsername(e.target.value)}
                         fullWidth
@@ -56,7 +58,7 @@ const Login: React.FC = () => {
                         }}
                     />
                     <TextField
-                        label="Пароль"
+                        label={t('password')}
                         type="password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
@@ -73,11 +75,11 @@ const Login: React.FC = () => {
                 </CardContent>
                 <CardActions>
                     <Box display="flex" justifyContent="space-between" width="100%">
-                        <IconButton onClick={() => navigate('/forgot-password')} aria-label="Забыли пароль?" size="small">
+                        <IconButton onClick={() => navigate('/forgot-password')} aria-label={t('forgotPassword')} size="small">
                             <QuestionMark />
                         </IconButton>
                         <Button variant="contained" disabled={!username || !password} color="primary" size="small"  onClick={handleLogin}>
-                            Войти
+                            {t('loginButton')}
                         </Button>
                     </Box>
                 </CardActions>

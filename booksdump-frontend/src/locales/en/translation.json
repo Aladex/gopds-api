@@ -1,0 +1,20 @@
+{
+  "login": "Login",
+  "added": "Added",
+  "documentDate": "Document Date",
+  "authors": "Authors",
+  "series": "Series",
+  "description": "Description",
+  "readMore": "Read more",
+  "noBooksFound": "No books found",
+  "username": "Username or email",
+  "password": "Password",
+  "forgotPassword": "Forgot password?",
+  "loginButton": "Login",
+  "resetPasswordButton": "Reset password",
+  "registerButton": "Register",
+  "bookPublished": "Published",
+  "bookAdded": "Added",
+  "annotation": "Annotation",
+  "readMore": "Read more"
+}
