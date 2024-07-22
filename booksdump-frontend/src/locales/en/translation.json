@@ -22,8 +22,8 @@
   "language": "Language",
   "categorySearch": "Category search",
   "searchItem": "Search",
-  "byTitle": "By title",
-  "byAuthor": "By author",
+  "byTitle": "Search book by title",
+  "byAuthor": "Search author by name",
   "booksTab": "Books",
   "opdsTab": "OPDS",
   "donateTab": "Donate",
@@ -31,5 +31,6 @@
   "logoutButton": "Logout",
   "routeByBookName.books": "Search by book name",
   "routeByAuthorName.books": "Search by author name",
-  "noAuthor": "No author"
+  "noAuthor": "No author",
+  "authorsBookSearch": "Search books by author"
 }

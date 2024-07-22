@@ -38,8 +38,6 @@ const StyledPagination = styled(MuiPagination)(({ theme }) => ({
 const BookPagination: React.FC<PaginationProps> = ({ totalPages, currentPage, baseUrl }) => {
     const navigate = useNavigate();
     const handleChange = (event: React.ChangeEvent<unknown>, value: number) => {
-        // navigate(`/books/page/${value}`);
-        console.log('baseUrl', baseUrl);
         navigate(`${baseUrl}/${value}`);
     };
 

@@ -17,7 +17,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from "../../context/AuthContext";
 import { API_URL } from "../../api/config";
 import { Favorite, FavoriteBorder } from "@mui/icons-material";
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useFav } from "../../context/FavContext";
 
 
@@ -29,13 +29,19 @@ interface LangItem {
 const SearchBar: React.FC = () => {
     const { user, token } = useAuth();
     const { t } = useTranslation();
-    const [selectedSearch, setSelectedSearch] = useState<string | null>('title');
     const [searchItem, setSearchItem] = useState('');
     const [langs, setLangs] = useState<string[]>([]);
     const [lang, setLang] = useState<string | null>(user?.books_lang || '');
     const navigate = useNavigate();
     const { fav, setFav } = useFav();
     const prevFavRef = useRef(fav);
+    const location = useLocation();
+    const [selectedSearch, setSelectedSearch] = useState<string>('title');
+    const [searchOptions, setSearchOptions] = useState<Array<{ value: string; label: string }>>([
+        { value: 'title', label: t('byTitle') },
+        { value: 'author', label: t('byAuthor') },
+    ]);
+
 
     useEffect(() => {
         const fetchLangs = async () => {
@@ -69,6 +75,28 @@ const SearchBar: React.FC = () => {
         // Обновление предыдущего значения fav на текущее
         prevFavRef.current = fav;
     }, [token, user, fav, navigate]); // Include fav and navigate in the dependency array
+
+    useEffect(() => {
+        const pathStartsWith = '/books/find/author/';
+        const optionValue = 'authorsBookSearch';
+        const optionLabel = t('authorsBookSearch');
+        const isAuthorsBooksSearchPage = location.pathname.startsWith(pathStartsWith);
+
+        setSearchOptions(prevOptions => {
+            const optionExists = prevOptions.some(option => option.value === optionValue);
+
+            if (isAuthorsBooksSearchPage && !optionExists) {
+                setSelectedSearch(optionValue);
+                return [...prevOptions, { value: optionValue, label: optionLabel }];
+            } else if (!isAuthorsBooksSearchPage && optionExists) {
+                return prevOptions.filter(option => option.value !== optionValue);
+            }
+
+            return prevOptions;
+        });
+    }, [location.pathname, t]);
+
+
 
     const setFavContext = (fav: boolean) => {
         setFav(fav);
@@ -117,13 +145,16 @@ const SearchBar: React.FC = () => {
                                                 <InputLabel id="category-search-label">{t('categorySearch')}</InputLabel>
                                                 <Select
                                                     labelId="category-search-label"
-                                                    value={selectedSearch || 'title'}
+                                                    value={selectedSearch}
                                                     onChange={(e) => setSelectedSearch(e.target.value as string)}
                                                     disabled={fav}
                                                     label={t('categorySearch')}
                                                 >
-                                                    <MenuItem value="title">{t('byTitle')}</MenuItem>
-                                                    <MenuItem value="author">{t('byAuthor')}</MenuItem>
+                                                    {searchOptions.map((option) => (
+                                                        <MenuItem key={option.value} value={option.value}>
+                                                            {option.label}
+                                                        </MenuItem>
+                                                    ))}
                                                 </Select>
                                             </FormControl>
                                         </Grid>
