@@ -46,21 +46,35 @@ const BooksList: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [opened, setOpened] = useState<number[]>([]);
     const {t} = useTranslation();
+    const baseUrl = window.location.pathname.replace(/\/\d+$/, '');
+
+    type Params = {
+        limit: number;
+        offset: number;
+        fav: boolean;
+        lang: string;
+        author?: string;
+        series?: string;
+    };
+
     const fetchBooks = useCallback(async () => {
         setLoading(true);
-        const limit = 10; // Количество книг на страницу
-        const currentPage = parseInt(page || '1', 10); // Получение текущей страницы из URL
-        const offset = (currentPage - 1) * limit; // Вычисление смещения
+        const limit = 10;
+        const currentPage = parseInt(page || '1', 10);
+        const offset = (currentPage - 1) * limit;
+        console.log("Base URL: ", baseUrl);
+
+        let params: Params = {limit, offset, fav: false, lang: user?.books_lang || ''};
+        if (baseUrl.includes('/find/author/')) {
+            params.author = baseUrl.split('/').pop() || '';
+        } else if (baseUrl.includes('/find/category/')) {
+            params.series = baseUrl.split('/').pop() || '';
+        }
 
         try {
             const response = await axios.get(`${API_URL}/books/list`, {
                 headers: { Authorization: `${token}` },
-                params: {
-                    limit: limit,
-                    offset: offset,
-                    fav: false,
-                    lang: user?.books_lang || '',
-                },
+                params,
             });
             setBooks(response.data.books);
             setTotalPages(response.data.length);
@@ -228,7 +242,7 @@ const BooksList: React.FC = () => {
                         ))}
                     </Grid>
                     <Grid container spacing={3} justifyContent="center" sx={{ marginTop: 2 }}>
-                        <BookPagination totalPages={totalPages} currentPage={parseInt(page || '1', 10)} />
+                        <BookPagination totalPages={totalPages} currentPage={parseInt(page || '1', 10)} baseUrl={baseUrl} />
                     </Grid>
                 </>
             )}

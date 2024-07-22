@@ -16,7 +16,7 @@ import {
 import {useTranslation} from 'react-i18next';
 import {useAuth} from "../../context/AuthContext";
 import {API_URL} from "../../api/config";
-import {Stars, StarBorderOutlined} from "@mui/icons-material";
+import {Favorite, FavoriteBorder} from "@mui/icons-material";
 
 interface LangItem {
     language: string;
@@ -198,7 +198,7 @@ const SearchBar: React.FC = () => {
                                                     </Grid>
                                                     <Grid item xs={3} lg={2} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
                                                         <IconButton onClick={() => setFav(!fav)} color="default" >
-                                                            {fav ? <Stars /> : <StarBorderOutlined />}
+                                                            {fav ? <Favorite /> : <FavoriteBorder />}
                                                         </IconButton>
                                                     </Grid>
                                                 </Grid>
