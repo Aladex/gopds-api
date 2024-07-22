@@ -28,5 +28,7 @@
   "opdsTab": "OPDS",
   "donateTab": "Donate",
   "adminTab": "Admin",
-  "logoutButton": "Logout"
+  "logoutButton": "Logout",
+  "routeByBookName.books": "Search by book name",
+  "routeByAuthorName.books": "Search by author name"
 }
