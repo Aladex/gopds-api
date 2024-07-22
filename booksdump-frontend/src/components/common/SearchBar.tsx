@@ -73,7 +73,28 @@ const SearchBar: React.FC = () => {
                                 <Grid item xs={12} lg={6}>
                                     <Grid container spacing={2}>
                                         <Grid item xs={6} lg={6}>
-                                            <FormControl fullWidth sx={{ '& .MuiOutlinedInput-root': { '& fieldset': { borderColor: 'rgba(0, 0, 0, 0.23)' }, '&:hover fieldset': { borderColor: 'black' }, '&.Mui-focused fieldset': { borderColor: 'black' } } }}>
+                                            <FormControl
+                                                fullWidth
+                                                sx={{
+                                                    '& .MuiOutlinedInput-root': {
+                                                        '& fieldset': {
+                                                            borderColor: 'rgba(0, 0, 0, 0.23)',
+                                                        },
+                                                        '&:hover fieldset': {
+                                                            borderColor: 'black',
+                                                        },
+                                                        '&.Mui-focused fieldset': {
+                                                            borderColor: 'black',
+                                                        },
+                                                    },
+                                                    '& .MuiInputLabel-root': {
+                                                        color: 'rgba(0, 0, 0, 0.6)',
+                                                    },
+                                                    '& .MuiInputLabel-root.Mui-focused': {
+                                                        color: 'black',
+                                                    },
+                                                }}
+                                            >
                                                 <InputLabel id="category-search-label">{t('categorySearch')}</InputLabel>
                                                 <Select
                                                     labelId="category-search-label"
@@ -89,7 +110,25 @@ const SearchBar: React.FC = () => {
                                         </Grid>
                                         <Grid item xs={6} lg={6}>
                                             <TextField
-                                                sx={{ '& .MuiOutlinedInput-root': { '& fieldset': { borderColor: 'rgba(0, 0, 0, 0.23)' }, '&:hover fieldset': { borderColor: 'black' }, '&.Mui-focused fieldset': { borderColor: 'black' } } }}
+                                                sx={{
+                                                    '& .MuiOutlinedInput-root': {
+                                                        '& fieldset': {
+                                                            borderColor: 'rgba(0, 0, 0, 0.23)',
+                                                        },
+                                                        '&:hover fieldset': {
+                                                            borderColor: 'black',
+                                                        },
+                                                        '&.Mui-focused fieldset': {
+                                                            borderColor: 'black',
+                                                        },
+                                                    },
+                                                    '& .MuiInputLabel-root': {
+                                                        color: 'rgba(0, 0, 0, 0.6)',
+                                                    },
+                                                    '& .MuiInputLabel-root.Mui-focused': {
+                                                        color: 'black',
+                                                    },
+                                                }}
                                                 label={t('searchItem')}
                                                 value={searchItem}
                                                 onChange={(e) => setSearchItem(e.target.value)}
@@ -123,7 +162,26 @@ const SearchBar: React.FC = () => {
                                                 </Grid>
                                                 <Grid item container xs={8} lg={10} justifyContent="flex-end" spacing={2}>
                                                     <Grid item xs={6} lg={4}>
-                                                        <FormControl fullWidth sx={{ '& .MuiOutlinedInput-root': { '& fieldset': { borderColor: 'rgba(0, 0, 0, 0.23)' }, '&:hover fieldset': { borderColor: 'black' }, '&.Mui-focused fieldset': { borderColor: 'black' } } }}>
+                                                        <FormControl fullWidth
+                                                                     sx={{
+                                                                         '& .MuiOutlinedInput-root': {
+                                                                             '& fieldset': {
+                                                                                 borderColor: 'rgba(0, 0, 0, 0.23)',
+                                                                             },
+                                                                             '&:hover fieldset': {
+                                                                                 borderColor: 'black',
+                                                                             },
+                                                                             '&.Mui-focused fieldset': {
+                                                                                 borderColor: 'black',
+                                                                             },
+                                                                         },
+                                                                         '& .MuiInputLabel-root': {
+                                                                             color: 'rgba(0, 0, 0, 0.6)',
+                                                                         },
+                                                                         '& .MuiInputLabel-root.Mui-focused': {
+                                                                             color: 'black',
+                                                                         },
+                                                                     }}>
                                                             <InputLabel id="language-select-label">{t('language')}</InputLabel>
                                                             <Select
                                                                 labelId="language-select-label"
