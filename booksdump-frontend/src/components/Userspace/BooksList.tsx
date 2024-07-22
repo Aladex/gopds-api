@@ -57,6 +57,7 @@ const BooksList: React.FC = () => {
         lang: string;
         author?: string;
         series?: string;
+        title?: string;
     };
 
     const fetchBooks = useCallback(async () => {
@@ -64,14 +65,31 @@ const BooksList: React.FC = () => {
         const limit = 10;
         const currentPage = parseInt(page || '1', 10);
         const offset = (currentPage - 1) * limit;
+        console.log('Fetch books', baseUrl);
 
         let params: Params = {limit, offset, lang: user?.books_lang || ''};
+        // Checks the `baseUrl` to determine the type of search being performed and sets the appropriate parameter.
+        // This block supports three types of searches: by author, by category, and by title.
+        // Each condition checks for a specific pattern in the `baseUrl` and extracts the relevant parameter from the URL.
+
+        // Checks if the search is for an author. If so, extracts the author's name from the URL.
         if (baseUrl.includes('/find/author/')) {
             params.author = baseUrl.split('/').pop() || '';
-        } else if (baseUrl.includes('/find/category/')) {
+        }
+        // Checks if the search is for a category. If so, extracts the category name from the URL.
+        else if (baseUrl.includes('/find/category/')) {
             params.series = baseUrl.split('/').pop() || '';
         }
-
+        // Checks if the search is for a title. If so, extracts the title from the URL.
+        else if (baseUrl.includes('/books/find/title/')) {
+            const urlSegments = baseUrl.split('/');
+            const titleIndex = urlSegments.findIndex(segment => segment === 'title');
+            // Ensures that the title segment exists and is not the last segment of the URL.
+            if (titleIndex !== -1 && titleIndex < urlSegments.length - 1) {
+                const title = decodeURIComponent(urlSegments[titleIndex + 1]);
+                params.title = title;
+            }
+        }
         const isFavoritePath = baseUrl.includes('/books/favorite');
         if (isFavoritePath) {
             params.fav = true;

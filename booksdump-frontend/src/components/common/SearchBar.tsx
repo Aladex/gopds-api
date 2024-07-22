@@ -72,7 +72,6 @@ const SearchBar: React.FC = () => {
             const newPath = fav ? '/books/favorite/1' : '/books/page/1';
             navigate(newPath);
         }
-        // Обновление предыдущего значения fav на текущее
         prevFavRef.current = fav;
     }, [token, user, fav, navigate]); // Include fav and navigate in the dependency array
 
@@ -103,8 +102,8 @@ const SearchBar: React.FC = () => {
         setFav(fav);
     }
 
-    const findByTitle = () => {
-        navigate(`/books/find?category=${selectedSearch}&query=${searchItem}&lang=${lang}`);
+    const navigateToSearchResults = () => {
+        navigate(`/books/find/${selectedSearch}/${searchItem}/1`)
     };
 
     const handleLangChange = (event: SelectChangeEvent) => {
@@ -186,7 +185,7 @@ const SearchBar: React.FC = () => {
                                                 disabled={fav}
                                                 fullWidth
                                                 onKeyUp={(e) => {
-                                                    if (e.key === 'Enter') findByTitle();
+                                                    if (e.key === 'Enter') navigateToSearchResults();
                                                 }}
                                                 InputLabelProps={{
                                                     shrink: true,
@@ -204,7 +203,7 @@ const SearchBar: React.FC = () => {
                                                     <Button
                                                         style={{ height: '100%' }}
                                                         variant="contained"
-                                                        onClick={findByTitle}
+                                                        onClick={navigateToSearchResults}
                                                         disabled={fav}
                                                         fullWidth
                                                     >
