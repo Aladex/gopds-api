@@ -1,9 +1,27 @@
 {
+  "login": "Вход",
   "added": "Добавлено",
   "documentDate": "Дата документа",
   "authors": "Авторы",
   "series": "Серии",
   "description": "Описание",
   "readMore": "Читать далее",
-  "noBooksFound": "Книги не найдены"
+  "noBooksFound": "Книги не найдены",
+  "username": "Имя пользователя или email",
+  "password": "Пароль",
+  "forgotPassword": "Забыли пароль?",
+  "loginButton": "Войти",
+  "resetPasswordButton": "Сбросить пароль",
+  "registerButton": "Регистрация",
+  "bookPublished": "Опубликовано",
+  "bookAdded": "Добавлено",
+  "annotation": "Аннотация",
+  "routeTitles.books": "Новые книги",
+  "routeTitles.admin": "Администратор",
+  "routeTitles.default": "Booksdump",
+  "language": "Язык",
+  "categorySearch": "Поиск по категории",
+  "searchItem": "Поиск",
+  "byTitle": "По названию",
+  "byAuthor": "По автору"
 }
