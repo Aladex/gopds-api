@@ -1,5 +1,6 @@
 // src/components/BooksList.tsx
 import React, {useState, useEffect, useCallback} from 'react';
+import { useFav } from '../../context/FavContext';
 import {useParams} from 'react-router-dom';
 import {
     Typography,
@@ -49,11 +50,12 @@ const BooksList: React.FC = () => {
     const [opened, setOpened] = useState<number[]>([]);
     const {t} = useTranslation();
     const baseUrl = window.location.pathname.replace(/\/\d+$/, '');
+    const { fav, setFav } = useFav();
 
     type Params = {
         limit: number;
         offset: number;
-        fav: boolean;
+        fav?: boolean;
         lang: string;
         author?: string;
         series?: string;
@@ -64,15 +66,22 @@ const BooksList: React.FC = () => {
         const limit = 10;
         const currentPage = parseInt(page || '1', 10);
         const offset = (currentPage - 1) * limit;
-        console.log("Base URL: ", baseUrl);
 
-        let params: Params = {limit, offset, fav: false, lang: user?.books_lang || ''};
+        console.log('baseUrl', baseUrl);
+        let params: Params = {limit, offset, lang: user?.books_lang || ''};
         if (baseUrl.includes('/find/author/')) {
             params.author = baseUrl.split('/').pop() || '';
         } else if (baseUrl.includes('/find/category/')) {
             params.series = baseUrl.split('/').pop() || '';
         }
 
+        const isFavoritePath = baseUrl.includes('/books/favorite');
+        if (isFavoritePath) {
+            setFav(true);
+            params.fav = true;
+        } else if (fav) {
+            params.fav = true;
+        }
         try {
             const response = await axios.get(`${API_URL}/books/list`, {
                 headers: { Authorization: `${token}` },
@@ -85,13 +94,13 @@ const BooksList: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    }, [token, page, user, baseUrl]);
+    }, [page, baseUrl, user?.books_lang, fav, setFav, token]);
 
     useEffect(() => {
         if (token && user) {
-            fetchBooks();
+            fetchBooks().then(r => r);
         }
-    }, [token, page, user, fetchBooks]);
+    }, [token, page, user, fetchBooks, baseUrl]);
 
     const handleOpenAnnotation = (id: number) => {
         setOpened((prev) => (prev.includes(id) ? prev.filter((bookId) => bookId !== id) : [...prev, id]));
@@ -109,6 +118,7 @@ const BooksList: React.FC = () => {
 
     return (
         <Box p={2}>
+            <SearchBar />
             {loading ? (
                 Array.from({length: 10}).map((_, index) => (
                     <Grid item xs={12} key={index}>
@@ -121,7 +131,7 @@ const BooksList: React.FC = () => {
                 <Typography variant="h6">No books found</Typography>
             ) : (
                 <>
-                    <SearchBar />
+
                     <Grid container justifyContent="center">
                         {books.map((book) => (
                             <Grid item xs={12} key={book.id}>

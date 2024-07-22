@@ -5,6 +5,7 @@ import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import theme from './theme';
 import { AuthProvider } from './context/AuthContext';
+import { FavProvider} from "./context/FavContext";
 import publicRoutes from './routes/publicRoutes';
 import privateRoutes from './routes/privateRoutes';
 
@@ -27,7 +28,9 @@ const App: React.FC = () => {
 
 const AppWrapper: React.FC = () => (
     <AuthProvider>
-        <App />
+        <FavProvider>
+            <App />
+        </FavProvider>
     </AuthProvider>
 );
 

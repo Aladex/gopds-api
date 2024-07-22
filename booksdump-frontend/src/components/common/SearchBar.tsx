@@ -1,5 +1,4 @@
-// src/components/SearchBar.tsx
-import React, {useState, useEffect} from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     Box,
     Grid,
@@ -11,12 +10,16 @@ import {
     MenuItem,
     InputLabel,
     FormControl,
-    SelectChangeEvent, IconButton
+    SelectChangeEvent,
+    IconButton
 } from '@mui/material';
-import {useTranslation} from 'react-i18next';
-import {useAuth} from "../../context/AuthContext";
-import {API_URL} from "../../api/config";
-import {Favorite, FavoriteBorder} from "@mui/icons-material";
+import { useTranslation } from 'react-i18next';
+import { useAuth } from "../../context/AuthContext";
+import { API_URL } from "../../api/config";
+import { Favorite, FavoriteBorder } from "@mui/icons-material";
+import { useNavigate } from 'react-router-dom';
+import { useFav } from "../../context/FavContext";
+
 
 interface LangItem {
     language: string;
@@ -25,13 +28,13 @@ interface LangItem {
 
 const SearchBar: React.FC = () => {
     const { user, token } = useAuth();
-    const {t} = useTranslation();
-    const [selectedSearch, setSelectedSearch] = useState<string | null>(null);
+    const { t } = useTranslation();
+    const [selectedSearch, setSelectedSearch] = useState<string | null>('title');
     const [searchItem, setSearchItem] = useState('');
-    const [fav, setFav] = useState(false);
     const [langs, setLangs] = useState<string[]>([]);
     const [lang, setLang] = useState<string | null>(user?.books_lang || '');
-    const [authorName, setAuthorName] = useState<string>('');
+    const navigate = useNavigate();
+    const { fav, setFav } = useFav();
 
     useEffect(() => {
         const fetchLangs = async () => {
@@ -51,16 +54,22 @@ const SearchBar: React.FC = () => {
             }
         };
         fetchLangs();
+        // Set language from user settings
+        if (user) {
+            setLang(user.books_lang || '');
+        }
     }, [token, user]);
 
+    const setFavContext = (fav: boolean) => {
+        setFav(fav);
+    }
+
     const findByTitle = () => {
-        // Implement search logic here
-        console.log('Searching for:', searchItem, 'in category:', selectedSearch, 'and language:', lang);
+        navigate(`/books/find?category=${selectedSearch}&query=${searchItem}&lang=${lang}`);
     };
 
     const handleLangChange = (event: SelectChangeEvent) => {
         setLang(event.target.value as string);
-        // Implement any additional logic on language change
     };
 
     return (
@@ -197,7 +206,10 @@ const SearchBar: React.FC = () => {
                                                         </FormControl>
                                                     </Grid>
                                                     <Grid item xs={3} lg={2} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                                                        <IconButton onClick={() => setFav(!fav)} color="default" >
+                                                        <IconButton
+                                                            onClick={() => setFavContext(!fav)}
+                                                            color="default"
+                                                        >
                                                             {fav ? <Favorite /> : <FavoriteBorder />}
                                                         </IconButton>
                                                     </Grid>
