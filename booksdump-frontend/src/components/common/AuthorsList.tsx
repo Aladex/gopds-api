@@ -22,6 +22,17 @@ const useStyles = makeStyles((theme: Theme) => ({
             textDecoration: 'underline',
         },
     },
+    buttonLink: { // Adding the buttonLink class
+        background: 'none',
+        border: 'none',
+        padding: 0,
+        color: theme.palette.secondary.main,
+        textDecoration: 'none',
+        cursor: 'pointer',
+        '&:hover': {
+            textDecoration: 'underline',
+        },
+    },
 }));
 
 const AuthorsList: React.FC<AuthorsListProps> = ({authors}) => {
@@ -37,9 +48,9 @@ const AuthorsList: React.FC<AuthorsListProps> = ({authors}) => {
                     authors.map((author: Author) => (
                         <React.Fragment key={author.id}>
                             <span> &#8226; </span>
-                            <a href="#" onClick={(e) => { e.preventDefault(); navigate(`/books/find/author/${author.id}/1`); }} className={classes.link}>
+                            <button onClick={() => navigate(`/books/find/author/${author.id}/1`)} className={classes.buttonLink}>
                                 {author.full_name}
-                            </a>
+                            </button>
                         </React.Fragment>
                     ))
                 ) : (
