@@ -20,8 +20,15 @@
   "routeTitles.admin": "Администратор",
   "routeTitles.default": "Booksdump",
   "language": "Язык",
-  "categorySearch": "Поиск по категории",
+  "categorySearch": "Поиск по категориям",
   "searchItem": "Поиск",
   "byTitle": "По названию",
-  "byAuthor": "По автору"
+  "byAuthor": "По автору",
+  "booksTab": "Книги",
+  "opdsTab": "OPDS",
+  "donateTab": "Пожертвования",
+  "adminTab": "Администрирование",
+  "logoutButton": "Выйти",
+  "routeByBookName.books": "Поиск по названию книги",
+  "routeByAuthorName.books": "Поиск по имени автора"
 }
