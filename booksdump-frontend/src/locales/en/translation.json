@@ -30,5 +30,6 @@
   "adminTab": "Admin",
   "logoutButton": "Logout",
   "routeByBookName.books": "Search by book name",
-  "routeByAuthorName.books": "Search by author name"
+  "routeByAuthorName.books": "Search by author name",
+  "noAuthor": "No author"
 }
