@@ -1,12 +1,13 @@
 // src/components/Header.tsx
 import React, { useState, useEffect } from 'react';
-import { AppBar, Toolbar, Typography, Button, Tabs, Tab, Box } from '@mui/material';
+import {AppBar, Toolbar, Typography, Button, Tabs, Tab, Box, IconButton} from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '@mui/material/styles';
 import axios from 'axios';
 import { API_URL } from '../../api/config';
 import {useTranslation} from 'react-i18next';
+import {Logout} from "@mui/icons-material";
 
 const Header: React.FC = () => {
     const { logout, token, updateUser, user } = useAuth();
@@ -39,6 +40,10 @@ const Header: React.FC = () => {
         setValue(newValue);
     };
 
+    const handleUserInfo = () => {
+        // Add user info dialog window
+    }
+
     const a11yProps = (index: number) => {
         return {
             id: `simple-tab-${index}`,
@@ -58,11 +63,15 @@ const Header: React.FC = () => {
                         <Tab label={t('opdsTab')} {...a11yProps(1)} onClick={() => navigate('/catalog')} sx={{ color: value === 1 ? 'inherit' : '#9e9e9e' }} />
                         <Tab label={t('donateTab')} {...a11yProps(2)} onClick={() => navigate('/donate')} sx={{ color: value === 2 ? 'inherit' : '#9e9e9e' }} />
                         {user?.is_superuser && <Tab label={t('adminTab')} {...a11yProps(3)} onClick={() => navigate('/admin')} sx={{ color: value === 3 ? 'inherit' : '#9e9e9e' }} />}
-                        {user && <Tab label={user.username} {...a11yProps(4)} sx={{ color: value === 4 ? 'inherit' : '#9e9e9e' }} />}
                     </Tabs>
                 </Box>
+                <Button sx={{ color: theme.palette.primary.main }} onClick={handleUserInfo}>
+                    {user?.username}
+                </Button>
                 <Button sx={{ color: theme.palette.primary.main }} onClick={handleLogout}>
-                    {t('logoutButton')}
+                    <IconButton color="inherit">
+                        <Logout />
+                    </IconButton>
                 </Button>
             </Toolbar>
         </AppBar>
