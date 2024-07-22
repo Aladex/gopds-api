@@ -12,7 +12,7 @@ import {
     CardActions, IconButton
 } from '@mui/material';
 import axios from 'axios';
-import {API_URL} from '../../api/config';
+import {API_URL, APP_URL} from '../../api/config';
 import {useAuth} from '../../context/AuthContext';
 import {useTranslation} from 'react-i18next';
 import StarIcon from '@mui/icons-material/Star';
@@ -36,6 +36,8 @@ interface Book {
     lang: string;
     fav: boolean;
     approved: boolean;
+    path: string;
+    format: string;
 }
 
 const BooksList: React.FC = () => {
@@ -83,7 +85,7 @@ const BooksList: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    }, [token, page, user]);
+    }, [token, page, user, baseUrl]);
 
     useEffect(() => {
         if (token && user) {
@@ -103,11 +105,7 @@ const BooksList: React.FC = () => {
         // Логика обновления книги
     };
 
-    const cover = (book: Book) => {
-        return book.cover
-            ? `${API_URL}/books-posters/${book.cover}`
-            : `${API_URL}/books-posters/no-cover.png`;
-    };
+    const cover = (book: Book) => `${APP_URL}books-posters/${book.path.replace(/[^a-zA-Z0-9]/g, '-')}/${book.id}-${book.format}.jpg`;
 
     return (
         <Box p={2}>
@@ -138,6 +136,7 @@ const BooksList: React.FC = () => {
                                                             height="300"
                                                             image={cover(book)}
                                                             alt={book.title}
+                                                            sx={{ objectFit: 'scale-down' }}
                                                         />
                                                     </Grid>
                                                     <Grid item xs={12} md={8}>
