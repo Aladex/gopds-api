@@ -23,5 +23,10 @@
   "categorySearch": "Category search",
   "searchItem": "Search",
   "byTitle": "By title",
-  "byAuthor": "By author"
+  "byAuthor": "By author",
+  "booksTab": "Books",
+  "opdsTab": "OPDS",
+  "donateTab": "Donate",
+  "adminTab": "Admin",
+  "logoutButton": "Logout"
 }

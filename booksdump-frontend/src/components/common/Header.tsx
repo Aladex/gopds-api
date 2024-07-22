@@ -6,11 +6,13 @@ import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '@mui/material/styles';
 import axios from 'axios';
 import { API_URL } from '../../api/config';
+import {useTranslation} from 'react-i18next';
 
 const Header: React.FC = () => {
     const { logout, token, updateUser, user } = useAuth();
     const navigate = useNavigate();
     const theme = useTheme();
+    const {t} = useTranslation();
     const [value, setValue] = useState(0);
 
     useEffect(() => {
@@ -52,15 +54,15 @@ const Header: React.FC = () => {
                 </Typography>
                 <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
                     <Tabs value={value} onChange={handleChange} aria-label="basic tabs example">
-                        <Tab label="КНИГИ" {...a11yProps(0)} onClick={() => navigate('/books')} sx={{ color: value === 0 ? 'inherit' : '#9e9e9e' }} />
-                        <Tab label="OPDS" {...a11yProps(1)} onClick={() => navigate('/catalog')} sx={{ color: value === 1 ? 'inherit' : '#9e9e9e' }} />
-                        <Tab label="ДОНАТ" {...a11yProps(2)} onClick={() => navigate('/donate')} sx={{ color: value === 2 ? 'inherit' : '#9e9e9e' }} />
-                        {user?.is_superuser && <Tab label="АДМИН" {...a11yProps(3)} onClick={() => navigate('/admin')} sx={{ color: value === 3 ? 'inherit' : '#9e9e9e' }} />}
+                        <Tab label={t('booksTab')} {...a11yProps(0)} onClick={() => navigate('/books')} sx={{ color: value === 0 ? 'inherit' : '#9e9e9e' }} />
+                        <Tab label={t('opdsTab')} {...a11yProps(1)} onClick={() => navigate('/catalog')} sx={{ color: value === 1 ? 'inherit' : '#9e9e9e' }} />
+                        <Tab label={t('donateTab')} {...a11yProps(2)} onClick={() => navigate('/donate')} sx={{ color: value === 2 ? 'inherit' : '#9e9e9e' }} />
+                        {user?.is_superuser && <Tab label={t('adminTab')} {...a11yProps(3)} onClick={() => navigate('/admin')} sx={{ color: value === 3 ? 'inherit' : '#9e9e9e' }} />}
                         {user && <Tab label={user.username} {...a11yProps(4)} sx={{ color: value === 4 ? 'inherit' : '#9e9e9e' }} />}
                     </Tabs>
                 </Box>
                 <Button sx={{ color: theme.palette.primary.main }} onClick={handleLogout}>
-                    ВЫХОД
+                    {t('logoutButton')}
                 </Button>
             </Toolbar>
         </AppBar>
