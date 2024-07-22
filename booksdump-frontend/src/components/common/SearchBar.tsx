@@ -53,7 +53,7 @@ const SearchBar: React.FC = () => {
                 console.error('Failed to fetch languages');
             }
         };
-        fetchLangs();
+        fetchLangs().then(r => r);
         // Set language from user settings
         if (user) {
             setLang(user.books_lang || '');
