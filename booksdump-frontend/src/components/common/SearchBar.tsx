@@ -103,7 +103,8 @@ const SearchBar: React.FC = () => {
     }
 
     const navigateToSearchResults = () => {
-        navigate(`/books/find/${selectedSearch}/${searchItem}/1`)
+        const searchPath = selectedSearch === 'title' ? `/books/find/title/${searchItem}/1` : `/authors/${searchItem}/1`;
+        navigate(searchPath);
     };
 
     const handleLangChange = (event: SelectChangeEvent) => {

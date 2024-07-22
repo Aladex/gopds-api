@@ -65,7 +65,6 @@ const BooksList: React.FC = () => {
         const limit = 10;
         const currentPage = parseInt(page || '1', 10);
         const offset = (currentPage - 1) * limit;
-        console.log('Fetch books', baseUrl);
 
         let params: Params = {limit, offset, lang: user?.books_lang || ''};
         // Checks the `baseUrl` to determine the type of search being performed and sets the appropriate parameter.
