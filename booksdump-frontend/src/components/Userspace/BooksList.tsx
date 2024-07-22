@@ -74,7 +74,6 @@ const BooksList: React.FC = () => {
 
         const isFavoritePath = baseUrl.includes('/books/favorite');
         if (isFavoritePath) {
-            // setFav(true);
             params.fav = true;
         }
         try {

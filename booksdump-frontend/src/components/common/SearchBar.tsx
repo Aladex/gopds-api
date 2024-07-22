@@ -89,6 +89,7 @@ const SearchBar: React.FC = () => {
                 setSelectedSearch(optionValue);
                 return [...prevOptions, { value: optionValue, label: optionLabel }];
             } else if (!isAuthorsBooksSearchPage && optionExists) {
+                setSelectedSearch(location.pathname.includes('/books/authors/') ? 'author' : 'title');
                 return prevOptions.filter(option => option.value !== optionValue);
             }
 
