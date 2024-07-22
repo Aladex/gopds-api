@@ -1,6 +1,5 @@
 // src/components/BooksList.tsx
 import React, {useState, useEffect, useCallback} from 'react';
-import { useFav } from '../../context/FavContext';
 import {useParams} from 'react-router-dom';
 import {
     Typography,
@@ -50,7 +49,6 @@ const BooksList: React.FC = () => {
     const [opened, setOpened] = useState<number[]>([]);
     const {t} = useTranslation();
     const baseUrl = window.location.pathname.replace(/\/\d+$/, '');
-    const { fav, setFav } = useFav();
 
     type Params = {
         limit: number;
@@ -67,7 +65,6 @@ const BooksList: React.FC = () => {
         const currentPage = parseInt(page || '1', 10);
         const offset = (currentPage - 1) * limit;
 
-        console.log('baseUrl', baseUrl);
         let params: Params = {limit, offset, lang: user?.books_lang || ''};
         if (baseUrl.includes('/find/author/')) {
             params.author = baseUrl.split('/').pop() || '';
@@ -77,9 +74,7 @@ const BooksList: React.FC = () => {
 
         const isFavoritePath = baseUrl.includes('/books/favorite');
         if (isFavoritePath) {
-            setFav(true);
-            params.fav = true;
-        } else if (fav) {
+            // setFav(true);
             params.fav = true;
         }
         try {
@@ -94,7 +89,7 @@ const BooksList: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    }, [page, baseUrl, user?.books_lang, fav, setFav, token]);
+    }, [page, baseUrl, user?.books_lang, token]);
 
     useEffect(() => {
         if (token && user) {

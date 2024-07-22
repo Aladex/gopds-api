@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     Box,
     Grid,
@@ -35,6 +35,7 @@ const SearchBar: React.FC = () => {
     const [lang, setLang] = useState<string | null>(user?.books_lang || '');
     const navigate = useNavigate();
     const { fav, setFav } = useFav();
+    const prevFavRef = useRef(fav);
 
     useEffect(() => {
         const fetchLangs = async () => {
@@ -53,12 +54,21 @@ const SearchBar: React.FC = () => {
                 console.error('Failed to fetch languages');
             }
         };
-        fetchLangs().then(r => r);
+        fetchLangs();
+
         // Set language from user settings
         if (user) {
             setLang(user.books_lang || '');
         }
-    }, [token, user]);
+
+        // Update URL based on fav state
+        if (prevFavRef.current !== fav) {
+            const newPath = fav ? '/books/favorite/1' : '/books/page/1';
+            navigate(newPath);
+        }
+        // Обновление предыдущего значения fav на текущее
+        prevFavRef.current = fav;
+    }, [token, user, fav, navigate]); // Include fav and navigate in the dependency array
 
     const setFavContext = (fav: boolean) => {
         setFav(fav);
