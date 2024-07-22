@@ -8,11 +8,9 @@ import axios from 'axios';
 import { API_URL } from '../../api/config';
 
 const Header: React.FC = () => {
-    const { logout, token } = useAuth();
+    const { logout, token, updateUser, user } = useAuth();
     const navigate = useNavigate();
     const theme = useTheme();
-    const { updateUser } = useAuth();
-    const [user] = useState<{ username: string; is_superuser: boolean } | null>(null);
     const [value, setValue] = useState(0);
 
     useEffect(() => {
