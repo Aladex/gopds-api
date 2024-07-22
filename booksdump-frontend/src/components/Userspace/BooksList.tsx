@@ -1,5 +1,5 @@
 // src/components/BooksList.tsx
-import React, {useState, useEffect} from 'react';
+import React, {useState, useEffect, useCallback} from 'react';
 import {useParams} from 'react-router-dom';
 import {
     Typography,
@@ -46,34 +46,36 @@ const BooksList: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [opened, setOpened] = useState<number[]>([]);
     const {t} = useTranslation();
+    const fetchBooks = useCallback(async () => {
+        setLoading(true);
+        const limit = 10; // Количество книг на страницу
+        const currentPage = parseInt(page || '1', 10); // Получение текущей страницы из URL
+        const offset = (currentPage - 1) * limit; // Вычисление смещения
+
+        try {
+            const response = await axios.get(`${API_URL}/books/list`, {
+                headers: { Authorization: `${token}` },
+                params: {
+                    limit: limit,
+                    offset: offset,
+                    fav: false,
+                    lang: user?.books_lang || '',
+                },
+            });
+            setBooks(response.data.books);
+            setTotalPages(response.data.length);
+        } catch (error) {
+            console.error('Error fetching books', error);
+        } finally {
+            setLoading(false);
+        }
+    }, [token, page, user]);
 
     useEffect(() => {
-        const fetchBooks = async () => {
-            setLoading(true);
-            const limit = 10; // Количество книг на страницу
-            const currentPage = parseInt(page || '1', 10); // Получение текущей страницы из URL
-            const offset = (currentPage - 1) * limit; // Вычисление смещения
-
-            try {
-                const response = await axios.get(`${API_URL}/books/list`, {
-                    headers: {Authorization: `${token}`},
-                    params: {
-                        limit: limit,
-                        offset: offset,
-                        fav: false,
-                        lang: user?.books_lang || '',
-                    },
-                });
-                setBooks(response.data.books);
-                setTotalPages(response.data.length);
-            } catch (error) {
-                console.error('Error fetching books', error);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchBooks();
-    }, [token, page, user]); // Include books_lang in the dependency array
+        if (token && user) {
+            fetchBooks();
+        }
+    }, [token, page, user, fetchBooks]);
 
     const handleOpenAnnotation = (id: number) => {
         setOpened((prev) => (prev.includes(id) ? prev.filter((bookId) => bookId !== id) : [...prev, id]));

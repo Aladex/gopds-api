@@ -30,12 +30,11 @@ const SearchBar: React.FC = () => {
     const [searchItem, setSearchItem] = useState('');
     const [fav, setFav] = useState(false);
     const [langs, setLangs] = useState<string[]>([]);
-    const [lang, setLang] = useState<string | null>(null);
+    const [lang, setLang] = useState<string | null>(user?.books_lang || '');
     const [authorName, setAuthorName] = useState<string>('');
 
     useEffect(() => {
         const fetchLangs = async () => {
-            // Get languages from the server /api/books/langs
             const response = await fetch(`${API_URL}/books/langs`, {
                 method: 'GET',
                 headers: {
@@ -52,7 +51,7 @@ const SearchBar: React.FC = () => {
             }
         };
         fetchLangs();
-    }, [token]);
+    }, [token, user]);
 
     const findByTitle = () => {
         // Implement search logic here
