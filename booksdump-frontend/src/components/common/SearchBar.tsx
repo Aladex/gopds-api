@@ -16,7 +16,7 @@ import {
 import {useTranslation} from 'react-i18next';
 import {useAuth} from "../../context/AuthContext";
 import {API_URL} from "../../api/config";
-import {StarBorder, StarBorderOutlined} from "@mui/icons-material";
+import {Stars, StarBorderOutlined} from "@mui/icons-material";
 
 interface LangItem {
     language: string;
@@ -68,14 +68,13 @@ const SearchBar: React.FC = () => {
         <Grid container justifyContent="center" spacing={4}>
             <Grid item xs={12}>
                 <Box maxWidth={1200} mx="auto">
-                    <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
+                    <Card sx={{ boxShadow: 2, p: 1, my: 1 }}>
                         <CardContent>
                             <Grid container spacing={2} justifyContent="start">
-                                {/* First column: Category, Search Field, and Button */}
-                                <Grid item xs={6} lg={6}>
+                                <Grid item xs={12} lg={6}>
                                     <Grid container spacing={2}>
-                                        <Grid item xs={4}>
-                                            <FormControl fullWidth>
+                                        <Grid item xs={6} lg={6}>
+                                            <FormControl fullWidth sx={{ '& .MuiOutlinedInput-root': { '& fieldset': { borderColor: 'rgba(0, 0, 0, 0.23)' }, '&:hover fieldset': { borderColor: 'black' }, '&.Mui-focused fieldset': { borderColor: 'black' } } }}>
                                                 <InputLabel id="category-search-label">{t('categorySearch')}</InputLabel>
                                                 <Select
                                                     labelId="category-search-label"
@@ -84,13 +83,14 @@ const SearchBar: React.FC = () => {
                                                     disabled={fav}
                                                     label={t('categorySearch')}
                                                 >
-                                                    <MenuItem value="title">{t('title')}</MenuItem>
-                                                    <MenuItem value="author">{t('author')}</MenuItem>
+                                                    <MenuItem value="title">{t('byTitle')}</MenuItem>
+                                                    <MenuItem value="author">{t('byAuthor')}</MenuItem>
                                                 </Select>
                                             </FormControl>
                                         </Grid>
-                                        <Grid item xs={4}>
+                                        <Grid item xs={6} lg={6}>
                                             <TextField
+                                                sx={{ '& .MuiOutlinedInput-root': { '& fieldset': { borderColor: 'rgba(0, 0, 0, 0.23)' }, '&:hover fieldset': { borderColor: 'black' }, '&.Mui-focused fieldset': { borderColor: 'black' } } }}
                                                 label={t('searchItem')}
                                                 value={searchItem}
                                                 onChange={(e) => setSearchItem(e.target.value)}
@@ -104,46 +104,48 @@ const SearchBar: React.FC = () => {
                                                 }}
                                             />
                                         </Grid>
-                                        <Grid item xs={4}>
-                                            <Button
-                                                style={{ height: '100%' }}
-                                                variant="contained"
-                                                onClick={findByTitle}
-                                                disabled={fav}
-                                                fullWidth
-                                            >
-                                                {t('search')}
-                                            </Button>
-                                        </Grid>
                                     </Grid>
                                 </Grid>
 
-                                {/* Empty column for spacing */}
-                                <Grid item xs={1} lg={1}></Grid>
-
-                                {/* Second column: Language and Favorites */}
-                                <Grid item xs={5} lg={5}>
-                                    <Grid container spacing={2} justifyContent="flex-end">
-                                        <Grid item xs={3}>
-                                            <FormControl fullWidth>
-                                                <InputLabel id="language-select-label">{t('language')}</InputLabel>
-                                                <Select
-                                                    labelId="language-select-label"
-                                                    value={lang || ''}
-                                                    onChange={handleLangChange}
-                                                    disabled={fav}
-                                                    label={t('language')}
-                                                >
-                                                    {langs.map((language) => (
-                                                        <MenuItem key={language} value={language}>{language}</MenuItem>
-                                                    ))}
-                                                </Select>
-                                            </FormControl>
-                                        </Grid>
-                                        <Grid item xs={3}>
-                                            <IconButton onClick={() => setFav(!fav)} color="default">
-                                                {fav ? <StarBorder /> : <StarBorderOutlined />}
-                                            </IconButton>
+                                <Grid item xs={12} lg={6}>
+                                    <Grid container spacing={2}>
+                                        <Grid item xs={12}>
+                                            <Grid container justifyContent="space-between" spacing={2}>
+                                                <Grid item xs={4} lg={2}>
+                                                    <Button
+                                                        style={{ height: '100%' }}
+                                                        variant="contained"
+                                                        onClick={findByTitle}
+                                                        disabled={fav}
+                                                        fullWidth
+                                                    >
+                                                        {t('search')}
+                                                    </Button>
+                                                </Grid>
+                                                <Grid item container xs={8} lg={10} justifyContent="flex-end" spacing={2}>
+                                                    <Grid item xs={6} lg={4}>
+                                                        <FormControl fullWidth sx={{ '& .MuiOutlinedInput-root': { '& fieldset': { borderColor: 'rgba(0, 0, 0, 0.23)' }, '&:hover fieldset': { borderColor: 'black' }, '&.Mui-focused fieldset': { borderColor: 'black' } } }}>
+                                                            <InputLabel id="language-select-label">{t('language')}</InputLabel>
+                                                            <Select
+                                                                labelId="language-select-label"
+                                                                value={lang || ''}
+                                                                onChange={handleLangChange}
+                                                                disabled={fav}
+                                                                label={t('language')}
+                                                            >
+                                                                {langs.map((language) => (
+                                                                    <MenuItem key={language} value={language}>{language}</MenuItem>
+                                                                ))}
+                                                            </Select>
+                                                        </FormControl>
+                                                    </Grid>
+                                                    <Grid item xs={3} lg={2} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                                                        <IconButton onClick={() => setFav(!fav)} color="default" >
+                                                            {fav ? <Stars /> : <StarBorderOutlined />}
+                                                        </IconButton>
+                                                    </Grid>
+                                                </Grid>
+                                            </Grid>
                                         </Grid>
                                     </Grid>
                                 </Grid>

@@ -19,5 +19,9 @@
   "routeTitles.books": "New books",
   "routeTitles.admin": "Admin",
   "routeTitles.default": "Booksdump",
-  "language": "Language"
+  "language": "Language",
+  "categorySearch": "Category search",
+  "searchItem": "Search",
+  "byTitle": "By title",
+  "byAuthor": "By author"
 }
