@@ -157,8 +157,10 @@ const SearchBar: React.FC = () => {
                 body: JSON.stringify(user),
             }).then(r => r);
         }
-        const newPath = location.pathname.replace(/[^\/]+$/, '1');
-        navigate(newPath);
+        const pathSegments = location.pathname.split('/');
+        const lastIndex = pathSegments.length - 1;
+        pathSegments[lastIndex] = '1';
+        navigate(pathSegments.join('/'));
     };
 
     return (
