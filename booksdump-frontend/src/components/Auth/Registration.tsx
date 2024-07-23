@@ -1,11 +1,12 @@
 // src/components/Auth/Registration.tsx
 import React, { useState, useEffect } from 'react';
-import { TextField, Button, Typography, CardContent, CardActions, Box, IconButton } from '@mui/material';
+import { Button, Typography, CardContent, CardActions, Box, IconButton } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import LoginCenteredBox from "../common/CenteredBox";
 import { useTranslation } from 'react-i18next';
 import { API_URL } from '../../api/config';
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import { StyledTextField } from "../StyledDataItems";
 
 const Registration: React.FC = () => {
     const [username, setUsername] = useState('');
@@ -61,61 +62,25 @@ const Registration: React.FC = () => {
         <LoginCenteredBox>
             <CardContent>
                 <Typography variant="h4" textAlign="center">{t('registration')}</Typography>
-                <TextField
+                <StyledTextField
                     label={t('username')}
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     fullWidth
                     margin="normal"
                     required
-                    sx={{
-                        '& .MuiOutlinedInput-root': {
-                            '& fieldset': {
-                                borderColor: 'rgba(0, 0, 0, 0.23)',
-                            },
-                            '&:hover fieldset': {
-                                borderColor: 'black',
-                            },
-                            '&.Mui-focused fieldset': {
-                                borderColor: 'black',
-                            },
-                        },
-                        '& .MuiInputLabel-root': {
-                            color: 'rgba(0, 0, 0, 0.6)',
-                        },
-                        '& .MuiInputLabel-root.Mui-focused': {
-                            color: 'black',
-                        },
-                    }}
+
                 />
-                <TextField
+                <StyledTextField
                     label="Email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     fullWidth
                     margin="normal"
                     required
-                    sx={{
-                        '& .MuiOutlinedInput-root': {
-                            '& fieldset': {
-                                borderColor: 'rgba(0, 0, 0, 0.23)',
-                            },
-                            '&:hover fieldset': {
-                                borderColor: 'black',
-                            },
-                            '&.Mui-focused fieldset': {
-                                borderColor: 'black',
-                            },
-                        },
-                        '& .MuiInputLabel-root': {
-                            color: 'rgba(0, 0, 0, 0.6)',
-                        },
-                        '& .MuiInputLabel-root.Mui-focused': {
-                            color: 'black',
-                        },
-                    }}
+
                 />
-                <TextField
+                <StyledTextField
                     label={t('password')}
                     type="password"
                     value={password}
@@ -123,52 +88,16 @@ const Registration: React.FC = () => {
                     fullWidth
                     margin="normal"
                     required
-                    sx={{
-                        '& .MuiOutlinedInput-root': {
-                            '& fieldset': {
-                                borderColor: 'rgba(0, 0, 0, 0.23)',
-                            },
-                            '&:hover fieldset': {
-                                borderColor: 'black',
-                            },
-                            '&.Mui-focused fieldset': {
-                                borderColor: 'black',
-                            },
-                        },
-                        '& .MuiInputLabel-root': {
-                            color: 'rgba(0, 0, 0, 0.6)',
-                        },
-                        '& .MuiInputLabel-root.Mui-focused': {
-                            color: 'black',
-                        },
-                    }}
+
                 />
-                <TextField
+                <StyledTextField
                     label={t('inviteCode')}
                     value={invite}
                     onChange={(e) => setInvite(e.target.value)}
                     fullWidth
                     margin="normal"
                     required
-                    sx={{
-                        '& .MuiOutlinedInput-root': {
-                            '& fieldset': {
-                                borderColor: 'rgba(0, 0, 0, 0.23)',
-                            },
-                            '&:hover fieldset': {
-                                borderColor: 'black',
-                            },
-                            '&.Mui-focused fieldset': {
-                                borderColor: 'black',
-                            },
-                        },
-                        '& .MuiInputLabel-root': {
-                            color: 'rgba(0, 0, 0, 0.6)',
-                        },
-                        '& .MuiInputLabel-root.Mui-focused': {
-                            color: 'black',
-                        },
-                    }}
+
                 />
             </CardContent>
             <CardActions>

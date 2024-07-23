@@ -48,5 +48,9 @@
   "invalidUser": "Invalid user",
   "userInfo": "Tell us about yourself",
   "firstName": "First name",
-  "lastName": "Last name"
+  "lastName": "Last name",
+  "cancel": "Cancel",
+  "save": "Save",
+  "changePassword": "Change password",
+  "dropSessions": "Drop all sessions"
 }

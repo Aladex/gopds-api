@@ -4,15 +4,14 @@ import {
     Grid,
     Card,
     CardContent,
-    TextField,
     Button,
     Select,
     MenuItem,
     InputLabel,
-    FormControl,
     SelectChangeEvent,
     IconButton
 } from '@mui/material';
+import { StyledTextField } from "../StyledDataItems";
 import { useTranslation } from 'react-i18next';
 import { useAuth } from "../../context/AuthContext";
 import { API_URL } from "../../api/config";
@@ -21,6 +20,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useFav } from "../../context/FavContext";
 import { useAuthor } from "../../context/AuthorContext";
 import { useSearchBar } from "../../context/SearchBarContext";
+import { StyledFormControl} from "../StyledDataItems";
 
 interface LangItem {
     language: string;
@@ -172,7 +172,7 @@ const SearchBar: React.FC = () => {
                                 <Grid item xs={12} lg={6}>
                                     <Grid container spacing={2}>
                                         <Grid item xs={6} lg={6}>
-                                            <FormControl
+                                            <StyledFormControl
                                                 fullWidth
                                                 sx={{
                                                     '& .MuiOutlinedInput-root': {
@@ -208,29 +208,10 @@ const SearchBar: React.FC = () => {
                                                         </MenuItem>
                                                     ))}
                                                 </Select>
-                                            </FormControl>
+                                            </StyledFormControl>
                                         </Grid>
                                         <Grid item xs={6} lg={6}>
-                                            <TextField
-                                                sx={{
-                                                    '& .MuiOutlinedInput-root': {
-                                                        '& fieldset': {
-                                                            borderColor: 'rgba(0, 0, 0, 0.23)',
-                                                        },
-                                                        '&:hover fieldset': {
-                                                            borderColor: 'black',
-                                                        },
-                                                        '&.Mui-focused fieldset': {
-                                                            borderColor: 'black',
-                                                        },
-                                                    },
-                                                    '& .MuiInputLabel-root': {
-                                                        color: 'rgba(0, 0, 0, 0.6)',
-                                                    },
-                                                    '& .MuiInputLabel-root.Mui-focused': {
-                                                        color: 'black',
-                                                    },
-                                                }}
+                                            <StyledTextField
                                                 label={t('searchItem')}
                                                 value={searchItem}
                                                 onChange={(e) => setSearchItem(e.target.value)}
@@ -274,7 +255,7 @@ const SearchBar: React.FC = () => {
                                                 </Grid>
                                                 <Grid item container xs={8} lg={10} justifyContent="flex-end" spacing={2}>
                                                     <Grid item xs={6} lg={4}>
-                                                        <FormControl fullWidth
+                                                        <StyledFormControl fullWidth
                                                                      sx={{
                                                                          '& .MuiOutlinedInput-root': {
                                                                              '& fieldset': {
@@ -306,7 +287,7 @@ const SearchBar: React.FC = () => {
                                                                     <MenuItem key={language} value={language}>{language}</MenuItem>
                                                                 ))}
                                                             </Select>
-                                                        </FormControl>
+                                                        </StyledFormControl>
                                                     </Grid>
                                                     <Grid item xs={3} lg={2} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
                                                         <IconButton

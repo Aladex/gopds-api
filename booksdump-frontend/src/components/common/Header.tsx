@@ -3,7 +3,7 @@ import {Link} from 'react-router-dom';
 import {
     AppBar,
     Toolbar,
-    Dialog, DialogTitle, DialogContent, DialogActions, TextField,
+    Dialog, DialogTitle, DialogContent, DialogActions,
     Typography,
     Button,
     Tabs,
@@ -23,10 +23,13 @@ import axios from 'axios';
 import {API_URL} from '../../api/config';
 import {useTranslation} from 'react-i18next';
 import {Menu as MenuIcon, Logout, Person} from "@mui/icons-material";
+import { StyledTextField } from "../StyledDataItems";
+import { useCommonStyles } from "../themeStyles";
 
 const Header: React.FC = () => {
     const {logout, token, updateUser, user} = useAuth();
     const navigate = useNavigate();
+    const classes = useCommonStyles();
     const theme = useTheme();
     const {t} = useTranslation();
     const [value, setValue] = useState(0);
@@ -171,7 +174,11 @@ const Header: React.FC = () => {
             <Dialog open={dialogOpen} onClose={handleDialogClose}>
                 <DialogTitle>{(t('userInfo'))}</DialogTitle>
                 <DialogContent>
-                    <TextField
+                    <Box display="flex" justifyContent="space-between" marginBottom={2}>
+                        <React.Fragment><button className={classes.buttonLink}>{(t('changePassword'))}</button></React.Fragment>
+                        <React.Fragment><button className={classes.buttonLink}>{(t('dropSessions'))}</button></React.Fragment>
+                    </Box>
+                    <StyledTextField
                         autoFocus
                         margin="dense"
                         label={t('firstName')}
@@ -179,7 +186,7 @@ const Header: React.FC = () => {
                         fullWidth
                         value={user?.first_name}
                     />
-                    <TextField
+                    <StyledTextField
                         margin="dense"
                         label={t('lastName')}
                         type="text"
@@ -188,8 +195,8 @@ const Header: React.FC = () => {
                     />
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={handleDialogClose}>{'Cancel'}</Button>
-                    <Button onClick={handleDialogClose}>{'Save'}</Button>
+                    <Button color={"secondary"} onClick={handleDialogClose}>{'Cancel'}</Button>
+                    <Button color={"secondary"} onClick={handleDialogClose}>{'Save'}</Button>
                 </DialogActions>
             </Dialog>
         </AppBar>

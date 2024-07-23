@@ -1,11 +1,12 @@
 // src/components/Auth/ForgotPassword.tsx
 import React, { useState } from 'react';
-import {TextField, Button, Typography, CardContent, CardActions, IconButton, Box} from '@mui/material';
+import { Button, Typography, CardContent, CardActions, IconButton, Box} from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import LoginCenteredBox from "../common/CenteredBox";
 import { useTranslation } from 'react-i18next';
 import { API_URL } from '../../api/config';
+import { StyledTextField} from "../StyledDataItems";
 
 const ForgotPassword: React.FC = () => {
     const [email, setEmail] = useState('');
@@ -50,28 +51,9 @@ const ForgotPassword: React.FC = () => {
         <LoginCenteredBox>
                 <CardContent>
                     <Typography variant="h6" textAlign="center">{t('forgotPassword')}</Typography>
-                    <TextField
+                    <StyledTextField
                         label="Email"
                         type="email"
-                        sx={{
-                            '& .MuiOutlinedInput-root': {
-                                '& fieldset': {
-                                    borderColor: 'rgba(0, 0, 0, 0.23)',
-                                },
-                                '&:hover fieldset': {
-                                    borderColor: 'black',
-                                },
-                                '&.Mui-focused fieldset': {
-                                    borderColor: 'black',
-                                },
-                            },
-                            '& .MuiInputLabel-root': {
-                                color: 'rgba(0, 0, 0, 0.6)',
-                            },
-                            '& .MuiInputLabel-root.Mui-focused': {
-                                color: 'black',
-                            },
-                        }}
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         fullWidth
