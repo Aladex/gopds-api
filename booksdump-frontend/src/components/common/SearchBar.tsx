@@ -83,7 +83,7 @@ const SearchBar: React.FC = () => {
             navigate(newPath);
         }
         prevFavRef.current = fav;
-    }, [token, user, fav, navigate]); // Include fav and navigate in the dependency array
+    }, [token, user, fav, navigate, setLanguages]); // Include fav and navigate in the dependency array
 
     useEffect(() => {
         const pathStartsWith = '/books/find/author/';
