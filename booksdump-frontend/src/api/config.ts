@@ -13,9 +13,9 @@ export const fetchWithAuth = async (url: string, options = {}) => {
         },
     });
 
-    if (response.status === 403) {
-        removeToken(); // Удаляем токен из localStorage
-        window.location.href = '/login'; // Перенаправляем на страницу логина
+    if (response.status === 403 || response.status === 401) {
+        removeToken();
+        window.location.href = '/login';
     }
 
     return response;
