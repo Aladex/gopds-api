@@ -23,6 +23,7 @@ import BookPagination from "../common/BookPagination";
 import SkeletonCard from "../common/SkeletonCard";
 import AuthorsList from "../common/AuthorsList";
 import SearchBar from "../common/SearchBar";
+import { useAuthor } from "../../context/AuthorContext";
 
 interface Book {
     id: number;
@@ -49,6 +50,7 @@ const BooksList: React.FC = () => {
     const [opened, setOpened] = useState<number[]>([]);
     const {t} = useTranslation();
     const baseUrl = window.location.pathname.replace(/\/\d+$/, '');
+    const { authorId, authorBook, setAuthorId, clearAuthorBook } = useAuthor();
 
     type Params = {
         limit: number;
@@ -65,39 +67,30 @@ const BooksList: React.FC = () => {
         const limit = 10;
         const currentPage = parseInt(page || '1', 10);
         const offset = (currentPage - 1) * limit;
-
         let params: Params = {limit, offset, lang: user?.books_lang || ''};
-        // Checks the `baseUrl` to determine the type of search being performed and sets the appropriate parameter.
-        // This block supports three types of searches: by author, by category, and by title.
-        // Each condition checks for a specific pattern in the `baseUrl` and extracts the relevant parameter from the URL.
 
-        // Checks if the search is for an author. If so, extracts the author's name from the URL.
         if (baseUrl.includes('/find/author/')) {
-            params.author = baseUrl.split('/').pop() || '';
-        }
-        // Checks if the search is for a category. If so, extracts the category name from the URL.
-        else if (baseUrl.includes('/find/category/')) {
+            const author = baseUrl.split('/').pop() || '';
+            params.author = author;
+            setAuthorId(author);
+            if (authorBook) params.title = authorBook;
+        } else if (baseUrl.includes('/find/category/')) {
             params.series = baseUrl.split('/').pop() || '';
+            clearAuthorBook();
+        } else if (baseUrl.includes('/books/find/title/')) {
+            const title = baseUrl.split('/title/')[1];
+            if (title) params.title = decodeURIComponent(title);
+            if (authorId) params.author = authorId;
+            clearAuthorBook();
         }
-        // Checks if the search is for a title. If so, extracts the title from the URL.
-        else if (baseUrl.includes('/books/find/title/')) {
-            const urlSegments = baseUrl.split('/');
-            const titleIndex = urlSegments.findIndex(segment => segment === 'title');
-            // Ensures that the title segment exists and is not the last segment of the URL.
-            if (titleIndex !== -1 && titleIndex < urlSegments.length - 1) {
-                const title = decodeURIComponent(urlSegments[titleIndex + 1]);
-                params.title = title;
-            }
-        }
-        const isFavoritePath = baseUrl.includes('/books/favorite');
-        if (isFavoritePath) {
+
+        if (baseUrl.includes('/books/favorite')) {
             params.fav = true;
+            clearAuthorBook();
         }
+
         try {
-            const response = await axios.get(`${API_URL}/books/list`, {
-                headers: { Authorization: `${token}` },
-                params,
-            });
+            const response = await axios.get(`${API_URL}/books/list`, { headers: { Authorization: `${token}` }, params });
             setBooks(response.data.books);
             setTotalPages(response.data.length);
         } catch (error) {
@@ -105,8 +98,7 @@ const BooksList: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    }, [page, baseUrl, user?.books_lang, token]);
-
+    }, [page, user?.books_lang, baseUrl, setAuthorId, authorBook, clearAuthorBook, authorId, token]);
     useEffect(() => {
         if (token && user) {
             fetchBooks().then(r => r);

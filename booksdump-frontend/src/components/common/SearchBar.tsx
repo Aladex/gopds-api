@@ -19,11 +19,17 @@ import { API_URL } from "../../api/config";
 import { Favorite, FavoriteBorder } from "@mui/icons-material";
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useFav } from "../../context/FavContext";
+import { useAuthor } from "../../context/AuthorContext";
 
 
 interface LangItem {
     language: string;
     count: number;
+}
+
+interface Record {
+    option: string;
+    path: string;
 }
 
 const SearchBar: React.FC = () => {
@@ -41,6 +47,12 @@ const SearchBar: React.FC = () => {
         { value: 'title', label: t('byTitle') },
         { value: 'author', label: t('byAuthor') },
     ]);
+    const records: Record[] = [
+        { option: 'authorsBookSearch', path: `/books/find/author/` },
+        { option: 'title', path: `/books/find/title/${searchItem}/1` },
+        { option: 'author', path: `/authors/${searchItem}/1` },
+    ];
+    const {authorId, setAuthorBook, clearAuthorId, clearAuthorBook } = useAuthor();
 
 
     useEffect(() => {
@@ -83,29 +95,43 @@ const SearchBar: React.FC = () => {
 
         setSearchOptions(prevOptions => {
             const optionExists = prevOptions.some(option => option.value === optionValue);
-
             if (isAuthorsBooksSearchPage && !optionExists) {
                 setSelectedSearch(optionValue);
-                return [...prevOptions, { value: optionValue, label: optionLabel }];
+                return [...prevOptions, {value: optionValue, label: optionLabel}];
+            } else if (location.pathname.startsWith('/authors/') && !optionExists) {
+                setSelectedSearch('author');
+                return [...prevOptions, {value: 'author', label: t('byAuthor')}];
             } else if (!isAuthorsBooksSearchPage && optionExists) {
-                setSelectedSearch(location.pathname.includes('/books/authors/') ? 'author' : 'title');
+                setSelectedSearch('title');
                 return prevOptions.filter(option => option.value !== optionValue);
             }
-
             return prevOptions;
         });
-    }, [location.pathname, t]);
+    }, [location.pathname, t, selectedSearch, clearAuthorId]);
 
-
+    const handleSetAuthorBook = () => {
+        setAuthorBook(searchItem);
+    };
 
     const setFavContext = (fav: boolean) => {
         setFav(fav);
     }
 
     const navigateToSearchResults = () => {
-        const searchPath = selectedSearch === 'title' ? `/books/find/title/${searchItem}/1` : `/authors/${searchItem}/1`;
-        navigate(searchPath);
+        const record = records.find(record => record.option === selectedSearch);
+        handleSetAuthorBook();
+        if (record) {
+            // If option is 'authorsBookSearch', set authorId in AuthorContext, else clear it
+            if (record.option !== 'authorsBookSearch') {
+                clearAuthorId();
+                clearAuthorBook();
+                navigate(record.path);
+            } else {
+                navigate(record.path + authorId + '/1');
+            }
+        }
     };
+
 
     const handleLangChange = (event: SelectChangeEvent) => {
         setLang(event.target.value as string);
