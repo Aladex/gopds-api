@@ -37,7 +37,7 @@ const AuthorSearch: React.FC = () => {
                 const currentPage = parseInt(page || '1', 10);
                 const offset = (currentPage - 1) * limit;
 
-                const response = await axios.get(`${API_URL}/books/authors`, {
+                const response = await axios.get(`${API_URL}/api/books/authors`, {
                     headers: { Authorization: `${token}` },
                     params: {
                         limit,

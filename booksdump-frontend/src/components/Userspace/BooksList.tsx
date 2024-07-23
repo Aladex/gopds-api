@@ -12,7 +12,7 @@ import {
     CardActions, IconButton
 } from '@mui/material';
 import axios from 'axios';
-import {API_URL, APP_URL} from '../../api/config';
+import { API_URL } from '../../api/config';
 import {useAuth} from '../../context/AuthContext';
 import {useTranslation} from 'react-i18next';
 import StarIcon from '@mui/icons-material/Star';
@@ -90,7 +90,7 @@ const BooksList: React.FC = () => {
         }
 
         try {
-            const response = await axios.get(`${API_URL}/books/list`, { headers: { Authorization: `${token}` }, params });
+            const response = await axios.get(`${API_URL}/api/books/list`, { headers: { Authorization: `${token}` }, params });
             setBooks(response.data.books);
             setTotalPages(response.data.length);
         } catch (error) {
@@ -115,7 +115,7 @@ const BooksList: React.FC = () => {
     const handleUpdateBook = async (book: Book) => {
     };
 
-    const cover = (book: Book) => `${APP_URL}books-posters/${book.path.replace(/[^a-zA-Z0-9]/g, '-')}/${book.id}-${book.format}.jpg`;
+    const cover = (book: Book) => `${API_URL}/books-posters/${book.path.replace(/[^a-zA-Z0-9]/g, '-')}/${book.id}-${book.format}.jpg`;
 
     return (
         <Box p={2}>
@@ -205,7 +205,7 @@ const BooksList: React.FC = () => {
                                                         variant="contained"
                                                         color="secondary"
                                                         sx={{ mb: 1, color: 'white', minWidth: 150 }}
-                                                        href={`${API_URL}/files/books/get/zip/${book.id}?token=${token}`}
+                                                        href={`${API_URL}/api/files/books/get/zip/${book.id}?token=${token}`}
                                                     >
                                                         FB2+ZIP
                                                     </Button>
@@ -213,7 +213,7 @@ const BooksList: React.FC = () => {
                                                         variant="contained"
                                                         color="secondary"
                                                         sx={{ mb: 1, color: 'white', minWidth: 150 }}
-                                                        href={`${API_URL}/files/books/get/fb2/${book.id}?token=${token}`}
+                                                        href={`${API_URL}/api/files/books/get/fb2/${book.id}?token=${token}`}
                                                     >
                                                         FB2
                                                     </Button>
@@ -221,7 +221,7 @@ const BooksList: React.FC = () => {
                                                         variant="contained"
                                                         color="secondary"
                                                         sx={{ mb: 1, color: 'white', minWidth: 150 }}
-                                                        href={`${API_URL}/files/books/get/epub/${book.id}?token=${token}`}
+                                                        href={`${API_URL}/api/files/books/get/epub/${book.id}?token=${token}`}
                                                     >
                                                         EPUB
                                                     </Button>
@@ -229,7 +229,7 @@ const BooksList: React.FC = () => {
                                                         variant="contained"
                                                         color="secondary"
                                                         sx={{ mb: 1, color: 'white', minWidth: 150 }}
-                                                        href={`${API_URL}/files/books/get/mobi/${book.id}?token=${token}`}
+                                                        href={`${API_URL}/api/files/books/get/mobi/${book.id}?token=${token}`}
                                                     >
                                                         MOBI
                                                     </Button>

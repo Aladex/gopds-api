@@ -55,7 +55,7 @@ const SearchBar: React.FC = () => {
 
     useEffect(() => {
         const fetchLangs = async () => {
-            const response = await fetch(`${API_URL}/books/langs`, {
+            const response = await fetch(`${API_URL}/api/books/langs`, {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json',
@@ -147,7 +147,7 @@ const SearchBar: React.FC = () => {
             // Update user data in context
             updateUser(user);
 
-            fetch(`${API_URL}/books/change-me`, {
+            fetch(`${API_URL}/api/books/change-me`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

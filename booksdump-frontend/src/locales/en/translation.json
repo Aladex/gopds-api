@@ -34,5 +34,6 @@
   "noAuthor": "No author",
   "authorsBookSearch": "Search books by author",
   "loginOrPasswordIncorrect": "Login or password is incorrect",
-  "BackButton": "Back"
+  "BackButton": "Back",
+  "usernameAndPasswordRequired": "Username and password are required"
 }

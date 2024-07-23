@@ -34,7 +34,7 @@ const Header: React.FC = () => {
     useEffect(() => {
         const fetchUser = async () => {
             try {
-                const response = await axios.get(`${API_URL}/books/self-user`, {
+                const response = await axios.get(`${API_URL}/api/books/self-user`, {
                     headers: {Authorization: `${token}`},
                 });
                 updateUser(response.data); // Update user data in context

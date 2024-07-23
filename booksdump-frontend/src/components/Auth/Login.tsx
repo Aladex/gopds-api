@@ -18,8 +18,14 @@ const Login: React.FC = () => {
     const [loginError, setLoginError] = useState('');
 
     const handleLogin = async () => {
+        // Check if both username and password are entered
+        if (!username || !password) {
+            setLoginError(t('usernameAndPasswordRequired'));
+            return; // Exit the function early if either is missing
+        }
+
         try {
-            const response = await fetch(`${API_URL}/login`, {
+            const response = await fetch(`${API_URL}/api/login`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -29,7 +35,6 @@ const Login: React.FC = () => {
 
             if (response.ok) {
                 const data = await response.json();
-                console.log(data);
                 login(data.token);
                 navigate('/user');
             } else if (response.status === 403) {
@@ -66,6 +71,11 @@ const Login: React.FC = () => {
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    onKeyUp={(e) => {
+                        if (e.key === 'Enter') {
+                            handleLogin().then(r => r);
+                        }
+                    }}
                     fullWidth
                     margin="normal"
                     InputProps={{

@@ -2,18 +2,17 @@
 import { removeToken } from '../services/authService';
 
 const API_URL = process.env.REACT_APP_API_URL;
-const APP_URL = process.env.REACT_APP_URL;
 
 export const fetchWithAuth = async (url: string, options = {}) => {
     const token = localStorage.getItem('token');
-    const response = await fetch(`${API_URL}${url}`, {
+    const response = await fetch(`${API_URL}/api${url}`, {
         ...options,
         headers: {
             Authorization: `${token}`,
         },
     });
 
-    if (response.status === 403 || response.status === 401) {
+    if (response.status === 401) {
         removeToken();
         window.location.href = '/login';
     }
@@ -21,4 +20,4 @@ export const fetchWithAuth = async (url: string, options = {}) => {
     return response;
 };
 
-export { API_URL, APP_URL };
+export { API_URL };
