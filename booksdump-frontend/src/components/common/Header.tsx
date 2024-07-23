@@ -1,4 +1,5 @@
 import React, {useState, useEffect} from 'react';
+import {Link} from 'react-router-dom';
 import {
     AppBar,
     Toolbar,
@@ -131,8 +132,10 @@ const Header: React.FC = () => {
                     </>
                 ) : (
                     <>
-                        <Typography variant="h6" sx={{flexGrow: 1, color: theme.palette.primary.main}}>
-                            BOOKSDUMP
+                        <Typography sx={{ flexGrow: 1 }}>
+                            <Link to="/books/page/1">
+                                <img src="/logo.png" alt="Logo" style={{ width: 35, height: 35 }} />
+                            </Link>
                         </Typography>
                         <Box sx={{borderBottom: 1, borderColor: 'divider'}}>
                             <Tabs value={value} onChange={handleChange} aria-label="basic tabs example">
