@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {Grid, Box, Typography, List, ListItemText, Card, ListItemButton} from '@mui/material';
 import { useParams, useLocation } from 'react-router-dom';
-import axios from 'axios';
 import SearchBar from "../common/SearchBar";
-import {API_URL} from '../../api/config';
+import { fetchWithAuth} from '../../api/config';
 import {useAuth} from "../../context/AuthContext";
 import BookPagination from "../common/BookPagination";
 import SkeletonCard from "../common/SkeletonCard";
@@ -37,7 +36,7 @@ const AuthorSearch: React.FC = () => {
                 const currentPage = parseInt(page || '1', 10);
                 const offset = (currentPage - 1) * limit;
 
-                const response = await axios.get(`${API_URL}/api/books/authors`, {
+                const response = await fetchWithAuth(`/books/authors`, {
                     headers: { Authorization: `${token}` },
                     params: {
                         limit,
@@ -46,14 +45,10 @@ const AuthorSearch: React.FC = () => {
                     }
                 });
 
-                // Ensure the response contains the authors field and it's an array
-                if (response.data.authors && Array.isArray(response.data.authors)) {
-                    setAuthors(response.data.authors);
-                    setTotalPages(response.data.length);
-                } else {
-                    // Handle the case where authors is not in the expected format or undefined
-                    console.error('Unexpected response format:', response.data);
-                    setAuthors([]); // Set to an empty array to avoid runtime errors
+                const responseData = await response.json(); // Convert response to JSON
+                if (responseData.authors && Array.isArray(responseData.authors)) {
+                    setAuthors(responseData.authors);
+                    setTotalPages(responseData.length);
                 }
             } catch (error) {
                 console.error('Error fetching authors:', error);

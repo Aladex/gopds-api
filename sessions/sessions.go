@@ -10,6 +10,15 @@ import (
 	"time"
 )
 
+func CheckSessionKeyInRedis(ctx context.Context, token string) (string, error) {
+	username, err := rdb.WithContext(ctx).Get(token).Result()
+	if err != nil {
+		logrus.Println(err)
+		return "", err
+	}
+	return username, nil
+}
+
 func SetSessionKey(ctx context.Context, lu models.LoggedInUser) error {
 	_, err := rdb.WithContext(ctx).Set(*lu.Token, strings.ToLower(lu.User), 24*time.Hour).Result()
 	if err != nil {

@@ -52,5 +52,7 @@
   "cancel": "Cancel",
   "save": "Save",
   "changePassword": "Change password",
-  "dropSessions": "Drop all sessions"
+  "dropSessions": "Drop all sessions",
+  "oldPassword": "Old password",
+  "newPassword": "New password"
 }

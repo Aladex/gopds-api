@@ -14,7 +14,7 @@ import {
 import { StyledTextField } from "../StyledDataItems";
 import { useTranslation } from 'react-i18next';
 import { useAuth } from "../../context/AuthContext";
-import { API_URL } from "../../api/config";
+import {API_URL, fetchWithAuth} from "../../api/config";
 import { Clear, Favorite, FavoriteBorder } from "@mui/icons-material";
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useFav } from "../../context/FavContext";
@@ -55,7 +55,7 @@ const SearchBar: React.FC = () => {
 
     useEffect(() => {
         const fetchLangs = async () => {
-            const response = await fetch(`${API_URL}/api/books/langs`, {
+            const response = await fetchWithAuth(`/books/langs`, {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json',
@@ -147,7 +147,7 @@ const SearchBar: React.FC = () => {
             // Update user data in context
             updateUser(user);
 
-            fetch(`${API_URL}/api/books/change-me`, {
+            fetchWithAuth(`${API_URL}/books/change-me`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

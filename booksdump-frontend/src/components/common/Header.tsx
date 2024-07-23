@@ -19,8 +19,7 @@ import {useNavigate} from 'react-router-dom';
 import {useAuth} from '../../context/AuthContext';
 import {useTheme} from '@mui/material/styles';
 import {useMediaQuery} from '@mui/material';
-import axios from 'axios';
-import {API_URL} from '../../api/config';
+import { fetchWithAuth} from '../../api/config';
 import {useTranslation} from 'react-i18next';
 import {Menu as MenuIcon, Logout, Person} from "@mui/icons-material";
 import { StyledTextField } from "../StyledDataItems";
@@ -36,14 +35,31 @@ const Header: React.FC = () => {
     const isMobile = useMediaQuery('(max-width:600px)');
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [dialogOpen, setDialogOpen] = useState(false);
+    const [showPasswordFields, setShowPasswordFields] = useState(false);
+    const [firstName, setFirstName] = useState(user?.first_name || '');
+    const [lastName, setLastName] = useState(user?.last_name || '');
+    const [oldPassword, setOldPassword] = useState('');
+    const [newPassword, setNewPassword] = useState('');
+
+    useEffect(() => {
+        if (user) {
+            setFirstName(user.first_name || '');
+            setLastName(user.last_name || '');
+        }
+    }, [user]); // Зависимость от user гарантирует, что useEffect сработает при его изменении
 
     useEffect(() => {
         const fetchUser = async () => {
             try {
-                const response = await axios.get(`${API_URL}/api/books/self-user`, {
+                const response = await fetchWithAuth(`/books/self-user`, {
                     headers: {Authorization: `${token}`},
                 });
-                updateUser(response.data); // Update user data in context
+                if (response.ok) {
+                    const data = await response.json(); // Correctly parse the JSON response
+                    updateUser(data); // Update user data in context
+                } else {
+                    console.error('Failed to fetch user data');
+                }
             } catch (error) {
                 console.error('Error fetching user data', error);
             }
@@ -67,6 +83,7 @@ const Header: React.FC = () => {
 
     const handleDialogClose = () => {
         setDialogOpen(false);
+        setShowPasswordFields(false);
     };
 
     const handleDrawerToggle = () => {
@@ -86,6 +103,55 @@ const Header: React.FC = () => {
         {label: t('opdsTab'), path: '/catalog', index: 1},
         {label: t('donateTab'), path: '/donate', index: 2},
     ];
+
+    const togglePasswordFields = () => {
+        setShowPasswordFields(!showPasswordFields);
+    };
+
+    const handleUserChange = async () => {
+        handleDialogClose();
+        try {
+            const userData = {
+                username: user?.username, // Assuming the username is from the user context
+                first_name: firstName,
+                last_name: lastName,
+                new_password: newPassword,
+                password: oldPassword
+            };
+            // Assuming fetchWithAuth is correctly implemented to handle Fetch API responses
+            const response = await fetchWithAuth(`/books/change-me`, {
+                method: 'POST', // Specify the method if not default GET
+                headers: { Authorization: `${token}` },
+                body: JSON.stringify(userData) // Correctly stringify the userData for the request body
+            });
+
+            if (response.ok) { // Check if the response status is OK
+                const data = await response.json(); // Extract JSON data from the response
+                updateUser(data); // Use the extracted data
+            } else {
+                console.error('Failed to update user');
+            }
+        } catch (error) {
+            console.error('Error updating user:', error);
+            // Optionally, handle errors, such as showing an error message
+        }
+    }
+
+    const handleDropSessions = async () => {
+        try {
+            const response = await fetchWithAuth(`/drop-sessions`, {
+                headers: { Authorization: `${token}` },
+            });
+            if (response.status === 200) {
+                logout();
+                navigate('/login');
+            } else {
+                console.error('Failed to drop sessions');
+            }
+        } catch (error) {
+            console.error('Error dropping sessions:', error);
+        }
+    };
 
     if (user?.is_superuser) {
         menuItems.push({label: t('adminTab'), path: '/admin', index: 3});
@@ -175,28 +241,58 @@ const Header: React.FC = () => {
                 <DialogTitle>{(t('userInfo'))}</DialogTitle>
                 <DialogContent>
                     <Box display="flex" justifyContent="space-between" marginBottom={2}>
-                        <React.Fragment><button className={classes.buttonLink}>{(t('changePassword'))}</button></React.Fragment>
-                        <React.Fragment><button className={classes.buttonLink}>{(t('dropSessions'))}</button></React.Fragment>
+                        <React.Fragment><button className={classes.buttonLink} onClick={togglePasswordFields}>
+                            {(t('changePassword'))}
+                        </button></React.Fragment>
+                        <React.Fragment><button className={classes.buttonLink} onClick={handleDropSessions}>
+                            {(t('dropSessions'))}
+                        </button></React.Fragment>
                     </Box>
+                    {showPasswordFields && (
+                        <>
+                            <StyledTextField
+                                autoFocus
+                                margin="dense"
+                                label={t('oldPassword')}
+                                type="password"
+                                sx={{marginBottom: 2}}
+                                fullWidth
+                                value={oldPassword}
+                                onChange={(e) => setOldPassword(e.target.value)}
+                            />
+                            <StyledTextField
+                                margin="dense"
+                                label={t('newPassword')}
+                                type="password"
+                                sx={{marginBottom: 2}}
+                                fullWidth
+                                value={newPassword}
+                                onChange={(e) => setNewPassword(e.target.value)}
+                            />
+                        </>
+                    )}
                     <StyledTextField
                         autoFocus
                         margin="dense"
                         label={t('firstName')}
                         type="text"
                         fullWidth
-                        value={user?.first_name}
+                        sx={{marginBottom: 2}}
+                        value={firstName}
+                        onChange={(e) => setFirstName(e.target.value)}
                     />
                     <StyledTextField
                         margin="dense"
                         label={t('lastName')}
                         type="text"
                         fullWidth
-                        value={user?.last_name}
+                        value={lastName}
+                        onChange={(e) => setLastName(e.target.value)}
                     />
                 </DialogContent>
                 <DialogActions>
                     <Button color={"secondary"} onClick={handleDialogClose}>{'Cancel'}</Button>
-                    <Button color={"secondary"} onClick={handleDialogClose}>{'Save'}</Button>
+                    <Button color={"secondary"} onClick={handleUserChange}>{'Save'}</Button>
                 </DialogActions>
             </Dialog>
         </AppBar>

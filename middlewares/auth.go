@@ -17,6 +17,12 @@ func validateToken(token string) (string, int64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
+	// If token not in Redis, return error
+	_, err := sessions.CheckSessionKeyInRedis(ctx, token)
+	if err != nil {
+		return "", 0, errors.New("invalid_session")
+	}
+
 	username, dbID, err := utils.CheckToken(token)
 	if err != nil {
 		return "", 0, err

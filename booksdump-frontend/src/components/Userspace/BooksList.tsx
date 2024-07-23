@@ -11,8 +11,7 @@ import {
     Button,
     CardActions, IconButton
 } from '@mui/material';
-import axios from 'axios';
-import { API_URL } from '../../api/config';
+import {API_URL, fetchWithAuth} from '../../api/config';
 import {useAuth} from '../../context/AuthContext';
 import {useTranslation} from 'react-i18next';
 import StarIcon from '@mui/icons-material/Star';
@@ -90,9 +89,14 @@ const BooksList: React.FC = () => {
         }
 
         try {
-            const response = await axios.get(`${API_URL}/api/books/list`, { headers: { Authorization: `${token}` }, params });
-            setBooks(response.data.books);
-            setTotalPages(response.data.length);
+            const response = await fetchWithAuth(`/books/list`, { headers: { Authorization: `${token}` }, params });
+            if (response.ok) {
+                const data = await response.json();
+                setBooks(data.books);
+                setTotalPages(data.length);
+            } else {
+                console.error('Failed to fetch books');
+            }
         } catch (error) {
             console.error('Error fetching books', error);
         } finally {
@@ -109,11 +113,20 @@ const BooksList: React.FC = () => {
         setOpened((prev) => (prev.includes(id) ? prev.filter((bookId) => bookId !== id) : [...prev, id]));
     };
 
+    // Adjustments have been made to correct the handling of the response object and the structure of arguments passed to fetchWithAuth.
+
     const handleFavBook = async (book: Book) => {
         try {
-            const response = await axios.post(`${API_URL}/api/books/fav`, { book_id: book.id, fav: !book.fav }, { headers: { Authorization: `${token}` }});
-            if (response.status === 200) {
-                setBooks(prev => prev.map(b => b.id === book.id ? { ...b, fav: !b.fav } : b));
+            const response = await fetchWithAuth(`/books/fav`, {
+                method: 'POST',
+                headers: { Authorization: `${token}` },
+                body: JSON.stringify({ book_id: book.id, fav: !book.fav })
+            });
+            if (response.ok) {
+                const updatedBook = await response.json(); // Assuming the response includes the updated book data
+                setBooks(prev => prev.map(b => b.id === book.id ? { ...b, fav: updatedBook.fav } : b));
+            } else {
+                console.error('Failed to update favorite status');
             }
         } catch (error) {
             console.error('Error favoriting book', error);
