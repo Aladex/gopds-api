@@ -33,7 +33,7 @@ interface Record {
 }
 
 const SearchBar: React.FC = () => {
-    const { user, token } = useAuth();
+    const { user, token, updateUser } = useAuth();
     const { t } = useTranslation();
     const { languages, searchItem, setLanguages, setSearchItem, selectedSearch, setSelectedSearch } = useSearchBar();
     const [lang, setLang] = useState<string | null>(user?.books_lang || '');
@@ -141,6 +141,24 @@ const SearchBar: React.FC = () => {
 
     const handleLangChange = (event: SelectChangeEvent) => {
         setLang(event.target.value as string);
+        // Ensure user is not null before updating its property and sending it to the backend
+        if (user) {
+            // Update user data in context
+            user.books_lang = event.target.value as string;
+            // Update user data in context
+            updateUser(user);
+
+            fetch(`${API_URL}/books/change-me`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `${token}`,
+                },
+                body: JSON.stringify(user),
+            }).then(r => r);
+        }
+        const newPath = location.pathname.replace(/[^\/]+$/, '1');
+        navigate(newPath);
     };
 
     return (
