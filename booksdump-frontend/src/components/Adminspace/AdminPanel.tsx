@@ -6,7 +6,6 @@ const Adminspace: React.FC = () => {
     return (
         <Box>
             <Typography variant="h4">Admin Dashboard</Typography>
-            {/* Здесь можно добавить логику для панели администратора */}
         </Box>
     );
 };

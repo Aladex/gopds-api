@@ -15,6 +15,7 @@ const Login: React.FC = () => {
     const { t } = useTranslation();
     const { login } = useAuth();
     const navigate = useNavigate();
+    const [loginError, setLoginError] = useState('');
 
     const handleLogin = async () => {
         try {
@@ -31,58 +32,61 @@ const Login: React.FC = () => {
                 console.log(data);
                 login(data.token);
                 navigate('/user');
+            } else if (response.status === 403) {
+                setLoginError(t('loginOrPasswordIncorrect')); // Assuming you have a translation key for the error message
             } else {
-                console.error('Ошибка при авторизации');
+                console.error('Error logging in:', response.statusText);
             }
         } catch (error) {
-            console.error('Ошибка сети:', error);
+            console.error('Error logging in:', error);
         }
     };
 
     return (
         <LoginCenteredBox>
-                <CardContent>
-                    <Typography variant="h6" textAlign="left">{t('login')}</Typography>
-                    <TextField
-                        label={t('username')}
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
-                        fullWidth
-                        margin="normal"
-                        InputProps={{
-                            startAdornment: (
-                                <InputAdornment position="start">
-                                    <Person />
-                                </InputAdornment>
-                            ),
-                        }}
-                    />
-                    <TextField
-                        label={t('password')}
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        fullWidth
-                        margin="normal"
-                        InputProps={{
-                            startAdornment: (
-                                <InputAdornment position="start">
-                                    <Lock />
-                                </InputAdornment>
-                            ),
-                        }}
-                    />
-                </CardContent>
-                <CardActions>
-                    <Box display="flex" justifyContent="space-between" width="100%">
-                        <IconButton onClick={() => navigate('/forgot-password')} aria-label={t('forgotPassword')} size="small">
-                            <QuestionMark />
-                        </IconButton>
-                        <Button variant="contained" disabled={!username || !password} color="primary" size="small"  onClick={handleLogin}>
-                            {t('loginButton')}
-                        </Button>
-                    </Box>
-                </CardActions>
+            <CardContent>
+                <Typography variant="h6" textAlign="left">{t('login')}</Typography>
+                {loginError && <Typography color="error">{loginError}</Typography>}
+                <TextField
+                    label={t('username')}
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    fullWidth
+                    margin="normal"
+                    InputProps={{
+                        startAdornment: (
+                            <InputAdornment position="start">
+                                <Person />
+                            </InputAdornment>
+                        ),
+                    }}
+                />
+                <TextField
+                    label={t('password')}
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    fullWidth
+                    margin="normal"
+                    InputProps={{
+                        startAdornment: (
+                            <InputAdornment position="start">
+                                <Lock />
+                            </InputAdornment>
+                        ),
+                    }}
+                />
+            </CardContent>
+            <CardActions>
+                <Box display="flex" justifyContent="space-between" width="100%">
+                    <IconButton onClick={() => navigate('/forgot-password')} aria-label={t('forgotPassword')} size="small">
+                        <QuestionMark />
+                    </IconButton>
+                    <Button variant="contained" disabled={!username || !password} color="primary" size="small"  onClick={handleLogin}>
+                        {t('loginButton')}
+                    </Button>
+                </Box>
+            </CardActions>
         </LoginCenteredBox>
     );
 };

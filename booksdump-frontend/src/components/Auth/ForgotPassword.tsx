@@ -30,7 +30,7 @@ const ForgotPassword: React.FC = () => {
                 </CardContent>
                 <CardActions>
                     <Box display="flex" justifyContent="space-between" width="100%">
-                        <IconButton onClick={() => navigate('/login')} size="small" aria-label="Назад">
+                        <IconButton onClick={() => navigate('/login')} size="small" aria-label={t('BackButton')}>
                             <ArrowBackIcon />
                         </IconButton>
                         <Button variant="contained" color="primary" size="small" onClick={handleReset} disabled={!email}>

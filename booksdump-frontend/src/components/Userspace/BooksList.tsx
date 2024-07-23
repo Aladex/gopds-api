@@ -110,11 +110,9 @@ const BooksList: React.FC = () => {
     };
 
     const handleFavBook = async (book: Book) => {
-        // Логика добавления в избранное
     };
 
     const handleUpdateBook = async (book: Book) => {
-        // Логика обновления книги
     };
 
     const cover = (book: Book) => `${APP_URL}books-posters/${book.path.replace(/[^a-zA-Z0-9]/g, '-')}/${book.id}-${book.format}.jpg`;
