@@ -7,8 +7,9 @@
   "description": "Description",
   "readMore": "Read more",
   "noBooksFound": "No books found",
-  "username": "Username or email",
+  "username": "Username",
   "password": "Password",
+  "inviteCode": "Invite code",
   "forgotPassword": "Forgot password?",
   "loginButton": "Login",
   "resetPasswordButton": "Reset password",
@@ -19,6 +20,9 @@
   "routeTitles.books": "New books",
   "routeTitles.admin": "Admin",
   "routeTitles.default": "Booksdump",
+  "routeTitles.login": "Login Page",
+  "routeTitles.registration": "Registration Page",
+  "routeTitles.forgotPassword": "Reset Password Page",
   "language": "Language",
   "categorySearch": "Category search",
   "searchItem": "Search",
@@ -35,5 +39,6 @@
   "authorsBookSearch": "Search books by author",
   "loginOrPasswordIncorrect": "Login or password is incorrect",
   "BackButton": "Back",
-  "usernameAndPasswordRequired": "Username and password are required"
+  "usernameAndPasswordRequired": "Username and password are required",
+  "registration": "Registration"
 }

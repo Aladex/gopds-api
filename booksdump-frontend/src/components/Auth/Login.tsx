@@ -55,6 +55,25 @@ const Login: React.FC = () => {
                 <TextField
                     label={t('username')}
                     value={username}
+                    sx={{
+                        '& .MuiOutlinedInput-root': {
+                            '& fieldset': {
+                                borderColor: 'rgba(0, 0, 0, 0.23)',
+                            },
+                            '&:hover fieldset': {
+                                borderColor: 'black',
+                            },
+                            '&.Mui-focused fieldset': {
+                                borderColor: 'black',
+                            },
+                        },
+                        '& .MuiInputLabel-root': {
+                            color: 'rgba(0, 0, 0, 0.6)',
+                        },
+                        '& .MuiInputLabel-root.Mui-focused': {
+                            color: 'black',
+                        },
+                    }}
                     onChange={(e) => setUsername(e.target.value)}
                     fullWidth
                     margin="normal"
@@ -75,6 +94,25 @@ const Login: React.FC = () => {
                         if (e.key === 'Enter') {
                             handleLogin().then(r => r);
                         }
+                    }}
+                    sx={{
+                        '& .MuiOutlinedInput-root': {
+                            '& fieldset': {
+                                borderColor: 'rgba(0, 0, 0, 0.23)',
+                            },
+                            '&:hover fieldset': {
+                                borderColor: 'black',
+                            },
+                            '&.Mui-focused fieldset': {
+                                borderColor: 'black',
+                            },
+                        },
+                        '& .MuiInputLabel-root': {
+                            color: 'rgba(0, 0, 0, 0.6)',
+                        },
+                        '& .MuiInputLabel-root.Mui-focused': {
+                            color: 'black',
+                        },
                     }}
                     fullWidth
                     margin="normal"

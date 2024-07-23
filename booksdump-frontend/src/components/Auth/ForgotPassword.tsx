@@ -22,6 +22,25 @@ const ForgotPassword: React.FC = () => {
                     <TextField
                         label="Email"
                         type="email"
+                        sx={{
+                            '& .MuiOutlinedInput-root': {
+                                '& fieldset': {
+                                    borderColor: 'rgba(0, 0, 0, 0.23)',
+                                },
+                                '&:hover fieldset': {
+                                    borderColor: 'black',
+                                },
+                                '&.Mui-focused fieldset': {
+                                    borderColor: 'black',
+                                },
+                            },
+                            '& .MuiInputLabel-root': {
+                                color: 'rgba(0, 0, 0, 0.6)',
+                            },
+                            '& .MuiInputLabel-root.Mui-focused': {
+                                color: 'black',
+                            },
+                        }}
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         fullWidth
