@@ -45,5 +45,8 @@
   "badForm": "Bad form",
   "userExists": "User already exists",
   "registrationError": "Registration error",
-  "invalidUser": "Invalid user"
+  "invalidUser": "Invalid user",
+  "userInfo": "Tell us about yourself",
+  "firstName": "First name",
+  "lastName": "Last name"
 }

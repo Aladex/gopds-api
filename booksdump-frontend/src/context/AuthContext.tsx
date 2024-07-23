@@ -4,6 +4,8 @@ import { getToken, setToken, removeToken } from '../services/authService';
 
 interface User {
     username: string;
+    first_name: string;
+    last_name: string;
     is_superuser: boolean;
     books_lang?: string;
 }

@@ -3,6 +3,7 @@ import {Link} from 'react-router-dom';
 import {
     AppBar,
     Toolbar,
+    Dialog, DialogTitle, DialogContent, DialogActions, TextField,
     Typography,
     Button,
     Tabs,
@@ -31,6 +32,7 @@ const Header: React.FC = () => {
     const [value, setValue] = useState(0);
     const isMobile = useMediaQuery('(max-width:600px)');
     const [drawerOpen, setDrawerOpen] = useState(false);
+    const [dialogOpen, setDialogOpen] = useState(false);
 
     useEffect(() => {
         const fetchUser = async () => {
@@ -57,7 +59,15 @@ const Header: React.FC = () => {
     };
 
     const handleUserInfo = () => {
-        // Add user info dialog window
+        setDialogOpen(true);
+    };
+
+    const handleDialogClose = () => {
+        setDialogOpen(false);
+    };
+
+    const handleDrawerToggle = () => {
+        setDrawerOpen(!drawerOpen);
     };
 
     const a11yProps = (index: number) => {
@@ -67,9 +77,6 @@ const Header: React.FC = () => {
         };
     };
 
-    const handleDrawerToggle = () => {
-        setDrawerOpen(!drawerOpen);
-    };
 
     const menuItems = [
         {label: t('booksTab'), path: '/books/page/1', index: 0},
@@ -161,6 +168,30 @@ const Header: React.FC = () => {
                     </>
                 )}
             </Toolbar>
+            <Dialog open={dialogOpen} onClose={handleDialogClose}>
+                <DialogTitle>{(t('userInfo'))}</DialogTitle>
+                <DialogContent>
+                    <TextField
+                        autoFocus
+                        margin="dense"
+                        label={t('firstName')}
+                        type="text"
+                        fullWidth
+                        value={user?.first_name}
+                    />
+                    <TextField
+                        margin="dense"
+                        label={t('lastName')}
+                        type="text"
+                        fullWidth
+                        value={user?.last_name}
+                    />
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={handleDialogClose}>{'Cancel'}</Button>
+                    <Button onClick={handleDialogClose}>{'Save'}</Button>
+                </DialogActions>
+            </Dialog>
         </AppBar>
     );
 };
