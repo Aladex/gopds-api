@@ -36,7 +36,7 @@ const Login: React.FC = () => {
             if (response.ok) {
                 const data = await response.json();
                 login(data.token);
-                navigate('/user');
+                navigate('/books/page/1');
             } else if (response.status === 403) {
                 setLoginError(t('loginOrPasswordIncorrect')); // Assuming you have a translation key for the error message
             } else {
