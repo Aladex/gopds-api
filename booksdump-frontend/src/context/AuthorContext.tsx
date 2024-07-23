@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, ReactNode } from 'react';
 
 interface AuthorContextType {
     authorId: string;
@@ -18,10 +18,6 @@ interface AuthorProviderProps {
 export const AuthorProvider: React.FC<AuthorProviderProps> = ({ children }) => {
     const [authorId, setAuthorId] = useState('');
     const [authorBook, setAuthorBook] = useState('');
-
-    useEffect(() => {
-        console.log(`Author ID: ${authorId}, Author Book: ${authorBook}`);
-    }, [authorId, authorBook]);
 
     const clearAuthorId = () => setAuthorId('');
     const clearAuthorBook = () => setAuthorBook('');

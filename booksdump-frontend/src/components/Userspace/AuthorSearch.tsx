@@ -8,6 +8,8 @@ import {useAuth} from "../../context/AuthContext";
 import BookPagination from "../common/BookPagination";
 import SkeletonCard from "../common/SkeletonCard";
 import {useNavigate} from 'react-router-dom';
+import { useSearchBar } from '../../context/SearchBarContext';
+import { useAuthor} from "../../context/AuthorContext";
 
 interface Author {
     id: number;
@@ -24,6 +26,8 @@ const AuthorSearch: React.FC = () => {
     const [totalPages, setTotalPages] = useState(0);
     const baseUrl = window.location.pathname.replace(/\/\d+$/, '');
     const navigate = useNavigate();
+    const { setSearchItem } = useSearchBar();
+    const { clearAuthorBook } = useAuthor();
 
     useEffect(() => {
         const fetchAuthors = async () => {
@@ -60,11 +64,13 @@ const AuthorSearch: React.FC = () => {
         };
 
         if (author) {
-            fetchAuthors();
+            fetchAuthors().then(r => r);
         }
     }, [author, location.search, page, token]);
 
     const handleAuthorClick = (authorId: number) => {
+        setSearchItem('');
+        clearAuthorBook();
         navigate(`/books/find/author/${authorId}/1`);
     };
 

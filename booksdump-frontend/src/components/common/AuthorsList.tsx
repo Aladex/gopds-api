@@ -4,6 +4,8 @@ import {makeStyles} from '@mui/styles';
 import {Theme} from '@mui/material/styles';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useSearchBar } from '../../context/SearchBarContext';
+import { useAuthor} from "../../context/AuthorContext";
 
 interface Author {
     id: number;
@@ -38,7 +40,15 @@ const useStyles = makeStyles((theme: Theme) => ({
 const AuthorsList: React.FC<AuthorsListProps> = ({authors}) => {
     const classes = useStyles();
     const navigate = useNavigate();
+    const { setSearchItem } = useSearchBar();
     const { t } = useTranslation();
+    const { clearAuthorBook } = useAuthor();
+
+    const navigateToAuthor = (authorId: number) => {
+        setSearchItem('');
+        clearAuthorBook();
+        navigate(`/books/find/author/${authorId}/1`);
+    }
 
     return (
         <>
@@ -48,7 +58,7 @@ const AuthorsList: React.FC<AuthorsListProps> = ({authors}) => {
                     authors.map((author: Author) => (
                         <React.Fragment key={author.id}>
                             <span> &#8226; </span>
-                            <button onClick={() => navigate(`/books/find/author/${author.id}/1`)} className={classes.buttonLink}>
+                            <button onClick={() => navigateToAuthor(author.id)} className={classes.buttonLink}>
                                 {author.full_name}
                             </button>
                         </React.Fragment>

@@ -7,7 +7,6 @@ interface SearchBarContextType {
     setLanguages: (languages: string[]) => void;
     setSearchItem: (searchValue: string) => void;
     setSelectedSearch: (selectedSearch: string) => void;
-    clearSearchValue: () => void;
     clearSelectedSearch: () => void;
 }
 
@@ -19,7 +18,6 @@ export const SearchBarProvider: React.FC<{children: ReactNode}> = ({ children })
     const [selectedSearch, setSelectedSearch] = useState('title'); // Initial state set to 'title'
     const [languages, setLanguages] = useState<string[]>([]);
 
-    const clearSearchValue = () => setSearchItem('');
     const clearSelectedSearch = () => setSelectedSearch('title'); // Reset to 'title' instead of ''
 
     return (
@@ -30,7 +28,6 @@ export const SearchBarProvider: React.FC<{children: ReactNode}> = ({ children })
             setLanguages,
             setSearchItem,
             setSelectedSearch,
-            clearSearchValue,
             clearSelectedSearch,
         }}>
             {children}
