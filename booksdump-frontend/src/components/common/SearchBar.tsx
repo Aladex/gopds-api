@@ -16,11 +16,11 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useAuth } from "../../context/AuthContext";
 import { API_URL } from "../../api/config";
-import { Favorite, FavoriteBorder } from "@mui/icons-material";
+import { Clear, Favorite, FavoriteBorder } from "@mui/icons-material";
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useFav } from "../../context/FavContext";
 import { useAuthor } from "../../context/AuthorContext";
-
+import { useSearchBar } from "../../context/SearchBarContext";
 
 interface LangItem {
     language: string;
@@ -35,14 +35,13 @@ interface Record {
 const SearchBar: React.FC = () => {
     const { user, token } = useAuth();
     const { t } = useTranslation();
-    const [searchItem, setSearchItem] = useState('');
+    const { searchItem, setSearchItem, selectedSearch, setSelectedSearch } = useSearchBar();
     const [langs, setLangs] = useState<string[]>([]);
     const [lang, setLang] = useState<string | null>(user?.books_lang || '');
     const navigate = useNavigate();
     const { fav, setFav } = useFav();
     const prevFavRef = useRef(fav);
     const location = useLocation();
-    const [selectedSearch, setSelectedSearch] = useState<string>('title');
     const [searchOptions, setSearchOptions] = useState<Array<{ value: string; label: string }>>([
         { value: 'title', label: t('byTitle') },
         { value: 'author', label: t('byAuthor') },
@@ -107,7 +106,7 @@ const SearchBar: React.FC = () => {
             }
             return prevOptions;
         });
-    }, [location.pathname, t, selectedSearch, clearAuthorId]);
+    }, [location.pathname, t, selectedSearch, clearAuthorId, setSelectedSearch]);
 
     const handleSetAuthorBook = () => {
         setAuthorBook(searchItem);
@@ -115,6 +114,14 @@ const SearchBar: React.FC = () => {
 
     const setFavContext = (fav: boolean) => {
         setFav(fav);
+    }
+
+    const handleClear = () => {
+        setSearchItem('');
+        // Clear authorId in AuthorContext
+        clearAuthorId();
+        // Clear authorBook in AuthorContext
+        clearAuthorBook();
     }
 
     const navigateToSearchResults = () => {
@@ -216,6 +223,16 @@ const SearchBar: React.FC = () => {
                                                 }}
                                                 InputLabelProps={{
                                                     shrink: true,
+                                                }}
+                                                InputProps={{
+                                                    endAdornment: (
+                                                        <IconButton
+                                                            onClick={handleClear}
+                                                            edge="end"
+                                                        >
+                                                            <Clear />
+                                                        </IconButton>
+                                                    ),
                                                 }}
                                             />
                                         </Grid>
