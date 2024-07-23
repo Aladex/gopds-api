@@ -35,8 +35,7 @@ interface Record {
 const SearchBar: React.FC = () => {
     const { user, token } = useAuth();
     const { t } = useTranslation();
-    const { searchItem, setSearchItem, selectedSearch, setSelectedSearch } = useSearchBar();
-    const [langs, setLangs] = useState<string[]>([]);
+    const { languages, searchItem, setLanguages, setSearchItem, selectedSearch, setSelectedSearch } = useSearchBar();
     const [lang, setLang] = useState<string | null>(user?.books_lang || '');
     const navigate = useNavigate();
     const { fav, setFav } = useFav();
@@ -66,12 +65,12 @@ const SearchBar: React.FC = () => {
             if (response.ok) {
                 const data = await response.json();
                 const languageList = data.langs.map((item: LangItem) => item.language);
-                setLangs(languageList);
+                setLanguages(languageList);
             } else {
                 console.error('Failed to fetch languages');
             }
         };
-        fetchLangs();
+        fetchLangs().then(r => r);
 
         // Set language from user settings
         if (user) {
@@ -284,7 +283,7 @@ const SearchBar: React.FC = () => {
                                                                 disabled={fav}
                                                                 label={t('language')}
                                                             >
-                                                                {langs.map((language) => (
+                                                                {languages.map((language) => (
                                                                     <MenuItem key={language} value={language}>{language}</MenuItem>
                                                                 ))}
                                                             </Select>
