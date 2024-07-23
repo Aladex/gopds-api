@@ -110,6 +110,14 @@ const BooksList: React.FC = () => {
     };
 
     const handleFavBook = async (book: Book) => {
+        try {
+            const response = await axios.post(`${API_URL}/api/books/fav`, { book_id: book.id, fav: !book.fav }, { headers: { Authorization: `${token}` }});
+            if (response.status === 200) {
+                setBooks(prev => prev.map(b => b.id === book.id ? { ...b, fav: !b.fav } : b));
+            }
+        } catch (error) {
+            console.error('Error favoriting book', error);
+        }
     };
 
     const handleUpdateBook = async (book: Book) => {
