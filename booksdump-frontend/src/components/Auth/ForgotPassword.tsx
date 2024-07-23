@@ -5,15 +5,46 @@ import { useNavigate } from 'react-router-dom';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import LoginCenteredBox from "../common/CenteredBox";
 import { useTranslation } from 'react-i18next';
+import { API_URL } from '../../api/config';
 
 const ForgotPassword: React.FC = () => {
     const [email, setEmail] = useState('');
     const navigate = useNavigate();
+    const [resetError, setResetError] = useState('');
     const { t } = useTranslation();
 
-    const handleReset = () => {
-        console.log(`Reset link sent to ${email}`);
+    const handleReset = async () => {
+        const resetData = {
+            email,
+        };
+
+        try {
+            const response = await fetch(`${API_URL}/api/change-request`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(resetData),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                const errorMessages: Record<string, string> = {
+                    bad_form: t('badForm'),
+                    invalid_user: t('invalidUser'),
+                };
+                const errorMessage = errorMessages[errorData.message] || t('resetError');
+                setResetError(errorMessage);
+                return;
+            }
+
+            navigate("/login");
+        } catch (error) {
+            console.error("Error resetting password:", error);
+            setResetError(t('resetError'));
+        }
     };
+
 
     return (
         <LoginCenteredBox>
@@ -57,6 +88,7 @@ const ForgotPassword: React.FC = () => {
                         </Button>
                     </Box>
                 </CardActions>
+            {resetError && <Typography color="error" textAlign="center">{resetError}</Typography>}
         </LoginCenteredBox>
     );
 };

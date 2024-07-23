@@ -40,5 +40,10 @@
   "loginOrPasswordIncorrect": "Login or password is incorrect",
   "BackButton": "Back",
   "usernameAndPasswordRequired": "Username and password are required",
-  "registration": "Registration"
+  "registration": "Registration",
+  "badInvite": "Bad invite code",
+  "badForm": "Bad form",
+  "userExists": "User already exists",
+  "registrationError": "Registration error",
+  "invalidUser": "Invalid user"
 }

@@ -1,9 +1,10 @@
 // src/components/Auth/Registration.tsx
 import React, { useState, useEffect } from 'react';
-import {TextField, Button, Typography, CardContent, CardActions, Box, IconButton} from '@mui/material';
+import { TextField, Button, Typography, CardContent, CardActions, Box, IconButton } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import LoginCenteredBox from "../common/CenteredBox";
 import { useTranslation } from 'react-i18next';
+import { API_URL } from '../../api/config';
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 
 const Registration: React.FC = () => {
@@ -11,142 +12,176 @@ const Registration: React.FC = () => {
     const [password, setPassword] = useState('');
     const [email, setEmail] = useState('');
     const [invite, setInvite] = useState('');
+    const [regError, setRegError] = useState('');
     const navigate = useNavigate();
     const { t } = useTranslation();
     const [isFormValid, setIsFormValid] = useState(false);
-
-    const handleRegister = () => {
-        console.log(`Registering user: ${username}, ${email}`);
-    };
 
     useEffect(() => {
         setIsFormValid(username !== '' && password !== '' && email !== '' && invite !== '');
     }, [username, password, email, invite]);
 
+    const handleRegister = async () => {
+        const userData = {
+            username,
+            email,
+            password,
+            invite
+        };
+
+        try {
+            const response = await fetch(`${API_URL}/api/register`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(userData),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                const errorMessages: Record<string, string> = {
+                    bad_invite: t('badInvite'),
+                    bad_form: t('badForm'),
+                    user_exists: t('userExists')
+                };
+                const errorMessage = errorMessages[errorData.message] || t('registrationError');
+                setRegError(errorMessage);
+                return;
+            }
+
+            // Handle successful registration here
+        } catch (error) {
+            console.error('Error registering:', error);
+            setRegError(t('registrationError'));
+        }
+    };
+
     return (
         <LoginCenteredBox>
-                <CardContent>
-                    <Typography variant="h4" textAlign="center">{t('registration')}</Typography>
-                    <TextField
-                        label={t('username')}
-                        sx={{
-                            '& .MuiOutlinedInput-root': {
-                                '& fieldset': {
-                                    borderColor: 'rgba(0, 0, 0, 0.23)',
-                                },
-                                '&:hover fieldset': {
-                                    borderColor: 'black',
-                                },
-                                '&.Mui-focused fieldset': {
-                                    borderColor: 'black',
-                                },
+            <CardContent>
+                <Typography variant="h4" textAlign="center">{t('registration')}</Typography>
+                <TextField
+                    label={t('username')}
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    fullWidth
+                    margin="normal"
+                    required
+                    sx={{
+                        '& .MuiOutlinedInput-root': {
+                            '& fieldset': {
+                                borderColor: 'rgba(0, 0, 0, 0.23)',
                             },
-                            '& .MuiInputLabel-root': {
-                                color: 'rgba(0, 0, 0, 0.6)',
+                            '&:hover fieldset': {
+                                borderColor: 'black',
                             },
-                            '& .MuiInputLabel-root.Mui-focused': {
-                                color: 'black',
+                            '&.Mui-focused fieldset': {
+                                borderColor: 'black',
                             },
-                        }}
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
-                        fullWidth
-                        margin="normal"
-                        required
-                    />
-                    <TextField
-                        label="Email"
-                        sx={{
-                            '& .MuiOutlinedInput-root': {
-                                '& fieldset': {
-                                    borderColor: 'rgba(0, 0, 0, 0.23)',
-                                },
-                                '&:hover fieldset': {
-                                    borderColor: 'black',
-                                },
-                                '&.Mui-focused fieldset': {
-                                    borderColor: 'black',
-                                },
+                        },
+                        '& .MuiInputLabel-root': {
+                            color: 'rgba(0, 0, 0, 0.6)',
+                        },
+                        '& .MuiInputLabel-root.Mui-focused': {
+                            color: 'black',
+                        },
+                    }}
+                />
+                <TextField
+                    label="Email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    fullWidth
+                    margin="normal"
+                    required
+                    sx={{
+                        '& .MuiOutlinedInput-root': {
+                            '& fieldset': {
+                                borderColor: 'rgba(0, 0, 0, 0.23)',
                             },
-                            '& .MuiInputLabel-root': {
-                                color: 'rgba(0, 0, 0, 0.6)',
+                            '&:hover fieldset': {
+                                borderColor: 'black',
                             },
-                            '& .MuiInputLabel-root.Mui-focused': {
-                                color: 'black',
+                            '&.Mui-focused fieldset': {
+                                borderColor: 'black',
                             },
-                        }}
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        fullWidth
-                        margin="normal"
-                        required
-                    />
-                    <TextField
-                        label={t('password')}
-                        sx={{
-                            '& .MuiOutlinedInput-root': {
-                                '& fieldset': {
-                                    borderColor: 'rgba(0, 0, 0, 0.23)',
-                                },
-                                '&:hover fieldset': {
-                                    borderColor: 'black',
-                                },
-                                '&.Mui-focused fieldset': {
-                                    borderColor: 'black',
-                                },
+                        },
+                        '& .MuiInputLabel-root': {
+                            color: 'rgba(0, 0, 0, 0.6)',
+                        },
+                        '& .MuiInputLabel-root.Mui-focused': {
+                            color: 'black',
+                        },
+                    }}
+                />
+                <TextField
+                    label={t('password')}
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    fullWidth
+                    margin="normal"
+                    required
+                    sx={{
+                        '& .MuiOutlinedInput-root': {
+                            '& fieldset': {
+                                borderColor: 'rgba(0, 0, 0, 0.23)',
                             },
-                            '& .MuiInputLabel-root': {
-                                color: 'rgba(0, 0, 0, 0.6)',
+                            '&:hover fieldset': {
+                                borderColor: 'black',
                             },
-                            '& .MuiInputLabel-root.Mui-focused': {
-                                color: 'black',
+                            '&.Mui-focused fieldset': {
+                                borderColor: 'black',
                             },
-                        }}
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        fullWidth
-                        margin="normal"
-                        required
-                    />
-                    <TextField
-                        label={t('inviteCode')}
-                        sx={{
-                            '& .MuiOutlinedInput-root': {
-                                '& fieldset': {
-                                    borderColor: 'rgba(0, 0, 0, 0.23)',
-                                },
-                                '&:hover fieldset': {
-                                    borderColor: 'black',
-                                },
-                                '&.Mui-focused fieldset': {
-                                    borderColor: 'black',
-                                },
+                        },
+                        '& .MuiInputLabel-root': {
+                            color: 'rgba(0, 0, 0, 0.6)',
+                        },
+                        '& .MuiInputLabel-root.Mui-focused': {
+                            color: 'black',
+                        },
+                    }}
+                />
+                <TextField
+                    label={t('inviteCode')}
+                    value={invite}
+                    onChange={(e) => setInvite(e.target.value)}
+                    fullWidth
+                    margin="normal"
+                    required
+                    sx={{
+                        '& .MuiOutlinedInput-root': {
+                            '& fieldset': {
+                                borderColor: 'rgba(0, 0, 0, 0.23)',
                             },
-                            '& .MuiInputLabel-root': {
-                                color: 'rgba(0, 0, 0, 0.6)',
+                            '&:hover fieldset': {
+                                borderColor: 'black',
                             },
-                            '& .MuiInputLabel-root.Mui-focused': {
-                                color: 'black',
+                            '&.Mui-focused fieldset': {
+                                borderColor: 'black',
                             },
-                        }}
-                        value={invite}
-                        onChange={(e) => setInvite(e.target.value)}
-                        fullWidth
-                        margin="normal"
-                        required
-                    />
-                </CardContent>
-                <CardActions>
-                    <Box display="flex" justifyContent="space-between" width="100%">
-                        <IconButton onClick={() => navigate('/login')} size="small" aria-label={t('BackButton')}>
-                            <ArrowBackIcon />
-                        </IconButton>
-                        <Button variant="contained" color="primary" size="small" onClick={handleRegister} disabled={!isFormValid} >
-                            {t('registerButton')}
-                        </Button>
-                    </Box>
-                </CardActions>
+                        },
+                        '& .MuiInputLabel-root': {
+                            color: 'rgba(0, 0, 0, 0.6)',
+                        },
+                        '& .MuiInputLabel-root.Mui-focused': {
+                            color: 'black',
+                        },
+                    }}
+                />
+            </CardContent>
+            <CardActions>
+                <Box display="flex" justifyContent="space-between" width="100%">
+                    <IconButton onClick={() => navigate('/login')} size="small" aria-label={t('BackButton')}>
+                        <ArrowBackIcon />
+                    </IconButton>
+                    <Button variant="contained" color="primary" size="small" onClick={handleRegister} disabled={!isFormValid}>
+                        {t('registerButton')}
+                    </Button>
+                </Box>
+            </CardActions>
+            {regError && <Typography color="error" textAlign="center">{regError}</Typography>}
         </LoginCenteredBox>
     );
 };
