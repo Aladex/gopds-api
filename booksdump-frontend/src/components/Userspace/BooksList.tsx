@@ -22,6 +22,7 @@ import BookPagination from "../common/BookPagination";
 import SkeletonCard from "../common/SkeletonCard";
 import AuthorsList from "../common/AuthorsList";
 import { useAuthor } from "../../context/AuthorContext";
+import CategotiesList from "../common/CategotiesList";
 
 interface Book {
     id: number;
@@ -203,16 +204,9 @@ const BooksList: React.FC = () => {
                                                             <Box mt={2}>
                                                                 <AuthorsList authors={book.authors} />
                                                             </Box>
-                                                            {book.series && (
-                                                                <Box mt={2}>
-                                                                    <Typography variant="subtitle1">{t('series')}:</Typography>
-                                                                    {book.series.map((serie) => (
-                                                                        <Typography key={serie.id} variant="body2">
-                                                                            &#8226; {serie.ser} {serie.ser_no !== 0 && `#${serie.ser_no}`}
-                                                                        </Typography>
-                                                                    ))}
-                                                                </Box>
-                                                            )}
+                                                            <Box mt={2}>
+                                                            <CategotiesList categories={book.series} />
+                                                            </Box>
                                                         </CardContent>
                                                     </Grid>
                                                 </Grid>

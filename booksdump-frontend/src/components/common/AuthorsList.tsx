@@ -30,7 +30,7 @@ const AuthorsList: React.FC<AuthorsListProps> = ({authors}) => {
 
     return (
         <>
-            <Typography variant="subtitle1">Authors:</Typography>
+            <Typography variant="subtitle1">{t('authors')}:</Typography>
             <Typography variant="body2">
                 {authors && authors.length > 0 ? (
                     authors.map((author: Author) => (
