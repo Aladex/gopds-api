@@ -16,6 +16,11 @@ type BookProcessor struct {
 	path     string
 }
 
+func FileExists(path string) bool {
+	_, err := os.Stat(path)
+	return !os.IsNotExist(err)
+}
+
 func NewBookProcessor(filename, path string) *BookProcessor {
 	return &BookProcessor{
 		filename: filename,

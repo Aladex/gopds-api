@@ -11,6 +11,7 @@ func SetupBookRoutes(r *gin.RouterGroup) {
 	r.GET("/get/:format/:id", GetBookFile)
 	r.GET("/langs", GetLangs)
 	r.GET("/self-user", SelfUser)
+	r.GET("/getsigned/:format/:id", GetSignedBookUrl)
 	r.POST("/change-me", ChangeUser)
 	r.GET("/authors", GetAuthors)
 	r.POST("/author", GetAuthor)

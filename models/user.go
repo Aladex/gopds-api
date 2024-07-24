@@ -9,6 +9,11 @@ type LinkToken struct {
 	Token string `form:"token" json:"token"`
 }
 
+type SignedURL struct {
+	Expires   int64  `json:"expires" form:"expires"`
+	Signature string `json:"signature" form:"signature"`
+}
+
 type UserTelegramRequest struct {
 	TelegramID  int64  `json:"telegram_id"`
 	Request     string `json:"request"`

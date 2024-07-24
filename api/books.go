@@ -2,12 +2,16 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
+	"github.com/spf13/viper"
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/models"
+	"gopds-api/utils"
 	"net/http"
+	"time"
 )
 
 // ExportAnswer struct for books list response
@@ -107,4 +111,25 @@ func FavBook(c *gin.Context) {
 		}
 		c.JSON(200, favAnswer{HaveFavs: res})
 	}
+}
+
+// GetSignedBookUrl method for retrieving a book file from the database
+// Auth godoc
+// @Summary Retrieve a signed URL for a book file
+// @Description Get a signed URL for a book file
+// @Tags books
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param  format path string true "Book format"
+// @Param  id path string true "Book ID"
+// @Accept  json
+// @Produce  json
+// @Success 200 {object} models.Result "URL of the book file"
+// @Failure 400 {object} httputil.HTTPError "Bad request"
+// @Router /api/books/get/{format}/{id} [get]
+func GetSignedBookUrl(c *gin.Context) {
+	bookURL := fmt.Sprintf("%s:8085/files/books/get/%s/%s", fmt.Sprintf("%s%s", "http://", viper.GetString("project_domain")), c.Param("format"), c.Param("id"))
+	expiry := time.Now().Add(time.Hour * 24).Unix()
+
+	signaturedUrl := utils.GenerateSignedURL(viper.GetString("secret_key"), bookURL, time.Duration(expiry))
+	c.JSON(200, models.Result{Result: signaturedUrl, Error: nil})
 }

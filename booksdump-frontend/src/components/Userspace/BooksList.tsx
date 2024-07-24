@@ -138,9 +138,22 @@ const BooksList: React.FC = () => {
         }
     };
 
+    const getSignedUrl = async (book: Book, format?: string) => {
+        try {
+            let url = `/books/getsigned/${format}/${book.id}`;
+            const response = await fetchWithAuth.get(url);
+            if (response.status === 200) {
+                return response.data.url;
+            }
+        } catch (error) {
+            console.error('Error getting signed url', error);
+        }
+    }
 
     const handleUpdateBook = async (book: Book) => {
-    };
+
+    }
+
 
     const cover = (book: Book) => `${API_URL}/books-posters/${book.path.replace(/[^a-zA-Z0-9]/g, '-')}/${book.id}-${book.format}.jpg`;
 
@@ -234,7 +247,7 @@ const BooksList: React.FC = () => {
                                                         variant="contained"
                                                         color="secondary"
                                                         sx={{ mb: 1, color: 'white', minWidth: 150 }}
-                                                        href={`${API_URL}/api/files/books/get/zip/${book.id}?token=${token}`}
+                                                        onClick={() => getSignedUrl(book, 'zip')}
                                                     >
                                                         FB2+ZIP
                                                     </Button>
@@ -242,7 +255,7 @@ const BooksList: React.FC = () => {
                                                         variant="contained"
                                                         color="secondary"
                                                         sx={{ mb: 1, color: 'white', minWidth: 150 }}
-                                                        href={`${API_URL}/api/files/books/get/fb2/${book.id}?token=${token}`}
+                                                        onClick={() => getSignedUrl(book, 'fb2')}
                                                     >
                                                         FB2
                                                     </Button>
@@ -250,7 +263,7 @@ const BooksList: React.FC = () => {
                                                         variant="contained"
                                                         color="secondary"
                                                         sx={{ mb: 1, color: 'white', minWidth: 150 }}
-                                                        href={`${API_URL}/api/files/books/get/epub/${book.id}?token=${token}`}
+                                                        onClick={() => getSignedUrl(book, 'epub')}
                                                     >
                                                         EPUB
                                                     </Button>
@@ -258,7 +271,7 @@ const BooksList: React.FC = () => {
                                                         variant="contained"
                                                         color="secondary"
                                                         sx={{ mb: 1, color: 'white', minWidth: 150 }}
-                                                        href={`${API_URL}/api/files/books/get/mobi/${book.id}?token=${token}`}
+                                                        onClick={() => getSignedUrl(book, 'mobi')}
                                                     >
                                                         MOBI
                                                     </Button>
