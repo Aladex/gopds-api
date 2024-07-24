@@ -10,6 +10,7 @@ import {FavProvider} from "./context/FavContext";
 import {SearchBarProvider} from './context/SearchBarContext';
 import publicRoutes from './routes/publicRoutes';
 import privateRoutes from './routes/privateRoutes';
+import adminRoutes from "./routes/adminRoutes";
 
 const App: React.FC = () => {
     return (
@@ -20,7 +21,7 @@ const App: React.FC = () => {
                     <Route path="/" element={<Navigate to="/books/page/1"/>}/>
                     {publicRoutes}
                     {privateRoutes}
-                    {/* Redirect unknown paths */}
+                    {adminRoutes}
                     <Route path="*" element={<Navigate to="/"/>}/>
                 </Routes>
             </Router>

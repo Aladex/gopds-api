@@ -1,8 +1,7 @@
-// src/components/Adminspace/Adminspace.tsx
 import React from 'react';
 import { Typography, Box } from '@mui/material';
 
-const Adminspace: React.FC = () => {
+const AdminSpace: React.FC = () => {
     return (
         <Box>
             <Typography variant="h4">Admin Dashboard</Typography>
@@ -10,4 +9,4 @@ const Adminspace: React.FC = () => {
     );
 };
 
-export default Adminspace;
+export default AdminSpace;
