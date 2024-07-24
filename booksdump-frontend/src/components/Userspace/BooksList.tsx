@@ -1,6 +1,6 @@
 // src/components/BooksList.tsx
 import React, {useState, useEffect, useCallback} from 'react';
-import {useParams} from 'react-router-dom';
+import {useParams, useLocation} from 'react-router-dom';
 import {
     Typography,
     Box,
@@ -41,14 +41,15 @@ interface Book {
 
 const BooksList: React.FC = () => {
     const { user, token } = useAuth();
-    const {page} = useParams<{ page: string }>();
+    const { page, id, title } = useParams<{ page: string, id?: string, title?: string }>();
     const [books, setBooks] = useState<Book[]>([]);
     const [totalPages, setTotalPages] = useState(0);
     const [loading, setLoading] = useState(true);
     const [opened, setOpened] = useState<number[]>([]);
     const {t} = useTranslation();
-    const baseUrl = window.location.pathname.replace(/\/\d+$/, '');
+    // const baseUrl = window.location.pathname.replace(/\/\d+$/, '');
     const { authorId, authorBook, setAuthorId, clearAuthorBook } = useAuthor();
+    const location = useLocation();
 
     type Params = {
         limit: number;
@@ -65,32 +66,36 @@ const BooksList: React.FC = () => {
         const limit = 10;
         const currentPage = parseInt(page || '1', 10);
         const offset = (currentPage - 1) * limit;
-        let params: Params = {limit, offset, lang: user?.books_lang || ''};
+        let params: Params = { limit, offset, lang: user?.books_lang || '' };
 
-        if (baseUrl.includes('/find/author/')) {
-            const author = baseUrl.split('/').pop() || '';
-            params.author = author;
-            setAuthorId(author);
-            if (authorBook) params.title = authorBook;
-        } else if (baseUrl.includes('/find/category/')) {
-            params.series = baseUrl.split('/').pop() || '';
-            clearAuthorBook();
-        } else if (baseUrl.includes('/books/find/title/')) {
-            const title = baseUrl.split('/title/')[1];
-            if (title) params.title = decodeURIComponent(title);
-            if (authorId) params.author = authorId;
-            clearAuthorBook();
+        if (location.pathname.includes('/books/find/author/')) {
+            if (id) {
+                params.author = id;
+                setAuthorId(id);
+                if (authorBook) params.title = authorBook;
+            }
+        } else if (location.pathname.includes('/books/find/category/')) {
+            if (id) {
+                params.series = id;
+                clearAuthorBook();
+            }
+        } else if (location.pathname.includes('/books/find/title/')) {
+            if (title) {
+                params.title = decodeURIComponent(title);
+                if (authorId) params.author = authorId;
+                clearAuthorBook();
+            }
         }
 
-        if (baseUrl.includes('/books/favorite')) {
+        if (location.pathname.includes('/books/favorite')) {
             params.fav = true;
             clearAuthorBook();
         }
-        console.log(params);
+
         try {
             const response = await fetchWithAuth.get('/books/list', { params });
             if (response.status === 200) {
-                const data = await response.data;
+                const data = response.data;
                 setBooks(data.books);
                 setTotalPages(data.length);
             } else {
@@ -101,12 +106,18 @@ const BooksList: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    }, [page, user?.books_lang, baseUrl, setAuthorId, authorBook, clearAuthorBook, authorId]);
+    }, [page, user?.books_lang, id, title, location.pathname, setAuthorId, authorBook, clearAuthorBook, authorId]);
+
+    useEffect(() => {
+        if (token && user) {
+            fetchBooks();
+        }
+    }, [token, page, user, fetchBooks]);
     useEffect(() => {
         if (user) {
             fetchBooks().then(r => r);
         }
-    }, [page, user, fetchBooks, baseUrl]);
+    }, [page, user, fetchBooks]);
 
     const handleOpenAnnotation = (id: number) => {
         setOpened((prev) => (prev.includes(id) ? prev.filter((bookId) => bookId !== id) : [...prev, id]));
@@ -117,7 +128,6 @@ const BooksList: React.FC = () => {
             const response = await fetchWithAuth.post('/books/fav', { book_id: book.id, fav: !book.fav });
             if (response.status === 200) {
                 // Assuming the response includes the updated book data
-                // const updatedBook = response.data;
                 setBooks(prev => prev.map(b => b.id === book.id ? { ...b, fav: !b.fav } : b));
             } else {
                 console.error('Failed to update favorite status');
@@ -267,7 +277,7 @@ const BooksList: React.FC = () => {
                         ))}
                     </Grid>
                     <Grid container spacing={3} justifyContent="center" sx={{ marginTop: 2 }}>
-                        <BookPagination totalPages={totalPages} currentPage={parseInt(page || '1', 10)} baseUrl={baseUrl} />
+                        <BookPagination totalPages={totalPages} currentPage={parseInt(page as string)} baseUrl={location.pathname} />
                     </Grid>
                 </>
             )}

@@ -35,10 +35,19 @@ const StyledPagination = styled(MuiPagination)(({ theme }) => ({
     },
 }));
 
+const getBaseUrl = (pathname: string) => {
+    const pathSegments = pathname.split('/');
+    if (pathSegments[pathSegments.length - 1].match(/^\d+$/)) {
+        pathSegments.pop();
+    }
+    return pathSegments.join('/');
+};
+
 const BookPagination: React.FC<PaginationProps> = ({ totalPages, currentPage, baseUrl }) => {
     const navigate = useNavigate();
+    const noPageUrl = getBaseUrl(baseUrl);
     const handleChange = (event: React.ChangeEvent<unknown>, value: number) => {
-        navigate(`${baseUrl}/${value}`);
+        navigate(`${noPageUrl}/${value}`);
     };
 
     return (
