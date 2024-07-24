@@ -34,7 +34,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         fetchWithAuth.get('/books/self-user')
             .then((response) => {
                 setUser(response.data);
-                console.log('User data fetched successfully');
             })
             .catch((error) => {
                 console.error('Error fetching user data', error);
