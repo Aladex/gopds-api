@@ -58,5 +58,7 @@
   "errorPage.title": "Oops! Something went wrong",
   "errorPage.message": "The page you are looking for might have been removed, had its name changed or is temporarily unavailable.",
   "errorPage.button": "Go to the main page",
-  "noAuthorsFound": "No authors found"
+  "noAuthorsFound": "No authors found",
+  "routeTitles.adminUsers": "Manage users",
+  "routeTitles.adminInvites": "Manage invites"
 }
