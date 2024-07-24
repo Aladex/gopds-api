@@ -113,8 +113,12 @@ const UsersTable: React.FC = () => {
                 action: 'update',
                 user: updatedUser
             });
-            const data = response.data;
-            setUsers(users.map(user => user.id === data.user.id ? data.user : user));
+            // const data = response.data;
+            // setUsers(users.map(user => user.id === data.user.id ? data.user : user));
+            if (response.status === 200) {
+                // Update the user in the users array
+                setUsers(users.map(user => user.id === updatedUser.id ? updatedUser : user));
+            }
             handleDialogClose();
         } catch (error) {
             console.error(error);
