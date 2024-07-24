@@ -33,7 +33,7 @@ interface Record {
 }
 
 const SearchBar: React.FC = () => {
-    const { user, token, updateUser } = useAuth();
+    const { user, updateUser } = useAuth();
     const { t } = useTranslation();
     const { languages, searchItem, setLanguages, setSearchItem, selectedSearch, setSelectedSearch } = useSearchBar();
     const [lang, setLang] = useState<string | null>(user?.books_lang || '');
@@ -81,7 +81,7 @@ const SearchBar: React.FC = () => {
             navigate(newPath);
         }
         prevFavRef.current = fav;
-    }, [token, user, fav, navigate, setLanguages]);
+    }, [user, fav, navigate, setLanguages]);
 
     useEffect(() => {
         const pathStartsWith = '/books/find/author/';

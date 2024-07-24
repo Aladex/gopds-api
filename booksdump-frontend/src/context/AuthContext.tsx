@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, ReactNode, useCallback } from 'react';
-import Cookies from 'js-cookie';
+import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
+import { fetchWithAuth } from '../api/config';
 
 interface User {
     username: string;
@@ -7,15 +7,15 @@ interface User {
     last_name: string;
     is_superuser: boolean;
     books_lang?: string;
+    have_favs?: boolean;
 }
 
 interface AuthContextType {
     isAuthenticated: boolean;
-    token: string | null;
     user: User | null;
     setUser: (user: User | null) => void;
-    updateUser: (userData: User) => void; // Method to update user data
-    login: (token: string) => void;
+    updateUser: (userData: User) => void;
+    login: () => void;
     logout: () => void;
 }
 
@@ -26,29 +26,47 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-    const [token, setTokenState] = useState<string | null>(getToken());
     const [user, setUser] = useState<User | null>(null);
-    const isAuthenticated = !!token;
+    const [isLoaded, setIsLoaded] = useState<boolean>(false);
+    const isAuthenticated = !!user;
 
-    const login = (token: string) => {
-        setToken(token);
-        setTokenState(token);
-    };
+    const login = useCallback(() => {
+        fetchWithAuth.get('/books/self-user')
+            .then((response) => {
+                setUser(response.data);
+                console.log('User data fetched successfully');
+            })
+            .catch((error) => {
+                console.error('Error fetching user data', error);
+                setUser(null);
+            })
+            .finally(() => {
+                setIsLoaded(true);
+            });
+    }, []);
 
     const logout = () => {
-        removeToken();
-        setTokenState(null);
-        setUser(null); // Ensure user is set to null on logout
-        window.location.href = '/login'; // Redirect to login page on logout
+        fetchWithAuth.post('/logout')
+            .then(() => {
+                setUser(null);
+                window.location.href = '/login';
+            })
+            .catch((error) => {
+                console.error('Error logging out', error);
+            });
     };
 
     const updateUser = useCallback((userData: User) => {
-        setUser(userData); // Update user data in context
+        setUser(userData);
     }, []);
 
+    useEffect(() => {
+        login();
+    }, [login]);
+
     return (
-        <AuthContext.Provider value={{ isAuthenticated, token, user, setUser, updateUser, login, logout }}>
-            {children}
+        <AuthContext.Provider value={{ isAuthenticated, user, setUser, updateUser, login, logout }}>
+            {isLoaded && children}
         </AuthContext.Provider>
     );
 };
@@ -59,16 +77,4 @@ export const useAuth = () => {
         throw new Error('useAuth must be used within an AuthProvider');
     }
     return context;
-};
-
-export const getToken = () => {
-    return Cookies.get('token') || null;
-};
-
-export const setToken = (token: string) => {
-    Cookies.set('token', token, { expires: 7, secure: true, sameSite: 'strict' });
-};
-
-export const removeToken = () => {
-    Cookies.remove('token');
 };

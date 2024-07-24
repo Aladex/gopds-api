@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import {Grid, Box, Typography, List, ListItemText, Card, ListItemButton, CardContent} from '@mui/material';
 import { useParams, useLocation } from 'react-router-dom';
 import { fetchWithAuth} from '../../api/config';
-import {useAuth} from "../../context/AuthContext";
 import BookPagination from "../common/BookPagination";
 import SkeletonCard from "../common/SkeletonCard";
 import {useNavigate} from 'react-router-dom';
@@ -17,7 +16,6 @@ interface Author {
 
 const AuthorSearch: React.FC = () => {
     const { t } = useTranslation();
-    const {token} = useAuth();
     const {page} = useParams<{ page: string }>();
     const [authors, setAuthors] = useState<Author[]>([]);
     const { author } = useParams<{ author: string }>();
@@ -61,7 +59,7 @@ const AuthorSearch: React.FC = () => {
         if (author) {
             fetchAuthors().then(r => r);
         }
-    }, [author, location.search, page, token]);
+    }, [author, location.search, page]);
 
     const handleAuthorClick = (authorId: number) => {
         setSearchItem('');

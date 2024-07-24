@@ -25,8 +25,8 @@ func serveStaticFilesMiddleware(fs http.FileSystem) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		requestPath := c.Request.URL.Path
 		// Directly serve index.html for requests to root or /index.html
-		if requestPath == "/" || requestPath == "/index.html" {
-			indexFile, err := fs.Open("frontend_src/dist/index.html")
+		if requestPath == "/" {
+			indexFile, err := fs.Open("booksdump-frontend/build/index.html")
 			if err != nil {
 				// Log the error and send a 404 response if index.html cannot be opened
 				logrus.Errorf("Error opening index.html: %v", err)
@@ -46,7 +46,7 @@ func serveStaticFilesMiddleware(fs http.FileSystem) gin.HandlerFunc {
 		// Handle serving other static files from distFolders
 		for _, folder := range distFolders {
 			if strings.HasPrefix(requestPath, folder) {
-				filePath := path.Join("frontend_src/dist", requestPath)
+				filePath := path.Join("booksdump-frontend/build", requestPath)
 				file, err := fs.Open(filePath)
 				if err == nil {
 					defer file.Close()
@@ -67,14 +67,16 @@ func serveStaticFilesMiddleware(fs http.FileSystem) gin.HandlerFunc {
 func corsOptionsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.Request.Method == "OPTIONS" {
-			c.Header("Access-Control-Allow-Origin", "*")
+			c.Header("Access-Control-Allow-Origin", "http://127.0.0.1:3000")
 			c.Header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
+			c.Header("Access-Control-Allow-Credentials", "true")
 			c.Header("Access-Control-Allow-Headers", "authorization, origin, content-type, accept, token")
 			c.Header("Allow", "HEAD,GET,POST,PUT,PATCH,DELETE,OPTIONS")
 			c.Header("Content-Type", "application/json")
 			c.AbortWithStatus(http.StatusOK)
 		} else {
-			c.Header("Access-Control-Allow-Origin", "*")
+			c.Header("Access-Control-Allow-Origin", "http://127.0.0.1:3000")
+			c.Header("Access-Control-Allow-Credentials", "true")
 			c.Header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
 			c.Header("Access-Control-Allow-Headers", "authorization, origin, content-type, accept, token")
 			c.Header("Allow", "HEAD,GET,POST,PUT,PATCH,DELETE,OPTIONS")

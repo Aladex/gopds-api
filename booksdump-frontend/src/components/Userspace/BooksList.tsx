@@ -41,7 +41,7 @@ interface Book {
 }
 
 const BooksList: React.FC = () => {
-    const { user, token } = useAuth();
+    const { user } = useAuth();
     const { page, id, title } = useParams<{ page: string, id?: string, title?: string }>();
     const [books, setBooks] = useState<Book[]>([]);
     const [totalPages, setTotalPages] = useState(0);
@@ -110,10 +110,10 @@ const BooksList: React.FC = () => {
     }, [page, user?.books_lang, id, title, location.pathname, setAuthorId, authorBook, clearAuthorBook, authorId]);
 
     useEffect(() => {
-        if (token && user) {
+        if (user) {
             fetchBooks();
         }
-    }, [token, page, user, fetchBooks]);
+    }, [ page, user, fetchBooks]);
     useEffect(() => {
         if (user) {
             fetchBooks().then(r => r);

@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { getToken, removeToken } from '../context/AuthContext';
 
 const API_URL = process.env.REACT_APP_API_URL;
 
@@ -8,28 +7,19 @@ const axiosInstance = axios.create({
     headers: {
         'Content-Type': 'application/json',
     },
+    withCredentials: true, // Include credentials with every request
 });
 
-axiosInstance.interceptors.request.use((config) => {
-    const token = getToken();
-    if (token) {
-        config.headers.Authorization = `${token}`;
+axiosInstance.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        if (error.response.status === 401) {
+            window.location.href = '/login';
+        } else if (error.response.status === 404) {
+            window.location.href = '/404';
+        }
+        return Promise.reject(error);
     }
-    return config;
-}, (error) => {
-    return Promise.reject(error);
-});
-
-axiosInstance.interceptors.response.use((response) => {
-    return response;
-}, (error) => {
-    if (error.response.status === 401) {
-        removeToken();
-        window.location.href = '/login';
-    } else if (error.response.status === 404) {
-        window.location.href = '/404';
-    }
-    return Promise.reject(error);
-});
+);
 
 export { API_URL, axiosInstance as fetchWithAuth };

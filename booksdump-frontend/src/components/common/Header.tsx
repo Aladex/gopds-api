@@ -26,7 +26,7 @@ import { StyledTextField } from "../StyledDataItems";
 import { useCommonStyles } from "../themeStyles";
 
 const Header: React.FC = () => {
-    const {logout, token, updateUser, user} = useAuth();
+    const {logout, updateUser, user} = useAuth();
     const navigate = useNavigate();
     const classes = useCommonStyles();
     const theme = useTheme();
@@ -64,7 +64,7 @@ const Header: React.FC = () => {
         };
 
         fetchUser();
-    }, [token, updateUser]);
+    }, [updateUser]);
 
     const handleLogout = () => {
         logout();
@@ -134,9 +134,7 @@ const Header: React.FC = () => {
 
     const handleDropSessions = async () => {
         try {
-            const response = await fetchWithAuth(`/drop-sessions`, {
-                headers: { Authorization: `${token}` },
-            });
+            const response = await fetchWithAuth(`/drop-sessions`);
             if (response.status === 200) {
                 logout();
                 navigate('/login');

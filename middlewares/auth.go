@@ -45,18 +45,30 @@ func abortWithStatus(c *gin.Context, status int, message string) {
 // AuthMiddleware checks if user is logged in and sets username in context.
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userToken := c.GetHeader("Authorization")
-		if userToken == "" {
-			abortWithStatus(c, http.StatusUnauthorized, "required_token")
-			return
+		var token string
+		var err error
+
+		// Попробуем получить токен из заголовка Authorization
+		authHeader := c.GetHeader("Authorization")
+		if authHeader != "" {
+			token = authHeader
+		} else {
+			// Если токена в заголовке нет, попробуем получить токен из куки
+			token, err = c.Cookie("token")
+			if err != nil || token == "" {
+				abortWithStatus(c, http.StatusUnauthorized, "required_token")
+				return
+			}
 		}
 
-		username, dbID, err := validateToken(userToken)
+		// Проверка токена
+		username, dbID, err := validateToken(token)
 		if err != nil {
 			abortWithStatus(c, http.StatusUnauthorized, err.Error())
 			return
 		}
 
+		// Установка данных пользователя в контекст
 		c.Set("username", username)
 		c.Set("user_id", dbID)
 		c.Next()

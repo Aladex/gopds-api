@@ -22,17 +22,19 @@ func setupRoutes(route *gin.Engine) {
 	setupOpdsRoutes(route.Group("/opds", middlewares.BasicAuth()))
 	setupApiRoutes(route.Group("/api", middlewares.AuthMiddleware()))
 	route.Use(serveStaticFilesMiddleware(NewHTTPFS(assets.Assets)))
-	// Serve favicon.ico from the root directory of assets.Assets
-	route.GET("/favicon.ico", func(c *gin.Context) {
-		c.FileFromFS("frontend_src/dist/favicon.ico", NewHTTPFS(assets.Assets))
-	})
+	rootFiles := listRootFiles()
+	for _, file := range rootFiles {
+		route.GET(file, func(c *gin.Context) {
+			c.FileFromFS("booksdump-frontend/build"+c.Request.URL.Path, NewHTTPFS(assets.Assets))
+		})
+	}
 
 	// Adjust the NoRoute handler to serve index.html for unmatched routes
 	registeredRoutes := getRegisteredRoutes(route)
 	route.NoRoute(func(c *gin.Context) {
 		// Check if the request path is not a registered route
 		if !isRegisteredRoute(c.Request.URL.Path, registeredRoutes) {
-			indexFile, err := NewHTTPFS(assets.Assets).Open("frontend_src/dist/index.html")
+			indexFile, err := NewHTTPFS(assets.Assets).Open("booksdump-frontend/build/index.html")
 			if err != nil {
 				c.AbortWithStatus(http.StatusNotFound)
 				return

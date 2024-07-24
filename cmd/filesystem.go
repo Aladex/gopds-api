@@ -11,17 +11,35 @@ import (
 
 // initializeDistFolders получает список папок в директории dist
 func initializeDistFolders() error {
-	err := fs.WalkDir(assets.Assets, "frontend_src/dist", func(path string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(assets.Assets, "booksdump-frontend/build", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() && path != "frontend_src/dist" {
-			relativePath := strings.TrimPrefix(path, "frontend_src/dist/")
+		if d.IsDir() && path != "booksdump-frontend/build" {
+			relativePath := strings.TrimPrefix(path, "booksdump-frontend/build/")
 			distFolders = append(distFolders, "/"+relativePath+"/")
 		}
 		return nil
 	})
 	return err
+}
+
+func listRootFiles() []string {
+	var files []string
+	err := fs.WalkDir(assets.Assets, "booksdump-frontend/build", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			relativePath := strings.TrimPrefix(path, "booksdump-frontend/build/")
+			files = append(files, "/"+relativePath)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil
+	}
+	return files
 }
 
 var distFolders []string
