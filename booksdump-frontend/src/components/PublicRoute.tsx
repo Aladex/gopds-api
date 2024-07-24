@@ -1,20 +1,16 @@
+// src/components/PublicRoute.tsx
 import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Outlet, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import Login from '../components/Auth/Login';
 
-const PublicRoutes: React.FC = () => {
+const PublicRoute: React.FC = () => {
     const { isAuthenticated } = useAuth();
 
     if (isAuthenticated) {
         return <Navigate to="/books/page/1" replace />;
     } else {
-        return (
-            <Routes>
-                <Route path="/login" element={<Login />} />
-            </Routes>
-        );
+        return <Outlet />;
     }
 };
 
-export default PublicRoutes;
+export default PublicRoute;
