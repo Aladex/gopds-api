@@ -10,10 +10,27 @@ const axiosInstance = axios.create({
     withCredentials: true, // Include credentials with every request
 });
 
+const publicRoutesList = [
+    '/login',
+    '/registration',
+    '/forgot-password',
+    '/404',
+];
+
+const isPublicRoute = (path: string): boolean => {
+    return publicRoutesList.some((route) => {
+        if (route === '*') {
+            return true;
+        }
+        return path.includes(route);
+    });
+};
+
 axiosInstance.interceptors.response.use(
     (response) => response,
     (error) => {
-        if (error.response.status === 401) {
+        const currentPath = window.location.pathname;
+        if (error.response.status === 401 && !isPublicRoute(currentPath)) {
             window.location.href = '/login';
         } else if (error.response.status === 404) {
             window.location.href = '/404';

@@ -21,6 +21,7 @@ func setupRoutes(route *gin.Engine) {
 	setupDefaultRoutes(route)
 	setupOpdsRoutes(route.Group("/opds", middlewares.BasicAuth()))
 	setupApiRoutes(route.Group("/api", middlewares.AuthMiddleware()))
+	setupLogoutRoutes(route.Group("/api", middlewares.AuthMiddleware()))
 	route.Use(serveStaticFilesMiddleware(NewHTTPFS(assets.Assets)))
 	rootFiles := listRootFiles()
 	for _, file := range rootFiles {
@@ -67,13 +68,15 @@ func setupDefaultRoutes(route *gin.Engine) {
 	route.POST("/api/change-password", api.ChangeUserState)
 	route.POST("/api/change-request", api.ChangeRequest)
 	route.POST("/api/token", api.TokenValidation)
-	route.GET("/api/logout", api.LogOut)
-	route.GET("/api/drop-sessions", api.DropAllSessions)
 }
 
 // setupOpdsRoutes configures routes for OPDS feed interactions.
 func setupOpdsRoutes(group *gin.RouterGroup) {
 	opds.SetupOpdsRoutes(group)
+}
+
+func setupLogoutRoutes(group *gin.RouterGroup) {
+	api.SetupLogoutRoute(group)
 }
 
 // setupApiRoutes configures API routes for book operations and other functionalities.
@@ -83,6 +86,7 @@ func setupApiRoutes(group *gin.RouterGroup) {
 	// Setup admin routes with admin middleware
 	adminGroup := group.Group("/admin", middlewares.AdminMiddleware())
 	setupAdminRoutes(adminGroup)
+
 }
 
 // setupAdminRoutes configures routes for administrative functionalities.

@@ -19,6 +19,12 @@ func SetupBookRoutes(r *gin.RouterGroup) {
 	r.POST("/fav", FavBook)
 }
 
+// SetupLogoutRoute sets up routes for logout and session management
+func SetupLogoutRoute(r *gin.RouterGroup) {
+	r.GET("/logout", LogOut)
+	r.GET("/drop-sessions", DropAllSessions)
+}
+
 // StatusCheck returns the status of the service
 // Auth godoc
 // @Summary Check service status

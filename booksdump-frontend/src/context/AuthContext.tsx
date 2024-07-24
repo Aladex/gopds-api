@@ -45,7 +45,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }, []);
 
     const logout = () => {
-        fetchWithAuth.post('/logout')
+        fetchWithAuth.get('/logout')
             .then(() => {
                 setUser(null);
                 window.location.href = '/login';

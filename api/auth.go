@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
 	"gopds-api/database"
@@ -28,17 +29,42 @@ import (
 // @Failure 403 {object} httputil.HTTPError
 // @Router /api/drop-sessions [get]
 func DropAllSessions(c *gin.Context) {
+	// Создаем контекст с таймаутом
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	userToken, username := c.Request.Header.Get("Authorization"), c.GetString("username")
+	// Get token from header or cookie
+	userToken := c.Request.Header.Get("Authorization")
+	if userToken == "" {
+		var err error
+		userToken, err = c.Cookie("token")
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Token not provided"})
+			return
+		}
+	}
 
-	if err := sessions.DeleteSessionKey(ctx, models.LoggedInUser{User: strings.ToLower(username), Token: &userToken}); err != nil {
-		httputil.NewError(c, http.StatusForbidden, err)
+	// Get username from context
+	username := c.GetString("username")
+	if username == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Username not provided"})
 		return
 	}
 
+	// Delete session key
+	err := sessions.DeleteSessionKey(ctx, models.LoggedInUser{
+		User:  strings.ToLower(username),
+		Token: &userToken,
+	})
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Drop all sessions
 	go sessions.DropAllSessions(userToken)
+
+	// Set cookie to expire
 	c.JSON(http.StatusOK, gin.H{"result": "ok"})
 }
 
@@ -127,22 +153,40 @@ func AuthCheck(c *gin.Context) {
 // @Failure 403 {object} httputil.HTTPError
 // @Router /api/logout [get]
 func LogOut(c *gin.Context) {
+	username := strings.ToLower(c.GetString("username"))
+	fmt.Println("username: ", username)
+	fmt.Println("username: ", username)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
+	// Get token from header or cookie
 	userToken := c.Request.Header.Get("Authorization")
-	username := c.GetString("username")
+	if userToken == "" {
+		var err error
+		userToken, err = c.Cookie("token")
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Token not provided"})
+			return
+		}
+	}
+	// Get username from context
+	if username == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Username not provided"})
+		return
+	}
+
+	// Delete session key
 	err := sessions.DeleteSessionKey(ctx, models.LoggedInUser{
 		User:  strings.ToLower(username),
 		Token: &userToken,
 	})
-
 	if err != nil {
-		httputil.NewError(c, http.StatusForbidden, err)
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(200, gin.H{"result": "ok"})
+	// Set cookie to expire
+	c.JSON(http.StatusOK, gin.H{"result": "ok"})
 }
 
 // SelfUser method for retrieving user information by token
