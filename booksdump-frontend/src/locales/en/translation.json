@@ -60,5 +60,9 @@
   "errorPage.button": "Go to the main page",
   "noAuthorsFound": "No authors found",
   "routeTitles.adminUsers": "Manage users",
-  "routeTitles.adminInvites": "Manage invites"
+  "routeTitles.adminInvites": "Manage invites",
+  "edit": "Edit",
+  "editUser": "Edit user",
+  "email": "Email",
+  "token": "Token"
 }

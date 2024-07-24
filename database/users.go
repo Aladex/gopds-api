@@ -172,10 +172,16 @@ func ActionUser(action models.AdminCommandToUser) (models.User, error) {
 	case "get":
 		return userToChange, nil
 	case "update":
-		userToChange.Password = utils.CreatePasswordHashIfNeeded(action.User.Password, userToChange.Password)
+		// Update password only if a new non-empty password is provided
+		if action.User.Password != "" {
+			hashedPassword := utils.CreatePasswordHash(action.User.Password)
+			userToChange.Password = hashedPassword
+		}
+		// Proceed with setting webhook if needed
 		if err := setWebhookIfNeeded(action.User.BotToken); err != nil {
 			return userToChange, err
 		}
+		// Update other user details
 		userToChange = updateUserDetails(userToChange, action.User)
 		if _, err := db.Model(&userToChange).WherePK().Update(); err != nil {
 			return userToChange, err
@@ -217,5 +223,6 @@ func updateUserDetails(userToChange, newUserDetails models.User) models.User {
 	userToChange.Email = newUserDetails.Email
 	userToChange.IsSuperUser = newUserDetails.IsSuperUser
 	userToChange.BotToken = newUserDetails.BotToken
+	userToChange.Active = newUserDetails.Active
 	return userToChange
 }
