@@ -116,8 +116,9 @@ const BooksList: React.FC = () => {
         try {
             const response = await fetchWithAuth.post('/books/fav', { book_id: book.id, fav: !book.fav });
             if (response.status === 200) {
-                const updatedBook = response.data; // Assuming the response includes the updated book data
-                setBooks(prev => prev.map(b => b.id === book.id ? { ...b, fav: updatedBook.fav } : b));
+                // Assuming the response includes the updated book data
+                // const updatedBook = response.data;
+                setBooks(prev => prev.map(b => b.id === book.id ? { ...b, fav: !b.fav } : b));
             } else {
                 console.error('Failed to update favorite status');
             }
