@@ -21,7 +21,6 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import BookPagination from "../common/BookPagination";
 import SkeletonCard from "../common/SkeletonCard";
 import AuthorsList from "../common/AuthorsList";
-import SearchBar from "../common/SearchBar";
 import { useAuthor } from "../../context/AuthorContext";
 
 interface Book {
@@ -87,11 +86,11 @@ const BooksList: React.FC = () => {
             params.fav = true;
             clearAuthorBook();
         }
-
+        console.log(params);
         try {
-            const response = await fetchWithAuth(`/books/list`, { headers: { Authorization: `${token}` }, params });
-            if (response.ok) {
-                const data = await response.json();
+            const response = await fetchWithAuth.get('/books/list', { params });
+            if (response.status === 200) {
+                const data = await response.data;
                 setBooks(data.books);
                 setTotalPages(data.length);
             } else {
@@ -102,28 +101,22 @@ const BooksList: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    }, [page, user?.books_lang, baseUrl, setAuthorId, authorBook, clearAuthorBook, authorId, token]);
+    }, [page, user?.books_lang, baseUrl, setAuthorId, authorBook, clearAuthorBook, authorId]);
     useEffect(() => {
-        if (token && user) {
+        if (user) {
             fetchBooks().then(r => r);
         }
-    }, [token, page, user, fetchBooks, baseUrl]);
+    }, [page, user, fetchBooks, baseUrl]);
 
     const handleOpenAnnotation = (id: number) => {
         setOpened((prev) => (prev.includes(id) ? prev.filter((bookId) => bookId !== id) : [...prev, id]));
     };
 
-    // Adjustments have been made to correct the handling of the response object and the structure of arguments passed to fetchWithAuth.
-
     const handleFavBook = async (book: Book) => {
         try {
-            const response = await fetchWithAuth(`/books/fav`, {
-                method: 'POST',
-                headers: { Authorization: `${token}` },
-                body: JSON.stringify({ book_id: book.id, fav: !book.fav })
-            });
-            if (response.ok) {
-                const updatedBook = await response.json(); // Assuming the response includes the updated book data
+            const response = await fetchWithAuth.post('/books/fav', { book_id: book.id, fav: !book.fav });
+            if (response.status === 200) {
+                const updatedBook = response.data; // Assuming the response includes the updated book data
                 setBooks(prev => prev.map(b => b.id === book.id ? { ...b, fav: updatedBook.fav } : b));
             } else {
                 console.error('Failed to update favorite status');
@@ -133,6 +126,7 @@ const BooksList: React.FC = () => {
         }
     };
 
+
     const handleUpdateBook = async (book: Book) => {
     };
 
@@ -140,7 +134,6 @@ const BooksList: React.FC = () => {
 
     return (
         <Box p={2}>
-            <SearchBar />
             {loading ? (
                 Array.from({length: 10}).map((_, index) => (
                     <Grid item xs={12} key={index}>

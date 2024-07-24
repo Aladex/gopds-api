@@ -51,11 +51,9 @@ const Header: React.FC = () => {
     useEffect(() => {
         const fetchUser = async () => {
             try {
-                const response = await fetchWithAuth(`/books/self-user`, {
-                    headers: {Authorization: `${token}`},
-                });
-                if (response.ok) {
-                    const data = await response.json(); // Correctly parse the JSON response
+                const response = await fetchWithAuth.get(`/books/self-user`);
+                if (response.status === 200) {
+                    const data = await response.data; // Correctly parse the JSON response
                     updateUser(data); // Update user data in context
                 } else {
                     console.error('Failed to fetch user data');
@@ -118,24 +116,21 @@ const Header: React.FC = () => {
                 new_password: newPassword,
                 password: oldPassword
             };
-            // Assuming fetchWithAuth is correctly implemented to handle Fetch API responses
-            const response = await fetchWithAuth(`/books/change-me`, {
-                method: 'POST', // Specify the method if not default GET
-                headers: { Authorization: `${token}` },
-                body: JSON.stringify(userData) // Correctly stringify the userData for the request body
-            });
 
-            if (response.ok) { // Check if the response status is OK
-                const data = await response.json(); // Extract JSON data from the response
-                updateUser(data); // Use the extracted data
+            // Send a POST request to the server to update the user data
+            const response = await fetchWithAuth.post('/books/change-me', userData);
+
+            if (response.status === 200) { // Check if the request was successful
+                const data = response.data; // Parse the JSON response
+                updateUser(data); //
             } else {
                 console.error('Failed to update user');
             }
         } catch (error) {
             console.error('Error updating user:', error);
-            // Optionally, handle errors, such as showing an error message
+            // Handle the error here
         }
-    }
+    };
 
     const handleDropSessions = async () => {
         try {

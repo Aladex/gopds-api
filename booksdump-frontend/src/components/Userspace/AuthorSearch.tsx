@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {Grid, Box, Typography, List, ListItemText, Card, ListItemButton} from '@mui/material';
 import { useParams, useLocation } from 'react-router-dom';
-import SearchBar from "../common/SearchBar";
 import { fetchWithAuth} from '../../api/config';
 import {useAuth} from "../../context/AuthContext";
 import BookPagination from "../common/BookPagination";
@@ -36,16 +35,15 @@ const AuthorSearch: React.FC = () => {
                 const currentPage = parseInt(page || '1', 10);
                 const offset = (currentPage - 1) * limit;
 
-                const response = await fetchWithAuth(`/books/authors`, {
-                    headers: { Authorization: `${token}` },
+                const response = await fetchWithAuth.get(`/books/authors`, {
                     params: {
                         limit,
                         offset,
                         author: decodeURIComponent(author || ''),
-                    }
+                    },
                 });
 
-                const responseData = await response.json(); // Convert response to JSON
+                const responseData = await response.data; // Convert response to JSON
                 if (responseData.authors && Array.isArray(responseData.authors)) {
                     setAuthors(responseData.authors);
                     setTotalPages(responseData.length);
@@ -72,7 +70,6 @@ const AuthorSearch: React.FC = () => {
     return (
         <>
             <Box p={2}>
-                <SearchBar />
                 {loading ? (
                     <Grid item xs={12}>
                         <Box maxWidth={1200} mx="auto">

@@ -14,7 +14,7 @@ import {
 import { StyledTextField } from "../StyledDataItems";
 import { useTranslation } from 'react-i18next';
 import { useAuth } from "../../context/AuthContext";
-import {API_URL, fetchWithAuth} from "../../api/config";
+import { fetchWithAuth } from "../../api/config";
 import { Clear, Favorite, FavoriteBorder } from "@mui/icons-material";
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useFav } from "../../context/FavContext";
@@ -55,22 +55,20 @@ const SearchBar: React.FC = () => {
 
     useEffect(() => {
         const fetchLangs = async () => {
-            const response = await fetchWithAuth(`/books/langs`, {
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `${token}`,
-                },
-            });
-            if (response.ok) {
-                const data = await response.json();
-                const languageList = data.langs.map((item: LangItem) => item.language);
-                setLanguages(languageList);
-            } else {
-                console.error('Failed to fetch languages');
+            try {
+                const response = await fetchWithAuth.get('/books/langs');
+                if (response.status === 200) {
+                    const data = response.data;
+                    const languageList = data.langs.map((item: LangItem) => item.language);
+                    setLanguages(languageList);
+                } else {
+                    console.error('Failed to fetch languages');
+                }
+            } catch (error) {
+                console.error('Error fetching languages', error);
             }
         };
-        fetchLangs().then(r => r);
+        fetchLangs();
 
         // Set language from user settings
         if (user) {
@@ -83,7 +81,7 @@ const SearchBar: React.FC = () => {
             navigate(newPath);
         }
         prevFavRef.current = fav;
-    }, [token, user, fav, navigate, setLanguages]); // Include fav and navigate in the dependency array
+    }, [token, user, fav, navigate, setLanguages]);
 
     useEffect(() => {
         const pathStartsWith = '/books/find/author/';
@@ -139,23 +137,27 @@ const SearchBar: React.FC = () => {
 
 
     const handleLangChange = (event: SelectChangeEvent) => {
-        setLang(event.target.value as string);
+        setLang(event.target.value as string)
+
         // Ensure user is not null before updating its property and sending it to the backend
         if (user) {
             // Update user data in context
             user.books_lang = event.target.value as string;
-            // Update user data in context
             updateUser(user);
 
-            fetchWithAuth(`${API_URL}/books/change-me`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `${token}`,
-                },
-                body: JSON.stringify(user),
-            }).then(r => r);
+            fetchWithAuth.post('/books/change-me', user)
+                .then(response => {
+                    if (response.status === 200) {
+                        console.log('Language updated successfully');
+                    } else {
+                        console.error('Failed to update language');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error updating language', error);
+                });
         }
+
         const pathSegments = location.pathname.split('/');
         const lastIndex = pathSegments.length - 1;
         pathSegments[lastIndex] = '1';
