@@ -54,5 +54,9 @@
   "changePassword": "Change password",
   "dropSessions": "Drop all sessions",
   "oldPassword": "Old password",
-  "newPassword": "New password"
+  "newPassword": "New password",
+  "errorPage.title": "Oops! Something went wrong",
+  "errorPage.message": "The page you are looking for might have been removed, had its name changed or is temporarily unavailable.",
+  "errorPage.button": "Go to the main page",
+  "noAuthorsFound": "No authors found"
 }

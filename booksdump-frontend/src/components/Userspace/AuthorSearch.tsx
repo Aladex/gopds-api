@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import {Grid, Box, Typography, List, ListItemText, Card, ListItemButton} from '@mui/material';
+import {Grid, Box, Typography, List, ListItemText, Card, ListItemButton, CardContent} from '@mui/material';
 import { useParams, useLocation } from 'react-router-dom';
 import { fetchWithAuth} from '../../api/config';
 import {useAuth} from "../../context/AuthContext";
@@ -8,6 +8,7 @@ import SkeletonCard from "../common/SkeletonCard";
 import {useNavigate} from 'react-router-dom';
 import { useSearchBar } from '../../context/SearchBarContext';
 import { useAuthor} from "../../context/AuthorContext";
+import { useTranslation } from "react-i18next";
 
 interface Author {
     id: number;
@@ -15,6 +16,7 @@ interface Author {
 }
 
 const AuthorSearch: React.FC = () => {
+    const { t } = useTranslation();
     const {token} = useAuth();
     const {page} = useParams<{ page: string }>();
     const [authors, setAuthors] = useState<Author[]>([]);
@@ -81,7 +83,17 @@ const AuthorSearch: React.FC = () => {
                         </Box>
                     </Grid>
                 ) : authors.length === 0 ? (
-                    <Typography variant="h6" align="center">No authors found</Typography>
+                    <Grid container justifyContent="center">
+                        <Grid item xs={12}>
+                            <Box maxWidth={1200} mx="auto">
+                                <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
+                                    <CardContent>
+                                        <Typography variant="h6" align="center">{t('noAuthorsFound')}</Typography>
+                                    </CardContent>
+                                </Card>
+                            </Box>
+                        </Grid>
+                    </Grid>
                 ) : (
                     <Grid container justifyContent="center" spacing={4}>
                         <Grid item xs={12}>

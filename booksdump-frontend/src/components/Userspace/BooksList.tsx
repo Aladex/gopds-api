@@ -154,7 +154,17 @@ const BooksList: React.FC = () => {
                     </Grid>
                 ))
             ) : books.length === 0 ? (
-                <Typography variant="h6">No books found</Typography>
+                <Grid container justifyContent="center">
+                    <Grid item xs={12}>
+                        <Box maxWidth={1200} mx="auto">
+                            <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
+                                <CardContent>
+                                    <Typography variant="h6" align="center">{t('noBooksFound')}</Typography>
+                                </CardContent>
+                            </Card>
+                        </Box>
+                    </Grid>
+                </Grid>
             ) : (
                 <>
 
