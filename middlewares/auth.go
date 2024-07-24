@@ -22,7 +22,7 @@ func validateToken(token string) (string, int64, error) {
 	// If token not in Redis, return error
 	_, err := sessions.CheckSessionKeyInRedis(ctx, token)
 	if err != nil {
-		return "", 0, errors.New("invalid_session")
+		return "", 0, errors.New("invalid_session_redis")
 	}
 
 	username, dbID, err := utils.CheckToken(token)
@@ -48,7 +48,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		var token string
 		var err error
 
-		// Попробуем получить токен из заголовка Authorization
+		// Try to get token from header or cookie
 		authHeader := c.GetHeader("Authorization")
 		if authHeader != "" {
 			token = authHeader
@@ -61,14 +61,14 @@ func AuthMiddleware() gin.HandlerFunc {
 			}
 		}
 
-		// Проверка токена
+		// Validate token
 		username, dbID, err := validateToken(token)
 		if err != nil {
 			abortWithStatus(c, http.StatusUnauthorized, err.Error())
 			return
 		}
 
-		// Установка данных пользователя в контекст
+		// Set username and user_id in context
 		c.Set("username", username)
 		c.Set("user_id", dbID)
 		c.Next()

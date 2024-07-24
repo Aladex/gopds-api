@@ -13,7 +13,6 @@ import (
 func CheckSessionKeyInRedis(ctx context.Context, token string) (string, error) {
 	username, err := rdb.WithContext(ctx).Get(token).Result()
 	if err != nil {
-		logrus.Println(err)
 		return "", err
 	}
 	return username, nil
