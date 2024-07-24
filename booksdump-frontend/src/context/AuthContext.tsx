@@ -1,6 +1,5 @@
-// src/context/AuthContext.tsx
 import React, { createContext, useContext, useState, ReactNode, useCallback } from 'react';
-import { getToken, setToken, removeToken } from '../services/authService';
+import Cookies from 'js-cookie';
 
 interface User {
     username: string;
@@ -60,4 +59,16 @@ export const useAuth = () => {
         throw new Error('useAuth must be used within an AuthProvider');
     }
     return context;
+};
+
+export const getToken = () => {
+    return Cookies.get('token') || null;
+};
+
+export const setToken = (token: string) => {
+    Cookies.set('token', token, { expires: 7, secure: true, sameSite: 'strict' });
+};
+
+export const removeToken = () => {
+    Cookies.remove('token');
 };

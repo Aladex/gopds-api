@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/gin-gonic/gin"
+	"github.com/spf13/viper"
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/models"
@@ -109,6 +110,7 @@ func AuthCheck(c *gin.Context) {
 	}
 
 	go database.LoginDateSet(&dbUser)
+	c.SetCookie("token", userToken, 3600, "/", viper.GetString("project_domain"), true, true)
 	c.JSON(200, thisUser)
 }
 

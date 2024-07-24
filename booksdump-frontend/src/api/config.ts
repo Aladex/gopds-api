@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { removeToken } from '../services/authService';
+import { getToken, removeToken } from '../context/AuthContext';
 
 const API_URL = process.env.REACT_APP_API_URL;
 
@@ -10,9 +10,8 @@ const axiosInstance = axios.create({
     },
 });
 
-// Добавляем токен к каждому запросу
 axiosInstance.interceptors.request.use((config) => {
-    const token = localStorage.getItem('token');
+    const token = getToken();
     if (token) {
         config.headers.Authorization = `${token}`;
     }
@@ -21,7 +20,6 @@ axiosInstance.interceptors.request.use((config) => {
     return Promise.reject(error);
 });
 
-// Обрабатываем ошибки авторизации и 404
 axiosInstance.interceptors.response.use((response) => {
     return response;
 }, (error) => {
