@@ -149,17 +149,27 @@ const BooksList: React.FC = () => {
         }
     };
 
-    const getSignedUrl = async (book: Book, format?: string) => {
+    const downloadBook = async (book: Book, format?: string) => {
         try {
             let url = `/books/getsigned/${format}/${book.id}`;
             const response = await fetchWithAuth.get(url);
             if (response.status === 200) {
-                return response.data.url;
+                const signedUrl = response.data.result;
+                if (signedUrl) {
+                    const a = document.createElement('a');
+                    a.href = signedUrl;
+                    a.download = ''; // Пустой атрибут download позволяет использовать имя файла из URL
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                }
             }
         } catch (error) {
-            console.error('Error getting signed url', error);
+            console.error('Error getting signed url or downloading book', error);
         }
-    }
+    };
+
+
 
     const handleUpdateBook = async (book: Book) => {
 
@@ -261,7 +271,7 @@ const BooksList: React.FC = () => {
                                                         variant="contained"
                                                         color="secondary"
                                                         sx={{mb: 1, color: 'white', minWidth: 150}}
-                                                        onClick={() => getSignedUrl(book, 'zip')}
+                                                        onClick={() => downloadBook(book, 'zip')}
                                                     >
                                                         FB2+ZIP
                                                     </Button>
@@ -269,7 +279,7 @@ const BooksList: React.FC = () => {
                                                         variant="contained"
                                                         color="secondary"
                                                         sx={{mb: 1, color: 'white', minWidth: 150}}
-                                                        onClick={() => getSignedUrl(book, 'fb2')}
+                                                        onClick={() => downloadBook(book, 'fb2')}
                                                     >
                                                         FB2
                                                     </Button>
@@ -277,7 +287,7 @@ const BooksList: React.FC = () => {
                                                         variant="contained"
                                                         color="secondary"
                                                         sx={{mb: 1, color: 'white', minWidth: 150}}
-                                                        onClick={() => getSignedUrl(book, 'epub')}
+                                                        onClick={() => downloadBook(book, 'epub')}
                                                     >
                                                         EPUB
                                                     </Button>
@@ -285,7 +295,7 @@ const BooksList: React.FC = () => {
                                                         variant="contained"
                                                         color="secondary"
                                                         sx={{mb: 1, color: 'white', minWidth: 150}}
-                                                        onClick={() => getSignedUrl(book, 'mobi')}
+                                                        onClick={() => downloadBook(book, 'mobi')}
                                                     >
                                                         MOBI
                                                     </Button>

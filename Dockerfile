@@ -1,7 +1,7 @@
 # Frontend build stage
-FROM node:16-alpine3.11 AS frontend-build
+FROM node:20.16.0-alpine3.20 AS frontend-build
 WORKDIR /app
-COPY frontend_src/ /app
+COPY booksdump-frontend/ /app
 RUN yarn && yarn build
 
 # Build stage
@@ -14,7 +14,7 @@ RUN apk add --no-cache unzip curl expat && \
     apk del unzip curl
 COPY . /app
 WORKDIR /app
-COPY --from=frontend-build /app/dist /app/frontend_src/dist
+COPY --from=frontend-build /app/build /app/booksdump-frontend/build
 RUN go mod download && \
     go install github.com/swaggo/swag/cmd/swag@latest && \
     swag init --generalInfo cmd/main.go && \
