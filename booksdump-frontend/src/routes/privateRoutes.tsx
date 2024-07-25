@@ -5,6 +5,7 @@ import BooksList from '../components/Userspace/BooksList';
 import TitleSetter from '../components/common/TitleSetter';
 import AuthorSearch from '../components/Userspace/AuthorSearch';
 import LayoutWithSearchBar from '../components/Layouts/LayoutWithSearchBar';
+import ErrorPage from "../components/Service/ErrorPage";
 
 const privateRoutes = (
     <>

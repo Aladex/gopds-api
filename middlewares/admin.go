@@ -30,9 +30,9 @@ func AdminMiddleware() gin.HandlerFunc {
 			abortWithStatus(c, http.StatusUnauthorized, err.Error())
 			return
 		}
-		// If user is not an admin, return 403
+		// If user is not an admin, return 404
 		if !isSuperUser {
-			abortWithStatus(c, http.StatusForbidden, "not_admin")
+			abortWithStatus(c, http.StatusNotFound, "not_admin")
 			return
 		}
 

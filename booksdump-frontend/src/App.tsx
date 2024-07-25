@@ -11,6 +11,7 @@ import {SearchBarProvider} from './context/SearchBarContext';
 import publicRoutes from './routes/publicRoutes';
 import privateRoutes from './routes/privateRoutes';
 import adminRoutes from "./routes/adminRoutes";
+import notFoundRoutes from "./routes/notFoundRoutes";
 
 const App: React.FC = () => {
     return (
@@ -22,7 +23,7 @@ const App: React.FC = () => {
                     {publicRoutes}
                     {privateRoutes}
                     {adminRoutes}
-                    <Route path="*" element={<Navigate to="/"/>}/>
+                    {notFoundRoutes}
                 </Routes>
             </Router>
         </ThemeProvider>
