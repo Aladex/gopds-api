@@ -150,21 +150,33 @@ const BooksList: React.FC = () => {
         }
     };
 
-    const downloadBook = async (book: Book, format?: string) => {
+    const getSignedUrl = async (book: Book, format?: string) => {
         try {
-            const url = `/books/getsigned/${format}/${book.id}`;
-            const response = await fetchWithAuth.get(url, { maxRedirects: 0 });
-
-            if (response.status === 301 || response.status === 302) {
-                const signedUrl = response.headers.location;
-                if (signedUrl) {
-                    window.location.href = signedUrl;
-                }
+            let url = `/books/getsigned/${format}/${book.id}`;
+            const response = await fetchWithAuth.get(url);
+            if (response.status === 200) {
+                return response.data.result;
             }
         } catch (error) {
-            console.error('Error getting signed url or downloading book', error);
+            console.error('Error getting signed url', error);
+        }
+        return null;
+    };
+
+    const downloadBook = async (book: Book, format?: string) => {
+        const signedUrl = await getSignedUrl(book, format);
+        if (signedUrl) {
+            // Показать индикатор загрузки
+            const a = document.createElement('a');
+            a.href = signedUrl;
+            a.download = `${book.title}.${format}`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            // Скрыть индикатор загрузки после начала загрузки
         }
     };
+
 
 
 
