@@ -248,7 +248,7 @@ const BooksList: React.FC = () => {
                                                      justifyContent={{ xs: 'center', md: 'end' }} gap={1} sx={{ mt: 2 }}>
                                                     <Button
                                                         component="a"
-                                                        href={`/files/books/get/zip/${book.id}`}
+                                                        href={`${API_URL}/files/books/get/zip/${book.id}`}
                                                         variant="contained"
                                                         color="secondary"
                                                         sx={{ mb: 1, color: 'white', minWidth: 120 }}
@@ -257,7 +257,7 @@ const BooksList: React.FC = () => {
                                                     </Button>
                                                     <Button
                                                         component="a"
-                                                        href={`/files/books/get/fb2/${book.id}`}
+                                                        href={`${API_URL}/files/books/get/fb2/${book.id}`}
                                                         variant="contained"
                                                         color="secondary"
                                                         sx={{ mb: 1, color: 'white', minWidth: 120 }}
@@ -266,7 +266,7 @@ const BooksList: React.FC = () => {
                                                     </Button>
                                                     <Button
                                                         component="a"
-                                                        href={`/files/books/get/epub/${book.id}`}
+                                                        href={`${API_URL}/files/books/get/epub/${book.id}`}
                                                         variant="contained"
                                                         color="secondary"
                                                         sx={{ mb: 1, color: 'white', minWidth: 120 }}
@@ -275,7 +275,7 @@ const BooksList: React.FC = () => {
                                                     </Button>
                                                     <Button
                                                         component="a"
-                                                        href={`/files/books/get/mobi/${book.id}`}
+                                                        href={`${API_URL}/files/books/get/mobi/${book.id}`}
                                                         variant="contained"
                                                         color="secondary"
                                                         sx={{ mb: 1, color: 'white', minWidth: 120 }}
