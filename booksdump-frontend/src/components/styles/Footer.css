@@ -1,0 +1,11 @@
+/* src/components/styles/Footer.css */
+.footer {
+    background-color: #333;
+    color: white;
+    text-align: right; /* Выравнивание текста по правому краю */
+    padding: 2px 10px; /* Добавить отступ в 5 пикселей с правого края */
+    width: 100%;
+    position: relative;
+    font-size: 10px;
+    margin-top: auto;
+}

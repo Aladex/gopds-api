@@ -13,6 +13,7 @@ import privateRoutes from './routes/privateRoutes';
 import adminRoutes from "./routes/adminRoutes";
 import notFoundRoutes from "./routes/notFoundRoutes";
 import LanguageInitializer from './components/LanguageInitializer';
+import Footer from './components/common/Footer';
 
 const App: React.FC = () => {
     return (
@@ -27,6 +28,7 @@ const App: React.FC = () => {
                     {notFoundRoutes}
                 </Routes>
             </Router>
+            <Footer />
         </ThemeProvider>
     );
 };

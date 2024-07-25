@@ -62,7 +62,7 @@ func setupFileRoutes(group *gin.RouterGroup) {
 // setupDefaultRoutes configures default routes for the application.
 func setupDefaultRoutes(route *gin.Engine) {
 	route.GET("/books-posters/*filepath", api.Posters)
-	route.GET("/status", api.StatusCheck)
+	route.GET("/api/status", api.StatusCheck)
 	route.POST("/api/login", api.AuthCheck)
 	route.POST("/api/register", api.Registration)
 	route.POST("/api/change-password", api.ChangeUserState)

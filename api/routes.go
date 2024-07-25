@@ -30,10 +30,10 @@ func SetupLogoutRoute(r *gin.RouterGroup) {
 // Auth godoc
 // @Summary Check service status
 // @Description Returns the current status of the service
-// @Tags status
+// @Tags api
 // @Produce  json
 // @Success 200 {object} models.Result "Result"
-// @Router /status [get]
+// @Router /api/status [get]
 func StatusCheck(c *gin.Context) {
 	osVersion, err := os.ReadFile("/VERSION")
 	result := "dev-version"
