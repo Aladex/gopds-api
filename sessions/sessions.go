@@ -49,7 +49,7 @@ func DeleteSessionKey(ctx context.Context, lu models.LoggedInUser) error {
 
 // DropAllSessions removes all session keys for a user.
 func DropAllSessions(token string) {
-	username, _, err := utils.CheckToken(token)
+	username, _, _, err := utils.CheckToken(token)
 	if err != nil {
 		logrus.Println(err)
 		return
@@ -60,7 +60,7 @@ func DropAllSessions(token string) {
 		return
 	}
 	for _, k := range keys {
-		if checkedUser, _, err := utils.CheckToken(k); err == nil && checkedUser == username {
+		if checkedUser, _, _, err := utils.CheckToken(k); err == nil && checkedUser == username {
 			rdb.Del(k)
 		}
 	}

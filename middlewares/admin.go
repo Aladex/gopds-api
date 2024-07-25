@@ -2,9 +2,7 @@ package middlewares
 
 import (
 	"github.com/gin-gonic/gin"
-	"gopds-api/database"
 	"net/http"
-	"strings"
 )
 
 // AdminMiddleware checks for admin privileges using the Authorization token.
@@ -27,14 +25,14 @@ func AdminMiddleware() gin.HandlerFunc {
 		}
 
 		// Validate token
-		username, dbID, err := validateToken(token)
+		username, dbID, isSuperUser, err := validateToken(token)
 		if err != nil {
 			abortWithStatus(c, http.StatusUnauthorized, err.Error())
 			return
 		}
-		dbUser, err := database.GetUser(strings.ToLower(username))
-		if err != nil || !dbUser.IsSuperUser {
-			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "not_found"})
+		// If user is not an admin, return 403
+		if !isSuperUser {
+			abortWithStatus(c, http.StatusForbidden, "not_admin")
 			return
 		}
 

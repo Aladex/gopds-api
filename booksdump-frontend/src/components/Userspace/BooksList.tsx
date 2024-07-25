@@ -41,14 +41,13 @@ interface Book {
 }
 
 const BooksList: React.FC = () => {
-    const { user } = useAuth();
+    const { user, updateUser } = useAuth();
     const { page, id, title } = useParams<{ page: string, id?: string, title?: string }>();
     const [books, setBooks] = useState<Book[]>([]);
     const [totalPages, setTotalPages] = useState(0);
     const [loading, setLoading] = useState(true);
     const [opened, setOpened] = useState<number[]>([]);
     const {t} = useTranslation();
-    // const baseUrl = window.location.pathname.replace(/\/\d+$/, '');
     const { authorId, authorBook, setAuthorId, clearAuthorBook } = useAuthor();
     const location = useLocation();
 
@@ -110,15 +109,8 @@ const BooksList: React.FC = () => {
     }, [page, user?.books_lang, id, title, location.pathname, setAuthorId, authorBook, clearAuthorBook, authorId]);
 
     useEffect(() => {
-        if (user) {
-            fetchBooks();
-        }
-    }, [ page, user, fetchBooks]);
-    useEffect(() => {
-        if (user) {
-            fetchBooks().then(r => r);
-        }
-    }, [page, user, fetchBooks]);
+        fetchBooks().then(r => r);
+    }, [ page, fetchBooks]);
 
     const handleOpenAnnotation = (id: number) => {
         setOpened((prev) => (prev.includes(id) ? prev.filter((bookId) => bookId !== id) : [...prev, id]));
@@ -126,15 +118,27 @@ const BooksList: React.FC = () => {
 
     const handleFavBook = async (book: Book) => {
         try {
+            // Optimistically update the local state
+            setBooks(prev => prev.map(b => b.id === book.id ? { ...b, fav: !b.fav } : b));
+
             const response = await fetchWithAuth.post('/books/fav', { book_id: book.id, fav: !book.fav });
             if (response.status === 200) {
-                // Assuming the response includes the updated book data
-                setBooks(prev => prev.map(b => b.id === book.id ? { ...b, fav: !b.fav } : b));
+                // Fetch updated user data
+                const userResponse = await fetchWithAuth.get('/books/self-user');
+                if (userResponse.status === 200) {
+                    updateUser(userResponse.data);
+                } else {
+                    console.error('Failed to fetch updated user data');
+                }
             } else {
                 console.error('Failed to update favorite status');
+                // Revert the optimistic update if the request fails
+                setBooks(prev => prev.map(b => b.id === book.id ? { ...b, fav: book.fav } : b));
             }
         } catch (error) {
             console.error('Error favoriting book', error);
+            // Revert the optimistic update if an error occurs
+            setBooks(prev => prev.map(b => b.id === book.id ? { ...b, fav: book.fav } : b));
         }
     };
 

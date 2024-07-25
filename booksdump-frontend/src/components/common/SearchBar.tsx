@@ -68,7 +68,7 @@ const SearchBar: React.FC = () => {
                 console.error('Error fetching languages', error);
             }
         };
-        fetchLangs();
+        fetchLangs().then(r => r);
 
         // Set language from user settings
         if (user) {
@@ -295,6 +295,7 @@ const SearchBar: React.FC = () => {
                                                         <IconButton
                                                             onClick={() => setFavContext(!fav)}
                                                             color="default"
+                                                            disabled={!user?.have_favs}
                                                         >
                                                             {fav ? <Favorite /> : <FavoriteBorder />}
                                                         </IconButton>

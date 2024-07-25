@@ -45,8 +45,9 @@ func (s *source) Seed(int64) {}
 
 // Token struct for token creation and checking
 type Token struct {
-	UserID     string
-	DatabaseID int64
+	UserID      string
+	DatabaseID  int64
+	IsSuperUser bool
 	jwt.RegisteredClaims
 }
 
@@ -96,8 +97,9 @@ func CheckPbkdf2(password, encoded string, keyLen int, h func() hash.Hash) (bool
 // CreateToken creates a token for the user
 func CreateToken(user models.User) (string, error) {
 	tk := Token{
-		UserID:     user.Login,
-		DatabaseID: user.ID,
+		UserID:      user.Login,
+		DatabaseID:  user.ID,
+		IsSuperUser: user.IsSuperUser,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:   "gopds-api",
 			IssuedAt: jwt.NewNumericDate(time.Now()),
@@ -112,25 +114,17 @@ func CreateToken(user models.User) (string, error) {
 }
 
 // CheckToken checks if the token is valid
-func CheckToken(token string) (string, int64, error) {
+func CheckToken(token string) (string, int64, bool, error) {
 	tokenCheck, err := jwt.ParseWithClaims(token, &Token{}, func(token *jwt.Token) (interface{}, error) {
 		return []byte(viper.GetString("sessions.key")), nil
 	})
 
 	if tokenCheck == nil {
-		return "", 0, errors.New("token is not valid")
+		return "", 0, false, err
 	}
 
 	if claims, ok := tokenCheck.Claims.(*Token); ok && tokenCheck.Valid {
-		return claims.UserID, claims.DatabaseID, nil
+		return claims.UserID, claims.DatabaseID, claims.IsSuperUser, nil
 	}
-	return "", 0, err
-}
-
-// Helper function to create password hash if new password is provided
-func CreatePasswordHashIfNeeded(newPassword, oldPassword string) string {
-	if newPassword != "" {
-		return CreatePasswordHash(newPassword)
-	}
-	return oldPassword
+	return "", 0, false, errors.New("invalid_token")
 }

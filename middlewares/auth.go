@@ -15,26 +15,26 @@ import (
 )
 
 // validateToken simplifies token validation by consolidating error handling.
-func validateToken(token string) (string, int64, error) {
+func validateToken(token string) (string, int64, bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	// If token not in Redis, return error
 	_, err := sessions.CheckSessionKeyInRedis(ctx, token)
 	if err != nil {
-		return "", 0, errors.New("invalid_session_redis")
+		return "", 0, false, errors.New("invalid_session")
 	}
 
-	username, dbID, err := utils.CheckToken(token)
+	username, dbID, isSuperUser, err := utils.CheckToken(token)
 	if err != nil {
-		return "", 0, err
+		return "", 0, false, errors.New("invalid_session")
 	}
 
 	err = sessions.UpdateSessionKey(ctx, models.LoggedInUser{User: username, Token: &token})
 	if err != nil {
-		return "", 0, errors.New("invalid_session")
+		return "", 0, false, errors.New("session_update_failed")
 	}
-	return username, dbID, nil
+	return username, dbID, isSuperUser, nil
 }
 
 // abortWithStatus simplifies error responses.
@@ -62,7 +62,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 
 		// Validate token
-		username, dbID, err := validateToken(token)
+		username, dbID, _, err := validateToken(token)
 		if err != nil {
 			abortWithStatus(c, http.StatusUnauthorized, err.Error())
 			return
