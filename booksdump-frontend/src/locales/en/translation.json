@@ -35,6 +35,7 @@
   "logoutButton": "Logout",
   "routeByBookName.books": "Search by book name",
   "routeByAuthorName.books": "Search by author name",
+  "routeByAuthor.books": "Search by author",
   "noAuthor": "No author",
   "authorsBookSearch": "Search books by author",
   "loginOrPasswordIncorrect": "Login or password is incorrect",
