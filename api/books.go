@@ -130,6 +130,7 @@ func GetSignedBookUrl(c *gin.Context) {
 	bookURL := fmt.Sprintf("%s/files/books/get/%s/%s", viper.GetString("project_url"), c.Param("format"), c.Param("id"))
 	expiry := time.Now().Add(time.Hour * 24).Unix()
 
-	signaturedUrl := utils.GenerateSignedURL(viper.GetString("secret_key"), bookURL, time.Duration(expiry))
-	c.JSON(200, models.Result{Result: signaturedUrl, Error: nil})
+	signedUrl := utils.GenerateSignedURL(viper.GetString("secret_key"), bookURL, time.Duration(expiry))
+	// Redirect to the signed URL with 301 Moved Permanently
+	c.Redirect(http.StatusMovedPermanently, signedUrl)
 }

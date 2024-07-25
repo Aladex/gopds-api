@@ -152,17 +152,13 @@ const BooksList: React.FC = () => {
 
     const downloadBook = async (book: Book, format?: string) => {
         try {
-            let url = `/books/getsigned/${format}/${book.id}`;
-            const response = await fetchWithAuth.get(url);
-            if (response.status === 200) {
-                const signedUrl = response.data.result;
+            const url = `/books/getsigned/${format}/${book.id}`;
+            const response = await fetchWithAuth.get(url, { maxRedirects: 0 });
+
+            if (response.status === 301 || response.status === 302) {
+                const signedUrl = response.headers.location;
                 if (signedUrl) {
-                    const a = document.createElement('a');
-                    a.href = signedUrl;
-                    a.download = ''; // Пустой атрибут download позволяет использовать имя файла из URL
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
+                    window.location.href = signedUrl;
                 }
             }
         } catch (error) {
