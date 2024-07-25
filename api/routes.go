@@ -35,7 +35,7 @@ func SetupLogoutRoute(r *gin.RouterGroup) {
 // @Success 200 {object} models.Result "Result"
 // @Router /api/status [get]
 func StatusCheck(c *gin.Context) {
-	osVersion, err := os.ReadFile("/VERSION")
+	osVersion, err := os.ReadFile("/version")
 	result := "dev-version"
 	if err == nil {
 		result = string(osVersion)
