@@ -23,6 +23,8 @@ import SkeletonCard from "../common/SkeletonCard";
 import AuthorsList from "../common/AuthorsList";
 import { useAuthor } from "../../context/AuthorContext";
 import CategotiesList from "../common/CategotiesList";
+import { useFav} from "../../context/FavContext";
+import { useNavigate } from "react-router-dom";
 
 interface Book {
     id: number;
@@ -50,6 +52,8 @@ const BooksList: React.FC = () => {
     const {t} = useTranslation();
     const { authorId, authorBook, setAuthorId, clearAuthorBook } = useAuthor();
     const location = useLocation();
+    const fav = useFav();
+    const navigate = useNavigate();
 
     type Params = {
         limit: number;
@@ -127,6 +131,13 @@ const BooksList: React.FC = () => {
                 const userResponse = await fetchWithAuth.get('/books/self-user');
                 if (userResponse.status === 200) {
                     updateUser(userResponse.data);
+                    // If user.?have_favs not true, redirect to /books/page/1 - setFav will be false
+                    if (!userResponse.data.have_favs) {
+                        fav.setFav(false);
+                        // Redirect to /books/page/1
+                        navigate('/books/page/1');
+                    }
+
                 } else {
                     console.error('Failed to fetch updated user data');
                 }
