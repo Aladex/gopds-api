@@ -127,7 +127,7 @@ func FavBook(c *gin.Context) {
 // @Failure 400 {object} httputil.HTTPError "Bad request"
 // @Router /api/books/get/{format}/{id} [get]
 func GetSignedBookUrl(c *gin.Context) {
-	bookURL := fmt.Sprintf("%s/files/books/get/%s/%s", fmt.Sprintf("%s%s", "http://", viper.GetString("project_domain")), c.Param("format"), c.Param("id"))
+	bookURL := fmt.Sprintf("%s/files/books/get/%s/%s", viper.GetString("project_url"), c.Param("format"), c.Param("id"))
 	expiry := time.Now().Add(time.Hour * 24).Unix()
 
 	signaturedUrl := utils.GenerateSignedURL(viper.GetString("secret_key"), bookURL, time.Duration(expiry))
