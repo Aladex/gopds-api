@@ -85,7 +85,7 @@ func TokenMiddleware() gin.HandlerFunc {
 		}
 
 		// Simplify current URL reconstruction
-		currentURL := fmt.Sprintf("http://%s%s", c.Request.Host, c.Request.URL.Path)
+		currentURL := fmt.Sprintf("%s%s", viper.GetString("project_url"), c.Request.URL.Path)
 
 		if !utils.VerifySignature(viper.GetString("secret_key"), currentURL, signedURL.Signature, signedURL.Expires) {
 			abortWithStatus(c, http.StatusUnauthorized, "invalid_signature")

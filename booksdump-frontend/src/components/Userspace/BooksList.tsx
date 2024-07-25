@@ -33,6 +33,7 @@ interface Book {
     authors: { id: number; full_name: string }[];
     series: { id: number; ser: string; ser_no: number }[];
     annotation: string;
+    filename: string;
     cover: string;
     registerdate: string;
     docdate: string;
@@ -176,7 +177,7 @@ const BooksList: React.FC = () => {
     }
 
 
-    const cover = (book: Book) => `${API_URL}/books-posters/${book.path.replace(/[^a-zA-Z0-9]/g, '-')}/${book.id}-${book.format}.jpg`;
+    const cover = (book: Book) => `${API_URL}/books-posters/${book.path.replace(/\W/g, '-')}/${book.filename.replace(/\W/g, '-')}.jpg`;
 
     return (
         <Box p={2}>
