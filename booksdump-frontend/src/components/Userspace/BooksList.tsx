@@ -1,4 +1,5 @@
 // src/components/BooksList.tsx
+import '../styles/BooksList.css';
 import React, {useState, useEffect, useCallback} from 'react';
 import {useParams, useLocation} from 'react-router-dom';
 import {
@@ -244,8 +245,7 @@ const BooksList: React.FC = () => {
                                                 </CardContent>
                                             </Grid>
                                             <Grid item xs={12} md={3}>
-                                                <Box display="flex" flexWrap="wrap"
-                                                     justifyContent={{ xs: 'center', md: 'end' }} gap={1} sx={{ mt: 2 }}>
+                                                <Box className="download-buttons">
                                                     <Button
                                                         component="a"
                                                         href={`${API_URL}/files/books/get/zip/${book.id}`}

@@ -1,0 +1,31 @@
+/* src/components/Userspace/BooksList.css */
+.download-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    align-items: flex-end; /* Выравнивание по правому краю */
+}
+
+.download-buttons > * {
+    max-width: 150px;
+}
+
+@media (max-width: 1024px) {
+    .download-buttons {
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+}
+
+@media (max-width: 600px) {
+    .download-buttons {
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+    .download-buttons > * {
+        flex: 1 1 45%;
+        margin: 0.5rem;
+    }
+}

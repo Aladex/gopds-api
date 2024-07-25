@@ -1,3 +1,4 @@
+// src/routes/adminRoutes.tsx
 import React from 'react';
 import { Route, Navigate } from 'react-router-dom';
 import AdminSpace from '../components/Adminspace/AdminPanel';
@@ -6,11 +7,11 @@ import TitleSetter from '../components/common/TitleSetter';
 
 const adminRoutes = (
     <>
-        <Route path="/admin" element={<PrivateRoute><Navigate to="/admin/users" replace /></PrivateRoute>} />
+        <Route path="/admin" element={<PrivateRoute requireSuperuser={true}><Navigate to="/admin/users" replace /></PrivateRoute>} />
         <Route
             path="/admin/*"
             element={
-                <PrivateRoute>
+                <PrivateRoute requireSuperuser={true}>
                     <TitleSetter titleKey="routeTitles.admin">
                         <AdminSpace />
                     </TitleSetter>
