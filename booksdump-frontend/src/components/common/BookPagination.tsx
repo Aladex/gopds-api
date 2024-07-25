@@ -12,25 +12,25 @@ interface PaginationProps {
 const StyledPagination = styled(MuiPagination)(({ theme }) => ({
     '& .MuiPaginationItem-root': {
         fontWeight: 'bold',
-        color: '#2f2f2f', // Background color for active button
-        backgroundColor: 'white', // Text color for active button
+        color: '#2f2f2f',
+        backgroundColor: 'white',
     },
     '& .MuiPaginationItem-root:hover': {
-        backgroundColor: '#e0e0e0', // Background color for hovered button
+        backgroundColor: '#e0e0e0',
     },
     '& .Mui-selected': {
-        color: 'white', // Text color for active button
-        backgroundColor: theme.palette.secondary.main, // Background color for active button
+        color: 'white',
+        backgroundColor: theme.palette.secondary.main,
     },
     '& .Mui-selected:hover': {
-        backgroundColor: theme.palette.secondary.dark, // Background color for hovered button
+        backgroundColor: theme.palette.secondary.dark,
     },
     '@media (max-width: 600px)': {
         '& .MuiPaginationItem-root': {
-            minWidth: '24px', // Min width for button
-            height: '24px', // Min height for button
-            margin: '0 2px', // Margin between buttons
-            fontSize: '0.75rem', // Font size for button
+            minWidth: '24px',
+            height: '24px',
+            margin: '0 2px',
+            fontSize: '0.75rem',
         },
     },
 }));
@@ -56,9 +56,18 @@ const BookPagination: React.FC<PaginationProps> = ({ totalPages, currentPage, ba
             page={currentPage}
             onChange={handleChange}
             color="secondary"
-            showFirstButton
-            showLastButton
-            variant="outlined" shape="rounded"
+            showFirstButton={false}
+            showLastButton={false}
+            variant="outlined"
+            shape="rounded"
+            boundaryCount={1}
+            siblingCount={1}
+            sx={{
+                '@media (max-width: 600px)': {
+                    boundaryCount: 0,
+                    siblingCount: 0,
+                },
+            }}
         />
     );
 };

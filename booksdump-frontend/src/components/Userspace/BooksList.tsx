@@ -180,7 +180,7 @@ const BooksList: React.FC = () => {
     const cover = (book: Book) => `${API_URL}/books-posters/${book.path.replace(/\W/g, '-')}/${book.filename.replace(/\W/g, '-')}.jpg`;
 
     return (
-        <Box p={2}>
+        <Box>
             {loading ? (
                 Array.from({length: 10}).map((_, index) => (
                     <Grid item xs={12} key={index}>
