@@ -12,6 +12,7 @@ import publicRoutes from './routes/publicRoutes';
 import privateRoutes from './routes/privateRoutes';
 import adminRoutes from "./routes/adminRoutes";
 import notFoundRoutes from "./routes/notFoundRoutes";
+import LanguageInitializer from './components/LanguageInitializer';
 
 const App: React.FC = () => {
     return (
@@ -32,6 +33,7 @@ const App: React.FC = () => {
 
 const AppWrapper: React.FC = () => (
     <AuthProvider>
+        <LanguageInitializer />
         <FavProvider>
             <AuthorProvider>
                 <SearchBarProvider>
