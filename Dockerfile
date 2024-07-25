@@ -20,11 +20,15 @@ RUN go mod download && \
     swag init --generalInfo cmd/main.go && \
     go build -o bin/gopds cmd/*
 
+# Add this line to create the version file
+ARG VERSION=dev-version
+RUN echo $VERSION > /app/version
 
 # Production stage
 FROM alpine:3.14 AS production-stage
 COPY --from=build-stage /app/bin/gopds /gopds/gopds
 COPY --from=build-stage /external_fb2mobi /gopds/external_fb2mobi
+COPY --from=build-stage /app/version /gopds/version
 WORKDIR /gopds
 EXPOSE 8085
 CMD ["/gopds/gopds"]

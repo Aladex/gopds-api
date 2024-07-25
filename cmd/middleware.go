@@ -67,7 +67,7 @@ func serveStaticFilesMiddleware(fs http.FileSystem) gin.HandlerFunc {
 func corsOptionsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.Request.Method == "OPTIONS" {
-			c.Header("Access-Control-Allow-Origin", "http://localhost:3000")
+			c.Header("Access-Control-Allow-Origin", "http://127.0.0.1:3000")
 			c.Header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
 			c.Header("Access-Control-Allow-Credentials", "true")
 			c.Header("Access-Control-Allow-Headers", "authorization, origin, content-type, accept, token")
@@ -75,7 +75,7 @@ func corsOptionsMiddleware() gin.HandlerFunc {
 			c.Header("Content-Type", "application/json")
 			c.AbortWithStatus(http.StatusOK)
 		} else {
-			c.Header("Access-Control-Allow-Origin", "http://localhost:3000")
+			c.Header("Access-Control-Allow-Origin", "http://127.0.0.1:3000")
 			c.Header("Access-Control-Allow-Credentials", "true")
 			c.Header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
 			c.Header("Access-Control-Allow-Headers", "authorization, origin, content-type, accept, token")

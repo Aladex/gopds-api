@@ -3,6 +3,7 @@ package api
 import (
 	"github.com/gin-gonic/gin"
 	"gopds-api/models"
+	"os"
 )
 
 // SetupBookRoutes sets up routes for books
@@ -31,11 +32,16 @@ func SetupLogoutRoute(r *gin.RouterGroup) {
 // @Description Returns the current status of the service
 // @Tags status
 // @Produce  json
-// @Success 200 {object} models.Result "Service is running"
+// @Success 200 {object} models.Result "Result"
 // @Router /status [get]
 func StatusCheck(c *gin.Context) {
+	osVersion, err := os.ReadFile("/VERSION")
+	result := "dev-version"
+	if err == nil {
+		result = string(osVersion)
+	}
 	c.JSON(200, models.Result{
-		Result: "Service is running",
+		Result: result,
 		Error:  nil,
 	})
 }

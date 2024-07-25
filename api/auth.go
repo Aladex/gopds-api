@@ -136,7 +136,13 @@ func AuthCheck(c *gin.Context) {
 	}
 
 	go database.LoginDateSet(&dbUser)
-	c.SetCookie("token", userToken, 604800, "/", viper.GetString("project_domain"), true, true)
+	c.SetCookie("token",
+		userToken,
+		604800,
+		"/",
+		viper.GetString("project_domain"),
+		!viper.GetBool("app.devel_mode"),
+		!viper.GetBool("app.devel_mode"))
 	c.JSON(200, thisUser)
 }
 

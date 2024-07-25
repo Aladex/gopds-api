@@ -1,29 +1,31 @@
-import React, {useState, useEffect} from 'react';
-import {Link} from 'react-router-dom';
+import React, {useEffect, useState} from 'react';
+import {Link, useNavigate} from 'react-router-dom';
 import {
     AppBar,
-    Toolbar,
-    Dialog, DialogTitle, DialogContent, DialogActions,
-    Typography,
-    Button,
-    Tabs,
-    Tab,
     Box,
-    IconButton,
+    Button,
+    Dialog,
+    DialogActions,
+    DialogContent,
+    DialogTitle,
     Drawer,
+    IconButton,
     List,
+    ListItemButton,
     ListItemText,
-    ListItemButton
+    Tab,
+    Tabs,
+    Toolbar,
+    Typography,
+    useMediaQuery
 } from '@mui/material';
-import {useNavigate} from 'react-router-dom';
 import {useAuth} from '../../context/AuthContext';
 import {useTheme} from '@mui/material/styles';
-import {useMediaQuery} from '@mui/material';
-import { fetchWithAuth} from '../../api/config';
+import {fetchWithAuth} from '../../api/config';
 import {useTranslation} from 'react-i18next';
-import {Menu as MenuIcon, Logout, Person} from "@mui/icons-material";
-import { StyledTextField } from "../StyledDataItems";
-import { useCommonStyles } from "../themeStyles";
+import {Logout, Menu as MenuIcon, Person} from "@mui/icons-material";
+import {StyledTextField} from "../StyledDataItems";
+import {useCommonStyles} from "../themeStyles";
 
 const Header: React.FC = () => {
     const {logout, updateUser, user} = useAuth();
@@ -63,7 +65,7 @@ const Header: React.FC = () => {
             }
         };
 
-        fetchUser();
+        fetchUser().then(r => r); // Fetch user data
     }, [updateUser]);
 
     const handleLogout = () => {
@@ -98,8 +100,7 @@ const Header: React.FC = () => {
 
     const menuItems = [
         {label: t('booksTab'), path: '/books/page/1', index: 0},
-        {label: t('opdsTab'), path: '/catalog', index: 1},
-        {label: t('donateTab'), path: '/donate', index: 2},
+        {label: t('donateTab'), path: '/donate', index: 1},
     ];
 
     const togglePasswordFields = () => {
@@ -110,13 +111,13 @@ const Header: React.FC = () => {
         handleDialogClose();
         try {
             const userData = {
-                username: user?.username, // Assuming the username is from the user context
+                username: user?.username,
                 first_name: firstName,
                 last_name: lastName,
                 new_password: newPassword,
-                password: oldPassword
+                password: oldPassword,
+                books_lang: user?.books_lang,
             };
-
             // Send a POST request to the server to update the user data
             const response = await fetchWithAuth.post('/books/change-me', userData);
 
@@ -131,7 +132,6 @@ const Header: React.FC = () => {
             // Handle the error here
         }
     };
-
     const handleDropSessions = async () => {
         try {
             const response = await fetchWithAuth(`/drop-sessions`);
