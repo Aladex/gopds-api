@@ -17,7 +17,7 @@ import (
 // It includes routes for Swagger UI, file handling, default operations, OPDS feed, API, admin, and Telegram bot interactions.
 func setupRoutes(route *gin.Engine) {
 	route.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
-	setupFileRoutes(route.Group("/files", middlewares.TokenMiddleware()))
+	setupFileRoutes(route.Group("/files", middlewares.AuthMiddleware()))
 	setupDefaultRoutes(route)
 	setupOpdsRoutes(route.Group("/opds", middlewares.BasicAuth()))
 	setupApiRoutes(route.Group("/api", middlewares.AuthMiddleware()))

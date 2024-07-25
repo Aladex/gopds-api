@@ -150,36 +150,6 @@ const BooksList: React.FC = () => {
         }
     };
 
-    const getSignedUrl = async (book: Book, format?: string) => {
-        try {
-            let url = `/books/getsigned/${format}/${book.id}`;
-            const response = await fetchWithAuth.get(url);
-            if (response.status === 200) {
-                return response.data.result;
-            }
-        } catch (error) {
-            console.error('Error getting signed url', error);
-        }
-        return null;
-    };
-
-    const downloadBook = async (book: Book, format?: string) => {
-        const signedUrl = await getSignedUrl(book, format);
-        if (signedUrl) {
-            // Показать индикатор загрузки
-            const a = document.createElement('a');
-            a.href = signedUrl;
-            a.download = `${book.title}.${format}`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            // Скрыть индикатор загрузки после начала загрузки
-        }
-    };
-
-
-
-
     const handleUpdateBook = async (book: Book) => {
 
     }
@@ -275,40 +245,45 @@ const BooksList: React.FC = () => {
                                             </Grid>
                                             <Grid item xs={12} md={3}>
                                                 <Box display="flex" flexWrap="wrap"
-                                                     justifyContent={{xs: 'center', md: 'end'}} gap={1} sx={{mt: 2}}>
+                                                     justifyContent={{ xs: 'center', md: 'end' }} gap={1} sx={{ mt: 2 }}>
                                                     <Button
+                                                        component="a"
+                                                        href={`/files/books/get/zip/${book.id}`}
                                                         variant="contained"
                                                         color="secondary"
-                                                        sx={{mb: 1, color: 'white', minWidth: 120}}
-                                                        onClick={() => downloadBook(book, 'zip')}
+                                                        sx={{ mb: 1, color: 'white', minWidth: 120 }}
                                                     >
                                                         FB2+ZIP
                                                     </Button>
                                                     <Button
+                                                        component="a"
+                                                        href={`/files/books/get/fb2/${book.id}`}
                                                         variant="contained"
                                                         color="secondary"
-                                                        sx={{mb: 1, color: 'white', minWidth: 120}}
-                                                        onClick={() => downloadBook(book, 'fb2')}
+                                                        sx={{ mb: 1, color: 'white', minWidth: 120 }}
                                                     >
                                                         FB2
                                                     </Button>
                                                     <Button
+                                                        component="a"
+                                                        href={`/files/books/get/epub/${book.id}`}
                                                         variant="contained"
                                                         color="secondary"
-                                                        sx={{mb: 1, color: 'white', minWidth: 120}}
-                                                        onClick={() => downloadBook(book, 'epub')}
+                                                        sx={{ mb: 1, color: 'white', minWidth: 120 }}
                                                     >
                                                         EPUB
                                                     </Button>
                                                     <Button
+                                                        component="a"
+                                                        href={`/files/books/get/mobi/${book.id}`}
                                                         variant="contained"
                                                         color="secondary"
-                                                        sx={{mb: 1, color: 'white', minWidth: 120}}
-                                                        onClick={() => downloadBook(book, 'mobi')}
+                                                        sx={{ mb: 1, color: 'white', minWidth: 120 }}
                                                     >
                                                         MOBI
                                                     </Button>
                                                 </Box>
+
                                             </Grid>
                                         </Grid>
                                         <CardActions sx={{justifyContent: 'flex-end'}}>
