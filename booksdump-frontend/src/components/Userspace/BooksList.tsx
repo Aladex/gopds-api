@@ -27,6 +27,8 @@ import CategotiesList from "../common/CategotiesList";
 import {useFav} from "../../context/FavContext";
 import {useNavigate} from "react-router-dom";
 import BookAnnotation from "../common/BookAnnotation";
+import CoverLoader from "../common/CoverLoader";
+import { format } from 'date-fns';
 
 interface Book {
     id: number;
@@ -65,6 +67,11 @@ const BooksList: React.FC = () => {
         author?: string;
         series?: string;
         title?: string;
+    };
+
+    const formatDate = (dateString: string) => {
+        const date = new Date(dateString);
+        return format(date, "dd.MM.yyyy, HH:mm");
     };
 
     const fetchBooks = useCallback(async () => {
@@ -193,21 +200,19 @@ const BooksList: React.FC = () => {
                                                 <Grid container spacing={2}>
                                                     <Grid item xs={12} md={4}>
                                                         <CardMedia
-                                                            component="img"
-                                                            height="300"
-                                                            image={cover(book)}
+                                                            component={CoverLoader}
+                                                            imageUrl={cover(book)}
                                                             alt={book.title}
-                                                            sx={{objectFit: 'scale-down'}}
                                                         />
                                                     </Grid>
                                                     <Grid item xs={12} md={8}>
                                                         <CardContent>
                                                             <Typography variant="h5">{book.title}</Typography>
-                                                            <Typography variant="body2" color="textSecondary">
-                                                                {t('bookAdded')}: {new Date(book.registerdate).toLocaleString()}
+                                                            <Typography sx={{ mb: 2 }} variant="body2" color="textSecondary">
+                                                                {t('bookAdded')}: {formatDate(book.registerdate)}
                                                             </Typography>
-                                                            <Typography variant="body2" color="textSecondary">
-                                                                {t('bookPublished')}: {new Date(book.docdate).toLocaleDateString()}
+                                                            <Typography sx={{ mb: 2 }} variant="body2" color="textSecondary">
+                                                                {t('bookPublished')}: {book.docdate ? formatDate(book.docdate) : t('unknownPublicationDate')}
                                                             </Typography>
                                                             <Typography variant="body2" color="textSecondary"
                                                                         sx={{display: 'flex', alignItems: 'center'}}>
