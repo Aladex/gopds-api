@@ -289,6 +289,7 @@ func ChangeUser(c *gin.Context) {
 			FirstName:   dbUser.FirstName,
 			LastName:    dbUser.LastName,
 			IsSuperuser: &dbUser.IsSuperUser,
+			BooksLang:   dbUser.BooksLang,
 			HaveFavs:    &hf,
 		})
 	}
