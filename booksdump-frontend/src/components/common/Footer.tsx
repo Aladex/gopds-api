@@ -21,7 +21,12 @@ const Footer: React.FC = () => {
 
     return (
         <footer className="footer">
-            <p>App Version: {appVersion}</p>
+            <div className="left">
+                <a href="https://aladex.ru/donat-za-bibliotieku/" target="_blank" rel="noopener noreferrer">Donate</a>
+            </div>
+            <div className="right">
+                <p>App Version: {appVersion}</p>
+            </div>
         </footer>
     );
 };

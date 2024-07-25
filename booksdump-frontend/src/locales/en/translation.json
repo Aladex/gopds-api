@@ -67,5 +67,13 @@
   "token": "Token",
   "categories": "Categories",
   "routeTitles.error": "Error",
-  "noAnnotations": "No annotations"
+  "noAnnotations": "No annotations",
+  "opdsInfo.title": "How to Connect to OPDS Server",
+  "opdsInfo.addCatalog": "To connect to the OPDS server, add the catalog https://{{domain}}/opds/ to your favorite reader.",
+  "opdsInfo.testMode": "OPDS is in test mode and may have issues, for example, in FBReader. However, it is generally usable.",
+  "opdsInfo.authorization": "Authorization in the application is mandatory.",
+  "opdsInfo.alReaderAuth": "In AlReader, authorization is specified with a colon, for example, username:pass.",
+  "opdsInfo.tlsSupport": "In older versions of applications, it may not work because they do not support TLS 1.2.",
+  "opdsInfo.pocketBook": "For example, on older PocketBook readers that do not support TLS 1.2, OPDS will not work.",
+  "opdsInfo.onyxBoox": "On older Onyx Boox devices, it gives a null error. This can be fixed by updating the firmware."
 }

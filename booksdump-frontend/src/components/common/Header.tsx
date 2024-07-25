@@ -100,7 +100,7 @@ const Header: React.FC = () => {
 
     const menuItems = [
         {label: t('booksTab'), path: '/books/page/1', index: 0},
-        {label: t('donateTab'), path: '/donate', index: 1},
+        {label: t('opdsTab'), path: '/catalog', index: 1},
     ];
 
     const togglePasswordFields = () => {

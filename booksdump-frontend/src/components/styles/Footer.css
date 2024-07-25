@@ -2,10 +2,29 @@
 .footer {
     background-color: #333;
     color: white;
-    text-align: right; /* Выравнивание текста по правому краю */
-    padding: 2px 10px; /* Добавить отступ в 5 пикселей с правого края */
+    padding: 2px 10px; /* Отступ в 10 пикселей */
     width: 100%;
     position: relative;
     font-size: 10px;
     margin-top: auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center; /* Выравнивание по вертикали */
+}
+
+.footer .left {
+    text-align: left;
+}
+
+.footer .right {
+    text-align: right;
+}
+
+.footer a {
+    color: white; /* Цвет ссылки такой же, как и у текста */
+    text-decoration: none; /* Убираем подчеркивание */
+}
+
+.footer a:hover {
+    text-decoration: underline; /* Подчеркивание при наведении */
 }
