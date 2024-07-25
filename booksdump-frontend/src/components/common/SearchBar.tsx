@@ -181,7 +181,7 @@ const SearchBar: React.FC = () => {
                             <Grid container spacing={2} justifyContent="start">
                                 <Grid item xs={12} lg={6}>
                                     <Grid container spacing={2}>
-                                        <Grid item xs={6} lg={6}>
+                                        <Grid item xs={12} lg={6}>
                                             <StyledFormControl
                                                 fullWidth
                                                 sx={{
@@ -220,7 +220,7 @@ const SearchBar: React.FC = () => {
                                                 </Select>
                                             </StyledFormControl>
                                         </Grid>
-                                        <Grid item xs={6} lg={6}>
+                                        <Grid item xs={12} lg={6}>
                                             <StyledTextField
                                                 label={t('searchItem')}
                                                 value={searchItem}

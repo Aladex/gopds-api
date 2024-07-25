@@ -271,7 +271,7 @@ const BooksList: React.FC = () => {
                                                     <Button
                                                         variant="contained"
                                                         color="secondary"
-                                                        sx={{mb: 1, color: 'white', minWidth: 150}}
+                                                        sx={{mb: 1, color: 'white', minWidth: 120}}
                                                         onClick={() => downloadBook(book, 'zip')}
                                                     >
                                                         FB2+ZIP
@@ -279,7 +279,7 @@ const BooksList: React.FC = () => {
                                                     <Button
                                                         variant="contained"
                                                         color="secondary"
-                                                        sx={{mb: 1, color: 'white', minWidth: 150}}
+                                                        sx={{mb: 1, color: 'white', minWidth: 120}}
                                                         onClick={() => downloadBook(book, 'fb2')}
                                                     >
                                                         FB2
@@ -287,7 +287,7 @@ const BooksList: React.FC = () => {
                                                     <Button
                                                         variant="contained"
                                                         color="secondary"
-                                                        sx={{mb: 1, color: 'white', minWidth: 150}}
+                                                        sx={{mb: 1, color: 'white', minWidth: 120}}
                                                         onClick={() => downloadBook(book, 'epub')}
                                                     >
                                                         EPUB
@@ -295,7 +295,7 @@ const BooksList: React.FC = () => {
                                                     <Button
                                                         variant="contained"
                                                         color="secondary"
-                                                        sx={{mb: 1, color: 'white', minWidth: 150}}
+                                                        sx={{mb: 1, color: 'white', minWidth: 120}}
                                                         onClick={() => downloadBook(book, 'mobi')}
                                                     >
                                                         MOBI
