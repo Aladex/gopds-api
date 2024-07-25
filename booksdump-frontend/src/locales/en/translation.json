@@ -67,7 +67,7 @@
   "token": "Token",
   "categories": "Categories",
   "routeTitles.error": "Error",
-  "noAnnotations": "No annotations",
+  "noAnnotation": "No annotations",
   "opdsInfo.title": "How to Connect to OPDS Server",
   "opdsInfo.addCatalog": "To connect to the OPDS server, add the catalog https://{{domain}}/opds/ to your favorite reader.",
   "opdsInfo.testMode": "OPDS is in test mode and may have issues, for example, in FBReader. However, it is generally usable.",
