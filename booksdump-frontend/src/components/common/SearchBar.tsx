@@ -22,6 +22,7 @@ import { useAuthor } from "../../context/AuthorContext";
 import { useSearchBar } from "../../context/SearchBarContext";
 import { StyledFormControl} from "../StyledDataItems";
 
+
 interface LangItem {
     language: string;
     count: number;
@@ -40,6 +41,7 @@ const SearchBar: React.FC = () => {
     const navigate = useNavigate();
     const { fav, setFav } = useFav();
     const prevFavRef = useRef(fav);
+    const [, setTranslatedOptions] = useState<Array<{ value: string; label: string }>>([]);
     const location = useLocation();
     const [searchOptions, setSearchOptions] = useState<Array<{ value: string; label: string }>>([
         { value: 'title', label: t('byTitle') },
@@ -52,6 +54,12 @@ const SearchBar: React.FC = () => {
     ];
     const {authorId, setAuthorBook, clearAuthorId, clearAuthorBook } = useAuthor();
 
+    useEffect(() => {
+        setTranslatedOptions([
+            { value: 'title', label: t('byTitle') },
+            { value: 'author', label: t('byAuthor') },
+        ]);
+    }, [t, setTranslatedOptions]);
 
     useEffect(() => {
         const fetchLangs = async () => {
