@@ -227,6 +227,7 @@ const UsersTable: React.FC = () => {
                                 label={t('lastName')}
                                 type="text"
                                 fullWidth
+                                sx={{marginBottom: 2}}
                                 value={lastName}
                                 onChange={(e) => setLastName(e.target.value)}
                             />

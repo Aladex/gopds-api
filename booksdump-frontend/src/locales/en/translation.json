@@ -64,5 +64,8 @@
   "edit": "Edit",
   "editUser": "Edit user",
   "email": "Email",
-  "token": "Token"
+  "token": "Token",
+  "categories": "Categories",
+  "routeTitles.error": "Error",
+  "noAnnotations": "No annotations"
 }

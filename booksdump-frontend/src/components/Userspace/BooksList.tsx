@@ -21,10 +21,11 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import BookPagination from "../common/BookPagination";
 import SkeletonCard from "../common/SkeletonCard";
 import AuthorsList from "../common/AuthorsList";
-import { useAuthor } from "../../context/AuthorContext";
+import {useAuthor} from "../../context/AuthorContext";
 import CategotiesList from "../common/CategotiesList";
-import { useFav} from "../../context/FavContext";
-import { useNavigate } from "react-router-dom";
+import {useFav} from "../../context/FavContext";
+import {useNavigate} from "react-router-dom";
+import BookAnnotation from "../common/BookAnnotation";
 
 interface Book {
     id: number;
@@ -43,14 +44,13 @@ interface Book {
 }
 
 const BooksList: React.FC = () => {
-    const { user, updateUser } = useAuth();
-    const { page, id, title } = useParams<{ page: string, id?: string, title?: string }>();
+    const {user, updateUser} = useAuth();
+    const {page, id, title} = useParams<{ page: string, id?: string, title?: string }>();
     const [books, setBooks] = useState<Book[]>([]);
     const [totalPages, setTotalPages] = useState(0);
     const [loading, setLoading] = useState(true);
-    const [opened, setOpened] = useState<number[]>([]);
     const {t} = useTranslation();
-    const { authorId, authorBook, setAuthorId, clearAuthorBook } = useAuthor();
+    const {authorId, authorBook, setAuthorId, clearAuthorBook} = useAuthor();
     const location = useLocation();
     const fav = useFav();
     const navigate = useNavigate();
@@ -70,7 +70,7 @@ const BooksList: React.FC = () => {
         const limit = 10;
         const currentPage = parseInt(page || '1', 10);
         const offset = (currentPage - 1) * limit;
-        let params: Params = { limit, offset, lang: user?.books_lang || '' };
+        let params: Params = {limit, offset, lang: user?.books_lang || ''};
 
         if (location.pathname.includes('/books/find/author/')) {
             if (id) {
@@ -97,7 +97,7 @@ const BooksList: React.FC = () => {
         }
 
         try {
-            const response = await fetchWithAuth.get('/books/list', { params });
+            const response = await fetchWithAuth.get('/books/list', {params});
             if (response.status === 200) {
                 const data = response.data;
                 setBooks(data.books);
@@ -114,18 +114,14 @@ const BooksList: React.FC = () => {
 
     useEffect(() => {
         fetchBooks().then(r => r);
-    }, [ page, fetchBooks]);
-
-    const handleOpenAnnotation = (id: number) => {
-        setOpened((prev) => (prev.includes(id) ? prev.filter((bookId) => bookId !== id) : [...prev, id]));
-    };
+    }, [page, fetchBooks]);
 
     const handleFavBook = async (book: Book) => {
         try {
             // Optimistically update the local state
-            setBooks(prev => prev.map(b => b.id === book.id ? { ...b, fav: !b.fav } : b));
+            setBooks(prev => prev.map(b => b.id === book.id ? {...b, fav: !b.fav} : b));
 
-            const response = await fetchWithAuth.post('/books/fav', { book_id: book.id, fav: !book.fav });
+            const response = await fetchWithAuth.post('/books/fav', {book_id: book.id, fav: !book.fav});
             if (response.status === 200) {
                 // Fetch updated user data
                 const userResponse = await fetchWithAuth.get('/books/self-user');
@@ -144,12 +140,12 @@ const BooksList: React.FC = () => {
             } else {
                 console.error('Failed to update favorite status');
                 // Revert the optimistic update if the request fails
-                setBooks(prev => prev.map(b => b.id === book.id ? { ...b, fav: book.fav } : b));
+                setBooks(prev => prev.map(b => b.id === book.id ? {...b, fav: book.fav} : b));
             }
         } catch (error) {
             console.error('Error favoriting book', error);
             // Revert the optimistic update if an error occurs
-            setBooks(prev => prev.map(b => b.id === book.id ? { ...b, fav: book.fav } : b));
+            setBooks(prev => prev.map(b => b.id === book.id ? {...b, fav: book.fav} : b));
         }
     };
 
@@ -178,7 +174,7 @@ const BooksList: React.FC = () => {
                 Array.from({length: 10}).map((_, index) => (
                     <Grid item xs={12} key={index}>
                         <Box maxWidth={1200} mx="auto">
-                            <SkeletonCard />
+                            <SkeletonCard/>
                         </Box>
                     </Grid>
                 ))
@@ -186,7 +182,7 @@ const BooksList: React.FC = () => {
                 <Grid container justifyContent="center">
                     <Grid item xs={12}>
                         <Box maxWidth={1200} mx="auto">
-                            <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
+                            <Card sx={{boxShadow: 2, p: 2, my: 2}}>
                                 <CardContent>
                                     <Typography variant="h6" align="center">{t('noBooksFound')}</Typography>
                                 </CardContent>
@@ -201,7 +197,7 @@ const BooksList: React.FC = () => {
                         {books.map((book) => (
                             <Grid item xs={12} key={book.id}>
                                 <Box maxWidth={1200} mx="auto">
-                                    <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
+                                    <Card sx={{boxShadow: 2, p: 2, my: 2}}>
                                         <Grid container spacing={2}>
                                             <Grid item xs={12} md={9}>
                                                 <Grid container spacing={2}>
@@ -211,7 +207,7 @@ const BooksList: React.FC = () => {
                                                             height="300"
                                                             image={cover(book)}
                                                             alt={book.title}
-                                                            sx={{ objectFit: 'scale-down' }}
+                                                            sx={{objectFit: 'scale-down'}}
                                                         />
                                                     </Grid>
                                                     <Grid item xs={12} md={8}>
@@ -223,45 +219,48 @@ const BooksList: React.FC = () => {
                                                             <Typography variant="body2" color="textSecondary">
                                                                 {t('bookPublished')}: {new Date(book.docdate).toLocaleDateString()}
                                                             </Typography>
-                                                            <Typography variant="body2" color="textSecondary" sx={{ display: 'flex', alignItems: 'center' }}>
+                                                            <Typography variant="body2" color="textSecondary"
+                                                                        sx={{display: 'flex', alignItems: 'center'}}>
                                                                 {t('language')}:
-                                                                <Box sx={{ width: 24, height: 24, bgcolor: 'secondary.main', color: 'white', display: 'flex', justifyContent: 'center', alignItems: 'center', ml: 1 }}>
+                                                                <Box sx={{
+                                                                    width: 24,
+                                                                    height: 24,
+                                                                    bgcolor: 'secondary.main',
+                                                                    color: 'white',
+                                                                    display: 'flex',
+                                                                    justifyContent: 'center',
+                                                                    alignItems: 'center',
+                                                                    ml: 1
+                                                                }}>
                                                                     {book.lang}
                                                                 </Box>
                                                             </Typography>
                                                             <Box mt={2}>
-                                                                <AuthorsList authors={book.authors} />
+                                                                <AuthorsList authors={book.authors}/>
                                                             </Box>
                                                             <Box mt={2}>
-                                                            <CategotiesList categories={book.series} />
+                                                                <CategotiesList categories={book.series}/>
                                                             </Box>
                                                         </CardContent>
                                                     </Grid>
                                                 </Grid>
                                                 <CardContent>
-                                                    <Box mt={2}>
-                                                        <Typography variant="subtitle1">{t('annotation')}:</Typography>
-                                                        {opened.includes(book.id) ? (
-                                                            <Typography variant="body2">{book.annotation}</Typography>
-                                                        ) : (
-                                                            <Typography variant="body2">
-                                                                {book.annotation.slice(0, 200)}
-                                                                {book.annotation.length > 200 && (
-                                                                    <>
-                                                                        <br/><span onClick={() => handleOpenAnnotation(book.id)}><i>{t('readMore')}</i></span>
-                                                                    </>
-                                                                )}
-                                                            </Typography>
-                                                        )}
-                                                    </Box>
+                                                    {book.annotation ? (
+                                                        <BookAnnotation annotation={book.annotation}/>
+                                                    ) : (
+                                                        <Box mt={2}>
+                                                            <Typography variant="body2">{t('noAnnotation')}</Typography>
+                                                        </Box>
+                                                    )}
                                                 </CardContent>
                                             </Grid>
                                             <Grid item xs={12} md={3}>
-                                                <Box display="flex" flexWrap="wrap" justifyContent={{ xs: 'center', md: 'end' }} gap={1} sx={{ mt: 2 }}>
+                                                <Box display="flex" flexWrap="wrap"
+                                                     justifyContent={{xs: 'center', md: 'end'}} gap={1} sx={{mt: 2}}>
                                                     <Button
                                                         variant="contained"
                                                         color="secondary"
-                                                        sx={{ mb: 1, color: 'white', minWidth: 150 }}
+                                                        sx={{mb: 1, color: 'white', minWidth: 150}}
                                                         onClick={() => getSignedUrl(book, 'zip')}
                                                     >
                                                         FB2+ZIP
@@ -269,7 +268,7 @@ const BooksList: React.FC = () => {
                                                     <Button
                                                         variant="contained"
                                                         color="secondary"
-                                                        sx={{ mb: 1, color: 'white', minWidth: 150 }}
+                                                        sx={{mb: 1, color: 'white', minWidth: 150}}
                                                         onClick={() => getSignedUrl(book, 'fb2')}
                                                     >
                                                         FB2
@@ -277,7 +276,7 @@ const BooksList: React.FC = () => {
                                                     <Button
                                                         variant="contained"
                                                         color="secondary"
-                                                        sx={{ mb: 1, color: 'white', minWidth: 150 }}
+                                                        sx={{mb: 1, color: 'white', minWidth: 150}}
                                                         onClick={() => getSignedUrl(book, 'epub')}
                                                     >
                                                         EPUB
@@ -285,7 +284,7 @@ const BooksList: React.FC = () => {
                                                     <Button
                                                         variant="contained"
                                                         color="secondary"
-                                                        sx={{ mb: 1, color: 'white', minWidth: 150 }}
+                                                        sx={{mb: 1, color: 'white', minWidth: 150}}
                                                         onClick={() => getSignedUrl(book, 'mobi')}
                                                     >
                                                         MOBI
@@ -293,14 +292,14 @@ const BooksList: React.FC = () => {
                                                 </Box>
                                             </Grid>
                                         </Grid>
-                                        <CardActions sx={{ justifyContent: 'flex-end' }}>
+                                        <CardActions sx={{justifyContent: 'flex-end'}}>
                                             {user?.is_superuser && (
                                                 <IconButton onClick={() => handleUpdateBook(book)}>
-                                                    {book.approved ? <CheckCircleIcon /> : <CheckCircleOutlineIcon />}
+                                                    {book.approved ? <CheckCircleIcon/> : <CheckCircleOutlineIcon/>}
                                                 </IconButton>
                                             )}
                                             <IconButton onClick={() => handleFavBook(book)}>
-                                                {book.fav ? <StarIcon /> : <StarOutlineIcon />}
+                                                {book.fav ? <StarIcon/> : <StarOutlineIcon/>}
                                             </IconButton>
                                         </CardActions>
                                     </Card>
@@ -308,8 +307,9 @@ const BooksList: React.FC = () => {
                             </Grid>
                         ))}
                     </Grid>
-                    <Grid container spacing={3} justifyContent="center" sx={{ marginTop: 2 }}>
-                        <BookPagination totalPages={totalPages} currentPage={parseInt(page as string)} baseUrl={location.pathname} />
+                    <Grid container spacing={3} justifyContent="center" sx={{marginTop: 2}}>
+                        <BookPagination totalPages={totalPages} currentPage={parseInt(page as string)}
+                                        baseUrl={location.pathname}/>
                     </Grid>
                 </>
             )}
