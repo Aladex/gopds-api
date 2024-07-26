@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 import { fetchWithAuth } from '../api/config';
+import { useNavigate } from 'react-router-dom';
 
 interface User {
     username: string;
@@ -13,6 +14,7 @@ interface User {
 interface AuthContextType {
     isAuthenticated: boolean;
     user: User | null;
+    isLoaded: boolean;
     setUser: (user: User | null) => void;
     updateUser: (userData: User) => void;
     login: () => void;
@@ -28,6 +30,7 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const [user, setUser] = useState<User | null>(null);
     const [isLoaded, setIsLoaded] = useState<boolean>(false);
+    const navigate = useNavigate();
     const isAuthenticated = !!user;
 
     const login = useCallback(() => {
@@ -36,13 +39,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 setUser(response.data);
             })
             .catch((error) => {
-                console.error('Error fetching user data', error);
-                setUser(null);
+                if (error.response && error.response.status === 401) {
+                    navigate('/login');
+                } else {
+                    console.error('Error fetching user data', error);
+                    setUser(null);
+                }
             })
             .finally(() => {
                 setIsLoaded(true);
             });
-    }, []);
+    }, [navigate]);
 
     const logout = () => {
         fetchWithAuth.get('/logout')
@@ -64,7 +71,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }, [login]);
 
     return (
-        <AuthContext.Provider value={{ isAuthenticated, user, setUser, updateUser, login, logout }}>
+        <AuthContext.Provider value={{ isAuthenticated, user, isLoaded, setUser, updateUser, login, logout }}>
             {isLoaded && children}
         </AuthContext.Provider>
     );
