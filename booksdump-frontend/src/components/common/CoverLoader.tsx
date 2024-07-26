@@ -15,7 +15,9 @@ const CoverLoader: React.FC<CoverLoaderProps> = ({ imageUrl, alt }) => {
             position="relative"
             width="100%"
             height="300px"
-            sx={{ objectFit: 'scale-down' }}
+            display="flex"
+            justifyContent="center"
+            alignItems="center"
         >
             {loading && (
                 <Box
@@ -30,7 +32,7 @@ const CoverLoader: React.FC<CoverLoaderProps> = ({ imageUrl, alt }) => {
                     bgcolor="rgba(255, 255, 255, 0.7)"
                     zIndex={2} // Ensure loader is on top
                 >
-                    <CircularProgress />
+                    <CircularProgress color={"secondary"}/>
                 </Box>
             )}
             <img
