@@ -40,7 +40,7 @@ const SearchBar: React.FC = () => {
     const { languages, searchItem, setLanguages, setSearchItem, selectedSearch, setSelectedSearch } = useSearchBar();
     const [lang, setLang] = useState<string | null>(user?.books_lang || '');
     const navigate = useNavigate();
-    const { fav, setFav } = useFav();
+    const { fav, favEnabled, setFav } = useFav();
     const prevFavRef = useRef(fav);
     const location = useLocation();
     const searchOptions = useSearchOptions(setSelectedSearch);
@@ -272,7 +272,7 @@ const SearchBar: React.FC = () => {
                                                         <IconButton
                                                             onClick={() => setFavContext(!fav)}
                                                             color="default"
-                                                            disabled={!user?.have_favs}
+                                                            disabled={!favEnabled}
                                                         >
                                                             {fav ? <Favorite /> : <FavoriteBorder />}
                                                         </IconButton>

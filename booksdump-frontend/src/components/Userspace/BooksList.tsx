@@ -25,10 +25,10 @@ import AuthorsList from "../common/AuthorsList";
 import {useAuthor} from "../../context/AuthorContext";
 import CategotiesList from "../common/CategotiesList";
 import {useFav} from "../../context/FavContext";
-import {useNavigate} from "react-router-dom";
 import BookAnnotation from "../common/BookAnnotation";
 import CoverLoader from "../common/CoverLoader";
 import { format } from 'date-fns';
+import {useNavigate} from 'react-router-dom';
 
 interface Book {
     id: number;
@@ -48,7 +48,7 @@ interface Book {
 }
 
 const BooksList: React.FC = () => {
-    const {user, updateUser} = useAuth();
+    const {user} = useAuth();
     const {page, id, title} = useParams<{ page: string, id?: string, title?: string }>();
     const [books, setBooks] = useState<Book[]>([]);
     const [totalPages, setTotalPages] = useState(0);
@@ -125,24 +125,34 @@ const BooksList: React.FC = () => {
         fetchBooks().then(r => r);
     }, [page, fetchBooks]);
 
+    /**
+     * Handles the favoriting of a book.
+     *
+     * This function optimistically updates the local state to reflect the new favorite status of the book.
+     * It then sends a request to the server to update the favorite status. If the request is successful,
+     * it fetches the updated user data and updates the favorite context. If the request fails, it reverts
+     * the optimistic update.
+     *
+     * @param {Book} book - The book to be favorited or unfavorited.
+     */
     const handleFavBook = async (book: Book) => {
         try {
             // Optimistically update the local state
             setBooks(prev => prev.map(b => b.id === book.id ? {...b, fav: !b.fav} : b));
 
+            // Send request to update favorite status
             const response = await fetchWithAuth.post('/books/fav', {book_id: book.id, fav: !book.fav});
             if (response.status === 200) {
                 // Fetch updated user data
                 const userResponse = await fetchWithAuth.get('/books/self-user');
                 if (userResponse.status === 200) {
-                    updateUser(userResponse.data);
-                    // If user.?have_favs not true, redirect to /books/page/1 - setFav will be false
-                    if (!userResponse.data.have_favs) {
-                        fav.setFav(false);
-                        // Redirect to /books/page/1
+                    // Update favorite context
+                    fav.setFavEnabled(userResponse.data.have_favs);
+                    // Navigate to books page if no favorites are left
+                    if (location.pathname.includes('/books/favorite') && !userResponse.data.have_favs) {
                         navigate('/books/page/1');
+                        fav.setFav(false);
                     }
-
                 } else {
                     console.error('Failed to fetch updated user data');
                 }
