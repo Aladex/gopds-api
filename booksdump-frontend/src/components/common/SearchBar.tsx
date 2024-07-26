@@ -21,6 +21,7 @@ import { useFav } from "../../context/FavContext";
 import { useAuthor } from "../../context/AuthorContext";
 import { useSearchBar } from "../../context/SearchBarContext";
 import { StyledFormControl} from "../StyledDataItems";
+import useSearchOptions from "../hooks/useSearchOptions"
 
 
 interface LangItem {
@@ -42,10 +43,7 @@ const SearchBar: React.FC = () => {
     const { fav, setFav } = useFav();
     const prevFavRef = useRef(fav);
     const location = useLocation();
-    const [searchOptions, setSearchOptions] = useState<Array<{ value: string; label: string }>>([
-        { value: 'title', label: t('byTitle') },
-        { value: 'author', label: t('byAuthor') },
-    ]);
+    const searchOptions = useSearchOptions(setSelectedSearch);
     const records: Record[] = [
         { option: 'authorsBookSearch', path: `/books/find/author/` },
         { option: 'title', path: `/books/find/title/${searchItem}/1` },
@@ -82,27 +80,6 @@ const SearchBar: React.FC = () => {
         }
         prevFavRef.current = fav;
     }, [user, fav, navigate, setLanguages]);
-
-    useEffect(() => {
-        const pathStartsWith = '/books/find/author/';
-        const optionValue = 'authorsBookSearch';
-        const optionLabel = t('authorsBookSearch');
-        const isAuthorsBooksSearchPage = location.pathname.startsWith(pathStartsWith);
-
-        setSearchOptions(prevOptions => {
-            const optionExists = prevOptions.some(option => option.value === optionValue);
-            if (isAuthorsBooksSearchPage && !optionExists) {
-                setSelectedSearch(optionValue);
-                return [...prevOptions, {value: optionValue, label: optionLabel}];
-            } else if (location.pathname.startsWith('/authors/') && !optionExists) {
-                return prevOptions.filter(option => option.value !== optionValue);
-            } else if (!isAuthorsBooksSearchPage && optionExists) {
-                setSelectedSearch('title');
-                return prevOptions.filter(option => option.value !== optionValue);
-            }
-            return prevOptions;
-        });
-    }, [location.pathname, t, selectedSearch, clearAuthorId, setSelectedSearch]);
 
     const handleSetAuthorBook = () => {
         setAuthorBook(searchItem);
