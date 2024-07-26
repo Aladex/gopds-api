@@ -42,6 +42,11 @@ func DownloadBook(c *gin.Context) {
 	}
 
 	zipPath := viper.GetString("app.files_path") + book.Path
+	if !utils.FileExists(zipPath) {
+		httputil.NewError(c, http.StatusNotFound, errors.New("book file not found")) // Send a 404 Not Found if the book file is missing
+		return
+	}
+
 	bp := utils.NewBookProcessor(book.FileName, zipPath)
 
 	var rc io.ReadCloser

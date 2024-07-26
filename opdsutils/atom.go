@@ -30,7 +30,6 @@ type AtomContributor struct {
 type AtomSummary struct {
 	XMLName xml.Name `xml:"summary"`
 	Content string   `xml:",chardata"`
-	Type    string   `xml:"type,attr"`
 }
 
 type AtomContent struct {
@@ -53,8 +52,8 @@ type AtomEntry struct {
 	Source      string `xml:"source,omitempty"`
 	Published   string `xml:"published,omitempty"`
 	Contributor *AtomContributor
-	Links       []AtomLink   // required if no child 'content' elements
 	Summary     *AtomSummary // required if content has src or content is base64
+	Links       []AtomLink   // required if no child 'content' elements
 	Authors     []AtomAuthor // required if feed lacks an author
 }
 

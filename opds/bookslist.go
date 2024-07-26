@@ -11,6 +11,7 @@ import (
 	"gopds-api/opdsutils"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -120,9 +121,15 @@ func GetNewBooks(c *gin.Context) {
 		})
 	}
 
+	// Check if userAgent contains koreader
+	isKoreader := false
+	if strings.Contains(c.GetHeader("User-Agent"), "KOReader") {
+		isKoreader = true
+	}
+
 	for _, book := range books {
 		authors := []string{}
-		bookItem := opdsutils.CreateItem(book)
+		bookItem := opdsutils.CreateItem(book, isKoreader)
 		for _, author := range book.Authors {
 			authors = append(authors, author.FullName)
 		}

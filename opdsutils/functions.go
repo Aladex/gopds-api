@@ -69,7 +69,7 @@ func ToXML(feed XmlFeed) (string, error) {
 func newAtomEntry(i *Item) *AtomEntry {
 	id := i.Id
 	// assume the description is html
-	s := &AtomSummary{Content: i.Description, Type: "html"}
+	s := &AtomSummary{Content: i.Description}
 
 	atomAuthors := []AtomAuthor{}
 	for _, a := range i.Authors {

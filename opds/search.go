@@ -12,6 +12,7 @@ import (
 	"gopds-api/opdsutils"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -159,9 +160,15 @@ func GetBooks(c *gin.Context) {
 			Links: rootLinks,
 		}
 		feed.Items = []*opdsutils.Item{}
+
+		isKoreader := false
+		if strings.Contains(c.GetHeader("User-Agent"), "KOReader") {
+			isKoreader = true
+		}
+
 		for _, book := range books {
 			authors := []string{}
-			bookItem := opdsutils.CreateItem(book)
+			bookItem := opdsutils.CreateItem(book, isKoreader)
 			for _, author := range book.Authors {
 				authors = append(authors, author.FullName)
 			}

@@ -37,10 +37,9 @@ func createPostersLink(book models.Book) []Link {
 }
 
 // CreateItem creates an BookItem for xml generate
-func CreateItem(book models.Book) Item {
+func CreateItem(book models.Book, isKoreader bool) Item {
 	posterLinks := createPostersLink(book)
 	linkPath := "/opds/get/"
-	// linkPath := "/opds/download/"
 
 	links := []Link{
 		{
@@ -66,6 +65,12 @@ func CreateItem(book models.Book) Item {
 			Name: author.FullName,
 			ID:   author.ID,
 		})
+	}
+
+	if isKoreader {
+		if len(book.Annotation) > 20 {
+			book.Annotation = book.Annotation[:20]
+		}
 	}
 
 	return Item{
