@@ -1,17 +1,13 @@
-import React, {createContext, useContext, useState, ReactNode, useEffect} from 'react';
-import { useAuth } from './AuthContext';
-import { fetchWithAuth } from "../api/config";
+import React, { createContext, useContext, useState, ReactNode } from 'react';
 
 interface SearchBarContextType {
     selectedSearch: string;
     searchItem: string;
-    languagesList: string[];
-    setLanguages: (languagesList: string[]) => void;
+    languages: string[];
+    setLanguages: (languages: string[]) => void;
     setSearchItem: (searchValue: string) => void;
     setSelectedSearch: (selectedSearch: string) => void;
     clearSelectedSearch: () => void;
-    selectedLanguage: string;
-    setSelectedLanguage: (selectedLanguage: string) => void;
 }
 
 
@@ -20,38 +16,16 @@ const SearchBarContext = createContext<SearchBarContextType | undefined>(undefin
 export const SearchBarProvider: React.FC<{children: ReactNode}> = ({ children }) => {
     const [searchItem, setSearchItem] = useState('');
     const [selectedSearch, setSelectedSearch] = useState('title'); // Initial state set to 'title'
-    const [languagesList, setLanguages] = useState<string[]>([]);
-    const [selectedLanguage, setSelectedLanguage] = useState('');
-    const { user } = useAuth();
+    const [languages, setLanguages] = useState<string[]>([]);
 
-
-    const clearSelectedSearch = () => setSelectedSearch('title');
-
-    useEffect(() => {
-        const response = fetchWithAuth.get('/books/langs');
-        response.then((response) => {
-            // {langs: {"language": "Language 1", count: 1}, {"language": "Language 2", count: 2}}
-            const languages = response.data.langs;
-            // Set the languagesList to the array of languages
-            setLanguages(languages.map((lang: {language: string}) => lang.language));
-        }).catch((error) => {
-            console.error('Error fetching languages', error);
-        });
-    }, []);
-
-    useEffect(() => {
-        setSelectedLanguage(user?.books_lang ?? '');
-    }, [user]);
-
+    const clearSelectedSearch = () => setSelectedSearch('title'); // Reset to 'title' instead of ''
 
     return (
         <SearchBarContext.Provider value={{
             searchItem,
             selectedSearch,
-            selectedLanguage,
-            languagesList,
+            languages,
             setLanguages,
-            setSelectedLanguage,
             setSearchItem,
             setSelectedSearch,
             clearSelectedSearch,

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     Box,
     Grid,
@@ -23,6 +23,12 @@ import { useSearchBar } from "../../context/SearchBarContext";
 import { StyledFormControl} from "../StyledDataItems";
 import useSearchOptions from "../hooks/useSearchOptions"
 
+
+interface LangItem {
+    language: string;
+    count: number;
+}
+
 interface Record {
     option: string;
     path: string;
@@ -31,9 +37,11 @@ interface Record {
 const SearchBar: React.FC = () => {
     const { user, updateUser } = useAuth();
     const { t } = useTranslation();
-    const { languagesList, searchItem, selectedLanguage, setSelectedLanguage, setSearchItem, selectedSearch, setSelectedSearch } = useSearchBar();
+    const { languages, searchItem, setLanguages, setSearchItem, selectedSearch, setSelectedSearch } = useSearchBar();
+    const [lang, setLang] = useState<string | null>(user?.books_lang || '');
     const navigate = useNavigate();
     const { fav, favEnabled, setFav } = useFav();
+    const prevFavRef = useRef(fav);
     const location = useLocation();
     const searchOptions = useSearchOptions(setSelectedSearch);
     const records: Record[] = [
@@ -43,18 +51,42 @@ const SearchBar: React.FC = () => {
     ];
     const {authorId, setAuthorBook, clearAuthorId, clearAuthorBook } = useAuthor();
 
+    useEffect(() => {
+        const fetchLangs = async () => {
+            try {
+                const response = await fetchWithAuth.get('/books/langs');
+                if (response.status === 200) {
+                    const data = response.data;
+                    const languageList = data.langs.map((item: LangItem) => item.language);
+                    setLanguages(languageList);
+                } else {
+                    console.error('Failed to fetch languages');
+                }
+            } catch (error) {
+                console.error('Error fetching languages', error);
+            }
+        };
+        fetchLangs().then(r => r);
+
+        // Set language from user settings
+        if (user) {
+            setLang(user.books_lang || '');
+        }
+
+        // Update URL based on fav state
+        if (prevFavRef.current !== fav) {
+            const newPath = fav ? '/books/favorite/1' : '/books/page/1';
+            navigate(newPath);
+        }
+        prevFavRef.current = fav;
+    }, [user, fav, navigate, setLanguages]);
+
     const handleSetAuthorBook = () => {
         setAuthorBook(searchItem);
     };
 
     const setFavContext = (fav: boolean) => {
         setFav(fav);
-        // If fav is enabled, navigate to fav page else navigate to books page
-        if (fav) {
-            navigate('/books/favorite/1');
-        } else {
-            navigate('/books/page/1');
-        }
     }
 
     const handleClear = () => {
@@ -82,7 +114,7 @@ const SearchBar: React.FC = () => {
 
 
     const handleLangChange = (event: SelectChangeEvent) => {
-        setSelectedLanguage(event.target.value as string)
+        setLang(event.target.value as string)
 
         // Ensure user is not null before updating its property and sending it to the backend
         if (user) {
@@ -203,37 +235,35 @@ const SearchBar: React.FC = () => {
                                                 <Grid item container xs={8} lg={10} justifyContent="flex-end" spacing={2}>
                                                     <Grid item xs={6} lg={4}>
                                                         <StyledFormControl fullWidth
-                                                                     sx={{
-                                                                         '& .MuiOutlinedInput-root': {
-                                                                             '& fieldset': {
-                                                                                 borderColor: 'rgba(0, 0, 0, 0.23)',
-                                                                             },
-                                                                             '&:hover fieldset': {
-                                                                                 borderColor: 'black',
-                                                                             },
-                                                                             '&.Mui-focused fieldset': {
-                                                                                 borderColor: 'black',
-                                                                             },
-                                                                         },
-                                                                         '& .MuiInputLabel-root': {
-                                                                             color: 'rgba(0, 0, 0, 0.6)',
-                                                                         },
-                                                                         '& .MuiInputLabel-root.Mui-focused': {
-                                                                             color: 'black',
-                                                                         },
-                                                                     }}>
+                                                                           sx={{
+                                                                               '& .MuiOutlinedInput-root': {
+                                                                                   '& fieldset': {
+                                                                                       borderColor: 'rgba(0, 0, 0, 0.23)',
+                                                                                   },
+                                                                                   '&:hover fieldset': {
+                                                                                       borderColor: 'black',
+                                                                                   },
+                                                                                   '&.Mui-focused fieldset': {
+                                                                                       borderColor: 'black',
+                                                                                   },
+                                                                               },
+                                                                               '& .MuiInputLabel-root': {
+                                                                                   color: 'rgba(0, 0, 0, 0.6)',
+                                                                               },
+                                                                               '& .MuiInputLabel-root.Mui-focused': {
+                                                                                   color: 'black',
+                                                                               },
+                                                                           }}>
                                                             <InputLabel id="language-select-label">{t('language')}</InputLabel>
                                                             <Select
                                                                 labelId="language-select-label"
-                                                                value={selectedLanguage}
+                                                                value={lang || ''}
                                                                 onChange={handleLangChange}
                                                                 disabled={fav}
                                                                 label={t('language')}
                                                             >
-                                                                {languagesList.map((lang) => (
-                                                                    <MenuItem key={lang} value={lang}>
-                                                                        {lang}
-                                                                    </MenuItem>
+                                                                {languages.map((language) => (
+                                                                    <MenuItem key={language} value={language}>{language}</MenuItem>
                                                                 ))}
                                                             </Select>
                                                         </StyledFormControl>

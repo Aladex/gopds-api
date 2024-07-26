@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
-import { useAuth } from '../context/AuthContext';
+import React, {createContext, useContext, useState, ReactNode, useEffect} from 'react';
+import { useAuth } from './AuthContext';
 
 interface FavContextType {
     fav: boolean;
@@ -18,6 +18,10 @@ export const FavProvider: React.FC<FavProviderProps> = ({ children }) => {
     const { user } = useAuth();
     const [fav, setFav] = useState(false);
     const [favEnabled, setFavEnabled] = useState(user?.have_favs ?? false);
+
+    useEffect(() => {
+        setFavEnabled(user?.have_favs ?? false);
+    }, [user?.have_favs]);
 
     return (
         <FavContext.Provider value={{ fav, favEnabled, setFav, setFavEnabled }}>
