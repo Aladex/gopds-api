@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, ReactNode } from 'react';
 import { useAuth } from './AuthContext';
+import { useNavigate } from 'react-router-dom';
+
 
 interface FavContextType {
     fav: boolean;
@@ -18,10 +20,19 @@ export const FavProvider: React.FC<FavProviderProps> = ({ children }) => {
     const { user } = useAuth();
     const [fav, setFav] = useState(false);
     const [favEnabled, setFavEnabled] = useState(user?.have_favs ?? false);
+    const navigate = useNavigate();
 
     useEffect(() => {
         setFavEnabled(user?.have_favs ?? false);
     }, [user?.have_favs]);
+
+    useEffect(() => {
+        if (fav && favEnabled) {
+            navigate('/books/favorite/1');
+        } else if (!fav) {
+            navigate('/books/page/1');
+        }
+    }, [fav, favEnabled, navigate]);
 
     const memoizedSetFav = useCallback((fav: boolean) => setFav(fav), []);
     const memoizedSetFavEnabled = useCallback((favEnabled: boolean) => setFavEnabled(favEnabled), []);
