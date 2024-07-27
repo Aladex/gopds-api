@@ -8,9 +8,9 @@ const PublicRoute: React.FC = () => {
 
     if (isAuthenticated) {
         return <Navigate to="/books/page/1" replace />;
-    } else {
-        return <Outlet />;
     }
+
+    return <Outlet />;
 };
 
 export default PublicRoute;

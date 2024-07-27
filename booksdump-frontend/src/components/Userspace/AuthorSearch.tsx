@@ -53,6 +53,8 @@ const AuthorSearch: React.FC = () => {
                 setAuthors([]); // Set to an empty array in case of error
             } finally {
                 setLoading(false); // End loading
+                // Return to the top of the page
+                window.scrollTo(0, 0);
             }
         };
 

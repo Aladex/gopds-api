@@ -56,7 +56,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             })
             .catch((error) => {
                 if (error.response && error.response.status === 401) {
-                    navigate('/login');
+                    setUser(null);
                 } else {
                     console.error('Error fetching user data', error);
                     setUser(null);

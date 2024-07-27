@@ -134,6 +134,7 @@ const BooksList: React.FC = () => {
                 console.error('Error fetching books', error);
             } finally {
                 setLoading(false);
+                window.scrollTo(0, 0);
             }
         };
 
