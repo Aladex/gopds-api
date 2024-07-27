@@ -29,7 +29,6 @@ export const FavProvider: React.FC<FavProviderProps> = ({ children }) => {
     useEffect(() => {
         if (fav && favEnabled) {
             navigate('/books/favorite/1');
-            // Если не fav и пользователь находится на странице избранного, перенаправляем его на первую страницу книг
         } else if (!fav && window.location.pathname.includes('/books/favorite')) {
             navigate('/books/page/1');
         }

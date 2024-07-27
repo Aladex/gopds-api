@@ -27,9 +27,9 @@ interface Record {
 }
 
 const SearchBar: React.FC = () => {
-    const { user, updateLang } = useAuth();
+    const { updateLang } = useAuth();
     const { t } = useTranslation();
-    const { languages, searchItem, setSearchItem, selectedSearch, setSelectedSearch } = useSearchBar();
+    const { languages, selectedLanguage, searchItem, setSearchItem, selectedSearch, setSelectedSearch, setSelectedLanguage } = useSearchBar();
     const navigate = useNavigate();
     const { fav, favEnabled, setFav } = useFav();
     const searchOptions = useSearchOptions(setSelectedSearch);
@@ -69,6 +69,11 @@ const SearchBar: React.FC = () => {
                 navigate(record.path + authorId + '/1');
             }
         }
+    };
+
+    const updateLangAndSelectedLanguage = (lang: string) => {
+        updateLang(lang);
+        setSelectedLanguage(lang);
     };
 
     return (
@@ -187,8 +192,8 @@ const SearchBar: React.FC = () => {
                                                             <InputLabel id="language-select-label">{t('language')}</InputLabel>
                                                             <Select
                                                                 labelId="language-select-label"
-                                                                value={user?.books_lang || ''}
-                                                                onChange={(e) => updateLang(e.target.value as string)}
+                                                                value={selectedLanguage}
+                                                                onChange={(e) => updateLangAndSelectedLanguage(e.target.value as string)}
                                                                 disabled={fav}
                                                                 label={t('language')}
                                                             >
