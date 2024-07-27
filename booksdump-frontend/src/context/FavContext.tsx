@@ -27,7 +27,7 @@ export const FavProvider: React.FC<FavProviderProps> = ({ children }) => {
     }, [user?.have_favs]);
 
     useEffect(() => {
-        if (fav && favEnabled) {
+        if (fav && favEnabled && !window.location.pathname.includes('/books/favorite')) {
             navigate('/books/favorite/1');
         } else if (!fav && window.location.pathname.includes('/books/favorite')) {
             navigate('/books/page/1');
