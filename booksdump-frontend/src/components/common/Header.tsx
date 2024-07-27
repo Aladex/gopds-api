@@ -50,24 +50,6 @@ const Header: React.FC = () => {
         }
     }, [user]); // Зависимость от user гарантирует, что useEffect сработает при его изменении
 
-    useEffect(() => {
-        const fetchUser = async () => {
-            try {
-                const response = await fetchWithAuth.get(`/books/self-user`);
-                if (response.status === 200) {
-                    const data = await response.data; // Correctly parse the JSON response
-                    updateUser(data); // Update user data in context
-                } else {
-                    console.error('Failed to fetch user data');
-                }
-            } catch (error) {
-                console.error('Error fetching user data', error);
-            }
-        };
-
-        fetchUser().then(r => r); // Fetch user data
-    }, [updateUser]);
-
     const handleLogout = () => {
         logout();
         navigate('/login');

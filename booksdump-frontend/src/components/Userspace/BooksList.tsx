@@ -1,6 +1,6 @@
 // src/components/BooksList.tsx
 import '../styles/BooksList.css';
-import React, {useState, useEffect, useCallback} from 'react';
+import React, { useState, useEffect } from 'react';
 import {useParams, useLocation} from 'react-router-dom';
 import {
     Typography,
@@ -74,56 +74,57 @@ const BooksList: React.FC = () => {
         return format(date, "dd.MM.yyyy, HH:mm");
     };
 
-    const fetchBooks = useCallback(async () => {
-        setLoading(true);
-        const limit = 10;
-        const currentPage = parseInt(page || '1', 10);
-        const offset = (currentPage - 1) * limit;
-        let params: Params = {limit, offset, lang: user?.books_lang || ''};
-
-        if (location.pathname.includes('/books/find/author/')) {
-            if (id) {
-                params.author = id;
-                setAuthorId(id);
-                if (authorBook) params.title = authorBook;
-            }
-        } else if (location.pathname.includes('/books/find/category/')) {
-            if (id) {
-                params.series = id;
-                clearAuthorBook();
-            }
-        } else if (location.pathname.includes('/books/find/title/')) {
-            if (title) {
-                params.title = decodeURIComponent(title);
-                if (authorId) params.author = authorId;
-                clearAuthorBook();
-            }
-        }
-
-        if (location.pathname.includes('/books/favorite')) {
-            params.fav = true;
-            clearAuthorBook();
-        }
-
-        try {
-            const response = await fetchWithAuth.get('/books/list', {params});
-            if (response.status === 200) {
-                const data = response.data;
-                setBooks(data.books);
-                setTotalPages(data.length);
-            } else {
-                console.error('Failed to fetch books');
-            }
-        } catch (error) {
-            console.error('Error fetching books', error);
-        } finally {
-            setLoading(false);
-        }
-    }, [page, user?.books_lang, id, title, location.pathname, setAuthorId, authorBook, clearAuthorBook, authorId]);
-
     useEffect(() => {
-        fetchBooks().then(r => r);
-    }, [page, fetchBooks]);
+        console.log('Fetching books...');
+        const fetchBooks = async () => {
+            setLoading(true);
+            const limit = 10;
+            const currentPage = parseInt(page || '1', 10);
+            const offset = (currentPage - 1) * limit;
+            let params: Params = { limit, offset, lang: user?.books_lang || '' };
+
+            if (location.pathname.includes('/books/find/author/')) {
+                if (id) {
+                    params.author = id;
+                    setAuthorId(id);
+                    if (authorBook) params.title = authorBook;
+                }
+            } else if (location.pathname.includes('/books/find/category/')) {
+                if (id) {
+                    params.series = id;
+                    clearAuthorBook();
+                }
+            } else if (location.pathname.includes('/books/find/title/')) {
+                if (title) {
+                    params.title = decodeURIComponent(title);
+                    if (authorId) params.author = authorId;
+                    clearAuthorBook();
+                }
+            }
+
+            if (location.pathname.includes('/books/favorite')) {
+                params.fav = true;
+                clearAuthorBook();
+            }
+
+            try {
+                const response = await fetchWithAuth.get('/books/list', { params });
+                if (response.status === 200) {
+                    const data = response.data;
+                    setBooks(data.books);
+                    setTotalPages(data.length);
+                } else {
+                    console.error('Failed to fetch books');
+                }
+            } catch (error) {
+                console.error('Error fetching books', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchBooks();
+    }, [page, user?.books_lang, id, title, location.pathname, setAuthorId, clearAuthorBook, authorId, authorBook]);
 
     /**
      * Handles the favoriting of a book.

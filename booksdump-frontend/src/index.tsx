@@ -10,15 +10,13 @@ import { AuthProvider } from './context/AuthContext';
 
 const root = ReactDOM.createRoot(document.getElementById('root') as HTMLElement);
 root.render(
-    <React.StrictMode>
-        <Router>
-            <AuthProvider>
-                <I18nextProvider i18n={i18n}>
-                    <AppWrapper />
-                </I18nextProvider>
-            </AuthProvider>
-        </Router>
-    </React.StrictMode>
+    <Router>
+        <AuthProvider>
+            <I18nextProvider i18n={i18n}>
+                <AppWrapper />
+            </I18nextProvider>
+        </AuthProvider>
+    </Router>
 );
 
 reportWebVitals();

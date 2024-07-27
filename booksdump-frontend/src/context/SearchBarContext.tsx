@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useMemo, useCallback, ReactNode } from 'react';
 
 interface SearchBarContextType {
     selectedSearch: string;
@@ -10,26 +10,31 @@ interface SearchBarContextType {
     clearSelectedSearch: () => void;
 }
 
-
 const SearchBarContext = createContext<SearchBarContextType | undefined>(undefined);
 
-export const SearchBarProvider: React.FC<{children: ReactNode}> = ({ children }) => {
+export const SearchBarProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [searchItem, setSearchItem] = useState('');
     const [selectedSearch, setSelectedSearch] = useState('title'); // Initial state set to 'title'
     const [languages, setLanguages] = useState<string[]>([]);
 
-    const clearSelectedSearch = () => setSelectedSearch('title'); // Reset to 'title' instead of ''
+    const clearSelectedSearch = useCallback(() => setSelectedSearch('title'), []);
+
+    const memoizedSetLanguages = useCallback((languages: string[]) => setLanguages(languages), []);
+    const memoizedSetSearchItem = useCallback((searchValue: string) => setSearchItem(searchValue), []);
+    const memoizedSetSelectedSearch = useCallback((selectedSearch: string) => setSelectedSearch(selectedSearch), []);
+
+    const contextValue = useMemo(() => ({
+        searchItem,
+        selectedSearch,
+        languages,
+        setLanguages: memoizedSetLanguages,
+        setSearchItem: memoizedSetSearchItem,
+        setSelectedSearch: memoizedSetSelectedSearch,
+        clearSelectedSearch,
+    }), [searchItem, selectedSearch, languages, memoizedSetLanguages, memoizedSetSearchItem, memoizedSetSelectedSearch, clearSelectedSearch]);
 
     return (
-        <SearchBarContext.Provider value={{
-            searchItem,
-            selectedSearch,
-            languages,
-            setLanguages,
-            setSearchItem,
-            setSelectedSearch,
-            clearSelectedSearch,
-        }}>
+        <SearchBarContext.Provider value={contextValue}>
             {children}
         </SearchBarContext.Provider>
     );

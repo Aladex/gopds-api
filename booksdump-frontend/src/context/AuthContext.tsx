@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, ReactNode } from 'react';
 import { fetchWithAuth } from '../api/config';
 import { useNavigate } from 'react-router-dom';
 
@@ -51,7 +51,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             });
     }, [navigate]);
 
-    const logout = () => {
+    const logout = useCallback(() => {
         fetchWithAuth.get('/logout')
             .then(() => {
                 setUser(null);
@@ -60,7 +60,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             .catch((error) => {
                 console.error('Error logging out', error);
             });
-    };
+    }, []);
 
     const updateUser = useCallback((userData: User) => {
         setUser(userData);
@@ -70,8 +70,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         login();
     }, [login]);
 
+    const contextValue = useMemo(() => ({
+        isAuthenticated,
+        user,
+        isLoaded,
+        setUser,
+        updateUser,
+        login,
+        logout,
+    }), [isAuthenticated, user, isLoaded, login, logout, updateUser]);
+
     return (
-        <AuthContext.Provider value={{ isAuthenticated, user, isLoaded, setUser, updateUser, login, logout }}>
+        <AuthContext.Provider value={contextValue}>
             {isLoaded && children}
         </AuthContext.Provider>
     );

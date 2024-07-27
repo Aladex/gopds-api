@@ -1,4 +1,4 @@
-import React, {createContext, useContext, useState, ReactNode, useEffect} from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, ReactNode } from 'react';
 import { useAuth } from './AuthContext';
 
 interface FavContextType {
@@ -23,8 +23,18 @@ export const FavProvider: React.FC<FavProviderProps> = ({ children }) => {
         setFavEnabled(user?.have_favs ?? false);
     }, [user?.have_favs]);
 
+    const memoizedSetFav = useCallback((fav: boolean) => setFav(fav), []);
+    const memoizedSetFavEnabled = useCallback((favEnabled: boolean) => setFavEnabled(favEnabled), []);
+
+    const contextValue = useMemo(() => ({
+        fav,
+        favEnabled,
+        setFav: memoizedSetFav,
+        setFavEnabled: memoizedSetFavEnabled
+    }), [fav, favEnabled, memoizedSetFav, memoizedSetFavEnabled]);
+
     return (
-        <FavContext.Provider value={{ fav, favEnabled, setFav, setFavEnabled }}>
+        <FavContext.Provider value={contextValue}>
             {children}
         </FavContext.Provider>
     );
