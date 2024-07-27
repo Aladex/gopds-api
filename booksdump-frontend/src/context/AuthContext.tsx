@@ -34,19 +34,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const navigate = useNavigate();
     const isAuthenticated = !!user;
 
-    const updateLang = useCallback((language: string) => {
+    const updateLang = useCallback(async (language: string) => {
         if (user) {
-            fetchWithAuth.post('/books/change-me', { books_lang: language })
-                .then(response => {
-                    if (response.status === 200) {
-                        setUser({ ...user, books_lang: language });
-                    } else {
-                        console.error('Failed to update language');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error updating language', error);
-                });
+            try {
+                const response = await fetchWithAuth.post('/books/change-me', { ...user, books_lang: language });
+                if (response.status === 200) {
+                    setUser({ ...user, books_lang: response.data.books_lang });
+                } else {
+                    console.error('Failed to update language');
+                }
+            } catch (error) {
+                console.error('Error updating language', error);
+            }
         }
     }, [user]);
 
