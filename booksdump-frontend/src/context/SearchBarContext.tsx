@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useMemo, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useMemo, useCallback, useEffect, ReactNode } from 'react';
+import { fetchWithAuth } from '../api/config'; // Предполагаем, что у вас есть функция для авторизованных запросов
 
 interface SearchBarContextType {
     selectedSearch: string;
@@ -8,6 +9,7 @@ interface SearchBarContextType {
     setSearchItem: (searchValue: string) => void;
     setSelectedSearch: (selectedSearch: string) => void;
     clearSelectedSearch: () => void;
+    setLanguage: (language: string) => void;
 }
 
 const SearchBarContext = createContext<SearchBarContextType | undefined>(undefined);
@@ -23,6 +25,39 @@ export const SearchBarProvider: React.FC<{ children: ReactNode }> = ({ children 
     const memoizedSetSearchItem = useCallback((searchValue: string) => setSearchItem(searchValue), []);
     const memoizedSetSelectedSearch = useCallback((selectedSearch: string) => setSelectedSearch(selectedSearch), []);
 
+    const setLanguage = useCallback((language: string) => {
+        fetchWithAuth.post('/books/change-me', { books_lang: language })
+            .then(response => {
+                if (response.status === 200) {
+                    console.log('Language updated successfully');
+                } else {
+                    console.error('Failed to update language');
+                }
+            })
+            .catch(error => {
+                console.error('Error updating language', error);
+            });
+    }, []);
+
+    useEffect(() => {
+        const fetchLanguages = async () => {
+            try {
+                const response = await fetchWithAuth.get('/books/langs');
+                if (response.status === 200) {
+                    const data = response.data;
+                    const languageList = data.langs.map((item: { language: string }) => item.language);
+                    setLanguages(languageList);
+                } else {
+                    console.error('Failed to fetch languages');
+                }
+            } catch (error) {
+                console.error('Error fetching languages', error);
+            }
+        };
+
+        fetchLanguages();
+    }, []);
+
     const contextValue = useMemo(() => ({
         searchItem,
         selectedSearch,
@@ -31,7 +66,8 @@ export const SearchBarProvider: React.FC<{ children: ReactNode }> = ({ children 
         setSearchItem: memoizedSetSearchItem,
         setSelectedSearch: memoizedSetSelectedSearch,
         clearSelectedSearch,
-    }), [searchItem, selectedSearch, languages, memoizedSetLanguages, memoizedSetSearchItem, memoizedSetSelectedSearch, clearSelectedSearch]);
+        setLanguage,
+    }), [searchItem, selectedSearch, languages, memoizedSetLanguages, memoizedSetSearchItem, memoizedSetSelectedSearch, clearSelectedSearch, setLanguage]);
 
     return (
         <SearchBarContext.Provider value={contextValue}>

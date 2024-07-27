@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import {
     Box,
     Grid,
@@ -8,26 +8,18 @@ import {
     Select,
     MenuItem,
     InputLabel,
-    SelectChangeEvent,
     IconButton
 } from '@mui/material';
 import { StyledTextField } from "../StyledDataItems";
 import { useTranslation } from 'react-i18next';
 import { useAuth } from "../../context/AuthContext";
-import { fetchWithAuth } from "../../api/config";
 import { Clear, Favorite, FavoriteBorder } from "@mui/icons-material";
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useFav } from "../../context/FavContext";
 import { useAuthor } from "../../context/AuthorContext";
 import { useSearchBar } from "../../context/SearchBarContext";
 import { StyledFormControl} from "../StyledDataItems";
 import useSearchOptions from "../hooks/useSearchOptions"
-
-
-interface LangItem {
-    language: string;
-    count: number;
-}
 
 interface Record {
     option: string;
@@ -35,14 +27,12 @@ interface Record {
 }
 
 const SearchBar: React.FC = () => {
-    const { user, updateUser } = useAuth();
+    const { user } = useAuth();
     const { t } = useTranslation();
-    const { languages, searchItem, setLanguages, setSearchItem, selectedSearch, setSelectedSearch } = useSearchBar();
-    const [lang, setLang] = useState<string | null>(user?.books_lang || '');
+    const { languages, searchItem, setLanguage, setSearchItem, selectedSearch, setSelectedSearch } = useSearchBar();
+    const [lang] = useState<string | null>(user?.books_lang || '');
     const navigate = useNavigate();
     const { fav, favEnabled, setFav } = useFav();
-    const prevFavRef = useRef(fav);
-    const location = useLocation();
     const searchOptions = useSearchOptions(setSelectedSearch);
     const records: Record[] = [
         { option: 'authorsBookSearch', path: `/books/find/author/` },
@@ -50,36 +40,6 @@ const SearchBar: React.FC = () => {
         { option: 'author', path: `/authors/${searchItem}/1` },
     ];
     const {authorId, setAuthorBook, clearAuthorId, clearAuthorBook } = useAuthor();
-
-    useEffect(() => {
-        const fetchLangs = async () => {
-            try {
-                const response = await fetchWithAuth.get('/books/langs');
-                if (response.status === 200) {
-                    const data = response.data;
-                    const languageList = data.langs.map((item: LangItem) => item.language);
-                    setLanguages(languageList);
-                } else {
-                    console.error('Failed to fetch languages');
-                }
-            } catch (error) {
-                console.error('Error fetching languages', error);
-            }
-        };
-        fetchLangs().then(r => r);
-
-        // Set language from user settings
-        if (user) {
-            setLang(user.books_lang || '');
-        }
-
-        // Update URL based on fav state
-        if (prevFavRef.current !== fav) {
-            const newPath = fav ? '/books/favorite/1' : '/books/page/1';
-            navigate(newPath);
-        }
-        prevFavRef.current = fav;
-    }, [user, fav, navigate, setLanguages]);
 
     const handleSetAuthorBook = () => {
         setAuthorBook(searchItem);
@@ -110,35 +70,6 @@ const SearchBar: React.FC = () => {
                 navigate(record.path + authorId + '/1');
             }
         }
-    };
-
-
-    const handleLangChange = (event: SelectChangeEvent) => {
-        setLang(event.target.value as string)
-
-        // Ensure user is not null before updating its property and sending it to the backend
-        if (user) {
-            // Update user data in context
-            user.books_lang = event.target.value as string;
-            updateUser(user);
-
-            fetchWithAuth.post('/books/change-me', user)
-                .then(response => {
-                    if (response.status === 200) {
-                        console.log('Language updated successfully');
-                    } else {
-                        console.error('Failed to update language');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error updating language', error);
-                });
-        }
-
-        const pathSegments = location.pathname.split('/');
-        const lastIndex = pathSegments.length - 1;
-        pathSegments[lastIndex] = '1';
-        navigate(pathSegments.join('/'));
     };
 
     return (
@@ -258,7 +189,7 @@ const SearchBar: React.FC = () => {
                                                             <Select
                                                                 labelId="language-select-label"
                                                                 value={lang || ''}
-                                                                onChange={handleLangChange}
+                                                                onChange={(e) => setLanguage(e.target.value as string)}
                                                                 disabled={fav}
                                                                 label={t('language')}
                                                             >
