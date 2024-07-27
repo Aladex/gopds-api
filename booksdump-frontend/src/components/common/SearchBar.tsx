@@ -141,6 +141,7 @@ const SearchBar: React.FC = () => {
                                                     endAdornment: (
                                                         <IconButton
                                                             onClick={handleClear}
+                                                            disabled={fav}
                                                             edge="end"
                                                         >
                                                             <Clear />
