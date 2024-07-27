@@ -9,7 +9,6 @@ interface SearchBarContextType {
     setSearchItem: (searchValue: string) => void;
     setSelectedSearch: (selectedSearch: string) => void;
     clearSelectedSearch: () => void;
-    setLanguage: (language: string) => void;
 }
 
 const SearchBarContext = createContext<SearchBarContextType | undefined>(undefined);
@@ -24,20 +23,6 @@ export const SearchBarProvider: React.FC<{ children: ReactNode }> = ({ children 
     const memoizedSetLanguages = useCallback((languages: string[]) => setLanguages(languages), []);
     const memoizedSetSearchItem = useCallback((searchValue: string) => setSearchItem(searchValue), []);
     const memoizedSetSelectedSearch = useCallback((selectedSearch: string) => setSelectedSearch(selectedSearch), []);
-
-    const setLanguage = useCallback((language: string) => {
-        fetchWithAuth.post('/books/change-me', { books_lang: language })
-            .then(response => {
-                if (response.status === 200) {
-                    console.log('Language updated successfully');
-                } else {
-                    console.error('Failed to update language');
-                }
-            })
-            .catch(error => {
-                console.error('Error updating language', error);
-            });
-    }, []);
 
     useEffect(() => {
         const fetchLanguages = async () => {
@@ -66,8 +51,7 @@ export const SearchBarProvider: React.FC<{ children: ReactNode }> = ({ children 
         setSearchItem: memoizedSetSearchItem,
         setSelectedSearch: memoizedSetSelectedSearch,
         clearSelectedSearch,
-        setLanguage,
-    }), [searchItem, selectedSearch, languages, memoizedSetLanguages, memoizedSetSearchItem, memoizedSetSelectedSearch, clearSelectedSearch, setLanguage]);
+    }), [searchItem, selectedSearch, languages, memoizedSetLanguages, memoizedSetSearchItem, memoizedSetSelectedSearch, clearSelectedSearch]);
 
     return (
         <SearchBarContext.Provider value={contextValue}>

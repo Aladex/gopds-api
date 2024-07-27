@@ -19,6 +19,7 @@ interface AuthContextType {
     updateUser: (userData: User) => void;
     login: () => void;
     logout: () => void;
+    updateLang: (language: string) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -32,6 +33,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const [isLoaded, setIsLoaded] = useState<boolean>(false);
     const navigate = useNavigate();
     const isAuthenticated = !!user;
+
+    const updateLang = useCallback((language: string) => {
+        if (user) {
+            fetchWithAuth.post('/books/change-me', { books_lang: language })
+                .then(response => {
+                    if (response.status === 200) {
+                        setUser({ ...user, books_lang: language });
+                    } else {
+                        console.error('Failed to update language');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error updating language', error);
+                });
+        }
+    }, [user]);
 
     const login = useCallback(() => {
         fetchWithAuth.get('/books/self-user')
@@ -75,10 +92,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         user,
         isLoaded,
         setUser,
+        updateLang,
         updateUser,
         login,
         logout,
-    }), [isAuthenticated, user, isLoaded, login, logout, updateUser]);
+    }), [isAuthenticated, user, isLoaded, updateLang, updateUser, login, logout]);
 
     return (
         <AuthContext.Provider value={contextValue}>

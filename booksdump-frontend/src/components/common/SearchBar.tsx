@@ -27,9 +27,9 @@ interface Record {
 }
 
 const SearchBar: React.FC = () => {
-    const { user } = useAuth();
+    const { user, updateLang } = useAuth();
     const { t } = useTranslation();
-    const { languages, searchItem, setLanguage, setSearchItem, selectedSearch, setSelectedSearch } = useSearchBar();
+    const { languages, searchItem, setSearchItem, selectedSearch, setSelectedSearch } = useSearchBar();
     const [lang] = useState<string | null>(user?.books_lang || '');
     const navigate = useNavigate();
     const { fav, favEnabled, setFav } = useFav();
@@ -189,7 +189,7 @@ const SearchBar: React.FC = () => {
                                                             <Select
                                                                 labelId="language-select-label"
                                                                 value={lang || ''}
-                                                                onChange={(e) => setLanguage(e.target.value as string)}
+                                                                onChange={(e) => updateLang(e.target.value as string)}
                                                                 disabled={fav}
                                                                 label={t('language')}
                                                             >
