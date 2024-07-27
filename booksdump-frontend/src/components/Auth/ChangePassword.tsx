@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { API_URL } from '../../api/config';
 import { StyledTextField } from "../StyledDataItems";
 import { useParams } from 'react-router-dom';
+import { useEffect } from 'react';
 
 const ChangePassword: React.FC = () => {
     const [newPassword, setNewPassword] = useState('');
@@ -15,6 +16,23 @@ const ChangePassword: React.FC = () => {
     const { t } = useTranslation();
     const { token } = useParams<{ token: string }>();
 
+    useEffect(() => {
+        const tokenValidation = async () => {
+            try {
+                await fetch(`${API_URL}/api/token`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ token }),
+                });
+            } catch {
+                navigate('/404');
+            }
+        };
+        tokenValidation();
+    }, [token, navigate, t]);
+
     const handleChangePassword = async () => {
         const changeData = {
             password: newPassword,
@@ -22,7 +40,7 @@ const ChangePassword: React.FC = () => {
         };
 
         try {
-            const response = await fetch(`${API_URL}/api/token`, {
+            const response = await fetch(`${API_URL}/api/change-password`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
