@@ -194,7 +194,7 @@ const BooksList: React.FC = () => {
             const response = await fetchWithAuth.post('/admin/update-book', newBook);
             // Update book in local state from response
             if (response.status === 200) {
-                setBooks(prev => prev.map(b => b.id === book.id ? response.data : b));
+                setBooks(prev => prev.map(b => b.id === book.id ? response.data.result : b));
             } else {
                 console.error('Failed to update book');
                 // Revert the optimistic update if the request fails
