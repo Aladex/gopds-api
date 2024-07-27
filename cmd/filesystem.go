@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// initializeDistFolders получает список папок в директории dist
+// initializeDistFolders initializes the distFolders variable with the list of folders in the frontend build directory.
 func initializeDistFolders() error {
 	err := fs.WalkDir(assets.Assets, "booksdump-frontend/build", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {

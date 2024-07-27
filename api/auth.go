@@ -29,7 +29,7 @@ import (
 // @Failure 403 {object} httputil.HTTPError
 // @Router /api/drop-sessions [get]
 func DropAllSessions(c *gin.Context) {
-	// Создаем контекст с таймаутом
+	// Create context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 

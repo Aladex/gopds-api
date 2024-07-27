@@ -16,7 +16,7 @@ func AdminMiddleware() gin.HandlerFunc {
 		if authHeader != "" {
 			token = authHeader
 		} else {
-			// Если токена в заголовке нет, попробуем получить токен из куки
+			//
 			token, err = c.Cookie("token")
 			if err != nil || token == "" {
 				abortWithStatus(c, http.StatusUnauthorized, "required_token")

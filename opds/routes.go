@@ -5,7 +5,7 @@ import (
 	"net/http"
 )
 
-// SetupOpdsRoutes настраивает маршруты для OPDS каталога
+// SetupOpdsRoutes sets up the opds routes
 func SetupOpdsRoutes(r *gin.RouterGroup) {
 	r.GET("/", func(c *gin.Context) { c.Redirect(http.StatusMovedPermanently, "/opds/new/0/0") })
 	r.GET("/new/:page/:author", GetNewBooks)
