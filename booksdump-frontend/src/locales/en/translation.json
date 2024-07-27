@@ -78,5 +78,6 @@
   "opdsInfo.pocketBook": "For example, on older PocketBook readers that do not support TLS 1.2, OPDS will not work.",
   "opdsInfo.onyxBoox": "On older Onyx Boox devices, it gives a null error. This can be fixed by updating the firmware.",
   "authorsSearch": "Search authors",
-  "unknownDate": "Unknown date"
+  "unknownDate": "Unknown date",
+  "favoriteTitles.books": "Favorites"
 }

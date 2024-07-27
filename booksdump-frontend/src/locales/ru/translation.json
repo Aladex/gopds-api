@@ -77,5 +77,6 @@
   "opdsInfo.onyxBoox": "На старых устройствах Onyx Boox возникает ошибка null. Это можно исправить, обновив прошивку.",
   "routeByAuthor.books": "Поиск книг у автора",
   "authorsSearch": "Поиск авторов",
-  "unknownDate": "Дата неизвестна"
+  "unknownDate": "Дата неизвестна",
+  "favoriteTitles.books": "Избранное"
 }
