@@ -1,6 +1,6 @@
 // src/components/BooksList.tsx
 import '../styles/BooksList.css';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {useParams, useLocation} from 'react-router-dom';
 import {
     Typography,
@@ -58,6 +58,7 @@ const BooksList: React.FC = () => {
     const location = useLocation();
     const fav = useFav();
     const navigate = useNavigate();
+    const prevLangRef = useRef(user?.books_lang);
 
     type Params = {
         limit: number;
@@ -77,6 +78,10 @@ const BooksList: React.FC = () => {
     useEffect(() => {
         console.log('Fetching books...');
         const fetchBooks = async () => {
+            if (prevLangRef.current !== user?.books_lang && page !== '1') {
+                navigate('/books/page/1');
+                return;
+            }
             setLoading(true);
             const limit = 10;
             const currentPage = parseInt(page || '1', 10);
@@ -124,7 +129,17 @@ const BooksList: React.FC = () => {
         };
 
         fetchBooks();
-    }, [page, user?.books_lang, id, title, location.pathname, setAuthorId, clearAuthorBook, authorId, authorBook]);
+    }, [page,
+        user?.books_lang,
+        id,
+        title,
+        location.pathname,
+        setAuthorId,
+        clearAuthorBook,
+        authorId,
+        authorBook,
+        navigate
+    ]);
 
     /**
      * Handles the favoriting of a book.
