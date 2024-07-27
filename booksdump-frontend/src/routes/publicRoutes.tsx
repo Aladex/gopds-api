@@ -6,12 +6,14 @@ import Registration from '../components/Auth/Registration';
 import ForgotPassword from '../components/Auth/ForgotPassword';
 import TitleSetter from '../components/common/TitleSetter';
 import PublicRoute from "../components/PublicRoute";
+import ChangePassword from "../components/Auth/ChangePassword";
 
 const publicRoutes = (
     <Route path="/" element={<PublicRoute />}>
         <Route path="/login" element={<TitleSetter titleKey="routeTitles.login"><Login /></TitleSetter>} />
         <Route path="/registration" element={<TitleSetter titleKey="routeTitles.registration"><Registration /></TitleSetter>} />
         <Route path="/forgot-password" element={<TitleSetter titleKey="routeTitles.forgotPassword"><ForgotPassword /></TitleSetter>} />
+        <Route path="/change-password/:token" element={<TitleSetter titleKey="routeTitles.forgotPassword"><ChangePassword /></TitleSetter>} />
     </Route>
 );
 

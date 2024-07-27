@@ -78,5 +78,7 @@
   "routeByAuthor.books": "Поиск книг у автора",
   "authorsSearch": "Поиск авторов",
   "unknownDate": "Дата неизвестна",
-  "favoriteTitles.books": "Избранное"
+  "favoriteTitles.books": "Избранное",
+  "changePasswordButton": "Сменить пароль"
+
 }

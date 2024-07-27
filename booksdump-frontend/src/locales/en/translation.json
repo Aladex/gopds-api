@@ -79,5 +79,6 @@
   "opdsInfo.onyxBoox": "On older Onyx Boox devices, it gives a null error. This can be fixed by updating the firmware.",
   "authorsSearch": "Search authors",
   "unknownDate": "Unknown date",
-  "favoriteTitles.books": "Favorites"
+  "favoriteTitles.books": "Favorites",
+  "changePasswordButton": "Change password"
 }
