@@ -21,7 +21,7 @@ export const SearchBarProvider: React.FC<{ children: ReactNode }> = ({ children 
     const [selectedSearch, setSelectedSearch] = useState('title'); // Initial state set to 'title'
     const [languages, setLanguages] = useState<string[]>([]);
     const [selectedLanguage, setSelectedLanguage] = useState<string>('');
-    const { user } = useAuth();
+    const { user, isAuthenticated } = useAuth();
 
     const clearSelectedSearch = useCallback(() => setSelectedSearch('title'), []);
 
@@ -35,23 +35,25 @@ export const SearchBarProvider: React.FC<{ children: ReactNode }> = ({ children 
     }, [user?.books_lang]);
 
     useEffect(() => {
-        const fetchLanguages = async () => {
-            try {
-                const response = await fetchWithAuth.get('/books/langs');
-                if (response.status === 200) {
-                    const data = response.data;
-                    const languageList = data.langs.map((item: { language: string }) => item.language);
-                    setLanguages(languageList);
-                } else {
-                    console.error('Failed to fetch languages');
+        if (isAuthenticated) {
+            const fetchLanguages = async () => {
+                try {
+                    const response = await fetchWithAuth.get('/books/langs');
+                    if (response.status === 200) {
+                        const data = response.data;
+                        const languageList = data.langs.map((item: { language: string }) => item.language);
+                        setLanguages(languageList);
+                    } else {
+                        console.error('Failed to fetch languages');
+                    }
+                } catch (error) {
+                    console.error('Error fetching languages', error);
                 }
-            } catch (error) {
-                console.error('Error fetching languages', error);
-            }
-        };
+            };
 
-        fetchLanguages();
-    }, []);
+            fetchLanguages();
+        }
+    }, [isAuthenticated]);
 
     const contextValue = useMemo(() => ({
         searchItem,
