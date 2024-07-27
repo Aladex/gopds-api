@@ -27,12 +27,14 @@ export const FavProvider: React.FC<FavProviderProps> = ({ children }) => {
     }, [user?.have_favs]);
 
     useEffect(() => {
-        if (fav && favEnabled && !window.location.pathname.includes('/books/favorite')) {
+        const currentPath = window.location.pathname;
+        const isFavoritePage = currentPath.includes('/books/favorite');
+
+        if (fav && favEnabled && !isFavoritePage) {
             navigate('/books/favorite/1');
-        } else if (!fav && window.location.pathname.includes('/books/favorite')) {
+        } else if (!fav && isFavoritePage) {
             navigate('/books/page/1');
         }
-
     }, [fav, favEnabled, navigate]);
 
     const memoizedSetFav = useCallback((fav: boolean) => setFav(fav), []);
