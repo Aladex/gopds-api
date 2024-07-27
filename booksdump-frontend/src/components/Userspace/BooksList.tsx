@@ -87,6 +87,7 @@ const BooksList: React.FC = () => {
     useEffect(() => {
         console.log('Fetching books...');
         const fetchBooks = async () => {
+            window.scrollTo(0, 0);
             if (prevLangRef.current !== user?.books_lang && page !== '1') {
                 navigate('/books/page/1');
                 return;
@@ -134,7 +135,6 @@ const BooksList: React.FC = () => {
                 console.error('Error fetching books', error);
             } finally {
                 setLoading(false);
-                window.scrollTo(0, 0);
             }
         };
 

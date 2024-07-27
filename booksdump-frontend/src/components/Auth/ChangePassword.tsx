@@ -19,13 +19,17 @@ const ChangePassword: React.FC = () => {
     useEffect(() => {
         const tokenValidation = async () => {
             try {
-                await fetch(`${API_URL}/api/token`, {
+                const response = await fetch(`${API_URL}/api/token`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({ token }),
                 });
+
+                if (response.status === 404) {
+                    navigate('/404');
+                }
             } catch {
                 navigate('/404');
             }

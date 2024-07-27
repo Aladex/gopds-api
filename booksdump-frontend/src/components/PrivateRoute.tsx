@@ -3,6 +3,7 @@ import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import Header from './common/Header';
+import Footer from "./common/Footer";
 
 const PrivateRoute: React.FC<{ children: React.ReactNode, requireSuperuser?: boolean }> = ({ children, requireSuperuser = false }) => {
     const { isAuthenticated, user } = useAuth();
@@ -19,6 +20,7 @@ const PrivateRoute: React.FC<{ children: React.ReactNode, requireSuperuser?: boo
         <>
             <Header />
             {children}
+            <Footer />
         </>
     );
 };

@@ -31,6 +31,7 @@ const AuthorSearch: React.FC = () => {
         const fetchAuthors = async () => {
             setLoading(true); // Start loading
             try {
+                window.scrollTo(0, 0);
                 const limit = 10;
                 const currentPage = parseInt(page || '1', 10);
                 const offset = (currentPage - 1) * limit;
@@ -53,8 +54,6 @@ const AuthorSearch: React.FC = () => {
                 setAuthors([]); // Set to an empty array in case of error
             } finally {
                 setLoading(false); // End loading
-                // Return to the top of the page
-                window.scrollTo(0, 0);
             }
         };
 
