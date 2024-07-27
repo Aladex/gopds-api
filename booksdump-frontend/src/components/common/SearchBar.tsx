@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
     Box,
     Grid,
@@ -30,7 +30,6 @@ const SearchBar: React.FC = () => {
     const { user, updateLang } = useAuth();
     const { t } = useTranslation();
     const { languages, searchItem, setSearchItem, selectedSearch, setSelectedSearch } = useSearchBar();
-    const [lang] = useState<string | null>(user?.books_lang || '');
     const navigate = useNavigate();
     const { fav, favEnabled, setFav } = useFav();
     const searchOptions = useSearchOptions(setSelectedSearch);
@@ -188,7 +187,7 @@ const SearchBar: React.FC = () => {
                                                             <InputLabel id="language-select-label">{t('language')}</InputLabel>
                                                             <Select
                                                                 labelId="language-select-label"
-                                                                value={lang || ''}
+                                                                value={user?.books_lang || ''}
                                                                 onChange={(e) => updateLang(e.target.value as string)}
                                                                 disabled={fav}
                                                                 label={t('language')}
