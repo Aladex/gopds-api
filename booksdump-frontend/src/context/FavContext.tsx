@@ -29,9 +29,11 @@ export const FavProvider: React.FC<FavProviderProps> = ({ children }) => {
     useEffect(() => {
         if (fav && favEnabled) {
             navigate('/books/favorite/1');
-        } else if (!fav) {
+            // Если не fav и пользователь находится на странице избранного, перенаправляем его на первую страницу книг
+        } else if (!fav && window.location.pathname.includes('/books/favorite')) {
             navigate('/books/page/1');
         }
+
     }, [fav, favEnabled, navigate]);
 
     const memoizedSetFav = useCallback((fav: boolean) => setFav(fav), []);
