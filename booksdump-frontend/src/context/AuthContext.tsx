@@ -39,7 +39,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             try {
                 const response = await fetchWithAuth.post('/books/change-me', { ...user, books_lang: language });
                 if (response.status === 200) {
-                    setUser({ ...user, books_lang: response.data.books_lang });
+                    setUser((prevUser) => prevUser ? { ...prevUser, books_lang: response.data.books_lang } : null);
                 } else {
                     console.error('Failed to update language');
                 }
