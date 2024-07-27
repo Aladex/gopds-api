@@ -71,9 +71,18 @@ const BooksList: React.FC = () => {
     };
 
     const formatDate = (dateString: string) => {
-        const date = new Date(dateString);
+        if (dateString === "") {
+            return t('unknownAddDate'); // Или t('unknownPublicationDate'), в зависимости от контекста
+        }
+        const timestamp = Date.parse(dateString);
+        if (isNaN(timestamp)) {
+            return dateString;
+        }
+        const date = new Date(timestamp);
         return format(date, "dd.MM.yyyy, HH:mm");
     };
+
+
 
     useEffect(() => {
         console.log('Fetching books...');
@@ -257,7 +266,7 @@ const BooksList: React.FC = () => {
                                                                 {t('bookAdded')}: {formatDate(book.registerdate)}
                                                             </Typography>
                                                             <Typography sx={{ mb: 2 }} variant="body2" color="textSecondary">
-                                                                {t('bookPublished')}: {book.docdate ? formatDate(book.docdate) : t('unknownPublicationDate')}
+                                                                {t('bookPublished')}: {formatDate(book.docdate)}
                                                             </Typography>
                                                             <Typography variant="body2" color="textSecondary"
                                                                         sx={{display: 'flex', alignItems: 'center'}}>
