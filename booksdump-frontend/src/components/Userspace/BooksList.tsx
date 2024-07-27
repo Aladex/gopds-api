@@ -185,7 +185,24 @@ const BooksList: React.FC = () => {
     };
 
     const handleUpdateBook = async (book: Book) => {
-
+        try {
+            // Change only approved field
+            let newBook = {...book, approved: !book.approved};
+            // Optimistically update the local state
+            setBooks(prev => prev.map(b => b.id === book.id ? newBook : b));
+            // Send request to update book
+            const response = await fetchWithAuth.post('/admin/update-book', newBook);
+            // Update book in local state from response
+            if (response.status === 200) {
+                setBooks(prev => prev.map(b => b.id === book.id ? response.data : b));
+            } else {
+                console.error('Failed to update book');
+                // Revert the optimistic update if the request fails
+                setBooks(prev => prev.map(b => b.id === book.id ? book : b));
+            }
+        } catch (error) {
+            console.error('Error updating book', error);
+        }
     }
 
 

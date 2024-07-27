@@ -97,7 +97,7 @@ const AuthorSearch: React.FC = () => {
                         <Grid item xs={12}>
                             <Box maxWidth={1200} mx="auto">
                                 <Card sx={{ boxShadow: 2, p: 1, my: 1 }}>
-                                    <Typography variant="h4" align="center">Authors</Typography>
+                                    <Typography variant="h4" align="center">{t('authorsSearch')}</Typography>
                                     {authors && authors.length > 0 ? (
                                         <List>
                                             {authors.map((author) => (

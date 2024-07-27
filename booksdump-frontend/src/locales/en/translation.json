@@ -76,5 +76,6 @@
   "opdsInfo.alReaderAuth": "In AlReader, authorization is specified with a colon, for example, username:pass.",
   "opdsInfo.tlsSupport": "In older versions of applications, it may not work because they do not support TLS 1.2.",
   "opdsInfo.pocketBook": "For example, on older PocketBook readers that do not support TLS 1.2, OPDS will not work.",
-  "opdsInfo.onyxBoox": "On older Onyx Boox devices, it gives a null error. This can be fixed by updating the firmware."
+  "opdsInfo.onyxBoox": "On older Onyx Boox devices, it gives a null error. This can be fixed by updating the firmware.",
+  "authorsSearch": "Search authors"
 }
