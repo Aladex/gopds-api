@@ -26,6 +26,7 @@ import {useTranslation} from 'react-i18next';
 import {Logout, Menu as MenuIcon, Person} from "@mui/icons-material";
 import {StyledTextField} from "../StyledDataItems";
 import {useCommonStyles} from "../themeStyles";
+import {useFav} from "../../context/FavContext";
 
 const Header: React.FC = () => {
     const {logout, updateUser, user} = useAuth();
@@ -42,46 +43,7 @@ const Header: React.FC = () => {
     const [lastName, setLastName] = useState(user?.last_name || '');
     const [oldPassword, setOldPassword] = useState('');
     const [newPassword, setNewPassword] = useState('');
-
-    useEffect(() => {
-        if (user) {
-            setFirstName(user.first_name || '');
-            setLastName(user.last_name || '');
-        }
-    }, [user]);
-
-
-
-    const handleLogout = () => {
-        logout();
-        navigate('/login');
-    };
-
-    const handleChange = (event: React.SyntheticEvent, newValue: number) => {
-        setValue(newValue);
-    };
-
-    const handleUserInfo = () => {
-        setDialogOpen(true);
-    };
-
-    const handleDialogClose = () => {
-        setDialogOpen(false);
-        setShowPasswordFields(false);
-    };
-
-    const handleDrawerToggle = () => {
-        setDrawerOpen(!drawerOpen);
-    };
-
-    const a11yProps = (index: number) => {
-        return {
-            id: `simple-tab-${index}`,
-            'aria-controls': `simple-tabpanel-${index}`,
-        };
-    };
-
-
+    const {  setFav } = useFav();
     const menuItems = useMemo(() => {
         const items = [
             { label: t('booksTab'), path: '/books/page/1', regex: /^\/books\/page\/\d+/, index: 0 },
@@ -93,6 +55,66 @@ const Header: React.FC = () => {
         }
         return items;
     }, [t, user?.is_superuser]);
+
+    useEffect(() => {
+        if (user) {
+            setFirstName(user.first_name || '');
+            setLastName(user.last_name || '');
+        }
+    }, [user]);
+
+    const handleLogout = () => {
+        logout();
+        navigate('/login');
+    };
+
+    useEffect(() => {
+        const currentPath = window.location.pathname;
+        const currentTab = menuItems.findIndex(item => item.regex.test(currentPath));
+        if (currentTab !== -1) {
+            setValue(currentTab);
+            setFav(false); // Reset fav when changing tabs
+        }
+    }, [menuItems, setFav]);
+
+    const handleChange = (event: React.SyntheticEvent, newValue: number) => {
+        setValue(newValue);
+        setFav(false); // Reset fav when changing tabs
+    };
+
+    const handleDrawerToggle = () => {
+        setDrawerOpen(!drawerOpen);
+    };
+
+    const handleMenuItemClick = (path: string) => {
+        navigate(path);
+        setFav(false); // Reset fav when clicking menu items
+        handleDrawerToggle();
+    };
+
+
+    const handleUserInfo = () => {
+        setDialogOpen(true);
+    };
+
+    const handleDialogClose = () => {
+        setDialogOpen(false);
+        setShowPasswordFields(false);
+    };
+
+    const a11yProps = (index: number) => {
+        return {
+            id: `simple-tab-${index}`,
+            'aria-controls': `simple-tabpanel-${index}`,
+        };
+    };
+
+    const handleTabClick = (index: number, path: string) => {
+        setValue(index);
+        setFav(false); // Reset fav when clicking tabs
+        navigate(path);
+    };
+
 
     useEffect(() => {
         const currentPath = window.location.pathname;
@@ -145,6 +167,10 @@ const Header: React.FC = () => {
         }
     };
 
+    const handleLogoClick = () => {
+        setFav(false); // Reset fav when clicking the logo
+    };
+
     return (
         <AppBar position="static" sx={{bgcolor: theme.palette.secondary.main}}>
             <Toolbar>
@@ -155,7 +181,7 @@ const Header: React.FC = () => {
                                 <IconButton edge="start" color="inherit" aria-label="menu" onClick={handleDrawerToggle}>
                                     <MenuIcon color="primary"/>
                                 </IconButton>
-                                <Link to="/books/page/1">
+                                <Link to="/books/page/1" onClick={handleLogoClick}>
                                     <img src="/logo.png" alt="Logo" style={{ width: 18, height: 18, marginTop: 6 }} />
                                 </Link>
                             </Box>
@@ -183,10 +209,7 @@ const Header: React.FC = () => {
                         >
                             <List>
                                 {menuItems.map((item, index) => (
-                                    <ListItemButton key={index} onClick={() => {
-                                        navigate(item.path);
-                                        handleDrawerToggle();
-                                    }}>
+                                    <ListItemButton key={index} onClick={() => handleMenuItemClick(item.path)}>
                                         <ListItemText primary={item.label.toUpperCase()}/>
                                     </ListItemButton>
                                 ))}
@@ -199,7 +222,7 @@ const Header: React.FC = () => {
                 ) : (
                     <>
                         <Typography sx={{ flexGrow: 1 }}>
-                            <Link to="/books/page/1">
+                            <Link to="/books/page/1" onClick={handleLogoClick}>
                                 <img src="/logo.png" alt="Logo" style={{ width: 35, height: 35 }} />
                             </Link>
                         </Typography>
@@ -210,7 +233,7 @@ const Header: React.FC = () => {
                                         key={index}
                                         label={item.label}
                                         {...a11yProps(item.index)}
-                                        onClick={() => navigate(item.path)}
+                                        onClick={() => handleTabClick(item.index, item.path)}
                                         sx={{color: value === item.index ? 'inherit' : '#9e9e9e'}}
                                     />
                                 ))}
