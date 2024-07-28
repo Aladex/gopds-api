@@ -65,18 +65,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             .finally(() => {
                 setIsLoaded(true);
             });
-    }, [navigate]);
+    }, []);
 
     const logout = useCallback(() => {
         fetchWithAuth.get('/logout')
             .then(() => {
                 setUser(null);
-                window.location.href = '/login';
+                navigate('/login');
             })
             .catch((error) => {
                 console.error('Error logging out', error);
             });
-    }, []);
+    }, [navigate]);
 
     const updateUser = useCallback((userData: User) => {
         setUser(userData);

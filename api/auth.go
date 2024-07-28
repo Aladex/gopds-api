@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"errors"
-	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
 	"gopds-api/database"
@@ -160,8 +159,6 @@ func AuthCheck(c *gin.Context) {
 // @Router /api/logout [get]
 func LogOut(c *gin.Context) {
 	username := strings.ToLower(c.GetString("username"))
-	fmt.Println("username: ", username)
-	fmt.Println("username: ", username)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
