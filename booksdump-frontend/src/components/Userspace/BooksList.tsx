@@ -45,6 +45,7 @@ interface Book {
     approved: boolean;
     path: string;
     format: string;
+    favorite_count: number;
 }
 
 const BooksList: React.FC = () => {
@@ -68,6 +69,7 @@ const BooksList: React.FC = () => {
         author?: string;
         series?: string;
         title?: string;
+        users_favorites?: boolean;
     };
 
     const formatDate = (dateString: string) => {
@@ -119,6 +121,11 @@ const BooksList: React.FC = () => {
 
             if (location.pathname.includes('/books/favorite')) {
                 params.fav = true;
+                clearAuthorBook();
+            }
+
+            if (location.pathname.includes('/books/users/favorites')) {
+                params.users_favorites = true;
                 clearAuthorBook();
             }
 
@@ -346,15 +353,26 @@ const BooksList: React.FC = () => {
 
                                             </Grid>
                                         </Grid>
-                                        <CardActions sx={{justifyContent: 'flex-end'}}>
-                                            {user?.is_superuser && (
-                                                <IconButton onClick={() => handleUpdateBook(book)}>
-                                                    {book.approved ? <CheckCircleIcon/> : <CheckCircleOutlineIcon/>}
-                                                </IconButton>
-                                            )}
-                                            <IconButton onClick={() => handleFavBook(book)}>
-                                                {book.fav ? <StarIcon/> : <StarOutlineIcon/>}
-                                            </IconButton>
+                                        <CardActions sx={{ justifyContent: 'space-between' }}>
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                                                <Box>
+                                                    {location.pathname.includes('/books/users/favorites') && (
+                                                        <Typography variant="body2" color="textSecondary">
+                                                            {t('favoriteCount', { count: book.favorite_count })}
+                                                        </Typography>
+                                                    )}
+                                                </Box>
+                                                <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                                    {user?.is_superuser && (
+                                                        <IconButton onClick={() => handleUpdateBook(book)}>
+                                                            {book.approved ? <CheckCircleIcon /> : <CheckCircleOutlineIcon />}
+                                                        </IconButton>
+                                                    )}
+                                                    <IconButton onClick={() => handleFavBook(book)}>
+                                                        {book.fav ? <StarIcon /> : <StarOutlineIcon />}
+                                                    </IconButton>
+                                                </Box>
+                                            </Box>
                                         </CardActions>
                                     </Card>
                                 </Box>

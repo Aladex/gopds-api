@@ -75,8 +75,8 @@ func GetBooks(c *gin.Context) {
 			c.JSON(500, err)
 			return
 		}
-		lenght := count / 10
-		if count-lenght*10 > 0 {
+		lenght := count / filters.Limit
+		if count-lenght*filters.Limit > 0 {
 			lenght++
 		}
 		c.JSON(200, ExportAnswer{

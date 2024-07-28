@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useMemo, useEffect, useState} from 'react';
 import {Link, useNavigate} from 'react-router-dom';
 import {
     AppBar,
@@ -48,7 +48,9 @@ const Header: React.FC = () => {
             setFirstName(user.first_name || '');
             setLastName(user.last_name || '');
         }
-    }, [user]); // Зависимость от user гарантирует, что useEffect сработает при его изменении
+    }, [user]);
+
+
 
     const handleLogout = () => {
         logout();
@@ -80,10 +82,25 @@ const Header: React.FC = () => {
     };
 
 
-    const menuItems = [
-        {label: t('booksTab'), path: '/books/page/1', index: 0},
-        {label: t('opdsTab'), path: '/catalog', index: 1},
-    ];
+    const menuItems = useMemo(() => {
+        const items = [
+            { label: t('booksTab'), path: '/books/page/1', regex: /^\/books\/page\/\d+/, index: 0 },
+            { label: t('byOtherUsersTab'), path: '/books/users/favorites/1', regex: /^\/books\/users\/favorites\/\d+/, index: 1 },
+            { label: t('opdsTab'), path: '/catalog', regex: /^\/catalog/, index: 2 }
+        ];
+        if (user?.is_superuser) {
+            items.push({ label: t('adminTab'), path: '/admin', regex: /^\/admin/, index: 3 });
+        }
+        return items;
+    }, [t, user?.is_superuser]);
+
+    useEffect(() => {
+        const currentPath = window.location.pathname;
+        const currentTab = menuItems.findIndex(item => item.regex.test(currentPath));
+        if (currentTab !== -1) {
+            setValue(currentTab);
+        }
+    }, [menuItems]);
 
     const togglePasswordFields = () => {
         setShowPasswordFields(!showPasswordFields);
@@ -128,58 +145,56 @@ const Header: React.FC = () => {
         }
     };
 
-    if (user?.is_superuser) {
-        menuItems.push({label: t('adminTab'), path: '/admin', index: 3});
-    }
-
     return (
         <AppBar position="static" sx={{bgcolor: theme.palette.secondary.main}}>
             <Toolbar>
                 {isMobile ? (
                     <>
                         <Box display="flex" justifyContent="space-between" alignItems="center" width="100%">
-                            <Box display="flex" justifyContent="space-between" alignItems="center" width="100%">
-                                <Box display="flex" alignItems="center">
-                                    <IconButton edge="start" color="inherit" aria-label="menu" onClick={handleDrawerToggle}>
-                                        <MenuIcon color="primary"/>
-                                    </IconButton>
-                                </Box>
-                                <Box display="flex" alignItems="center">
-                                    <Button sx={{color: theme.palette.primary.main}} onClick={handleUserInfo}>
-                                        <Person />
-                                    </Button>
-                                    <Button sx={{color: theme.palette.primary.main}} onClick={handleLogout}>
-                                        <Logout/>
-                                    </Button>
-                                </Box>
+                            <Box display="flex" alignItems="center">
+                                <IconButton edge="start" color="inherit" aria-label="menu" onClick={handleDrawerToggle}>
+                                    <MenuIcon color="primary"/>
+                                </IconButton>
+                                <Link to="/books/page/1">
+                                    <img src="/logo.png" alt="Logo" style={{ width: 18, height: 18, marginTop: 6 }} />
+                                </Link>
                             </Box>
-                            <Drawer
-                                anchor="left"
-                                open={drawerOpen}
-                                onClose={handleDrawerToggle}
-                                ModalProps={{
-                                    keepMounted: true, // Better open performance on mobile.
-                                }}
-                                PaperProps={{
-                                    sx: {
-                                        width: '50%', // Occupy the full width of the screen
-                                    }
-                                }}
-                            >
-                                <List>
-                                    {menuItems.map((item, index) => (
-                                        <ListItemButton key={index} onClick={() => {
-                                            navigate(item.path);
-                                            handleDrawerToggle();
-                                        }}>
-                                            <ListItemText primary={item.label.toUpperCase()}/>
-                                        </ListItemButton>
-                                    ))}
-                                    <ListItemButton onClick={handleUserInfo}>
-                                        <ListItemText primary={user?.username}/>
+                            <Box display="flex" alignItems="center">
+                                <Button sx={{color: theme.palette.primary.main}} onClick={handleUserInfo}>
+                                    <Person />
+                                </Button>
+                                <Button sx={{color: theme.palette.primary.main}} onClick={handleLogout}>
+                                    <Logout/>
+                                </Button>
+                            </Box>
+                        </Box>
+                        <Drawer
+                            anchor="left"
+                            open={drawerOpen}
+                            onClose={handleDrawerToggle}
+                            ModalProps={{
+                                keepMounted: true, // Better open performance on mobile.
+                            }}
+                            PaperProps={{
+                                sx: {
+                                    width: '70%', // Occupy the full width of the screen
+                                }
+                            }}
+                        >
+                            <List>
+                                {menuItems.map((item, index) => (
+                                    <ListItemButton key={index} onClick={() => {
+                                        navigate(item.path);
+                                        handleDrawerToggle();
+                                    }}>
+                                        <ListItemText primary={item.label.toUpperCase()}/>
                                     </ListItemButton>
-                                </List>
-                            </Drawer></Box>
+                                ))}
+                                <ListItemButton onClick={handleUserInfo}>
+                                    <ListItemText primary={user?.username}/>
+                                </ListItemButton>
+                            </List>
+                        </Drawer>
                     </>
                 ) : (
                     <>

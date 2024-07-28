@@ -80,5 +80,8 @@
   "authorsSearch": "Search authors",
   "unknownDate": "Unknown date",
   "favoriteTitles.books": "Favorites",
-  "changePasswordButton": "Change password"
+  "changePasswordButton": "Change password",
+  "otherUserFavorites.books": "Favorites of other users",
+  "favoriteCount": "In favorites: {{count}}",
+  "byOtherUsersTab": "By other users"
 }

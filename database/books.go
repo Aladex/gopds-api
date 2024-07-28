@@ -35,16 +35,6 @@ func GetLanguages() models.Languages {
 	return langRes
 }
 
-func GetCover(book int64) (models.Cover, error) {
-	var cover models.Cover
-	err := db.Model(&cover).Where("book_id = ?", book).First()
-	if err != nil {
-		logrus.Println(errors.New(fmt.Sprintf("no cover for book_id: %d", book)))
-		return cover, err
-	}
-	return cover, nil
-}
-
 // GetBooks returns a list of books
 func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, error) {
 	books := []models.Book{}
@@ -59,6 +49,7 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, err
 		Relation("Authors").
 		Relation("Users").
 		Relation("Series").
+		ColumnExpr("book.*, (SELECT COUNT(*) FROM favorite_books WHERE book_id = book.id) AS favorite_count").
 		WhereGroup(func(q *orm.Query) (*orm.Query, error) {
 			if filters.Fav {
 				var booksIds []models.UserToBook
@@ -86,7 +77,16 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, err
 				q = q.Where("title % ?", filters.Title).
 					OrderExpr("title <-> ? ASC", filters.Title)
 			} else {
-				q = q.Order("id DESC")
+
+				if filters.UsersFavorites {
+					// Get only books from UserToBook relation table favorite_books of all users and order by count of book_id
+					q = q.Join("JOIN favorite_books fb ON fb.book_id = book.id")
+					q = q.Group("book.id")
+					// Order by count of favorites in descending order, then by book.id in descending order
+					q = q.OrderExpr("favorite_count DESC, book.id DESC")
+				} else {
+					q = q.Order("id DESC")
+				}
 			}
 			if filters.Lang != "" {
 				q = q.Where("lang = ?", filters.Lang)
@@ -185,7 +185,7 @@ func FavBook(userID int64, fav models.FavBook) (bool, error) {
 	return hf, err
 }
 
-// UpdateBook
+// UpdateBook updates a book
 func UpdateBook(book models.Book) (models.Book, error) {
 	var bookToChange models.Book
 	err := db.Model(&bookToChange).Where("id = ?", book.ID).Select()

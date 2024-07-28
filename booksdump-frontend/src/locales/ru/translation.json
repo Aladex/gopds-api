@@ -30,7 +30,7 @@
   "booksTab": "Книги",
   "opdsTab": "OPDS",
   "donateTab": "Пожертвования",
-  "adminTab": "Администрирование",
+  "adminTab": "Админ",
   "logoutButton": "Выйти",
   "routeByBookName.books": "Поиск по названию книги",
   "routeByAuthorName.books": "Поиск по имени автора",
@@ -79,6 +79,8 @@
   "authorsSearch": "Поиск авторов",
   "unknownDate": "Дата неизвестна",
   "favoriteTitles.books": "Избранное",
-  "changePasswordButton": "Сменить пароль"
-
+  "changePasswordButton": "Сменить пароль",
+  "otherUserFavorites.books": "Что добавили другие",
+  "favoriteCount": "В избранном: {{count}}",
+  "byOtherUsersTab": "Что добавили другие"
 }
