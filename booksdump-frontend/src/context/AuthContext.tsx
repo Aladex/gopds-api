@@ -34,21 +34,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const navigate = useNavigate();
     const isAuthenticated = !!user;
 
-    const updateLang = useCallback(async (language: string) => {
-        if (user) {
-            try {
-                const response = await fetchWithAuth.post('/books/change-me', { ...user, books_lang: language });
-                if (response.status === 200) {
-                    setUser((prevUser) => prevUser ? { ...prevUser, books_lang: response.data.books_lang } : null);
-                } else {
-                    console.error('Failed to update language');
-                }
-            } catch (error) {
-                console.error('Error updating language', error);
-            }
-        }
-    }, [user]);
-
     const login = useCallback(() => {
         fetchWithAuth.get('/books/self-user')
             .then((response) => {
@@ -66,6 +51,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 setIsLoaded(true);
             });
     }, []);
+
+    const updateLang = useCallback(async (language: string) => {
+        if (user) {
+            try {
+                const response = await fetchWithAuth.post('/books/change-me', { ...user, books_lang: language });
+                if (response.status === 200) {
+                    login();
+                } else {
+                    console.error('Failed to update language');
+                }
+            } catch (error) {
+                console.error('Error updating language', error);
+            }
+        }
+    }, [login, user]);
 
     const logout = useCallback(() => {
         fetchWithAuth.get('/logout')
