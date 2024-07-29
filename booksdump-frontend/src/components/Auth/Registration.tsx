@@ -1,4 +1,3 @@
-// src/components/Auth/Registration.tsx
 import React, { useState, useEffect } from 'react';
 import { Button, Typography, CardContent, CardActions, Box, IconButton } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
@@ -14,6 +13,7 @@ const Registration: React.FC = () => {
     const [email, setEmail] = useState('');
     const [invite, setInvite] = useState('');
     const [regError, setRegError] = useState('');
+    const [isRegistered, setIsRegistered] = useState(false);
     const navigate = useNavigate();
     const { t } = useTranslation();
     const [isFormValid, setIsFormValid] = useState(false);
@@ -51,7 +51,7 @@ const Registration: React.FC = () => {
                 return;
             }
 
-            // Handle successful registration here
+            setIsRegistered(true);
         } catch (error) {
             console.error('Error registering:', error);
             setRegError(t('registrationError'));
@@ -60,57 +60,72 @@ const Registration: React.FC = () => {
 
     return (
         <LoginCenteredBox>
-            <CardContent>
-                <Typography variant="h4" textAlign="center">{t('registration')}</Typography>
-                <StyledTextField
-                    label={t('username')}
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    fullWidth
-                    margin="normal"
-                    required
-
-                />
-                <StyledTextField
-                    label="Email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    fullWidth
-                    margin="normal"
-                    required
-
-                />
-                <StyledTextField
-                    label={t('password')}
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    fullWidth
-                    margin="normal"
-                    required
-
-                />
-                <StyledTextField
-                    label={t('inviteCode')}
-                    value={invite}
-                    onChange={(e) => setInvite(e.target.value)}
-                    fullWidth
-                    margin="normal"
-                    required
-
-                />
-            </CardContent>
-            <CardActions>
-                <Box display="flex" justifyContent="space-between" width="100%">
-                    <IconButton onClick={() => navigate('/login')} size="small" aria-label={t('BackButton')}>
-                        <ArrowBackIcon />
-                    </IconButton>
-                    <Button variant="contained" color="primary" size="small" onClick={handleRegister} disabled={!isFormValid}>
-                        {t('registerButton')}
-                    </Button>
-                </Box>
-            </CardActions>
-            {regError && <Typography color="error" textAlign="center">{regError}</Typography>}
+            {isRegistered ? (
+                <>
+                    <CardContent>
+                        <Typography variant="h6" textAlign="center">
+                            {t('registrationSuccess')}
+                        </Typography>
+                    </CardContent>
+                    <CardActions>
+                        <Box display="flex" justifyContent="space-between" width="100%">
+                            <IconButton onClick={() => navigate('/login')} size="small" aria-label={t('BackButton')}>
+                                <ArrowBackIcon />
+                            </IconButton>
+                        </Box>
+                    </CardActions>
+                </>
+            ) : (
+                <>
+                    <CardContent>
+                        <Typography variant="h4" textAlign="center">{t('registration')}</Typography>
+                        <StyledTextField
+                            label={t('username')}
+                            value={username}
+                            onChange={(e) => setUsername(e.target.value)}
+                            fullWidth
+                            margin="normal"
+                            required
+                        />
+                        <StyledTextField
+                            label="Email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            fullWidth
+                            margin="normal"
+                            required
+                        />
+                        <StyledTextField
+                            label={t('password')}
+                            type="password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            fullWidth
+                            margin="normal"
+                            required
+                        />
+                        <StyledTextField
+                            label={t('inviteCode')}
+                            value={invite}
+                            onChange={(e) => setInvite(e.target.value)}
+                            fullWidth
+                            margin="normal"
+                            required
+                        />
+                    </CardContent>
+                    <CardActions>
+                        <Box display="flex" justifyContent="space-between" width="100%">
+                            <IconButton onClick={() => navigate('/login')} size="small" aria-label={t('BackButton')}>
+                                <ArrowBackIcon />
+                            </IconButton>
+                            <Button variant="contained" color="primary" size="small" onClick={handleRegister} disabled={!isFormValid}>
+                                {t('registerButton')}
+                            </Button>
+                        </Box>
+                    </CardActions>
+                    {regError && <Typography color="error" textAlign="center">{regError}</Typography>}
+                </>
+            )}
         </LoginCenteredBox>
     );
 };

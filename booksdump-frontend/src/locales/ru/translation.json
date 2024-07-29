@@ -85,5 +85,6 @@
   "byOtherUsersTab": "Что добавили другие",
   "activationSuccess": "Ваш аккаунт активирован. Теперь вы можете войти.",
   "routeTitles.activation": "Активация аккаунта",
-  "activation": "Статус активации"
+  "activation": "Статус активации",
+  "registrationSuccess": "Регистрация прошла успешно. Ссылка для активации отправлена на ваш email."
 }

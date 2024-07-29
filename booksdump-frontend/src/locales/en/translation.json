@@ -86,5 +86,6 @@
   "byOtherUsersTab": "By other users",
   "activationSuccess": "Your account has been activated. You can now log in.",
   "routeTitles.activation": "Activation",
-  "activation": "Activation status"
+  "activation": "Activation status",
+  "registrationSuccess": "Registration successful. Check your email for further instructions."
 }
