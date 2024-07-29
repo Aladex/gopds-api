@@ -65,7 +65,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 console.error('Error updating language', error);
             }
         }
-    }, [login, user]);
+    }, [user]);
 
     const logout = useCallback(() => {
         fetchWithAuth.get('/logout')

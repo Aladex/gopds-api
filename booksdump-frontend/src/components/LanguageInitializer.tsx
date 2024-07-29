@@ -8,12 +8,18 @@ const LanguageInitializer: React.FC<{ onLanguageLoaded: () => void }> = ({ onLan
 
     useEffect(() => {
         const setLanguage = async () => {
+            let language = 'en'; // Default language
+
             if (user) {
-                const language = user.books_lang === 'ru' ? 'ru' : 'en';
-                await i18n.changeLanguage(language);
+                language = user.books_lang === 'ru' ? 'ru' : 'en';
             } else {
-                await i18n.changeLanguage('en'); // Или другой язык по умолчанию
+                const browserLanguage = navigator.language;
+                if (browserLanguage.startsWith('ru')) {
+                    language = 'ru';
+                }
             }
+
+            await i18n.changeLanguage(language);
             onLanguageLoaded();
         };
 
