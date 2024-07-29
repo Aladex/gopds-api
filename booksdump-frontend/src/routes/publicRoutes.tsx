@@ -15,7 +15,7 @@ const publicRoutes = (
         <Route path="/registration" element={<TitleSetter titleKey="routeTitles.registration"><Registration /></TitleSetter>} />
         <Route path="/forgot-password" element={<TitleSetter titleKey="routeTitles.forgotPassword"><ForgotPassword /></TitleSetter>} />
         <Route path="/change-password/:token" element={<TitleSetter titleKey="routeTitles.forgotPassword"><ChangePassword /></TitleSetter>} />
-        <Route path="/activation/:token" element={<TitleSetter titleKey="routeTitles.activation"><Activation /></TitleSetter>} />
+        <Route path="/activate/:token" element={<TitleSetter titleKey="routeTitles.activation"><Activation /></TitleSetter>} />
     </Route>
 );
 
