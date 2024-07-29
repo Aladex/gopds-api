@@ -82,5 +82,8 @@
   "changePasswordButton": "Сменить пароль",
   "otherUserFavorites.books": "Что добавили другие",
   "favoriteCount": "В избранном: {{count}}",
-  "byOtherUsersTab": "Что добавили другие"
+  "byOtherUsersTab": "Что добавили другие",
+  "activationSuccess": "Ваш аккаунт активирован. Теперь вы можете войти.",
+  "routeTitles.activation": "Активация аккаунта",
+  "activation": "Статус активации"
 }

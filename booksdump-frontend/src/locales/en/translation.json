@@ -83,5 +83,8 @@
   "changePasswordButton": "Change password",
   "otherUserFavorites.books": "Favorites of other users",
   "favoriteCount": "In favorites: {{count}}",
-  "byOtherUsersTab": "By other users"
+  "byOtherUsersTab": "By other users",
+  "activationSuccess": "Your account has been activated. You can now log in.",
+  "routeTitles.activation": "Activation",
+  "activation": "Activation status"
 }
