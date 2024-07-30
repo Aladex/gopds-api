@@ -87,5 +87,6 @@
   "activationSuccess": "Your account has been activated. You can now log in.",
   "routeTitles.activation": "Activation",
   "activation": "Activation status",
-  "registrationSuccess": "Registration successful. Check your email for further instructions."
+  "registrationSuccess": "Registration successful. Check your email for further instructions.",
+  "usernameRegistration": "Username"
 }

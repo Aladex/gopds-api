@@ -80,7 +80,7 @@ const Registration: React.FC = () => {
                     <CardContent>
                         <Typography variant="h4" textAlign="center">{t('registration')}</Typography>
                         <StyledTextField
-                            label={t('username')}
+                            label={t('usernameRegistration')}
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
                             fullWidth

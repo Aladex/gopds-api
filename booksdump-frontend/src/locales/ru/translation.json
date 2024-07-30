@@ -87,5 +87,6 @@
   "routeTitles.activation": "Активация аккаунта",
   "activation": "Статус активации",
   "registrationSuccess": "Регистрация прошла успешно. Ссылка для активации отправлена на ваш email.",
-  "inviteCode": "Инвайт-код"
+  "inviteCode": "Инвайт-код",
+  "usernameRegistration": "Имя пользователя"
 }
