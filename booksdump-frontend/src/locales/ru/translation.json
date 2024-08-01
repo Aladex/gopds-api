@@ -88,5 +88,8 @@
   "activation": "Статус активации",
   "registrationSuccess": "Регистрация прошла успешно. Ссылка для активации отправлена на ваш email.",
   "inviteCode": "Инвайт-код",
-  "usernameRegistration": "Имя пользователя"
+  "usernameRegistration": "Имя пользователя",
+  "badPassword": "Неверный пароль",
+  "userNotActive": "Пользователь не активен",
+  "badCredentials": "Неверные учётные данные"
 }

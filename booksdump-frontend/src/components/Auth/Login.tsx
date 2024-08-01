@@ -1,4 +1,3 @@
-// src/components/Auth/Login.tsx
 import React, { useState } from 'react';
 import { Button, Typography, CardContent, CardActions, Box, IconButton, InputAdornment } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
@@ -8,7 +7,6 @@ import { API_URL } from '../../api/config';
 import LoginCenteredBox from "../common/CenteredBox";
 import { useTranslation } from 'react-i18next';
 import { StyledTextField } from "../StyledDataItems";
-
 
 const Login: React.FC = () => {
     const [username, setUsername] = useState('');
@@ -38,7 +36,20 @@ const Login: React.FC = () => {
                 login();
                 navigate('/books/page/1');
             } else if (response.status === 403) {
-                setLoginError(t('loginOrPasswordIncorrect')); // Assuming you have a translation key for the error message
+                const errorData = await response.json();
+                switch (errorData.message) {
+                    case 'bad_credentials':
+                        setLoginError(t('badCredentials'));
+                        break;
+                    case 'user not active':
+                        setLoginError(t('userNotActive'));
+                        break;
+                    case 'bad password':
+                        setLoginError(t('badPassword'));
+                        break;
+                    default:
+                        setLoginError(t('loginOrPasswordIncorrect'));
+                }
             } else {
                 console.error('Error logging in:', response.statusText);
             }

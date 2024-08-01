@@ -88,5 +88,8 @@
   "routeTitles.activation": "Activation",
   "activation": "Activation status",
   "registrationSuccess": "Registration successful. Check your email for further instructions.",
-  "usernameRegistration": "Username"
+  "usernameRegistration": "Username",
+  "badPassword": "Invalid password",
+  "userNotActive": "User is not active",
+  "badCredentials": "Bad credentials"
 }
