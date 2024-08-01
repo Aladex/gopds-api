@@ -91,5 +91,6 @@
   "usernameRegistration": "Имя пользователя",
   "badPassword": "Неверный пароль",
   "userNotActive": "Пользователь не активен",
-  "badCredentials": "Неверные учётные данные"
+  "badCredentials": "Неверные учётные данные",
+  "deleteUser": "Удалить пользователя"
 }

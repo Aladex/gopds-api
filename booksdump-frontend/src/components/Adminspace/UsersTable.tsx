@@ -170,6 +170,7 @@ const UsersTable: React.FC = () => {
                                 </TableSortLabel>
                             </TableCell>
                             <TableCell>{(t('edit'))}</TableCell>
+                            <TableCell>{(t('deleteUser'))}</TableCell>
                         </TableRow>
                     </TableHead>
                     <TableBody>

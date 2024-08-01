@@ -91,5 +91,6 @@
   "usernameRegistration": "Username",
   "badPassword": "Invalid password",
   "userNotActive": "User is not active",
-  "badCredentials": "Bad credentials"
+  "badCredentials": "Bad credentials",
+  "deleteUser": "Delete user"
 }
