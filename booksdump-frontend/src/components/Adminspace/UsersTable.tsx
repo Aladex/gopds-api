@@ -20,6 +20,7 @@ import {
 } from '@mui/material';
 import IconButton from '@mui/material/IconButton';
 import EditIcon from '@mui/icons-material/Edit';
+import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 import { fetchWithAuth } from "../../api/config";
 import { formatDate } from "../../utils";
 import BookPagination from "../common/BookPagination";
@@ -92,6 +93,19 @@ const UsersTable: React.FC = () => {
     const handleDialogClose = () => {
         setDialogOpen(false);
         setSelectedUser(null);
+    };
+
+    const handleDeleteClick = async (user: any) => {
+        try {
+            const response = await fetchWithAuth.delete(`/admin/user/${user.id}`);
+            if (response.status === 200) {
+                setUsers(users.filter(u => u.id !== user.id));
+            } else {
+                console.error('Failed to delete user:', response.statusText);
+            }
+        } catch (error) {
+            console.error('Error deleting user:', error);
+        }
     };
 
     const handleUserChange = async () => {
@@ -171,6 +185,11 @@ const UsersTable: React.FC = () => {
                                 <TableCell>
                                     <IconButton onClick={() => handleEditClick(user)}>
                                         <EditIcon />
+                                    </IconButton>
+                                </TableCell>
+                                <TableCell>
+                                    <IconButton onClick={() => handleDeleteClick(user)}>
+                                        <DeleteForeverIcon />
                                     </IconButton>
                                 </TableCell>
                             </TableRow>

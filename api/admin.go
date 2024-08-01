@@ -15,6 +15,7 @@ func SetupAdminRoutes(r *gin.RouterGroup) {
 	r.GET("/invites", GetInvites)
 	r.POST("/invite", ChangeInvite)
 	r.POST("/user", ActionUser)
+	r.DELETE("/user/:id", DeleteUser)
 	r.POST("/update-book", UpdateBook)
 }
 

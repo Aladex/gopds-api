@@ -226,3 +226,12 @@ func updateUserDetails(userToChange, newUserDetails models.User) models.User {
 	userToChange.Active = newUserDetails.Active
 	return userToChange
 }
+
+// DeleteUser function for deleting user by ID
+func DeleteUser(id string) error {
+	_, err := db.Model(&models.User{}).Where("id = ?", id).Delete()
+	if err != nil {
+		return err
+	}
+	return nil
+}
