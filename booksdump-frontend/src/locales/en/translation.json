@@ -92,5 +92,17 @@
   "badPassword": "Invalid password",
   "userNotActive": "User is not active",
   "badCredentials": "Bad credentials",
-  "deleteUser": "Delete user"
+  "deleteUser": "Delete user",
+  "invites": "Invites",
+  "userId": "User ID",
+  "user": "User",
+  "active": "Active",
+  "superuser": "Superuser",
+  "dateJoined": "Date joined",
+  "lastLogin": "Last login",
+  "inviteId": "Invite ID",
+  "beforeDate": "Before date",
+  "actions": "Actions",
+  "addInvite": "Add invite",
+  "users": "Users"
 }

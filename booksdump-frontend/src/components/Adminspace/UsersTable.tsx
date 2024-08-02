@@ -27,6 +27,10 @@ import BookPagination from "../common/BookPagination";
 import { useTranslation } from 'react-i18next';
 import {useCommonStyles} from "../themeStyles";
 import {StyledTextField} from "../StyledDataItems";
+import {styled} from "@mui/material/styles";
+import CheckBoxIcon from '@mui/icons-material/CheckBox';
+import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
+
 
 const UsersTable: React.FC = () => {
     const { page } = useParams<{ page: string }>();
@@ -46,6 +50,10 @@ const UsersTable: React.FC = () => {
     const [token, setToken] = useState<string>('');
     const [isActive, setIsActive] = useState<boolean>(false);
     const [isSuperuser, setIsSuperuser] = useState<boolean>(false);
+    const NarrowTableCell = styled(TableCell)({
+        width: '50px', // Adjust the width as needed
+        padding: '0 8px', // Optional: Adjust padding for better alignment
+    });
 
     useEffect(() => {
         const fetchUsers = async () => {
@@ -141,23 +149,23 @@ const UsersTable: React.FC = () => {
 
     return (
         <Box>
-            <Typography variant="h6" align="center">Users Table - Page {page}</Typography>
+            <Typography variant="h6" align="center">{(t('users'))}</Typography>
             <TableContainer component={Paper}>
                 <Table>
                     <TableHead>
                         <TableRow>
-                            <TableCell>ID</TableCell>
-                            <TableCell>Username</TableCell>
-                            <TableCell>Email</TableCell>
-                            <TableCell>Active</TableCell>
-                            <TableCell>Superuser</TableCell>
+                            <TableCell>{(t('userId'))}</TableCell>
+                            <TableCell>{(t('user'))}</TableCell>
+                            <TableCell>{(t('email'))}</TableCell>
+                            <TableCell>{(t('active'))}</TableCell>
+                            <TableCell>{(t('superuser'))}</TableCell>
                             <TableCell sortDirection={sortColumn === 'date_joined' ? (sortOrder ? 'desc' : 'asc') : false}>
                                 <TableSortLabel
                                     active={sortColumn === 'date_joined'}
                                     direction={sortColumn === 'date_joined' ? (sortOrder ? 'desc' : 'asc') : 'asc'}
                                     onClick={() => handleSortRequest('date_joined')}
                                 >
-                                    Date joined
+                                    {(t('dateJoined'))}
                                 </TableSortLabel>
                             </TableCell>
                             <TableCell sortDirection={sortColumn === 'last_login' ? (sortOrder ? 'desc' : 'asc') : false}>
@@ -166,7 +174,7 @@ const UsersTable: React.FC = () => {
                                     direction={sortColumn === 'last_login' ? (sortOrder ? 'desc' : 'asc') : 'asc'}
                                     onClick={() => handleSortRequest('last_login')}
                                 >
-                                    Last login
+                                    {(t('lastLogin'))}
                                 </TableSortLabel>
                             </TableCell>
                             <TableCell>{(t('edit'))}</TableCell>
@@ -179,20 +187,24 @@ const UsersTable: React.FC = () => {
                                 <TableCell>{user.id}</TableCell>
                                 <TableCell>{user.username}</TableCell>
                                 <TableCell>{user.email}</TableCell>
-                                <TableCell>{user.active.toString()}</TableCell>
-                                <TableCell>{user.is_superuser.toString()}</TableCell>
+                                <TableCell>
+                                    {user.active ? <CheckBoxIcon /> : <CheckBoxOutlineBlankIcon />}
+                                </TableCell>
+                                <TableCell>
+                                    {user.is_superuser ? <CheckBoxIcon /> : <CheckBoxOutlineBlankIcon />}
+                                </TableCell>
                                 <TableCell>{formatDate(user.date_joined)}</TableCell>
                                 <TableCell>{formatDate(user.last_login)}</TableCell>
-                                <TableCell>
+                                <NarrowTableCell>
                                     <IconButton onClick={() => handleEditClick(user)}>
                                         <EditIcon />
                                     </IconButton>
-                                </TableCell>
-                                <TableCell>
+                                </NarrowTableCell>
+                                <NarrowTableCell>
                                     <IconButton onClick={() => handleDeleteClick(user)}>
                                         <DeleteForeverIcon />
                                     </IconButton>
-                                </TableCell>
+                                </NarrowTableCell>
                             </TableRow>
                         ))}
                     </TableBody>

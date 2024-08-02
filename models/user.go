@@ -71,9 +71,9 @@ type RegisterRequest struct {
 // Invite struct for invite table
 type Invite struct {
 	tableName  struct{}  `pg:"invites,discard_unknown_columns" json:"-"`
-	ID         int64     `pg:"id,pk" json:"id" form:"id"`
+	ID         int64     `pg:"id,pk" json:"id,omitempty" form:"id,omitempty"`
 	Invite     string    `pg:"invite" json:"invite" form:"invite"`
-	BeforeDate time.Time `pg:"before_date" json:"before_date" form:"before_date" time_format:"2006-01-02T15:04:05Z07:00"`
+	BeforeDate time.Time `pg:"before_date" json:"before_date" form:"before_date" time_format:"2006-01-02T15:04:05.000Z07:00"`
 }
 
 // CheckValues check values for register request

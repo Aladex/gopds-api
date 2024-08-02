@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pagination as MuiPagination } from '@mui/material';
+import { Pagination as MuiPagination, useMediaQuery, useTheme } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { styled } from '@mui/material/styles';
 
@@ -50,6 +50,9 @@ const BookPagination: React.FC<PaginationProps> = ({ totalPages, currentPage, ba
         navigate(`${noPageUrl}/${value}`);
     };
 
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down(780));
+
     return (
         <StyledPagination
             count={totalPages}
@@ -60,8 +63,8 @@ const BookPagination: React.FC<PaginationProps> = ({ totalPages, currentPage, ba
             showLastButton={false}
             variant="outlined"
             shape="rounded"
-            boundaryCount={1}
-            siblingCount={1}
+            boundaryCount={isMobile ? 1 : 3}
+            siblingCount={isMobile ? 1 : 3}
             sx={{
                 '@media (max-width: 600px)': {
                     boundaryCount: 0,

@@ -26,7 +26,7 @@ const AdminSpace: React.FC = () => {
         <Box p={2}>
             <Grid container justifyContent="center">
                 <Grid item xs={12}>
-                    <Box maxWidth={1200} mx="auto">
+                    <Box maxWidth={1400} mx="auto">
                         <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
                             <CardContent>
                                 <Tabs
