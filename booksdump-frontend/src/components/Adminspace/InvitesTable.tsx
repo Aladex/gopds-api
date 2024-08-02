@@ -128,6 +128,7 @@ const InvitesTable: React.FC = () => {
                                         <DateTimePicker
                                             value={invite.before_date ? new Date(invite.before_date) : null}
                                             onChange={(newValue) => handleDateChange(invite.id)(newValue)}
+                                            ampm={false}
                                         />
                                     </TableCell>
                                     <NarrowTableCell>

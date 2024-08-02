@@ -54,6 +54,7 @@ const UsersTable: React.FC = () => {
         width: '50px', // Adjust the width as needed
         padding: '0 8px', // Optional: Adjust padding for better alignment
     });
+    const [searchQuery, setSearchQuery] = useState<string>('');
 
     useEffect(() => {
         const fetchUsers = async () => {
@@ -63,7 +64,7 @@ const UsersTable: React.FC = () => {
                 const response = await fetchWithAuth.post('/admin/users', {
                     limit,
                     offset,
-                    username: '',
+                    username: searchQuery,
                     order: sortColumn,
                     desc: sortOrder,
                 });
@@ -76,7 +77,7 @@ const UsersTable: React.FC = () => {
         };
 
         fetchUsers().then(r => r);
-    }, [page, sortOrder, sortColumn]);
+    }, [page, sortOrder, sortColumn, searchQuery]);
 
     const handleSortRequest = (column: string) => {
         if (sortColumn === column) {
@@ -150,6 +151,14 @@ const UsersTable: React.FC = () => {
     return (
         <Box>
             <Typography variant="h6" align="center">{(t('users'))}</Typography>
+            <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                <StyledTextField
+                    label={t('search')}
+                    variant="outlined"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                />
+            </Box>
             <TableContainer component={Paper}>
                 <Table>
                     <TableHead>
