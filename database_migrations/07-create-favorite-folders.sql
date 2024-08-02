@@ -4,7 +4,8 @@ CREATE TABLE public.favorite_folders (
                                          id integer NOT NULL,
                                          user_id integer NOT NULL,
                                          name character varying(128) NOT NULL,
-                                         public boolean DEFAULT false NOT NULL
+                                         public boolean DEFAULT false NOT NULL,
+                                         order integer DEFAULT 0 NOT NULL
 );
 
 ALTER TABLE public.favorite_folders OWNER TO gopds;

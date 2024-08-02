@@ -2,6 +2,7 @@
 
 ALTER TABLE public.favorite_books ADD COLUMN folder_id integer DEFAULT NULL;
 ALTER TABLE public.favorite_books ADD COLUMN public boolean DEFAULT false NOT NULL;
+ALTER TABLE public.favorite_books ADD COLUMN order integer DEFAULT 0 NOT NULL;
 
 CREATE INDEX favorite_books_folder_id_index ON public.favorite_books USING btree (folder_id);
 
