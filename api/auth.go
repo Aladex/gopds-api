@@ -135,6 +135,7 @@ func AuthCheck(c *gin.Context) {
 	}
 
 	go database.LoginDateSet(&dbUser)
+	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie("token",
 		userToken,
 		604800,

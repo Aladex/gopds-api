@@ -20,9 +20,11 @@ const CategoriesList: React.FC<CategoriesListProps> = ({ categories }) => {
     const navigate = useNavigate();
     const { setSearchItem } = useSearchBar();
     const { t } = useTranslation();
+    const [, setFav] = React.useState(false);
 
     const navigateToCategory = (categoryId: number) => {
         setSearchItem('');
+        setFav(false);
         navigate(`/books/find/category/${categoryId}/1`);
     };
 

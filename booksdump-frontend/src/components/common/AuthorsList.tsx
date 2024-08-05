@@ -21,9 +21,11 @@ const AuthorsList: React.FC<AuthorsListProps> = ({authors}) => {
     const { setSearchItem } = useSearchBar();
     const { t } = useTranslation();
     const { clearAuthorBook } = useAuthor();
+    const [, setFav] = React.useState(false);
 
     const navigateToAuthor = (authorId: number) => {
         setSearchItem('');
+        setFav(false);
         clearAuthorBook();
         navigate(`/books/find/author/${authorId}/1`);
     }
