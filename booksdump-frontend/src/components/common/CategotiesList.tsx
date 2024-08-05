@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useSearchBar } from '../../context/SearchBarContext';
 import { useCommonStyles } from '../themeStyles';
+import {useFav} from "../../context/FavContext";
 
 interface Category {
     id: number;
@@ -20,7 +21,7 @@ const CategoriesList: React.FC<CategoriesListProps> = ({ categories }) => {
     const navigate = useNavigate();
     const { setSearchItem } = useSearchBar();
     const { t } = useTranslation();
-    const [, setFav] = React.useState(false);
+    const { setFav } = useFav();
 
     const navigateToCategory = (categoryId: number) => {
         setSearchItem('');
