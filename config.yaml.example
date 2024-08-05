@@ -1,42 +1,44 @@
-project_domain: "127.0.0.1:8085"
-
+project_domain: "example.com"
+project_url: "https://example.com"
+secret_key: "randomSecretKey12345"
 postgres:
-  dbuser: sopds
-  dbpass: sopds
-  dbname: sopds
-  dbhost: "127.0.0.1:5432"
+  dbuser: exampleuser
+  dbpass: examplepassword
+  dbname: exampledb
+  dbhost: "localhost:5432"
 
 redis:
-  host: 127.0.0.1
+  host: localhost
   port: 6379
-  db: 0
 
 sessions:
-  key: fZ8vAKITrRpLxacsdKuWT1BLSmc1kDoo
+  key: randomSessionKey12345
+  refresh: randomRefreshKey12345
 
 app:
-  devel_mode: yes
-  files_path: "/mnt/ssd/sopds/books/_Lib.rus.ec - Официальная/lib.rus.ec"
-  users_path: "/mnt/ssd/sopds/books/users-arc/"
-  posters_path: "/mnt/ssd/sopds/books/posters/"
-  cdn: ""
-  book_cdn_key: ""
-  file_book_cdn: ""
+  devel_mode: no
+  cdn: "https://example.com"
+  files_path: "/files/"
+  users_path: "/users/"
+  book_cdn_key: "randomBookCdnKey12345"
+  posters_path: "/posters/"
+  file_book_cdn: "https://example.com"
 
 email:
-  user: no-reply@example.com
-  password: 6dSrmTAc7WfoY9WCSMVc
-  smtp_server: smtp.yandex.ru:465
+  from: "no-reply@example.com"
+  user: "apikey"
+  password: "randomApiKey12345"
+  smtp_server: smtp.example.com:465
   messages:
     registration:
-      subject: "Регистрация в BOOKSDUMP"
-      title: "Регистрация в BOOKSDUMP"
-      message: "Нажми на кнопку для активации учетной записи"
-      button: "Активировать"
-      thanks: "С уважением, BOOKSDUMP"
+      subject: "Registration at Example"
+      title: "Registration at Example"
+      message: "Click the button to activate your account"
+      button: "Activate"
+      thanks: "Best regards, Example"
     reset:
-      subject: "Сброс пароля в библиотеку"
-      title: "Сброс пароля в библиотеку"
-      message: "Нажми на кнопку для сброса пароля. Если пароль сбрасывать не нужно, то просто проигнорируй это письмо."
-      button: "Сбросить пароль"
-      thanks: "С уважением, BOOKSDUMP"
+      subject: "Password Reset at Example"
+      title: "Password Reset at Example"
+      message: "Click the button to reset your password. If you did not request a password reset, please ignore this email."
+      button: "Reset Password"
+      thanks: "Best regards, Example"
