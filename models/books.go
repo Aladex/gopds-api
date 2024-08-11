@@ -30,14 +30,15 @@ type BookCollection struct {
 	Books     []Book    `pg:"many2many:book_collection_books,join_fk:book_id" json:"books"`
 }
 
-// BookCollectionBook struct for book_collection_books table
+// BookCollectionBook struct for many-to-many relation between books and book collections
 type BookCollectionBook struct {
 	tableName        struct{}  `pg:"book_collection_books,discard_unknown_columns" json:"-"`
 	ID               int64     `pg:"id,pk" json:"id"`
 	BookCollectionID int64     `pg:"book_collection_id" json:"book_collection_id"`
 	BookID           int64     `pg:"book_id" json:"book_id"`
-	CreatedAt        time.Time `pg:"created_at" json:"created_at"`
-	UpdatedAt        time.Time `pg:"updated_at" json:"updated_at"`
+	Position         int       `pg:"position,default:0" json:"position"`
+	CreatedAt        time.Time `pg:"created_at,default:now()" json:"created_at"`
+	UpdatedAt        time.Time `pg:"updated_at,default:now()" json:"updated_at"`
 }
 
 func TranslitDict() map[string]string {

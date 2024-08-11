@@ -14,6 +14,7 @@ CREATE TABLE public.book_collection_books (
                                               id SERIAL PRIMARY KEY,
                                               book_collection_id INTEGER NOT NULL,
                                               book_id INTEGER NOT NULL,
+                                              position INTEGER DEFAULT 0,
                                               created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                                               updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -32,6 +33,7 @@ ALTER TABLE public.book_collection_books
 CREATE INDEX book_collections_user_id_index ON public.book_collections (user_id);
 CREATE INDEX book_collection_books_collection_id_index ON public.book_collection_books (book_collection_id);
 CREATE INDEX book_collection_books_book_id_index ON public.book_collection_books (book_id);
+CREATE INDEX book_collection_books_position_index ON public.book_collection_books (position);
 
 -- Ensure unique book per collection
 ALTER TABLE public.book_collection_books
