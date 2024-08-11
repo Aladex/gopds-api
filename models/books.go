@@ -9,11 +9,35 @@ import (
 )
 
 func init() {
-	// Register many-to-many model so ORM can better recognize m2m relation.
-	// This should be done before dependant models are used.
+	// Register many-to-many models for ORM recognition.
 	orm.RegisterTable((*OrderToAuthor)(nil))
 	orm.RegisterTable((*OrderToSeries)(nil))
 	orm.RegisterTable((*UserToBook)(nil))
+	orm.RegisterTable((*BookCollectionBook)(nil)) // Register BookCollectionBook for m2m relation.
+}
+
+// BookCollection struct for book_collections table
+type BookCollection struct {
+	tableName struct{}  `pg:"book_collections,discard_unknown_columns" json:"-"`
+	ID        int64     `pg:"id,pk" json:"id"`
+	UserID    int64     `pg:"user_id" json:"user_id"`
+	User      *User     `pg:"rel:has-one,fk:user_id" json:"user"` // Ссылка на пользователя
+	Name      string    `pg:"name" json:"name"`
+	IsPublic  bool      `pg:"is_public,use_zero" json:"is_public"`
+	CreatedAt time.Time `pg:"created_at" json:"created_at"`
+	UpdatedAt time.Time `pg:"updated_at" json:"updated_at"`
+	Rating    int       `pg:"rating,use_zero" json:"rating"`
+	Books     []Book    `pg:"many2many:book_collection_books,join_fk:book_id" json:"books"`
+}
+
+// BookCollectionBook struct for book_collection_books table
+type BookCollectionBook struct {
+	tableName        struct{}  `pg:"book_collection_books,discard_unknown_columns" json:"-"`
+	ID               int64     `pg:"id,pk" json:"id"`
+	BookCollectionID int64     `pg:"book_collection_id" json:"book_collection_id"`
+	BookID           int64     `pg:"book_id" json:"book_id"`
+	CreatedAt        time.Time `pg:"created_at" json:"created_at"`
+	UpdatedAt        time.Time `pg:"updated_at" json:"updated_at"`
 }
 
 func TranslitDict() map[string]string {
