@@ -26,6 +26,7 @@ import SkeletonCard from "../common/SkeletonCard";
 import { useNavigate } from 'react-router-dom';
 import { useSearchBar } from '../../context/SearchBarContext';
 import { useTranslation } from "react-i18next";
+import {StyledTextField} from "../StyledDataItems";
 
 interface Collection {
     id: number;
@@ -194,7 +195,7 @@ const CollectionsList: React.FC = () => {
             <Dialog open={open} onClose={handleClose}>
                 <DialogTitle>{t('createCollection')}</DialogTitle>
                 <DialogContent>
-                    <TextField
+                    <StyledTextField
                         autoFocus
                         margin="dense"
                         label={t('collectionName')}
