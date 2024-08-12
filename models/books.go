@@ -226,6 +226,12 @@ type BookFilters struct {
 	UsersFavorites bool   `form:"users_favorites" json:"users_favorites"`
 }
 
+// CollectionFilters params for filtering collections list
+type CollectionFilters struct {
+	Limit  int `form:"limit" json:"limit"`
+	Offset int `form:"offset" json:"offset"`
+}
+
 // BookDownload struct for book download
 type BookDownload struct {
 	BookID  int64  `json:"book_id" form:"book_id" binding:"required"`

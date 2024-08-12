@@ -18,6 +18,9 @@ func SetupBookRoutes(r *gin.RouterGroup) {
 	r.POST("/author", GetAuthor)
 	r.POST("/file", GetBookFile)
 	r.POST("/fav", FavBook)
+	r.GET("/collections", GetCollections)
+	r.GET("/private-collections", GetPrivateCollections)
+	r.POST("/create-collection", CreateCollection)
 }
 
 // SetupLogoutRoute sets up routes for logout and session management

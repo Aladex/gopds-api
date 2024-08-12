@@ -1,24 +1,27 @@
 package database
 
 import (
-	"github.com/go-pg/pg/v10"
 	"gopds-api/models"
 )
 
 // GetAllPublicCollections returns all public collections
-func GetAllPublicCollections(db *pg.DB) ([]models.BookCollection, error) {
+func GetAllPublicCollections(filters models.CollectionFilters) ([]models.BookCollection, error) {
 	var collections []models.BookCollection
-	err := db.Model(&collections).
-		Where("is_public = ?", true).
-		Select()
-	if err != nil {
-		return nil, err
+	query := db.Model(&collections).Where("is_public = ?", true)
+
+	if filters.Limit > 0 {
+		query = query.Limit(filters.Limit)
 	}
-	return collections, nil
+	if filters.Offset > 0 {
+		query = query.Offset(filters.Offset)
+	}
+
+	err := query.Select()
+	return collections, err
 }
 
 // GetPrivateCollections returns all private collections by user ID
-func GetPrivateCollections(db *pg.DB, userID int64) ([]models.BookCollection, error) {
+func GetPrivateCollections(userID int64) ([]models.BookCollection, error) {
 	var collections []models.BookCollection
 	err := db.Model(&collections).
 		Where("user_id = ?", userID).
@@ -27,4 +30,10 @@ func GetPrivateCollections(db *pg.DB, userID int64) ([]models.BookCollection, er
 		return nil, err
 	}
 	return collections, nil
+}
+
+// CreateCollection creates a new collection
+func CreateCollection(collection models.BookCollection) (models.BookCollection, error) {
+	_, err := db.Model(&collection).Insert()
+	return collection, err
 }

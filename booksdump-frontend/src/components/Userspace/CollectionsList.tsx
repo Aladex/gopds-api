@@ -1,5 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import { Grid, Box, Typography, List, ListItemText, Card, ListItemButton, CardContent, Tabs, Tab } from '@mui/material';
+import {
+    Grid,
+    Box,
+    Typography,
+    List,
+    ListItemText,
+    Card,
+    ListItemButton,
+    CardContent,
+    Tabs,
+    Tab,
+    IconButton,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogActions,
+    TextField,
+    Button
+} from '@mui/material';
+import { Add } from '@mui/icons-material';
 import { useParams, useLocation } from 'react-router-dom';
 import { fetchWithAuth } from '../../api/config';
 import BookPagination from "../common/BookPagination";
@@ -21,6 +40,8 @@ const CollectionsList: React.FC = () => {
     const location = useLocation();
     const [totalPages, setTotalPages] = useState(0);
     const [tab, setTab] = useState('public');
+    const [open, setOpen] = useState(false);
+    const [newCollectionName, setNewCollectionName] = useState('');
     const baseUrl = window.location.pathname.replace(/\/\d+$/, '');
     const navigate = useNavigate();
     const { setSearchItem } = useSearchBar();
@@ -67,6 +88,36 @@ const CollectionsList: React.FC = () => {
         setTab(newValue);
     };
 
+    const handleOpen = () => {
+        setOpen(true);
+    };
+
+    const handleClose = () => {
+        setOpen(false);
+    };
+
+    const handleCreateCollection = async () => {
+        try {
+            await fetchWithAuth.post('/books/create-collection', { name: newCollectionName });
+            setOpen(false);
+            setNewCollectionName('');
+            // Refresh collections
+            const response = await fetchWithAuth.get(`/books/collections`, {
+                params: {
+                    limit: 10,
+                    offset: 0,
+                },
+            });
+            const responseData = await response.data;
+            if (responseData.collections && Array.isArray(responseData.collections)) {
+                setCollections(responseData.collections);
+                setTotalPages(responseData.length);
+            }
+        } catch (error) {
+            console.error('Error creating collection:', error);
+        }
+    };
+
     return (
         <>
             <Box p={2}>
@@ -75,39 +126,44 @@ const CollectionsList: React.FC = () => {
                         <Box maxWidth={1200} mx="auto">
                             <Card sx={{ boxShadow: 2, p: 1, my: 1 }}>
                                 <CardContent>
-                                    <Tabs
-                                        value={tab}
-                                        onChange={handleTabChange}
-                                        aria-label="collections tabs"
-                                        textColor="inherit"
-                                        indicatorColor="primary"
-                                        TabIndicatorProps={{
-                                            style: {
-                                                backgroundColor: 'black',
-                                            },
-                                        }}
-                                    >
-                                        <Tab
-                                            label={t('public')}
-                                            value="public"
-                                            sx={{
-                                                color: tab === 'public' ? 'black' : '#818181',
-                                                '&.Mui-selected': {
-                                                    color: 'black',
+                                    <Box display="flex" justifyContent="space-between" alignItems="center">
+                                        <Tabs
+                                            value={tab}
+                                            onChange={handleTabChange}
+                                            aria-label="collections tabs"
+                                            textColor="inherit"
+                                            indicatorColor="primary"
+                                            TabIndicatorProps={{
+                                                style: {
+                                                    backgroundColor: 'black',
                                                 },
                                             }}
-                                        />
-                                        <Tab
-                                            label={t('private')}
-                                            value="private"
-                                            sx={{
-                                                color: tab === 'private' ? 'black' : '#818181',
-                                                '&.Mui-selected': {
-                                                    color: 'black',
-                                                },
-                                            }}
-                                        />
-                                    </Tabs>
+                                        >
+                                            <Tab
+                                                label={t('public')}
+                                                value="public"
+                                                sx={{
+                                                    color: tab === 'public' ? 'black' : '#818181',
+                                                    '&.Mui-selected': {
+                                                        color: 'black',
+                                                    },
+                                                }}
+                                            />
+                                            <Tab
+                                                label={t('private')}
+                                                value="private"
+                                                sx={{
+                                                    color: tab === 'private' ? 'black' : '#818181',
+                                                    '&.Mui-selected': {
+                                                        color: 'black',
+                                                    },
+                                                }}
+                                            />
+                                        </Tabs>
+                                        <IconButton color="secondary" onClick={handleOpen}>
+                                            <Add />
+                                        </IconButton>
+                                    </Box>
                                     {loading ? (
                                         Array.from({ length: 10 }).map((_, index) => (
                                             <SkeletonCard key={index} />
@@ -135,6 +191,28 @@ const CollectionsList: React.FC = () => {
             <Grid container spacing={3} justifyContent="center" sx={{ marginTop: 2 }}>
                 <BookPagination totalPages={totalPages} currentPage={parseInt(page || '1', 10)} baseUrl={baseUrl} />
             </Grid>
+            <Dialog open={open} onClose={handleClose}>
+                <DialogTitle>{t('createCollection')}</DialogTitle>
+                <DialogContent>
+                    <TextField
+                        autoFocus
+                        margin="dense"
+                        label={t('collectionName')}
+                        type="text"
+                        fullWidth
+                        value={newCollectionName}
+                        onChange={(e) => setNewCollectionName(e.target.value)}
+                    />
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={handleClose} color="secondary">
+                        {t('cancel')}
+                    </Button>
+                    <Button onClick={handleCreateCollection} color="secondary">
+                        {t('create')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </>
     );
 };
