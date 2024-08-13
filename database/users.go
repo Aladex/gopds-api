@@ -137,6 +137,14 @@ func GetUser(u string) (models.User, error) {
 	if err != nil {
 		return *userDB, err
 	}
+
+	// Populate BookIDs for each collection
+	for i := range collections {
+		err = collections[i].FetchBookIDs(db)
+		if err != nil {
+			return *userDB, err
+		}
+	}
 	userDB.Collections = collections
 
 	return *userDB, nil

@@ -2,6 +2,7 @@ package models
 
 import (
 	"bytes"
+	"github.com/go-pg/pg/v10"
 	"github.com/go-pg/pg/v10/orm"
 	"regexp"
 	"strings"
@@ -28,6 +29,20 @@ type BookCollection struct {
 	UpdatedAt time.Time `pg:"updated_at" json:"updated_at"`
 	Rating    int       `pg:"rating,use_zero" json:"rating"`
 	Books     []Book    `pg:"many2many:book_collection_books,join_fk:book_id" json:"-"`
+	BookIDs   []int64   `pg:"-" json:"book_ids"`
+}
+
+func (bc *BookCollection) FetchBookIDs(db *pg.DB) error {
+	var bookIDs []int64
+	err := db.Model((*BookCollectionBook)(nil)).
+		Column("book_id").
+		Where("book_collection_id = ?", bc.ID).
+		Select(&bookIDs)
+	if err != nil {
+		return err
+	}
+	bc.BookIDs = bookIDs
+	return nil
 }
 
 // BookCollectionBook struct for many-to-many relation between books and book collections

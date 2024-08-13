@@ -12,6 +12,8 @@ import {
     Button,
     Menu,
     MenuItem,
+    Checkbox,
+    ListItemText,
     CardActions, IconButton
 } from '@mui/material';
 import {API_URL, fetchWithAuth} from '../../api/config';
@@ -239,16 +241,24 @@ const BooksList: React.FC = () => {
         setSelectedBook(bookId);
     };
 
-    const handleAddToCollection = async (collectionId: number) => {
+    const handleToggleCollection = async (collectionId: number) => {
         if (selectedBook !== null) {
             try {
-                await fetchWithAuth.post('/books/add-to-collection', {
-                    book_id: selectedBook,
-                    collection_id: collectionId,
-                });
+                const bookInCollection = user?.collections?.find(collection => collection.id === collectionId)?.book_ids?.includes(selectedBook);
+                if (bookInCollection) {
+                    await fetchWithAuth.post('/books/remove-from-collection', {
+                        book_id: selectedBook,
+                        collection_id: collectionId,
+                    });
+                } else {
+                    await fetchWithAuth.post('/books/add-to-collection', {
+                        book_id: selectedBook,
+                        collection_id: collectionId,
+                    });
+                }
                 handleMenuClose();
             } catch (error) {
-                console.error('Error adding book to collection:', error);
+                console.error('Error toggling book in collection:', error);
             }
         }
     };
@@ -405,10 +415,13 @@ const BooksList: React.FC = () => {
                                                                 {user.collections.map((collection) => (
                                                                     <MenuItem
                                                                         key={collection.id}
-                                                                        onClick={() => handleAddToCollection(collection.id)}
-                                                                        color="secondary"
+                                                                        onClick={() => handleToggleCollection(collection.id)}
                                                                     >
-                                                                        {collection.name}
+                                                                        <Checkbox
+                                                                            checked={collection.book_ids?.includes(book.id) || false}
+                                                                            color="secondary"
+                                                                        />
+                                                                        <ListItemText primary={collection.name} />
                                                                     </MenuItem>
                                                                 ))}
                                                             </Menu>
@@ -429,16 +442,19 @@ const BooksList: React.FC = () => {
                                                                 id="simple-menu"
                                                                 anchorEl={anchorEl}
                                                                 keepMounted
-                                                                color={'secondary'}
                                                                 open={Boolean(anchorEl)}
                                                                 onClose={handleMenuClose}
                                                             >
                                                                 {user.collections.map((collection) => (
                                                                     <MenuItem
                                                                         key={collection.id}
-                                                                        onClick={() => handleAddToCollection(collection.id)}
+                                                                        onClick={() => handleToggleCollection(collection.id)}
                                                                     >
-                                                                        {collection.name}
+                                                                        <Checkbox
+                                                                            checked={collection.book_ids?.includes(book.id) || false}
+                                                                            color="secondary"
+                                                                        />
+                                                                        <ListItemText primary={collection.name} />
                                                                     </MenuItem>
                                                                 ))}
                                                             </Menu>
