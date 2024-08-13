@@ -130,6 +130,15 @@ func GetUser(u string) (models.User, error) {
 	if err != nil {
 		return *userDB, err
 	}
+
+	// Fetch collections for the user
+	var collections []models.BookCollection
+	err = db.Model(&collections).Where("user_id = ?", userDB.ID).Select()
+	if err != nil {
+		return *userDB, err
+	}
+	userDB.Collections = collections
+
 	return *userDB, nil
 }
 

@@ -223,6 +223,7 @@ func SelfUser(c *gin.Context) {
 			FirstName:   dbUser.FirstName,
 			LastName:    dbUser.LastName,
 			HaveFavs:    &hf,
+			Collections: dbUser.Collections,
 		})
 	}
 }

@@ -40,18 +40,20 @@ type User struct {
 	TelegramID      int                 `pg:"telegram_id" json:"telegram_id" form:"telegram_id"`
 	DateJoined      time.Time           `pg:"date_joined" json:"date_joined"`
 	Active          bool                `pg:"active" json:"active"`
+	Collections     []BookCollection    `json:"collections"`
 	TelegramRequest UserTelegramRequest `pg:"-" json:"-"`
 }
 
 // LoggedInUser struct for user table with token
 type LoggedInUser struct {
-	User        string  `json:"username"`
-	FirstName   string  `json:"first_name"`
-	LastName    string  `json:"last_name"`
-	BooksLang   string  `json:"books_lang"`
-	HaveFavs    *bool   `json:"have_favs,omitempty"`
-	Token       *string `json:"token,omitempty"`
-	IsSuperuser *bool   `json:"is_superuser,omitempty"`
+	User        string           `json:"username"`
+	FirstName   string           `json:"first_name"`
+	LastName    string           `json:"last_name"`
+	BooksLang   string           `json:"books_lang"`
+	HaveFavs    *bool            `json:"have_favs,omitempty"`
+	Token       *string          `json:"token,omitempty"`
+	Collections []BookCollection `json:"collections"`
+	IsSuperuser *bool            `json:"is_superuser,omitempty"`
 }
 
 // LoginRequest struct for login request
