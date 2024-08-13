@@ -10,6 +10,8 @@ import {
     CardContent,
     CardMedia,
     Button,
+    Menu,
+    MenuItem,
     CardActions, IconButton
 } from '@mui/material';
 import {API_URL, fetchWithAuth} from '../../api/config';
@@ -60,6 +62,8 @@ const BooksList: React.FC = () => {
     const fav = useFav();
     const navigate = useNavigate();
     const prevLangRef = useRef(user?.books_lang);
+    const [selectedBook, setSelectedBook] = useState<number | null>(null);
+    const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
 
     type Params = {
         limit: number;
@@ -224,6 +228,31 @@ const BooksList: React.FC = () => {
         }
     }
 
+    const handleMenuClose = () => {
+        setAnchorEl(null);
+        setSelectedBook(null);
+    };
+
+
+    const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, bookId: number) => {
+        setAnchorEl(event.currentTarget);
+        setSelectedBook(bookId);
+    };
+
+    const handleAddToCollection = async (collectionId: number) => {
+        if (selectedBook !== null) {
+            try {
+                await fetchWithAuth.post('/books/add-to-collection', {
+                    book_id: selectedBook,
+                    collection_id: collectionId,
+                });
+                handleMenuClose();
+            } catch (error) {
+                console.error('Error adding book to collection:', error);
+            }
+        }
+    };
+
 
     const cover = (book: Book) => `${API_URL}/books-posters/${book.path.replace(/\W/g, '-')}/${book.filename.replace(/\W/g, '-')}.jpg`;
 
@@ -356,10 +385,64 @@ const BooksList: React.FC = () => {
                                         <CardActions sx={{ justifyContent: 'space-between' }}>
                                             <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
                                                 <Box>
-                                                    {location.pathname.includes('/books/users/favorites') && (
-                                                        <Typography variant="body2" color="textSecondary">
-                                                            {t('favoriteCount', { count: book.favorite_count })}
-                                                        </Typography>
+                                                    {user?.collections && Array.isArray(user.collections) && user.collections.length > 0 && (
+                                                        <>
+                                                            <Button
+                                                                aria-controls="simple-menu"
+                                                                aria-haspopup="true"
+                                                                onClick={(event) => handleMenuOpen(event, book.id)}
+                                                                color="secondary"
+                                                            >
+                                                                {t('addToCollection')}
+                                                            </Button>
+                                                            <Menu
+                                                                id="simple-menu"
+                                                                anchorEl={anchorEl}
+                                                                keepMounted
+                                                                open={Boolean(anchorEl)}
+                                                                onClose={handleMenuClose}
+                                                            >
+                                                                {user.collections.map((collection) => (
+                                                                    <MenuItem
+                                                                        key={collection.id}
+                                                                        onClick={() => handleAddToCollection(collection.id)}
+                                                                        color="secondary"
+                                                                    >
+                                                                        {collection.name}
+                                                                    </MenuItem>
+                                                                ))}
+                                                            </Menu>
+                                                        </>
+                                                    )}
+                                                </Box>
+                                                <Box>
+                                                    {user?.collections && Array.isArray(user.collections) && user.collections.length > 0 && (
+                                                        <>
+                                                            <Button
+                                                                aria-controls="simple-menu"
+                                                                aria-haspopup="true"
+                                                                onClick={(event) => handleMenuOpen(event, book.id)}
+                                                            >
+                                                                {t('addToCollection')}
+                                                            </Button>
+                                                            <Menu
+                                                                id="simple-menu"
+                                                                anchorEl={anchorEl}
+                                                                keepMounted
+                                                                color={'secondary'}
+                                                                open={Boolean(anchorEl)}
+                                                                onClose={handleMenuClose}
+                                                            >
+                                                                {user.collections.map((collection) => (
+                                                                    <MenuItem
+                                                                        key={collection.id}
+                                                                        onClick={() => handleAddToCollection(collection.id)}
+                                                                    >
+                                                                        {collection.name}
+                                                                    </MenuItem>
+                                                                ))}
+                                                            </Menu>
+                                                        </>
                                                     )}
                                                 </Box>
                                                 <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>

@@ -9,6 +9,16 @@ interface User {
     is_superuser: boolean;
     books_lang?: string;
     have_favs?: boolean;
+    collections?: Collection[];
+}
+
+interface Collection {
+    id: number;
+    name: string;
+    is_public: boolean;
+    created_at: string;
+    updated_at: string;
+    rating: number;
 }
 
 interface AuthContextType {
