@@ -59,3 +59,27 @@ func GetBookCollectionWithIDs(collectionID int64) (models.BookCollection, error)
 
 	return collection, nil
 }
+
+// AddBookToCollection adds a book to a collection if the collection belongs to the user
+func AddBookToCollection(userID, collectionID, bookID int64) error {
+	// Check if the collection belongs to the user
+	var collection models.BookCollection
+	err := db.Model(&collection).
+		Where("id = ? AND user_id = ?", collectionID, userID).
+		Select()
+	if err != nil {
+		return err
+	}
+
+	// Add the book to the collection
+	collectionBook := models.BookCollectionBook{
+		BookCollectionID: collectionID,
+		BookID:           bookID,
+	}
+	_, err = db.Model(&collectionBook).Insert()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}

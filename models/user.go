@@ -40,7 +40,7 @@ type User struct {
 	TelegramID      int                 `pg:"telegram_id" json:"telegram_id" form:"telegram_id"`
 	DateJoined      time.Time           `pg:"date_joined" json:"date_joined"`
 	Active          bool                `pg:"active" json:"active"`
-	Collections     []BookCollection    `json:"collections"`
+	Collections     []BookCollection    `pg:"rel:has-many" json:"collections"`
 	TelegramRequest UserTelegramRequest `pg:"-" json:"-"`
 }
 

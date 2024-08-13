@@ -52,6 +52,16 @@ interface Book {
     favorite_count: number;
 }
 
+interface Collection {
+    id: number;
+    name: string;
+    is_public: boolean;
+    created_at: string;
+    updated_at: string;
+    rating: number;
+    book_ids: number[];
+}
+
 const BooksList: React.FC = () => {
     const {user} = useAuth();
     const {page, id, title} = useParams<{ page: string, id?: string, title?: string }>();
@@ -66,6 +76,7 @@ const BooksList: React.FC = () => {
     const prevLangRef = useRef(user?.books_lang);
     const [selectedBook, setSelectedBook] = useState<number | null>(null);
     const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+    const [bookCollections, setBookCollections] = useState<Collection[]>([]);
 
     type Params = {
         limit: number;
@@ -230,37 +241,47 @@ const BooksList: React.FC = () => {
         }
     }
 
+    const handleMenuOpen = async (event: React.MouseEvent<HTMLElement>, bookId: number) => {
+        setAnchorEl(event.currentTarget);
+        setSelectedBook(bookId);
+        try {
+            const response = await fetchWithAuth.get(`/books/${bookId}/collections`);
+            if (response.status === 200) {
+                setBookCollections(response.data.collections);
+            } else {
+                console.error('Failed to fetch collections for the book');
+            }
+        } catch (error) {
+            console.error('Error fetching collections for the book:', error);
+        }
+    };
+
     const handleMenuClose = () => {
         setAnchorEl(null);
         setSelectedBook(null);
-    };
-
-
-    const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, bookId: number) => {
-        setAnchorEl(event.currentTarget);
-        setSelectedBook(bookId);
+        setBookCollections([]);
     };
 
     const handleToggleCollection = async (collectionId: number) => {
-        if (selectedBook !== null) {
-            try {
-                const bookInCollection = user?.collections?.find(collection => collection.id === collectionId)?.book_ids?.includes(selectedBook);
-                if (bookInCollection) {
-                    await fetchWithAuth.post('/books/remove-from-collection', {
-                        book_id: selectedBook,
-                        collection_id: collectionId,
-                    });
-                } else {
-                    await fetchWithAuth.post('/books/add-to-collection', {
-                        book_id: selectedBook,
-                        collection_id: collectionId,
-                    });
-                }
-                handleMenuClose();
-            } catch (error) {
-                console.error('Error toggling book in collection:', error);
-            }
-        }
+        // if (selectedBook !== null) {
+        //     try {
+        //         const bookInCollection = user?.collections?.find(collection => collection.id === collectionId)?.book_ids?.includes(selectedBook);
+        //         if (bookInCollection) {
+        //             await fetchWithAuth.post('/books/remove-from-collection', {
+        //                 book_id: selectedBook,
+        //                 collection_id: collectionId,
+        //             });
+        //         } else {
+        //             await fetchWithAuth.post('/books/add-to-collection', {
+        //                 book_id: selectedBook,
+        //                 collection_id: collectionId,
+        //             });
+        //         }
+        //         handleMenuClose();
+        //     } catch (error) {
+        //         console.error('Error toggling book in collection:', error);
+        //     }
+        // }
     };
 
 
@@ -412,7 +433,7 @@ const BooksList: React.FC = () => {
                                                                 open={Boolean(anchorEl)}
                                                                 onClose={handleMenuClose}
                                                             >
-                                                                {user.collections.map((collection) => (
+                                                                {bookCollections.map((collection) => (
                                                                     <MenuItem
                                                                         key={collection.id}
                                                                         onClick={() => handleToggleCollection(collection.id)}
@@ -445,7 +466,7 @@ const BooksList: React.FC = () => {
                                                                 open={Boolean(anchorEl)}
                                                                 onClose={handleMenuClose}
                                                             >
-                                                                {user.collections.map((collection) => (
+                                                                {bookCollections.map((collection) => (
                                                                     <MenuItem
                                                                         key={collection.id}
                                                                         onClick={() => handleToggleCollection(collection.id)}

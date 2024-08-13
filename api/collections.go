@@ -59,3 +59,23 @@ func CreateCollection(c *gin.Context) {
 	}
 	c.JSON(200, collection)
 }
+
+func AddBookToCollection(c *gin.Context) {
+	var request struct {
+		BookID       int64 `json:"book_id" binding:"required"`
+		CollectionID int64 `json:"collection_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	userID := c.GetInt64("user_id")
+	err := database.AddBookToCollection(userID, request.CollectionID, request.BookID)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	c.Status(http.StatusOK)
+}
