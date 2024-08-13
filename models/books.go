@@ -21,13 +21,13 @@ type BookCollection struct {
 	tableName struct{}  `pg:"book_collections,discard_unknown_columns" json:"-"`
 	ID        int64     `pg:"id,pk" json:"id"`
 	UserID    int64     `pg:"user_id" json:"user_id"`
-	User      *User     `pg:"rel:has-one,fk:user_id" json:"user"` // Ссылка на пользователя
+	User      *User     `pg:"rel:has-one,fk:user_id" json:"-"`
 	Name      string    `pg:"name" json:"name"`
 	IsPublic  bool      `pg:"is_public,use_zero" json:"is_public"`
 	CreatedAt time.Time `pg:"created_at" json:"created_at"`
 	UpdatedAt time.Time `pg:"updated_at" json:"updated_at"`
 	Rating    int       `pg:"rating,use_zero" json:"rating"`
-	Books     []Book    `pg:"many2many:book_collection_books,join_fk:book_id" json:"books"`
+	Books     []Book    `pg:"many2many:book_collection_books,join_fk:book_id" json:"-"`
 }
 
 // BookCollectionBook struct for many-to-many relation between books and book collections

@@ -15,7 +15,6 @@ import {
     DialogTitle,
     DialogContent,
     DialogActions,
-    TextField,
     Button
 } from '@mui/material';
 import { Add } from '@mui/icons-material';
@@ -31,6 +30,10 @@ import {StyledTextField} from "../StyledDataItems";
 interface Collection {
     id: number;
     name: string;
+    is_public: boolean;
+    created_at: string;
+    updated_at: string;
+    rating: number;
 }
 
 const CollectionsList: React.FC = () => {
@@ -40,7 +43,7 @@ const CollectionsList: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const location = useLocation();
     const [totalPages, setTotalPages] = useState(0);
-    const [tab, setTab] = useState('public');
+    const [tab, setTab] = useState('private');
     const [open, setOpen] = useState(false);
     const [newCollectionName, setNewCollectionName] = useState('');
     const baseUrl = window.location.pathname.replace(/\/\d+$/, '');
@@ -56,18 +59,20 @@ const CollectionsList: React.FC = () => {
                 const currentPage = parseInt(page || '1', 10);
                 const offset = (currentPage - 1) * limit;
 
-                const response = await fetchWithAuth.get(`/books/collections`, {
+                const endpoint = tab === 'private' ? '/books/private-collections' : '/books/collections';
+
+                const response = await fetchWithAuth.get(endpoint, {
                     params: {
                         limit,
                         offset,
-                        type: tab,
                     },
                 });
 
                 const responseData = await response.data;
-                if (responseData.collections && Array.isArray(responseData.collections)) {
-                    setCollections(responseData.collections);
-                    setTotalPages(responseData.length);
+                if (Array.isArray(responseData)) {
+                    setCollections(responseData);
+                    setTotalPages(Math.ceil(responseData.length / limit));
+                    console.log('Fetched collections:', responseData); // Debugging log
                 }
             } catch (error) {
                 console.error('Error fetching collections:', error);
@@ -141,20 +146,20 @@ const CollectionsList: React.FC = () => {
                                             }}
                                         >
                                             <Tab
-                                                label={t('public')}
-                                                value="public"
+                                                label={t('private')}
+                                                value="private"
                                                 sx={{
-                                                    color: tab === 'public' ? 'black' : '#818181',
+                                                    color: tab === 'private' ? 'black' : '#818181',
                                                     '&.Mui-selected': {
                                                         color: 'black',
                                                     },
                                                 }}
                                             />
                                             <Tab
-                                                label={t('private')}
-                                                value="private"
+                                                label={t('public')}
+                                                value="public"
                                                 sx={{
-                                                    color: tab === 'private' ? 'black' : '#818181',
+                                                    color: tab === 'public' ? 'black' : '#818181',
                                                     '&.Mui-selected': {
                                                         color: 'black',
                                                     },
@@ -177,7 +182,13 @@ const CollectionsList: React.FC = () => {
                                             <List>
                                                 {collections.map((collection) => (
                                                     <ListItemButton key={collection.id} onClick={() => handleCollectionClick(collection.id)}>
-                                                        <ListItemText primary={collection.name} />
+                                                        <ListItemText
+                                                            primary={collection.name}
+                                                            secondary={new Date(collection.updated_at).toLocaleDateString()}
+                                                        />
+                                                        <Typography variant="body2" sx={{ marginLeft: 'auto' }}>
+                                                            {collection.rating}
+                                                        </Typography>
                                                     </ListItemButton>
                                                 ))}
                                             </List>
