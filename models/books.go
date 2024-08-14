@@ -244,8 +244,9 @@ type BookFilters struct {
 
 // CollectionFilters params for filtering collections list
 type CollectionFilters struct {
-	Limit  int `form:"limit" json:"limit"`
-	Offset int `form:"offset" json:"offset"`
+	Limit  int   `form:"limit" json:"limit"`
+	Offset int   `form:"offset" json:"offset"`
+	BookID int64 `form:"book_id" json:"book_id"`
 }
 
 // BookDownload struct for book download

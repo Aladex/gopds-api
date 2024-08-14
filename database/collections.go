@@ -5,10 +5,15 @@ import (
 	"gopds-api/models"
 )
 
-// GetAllPublicCollections returns all public collections
-func GetAllPublicCollections(filters models.CollectionFilters) ([]models.BookCollection, error) {
+func GetCollections(filters models.CollectionFilters, userID int64, isPublic bool) ([]models.BookCollection, error) {
 	var collections []models.BookCollection
-	query := db.Model(&collections).Where("is_public = ?", true)
+	query := db.Model(&collections)
+
+	if isPublic {
+		query = query.Where("is_public = ?", true)
+	} else {
+		query = query.Where("user_id = ?", userID)
+	}
 
 	if filters.Limit > 0 {
 		query = query.Limit(filters.Limit)
@@ -18,32 +23,14 @@ func GetAllPublicCollections(filters models.CollectionFilters) ([]models.BookCol
 	}
 
 	err := query.Select()
-	return collections, err
-}
-
-// GetPrivateCollections returns all private collections by user ID
-func GetPrivateCollections(bookID, userID int64, limit, offset int) ([]models.BookCollection, error) {
-	var collections []models.BookCollection
-	query := db.Model(&collections).
-		Where("user_id = ?", userID)
-
-	if limit > 0 {
-		query = query.Limit(limit)
-	}
-	if offset > 0 {
-		query = query.Offset(offset)
-	}
-
-	err := query.Select()
 	if err != nil {
 		return nil, err
 	}
 
-	// Если bookID задан, проверяем для каждой коллекции, есть ли эта книга в коллекции
-	if bookID != 0 {
+	if filters.BookID != 0 && !isPublic {
 		for i := range collections {
 			count, err := db.Model(&models.BookCollectionBook{}).
-				Where("book_collection_id = ? AND book_id = ?", collections[i].ID, bookID).
+				Where("book_collection_id = ? AND book_id = ?", collections[i].ID, filters.BookID).
 				Count()
 			if err != nil {
 				return nil, err

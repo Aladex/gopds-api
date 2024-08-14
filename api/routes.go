@@ -19,7 +19,6 @@ func SetupBookRoutes(r *gin.RouterGroup) {
 	r.POST("/file", GetBookFile)
 	r.POST("/fav", FavBook)
 	r.GET("/collections", GetCollections)
-	r.GET("/private-collections", GetPrivateCollections)
 	r.POST("/create-collection", CreateCollection)
 	r.POST("/add-to-collection", AddBookToCollection)
 	r.POST("/remove-from-collection", RemoveBookFromCollection)

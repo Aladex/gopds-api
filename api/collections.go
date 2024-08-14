@@ -16,22 +16,11 @@ func GetCollections(c *gin.Context) {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
 	}
-	collections, err := database.GetAllPublicCollections(filters)
-	if err != nil {
-		httputil.NewError(c, http.StatusBadRequest, err)
-		return
-	}
-	c.JSON(200, collections)
-}
 
-func GetPrivateCollections(c *gin.Context) {
 	userID := c.GetInt64("user_id")
+	isPublic := c.Query("private") != "true"
 
-	bookID, _ := strconv.ParseInt(c.Query("book_id"), 10, 64)
-	limit, _ := strconv.Atoi(c.Query("limit"))
-	offset, _ := strconv.Atoi(c.Query("offset"))
-
-	collections, err := database.GetPrivateCollections(bookID, userID, limit, offset)
+	collections, err := database.GetCollections(filters, userID, isPublic)
 	if err != nil {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return

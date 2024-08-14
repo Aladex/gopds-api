@@ -259,7 +259,7 @@ const BooksList: React.FC = () => {
         dispatch({ type: 'SET_MENU_LOADING', payload: true });
 
         try {
-            const response = await fetchWithAuth.get(`/books/private-collections?book_id=${bookId}`);
+            const response = await fetchWithAuth.get(`/books/collections?book_id=${bookId}&private=true`);
             if (response.status === 200) {
                 const collections = response.data;
                 dispatch({ type: 'FETCH_COLLECTIONS_SUCCESS', payload: collections });
