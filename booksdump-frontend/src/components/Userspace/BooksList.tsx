@@ -60,6 +60,7 @@ interface Collection {
     updated_at: string;
     rating: number;
     book_ids: number[];
+    book_is_in_collection: boolean;
 }
 
 const BooksList: React.FC = () => {
@@ -245,9 +246,13 @@ const BooksList: React.FC = () => {
         setAnchorEl(event.currentTarget);
         setSelectedBook(bookId);
         try {
-            const response = await fetchWithAuth.get(`/books/${bookId}/collections`);
+            // Fetch all private collections and check if the book is in the collection
+            const response = await fetchWithAuth.get(`/books/private-collections?book_id=${bookId}`);
             if (response.status === 200) {
-                setBookCollections(response.data.collections);
+                const privateCollections = response.data.map((collection: Collection) => ({
+                    ...collection,
+                }));
+                setBookCollections(privateCollections);
             } else {
                 console.error('Failed to fetch collections for the book');
             }
@@ -439,7 +444,7 @@ const BooksList: React.FC = () => {
                                                                         onClick={() => handleToggleCollection(collection.id)}
                                                                     >
                                                                         <Checkbox
-                                                                            checked={collection.book_ids?.includes(book.id) || false}
+                                                                            checked={collection.book_is_in_collection || false}
                                                                             color="secondary"
                                                                         />
                                                                         <ListItemText primary={collection.name} />
@@ -472,7 +477,7 @@ const BooksList: React.FC = () => {
                                                                         onClick={() => handleToggleCollection(collection.id)}
                                                                     >
                                                                         <Checkbox
-                                                                            checked={collection.book_ids?.includes(book.id) || false}
+                                                                            checked={collection.book_is_in_collection || false}
                                                                             color="secondary"
                                                                         />
                                                                         <ListItemText primary={collection.name} />

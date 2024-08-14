@@ -6,6 +6,7 @@ import (
 	"gopds-api/httputil"
 	"gopds-api/models"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -25,11 +26,17 @@ func GetCollections(c *gin.Context) {
 
 func GetPrivateCollections(c *gin.Context) {
 	userID := c.GetInt64("user_id")
-	collections, err := database.GetPrivateCollections(userID)
+
+	bookID, _ := strconv.ParseInt(c.Query("book_id"), 10, 64)
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	offset, _ := strconv.Atoi(c.Query("offset"))
+
+	collections, err := database.GetPrivateCollections(bookID, userID, limit, offset)
 	if err != nil {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
 	}
+
 	c.JSON(200, collections)
 }
 
@@ -78,4 +85,23 @@ func AddBookToCollection(c *gin.Context) {
 	}
 
 	c.Status(http.StatusOK)
+}
+
+func GetBookCollections(c *gin.Context) {
+	bookID := c.Param("id")
+	userID := c.GetInt64("user_id")
+
+	// Convert bookID to int64
+	bookIDInt, err := strconv.ParseInt(bookID, 10, 64)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	collections, err := database.GetCollectionsByBookID(userID, bookIDInt)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+	c.JSON(200, collections)
 }

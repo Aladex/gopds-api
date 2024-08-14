@@ -22,14 +22,36 @@ func GetAllPublicCollections(filters models.CollectionFilters) ([]models.BookCol
 }
 
 // GetPrivateCollections returns all private collections by user ID
-func GetPrivateCollections(userID int64) ([]models.BookCollection, error) {
+func GetPrivateCollections(bookID, userID int64, limit, offset int) ([]models.BookCollection, error) {
 	var collections []models.BookCollection
-	err := db.Model(&collections).
-		Where("user_id = ?", userID).
-		Select()
+	query := db.Model(&collections).
+		Where("user_id = ?", userID)
+
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	if offset > 0 {
+		query = query.Offset(offset)
+	}
+
+	err := query.Select()
 	if err != nil {
 		return nil, err
 	}
+
+	// Если bookID задан, проверяем для каждой коллекции, есть ли эта книга в коллекции
+	if bookID != 0 {
+		for i := range collections {
+			count, err := db.Model(&models.BookCollectionBook{}).
+				Where("book_collection_id = ? AND book_id = ?", collections[i].ID, bookID).
+				Count()
+			if err != nil {
+				return nil, err
+			}
+			collections[i].BookIsInCollection = count > 0
+		}
+	}
+
 	return collections, nil
 }
 
@@ -82,4 +104,19 @@ func AddBookToCollection(userID, collectionID, bookID int64) error {
 	}
 
 	return nil
+}
+
+// GetCollectionsByBookID returns all user collections that contain the book
+func GetCollectionsByBookID(userID, bookID int64) ([]models.BookCollection, error) {
+	var collections []models.BookCollection
+	err := db.Model(&collections).
+		Column("book_collection.*").
+		Join("JOIN book_collection_books bcb ON book_collection.id = bcb.book_collection_id").
+		Where("bcb.book_id = ?", bookID).
+		Where("book_collection.user_id = ?", userID).
+		Select()
+	if err != nil {
+		return nil, err
+	}
+	return collections, nil
 }
