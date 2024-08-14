@@ -69,7 +69,6 @@ func GetBookCollectionWithIDs(collectionID int64) (models.BookCollection, error)
 	return collection, nil
 }
 
-// AddBookToCollection adds a book to a collection if the collection belongs to the user
 func AddBookToCollection(userID, collectionID, bookID int64) error {
 	// Check if the collection belongs to the user
 	var collection models.BookCollection
@@ -80,10 +79,21 @@ func AddBookToCollection(userID, collectionID, bookID int64) error {
 		return err
 	}
 
-	// Add the book to the collection
+	// Fetch the current maximum position in the collection
+	var maxPosition int
+	err = db.Model((*models.BookCollectionBook)(nil)).
+		Where("book_collection_id = ?", collectionID).
+		ColumnExpr("COALESCE(MAX(position), 0)").
+		Select(&maxPosition)
+	if err != nil {
+		return err
+	}
+
+	// Add the book to the collection with the next position
 	collectionBook := models.BookCollectionBook{
 		BookCollectionID: collectionID,
 		BookID:           bookID,
+		Position:         maxPosition + 1,
 	}
 	_, err = db.Model(&collectionBook).Insert()
 	if err != nil {
@@ -94,10 +104,53 @@ func AddBookToCollection(userID, collectionID, bookID int64) error {
 }
 
 func RemoveBookFromCollection(userID, collectionID, bookID int64) error {
-	_, err := db.Model(&models.BookCollectionBook{}).
+	// Start a transaction
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Fetch all books in the collection ordered by their current position
+	var books []models.BookCollectionBook
+	err = tx.Model(&books).
+		Where("book_collection_id = ?", collectionID).
+		Order("position ASC").
+		Select()
+	if err != nil {
+		return err
+	}
+
+	// Delete the specified book from the collection
+	_, err = tx.Model(&models.BookCollectionBook{}).
 		Where("book_collection_id = ? AND book_id = ?", collectionID, bookID).
 		Delete()
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Update the positions of the remaining books
+	position := 1
+	for _, book := range books {
+		if book.BookID != bookID {
+			_, err = tx.Model(&book).
+				Set("position = ?", position).
+				Where("id = ?", book.ID).
+				Update()
+			if err != nil {
+				return err
+			}
+			position++
+		}
+	}
+
+	// Commit the transaction
+	err = tx.Commit()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // GetCollectionsByBookID returns all user collections that contain the book
