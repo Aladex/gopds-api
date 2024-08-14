@@ -58,12 +58,13 @@ const CollectionsList: React.FC = () => {
                 const currentPage = parseInt(page || '1', 10);
                 const offset = (currentPage - 1) * limit;
 
-                const endpoint = tab === 'private' ? '/books/private-collections' : '/books/collections';
+                const endpoint = '/books/collections';
 
                 const response = await fetchWithAuth.get(endpoint, {
                     params: {
                         limit,
                         offset,
+                        private: tab === 'private',
                     },
                 });
 

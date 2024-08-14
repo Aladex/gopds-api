@@ -119,6 +119,17 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, err
 					q = q.WhereIn("id IN (?)", booksIds)
 				}
 			}
+			if filters.Collection != 0 {
+				var booksIds []int64
+				err := db.Model(&models.BookCollectionBook{}).
+					Column("book_id").
+					Where("book_collection_id = ?", filters.Collection).
+					Order("position ASC").
+					Select(&booksIds)
+				if err == nil {
+					q = q.WhereIn("id IN (?)", booksIds)
+				}
+			}
 
 			return q, nil
 		}).

@@ -156,6 +156,7 @@ const BooksList: React.FC = () => {
     };
 
     useEffect(() => {
+        // Update the `getParams` function in `src/components/Userspace/BooksList.tsx`
         const getParams = () => {
             const limit = 10;
             const currentPage = parseInt(page || '1', 10);
@@ -172,6 +173,9 @@ const BooksList: React.FC = () => {
             } else if (location.pathname.includes('/books/find/title/') && title) {
                 params.title = decodeURIComponent(title);
                 if (authorId) params.author = authorId;
+                clearAuthorBook();
+            } else if (location.pathname.includes('/books/find/collection/') && id) {
+                params.collection = id;
                 clearAuthorBook();
             }
 
