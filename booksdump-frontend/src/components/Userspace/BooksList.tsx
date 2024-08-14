@@ -3,6 +3,7 @@ import '../styles/BooksList.css';
 import React, { useState, useEffect, useRef } from 'react';
 import {useParams, useLocation} from 'react-router-dom';
 import {
+    LinearProgress,
     Typography,
     Box,
     Grid,
@@ -78,6 +79,7 @@ const BooksList: React.FC = () => {
     const [selectedBook, setSelectedBook] = useState<number | null>(null);
     const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
     const [bookCollections, setBookCollections] = useState<Collection[]>([]);
+    const [menuLoading, setMenuLoading] = useState(false);
 
     type Params = {
         limit: number;
@@ -243,8 +245,9 @@ const BooksList: React.FC = () => {
     }
 
     const handleMenuOpen = async (event: React.MouseEvent<HTMLElement>, bookId: number) => {
-        setAnchorEl(event.currentTarget);
         setSelectedBook(bookId);
+        setAnchorEl(event.currentTarget);
+        setMenuLoading(true); // Set menu loading state to true
         try {
             // Fetch all private collections and check if the book is in the collection
             const response = await fetchWithAuth.get(`/books/private-collections?book_id=${bookId}`);
@@ -253,11 +256,14 @@ const BooksList: React.FC = () => {
                     ...collection,
                 }));
                 setBookCollections(privateCollections);
+
             } else {
                 console.error('Failed to fetch collections for the book');
             }
         } catch (error) {
             console.error('Error fetching collections for the book:', error);
+        } finally {
+            setMenuLoading(false); // Set menu loading state to false
         }
     };
 
@@ -288,6 +294,37 @@ const BooksList: React.FC = () => {
         //     }
         // }
     };
+
+    const renderMenu = () => (
+        <Menu
+            id="simple-menu"
+            anchorEl={anchorEl}
+            keepMounted
+            open={Boolean(anchorEl)}
+            onClose={handleMenuClose}
+        >
+            {menuLoading ? (
+                <MenuItem disabled>
+                    <Box sx={{ width: '100%', padding: '0 100px' }}>
+                        <LinearProgress color={'secondary'} />
+                    </Box>
+                </MenuItem>
+            ) : (
+                bookCollections.map((collection) => (
+                    <MenuItem
+                        key={collection.id}
+                        onClick={() => handleToggleCollection(collection.id)}
+                    >
+                        <Checkbox
+                            checked={collection.book_is_in_collection || false}
+                            color="secondary"
+                        />
+                        <ListItemText primary={collection.name} />
+                    </MenuItem>
+                ))
+            )}
+        </Menu>
+    );
 
 
     const cover = (book: Book) => `${API_URL}/books-posters/${book.path.replace(/\W/g, '-')}/${book.filename.replace(/\W/g, '-')}.jpg`;
@@ -431,59 +468,7 @@ const BooksList: React.FC = () => {
                                                             >
                                                                 {t('addToCollection')}
                                                             </Button>
-                                                            <Menu
-                                                                id="simple-menu"
-                                                                anchorEl={anchorEl}
-                                                                keepMounted
-                                                                open={Boolean(anchorEl)}
-                                                                onClose={handleMenuClose}
-                                                            >
-                                                                {bookCollections.map((collection) => (
-                                                                    <MenuItem
-                                                                        key={collection.id}
-                                                                        onClick={() => handleToggleCollection(collection.id)}
-                                                                    >
-                                                                        <Checkbox
-                                                                            checked={collection.book_is_in_collection || false}
-                                                                            color="secondary"
-                                                                        />
-                                                                        <ListItemText primary={collection.name} />
-                                                                    </MenuItem>
-                                                                ))}
-                                                            </Menu>
-                                                        </>
-                                                    )}
-                                                </Box>
-                                                <Box>
-                                                    {user?.collections && Array.isArray(user.collections) && user.collections.length > 0 && (
-                                                        <>
-                                                            <Button
-                                                                aria-controls="simple-menu"
-                                                                aria-haspopup="true"
-                                                                onClick={(event) => handleMenuOpen(event, book.id)}
-                                                            >
-                                                                {t('addToCollection')}
-                                                            </Button>
-                                                            <Menu
-                                                                id="simple-menu"
-                                                                anchorEl={anchorEl}
-                                                                keepMounted
-                                                                open={Boolean(anchorEl)}
-                                                                onClose={handleMenuClose}
-                                                            >
-                                                                {bookCollections.map((collection) => (
-                                                                    <MenuItem
-                                                                        key={collection.id}
-                                                                        onClick={() => handleToggleCollection(collection.id)}
-                                                                    >
-                                                                        <Checkbox
-                                                                            checked={collection.book_is_in_collection || false}
-                                                                            color="secondary"
-                                                                        />
-                                                                        <ListItemText primary={collection.name} />
-                                                                    </MenuItem>
-                                                                ))}
-                                                            </Menu>
+                                                            {renderMenu()}
                                                         </>
                                                     )}
                                                 </Box>
