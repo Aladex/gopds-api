@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { Grid, Box, Typography, List, ListItemText, ListItemButton, Card, CardContent } from '@mui/material';
-import { useParams, useLocation, useNavigate } from 'react-router-dom';
-import { fetchWithAuth } from '../../api/config';
+import React, {useState, useEffect} from 'react';
+import {Grid, Box, Typography, List, ListItemText, ListItemButton, Card, CardContent} from '@mui/material';
+import {useParams, useLocation, useNavigate} from 'react-router-dom';
+import {fetchWithAuth} from '../../api/config';
 import SkeletonCard from "../common/SkeletonCard";
-import BookPagination from "../common/BookPagination";
-import { useSearchBar } from '../../context/SearchBarContext';
-import { useTranslation } from "react-i18next";
+import {useSearchBar} from '../../context/SearchBarContext';
+import {useTranslation} from "react-i18next";
 
 interface Book {
     id: number;
@@ -13,15 +12,13 @@ interface Book {
 }
 
 const CollectionEditor: React.FC = () => {
-    const { t } = useTranslation();
-    const { id } = useParams<{ id: string }>();
+    const {t} = useTranslation();
+    const {id} = useParams<{ id: string }>();
     const [books, setBooks] = useState<Book[]>([]);
     const [loading, setLoading] = useState(true);
-    const [totalPages, setTotalPages] = useState(0);
     const navigate = useNavigate();
-    const { setSearchItem } = useSearchBar();
+    const {setSearchItem} = useSearchBar();
     const location = useLocation();
-    const baseUrl = window.location.pathname.replace(/\/\d+$/, '');
 
     useEffect(() => {
         const fetchBooks = async () => {
@@ -40,7 +37,6 @@ const CollectionEditor: React.FC = () => {
                 const responseData = response.data;
                 if (responseData.books && Array.isArray(responseData.books)) {
                     setBooks(responseData.books);
-                    setTotalPages(responseData.length);
                 }
             } catch (error) {
                 console.error('Error fetching books:', error);
@@ -64,9 +60,9 @@ const CollectionEditor: React.FC = () => {
                 <Grid container justifyContent="center">
                     <Grid item xs={12}>
                         <Box maxWidth={1200} mx="auto">
-                            <Card sx={{ boxShadow: 2, p: 1, my: 1 }}>
-                                {Array.from({ length: 10 }).map((_, index) => (
-                                    <SkeletonCard key={index} />
+                            <Card sx={{boxShadow: 2, p: 1, my: 1}}>
+                                {Array.from({length: 10}).map((_, index) => (
+                                    <SkeletonCard key={index}/>
                                 ))}
                             </Card>
                         </Box>
@@ -76,7 +72,7 @@ const CollectionEditor: React.FC = () => {
                 <Grid container justifyContent="center">
                     <Grid item xs={12}>
                         <Box maxWidth={1200} mx="auto">
-                            <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
+                            <Card sx={{boxShadow: 2, p: 2, my: 2}}>
                                 <CardContent>
                                     <Typography variant="h6" align="center">{t('noBooksFound')}</Typography>
                                 </CardContent>
@@ -89,12 +85,12 @@ const CollectionEditor: React.FC = () => {
                     <Grid container justifyContent="center" spacing={4}>
                         <Grid item xs={12}>
                             <Box maxWidth={1200} mx="auto">
-                                <Card sx={{ boxShadow: 2, p: 1, my: 1 }}>
+                                <Card sx={{boxShadow: 2, p: 1, my: 1}}>
                                     <Typography variant="h4" align="center">{t('booksInCollection')}</Typography>
                                     <List>
                                         {books.map((book) => (
                                             <ListItemButton key={book.id} onClick={() => handleBookClick(book.id)}>
-                                                <ListItemText primary={book.title} />
+                                                <ListItemText primary={book.title}/>
                                             </ListItemButton>
                                         ))}
                                     </List>
