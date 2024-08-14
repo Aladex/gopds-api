@@ -22,6 +22,7 @@ func SetupBookRoutes(r *gin.RouterGroup) {
 	r.GET("/private-collections", GetPrivateCollections)
 	r.POST("/create-collection", CreateCollection)
 	r.POST("/add-to-collection", AddBookToCollection)
+	r.POST("/remove-from-collection", RemoveBookFromCollection)
 	r.GET("/:id/collections", GetBookCollections)
 }
 

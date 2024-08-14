@@ -87,6 +87,26 @@ func AddBookToCollection(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
+func RemoveBookFromCollection(c *gin.Context) {
+	var request struct {
+		BookID       int64 `json:"book_id" binding:"required"`
+		CollectionID int64 `json:"collection_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	userID := c.GetInt64("user_id")
+	err := database.RemoveBookFromCollection(userID, request.CollectionID, request.BookID)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	c.Status(http.StatusOK)
+}
+
 func GetBookCollections(c *gin.Context) {
 	bookID := c.Param("id")
 	userID := c.GetInt64("user_id")

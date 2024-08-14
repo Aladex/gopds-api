@@ -281,25 +281,39 @@ const BooksList: React.FC = () => {
     const cover = (book: Book) => `${API_URL}/books-posters/${book.path.replace(/\W/g, '-')}/${book.filename.replace(/\W/g, '-')}.jpg`;
 
     const handleToggleCollection = async (collectionId: number) => {
-        // if (selectedBook !== null) {
-        //     try {
-        //         const bookInCollection = user?.collections?.find(collection => collection.id === collectionId)?.book_ids?.includes(selectedBook);
-        //         if (bookInCollection) {
-        //             await fetchWithAuth.post('/books/remove-from-collection', {
-        //                 book_id: selectedBook,
-        //                 collection_id: collectionId,
-        //             });
-        //         } else {
-        //             await fetchWithAuth.post('/books/add-to-collection', {
-        //                 book_id: selectedBook,
-        //                 collection_id: collectionId,
-        //             });
-        //         }
-        //         handleMenuClose();
-        //     } catch (error) {
-        //         console.error('Error toggling book in collection:', error);
-        //     }
-        // }
+        if (state.selectedBook !== null) {
+            const collectionIndex = state.bookCollections.findIndex(collection => collection.id === collectionId);
+            if (collectionIndex !== -1) {
+                const collection = state.bookCollections[collectionIndex];
+                const updatedCollections = [...state.bookCollections];
+                updatedCollections[collectionIndex] = {
+                    ...collection,
+                    book_is_in_collection: !collection.book_is_in_collection,
+                };
+
+                // Optimistically update the state
+                dispatch({ type: 'FETCH_COLLECTIONS_SUCCESS', payload: updatedCollections });
+
+                try {
+                    if (collection.book_is_in_collection) {
+                        await fetchWithAuth.post('/books/remove-from-collection', {
+                            book_id: state.selectedBook,
+                            collection_id: collectionId,
+                        });
+                    } else {
+                        await fetchWithAuth.post('/books/add-to-collection', {
+                            book_id: state.selectedBook,
+                            collection_id: collectionId,
+                        });
+                    }
+                } catch (error) {
+                    console.error('Error toggling book in collection:', error);
+                    // Revert the state change if the API call fails
+                    updatedCollections[collectionIndex] = collection;
+                    dispatch({ type: 'FETCH_COLLECTIONS_SUCCESS', payload: updatedCollections });
+                }
+            }
+        }
     };
 
     const renderMenu = () => (

@@ -106,6 +106,13 @@ func AddBookToCollection(userID, collectionID, bookID int64) error {
 	return nil
 }
 
+func RemoveBookFromCollection(userID, collectionID, bookID int64) error {
+	_, err := db.Model(&models.BookCollectionBook{}).
+		Where("book_collection_id = ? AND book_id = ?", collectionID, bookID).
+		Delete()
+	return err
+}
+
 // GetCollectionsByBookID returns all user collections that contain the book
 func GetCollectionsByBookID(userID, bookID int64) ([]models.BookCollection, error) {
 	var collections []models.BookCollection
