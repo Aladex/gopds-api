@@ -17,15 +17,14 @@ import {
     DialogActions,
     Button
 } from '@mui/material';
-import { Add } from '@mui/icons-material';
-import { useParams, useLocation } from 'react-router-dom';
+import { Add, Edit, Remove, Add as AddIcon } from '@mui/icons-material';
+import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { fetchWithAuth } from '../../api/config';
 import BookPagination from "../common/BookPagination";
 import SkeletonCard from "../common/SkeletonCard";
-import { useNavigate } from 'react-router-dom';
 import { useSearchBar } from '../../context/SearchBarContext';
 import { useTranslation } from "react-i18next";
-import {StyledTextField} from "../StyledDataItems";
+import { StyledTextField } from "../StyledDataItems";
 
 interface Collection {
     id: number;
@@ -43,7 +42,7 @@ const CollectionsList: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const location = useLocation();
     const [totalPages, setTotalPages] = useState(0);
-    const [tab, setTab] = useState('private');
+    const [tab, setTab] = useState(location.pathname.includes('/private-collections') ? 'private' : 'public');
     const [open, setOpen] = useState(false);
     const [newCollectionName, setNewCollectionName] = useState('');
     const baseUrl = window.location.pathname.replace(/\/\d+$/, '');
@@ -72,7 +71,6 @@ const CollectionsList: React.FC = () => {
                 if (Array.isArray(responseData)) {
                     setCollections(responseData);
                     setTotalPages(Math.ceil(responseData.length / limit));
-                    console.log('Fetched collections:', responseData); // Debugging log
                 }
             } catch (error) {
                 console.error('Error fetching collections:', error);
@@ -82,8 +80,8 @@ const CollectionsList: React.FC = () => {
             }
         };
 
-        fetchCollections().then(r => r);
-    }, [tab, location.search, page]);
+        fetchCollections();
+    }, [tab, page]);
 
     const handleCollectionClick = (collectionId: number) => {
         setSearchItem('');
@@ -92,6 +90,7 @@ const CollectionsList: React.FC = () => {
 
     const handleTabChange = (event: React.ChangeEvent<{}>, newValue: string) => {
         setTab(newValue);
+        navigate(newValue === 'private' ? '/private-collections/1' : '/public-collections/1');
     };
 
     const handleOpen = () => {
@@ -186,9 +185,23 @@ const CollectionsList: React.FC = () => {
                                                             primary={collection.name}
                                                             secondary={new Date(collection.updated_at).toLocaleDateString()}
                                                         />
-                                                        <Typography variant="body2" sx={{ marginLeft: 'auto' }}>
-                                                            {collection.rating}
-                                                        </Typography>
+                                                        {!collection.is_public ? (
+                                                            <IconButton color="secondary">
+                                                                <Edit />
+                                                            </IconButton>
+                                                        ) : (
+                                                            <Box display="flex" alignItems="center">
+                                                                <IconButton color="secondary">
+                                                                    <Remove />
+                                                                </IconButton>
+                                                                <Typography variant="body2" sx={{ margin: '0 8px' }}>
+                                                                    {collection.rating}
+                                                                </Typography>
+                                                                <IconButton color="secondary">
+                                                                    <AddIcon />
+                                                                </IconButton>
+                                                            </Box>
+                                                        )}
                                                     </ListItemButton>
                                                 ))}
                                             </List>
