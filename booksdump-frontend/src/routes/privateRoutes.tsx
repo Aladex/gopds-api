@@ -7,6 +7,7 @@ import AuthorSearch from '../components/Userspace/AuthorSearch';
 import OpdsInfo from "../components/Userspace/OpdsInfo";
 import LayoutWithSearchBar from '../components/Layouts/LayoutWithSearchBar';
 import CollectionsList from "../components/Userspace/CollectionsList";
+import CollectionEditor from "../components/Userspace/CollectionEditor";
 
 const privateRoutes = (
     <>
@@ -21,6 +22,7 @@ const privateRoutes = (
             <Route path="/authors/:author/:page" element={<TitleSetter titleKey="routeByAuthorName.books"><AuthorSearch /></TitleSetter>} />
             <Route path="/private-collections/:page" element={<TitleSetter titleKey="routeTitles.privateCollections"><CollectionsList /></TitleSetter>} />
             <Route path="/public-collections/:page" element={<TitleSetter titleKey="routeTitles.publicCollections"><CollectionsList /></TitleSetter>} />
+            <Route path="/collection/:id/edit" element={<TitleSetter titleKey="routeByCollection.books"><CollectionEditor /></TitleSetter>} />
         </Route>
         <Route path="/catalog" element={<PrivateRoute><OpdsInfo /></PrivateRoute>} />
     </>

@@ -84,6 +84,11 @@ const CollectionsList: React.FC = () => {
         fetchCollections();
     }, [tab, page]);
 
+    const handleEditCollectionClick = (collectionId: number) => {
+        setSearchItem('');
+        navigate(`/collection/${collectionId}/edit`);
+    };
+
     const handleCollectionClick = (collectionId: number) => {
         setSearchItem('');
         navigate(`/books/find/collection/${collectionId}/1`);
@@ -187,7 +192,7 @@ const CollectionsList: React.FC = () => {
                                                             secondary={new Date(collection.updated_at).toLocaleDateString()}
                                                         />
                                                         {!collection.is_public ? (
-                                                            <IconButton color="secondary">
+                                                            <IconButton color="secondary" onClick={(e) => { e.stopPropagation(); handleEditCollectionClick(collection.id); }}>
                                                                 <Edit />
                                                             </IconButton>
                                                         ) : (
