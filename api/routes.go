@@ -23,6 +23,7 @@ func SetupBookRoutes(r *gin.RouterGroup) {
 	r.POST("/add-to-collection", AddBookToCollection)
 	r.POST("/remove-from-collection", RemoveBookFromCollection)
 	r.GET("/:id/collections", GetBookCollections)
+	r.POST("/update-book-position", UpdateBookPositionInCollection)
 }
 
 // SetupLogoutRoute sets up routes for logout and session management

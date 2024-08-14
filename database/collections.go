@@ -167,3 +167,58 @@ func GetCollectionsByBookID(userID, bookID int64) ([]models.BookCollection, erro
 	}
 	return collections, nil
 }
+
+// UpdateBookPositionInCollection updates the position of a book in a collection
+func UpdateBookPositionInCollection(userID, collectionID, bookID int64, newPosition int) error {
+	// Start a transaction
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Fetch the current position of the book and ensure the collection belongs to the user
+	var currentBook models.BookCollectionBook
+	err = tx.Model(&currentBook).
+		Join("JOIN book_collections bc ON bc.id = book_collection_books.book_collection_id").
+		Where("book_collection_books.book_collection_id = ? AND book_collection_books.book_id = ? AND bc.user_id = ?", collectionID, bookID, userID).
+		Select()
+	if err != nil {
+		return err
+	}
+
+	// Determine the direction of the move
+	if newPosition < currentBook.Position {
+		// Moving up
+		_, err = tx.Model((*models.BookCollectionBook)(nil)).
+			Set("position = position + 1").
+			Where("book_collection_id = ? AND position >= ? AND position < ?", collectionID, newPosition, currentBook.Position).
+			Update()
+	} else if newPosition > currentBook.Position {
+		// Moving down
+		_, err = tx.Model((*models.BookCollectionBook)(nil)).
+			Set("position = position - 1").
+			Where("book_collection_id = ? AND position <= ? AND position > ?", collectionID, newPosition, currentBook.Position).
+			Update()
+	}
+	if err != nil {
+		return err
+	}
+
+	// Set the new position for the moved book
+	_, err = tx.Model(&currentBook).
+		Set("position = ?", newPosition).
+		Where("id = ?", currentBook.ID).
+		Update()
+	if err != nil {
+		return err
+	}
+
+	// Commit the transaction
+	err = tx.Commit()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
