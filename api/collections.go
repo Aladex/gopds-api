@@ -266,3 +266,49 @@ func GetCollection(c *gin.Context) {
 
 	c.JSON(http.StatusOK, collection)
 }
+
+// VoteCollectionRequest struct for voting on a collection
+type VoteCollectionRequest struct {
+	Vote bool `json:"vote" binding:"required"`
+}
+
+// VoteCollection godoc
+// @Summary Vote on a collection
+// @Description Vote on a collection with a plus (true) or minus (false)
+// @Tags collections
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Accept  json
+// @Produce  json
+// @Param id path int true "Collection ID"
+// @Param body body VoteCollectionRequest true "Vote information"
+// @Success 200 {object} models.BookCollection
+// @Failure 400 {object} httputil.HTTPError
+// @Router /api/collections/{id}/vote [post]
+func VoteCollection(c *gin.Context) {
+	var request VoteCollectionRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	collectionID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	userID := c.GetInt64("user_id")
+	err = database.VoteCollection(userID, collectionID, request.Vote)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	collection, err := database.GetCollection(userID, collectionID)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, collection)
+}

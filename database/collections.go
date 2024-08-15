@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"github.com/go-pg/pg/v10"
 	"github.com/go-pg/pg/v10/orm"
 	"github.com/sirupsen/logrus"
 	"gopds-api/models"
@@ -180,7 +181,6 @@ func UpdateBookPositionInCollection(userID, collectionID, bookID int64, newPosit
 		return err
 	}
 	defer tx.Rollback()
-	logrus.Infof("Transaction started for updating book position in collection")
 
 	// Проверяем, что коллекция принадлежит пользователю
 	var collectionOwnerID int64
@@ -208,19 +208,15 @@ func UpdateBookPositionInCollection(userID, collectionID, bookID int64, newPosit
 		return err
 	}
 
-	logrus.Infof("Fetched book: %+v", currentBook)
-
 	// Determine the direction of the move and update positions accordingly
 	if newPosition < currentBook.Position {
 		// Moving up
-		logrus.Infof("Moving book (ID: %d) up to position %d", bookID, newPosition)
 		_, err = tx.Model((*models.BookCollectionBook)(nil)).
 			Set("position = position + 1").
 			Where("book_collection_id = ? AND position >= ? AND position < ?", collectionID, newPosition, currentBook.Position).
 			Update()
 	} else if newPosition > currentBook.Position {
 		// Moving down
-		logrus.Infof("Moving book (ID: %d) down to position %d", bookID, newPosition)
 		_, err = tx.Model((*models.BookCollectionBook)(nil)).
 			Set("position = position - 1").
 			Where("book_collection_id = ? AND position <= ? AND position > ?", collectionID, newPosition, currentBook.Position).
@@ -232,7 +228,6 @@ func UpdateBookPositionInCollection(userID, collectionID, bookID int64, newPosit
 	}
 
 	// Set the new position for the moved book
-	logrus.Infof("Setting new position for book (ID: %d) to %d", bookID, newPosition)
 	_, err = tx.Model(&currentBook).
 		Set("position = ?", newPosition).
 		Where("id = ?", currentBook.ID).
@@ -248,7 +243,6 @@ func UpdateBookPositionInCollection(userID, collectionID, bookID int64, newPosit
 		logrus.Errorf("Failed to commit transaction: %v", err)
 		return err
 	}
-	logrus.Infof("Transaction committed successfully for updating book position in collection")
 
 	return nil
 }
@@ -280,4 +274,33 @@ func GetCollection(userID, collectionID int64) (models.BookCollection, error) {
 		Where("id = ? AND user_id = ?", collectionID, userID).
 		Select()
 	return collection, err
+}
+
+// VoteCollection adds or updates a user's vote for a collection
+func VoteCollection(userID, collectionID int64, vote bool) error {
+	var existingVote models.CollectionVote
+	err := db.Model(&existingVote).
+		Where("user_id = ? AND collection_id = ?", userID, collectionID).
+		Select()
+	if err != nil && err != pg.ErrNoRows {
+		return err
+	}
+
+	if existingVote.ID == 0 {
+		// Insert new vote
+		newVote := models.CollectionVote{
+			UserID:       userID,
+			CollectionID: collectionID,
+			Vote:         vote,
+			CreatedAt:    time.Now(),
+			UpdatedAt:    time.Now(),
+		}
+		_, err = db.Model(&newVote).Insert()
+	} else {
+		// Update existing vote
+		existingVote.Vote = vote
+		existingVote.UpdatedAt = time.Now()
+		_, err = db.Model(&existingVote).WherePK().Update()
+	}
+	return err
 }
