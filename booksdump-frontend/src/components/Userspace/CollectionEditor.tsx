@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Grid, Box, Typography, List, ListItemText, ListItemButton, Card, CardContent, IconButton } from '@mui/material';
+import { Grid, Box, Typography, List, ListItemText, ListItemButton, Card, CardContent, IconButton, Switch, FormControlLabel, Button } from '@mui/material';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { fetchWithAuth } from '../../api/config';
 import SkeletonCard from "../common/SkeletonCard";
@@ -9,6 +9,7 @@ import { DndContext, closestCenter } from '@dnd-kit/core';
 import { arrayMove, SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { DragHandle, Delete } from '@mui/icons-material';
+import { StyledTextField } from "../StyledDataItems";
 
 interface Book {
     id: number;
@@ -47,6 +48,8 @@ const CollectionEditor: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const [books, setBooks] = useState<Book[]>([]);
     const [loading, setLoading] = useState(true);
+    const [collectionName, setCollectionName] = useState('');
+    const [isPublic, setIsPublic] = useState(false);
     const navigate = useNavigate();
     const { setSearchItem } = useSearchBar();
     const location = useLocation();
@@ -69,6 +72,11 @@ const CollectionEditor: React.FC = () => {
                 if (responseData.books && Array.isArray(responseData.books)) {
                     setBooks(responseData.books);
                 }
+
+                const collectionResponse = await fetchWithAuth.get(`/books/collection/${id}`);
+                const collectionData = collectionResponse.data;
+                setCollectionName(collectionData.name);
+                setIsPublic(collectionData.is_public);
             } catch (error) {
                 console.error('Error fetching books:', error);
                 setBooks([]);
@@ -117,6 +125,18 @@ const CollectionEditor: React.FC = () => {
         }
     };
 
+    const handleSaveChanges = async () => {
+        try {
+            await fetchWithAuth.post(`/books/update-collection/${id}`, {
+                name: collectionName,
+                is_public: isPublic,
+            });
+            alert('Collection updated successfully');
+        } catch (error) {
+            console.error('Error updating collection:', error);
+        }
+    };
+
     return (
         <Box p={2}>
             {loading ? (
@@ -149,6 +169,29 @@ const CollectionEditor: React.FC = () => {
                         <Box maxWidth={1200} mx="auto">
                             <Card sx={{ boxShadow: 2, p: 1, my: 1 }}>
                                 <Typography variant="h4" align="center">{t('booksInCollection')}</Typography>
+                                <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+                                    <StyledTextField
+                                        label={t('collectionName')}
+                                        value={collectionName}
+                                        onChange={(e) => setCollectionName(e.target.value)}
+                                        margin="normal"
+                                        sx={{ flexGrow: 1, marginRight: 2 }}
+                                    />
+                                    <FormControlLabel
+                                        control={
+                                            <Switch
+                                                checked={isPublic}
+                                                onChange={(e) => setIsPublic(e.target.checked)}
+                                                color="secondary"
+                                            />
+                                        }
+                                        label={t('isPublic')}
+                                        sx={{ marginRight: 2 }}
+                                    />
+                                    <Button variant="contained" color="primary" onClick={handleSaveChanges}>
+                                        {t('saveChanges')}
+                                    </Button>
+                                </Box>
                                 <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                                     <SortableContext items={books} strategy={verticalListSortingStrategy}>
                                         <List>

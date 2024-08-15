@@ -191,7 +191,7 @@ const CollectionsList: React.FC = () => {
                                                             primary={collection.name}
                                                             secondary={new Date(collection.updated_at).toLocaleDateString()}
                                                         />
-                                                        {!collection.is_public ? (
+                                                        {tab !== 'public' ? (
                                                             <IconButton color="secondary" onClick={(e) => { e.stopPropagation(); handleEditCollectionClick(collection.id); }}>
                                                                 <Edit />
                                                             </IconButton>

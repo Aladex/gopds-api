@@ -17,6 +17,12 @@ type UpdateBookPositionRequest struct {
 	NewPosition  int   `json:"new_position" binding:"required"`
 }
 
+// UpdateCollectionRequest struct for updating a collection
+type UpdateCollectionRequest struct {
+	Name     string `json:"name" binding:"required"`
+	IsPublic bool   `json:"is_public" binding:"required"`
+}
+
 // GetCollections godoc
 // @Summary Retrieve the list of collections
 // @Description Get a list of collections based on filters
@@ -203,4 +209,55 @@ func UpdateBookPositionInCollection(c *gin.Context) {
 	}
 
 	c.Status(http.StatusOK)
+}
+
+func UpdateCollection(c *gin.Context) {
+	var request UpdateCollectionRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	collectionID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	userID := c.GetInt64("user_id")
+	collection, err := database.UpdateCollection(userID, collectionID, request.Name, request.IsPublic)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, collection)
+}
+
+// GetCollection godoc
+// @Summary Retrieve collection information
+// @Description Get the details of a specified collection
+// @Tags collections
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Accept  json
+// @Produce  json
+// @Param id path int true "Collection ID"
+// @Success 200 {object} models.BookCollection
+// @Failure 400 {object} httputil.HTTPError
+// @Router /api/collections/{id} [get]
+func GetCollection(c *gin.Context) {
+	collectionID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	userID := c.GetInt64("user_id")
+	collection, err := database.GetCollection(userID, collectionID)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, collection)
 }

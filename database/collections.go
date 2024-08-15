@@ -5,6 +5,7 @@ import (
 	"github.com/go-pg/pg/v10/orm"
 	"github.com/sirupsen/logrus"
 	"gopds-api/models"
+	"time"
 )
 
 func GetCollections(filters models.CollectionFilters, userID int64, isPublic bool) ([]models.BookCollection, error) {
@@ -250,4 +251,33 @@ func UpdateBookPositionInCollection(userID, collectionID, bookID int64, newPosit
 	logrus.Infof("Transaction committed successfully for updating book position in collection")
 
 	return nil
+}
+
+// UpdateCollection updates the name and public status of a collection
+func UpdateCollection(userID, collectionID int64, name string, isPublic bool) (models.BookCollection, error) {
+	var collection models.BookCollection
+	err := db.Model(&collection).
+		Where("id = ? AND user_id = ?", collectionID, userID).
+		Select()
+	if err != nil {
+		return collection, err
+	}
+
+	collection.Name = name
+	collection.IsPublic = isPublic
+	collection.UpdatedAt = time.Now()
+
+	_, err = db.Model(&collection).
+		WherePK().
+		Update()
+	return collection, err
+}
+
+// GetCollection retrieves the details of a specified collection
+func GetCollection(userID, collectionID int64) (models.BookCollection, error) {
+	var collection models.BookCollection
+	err := db.Model(&collection).
+		Where("id = ? AND user_id = ?", collectionID, userID).
+		Select()
+	return collection, err
 }
