@@ -133,7 +133,7 @@ const CollectionsList: React.FC = () => {
 
     return (
         <>
-            <Box p={2}>
+            <Box>
                 <Grid container justifyContent="center">
                     <Grid item xs={12}>
                         <Box maxWidth={1200} mx="auto">

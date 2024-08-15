@@ -138,7 +138,7 @@ const CollectionEditor: React.FC = () => {
     };
 
     return (
-        <Box p={2}>
+        <Box>
             {loading ? (
                 <Grid container justifyContent="center">
                     <Grid item xs={12}>
