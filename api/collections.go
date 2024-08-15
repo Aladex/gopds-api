@@ -80,7 +80,6 @@ func CreateCollection(c *gin.Context) {
 		IsPublic:  false,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
-		Rating:    0,
 	}
 
 	collection, err := database.CreateCollection(collection)
