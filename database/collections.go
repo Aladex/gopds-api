@@ -17,7 +17,6 @@ func GetCollections(filters models.CollectionFilters, userID int64, isPublic boo
 		Join("LEFT JOIN collection_votes AS cv ON cv.collection_id = book_collection.id").
 		Group("book_collection.id")
 
-	// Явно указываем, к какой таблице относится user_id
 	if isPublic {
 		query = query.Where("book_collection.is_public = ?", true)
 	} else {
@@ -48,7 +47,6 @@ func GetCollections(filters models.CollectionFilters, userID int64, isPublic boo
 		}
 	}
 
-	// Убедитесь, что счетчик голосов равен 0, если голоса отсутствуют
 	for i := range collections {
 		if collections[i].VoteCount == -1 {
 			collections[i].VoteCount = 0
@@ -194,7 +192,6 @@ func UpdateBookPositionInCollection(userID, collectionID, bookID int64, newPosit
 	}
 	defer tx.Rollback()
 
-	// Проверяем, что коллекция принадлежит пользователю
 	var collectionOwnerID int64
 	err = tx.Model((*models.BookCollection)(nil)).
 		Column("user_id").

@@ -29,20 +29,16 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, err
 		Relation("Series").
 		ColumnExpr("book.*, (SELECT COUNT(*) FROM favorite_books WHERE book_id = book.id) AS favorite_count")
 
-	// Условная фильтрация
 	query = applyFilters(query, filters, userID)
 
-	// Определение порядка сортировки
 	query = applySorting(query, filters, userID)
 
-	// Получение книг с учетом фильтров и сортировки
 	count, err := query.Limit(filters.Limit).Offset(filters.Offset).SelectAndCount()
 	if err != nil {
 		logrus.Print(err)
 		return nil, 0, err
 	}
 
-	// Устанавливаем флаг избранного для каждой книги
 	for i, book := range books {
 		books[i].Fav = isFav(userFavs, book)
 	}
@@ -74,12 +70,10 @@ func applySorting(query *orm.Query, filters models.BookFilters, userID int64) *o
 			Group("book.id").
 			OrderExpr("favorite_count DESC, book.id DESC")
 	} else if filters.Collection != 0 {
-		// Сортировка по позиции в таблице коллекций
 		query = query.Join("JOIN book_collection_books bcb ON bcb.book_id = book.id").
 			Where("bcb.book_collection_id = ?", filters.Collection).
 			Order("bcb.position ASC")
 	} else {
-		// Обычная сортировка по ID книги
 		query = query.Order("book.id DESC")
 	}
 
