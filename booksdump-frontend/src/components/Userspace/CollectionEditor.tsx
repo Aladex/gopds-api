@@ -171,8 +171,8 @@ const CollectionEditor: React.FC = () => {
                                 <Typography variant="h4" align="center">{t('booksInCollection')}</Typography>
                                 <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
                                     <Grid container spacing={2}>
-                                        <Grid item xs={6} />
-                                        <Grid item xs={6} display="flex" alignItems="center">
+                                        <Grid item xs={12} md={6} />
+                                        <Grid item xs={12} md={6} display="flex" alignItems="center">
                                             <StyledTextField
                                                 label={t('collectionName')}
                                                 value={collectionName}
