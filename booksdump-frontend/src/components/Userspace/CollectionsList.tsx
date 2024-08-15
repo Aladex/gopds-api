@@ -32,7 +32,7 @@ interface Collection {
     is_public: boolean;
     created_at: string;
     updated_at: string;
-    rating: number;
+    vote_count: number;
 }
 
 const CollectionsList: React.FC = () => {
@@ -203,7 +203,7 @@ const CollectionsList: React.FC = () => {
                                                                     <Remove />
                                                                 </IconButton>
                                                                 <Typography variant="body2" sx={{ margin: '0 8px' }}>
-                                                                    {collection.rating}
+                                                                    {collection.vote_count}
                                                                 </Typography>
                                                                 <IconButton color="secondary">
                                                                     <AddIcon />

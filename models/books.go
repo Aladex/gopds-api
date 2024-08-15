@@ -41,6 +41,7 @@ type BookCollection struct {
 	Books              []Book    `pg:"many2many:book_collection_books,join_fk:book_id" json:"-"`
 	BookIsInCollection bool      `pg:"-" json:"book_is_in_collection"`
 	BookIDs            []int64   `pg:"-" json:"book_ids"`
+	VoteCount          int       `pg:"-" json:"vote_count"`
 }
 
 func (bc *BookCollection) FetchBookIDs(db *pg.DB) error {

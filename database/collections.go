@@ -11,12 +11,17 @@ import (
 
 func GetCollections(filters models.CollectionFilters, userID int64, isPublic bool) ([]models.BookCollection, error) {
 	var collections []models.BookCollection
-	query := db.Model(&collections)
+	query := db.Model(&collections).
+		Column("book_collection.*").
+		ColumnExpr("COALESCE(SUM(CASE WHEN cv.vote THEN 1 ELSE -1 END), 0) AS vote_count").
+		Join("LEFT JOIN collection_votes AS cv ON cv.collection_id = book_collection.id").
+		Group("book_collection.id")
 
+	// Явно указываем, к какой таблице относится user_id
 	if isPublic {
-		query = query.Where("is_public = ?", true)
+		query = query.Where("book_collection.is_public = ?", true)
 	} else {
-		query = query.Where("user_id = ?", userID)
+		query = query.Where("book_collection.user_id = ?", userID)
 	}
 
 	if filters.Limit > 0 {
@@ -40,6 +45,13 @@ func GetCollections(filters models.CollectionFilters, userID int64, isPublic boo
 				return nil, err
 			}
 			collections[i].BookIsInCollection = count > 0
+		}
+	}
+
+	// Убедитесь, что счетчик голосов равен 0, если голоса отсутствуют
+	for i := range collections {
+		if collections[i].VoteCount == -1 {
+			collections[i].VoteCount = 0
 		}
 	}
 
