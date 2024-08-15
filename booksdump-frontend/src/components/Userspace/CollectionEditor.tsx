@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Grid, Box, Typography, List, ListItemText, ListItemButton, Card, CardContent } from '@mui/material';
+import { Grid, Box, Typography, List, ListItemText, ListItemButton, Card, CardContent, IconButton } from '@mui/material';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { fetchWithAuth } from '../../api/config';
 import SkeletonCard from "../common/SkeletonCard";
@@ -8,13 +8,14 @@ import { useTranslation } from "react-i18next";
 import { DndContext, closestCenter } from '@dnd-kit/core';
 import { arrayMove, SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { DragHandle, Delete } from '@mui/icons-material';
 
 interface Book {
     id: number;
     title: string;
 }
 
-const SortableItem = ({ id, title, onClick }: { id: number; title: string; onClick: () => void }) => {
+const SortableItem = ({ id, title, onClick, onDelete }: { id: number; title: string; onClick: () => void; onDelete: () => void }) => {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
 
     const style = {
@@ -28,10 +29,15 @@ const SortableItem = ({ id, title, onClick }: { id: number; title: string; onCli
             ref={setNodeRef}
             style={style}
             {...attributes}
-            {...listeners}
             onClick={onClick}
         >
+            <Box {...listeners} sx={{ cursor: 'grab', display: 'flex', alignItems: 'center', paddingRight: 1 }}>
+                <DragHandle />
+            </Box>
             <ListItemText primary={title} />
+            <IconButton edge="end" onClick={(e) => { e.stopPropagation(); onDelete(); }}>
+                <Delete />
+            </IconButton>
         </ListItemButton>
     );
 };
@@ -77,6 +83,15 @@ const CollectionEditor: React.FC = () => {
     const handleBookClick = (bookId: number) => {
         setSearchItem('');
         navigate(`/books/details/${bookId}`);
+    };
+
+    const handleDeleteBook = async (bookId: number) => {
+        try {
+            await fetchWithAuth.post('/books/remove-from-collection', { collection_id: id ? parseInt(id, 10) : 1, book_id: bookId });
+            setBooks(books.filter(book => book.id !== bookId));
+        } catch (error) {
+            console.error('Error deleting book from collection:', error);
+        }
     };
 
     const handleDragEnd = async (event: any) => {
@@ -143,6 +158,7 @@ const CollectionEditor: React.FC = () => {
                                                     id={book.id}
                                                     title={book.title}
                                                     onClick={() => handleBookClick(book.id)}
+                                                    onDelete={() => handleDeleteBook(book.id)}
                                                 />
                                             ))}
                                         </List>
