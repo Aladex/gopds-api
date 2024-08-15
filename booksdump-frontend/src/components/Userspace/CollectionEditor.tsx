@@ -170,27 +170,32 @@ const CollectionEditor: React.FC = () => {
                             <Card sx={{ boxShadow: 2, p: 1, my: 1 }}>
                                 <Typography variant="h4" align="center">{t('booksInCollection')}</Typography>
                                 <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
-                                    <StyledTextField
-                                        label={t('collectionName')}
-                                        value={collectionName}
-                                        onChange={(e) => setCollectionName(e.target.value)}
-                                        margin="normal"
-                                        sx={{ flexGrow: 1, marginRight: 2 }}
-                                    />
-                                    <FormControlLabel
-                                        control={
-                                            <Switch
-                                                checked={isPublic}
-                                                onChange={(e) => setIsPublic(e.target.checked)}
-                                                color="secondary"
+                                    <Grid container spacing={2}>
+                                        <Grid item xs={6} />
+                                        <Grid item xs={6} display="flex" alignItems="center">
+                                            <StyledTextField
+                                                label={t('collectionName')}
+                                                value={collectionName}
+                                                onChange={(e) => setCollectionName(e.target.value)}
+                                                margin="normal"
+                                                sx={{ flexGrow: 1, marginRight: 2 }}
                                             />
-                                        }
-                                        label={t('isPublic')}
-                                        sx={{ marginRight: 2 }}
-                                    />
-                                    <Button variant="contained" color="primary" onClick={handleSaveChanges}>
-                                        {t('saveChanges')}
-                                    </Button>
+                                            <FormControlLabel
+                                                control={
+                                                    <Switch
+                                                        checked={isPublic}
+                                                        onChange={(e) => setIsPublic(e.target.checked)}
+                                                        color="secondary"
+                                                    />
+                                                }
+                                                label={t('isPublic')}
+                                                sx={{ marginRight: 2 }}
+                                            />
+                                            <Button variant="contained" color="primary" onClick={handleSaveChanges}>
+                                                {t('saveChanges')}
+                                            </Button>
+                                        </Grid>
+                                    </Grid>
                                 </Box>
                                 <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                                     <SortableContext items={books} strategy={verticalListSortingStrategy}>
