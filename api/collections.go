@@ -23,6 +23,11 @@ type UpdateCollectionRequest struct {
 	IsPublic *bool  `json:"is_public" binding:"required"`
 }
 
+// VoteCollectionRequest struct for voting on a collection
+type VoteCollectionRequest struct {
+	Vote *bool `json:"vote" binding:"required"`
+}
+
 // GetCollections godoc
 // @Summary Retrieve the list of collections
 // @Description Get a list of collections based on filters
@@ -256,19 +261,13 @@ func GetCollection(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetInt64("user_id")
-	collection, err := database.GetCollection(userID, collectionID)
+	collection, err := database.GetCollection(collectionID)
 	if err != nil {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
 	}
 
 	c.JSON(http.StatusOK, collection)
-}
-
-// VoteCollectionRequest struct for voting on a collection
-type VoteCollectionRequest struct {
-	Vote bool `json:"vote" binding:"required"`
 }
 
 // VoteCollection godoc
@@ -297,13 +296,18 @@ func VoteCollection(c *gin.Context) {
 	}
 
 	userID := c.GetInt64("user_id")
-	err = database.VoteCollection(userID, collectionID, request.Vote)
+	userVote := false
+	if request.Vote != nil {
+		userVote = *request.Vote
+	}
+
+	err = database.VoteCollection(userID, collectionID, userVote)
 	if err != nil {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
 	}
 
-	collection, err := database.GetCollection(userID, collectionID)
+	collection, err := database.GetCollection(collectionID)
 	if err != nil {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return

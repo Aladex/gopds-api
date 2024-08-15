@@ -48,8 +48,8 @@ func GetCollections(filters models.CollectionFilters, userID int64, isPublic boo
 	}
 
 	for i := range collections {
-		if collections[i].VoteCount == -1 {
-			collections[i].VoteCount = 0
+		if collections[i].VoteCount < 0 {
+			continue
 		}
 	}
 
@@ -277,18 +277,38 @@ func UpdateCollection(userID, collectionID int64, name string, isPublic bool) (m
 }
 
 // GetCollection retrieves the details of a specified collection
-func GetCollection(userID, collectionID int64) (models.BookCollection, error) {
+func GetCollection(collectionID int64) (models.BookCollection, error) {
 	var collection models.BookCollection
 	err := db.Model(&collection).
-		Where("id = ? AND user_id = ?", collectionID, userID).
+		Column("book_collection.*").
+		ColumnExpr("COALESCE(SUM(CASE WHEN cv.vote THEN 1 ELSE -1 END), 0) AS vote_count").
+		Join("LEFT JOIN collection_votes AS cv ON cv.collection_id = book_collection.id").
+		Where("book_collection.id = ?", collectionID).
+		Group("book_collection.id").
 		Select()
-	return collection, err
+	if err != nil {
+		return collection, err
+	}
+
+	return collection, nil
 }
 
 // VoteCollection adds or updates a user's vote for a collection
 func VoteCollection(userID, collectionID int64, vote bool) error {
+	var collection models.BookCollection
+	err := db.Model(&collection).
+		Where("id = ?", collectionID).
+		Select()
+	if err != nil {
+		return err
+	}
+
+	if !collection.IsPublic {
+		return fmt.Errorf("voting is not allowed for private collections")
+	}
+
 	var existingVote models.CollectionVote
-	err := db.Model(&existingVote).
+	err = db.Model(&existingVote).
 		Where("user_id = ? AND collection_id = ?", userID, collectionID).
 		Select()
 	if err != nil && err != pg.ErrNoRows {

@@ -131,6 +131,24 @@ const CollectionsList: React.FC = () => {
         }
     };
 
+    const handleVote = async (collectionId: number, vote: boolean) => {
+        try {
+            const response = await fetchWithAuth.post(`/books/vote-collection/${collectionId}`, {
+                vote,
+            });
+
+            const updatedCollection = response.data;
+            setCollections((prevCollections) =>
+                prevCollections.map((collection) =>
+                    collection.id === collectionId ? updatedCollection : collection
+                )
+            );
+        } catch (error) {
+            console.error('Error voting on collection:', error);
+        }
+    };
+
+
     return (
         <>
             <Box>
@@ -199,13 +217,13 @@ const CollectionsList: React.FC = () => {
                                                             </IconButton>
                                                         ) : (
                                                             <Box display="flex" alignItems="center">
-                                                                <IconButton color="secondary">
+                                                                <IconButton color="secondary" onClick={(e) => { e.stopPropagation(); handleVote(collection.id, false); }}>
                                                                     <Remove />
                                                                 </IconButton>
                                                                 <Typography variant="body2" sx={{ margin: '0 8px' }}>
                                                                     {collection.vote_count}
                                                                 </Typography>
-                                                                <IconButton color="secondary">
+                                                                <IconButton color="secondary" onClick={(e) => { e.stopPropagation(); handleVote(collection.id, true); }}>
                                                                     <AddIcon />
                                                                 </IconButton>
                                                             </Box>
