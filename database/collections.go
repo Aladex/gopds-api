@@ -1,7 +1,9 @@
 package database
 
 import (
+	"fmt"
 	"github.com/go-pg/pg/v10/orm"
+	"github.com/sirupsen/logrus"
 	"gopds-api/models"
 )
 
@@ -173,52 +175,79 @@ func UpdateBookPositionInCollection(userID, collectionID, bookID int64, newPosit
 	// Start a transaction
 	tx, err := db.Begin()
 	if err != nil {
+		logrus.Errorf("Failed to begin transaction: %v", err)
 		return err
 	}
 	defer tx.Rollback()
+	logrus.Infof("Transaction started for updating book position in collection")
 
-	// Fetch the current position of the book and ensure the collection belongs to the user
-	var currentBook models.BookCollectionBook
-	err = tx.Model(&currentBook).
-		Join("JOIN book_collections bc ON bc.id = book_collection_books.book_collection_id").
-		Where("book_collection_books.book_collection_id = ? AND book_collection_books.book_id = ? AND bc.user_id = ?", collectionID, bookID, userID).
-		Select()
+	// Проверяем, что коллекция принадлежит пользователю
+	var collectionOwnerID int64
+	err = tx.Model((*models.BookCollection)(nil)).
+		Column("user_id").
+		Where("id = ?", collectionID).
+		Select(&collectionOwnerID)
 	if err != nil {
+		logrus.Errorf("Failed to fetch collection owner: %v", err)
 		return err
 	}
 
-	// Determine the direction of the move
+	if collectionOwnerID != userID {
+		logrus.Errorf("User (ID: %d) does not own the collection (ID: %d)", userID, collectionID)
+		return fmt.Errorf("user does not own the collection")
+	}
+
+	// Fetch the current position of the book within the collection
+	var currentBook models.BookCollectionBook
+	err = tx.Model(&currentBook).
+		Where("book_collection_id = ? AND book_id = ?", collectionID, bookID).
+		Select()
+	if err != nil {
+		logrus.Errorf("Failed to fetch current book position: %v", err)
+		return err
+	}
+
+	logrus.Infof("Fetched book: %+v", currentBook)
+
+	// Determine the direction of the move and update positions accordingly
 	if newPosition < currentBook.Position {
 		// Moving up
+		logrus.Infof("Moving book (ID: %d) up to position %d", bookID, newPosition)
 		_, err = tx.Model((*models.BookCollectionBook)(nil)).
 			Set("position = position + 1").
 			Where("book_collection_id = ? AND position >= ? AND position < ?", collectionID, newPosition, currentBook.Position).
 			Update()
 	} else if newPosition > currentBook.Position {
 		// Moving down
+		logrus.Infof("Moving book (ID: %d) down to position %d", bookID, newPosition)
 		_, err = tx.Model((*models.BookCollectionBook)(nil)).
 			Set("position = position - 1").
 			Where("book_collection_id = ? AND position <= ? AND position > ?", collectionID, newPosition, currentBook.Position).
 			Update()
 	}
 	if err != nil {
+		logrus.Errorf("Failed to update positions of other books: %v", err)
 		return err
 	}
 
 	// Set the new position for the moved book
+	logrus.Infof("Setting new position for book (ID: %d) to %d", bookID, newPosition)
 	_, err = tx.Model(&currentBook).
 		Set("position = ?", newPosition).
 		Where("id = ?", currentBook.ID).
 		Update()
 	if err != nil {
+		logrus.Errorf("Failed to set new position for book: %v", err)
 		return err
 	}
 
 	// Commit the transaction
 	err = tx.Commit()
 	if err != nil {
+		logrus.Errorf("Failed to commit transaction: %v", err)
 		return err
 	}
+	logrus.Infof("Transaction committed successfully for updating book position in collection")
 
 	return nil
 }

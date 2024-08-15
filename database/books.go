@@ -9,9 +9,150 @@ import (
 	"strings"
 )
 
-func isFav(ids []int64, book models.Book) bool {
-	for _, id := range ids {
-		if book.ID == id {
+func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, error) {
+	books := []models.Book{}
+	var userFavs []int64
+
+	err := db.Model(&models.UserToBook{}).Where("user_id = ?", userID).Select(&userFavs)
+	if err != nil {
+		logrus.Print(err)
+		return nil, 0, err
+	}
+
+	if filters.Limit > 100 || filters.Limit == 0 {
+		filters.Limit = 100
+	}
+
+	query := db.Model(&books).
+		Relation("Authors").
+		Relation("Users").
+		Relation("Series").
+		ColumnExpr("book.*, (SELECT COUNT(*) FROM favorite_books WHERE book_id = book.id) AS favorite_count")
+
+	// Условная фильтрация
+	query = applyFilters(query, filters, userID)
+
+	// Определение порядка сортировки
+	query = applySorting(query, filters, userID)
+
+	// Получение книг с учетом фильтров и сортировки
+	count, err := query.Limit(filters.Limit).Offset(filters.Offset).SelectAndCount()
+	if err != nil {
+		logrus.Print(err)
+		return nil, 0, err
+	}
+
+	// Устанавливаем флаг избранного для каждой книги
+	for i, book := range books {
+		books[i].Fav = isFav(userFavs, book)
+	}
+
+	return books, count, nil
+}
+
+func applySorting(query *orm.Query, filters models.BookFilters, userID int64) *orm.Query {
+	if filters.Fav {
+		var booksIds []models.UserToBook
+		var exprArr []string
+		err := db.Model(&booksIds).
+			Column("book_id").
+			Where("user_id = ?", userID).
+			Order("id ASC").
+			Select(&booksIds)
+		if err == nil && len(booksIds) > 0 {
+			var bIds []int64
+
+			for _, bid := range booksIds {
+				bIds = append(bIds, bid.BookID)
+				exprArr = append(exprArr, fmt.Sprintf("book.id=%d ASC", bid.BookID))
+			}
+			query = query.WhereIn("book.id IN (?)", bIds)
+			query = query.OrderExpr(strings.Join(exprArr, ","))
+		}
+	} else if filters.UsersFavorites {
+		query = query.Join("JOIN favorite_books fb ON fb.book_id = book.id").
+			Group("book.id").
+			OrderExpr("favorite_count DESC, book.id DESC")
+	} else if filters.Collection != 0 {
+		// Сортировка по позиции в таблице коллекций
+		query = query.Join("JOIN book_collection_books bcb ON bcb.book_id = book.id").
+			Where("bcb.book_collection_id = ?", filters.Collection).
+			Order("bcb.position ASC")
+	} else {
+		// Обычная сортировка по ID книги
+		query = query.Order("book.id DESC")
+	}
+
+	return query
+}
+
+func applyFilters(query *orm.Query, filters models.BookFilters, userID int64) *orm.Query {
+	if filters.Fav {
+		var booksIds []int64
+		err := db.Model(&models.UserToBook{}).
+			Column("book_id").
+			Where("user_id = ?", userID).
+			Order("id ASC").
+			Select(&booksIds)
+		if err == nil && len(booksIds) > 0 {
+			query = query.WhereIn("book.id IN (?)", booksIds)
+		}
+	}
+
+	if filters.Title != "" {
+		query = query.Where("book.title ILIKE ?", fmt.Sprintf("%%%s%%", filters.Title))
+	}
+
+	if filters.Lang != "" {
+		query = query.Where("book.lang = ?", filters.Lang)
+	}
+
+	if filters.UnApproved {
+		query = query.Where("book.approved = false")
+	} else {
+		query = query.Where("book.approved = true")
+	}
+
+	if filters.Author != 0 {
+		var booksIds []int64
+		err := db.Model(&models.OrderToAuthor{}).
+			Column("book_id").
+			Where("author_id = ?", filters.Author).
+			Select(&booksIds)
+		if err == nil && len(booksIds) > 0 {
+			query = query.WhereIn("book.id IN (?)", booksIds)
+		}
+	}
+
+	if filters.Series != 0 {
+		var booksIds []int64
+		err := db.Model(&models.OrderToSeries{}).
+			Column("book_id").
+			Where("ser_id = ?", filters.Series).
+			Select(&booksIds)
+		if err == nil && len(booksIds) > 0 {
+			query = query.WhereIn("book.id IN (?)", booksIds)
+		}
+	}
+
+	if filters.Collection != 0 {
+		var booksIds []int64
+		err := db.Model(&models.BookCollectionBook{}).
+			Column("book_id").
+			Where("book_collection_id = ?", filters.Collection).
+			Order("position ASC").
+			Select(&booksIds)
+		if err == nil && len(booksIds) > 0 {
+			query = query.WhereIn("book.id IN (?)", booksIds)
+		}
+	}
+
+	return query
+}
+
+func isFav(userFavs []int64, book models.Book) bool {
+	for _, favID := range userFavs {
+		if favID == book.ID {
 			return true
 		}
 	}
@@ -33,119 +174,6 @@ func GetLanguages() models.Languages {
 		return nil
 	}
 	return langRes
-}
-
-// GetBooks returns a list of books
-func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, error) {
-	books := []models.Book{}
-	var userFavs []int64
-	err := db.Model(&models.UserToBook{}).Where("user_id = ?", userID).Select(&userFavs)
-
-	if filters.Limit > 100 || filters.Limit == 0 {
-		filters.Limit = 100
-	}
-
-	count, err := db.Model(&books).
-		Relation("Authors").
-		Relation("Users").
-		Relation("Series").
-		ColumnExpr("book.*, (SELECT COUNT(*) FROM favorite_books WHERE book_id = book.id) AS favorite_count").
-		WhereGroup(func(q *orm.Query) (*orm.Query, error) {
-			if filters.Fav {
-				var booksIds []models.UserToBook
-				var exprArr []string
-				err = db.Model(&booksIds).
-					Column("book_id").
-					Where("user_id = ?", userID).
-					Order("id ASC").
-					Select(&booksIds)
-				if err == nil {
-					if len(booksIds) > 0 {
-						var bIds []int64
-
-						for _, bid := range booksIds {
-							bIds = append(bIds, bid.BookID)
-							exprArr = append(exprArr, fmt.Sprintf("id=%d ASC", bid.BookID))
-						}
-						q = q.WhereIn("id IN (?)", bIds)
-
-					}
-					q = q.OrderExpr(strings.Join(exprArr, ","))
-				}
-			}
-			if filters.Title != "" && filters.Author == 0 {
-				q = q.Where("title % ?", filters.Title).
-					OrderExpr("title <-> ? ASC", filters.Title)
-			} else {
-
-				if filters.UsersFavorites {
-					// Get only books from UserToBook relation table favorite_books of all users and order by count of book_id
-					q = q.Join("JOIN favorite_books fb ON fb.book_id = book.id")
-					q = q.Group("book.id")
-					// Order by count of favorites in descending order, then by book.id in descending order
-					q = q.OrderExpr("favorite_count DESC, book.id DESC")
-				} else {
-					q = q.Order("id DESC")
-				}
-			}
-			if filters.Lang != "" {
-				q = q.Where("lang = ?", filters.Lang)
-			}
-			if filters.UnApproved {
-				q = q.Where("approved = false")
-			} else {
-				q = q.Where("approved = true")
-			}
-			if filters.Author != 0 {
-				var booksIds []int64
-				err := db.Model(&models.OrderToAuthor{}).
-					Column("book_id").
-					Where("author_id = ?", filters.Author).
-					Select(&booksIds)
-				if err == nil {
-					for _, title := range strings.Split(filters.Title, " ") {
-						q = q.Where("title ILIKE ?", fmt.Sprintf("%%%s%%", title))
-					}
-					q = q.WhereIn("id IN (?)", booksIds)
-				}
-			}
-			if filters.Series != 0 {
-				var booksIds []int64
-				err := db.Model(&models.OrderToSeries{}).
-					Column("book_id").
-					Where("ser_id = ?", filters.Series).
-					Select(&booksIds)
-				if err == nil {
-					q = q.WhereIn("id IN (?)", booksIds)
-				}
-			}
-			if filters.Collection != 0 {
-				var booksIds []int64
-				err := db.Model(&models.BookCollectionBook{}).
-					Column("book_id").
-					Where("book_collection_id = ?", filters.Collection).
-					Order("position ASC").
-					Select(&booksIds)
-				if err == nil {
-					q = q.WhereIn("id IN (?)", booksIds)
-				}
-			}
-
-			return q, nil
-		}).
-		Limit(filters.Limit).
-		Offset(filters.Offset).
-		SelectAndCount()
-	if err != nil {
-		logrus.Print(err)
-		return nil, 0, err
-	}
-
-	for i, book := range books {
-		books[i].Fav = isFav(userFavs, book)
-	}
-
-	return books, count, nil
 }
 
 // GetBook returns a book by id from archive
