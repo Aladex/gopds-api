@@ -23,7 +23,7 @@
     "@types/node": "^16.18.103",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
-    "axios": "^1.7.2",
+    "axios": "^1.7.4",
     "date-fns": "^3.6.0",
     "dayjs": "^1.11.12",
     "env-cmd": "^10.1.0",
