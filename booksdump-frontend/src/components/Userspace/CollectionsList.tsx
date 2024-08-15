@@ -69,7 +69,9 @@ const CollectionsList: React.FC = () => {
                 });
 
                 const responseData = await response.data;
-                if (Array.isArray(responseData)) {
+                if (responseData === null || !Array.isArray(responseData)) {
+                    setCollections([]);
+                } else {
                     setCollections(responseData);
                     setTotalPages(Math.ceil(responseData.length / limit));
                 }

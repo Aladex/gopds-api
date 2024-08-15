@@ -20,7 +20,7 @@ type UpdateBookPositionRequest struct {
 // UpdateCollectionRequest struct for updating a collection
 type UpdateCollectionRequest struct {
 	Name     string `json:"name" binding:"required"`
-	IsPublic bool   `json:"is_public" binding:"required"`
+	IsPublic *bool  `json:"is_public" binding:"required"`
 }
 
 // GetCollections godoc
@@ -225,7 +225,12 @@ func UpdateCollection(c *gin.Context) {
 	}
 
 	userID := c.GetInt64("user_id")
-	collection, err := database.UpdateCollection(userID, collectionID, request.Name, request.IsPublic)
+	isPublic := false
+	if request.IsPublic != nil {
+		isPublic = *request.IsPublic
+	}
+
+	collection, err := database.UpdateCollection(userID, collectionID, request.Name, isPublic)
 	if err != nil {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
