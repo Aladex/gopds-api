@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
     Grid, Box, Typography, List, ListItemText, Card, ListItemButton, CardContent, Tabs, Tab, IconButton, Dialog, DialogTitle, DialogContent, DialogActions, Button
 } from '@mui/material';
-import { Add, Edit, Delete, Add as AddIcon } from '@mui/icons-material';
+import { Add, Edit, Delete, Add as AddIcon, Remove } from '@mui/icons-material';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { fetchWithAuth } from '../../api/config';
 import BookPagination from "../common/BookPagination";
@@ -180,7 +180,7 @@ const CollectionsList: React.FC = () => {
                                                         ) : (
                                                             <Box display="flex" alignItems="center">
                                                                 <IconButton color="secondary" onClick={(e) => { e.stopPropagation(); handleVote(collection.id, false); }}>
-                                                                    <Delete />
+                                                                    <Remove />
                                                                 </IconButton>
                                                                 <Typography variant="body2" sx={{ margin: '0 8px' }}>{collection.vote_count}</Typography>
                                                                 <IconButton color="secondary" onClick={(e) => { e.stopPropagation(); handleVote(collection.id, true); }}>
