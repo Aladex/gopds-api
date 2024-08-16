@@ -38,7 +38,7 @@ type VoteCollectionRequest struct {
 // @Param private query bool false "Filter by private collections"
 // @Success 200 {array} models.BookCollection
 // @Failure 400 {object} httputil.HTTPError
-// @Router /api/collections [get]
+// @Router /api/books/collections [get]
 func GetCollections(c *gin.Context) {
 	var filters models.CollectionFilters
 	if err := c.ShouldBindQuery(&filters); err != nil {
@@ -60,7 +60,7 @@ func GetCollections(c *gin.Context) {
 
 // CreateCollection godoc
 // @Summary Create a new collection
-// @Description Create a new collection with the provided name
+// @Description Create a new collection with a specified name
 // @Tags collections
 // @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Accept  json
@@ -68,7 +68,7 @@ func GetCollections(c *gin.Context) {
 // @Param body body struct { Name string `json:"name" binding:"required"` } true "Collection name"
 // @Success 200 {object} models.BookCollection
 // @Failure 400 {object} httputil.HTTPError
-// @Router /api/collections [post]
+// @Router /api/books/create-collection [post]
 func CreateCollection(c *gin.Context) {
 	var request struct {
 		Name string `json:"name" binding:"required"`
@@ -105,7 +105,7 @@ func CreateCollection(c *gin.Context) {
 // @Param body body struct { BookID int64 `json:"book_id" binding:"required"`; CollectionID int64 `json:"collection_id" binding:"required"` } true "Book and Collection IDs"
 // @Success 200
 // @Failure 400 {object} httputil.HTTPError
-// @Router /api/collections/add-book [post]
+// @Router /api/books/create-collection [post]
 func AddBookToCollection(c *gin.Context) {
 	var request struct {
 		BookID       int64 `json:"book_id" binding:"required"`
@@ -136,7 +136,7 @@ func AddBookToCollection(c *gin.Context) {
 // @Param body body struct { BookID int64 `json:"book_id" binding:"required"`; CollectionID int64 `json:"collection_id" binding:"required"` } true "Book and Collection IDs"
 // @Success 200
 // @Failure 400 {object} httputil.HTTPError
-// @Router /api/collections/remove-book [post]
+// @Router /api/books/remove-from-collection [post]
 func RemoveBookFromCollection(c *gin.Context) {
 	var request struct {
 		BookID       int64 `json:"book_id" binding:"required"`
@@ -167,7 +167,7 @@ func RemoveBookFromCollection(c *gin.Context) {
 // @Param id path int true "Book ID"
 // @Success 200 {array} models.BookCollection
 // @Failure 400 {object} httputil.HTTPError
-// @Router /api/collections/book/{id} [get]
+// @Router /api/books/{id}/collections [get]
 func GetBookCollections(c *gin.Context) {
 	bookID := c.Param("id")
 	userID := c.GetInt64("user_id")
@@ -197,7 +197,7 @@ func GetBookCollections(c *gin.Context) {
 // @Param body body UpdateBookPositionRequest true "Book position update information"
 // @Success 200
 // @Failure 400 {object} httputil.HTTPError
-// @Router /api/collections/update-book-position [post]
+// @Router /api/books/update-book-position [post]
 func UpdateBookPositionInCollection(c *gin.Context) {
 	var request UpdateBookPositionRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -215,6 +215,18 @@ func UpdateBookPositionInCollection(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
+// UpdateCollection godoc
+// @Summary Update a collection
+// @Description Update the name and public status of a specified collection
+// @Tags collections
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Accept  json
+// @Produce  json
+// @Param id path int true "Collection ID"
+// @Param body body UpdateCollectionRequest true "Collection update information"
+// @Success 200 {object} models.BookCollection
+// @Failure 400 {object} httputil.HTTPError
+// @Router /api/books/update-collection/{id} [post]
 func UpdateCollection(c *gin.Context) {
 	var request UpdateCollectionRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -281,7 +293,7 @@ func GetCollection(c *gin.Context) {
 // @Param body body VoteCollectionRequest true "Vote information"
 // @Success 200 {object} models.BookCollection
 // @Failure 400 {object} httputil.HTTPError
-// @Router /api/collections/{id}/vote [post]
+// @Router /api/books/vote-collection/{id} [post]
 func VoteCollection(c *gin.Context) {
 	var request VoteCollectionRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -314,4 +326,30 @@ func VoteCollection(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, collection)
+}
+
+// DeleteCollection godoc
+// @Summary Delete a collection
+// @Description Delete a collection by its ID
+// @Tags collections
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param id path int true "Collection ID"
+// @Success 200
+// @Failure 400 {object} httputil.HTTPError
+// @Router /api/books/collection/{id} [delete]
+func DeleteCollection(c *gin.Context) {
+	collectionID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	userID := c.GetInt64("user_id")
+	err = database.DeleteCollection(userID, collectionID)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	c.Status(http.StatusOK)
 }

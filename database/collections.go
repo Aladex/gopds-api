@@ -333,3 +333,53 @@ func VoteCollection(userID, collectionID int64, vote bool) error {
 	}
 	return err
 }
+
+func DeleteCollection(userID, collectionID int64) error {
+	// Start a transaction
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Check if the collection belongs to the user
+	var collection models.BookCollection
+	err = tx.Model(&collection).
+		Where("id = ? AND user_id = ?", collectionID, userID).
+		Select()
+	if err != nil {
+		return err
+	}
+
+	// Delete related records in collection_votes
+	_, err = tx.Model((*models.CollectionVote)(nil)).
+		Where("collection_id = ?", collectionID).
+		Delete()
+	if err != nil {
+		return err
+	}
+
+	// Delete related records in book_collection_books
+	_, err = tx.Model((*models.BookCollectionBook)(nil)).
+		Where("book_collection_id = ?", collectionID).
+		Delete()
+	if err != nil {
+		return err
+	}
+
+	// Delete the collection
+	_, err = tx.Model(&collection).
+		Where("id = ?", collectionID).
+		Delete()
+	if err != nil {
+		return err
+	}
+
+	// Commit the transaction
+	err = tx.Commit()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
