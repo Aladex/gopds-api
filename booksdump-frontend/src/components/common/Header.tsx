@@ -47,7 +47,7 @@ const Header: React.FC = () => {
     const menuItems = useMemo(() => {
         const items = [
             { label: t('booksTab'), path: '/books/page/1', regex: /^\/books\/page\/\d+/, index: 0 },
-            { label: t('byOtherUsersTab'), path: '/books/users/favorites/1', regex: /^\/books\/users\/favorites\/\d+/, index: 1 },
+            { label: t('collections'), path: '/private-collections/1', regex: /^\/(private-collections|public-collections|collection\/\d+\/edit)\/\d+/, index: 1 },
             { label: t('opdsTab'), path: '/catalog', regex: /^\/catalog/, index: 2 }
         ];
         if (user?.is_superuser) {
