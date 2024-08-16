@@ -13,7 +13,7 @@ func GetCollections(filters models.CollectionFilters, userID int64, isPublic boo
 	var collections []models.BookCollection
 	query := db.Model(&collections).
 		Column("book_collection.*").
-		ColumnExpr("COALESCE(SUM(CASE WHEN cv.vote THEN 1 ELSE -1 END), 0) AS vote_count").
+		ColumnExpr("COALESCE(SUM(CASE WHEN cv.vote IS NOT NULL THEN CASE WHEN cv.vote THEN 1 ELSE -1 END ELSE 0 END), 0) AS vote_count").
 		Join("LEFT JOIN collection_votes AS cv ON cv.collection_id = book_collection.id").
 		Group("book_collection.id")
 
@@ -158,6 +158,25 @@ func RemoveBookFromCollection(userID, collectionID, bookID int64) error {
 		}
 	}
 
+	// Check the number of books remaining in the collection
+	remainingBooksCount, err := tx.Model(&models.BookCollectionBook{}).
+		Where("book_collection_id = ?", collectionID).
+		Count()
+	if err != nil {
+		return err
+	}
+
+	// If less than two books remain, make the collection private
+	if remainingBooksCount < 2 {
+		_, err = tx.Model((*models.BookCollection)(nil)).
+			Set("is_public = ?", false).
+			Where("id = ?", collectionID).
+			Update()
+		if err != nil {
+			return err
+		}
+	}
+
 	// Commit the transaction
 	err = tx.Commit()
 	if err != nil {
@@ -264,6 +283,19 @@ func UpdateCollection(userID, collectionID int64, name string, isPublic bool) (m
 		Select()
 	if err != nil {
 		return collection, err
+	}
+
+	// Check the number of books in the collection
+	bookCount, err := db.Model(&models.BookCollectionBook{}).
+		Where("book_collection_id = ?", collectionID).
+		Count()
+	if err != nil {
+		return collection, err
+	}
+
+	// Allow making the collection public only if it contains 2 or more books
+	if isPublic && bookCount < 2 {
+		return collection, fmt.Errorf("cannot make the collection public with less than 2 books")
 	}
 
 	collection.Name = name

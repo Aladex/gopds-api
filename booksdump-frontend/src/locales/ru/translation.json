@@ -124,5 +124,7 @@
   "routeTitles.privateCollections": "Приватные коллекции",
   "areYouSureYouWantToDeleteThisCollection": "Вы уверены, что хотите удалить эту коллекцию?",
   "delete": "Удалить",
-  "confirmDeleteCollection": "Удалить коллекцию"
+  "confirmDeleteCollection": "Удалить коллекцию",
+  "noBooksInstruction": "В этой коллекции пока нет книг. Чтобы добавить книги, воспользуйтесь поиском и добавьте их в коллекцию через кнопку, которая появится на карточках книг.",
+  "publicSwitchInstruction": "Добавьте 2 или больше книг для активации."
 }

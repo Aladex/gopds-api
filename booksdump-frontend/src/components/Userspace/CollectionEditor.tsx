@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Grid, Box, Typography, List, ListItemText, ListItemButton, Card, CardContent, IconButton, Switch, FormControlLabel, Button, Drawer, Divider, Snackbar, Alert } from '@mui/material';
+import { Grid, Box, Typography, List, ListItemText, ListItemButton, Card, IconButton, Switch, FormControlLabel, Button, Drawer, Divider, Snackbar, Alert } from '@mui/material';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { fetchWithAuth } from '../../api/config';
 import SkeletonCard from "../common/SkeletonCard";
@@ -57,6 +57,7 @@ const CollectionEditor: React.FC = () => {
     const navigate = useNavigate();
     const { setSearchItem } = useSearchBar();
     const location = useLocation();
+    const disablePublicSwitch = books.length < 2;
 
     useEffect(() => {
         const fetchBooks = async () => {
@@ -102,11 +103,17 @@ const CollectionEditor: React.FC = () => {
     const handleDeleteBook = async (bookId: number) => {
         try {
             await fetchWithAuth.post('/books/remove-from-collection', { collection_id: id ? parseInt(id, 10) : 1, book_id: bookId });
-            setBooks(books.filter(book => book.id !== bookId));
+            const updatedBooks = books.filter(book => book.id !== bookId);
+            setBooks(updatedBooks);
+
+            if (updatedBooks.length < 2 && tempIsPublic) {
+                setTempIsPublic(false);
+            }
         } catch (error) {
             console.error('Error deleting book from collection:', error);
         }
     };
+
 
     const handleDragEnd = async (event: any) => {
         const { active, over } = event;
@@ -168,18 +175,6 @@ const CollectionEditor: React.FC = () => {
                         </Box>
                     </Grid>
                 </Grid>
-            ) : books.length === 0 ? (
-                <Grid container justifyContent="center">
-                    <Grid item xs={12}>
-                        <Box maxWidth={1200} mx="auto">
-                            <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
-                                <CardContent>
-                                    <Typography variant="h6" align="center">{t('noBooksFound')}</Typography>
-                                </CardContent>
-                            </Card>
-                        </Box>
-                    </Grid>
-                </Grid>
             ) : (
                 <Grid container justifyContent="center" spacing={4}>
                     <Grid item xs={12}>
@@ -191,28 +186,35 @@ const CollectionEditor: React.FC = () => {
                                         <Settings />
                                     </IconButton>
                                 </Box>
-                                <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                                    <SortableContext items={books} strategy={verticalListSortingStrategy}>
-                                        <List>
-                                            {books.map((book) => (
-                                                <SortableItem
-                                                    key={book.id}
-                                                    id={book.id}
-                                                    title={book.title}
-                                                    onClick={() => handleBookClick(book.id)}
-                                                    onDelete={() => handleDeleteBook(book.id)}
-                                                    onSettingsClick={toggleSettingsDrawer}
-                                                />
-                                            ))}
-                                        </List>
-                                    </SortableContext>
-                                </DndContext>
+                                {books.length > 0 ? (
+                                    <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                                        <SortableContext items={books} strategy={verticalListSortingStrategy}>
+                                            <List>
+                                                {books.map((book) => (
+                                                    <SortableItem
+                                                        key={book.id}
+                                                        id={book.id}
+                                                        title={book.title}
+                                                        onClick={() => handleBookClick(book.id)}
+                                                        onDelete={() => handleDeleteBook(book.id)}
+                                                        onSettingsClick={toggleSettingsDrawer}
+                                                    />
+                                                ))}
+                                            </List>
+                                        </SortableContext>
+                                    </DndContext>
+                                ) : (
+                                    <Box sx={{ textAlign: 'center', padding: 2 }}>
+                                        <Typography variant="body1" sx={{ marginBottom: 2 }}>
+                                            {t('noBooksInstruction')}
+                                        </Typography>
+                                    </Box>
+                                )}
                             </Card>
                         </Box>
                     </Grid>
                 </Grid>
             )}
-
             <Drawer
                 anchor="right"
                 open={settingsOpen}
@@ -235,11 +237,18 @@ const CollectionEditor: React.FC = () => {
                                 checked={tempIsPublic}
                                 onChange={(e) => setTempIsPublic(e.target.checked)}
                                 color="secondary"
+                                disabled={disablePublicSwitch}
                             />
                         }
                         label={t('isPublic')}
                         sx={{ marginTop: 2 }}
                     />
+                    {disablePublicSwitch && (
+                        <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.75rem', marginTop: 1 }}>
+                            {t('publicSwitchInstruction')}
+                        </Typography>
+                    )}
+
                     <Button
                         variant="contained"
                         color="primary"

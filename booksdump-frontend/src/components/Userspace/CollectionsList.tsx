@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
     Grid, Box, Typography, List, ListItemText, Card, ListItemButton, CardContent, Tabs, Tab, IconButton, Dialog, DialogTitle, DialogContent, DialogActions, Button
 } from '@mui/material';
-import { Add, Edit, Remove, Add as AddIcon } from '@mui/icons-material';
+import { Add, Edit, Delete, Add as AddIcon } from '@mui/icons-material';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { fetchWithAuth } from '../../api/config';
 import BookPagination from "../common/BookPagination";
@@ -10,6 +10,7 @@ import SkeletonCard from "../common/SkeletonCard";
 import { useSearchBar } from '../../context/SearchBarContext';
 import { useTranslation } from "react-i18next";
 import { StyledTextField } from "../StyledDataItems";
+import { useAuth } from '../../context/AuthContext';
 
 interface Collection {
     id: number;
@@ -34,6 +35,7 @@ const CollectionsList: React.FC = () => {
     const { setSearchItem } = useSearchBar();
     const [collectionToDelete, setCollectionToDelete] = useState<number | null>(null);
     const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
+    const { login } = useAuth();
 
     const handleOpenDeleteDialog = (collectionId: number) => {
         setCollectionToDelete(collectionId);
@@ -51,6 +53,7 @@ const CollectionsList: React.FC = () => {
                 await fetchWithAuth.delete(`/books/collection/${collectionToDelete}`);
                 setCollections(prevCollections => prevCollections.filter(c => c.id !== collectionToDelete));
                 handleCloseDeleteDialog();
+                login(); // Refresh user data
             } catch (error) {
                 console.error('Error deleting collection:', error);
             }
@@ -107,10 +110,11 @@ const CollectionsList: React.FC = () => {
             await fetchWithAuth.post('/books/create-collection', { name: newCollectionName });
             setOpen(false);
             setNewCollectionName('');
-            const response = await fetchWithAuth.get(`/books/collections`, { params: { limit: 10, offset: 0 } });
+            const response = await fetchWithAuth.get(`/books/collections`, { params: { limit: 10, offset: 0, private: tab === 'private' } });
             const responseData = await response.data;
             setCollections(responseData.collections || []);
             setTotalPages(responseData.length || 0);
+            login(); // Refresh user data
         } catch (error) {
             console.error('Error creating collection:', error);
         }
@@ -146,9 +150,12 @@ const CollectionsList: React.FC = () => {
                                             <Tab label={t('public')} value="public" sx={{ color: tab === 'public' ? 'black' : '#818181', '&.Mui-selected': { color: 'black' } }} />
                                             <Tab label={t('private')} value="private" sx={{ color: tab === 'private' ? 'black' : '#818181', '&.Mui-selected': { color: 'black' } }} />
                                         </Tabs>
-                                        <IconButton color="secondary" onClick={handleOpen}>
-                                            <Add />
-                                        </IconButton>
+                                        {tab === 'private' && (
+                                            <IconButton color="secondary" onClick={handleOpen}>
+                                                <Add />
+                                            </IconButton>
+                                        )}
+
                                     </Box>
                                     {loading ? (
                                         Array.from({ length: 10 }).map((_, index) => <SkeletonCard key={index} />)
@@ -167,13 +174,13 @@ const CollectionsList: React.FC = () => {
                                                                     <Edit />
                                                                 </IconButton>
                                                                 <IconButton color="secondary" onClick={(e) => { e.stopPropagation(); handleOpenDeleteDialog(collection.id); }}>
-                                                                    <Remove />
+                                                                    <Delete />
                                                                 </IconButton>
                                                             </>
                                                         ) : (
                                                             <Box display="flex" alignItems="center">
                                                                 <IconButton color="secondary" onClick={(e) => { e.stopPropagation(); handleVote(collection.id, false); }}>
-                                                                    <Remove />
+                                                                    <Delete />
                                                                 </IconButton>
                                                                 <Typography variant="body2" sx={{ margin: '0 8px' }}>{collection.vote_count}</Typography>
                                                                 <IconButton color="secondary" onClick={(e) => { e.stopPropagation(); handleVote(collection.id, true); }}>
