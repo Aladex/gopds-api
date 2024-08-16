@@ -3,7 +3,6 @@ package database
 import (
 	"fmt"
 	"github.com/go-pg/pg/v10"
-	"github.com/go-pg/pg/v10/orm"
 	"github.com/sirupsen/logrus"
 	"gopds-api/models"
 	"time"
@@ -60,27 +59,6 @@ func GetCollections(filters models.CollectionFilters, userID int64, isPublic boo
 func CreateCollection(collection models.BookCollection) (models.BookCollection, error) {
 	_, err := db.Model(&collection).Insert()
 	return collection, err
-}
-
-func GetBookCollectionWithIDs(collectionID int64) (models.BookCollection, error) {
-	var collection models.BookCollection
-	err := db.Model(&collection).
-		Column("book_collection.*").
-		Relation("Books", func(q *orm.Query) (*orm.Query, error) {
-			return q.Column("id"), nil
-		}).
-		Where("book_collection.id = ?", collectionID).
-		Select()
-	if err != nil {
-		return collection, err
-	}
-
-	// Populate BookIDs field
-	for _, book := range collection.Books {
-		collection.BookIDs = append(collection.BookIDs, book.ID)
-	}
-
-	return collection, nil
 }
 
 func AddBookToCollection(userID, collectionID, bookID int64) error {
