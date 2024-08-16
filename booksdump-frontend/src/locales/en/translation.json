@@ -116,5 +116,10 @@
   "private": "Private",
   "public": "Public",
   "createCollection": "Create Collection",
-  "create": "Create"
+  "create": "Create",
+  "addToCollection": "Collection",
+  "routeByCollection.books": "Search by collection",
+  "routeByCollection.edit": "Edit collection",
+  "routeTitles.publicCollections": "Public collections",
+  "routeTitles.privateCollections": "Private collections"
 }

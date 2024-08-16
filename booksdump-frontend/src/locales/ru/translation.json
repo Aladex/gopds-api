@@ -116,5 +116,10 @@
   "private": "Приватные",
   "public": "Публичные",
   "createCollection": "Создать коллекцию",
-  "create": "Создать"
+  "create": "Создать",
+  "addToCollection": "Коллекция",
+  "routeByCollection.books": "Поиск по коллекции",
+  "routeByCollection.edit": "Редактировать коллекцию",
+  "routeTitles.publicCollections": "Публичные коллекции",
+  "routeTitles.privateCollections": "Приватные коллекции"
 }
