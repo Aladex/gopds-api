@@ -171,20 +171,20 @@ const CollectionsList: React.FC = () => {
                                             }}
                                         >
                                             <Tab
-                                                label={t('private')}
-                                                value="private"
+                                                label={t('public')}
+                                                value="public"
                                                 sx={{
-                                                    color: tab === 'private' ? 'black' : '#818181',
+                                                    color: tab === 'public' ? 'black' : '#818181',
                                                     '&.Mui-selected': {
                                                         color: 'black',
                                                     },
                                                 }}
                                             />
                                             <Tab
-                                                label={t('public')}
-                                                value="public"
+                                                label={t('private')}
+                                                value="private"
                                                 sx={{
-                                                    color: tab === 'public' ? 'black' : '#818181',
+                                                    color: tab === 'private' ? 'black' : '#818181',
                                                     '&.Mui-selected': {
                                                         color: 'black',
                                                     },

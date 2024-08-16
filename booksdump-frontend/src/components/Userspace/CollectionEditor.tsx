@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Grid, Box, Typography, List, ListItemText, ListItemButton, Card, CardContent, IconButton, Switch, FormControlLabel, Button } from '@mui/material';
+import { Grid, Box, Typography, List, ListItemText, ListItemButton, Card, CardContent, IconButton, Switch, FormControlLabel, Button, Drawer, Divider, Snackbar, Alert } from '@mui/material';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { fetchWithAuth } from '../../api/config';
 import SkeletonCard from "../common/SkeletonCard";
@@ -8,7 +8,7 @@ import { useTranslation } from "react-i18next";
 import { DndContext, closestCenter } from '@dnd-kit/core';
 import { arrayMove, SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { DragHandle, Delete } from '@mui/icons-material';
+import { DragHandle, Delete, Settings } from '@mui/icons-material';
 import { StyledTextField } from "../StyledDataItems";
 
 interface Book {
@@ -16,7 +16,7 @@ interface Book {
     title: string;
 }
 
-const SortableItem = ({ id, title, onClick, onDelete }: { id: number; title: string; onClick: () => void; onDelete: () => void }) => {
+const SortableItem = ({ id, title, onClick, onDelete, onSettingsClick }: { id: number; title: string; onClick: () => void; onDelete: () => void; onSettingsClick: () => void }) => {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
 
     const style = {
@@ -50,6 +50,10 @@ const CollectionEditor: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [collectionName, setCollectionName] = useState('');
     const [isPublic, setIsPublic] = useState(false);
+    const [settingsOpen, setSettingsOpen] = useState(false);
+    const [tempCollectionName, setTempCollectionName] = useState(collectionName);
+    const [tempIsPublic, setTempIsPublic] = useState(isPublic);
+    const [snackbarOpen, setSnackbarOpen] = useState(false);
     const navigate = useNavigate();
     const { setSearchItem } = useSearchBar();
     const location = useLocation();
@@ -76,7 +80,9 @@ const CollectionEditor: React.FC = () => {
                 const collectionResponse = await fetchWithAuth.get(`/books/collection/${id}`);
                 const collectionData = collectionResponse.data;
                 setCollectionName(collectionData.name);
+                setTempCollectionName(collectionData.name);
                 setIsPublic(collectionData.is_public);
+                setTempIsPublic(collectionData.is_public);
             } catch (error) {
                 console.error('Error fetching books:', error);
                 setBooks([]);
@@ -125,16 +131,27 @@ const CollectionEditor: React.FC = () => {
         }
     };
 
+    const toggleSettingsDrawer = () => {
+        setSettingsOpen(!settingsOpen);
+    };
+
     const handleSaveChanges = async () => {
         try {
             await fetchWithAuth.post(`/books/update-collection/${id}`, {
-                name: collectionName,
-                is_public: isPublic,
+                name: tempCollectionName,
+                is_public: tempIsPublic,
             });
-            alert('Collection updated successfully');
+            setCollectionName(tempCollectionName);
+            setIsPublic(tempIsPublic);
+            toggleSettingsDrawer();
+            setSnackbarOpen(true);
         } catch (error) {
             console.error('Error updating collection:', error);
         }
+    };
+
+    const handleSnackbarClose = () => {
+        setSnackbarOpen(false);
     };
 
     return (
@@ -168,34 +185,11 @@ const CollectionEditor: React.FC = () => {
                     <Grid item xs={12}>
                         <Box maxWidth={1200} mx="auto">
                             <Card sx={{ boxShadow: 2, p: 1, my: 1 }}>
-                                <Typography variant="h4" align="center">{t('booksInCollection')}</Typography>
-                                <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
-                                    <Grid container spacing={2}>
-                                        <Grid item xs={12} md={6} />
-                                        <Grid item xs={12} md={6} display="flex" alignItems="center">
-                                            <StyledTextField
-                                                label={t('collectionName')}
-                                                value={collectionName}
-                                                onChange={(e) => setCollectionName(e.target.value)}
-                                                margin="normal"
-                                                sx={{ flexGrow: 1, marginRight: 2 }}
-                                            />
-                                            <FormControlLabel
-                                                control={
-                                                    <Switch
-                                                        checked={isPublic}
-                                                        onChange={(e) => setIsPublic(e.target.checked)}
-                                                        color="secondary"
-                                                    />
-                                                }
-                                                label={t('isPublic')}
-                                                sx={{ marginRight: 2 }}
-                                            />
-                                            <Button variant="contained" color="primary" onClick={handleSaveChanges}>
-                                                {t('saveChanges')}
-                                            </Button>
-                                        </Grid>
-                                    </Grid>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <Typography variant="h4" align="center" sx={{ flexGrow: 1 }}>{t('booksInCollection')}</Typography>
+                                    <IconButton edge="end" onClick={toggleSettingsDrawer} sx={{ mr: 1 }}>
+                                        <Settings />
+                                    </IconButton>
                                 </Box>
                                 <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                                     <SortableContext items={books} strategy={verticalListSortingStrategy}>
@@ -207,6 +201,7 @@ const CollectionEditor: React.FC = () => {
                                                     title={book.title}
                                                     onClick={() => handleBookClick(book.id)}
                                                     onDelete={() => handleDeleteBook(book.id)}
+                                                    onSettingsClick={toggleSettingsDrawer}
                                                 />
                                             ))}
                                         </List>
@@ -217,6 +212,55 @@ const CollectionEditor: React.FC = () => {
                     </Grid>
                 </Grid>
             )}
+
+            <Drawer
+                anchor="right"
+                open={settingsOpen}
+                onClose={toggleSettingsDrawer}
+            >
+                <Box sx={{ width: 300, padding: 2 }}>
+                    <Typography variant="h6">{t('settings')}</Typography>
+                    <Divider sx={{ marginBottom: 2 }} />
+
+                    <StyledTextField
+                        label={t('collectionName')}
+                        value={tempCollectionName}
+                        onChange={(e) => setTempCollectionName(e.target.value)}
+                        margin="normal"
+                        fullWidth
+                    />
+                    <FormControlLabel
+                        control={
+                            <Switch
+                                checked={tempIsPublic}
+                                onChange={(e) => setTempIsPublic(e.target.checked)}
+                                color="secondary"
+                            />
+                        }
+                        label={t('isPublic')}
+                        sx={{ marginTop: 2 }}
+                    />
+                    <Button
+                        variant="contained"
+                        color="primary"
+                        onClick={handleSaveChanges}
+                        fullWidth
+                        sx={{ marginTop: 2 }}
+                    >
+                        {t('saveChanges')}
+                    </Button>
+                </Box>
+            </Drawer>
+
+            <Snackbar
+                open={snackbarOpen}
+                autoHideDuration={6000}
+                onClose={handleSnackbarClose}
+            >
+                <Alert onClose={handleSnackbarClose} severity="success" sx={{ width: '100%' }}>
+                    {t('collectionUpdatedSuccessfully')}
+                </Alert>
+            </Snackbar>
         </Box>
     );
 };

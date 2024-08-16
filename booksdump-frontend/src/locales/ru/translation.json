@@ -104,5 +104,17 @@
   "beforeDate": "Действительно до",
   "actions": "Действия",
   "addInvite": "Добавить приглашение",
-  "users": "Пользователи"
+  "users": "Пользователи",
+  "booksInCollection": "Книги в коллекции",
+  "settings": "Настройки",
+  "collectionName": "Название коллекции",
+  "isPublic": "Публичная",
+  "saveChanges": "Сохранить изменения",
+  "collectionUpdatedSuccessfully": "Коллекция успешно обновлена",
+  "noCollectionsFound": "Коллекции не найдены",
+  "collections": "Коллекции",
+  "private": "Приватные",
+  "public": "Публичные",
+  "createCollection": "Создать коллекцию",
+  "create": "Создать"
 }

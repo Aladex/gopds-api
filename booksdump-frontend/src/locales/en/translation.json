@@ -104,5 +104,17 @@
   "beforeDate": "Before date",
   "actions": "Actions",
   "addInvite": "Add invite",
-  "users": "Users"
+  "users": "Users",
+  "booksInCollection": "Books in Collection",
+  "settings": "Settings",
+  "collectionName": "Collection Name",
+  "isPublic": "Public",
+  "saveChanges": "Save Changes",
+  "collectionUpdatedSuccessfully": "Collection updated successfully",
+  "noCollectionsFound": "No collections found",
+  "collections": "Collections",
+  "private": "Private",
+  "public": "Public",
+  "createCollection": "Create Collection",
+  "create": "Create"
 }
