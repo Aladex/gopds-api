@@ -121,5 +121,8 @@
   "routeByCollection.books": "Search by collection",
   "routeByCollection.edit": "Edit collection",
   "routeTitles.publicCollections": "Public collections",
-  "routeTitles.privateCollections": "Private collections"
+  "routeTitles.privateCollections": "Private collections",
+  "areYouSureYouWantToDeleteThisCollection": "Are you sure you want to delete this collection?",
+  "delete": "Delete",
+  "confirmDeleteCollection": "Delete collection"
 }

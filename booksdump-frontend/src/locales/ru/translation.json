@@ -121,5 +121,8 @@
   "routeByCollection.books": "Поиск по коллекции",
   "routeByCollection.edit": "Редактировать коллекцию",
   "routeTitles.publicCollections": "Публичные коллекции",
-  "routeTitles.privateCollections": "Приватные коллекции"
+  "routeTitles.privateCollections": "Приватные коллекции",
+  "areYouSureYouWantToDeleteThisCollection": "Вы уверены, что хотите удалить эту коллекцию?",
+  "delete": "Удалить",
+  "confirmDeleteCollection": "Удалить коллекцию"
 }
