@@ -140,6 +140,7 @@ type Book struct {
 	Users         []*User   `pg:"many2many:favorite_books,join_fk:book_id" json:"favorites"`
 	Covers        []*Cover  `pg:"covers,rel:has-many" json:"covers"`
 	FavoriteCount int       `pg:"-" json:"favorite_count"`
+	Position      int       `pg:"-" json:"position"`
 }
 
 func (b *Book) DownloadName() string {

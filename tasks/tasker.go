@@ -4,16 +4,13 @@ import (
 	"github.com/spf13/viper"
 	"gopds-api/models"
 	"gopds-api/utils"
-	"io"
 	"sync"
 )
 
 type TaskType int
 
 const (
-	AddBook TaskType = iota
-	RemoveBook
-	RenumberBooks
+	UpdateCollection TaskType = iota
 	DeleteCollection
 )
 
@@ -21,10 +18,7 @@ const (
 type CollectionTask struct {
 	Type         TaskType
 	CollectionID int64
-	Book         models.Book
-	Position     int
-	NewPositions map[int]int
-	Reader       io.Reader
+	UpdatedBooks []models.Book
 }
 
 // TaskManager struct for managing tasks
@@ -68,28 +62,18 @@ func (tm *TaskManager) startWorker(collectionID int64) {
 // processTask processes the task
 func (tm *TaskManager) processTask(task CollectionTask) {
 	manager := utils.CollectionManager{
-		CollectionID: task.CollectionID,
-		BasePath:     viper.GetString("app.collections_path"),
+		BasePath: viper.GetString("app.collections_path"),
 	}
 
 	switch task.Type {
-	case AddBook:
-		err := manager.AddBookToCollection(task.Book, task.Position)
+	case UpdateCollection:
+		err := manager.UpdateBookCollection(task.CollectionID, task.UpdatedBooks)
 		if err != nil {
 			// Логгирование ошибки
 		}
-	case RemoveBook:
-		err := manager.RemoveBookFromCollection(task.Book, task.Position)
-		if err != nil {
-			// Логгирование ошибки
-		}
-	case RenumberBooks:
-		err := manager.RenumberBooksInCollection(task.NewPositions)
-		if err != nil {
-			// Логгирование ошибки
-		}
+
 	case DeleteCollection:
-		err := manager.DeleteCollection()
+		err := manager.DeleteCollection(task.CollectionID)
 		if err != nil {
 			// Логгирование ошибки
 		}

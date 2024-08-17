@@ -3,7 +3,6 @@ package database
 import (
 	"fmt"
 	"github.com/go-pg/pg/v10"
-	"github.com/sirupsen/logrus"
 	"gopds-api/models"
 	"time"
 )
@@ -61,14 +60,14 @@ func CreateCollection(collection models.BookCollection) (models.BookCollection, 
 	return collection, err
 }
 
-func AddBookToCollection(userID, collectionID, bookID int64) (int, error) {
+func AddBookToCollection(userID, collectionID, bookID int64) ([]models.Book, error) {
 	// Check if the collection belongs to the user
 	var collection models.BookCollection
 	err := db.Model(&collection).
 		Where("id = ? AND user_id = ?", collectionID, userID).
 		Select()
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	// Fetch the current maximum position in the collection
@@ -78,7 +77,7 @@ func AddBookToCollection(userID, collectionID, bookID int64) (int, error) {
 		ColumnExpr("COALESCE(MAX(position), 0)").
 		Select(&maxPosition)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	// Add the book to the collection with the next position
@@ -89,17 +88,31 @@ func AddBookToCollection(userID, collectionID, bookID int64) (int, error) {
 	}
 	_, err = db.Model(&collectionBook).Insert()
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
-	return collectionBook.Position, nil
+	// Fetch the updated books in the collection along with their Path and FileName
+	var updatedBooks []models.Book
+
+	err = db.Model(&updatedBooks).
+		Column("book.*", "bcb.position").
+		Join("JOIN book_collection_books AS bcb ON bcb.book_id = book.id").
+		Where("bcb.book_collection_id = ?", collectionID).
+		Order("bcb.position ASC").
+		Select()
+
+	if err != nil {
+		return nil, err
+	}
+
+	return updatedBooks, nil
 }
 
-func RemoveBookFromCollection(userID, collectionID, bookID int64) error {
+func RemoveBookFromCollection(userID, collectionID, bookID int64) ([]models.Book, error) {
 	// Start a transaction
 	tx, err := db.Begin()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer tx.Rollback()
 
@@ -110,7 +123,7 @@ func RemoveBookFromCollection(userID, collectionID, bookID int64) error {
 		Order("position ASC").
 		Select()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Delete the specified book from the collection
@@ -118,7 +131,7 @@ func RemoveBookFromCollection(userID, collectionID, bookID int64) error {
 		Where("book_collection_id = ? AND book_id = ?", collectionID, bookID).
 		Delete()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Update the positions of the remaining books
@@ -127,10 +140,10 @@ func RemoveBookFromCollection(userID, collectionID, bookID int64) error {
 		if book.BookID != bookID {
 			_, err = tx.Model(&book).
 				Set("position = ?", position).
-				Where("id = ?", book.ID).
+				Where("book_collection_id = ? AND book_id = ?", collectionID, book.BookID).
 				Update()
 			if err != nil {
-				return err
+				return nil, err
 			}
 			position++
 		}
@@ -141,7 +154,7 @@ func RemoveBookFromCollection(userID, collectionID, bookID int64) error {
 		Where("book_collection_id = ?", collectionID).
 		Count()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// If less than two books remain, make the collection private
@@ -151,17 +164,109 @@ func RemoveBookFromCollection(userID, collectionID, bookID int64) error {
 			Where("id = ?", collectionID).
 			Update()
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
 	// Commit the transaction
 	err = tx.Commit()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
+	// Fetch the updated books in the collection along with their Path and FileName
+	var updatedBooks []models.Book
+
+	err = db.Model(&updatedBooks).
+		Column("book.*", "bcb.position").
+		Join("JOIN book_collection_books AS bcb ON bcb.book_id = book.id").
+		Where("bcb.book_collection_id = ?", collectionID).
+		Order("bcb.position ASC").
+		Select()
+
+	if err != nil {
+		return nil, err
+	}
+
+	return updatedBooks, nil
+}
+
+func UpdateBookPositionInCollection(userID, collectionID, bookID int64, newPosition int) ([]models.Book, error) {
+	// Start a transaction
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var collectionOwnerID int64
+	err = tx.Model((*models.BookCollection)(nil)).
+		Column("user_id").
+		Where("id = ?", collectionID).
+		Select(&collectionOwnerID)
+	if err != nil {
+		return nil, err
+	}
+
+	if collectionOwnerID != userID {
+		return nil, fmt.Errorf("user does not own the collection")
+	}
+
+	// Fetch the current position of the book within the collection
+	var currentBook models.BookCollectionBook
+	err = tx.Model(&currentBook).
+		Where("book_collection_id = ? AND book_id = ?", collectionID, bookID).
+		Select()
+	if err != nil {
+		return nil, err
+	}
+
+	// Determine the direction of the move and update positions accordingly
+	if newPosition < currentBook.Position {
+		_, err = tx.Model((*models.BookCollectionBook)(nil)).
+			Set("position = position + 1").
+			Where("book_collection_id = ? AND position >= ? AND position < ?", collectionID, newPosition, currentBook.Position).
+			Update()
+	} else {
+		_, err = tx.Model((*models.BookCollectionBook)(nil)).
+			Set("position = position - 1").
+			Where("book_collection_id = ? AND position <= ? AND position > ?", collectionID, newPosition, currentBook.Position).
+			Update()
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Set the new position for the moved book
+	_, err = tx.Model(&currentBook).
+		Set("position = ?", newPosition).
+		Where("book_collection_id = ? AND book_id = ?", collectionID, bookID).
+		Update()
+	if err != nil {
+		return nil, err
+	}
+
+	// Commit the transaction
+	err = tx.Commit()
+	if err != nil {
+		return nil, err
+	}
+
+	// Fetch the updated books in the collection along with their Path and FileName
+	var updatedBooks []models.Book
+
+	err = db.Model(&updatedBooks).
+		Column("book.*", "bcb.position").
+		Join("JOIN book_collection_books AS bcb ON bcb.book_id = book.id").
+		Where("bcb.book_collection_id = ?", collectionID).
+		Order("bcb.position ASC").
+		Select()
+
+	if err != nil {
+		return nil, err
+	}
+
+	return updatedBooks, nil
 }
 
 // GetCollectionsByBookID returns all user collections that contain the book
@@ -177,80 +282,6 @@ func GetCollectionsByBookID(userID, bookID int64) ([]models.BookCollection, erro
 		return nil, err
 	}
 	return collections, nil
-}
-
-// UpdateBookPositionInCollection updates the position of a book in a collection
-func UpdateBookPositionInCollection(userID, collectionID, bookID int64, newPosition int) error {
-	// Start a transaction
-	tx, err := db.Begin()
-	if err != nil {
-		logrus.Errorf("Failed to begin transaction: %v", err)
-		return err
-	}
-	defer tx.Rollback()
-
-	var collectionOwnerID int64
-	err = tx.Model((*models.BookCollection)(nil)).
-		Column("user_id").
-		Where("id = ?", collectionID).
-		Select(&collectionOwnerID)
-	if err != nil {
-		logrus.Errorf("Failed to fetch collection owner: %v", err)
-		return err
-	}
-
-	if collectionOwnerID != userID {
-		logrus.Errorf("User (ID: %d) does not own the collection (ID: %d)", userID, collectionID)
-		return fmt.Errorf("user does not own the collection")
-	}
-
-	// Fetch the current position of the book within the collection
-	var currentBook models.BookCollectionBook
-	err = tx.Model(&currentBook).
-		Where("book_collection_id = ? AND book_id = ?", collectionID, bookID).
-		Select()
-	if err != nil {
-		logrus.Errorf("Failed to fetch current book position: %v", err)
-		return err
-	}
-
-	// Determine the direction of the move and update positions accordingly
-	if newPosition < currentBook.Position {
-		// Moving up
-		_, err = tx.Model((*models.BookCollectionBook)(nil)).
-			Set("position = position + 1").
-			Where("book_collection_id = ? AND position >= ? AND position < ?", collectionID, newPosition, currentBook.Position).
-			Update()
-	} else if newPosition > currentBook.Position {
-		// Moving down
-		_, err = tx.Model((*models.BookCollectionBook)(nil)).
-			Set("position = position - 1").
-			Where("book_collection_id = ? AND position <= ? AND position > ?", collectionID, newPosition, currentBook.Position).
-			Update()
-	}
-	if err != nil {
-		logrus.Errorf("Failed to update positions of other books: %v", err)
-		return err
-	}
-
-	// Set the new position for the moved book
-	_, err = tx.Model(&currentBook).
-		Set("position = ?", newPosition).
-		Where("id = ?", currentBook.ID).
-		Update()
-	if err != nil {
-		logrus.Errorf("Failed to set new position for book: %v", err)
-		return err
-	}
-
-	// Commit the transaction
-	err = tx.Commit()
-	if err != nil {
-		logrus.Errorf("Failed to commit transaction: %v", err)
-		return err
-	}
-
-	return nil
 }
 
 // UpdateCollection updates the name and public status of a collection

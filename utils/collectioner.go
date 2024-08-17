@@ -11,120 +11,93 @@ import (
 
 // CollectionManager struct for managing collections
 type CollectionManager struct {
-	CollectionID int64
-	BasePath     string
+	BasePath string
 }
 
-// AddBookToCollection adds a book to the collection
-func (cm *CollectionManager) AddBookToCollection(book models.Book, position int) error {
-	collectionPath := filepath.Join(cm.BasePath, fmt.Sprintf("collection_%d", cm.CollectionID))
+// UpdateBookCollection updates the collection based on the provided list of BookCollectionBook
+// UpdateBookCollection updates the collection based on the provided list of BookCollectionBook
+func (cm *CollectionManager) UpdateBookCollection(collectionID int64, books []models.Book) error {
+	collectionPath := filepath.Join(cm.BasePath, fmt.Sprintf("collection_%d", collectionID))
 	if err := os.MkdirAll(collectionPath, 0755); err != nil {
 		return fmt.Errorf("failed to create collection directory: %w", err)
 	}
 
-	zipPath := viper.GetString("app.files_path") + book.Path // Construct the path to the book file.
+	existingFiles := make(map[string]bool)
+	for _, book := range books {
+		zipPath := viper.GetString("app.files_path") + book.Path // Construct the path to the book file.
 
-	if !FileExists(zipPath) {
-		return fmt.Errorf("book file not found")
-	}
-
-	bp := NewBookProcessor(book.FileName, zipPath)
-
-	// Process and save the book in different formats
-	formats := []string{"fb2", "epub", "mobi"}
-	for _, format := range formats {
-		var bookContent io.ReadCloser
-		var err error
-
-		switch format {
-		case "fb2":
-			bookContent, err = bp.FB2()
-		case "epub":
-			bookContent, err = bp.Epub()
-		case "mobi":
-			bookContent, err = bp.Mobi()
+		if !FileExists(zipPath) {
+			return fmt.Errorf("book file not found for book ID: %d", book.ID)
 		}
 
-		if err != nil {
-			return fmt.Errorf("failed to process book to %s format: %w", format, err)
-		}
-		defer bookContent.Close()
+		bp := NewBookProcessor(book.FileName, zipPath)
 
-		fileName := fmt.Sprintf("%02d_%d_%s.%s", position, book.ID, book.DownloadName(), format)
-		filePath := filepath.Join(collectionPath, fileName)
-
-		file, err := os.Create(filePath)
-		if err != nil {
-			return fmt.Errorf("failed to create file: %w", err)
-		}
-		defer file.Close()
-
-		if _, err := io.Copy(file, bookContent); err != nil {
-			return fmt.Errorf("failed to write file: %w", err)
-		}
-	}
-
-	return nil
-}
-
-// RemoveBookFromCollection removes a book from the collection
-func (cm *CollectionManager) RemoveBookFromCollection(book models.Book, position int) error {
-	collectionPath := filepath.Join(cm.BasePath, fmt.Sprintf("collection_%d", cm.CollectionID))
-	formats := []string{"fb2", "epub", "mobi"}
-
-	for _, format := range formats {
-		fileName := fmt.Sprintf("%02d_%d_%s.%s", position, book.ID, book.DownloadName(), format)
-		filePath := filepath.Join(collectionPath, fileName)
-
-		if err := os.Remove(filePath); err != nil {
-			if os.IsNotExist(err) {
-				continue // ignore if file does not exist
-			}
-			return fmt.Errorf("failed to remove file: %w", err)
-		}
-	}
-
-	return nil
-}
-
-// RenumberBooksInCollection updates the positions of books in the collection
-func (cm *CollectionManager) RenumberBooksInCollection(newPositions map[int]int) error {
-	collectionPath := filepath.Join(cm.BasePath, fmt.Sprintf("collection_%d", cm.CollectionID))
-	formats := []string{"fb2", "epub", "mobi"}
-
-	for oldPosition, newPosition := range newPositions {
+		// Process and save the book in different formats
+		formats := []string{"fb2", "epub", "mobi"}
 		for _, format := range formats {
-			oldFileName := fmt.Sprintf("%02d_", oldPosition)
-			newFileName := fmt.Sprintf("%02d_", newPosition)
+			var bookContent io.ReadCloser
+			var err error
 
-			err := filepath.Walk(collectionPath, func(path string, info os.FileInfo, err error) error {
-				if err != nil {
-					return err
-				}
-
-				// If the file name starts with the old position, rename it to the new position
-				if filepath.Base(path)[:len(oldFileName)] == oldFileName && filepath.Ext(path) == "."+format {
-					newPath := filepath.Join(collectionPath, newFileName+filepath.Base(path)[len(oldFileName):])
-					if err := os.Rename(path, newPath); err != nil {
-						return fmt.Errorf("failed to rename file %s to %s: %w", path, newPath, err)
-					}
-				}
-
-				return nil
-			})
+			switch format {
+			case "fb2":
+				bookContent, err = bp.FB2()
+			case "epub":
+				bookContent, err = bp.Epub()
+			case "mobi":
+				bookContent, err = bp.Mobi()
+			}
 
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to process book to %s format: %w", format, err)
+			}
+			defer bookContent.Close()
+
+			fileName := fmt.Sprintf("%02d_%d_%s.%s", book.Position, book.ID, book.DownloadName(), format)
+			filePath := filepath.Join(collectionPath, fileName)
+
+			file, err := os.Create(filePath)
+			if err != nil {
+				return fmt.Errorf("failed to create file: %w", err)
+			}
+			defer file.Close()
+
+			if _, err := io.Copy(file, bookContent); err != nil {
+				return fmt.Errorf("failed to write file: %w", err)
+			}
+
+			// Add the file to the list of existing files
+			existingFiles[fileName] = true
+		}
+	}
+
+	// Remove files that are no longer part of the collection
+	err := filepath.Walk(collectionPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if !info.IsDir() {
+			fileName := filepath.Base(path)
+			if !existingFiles[fileName] {
+				if err := os.Remove(path); err != nil {
+					return fmt.Errorf("failed to remove file: %w", err)
+				}
 			}
 		}
+
+		return nil
+	})
+
+	if err != nil {
+		return err
 	}
 
 	return nil
 }
 
 // DeleteCollection removes the collection directory
-func (cm *CollectionManager) DeleteCollection() error {
-	collectionPath := filepath.Join(cm.BasePath, fmt.Sprintf("collection_%d", cm.CollectionID))
+func (cm *CollectionManager) DeleteCollection(collectionID int64) error {
+	collectionPath := filepath.Join(cm.BasePath, fmt.Sprintf("collection_%d", collectionID))
 	if err := os.RemoveAll(collectionPath); err != nil {
 		return fmt.Errorf("failed to delete collection: %w", err)
 	}

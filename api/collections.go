@@ -124,23 +124,16 @@ func AddBookToCollection(c *gin.Context) {
 	}
 
 	userID := c.GetInt64("user_id")
-	position, err := database.AddBookToCollection(userID, request.CollectionID, request.BookID)
-	if err != nil {
-		httputil.NewError(c, http.StatusBadRequest, err)
-		return
-	}
-
-	book, err := database.GetBook(request.BookID)
+	updatedBooks, err := database.AddBookToCollection(userID, request.CollectionID, request.BookID)
 	if err != nil {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
 	}
 
 	task := tasks.CollectionTask{
-		Type:         tasks.AddBook,
+		Type:         tasks.UpdateCollection,
 		CollectionID: request.CollectionID,
-		Book:         book,
-		Position:     position,
+		UpdatedBooks: updatedBooks,
 	}
 
 	taskManager.EnqueueTask(task)
@@ -170,11 +163,19 @@ func RemoveBookFromCollection(c *gin.Context) {
 	}
 
 	userID := c.GetInt64("user_id")
-	err := database.RemoveBookFromCollection(userID, request.CollectionID, request.BookID)
+	updatedBooks, err := database.RemoveBookFromCollection(userID, request.CollectionID, request.BookID)
 	if err != nil {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
 	}
+
+	task := tasks.CollectionTask{
+		Type:         tasks.UpdateCollection,
+		CollectionID: request.CollectionID,
+		UpdatedBooks: updatedBooks,
+	}
+
+	taskManager.EnqueueTask(task)
 
 	c.Status(http.StatusOK)
 }
@@ -228,11 +229,18 @@ func UpdateBookPositionInCollection(c *gin.Context) {
 	}
 
 	userID := c.GetInt64("user_id")
-	err := database.UpdateBookPositionInCollection(userID, request.CollectionID, request.BookID, request.NewPosition)
+	updatedBooks, err := database.UpdateBookPositionInCollection(userID, request.CollectionID, request.BookID, request.NewPosition)
 	if err != nil {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
 	}
+	task := tasks.CollectionTask{
+		Type:         tasks.UpdateCollection,
+		CollectionID: request.CollectionID,
+		UpdatedBooks: updatedBooks,
+	}
+
+	taskManager.EnqueueTask(task)
 
 	c.Status(http.StatusOK)
 }
@@ -372,6 +380,13 @@ func DeleteCollection(c *gin.Context) {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
 	}
+
+	task := tasks.CollectionTask{
+		Type:         tasks.DeleteCollection,
+		CollectionID: collectionID,
+	}
+
+	taskManager.EnqueueTask(task)
 
 	c.Status(http.StatusOK)
 }
