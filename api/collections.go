@@ -124,7 +124,7 @@ func AddBookToCollection(c *gin.Context) {
 	}
 
 	userID := c.GetInt64("user_id")
-	err := database.AddBookToCollection(userID, request.CollectionID, request.BookID)
+	position, err := database.AddBookToCollection(userID, request.CollectionID, request.BookID)
 	if err != nil {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
@@ -140,7 +140,7 @@ func AddBookToCollection(c *gin.Context) {
 		Type:         tasks.AddBook,
 		CollectionID: request.CollectionID,
 		Book:         book,
-		Position:     1, // Set the position as needed
+		Position:     position,
 	}
 
 	taskManager.EnqueueTask(task)

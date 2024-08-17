@@ -61,14 +61,14 @@ func CreateCollection(collection models.BookCollection) (models.BookCollection, 
 	return collection, err
 }
 
-func AddBookToCollection(userID, collectionID, bookID int64) error {
+func AddBookToCollection(userID, collectionID, bookID int64) (int, error) {
 	// Check if the collection belongs to the user
 	var collection models.BookCollection
 	err := db.Model(&collection).
 		Where("id = ? AND user_id = ?", collectionID, userID).
 		Select()
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	// Fetch the current maximum position in the collection
@@ -78,7 +78,7 @@ func AddBookToCollection(userID, collectionID, bookID int64) error {
 		ColumnExpr("COALESCE(MAX(position), 0)").
 		Select(&maxPosition)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	// Add the book to the collection with the next position
@@ -89,10 +89,10 @@ func AddBookToCollection(userID, collectionID, bookID int64) error {
 	}
 	_, err = db.Model(&collectionBook).Insert()
 	if err != nil {
-		return err
+		return 0, err
 	}
 
-	return nil
+	return collectionBook.Position, nil
 }
 
 func RemoveBookFromCollection(userID, collectionID, bookID int64) error {
