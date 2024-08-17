@@ -110,11 +110,13 @@ const CollectionsList: React.FC = () => {
             await fetchWithAuth.post('/books/create-collection', { name: newCollectionName });
             setOpen(false);
             setNewCollectionName('');
+
             const response = await fetchWithAuth.get(`/books/collections`, { params: { limit: 10, offset: 0, private: tab === 'private' } });
             const responseData = await response.data;
-            setCollections(responseData.collections || []);
-            setTotalPages(responseData.length || 0);
-            login(); // Refresh user data
+            setCollections(responseData || []);
+            setTotalPages(Math.ceil((responseData.length || 0) / 10));
+
+            login();
         } catch (error) {
             console.error('Error creating collection:', error);
         }
