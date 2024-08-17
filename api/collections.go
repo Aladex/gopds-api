@@ -5,6 +5,7 @@ import (
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/models"
+	"gopds-api/tasks"
 	"net/http"
 	"strconv"
 	"time"
@@ -26,6 +27,12 @@ type UpdateCollectionRequest struct {
 // VoteCollectionRequest struct for voting on a collection
 type VoteCollectionRequest struct {
 	Vote *bool `json:"vote" binding:"required"`
+}
+
+var taskManager *tasks.TaskManager
+
+func SetTaskManager(tm *tasks.TaskManager) {
+	taskManager = tm
 }
 
 // GetCollections godoc
@@ -122,6 +129,21 @@ func AddBookToCollection(c *gin.Context) {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
 	}
+
+	book, err := database.GetBook(request.BookID)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	task := tasks.CollectionTask{
+		Type:         tasks.AddBook,
+		CollectionID: request.CollectionID,
+		Book:         book,
+		Position:     1, // Set the position as needed
+	}
+
+	taskManager.EnqueueTask(task)
 
 	c.Status(http.StatusOK)
 }

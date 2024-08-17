@@ -1,3 +1,5 @@
+// main.go
+
 package main
 
 import (
@@ -6,9 +8,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
+	"gopds-api/api"
 	"gopds-api/database"
 	_ "gopds-api/docs" // Import to include documentation for Swagger UI
 	"gopds-api/sessions"
+	"gopds-api/tasks" // Import the tasks package
 	"net/http"
 	"os"
 	"os/signal"
@@ -39,6 +43,10 @@ func main() {
 	route := gin.New()
 	setupMiddleware(route)
 	setupRoutes(route)
+
+	// Initialize TaskManager
+	taskManager := tasks.NewTaskManager()
+	api.SetTaskManager(taskManager)
 
 	server := &http.Server{
 		Addr:           ":8085",
@@ -81,6 +89,9 @@ func main() {
 	if err := server.Shutdown(ctx); err != nil {
 		logrus.Fatal("Server forced to shutdown:", err)
 	}
+
+	// Stop all workers before exiting
+	taskManager.StopAllWorkers()
 
 	logrus.Info("Server exiting")
 }
