@@ -1,13 +1,20 @@
 package api
 
 import (
+	"archive/zip"
+	"fmt"
 	"github.com/gin-gonic/gin"
+	"github.com/spf13/viper"
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/models"
 	"gopds-api/tasks"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -391,4 +398,92 @@ func DeleteCollection(c *gin.Context) {
 	taskManager.EnqueueTask(task)
 
 	c.Status(http.StatusOK)
+}
+
+// DownloadCollection godoc
+// @Summary Download a collection in the specified format
+// @Description Download a collection in fb2, epub, or mobi format
+// @Tags collections
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param id path int true "Collection ID"
+// @Param format path string true "Format" Enums(fb2, epub, mobi)
+// @Success 200 {file} file
+// @Failure 400 {object} httputil.HTTPError
+// @Failure 404 {object} httputil.HTTPError
+// @Router /api/collections/{id}/download/{format} [get]
+func DownloadCollection(c *gin.Context) {
+	collectionID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	format := strings.ToLower(c.Param("format"))
+	if format != "fb2" && format != "epub" && format != "mobi" {
+		httputil.NewError(c, http.StatusBadRequest, fmt.Errorf("unsupported format"))
+		return
+	}
+
+	userID := c.GetInt64("user_id")
+
+	collection, err := database.GetCollection(userID, collectionID)
+	if err != nil {
+		httputil.NewError(c, http.StatusNotFound, err)
+		return
+	}
+
+	archivePath, err := createArchive(collection.ID, format)
+	if err != nil {
+		httputil.NewError(c, http.StatusInternalServerError, err)
+		return
+	}
+	defer os.Remove(archivePath)
+
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%d.%s.zip", collection.ID, format))
+	c.Header("Content-Type", "application/zip")
+	c.File(archivePath)
+}
+
+func createArchive(collectionID int64, format string) (string, error) {
+	archivePath := filepath.Join(os.TempDir(), fmt.Sprintf("collection_%d.%s.zip", collectionID, format))
+	archiveFile, err := os.Create(archivePath)
+	if err != nil {
+		return "", err
+	}
+	defer archiveFile.Close()
+
+	zipWriter := zip.NewWriter(archiveFile)
+	defer zipWriter.Close()
+
+	collectionPath := filepath.Join(viper.GetString("app.collections_path"), fmt.Sprintf("collection_%d", collectionID), format)
+	err = filepath.Walk(collectionPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			relPath, err := filepath.Rel(collectionPath, path)
+			if err != nil {
+				return err
+			}
+			zipFile, err := zipWriter.Create(relPath)
+			if err != nil {
+				return err
+			}
+			file, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+			_, err = io.Copy(zipFile, file)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return archivePath, nil
 }

@@ -8,7 +8,7 @@ import { useTranslation } from "react-i18next";
 import { DndContext, closestCenter } from '@dnd-kit/core';
 import { arrayMove, SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { DragHandle, Delete, Settings } from '@mui/icons-material';
+import { ArrowBack, DragHandle, Delete, Settings } from '@mui/icons-material';
 import { StyledTextField } from "../StyledDataItems";
 
 interface Book {
@@ -181,6 +181,9 @@ const CollectionEditor: React.FC = () => {
                         <Box maxWidth={1200} mx="auto">
                             <Card sx={{ boxShadow: 2, p: 1, my: 1 }}>
                                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <IconButton edge="start" onClick={() => navigate('/private-collections/1')} sx={{ ml: 1 }}>
+                                        <ArrowBack />
+                                    </IconButton>
                                     <Typography variant="h4" align="center" sx={{ flexGrow: 1 }}>{t('booksInCollection')}</Typography>
                                     <IconButton edge="end" onClick={toggleSettingsDrawer} sx={{ mr: 1 }}>
                                         <Settings />

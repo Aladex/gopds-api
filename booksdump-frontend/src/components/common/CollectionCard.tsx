@@ -36,7 +36,7 @@ const CollectionCard: React.FC<CollectionCardProps> = ({ collection }) => {
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
                             <Button
                                 component="a"
-                                href={`${API_URL}/books/collection/${collection.id}/download/fb2`}
+                                href={`${API_URL}/files/collection/${collection.id}/download/fb2`}
                                 variant="contained"
                                 color="secondary"
                                 sx={{ color: 'white', flexGrow: 1 }}
@@ -45,7 +45,7 @@ const CollectionCard: React.FC<CollectionCardProps> = ({ collection }) => {
                             </Button>
                             <Button
                                 component="a"
-                                href={`${API_URL}/books/collection/${collection.id}/download/epub`}
+                                href={`${API_URL}/files/collection/${collection.id}/download/epub`}
                                 variant="contained"
                                 color="secondary"
                                 sx={{ color: 'white', flexGrow: 1 }}
@@ -54,7 +54,7 @@ const CollectionCard: React.FC<CollectionCardProps> = ({ collection }) => {
                             </Button>
                             <Button
                                 component="a"
-                                href={`${API_URL}/books/collection/${collection.id}/download/mobi`}
+                                href={`${API_URL}/files/collection/${collection.id}/download/mobi`}
                                 variant="contained"
                                 color="secondary"
                                 sx={{ color: 'white', flexGrow: 1 }}
