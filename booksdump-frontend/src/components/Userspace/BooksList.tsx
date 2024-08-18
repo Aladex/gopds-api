@@ -225,6 +225,7 @@ const BooksList: React.FC = () => {
             dispatch({ type: 'SET_LOADING' });
 
             try {
+                window.scrollTo(0, 0);
                 const params = getParams();
                 const response = await fetchWithAuth.get('/books/list', { params });
                 if (response.status === 200) {
