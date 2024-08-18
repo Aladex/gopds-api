@@ -15,7 +15,6 @@ type CollectionManager struct {
 }
 
 // UpdateBookCollection updates the collection based on the provided list of BookCollectionBook
-// UpdateBookCollection updates the collection based on the provided list of BookCollectionBook
 func (cm *CollectionManager) UpdateBookCollection(collectionID int64, books []models.Book) error {
 	collectionPath := filepath.Join(cm.BasePath, fmt.Sprintf("collection_%d", collectionID))
 	if err := os.MkdirAll(collectionPath, 0755); err != nil {
@@ -23,8 +22,10 @@ func (cm *CollectionManager) UpdateBookCollection(collectionID int64, books []mo
 	}
 
 	existingFiles := make(map[string]bool)
+	formats := []string{"fb2", "epub", "mobi"}
+
 	for _, book := range books {
-		zipPath := viper.GetString("app.files_path") + book.Path // Construct the path to the book file.
+		zipPath := viper.GetString("app.files_path") + book.Path // Путь к архиву с книгой
 
 		if !FileExists(zipPath) {
 			return fmt.Errorf("book file not found for book ID: %d", book.ID)
@@ -32,9 +33,13 @@ func (cm *CollectionManager) UpdateBookCollection(collectionID int64, books []mo
 
 		bp := NewBookProcessor(book.FileName, zipPath)
 
-		// Process and save the book in different formats
-		formats := []string{"fb2", "epub", "mobi"}
 		for _, format := range formats {
+			// Создаем папку для каждого формата, если она не существует
+			formatPath := filepath.Join(collectionPath, format)
+			if err := os.MkdirAll(formatPath, 0755); err != nil {
+				return fmt.Errorf("failed to create format directory %s: %w", format, err)
+			}
+
 			var bookContent io.ReadCloser
 			var err error
 
@@ -53,7 +58,7 @@ func (cm *CollectionManager) UpdateBookCollection(collectionID int64, books []mo
 			defer bookContent.Close()
 
 			fileName := fmt.Sprintf("%02d_%d_%s.%s", book.Position, book.ID, book.DownloadName(), format)
-			filePath := filepath.Join(collectionPath, fileName)
+			filePath := filepath.Join(formatPath, fileName)
 
 			file, err := os.Create(filePath)
 			if err != nil {
@@ -65,31 +70,34 @@ func (cm *CollectionManager) UpdateBookCollection(collectionID int64, books []mo
 				return fmt.Errorf("failed to write file: %w", err)
 			}
 
-			// Add the file to the list of existing files
-			existingFiles[fileName] = true
+			// Добавляем файл в список существующих
+			existingFiles[filepath.Join(format, fileName)] = true
 		}
 	}
 
-	// Remove files that are no longer part of the collection
-	err := filepath.Walk(collectionPath, func(path string, info os.FileInfo, err error) error {
+	// Удаляем файлы, которые больше не входят в коллекцию
+	for _, format := range formats {
+		formatPath := filepath.Join(collectionPath, format)
+		err := filepath.Walk(formatPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			if !info.IsDir() {
+				relativePath := filepath.Join(format, filepath.Base(path))
+				if !existingFiles[relativePath] {
+					if err := os.Remove(path); err != nil {
+						return fmt.Errorf("failed to remove file: %w", err)
+					}
+				}
+			}
+
+			return nil
+		})
+
 		if err != nil {
 			return err
 		}
-
-		if !info.IsDir() {
-			fileName := filepath.Base(path)
-			if !existingFiles[fileName] {
-				if err := os.Remove(path); err != nil {
-					return fmt.Errorf("failed to remove file: %w", err)
-				}
-			}
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return err
 	}
 
 	return nil
