@@ -16,16 +16,15 @@ type CollectionManager struct {
 
 // UpdateBookCollection updates the collection based on the provided list of BookCollectionBook
 func (cm *CollectionManager) UpdateBookCollection(collectionID int64, books []models.Book) error {
-	collectionPath := viper.GetString("app.collections_path") + fmt.Sprintf("collection_%d", collectionID)
+	collectionPath := filepath.Join(viper.GetString("app.collections_path"), fmt.Sprintf("collection_%d", collectionID))
 	if err := os.MkdirAll(collectionPath, 0755); err != nil {
 		return fmt.Errorf("failed to create collection directory: %w", err)
 	}
 
 	existingFiles := make(map[string]bool)
 	formats := []string{"fb2", "epub", "mobi"}
-
 	for _, book := range books {
-		zipPath := viper.GetString("app.files_path") + book.Path
+		zipPath := filepath.Join(viper.GetString("app.files_path"), book.Path)
 
 		if !FileExists(zipPath) {
 			return fmt.Errorf("book file not found for book ID: %d", book.ID)
@@ -102,7 +101,7 @@ func (cm *CollectionManager) UpdateBookCollection(collectionID int64, books []mo
 
 // DeleteCollection removes the collection directory
 func (cm *CollectionManager) DeleteCollection(collectionID int64) error {
-	collectionPath := viper.GetString("app.collections_path") + fmt.Sprintf("collection_%d", collectionID)
+	collectionPath := filepath.Join(viper.GetString("app.collections_path"), fmt.Sprintf("collection_%d", collectionID))
 	if err := os.RemoveAll(collectionPath); err != nil {
 		return fmt.Errorf("failed to delete collection: %w", err)
 	}
