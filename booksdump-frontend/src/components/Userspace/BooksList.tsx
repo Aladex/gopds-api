@@ -400,7 +400,7 @@ const BooksList: React.FC = () => {
             ) : (
                 <>
                     <Grid container justifyContent="center">
-                        {collection && (
+                        {location.pathname.includes('/books/find/collection/') && collection && (
                             <CollectionCard collection={collection} />
                         )}
                         {state.books.map((book) => (
