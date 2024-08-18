@@ -16,7 +16,7 @@ type CollectionManager struct {
 
 // UpdateBookCollection updates the collection based on the provided list of BookCollectionBook
 func (cm *CollectionManager) UpdateBookCollection(collectionID int64, books []models.Book) error {
-	collectionPath := filepath.Join(cm.BasePath, fmt.Sprintf("collection_%d", collectionID))
+	collectionPath := viper.GetString("app.collections_path") + fmt.Sprintf("collection_%d", collectionID)
 	if err := os.MkdirAll(collectionPath, 0755); err != nil {
 		return fmt.Errorf("failed to create collection directory: %w", err)
 	}
@@ -102,7 +102,7 @@ func (cm *CollectionManager) UpdateBookCollection(collectionID int64, books []mo
 
 // DeleteCollection removes the collection directory
 func (cm *CollectionManager) DeleteCollection(collectionID int64) error {
-	collectionPath := filepath.Join(cm.BasePath, fmt.Sprintf("collection_%d", collectionID))
+	collectionPath := viper.GetString("app.collections_path") + fmt.Sprintf("collection_%d", collectionID)
 	if err := os.RemoveAll(collectionPath); err != nil {
 		return fmt.Errorf("failed to delete collection: %w", err)
 	}
