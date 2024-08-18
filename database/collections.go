@@ -317,14 +317,14 @@ func UpdateCollection(userID, collectionID int64, name string, isPublic bool) (m
 	return collection, err
 }
 
-// GetCollection retrieves the details of a specified collection
-func GetCollection(collectionID int64) (models.BookCollection, error) {
+func GetCollection(userID, collectionID int64) (models.BookCollection, error) {
 	var collection models.BookCollection
 	err := db.Model(&collection).
 		Column("book_collection.*").
 		ColumnExpr("COALESCE(SUM(CASE WHEN cv.vote THEN 1 ELSE -1 END), 0) AS vote_count").
 		Join("LEFT JOIN collection_votes AS cv ON cv.collection_id = book_collection.id").
 		Where("book_collection.id = ?", collectionID).
+		Where("book_collection.is_public = ? OR book_collection.user_id = ?", true, userID).
 		Group("book_collection.id").
 		Select()
 	if err != nil {

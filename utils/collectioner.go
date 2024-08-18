@@ -25,7 +25,7 @@ func (cm *CollectionManager) UpdateBookCollection(collectionID int64, books []mo
 	formats := []string{"fb2", "epub", "mobi"}
 
 	for _, book := range books {
-		zipPath := viper.GetString("app.files_path") + book.Path // Путь к архиву с книгой
+		zipPath := viper.GetString("app.files_path") + book.Path
 
 		if !FileExists(zipPath) {
 			return fmt.Errorf("book file not found for book ID: %d", book.ID)
@@ -34,7 +34,6 @@ func (cm *CollectionManager) UpdateBookCollection(collectionID int64, books []mo
 		bp := NewBookProcessor(book.FileName, zipPath)
 
 		for _, format := range formats {
-			// Создаем папку для каждого формата, если она не существует
 			formatPath := filepath.Join(collectionPath, format)
 			if err := os.MkdirAll(formatPath, 0755); err != nil {
 				return fmt.Errorf("failed to create format directory %s: %w", format, err)
@@ -70,12 +69,10 @@ func (cm *CollectionManager) UpdateBookCollection(collectionID int64, books []mo
 				return fmt.Errorf("failed to write file: %w", err)
 			}
 
-			// Добавляем файл в список существующих
 			existingFiles[filepath.Join(format, fileName)] = true
 		}
 	}
 
-	// Удаляем файлы, которые больше не входят в коллекцию
 	for _, format := range formats {
 		formatPath := filepath.Join(collectionPath, format)
 		err := filepath.Walk(formatPath, func(path string, info os.FileInfo, err error) error {

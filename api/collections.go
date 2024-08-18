@@ -303,7 +303,9 @@ func GetCollection(c *gin.Context) {
 		return
 	}
 
-	collection, err := database.GetCollection(collectionID)
+	userID := c.GetInt64("user_id")
+
+	collection, err := database.GetCollection(userID, collectionID)
 	if err != nil {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
@@ -349,7 +351,7 @@ func VoteCollection(c *gin.Context) {
 		return
 	}
 
-	collection, err := database.GetCollection(collectionID)
+	collection, err := database.GetCollection(userID, collectionID)
 	if err != nil {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
