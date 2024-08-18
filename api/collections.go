@@ -18,6 +18,11 @@ import (
 	"time"
 )
 
+type BookActionCollection struct {
+	BookID       int64 `json:"book_id" binding:"required"`
+	CollectionID int64 `json:"collection_id" binding:"required"`
+}
+
 type CreateCollectionRequest struct {
 	Name string `json:"name" binding:"required"`
 }
@@ -118,15 +123,12 @@ func CreateCollection(c *gin.Context) {
 // @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Accept  json
 // @Produce  json
-// @Param body body struct { BookID int64 `json:"book_id" binding:"required"`; CollectionID int64 `json:"collection_id" binding:"required"` } true "Book and Collection IDs"
+// @Param body body BookActionCollection true "Book and Collection IDs"
 // @Success 200
 // @Failure 400 {object} httputil.HTTPError
 // @Router /api/books/create-collection [post]
 func AddBookToCollection(c *gin.Context) {
-	var request struct {
-		BookID       int64 `json:"book_id" binding:"required"`
-		CollectionID int64 `json:"collection_id" binding:"required"`
-	}
+	var request BookActionCollection
 	if err := c.ShouldBindJSON(&request); err != nil {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
@@ -157,15 +159,12 @@ func AddBookToCollection(c *gin.Context) {
 // @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Accept  json
 // @Produce  json
-// @Param body body struct { BookID int64 `json:"book_id" binding:"required"`; CollectionID int64 `json:"collection_id" binding:"required"` } true "Book and Collection IDs"
+// @Param body body BookActionCollection true "Book and Collection IDs"
 // @Success 200
 // @Failure 400 {object} httputil.HTTPError
 // @Router /api/books/remove-from-collection [post]
 func RemoveBookFromCollection(c *gin.Context) {
-	var request struct {
-		BookID       int64 `json:"book_id" binding:"required"`
-		CollectionID int64 `json:"collection_id" binding:"required"`
-	}
+	var request BookActionCollection
 	if err := c.ShouldBindJSON(&request); err != nil {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
