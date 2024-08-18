@@ -126,5 +126,8 @@
   "delete": "Delete",
   "confirmDeleteCollection": "Delete collection",
   "noBooksInstruction": "There are no books in this collection yet. To add books, use the search to find them, and then add them to your collection using the button that appears on the book cards.",
-  "publicSwitchInstruction": "Add 2 or more books to activate."
+  "publicSwitchInstruction": "Add 2 or more books to activate.",
+  "collection": "Collection",
+  "collectionUpdated": "Collection updated",
+  "downloadCollectionInFormat": "Download collection in format"
 }
