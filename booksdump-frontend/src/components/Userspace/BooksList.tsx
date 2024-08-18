@@ -32,6 +32,8 @@ import { useFav } from "../../context/FavContext";
 import BookAnnotation from "../common/BookAnnotation";
 import CoverLoader from "../common/CoverLoader";
 import { format } from 'date-fns';
+import { useState } from 'react';
+import CollectionCard from '../common/CollectionCard';
 
 interface Book {
     id: number;
@@ -142,6 +144,7 @@ const BooksList: React.FC = () => {
     const prevLangRef = useRef(user?.books_lang);
     const [state, dispatch] = useReducer(reducer, initialState);
     const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
+    const [collection, setCollection] = useState<Collection | null>(null);
 
     const formatDate = (dateString: string) => {
         if (dateString === "") {
@@ -154,6 +157,27 @@ const BooksList: React.FC = () => {
         const date = new Date(timestamp);
         return format(date, "dd.MM.yyyy, HH:mm");
     };
+
+    useEffect(() => {
+        const fetchCollection = async () => {
+            if (id) {
+                try {
+                    const response = await fetchWithAuth.get(`/books/collection/${id}`);
+                    if (response.status === 200) {
+                        setCollection(response.data);
+                    } else {
+                        console.error('Failed to fetch collection');
+                    }
+                } catch (error) {
+                    console.error('Error fetching collection', error);
+                }
+            }
+        };
+
+        fetchCollection();
+
+    }, [page, user?.books_lang, id, title, location.pathname, setAuthorId, clearAuthorBook, authorId, authorBook, navigate]);
+
 
     useEffect(() => {
         // Update the `getParams` function in `src/components/Userspace/BooksList.tsx`
@@ -376,6 +400,9 @@ const BooksList: React.FC = () => {
             ) : (
                 <>
                     <Grid container justifyContent="center">
+                        {collection && (
+                            <CollectionCard collection={collection} />
+                        )}
                         {state.books.map((book) => (
                             <Grid item xs={12} key={book.id}>
                                 <Box maxWidth={1200} mx="auto">
