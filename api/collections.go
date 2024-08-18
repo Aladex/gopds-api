@@ -18,6 +18,10 @@ import (
 	"time"
 )
 
+type CreateCollectionRequest struct {
+	Name string `json:"name" binding:"required"`
+}
+
 // UpdateBookPositionRequest struct for updating book position in a collection
 type UpdateBookPositionRequest struct {
 	BookID       int64 `json:"book_id" binding:"required"`
@@ -79,14 +83,12 @@ func GetCollections(c *gin.Context) {
 // @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Accept  json
 // @Produce  json
-// @Param body body struct { Name string `json:"name" binding:"required"` } true "Collection name"
+// @Param body body CreateCollectionRequest true "Collection name"
 // @Success 200 {object} models.BookCollection
 // @Failure 400 {object} httputil.HTTPError
 // @Router /api/books/create-collection [post]
 func CreateCollection(c *gin.Context) {
-	var request struct {
-		Name string `json:"name" binding:"required"`
-	}
+	var request CreateCollectionRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
