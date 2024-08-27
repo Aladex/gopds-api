@@ -245,7 +245,6 @@ const BooksList: React.FC = () => {
     }, [page, user?.books_lang, id, title, location.pathname, setAuthorId, clearAuthorBook, authorId, authorBook, navigate]);
 
     const handleFavBook = async (book: Book) => {
-        const { t } = useTranslation();
         try {
             dispatch({ type: 'TOGGLE_FAV', payload: book.id });
 
