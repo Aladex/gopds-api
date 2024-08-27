@@ -32,7 +32,7 @@ import { useFav } from "../../context/FavContext";
 import BookAnnotation from "../common/BookAnnotation";
 import CoverLoader from "../common/CoverLoader";
 import { format } from 'date-fns';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import CollectionCard from '../common/CollectionCard';
 
 interface Book {
@@ -145,6 +145,8 @@ const BooksList: React.FC = () => {
     const [state, dispatch] = useReducer(reducer, initialState);
     const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
     const [collection, setCollection] = useState<Collection | null>(null);
+    const [messageQueue, setMessageQueue] = useState<string[]>([]);
+    const [currentMessage, setCurrentMessage] = useState<string | null>(null);
 
     const formatDate = (dateString: string) => {
         if (dateString === "") {
@@ -244,6 +246,7 @@ const BooksList: React.FC = () => {
         fetchBooks();
     }, [page, user?.books_lang, id, title, location.pathname, setAuthorId, clearAuthorBook, authorId, authorBook, navigate]);
 
+
     const handleFavBook = async (book: Book) => {
         try {
             dispatch({ type: 'TOGGLE_FAV', payload: book.id });
@@ -260,17 +263,37 @@ const BooksList: React.FC = () => {
                 } else {
                     console.error('Failed to fetch updated user data');
                 }
-                fav.setSnackbarMessage(book.fav ? t('bookFavRemovedSuccessfully') : t('bookFavAddedSuccessfully'));
+                enqueueSnackbar(!book.fav ? t('bookFavAddedSuccessfully') : t('bookFavRemovedSuccessfully'));
             } else {
                 console.error('Failed to update favorite status');
-                dispatch({ type: 'TOGGLE_FAV', payload: book.id });
-                fav.setSnackbarMessage(book.fav ? t('errorRemovingFavorite') : t('errorAddingFavorite'));
+                dispatch({ type: 'TOGGLE_FAV', payload: book.id }); // Вернуть предыдущее состояние, если ошибка
+                enqueueSnackbar(!book.fav ? t('errorAddingFavorite') : t('errorRemovingFavorite'));
             }
         } catch (error) {
             console.error('Error favoriting book', error);
-            dispatch({ type: 'TOGGLE_FAV', payload: book.id });
-            fav.setSnackbarMessage(book.fav ? t('errorRemovingFavorite') : t('errorAddingFavorite'));
+            dispatch({ type: 'TOGGLE_FAV', payload: book.id }); // Вернуть предыдущее состояние, если ошибка
+            enqueueSnackbar(!book.fav ? t('errorAddingFavorite') : t('errorRemovingFavorite'));
         }
+    };
+
+    const enqueueSnackbar = (message: string) => {
+        setMessageQueue((prevQueue) => [...prevQueue, message]);
+        if (!currentMessage) {
+            processQueue();
+        }
+    };
+
+    const processQueue = useCallback(() => {
+        if (messageQueue.length > 0) {
+            const nextMessage = messageQueue[0];
+            setCurrentMessage(nextMessage);
+            setMessageQueue((prevQueue) => prevQueue.slice(1));
+        }
+    }, [messageQueue]);
+
+    const handleCloseSnackbar = () => {
+        setCurrentMessage(null);
+        processQueue();
     };
 
     const handleUpdateBook = async (book: Book) => {
@@ -549,8 +572,10 @@ const BooksList: React.FC = () => {
             )}
             <Snackbar
                 anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                open={Boolean(currentMessage)}
                 autoHideDuration={6000}
-                message={fav.snackbarMessage}
+                onClose={handleCloseSnackbar}
+                message={currentMessage}
             />
         </Box>
     );
