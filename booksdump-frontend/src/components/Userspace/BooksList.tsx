@@ -260,7 +260,7 @@ const BooksList: React.FC = () => {
                 } else {
                     console.error('Failed to fetch updated user data');
                 }
-                fav.setSnackbarMessage(book.fav ? t('bookRemovedSuccessfully') : t('bookAddedSuccessfully'));
+                fav.setSnackbarMessage(book.fav ? t('bookFavRemovedSuccessfully') : t('bookFavAddedSuccessfully'));
             } else {
                 console.error('Failed to update favorite status');
                 dispatch({ type: 'TOGGLE_FAV', payload: book.id });
@@ -271,7 +271,6 @@ const BooksList: React.FC = () => {
             dispatch({ type: 'TOGGLE_FAV', payload: book.id });
             fav.setSnackbarMessage(book.fav ? t('errorRemovingFavorite') : t('errorAddingFavorite'));
         }
-        fav.setFav(true);
     };
 
     const handleUpdateBook = async (book: Book) => {

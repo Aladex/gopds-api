@@ -129,5 +129,9 @@
   "publicSwitchInstruction": "Add 2 or more books to activate.",
   "collection": "Collection",
   "collectionUpdated": "Collection updated",
-  "downloadCollectionInFormat": "Download collection in format"
+  "downloadCollectionInFormat": "Download collection in format",
+  "bookFavRemovedSuccessfully": "Book removed from favorites",
+  "bookFavAddedSuccessfully": "Book added to favorites",
+  "errorRemovingFavorite": "Error removing favorite",
+  "errorAddingFavorite": "Error adding favorite"
 }
