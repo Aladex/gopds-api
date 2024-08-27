@@ -13,7 +13,7 @@ import {
     MenuItem,
     Checkbox,
     ListItemText,
-    CardActions, IconButton
+    CardActions, IconButton, Snackbar
 } from '@mui/material';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { API_URL, fetchWithAuth } from '../../api/config';
@@ -245,6 +245,7 @@ const BooksList: React.FC = () => {
     }, [page, user?.books_lang, id, title, location.pathname, setAuthorId, clearAuthorBook, authorId, authorBook, navigate]);
 
     const handleFavBook = async (book: Book) => {
+        const { t } = useTranslation();
         try {
             dispatch({ type: 'TOGGLE_FAV', payload: book.id });
 
@@ -260,14 +261,18 @@ const BooksList: React.FC = () => {
                 } else {
                     console.error('Failed to fetch updated user data');
                 }
+                fav.setSnackbarMessage(book.fav ? t('bookRemovedSuccessfully') : t('bookAddedSuccessfully'));
             } else {
                 console.error('Failed to update favorite status');
                 dispatch({ type: 'TOGGLE_FAV', payload: book.id });
+                fav.setSnackbarMessage(book.fav ? t('errorRemovingFavorite') : t('errorAddingFavorite'));
             }
         } catch (error) {
             console.error('Error favoriting book', error);
             dispatch({ type: 'TOGGLE_FAV', payload: book.id });
+            fav.setSnackbarMessage(book.fav ? t('errorRemovingFavorite') : t('errorAddingFavorite'));
         }
+        fav.setFav(true);
     };
 
     const handleUpdateBook = async (book: Book) => {
@@ -544,6 +549,13 @@ const BooksList: React.FC = () => {
                     </Grid>
                 </>
             )}
+            <Snackbar
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                open={fav.fav}
+                autoHideDuration={6000}
+                onClose={() => fav.setFav(false)}
+                message={fav.snackbarMessage}
+            />
         </Box>
     );
 };

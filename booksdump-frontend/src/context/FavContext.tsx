@@ -8,6 +8,8 @@ interface FavContextType {
     favEnabled: boolean;
     setFav: (fav: boolean) => void;
     setFavEnabled: (favEnabled: boolean) => void;
+    setSnackbarMessage: (message: string) => void;
+    snackbarMessage: string;
 }
 
 const FavContext = createContext<FavContextType | undefined>(undefined);
@@ -20,6 +22,7 @@ export const FavProvider: React.FC<FavProviderProps> = ({ children }) => {
     const { user } = useAuth();
     const [fav, setFav] = useState(false);
     const [favEnabled, setFavEnabled] = useState(user?.have_favs ?? false);
+    const [snackbarMessage, setSnackbarMessage] = useState('');
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -39,13 +42,16 @@ export const FavProvider: React.FC<FavProviderProps> = ({ children }) => {
 
     const memoizedSetFav = useCallback((fav: boolean) => setFav(fav), []);
     const memoizedSetFavEnabled = useCallback((favEnabled: boolean) => setFavEnabled(favEnabled), []);
+    const memoizedSetSnackbarMessage = useCallback((message: string) => setSnackbarMessage(message), []);
 
     const contextValue = useMemo(() => ({
         fav,
         favEnabled,
         setFav: memoizedSetFav,
-        setFavEnabled: memoizedSetFavEnabled
-    }), [fav, favEnabled, memoizedSetFav, memoizedSetFavEnabled]);
+        setFavEnabled: memoizedSetFavEnabled,
+        setSnackbarMessage: memoizedSetSnackbarMessage,
+        snackbarMessage
+    }), [fav, favEnabled, memoizedSetFav, memoizedSetFavEnabled, memoizedSetSnackbarMessage, snackbarMessage]);
 
     return (
         <FavContext.Provider value={contextValue}>
