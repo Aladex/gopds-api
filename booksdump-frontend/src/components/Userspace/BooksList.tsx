@@ -549,9 +549,7 @@ const BooksList: React.FC = () => {
             )}
             <Snackbar
                 anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-                open={fav.fav}
                 autoHideDuration={6000}
-                onClose={() => fav.setFav(false)}
                 message={fav.snackbarMessage}
             />
         </Box>
