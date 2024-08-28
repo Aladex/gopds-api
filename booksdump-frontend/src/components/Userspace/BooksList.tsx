@@ -263,9 +263,6 @@ const BooksList: React.FC = () => {
                 } else {
                     console.error('Failed to fetch updated user data');
                 }
-                console.log('Favorite status updated successfully');
-                console.log(!book.fav ? t('bookFavAddedSuccessfully') : t('bookFavRemovedSuccessfully'));
-                console.log(!book.fav);
                 enqueueSnackbar(!book.fav ? t('bookFavAddedSuccessfully') : t('bookFavRemovedSuccessfully'));
             } else {
                 console.error('Failed to update favorite status');
