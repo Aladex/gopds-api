@@ -263,37 +263,42 @@ const BooksList: React.FC = () => {
                 } else {
                     console.error('Failed to fetch updated user data');
                 }
+                console.log('Favorite status updated successfully');
+                console.log(!book.fav ? t('bookFavAddedSuccessfully') : t('bookFavRemovedSuccessfully'));
+                console.log(!book.fav);
                 enqueueSnackbar(!book.fav ? t('bookFavAddedSuccessfully') : t('bookFavRemovedSuccessfully'));
             } else {
                 console.error('Failed to update favorite status');
-                dispatch({ type: 'TOGGLE_FAV', payload: book.id }); // Вернуть предыдущее состояние, если ошибка
+                dispatch({ type: 'TOGGLE_FAV', payload: book.id });
                 enqueueSnackbar(!book.fav ? t('errorAddingFavorite') : t('errorRemovingFavorite'));
             }
         } catch (error) {
             console.error('Error favoriting book', error);
-            dispatch({ type: 'TOGGLE_FAV', payload: book.id }); // Вернуть предыдущее состояние, если ошибка
+            dispatch({ type: 'TOGGLE_FAV', payload: book.id });
             enqueueSnackbar(!book.fav ? t('errorAddingFavorite') : t('errorRemovingFavorite'));
         }
     };
 
     const enqueueSnackbar = (message: string) => {
-        setMessageQueue((prevQueue) => [...prevQueue, message]);
-        if (!currentMessage) {
-            processQueue();
-        }
+        setMessageQueue((prevQueue) => {
+            const newQueue = [...prevQueue, message];
+            if (!currentMessage) {
+                processQueue(newQueue);
+            }
+            return newQueue;
+        });
     };
 
-    const processQueue = useCallback(() => {
-        if (messageQueue.length > 0) {
-            const nextMessage = messageQueue[0];
+    const processQueue = useCallback((queue = messageQueue) => {
+        if (queue.length > 0) {
+            const nextMessage = queue[0];
             setCurrentMessage(nextMessage);
             setMessageQueue((prevQueue) => prevQueue.slice(1));
         }
     }, [messageQueue]);
 
-    const handleCloseSnackbar = () => {
-        setCurrentMessage(null);
-        processQueue();
+    const handleCloseSnackbar = (message: string) => {
+        setMessageQueue((prevQueue) => prevQueue.filter((msg) => msg !== message));
     };
 
     const handleUpdateBook = async (book: Book) => {
@@ -570,13 +575,17 @@ const BooksList: React.FC = () => {
                     </Grid>
                 </>
             )}
-            <Snackbar
-                anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-                open={Boolean(currentMessage)}
-                autoHideDuration={6000}
-                onClose={handleCloseSnackbar}
-                message={currentMessage}
-            />
+            {messageQueue.map((msg, index) => (
+                <Snackbar
+                    key={index}
+                    anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                    open={true}
+                    autoHideDuration={2000}
+                    onClose={() => handleCloseSnackbar(msg)}
+                    message={msg}
+                    style={{ bottom: `${index * 50}px` }}
+                />
+            ))}
         </Box>
     );
 };
