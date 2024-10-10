@@ -133,5 +133,6 @@
   "bookFavRemovedSuccessfully": "Book removed from favorites",
   "bookFavAddedSuccessfully": "Book added to favorites",
   "errorRemovingFavorite": "Error removing favorite",
-  "errorAddingFavorite": "Error adding favorite"
+  "errorAddingFavorite": "Error adding favorite",
+  "routeByCategory.books": "Search by category"
 }
