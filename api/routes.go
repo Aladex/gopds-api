@@ -28,6 +28,7 @@ func SetupBookRoutes(r *gin.RouterGroup) {
 	r.GET("/collection/:id", GetCollection)
 	r.POST("/vote-collection/:id", VoteCollection)
 	r.DELETE("/collection/:id", DeleteCollection)
+	r.GET("/ws", WebsocketHandler)
 }
 
 // SetupLogoutRoute sets up routes for logout and session management

@@ -70,7 +70,6 @@ func setupDefaultRoutes(route *gin.Engine) {
 	route.POST("/api/change-password", api.ChangeUserState)
 	route.POST("/api/change-request", api.ChangeRequest)
 	route.POST("/api/token", api.TokenValidation)
-	route.GET("/ws", api.WebsocketHandler)
 }
 
 // setupOpdsRoutes configures routes for OPDS feed interactions.
