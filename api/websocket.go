@@ -47,8 +47,8 @@ func DownloadConvertedBook(c *gin.Context) {
 		return
 	}
 
-	c.Header("Content-Disposition", fmt.Sprintf(contentDisp, book.DownloadName(), c.Param("format"))) // Set the Content-Disposition header.
-	c.Header("Content-Type", "application/x-mobipocket-ebook")                                        // Set the Content-Type header to the mobi format.
+	c.Header("Content-Disposition", fmt.Sprintf(contentDisp, book.DownloadName(), "mobi")) // Set the Content-Disposition header.
+	c.Header("Content-Type", "application/x-mobipocket-ebook")                             // Set the Content-Type header to the mobi format.
 
 	// Send the file to the client
 	c.File(filePath)

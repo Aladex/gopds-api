@@ -35,6 +35,7 @@ import { format } from 'date-fns';
 import { useState, useCallback } from 'react';
 import CollectionCard from '../common/CollectionCard';
 import { useBookConversion } from '../../context/BookConversionContext';
+import { downloadViaIframe } from '../helpers/downloadViaIframe';
 
 interface Book {
     id: number;
@@ -179,6 +180,10 @@ const BooksList: React.FC = () => {
     const isBookConverting = (bookID: number, format: string) =>
         conversionState.convertingBooks.some((book) => book.bookID === bookID && book.format === format);
 
+    const handleDownload = (format: string, bookID: number) => {
+        const url = `${API_URL}/files/books/get/${format}/${bookID}`;
+        downloadViaIframe(url);
+    };
 
     const formatDate = (dateString: string) => {
         if (dateString === "") {
@@ -526,7 +531,7 @@ const BooksList: React.FC = () => {
                                                 <Box className="download-buttons">
                                                     <Button
                                                         component="a"
-                                                        href={`${API_URL}/files/books/get/zip/${book.id}`}
+                                                        onClick={() => handleDownload('zip', book.id)}
                                                         variant="contained"
                                                         color="secondary"
                                                         sx={{ mb: 1, color: 'white', minWidth: 120 }}
@@ -535,7 +540,7 @@ const BooksList: React.FC = () => {
                                                     </Button>
                                                     <Button
                                                         component="a"
-                                                        href={`${API_URL}/files/books/get/fb2/${book.id}`}
+                                                        onClick={() => handleDownload('fb2', book.id)}
                                                         variant="contained"
                                                         color="secondary"
                                                         sx={{ mb: 1, color: 'white', minWidth: 120 }}
@@ -544,7 +549,7 @@ const BooksList: React.FC = () => {
                                                     </Button>
                                                     <Button
                                                         component="a"
-                                                        href={`${API_URL}/files/books/get/epub/${book.id}`}
+                                                        onClick={() => handleDownload('epub', book.id)}
                                                         variant="contained"
                                                         color="secondary"
                                                         sx={{ mb: 1, color: 'white', minWidth: 120 }}
