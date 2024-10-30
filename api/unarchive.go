@@ -11,8 +11,11 @@ import (
 	"gopds-api/utils"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 var bookTypes = map[string]string{
@@ -21,6 +24,8 @@ var bookTypes = map[string]string{
 	"epub": "application/epub+zip",
 	"mobi": "application/x-mobipocket-ebook",
 }
+
+var readyChannels sync.Map // Temporary storage for mobi files
 
 // GetBookFile returns the file of a book in the requested format
 // Auth godoc
@@ -55,6 +60,7 @@ func GetBookFile(c *gin.Context) {
 		return
 	}
 	zipPath := viper.GetString("app.files_path") + book.Path // Construct the path to the book file.
+	mobiConversionDir := viper.GetString("app.mobi_conversion_dir")
 
 	if !utils.FileExists(zipPath) {
 		httputil.NewError(c, http.StatusNotFound, errors.New("book file not found")) // Send a 404 Not Found if the book file is missing
@@ -68,7 +74,30 @@ func GetBookFile(c *gin.Context) {
 	case "epub":
 		rc, err = bp.Epub()
 	case "mobi":
-		rc, err = bp.Mobi()
+		go func() {
+			rc, err := bp.Mobi()
+			if err != nil {
+				logrus.Error("Failed to convert book to mobi:", err)
+				return
+			}
+			filePath := filepath.Join(mobiConversionDir, fmt.Sprintf("%s.mobi", bookID))
+			file, err := os.Create(filePath)
+			if err != nil {
+				logrus.Error("Failed to create mobi file:", err)
+				return
+			}
+			defer file.Close()
+
+			if _, err = io.Copy(file, rc); err != nil {
+				logrus.Error("Failed to write mobi file to disk:", err)
+				return
+			}
+
+			readyChannels.Store(bookID, rc)
+			notifyClientBookReady(bookID)
+		}()
+		c.JSON(http.StatusOK, "Book conversion started")
+		return
 	case "fb2":
 		rc, err = bp.FB2()
 	case "zip":
