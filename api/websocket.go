@@ -10,13 +10,53 @@ import (
 	"github.com/spf13/viper"
 	"gopds-api/database"
 	"gopds-api/httputil"
-	"net"
+	"gopds-api/utils"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
-	"time"
 )
+
+func ConvertBookToMobi(bookID int64) error {
+	book, err := database.GetBook(bookID) // Retrieve the book details from the database
+	if err != nil {
+		return err
+	}
+	zipPath := viper.GetString("app.files_path") + book.Path // Construct the path to the book file.
+	mobiConversionDir := viper.GetString("app.mobi_conversion_dir")
+
+	if !utils.FileExists(zipPath) {
+		return fmt.Errorf("file %s not found", zipPath)
+	}
+
+	bp := utils.NewBookProcessor(book.FileName, zipPath) // Create a new BookProcessor for the book file.
+	var rc io.ReadCloser
+	rc, err = bp.Mobi()
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+
+	filePath := filepath.Join(mobiConversionDir, fmt.Sprintf("%d.mobi", bookID))
+	logrus.Info("Creating mobi file:", filePath)
+	file, err := os.Create(filePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	if _, err = io.Copy(file, rc); err != nil {
+		return err
+	}
+	// Send the file to the client
+	done := make(chan struct{})
+	readyChannels.Store(bookID, done)
+
+	// Delete the file after it has been sent
+	logrus.Infof("Book %d converted and stored at %s", bookID, filePath)
+	return nil
+}
 
 // deleteFile deletes the file at the specified path
 func deleteFile(filePath string) error {
@@ -65,8 +105,6 @@ func DownloadConvertedBook(c *gin.Context) {
 	}()
 }
 
-var notificationChannel = make(chan string)
-
 func WebsocketHandler(c *gin.Context) {
 	conn, _, _, err := ws.UpgradeHTTP(c.Request, c.Writer)
 	if err != nil {
@@ -75,10 +113,12 @@ func WebsocketHandler(c *gin.Context) {
 	}
 	defer conn.Close()
 
+	// Создаем канал для уведомлений для текущего клиента
+	clientNotificationChannel := make(chan string)
 	quit := make(chan struct{})
 
+	// Чтение сообщений от клиента
 	go func() {
-		// Read messages from the client
 		for {
 			msg, op, err := wsutil.ReadClientData(conn)
 			if err != nil {
@@ -87,11 +127,11 @@ func WebsocketHandler(c *gin.Context) {
 				return
 			}
 
-			// Log the message received from the client
+			// Обработка текстовых сообщений от клиента
 			if op == ws.OpText {
 				logrus.Infof("Received message from client: %s", string(msg))
 
-				// Parse the message from the client
+				// Парсинг сообщения с запросом конвертации
 				var request struct {
 					BookID int64  `json:"bookID"`
 					Format string `json:"format"`
@@ -101,17 +141,29 @@ func WebsocketHandler(c *gin.Context) {
 					continue
 				}
 
-				// Check if file exists and notify the client
-				go checkFileAndNotify(conn, request.BookID)
+				// Запуск конвертации книги
+				if request.Format == "mobi" {
+					go func(bookID int64) {
+						err := ConvertBookToMobi(bookID)
+						if err != nil {
+							logrus.Errorf("Failed to convert book to mobi: %v", err)
+							return
+						}
+						clientNotificationChannel <- strconv.FormatInt(bookID, 10) // Отправляем в уникальный канал клиента
+					}(request.BookID)
+				} else {
+					logrus.Warnf("Unsupported format: %s", request.Format)
+				}
 			} else {
 				logrus.Infof("Received non-text message from client with opcode: %v", op)
 			}
 		}
 	}()
 
+	// Чтение уведомлений о готовности книги и отправка их клиенту
 	for {
 		select {
-		case bookID := <-notificationChannel: // Ожидаем, пока книга будет готова
+		case bookID := <-clientNotificationChannel:
 			logrus.Infof("Notifying client about ready book: %s", bookID)
 			if err := wsutil.WriteServerMessage(conn, ws.OpText, []byte(bookID)); err != nil {
 				logrus.Warn("Error writing to WebSocket:", err)
@@ -120,39 +172,6 @@ func WebsocketHandler(c *gin.Context) {
 			}
 		case <-quit:
 			logrus.Info("Connection closed by client request.")
-			return
-		}
-	}
-}
-
-// checkFileAndNotify checks if the file for the specified book ID exists and notifies the client
-func checkFileAndNotify(conn net.Conn, bookID int64) {
-	mobiConversionDir := viper.GetString("app.mobi_conversion_dir")
-	filePath := filepath.Join(mobiConversionDir, fmt.Sprintf("%d.mobi", bookID))
-
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	attempts := 0
-	maxAttempts := 30
-
-	for range ticker.C {
-		attempts++
-		// Check if the file exists
-		if _, err := os.Stat(filePath); err == nil {
-			// File exists
-			logrus.Infof("Book %d is ready on disk, notifying client", bookID)
-			if err := wsutil.WriteServerMessage(conn, ws.OpText, []byte(fmt.Sprintf("%d", bookID))); err != nil {
-				logrus.Warn("Error writing to WebSocket:", err)
-			}
-			return
-		} else if !os.IsNotExist(err) {
-			logrus.Errorf("Error checking file %s: %v", filePath, err)
-			return
-		}
-
-		if attempts >= maxAttempts {
-			logrus.Errorf("File %s not found after %d attempts", filePath, maxAttempts)
 			return
 		}
 	}
