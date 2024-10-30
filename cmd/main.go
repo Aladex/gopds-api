@@ -39,6 +39,7 @@ func main() {
 	}
 
 	ensureUserPathExists(viper.GetString("app.users_path"))
+	ensureUserPathExists(viper.GetString("app.mobi_conversion_dir"))
 
 	route := gin.New()
 	setupMiddleware(route)

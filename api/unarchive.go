@@ -74,13 +74,17 @@ func GetBookFile(c *gin.Context) {
 	case "epub":
 		rc, err = bp.Epub()
 	case "mobi":
+		logrus.Info("Starting mobi conversion for book:", bookID)
 		go func() {
 			rc, err := bp.Mobi()
 			if err != nil {
 				logrus.Error("Failed to convert book to mobi:", err)
 				return
 			}
-			filePath := filepath.Join(mobiConversionDir, fmt.Sprintf("%s.mobi", bookID))
+			defer rc.Close()
+
+			filePath := filepath.Join(mobiConversionDir, fmt.Sprintf("%d.mobi", bookID))
+			logrus.Info("Creating mobi file:", filePath)
 			file, err := os.Create(filePath)
 			if err != nil {
 				logrus.Error("Failed to create mobi file:", err)
@@ -93,11 +97,18 @@ func GetBookFile(c *gin.Context) {
 				return
 			}
 
-			readyChannels.Store(bookID, rc)
+			// Send the file to the client
+			done := make(chan struct{})
+			readyChannels.Store(bookID, done)
+
+			// Delete the file after it has been sent
+			logrus.Infof("Book %d converted and stored at %s", bookID, filePath)
 			notifyClientBookReady(bookID)
 		}()
+
 		c.JSON(http.StatusOK, "Book conversion started")
 		return
+
 	case "fb2":
 		rc, err = bp.FB2()
 	case "zip":

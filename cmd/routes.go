@@ -18,6 +18,7 @@ import (
 func setupRoutes(route *gin.Engine) {
 	route.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	setupFileRoutes(route.Group("/files", middlewares.AuthMiddleware()))
+	setupFileRoutes(route.Group("/api/files", middlewares.AuthMiddleware()))
 	setupDefaultRoutes(route)
 	setupOpdsRoutes(route.Group("/opds", middlewares.BasicAuth()))
 	setupApiRoutes(route.Group("/api", middlewares.AuthMiddleware()))

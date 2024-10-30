@@ -62,24 +62,19 @@ func DownloadConvertedBook(c *gin.Context) {
 	}()
 }
 
+var notificationChannel = make(chan string)
+
 func notifyClientBookReady(bookID int64) {
-	// Get the channel for the bookID
+	logrus.Infof("Notifying client that book %d is ready", bookID)
 	if ch, ok := readyChannels.Load(bookID); ok {
+		// Close the channel to notify the client that the book is ready
 		close(ch.(chan struct{}))
-		readyChannels.Delete(bookID) // Remove the channel from the map
+		readyChannels.Delete(bookID)
+		notificationChannel <- fmt.Sprintf("%d", bookID) // Send the book ID to the notification channel
+		logrus.Infof("Book %d notification sent to notificationChannel", bookID)
+	} else {
+		logrus.Warnf("Notification channel for book %d not found in readyChannels", bookID)
 	}
-}
-
-func readyChannel(bookID string) chan struct{} {
-	// Try to get the channel from the map
-	if ch, ok := readyChannels.Load(bookID); ok {
-		return ch.(chan struct{})
-	}
-
-	// Create a new channel and store it in the map
-	ch := make(chan struct{})
-	readyChannels.Store(bookID, ch)
-	return ch
 }
 
 func WebsocketHandler(c *gin.Context) {
@@ -90,23 +85,30 @@ func WebsocketHandler(c *gin.Context) {
 	}
 	defer conn.Close()
 
-	bookID := c.Query("bookID")
 	quit := make(chan struct{})
 
-	for {
-		select {
-		case <-readyChannel(bookID):
-			if err := wsutil.WriteServerMessage(conn, ws.OpText, []byte(bookID)); err != nil {
-				logrus.Warn("Error writing to WebSocket:", err)
-				deleteFile(filepath.Join(viper.GetString("app.mobi_conversion_dir"), fmt.Sprintf("%s.mobi", bookID)))
+	go func() {
+		// Read from the WebSocket connection to keep it alive
+		for {
+			if _, _, err := wsutil.ReadClientData(conn); err != nil {
+				logrus.Warn("WebSocket connection closed by client.")
 				close(quit)
 				return
 			}
+		}
+	}()
 
-			readyChannels.Delete(bookID)
-
+	for {
+		select {
+		case bookID := <-notificationChannel: // Wait for a book to be ready
+			logrus.Infof("Notifying client about ready book: %s", bookID)
+			if err := wsutil.WriteServerMessage(conn, ws.OpText, []byte(bookID)); err != nil {
+				logrus.Warn("Error writing to WebSocket:", err)
+				close(quit)
+				return
+			}
 		case <-quit:
-			logrus.Info("Connection closed by client request or error.")
+			logrus.Info("Connection closed by client request.")
 			return
 		}
 	}
