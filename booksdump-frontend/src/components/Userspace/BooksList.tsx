@@ -154,28 +154,6 @@ const BooksList: React.FC = () => {
     const handleMobiDownloadClick = async (bookID: number) => {
         // Отмечаем книгу как находящуюся в процессе конвертации
         conversionDispatch({ type: 'ADD_CONVERTING_BOOK', payload: { bookID, format: 'mobi' } });
-
-        try {
-            // Отправляем запрос на конвертацию книги
-            const response = await fetchWithAuth.get(`/files/books/get/mobi/${bookID}`);
-
-            if (response.status === 200) {
-                const data = response.data;
-
-                if (data === "Book conversion started") {
-                    console.log("Conversion started for book:", bookID);
-                    // Книга успешно отправлена на конвертацию, никаких дополнительных действий не требуется
-                } else {
-                    console.error("Unexpected response:", data);
-                }
-            } else {
-                console.error('Failed to initiate MOBI conversion');
-                conversionDispatch({ type: 'REMOVE_CONVERTING_BOOK', payload: { bookID, format: 'mobi' } });
-            }
-        } catch (error) {
-            console.error('Error initiating MOBI conversion:', error);
-            conversionDispatch({ type: 'REMOVE_CONVERTING_BOOK', payload: { bookID, format: 'mobi' } });
-        }
     };
     const isBookConverting = (bookID: number, format: string) =>
         conversionState.convertingBooks.some((book) => book.bookID === bookID && book.format === format);
