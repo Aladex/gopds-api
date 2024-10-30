@@ -23,6 +23,7 @@ app:
   book_cdn_key: "randomBookCdnKey12345"
   posters_path: "/posters/"
   file_book_cdn: "https://example.com"
+  mobi_conversion_dir: "/mobi/"
 
 email:
   from: "no-reply@example.com"
