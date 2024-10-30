@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import { API_URL } from '../../api/config';
 
-function useAuthWebSocket(url: string) {
+function useAuthWebSocket(endpoint: string) {
     const [isConnected, setIsConnected] = useState(false);
     const [reconnectAttempts, setReconnectAttempts] = useState(0);
     const wsRef = useRef<WebSocket | null>(null);
@@ -14,7 +15,7 @@ function useAuthWebSocket(url: string) {
                 return;
             }
 
-            const ws = new WebSocket(url);
+            const ws = new WebSocket(`${API_URL}${endpoint}`);
             wsRef.current = ws;
 
             ws.onopen = () => {
@@ -24,17 +25,18 @@ function useAuthWebSocket(url: string) {
             };
 
             ws.onmessage = (event) => {
-                console.log("Получено сообщение:", event.data);
-                // Обработка сообщений
+                const bookID = event.data;
+                console.log(`Book ID received via WebSocket: ${bookID}`);
+                window.location.href = `${API_URL}/api/books/download/${bookID}`;
             };
 
             ws.onerror = (error) => {
-                console.error("Error:", error);
+                console.error("WebSocket error:", error);
             };
 
             ws.onclose = () => {
                 setIsConnected(false);
-                console.log("WebSocket is closed. Trying to reconnect...");
+                console.log("WebSocket closed. Attempting to reconnect...");
 
                 timeoutId = setTimeout(() => {
                     setReconnectAttempts((prev) => prev + 1);
@@ -49,7 +51,7 @@ function useAuthWebSocket(url: string) {
             if (wsRef.current) wsRef.current.close();
             clearTimeout(timeoutId);
         };
-    }, [url, reconnectAttempts]);
+    }, [endpoint, reconnectAttempts]);
 
     return { isConnected };
 }

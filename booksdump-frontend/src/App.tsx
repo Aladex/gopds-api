@@ -12,6 +12,7 @@ import notFoundRoutes from "./routes/notFoundRoutes";
 import LanguageInitializer from './components/LanguageInitializer';
 import { useAuth } from './context/AuthContext';
 import { Routes, Route, Navigate } from 'react-router-dom';
+import useAuthWebSocket from './components/hooks/useAuthWebSocket';
 
 const App: React.FC = () => {
     return (
@@ -32,7 +33,7 @@ const App: React.FC = () => {
 const AppWrapper: React.FC = () => {
     const [isLanguageLoaded, setIsLanguageLoaded] = useState(false);
     const { isLoaded } = useAuth();
-
+    useAuthWebSocket("/ws");
     return (
         <>
             <LanguageInitializer onLanguageLoaded={() => setIsLanguageLoaded(true)} />
