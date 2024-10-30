@@ -7,9 +7,12 @@ import (
 	"github.com/gobwas/ws/wsutil"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
+	"gopds-api/database"
+	"gopds-api/httputil"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 // deleteFile deletes the file at the specified path
@@ -24,13 +27,28 @@ func deleteFile(filePath string) error {
 func DownloadConvertedBook(c *gin.Context) {
 	bookID := c.Param("id")
 	mobiConversionDir := viper.GetString("app.mobi_conversion_dir")
-	filePath := filepath.Join(mobiConversionDir, fmt.Sprintf("%s.mobi", bookID)) // Формируем путь к файлу
+	filePath := filepath.Join(mobiConversionDir, fmt.Sprintf("%s.mobi", bookID)) // Construct the path to the mobi file
+	contentDisp := "attachment; filename=%s.%s"
 
 	// Check if the file exists
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
 		return
 	}
+	// Convert book ID to int64
+	bookIDInt, err := strconv.ParseInt(bookID, 10, 64)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, fmt.Errorf("invalid book ID: %v", err))
+		return
+	}
+	book, err := database.GetBook(bookIDInt) // Retrieve the book details from the database.
+	if err != nil {
+		httputil.NewError(c, http.StatusNotFound, err) // Send a 404 Not Found if the book is not in the database.
+		return
+	}
+
+	c.Header("Content-Disposition", fmt.Sprintf(contentDisp, book.DownloadName(), c.Param("format"))) // Set the Content-Disposition header.
+	c.Header("Content-Type", "application/x-mobipocket-ebook")                                        // Set the Content-Type header to the mobi format.
 
 	// Send the file to the client
 	c.File(filePath)
