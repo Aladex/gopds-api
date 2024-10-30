@@ -134,7 +134,7 @@ func checkFileAndNotify(conn net.Conn, bookID int64) {
 	defer ticker.Stop()
 
 	attempts := 0
-	maxAttempts := 10
+	maxAttempts := 30
 
 	for range ticker.C {
 		attempts++
