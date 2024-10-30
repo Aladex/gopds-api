@@ -5,7 +5,7 @@ import { useBookConversion } from '../../context/BookConversionContext';
 function useAuthWebSocket(endpoint: string) {
     const [isConnected, setIsConnected] = useState(false);
     const wsRef = useRef<WebSocket | null>(null);
-    const { dispatch } = useBookConversion();
+    const { state, dispatch } = useBookConversion();
 
     const connectWebSocket = useCallback(() => {
         const cookies = document.cookie;
@@ -55,8 +55,9 @@ function useAuthWebSocket(endpoint: string) {
             setIsConnected(false);
             console.log("WebSocket connection closed.");
         };
-    }, [dispatch, endpoint]);
+    }, [endpoint, dispatch]);
 
+    // Подключаем WebSocket
     useEffect(() => {
         connectWebSocket();
 
@@ -64,6 +65,17 @@ function useAuthWebSocket(endpoint: string) {
             wsRef.current?.close();
         };
     }, [connectWebSocket]);
+
+    // Отправка `bookID` в WebSocket при каждом добавлении новой книги
+    useEffect(() => {
+        if (isConnected && wsRef.current) {
+            const lastBook = state.convertingBooks[state.convertingBooks.length - 1];
+            if (lastBook) {
+                wsRef.current.send(JSON.stringify({ bookID: lastBook.bookID, format: lastBook.format }));
+                console.log(`Sent book ID ${lastBook.bookID} to WebSocket`);
+            }
+        }
+    }, [state.convertingBooks, isConnected]);
 
     return { isConnected };
 }

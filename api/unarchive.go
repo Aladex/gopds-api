@@ -97,13 +97,7 @@ func GetBookFile(c *gin.Context) {
 				return
 			}
 
-			// Send the file to the client
-			done := make(chan struct{})
-			readyChannels.Store(bookID, done)
-
-			// Delete the file after it has been sent
 			logrus.Infof("Book %d converted and stored at %s", bookID, filePath)
-			notifyClientBookReady(bookID)
 		}()
 
 		c.JSON(http.StatusOK, "Book conversion started")
