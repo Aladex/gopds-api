@@ -15,26 +15,29 @@ import { useAuth } from './context/AuthContext';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import useAuthWebSocket from './components/hooks/useAuthWebSocket';
 
-const App: React.FC = () => {
-    useAuthWebSocket("/api/books/ws");
+const App: React.FC<{ isAuthenticated: boolean }> = ({ isAuthenticated }) => {
+    // Использование WebSocket внутри BookConversionProvider
+    useAuthWebSocket("/api/books/ws", isAuthenticated);
+
     return (
         <ThemeProvider theme={theme}>
             <CssBaseline />
-                <Routes>
-                    <Route path="/" element={<Navigate to="/books/page/1" />} />
-                    {publicRoutes}
-                    {privateRoutes}
-                    {adminRoutes}
-                    {notFoundRoutes}
-                </Routes>
-
+            <Routes>
+                <Route path="/" element={<Navigate to="/books/page/1" />} />
+                {publicRoutes}
+                {privateRoutes}
+                {adminRoutes}
+                {notFoundRoutes}
+            </Routes>
         </ThemeProvider>
     );
 };
 
+
 const AppWrapper: React.FC = () => {
     const [isLanguageLoaded, setIsLanguageLoaded] = useState(false);
-    const { isLoaded } = useAuth();
+    const { isLoaded, isAuthenticated } = useAuth();
+
     return (
         <>
             <LanguageInitializer onLanguageLoaded={() => setIsLanguageLoaded(true)} />
@@ -43,7 +46,7 @@ const AppWrapper: React.FC = () => {
                     <AuthorProvider>
                         <SearchBarProvider>
                             <BookConversionProvider>
-                               <App />
+                                <App isAuthenticated={isAuthenticated} /> {/* Передача isAuthenticated */}
                             </BookConversionProvider>
                         </SearchBarProvider>
                     </AuthorProvider>
@@ -52,5 +55,7 @@ const AppWrapper: React.FC = () => {
         </>
     );
 };
+
+
 
 export default AppWrapper;

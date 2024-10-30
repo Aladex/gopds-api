@@ -78,7 +78,7 @@ func WebsocketHandler(c *gin.Context) {
 	quit := make(chan struct{})
 
 	go func() {
-		// Чтение сообщений от клиента
+		// Read messages from the client
 		for {
 			msg, op, err := wsutil.ReadClientData(conn)
 			if err != nil {
@@ -87,11 +87,11 @@ func WebsocketHandler(c *gin.Context) {
 				return
 			}
 
-			// Логируем сообщение от клиента
+			// Log the message received from the client
 			if op == ws.OpText {
 				logrus.Infof("Received message from client: %s", string(msg))
 
-				// Парсим `bookID` из сообщения клиента
+				// Parse the message from the client
 				var request struct {
 					BookID int64  `json:"bookID"`
 					Format string `json:"format"`
@@ -101,7 +101,7 @@ func WebsocketHandler(c *gin.Context) {
 					continue
 				}
 
-				// Запускаем проверку файла книги
+				// Check if file exists and notify the client
 				go checkFileAndNotify(conn, request.BookID)
 			} else {
 				logrus.Infof("Received non-text message from client with opcode: %v", op)
@@ -125,7 +125,7 @@ func WebsocketHandler(c *gin.Context) {
 	}
 }
 
-// checkFileAndNotify проверяет наличие файла и уведомляет клиента, если файл найден
+// checkFileAndNotify checks if the file for the specified book ID exists and notifies the client
 func checkFileAndNotify(conn net.Conn, bookID int64) {
 	mobiConversionDir := viper.GetString("app.mobi_conversion_dir")
 	filePath := filepath.Join(mobiConversionDir, fmt.Sprintf("%d.mobi", bookID))
@@ -133,10 +133,14 @@ func checkFileAndNotify(conn net.Conn, bookID int64) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
+	attempts := 0
+	maxAttempts := 10
+
 	for range ticker.C {
-		// Проверяем наличие файла
+		attempts++
+		// Check if the file exists
 		if _, err := os.Stat(filePath); err == nil {
-			// Файл найден, уведомляем клиента и выходим
+			// File exists
 			logrus.Infof("Book %d is ready on disk, notifying client", bookID)
 			if err := wsutil.WriteServerMessage(conn, ws.OpText, []byte(fmt.Sprintf("%d", bookID))); err != nil {
 				logrus.Warn("Error writing to WebSocket:", err)
@@ -144,6 +148,11 @@ func checkFileAndNotify(conn net.Conn, bookID int64) {
 			return
 		} else if !os.IsNotExist(err) {
 			logrus.Errorf("Error checking file %s: %v", filePath, err)
+			return
+		}
+
+		if attempts >= maxAttempts {
+			logrus.Errorf("File %s not found after %d attempts", filePath, maxAttempts)
 			return
 		}
 	}
