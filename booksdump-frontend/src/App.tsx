@@ -3,6 +3,7 @@ import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import theme from './theme';
 import { AuthorProvider } from './context/AuthorContext';
+import { BookConversionProvider } from './context/BookConversionContext';
 import { FavProvider } from "./context/FavContext";
 import { SearchBarProvider } from './context/SearchBarContext';
 import publicRoutes from './routes/publicRoutes';
@@ -15,6 +16,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import useAuthWebSocket from './components/hooks/useAuthWebSocket';
 
 const App: React.FC = () => {
+    useAuthWebSocket("/api/books/ws");
     return (
         <ThemeProvider theme={theme}>
             <CssBaseline />
@@ -33,7 +35,6 @@ const App: React.FC = () => {
 const AppWrapper: React.FC = () => {
     const [isLanguageLoaded, setIsLanguageLoaded] = useState(false);
     const { isLoaded } = useAuth();
-    useAuthWebSocket("/ws");
     return (
         <>
             <LanguageInitializer onLanguageLoaded={() => setIsLanguageLoaded(true)} />
@@ -41,7 +42,9 @@ const AppWrapper: React.FC = () => {
                 <FavProvider>
                     <AuthorProvider>
                         <SearchBarProvider>
-                            <App />
+                            <BookConversionProvider>
+                               <App />
+                            </BookConversionProvider>
                         </SearchBarProvider>
                     </AuthorProvider>
                 </FavProvider>

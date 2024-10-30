@@ -34,6 +34,7 @@ import CoverLoader from "../common/CoverLoader";
 import { format } from 'date-fns';
 import { useState, useCallback } from 'react';
 import CollectionCard from '../common/CollectionCard';
+import { useBookConversion } from '../../context/BookConversionContext';
 
 interface Book {
     id: number;
@@ -147,6 +148,16 @@ const BooksList: React.FC = () => {
     const [collection, setCollection] = useState<Collection | null>(null);
     const [messageQueue, setMessageQueue] = useState<string[]>([]);
     const [currentMessage, setCurrentMessage] = useState<string | null>(null);
+    const { state: conversionState, dispatch: conversionDispatch } = useBookConversion();
+
+    const handleMobiDownloadClick = (bookID: number) => {
+        conversionDispatch({ type: 'ADD_CONVERTING_BOOK', payload: { bookID, format: 'mobi' } });
+        window.location.href = `${API_URL}/files/books/get/mobi/${bookID}`;
+    };
+
+    const isBookConverting = (bookID: number, format: string) =>
+        conversionState.convertingBooks.some((book) => book.bookID === bookID && book.format === format);
+
 
     const formatDate = (dateString: string) => {
         if (dateString === "") {
@@ -521,10 +532,11 @@ const BooksList: React.FC = () => {
                                                     </Button>
                                                     <Button
                                                         component="a"
-                                                        href={`${API_URL}/files/books/get/mobi/${book.id}`}
+                                                        onClick={() => handleMobiDownloadClick(book.id)}
                                                         variant="contained"
                                                         color="secondary"
                                                         sx={{ mb: 1, color: 'white', minWidth: 120 }}
+                                                        disabled={isBookConverting(book.id, 'mobi')}
                                                     >
                                                         MOBI
                                                     </Button>

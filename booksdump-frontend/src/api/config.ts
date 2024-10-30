@@ -1,6 +1,7 @@
 import axios from 'axios';
 
 const API_URL = process.env.REACT_APP_API_URL;
+const WS_URL = process.env.REACT_APP_WS_URL;
 
 const axiosInstance = axios.create({
     baseURL: `${API_URL}/api`,
@@ -21,3 +22,4 @@ axiosInstance.interceptors.response.use(
 );
 
 export { API_URL, axiosInstance as fetchWithAuth };
+export { WS_URL };

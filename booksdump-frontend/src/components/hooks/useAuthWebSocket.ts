@@ -1,57 +1,54 @@
 import { useEffect, useRef, useState } from 'react';
-import { API_URL } from '../../api/config';
+import { WS_URL } from '../../api/config';
+import { useBookConversion } from '../../context/BookConversionContext';
 
 function useAuthWebSocket(endpoint: string) {
     const [isConnected, setIsConnected] = useState(false);
-    const [reconnectAttempts, setReconnectAttempts] = useState(0);
     const wsRef = useRef<WebSocket | null>(null);
+    const { dispatch } = useBookConversion();
 
     useEffect(() => {
-        let timeoutId: NodeJS.Timeout;
+        // Check for authentication token in cookies
+        const cookies = document.cookie;
+        if (!cookies.includes("token")) {
+            console.warn("User is not authenticated. WebSocket connection is not established.");
+            return;
+        }
 
-        const connectWebSocket = () => {
-            if (!document.cookie.includes("sessionCookie")) {
-                console.warn("User is not authenticated. WebSocket connection is not established.");
-                return;
+        // Establish WebSocket connection
+        const fullUrl = `${WS_URL}${endpoint}`;
+        const ws = new WebSocket(fullUrl);
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+            setIsConnected(true);
+            console.log("WebSocket connection established.");
+        };
+
+        ws.onmessage = (event) => {
+            try {
+                const bookID = parseInt(event.data, 10);
+                console.log(`Received message via WebSocket - Book ID: ${bookID}`);
+                dispatch({ type: 'REMOVE_CONVERTING_BOOK', payload: { bookID, format: 'mobi' } });
+            } catch (error) {
+                console.error("Error parsing WebSocket message:", event.data, error);
             }
-
-            const ws = new WebSocket(`${API_URL}${endpoint}`);
-            wsRef.current = ws;
-
-            ws.onopen = () => {
-                setIsConnected(true);
-                setReconnectAttempts(0);
-                console.log("WebSocket is connected.");
-            };
-
-            ws.onmessage = (event) => {
-                const bookID = event.data;
-                console.log(`Book ID received via WebSocket: ${bookID}`);
-                window.location.href = `${API_URL}/api/books/download/${bookID}`;
-            };
-
-            ws.onerror = (error) => {
-                console.error("WebSocket error:", error);
-            };
-
-            ws.onclose = () => {
-                setIsConnected(false);
-                console.log("WebSocket closed. Attempting to reconnect...");
-
-                timeoutId = setTimeout(() => {
-                    setReconnectAttempts((prev) => prev + 1);
-                    connectWebSocket();
-                }, Math.min(1000 * 2 ** reconnectAttempts, 30000)); // до 30 секунд
-            };
         };
 
-        connectWebSocket();
+        ws.onerror = (error) => {
+            console.error("WebSocket encountered an error:", error);
+        };
 
+        ws.onclose = () => {
+            setIsConnected(false);
+            console.log("WebSocket connection closed.");
+        };
+
+        // Cleanup function: close WebSocket connection on component unmount
         return () => {
-            if (wsRef.current) wsRef.current.close();
-            clearTimeout(timeoutId);
+            ws.close();
         };
-    }, [endpoint, reconnectAttempts]);
+    }, [endpoint, dispatch]);
 
     return { isConnected };
 }

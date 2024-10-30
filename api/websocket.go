@@ -90,23 +90,24 @@ func WebsocketHandler(c *gin.Context) {
 	}
 	defer conn.Close()
 
-	bookID := c.Query("bookID") // Get the book ID from the query parameters
+	bookID := c.Query("bookID")
+	quit := make(chan struct{})
 
 	for {
 		select {
-		case <-readyChannel(bookID): // Wait for the book to be ready
-			err = wsutil.WriteServerMessage(conn, ws.OpText, []byte(bookID))
-			if err != nil {
-				logrus.Error("Failed to write WebSocket message:", err)
-				// Delete book file if the message could not be sent
-				go func() {
-					err := deleteFile(filepath.Join(viper.GetString("app.mobi_conversion_dir"), fmt.Sprintf("%s.mobi", bookID)))
-					if err != nil {
-						logrus.Errorf("Failed to delete mobi file: %v", err)
-					}
-				}()
+		case <-readyChannel(bookID):
+			if err := wsutil.WriteServerMessage(conn, ws.OpText, []byte(bookID)); err != nil {
+				logrus.Warn("Error writing to WebSocket:", err)
+				deleteFile(filepath.Join(viper.GetString("app.mobi_conversion_dir"), fmt.Sprintf("%s.mobi", bookID)))
+				close(quit)
 				return
 			}
+
+			readyChannels.Delete(bookID)
+
+		case <-quit:
+			logrus.Info("Connection closed by client request or error.")
+			return
 		}
 	}
 }
