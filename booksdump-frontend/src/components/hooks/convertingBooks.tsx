@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Modal, Box, CircularProgress, Typography } from '@mui/material';
+import { Modal, Backdrop, CircularProgress, Typography, Box } from '@mui/material';
 import { useBookConversion } from '../../context/BookConversionContext';
 import { useTranslation } from "react-i18next";
 
@@ -15,9 +15,18 @@ function ConversionModal() {
     return (
         <Modal
             open={open}
-            aria-labelledby="conversion-modal-title"
-            aria-describedby="conversion-modal-description"
             closeAfterTransition
+            slots={{ backdrop: Backdrop }}
+            slotProps={{
+                backdrop: {
+                    sx: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.5)', 
+                        color: '#fff',
+                        zIndex: (theme) => theme.zIndex.drawer + 1,
+                    },
+                },
+            }}
+            disableAutoFocus
         >
             <Box
                 sx={{
@@ -25,13 +34,7 @@ function ConversionModal() {
                     top: '50%',
                     left: '50%',
                     transform: 'translate(-50%, -50%)',
-                    bgcolor: 'background.paper',
-                    borderRadius: 1,
-                    boxShadow: 24,
-                    p: 4,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
+                    textAlign: 'center',
                 }}
             >
                 <CircularProgress color="inherit" />
