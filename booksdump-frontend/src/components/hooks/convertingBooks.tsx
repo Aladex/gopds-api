@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import Snackbar from '@mui/material/Snackbar';
+import { Backdrop, CircularProgress, Typography, Box } from '@mui/material';
 import { useBookConversion } from '../../context/BookConversionContext';
-import {useTranslation} from "react-i18next";
+import { useTranslation } from "react-i18next";
 
-function ConversionSnackbar() {
+function ConversionBackdrop() {
     const { state } = useBookConversion();
     const [open, setOpen] = useState(false);
     const { t } = useTranslation();
@@ -17,13 +17,18 @@ function ConversionSnackbar() {
     }, [state.convertingBooks]);
 
     return (
-        <Snackbar
-            open={open}
-            message={t('convertingBooks')}
-            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-            onClose={() => setOpen(false)}
-        />
+        <Backdrop open={open} sx={{ color: '#fff', zIndex: (theme) => theme.zIndex.drawer + 1 }}>
+            <Box textAlign="center">
+                <CircularProgress color="inherit" />
+                <Typography variant="h6" sx={{ mt: 2 }}>
+                    {t('conversionInProgress')}
+                </Typography>
+                <Typography variant="body2">
+                    {t('pleaseWait')}
+                </Typography>
+            </Box>
+        </Backdrop>
     );
 }
 
-export default ConversionSnackbar;
+export default ConversionBackdrop;

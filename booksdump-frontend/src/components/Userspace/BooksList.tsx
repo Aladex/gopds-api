@@ -1,6 +1,6 @@
 import '../styles/BooksList.css';
 import React, { useReducer, useEffect, useRef } from 'react';
-import ConversionSnackbar from '../hooks/convertingBooks';
+import ConversionBackdrop from '../hooks/convertingBooks';
 import {
     LinearProgress,
     Typography,
@@ -599,7 +599,7 @@ const BooksList: React.FC = () => {
                     style={{ bottom: `${index * 50}px` }}
                 />
             ))}
-            <ConversionSnackbar />
+            <ConversionBackdrop />
         </Box>
     );
 };
