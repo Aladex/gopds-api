@@ -1,6 +1,6 @@
 {
-  "short_name": "Booksdump",
-  "name": "Лепробиблиотека для своих",
+  "short_name": "Leprolibrary",
+  "name": "Leprolibrary. Secret library for leprosorium",
   "icons": [
     {
       "src": "favicon.ico",
