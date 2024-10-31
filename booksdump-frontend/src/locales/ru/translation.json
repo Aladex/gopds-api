@@ -135,5 +135,5 @@
   "errorRemovingFavorite": "Ошибка удаления из избранного",
   "errorAddingFavorite": "Ошибка добавления в избранное",
   "routeByCategory.books": "Поиск по категории",
-  "bookConversionStarted": "Конвертация книги началась"
+  "convertingBooks": "Конвертация книги. Ждём..."
 }

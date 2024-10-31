@@ -135,5 +135,5 @@
   "errorRemovingFavorite": "Error removing favorite",
   "errorAddingFavorite": "Error adding favorite",
   "routeByCategory.books": "Search by category",
-  "bookConversionStarted": "Book conversion started"
+  "convertingBooks": "Converting books. Wait a moment."
 }

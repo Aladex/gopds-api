@@ -20,7 +20,7 @@ function ConversionSnackbar() {
         <Snackbar
             open={open}
             message={t('convertingBooks')}
-            anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
             onClose={() => setOpen(false)}
         />
     );
