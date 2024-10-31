@@ -37,11 +37,11 @@ function ConversionModal() {
                     textAlign: 'center',
                 }}
             >
-                <CircularProgress sx={{ color: 'white' }} />
-                <Typography id="conversion-modal-title" variant="h6" sx={{ mt: 2, color: 'white' }}>
+                <CircularProgress color="inherit" />
+                <Typography id="conversion-modal-title" variant="h6" sx={{ mt: 2 }}>
                     {t('conversionInProgress')}
                 </Typography>
-                <Typography id="conversion-modal-description" variant="body2" sx={{ color: 'white' }}>
+                <Typography id="conversion-modal-description" variant="body2">
                     {t('pleaseWait')}
                 </Typography>
             </Box>
