@@ -1,5 +1,6 @@
 import '../styles/BooksList.css';
 import React, { useReducer, useEffect, useRef } from 'react';
+import ConversionSnackbar from '../hooks/convertingBooks';
 import {
     LinearProgress,
     Typography,
@@ -152,9 +153,7 @@ const BooksList: React.FC = () => {
     const { state: conversionState, dispatch: conversionDispatch } = useBookConversion();
 
     const handleMobiDownloadClick = async (bookID: number) => {
-        // Отмечаем книгу как находящуюся в процессе конвертации
         conversionDispatch({ type: 'ADD_CONVERTING_BOOK', payload: { bookID, format: 'mobi' } });
-        enqueueSnackbar(t('bookConversionStarted'));
     };
     const isBookConverting = (bookID: number, format: string) =>
         conversionState.convertingBooks.some((book) => book.bookID === bookID && book.format === format);
@@ -600,6 +599,7 @@ const BooksList: React.FC = () => {
                     style={{ bottom: `${index * 50}px` }}
                 />
             ))}
+            <ConversionSnackbar />
         </Box>
     );
 };
