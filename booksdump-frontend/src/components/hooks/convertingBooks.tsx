@@ -20,7 +20,7 @@ function ConversionModal() {
             slotProps={{
                 backdrop: {
                     sx: {
-                        backgroundColor: 'rgba(0, 0, 0, 0.5)', 
+                        backgroundColor: 'rgba(0, 0, 0, 0.5)',
                         color: '#fff',
                         zIndex: (theme) => theme.zIndex.drawer + 1,
                     },
@@ -35,14 +35,13 @@ function ConversionModal() {
                     left: '50%',
                     transform: 'translate(-50%, -50%)',
                     textAlign: 'center',
-                    color: 'white',
                 }}
             >
-                <CircularProgress color="inherit" />
-                <Typography id="conversion-modal-title" variant="h6" sx={{ mt: 2 }}>
+                <CircularProgress sx={{ color: 'white' }} />
+                <Typography id="conversion-modal-title" variant="h6" sx={{ mt: 2, color: 'white' }}>
                     {t('conversionInProgress')}
                 </Typography>
-                <Typography id="conversion-modal-description" variant="body2">
+                <Typography id="conversion-modal-description" variant="body2" sx={{ color: 'white' }}>
                     {t('pleaseWait')}
                 </Typography>
             </Box>
