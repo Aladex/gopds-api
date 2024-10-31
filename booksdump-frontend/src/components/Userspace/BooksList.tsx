@@ -154,6 +154,7 @@ const BooksList: React.FC = () => {
     const handleMobiDownloadClick = async (bookID: number) => {
         // Отмечаем книгу как находящуюся в процессе конвертации
         conversionDispatch({ type: 'ADD_CONVERTING_BOOK', payload: { bookID, format: 'mobi' } });
+        enqueueSnackbar(t('bookConversionStarted'));
     };
     const isBookConverting = (bookID: number, format: string) =>
         conversionState.convertingBooks.some((book) => book.bookID === bookID && book.format === format);

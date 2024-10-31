@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 )
 
 func ConvertBookToMobi(bookID int64) error {
@@ -113,9 +114,13 @@ func WebsocketHandler(c *gin.Context) {
 	}
 	defer conn.Close()
 
-	// Создаем канал для уведомлений для текущего клиента
+	// Create a channel for sending ping messages to the client
 	clientNotificationChannel := make(chan string)
 	quit := make(chan struct{})
+
+	// Create a ticker for sending ping messages every 5 seconds
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
 
 	// Чтение сообщений от клиента
 	go func() {
@@ -167,6 +172,13 @@ func WebsocketHandler(c *gin.Context) {
 			logrus.Infof("Notifying client about ready book: %s", bookID)
 			if err := wsutil.WriteServerMessage(conn, ws.OpText, []byte(bookID)); err != nil {
 				logrus.Warn("Error writing to WebSocket:", err)
+				close(quit)
+				return
+			}
+		case <-ticker.C:
+			// Send a ping message to the client every 5 seconds
+			if err := wsutil.WriteServerMessage(conn, ws.OpPing, nil); err != nil {
+				logrus.Warn("Error sending ping to WebSocket:", err)
 				close(quit)
 				return
 			}

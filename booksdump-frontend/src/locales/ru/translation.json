@@ -134,5 +134,6 @@
   "bookFavAddedSuccessfully": "Книга добавлена в избранное",
   "errorRemovingFavorite": "Ошибка удаления из избранного",
   "errorAddingFavorite": "Ошибка добавления в избранное",
-  "routeByCategory.books": "Поиск по категории"
+  "routeByCategory.books": "Поиск по категории",
+  "bookConversionStarted": "Конвертация книги началась"
 }

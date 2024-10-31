@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { WS_URL, API_URL } from '../../api/config';
 import { useBookConversion } from '../../context/BookConversionContext';
 
+const OpPing = 0x9;
+const OpPong = 0xa;
+
 function useAuthWebSocket(endpoint: string, isAuthenticated: boolean) {
     const [isConnected, setIsConnected] = useState(false);
     const wsRef = useRef<WebSocket | null>(null);
@@ -9,7 +12,6 @@ function useAuthWebSocket(endpoint: string, isAuthenticated: boolean) {
 
     useEffect(() => {
         if (isAuthenticated) {
-            // Создаем новое подключение при авторизации
             const fullUrl = `${WS_URL}${endpoint}`;
             const ws = new WebSocket(fullUrl);
             wsRef.current = ws;
@@ -20,26 +22,36 @@ function useAuthWebSocket(endpoint: string, isAuthenticated: boolean) {
             };
 
             ws.onmessage = (event) => {
+                const data = event.data;
+                if (data instanceof ArrayBuffer) {
+                    const view = new DataView(data);
+                    const opcode = view.getUint8(0);
+                    if (opcode === OpPing) {
+                        if (wsRef.current) {
+                            wsRef.current.send(new Uint8Array([OpPong]));
+                            console.log("Sent pong message to WebSocket");
+                        }
+                        return;
+                    }
+                }
+
                 try {
-                    const bookID = parseInt(event.data, 10);
+                    const bookID = parseInt(data, 10);
                     console.log(`Received message via WebSocket - Book ID: ${bookID}`);
 
-                    // Убираем книгу из списка конвертации
                     dispatch({ type: 'REMOVE_CONVERTING_BOOK', payload: { bookID, format: 'mobi' } });
 
-                    // Инициируем скачивание файла через iframe
                     const downloadUrl = `${API_URL}/api/files/books/conversion/${bookID}`;
                     const iframe = document.createElement('iframe');
                     iframe.style.display = 'none';
                     iframe.src = downloadUrl;
                     document.body.appendChild(iframe);
 
-                    // Удаляем `iframe` после завершения скачивания
                     iframe.onload = () => {
                         document.body.removeChild(iframe);
                     };
                 } catch (error) {
-                    console.error("Error parsing WebSocket message:", event.data, error);
+                    console.error("Error parsing WebSocket message:", data, error);
                 }
             };
 
@@ -52,13 +64,11 @@ function useAuthWebSocket(endpoint: string, isAuthenticated: boolean) {
                 console.log("WebSocket connection closed.");
             };
 
-            // Чистим при размонтировании или разлоге
             return () => {
                 ws.close();
                 wsRef.current = null;
             };
         } else if (wsRef.current) {
-            // Закрываем соединение, если клиент разлогинен
             wsRef.current.close();
             wsRef.current = null;
             setIsConnected(false);
