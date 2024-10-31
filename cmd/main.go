@@ -41,6 +41,9 @@ func main() {
 	ensureUserPathExists(viper.GetString("app.users_path"))
 	ensureUserPathExists(viper.GetString("app.mobi_conversion_dir"))
 
+	// Start watching the directory for e-book conversion tasks
+	go tasks.WatchDirectory(viper.GetString("app.mobi_conversion_dir"), 10*time.Minute)
+
 	route := gin.New()
 	setupMiddleware(route)
 	setupRoutes(route)

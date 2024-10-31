@@ -1,34 +1,49 @@
 import React, { useEffect, useState } from 'react';
-import { Backdrop, CircularProgress, Typography, Box } from '@mui/material';
+import { Modal, Box, CircularProgress, Typography } from '@mui/material';
 import { useBookConversion } from '../../context/BookConversionContext';
 import { useTranslation } from "react-i18next";
 
-function ConversionBackdrop() {
+function ConversionModal() {
     const { state } = useBookConversion();
     const [open, setOpen] = useState(false);
     const { t } = useTranslation();
 
     useEffect(() => {
-        if (state.convertingBooks.length > 0) {
-            setOpen(true);
-        } else {
-            setOpen(false);
-        }
+        setOpen(state.convertingBooks.length > 0);
     }, [state.convertingBooks]);
 
     return (
-        <Backdrop open={open} sx={{ color: '#fff', zIndex: (theme) => theme.zIndex.drawer + 1 }}>
-            <Box textAlign="center">
+        <Modal
+            open={open}
+            aria-labelledby="conversion-modal-title"
+            aria-describedby="conversion-modal-description"
+            closeAfterTransition
+        >
+            <Box
+                sx={{
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    bgcolor: 'background.paper',
+                    borderRadius: 1,
+                    boxShadow: 24,
+                    p: 4,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                }}
+            >
                 <CircularProgress color="inherit" />
-                <Typography variant="h6" sx={{ mt: 2 }}>
+                <Typography id="conversion-modal-title" variant="h6" sx={{ mt: 2 }}>
                     {t('conversionInProgress')}
                 </Typography>
-                <Typography variant="body2">
+                <Typography id="conversion-modal-description" variant="body2">
                     {t('pleaseWait')}
                 </Typography>
             </Box>
-        </Backdrop>
+        </Modal>
     );
 }
 
-export default ConversionBackdrop;
+export default ConversionModal;
