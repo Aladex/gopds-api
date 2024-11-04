@@ -7,7 +7,7 @@ require (
 	github.com/go-pg/pg/v10 v10.13.0
 	github.com/go-redis/redis v6.15.9+incompatible
 	github.com/gobwas/ws v1.4.0
-	github.com/golang-jwt/jwt/v4 v4.5.0
+	github.com/golang-jwt/jwt/v4 v4.5.1
 	github.com/google/uuid v1.6.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/viper v1.19.0
