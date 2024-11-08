@@ -410,17 +410,15 @@ const BooksList: React.FC = () => {
                                             </Grid>
                                         </Grid>
                                         <CardActions sx={{ justifyContent: 'space-between' }}>
-                                            <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-                                                <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                                                    {user?.is_superuser && (
-                                                        <IconButton onClick={() => handleUpdateBook(book)}>
-                                                            {book.approved ? <CheckCircleIcon /> : <CheckCircleOutlineIcon />}
-                                                        </IconButton>
-                                                    )}
-                                                    <IconButton onClick={() => handleFavBook(book)}>
-                                                        {book.fav ? <StarIcon /> : <StarOutlineIcon />}
+                                            <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                                {user?.is_superuser && (
+                                                    <IconButton onClick={() => handleUpdateBook(book)}>
+                                                        {book.approved ? <CheckCircleIcon /> : <CheckCircleOutlineIcon />}
                                                     </IconButton>
-                                                </Box>
+                                                )}
+                                                <IconButton onClick={() => handleFavBook(book)}>
+                                                    {book.fav ? <StarIcon /> : <StarOutlineIcon />}
+                                                </IconButton>
                                             </Box>
                                         </CardActions>
                                     </Card>
