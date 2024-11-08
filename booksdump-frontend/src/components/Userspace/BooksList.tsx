@@ -409,8 +409,8 @@ const BooksList: React.FC = () => {
 
                                             </Grid>
                                         </Grid>
-                                        <CardActions sx={{ justifyContent: 'space-between' }}>
-                                            <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                        <CardActions sx={{ justifyContent: 'flex-end' }}>
+                                            <Box sx={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
                                                 {user?.is_superuser && (
                                                     <IconButton onClick={() => handleUpdateBook(book)}>
                                                         {book.approved ? <CheckCircleIcon /> : <CheckCircleOutlineIcon />}
