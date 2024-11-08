@@ -16,7 +16,6 @@ const privateRoutes = (
             <Route path="/books/find/author/:id/:page" element={<TitleSetter titleKey="routeByAuthor.books"><BooksList /></TitleSetter>} />
             <Route path="/books/find/category/:id/:page" element={<TitleSetter titleKey="routeByCategory.books"><BooksList /></TitleSetter>} />
             <Route path="/books/find/title/:title/:page" element={<TitleSetter titleKey="routeByBookName.books"><BooksList /></TitleSetter>} />
-            <Route path="/books/find/collection/:id/:page" element={<TitleSetter titleKey="routeByCollection.books"><BooksList /></TitleSetter>} />
             <Route path="/authors/:author/:page" element={<TitleSetter titleKey="routeByAuthorName.books"><AuthorSearch /></TitleSetter>} />
         </Route>
         <Route path="/catalog" element={<PrivateRoute><OpdsInfo /></PrivateRoute>} />

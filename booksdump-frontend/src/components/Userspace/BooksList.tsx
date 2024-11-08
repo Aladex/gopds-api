@@ -55,22 +55,10 @@ interface Book {
     favorite_count: number;
 }
 
-interface Collection {
-    id: number;
-    name: string;
-    is_public: boolean;
-    created_at: string;
-    updated_at: string;
-    rating: number;
-    book_ids: number[];
-    book_is_in_collection: boolean;
-}
-
 interface State {
     books: Book[];
     loading: boolean;
     totalPages: number;
-    bookCollections: Collection[];
     menuLoading: boolean;
     selectedBook: number | null;
 }
@@ -83,13 +71,12 @@ type Action =
     | { type: 'SET_SELECTED_BOOK'; payload: number | null }
     | { type: 'UPDATE_BOOK'; payload: Book }
     | { type: 'TOGGLE_FAV'; payload: number }
-    | { type: 'FETCH_COLLECTIONS_SUCCESS'; payload: Collection[] };
+    ;
 
 const initialState: State = {
     books: [],
     loading: true,
     totalPages: 0,
-    bookCollections: [],
     menuLoading: false,
     selectedBook: null,
 };
@@ -125,11 +112,6 @@ function reducer(state: State, action: Action): State {
                     b.id === action.payload ? { ...b, fav: !b.fav } : b
                 ),
             };
-        case 'FETCH_COLLECTIONS_SUCCESS':
-            return {
-                ...state,
-                bookCollections: action.payload,
-            };
         default:
             return state;
     }
@@ -145,8 +127,6 @@ const BooksList: React.FC = () => {
     const navigate = useNavigate();
     const prevLangRef = useRef(user?.books_lang);
     const [state, dispatch] = useReducer(reducer, initialState);
-    const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
-    const [collection, setCollection] = useState<Collection | null>(null);
     const [messageQueue, setMessageQueue] = useState<string[]>([]);
     const [currentMessage, setCurrentMessage] = useState<string | null>(null);
     const { state: conversionState, dispatch: conversionDispatch } = useBookConversion();
@@ -175,27 +155,6 @@ const BooksList: React.FC = () => {
     };
 
     useEffect(() => {
-        const fetchCollection = async () => {
-            if (id) {
-                try {
-                    const response = await fetchWithAuth.get(`/books/collection/${id}`);
-                    if (response.status === 200) {
-                        setCollection(response.data);
-                    } else {
-                        console.error('Failed to fetch collection');
-                    }
-                } catch (error) {
-                    console.error('Error fetching collection', error);
-                }
-            }
-        };
-
-        fetchCollection();
-
-    }, [page, user?.books_lang, id, title, location.pathname, setAuthorId, clearAuthorBook, authorId, authorBook, navigate]);
-
-
-    useEffect(() => {
         // Update the `getParams` function in `src/components/Userspace/BooksList.tsx`
         const getParams = () => {
             const limit = 10;
@@ -213,9 +172,6 @@ const BooksList: React.FC = () => {
             } else if (location.pathname.includes('/books/find/title/') && title) {
                 params.title = decodeURIComponent(title);
                 if (authorId) params.author = authorId;
-                clearAuthorBook();
-            } else if (location.pathname.includes('/books/find/collection/') && id) {
-                params.collection = id;
                 clearAuthorBook();
             }
 
@@ -324,99 +280,8 @@ const BooksList: React.FC = () => {
         }
     };
 
-    const handleMenuOpen = async (event: React.MouseEvent<HTMLElement>, bookId: number) => {
-        setAnchorEl(event.currentTarget);
-        dispatch({ type: 'SET_SELECTED_BOOK', payload: bookId });
-        dispatch({ type: 'SET_MENU_LOADING', payload: true });
-
-        try {
-            const response = await fetchWithAuth.get(`/books/collections?book_id=${bookId}&private=true`);
-            if (response.status === 200) {
-                const collections = response.data;
-                dispatch({ type: 'FETCH_COLLECTIONS_SUCCESS', payload: collections });
-            } else {
-                console.error('Failed to fetch collections for the book');
-            }
-        } catch (error) {
-            console.error('Error fetching collections for the book:', error);
-        } finally {
-            dispatch({ type: 'SET_MENU_LOADING', payload: false });
-        }
-    };
-
-    const handleMenuClose = () => {
-        setAnchorEl(null);
-        dispatch({ type: 'SET_SELECTED_BOOK', payload: null });
-    };
-
     const cover = (book: Book) => `${API_URL}/books-posters/${book.path.replace(/\W/g, '-')}/${book.filename.replace(/\W/g, '-')}.jpg`;
 
-    const handleToggleCollection = async (collectionId: number) => {
-        if (state.selectedBook !== null) {
-            const collectionIndex = state.bookCollections.findIndex(collection => collection.id === collectionId);
-            if (collectionIndex !== -1) {
-                const collection = state.bookCollections[collectionIndex];
-                const updatedCollections = [...state.bookCollections];
-                updatedCollections[collectionIndex] = {
-                    ...collection,
-                    book_is_in_collection: !collection.book_is_in_collection,
-                };
-
-                // Optimistically update the state
-                dispatch({ type: 'FETCH_COLLECTIONS_SUCCESS', payload: updatedCollections });
-
-                try {
-                    if (collection.book_is_in_collection) {
-                        await fetchWithAuth.post('/books/remove-from-collection', {
-                            book_id: state.selectedBook,
-                            collection_id: collectionId,
-                        });
-                    } else {
-                        await fetchWithAuth.post('/books/add-to-collection', {
-                            book_id: state.selectedBook,
-                            collection_id: collectionId,
-                        });
-                    }
-                } catch (error) {
-                    console.error('Error toggling book in collection:', error);
-                    // Revert the state change if the API call fails
-                    updatedCollections[collectionIndex] = collection;
-                    dispatch({ type: 'FETCH_COLLECTIONS_SUCCESS', payload: updatedCollections });
-                }
-            }
-        }
-    };
-
-    const renderMenu = () => (
-        <Menu
-            id="simple-menu"
-            anchorEl={anchorEl}
-            keepMounted
-            open={Boolean(anchorEl)}
-            onClose={handleMenuClose}
-        >
-            {state.menuLoading ? (
-                <MenuItem disabled>
-                    <Box sx={{ width: '100%', padding: '0 100px' }}>
-                        <LinearProgress color={'secondary'} />
-                    </Box>
-                </MenuItem>
-            ) : (
-                state.bookCollections.map((collection) => (
-                    <MenuItem
-                        key={collection.id}
-                        onClick={() => handleToggleCollection(collection.id)}
-                    >
-                        <Checkbox
-                            checked={collection.book_is_in_collection || false}
-                            color="secondary"
-                        />
-                        <ListItemText primary={collection.name} />
-                    </MenuItem>
-                ))
-            )}
-        </Menu>
-    );
 
     return (
         <Box>
@@ -546,21 +411,6 @@ const BooksList: React.FC = () => {
                                         </Grid>
                                         <CardActions sx={{ justifyContent: 'space-between' }}>
                                             <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-                                                <Box>
-                                                    {user?.collections && Array.isArray(user.collections) && user.collections.length > 0 && (
-                                                        <>
-                                                            <Button
-                                                                aria-controls="simple-menu"
-                                                                aria-haspopup="true"
-                                                                onClick={(event) => handleMenuOpen(event, book.id)}
-                                                                color="secondary"
-                                                            >
-                                                                {t('addToCollection')}
-                                                            </Button>
-                                                            {renderMenu()}
-                                                        </>
-                                                    )}
-                                                </Box>
                                                 <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
                                                     {user?.is_superuser && (
                                                         <IconButton onClick={() => handleUpdateBook(book)}>
