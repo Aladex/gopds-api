@@ -34,7 +34,6 @@ import BookAnnotation from "../common/BookAnnotation";
 import CoverLoader from "../common/CoverLoader";
 import { format } from 'date-fns';
 import { useState, useCallback } from 'react';
-import CollectionCard from '../common/CollectionCard';
 import { useBookConversion } from '../../context/BookConversionContext';
 import { downloadViaIframe } from '../helpers/downloadViaIframe';
 
@@ -444,9 +443,6 @@ const BooksList: React.FC = () => {
             ) : (
                 <>
                     <Grid container justifyContent="center">
-                        {location.pathname.includes('/books/find/collection/') && collection && (
-                            <CollectionCard collection={collection} />
-                        )}
                         {state.books.map((book) => (
                             <Grid item xs={12} key={book.id}>
                                 <Box maxWidth={1200} mx="auto">

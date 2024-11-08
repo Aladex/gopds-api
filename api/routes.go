@@ -18,16 +18,6 @@ func SetupBookRoutes(r *gin.RouterGroup) {
 	r.POST("/author", GetAuthor)
 	r.POST("/file", GetBookFile)
 	r.POST("/fav", FavBook)
-	r.GET("/collections", GetCollections)
-	r.POST("/create-collection", CreateCollection)
-	r.POST("/add-to-collection", AddBookToCollection)
-	r.POST("/remove-from-collection", RemoveBookFromCollection)
-	r.GET("/:id/collections", GetBookCollections)
-	r.POST("/update-book-position", UpdateBookPositionInCollection)
-	r.POST("/update-collection/:id", UpdateCollection)
-	r.GET("/collection/:id", GetCollection)
-	r.POST("/vote-collection/:id", VoteCollection)
-	r.DELETE("/collection/:id", DeleteCollection)
 	r.GET("/ws", WebsocketHandler)
 }
 

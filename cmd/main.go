@@ -8,7 +8,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
-	"gopds-api/api"
 	"gopds-api/database"
 	_ "gopds-api/docs" // Import to include documentation for Swagger UI
 	"gopds-api/sessions"
@@ -50,7 +49,6 @@ func main() {
 
 	// Initialize TaskManager
 	taskManager := tasks.NewTaskManager()
-	api.SetTaskManager(taskManager)
 
 	server := &http.Server{
 		Addr:           ":8085",
