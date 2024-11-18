@@ -129,7 +129,7 @@ const UsersTable: React.FC = () => {
             token: token,
         };
         if (newPassword) {
-            updatedUser.password = newPassword; // Add password only if it is set
+            updatedUser.new_password = newPassword; // Add password only if it is set
         }
         try {
             const response = await fetchWithAuth.post('/admin/user', {

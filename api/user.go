@@ -26,6 +26,9 @@ import (
 func ActionUser(c *gin.Context) {
 	var action models.AdminCommandToUser
 	if err := c.ShouldBindJSON(&action); err == nil {
+		if len(action.User.NewPassword) > 0 {
+			action.User.Password = action.User.NewPassword
+		}
 		user, err := database.ActionUser(action)
 		if err != nil {
 			c.JSON(500, err)
