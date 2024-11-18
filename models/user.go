@@ -29,7 +29,7 @@ type User struct {
 	tableName       struct{}            `pg:"auth_user,discard_unknown_columns" json:"-"`
 	ID              int64               `pg:"id,pk" json:"id"`
 	Login           string              `pg:"username" json:"username"`
-	Password        string              `pg:"password" json:"-" form:"password"`
+	Password        string              `pg:"password" json:"password" form:"password"`
 	LastLogin       time.Time           `pg:"last_login" json:"last_login"`
 	IsSuperUser     bool                `pg:"is_superuser,use_zero" json:"is_superuser"`
 	FirstName       string              `pg:"first_name" json:"first_name" form:"first_name"`
