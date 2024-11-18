@@ -184,6 +184,7 @@ func ActionUser(action models.AdminCommandToUser) (models.User, error) {
 	case "update":
 		// Update password only if a new non-empty password is provided
 		if action.User.Password != "" {
+			logrus.Info("Updating password for user ", userToChange.Login)
 			hashedPassword := utils.CreatePasswordHash(action.User.Password)
 			userToChange.Password = hashedPassword
 		}
@@ -234,10 +235,6 @@ func updateUserDetails(userToChange, newUserDetails models.User) models.User {
 	userToChange.IsSuperUser = newUserDetails.IsSuperUser
 	userToChange.BotToken = newUserDetails.BotToken
 	userToChange.Active = newUserDetails.Active
-	// If userToChange.Password is not empty, it means that the password was updated
-	if newUserDetails.Password != "" {
-		userToChange.Password = newUserDetails.Password
-	}
 	return userToChange
 }
 
