@@ -234,6 +234,10 @@ func updateUserDetails(userToChange, newUserDetails models.User) models.User {
 	userToChange.IsSuperUser = newUserDetails.IsSuperUser
 	userToChange.BotToken = newUserDetails.BotToken
 	userToChange.Active = newUserDetails.Active
+	// If userToChange.Password is not empty, it means that the password was updated
+	if newUserDetails.Password != "" {
+		userToChange.Password = newUserDetails.Password
+	}
 	return userToChange
 }
 
