@@ -5,7 +5,7 @@ COPY booksdump-frontend/ /app
 RUN yarn && yarn build
 
 # Build stage
-FROM golang:1.20-alpine AS build-stage
+FROM golang:1.22-alpine AS build-stage
 RUN apk add --no-cache unzip curl expat && \
     curl -L https://github.com/rupor-github/fb2converter/releases/download/v1.67.1/fb2c_linux_amd64.zip -o fb2c_linux_amd64.zip && \
     unzip fb2c_linux_amd64.zip -d /external_fb2mobi && \
