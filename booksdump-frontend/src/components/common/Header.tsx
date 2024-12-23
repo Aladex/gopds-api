@@ -47,10 +47,10 @@ const Header: React.FC = () => {
     const menuItems = useMemo(() => {
         const items = [
             { label: t('booksTab'), path: '/books/page/1', regex: /^\/books\/page\/\d+/, index: 0 },
-            { label: t('opdsTab'), path: '/catalog', regex: /^\/catalog/, index: 2 }
+            { label: t('opdsTab'), path: '/catalog', regex: /^\/catalog/, index: 1 }
         ];
         if (user?.is_superuser) {
-            items.push({ label: t('adminTab'), path: '/admin', regex: /^\/admin/, index: 3 });
+            items.push({ label: t('adminTab'), path: '/admin', regex: /^\/admin/, index: 2 });
         }
         return items;
     }, [t, user?.is_superuser]);
