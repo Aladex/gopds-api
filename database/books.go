@@ -10,6 +10,7 @@ import (
 	"gopds-api/models"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 )
 
@@ -36,6 +37,8 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, err
 	query = applyFilters(query, &filters, userID)
 
 	query = applySorting(query, filters, userID)
+
+	// query = query.DistinctOn("book.id")
 
 	count, err := query.Limit(filters.Limit).Offset(filters.Offset).SelectAndCount()
 	if err != nil {
@@ -93,7 +96,12 @@ func applySorting(query *orm.Query, filters models.BookFilters, userID int64) *o
 	return query
 }
 
-func getRelevantIDsFromQdrant(title string, lang string) ([]int64, error) {
+type SearchHit struct {
+	ID    int64
+	Score float64
+}
+
+func getRelevantIDsFromQdrant(title string, lang string) ([]SearchHit, error) {
 	embedURL := os.Getenv("EMBEDDING_URL")
 	if embedURL == "" {
 		embedURL = "http://localhost:8081/embed"
@@ -108,6 +116,10 @@ func getRelevantIDsFromQdrant(title string, lang string) ([]int64, error) {
 		return nil, fmt.Errorf("error building embedding request: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("embedding request failed with status: %d", resp.StatusCode)
+	}
 
 	var embVec [][]float32
 	if err := json.NewDecoder(resp.Body).Decode(&embVec); err != nil {
@@ -154,30 +166,37 @@ func getRelevantIDsFromQdrant(title string, lang string) ([]int64, error) {
 	}
 	defer searchResp.Body.Close()
 
+	if searchResp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Qdrant search failed with status: %d", searchResp.StatusCode)
+	}
+
 	var searchResult struct {
 		Result []struct {
-			ID interface{} `json:"id"`
+			ID    interface{} `json:"id"`
+			Score float64     `json:"score"`
 		} `json:"result"`
 	}
 	if err := json.NewDecoder(searchResp.Body).Decode(&searchResult); err != nil {
 		return nil, fmt.Errorf("error decoding Qdrant search response: %w", err)
 	}
 
-	var ids []int64
-	for _, hit := range searchResult.Result {
-		switch v := hit.ID.(type) {
+	var hits []SearchHit
+	for _, res := range searchResult.Result {
+		var id int64
+		switch v := res.ID.(type) {
 		case float64:
-			ids = append(ids, int64(v))
+			id = int64(v)
 		case int:
-			ids = append(ids, int64(v))
+			id = int64(v)
 		case int64:
-			ids = append(ids, v)
+			id = v
 		default:
 			return nil, fmt.Errorf("unexpected ID type: %T", v)
 		}
+		hits = append(hits, SearchHit{ID: id, Score: res.Score})
 	}
 
-	return ids, nil
+	return hits, nil
 }
 
 func applyFilters(query *orm.Query, filters *models.BookFilters, userID int64) *orm.Query {
@@ -194,10 +213,49 @@ func applyFilters(query *orm.Query, filters *models.BookFilters, userID int64) *
 	}
 
 	if filters.Title != "" && filters.Author == 0 && filters.Series == 0 && filters.Collection == 0 {
-		ids, err := getRelevantIDsFromQdrant(filters.Title, filters.Lang)
-		if err == nil && len(ids) > 0 {
-			query = query.WhereIn("book.id IN (?)", ids)
-			filters.OrderedByVector = ids
+		// Hybrid search: PG trgm + Qdrant vector
+		// Step 1: PG trgm search
+		type PgHit struct {
+			ID    int64   `pg:"id"`
+			Score float64 `pg:"score"`
+		}
+		var pgHits []PgHit
+		trgmThreshold := 0.7 // Adjust as needed
+		err := db.Model((*models.Book)(nil)).
+			ColumnExpr("id, similarity(title, ?) AS score", filters.Title).
+			Where("similarity(title, ?) > ?", filters.Title, trgmThreshold).
+			OrderExpr("score DESC").
+			Limit(500). // Match Qdrant top
+			Select(&pgHits)
+		if err != nil {
+			logrus.Printf("PG trgm error: %v", err)
+			pgHits = []PgHit{}
+		}
+
+		// Step 2: Qdrant vector search
+		vectorHits, err := getRelevantIDsFromQdrant(filters.Title, filters.Lang)
+		if err != nil {
+			logrus.Printf("Qdrant error: %v", err)
+			vectorHits = []SearchHit{}
+		}
+
+		// Step 3: Create rank maps (rank starts from 1)
+		pgMap := make(map[int64]int)
+		for rank, hit := range pgHits {
+			pgMap[hit.ID] = rank + 1
+		}
+
+		vectorMap := make(map[int64]int)
+		for rank, hit := range vectorHits {
+			vectorMap[hit.ID] = rank + 1
+		}
+
+		// Step 4: RRF to combine
+		finalIDs := rrfRank(pgMap, vectorMap)
+
+		if len(finalIDs) > 0 {
+			query = query.WhereIn("book.id IN (?)", finalIDs)
+			filters.OrderedByVector = finalIDs
 		} else {
 			query = query.Where("1=0")
 		}
@@ -250,6 +308,40 @@ func applyFilters(query *orm.Query, filters *models.BookFilters, userID int64) *
 	}
 
 	return query
+}
+
+// rrfRank combines ranks from PG and Vector using Reciprocal Rank Fusion
+func rrfRank(pgMap, vectorMap map[int64]int) []int64 {
+	combinedScores := make(map[int64]float64)
+	allIDs := make(map[int64]struct{})
+	for id := range pgMap {
+		allIDs[id] = struct{}{}
+	}
+	for id := range vectorMap {
+		allIDs[id] = struct{}{}
+	}
+
+	k := 60.0 // RRF constant
+	for id := range allIDs {
+		score := 0.0
+		if rank, ok := pgMap[id]; ok {
+			score += 1.0 / (float64(rank) + k)
+		}
+		if rank, ok := vectorMap[id]; ok {
+			score += 1.0 / (float64(rank) + k)
+		}
+		combinedScores[id] = score
+	}
+
+	var sorted []int64
+	for id := range combinedScores {
+		sorted = append(sorted, id)
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		return combinedScores[sorted[i]] > combinedScores[sorted[j]]
+	})
+
+	return sorted
 }
 
 func isFav(userFavs []int64, book models.Book) bool {
