@@ -1,11 +1,15 @@
 package database
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/go-pg/pg/v10/orm"
 	"github.com/sirupsen/logrus"
 	"gopds-api/models"
+	"net/http"
+	"os"
 	"strings"
 )
 
@@ -80,6 +84,93 @@ func applySorting(query *orm.Query, filters models.BookFilters, userID int64) *o
 	return query
 }
 
+func getRelevantIDsFromQdrant(title string, lang string) ([]int64, error) {
+	embedURL := os.Getenv("EMBEDDING_URL")
+	if embedURL == "" {
+		embedURL = "http://localhost:8081/embed"
+	}
+
+	embedReqBody, _ := json.Marshal(map[string]interface{}{
+		"inputs": []string{title},
+	})
+
+	resp, err := http.Post(embedURL, "application/json", bytes.NewBuffer(embedReqBody))
+	if err != nil {
+		return nil, fmt.Errorf("error building embedding request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var embVec [][]float32
+	if err := json.NewDecoder(resp.Body).Decode(&embVec); err != nil {
+		return nil, fmt.Errorf("error decoding embedding response: %w", err)
+	}
+	if len(embVec) == 0 {
+		return nil, fmt.Errorf("embedding response is empty")
+	}
+
+	// Filter by language if provided
+	var filter map[string]interface{}
+	if lang != "" {
+		filter = map[string]interface{}{
+			"must": []map[string]interface{}{
+				{
+					"key":   "lang",
+					"match": map[string]interface{}{"value": lang},
+				},
+			},
+		}
+	}
+
+	// Search in Qdrant
+	qdrantURL := os.Getenv("QDRANT_URL")
+	if qdrantURL == "" {
+		qdrantURL = "http://localhost:6333"
+	}
+	searchURL := qdrantURL + "/collections/books/points/search"
+
+	searchReq := map[string]interface{}{
+		"vector":       embVec[0],
+		"top":          500,
+		"with_payload": false,
+	}
+	if filter != nil {
+		searchReq["filter"] = filter
+	}
+
+	reqBody, _ := json.Marshal(searchReq)
+
+	searchResp, err := http.Post(searchURL, "application/json", bytes.NewBuffer(reqBody))
+	if err != nil {
+		return nil, fmt.Errorf("error sending search request to Qdrant: %w", err)
+	}
+	defer searchResp.Body.Close()
+
+	var searchResult struct {
+		Result []struct {
+			ID interface{} `json:"id"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(searchResp.Body).Decode(&searchResult); err != nil {
+		return nil, fmt.Errorf("error decoding Qdrant search response: %w", err)
+	}
+
+	var ids []int64
+	for _, hit := range searchResult.Result {
+		switch v := hit.ID.(type) {
+		case float64:
+			ids = append(ids, int64(v))
+		case int:
+			ids = append(ids, int64(v))
+		case int64:
+			ids = append(ids, v)
+		default:
+			return nil, fmt.Errorf("unexpected ID type: %T", v)
+		}
+	}
+
+	return ids, nil
+}
+
 func applyFilters(query *orm.Query, filters models.BookFilters, userID int64) *orm.Query {
 	if filters.Fav {
 		var booksIds []int64
@@ -93,7 +184,15 @@ func applyFilters(query *orm.Query, filters models.BookFilters, userID int64) *o
 		}
 	}
 
-	if filters.Title != "" {
+	if filters.Title != "" && filters.Author == 0 && filters.Series == 0 && filters.Collection == 0 {
+		ids, err := getRelevantIDsFromQdrant(filters.Title, filters.Lang)
+		if err == nil && len(ids) > 0 {
+			query = query.WhereIn("book.id IN (?)", ids)
+			filters.OrderedByVector = ids
+		} else {
+			query = query.Where("1=0")
+		}
+	} else if filters.Title != "" {
 		query = query.Where("book.title ILIKE ?", fmt.Sprintf("%%%s%%", filters.Title))
 	}
 
