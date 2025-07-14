@@ -250,8 +250,32 @@ func applyFilters(query *orm.Query, filters *models.BookFilters, userID int64) *
 			vectorMap[hit.ID] = rank + 1
 		}
 
+		// Выделяем точные совпадения
+		var exactMatches []int64
+		err = db.Model((*models.Book)(nil)).
+			Column("id").
+			Where("LOWER(title) = LOWER(?)", filters.Title).
+			Select(&exactMatches)
+		if err != nil {
+			logrus.Printf("Exact match error: %v", err)
+		}
+
 		// Step 4: RRF to combine
 		finalIDs := rrfRank(pgMap, vectorMap)
+		// Удаляем точные из finalIDs (если там уже есть)
+		idSet := make(map[int64]struct{})
+		for _, id := range exactMatches {
+			idSet[id] = struct{}{}
+		}
+		deduped := make([]int64, 0, len(finalIDs))
+		for _, id := range finalIDs {
+			if _, exists := idSet[id]; !exists {
+				deduped = append(deduped, id)
+			}
+		}
+
+		// Склеиваем: сначала точные, потом остальное
+		finalIDs = append(exactMatches, deduped...)
 
 		if len(finalIDs) > 0 {
 			query = query.WhereIn("book.id IN (?)", finalIDs)
