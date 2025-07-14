@@ -33,7 +33,7 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, err
 		Relation("Series").
 		ColumnExpr("book.*, (SELECT COUNT(*) FROM favorite_books WHERE book_id = book.id) AS favorite_count")
 
-	query = applyFilters(query, filters, userID)
+	query = applyFilters(query, &filters, userID)
 
 	query = applySorting(query, filters, userID)
 
@@ -77,6 +77,15 @@ func applySorting(query *orm.Query, filters models.BookFilters, userID int64) *o
 		query = query.Join("JOIN book_collection_books bcb ON bcb.book_id = book.id").
 			Where("bcb.book_collection_id = ?", filters.Collection).
 			Order("bcb.position ASC")
+	} else if len(filters.OrderedByVector) > 0 {
+		// Строим CASE для ORDER BY в порядке из Qdrant (descending score)
+		var caseExpr strings.Builder
+		caseExpr.WriteString("CASE book.id ")
+		for i, id := range filters.OrderedByVector {
+			caseExpr.WriteString(fmt.Sprintf("WHEN %d THEN %d ", id, i+1)) // Позиция от 1 до N
+		}
+		caseExpr.WriteString(fmt.Sprintf("ELSE %d END ASC", len(filters.OrderedByVector)+1)) // Не в списке - в конец
+		query = query.OrderExpr(caseExpr.String())
 	} else {
 		query = query.Order("book.id DESC")
 	}
@@ -171,7 +180,7 @@ func getRelevantIDsFromQdrant(title string, lang string) ([]int64, error) {
 	return ids, nil
 }
 
-func applyFilters(query *orm.Query, filters models.BookFilters, userID int64) *orm.Query {
+func applyFilters(query *orm.Query, filters *models.BookFilters, userID int64) *orm.Query {
 	if filters.Fav {
 		var booksIds []int64
 		err := db.Model(&models.UserToBook{}).
