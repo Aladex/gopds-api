@@ -191,17 +191,16 @@ type OrderToSeries struct {
 
 // BookFilters params for filtering books list
 type BookFilters struct {
-	Limit           int     `form:"limit" json:"limit"`
-	Offset          int     `form:"offset" json:"offset"`
-	Title           string  `form:"title" json:"title"`
-	Author          int     `form:"author" json:"author"`
-	Series          int     `form:"series" json:"series"`
-	Lang            string  `form:"lang" json:"lang"`
-	Fav             bool    `form:"fav" json:"fav"`
-	UnApproved      bool    `form:"unapproved" json:"unapproved"`
-	UsersFavorites  bool    `form:"users_favorites" json:"users_favorites"`
-	Collection      int64   `form:"collection" json:"collection"`
-	OrderedByVector []int64 `json:"-"` // Store IDs ordered by vector search
+	Limit          int    `form:"limit" json:"limit"`
+	Offset         int    `form:"offset" json:"offset"`
+	Title          string `form:"title" json:"title"`
+	Author         int    `form:"author" json:"author"`
+	Series         int    `form:"series" json:"series"`
+	Lang           string `form:"lang" json:"lang"`
+	Fav            bool   `form:"fav" json:"fav"`
+	UnApproved     bool   `form:"unapproved" json:"unapproved"`
+	UsersFavorites bool   `form:"users_favorites" json:"users_favorites"`
+	Collection     int64  `form:"collection" json:"collection"`
 }
 
 // CollectionFilters params for filtering collections list
