@@ -20,22 +20,16 @@ type SendType struct {
 func MailConnection() (*smtp.Client, error) {
 	servername := viper.GetString("email.smtp_server")
 	host, _, _ := net.SplitHostPort(servername)
+
 	tlsconfig := &tls.Config{
 		InsecureSkipVerify: true,
 		ServerName:         host,
 	}
-	conn, err := net.Dial("tcp", servername)
+	conn, err := tls.Dial("tcp", servername, tlsconfig)
 	if err != nil {
 		return nil, err
 	}
-	c, err := smtp.NewClient(conn, host)
-	if err != nil {
-		return nil, err
-	}
-	if err = c.StartTLS(tlsconfig); err != nil {
-		return nil, err
-	}
-	return c, nil
+	return smtp.NewClient(conn, host)
 }
 
 func SendActivationEmail(data SendType) error {
