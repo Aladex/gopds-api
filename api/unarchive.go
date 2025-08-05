@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 var bookTypes = map[string]string{
@@ -100,7 +101,8 @@ func GetBookFile(c *gin.Context) {
 		return
 	}
 
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s.%s", book.DownloadName(), format))
-	c.Header("Content-Length", strconv.Itoa(buf.Len()))
-	c.Data(http.StatusOK, contentType, buf.Bytes())
+	reader := bytes.NewReader(buf.Bytes())
+	c.Writer.Header().Set("Content-Type", contentType)
+	c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s.%s", book.DownloadName(), format))
+	http.ServeContent(c.Writer, c.Request, book.DownloadName()+"."+format, time.Now(), reader)
 }
