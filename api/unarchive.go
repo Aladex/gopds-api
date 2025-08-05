@@ -101,5 +101,6 @@ func GetBookFile(c *gin.Context) {
 	}
 
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s.%s", book.DownloadName(), format))
+	c.Header("Content-Length", strconv.Itoa(buf.Len()))
 	c.Data(http.StatusOK, contentType, buf.Bytes())
 }
