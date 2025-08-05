@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
@@ -41,33 +42,33 @@ var readyChannels sync.Map // Temporary storage for mobi files
 // @Failure 500 {object} httputil.HTTPError "Internal server error"
 // @Router /files/books/get [get]
 func GetBookFile(c *gin.Context) {
-	bookID, err := strconv.ParseInt(c.Param("id"), 10, 0) // Parse the book ID from the request parameters.
+	bookID, err := strconv.ParseInt(c.Param("id"), 10, 0)
 	if err != nil {
-		httputil.NewError(c, http.StatusBadRequest, errors.New("bad_book_id")) // Send a 400 Bad Request if the book ID is invalid.
+		httputil.NewError(c, http.StatusBadRequest, errors.New("bad_book_id"))
 		return
 	}
-	format := strings.ToLower(c.Param("format")) // Normalize the requested format to lowercase.
-	if _, ok := bookTypes[format]; !ok {
-		httputil.NewError(c, http.StatusBadRequest, errors.New("unknown book format")) // Send a 400 Bad Request if the format is unsupported.
+	format := strings.ToLower(c.Param("format"))
+	contentType, ok := bookTypes[format]
+	if !ok {
+		httputil.NewError(c, http.StatusBadRequest, errors.New("unknown book format"))
 		return
 	}
-	contentDisp := "attachment; filename=%s.%s" // Template for the Content-Disposition header.
-	book, err := database.GetBook(bookID)       // Retrieve the book details from the database.
-	if err != nil {
-		httputil.NewError(c, http.StatusNotFound, err) // Send a 404 Not Found if the book is not in the database.
-		return
-	}
-	zipPath := viper.GetString("app.files_path") + book.Path // Construct the path to the book file.
 
+	book, err := database.GetBook(bookID)
+	if err != nil {
+		httputil.NewError(c, http.StatusNotFound, err)
+		return
+	}
+	zipPath := viper.GetString("app.files_path") + book.Path
 	if !utils.FileExists(zipPath) {
-		httputil.NewError(c, http.StatusNotFound, errors.New("book file not found")) // Send a 404 Not Found if the book file is missing
+		httputil.NewError(c, http.StatusNotFound, errors.New("book file not found"))
 		return
 	}
 
-	bp := utils.NewBookProcessor(book.FileName, zipPath) // Create a new BookProcessor for the book file.
-	var rc io.ReadCloser                                 // Declare a variable to hold the file reader.
+	bp := utils.NewBookProcessor(book.FileName, zipPath)
 
-	switch strings.ToLower(c.Param("format")) {
+	var rc io.ReadCloser
+	switch format {
 	case "epub":
 		rc, err = bp.Epub()
 	case "fb2":
@@ -75,39 +76,30 @@ func GetBookFile(c *gin.Context) {
 	case "zip":
 		rc, err = bp.Zip(book.FileName)
 	default:
-		httputil.NewError(c, http.StatusBadRequest, errors.New("unknown book format")) // Send a 400 Bad Request if the format is not handled.
+		httputil.NewError(c, http.StatusBadRequest, errors.New("unsupported format"))
 		return
 	}
-
-	defer func(rc io.ReadCloser) {
-		err := rc.Close()
-		if err != nil {
-			logrus.WithFields(logrus.Fields{
-				"status":      c.Writer.Status(),
-				"method":      c.Request.Method,
-				"error":       "Client closed connection",
-				"ip":          c.ClientIP(),
-				"book_format": c.Param("format"),
-				"user-agent":  c.Request.UserAgent(),
-			}).Info()
-		}
-	}(rc) // Ensure the file reader is closed after serving the file.
-
-	c.Header("Content-Disposition", fmt.Sprintf(contentDisp, book.DownloadName(), c.Param("format"))) // Set the Content-Disposition header.
-	c.Header("Content-Type", bookTypes[strings.ToLower(c.Param("format"))])                           // Set the Content-Type header based on the book format.
-	_, err = io.Copy(c.Writer, rc)                                                                    // Copy the book content to the response writer.
-
 	if err != nil {
-		// Log the error if there is an issue copying the book content to the response writer.
+		httputil.NewError(c, http.StatusInternalServerError, err)
+		return
+	}
+	defer rc.Close()
+
+	var buf bytes.Buffer
+	_, err = io.Copy(&buf, rc)
+	if err != nil {
 		logrus.WithFields(logrus.Fields{
 			"status":      c.Writer.Status(),
 			"method":      c.Request.Method,
-			"error":       "Client closed connection",
+			"error":       err.Error(),
 			"ip":          c.ClientIP(),
-			"book_format": c.Param("format"),
+			"book_format": format,
 			"user-agent":  c.Request.UserAgent(),
-		}).Info()
+		}).Error("failed to buffer file")
+		httputil.NewError(c, http.StatusInternalServerError, err)
 		return
 	}
-	return
+
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s.%s", book.DownloadName(), format))
+	c.Data(http.StatusOK, contentType, buf.Bytes())
 }
