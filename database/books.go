@@ -47,6 +47,16 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, err
 }
 
 func applySorting(query *orm.Query, filters models.BookFilters, userID int64) *orm.Query {
+	// If title filter is set, use fuzzy sorting: lev ASC, sim DESC, id DESC
+	if filters.Title != "" {
+		lowerTitle := strings.ToLower(filters.Title)
+		query = query.OrderExpr("levenshtein(lower(book.title), ?) ASC", lowerTitle).
+			OrderExpr("similarity(book.title, ?) DESC", filters.Title).
+			Order("book.id DESC")
+		return query
+	}
+
+	// Default sorting for other filters
 	if filters.Fav {
 		var booksIds []models.UserToBook
 		var exprArr []string
@@ -94,7 +104,16 @@ func applyFilters(query *orm.Query, filters models.BookFilters, userID int64) *o
 	}
 
 	if filters.Title != "" {
-		query = query.Where("book.title ILIKE ?", fmt.Sprintf("%%%s%%", filters.Title))
+		lowerTitle := strings.ToLower(filters.Title)
+		// Fuzzy search: ILIKE for partial/exact OR pg_trgm for similar, with thresholds for relevance
+		query = query.WhereGroup(func(q *orm.Query) (*orm.Query, error) {
+			q = q.Where("book.title % ?", filters.Title).
+				WhereOr("book.title ILIKE ?", fmt.Sprintf("%%%s%%", filters.Title))
+			// Thresholds to avoid weak matches and improve performance
+			q = q.Where("similarity(book.title, ?) > 0.5", filters.Title)
+			q = q.Where("levenshtein(lower(book.title), ?) <= 5", lowerTitle)
+			return q, nil
+		})
 	}
 
 	if filters.Lang != "" {
