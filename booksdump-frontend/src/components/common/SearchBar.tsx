@@ -20,7 +20,7 @@ import { useAuthor } from "../../context/AuthorContext";
 import { useSearchBar } from "../../context/SearchBarContext";
 import { StyledFormControl} from "../StyledDataItems";
 import useSearchOptions from "../hooks/useSearchOptions";
-import { getLanguageDisplay, getLanguageInfo } from "../../utils/languageUtils";
+import { getLanguageDisplay } from "../../utils/languageUtils";
 
 interface Record {
     option: string;

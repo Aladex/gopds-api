@@ -196,7 +196,7 @@ export const languageMapping: Record<string, LanguageInfo> = {
  */
 export const getLanguageInfo = (code: string): LanguageInfo => {
     // Safe handling of incorrect values
-    if (!code || typeof code !== 'string') {
+    if (!code) {
         return {
             code: 'unknown',
             name: 'UNKNOWN',
@@ -233,7 +233,7 @@ export const getAllLanguagesInfo = (): LanguageInfo[] => {
  * Check if language is supported
  */
 export const isLanguageSupported = (code: string): boolean => {
-    if (!code || typeof code !== 'string') {
+    if (!code) {
         return false;
     }
     const normalizedCode = code.toLowerCase().trim();
@@ -251,7 +251,7 @@ export const filterSupportedLanguages = (languages: string[]): string[] => {
  * Get language display only if supported, otherwise return null
  */
 export const getLanguageDisplaySafe = (code: string): string | null => {
-    if (!isLanguageSupported(code)) {
+    if (!code || !isLanguageSupported(code)) {
         return null;
     }
     const info = getLanguageInfo(code);

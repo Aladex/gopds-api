@@ -2,7 +2,6 @@ import '../styles/BooksList.css';
 import React, { useReducer, useEffect, useRef } from 'react';
 import ConversionBackdrop from '../hooks/convertingBooks';
 import {
-    LinearProgress,
     Typography,
     Box,
     Grid,
@@ -10,10 +9,6 @@ import {
     CardContent,
     CardMedia,
     Button,
-    Menu,
-    MenuItem,
-    Checkbox,
-    ListItemText,
     CardActions, IconButton, Snackbar
 } from '@mui/material';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
@@ -36,7 +31,7 @@ import { format } from 'date-fns';
 import { useState, useCallback } from 'react';
 import { useBookConversion } from '../../context/BookConversionContext';
 import { downloadViaIframe } from '../helpers/downloadViaIframe';
-import { getLanguageDisplay, getLanguageInfo, getLanguageDisplaySafe, isLanguageSupported } from '../../utils/languageUtils';
+import { getLanguageInfo, isLanguageSupported } from '../../utils/languageUtils';
 
 interface Book {
     id: number;
