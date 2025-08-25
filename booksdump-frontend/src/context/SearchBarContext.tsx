@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useMemo, useCallback, useEffect, ReactNode } from 'react';
 import { fetchWithAuth } from '../api/config';
 import { useAuth } from './AuthContext';
+import { filterSupportedLanguages } from '../utils/languageUtils';
 
 interface SearchBarContextType {
     selectedSearch: string;
@@ -42,7 +43,9 @@ export const SearchBarProvider: React.FC<{ children: ReactNode }> = ({ children 
                     if (response.status === 200) {
                         const data = response.data;
                         const languageList = data.langs.map((item: { language: string }) => item.language);
-                        setLanguages(languageList);
+                        // Filter only supported languages
+                        const supportedLanguages = filterSupportedLanguages(languageList);
+                        setLanguages(supportedLanguages);
                     } else {
                         console.error('Failed to fetch languages');
                     }

@@ -233,5 +233,27 @@ export const getAllLanguagesInfo = (): LanguageInfo[] => {
  * Check if language is supported
  */
 export const isLanguageSupported = (code: string): boolean => {
-    return code in languageMapping;
+    if (!code || typeof code !== 'string') {
+        return false;
+    }
+    const normalizedCode = code.toLowerCase().trim();
+    return normalizedCode in languageMapping;
+};
+
+/**
+ * Filter array of language codes to only include supported ones
+ */
+export const filterSupportedLanguages = (languages: string[]): string[] => {
+    return languages.filter(lang => isLanguageSupported(lang));
+};
+
+/**
+ * Get language display only if supported, otherwise return null
+ */
+export const getLanguageDisplaySafe = (code: string): string | null => {
+    if (!isLanguageSupported(code)) {
+        return null;
+    }
+    const info = getLanguageInfo(code);
+    return `${info.flag} ${info.name}`;
 };

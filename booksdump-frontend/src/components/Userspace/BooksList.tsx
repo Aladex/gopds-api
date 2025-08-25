@@ -36,7 +36,7 @@ import { format } from 'date-fns';
 import { useState, useCallback } from 'react';
 import { useBookConversion } from '../../context/BookConversionContext';
 import { downloadViaIframe } from '../helpers/downloadViaIframe';
-import { getLanguageDisplay, getLanguageInfo } from '../../utils/languageUtils';
+import { getLanguageDisplay, getLanguageInfo, getLanguageDisplaySafe, isLanguageSupported } from '../../utils/languageUtils';
 
 interface Book {
     id: number;
@@ -335,19 +335,27 @@ const BooksList: React.FC = () => {
                                                             <Typography variant="body2" color="textSecondary"
                                                                         sx={{ display: 'flex', alignItems: 'center' }}>
                                                                 {t('language')}:
-                                                                <Box sx={{
-                                                                    ml: 1,
-                                                                    display: 'flex',
-                                                                    alignItems: 'center',
-                                                                    gap: 0.5
-                                                                }}>
-                                                                    <Typography variant="body2" sx={{ fontSize: '1.2em' }}>
-                                                                        {getLanguageInfo(book.lang).flag}
-                                                                    </Typography>
-                                                                    <Typography variant="body2">
-                                                                        {getLanguageInfo(book.lang).name}
-                                                                    </Typography>
-                                                                </Box>
+                                                                {isLanguageSupported(book.lang) ? (
+                                                                    <Box sx={{
+                                                                        ml: 1,
+                                                                        display: 'flex',
+                                                                        alignItems: 'center',
+                                                                        gap: 0.5
+                                                                    }}>
+                                                                        <Typography variant="body2" sx={{ fontSize: '1.2em' }}>
+                                                                            {getLanguageInfo(book.lang).flag}
+                                                                        </Typography>
+                                                                        <Typography variant="body2">
+                                                                            {getLanguageInfo(book.lang).name}
+                                                                        </Typography>
+                                                                    </Box>
+                                                                ) : (
+                                                                    <Box sx={{ ml: 1 }}>
+                                                                        <Typography variant="body2" color="textSecondary">
+                                                                            {t('languageNotSupported')}
+                                                                        </Typography>
+                                                                    </Box>
+                                                                )}
                                                             </Typography>
                                                             <Box mt={2}>
                                                                 <AuthorsList authors={book.authors} />
