@@ -36,6 +36,7 @@ import { format } from 'date-fns';
 import { useState, useCallback } from 'react';
 import { useBookConversion } from '../../context/BookConversionContext';
 import { downloadViaIframe } from '../helpers/downloadViaIframe';
+import { getLanguageDisplay, getLanguageInfo } from '../../utils/languageUtils';
 
 interface Book {
     id: number;
@@ -144,7 +145,7 @@ const BooksList: React.FC = () => {
 
     const formatDate = (dateString: string) => {
         if (dateString === "") {
-            return t('unknownAddDate'); // Или t('unknownPublicationDate'), в зависимости от контекста
+            return t('unknownAddDate'); // Or t('unknownPublicationDate'), depending on context
         }
         const timestamp = Date.parse(dateString);
         if (isNaN(timestamp)) {
@@ -335,16 +336,17 @@ const BooksList: React.FC = () => {
                                                                         sx={{ display: 'flex', alignItems: 'center' }}>
                                                                 {t('language')}:
                                                                 <Box sx={{
-                                                                    width: 24,
-                                                                    height: 24,
-                                                                    bgcolor: 'secondary.main',
-                                                                    color: 'white',
+                                                                    ml: 1,
                                                                     display: 'flex',
-                                                                    justifyContent: 'center',
                                                                     alignItems: 'center',
-                                                                    ml: 1
+                                                                    gap: 0.5
                                                                 }}>
-                                                                    {book.lang}
+                                                                    <Typography variant="body2" sx={{ fontSize: '1.2em' }}>
+                                                                        {getLanguageInfo(book.lang).flag}
+                                                                    </Typography>
+                                                                    <Typography variant="body2">
+                                                                        {getLanguageInfo(book.lang).name}
+                                                                    </Typography>
                                                                 </Box>
                                                             </Typography>
                                                             <Box mt={2}>

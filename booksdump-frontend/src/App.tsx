@@ -16,7 +16,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import useAuthWebSocket from './components/hooks/useAuthWebSocket';
 
 const App: React.FC<{ isAuthenticated: boolean }> = ({ isAuthenticated }) => {
-    // Использование WebSocket внутри BookConversionProvider
+    // Using WebSocket inside BookConversionProvider
     useAuthWebSocket("/api/books/ws", isAuthenticated);
 
     return (
@@ -46,7 +46,7 @@ const AppWrapper: React.FC = () => {
                     <AuthorProvider>
                         <SearchBarProvider>
                             <BookConversionProvider>
-                                <App isAuthenticated={isAuthenticated} /> {/* Передача isAuthenticated */}
+                                <App isAuthenticated={isAuthenticated} /> {/* Passing isAuthenticated */}
                             </BookConversionProvider>
                         </SearchBarProvider>
                     </AuthorProvider>

@@ -19,7 +19,8 @@ import { useFav } from "../../context/FavContext";
 import { useAuthor } from "../../context/AuthorContext";
 import { useSearchBar } from "../../context/SearchBarContext";
 import { StyledFormControl} from "../StyledDataItems";
-import useSearchOptions from "../hooks/useSearchOptions"
+import useSearchOptions from "../hooks/useSearchOptions";
+import { getLanguageDisplay, getLanguageInfo } from "../../utils/languageUtils";
 
 interface Record {
     option: string;
@@ -197,9 +198,15 @@ const SearchBar: React.FC = () => {
                                                                 onChange={(e) => updateLangAndSelectedLanguage(e.target.value as string)}
                                                                 disabled={fav}
                                                                 label={t('language')}
+                                                                renderValue={(value) => {
+                                                                    if (!value) return '';
+                                                                    return getLanguageDisplay(value as string);
+                                                                }}
                                                             >
                                                                 {languages.map((language) => (
-                                                                    <MenuItem key={language} value={language}>{language}</MenuItem>
+                                                                    <MenuItem key={language} value={language}>
+                                                                        {getLanguageDisplay(language)}
+                                                                    </MenuItem>
                                                                 ))}
                                                             </Select>
                                                         </StyledFormControl>
