@@ -51,8 +51,8 @@ const LoginCenteredBox: React.FC<ILoginCenteredBoxProps> = ({ children }) => {
                         src="/devito_back.png"
                         alt="Registration"
                         style={{
-                            width: isMobile ? '60px' : '180px',
-                            height: isMobile ? '40px' : '120px',
+                            width: isMobile ? '180px' : '540px',
+                            height: isMobile ? '120px' : '360px',
                             display: 'block',
                             border: 'none',
                             userSelect: 'none',
