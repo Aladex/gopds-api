@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import QRCode from 'qrcode';
 import '../styles/DonateModal.css';
 
@@ -20,16 +20,7 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
         usdt: 'TTE5dv9w9RSDMJ6k3tnpfuehH8UX9Fy4Ec'
     };
 
-    useEffect(() => {
-        if (open) {
-            setIsVisible(true);
-            setIsClosing(false);
-            // Генерируем QR-коды для криптовалютных адресов
-            generateQRCodes();
-        }
-    }, [open]);
-
-    const generateQRCodes = async () => {
+    const generateQRCodes = useCallback(async () => {
         const codes: {[key: string]: string} = {};
         try {
             for (const [currency, address] of Object.entries(cryptoAddresses)) {
@@ -46,7 +37,16 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
         } catch (error) {
             console.error('Ошибка при генерации QR-кодов:', error);
         }
-    };
+    }, [cryptoAddresses]);
+
+    useEffect(() => {
+        if (open) {
+            setIsVisible(true);
+            setIsClosing(false);
+            // Генерируем QR-коды для криптовалютных адресов
+            generateQRCodes();
+        }
+    }, [open, generateQRCodes]);
 
     const handleClose = () => {
         setIsClosing(true);
