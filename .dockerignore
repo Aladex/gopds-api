@@ -1,0 +1,55 @@
+# Git
+.git
+.gitignore
+.github
+
+# Documentation
+README.md
+docs/
+*.md
+
+# Development files
+.vscode
+.idea
+*.log
+*.tmp
+
+# Test files
+*_test.go
+coverage.out
+test-results
+
+# Build artifacts
+bin/
+dist/
+build/
+
+# Node modules (will be installed during build)
+booksdump-frontend/node_modules
+booksdump-frontend/build
+booksdump-frontend/.next
+booksdump-frontend/coverage
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
