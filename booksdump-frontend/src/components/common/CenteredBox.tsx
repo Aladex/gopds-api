@@ -32,7 +32,7 @@ const LoginCenteredBox: React.FC<ILoginCenteredBoxProps> = ({ children }) => {
                     {children}
                 </Card>
 
-                {/* Fixed background Danny DeVito image - positioned to not overlap form */}
+                {/* Fixed background Danny DeVito image - seamlessly blended into corner */}
                 <Link
                     to="/registration"
                     style={{
@@ -40,27 +40,23 @@ const LoginCenteredBox: React.FC<ILoginCenteredBoxProps> = ({ children }) => {
                         bottom: 0,
                         right: 0,
                         zIndex: 1,
-                        opacity: 0.7,
+                        opacity: 0.6,
                         transition: 'opacity 0.3s ease',
-                        // Ensure it doesn't interfere with form interaction
                         pointerEvents: 'auto'
                     }}
-                    onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
-                    onMouseLeave={(e) => e.currentTarget.style.opacity = '0.7'}
+                    onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
+                    onMouseLeave={(e) => e.currentTarget.style.opacity = '0.6'}
                 >
                     <img
                         src="/devito_back.png"
                         alt="Registration"
                         style={{
-                            width: isMobile ? '60px' : '200px',
-                            height: isMobile ? '40px' : '133px',
+                            width: isMobile ? '60px' : '180px',
+                            height: isMobile ? '40px' : '120px',
                             display: 'block',
                             border: 'none',
                             userSelect: 'none',
-                            pointerEvents: 'auto',
-                            // Add some margin to prevent overlap with form
-                            marginBottom: isMobile ? '10px' : '20px',
-                            marginRight: isMobile ? '10px' : '20px'
+                            pointerEvents: 'auto'
                         }}
                     />
                 </Link>
