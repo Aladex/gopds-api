@@ -12,34 +12,6 @@ const LoginCenteredBox: React.FC<ILoginCenteredBoxProps> = ({ children }) => {
 
     return (
         <>
-            {/* Fixed background Danny DeVito image */}
-            <Link
-                to="/registration"
-                style={{
-                    position: 'fixed',
-                    bottom: 0,
-                    right: 0,
-                    zIndex: 0,
-                    opacity: 0.8,
-                    transition: 'opacity 0.3s ease'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
-                onMouseLeave={(e) => e.currentTarget.style.opacity = '0.8'}
-            >
-                <img
-                    src="/devito_back.png"
-                    alt="Registration"
-                    style={{
-                        width: isMobile ? '80px' : '300px',
-                        height: isMobile ? '54px' : '200px',
-                        display: 'block',
-                        border: 'none',
-                        userSelect: 'none',
-                        pointerEvents: 'auto'
-                    }}
-                />
-            </Link>
-
             {/* Main container with form */}
             <Box
                 sx={{
@@ -59,6 +31,39 @@ const LoginCenteredBox: React.FC<ILoginCenteredBoxProps> = ({ children }) => {
                 }}>
                     {children}
                 </Card>
+
+                {/* Fixed background Danny DeVito image - positioned to not overlap form */}
+                <Link
+                    to="/registration"
+                    style={{
+                        position: 'fixed',
+                        bottom: 0,
+                        right: 0,
+                        zIndex: 1,
+                        opacity: 0.7,
+                        transition: 'opacity 0.3s ease',
+                        // Ensure it doesn't interfere with form interaction
+                        pointerEvents: 'auto'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
+                    onMouseLeave={(e) => e.currentTarget.style.opacity = '0.7'}
+                >
+                    <img
+                        src="/devito_back.png"
+                        alt="Registration"
+                        style={{
+                            width: isMobile ? '60px' : '200px',
+                            height: isMobile ? '40px' : '133px',
+                            display: 'block',
+                            border: 'none',
+                            userSelect: 'none',
+                            pointerEvents: 'auto',
+                            // Add some margin to prevent overlap with form
+                            marginBottom: isMobile ? '10px' : '20px',
+                            marginRight: isMobile ? '10px' : '20px'
+                        }}
+                    />
+                </Link>
             </Box>
         </>
     );
