@@ -47,7 +47,7 @@ const SearchBar: React.FC = () => {
     }
 
     const navigateToSearchResults = () => {
-        // Проверяем, что поле поиска не пустое и содержит хотя бы один символ
+        // Check that the search field is not empty and contains at least one character
         if (!searchItem || searchItem.trim().length === 0) {
             return;
         }
@@ -159,7 +159,7 @@ const SearchBar: React.FC = () => {
                                                     <Favorite
                                                         sx={{
                                                             fontSize: '48px',
-                                                            color: '#2f2f2f', // Используем error.main цвет для активного состояния
+                                                            color: '#2f2f2f', // Using error.main color for active state
                                                             filter: 'drop-shadow(0px 2px 1px rgba(0,0,0,0.2)) drop-shadow(0px 1px 1px rgba(0,0,0,0.14)) drop-shadow(0px 1px 3px rgba(0,0,0,0.12))',
                                                             '&:hover': {
                                                                 filter: 'drop-shadow(0px 3px 5px rgba(0,0,0,0.2)) drop-shadow(0px 6px 10px rgba(0,0,0,0.14)) drop-shadow(0px 1px 18px rgba(0,0,0,0.12))',
@@ -170,11 +170,11 @@ const SearchBar: React.FC = () => {
                                                     <FavoriteBorder
                                                         sx={{
                                                             fontSize: '48px',
-                                                            color: '#2f2f2f', // Используем secondary.main цвет для неактивного состояния
+                                                            color: '#2f2f2f', // Using secondary.main color for inactive state
                                                             filter: 'drop-shadow(0px 2px 1px rgba(0,0,0,0.2)) drop-shadow(0px 1px 1px rgba(0,0,0,0.14)) drop-shadow(0px 1px 3px rgba(0,0,0,0.12))',
                                                             '&:hover': {
                                                                 filter: 'drop-shadow(0px 3px 5px rgba(0,0,0,0.2)) drop-shadow(0px 6px 10px rgba(0,0,0,0.14)) drop-shadow(0px 1px 18px rgba(0,0,0,0.12))',
-                                                                color: '#2f2f2f', // При наведении показываем активный цвет
+                                                                color: '#2f2f2f', // On hover show active color
                                                             }
                                                         }}
                                                     />

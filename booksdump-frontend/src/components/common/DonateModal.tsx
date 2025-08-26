@@ -13,7 +13,7 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
     const [isClosing, setIsClosing] = useState(false);
     const [qrCodes, setQrCodes] = useState<{[key: string]: string}>({});
 
-    // Криптовалютные адреса - используем useMemo чтобы объект не пересоздавался
+    // Crypto addresses - use useMemo so the object is not recreated
     const cryptoAddresses = useMemo(() => ({
         bitcoin: 'bc1qv2pjsnkprer35u2whuquztvnvnggjsrqu4q43f',
         ethereum: '0xD053A0fE7C450b57da9FF169620EB178644b54C9',
@@ -35,7 +35,7 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
             }
             setQrCodes(codes);
         } catch (error) {
-            console.error('Ошибка при генерации QR-кодов:', error);
+            console.error('Error generating QR codes:', error);
         }
     }, [cryptoAddresses]);
 
@@ -43,18 +43,18 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
         if (open) {
             setIsVisible(true);
             setIsClosing(false);
-            // Генерируем QR-коды для криптовалютных адресов
+            // Generate QR codes for crypto addresses
             generateQRCodes().catch((error) => {
-                console.error('Ошибка при генерации QR-кодов:', error);
+                console.error('Error generating QR codes:', error);
             });
-            // Блокируем скролл страницы
+            // Block page scroll
             document.body.style.overflow = 'hidden';
         } else {
-            // Разблокируем скролл страницы
+            // Unblock page scroll
             document.body.style.overflow = 'unset';
         }
 
-        // Cleanup function - разблокируем скролл при размонтировании компонента
+        // Cleanup function - unblock scroll when component unmounts
         return () => {
             document.body.style.overflow = 'unset';
         };
@@ -66,7 +66,7 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
             setIsVisible(false);
             setIsClosing(false);
             onClose();
-        }, 300); // Продолжительность анимации закрытия
+        }, 300); // Animation duration for closing
     };
 
     const handleOverlayClick = (e: React.MouseEvent) => {
@@ -79,7 +79,7 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
 
     const copyToClipboard = (text: string) => {
         navigator.clipboard.writeText(text);
-        // Можно добавить уведомление о копировании
+        // Can add copy notification here
     };
 
     return (

@@ -42,7 +42,7 @@ const Header: React.FC = () => {
     const {t} = useTranslation();
     const [value, setValue] = useState(0);
     const isMobile = useMediaQuery('(max-width:600px)');
-    const isVeryNarrow = useMediaQuery('(max-width:354px)'); // Добавляем проверку на очень узкие экраны
+    const isVeryNarrow = useMediaQuery('(max-width:354px)'); // Check for very narrow screens
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [showPasswordFields, setShowPasswordFields] = useState(false);
@@ -61,17 +61,17 @@ const Header: React.FC = () => {
         return display !== null;
     });
 
-    // Функция для получения отображения языка в зависимости от ширины экрана
+    // Function to get language display based on screen width
     const getLanguageDisplay = (lang: string) => {
         if (isVeryNarrow) {
-            // На очень узких экранах показываем эмодзи флага + ISO код
+            // On very narrow screens show flag emoji + ISO code
             const languageInfo = languageMapping[lang];
             if (languageInfo) {
                 return `${languageInfo.flag} ${lang.toUpperCase()}`;
             }
-            return lang.toUpperCase(); // Fallback если нет эмодзи
+            return lang.toUpperCase(); // Fallback if no emoji available
         } else {
-            // На обычных экранах показываем полное название
+            // On regular screens show full name
             return getLanguageDisplaySafe(lang);
         }
     };
@@ -79,7 +79,7 @@ const Header: React.FC = () => {
     const updateLangAndSelectedLanguage = (lang: string) => {
         updateLang(lang);
         setSelectedLanguage(lang);
-        setLanguageMenuAnchor(null); // Закрываем меню после выбора
+        setLanguageMenuAnchor(null); // Close menu after selection
     };
 
     const handleLanguageMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
@@ -224,7 +224,7 @@ const Header: React.FC = () => {
                                 </IconButton>
                             </Box>
                             <Box display="flex" alignItems="center" gap={0.5}>
-                                {/* Псевдо-вкладка доната для мобильной версии - СЛЕВА */}
+                                {/* Pseudo donate tab for mobile version - LEFT */}
                                 <Box
                                     onClick={() => setIsDonateModalOpen(true)}
                                     sx={{
@@ -250,7 +250,7 @@ const Header: React.FC = () => {
                                     <VolunteerActivism sx={{ fontSize: '1rem' }} />
                                     ДОНАТ
                                 </Box>
-                                {/* Псевдо-вкладка языка для м��бильной версии */}
+                                {/* Pseudo language tab for mobile version */}
                                 <Box
                                     onClick={handleLanguageMenuOpen}
                                     sx={{
@@ -274,7 +274,7 @@ const Header: React.FC = () => {
                                 >
                                     {selectedLanguage ? getLanguageDisplay(selectedLanguage) : t('language')}
                                 </Box>
-                                {/* Существующие меню языка */}
+                                {/* Existing language menu */}
                                 <Menu
                                     anchorEl={languageMenuAnchor}
                                     open={Boolean(languageMenuAnchor)}
@@ -345,7 +345,7 @@ const Header: React.FC = () => {
                     </>
                 ) : (
                     <>
-                        {/* Левая часть - вкладки с логотипом */}
+                        {/* Left part - tabs with logo */}
                         <Box sx={{borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center'}}>
                             <Tabs value={value} onChange={handleChange} aria-label="basic tabs example">
                                 {menuItems.map((item, index) => (
@@ -353,7 +353,7 @@ const Header: React.FC = () => {
                                         key={index}
                                         label={
                                             index === 0 ? (
-                                                // Для первой вкладки (КНИГИ) добавляем логотип
+                                                // For the first tab (BOOKS) add logo
                                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                                     <img src="/logo.png" alt="Logo" style={{ width: 24, height: 24 }} />
                                                     {item.label}
@@ -368,7 +368,7 @@ const Header: React.FC = () => {
                                     />
                                 ))}
                             </Tabs>
-                            {/* Кнопка доната после вкладок */}
+                            {/* Donate button after tabs */}
                             <Box
                                 onClick={() => setIsDonateModalOpen(true)}
                                 sx={{
@@ -396,12 +396,12 @@ const Header: React.FC = () => {
                             </Box>
                         </Box>
 
-                        {/* Spacer для отталкивания правых элементов */}
+                        {/* Spacer to push right elements away */}
                         <Box sx={{ flexGrow: 1 }} />
 
-                        {/* Правая часть - выбор языка, пользователь, выход */}
+                        {/* Right part - language selector, user, logout */}
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            {/* Вкладка языка */}
+                            {/* Language tab */}
                             <Box
                                 onClick={handleLanguageMenuOpen}
                                 sx={{

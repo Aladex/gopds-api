@@ -22,7 +22,7 @@ const Footer: React.FC = () => {
     return (
         <footer className="footer">
             <div className="left">
-                {/* Убрали кнопку доната отсюда */}
+                {/* Removed donate button from here */}
             </div>
             <div className="right">
                 <p>App Version: {appVersion}</p>
