@@ -24,7 +24,7 @@
     "@types/qrcode": "^1.5.5",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
-    "axios": "^1.7.4",
+    "axios": "^1.11.0",
     "date-fns": "^3.6.0",
     "dayjs": "^1.11.12",
     "env-cmd": "^10.1.0",
