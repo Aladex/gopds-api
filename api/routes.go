@@ -1,9 +1,10 @@
 package api
 
 import (
-	"github.com/gin-gonic/gin"
 	"gopds-api/models"
 	"os"
+
+	"github.com/gin-gonic/gin"
 )
 
 // SetupBookRoutes sets up routes for books
@@ -13,6 +14,7 @@ func SetupBookRoutes(r *gin.RouterGroup) {
 	r.GET("/langs", GetLangs)
 	r.GET("/self-user", SelfUser)
 	r.GET("/getsigned/:format/:id", GetSignedBookUrl)
+	r.GET("/autocomplete", Autocomplete)
 	r.POST("/change-me", ChangeUser)
 	r.GET("/authors", GetAuthors)
 	r.POST("/author", GetAuthor)

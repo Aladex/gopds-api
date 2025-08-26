@@ -3,15 +3,16 @@ package api
 import (
 	"errors"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/binding"
-	"github.com/spf13/viper"
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/models"
 	"gopds-api/utils"
 	"net/http"
 	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
+	"github.com/spf13/viper"
 )
 
 // ExportAnswer struct for books list response
@@ -27,6 +28,11 @@ type langsAnswer struct {
 
 type favAnswer struct {
 	HaveFavs bool `json:"have_favs"`
+}
+
+// AutocompleteResponse struct for autocomplete suggestions
+type AutocompleteResponse struct {
+	Suggestions []models.AutocompleteSuggestion `json:"suggestions"`
 }
 
 // GetLangs method for retrieving languages from the database
@@ -132,4 +138,43 @@ func GetSignedBookUrl(c *gin.Context) {
 
 	signaturedUrl := utils.GenerateSignedURL(viper.GetString("secret_key"), bookURL, time.Duration(expiry))
 	c.JSON(200, models.Result{Result: signaturedUrl, Error: nil})
+}
+
+// Autocomplete method for getting search suggestions
+// Auth godoc
+// @Summary Get autocomplete suggestions for search
+// @Description Get autocomplete suggestions for books and authors based on query
+// @Tags books
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param query query string true "Search query"
+// @Param type query string false "Search type: 'title', 'author', or 'all' (default)"
+// @Param author query string false "Author ID for filtering results"
+// @Param lang query string false "Language for filtering results"
+// @Accept  json
+// @Produce  json
+// @Success 200 {object} AutocompleteResponse "List of suggestions"
+// @Failure 400 {object} httputil.HTTPError "Bad request"
+// @Router /api/books/autocomplete [get]
+func Autocomplete(c *gin.Context) {
+	query := c.Query("query")
+	searchType := c.Query("type")
+	authorID := c.Query("author") // Add parameter for author ID
+	lang := c.Query("lang")       // Add parameter for language
+
+	if query == "" {
+		httputil.NewError(c, http.StatusBadRequest, errors.New("query parameter is required"))
+		return
+	}
+
+	if searchType == "" {
+		searchType = "all"
+	}
+
+	suggestions, err := database.GetAutocompleteSuggestions(query, searchType, authorID, lang)
+	if err != nil {
+		httputil.NewError(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	c.JSON(200, AutocompleteResponse{Suggestions: suggestions})
 }

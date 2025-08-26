@@ -3,10 +3,12 @@ package database
 import (
 	"errors"
 	"fmt"
+	"gopds-api/models"
+	"sort"
+	"strings"
+
 	"github.com/go-pg/pg/v10/orm"
 	"github.com/sirupsen/logrus"
-	"gopds-api/models"
-	"strings"
 )
 
 func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, error) {
@@ -250,4 +252,296 @@ func UpdateBook(book models.Book) (models.Book, error) {
 		return bookToChange, err
 	}
 	return bookToChange, nil
+}
+
+// GetAutocompleteSuggestions returns suggestions for autocomplete
+func GetAutocompleteSuggestions(query string, searchType string, authorID string, lang string) ([]models.AutocompleteSuggestion, error) {
+	var suggestions []models.AutocompleteSuggestion
+
+	if len(query) < 4 {
+		return suggestions, nil
+	}
+
+	lowerQuery := strings.ToLower(strings.TrimSpace(query))
+
+	// ----------- BOOKS ------------
+	if searchType == "title" || searchType == "all" {
+		var books []models.Book
+		bookQuery := db.Model(&books).
+			Column("book.id", "book.title").
+			Where("book.approved = true").
+			Where("book.title IS NOT NULL").
+			Where("book.title != ''").
+			Where("lower(book.title) LIKE ?", "%"+lowerQuery+"%")
+
+		// If language is specified, filter books only for this language
+		if lang != "" {
+			bookQuery = bookQuery.Where("book.lang = ?", lang)
+		}
+
+		// If author ID is specified, filter books only for this author
+		if authorID != "" {
+			bookQuery = bookQuery.
+				Join("JOIN opds_catalog_bauthor atb ON book.id = atb.book_id").
+				Where("atb.author_id = ?", authorID)
+		}
+
+		err := bookQuery.
+			OrderExpr("similarity(book.title, ?) DESC", query).
+			OrderExpr("strpos(lower(book.title), ?) ASC", lowerQuery).
+			Limit(500).
+			Select()
+
+		if err != nil {
+		}
+
+		if err == nil {
+			seen := make(map[string]bool)
+			for _, b := range books {
+				n := strings.ToLower(strings.TrimSpace(b.Title))
+				if n == "" || seen[n] {
+					continue
+				}
+				seen[n] = true
+				suggestions = append(suggestions, models.AutocompleteSuggestion{
+					Value: b.Title,
+					Type:  "book",
+					ID:    b.ID,
+				})
+				if len(suggestions) >= 10 {
+					break
+				}
+			}
+		}
+	}
+
+	// ----------- AUTHORS ------------
+	if searchType == "author" || searchType == "all" {
+		queryWords := strings.Fields(strings.ToLower(strings.TrimSpace(query)))
+
+		if len(queryWords) > 0 {
+			var allAuthors []models.Author
+
+			// Strategy 1: Quick search using LIKE on individual words (uses index)
+			if len(queryWords) >= 2 {
+				var multiWordAuthors []models.Author
+				var whereConditions []string
+				var whereArgs []interface{}
+
+				for _, word := range queryWords {
+					if len(word) > 1 {
+						whereConditions = append(whereConditions, "lower(full_name) LIKE ?")
+						whereArgs = append(whereArgs, "%"+word+"%")
+					}
+				}
+
+				if len(whereConditions) > 0 {
+					whereClause := strings.Join(whereConditions, " AND ")
+
+					err := db.Model(&multiWordAuthors).
+						Column("id", "full_name").
+						Where("full_name IS NOT NULL").
+						Where("full_name != ''").
+						Where(whereClause, whereArgs...).
+						Limit(50).
+						Select()
+
+					if err == nil {
+						allAuthors = append(allAuthors, multiWordAuthors...)
+					}
+				}
+			}
+
+			// Strategy 2: Search by full query using LIKE (if few results)
+			if len(allAuthors) < 20 {
+				var exactAuthors []models.Author
+
+				err := db.Model(&exactAuthors).
+					Column("id", "full_name").
+					Where("full_name IS NOT NULL").
+					Where("full_name != ''").
+					Where("lower(full_name) LIKE ?", "%"+lowerQuery+"%").
+					Limit(30).
+					Select()
+
+				if err == nil {
+					allAuthors = append(allAuthors, exactAuthors...)
+				}
+			}
+
+			// Strategy 3: Search by individual words (if still few results)
+			if len(allAuthors) < 30 {
+				for _, word := range queryWords {
+					if len(word) > 2 {
+						var wordAuthors []models.Author
+
+						err := db.Model(&wordAuthors).
+							Column("id", "full_name").
+							Where("full_name IS NOT NULL").
+							Where("full_name != ''").
+							Where("lower(full_name) LIKE ?", "%"+word+"%").
+							Limit(20).
+							Select()
+
+						if err == nil {
+							allAuthors = append(allAuthors, wordAuthors...)
+						}
+					}
+				}
+			}
+
+			// Strategy 4: Trigram search only as a last resort
+			if len(allAuthors) < 10 {
+				var trigramAuthors []models.Author
+
+				err := db.Model(&trigramAuthors).
+					Column("id", "full_name").
+					Where("full_name IS NOT NULL").
+					Where("full_name != ''").
+					Where("full_name % ?", query).
+					OrderExpr("similarity(full_name, ?) DESC", query).
+					Limit(20).
+					Select()
+
+				if err == nil {
+					allAuthors = append(allAuthors, trigramAuthors...)
+				}
+			}
+
+			if len(allAuthors) > 0 {
+				type authorWithScore struct {
+					author models.Author
+					score  int
+				}
+
+				var scoredAuthors []authorWithScore
+				seenAuthors := make(map[string]bool)
+
+				for _, author := range allAuthors {
+					if author.FullName != "" {
+						normalizedName := strings.ToLower(strings.TrimSpace(author.FullName))
+
+						if seenAuthors[normalizedName] {
+							continue
+						}
+						seenAuthors[normalizedName] = true
+
+						score := calculateAuthorScore(author.FullName, query, queryWords)
+
+						if score > 0 {
+							scoredAuthors = append(scoredAuthors, authorWithScore{
+								author: author,
+								score:  score,
+							})
+						}
+					}
+				}
+
+				sort.Slice(scoredAuthors, func(i, j int) bool {
+					return scoredAuthors[i].score > scoredAuthors[j].score
+				})
+
+				authorCount := 0
+				maxAuthors := 10
+				if searchType == "author" {
+					maxAuthors = 15
+				}
+
+				for _, scoredAuthor := range scoredAuthors {
+					if authorCount >= maxAuthors {
+						break
+					}
+
+					suggestions = append(suggestions, models.AutocompleteSuggestion{
+						Value: scoredAuthor.author.FullName,
+						Type:  "author",
+						ID:    scoredAuthor.author.ID,
+					})
+					authorCount++
+				}
+			}
+		}
+	}
+
+	if len(suggestions) > 15 {
+		suggestions = suggestions[:15]
+	}
+
+	return suggestions, nil
+}
+
+// calculateAuthorScore calculates the relevance of an author's name
+func calculateAuthorScore(fullName, originalQuery string, queryWords []string) int {
+	lowerFullName := strings.ToLower(fullName)
+	lowerQuery := strings.ToLower(originalQuery)
+	nameWords := strings.Fields(lowerFullName)
+	score := 0
+	matched := 0
+
+	// exact match (case insensitive)
+	if lowerFullName == lowerQuery {
+		return 2000
+	}
+
+	// substring match
+	if strings.Contains(lowerFullName, lowerQuery) {
+		score += 500
+	}
+
+	// check words
+	nameSet := make(map[string]bool, len(nameWords))
+	for _, nw := range nameWords {
+		nameSet[strings.ToLower(nw)] = true
+	}
+
+	for _, qw := range queryWords {
+		lowerQw := strings.ToLower(qw)
+		if nameSet[lowerQw] {
+			matched++
+			score += 300
+		} else {
+			// soft search: prefix/substring
+			for _, nw := range nameWords {
+				lowerNw := strings.ToLower(nw)
+				if strings.HasPrefix(lowerNw, lowerQw) && len(lowerQw) >= 3 {
+					matched++
+					score += 150
+					break
+				}
+				if strings.Contains(lowerNw, lowerQw) && len(lowerQw) >= 3 {
+					matched++
+					score += 75
+					break
+				}
+			}
+		}
+	}
+
+	// if all words are found regardless of order
+	if matched == len(queryWords) {
+		score += 600
+		// if word count matches - additional bonus
+		if len(nameWords) == len(queryWords) {
+			score += 200
+		}
+	}
+
+	// permutations of two words
+	if len(queryWords) == 2 && len(nameWords) >= 2 {
+		lowerQuery1 := strings.ToLower(queryWords[0])
+		lowerQuery2 := strings.ToLower(queryWords[1])
+		if nameSet[lowerQuery1] && nameSet[lowerQuery2] {
+			score += 300
+		}
+	}
+
+	// penalty for too long names
+	if len(nameWords) > 5 {
+		score -= (len(nameWords) - 5) * 20
+	}
+
+	if matched > 0 && score < 50 {
+		score = 50
+	}
+	return score
 }

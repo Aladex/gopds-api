@@ -3,11 +3,6 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/gobwas/ws"
-	"github.com/gobwas/ws/wsutil"
-	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/utils"
@@ -17,6 +12,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gobwas/ws"
+	"github.com/gobwas/ws/wsutil"
+	"github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 )
 
 func ConvertBookToMobi(bookID int64) error {
@@ -122,7 +123,7 @@ func WebsocketHandler(c *gin.Context) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
-	// Чтение сообщений от клиента
+	// Reading messages from client
 	go func() {
 		for {
 			msg, op, err := wsutil.ReadClientData(conn)
@@ -132,11 +133,11 @@ func WebsocketHandler(c *gin.Context) {
 				return
 			}
 
-			// Обработка текстовых сообщений от клиента
+			// Processing text messages from client
 			if op == ws.OpText {
 				logrus.Infof("Received message from client: %s", string(msg))
 
-				// Парсинг сообщения с запросом конвертации
+				// Parsing message with conversion request
 				var request struct {
 					BookID int64  `json:"bookID"`
 					Format string `json:"format"`
@@ -146,7 +147,7 @@ func WebsocketHandler(c *gin.Context) {
 					continue
 				}
 
-				// Запуск конвертации книги
+				// Starting book conversion
 				if request.Format == "mobi" {
 					go func(bookID int64) {
 						err := ConvertBookToMobi(bookID)
@@ -154,7 +155,7 @@ func WebsocketHandler(c *gin.Context) {
 							logrus.Errorf("Failed to convert book to mobi: %v", err)
 							return
 						}
-						clientNotificationChannel <- strconv.FormatInt(bookID, 10) // Отправляем в уникальный канал клиента
+						clientNotificationChannel <- strconv.FormatInt(bookID, 10) // Send to unique client channel
 					}(request.BookID)
 				} else {
 					logrus.Warnf("Unsupported format: %s", request.Format)
@@ -165,7 +166,7 @@ func WebsocketHandler(c *gin.Context) {
 		}
 	}()
 
-	// Чтение уведомлений о готовности книги и отправка их клиенту
+	// Reading book ready notifications and sending them to client
 	for {
 		select {
 		case bookID := <-clientNotificationChannel:

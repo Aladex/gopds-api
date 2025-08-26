@@ -2,10 +2,11 @@ package models
 
 import (
 	"bytes"
-	"github.com/go-pg/pg/v10/orm"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/go-pg/pg/v10/orm"
 )
 
 func init() {
@@ -218,14 +219,24 @@ type BookDownload struct {
 	Expires int64  `json:"expires" form:"expires"`
 }
 
-// FavBook struct for favorite book
+// FavBook struct for adding books to favorites
 type FavBook struct {
-	BookID int64 `json:"book_id" form:"book_id" binding:"required"`
-	Fav    bool  `json:"fav" form:"fav"`
+	BookID int64 `json:"book_id"`
+	Fav    bool  `json:"fav"`
 }
 
-// Languages struct for languages list with codes and counts
-type Languages []struct {
-	Language      string `pg:"lang" json:"language"`
-	LanguageCount int    `json:"count"`
+// AutocompleteSuggestion struct for autocomplete suggestions
+type AutocompleteSuggestion struct {
+	Value string `json:"value"`
+	Type  string `json:"type"` // "book" or "author"
+	ID    int64  `json:"id,omitempty"`
 }
+
+// Language struct for language information
+type Language struct {
+	Lang          string `json:"lang"`
+	LanguageCount int    `json:"language_count"`
+}
+
+// Languages is a slice of Language
+type Languages []Language

@@ -2,7 +2,6 @@ package api
 
 import (
 	"errors"
-	"fmt"
 	"github.com/gin-gonic/gin"
 	"gopds-api/database"
 	"gopds-api/httputil"
@@ -105,7 +104,6 @@ func ChangeInvite(c *gin.Context) {
 	if err := c.ShouldBindJSON(&inviteRequest); err == nil {
 		err := database.ChangeInvite(inviteRequest)
 		if err != nil {
-			fmt.Println(err)
 			httputil.NewError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -114,8 +112,6 @@ func ChangeInvite(c *gin.Context) {
 			Error:  nil,
 		})
 		return
-	} else {
-		fmt.Println(err)
 	}
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
 }

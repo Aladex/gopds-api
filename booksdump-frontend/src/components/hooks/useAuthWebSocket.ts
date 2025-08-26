@@ -21,7 +21,6 @@ function useAuthWebSocket(endpoint: string, isAuthenticated: boolean) {
 
         ws.onopen = () => {
             setIsConnected(true);
-            console.log("WebSocket connection established.");
             setReconnectAttempt(0); // Reset reconnect attempt counter
         };
 
@@ -33,7 +32,6 @@ function useAuthWebSocket(endpoint: string, isAuthenticated: boolean) {
                 if (opcode === OpPing) {
                     if (wsRef.current) {
                         wsRef.current.send(new Uint8Array([OpPong]));
-                        console.log("Sent pong message to WebSocket");
                     }
                     return;
                 }
@@ -41,7 +39,6 @@ function useAuthWebSocket(endpoint: string, isAuthenticated: boolean) {
 
             try {
                 const bookID = parseInt(data, 10);
-                console.log(`Received message via WebSocket - Book ID: ${bookID}`);
 
                 dispatch({ type: 'REMOVE_CONVERTING_BOOK', payload: { bookID, format: 'mobi' } });
 
@@ -64,7 +61,6 @@ function useAuthWebSocket(endpoint: string, isAuthenticated: boolean) {
         };
 
         ws.onclose = () => {
-            console.log("WebSocket connection closed.");
             setIsConnected(false);
 
             // Attempt to reconnect if the user is still authenticated
@@ -93,7 +89,6 @@ function useAuthWebSocket(endpoint: string, isAuthenticated: boolean) {
     useEffect(() => {
         if (!isConnected && isAuthenticated && reconnectAttempt > 0) {
             reconnectIntervalRef.current = setTimeout(() => {
-                console.log(`Attempting to reconnect (Attempt ${reconnectAttempt})...`);
                 setupWebSocket();
             }, Math.min(reconnectAttempt * 1000, 10000)); // Maximum 10 seconds
         }
@@ -110,7 +105,6 @@ function useAuthWebSocket(endpoint: string, isAuthenticated: boolean) {
             const lastBook = state.convertingBooks[state.convertingBooks.length - 1];
             if (lastBook) {
                 wsRef.current.send(JSON.stringify({ bookID: lastBook.bookID, format: lastBook.format }));
-                console.log(`Sent book ID ${lastBook.bookID} to WebSocket`);
             }
         }
     }, [state.convertingBooks, isConnected]);

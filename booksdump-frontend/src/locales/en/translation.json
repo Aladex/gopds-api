@@ -50,6 +50,7 @@
   "userInfo": "Tell us about yourself",
   "firstName": "First name",
   "lastName": "Last name",
+  "emailAddress": "Email address",
   "cancel": "Cancel",
   "save": "Save",
   "changePassword": "Change password",

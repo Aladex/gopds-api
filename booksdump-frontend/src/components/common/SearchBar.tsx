@@ -10,10 +10,9 @@ import {
     InputLabel,
     IconButton
 } from '@mui/material';
-import { StyledTextField } from "../StyledDataItems";
 import { useTranslation } from 'react-i18next';
 import { useAuth } from "../../context/AuthContext";
-import { Clear, Favorite, FavoriteBorder } from "@mui/icons-material";
+import { Favorite, FavoriteBorder } from "@mui/icons-material";
 import { useNavigate } from 'react-router-dom';
 import { useFav } from "../../context/FavContext";
 import { useAuthor } from "../../context/AuthorContext";
@@ -21,6 +20,7 @@ import { useSearchBar } from "../../context/SearchBarContext";
 import { StyledFormControl} from "../StyledDataItems";
 import useSearchOptions from "../hooks/useSearchOptions";
 import { getLanguageDisplaySafe } from "../../utils/languageUtils";
+import AutocompleteSearch from "./AutocompleteSearch";
 
 interface Record {
     option: string;
@@ -36,7 +36,10 @@ const SearchBar: React.FC = () => {
     const searchOptions = useSearchOptions(setSelectedSearch);
 
     // Filter languages to only show those that are supported and have proper display
-    const supportedLanguages = languages.filter(lang => getLanguageDisplaySafe(lang) !== null);
+    const supportedLanguages = languages.filter(lang => {
+        const display = getLanguageDisplaySafe(lang);
+        return display !== null;
+    });
 
     const records: Record[] = [
         { option: 'authorsBookSearch', path: `/books/find/author/` },
@@ -130,29 +133,13 @@ const SearchBar: React.FC = () => {
                                             </StyledFormControl>
                                         </Grid>
                                         <Grid item xs={12} lg={6}>
-                                            <StyledTextField
-                                                label={t('searchItem')}
+                                            <AutocompleteSearch
                                                 value={searchItem}
-                                                onChange={(e) => setSearchItem(e.target.value)}
+                                                onChange={setSearchItem}
+                                                searchType={selectedSearch}
                                                 disabled={fav}
-                                                fullWidth
-                                                onKeyUp={(e) => {
-                                                    if (e.key === 'Enter') navigateToSearchResults();
-                                                }}
-                                                InputLabelProps={{
-                                                    shrink: true,
-                                                }}
-                                                InputProps={{
-                                                    endAdornment: (
-                                                        <IconButton
-                                                            onClick={handleClear}
-                                                            disabled={fav}
-                                                            edge="end"
-                                                        >
-                                                            <Clear />
-                                                        </IconButton>
-                                                    ),
-                                                }}
+                                                onEnterPressed={navigateToSearchResults}
+                                                placeholder={t('searchItem')}
                                             />
                                         </Grid>
                                     </Grid>
@@ -239,3 +226,4 @@ const SearchBar: React.FC = () => {
 };
 
 export default SearchBar;
+

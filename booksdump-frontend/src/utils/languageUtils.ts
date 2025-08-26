@@ -119,7 +119,7 @@ export const languageMapping: Record<string, LanguageInfo> = {
     'na': { code: 'na', name: 'Nauru', flag: '🇳🇷' },
     'nb': { code: 'nb', name: 'Norsk Bokmål', flag: '🇳🇴' },
     'nd': { code: 'nd', name: 'isiNdebele', flag: '🇿🇼' },
-    'ne': { code: 'ne', name: 'नेपाली', flag: '🇳🇵' },
+    'ne': { code: 'ne', name: '���ेपाली', flag: '🇳🇵' },
     'ng': { code: 'ng', name: 'Ndonga', flag: '🇳🇦' },
     'nl': { code: 'nl', name: 'Nederlands', flag: '🇳🇱' },
     'nn': { code: 'nn', name: 'Nynorsk', flag: '🇳🇴' },
@@ -230,12 +230,50 @@ export const getAllLanguagesInfo = (): LanguageInfo[] => {
 };
 
 /**
+ * Check if language code is in valid format (lowercase, 2-3 characters, ISO standard)
+ */
+export const isValidLanguageCodeFormat = (code: string): boolean => {
+    if (!code) {
+        return false;
+    }
+
+    // Check that the code consists only of lowercase letters
+    if (code !== code.toLowerCase()) {
+        return false;
+    }
+
+    // Check length (ISO codes are usually 2-3 characters)
+    if (code.length < 2 || code.length > 3) {
+        return false;
+    }
+
+    // Check that the code consists only of letters
+    if (!/^[a-z]+$/.test(code)) {
+        return false;
+    }
+
+    // Exclude explicitly incorrect codes
+    const invalidCodes = ['unknown', 'ukr']; // ukr is not a standard ISO code
+    if (invalidCodes.includes(code)) {
+        return false;
+    }
+
+    return true;
+};
+
+/**
  * Check if language is supported
  */
 export const isLanguageSupported = (code: string): boolean => {
     if (!code) {
         return false;
     }
+
+    // First check format
+    if (!isValidLanguageCodeFormat(code)) {
+        return false;
+    }
+
     const normalizedCode = code.toLowerCase().trim();
     return normalizedCode in languageMapping;
 };

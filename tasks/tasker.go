@@ -69,13 +69,13 @@ func (tm *TaskManager) processTask(task CollectionTask) {
 	case UpdateCollection:
 		err := manager.UpdateBookCollection(task.CollectionID, task.UpdatedBooks)
 		if err != nil {
-			// Логгирование ошибки
+			// Error logging
 		}
 
 	case DeleteCollection:
 		err := manager.DeleteCollection(task.CollectionID)
 		if err != nil {
-			// Логгирование ошибки
+			// Error logging
 		}
 	}
 }

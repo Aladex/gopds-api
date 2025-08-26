@@ -42,7 +42,8 @@ export const SearchBarProvider: React.FC<{ children: ReactNode }> = ({ children 
                     const response = await fetchWithAuth.get('/books/langs');
                     if (response.status === 200) {
                         const data = response.data;
-                        const languageList = data.langs.map((item: { language: string }) => item.language);
+                        // Fixed: field is called 'lang', not 'language'
+                        const languageList = data.langs.map((item: { lang: string; language_count: number }) => item.lang);
                         // Filter only supported languages
                         const supportedLanguages = filterSupportedLanguages(languageList);
                         setLanguages(supportedLanguages);
