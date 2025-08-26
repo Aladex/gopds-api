@@ -42,8 +42,10 @@ const SearchBar: React.FC = () => {
         setAuthorBook(searchItem);
     };
 
-    const setFavContext = (fav: boolean) => {
-        setFav(fav);
+    const setFavContext = (newFav: boolean) => {
+        if (favEnabled) {
+            setFav(newFav);
+        }
     }
 
     const navigateToSearchResults = () => {
@@ -145,7 +147,7 @@ const SearchBar: React.FC = () => {
                                         </Grid>
                                         <Grid item xs={4} lg={6} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
                                             <Box
-                                                onClick={() => setFavContext(!fav)}
+                                                onClick={() => favEnabled && setFavContext(!fav)}
                                                 sx={{
                                                     display: 'flex',
                                                     alignItems: 'center',
