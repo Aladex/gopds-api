@@ -44,8 +44,20 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
             setIsVisible(true);
             setIsClosing(false);
             // Генерируем QR-коды для криптовалютных адресов
-            generateQRCodes();
+            generateQRCodes().catch((error) => {
+                console.error('Ошибка при генерации QR-кодов:', error);
+            });
+            // Блокируем скролл страницы
+            document.body.style.overflow = 'hidden';
+        } else {
+            // Разблокируем скролл страницы
+            document.body.style.overflow = 'unset';
         }
+
+        // Cleanup function - разблокируем скролл при размонтировании компонента
+        return () => {
+            document.body.style.overflow = 'unset';
+        };
     }, [open, generateQRCodes]);
 
     const handleClose = () => {
