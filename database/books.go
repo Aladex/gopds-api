@@ -66,7 +66,7 @@ func applySorting(query *orm.Query, filters models.BookFilters, userID int64) *o
 		err := db.Model(&booksIds).
 			Column("book_id").
 			Where("user_id = ?", userID).
-			Order("id ASC").
+			Order("id DESC"). // Get latest first
 			Select(&booksIds)
 		if err == nil && len(booksIds) > 0 {
 			var bIds []int64
@@ -74,20 +74,13 @@ func applySorting(query *orm.Query, filters models.BookFilters, userID int64) *o
 				bIds = append(bIds, bid.BookID)
 			}
 			query = query.WhereIn("book.id IN (?)", bIds)
-			// Use CASE statement for safe ordering instead of dynamic SQL construction
-			query = query.OrderExpr("CASE book.id "+
-				"WHEN ? THEN 1 "+
-				strings.Repeat("WHEN ? THEN ? ", len(bIds)-1)+
-				"ELSE ? END ASC",
-				append([]interface{}{bIds[0], 1},
-					func() []interface{} {
-						var args []interface{}
-						for i := 1; i < len(bIds); i++ {
-							args = append(args, bIds[i], i+1)
-						}
-						args = append(args, len(bIds)+1)
-						return args
-					}()...)...)
+			// Safe ordering using subquery with ROW_NUMBER() - no dynamic SQL construction
+			query = query.OrderExpr(`
+				(SELECT row_number 
+				 FROM (SELECT book_id, ROW_NUMBER() OVER (ORDER BY id DESC) as row_number 
+				       FROM user_to_book 
+				       WHERE user_id = ?) favs 
+				 WHERE favs.book_id = book.id) ASC`, userID)
 		}
 	} else if filters.UsersFavorites {
 		query = query.Join("JOIN favorite_books fb ON fb.book_id = book.id").
