@@ -254,11 +254,7 @@ export const isValidLanguageCodeFormat = (code: string): boolean => {
 
     // Exclude explicitly incorrect codes
     const invalidCodes = ['unknown', 'ukr']; // ukr is not a standard ISO code
-    if (invalidCodes.includes(code)) {
-        return false;
-    }
-
-    return true;
+    return !invalidCodes.includes(code);
 };
 
 /**
