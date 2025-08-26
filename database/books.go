@@ -63,7 +63,6 @@ func applySorting(query *orm.Query, filters models.BookFilters, userID int64) *o
 	// Default sorting for other filters
 	if filters.Fav {
 		var booksIds []models.UserToBook
-		var exprArr []string
 		err := db.Model(&booksIds).
 			Column("book_id").
 			Where("user_id = ?", userID).
@@ -73,10 +72,22 @@ func applySorting(query *orm.Query, filters models.BookFilters, userID int64) *o
 			var bIds []int64
 			for _, bid := range booksIds {
 				bIds = append(bIds, bid.BookID)
-				exprArr = append(exprArr, fmt.Sprintf("book.id=%d ASC", bid.BookID))
 			}
 			query = query.WhereIn("book.id IN (?)", bIds)
-			query = query.OrderExpr(strings.Join(exprArr, ","))
+			// Use CASE statement for safe ordering instead of dynamic SQL construction
+			query = query.OrderExpr("CASE book.id "+
+				"WHEN ? THEN 1 "+
+				strings.Repeat("WHEN ? THEN ? ", len(bIds)-1)+
+				"ELSE ? END ASC",
+				append([]interface{}{bIds[0], 1},
+					func() []interface{} {
+						var args []interface{}
+						for i := 1; i < len(bIds); i++ {
+							args = append(args, bIds[i], i+1)
+						}
+						args = append(args, len(bIds)+1)
+						return args
+					}()...)...)
 		}
 	} else if filters.UsersFavorites {
 		query = query.Join("JOIN favorite_books fb ON fb.book_id = book.id").

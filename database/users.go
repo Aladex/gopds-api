@@ -4,14 +4,15 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 	"gopds-api/models"
 	"gopds-api/utils"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 )
 
 func UserObject(search string) (models.User, error) {
@@ -146,17 +147,29 @@ func GetUser(u string) (models.User, error) {
 // GetUserList function returns an users list
 func GetUserList(filters models.UserFilters) ([]models.User, int, error) {
 	users := []models.User{}
-	orderBy := "%s %s"
-	if filters.Order == "" {
-		orderBy = "id"
-	} else {
-		orderBy = filters.Order
+
+	// Validate and whitelist allowed order fields
+	allowedOrderFields := map[string]string{
+		"id":          "id",
+		"username":    "username",
+		"email":       "email",
+		"date_joined": "date_joined",
+		"last_login":  "last_login",
 	}
+
+	orderBy := "id" // default
+	if filters.Order != "" {
+		if validField, exists := allowedOrderFields[filters.Order]; exists {
+			orderBy = validField
+		}
+	}
+
 	if filters.DESC {
 		orderBy += " DESC"
 	} else {
 		orderBy += " ASC"
 	}
+
 	likeUser := fmt.Sprintf("%%%s%%", filters.Username)
 	count, err := db.Model(&users).
 		Limit(filters.Limit).
