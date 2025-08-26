@@ -78,7 +78,7 @@ func applySorting(query *orm.Query, filters models.BookFilters, userID int64) *o
 			query = query.OrderExpr(`
 				(SELECT row_number 
 				 FROM (SELECT book_id, ROW_NUMBER() OVER (ORDER BY id DESC) as row_number 
-				       FROM user_to_book 
+				       FROM favorite_books 
 				       WHERE user_id = ?) favs 
 				 WHERE favs.book_id = book.id) ASC`, userID)
 		}
