@@ -201,12 +201,20 @@ func ActionUser(action models.AdminCommandToUser) (models.User, error) {
 			hashedPassword := utils.CreatePasswordHash(action.User.Password)
 			userToChange.Password = hashedPassword
 		}
-		// Proceed with setting webhook if needed
-		if err := setWebhookIfNeeded(action.User.BotToken); err != nil {
-			return userToChange, err
-		}
+
+		// Check if BotToken has actually changed before setting webhook
+		botTokenChanged := userToChange.BotToken != action.User.BotToken
+
 		// Update other user details
 		userToChange = updateUserDetails(userToChange, action.User)
+
+		// Only set webhook if bot token has actually changed
+		if botTokenChanged && action.User.BotToken != "" {
+			if err := setWebhookIfNeeded(action.User.BotToken); err != nil {
+				return userToChange, err
+			}
+		}
+
 		if _, err := db.Model(&userToChange).WherePK().Update(); err != nil {
 			return userToChange, err
 		}

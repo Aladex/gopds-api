@@ -1,0 +1,187 @@
+/* DonateModal.css */
+.donate-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.donate-modal {
+    background: white;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 600px;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.donate-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px;
+    border-bottom: 1px solid #eee;
+}
+
+.donate-modal-header h2 {
+    margin: 0;
+    color: #333;
+}
+
+.close-button {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #666;
+    padding: 0;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.close-button:hover {
+    color: #333;
+}
+
+.donate-tabs {
+    display: flex;
+    border-bottom: 1px solid #eee;
+    background-color: #f8f9fa;
+}
+
+.tab {
+    flex: 1;
+    padding: 15px;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-size: 14px;
+    color: #666;
+    transition: all 0.3s ease;
+}
+
+.tab:hover {
+    background-color: #e9ecef;
+}
+
+.tab.active {
+    color: #007bff;
+    background-color: white;
+    border-bottom: 2px solid #007bff;
+}
+
+.donate-content {
+    padding: 20px;
+}
+
+.donate-option h3 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: #333;
+}
+
+.card-info, .crypto-addresses {
+    margin-bottom: 15px;
+}
+
+.copy-field {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 10px 0;
+    padding: 10px;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    border: 1px solid #dee2e6;
+}
+
+.card-number, .crypto-address {
+    font-family: monospace;
+    font-size: 14px;
+    flex: 1;
+    word-break: break-all;
+}
+
+.copy-button {
+    background-color: #007bff;
+    color: white;
+    border: none;
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.copy-button:hover {
+    background-color: #0056b3;
+}
+
+.crypto-item {
+    margin-bottom: 15px;
+}
+
+.crypto-item p {
+    margin: 0 0 5px 0;
+}
+
+.donate-link {
+    display: inline-block;
+    background-color: #007bff;
+    color: white;
+    text-decoration: none;
+    padding: 12px 24px;
+    border-radius: 4px;
+    font-weight: 500;
+    transition: background-color 0.3s ease;
+}
+
+.donate-link:hover {
+    background-color: #0056b3;
+    color: white;
+    text-decoration: none;
+}
+
+.donate-note {
+    margin-top: 10px;
+    color: #666;
+    font-style: italic;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .donate-modal {
+        width: 95%;
+        margin: 10px;
+    }
+
+    .donate-tabs {
+        flex-wrap: wrap;
+    }
+
+    .tab {
+        min-width: 50%;
+        font-size: 12px;
+        padding: 12px;
+    }
+
+    .copy-field {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .copy-button {
+        align-self: center;
+        margin-top: 5px;
+    }
+}

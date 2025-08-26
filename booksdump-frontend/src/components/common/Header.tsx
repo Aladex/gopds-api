@@ -17,19 +17,26 @@ import {
     Tabs,
     Toolbar,
     Typography,
-    useMediaQuery
+    useMediaQuery,
+    Select,
+    MenuItem,
+    FormControl,
+    Menu
 } from '@mui/material';
 import {useAuth} from '../../context/AuthContext';
 import {useTheme} from '@mui/material/styles';
 import {fetchWithAuth} from '../../api/config';
 import {useTranslation} from 'react-i18next';
-import {Logout, Menu as MenuIcon, Person} from "@mui/icons-material";
+import {Logout, Menu as MenuIcon, Person, VolunteerActivism} from "@mui/icons-material";
 import {StyledTextField} from "../StyledDataItems";
 import {useCommonStyles} from "../themeStyles";
 import {useFav} from "../../context/FavContext";
+import { useSearchBar } from "../../context/SearchBarContext";
+import { getLanguageDisplaySafe } from "../../utils/languageUtils";
+import DonateModal from "./DonateModal";
 
 const Header: React.FC = () => {
-    const {logout, updateUser, user} = useAuth();
+    const {logout, updateUser, user, updateLang} = useAuth();
     const navigate = useNavigate();
     const classes = useCommonStyles();
     const theme = useTheme();
@@ -44,6 +51,30 @@ const Header: React.FC = () => {
     const [oldPassword, setOldPassword] = useState('');
     const [newPassword, setNewPassword] = useState('');
     const {  setFav } = useFav();
+    const { languages, selectedLanguage, setSelectedLanguage } = useSearchBar();
+    const [languageMenuAnchor, setLanguageMenuAnchor] = useState<null | HTMLElement>(null);
+    const [isDonateModalOpen, setIsDonateModalOpen] = useState<boolean>(false);
+
+    // Filter languages to only show those that are supported and have proper display
+    const supportedLanguages = languages.filter(lang => {
+        const display = getLanguageDisplaySafe(lang);
+        return display !== null;
+    });
+
+    const updateLangAndSelectedLanguage = (lang: string) => {
+        updateLang(lang);
+        setSelectedLanguage(lang);
+        setLanguageMenuAnchor(null); // Закрываем меню после выбора
+    };
+
+    const handleLanguageMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+        setLanguageMenuAnchor(event.currentTarget);
+    };
+
+    const handleLanguageMenuClose = () => {
+        setLanguageMenuAnchor(null);
+    };
+
     const menuItems = useMemo(() => {
         const items = [
             { label: t('booksTab'), path: '/books/page/1', regex: /^\/books\/page\/\d+/, index: 0 },
@@ -184,7 +215,91 @@ const Header: React.FC = () => {
                                     <img src="/logo.png" alt="Logo" style={{ width: 18, height: 18, marginTop: 6 }} />
                                 </Link>
                             </Box>
-                            <Box display="flex" alignItems="center">
+                            <Box display="flex" alignItems="center" gap={0.5}>
+                                {/* Псевдо-вкладка доната для мобильной версии - СЛЕВА */}
+                                <Box
+                                    onClick={() => setIsDonateModalOpen(true)}
+                                    sx={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        height: '32px',
+                                        padding: '4px 6px',
+                                        cursor: 'pointer',
+                                        color: '#9e9e9e',
+                                        fontSize: '0.7rem',
+                                        fontWeight: 500,
+                                        textTransform: 'uppercase',
+                                        minWidth: 'fit-content',
+                                        justifyContent: 'center',
+                                        borderRadius: '4px',
+                                        gap: '2px',
+                                        '&:hover': {
+                                            color: '#fff',
+                                            backgroundColor: 'rgba(255, 255, 255, 0.04)',
+                                        },
+                                    }}
+                                >
+                                    <VolunteerActivism sx={{ fontSize: '1rem' }} />
+                                    ДОНАТ
+                                </Box>
+                                {/* Псевдо-вкладка языка для мобильной версии */}
+                                <Box
+                                    onClick={handleLanguageMenuOpen}
+                                    sx={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        height: '32px',
+                                        padding: '4px 6px',
+                                        cursor: 'pointer',
+                                        color: '#9e9e9e',
+                                        fontSize: '0.7rem',
+                                        fontWeight: 500,
+                                        textTransform: 'uppercase',
+                                        minWidth: '50px',
+                                        justifyContent: 'center',
+                                        borderRadius: '4px',
+                                        '&:hover': {
+                                            color: '#fff',
+                                            backgroundColor: 'rgba(255, 255, 255, 0.04)',
+                                        },
+                                    }}
+                                >
+                                    {selectedLanguage ? getLanguageDisplaySafe(selectedLanguage) : t('language')}
+                                </Box>
+                                {/* Существующие меню языка */}
+                                <Menu
+                                    anchorEl={languageMenuAnchor}
+                                    open={Boolean(languageMenuAnchor)}
+                                    onClose={handleLanguageMenuClose}
+                                    anchorOrigin={{
+                                        vertical: 'bottom',
+                                        horizontal: 'center',
+                                    }}
+                                    transformOrigin={{
+                                        vertical: 'top',
+                                        horizontal: 'center',
+                                    }}
+                                    PaperProps={{
+                                        sx: {
+                                            '& .MuiMenuItem-root': {
+                                                fontSize: '0.75rem',
+                                                minHeight: '32px',
+                                                paddingY: '4px',
+                                                paddingX: '8px',
+                                            },
+                                        }
+                                    }}
+                                >
+                                    {supportedLanguages.map((lang) => (
+                                        <MenuItem
+                                            key={lang}
+                                            onClick={() => updateLangAndSelectedLanguage(lang)}
+                                            selected={selectedLanguage === lang}
+                                        >
+                                            {getLanguageDisplaySafe(lang)}
+                                        </MenuItem>
+                                    ))}
+                                </Menu>
                                 <Button sx={{color: theme.palette.primary.main}} onClick={handleUserInfo}>
                                     <Person />
                                 </Button>
@@ -225,7 +340,92 @@ const Header: React.FC = () => {
                                 <img src="/logo.png" alt="Logo" style={{ width: 35, height: 35 }} />
                             </Link>
                         </Typography>
-                        <Box sx={{borderBottom: 1, borderColor: 'divider'}}>
+                        <Box sx={{borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center'}}>
+                            {/* Псевдо-вкладка доната для десктопной версии - СЛЕВА */}
+                            <Box
+                                onClick={() => setIsDonateModalOpen(true)}
+                                sx={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    height: '48px',
+                                    padding: '6px 8px',
+                                    cursor: 'pointer',
+                                    color: '#9e9e9e',
+                                    fontSize: '0.875rem',
+                                    fontWeight: 500,
+                                    textTransform: 'uppercase',
+                                    minWidth: 'fit-content',
+                                    justifyContent: 'center',
+                                    gap: '4px',
+                                    '&:hover': {
+                                        color: '#fff',
+                                        backgroundColor: 'rgba(255, 255, 255, 0.04)',
+                                    },
+                                }}
+                            >
+                                <VolunteerActivism sx={{ fontSize: '1.2rem' }} />
+                                ДОНАТ
+                            </Box>
+                            {/* Вкладка языка - отдельно от системы Tabs, чтобы не мешать подчеркиванию */}
+                            <Box
+                                onClick={handleLanguageMenuOpen}
+                                sx={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    height: '48px',
+                                    padding: '6px 8px',
+                                    cursor: 'pointer',
+                                    color: '#9e9e9e',
+                                    fontSize: '0.875rem',
+                                    fontWeight: 500,
+                                    textTransform: 'uppercase',
+                                    minWidth: 'fit-content',
+                                    maxWidth: '120px',
+                                    justifyContent: 'center',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                    '&:hover': {
+                                        color: '#fff',
+                                        backgroundColor: 'rgba(255, 255, 255, 0.04)',
+                                    },
+                                }}
+                            >
+                                {selectedLanguage ? getLanguageDisplaySafe(selectedLanguage) : t('language')}
+                            </Box>
+                            <Menu
+                                anchorEl={languageMenuAnchor}
+                                open={Boolean(languageMenuAnchor)}
+                                onClose={handleLanguageMenuClose}
+                                anchorOrigin={{
+                                    vertical: 'bottom',
+                                    horizontal: 'left',
+                                }}
+                                transformOrigin={{
+                                    vertical: 'top',
+                                    horizontal: 'left',
+                                }}
+                                PaperProps={{
+                                    sx: {
+                                        '& .MuiMenuItem-root': {
+                                            fontSize: '0.875rem',
+                                            minHeight: '36px',
+                                            paddingY: '6px',
+                                            paddingX: '12px',
+                                        },
+                                    }
+                                }}
+                            >
+                                {supportedLanguages.map((lang) => (
+                                    <MenuItem
+                                        key={lang}
+                                        onClick={() => updateLangAndSelectedLanguage(lang)}
+                                        selected={selectedLanguage === lang}
+                                    >
+                                        {getLanguageDisplaySafe(lang)}
+                                    </MenuItem>
+                                ))}
+                            </Menu>
                             <Tabs value={value} onChange={handleChange} aria-label="basic tabs example">
                                 {menuItems.map((item, index) => (
                                     <Tab
@@ -301,12 +501,30 @@ const Header: React.FC = () => {
                         value={lastName}
                         onChange={(e) => setLastName(e.target.value)}
                     />
+                    <FormControl fullWidth margin="dense">
+                        <Select
+                            value={selectedLanguage}
+                            onChange={(e) => updateLangAndSelectedLanguage(e.target.value)}
+                            displayEmpty
+                            inputProps={{ 'aria-label': 'Select language' }}
+                        >
+                            <MenuItem value="" disabled>
+                                {t('selectLanguage')}
+                            </MenuItem>
+                            {supportedLanguages.map((lang) => (
+                                <MenuItem key={lang} value={lang}>
+                                    {getLanguageDisplaySafe(lang)}
+                                </MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
                 </DialogContent>
                 <DialogActions>
                     <Button color={"secondary"} onClick={handleDialogClose}>{'Cancel'}</Button>
                     <Button color={"secondary"} onClick={handleUserChange}>{'Save'}</Button>
                 </DialogActions>
             </Dialog>
+            <DonateModal open={isDonateModalOpen} onClose={() => setIsDonateModalOpen(false)} />
         </AppBar>
     );
 };

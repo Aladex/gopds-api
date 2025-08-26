@@ -22,7 +22,7 @@ const Footer: React.FC = () => {
     return (
         <footer className="footer">
             <div className="left">
-                <a href="https://aladex.ru/donat-za-bibliotieku/" target="_blank" rel="noopener noreferrer">Donate</a>
+                {/* Убрали кнопку доната отсюда */}
             </div>
             <div className="right">
                 <p>App Version: {appVersion}</p>
