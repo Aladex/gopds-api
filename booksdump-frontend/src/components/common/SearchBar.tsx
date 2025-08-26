@@ -48,14 +48,6 @@ const SearchBar: React.FC = () => {
         setFav(fav);
     }
 
-    const handleClear = () => {
-        setSearchItem('');
-        // Clear authorId in AuthorContext
-        clearAuthorId();
-        // Clear authorBook in AuthorContext
-        clearAuthorBook();
-    }
-
     const navigateToSearchResults = () => {
         // Проверяем, что поле поиска не пустое и содержит хотя бы один символ
         if (!searchItem || searchItem.trim().length === 0) {
@@ -74,10 +66,6 @@ const SearchBar: React.FC = () => {
                 navigate(record.path + authorId + '/1');
             }
         }
-    };
-
-    const updateLangAndSelectedLanguage = (lang: string) => {
-        updateLang(lang);
     };
 
     return (

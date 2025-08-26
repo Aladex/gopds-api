@@ -279,14 +279,16 @@ const Header: React.FC = () => {
                                         vertical: 'top',
                                         horizontal: 'center',
                                     }}
-                                    PaperProps={{
-                                        sx: {
-                                            '& .MuiMenuItem-root': {
-                                                fontSize: '0.75rem',
-                                                minHeight: '32px',
-                                                paddingY: '4px',
-                                                paddingX: '8px',
-                                            },
+                                    slotProps={{
+                                        paper: {
+                                            sx: {
+                                                '& .MuiMenuItem-root': {
+                                                    fontSize: '0.75rem',
+                                                    minHeight: '32px',
+                                                    paddingY: '4px',
+                                                    paddingX: '8px',
+                                                },
+                                            }
                                         }
                                     }}
                                 >
@@ -315,8 +317,8 @@ const Header: React.FC = () => {
                             ModalProps={{
                                 keepMounted: true, // Better open performance on mobile.
                             }}
-                            PaperProps={{
-                                sx: {
+                            sx={{
+                                '& .MuiDrawer-paper': {
                                     width: '70%', // Occupy the full width of the screen
                                 }
                             }}
@@ -341,7 +343,7 @@ const Header: React.FC = () => {
                             </Link>
                         </Typography>
                         <Box sx={{borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center'}}>
-                            {/* Псевдо-вкладка доната для десктопной версии - СЛЕВА */}
+                            {/* Псевдо-вкладка доната для десктопно�� версии - СЛЕВА */}
                             <Box
                                 onClick={() => setIsDonateModalOpen(true)}
                                 sx={{
@@ -405,14 +407,16 @@ const Header: React.FC = () => {
                                     vertical: 'top',
                                     horizontal: 'left',
                                 }}
-                                PaperProps={{
-                                    sx: {
-                                        '& .MuiMenuItem-root': {
-                                            fontSize: '0.875rem',
-                                            minHeight: '36px',
-                                            paddingY: '6px',
-                                            paddingX: '12px',
-                                        },
+                                slotProps={{
+                                    paper: {
+                                        sx: {
+                                            '& .MuiMenuItem-root': {
+                                                fontSize: '0.875rem',
+                                                minHeight: '36px',
+                                                paddingY: '6px',
+                                                paddingX: '12px',
+                                            },
+                                        }
                                     }
                                 }}
                             >
