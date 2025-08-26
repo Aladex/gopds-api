@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import QRCode from 'qrcode';
 import '../styles/DonateModal.css';
 
@@ -13,12 +13,12 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
     const [isClosing, setIsClosing] = useState(false);
     const [qrCodes, setQrCodes] = useState<{[key: string]: string}>({});
 
-    // Криптовалютные адреса
-    const cryptoAddresses = {
+    // Криптовалютные адреса - используем useMemo чтобы объект не пересоздавался
+    const cryptoAddresses = useMemo(() => ({
         bitcoin: 'bc1qv2pjsnkprer35u2whuquztvnvnggjsrqu4q43f',
         ethereum: '0xD053A0fE7C450b57da9FF169620EB178644b54C9',
         usdt: 'TTE5dv9w9RSDMJ6k3tnpfuehH8UX9Fy4Ec'
-    };
+    }), []);
 
     const generateQRCodes = useCallback(async () => {
         const codes: {[key: string]: string} = {};
