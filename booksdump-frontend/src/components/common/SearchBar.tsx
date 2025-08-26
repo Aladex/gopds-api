@@ -20,7 +20,7 @@ import { useAuthor } from "../../context/AuthorContext";
 import { useSearchBar } from "../../context/SearchBarContext";
 import { StyledFormControl} from "../StyledDataItems";
 import useSearchOptions from "../hooks/useSearchOptions";
-import { getLanguageDisplay } from "../../utils/languageUtils";
+import { getLanguageDisplaySafe } from "../../utils/languageUtils";
 
 interface Record {
     option: string;
@@ -34,6 +34,10 @@ const SearchBar: React.FC = () => {
     const navigate = useNavigate();
     const { fav, favEnabled, setFav } = useFav();
     const searchOptions = useSearchOptions(setSelectedSearch);
+
+    // Filter languages to only show those that are supported and have proper display
+    const supportedLanguages = languages.filter(lang => getLanguageDisplaySafe(lang) !== null);
+
     const records: Record[] = [
         { option: 'authorsBookSearch', path: `/books/find/author/` },
         { option: 'title', path: `/books/find/title/${searchItem}/1` },
@@ -200,12 +204,12 @@ const SearchBar: React.FC = () => {
                                                                 label={t('language')}
                                                                 renderValue={(value) => {
                                                                     if (!value) return '';
-                                                                    return getLanguageDisplay(value as string);
+                                                                    return getLanguageDisplaySafe(value as string);
                                                                 }}
                                                             >
-                                                                {languages.map((language) => (
+                                                                {supportedLanguages.map((language) => (
                                                                     <MenuItem key={language} value={language}>
-                                                                        {getLanguageDisplay(language)}
+                                                                        {getLanguageDisplaySafe(language)}
                                                                     </MenuItem>
                                                                 ))}
                                                             </Select>

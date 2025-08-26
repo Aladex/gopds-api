@@ -226,7 +226,7 @@ describe('languageUtils', () => {
 
         it('should not have duplicate language codes', () => {
             const codes = Object.keys(languageMapping);
-            const uniqueCodes = [...new Set(codes)];
+            const uniqueCodes = Array.from(new Set(codes));
             expect(codes.length).toBe(uniqueCodes.length);
         });
     });
