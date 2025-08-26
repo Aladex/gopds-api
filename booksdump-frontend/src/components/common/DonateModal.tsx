@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import QRCode from 'qrcode';
 import '../styles/DonateModal.css';
 
 interface DonateModalProps {
@@ -7,16 +8,45 @@ interface DonateModalProps {
 }
 
 const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
-    const [activeTab, setActiveTab] = useState<'tinkoff' | 'crypto' | 'paypal' | 'buymeacoffee'>('tinkoff');
+    const [activeTab, setActiveTab] = useState<'tinkoff' | 'btc' | 'eth' | 'usdt' | 'paypal' | 'buymeacoffee'>('tinkoff');
     const [isVisible, setIsVisible] = useState(false);
     const [isClosing, setIsClosing] = useState(false);
+    const [qrCodes, setQrCodes] = useState<{[key: string]: string}>({});
+
+    // Криптовалютные адреса
+    const cryptoAddresses = {
+        bitcoin: 'bc1qv2pjsnkprer35u2whuquztvnvnggjsrqu4q43f',
+        ethereum: '0xD053A0fE7C450b57da9FF169620EB178644b54C9',
+        usdt: 'TTE5dv9w9RSDMJ6k3tnpfuehH8UX9Fy4Ec'
+    };
 
     useEffect(() => {
         if (open) {
             setIsVisible(true);
             setIsClosing(false);
+            // Генерируем QR-коды для криптовалютных адресов
+            generateQRCodes();
         }
     }, [open]);
+
+    const generateQRCodes = async () => {
+        const codes: {[key: string]: string} = {};
+        try {
+            for (const [currency, address] of Object.entries(cryptoAddresses)) {
+                codes[currency] = await QRCode.toDataURL(address, {
+                    width: 200,
+                    margin: 2,
+                    color: {
+                        dark: '#2f2f2f',
+                        light: '#FFFFFF'
+                    }
+                });
+            }
+            setQrCodes(codes);
+        } catch (error) {
+            console.error('Ошибка при генерации QR-кодов:', error);
+        }
+    };
 
     const handleClose = () => {
         setIsClosing(true);
@@ -56,10 +86,22 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
                         Tinkoff
                     </button>
                     <button 
-                        className={`tab ${activeTab === 'crypto' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('crypto')}
+                        className={`tab ${activeTab === 'btc' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('btc')}
                     >
-                        Криптовалюта
+                        Bitcoin
+                    </button>
+                    <button
+                        className={`tab ${activeTab === 'eth' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('eth')}
+                    >
+                        Ethereum
+                    </button>
+                    <button
+                        className={`tab ${activeTab === 'usdt' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('usdt')}
+                    >
+                        USDT
                     </button>
                     <button 
                         className={`tab ${activeTab === 'paypal' ? 'active' : ''}`}
@@ -103,9 +145,9 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
                         </div>
                     )}
 
-                    {activeTab === 'crypto' && (
+                    {activeTab === 'btc' && (
                         <div className="donate-option">
-                            <h3>Отправить донат криптовалюто��</h3>
+                            <h3>Отправить донат Bitcoin</h3>
                             <div className="crypto-addresses">
                                 <div className="crypto-item">
                                     <p><strong>Bitcoin:</strong></p>
@@ -118,7 +160,18 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
                                             Копировать
                                         </button>
                                     </div>
+                                    <div className="qr-code">
+                                        {qrCodes.bitcoin && <img src={qrCodes.bitcoin} alt="QR Code для Bitcoin" />}
+                                    </div>
                                 </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'eth' && (
+                        <div className="donate-option">
+                            <h3>Отправить донат Ethereum (ERC20)</h3>
+                            <div className="crypto-addresses">
                                 <div className="crypto-item">
                                     <p><strong>Ethereum:</strong></p>
                                     <div className="copy-field">
@@ -130,7 +183,18 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
                                             Копировать
                                         </button>
                                     </div>
+                                    <div className="qr-code">
+                                        {qrCodes.ethereum && <img src={qrCodes.ethereum} alt="QR Code для Ethereum" />}
+                                    </div>
                                 </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'usdt' && (
+                        <div className="donate-option">
+                            <h3>Отправить донат USDT</h3>
+                            <div className="crypto-addresses">
                                 <div className="crypto-item">
                                     <p><strong>USDT (TRON):</strong></p>
                                     <div className="copy-field">
@@ -141,6 +205,9 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
                                         >
                                             Копировать
                                         </button>
+                                    </div>
+                                    <div className="qr-code">
+                                        {qrCodes.usdt && <img src={qrCodes.usdt} alt="QR Code для USDT" />}
                                     </div>
                                 </div>
                             </div>
