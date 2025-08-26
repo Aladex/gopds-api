@@ -43,8 +43,8 @@ const SearchBar: React.FC = () => {
 
     const records: Record[] = [
         { option: 'authorsBookSearch', path: `/books/find/author/` },
-        { option: 'title', path: `/books/find/title/${searchItem}/1` },
-        { option: 'author', path: `/authors/${searchItem}/1` },
+        { option: 'title', path: `/books/find/title/${encodeURIComponent(searchItem)}/1` },
+        { option: 'author', path: `/authors/${encodeURIComponent(searchItem)}/1` },
     ];
     const {authorId, setAuthorBook, clearAuthorId, clearAuthorBook } = useAuthor();
 
@@ -226,4 +226,3 @@ const SearchBar: React.FC = () => {
 };
 
 export default SearchBar;
-
