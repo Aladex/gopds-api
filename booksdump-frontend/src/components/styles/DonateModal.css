@@ -10,6 +10,12 @@
     justify-content: center;
     align-items: center;
     z-index: 1000;
+    opacity: 1;
+    transition: opacity 0.3s ease;
+}
+
+.donate-modal-overlay.closing {
+    opacity: 0;
 }
 
 .donate-modal {
@@ -17,9 +23,37 @@
     border-radius: 8px;
     width: 90%;
     max-width: 600px;
-    max-height: 80vh;
-    overflow-y: auto;
+    height: 70vh;
+    min-height: 500px;
+    max-height: 700px;
+    display: flex;
+    flex-direction: column;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    transform: translateY(0);
+    transition: transform 0.3s ease;
+    animation: slideInFromBottom 0.3s ease;
+}
+
+.donate-modal.closing {
+    animation: slideOutToTop 0.3s ease;
+}
+
+@keyframes slideInFromBottom {
+    from {
+        transform: translateY(100vh);
+    }
+    to {
+        transform: translateY(0);
+    }
+}
+
+@keyframes slideOutToTop {
+    from {
+        transform: translateY(0);
+    }
+    to {
+        transform: translateY(-100vh);
+    }
 }
 
 .donate-modal-header {
@@ -75,13 +109,16 @@
 }
 
 .tab.active {
-    color: #007bff;
+    color: #2f2f2f;
     background-color: white;
-    border-bottom: 2px solid #007bff;
+    border-bottom: 2px solid #2f2f2f;
 }
 
 .donate-content {
     padding: 20px;
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
 }
 
 .donate-option h3 {
@@ -113,7 +150,7 @@
 }
 
 .copy-button {
-    background-color: #007bff;
+    background-color: #2f2f2f;
     color: white;
     border: none;
     padding: 5px 10px;
@@ -124,7 +161,7 @@
 }
 
 .copy-button:hover {
-    background-color: #0056b3;
+    background-color: #1f1f1f;
 }
 
 .crypto-item {
@@ -137,7 +174,7 @@
 
 .donate-link {
     display: inline-block;
-    background-color: #007bff;
+    background-color: #2f2f2f;
     color: white;
     text-decoration: none;
     padding: 12px 24px;
@@ -147,7 +184,7 @@
 }
 
 .donate-link:hover {
-    background-color: #0056b3;
+    background-color: #1f1f1f;
     color: white;
     text-decoration: none;
 }
@@ -163,6 +200,8 @@
     .donate-modal {
         width: 95%;
         margin: 10px;
+        height: 80vh;
+        min-height: 400px;
     }
 
     .donate-tabs {

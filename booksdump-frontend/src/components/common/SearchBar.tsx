@@ -91,10 +91,10 @@ const SearchBar: React.FC = () => {
                                                         },
                                                     },
                                                     '& .MuiInputLabel-root': {
-                                                        color: 'rgba(0, 0, 0, 0.6)',
+                                                        color: '#2f2f2f',
                                                     },
                                                     '& .MuiInputLabel-root.Mui-focused': {
-                                                        color: 'black',
+                                                        color: '#2f2f2f',
                                                     },
                                                 }}
                                             >

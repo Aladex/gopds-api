@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import '../styles/DonateModal.css';
 
 interface DonateModalProps {
@@ -8,8 +8,32 @@ interface DonateModalProps {
 
 const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
     const [activeTab, setActiveTab] = useState<'tinkoff' | 'crypto' | 'paypal' | 'buymeacoffee'>('tinkoff');
+    const [isVisible, setIsVisible] = useState(false);
+    const [isClosing, setIsClosing] = useState(false);
 
-    if (!open) return null;
+    useEffect(() => {
+        if (open) {
+            setIsVisible(true);
+            setIsClosing(false);
+        }
+    }, [open]);
+
+    const handleClose = () => {
+        setIsClosing(true);
+        setTimeout(() => {
+            setIsVisible(false);
+            setIsClosing(false);
+            onClose();
+        }, 300); // Продолжительность анимации закрытия
+    };
+
+    const handleOverlayClick = (e: React.MouseEvent) => {
+        if (e.target === e.currentTarget) {
+            handleClose();
+        }
+    };
+
+    if (!open && !isVisible) return null;
 
     const copyToClipboard = (text: string) => {
         navigator.clipboard.writeText(text);
@@ -17,11 +41,11 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
     };
 
     return (
-        <div className="donate-modal-overlay" onClick={onClose}>
-            <div className="donate-modal" onClick={e => e.stopPropagation()}>
+        <div className={`donate-modal-overlay ${isClosing ? 'closing' : ''}`} onClick={handleOverlayClick}>
+            <div className={`donate-modal ${isClosing ? 'closing' : ''}`} onClick={e => e.stopPropagation()}>
                 <div className="donate-modal-header">
                     <h2>Поддержать проект</h2>
-                    <button className="close-button" onClick={onClose}>×</button>
+                    <button className="close-button" onClick={handleClose}>×</button>
                 </div>
                 
                 <div className="donate-tabs">
@@ -81,7 +105,7 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
 
                     {activeTab === 'crypto' && (
                         <div className="donate-option">
-                            <h3>Отправить донат криптовалютой</h3>
+                            <h3>Отправить донат криптовалюто��</h3>
                             <div className="crypto-addresses">
                                 <div className="crypto-item">
                                     <p><strong>Bitcoin:</strong></p>

@@ -1,5 +1,5 @@
 import React, {useMemo, useEffect, useState} from 'react';
-import {Link, useNavigate} from 'react-router-dom';
+import {useNavigate} from 'react-router-dom';
 import {
     AppBar,
     Box,
@@ -16,7 +16,6 @@ import {
     Tab,
     Tabs,
     Toolbar,
-    Typography,
     useMediaQuery,
     Select,
     MenuItem,
@@ -213,10 +212,6 @@ const Header: React.FC = () => {
         }
     };
 
-    const handleLogoClick = () => {
-        setFav(false); // Reset fav when clicking the logo
-    };
-
     return (
         <AppBar position="static" sx={{bgcolor: theme.palette.secondary.main}}>
             <Toolbar>
@@ -350,13 +345,30 @@ const Header: React.FC = () => {
                     </>
                 ) : (
                     <>
-                        <Typography sx={{ flexGrow: 1 }}>
-                            <Link to="/books/page/1" onClick={handleLogoClick}>
-                                <img src="/logo.png" alt="Logo" style={{ width: 35, height: 35 }} />
-                            </Link>
-                        </Typography>
+                        {/* Левая часть - вкладки с логотипом */}
                         <Box sx={{borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center'}}>
-                            {/* Псевдо-вкладка доната для десктопно�� версии - СЛЕВА */}
+                            <Tabs value={value} onChange={handleChange} aria-label="basic tabs example">
+                                {menuItems.map((item, index) => (
+                                    <Tab
+                                        key={index}
+                                        label={
+                                            index === 0 ? (
+                                                // Для первой вкладки (КНИГИ) добавляем логотип
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                    <img src="/logo.png" alt="Logo" style={{ width: 24, height: 24 }} />
+                                                    {item.label}
+                                                </Box>
+                                            ) : (
+                                                item.label
+                                            )
+                                        }
+                                        {...a11yProps(item.index)}
+                                        onClick={() => handleTabClick(item.index, item.path)}
+                                        sx={{color: value === item.index ? 'inherit' : '#9e9e9e'}}
+                                    />
+                                ))}
+                            </Tabs>
+                            {/* Кнопка доната после вкладок */}
                             <Box
                                 onClick={() => setIsDonateModalOpen(true)}
                                 sx={{
@@ -372,6 +384,7 @@ const Header: React.FC = () => {
                                     minWidth: 'fit-content',
                                     justifyContent: 'center',
                                     gap: '4px',
+                                    marginLeft: 2,
                                     '&:hover': {
                                         color: '#fff',
                                         backgroundColor: 'rgba(255, 255, 255, 0.04)',
@@ -381,7 +394,14 @@ const Header: React.FC = () => {
                                 <VolunteerActivism sx={{ fontSize: '1.2rem' }} />
                                 ДОНАТ
                             </Box>
-                            {/* Вкладка язы��а - отдел��но от системы Tabs, чтобы не мешать подчеркиванию */}
+                        </Box>
+
+                        {/* Spacer для отталкивания правых элементов */}
+                        <Box sx={{ flexGrow: 1 }} />
+
+                        {/* Правая часть - выбор языка, пользователь, выход */}
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            {/* Вкладка языка */}
                             <Box
                                 onClick={handleLanguageMenuOpen}
                                 sx={{
@@ -443,26 +463,15 @@ const Header: React.FC = () => {
                                     </MenuItem>
                                 ))}
                             </Menu>
-                            <Tabs value={value} onChange={handleChange} aria-label="basic tabs example">
-                                {menuItems.map((item, index) => (
-                                    <Tab
-                                        key={index}
-                                        label={item.label}
-                                        {...a11yProps(item.index)}
-                                        onClick={() => handleTabClick(item.index, item.path)}
-                                        sx={{color: value === item.index ? 'inherit' : '#9e9e9e'}}
-                                    />
-                                ))}
-                            </Tabs>
+                            <Button sx={{color: theme.palette.primary.main}} onClick={handleUserInfo}>
+                                {user?.username}
+                            </Button>
+                            <Button sx={{color: theme.palette.primary.main}} onClick={handleLogout}>
+                                <IconButton color="inherit">
+                                    <Logout/>
+                                </IconButton>
+                            </Button>
                         </Box>
-                        <Button sx={{color: theme.palette.primary.main}} onClick={handleUserInfo}>
-                            {user?.username}
-                        </Button>
-                        <Button sx={{color: theme.palette.primary.main}} onClick={handleLogout}>
-                            <IconButton color="inherit">
-                                <Logout/>
-                            </IconButton>
-                        </Button>
                     </>
                 )}
             </Toolbar>
