@@ -32,7 +32,7 @@ import {StyledTextField} from "../StyledDataItems";
 import {useCommonStyles} from "../themeStyles";
 import {useFav} from "../../context/FavContext";
 import { useSearchBar } from "../../context/SearchBarContext";
-import { getLanguageDisplaySafe } from "../../utils/languageUtils";
+import { getLanguageDisplaySafe, languageMapping } from "../../utils/languageUtils";
 import DonateModal from "./DonateModal";
 
 const Header: React.FC = () => {
@@ -43,6 +43,7 @@ const Header: React.FC = () => {
     const {t} = useTranslation();
     const [value, setValue] = useState(0);
     const isMobile = useMediaQuery('(max-width:600px)');
+    const isVeryNarrow = useMediaQuery('(max-width:354px)'); // Добавляем проверку на очень узкие экраны
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [showPasswordFields, setShowPasswordFields] = useState(false);
@@ -60,6 +61,21 @@ const Header: React.FC = () => {
         const display = getLanguageDisplaySafe(lang);
         return display !== null;
     });
+
+    // Функция для получения отображения языка в зависимости от ширины экрана
+    const getLanguageDisplay = (lang: string) => {
+        if (isVeryNarrow) {
+            // На очень узких экранах показываем эмодзи флага + ISO код
+            const languageInfo = languageMapping[lang];
+            if (languageInfo) {
+                return `${languageInfo.flag} ${lang.toUpperCase()}`;
+            }
+            return lang.toUpperCase(); // Fallback если нет эмодзи
+        } else {
+            // На обычных экранах показываем полное название
+            return getLanguageDisplaySafe(lang);
+        }
+    };
 
     const updateLangAndSelectedLanguage = (lang: string) => {
         updateLang(lang);
@@ -211,9 +227,6 @@ const Header: React.FC = () => {
                                 <IconButton edge="start" color="inherit" aria-label="menu" onClick={handleDrawerToggle}>
                                     <MenuIcon color="primary"/>
                                 </IconButton>
-                                <Link to="/books/page/1" onClick={handleLogoClick}>
-                                    <img src="/logo.png" alt="Logo" style={{ width: 18, height: 18, marginTop: 6 }} />
-                                </Link>
                             </Box>
                             <Box display="flex" alignItems="center" gap={0.5}>
                                 {/* Псевдо-вкладка доната для мобильной версии - СЛЕВА */}
@@ -242,7 +255,7 @@ const Header: React.FC = () => {
                                     <VolunteerActivism sx={{ fontSize: '1rem' }} />
                                     ДОНАТ
                                 </Box>
-                                {/* Псевдо-вкладка языка для мобильной версии */}
+                                {/* Псевдо-вкладка языка для м��бильной версии */}
                                 <Box
                                     onClick={handleLanguageMenuOpen}
                                     sx={{
@@ -264,7 +277,7 @@ const Header: React.FC = () => {
                                         },
                                     }}
                                 >
-                                    {selectedLanguage ? getLanguageDisplaySafe(selectedLanguage) : t('language')}
+                                    {selectedLanguage ? getLanguageDisplay(selectedLanguage) : t('language')}
                                 </Box>
                                 {/* Существующие меню языка */}
                                 <Menu
@@ -298,7 +311,7 @@ const Header: React.FC = () => {
                                             onClick={() => updateLangAndSelectedLanguage(lang)}
                                             selected={selectedLanguage === lang}
                                         >
-                                            {getLanguageDisplaySafe(lang)}
+                                            {getLanguageDisplay(lang)}
                                         </MenuItem>
                                     ))}
                                 </Menu>
@@ -368,7 +381,7 @@ const Header: React.FC = () => {
                                 <VolunteerActivism sx={{ fontSize: '1.2rem' }} />
                                 ДОНАТ
                             </Box>
-                            {/* Вкладка языка - отдельно от системы Tabs, чтобы не мешать подчеркиванию */}
+                            {/* Вкладка язы��а - отдел��но от системы Tabs, чтобы не мешать подчеркиванию */}
                             <Box
                                 onClick={handleLanguageMenuOpen}
                                 sx={{
@@ -393,7 +406,7 @@ const Header: React.FC = () => {
                                     },
                                 }}
                             >
-                                {selectedLanguage ? getLanguageDisplaySafe(selectedLanguage) : t('language')}
+                                {selectedLanguage ? getLanguageDisplay(selectedLanguage) : t('language')}
                             </Box>
                             <Menu
                                 anchorEl={languageMenuAnchor}
@@ -426,7 +439,7 @@ const Header: React.FC = () => {
                                         onClick={() => updateLangAndSelectedLanguage(lang)}
                                         selected={selectedLanguage === lang}
                                     >
-                                        {getLanguageDisplaySafe(lang)}
+                                        {getLanguageDisplay(lang)}
                                     </MenuItem>
                                 ))}
                             </Menu>
@@ -517,7 +530,7 @@ const Header: React.FC = () => {
                             </MenuItem>
                             {supportedLanguages.map((lang) => (
                                 <MenuItem key={lang} value={lang}>
-                                    {getLanguageDisplaySafe(lang)}
+                                    {getLanguageDisplay(lang)}
                                 </MenuItem>
                             ))}
                         </Select>
