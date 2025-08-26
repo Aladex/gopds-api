@@ -26,7 +26,6 @@ interface Record {
 }
 
 const SearchBar: React.FC = () => {
-    const { updateLang } = useAuth();
     const { t } = useTranslation();
     const { searchItem, setSearchItem, selectedSearch, setSelectedSearch } = useSearchBar();
     const navigate = useNavigate();
