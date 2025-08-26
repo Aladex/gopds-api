@@ -3,15 +3,16 @@ package api
 import (
 	"errors"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 	"gopds-api/database"
 	"gopds-api/email"
 	"gopds-api/httputil"
 	"gopds-api/models"
 	"gopds-api/sessions"
 	"net/http"
+
+	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 )
 
 type changeAnswer struct {
@@ -80,7 +81,7 @@ func ChangeRequest(c *gin.Context) {
 		registrationMessage := email.SendType{
 			Title: viper.GetString("email.messages.reset.title"),
 			Token: fmt.Sprintf("%s/change-password/%s",
-				viper.GetString("project_domain"),
+				viper.GetString("project_url"),
 				token,
 			),
 			Button:  viper.GetString("email.messages.reset.button"),

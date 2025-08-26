@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"crypto/tls"
 	"fmt"
-	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 	assets "gopds-api"
 	"html/template"
 	"net"
 	"net/mail"
 	"net/smtp"
+
+	"github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 )
 
 type SendType struct {
