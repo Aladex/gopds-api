@@ -10,7 +10,6 @@ import {
     InputLabel
 } from '@mui/material';
 import { useTranslation } from 'react-i18next';
-import { useAuth } from "../../context/AuthContext";
 import { Favorite, FavoriteBorder } from "@mui/icons-material";
 import { useNavigate } from 'react-router-dom';
 import { useFav } from "../../context/FavContext";
