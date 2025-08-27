@@ -216,7 +216,9 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
       selectOnFocus={false}
       handleHomeEndKeys={true}
       disableCloseOnSelect={false}
-      blurOnSelect={false}
+      blurOnSelect={true}
+      autoSelect={false}
+      clearOnEscape={true}
       disabled={disabled}
       loading={loading}
       loadingText={t('loading')}
@@ -243,20 +245,34 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
         />
       )}
       renderOption={(props, option) => (
-        <Box component="li" {...props} onClick={() => {
+        <Box component="li" {...props} onClick={(e) => {
+          // Prevent default behavior
+          e.preventDefault();
+
           // First update the search field with the selected suggestion value
           setInputValue(option.value);
           onChange(option.value);
 
-          // Clear suggestions after selection
+          // Clear suggestions and loading state immediately
           setSuggestions([]);
+          setLoading(false);
 
-          // Navigate on suggestion click
-          if (option.type === 'book') {
-            navigate(`/books/find/title/${encodeURIComponent(option.value)}/1`);
-          } else if (option.type === 'author') {
-            navigate(`/authors/${encodeURIComponent(option.value)}/1`);
+          // Force blur to close the autocomplete dropdown
+          if (e.currentTarget) {
+            const autocompleteInput = document.querySelector('input[type="text"]') as HTMLInputElement;
+            if (autocompleteInput) {
+              autocompleteInput.blur();
+            }
           }
+
+          // Navigate after a small delay to ensure UI updates
+          setTimeout(() => {
+            if (option.type === 'book') {
+              navigate(`/books/find/title/${encodeURIComponent(option.value)}/1`);
+            } else if (option.type === 'author') {
+              navigate(`/authors/${encodeURIComponent(option.value)}/1`);
+            }
+          }, 100);
         }}>
           <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
             <Box sx={{ mr: 1, display: 'flex', alignItems: 'center' }}>
