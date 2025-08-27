@@ -1,9 +1,6 @@
 package main
 
 import (
-	"github.com/gin-gonic/gin"
-	swaggerFiles "github.com/swaggo/files"
-	ginSwagger "github.com/swaggo/gin-swagger"
 	assets "gopds-api"
 	"gopds-api/api"
 	"gopds-api/middlewares"
@@ -11,6 +8,10 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
 // setupRoutes defines all route handlers and groups them by their functionality.

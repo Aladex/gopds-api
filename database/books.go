@@ -2,7 +2,6 @@ package database
 
 import (
 	"errors"
-	"fmt"
 	"gopds-api/models"
 	"sort"
 	"strings"
@@ -12,6 +11,12 @@ import (
 )
 
 func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, error) {
+	// Use the enhanced search logic for all searches
+	return GetBooksEnhanced(userID, filters)
+}
+
+// GetBooksEnhanced returns an enhanced list of books with improved search logic
+func GetBooksEnhanced(userID int64, filters models.BookFilters) ([]models.Book, int, error) {
 	books := []models.Book{}
 	var userFavs []int64
 
@@ -25,48 +30,27 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, err
 		filters.Limit = 100
 	}
 
+	// If we have a title search, use enhanced search logic
+	if filters.Title != "" && len(strings.TrimSpace(filters.Title)) >= 3 {
+		return getBooksByTitleEnhanced(userID, filters, userFavs)
+	}
+
+	// For non-title searches, use simpler logic with basic filters
 	query := db.Model(&books).
 		Relation("Authors").
 		Relation("Users").
 		Relation("Series").
 		ColumnExpr("book.*, (SELECT COUNT(*) FROM favorite_books WHERE book_id = book.id) AS favorite_count")
 
-	query = applyFilters(query, filters, userID)
+	query = applyNonTitleFilters(query, filters, userID)
 
-	query = applySorting(query, filters, userID)
-
-	count, err := query.Limit(filters.Limit).Offset(filters.Offset).SelectAndCount()
-	if err != nil {
-		logrus.Print(err)
-		return nil, 0, err
-	}
-
-	for i, book := range books {
-		books[i].Fav = isFav(userFavs, book)
-	}
-
-	return books, count, nil
-}
-
-func applySorting(query *orm.Query, filters models.BookFilters, userID int64) *orm.Query {
-	// If title filter is set, use fuzzy sorting: exact_match DESC, strpos ASC, sim DESC, lev ASC, id DESC
-	if filters.Title != "" {
-		lowerTitle := strings.ToLower(filters.Title)
-		query = query.OrderExpr("(book.title ILIKE ?) DESC", fmt.Sprintf("%%%s%%", filters.Title)).
-			OrderExpr("strpos(lower(book.title), ?) ASC", lowerTitle).
-			OrderExpr("similarity(book.title, ?) DESC", filters.Title).
-			OrderExpr("levenshtein(lower(book.title), ?) ASC", lowerTitle).
-			Order("book.id DESC")
-		return query
-	}
-
-	// Default sorting for other filters
+	// Simple sorting for non-title searches
 	if filters.Fav {
 		var booksIds []models.UserToBook
 		err := db.Model(&booksIds).
 			Column("book_id").
 			Where("user_id = ?", userID).
-			Order("id DESC"). // Get latest first
+			Order("id DESC").
 			Select(&booksIds)
 		if err == nil && len(booksIds) > 0 {
 			var bIds []int64
@@ -74,7 +58,6 @@ func applySorting(query *orm.Query, filters models.BookFilters, userID int64) *o
 				bIds = append(bIds, bid.BookID)
 			}
 			query = query.WhereIn("book.id IN (?)", bIds)
-			// Safe ordering using subquery with ROW_NUMBER() - no dynamic SQL construction
 			query = query.OrderExpr(`
 				(SELECT row_number 
 				 FROM (SELECT book_id, ROW_NUMBER() OVER (ORDER BY id DESC) as row_number 
@@ -94,10 +77,184 @@ func applySorting(query *orm.Query, filters models.BookFilters, userID int64) *o
 		query = query.Order("book.id DESC")
 	}
 
-	return query
+	count, err := query.Limit(filters.Limit).Offset(filters.Offset).SelectAndCount()
+	if err != nil {
+		logrus.Print(err)
+		return nil, 0, err
+	}
+
+	for i, book := range books {
+		books[i].Fav = isFav(userFavs, book)
+	}
+
+	return books, count, nil
 }
 
-func applyFilters(query *orm.Query, filters models.BookFilters, userID int64) *orm.Query {
+// getBooksByTitleEnhanced implements enhanced title search logic similar to autocomplete
+func getBooksByTitleEnhanced(userID int64, filters models.BookFilters, userFavs []int64) ([]models.Book, int, error) {
+	lowerQuery := strings.ToLower(strings.TrimSpace(filters.Title))
+
+	// Strategy 1: Get books with exact and partial matches (like autocomplete)
+	var candidateBooks []models.Book
+
+	bookQuery := db.Model(&candidateBooks).
+		Relation("Authors").
+		Relation("Users").
+		Relation("Series").
+		ColumnExpr("book.*, (SELECT COUNT(*) FROM favorite_books WHERE book_id = book.id) AS favorite_count").
+		Where("book.approved = true").
+		Where("book.title IS NOT NULL").
+		Where("book.title != ''").
+		Where("lower(book.title) LIKE ?", "%"+lowerQuery+"%")
+
+	// Apply other filters (lang, author, series, etc.)
+	bookQuery = applyNonTitleFilters(bookQuery, filters, userID)
+
+	// Get a larger set for better sorting (like autocomplete does with 500 limit)
+	err := bookQuery.
+		OrderExpr("similarity(book.title, ?) DESC", filters.Title).
+		OrderExpr("strpos(lower(book.title), ?) ASC", lowerQuery).
+		OrderExpr("book.id DESC").
+		Limit(500).
+		Select()
+
+	if err != nil {
+		logrus.Print(err)
+		return nil, 0, err
+	}
+
+	// Strategy 2: If we have few results, try trigram search
+	if len(candidateBooks) < 50 {
+		var trigramBooks []models.Book
+
+		trigramQuery := db.Model(&trigramBooks).
+			Relation("Authors").
+			Relation("Users").
+			Relation("Series").
+			ColumnExpr("book.*, (SELECT COUNT(*) FROM favorite_books WHERE book_id = book.id) AS favorite_count").
+			Where("book.approved = true").
+			Where("book.title IS NOT NULL").
+			Where("book.title != ''").
+			Where("book.title % ?", filters.Title).
+			Where("similarity(book.title, ?) > 0.3", filters.Title) // Lower threshold than original
+
+		trigramQuery = applyNonTitleFilters(trigramQuery, filters, userID)
+
+		err := trigramQuery.
+			OrderExpr("similarity(book.title, ?) DESC", filters.Title).
+			Limit(100).
+			Select()
+
+		if err == nil {
+			// Merge results, avoiding duplicates
+			seenBooks := make(map[int64]bool)
+			for _, book := range candidateBooks {
+				seenBooks[book.ID] = true
+			}
+
+			for _, book := range trigramBooks {
+				if !seenBooks[book.ID] {
+					candidateBooks = append(candidateBooks, book)
+					seenBooks[book.ID] = true
+				}
+			}
+		}
+	}
+
+	// Score and sort books by relevance (like autocomplete does for authors)
+	type bookWithScore struct {
+		book  models.Book
+		score int
+	}
+
+	var scoredBooks []bookWithScore
+	for _, book := range candidateBooks {
+		score := calculateBookScore(book.Title, filters.Title)
+		scoredBooks = append(scoredBooks, bookWithScore{
+			book:  book,
+			score: score,
+		})
+	}
+
+	// Sort by score (best matches first)
+	sort.Slice(scoredBooks, func(i, j int) bool {
+		if scoredBooks[i].score != scoredBooks[j].score {
+			return scoredBooks[i].score > scoredBooks[j].score
+		}
+		// If scores are equal, prefer newer books
+		return scoredBooks[i].book.ID > scoredBooks[j].book.ID
+	})
+
+	// Apply pagination
+	totalCount := len(scoredBooks)
+	start := filters.Offset
+	end := filters.Offset + filters.Limit
+
+	if start >= totalCount {
+		return []models.Book{}, totalCount, nil
+	}
+	if end > totalCount {
+		end = totalCount
+	}
+
+	var finalBooks []models.Book
+	for i := start; i < end; i++ {
+		book := scoredBooks[i].book
+		book.Fav = isFav(userFavs, book)
+		finalBooks = append(finalBooks, book)
+	}
+
+	return finalBooks, totalCount, nil
+}
+
+// calculateBookScore calculates relevance score for book title (similar to author scoring in autocomplete)
+func calculateBookScore(title, query string) int {
+	lowerTitle := strings.ToLower(strings.TrimSpace(title))
+	lowerQuery := strings.ToLower(strings.TrimSpace(query))
+
+	score := 0
+
+	// Exact match gets highest score
+	if lowerTitle == lowerQuery {
+		score += 1000
+	}
+
+	// Title starts with query gets high score
+	if strings.HasPrefix(lowerTitle, lowerQuery) {
+		score += 500
+	}
+
+	// Query at the beginning of title gets bonus
+	if strings.Contains(lowerTitle, lowerQuery) {
+		pos := strings.Index(lowerTitle, lowerQuery)
+		score += 200 - pos // Earlier position = higher score
+	}
+
+	// Word boundary matches get bonus
+	titleWords := strings.Fields(lowerTitle)
+	queryWords := strings.Fields(lowerQuery)
+
+	for _, qWord := range queryWords {
+		for _, tWord := range titleWords {
+			if strings.HasPrefix(tWord, qWord) {
+				score += 100
+			} else if strings.Contains(tWord, qWord) {
+				score += 50
+			}
+		}
+	}
+
+	// Length similarity bonus (prefer similar length titles)
+	lenDiff := abs(len(lowerTitle) - len(lowerQuery))
+	if lenDiff < 5 {
+		score += 25
+	}
+
+	return score
+}
+
+// applyNonTitleFilters applies all filters except title search
+func applyNonTitleFilters(query *orm.Query, filters models.BookFilters, userID int64) *orm.Query {
 	if filters.Fav {
 		var booksIds []int64
 		err := db.Model(&models.UserToBook{}).
@@ -108,19 +265,6 @@ func applyFilters(query *orm.Query, filters models.BookFilters, userID int64) *o
 		if err == nil && len(booksIds) > 0 {
 			query = query.WhereIn("book.id IN (?)", booksIds)
 		}
-	}
-
-	if filters.Title != "" {
-		lowerTitle := strings.ToLower(filters.Title)
-		// Fuzzy search: ILIKE for exact/partial OR pg_trgm for similar, with thresholds
-		query = query.WhereGroup(func(q *orm.Query) (*orm.Query, error) {
-			q = q.Where("book.title % ?", filters.Title).
-				WhereOr("book.title ILIKE ?", fmt.Sprintf("%%%s%%", filters.Title))
-			// Thresholds to improve relevance and performance
-			q = q.Where("similarity(book.title, ?) > 0.5", filters.Title)
-			q = q.Where("levenshtein(lower(book.title), ?) <= 5", lowerTitle)
-			return q, nil
-		})
 	}
 
 	if filters.Lang != "" {
@@ -170,6 +314,15 @@ func applyFilters(query *orm.Query, filters models.BookFilters, userID int64) *o
 	return query
 }
 
+// abs returns absolute value of integer
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
+// isFav checks if a book is favorited by the user
 func isFav(userFavs []int64, book models.Book) bool {
 	for _, favID := range userFavs {
 		if favID == book.ID {

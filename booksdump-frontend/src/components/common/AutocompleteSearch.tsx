@@ -228,8 +228,9 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
           {...params}
           label={placeholder || t('searchItem')}
           fullWidth
-          onKeyUp={(e) => {
+          onKeyDown={(e) => {
             if (e.key === 'Enter' && onEnterPressed) {
+              e.preventDefault(); // Предотвращаем отправку формы
               onEnterPressed();
             }
           }}
