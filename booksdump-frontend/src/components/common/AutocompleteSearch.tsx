@@ -230,8 +230,16 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
           fullWidth
           onKeyDown={(e) => {
             if (e.key === 'Enter' && onEnterPressed) {
-              e.preventDefault(); // Предотвращаем отправку формы
-              onEnterPressed();
+              // Проверяем, есть ли открытые опции автокомплита
+              const autocompleteOpen = document.querySelector('[role="listbox"]');
+              const hasSelectedOption = document.querySelector('[role="option"][aria-selected="true"]');
+
+              // Запускаем поиск только если автокомплит закрыт или нет выбранной опции
+              if (!autocompleteOpen || !hasSelectedOption) {
+                e.preventDefault();
+                onEnterPressed();
+              }
+              // Если есть выбранная опция в автокомплите, позволяем стандартному поведению сработать
             }
           }}
           InputProps={{
