@@ -4,11 +4,12 @@ import (
 	"archive/zip"
 	"bytes"
 	"errors"
-	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 	"io"
 	"os"
 	"os/exec"
+
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 )
 
 type BookProcessor struct {
@@ -111,7 +112,7 @@ func (bp *BookProcessor) readWithoutConversion(rc io.ReadCloser) (io.ReadCloser,
 }
 
 func (bp *BookProcessor) Epub() (io.ReadCloser, error) {
-	return bp.process(".epub", []string{"external_fb2mobi/fb2c", "convert", "--to", "epub"}, true)
+	return bp.process(".epub", []string{"external_fb2mobi/fb2c", "convert", "--to", "epub", "--no-vignette"}, true)
 }
 
 func (bp *BookProcessor) Mobi() (io.ReadCloser, error) {
