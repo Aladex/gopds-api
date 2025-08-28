@@ -51,7 +51,9 @@ axiosInstance.interceptors.response.use(
             const isAuthPage = currentPath.includes('/login') ||
                               currentPath.includes('/register') ||
                               currentPath.includes('/forgot-password') ||
-                              currentPath.includes('/activation');
+                              currentPath.includes('/activation') ||
+                              currentPath.includes('/activate') ||
+                              currentPath.includes('/change-password');
 
             const isAuthRequest = originalRequest.url?.includes('/login') ||
                                  originalRequest.url?.includes('/refresh-token') ||

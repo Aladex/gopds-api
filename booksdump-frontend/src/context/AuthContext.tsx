@@ -66,8 +66,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             }
         } catch (error) {
             console.error('Error refreshing token', error);
+
+            // Check if we're on an auth page - don't redirect if we are
+            const currentPath = window.location.pathname;
+            const isAuthPage = currentPath.includes('/login') ||
+                              currentPath.includes('/register') ||
+                              currentPath.includes('/forgot-password') ||
+                              currentPath.includes('/activation') ||
+                              currentPath.includes('/activate') ||
+                              currentPath.includes('/change-password');
+
             setUser(null);
-            navigate('/login');
+            if (!isAuthPage) {
+                navigate('/login');
+            }
         }
         return false;
     }, [navigate, setUser]);
@@ -156,16 +168,25 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     // Initialize CSRF token and user data
     useEffect(() => {
         const initializeAuth = async () => {
+            // Check current path first
+            const currentPath = window.location.pathname;
+            const isChangePasswordPage = currentPath.includes('/change-password');
+
+            // For change password page, only get CSRF token and skip all auth checks
+            if (isChangePasswordPage) {
+                await getCsrfToken();
+                setIsLoaded(true);
+                setIsLoading(false);
+                return;
+            }
+
             await getCsrfToken();
 
-            // Check current path
-            const currentPath = window.location.pathname;
             const isAuthPage = currentPath.includes('/login') ||
                               currentPath.includes('/register') ||
                               currentPath.includes('/forgot-password') ||
                               currentPath.includes('/activation') ||
-                              currentPath.includes('/activate') ||
-                              currentPath.includes('/change-password');
+                              currentPath.includes('/activate');
 
             if (!isAuthPage) {
                 // For non-auth pages, try to login normally
