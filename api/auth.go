@@ -128,6 +128,7 @@ func AuthCheck(c *gin.Context) {
 		User:        dbUser.Login,
 		FirstName:   dbUser.FirstName,
 		LastName:    dbUser.LastName,
+		BooksLang:   dbUser.BooksLang,
 		Token:       &accessToken,
 		IsSuperuser: &dbUser.IsSuperUser,
 		HaveFavs:    &hf,
