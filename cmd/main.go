@@ -5,17 +5,18 @@ package main
 import (
 	"context"
 	"errors"
-	"github.com/gin-gonic/gin"
-	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 	"gopds-api/database"
 	_ "gopds-api/docs" // Import to include documentation for Swagger UI
 	"gopds-api/sessions"
-	"gopds-api/tasks" // Import the tasks package
+	"gopds-api/tasks" // Import the tasks package for WatchDirectory
 	"net/http"
 	"os"
 	"os/signal"
 	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 )
 
 // @title GOPDS API
@@ -46,9 +47,6 @@ func main() {
 	route := gin.New()
 	setupMiddleware(route)
 	setupRoutes(route)
-
-	// Initialize TaskManager
-	taskManager := tasks.NewTaskManager()
 
 	server := &http.Server{
 		Addr:           ":8085",
@@ -91,9 +89,6 @@ func main() {
 	if err := server.Shutdown(ctx); err != nil {
 		logrus.Fatal("Server forced to shutdown:", err)
 	}
-
-	// Stop all workers before exiting
-	taskManager.StopAllWorkers()
 
 	logrus.Info("Server exiting")
 }
