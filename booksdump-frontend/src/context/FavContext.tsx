@@ -19,11 +19,26 @@ interface FavProviderProps {
 }
 
 export const FavProvider: React.FC<FavProviderProps> = ({ children }) => {
-    const { user } = useAuth();
+    const { user, setResetFavCallback } = useAuth();
     const [fav, setFav] = useState(false);
     const [favEnabled, setFavEnabled] = useState(user?.have_favs ?? false);
     const [snackbarMessage, setSnackbarMessage] = useState('');
     const navigate = useNavigate();
+
+    // Инициализация состояния fav на основе текущего URL
+    useEffect(() => {
+        const currentPath = window.location.pathname;
+        const isFavoritePage = currentPath.includes('/books/favorite');
+        setFav(isFavoritePage);
+    }, []);
+
+    // Регистрируем функцию сброса избранного в AuthContext
+    useEffect(() => {
+        const resetFav = () => {
+            setFav(false);
+        };
+        setResetFavCallback(resetFav);
+    }, [setResetFavCallback]);
 
     useEffect(() => {
         setFavEnabled(user?.have_favs ?? false);
@@ -33,11 +48,16 @@ export const FavProvider: React.FC<FavProviderProps> = ({ children }) => {
         const currentPath = window.location.pathname;
         const isFavoritePage = currentPath.includes('/books/favorite');
 
-        if (fav && favEnabled && !isFavoritePage) {
-            navigate('/books/favorite/1');
-        } else if (!fav && isFavoritePage) {
-            navigate('/books/page/1');
-        }
+        // Добавляем небольшую задержку чтобы избежать конфликтов с navigate из других компонентов
+        const timeoutId = setTimeout(() => {
+            if (fav && favEnabled && !isFavoritePage) {
+                navigate('/books/favorite/1');
+            } else if (!fav && isFavoritePage) {
+                navigate('/books/page/1');
+            }
+        }, 50);
+
+        return () => clearTimeout(timeoutId);
     }, [fav, favEnabled, navigate]);
 
     const memoizedSetFav = useCallback((fav: boolean) => setFav(fav), []);

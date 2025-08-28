@@ -24,6 +24,8 @@ interface AuthContextType {
     updateLang: (language: string) => void;
     refreshToken: () => Promise<boolean>;
     getCsrfToken: () => Promise<void>;
+    resetFavCallback?: () => void;  // Добавляем колбэк для сброса избранного
+    setResetFavCallback: (callback: () => void) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -37,6 +39,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const [isLoaded, setIsLoaded] = useState<boolean>(false);
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [csrfToken, setCsrfToken] = useState<string | null>(null);
+    const [resetFavCallback, setResetFavCallback] = useState<() => void>(() => () => {});
     const navigate = useNavigate();
 
     // Мемоизируем isAuthenticated для предотвращения ненужных перерендеров
@@ -126,9 +129,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                     books_lang: language
                 });
                 if (response.status === 200) {
+                    // Сбрасываем избранное перед сменой языка
+                    if (resetFavCallback) {
+                        resetFavCallback();
+                    }
+
                     // Обновляем пользователя с новым языком
                     setUser({ ...user, books_lang: language });
-                    // Используем navigate вместо window.location.assign для SPA навигации
+
+                    // При смене языка всегда перенаправляем на обычную страницу книг
                     navigate('/books/page/1');
                 } else {
                     console.error('Failed to update language');
@@ -137,7 +146,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 console.error('Error updating language', error);
             }
         }
-    }, [user, navigate, setUser]);
+    }, [user, navigate, setUser, resetFavCallback]);
 
     const logout = useCallback(() => {
         if (isLoading) return;
@@ -227,7 +236,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         logout,
         refreshToken,
         getCsrfToken,
-    }), [isAuthenticated, user, isLoaded, isLoading, csrfToken, setUser, updateLang, updateUser, login, logout, refreshToken, getCsrfToken]);
+        resetFavCallback,
+        setResetFavCallback,
+    }), [isAuthenticated, user, isLoaded, isLoading, csrfToken, setUser, updateLang, updateUser, login, logout, refreshToken, getCsrfToken, resetFavCallback]);
 
     return (
         <AuthContext.Provider value={contextValue}>
