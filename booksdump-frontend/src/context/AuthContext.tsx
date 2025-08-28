@@ -148,27 +148,30 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
     }, [user, navigate, setUser, resetFavCallback]);
 
-    const logout = useCallback(() => {
+    const logout = useCallback(async () => {
         if (isLoading) return;
 
         setIsLoading(true);
-        fetchWithAuth.get('/logout')
-            .then(() => {
-                setUser(null);
-                setCsrfToken(null);
-                navigate('/login');
-            })
-            .catch((error) => {
-                console.error('Error logging out', error);
-                // Force logout even if request fails
-                setUser(null);
-                setCsrfToken(null);
-                navigate('/login');
-            })
-            .finally(() => {
-                setIsLoading(false);
-            });
-    }, [navigate, isLoading, setUser]);
+        try {
+            await fetchWithAuth.get('/logout');
+        } catch (error) {
+            console.error('Error logging out', error);
+        } finally {
+            // Всегда сбрасываем пользователя и получаем новый CSRF токен
+            setUser(null);
+            setCsrfToken(null);
+
+            // Получаем новый CSRF токен после логаута
+            try {
+                await getCsrfToken();
+            } catch (error) {
+                console.error('Error getting new CSRF token after logout', error);
+            }
+
+            setIsLoading(false);
+            navigate('/login');
+        }
+    }, [navigate, isLoading, setUser, getCsrfToken]);
 
     const updateUser = useCallback((userData: User) => {
         setUser(userData);
