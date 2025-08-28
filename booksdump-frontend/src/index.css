@@ -1,4 +1,6 @@
 /* src/index.css */
+@import './transitions.css';
+
 body {
   background-color: #b3b3b3 !important;
   margin: 0;

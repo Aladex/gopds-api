@@ -1,0 +1,54 @@
+/* Плавные переходы для предотвращения мигания */
+.page-transition-enter {
+    opacity: 0;
+    transform: translateY(10px);
+}
+
+.page-transition-enter-active {
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity 200ms ease-out, transform 200ms ease-out;
+}
+
+.page-transition-exit {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.page-transition-exit-active {
+    opacity: 0;
+    transform: translateY(-10px);
+    transition: opacity 200ms ease-in, transform 200ms ease-in;
+}
+
+/* Предотвращение мигания при загрузке */
+.app-container {
+    min-height: 100vh;
+    transition: opacity 150ms ease-in-out;
+}
+
+.app-container.loading {
+    opacity: 0.7;
+}
+
+/* Оптимизация для более плавной отрисовки */
+* {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Предотвращение FOUC (Flash of Unstyled Content) */
+html {
+    visibility: hidden;
+}
+
+html.loaded {
+    visibility: visible;
+}
+
+/* Улучшение производительности рендеринга */
+.performance-optimized {
+    will-change: transform, opacity;
+    backface-visibility: hidden;
+    transform: translateZ(0);
+}

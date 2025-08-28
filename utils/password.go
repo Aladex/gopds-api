@@ -7,9 +7,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"github.com/golang-jwt/jwt/v4"
-	"github.com/spf13/viper"
-	"golang.org/x/crypto/pbkdf2"
 	"gopds-api/models"
 	"hash"
 	"math/big"
@@ -17,6 +14,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt/v4"
+	"github.com/spf13/viper"
+	"golang.org/x/crypto/pbkdf2"
 )
 
 const (
@@ -48,6 +49,7 @@ type Token struct {
 	UserID      string
 	DatabaseID  int64
 	IsSuperUser bool
+	TokenType   string // "access" или "refresh"
 	jwt.RegisteredClaims
 }
 
@@ -100,6 +102,7 @@ func CreateToken(user models.User) (string, error) {
 		UserID:      user.Login,
 		DatabaseID:  user.ID,
 		IsSuperUser: user.IsSuperUser,
+		TokenType:   "access",
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:   "gopds-api",
 			IssuedAt: jwt.NewNumericDate(time.Now()),
@@ -111,6 +114,47 @@ func CreateToken(user models.User) (string, error) {
 		return "", err
 	}
 	return tokenString, nil
+}
+
+// CreateTokenPair creates both access and refresh tokens for the user
+func CreateTokenPair(user models.User) (string, string, error) {
+	// Create access token (15 minutes)
+	accessToken := Token{
+		UserID:      user.Login,
+		DatabaseID:  user.ID,
+		IsSuperUser: user.IsSuperUser,
+		TokenType:   "access",
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "gopds-api",
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
+		},
+	}
+
+	// Create refresh token (7 days)
+	refreshToken := Token{
+		UserID:      user.Login,
+		DatabaseID:  user.ID,
+		IsSuperUser: user.IsSuperUser,
+		TokenType:   "refresh",
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "gopds-api",
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(7 * 24 * time.Hour)),
+		},
+	}
+
+	accessTokenString, err := jwt.NewWithClaims(jwt.GetSigningMethod("HS256"), accessToken).SignedString([]byte(viper.GetString("sessions.key")))
+	if err != nil {
+		return "", "", err
+	}
+
+	refreshTokenString, err := jwt.NewWithClaims(jwt.GetSigningMethod("HS256"), refreshToken).SignedString([]byte(viper.GetString("sessions.key")))
+	if err != nil {
+		return "", "", err
+	}
+
+	return accessTokenString, refreshTokenString, nil
 }
 
 // CheckToken checks if the token is valid
@@ -127,4 +171,20 @@ func CheckToken(token string) (string, int64, bool, error) {
 		return claims.UserID, claims.DatabaseID, claims.IsSuperUser, nil
 	}
 	return "", 0, false, errors.New("invalid_token")
+}
+
+// CheckTokenWithType checks if the token is valid and returns token type
+func CheckTokenWithType(token string) (string, int64, bool, string, error) {
+	tokenCheck, err := jwt.ParseWithClaims(token, &Token{}, func(token *jwt.Token) (interface{}, error) {
+		return []byte(viper.GetString("sessions.key")), nil
+	})
+
+	if tokenCheck == nil {
+		return "", 0, false, "", err
+	}
+
+	if claims, ok := tokenCheck.Claims.(*Token); ok && tokenCheck.Valid {
+		return claims.UserID, claims.DatabaseID, claims.IsSuperUser, claims.TokenType, nil
+	}
+	return "", 0, false, "", errors.New("invalid_token")
 }

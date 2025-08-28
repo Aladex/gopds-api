@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/utils"
 	"io"
@@ -11,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
 
@@ -51,7 +51,7 @@ func CheckUser(u models.LoginRequest) (bool, models.User, error) {
 func LoginDateSet(u *models.User) {
 	_, err := db.Model(u).Set("last_login = NOW()").WherePK().Update()
 	if err != nil {
-		logrus.Println(err)
+		logging.Error(err)
 	}
 }
 
@@ -184,6 +184,70 @@ func GetUserList(filters models.UserFilters) ([]models.User, int, error) {
 	return users, count, nil
 }
 
+// UpdateUserProfile safely updates only profile fields that users can change themselves
+func UpdateUserProfile(userID int64, updates models.SelfUserChangeRequest) (models.User, error) {
+	var user models.User
+	err := db.Model(&user).Where("id = ?", userID).Select()
+	if err != nil {
+		return user, err
+	}
+
+	// Only update fields that users should be able to change
+	if updates.FirstName != "" {
+		user.FirstName = updates.FirstName
+	}
+	if updates.LastName != "" {
+		user.LastName = updates.LastName
+	}
+	if updates.BooksLang != "" {
+		user.BooksLang = updates.BooksLang
+	}
+	if updates.NewPassword != "" {
+		logging.Info("Updating password for user ", user.Login)
+		hashedPassword := utils.CreatePasswordHash(updates.NewPassword)
+		user.Password = hashedPassword
+	}
+
+	if _, err := db.Model(&user).WherePK().Update(); err != nil {
+		return user, err
+	}
+	return user, nil
+}
+
+// UpdateUserByAdmin updates user data by admin (keeps existing functionality)
+func UpdateUserByAdmin(action models.AdminCommandToUser) (models.User, error) {
+	var userToChange models.User
+	err := db.Model(&userToChange).Where("id = ?", action.User.ID).Select()
+	if err != nil {
+		return userToChange, err
+	}
+
+	// Update password only if a new non-empty password is provided
+	if action.User.Password != "" {
+		logging.Info("Updating password for user ", userToChange.Login)
+		hashedPassword := utils.CreatePasswordHash(action.User.Password)
+		userToChange.Password = hashedPassword
+	}
+
+	// Check if BotToken has actually changed before setting webhook
+	botTokenChanged := userToChange.BotToken != action.User.BotToken
+
+	// Update other user details (for admin operations)
+	userToChange = updateUserDetails(userToChange, action.User)
+
+	// Only set webhook if bot token has actually changed
+	if botTokenChanged && action.User.BotToken != "" {
+		if err := setWebhookIfNeeded(action.User.BotToken); err != nil {
+			return userToChange, err
+		}
+	}
+
+	if _, err := db.Model(&userToChange).WherePK().Update(); err != nil {
+		return userToChange, err
+	}
+	return userToChange, nil
+}
+
 func ActionUser(action models.AdminCommandToUser) (models.User, error) {
 	var userToChange models.User
 	err := db.Model(&userToChange).Where("id = ?", action.User.ID).Select()
@@ -195,30 +259,7 @@ func ActionUser(action models.AdminCommandToUser) (models.User, error) {
 	case "get":
 		return userToChange, nil
 	case "update":
-		// Update password only if a new non-empty password is provided
-		if action.User.Password != "" {
-			logrus.Info("Updating password for user ", userToChange.Login)
-			hashedPassword := utils.CreatePasswordHash(action.User.Password)
-			userToChange.Password = hashedPassword
-		}
-
-		// Check if BotToken has actually changed before setting webhook
-		botTokenChanged := userToChange.BotToken != action.User.BotToken
-
-		// Update other user details
-		userToChange = updateUserDetails(userToChange, action.User)
-
-		// Only set webhook if bot token has actually changed
-		if botTokenChanged && action.User.BotToken != "" {
-			if err := setWebhookIfNeeded(action.User.BotToken); err != nil {
-				return userToChange, err
-			}
-		}
-
-		if _, err := db.Model(&userToChange).WherePK().Update(); err != nil {
-			return userToChange, err
-		}
-		return userToChange, nil
+		return UpdateUserByAdmin(action)
 	default:
 		return userToChange, errors.New("unknown action")
 	}
@@ -236,7 +277,7 @@ func setWebhookIfNeeded(botToken string) error {
 		defer func(Body io.ReadCloser) {
 			err := Body.Close()
 			if err != nil {
-				logrus.Println(err)
+				logging.Error(err)
 			}
 		}(resp.Body)
 		if resp.StatusCode != http.StatusOK {

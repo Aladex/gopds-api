@@ -2,12 +2,13 @@ package sessions
 
 import (
 	"context"
-	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 	"gopds-api/models"
 	"gopds-api/utils"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 )
 
 func CheckSessionKeyInRedis(ctx context.Context, token string) (string, error) {
@@ -100,4 +101,47 @@ func DeleteTokenPassword(token string) {
 			rdbToken.Del(k)
 		}
 	}
+}
+
+// BlacklistRefreshToken adds a refresh token to blacklist
+func BlacklistRefreshToken(ctx context.Context, refreshToken string) error {
+	// Calculate remaining time until token expires (7 days max)
+	remainingTime := 7 * 24 * time.Hour
+
+	// Store in Redis with prefix to identify blacklisted tokens
+	blacklistKey := "blacklist:refresh:" + refreshToken
+	_, err := rdb.WithContext(ctx).Set(blacklistKey, "revoked", remainingTime).Result()
+	if err != nil {
+		logrus.Println("Error blacklisting refresh token:", err)
+		return err
+	}
+	return nil
+}
+
+// IsRefreshTokenBlacklisted checks if refresh token is blacklisted
+func IsRefreshTokenBlacklisted(ctx context.Context, refreshToken string) bool {
+	blacklistKey := "blacklist:refresh:" + refreshToken
+	_, err := rdb.WithContext(ctx).Get(blacklistKey).Result()
+	return err == nil // If key exists, token is blacklisted
+}
+
+// CleanupExpiredBlacklistedTokens removes expired entries from blacklist
+func CleanupExpiredBlacklistedTokens(ctx context.Context) error {
+	// Redis automatically removes expired keys, so this is mainly for manual cleanup if needed
+	pattern := "blacklist:refresh:*"
+	keys, err := rdb.WithContext(ctx).Keys(pattern).Result()
+	if err != nil {
+		return err
+	}
+
+	for _, key := range keys {
+		// Check if token is still valid
+		token := strings.TrimPrefix(key, "blacklist:refresh:")
+		_, _, _, _, err := utils.CheckTokenWithType(token)
+		if err != nil {
+			// Token is expired, remove from blacklist
+			rdb.WithContext(ctx).Del(key)
+		}
+	}
+	return nil
 }

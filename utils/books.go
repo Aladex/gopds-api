@@ -4,11 +4,12 @@ import (
 	"archive/zip"
 	"bytes"
 	"errors"
-	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
+	"gopds-api/logging"
 	"io"
 	"os"
 	"os/exec"
+
+	"github.com/google/uuid"
 )
 
 type BookProcessor struct {
@@ -30,22 +31,22 @@ func NewBookProcessor(filename, path string) *BookProcessor {
 
 func closeResource(rc io.Closer) {
 	if err := rc.Close(); err != nil {
-		logrus.Printf("failed to close resource: %v", err)
+		logging.Errorf("failed to close resource: %v", err)
 	}
 }
 
 func closeTmpFile(file *os.File) {
 	if err := file.Close(); err != nil {
-		logrus.Printf("failed to close tmp file: %v", err)
+		logging.Errorf("failed to close tmp file: %v", err)
 	}
 }
 
 func deleteTmpFile(filename, format string) {
 	if err := os.Remove(filename + ".fb2"); err != nil {
-		logrus.Printf("failed to delete tmp file: %v", err)
+		logging.Errorf("failed to delete tmp file: %v", err)
 	}
 	if err := os.Remove(filename + format); err != nil {
-		logrus.Printf("failed to delete converted file: %v", err)
+		logging.Errorf("failed to delete converted file: %v", err)
 	}
 }
 

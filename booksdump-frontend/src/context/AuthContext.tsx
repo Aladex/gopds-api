@@ -15,11 +15,15 @@ interface AuthContextType {
     isAuthenticated: boolean;
     user: User | null;
     isLoaded: boolean;
+    isLoading: boolean;
+    csrfToken: string | null;
     setUser: (user: User | null) => void;
     updateUser: (userData: User) => void;
     login: () => void;
     logout: () => void;
     updateLang: (language: string) => void;
+    refreshToken: () => Promise<boolean>;
+    getCsrfToken: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -31,17 +35,62 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const [user, setUser] = useState<User | null>(null);
     const [isLoaded, setIsLoaded] = useState<boolean>(false);
+    const [isLoading, setIsLoading] = useState<boolean>(false);
+    const [csrfToken, setCsrfToken] = useState<string | null>(null);
     const navigate = useNavigate();
-    const isAuthenticated = !!user;
+
+    // Мемоизируем isAuthenticated для предотвращения ненужных перерендеров
+    const isAuthenticated = useMemo(() => !!user, [user]);
+
+    const getCsrfToken = useCallback(async () => {
+        try {
+            const response = await fetchWithAuth.get('/csrf-token');
+            if (response.status === 200 && response.data.csrf_token) {
+                setCsrfToken(response.data.csrf_token);
+            }
+        } catch (error) {
+            console.error('Error fetching CSRF token', error);
+        }
+    }, []);
+
+    const refreshToken = useCallback(async () => {
+        try {
+            const response = await fetchWithAuth.post('/refresh-token');
+            if (response.status === 200) {
+                return true;
+            }
+        } catch (error) {
+            console.error('Error refreshing token', error);
+            setUser(null);
+            navigate('/login');
+        }
+        return false;
+    }, [navigate]);
 
     const login = useCallback(() => {
+        // Предотвращаем множественные вызовы login
+        if (isLoading) return;
+
+        setIsLoading(true);
         fetchWithAuth.get('/books/self-user')
             .then((response) => {
                 setUser(response.data);
             })
-            .catch((error) => {
+            .catch(async (error) => {
                 if (error.response && error.response.status === 401) {
-                    setUser(null);
+                    // Try to refresh token once
+                    const refreshed = await refreshToken();
+                    if (refreshed) {
+                        // Retry getting user data
+                        try {
+                            const response = await fetchWithAuth.get('/books/self-user');
+                            setUser(response.data);
+                        } catch (retryError) {
+                            setUser(null);
+                        }
+                    } else {
+                        setUser(null);
+                    }
                 } else {
                     console.error('Error fetching user data', error);
                     setUser(null);
@@ -49,15 +98,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             })
             .finally(() => {
                 setIsLoaded(true);
+                setIsLoading(false);
             });
-    }, []);
+    }, [refreshToken, isLoading]);
 
     const updateLang = useCallback(async (language: string) => {
         if (user) {
             try {
-                const response = await fetchWithAuth.post('/books/change-me', { ...user, books_lang: language });
+                const response = await fetchWithAuth.post('/books/change-me', {
+                    books_lang: language
+                });
                 if (response.status === 200) {
-                    window.location.assign('/books/page/1');
+                    setUser(prevUser => prevUser ? { ...prevUser, books_lang: language } : null);
+                    // Используем navigate вместо window.location.assign для SPA навигации
+                    navigate('/books/page/1');
                 } else {
                     console.error('Failed to update language');
                 }
@@ -65,41 +119,89 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 console.error('Error updating language', error);
             }
         }
-    }, [user]);
+    }, [user, navigate]);
 
     const logout = useCallback(() => {
+        if (isLoading) return;
+
+        setIsLoading(true);
         fetchWithAuth.get('/logout')
             .then(() => {
                 setUser(null);
+                setCsrfToken(null);
                 navigate('/login');
             })
             .catch((error) => {
                 console.error('Error logging out', error);
+                // Force logout even if request fails
+                setUser(null);
+                setCsrfToken(null);
+                navigate('/login');
+            })
+            .finally(() => {
+                setIsLoading(false);
             });
-    }, [navigate]);
+    }, [navigate, isLoading]);
 
     const updateUser = useCallback((userData: User) => {
         setUser(userData);
     }, []);
 
+    // Initialize CSRF token and user data
     useEffect(() => {
-        login();
-    }, [login]);
+        const initializeAuth = async () => {
+            await getCsrfToken();
 
+            // Check current path
+            const currentPath = window.location.pathname;
+            const isAuthPage = currentPath.includes('/login') ||
+                              currentPath.includes('/register') ||
+                              currentPath.includes('/forgot-password') ||
+                              currentPath.includes('/activation');
+
+            if (!isAuthPage) {
+                // For non-auth pages, try to login normally
+                login();
+            } else {
+                // For auth pages, still check if user is already authenticated
+                // but do it silently without triggering redirects
+                setIsLoading(true);
+                fetchWithAuth.get('/books/self-user')
+                    .then((response) => {
+                        setUser(response.data);
+                    })
+                    .catch(() => {
+                        // Silent fail - user is not authenticated, which is expected on auth pages
+                        setUser(null);
+                    })
+                    .finally(() => {
+                        setIsLoaded(true);
+                        setIsLoading(false);
+                    });
+            }
+        };
+        initializeAuth();
+    }, [getCsrfToken]); // Убираем login из зависимостей для предотвращения циклов
+
+    // Мемоизируем значение контекста для предотвращения ненужных перерендеров
     const contextValue = useMemo(() => ({
         isAuthenticated,
         user,
         isLoaded,
+        isLoading,
+        csrfToken,
         setUser,
         updateLang,
         updateUser,
         login,
         logout,
-    }), [isAuthenticated, user, isLoaded, updateLang, updateUser, login, logout]);
+        refreshToken,
+        getCsrfToken,
+    }), [isAuthenticated, user, isLoaded, isLoading, csrfToken, updateLang, updateUser, login, logout, refreshToken, getCsrfToken]);
 
     return (
         <AuthContext.Provider value={contextValue}>
-            {isLoaded && children}
+            {children}
         </AuthContext.Provider>
     );
 };

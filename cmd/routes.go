@@ -22,6 +22,8 @@ func setupRoutes(route *gin.Engine) {
 	setupFileRoutes(route.Group("/api/files", middlewares.AuthMiddleware()))
 	setupDefaultRoutes(route)
 	setupOpdsRoutes(route.Group("/opds", middlewares.BasicAuth()))
+	// Add public auth routes (no auth middleware)
+	setupPublicAuthRoutes(route.Group("/api"))
 	setupApiRoutes(route.Group("/api", middlewares.AuthMiddleware()))
 	setupLogoutRoutes(route.Group("/api", middlewares.AuthMiddleware()))
 	route.Use(serveStaticFilesMiddleware(NewHTTPFS(assets.Assets)))
@@ -66,8 +68,6 @@ func setupFileRoutes(group *gin.RouterGroup) {
 func setupDefaultRoutes(route *gin.Engine) {
 	route.GET("/books-posters/*filepath", api.Posters)
 	route.GET("/api/status", api.StatusCheck)
-	route.POST("/api/login", api.AuthCheck)
-	route.POST("/api/register", api.Registration)
 	route.POST("/api/change-password", api.ChangeUserState)
 	route.POST("/api/change-request", api.ChangeRequest)
 	route.POST("/api/token", api.TokenValidation)
@@ -114,4 +114,9 @@ func isRegisteredRoute(path string, registeredRoutes map[string]struct{}) bool {
 		}
 	}
 	return false
+}
+
+// setupPublicAuthRoutes configures public authentication routes that do not require middleware authorization.
+func setupPublicAuthRoutes(group *gin.RouterGroup) {
+	api.SetupAuthRoutes(group)
 }

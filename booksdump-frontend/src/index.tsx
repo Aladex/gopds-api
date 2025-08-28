@@ -9,16 +9,26 @@ import { BrowserRouter as Router } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 
 const root = ReactDOM.createRoot(document.getElementById('root') as HTMLElement);
+
+// Убираем StrictMode для production, оставляем только для development
+const AppContent = (
+    <Router>
+        <AuthProvider>
+            <I18nextProvider i18n={i18n}>
+                <AppWrapper />
+            </I18nextProvider>
+        </AuthProvider>
+    </Router>
+);
+
 root.render(
-    <React.StrictMode>
-        <Router>
-            <AuthProvider>
-                <I18nextProvider i18n={i18n}>
-                    <AppWrapper />
-                </I18nextProvider>
-            </AuthProvider>
-        </Router>
-    </React.StrictMode>
+    process.env.NODE_ENV === 'development' ? (
+        <React.StrictMode>
+            {AppContent}
+        </React.StrictMode>
+    ) : (
+        AppContent
+    )
 );
 
 reportWebVitals();

@@ -2,12 +2,12 @@ package database
 
 import (
 	"errors"
+	"gopds-api/logging"
 	"gopds-api/models"
 	"sort"
 	"strings"
 
 	"github.com/go-pg/pg/v10/orm"
-	"github.com/sirupsen/logrus"
 )
 
 func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, error) {
@@ -22,7 +22,7 @@ func GetBooksEnhanced(userID int64, filters models.BookFilters) ([]models.Book, 
 
 	err := db.Model(&models.UserToBook{}).Where("user_id = ?", userID).Select(&userFavs)
 	if err != nil {
-		logrus.Print(err)
+		logging.Error(err)
 		return nil, 0, err
 	}
 
@@ -79,7 +79,7 @@ func GetBooksEnhanced(userID int64, filters models.BookFilters) ([]models.Book, 
 
 	count, err := query.Limit(filters.Limit).Offset(filters.Offset).SelectAndCount()
 	if err != nil {
-		logrus.Print(err)
+		logging.Error(err)
 		return nil, 0, err
 	}
 
@@ -119,7 +119,7 @@ func getBooksByTitleEnhanced(userID int64, filters models.BookFilters, userFavs 
 		Select()
 
 	if err != nil {
-		logrus.Print(err)
+		logging.Error(err)
 		return nil, 0, err
 	}
 
@@ -343,7 +343,7 @@ func GetLanguages() models.Languages {
 		Select(&langRes)
 
 	if err != nil {
-		logrus.Print(err)
+		logging.Error(err)
 		return nil
 	}
 	return langRes

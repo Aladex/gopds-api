@@ -23,6 +23,13 @@ func SetupBookRoutes(r *gin.RouterGroup) {
 	r.GET("/ws", WebsocketHandler)
 }
 
+// SetupAuthRoutes sets up routes for authentication (public routes)
+func SetupAuthRoutes(r *gin.RouterGroup) {
+	r.POST("/login", AuthCheck)
+	r.GET("/csrf-token", GetCSRFToken)
+	r.POST("/refresh-token", RefreshToken)
+}
+
 // SetupLogoutRoute sets up routes for logout and session management
 func SetupLogoutRoute(r *gin.RouterGroup) {
 	r.GET("/logout", LogOut)

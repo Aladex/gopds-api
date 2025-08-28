@@ -25,10 +25,40 @@
       Learn how to configure a non-root public URL by running `npm run build`.
     -->
     <title>Booksdump</title>
+
+    <!-- Скрипт для предотвращения FOUC -->
+    <script>
+      document.documentElement.className = 'no-js';
+      window.addEventListener('DOMContentLoaded', function() {
+        document.documentElement.className = 'js loaded';
+      });
+    </script>
+
+    <style>
+      /* Критический CSS для предотвращения мигания */
+      html.no-js {
+        visibility: hidden;
+      }
+      html.loaded {
+        visibility: visible;
+      }
+      .app-loading {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        background-color: #b3b3b3;
+      }
+    </style>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Fallback loading на случай медленной загрузки React -->
+      <div class="app-loading">
+        <div>Loading...</div>
+      </div>
+    </div>
     <!--
       This HTML file is a template.
       If you open it directly in the browser, you will see an empty page.

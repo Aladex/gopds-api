@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button, Typography, CardContent, CardActions, Box, IconButton, InputAdornment } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
@@ -12,9 +12,21 @@ const Login: React.FC = () => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const { t } = useTranslation();
-    const { login } = useAuth();
+    const { login, isAuthenticated, isLoaded } = useAuth();
     const navigate = useNavigate();
     const [loginError, setLoginError] = useState('');
+
+    // Redirect if user is already authenticated
+    useEffect(() => {
+        if (isLoaded && isAuthenticated) {
+            navigate('/books/page/1');
+        }
+    }, [isAuthenticated, isLoaded, navigate]);
+
+    // Don't render the form if user is authenticated or still loading
+    if (!isLoaded || isAuthenticated) {
+        return null; // or a loading spinner
+    }
 
     const handleLogin = async () => {
         // Check if both username and password are entered

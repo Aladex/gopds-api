@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, memo, useMemo, useCallback, useEffect } from 'react';
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import theme from './theme';
@@ -14,8 +14,9 @@ import LanguageInitializer from './components/LanguageInitializer';
 import { useAuth } from './context/AuthContext';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import useAuthWebSocket from './components/hooks/useAuthWebSocket';
+import LoadingSpinner from './components/common/LoadingSpinner';
 
-const App: React.FC<{ isAuthenticated: boolean }> = ({ isAuthenticated }) => {
+const App: React.FC<{ isAuthenticated: boolean }> = memo(({ isAuthenticated }) => {
     // Using WebSocket inside BookConversionProvider
     useAuthWebSocket("/api/books/ws", isAuthenticated);
 
@@ -31,31 +32,55 @@ const App: React.FC<{ isAuthenticated: boolean }> = ({ isAuthenticated }) => {
             </Routes>
         </ThemeProvider>
     );
-};
+});
 
+App.displayName = 'App';
 
 const AppWrapper: React.FC = () => {
     const [isLanguageLoaded, setIsLanguageLoaded] = useState(false);
     const { isLoaded, isAuthenticated } = useAuth();
 
+    // Используем useCallback для стабильной ссылки на функцию
+    const handleLanguageLoaded = useCallback(() => {
+        setIsLanguageLoaded(true);
+    }, []);
+
+    // Сброс состояния языка при изменении пользователя
+    useEffect(() => {
+        if (!isLoaded) {
+            setIsLanguageLoaded(false);
+        }
+    }, [isLoaded]);
+
+    // Мемоизируем провайдеры чтобы избежать ненужных перерендеров
+    const providers = useMemo(() => (
+        <FavProvider>
+            <AuthorProvider>
+                <SearchBarProvider>
+                    <BookConversionProvider>
+                        <App isAuthenticated={isAuthenticated} />
+                    </BookConversionProvider>
+                </SearchBarProvider>
+            </AuthorProvider>
+        </FavProvider>
+    ), [isAuthenticated]);
+
+    // Показываем спиннер если AuthContext не загружен или язык не инициализирован
+    const showLoading = !isLoaded || !isLanguageLoaded;
+
     return (
         <>
-            <LanguageInitializer onLanguageLoaded={() => setIsLanguageLoaded(true)} />
-            {isLoaded && isLanguageLoaded && (
-                <FavProvider>
-                    <AuthorProvider>
-                        <SearchBarProvider>
-                            <BookConversionProvider>
-                                <App isAuthenticated={isAuthenticated} /> {/* Passing isAuthenticated */}
-                            </BookConversionProvider>
-                        </SearchBarProvider>
-                    </AuthorProvider>
-                </FavProvider>
+            {/* LanguageInitializer должен работать только когда AuthContext загружен */}
+            {isLoaded && (
+                <LanguageInitializer onLanguageLoaded={handleLanguageLoaded} />
+            )}
+            {showLoading ? (
+                <LoadingSpinner message="loading" />
+            ) : (
+                providers
             )}
         </>
     );
 };
-
-
 
 export default AppWrapper;

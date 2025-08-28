@@ -4,14 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/spf13/viper"
 	"gopds-api/sessions"
 	"net/http"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"github.com/spf13/viper"
+
 	"gopds-api/models"
 	"gopds-api/utils"
+
+	"github.com/gin-gonic/gin"
 )
 
 // validateToken simplifies token validation by consolidating error handling.
@@ -25,15 +27,21 @@ func validateToken(token string) (string, int64, bool, error) {
 		return "", 0, false, errors.New("invalid_session")
 	}
 
-	username, dbID, isSuperUser, err := utils.CheckToken(token)
+	username, dbID, isSuperUser, tokenType, err := utils.CheckTokenWithType(token)
 	if err != nil {
 		return "", 0, false, errors.New("invalid_session")
 	}
 
-	err = sessions.UpdateSessionKey(ctx, models.LoggedInUser{User: username, Token: &token})
-	if err != nil {
-		return "", 0, false, errors.New("session_update_failed")
+	// If token is expired and it's an access token, try to refresh
+	if tokenType == "access" {
+		// Check if token is close to expiry (within 2 minutes)
+		// If so, this will be handled by the frontend calling refresh endpoint
+		err = sessions.UpdateSessionKey(ctx, models.LoggedInUser{User: username, Token: &token})
+		if err != nil {
+			return "", 0, false, errors.New("session_update_failed")
+		}
 	}
+
 	return username, dbID, isSuperUser, nil
 }
 
