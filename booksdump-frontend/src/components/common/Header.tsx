@@ -100,7 +100,8 @@ const Header: React.FC = () => {
             items.push({ label: t('adminTab'), path: '/admin', regex: /^\/admin/, index: 2 });
         }
         return items;
-    }, [t, user?.is_superuser, i18n.language]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [t, user?.is_superuser, i18n.language]); // i18n.language необходим для обновления переводов
 
     useEffect(() => {
         if (user) {

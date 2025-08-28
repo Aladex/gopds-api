@@ -1,13 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button, Typography, CardContent, CardActions, IconButton, Box } from '@mui/material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import LoginCenteredBox from "../common/CenteredBox";
 import { useTranslation } from 'react-i18next';
-import { API_URL } from '../../api/config';
+import { API_URL, fetchWithCsrf } from '../../api/config';
 import { StyledTextField } from "../StyledDataItems";
-import { useParams } from 'react-router-dom';
-import { useEffect } from 'react';
 
 const ChangePassword: React.FC = () => {
     const [newPassword, setNewPassword] = useState('');
@@ -19,11 +17,8 @@ const ChangePassword: React.FC = () => {
     useEffect(() => {
         const tokenValidation = async () => {
             try {
-                const response = await fetch(`${API_URL}/api/token`, {
+                const response = await fetchWithCsrf(`${API_URL}/api/token`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
                     body: JSON.stringify({ token }),
                 });
 
@@ -35,7 +30,7 @@ const ChangePassword: React.FC = () => {
             }
         };
         tokenValidation();
-    }, [token, navigate, t]);
+    }, [token, navigate]);
 
     const handleChangePassword = async () => {
         const changeData = {
@@ -44,11 +39,8 @@ const ChangePassword: React.FC = () => {
         };
 
         try {
-            const response = await fetch(`${API_URL}/api/change-password`, {
+            const response = await fetchWithCsrf(`${API_URL}/api/change-password`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
                 body: JSON.stringify(changeData),
             });
 
@@ -64,8 +56,9 @@ const ChangePassword: React.FC = () => {
                 const errorMessages: Record<string, string> = {
                     bad_form: t('badForm'),
                     invalid_user: t('invalidUser'),
+                    'CSRF token invalid': t('csrfTokenInvalid') || 'CSRF token invalid',
                 };
-                const errorMessage = errorMessages[errorData.message] || t('changePasswordError');
+                const errorMessage = errorMessages[errorData.error] || errorMessages[errorData.message] || t('changePasswordError');
                 setChangeError(errorMessage);
                 return;
             }

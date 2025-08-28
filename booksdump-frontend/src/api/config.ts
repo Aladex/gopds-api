@@ -3,9 +3,6 @@ import axios from 'axios';
 const API_URL = process.env.REACT_APP_API_URL;
 const WS_URL = process.env.REACT_APP_WS_URL;
 
-// Store CSRF token
-let csrfToken: string | null = null;
-
 // Function to read CSRF token from cookie
 const getCsrfTokenFromCookie = (): string | null => {
     const cookieValue = document.cookie
@@ -14,17 +11,6 @@ const getCsrfTokenFromCookie = (): string | null => {
         ?.split('=')[1];
     return cookieValue || null;
 };
-
-// Initialize CSRF token from cookie on load
-const initializeCsrfToken = () => {
-    const tokenFromCookie = getCsrfTokenFromCookie();
-    if (tokenFromCookie) {
-        csrfToken = tokenFromCookie;
-    }
-};
-
-// Initialize token immediately
-initializeCsrfToken();
 
 const axiosInstance = axios.create({
     baseURL: `${API_URL}/api`,
@@ -42,7 +28,6 @@ axiosInstance.interceptors.request.use(
             // Always get fresh token from cookie
             const freshToken = getCsrfTokenFromCookie();
             if (freshToken) {
-                csrfToken = freshToken;
                 config.headers['X-CSRF-Token'] = freshToken;
             }
         }
@@ -101,9 +86,10 @@ axiosInstance.interceptors.response.use(
     }
 );
 
-// Function to set CSRF token
+// Function to set CSRF token (keeping for compatibility)
 export const setCsrfToken = (token: string) => {
-    csrfToken = token;
+    // Token is now always read from cookie, so this is a no-op
+    // Kept for backward compatibility
 };
 
 // Function to get CSRF token
@@ -111,13 +97,42 @@ export const getCsrfToken = async () => {
     try {
         const response = await axiosInstance.get('/csrf-token');
         if (response.data.csrf_token) {
-            setCsrfToken(response.data.csrf_token);
             return response.data.csrf_token;
         }
     } catch (error) {
         console.error('Failed to get CSRF token:', error);
     }
     return null;
+};
+
+// Enhanced fetch wrapper that automatically adds CSRF token
+export const fetchWithCsrf = async (url: string, options: RequestInit = {}): Promise<Response> => {
+    const method = options.method?.toUpperCase() || 'GET';
+
+    // Clone headers to avoid mutating the original
+    const headers = new Headers(options.headers);
+
+    // Add CSRF token for state-changing requests
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+        const freshToken = getCsrfTokenFromCookie();
+        if (freshToken) {
+            headers.set('X-CSRF-Token', freshToken);
+        }
+    }
+
+    // Ensure Content-Type is set for JSON requests
+    if (!headers.has('Content-Type') && options.body && typeof options.body === 'string') {
+        headers.set('Content-Type', 'application/json');
+    }
+
+    // Merge the enhanced options
+    const enhancedOptions: RequestInit = {
+        ...options,
+        headers,
+        credentials: 'include', // Always include credentials for CSRF cookies
+    };
+
+    return fetch(url, enhancedOptions);
 };
 
 export { API_URL, axiosInstance as fetchWithAuth };

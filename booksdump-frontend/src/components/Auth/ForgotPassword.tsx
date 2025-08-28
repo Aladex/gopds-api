@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import LoginCenteredBox from "../common/CenteredBox";
 import { useTranslation } from 'react-i18next';
-import { API_URL } from '../../api/config';
+import { API_URL, fetchWithCsrf } from '../../api/config';
 import { StyledTextField} from "../StyledDataItems";
 
 const ForgotPassword: React.FC = () => {
@@ -20,11 +20,8 @@ const ForgotPassword: React.FC = () => {
         };
 
         try {
-            const response = await fetch(`${API_URL}/api/change-request`, {
+            const response = await fetchWithCsrf(`${API_URL}/api/change-request`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
                 body: JSON.stringify(resetData),
             });
 
@@ -33,8 +30,9 @@ const ForgotPassword: React.FC = () => {
                 const errorMessages: Record<string, string> = {
                     bad_form: t('badForm'),
                     invalid_user: t('invalidUser'),
+                    'CSRF token invalid': t('csrfTokenInvalid') || 'CSRF token invalid',
                 };
-                const errorMessage = errorMessages[errorData.message] || t('resetError');
+                const errorMessage = errorMessages[errorData.error] || errorMessages[errorData.message] || t('resetError');
                 setResetError(errorMessage);
                 return;
             }

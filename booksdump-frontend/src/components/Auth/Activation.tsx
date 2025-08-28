@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useParams } from 'react-router-dom';
-import { API_URL } from '../../api/config';
+import { API_URL, fetchWithCsrf } from '../../api/config';
 import { useTranslation } from 'react-i18next';
 import { LinearProgress, Box, Typography } from '@mui/material';
 import LoginCenteredBox from '../common/CenteredBox';
@@ -16,11 +16,8 @@ const Activation: React.FC = () => {
     useEffect(() => {
         const tokenValidation = async () => {
             try {
-                const response = await fetch(`${API_URL}/api/change-password`, {
+                const response = await fetchWithCsrf(`${API_URL}/api/change-password`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
                     body: JSON.stringify({ token }),
                 });
 

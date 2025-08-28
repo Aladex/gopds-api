@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { WS_URL, API_URL } from '../../api/config';
 import { useBookConversion } from '../../context/BookConversionContext';
 
@@ -12,7 +12,7 @@ function useAuthWebSocket(endpoint: string, isAuthenticated: boolean) {
     const reconnectIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const { state, dispatch } = useBookConversion();
 
-    const setupWebSocket = () => {
+    const setupWebSocket = useCallback(() => {
         if (!isAuthenticated) return;
 
         const fullUrl = `${WS_URL}${endpoint}`;
@@ -68,7 +68,7 @@ function useAuthWebSocket(endpoint: string, isAuthenticated: boolean) {
                 setReconnectAttempt((prev) => prev + 1);
             }
         };
-    };
+    }, [endpoint, isAuthenticated, dispatch]);
 
     useEffect(() => {
         if (isAuthenticated) {
@@ -84,7 +84,7 @@ function useAuthWebSocket(endpoint: string, isAuthenticated: boolean) {
                 clearInterval(reconnectIntervalRef.current);
             }
         };
-    }, [endpoint, isAuthenticated, dispatch]);
+    }, [endpoint, isAuthenticated, dispatch, setupWebSocket]);
 
     useEffect(() => {
         if (!isConnected && isAuthenticated && reconnectAttempt > 0) {
@@ -98,7 +98,7 @@ function useAuthWebSocket(endpoint: string, isAuthenticated: boolean) {
                 clearTimeout(reconnectIntervalRef.current);
             }
         };
-    }, [isConnected, isAuthenticated, reconnectAttempt]);
+    }, [isConnected, isAuthenticated, reconnectAttempt, setupWebSocket]);
 
     useEffect(() => {
         if (isConnected && wsRef.current) {

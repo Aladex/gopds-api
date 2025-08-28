@@ -3,7 +3,7 @@ import { Button, Typography, CardContent, CardActions, Box, IconButton } from '@
 import { useNavigate } from 'react-router-dom';
 import LoginCenteredBox from "../common/CenteredBox";
 import { useTranslation } from 'react-i18next';
-import { API_URL } from '../../api/config';
+import { API_URL, fetchWithCsrf } from '../../api/config';
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { StyledTextField } from "../StyledDataItems";
 
@@ -31,11 +31,8 @@ const Registration: React.FC = () => {
         };
 
         try {
-            const response = await fetch(`${API_URL}/api/register`, {
+            const response = await fetchWithCsrf(`${API_URL}/api/register`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
                 body: JSON.stringify(userData),
             });
 
@@ -44,9 +41,10 @@ const Registration: React.FC = () => {
                 const errorMessages: Record<string, string> = {
                     bad_invite: t('badInvite'),
                     bad_form: t('badForm'),
-                    user_exists: t('userExists')
+                    user_exists: t('userExists'),
+                    'CSRF token invalid': t('csrfTokenInvalid') || 'CSRF token invalid',
                 };
-                const errorMessage = errorMessages[errorData.message] || t('registrationError');
+                const errorMessage = errorMessages[errorData.error] || errorMessages[errorData.message] || t('registrationError');
                 setRegError(errorMessage);
                 return;
             }

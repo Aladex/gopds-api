@@ -187,7 +187,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             }
         };
         initializeAuth();
-    }, [getCsrfToken]); // Убираем login из зависимостей для предотвращения циклов
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [getCsrfToken]); // login и setUser намеренно исключены для предотвращения бесконечных циклов
 
     // Мемоизируем значение контекста для предотвращения ненужных перерендеров
     const contextValue = useMemo(() => ({
