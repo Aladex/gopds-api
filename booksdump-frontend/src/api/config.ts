@@ -86,24 +86,6 @@ axiosInstance.interceptors.response.use(
     }
 );
 
-// Function to set CSRF token (keeping for compatibility)
-export const setCsrfToken = (token: string) => {
-    // Token is now always read from cookie, so this is a no-op
-    // Kept for backward compatibility
-};
-
-// Function to get CSRF token
-export const getCsrfToken = async () => {
-    try {
-        const response = await axiosInstance.get('/csrf-token');
-        if (response.data.csrf_token) {
-            return response.data.csrf_token;
-        }
-    } catch (error) {
-        console.error('Failed to get CSRF token:', error);
-    }
-    return null;
-};
 
 // Enhanced fetch wrapper that automatically adds CSRF token
 export const fetchWithCsrf = async (url: string, options: RequestInit = {}): Promise<Response> => {
