@@ -164,6 +164,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                               currentPath.includes('/register') ||
                               currentPath.includes('/forgot-password') ||
                               currentPath.includes('/activation') ||
+                              currentPath.includes('/activate') ||
                               currentPath.includes('/change-password');
 
             if (!isAuthPage) {
