@@ -39,7 +39,7 @@ const Header: React.FC = () => {
     const navigate = useNavigate();
     const classes = useCommonStyles();
     const theme = useTheme();
-    const {t} = useTranslation();
+    const {t, i18n} = useTranslation();
     const [value, setValue] = useState(0);
     const isMobile = useMediaQuery('(max-width:600px)');
     const isVeryNarrow = useMediaQuery('(max-width:354px)'); // Check for very narrow screens
@@ -54,6 +54,7 @@ const Header: React.FC = () => {
     const { languages, selectedLanguage, setSelectedLanguage } = useSearchBar();
     const [languageMenuAnchor, setLanguageMenuAnchor] = useState<null | HTMLElement>(null);
     const [isDonateModalOpen, setIsDonateModalOpen] = useState<boolean>(false);
+
 
     // Filter languages to only show those that are supported and have proper display
     const supportedLanguages = languages.filter(lang => {
@@ -99,7 +100,7 @@ const Header: React.FC = () => {
             items.push({ label: t('adminTab'), path: '/admin', regex: /^\/admin/, index: 2 });
         }
         return items;
-    }, [t, user?.is_superuser]);
+    }, [t, user?.is_superuser, i18n.language]);
 
     useEffect(() => {
         if (user) {

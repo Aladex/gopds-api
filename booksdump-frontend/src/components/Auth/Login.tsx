@@ -46,15 +46,17 @@ const Login: React.FC = () => {
 
             if (response.ok) {
                 const userData = await response.json();
+
                 // Сразу устанавливаем пользователя из ответа login API
-                setUser({
+                const userForContext = {
                     username: userData.username,
                     first_name: userData.first_name,
                     last_name: userData.last_name,
                     is_superuser: userData.is_superuser,
                     books_lang: userData.books_lang,
                     have_favs: userData.have_favs
-                });
+                };
+                setUser(userForContext);
                 navigate('/books/page/1');
             } else if (response.status === 403) {
                 const errorData = await response.json();

@@ -331,9 +331,8 @@ func ChangeUser(c *gin.Context) {
 		return
 	}
 
-	// Validate books language
-	validLangs := map[string]bool{"en": true, "ru": true, "de": true, "fr": true, "es": true, "it": true}
-	if len(userNewData.BooksLang) > 0 && !validLangs[userNewData.BooksLang] {
+	// Validate books language - check if it exists in the books database
+	if len(userNewData.BooksLang) > 0 && !database.IsValidLanguage(userNewData.BooksLang) {
 		httputil.NewError(c, http.StatusBadRequest, errors.New("invalid_language"))
 		return
 	}

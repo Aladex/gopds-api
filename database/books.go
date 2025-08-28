@@ -349,6 +349,24 @@ func GetLanguages() models.Languages {
 	return langRes
 }
 
+// IsValidLanguage checks if the provided language exists in the books database
+func IsValidLanguage(lang string) bool {
+	if lang == "" {
+		return true // Empty language is valid (user can have no language preference)
+	}
+
+	count, err := db.Model(&models.Book{}).
+		Where("lang = ?", lang).
+		Count()
+
+	if err != nil {
+		logging.Error(err)
+		return false
+	}
+
+	return count > 0
+}
+
 // GetBook returns a book by id from archive
 func GetBook(bookID int64) (models.Book, error) {
 	book := &models.Book{ID: bookID}

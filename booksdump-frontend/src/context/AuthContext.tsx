@@ -33,7 +33,7 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-    const [user, setUser] = useState<User | null>(null);
+    const [user, setUserState] = useState<User | null>(null);
     const [isLoaded, setIsLoaded] = useState<boolean>(false);
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [csrfToken, setCsrfToken] = useState<string | null>(null);
@@ -41,6 +41,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     // Мемоизируем isAuthenticated для предотвращения ненужных перерендеров
     const isAuthenticated = useMemo(() => !!user, [user]);
+
+    // Обертка для setUser с логированием
+    const setUser = useCallback((newUser: User | null) => {
+        setUserState(newUser);
+    }, []);
 
     const getCsrfToken = useCallback(async () => {
         try {
@@ -65,7 +70,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             navigate('/login');
         }
         return false;
-    }, [navigate]);
+    }, [navigate, setUser]);
 
     const login = useCallback(() => {
         // Предотвращаем множественные вызовы login
@@ -100,7 +105,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 setIsLoaded(true);
                 setIsLoading(false);
             });
-    }, [refreshToken, isLoading]);
+    }, [refreshToken, isLoading, setUser]);
 
     const updateLang = useCallback(async (language: string) => {
         if (user) {
@@ -109,7 +114,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                     books_lang: language
                 });
                 if (response.status === 200) {
-                    setUser(prevUser => prevUser ? { ...prevUser, books_lang: language } : null);
+                    // Обновляем пользователя с новым языком
+                    setUser({ ...user, books_lang: language });
                     // Используем navigate вместо window.location.assign для SPA навигации
                     navigate('/books/page/1');
                 } else {
@@ -119,7 +125,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 console.error('Error updating language', error);
             }
         }
-    }, [user, navigate]);
+    }, [user, navigate, setUser]);
 
     const logout = useCallback(() => {
         if (isLoading) return;
@@ -141,11 +147,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             .finally(() => {
                 setIsLoading(false);
             });
-    }, [navigate, isLoading]);
+    }, [navigate, isLoading, setUser]);
 
     const updateUser = useCallback((userData: User) => {
         setUser(userData);
-    }, []);
+    }, [setUser]);
 
     // Initialize CSRF token and user data
     useEffect(() => {
@@ -197,7 +203,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         logout,
         refreshToken,
         getCsrfToken,
-    }), [isAuthenticated, user, isLoaded, isLoading, csrfToken, updateLang, updateUser, login, logout, refreshToken, getCsrfToken]);
+    }), [isAuthenticated, user, isLoaded, isLoading, csrfToken, setUser, updateLang, updateUser, login, logout, refreshToken, getCsrfToken]);
 
     return (
         <AuthContext.Provider value={contextValue}>
