@@ -163,7 +163,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             const isAuthPage = currentPath.includes('/login') ||
                               currentPath.includes('/register') ||
                               currentPath.includes('/forgot-password') ||
-                              currentPath.includes('/activation');
+                              currentPath.includes('/activation') ||
+                              currentPath.includes('/change-password');
 
             if (!isAuthPage) {
                 // For non-auth pages, try to login normally
