@@ -7,9 +7,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestEnhancedSearchComparison тестирует улучшенный поиск книг и сравнивает с autocomplete
+// TestEnhancedSearchComparison tests enhanced book search and compares with autocomplete
 func TestEnhancedSearchComparison(t *testing.T) {
-	// Пропускаем тест если нет подключения к БД
+	// Skip test if no database connection available
 	if db == nil {
 		t.Skip("Database connection not available")
 	}
@@ -20,22 +20,22 @@ func TestEnhancedSearchComparison(t *testing.T) {
 		limit int
 	}{
 		{
-			name:  "Поиск Гарри Поттер",
+			name:  "Search Harry Potter",
 			query: "гарри поттер",
 			limit: 5,
 		},
 		{
-			name:  "Поиск Война и мир",
+			name:  "Search War and Peace",
 			query: "война мир",
 			limit: 5,
 		},
 		{
-			name:  "Поиск Преступление и наказание",
+			name:  "Search Crime and Punishment",
 			query: "преступление наказание",
 			limit: 5,
 		},
 		{
-			name:  "Поиск Мастер и Маргарита",
+			name:  "Search Master and Margarita",
 			query: "мастер маргарита",
 			limit: 5,
 		},
@@ -43,11 +43,11 @@ func TestEnhancedSearchComparison(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Тест autocomplete suggestions
+			// Test autocomplete suggestions
 			suggestions, err := GetAutocompleteSuggestions(tc.query, "all", "", "")
 			assert.NoError(t, err, "GetAutocompleteSuggestions should not return error")
 
-			// Тест улучшенного поиска книг
+			// Test enhanced book search
 			filters := models.BookFilters{
 				Title:  tc.query,
 				Limit:  tc.limit,
@@ -59,12 +59,12 @@ func TestEnhancedSearchComparison(t *testing.T) {
 			assert.GreaterOrEqual(t, count, 0, "Count should be non-negative")
 			assert.LessOrEqual(t, len(books), tc.limit, "Returned books should not exceed limit")
 
-			// Проверяем, что если есть результаты, то они релевантны
+			// Check that if there are results, they are relevant
 			if len(books) > 0 {
 				firstBook := books[0]
 				assert.NotEmpty(t, firstBook.Title, "First book should have a title")
 
-				// Логирование для анализа результатов
+				// Logging for result analysis
 				t.Logf("Query: '%s'", tc.query)
 				t.Logf("Autocomplete suggestions count: %d", len(suggestions))
 				t.Logf("Books found: %d", count)
@@ -86,32 +86,32 @@ func TestEnhancedSearchComparison(t *testing.T) {
 	}
 }
 
-// TestBookScoringFunction тестирует функцию скоринга книг
+// TestBookScoringFunction tests book scoring function
 func TestBookScoringFunction(t *testing.T) {
 	testCases := []struct {
 		title    string
 		query    string
-		expected int // минимальный ожидаемый скор
+		expected int // minimum expected score
 	}{
 		{
 			title:    "Гарри Поттер",
 			query:    "гарри поттер",
-			expected: 1000, // точное совпадение
+			expected: 1000, // exact match
 		},
 		{
 			title:    "Гарри Поттер и философский камень",
 			query:    "гарри поттер",
-			expected: 500, // начинается с запроса
+			expected: 500, // starts with query
 		},
 		{
 			title:    "Приключения Гарри Поттера",
 			query:    "гарри поттер",
-			expected: 100, // содержит запрос
+			expected: 100, // contains query
 		},
 		{
 			title:    "Война и мир",
 			query:    "война мир",
-			expected: 200, // частичное совпадение
+			expected: 200, // partial match
 		},
 	}
 
@@ -126,13 +126,13 @@ func TestBookScoringFunction(t *testing.T) {
 	}
 }
 
-// TestSearchWithFilters тестирует поиск с дополнительными фильтрами
+// TestSearchWithFilters tests search with additional filters
 func TestSearchWithFilters(t *testing.T) {
 	if db == nil {
 		t.Skip("Database connection not available")
 	}
 
-	// Тест поиска с языковым фильтром
+	// Test search with language filter
 	t.Run("Search with language filter", func(t *testing.T) {
 		filters := models.BookFilters{
 			Title:  "война",
@@ -145,7 +145,7 @@ func TestSearchWithFilters(t *testing.T) {
 		assert.NoError(t, err, "Search with language filter should not return error")
 		assert.GreaterOrEqual(t, count, 0, "Count should be non-negative")
 
-		// Проверяем, что все возвращенные книги на правильном языке
+		// Check that all returned books are in the correct language
 		for _, book := range books {
 			if book.Lang != "" {
 				assert.Equal(t, "ru", book.Lang, "Book language should match filter")
@@ -155,7 +155,7 @@ func TestSearchWithFilters(t *testing.T) {
 		t.Logf("Books found with language filter: %d", count)
 	})
 
-	// Тест поиска без фильтра названия (обычная логика)
+	// Test search without title filter (regular logic)
 	t.Run("Search without title filter", func(t *testing.T) {
 		filters := models.BookFilters{
 			Limit:  5,
@@ -171,7 +171,7 @@ func TestSearchWithFilters(t *testing.T) {
 	})
 }
 
-// BenchmarkEnhancedSearch бенчмарк для проверки производительности улучшенного поиска
+// BenchmarkEnhancedSearch benchmark for enhanced search performance testing
 func BenchmarkEnhancedSearch(b *testing.B) {
 	if db == nil {
 		b.Skip("Database connection not available")
@@ -192,7 +192,7 @@ func BenchmarkEnhancedSearch(b *testing.B) {
 	}
 }
 
-// BenchmarkAutocomplete бенчмарк для autocomplete
+// BenchmarkAutocomplete benchmark for autocomplete
 func BenchmarkAutocomplete(b *testing.B) {
 	if db == nil {
 		b.Skip("Database connection not available")

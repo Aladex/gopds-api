@@ -1,6 +1,7 @@
 package api
 
 import (
+	"gopds-api/middlewares"
 	"gopds-api/models"
 	"os"
 
@@ -15,11 +16,11 @@ func SetupBookRoutes(r *gin.RouterGroup) {
 	r.GET("/self-user", SelfUser)
 	r.GET("/getsigned/:format/:id", GetSignedBookUrl)
 	r.GET("/autocomplete", Autocomplete)
-	r.POST("/change-me", ChangeUser)
+	r.POST("/change-me", middlewares.CSRFMiddleware(), ChangeUser)
 	r.GET("/authors", GetAuthors)
 	r.POST("/author", GetAuthor)
 	r.POST("/file", GetBookFile)
-	r.POST("/fav", FavBook)
+	r.POST("/fav", middlewares.CSRFMiddleware(), FavBook)
 	r.GET("/ws", WebsocketHandler)
 }
 

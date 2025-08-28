@@ -144,6 +144,9 @@ func AuthCheck(c *gin.Context) {
 	c.SetCookie("token", accessToken, 900, "/", viper.GetString("project_domain"), !viper.GetBool("app.devel_mode"), true)
 	// Set refresh token (7 days)
 	c.SetCookie("refresh_token", refreshToken, 604800, "/", viper.GetString("project_domain"), !viper.GetBool("app.devel_mode"), true)
+	// Set CSRF token for authenticated operations
+	csrfToken := middlewares.GenerateCSRFToken()
+	c.SetCookie("csrf_token", csrfToken, 3600, "/", "", false, false) // httpOnly=false for JS access
 
 	c.JSON(200, thisUser)
 }
@@ -204,6 +207,8 @@ func LogOut(c *gin.Context) {
 	// Clear authentication cookies by setting them to expire immediately
 	c.SetCookie("token", "", -1, "/", viper.GetString("project_domain"), !viper.GetBool("app.devel_mode"), true)
 	c.SetCookie("refresh_token", "", -1, "/", viper.GetString("project_domain"), !viper.GetBool("app.devel_mode"), true)
+	// Clear CSRF token
+	c.SetCookie("csrf_token", "", -1, "/", "", false, false)
 
 	// Set cookie to expire
 	c.JSON(http.StatusOK, gin.H{"result": "ok"})
@@ -282,9 +287,9 @@ func ChangeUser(c *gin.Context) {
 	var dbUser models.User
 	var err error
 
-	// Проверка пароля требуется ТОЛЬКО при смене пароля
+	// Password verification is required ONLY when changing password
 	if len(userNewData.NewPassword) > 0 {
-		// Для смены пароля обязательно нужен текущий пароль
+		// Current password is required for password change
 		if len(userNewData.Password) == 0 {
 			httputil.NewError(c, http.StatusBadRequest, errors.New("current_password_required_for_password_change"))
 			return
@@ -300,7 +305,7 @@ func ChangeUser(c *gin.Context) {
 
 		dbUser = tempUser
 
-		// Валидация нового пароля
+		// Validate new password
 		if len(userNewData.NewPassword) < 8 {
 			httputil.NewError(c, http.StatusBadRequest, errors.New("bad_password"))
 			return
@@ -310,8 +315,8 @@ func ChangeUser(c *gin.Context) {
 			return
 		}
 	} else {
-		// Для изменения профильных данных (имя, фамилия, язык) пароль не нужен
-		// Просто получаем пользователя по имени
+		// For changing profile data (name, surname, language) password is not required
+		// Just get user by username
 		dbUser, err = database.GetUser(username)
 		if err != nil {
 			httputil.NewError(c, http.StatusBadRequest, err)
@@ -319,20 +324,20 @@ func ChangeUser(c *gin.Context) {
 		}
 	}
 
-	// Валидация новых данных
+	// Validate new data
 	if len(userNewData.FirstName) > 100 || len(userNewData.LastName) > 100 {
 		httputil.NewError(c, http.StatusBadRequest, errors.New("name_too_long"))
 		return
 	}
 
-	// Валидация языка книг
+	// Validate books language
 	validLangs := map[string]bool{"en": true, "ru": true, "de": true, "fr": true, "es": true, "it": true}
 	if len(userNewData.BooksLang) > 0 && !validLangs[userNewData.BooksLang] {
 		httputil.NewError(c, http.StatusBadRequest, errors.New("invalid_language"))
 		return
 	}
 
-	// Используем новую безопасную функцию для обновления профиля
+	// Use secure function to update user profile
 	updatedUser, err := database.UpdateUserProfile(dbUser.ID, userNewData)
 	if err != nil {
 		httputil.NewError(c, http.StatusInternalServerError, err)
@@ -422,6 +427,9 @@ func RefreshToken(c *gin.Context) {
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie("token", accessToken, 900, "/", viper.GetString("project_domain"), !viper.GetBool("app.devel_mode"), true)                // 15 min
 	c.SetCookie("refresh_token", newRefreshToken, 604800, "/", viper.GetString("project_domain"), !viper.GetBool("app.devel_mode"), true) // 7 days
+	// Set CSRF token for authenticated operations
+	csrfToken := middlewares.GenerateCSRFToken()
+	c.SetCookie("csrf_token", csrfToken, 3600, "/", "", false, false) // httpOnly=false for JS access
 
 	c.JSON(http.StatusOK, gin.H{
 		"access_token":  accessToken,

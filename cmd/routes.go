@@ -24,8 +24,8 @@ func setupRoutes(route *gin.Engine) {
 	setupOpdsRoutes(route.Group("/opds", middlewares.BasicAuth()))
 	// Add public auth routes (no auth middleware)
 	setupPublicAuthRoutes(route.Group("/api"))
-	// Add CSRF protection to authenticated API routes
-	setupApiRoutes(route.Group("/api", middlewares.AuthMiddleware(), middlewares.CSRFMiddleware()))
+	// Add authenticated API routes with CSRF protection for state-changing operations
+	setupApiRoutes(route.Group("/api", middlewares.AuthMiddleware()))
 	setupLogoutRoutes(route.Group("/api", middlewares.AuthMiddleware()))
 	route.Use(serveStaticFilesMiddleware(NewHTTPFS(assets.Assets)))
 	rootFiles := listRootFiles()

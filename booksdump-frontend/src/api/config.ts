@@ -6,6 +6,26 @@ const WS_URL = process.env.REACT_APP_WS_URL;
 // Store CSRF token
 let csrfToken: string | null = null;
 
+// Function to read CSRF token from cookie
+const getCsrfTokenFromCookie = (): string | null => {
+    const cookieValue = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('csrf_token='))
+        ?.split('=')[1];
+    return cookieValue || null;
+};
+
+// Initialize CSRF token from cookie on load
+const initializeCsrfToken = () => {
+    const tokenFromCookie = getCsrfTokenFromCookie();
+    if (tokenFromCookie) {
+        csrfToken = tokenFromCookie;
+    }
+};
+
+// Initialize token immediately
+initializeCsrfToken();
+
 const axiosInstance = axios.create({
     baseURL: `${API_URL}/api`,
     headers: {
@@ -19,8 +39,11 @@ axiosInstance.interceptors.request.use(
     (config) => {
         // Add CSRF token to POST, PUT, DELETE requests
         if (['post', 'put', 'delete', 'patch'].includes(config.method?.toLowerCase() || '')) {
-            if (csrfToken) {
-                config.headers['X-CSRF-Token'] = csrfToken;
+            // Always get fresh token from cookie
+            const freshToken = getCsrfTokenFromCookie();
+            if (freshToken) {
+                csrfToken = freshToken;
+                config.headers['X-CSRF-Token'] = freshToken;
             }
         }
         return config;
