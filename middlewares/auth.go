@@ -3,12 +3,9 @@ package middlewares
 import (
 	"context"
 	"errors"
-	"fmt"
 	"gopds-api/sessions"
 	"net/http"
 	"time"
-
-	"github.com/spf13/viper"
 
 	"gopds-api/models"
 	"gopds-api/utils"
@@ -78,26 +75,6 @@ func AuthMiddleware() gin.HandlerFunc {
 		// Set username and user_id in context
 		c.Set("username", username)
 		c.Set("user_id", dbID)
-		c.Next()
-	}
-}
-
-// TokenMiddleware checks if a valid token is provided in query parameters.
-func TokenMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var signedURL models.SignedURL
-		if err := c.ShouldBindQuery(&signedURL); err != nil {
-			abortWithStatus(c, http.StatusBadRequest, "invalid_url")
-			return
-		}
-
-		// Simplify current URL reconstruction
-		currentURL := fmt.Sprintf("%s%s", viper.GetString("project_url"), c.Request.URL.Path)
-
-		if !utils.VerifySignature(viper.GetString("secret_key"), currentURL, signedURL.Signature, signedURL.Expires) {
-			abortWithStatus(c, http.StatusUnauthorized, "invalid_signature")
-			return
-		}
 		c.Next()
 	}
 }

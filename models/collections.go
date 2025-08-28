@@ -1,7 +1,6 @@
 package models
 
 import (
-	"github.com/go-pg/pg/v10"
 	"time"
 )
 
@@ -30,19 +29,6 @@ type BookCollection struct {
 	BookIsInCollection bool      `pg:"-" json:"book_is_in_collection"`
 	BookIDs            []int64   `pg:"-" json:"book_ids"`
 	VoteCount          int       `pg:"-" json:"vote_count"`
-}
-
-func (bc *BookCollection) FetchBookIDs(db *pg.DB) error {
-	var bookIDs []int64
-	err := db.Model((*BookCollectionBook)(nil)).
-		Column("book_id").
-		Where("book_collection_id = ?", bc.ID).
-		Select(&bookIDs)
-	if err != nil {
-		return err
-	}
-	bc.BookIDs = bookIDs
-	return nil
 }
 
 // BookCollectionBook struct for many-to-many relation between books and book collections

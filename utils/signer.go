@@ -29,10 +29,3 @@ func GenerateSignedURL(secretKey, fileURL string, expiry time.Duration) string {
 	signedURL := fmt.Sprintf("%s?%s", fileURL, v.Encode())
 	return signedURL
 }
-
-// VerifySignature function for verifying the signature of the url
-func VerifySignature(secretKey, fileURL, receivedSignature string, expiryTime int64) bool {
-	dataToSign := fmt.Sprintf("%s\n%d", fileURL, expiryTime)
-	expectedSignature := CreateSignature(secretKey, dataToSign)
-	return hmac.Equal([]byte(receivedSignature), []byte(expectedSignature))
-}

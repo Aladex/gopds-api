@@ -96,26 +96,6 @@ func CheckPbkdf2(password, encoded string, keyLen int, h func() hash.Hash) (bool
 	return bytes.Equal(k, dk), nil
 }
 
-// CreateToken creates a token for the user
-func CreateToken(user models.User) (string, error) {
-	tk := Token{
-		UserID:      user.Login,
-		DatabaseID:  user.ID,
-		IsSuperUser: user.IsSuperUser,
-		TokenType:   "access",
-		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:   "gopds-api",
-			IssuedAt: jwt.NewNumericDate(time.Now()),
-		},
-	}
-	token := jwt.NewWithClaims(jwt.GetSigningMethod("HS256"), tk)
-	tokenString, err := token.SignedString([]byte(viper.GetString("sessions.key")))
-	if err != nil {
-		return "", err
-	}
-	return tokenString, nil
-}
-
 // CreateTokenPair creates both access and refresh tokens for the user
 func CreateTokenPair(user models.User) (string, string, error) {
 	// Create access token (15 minutes)

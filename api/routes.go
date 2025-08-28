@@ -26,6 +26,7 @@ func SetupBookRoutes(r *gin.RouterGroup) {
 // SetupAuthRoutes sets up routes for authentication (public routes)
 func SetupAuthRoutes(r *gin.RouterGroup) {
 	r.POST("/login", AuthCheck)
+	r.POST("/register", Registration)
 	r.GET("/csrf-token", GetCSRFToken)
 	r.POST("/refresh-token", RefreshToken)
 }
