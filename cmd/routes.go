@@ -24,7 +24,8 @@ func setupRoutes(route *gin.Engine) {
 	setupOpdsRoutes(route.Group("/opds", middlewares.BasicAuth()))
 	// Add public auth routes (no auth middleware)
 	setupPublicAuthRoutes(route.Group("/api"))
-	setupApiRoutes(route.Group("/api", middlewares.AuthMiddleware()))
+	// Add CSRF protection to authenticated API routes
+	setupApiRoutes(route.Group("/api", middlewares.AuthMiddleware(), middlewares.CSRFMiddleware()))
 	setupLogoutRoutes(route.Group("/api", middlewares.AuthMiddleware()))
 	route.Use(serveStaticFilesMiddleware(NewHTTPFS(assets.Assets)))
 	rootFiles := listRootFiles()
@@ -68,8 +69,9 @@ func setupFileRoutes(group *gin.RouterGroup) {
 func setupDefaultRoutes(route *gin.Engine) {
 	route.GET("/books-posters/*filepath", api.Posters)
 	route.GET("/api/status", api.StatusCheck)
-	route.POST("/api/change-password", api.ChangeUserState)
-	route.POST("/api/change-request", api.ChangeRequest)
+	// Add CSRF protection to password change endpoints
+	route.POST("/api/change-password", middlewares.CSRFMiddleware(), api.ChangeUserState)
+	route.POST("/api/change-request", middlewares.CSRFMiddleware(), api.ChangeRequest)
 	route.POST("/api/token", api.TokenValidation)
 }
 
