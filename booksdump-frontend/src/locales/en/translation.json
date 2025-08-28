@@ -26,6 +26,7 @@
   "language": "Language",
   "categorySearch": "Category search",
   "searchItem": "Search",
+  "search": "Search",
   "byTitle": "Search book by title",
   "byAuthor": "Search author by name",
   "booksTab": "Books",
@@ -51,6 +52,11 @@
   "firstName": "First name",
   "lastName": "Last name",
   "emailAddress": "Email address",
+  "loading": "Loading...",
+  "typeToSearch": "Type at least 2 characters to search",
+  "noOptions": "No options found",
+  "book": "Book",
+  "author": "Author",
   "cancel": "Cancel",
   "save": "Save",
   "changePassword": "Change password",
@@ -113,6 +119,7 @@
   "public": "Public",
   "create": "Create",
   "delete": "Delete",
+  "noBooksInstruction": "This collection doesn't have any books yet. To add books, use the search and add them to the collection through the button that will appear on book cards.",
   "publicSwitchInstruction": "Add 2 or more books to activate.",
   "bookFavRemovedSuccessfully": "Book removed from favorites",
   "bookFavAddedSuccessfully": "Book added to favorites",
@@ -120,5 +127,6 @@
   "errorAddingFavorite": "Error adding favorite",
   "routeByCategory.books": "Search by category",
   "conversionInProgress": "Conversion in progress",
-  "pleaseWait": "Please wait"
+  "pleaseWait": "Please wait",
+  "csrfTokenInvalid": "CSRF token invalid"
 }

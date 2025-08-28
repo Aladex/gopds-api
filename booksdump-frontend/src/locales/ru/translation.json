@@ -25,6 +25,7 @@
   "language": "Язык",
   "categorySearch": "Поиск по категориям",
   "searchItem": "Поиск",
+  "search": "Поиск",
   "byTitle": "По названию",
   "byAuthor": "По автору",
   "booksTab": "Книги",
@@ -126,5 +127,6 @@
   "errorAddingFavorite": "Ошибка добавления в избранное",
   "routeByCategory.books": "Поиск по категории",
   "conversionInProgress": "Конвертация в процессе",
-  "pleaseWait": "Пожалуйста, подождите"
+  "pleaseWait": "Пожалуйста, подождите",
+  "csrfTokenInvalid": "Недействительный CSRF токен"
 }
