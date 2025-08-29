@@ -1,12 +1,14 @@
 package telegram
 
 import (
+	"context"
 	"fmt"
 	"gopds-api/logging"
 	"log"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"gopds-api/database"
 
@@ -96,7 +98,6 @@ func (bm *BotManager) createBotForUser(token string, userID int64) error {
 
 // createBotInstance creates a bot instance
 func (bm *BotManager) createBotInstance(token string, userID int64) (*Bot, error) {
-
 	// Bot settings for webhook operation
 	settings := tele.Settings{
 		Token: token,
@@ -105,7 +106,32 @@ func (bm *BotManager) createBotInstance(token string, userID int64) (*Bot, error
 		},
 	}
 
-	teleBot, err := tele.NewBot(settings)
+	// Create bot with timeout to avoid hanging on invalid tokens
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	type botResult struct {
+		bot *tele.Bot
+		err error
+	}
+
+	resultChan := make(chan botResult, 1)
+	go func() {
+		teleBot, err := tele.NewBot(settings)
+		resultChan <- botResult{bot: teleBot, err: err}
+	}()
+
+	var teleBot *tele.Bot
+	var err error
+
+	select {
+	case result := <-resultChan:
+		teleBot = result.bot
+		err = result.err
+	case <-ctx.Done():
+		return nil, fmt.Errorf("timeout creating bot - token might be invalid")
+	}
+
 	if err != nil {
 		log.Printf("tele.NewBot failed for user %d: %v", userID, err)
 		return nil, err
@@ -265,9 +291,27 @@ func (bm *BotManager) SetWebhook(token string) error {
 		},
 	}
 
-	err := bot.bot.SetWebhook(webhook)
-	if err != nil {
-		return fmt.Errorf("failed to set webhook: %v", err)
+	// Set webhook with timeout to avoid hanging
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	type webhookResult struct {
+		err error
+	}
+
+	resultChan := make(chan webhookResult, 1)
+	go func() {
+		err := bot.bot.SetWebhook(webhook)
+		resultChan <- webhookResult{err: err}
+	}()
+
+	select {
+	case result := <-resultChan:
+		if result.err != nil {
+			return fmt.Errorf("failed to set webhook: %v", result.err)
+		}
+	case <-ctx.Done():
+		return fmt.Errorf("timeout setting webhook - token might be invalid")
 	}
 
 	logging.Infof("Webhook set successfully for user %d: %s", bot.userID, webhookURL)
@@ -284,22 +328,47 @@ func (bm *BotManager) RemoveBot(token string) error {
 		return fmt.Errorf("bot with token not found")
 	}
 
-	// Remove webhook
-	if err := bot.bot.RemoveWebhook(); err != nil {
-		log.Printf("Warning: failed to remove webhook for bot %s: %v", maskToken(token), err)
-	}
+	logging.Infof("Starting bot removal process for user %d", bot.userID)
 
-	// Stop bot
-	bot.bot.Stop()
-
-	// Clear token and telegram_id in database
-	err := database.ClearBotToken(bot.userID)
-	if err != nil {
-		log.Printf("Warning: failed to clear bot token for user %d: %v", bot.userID, err)
-	}
-
-	// Remove from map
+	// Remove from map first to prevent new webhook processing
 	delete(bm.bots, token)
+
+	// Remove webhook synchronously with timeout
+	webhookDone := make(chan error, 1)
+	go func() {
+		webhookDone <- bot.bot.RemoveWebhook()
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	select {
+	case err := <-webhookDone:
+		if err != nil {
+			log.Printf("Warning: failed to remove webhook for bot %s: %v", maskToken(token), err)
+		} else {
+			log.Printf("Webhook removed successfully for bot %s", maskToken(token))
+		}
+	case <-ctx.Done():
+		log.Printf("Warning: timeout removing webhook for bot %s", maskToken(token))
+	}
+
+	// Stop bot synchronously with timeout
+	stopDone := make(chan struct{}, 1)
+	go func() {
+		bot.bot.Stop()
+		stopDone <- struct{}{}
+	}()
+
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel2()
+
+	select {
+	case <-stopDone:
+		log.Printf("Bot stopped successfully for token %s", maskToken(token))
+	case <-ctx2.Done():
+		log.Printf("Warning: timeout stopping bot for token %s", maskToken(token))
+	}
 
 	log.Printf("Bot removed successfully for user %d", bot.userID)
 	return nil

@@ -212,7 +212,6 @@ func UpdateUserProfile(userID int64, updates models.SelfUserChangeRequest) (mode
 
 // UpdateUserByAdmin updates user data by admin (integrated with new Telegram architecture)
 func UpdateUserByAdmin(action models.AdminCommandToUser) (models.User, error) {
-
 	var userToChange models.User
 	err := db.Model(&userToChange).Where("id = ?", action.User.ID).Select()
 	if err != nil {
@@ -234,34 +233,46 @@ func UpdateUserByAdmin(action models.AdminCommandToUser) (models.User, error) {
 	logging.Infof("Bot token changed: %v (old='%s' -> new='%s')",
 		botTokenChanged, oldBotToken, action.User.BotToken)
 
-	// Update other user details (for admin operations)
-	userToChange = updateUserDetails(userToChange, action.User)
-
-	// Handle bot token changes with new Telegram architecture
+	// Handle bot token changes BEFORE updating database
 	if botTokenChanged {
 		logging.Info("Processing bot token change...")
-		// Remove old bot if exists
+
+		// Step 1: Remove old bot if exists (synchronously with timeout)
 		if oldBotToken != "" {
 			logging.Infof("Removing old bot with token: %s", oldBotToken)
-			if err := removeBotFromManager(oldBotToken); err != nil {
+			if err := removeBotFromManagerSync(oldBotToken); err != nil {
 				logging.Error("Failed to remove old bot:", err)
+				// Continue anyway - we want to clean up the database
 			}
 		}
 
-		// Create new bot if token provided
-		if action.User.BotToken != "" {
-			logging.Infof("Creating new bot with token: %s", action.User.BotToken)
-			if err := createBotInManager(action.User.BotToken, userToChange.ID); err != nil {
-				logging.Error("Failed to create new bot:", err)
-				// Don't fail the update if bot creation fails
+		// Step 2: Clear old data from database
+		if oldBotToken != "" {
+			logging.Info("Clearing old bot data from database")
+			err = ClearBotToken(userToChange.ID)
+			if err != nil {
+				logging.Error("Failed to clear old bot token:", err)
 			}
 		}
 	}
 
+	// Update user details (including new bot token)
+	userToChange = updateUserDetails(userToChange, action.User)
+
+	// Step 3: Update database with new token
 	_, err = db.Model(&userToChange).WherePK().Update()
 	if err != nil {
 		logging.Errorf("Failed to update user in database: %v", err)
 		return userToChange, err
+	}
+
+	// Step 4: Create new bot if token provided (after database is updated)
+	if botTokenChanged && action.User.BotToken != "" {
+		logging.Infof("Creating new bot with token: %s", action.User.BotToken)
+		if err := createBotInManager(action.User.BotToken, userToChange.ID); err != nil {
+			logging.Error("Failed to create new bot:", err)
+			// Don't fail the update if bot creation fails - token is already saved in DB
+		}
 	}
 
 	// Verify the update by reading the user again
@@ -385,18 +396,34 @@ func createBotInManager(token string, userID int64) error {
 		return nil
 	}
 
-	err := telegramBotManager.CreateBotForUser(token, userID)
-	if err != nil {
-		// Check if this is an authorization error from Telegram
-		if strings.Contains(err.Error(), "Unauthorized (401)") {
-			logging.Errorf("Invalid bot token for user %d: %s. Please check the token in @BotFather", userID, err)
-			return fmt.Errorf("invalid bot token - please verify the token with @BotFather")
+	// Create bot with timeout to avoid blocking admin operations
+	done := make(chan error, 1)
+	go func() {
+		err := telegramBotManager.CreateBotForUser(token, userID)
+		if err != nil {
+			// Check if this is an authorization error from Telegram
+			if strings.Contains(err.Error(), "Unauthorized (401)") {
+				logging.Errorf("Invalid bot token for user %d: %s. Please check the token in @BotFather", userID, err)
+				done <- fmt.Errorf("invalid bot token - please verify the token with @BotFather")
+				return
+			}
+			done <- err
+			return
 		}
-		return err
-	}
 
-	// Set webhook
-	return telegramBotManager.SetWebhook(token)
+		// Set webhook
+		err = telegramBotManager.SetWebhook(token)
+		done <- err
+	}()
+
+	// Wait for bot creation with timeout
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(15 * time.Second):
+		logging.Errorf("Timeout creating bot for user %d - operation cancelled", userID)
+		return fmt.Errorf("timeout creating bot - operation took too long")
+	}
 }
 
 // removeBotFromManager removes bot from BotManager
@@ -406,5 +433,16 @@ func removeBotFromManager(token string) error {
 		return nil
 	}
 
+	return telegramBotManager.RemoveBot(token)
+}
+
+// removeBotFromManagerSync removes bot from BotManager synchronously, blocking until done
+func removeBotFromManagerSync(token string) error {
+	if telegramBotManager == nil {
+		logging.Warn("Telegram BotManager not set, skipping bot removal")
+		return nil
+	}
+
+	// Directly call the RemoveBot function without goroutine
 	return telegramBotManager.RemoveBot(token)
 }
