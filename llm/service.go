@@ -132,7 +132,7 @@ func (s *LLMService) ProcessQuery(userQuery, context string) (*Command, error) {
 		return &Command{Command: "unknown"}, nil
 	}
 
-	logging.Infof("LLM processed query '%s' -> command: %s, title: %s", userQuery, command.Command, command.Title)
+	logging.Infof("LLM processed query '%s' -> command: %s, title: %s, author: %s", userQuery, command.Command, command.Title, command.Author)
 	return command, nil
 }
 

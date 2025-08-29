@@ -911,7 +911,7 @@ func (b *Bot) handleAllCallbacks(c tele.Context, conversationManager *Conversati
 			return c.Respond(&tele.CallbackResponse{Text: "Автор не найден"})
 		}
 
-		// Search for books by this author
+		// Search for books by this author using full search with pagination
 		filters := models.BookFilters{
 			Author: int(authorID),
 			Limit:  5,
@@ -924,30 +924,97 @@ func (b *Bot) handleAllCallbacks(c tele.Context, conversationManager *Conversati
 			return c.Respond(&tele.CallbackResponse{Text: "Ошибка поиска книг автора"})
 		}
 
-		// Create response message
-		var responseText string
-		if len(books) == 0 {
-			responseText = fmt.Sprintf("👤 %s\n\nКниги этого автора не найдены в библиотеке.", author.FullName)
-		} else {
-			responseText = fmt.Sprintf("👤 %s\n\nНайдено %d книг(и) этого автора:\n\n", author.FullName, totalCount)
-
-			for i, book := range books {
-				responseText += fmt.Sprintf("%d. %s", i+1, book.Title)
-				if len(book.Series) > 0 && book.Series[0].Ser != "" {
-					responseText += fmt.Sprintf(" (серия: %s)", book.Series[0].Ser)
-				}
-				responseText += "\n"
-			}
-
-			if totalCount > len(books) {
-				responseText += fmt.Sprintf("\n... и еще %d книг(и)", totalCount-len(books))
-			}
+		// Acknowledge the callback first
+		err = c.Respond()
+		if err != nil {
+			logging.Errorf("Failed to respond to callback: %v", err)
 		}
 
-		return c.Respond(&tele.CallbackResponse{
-			Text:      responseText,
-			ShowAlert: true,
-		})
+		// Create a proper search result for books by this author
+		if len(books) == 0 {
+			message := fmt.Sprintf("📚 Книги автора %s не найдены в библиотеке.", author.FullName)
+			_, err = c.Bot().Send(c.Chat(), message)
+			if err != nil {
+				logging.Errorf("Failed to send author books message for user %d: %v", telegramID, err)
+			}
+			return nil
+		}
+
+		// Format message like normal book search results
+		processor := commands.NewCommandProcessor()
+
+		// Create a mock command result for displaying books
+		result := &commands.CommandResult{
+			Books: books,
+			SearchParams: &commands.SearchParams{
+				Query:      author.FullName,
+				QueryType:  "book", // Set as book search since we're showing books
+				Offset:     0,
+				Limit:      5,
+				TotalCount: totalCount,
+			},
+		}
+
+		// Format the message like book search results
+		currentPage := 1
+		totalPages := (totalCount + 5 - 1) / 5
+
+		var messageBuilder strings.Builder
+		messageBuilder.WriteString(fmt.Sprintf("📚 Книги автора %s:\n", author.FullName))
+		messageBuilder.WriteString(fmt.Sprintf("Страница %d из %d (всего найдено %d книг)\n\n", currentPage, totalPages, totalCount))
+
+		for i, book := range books {
+			// Format authors
+			var authorNames []string
+			for _, bookAuthor := range book.Authors {
+				authorNames = append(authorNames, bookAuthor.FullName)
+			}
+			authorsStr := strings.Join(authorNames, ", ")
+			if authorsStr == "" {
+				authorsStr = "Автор неизвестен"
+			}
+
+			// Add book entry with correct numbering
+			bookNumber := i + 1
+			messageBuilder.WriteString(fmt.Sprintf("%d. %s — %s", bookNumber, book.Title, authorsStr))
+
+			// Add series information if available
+			if len(book.Series) > 0 && book.Series[0].Ser != "" {
+				messageBuilder.WriteString(fmt.Sprintf(" (серия: %s)", book.Series[0].Ser))
+			}
+
+			messageBuilder.WriteString("\n")
+		}
+
+		messageBuilder.WriteString("\n💡 Выберите книгу по номеру или используйте навигацию:")
+
+		// Create inline keyboard with book selection buttons and pagination
+		result.ReplyMarkup = processor.CreateBookButtonsWithPagination(books, 0, 5, totalCount)
+		result.Message = messageBuilder.String()
+
+		// Send the message with book results
+		var sendOptions []interface{}
+		if result.ReplyMarkup != nil {
+			sendOptions = append(sendOptions, result.ReplyMarkup)
+		}
+
+		_, err = c.Bot().Send(c.Chat(), result.Message, sendOptions...)
+		if err != nil {
+			logging.Errorf("Failed to send author books search results for user %d: %v", telegramID, err)
+			return nil
+		}
+
+		// Update search params in context
+		if err := conversationManager.UpdateSearchParams(b.token, telegramID, result.SearchParams); err != nil {
+			logging.Errorf("Failed to update search params in context: %v", err)
+		}
+
+		// Add bot message to context
+		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, result.Message); err != nil {
+			logging.Errorf("Failed to process outgoing message: %v", err)
+		}
+
+		return nil
 	}
 
 	// Handle book selection callbacks (select:ID)

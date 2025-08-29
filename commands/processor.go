@@ -372,6 +372,11 @@ func (cp *CommandProcessor) createBookButtonsWithPagination(books []models.Book,
 	return markup
 }
 
+// CreateBookButtonsWithPagination creates inline keyboard buttons for books with pagination (exported for external use)
+func (cp *CommandProcessor) CreateBookButtonsWithPagination(books []models.Book, offset, limit, totalCount int) *tele.ReplyMarkup {
+	return cp.createBookButtonsWithPagination(books, offset, limit, totalCount)
+}
+
 // createAuthorButtonsWithPagination creates inline keyboard buttons for authors with pagination
 func (cp *CommandProcessor) createAuthorButtonsWithPagination(authors []models.Author, offset, limit, totalCount int) *tele.ReplyMarkup {
 	if len(authors) == 0 {
