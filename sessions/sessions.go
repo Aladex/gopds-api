@@ -28,25 +28,6 @@ func SetSessionKey(ctx context.Context, lu models.LoggedInUser) error {
 	return nil
 }
 
-// UpdateSessionKey updates a user's session key.
-func UpdateSessionKey(ctx context.Context, oldToken, newToken, user string) error {
-	// Delete the old session key
-	err := rdb.WithContext(ctx).Del(oldToken).Err()
-	if err != nil {
-		logging.Errorf("Failed to delete old session key: %v", err)
-		return err
-	}
-
-	// Set the new session key
-	_, err = rdb.WithContext(ctx).Set(newToken, strings.ToLower(user), 24*time.Hour).Result()
-	if err != nil {
-		logging.Errorf("Failed to set new session key: %v", err)
-		return err
-	}
-
-	return nil
-}
-
 // DeleteSessionKey deletes a user's session key.
 func DeleteSessionKey(ctx context.Context, lu models.LoggedInUser) error {
 	_, err := rdb.WithContext(ctx).Del(*lu.Token).Result()
@@ -132,25 +113,4 @@ func IsRefreshTokenBlacklisted(ctx context.Context, refreshToken string) bool {
 	blacklistKey := "blacklist:refresh:" + refreshToken
 	_, err := rdb.WithContext(ctx).Get(blacklistKey).Result()
 	return err == nil // If key exists, token is blacklisted
-}
-
-// CleanupExpiredBlacklistedTokens removes expired entries from blacklist
-func CleanupExpiredBlacklistedTokens(ctx context.Context) error {
-	// Redis automatically removes expired keys, so this is mainly for manual cleanup if needed
-	pattern := "blacklist:refresh:*"
-	keys, err := rdb.WithContext(ctx).Keys(pattern).Result()
-	if err != nil {
-		return err
-	}
-
-	for _, key := range keys {
-		// Check if token is still valid
-		token := strings.TrimPrefix(key, "blacklist:refresh:")
-		_, _, _, _, err := utils.CheckTokenWithType(token)
-		if err != nil {
-			// Token is expired, remove from blacklist
-			rdb.WithContext(ctx).Del(key)
-		}
-	}
-	return nil
 }
