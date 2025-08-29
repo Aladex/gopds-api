@@ -294,6 +294,41 @@ func (bm *BotManager) SetWebhook(token string) error {
 	logging.Infof("Webhook URL: %s", webhookURL)
 	logging.Infof("Bot token (masked): %s...%s", token[:5], token[len(token)-5:])
 
+	// Step 1: First remove any existing webhook
+	logging.Infof("Step 1: Removing existing webhook for user %d...", bot.userID)
+	ctx1, cancel1 := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel1()
+
+	type removeResult struct {
+		err error
+	}
+
+	removeResultChan := make(chan removeResult, 1)
+	go func() {
+		logging.Infof("Calling Telegram API to remove existing webhook...")
+		err := bot.bot.RemoveWebhook()
+		if err != nil {
+			logging.Errorf("Telegram API returned error when removing webhook: %v", err)
+		} else {
+			logging.Infof("Successfully removed existing webhook for user %d", bot.userID)
+		}
+		removeResultChan <- removeResult{err: err}
+	}()
+
+	select {
+	case result := <-removeResultChan:
+		if result.err != nil {
+			logging.Warnf("Failed to remove existing webhook for user %d: %v (continuing anyway)", bot.userID, result.err)
+			// Continue anyway - this might be the first time setting webhook
+		}
+	case <-ctx1.Done():
+		logging.Warnf("Timeout removing existing webhook for user %d (continuing anyway)", bot.userID)
+		// Continue anyway
+	}
+
+	// Step 2: Now set the new webhook
+	logging.Infof("Step 2: Setting new webhook for user %d...", bot.userID)
+
 	webhook := &tele.Webhook{
 		Endpoint: &tele.WebhookEndpoint{
 			PublicURL: webhookURL,
@@ -301,8 +336,8 @@ func (bm *BotManager) SetWebhook(token string) error {
 	}
 
 	// Set webhook with timeout to avoid hanging
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel2()
 
 	type webhookResult struct {
 		err error
@@ -310,10 +345,10 @@ func (bm *BotManager) SetWebhook(token string) error {
 
 	resultChan := make(chan webhookResult, 1)
 	go func() {
-		logging.Infof("Calling Telegram API to set webhook...")
+		logging.Infof("Calling Telegram API to set new webhook...")
 		err := bot.bot.SetWebhook(webhook)
 		if err != nil {
-			logging.Errorf("Telegram API returned error: %v", err)
+			logging.Errorf("Telegram API returned error when setting webhook: %v", err)
 		}
 		resultChan <- webhookResult{err: err}
 	}()
@@ -324,7 +359,7 @@ func (bm *BotManager) SetWebhook(token string) error {
 			logging.Errorf("Failed to set webhook for user %d with URL %s: %v", bot.userID, webhookURL, result.err)
 			return fmt.Errorf("failed to set webhook: %v", result.err)
 		}
-	case <-ctx.Done():
+	case <-ctx2.Done():
 		logging.Errorf("Timeout setting webhook for user %d with URL %s", bot.userID, webhookURL)
 		return fmt.Errorf("timeout setting webhook - token might be invalid")
 	}
