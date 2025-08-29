@@ -137,16 +137,18 @@ func (cp *CommandProcessor) executeFindBookWithPagination(title string, userID i
 
 // executeFindAuthor executes an author search command
 func (cp *CommandProcessor) executeFindAuthor(author string, userID int64) (*CommandResult, error) {
-	return cp.executeFindAuthorWithPagination(author, userID, 0, 5)
+	_ = userID // Authors are global, not user-specific
+	return cp.executeFindAuthorWithPagination(author, 0, 5)
 }
 
 // ExecuteFindAuthorWithPagination executes an author search command with pagination (exported for callback handlers)
 func (cp *CommandProcessor) ExecuteFindAuthorWithPagination(author string, userID int64, offset, limit int) (*CommandResult, error) {
-	return cp.executeFindAuthorWithPagination(author, userID, offset, limit)
+	_ = userID // Authors are global, not user-specific
+	return cp.executeFindAuthorWithPagination(author, offset, limit)
 }
 
 // executeFindAuthorWithPagination executes an author search command with pagination
-func (cp *CommandProcessor) executeFindAuthorWithPagination(author string, userID int64, offset, limit int) (*CommandResult, error) {
+func (cp *CommandProcessor) executeFindAuthorWithPagination(author string, offset, limit int) (*CommandResult, error) {
 	if author == "" {
 		return &CommandResult{
 			Message: "Пожалуйста, укажите имя автора для поиска.",
