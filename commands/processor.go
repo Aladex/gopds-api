@@ -20,6 +20,7 @@ type CommandProcessor struct {
 type CommandResult struct {
 	Message     string
 	Books       []models.Book
+	Authors     []models.Author
 	ReplyMarkup *tele.ReplyMarkup
 	// Pagination state for conversation context
 	SearchParams *SearchParams
@@ -28,6 +29,7 @@ type CommandResult struct {
 // SearchParams represents search parameters for pagination
 type SearchParams struct {
 	Query      string `json:"query"`
+	QueryType  string `json:"query_type"` // "book" or "author"
 	Offset     int    `json:"offset"`
 	Limit      int    `json:"limit"`
 	TotalCount int    `json:"total_count"`
@@ -58,6 +60,8 @@ func (cp *CommandProcessor) executeCommand(command *llm.Command, userID int64) (
 	switch command.Command {
 	case "find_book":
 		return cp.executeFindBook(command.Title, userID)
+	case "find_author":
+		return cp.executeFindAuthor(command.Author, userID)
 	case "unknown":
 		return cp.createUnknownResponse(), nil
 	default:
@@ -124,6 +128,72 @@ func (cp *CommandProcessor) executeFindBookWithPagination(title string, userID i
 		ReplyMarkup: replyMarkup,
 		SearchParams: &SearchParams{
 			Query:      title,
+			Offset:     offset,
+			Limit:      limit,
+			TotalCount: totalCount,
+		},
+	}, nil
+}
+
+// executeFindAuthor executes an author search command
+func (cp *CommandProcessor) executeFindAuthor(author string, userID int64) (*CommandResult, error) {
+	return cp.executeFindAuthorWithPagination(author, userID, 0, 5)
+}
+
+// ExecuteFindAuthorWithPagination executes an author search command with pagination (exported for callback handlers)
+func (cp *CommandProcessor) ExecuteFindAuthorWithPagination(author string, userID int64, offset, limit int) (*CommandResult, error) {
+	return cp.executeFindAuthorWithPagination(author, userID, offset, limit)
+}
+
+// executeFindAuthorWithPagination executes an author search command with pagination
+func (cp *CommandProcessor) executeFindAuthorWithPagination(author string, userID int64, offset, limit int) (*CommandResult, error) {
+	if author == "" {
+		return &CommandResult{
+			Message: "Пожалуйста, укажите имя автора для поиска.",
+		}, nil
+	}
+
+	// Create filters for author search with pagination
+	filters := models.AuthorFilters{
+		Author: author,
+		Limit:  limit,
+		Offset: offset,
+	}
+
+	// Search for authors using the existing database function
+	authors, totalCount, err := database.GetAuthors(filters)
+	if err != nil {
+		logging.Errorf("Failed to search authors: %v", err)
+		return &CommandResult{
+			Message: "Произошла ошибка при поиске авторов. Попробуйте позже.",
+		}, nil
+	}
+
+	if len(authors) == 0 && offset == 0 {
+		return &CommandResult{
+			Message: fmt.Sprintf("👤 Авторы с именем \"%s\" не найдены.\n\nПопробуйте изменить запрос или использовать другие ключевые слова.", author),
+		}, nil
+	}
+
+	if len(authors) == 0 && offset > 0 {
+		return &CommandResult{
+			Message: "На этой странице нет результатов.",
+		}, nil
+	}
+
+	// Format the response message with pagination info
+	message := cp.formatAuthorSearchResultsWithPagination(author, authors, totalCount, offset, limit)
+
+	// Create inline keyboard with number-based buttons and pagination
+	replyMarkup := cp.createAuthorButtonsWithPagination(authors, offset, limit, totalCount)
+
+	return &CommandResult{
+		Message:     message,
+		Authors:     authors,
+		ReplyMarkup: replyMarkup,
+		SearchParams: &SearchParams{
+			Query:      author,
+			QueryType:  "author",
 			Offset:     offset,
 			Limit:      limit,
 			TotalCount: totalCount,
@@ -208,6 +278,28 @@ func (cp *CommandProcessor) formatBookSearchResultsWithPagination(query string, 
 	return builder.String()
 }
 
+// formatAuthorSearchResultsWithPagination formats the author search results into a message with pagination info
+func (cp *CommandProcessor) formatAuthorSearchResultsWithPagination(query string, authors []models.Author, totalCount, offset, limit int) string {
+	var builder strings.Builder
+
+	currentPage := (offset / limit) + 1
+	totalPages := (totalCount + limit - 1) / limit
+
+	builder.WriteString(fmt.Sprintf("👤 Результаты поиска авторов для \"%s\":\n", query))
+	builder.WriteString(fmt.Sprintf("Страница %d из %d (всего найдено %d авторов)\n\n", currentPage, totalPages, totalCount))
+
+	for i, author := range authors {
+		// Add author entry with correct numbering
+		authorNumber := offset + i + 1
+		builder.WriteString(fmt.Sprintf("%d. %s", authorNumber, author.FullName))
+		builder.WriteString("\n")
+	}
+
+	builder.WriteString("\n💡 Выберите автора по номеру или используйте навигацию:")
+
+	return builder.String()
+}
+
 // createBookButtons creates inline keyboard buttons for books
 func (cp *CommandProcessor) createBookButtons(books []models.Book) *tele.ReplyMarkup {
 	if len(books) == 0 {
@@ -278,13 +370,58 @@ func (cp *CommandProcessor) createBookButtonsWithPagination(books []models.Book,
 	return markup
 }
 
+// createAuthorButtonsWithPagination creates inline keyboard buttons for authors with pagination
+func (cp *CommandProcessor) createAuthorButtonsWithPagination(authors []models.Author, offset, limit, totalCount int) *tele.ReplyMarkup {
+	if len(authors) == 0 {
+		return nil
+	}
+
+	markup := &tele.ReplyMarkup{}
+	var rows []tele.Row
+
+	// Create number-based selection buttons (2-3 per row)
+	var currentRow []tele.Btn
+	for i, author := range authors {
+		authorNumber := offset + i + 1
+		button := markup.Data(fmt.Sprintf("%d", authorNumber), fmt.Sprintf("author:%d", author.ID))
+		currentRow = append(currentRow, button)
+
+		// Add row when we have 3 buttons or it's the last author
+		if len(currentRow) == 3 || i == len(authors)-1 {
+			rows = append(rows, markup.Row(currentRow...))
+			currentRow = []tele.Btn{}
+		}
+	}
+
+	// Add pagination buttons
+	var paginationRow []tele.Btn
+
+	// Previous page button
+	if offset > 0 {
+		paginationRow = append(paginationRow, markup.Data("⬅️ Назад", "prev_page"))
+	}
+
+	// Next page button
+	if offset+limit < totalCount {
+		paginationRow = append(paginationRow, markup.Data("➡️ Вперед", "next_page"))
+	}
+
+	if len(paginationRow) > 0 {
+		rows = append(rows, markup.Row(paginationRow...))
+	}
+
+	markup.Inline(rows...)
+	return markup
+}
+
 // createUnknownResponse creates a response for unknown/unrelated queries
 func (cp *CommandProcessor) createUnknownResponse() *CommandResult {
 	return &CommandResult{
-		Message: "Я не понимаю запрос. Попробуйте искать книги, например:\n\n" +
+		Message: "Я не понимаю запрос. Попробуйте искать книги или авторов, например:\n\n" +
 			"• Найти книгу Властелин Колец\n" +
 			"• Ищу книги Толкиена\n" +
-			"• Покажи фантастику\n\n" +
-			"Или используйте команду /search <название книги>",
+			"• Покажи авторов фантастики\n" +
+			"• Книги Стругацких\n\n" +
+			"Или используйте команду /search <название книги или автор>",
 	}
 }

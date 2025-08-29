@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"gopds-api/commands"
 	"gopds-api/logging"
+	"gopds-api/models"
 	"net/http"
 	"strconv"
 	"strings"
@@ -805,8 +806,8 @@ func (b *Bot) handleAllCallbacks(c tele.Context, conversationManager *Conversati
 			return c.Respond(&tele.CallbackResponse{Text: "Нет активного поиска для навигации"})
 		}
 
-		logging.Infof("Current search params for user %d: Query=%s, Offset=%d, Limit=%d",
-			telegramID, convContext.SearchParams.Query, convContext.SearchParams.Offset, convContext.SearchParams.Limit)
+		logging.Infof("Current search params for user %d: Query=%s, QueryType=%s, Offset=%d, Limit=%d",
+			telegramID, convContext.SearchParams.Query, convContext.SearchParams.QueryType, convContext.SearchParams.Offset, convContext.SearchParams.Limit)
 
 		// Calculate new offset based on direction
 		newOffset := convContext.SearchParams.Offset
@@ -822,15 +823,27 @@ func (b *Bot) handleAllCallbacks(c tele.Context, conversationManager *Conversati
 
 		logging.Infof("Navigating from offset %d to %d for user %d", convContext.SearchParams.Offset, newOffset, telegramID)
 
-		// Execute search with new pagination
+		// Execute search with new pagination based on search type
 		processor := commands.NewCommandProcessor()
-		result, err := processor.ExecuteFindBookWithPagination(convContext.SearchParams.Query, user.ID, newOffset, convContext.SearchParams.Limit)
+		var result *commands.CommandResult
+
+		if convContext.SearchParams.QueryType == "author" {
+			result, err = processor.ExecuteFindAuthorWithPagination(convContext.SearchParams.Query, user.ID, newOffset, convContext.SearchParams.Limit)
+		} else {
+			// Default to book search for backwards compatibility
+			result, err = processor.ExecuteFindBookWithPagination(convContext.SearchParams.Query, user.ID, newOffset, convContext.SearchParams.Limit)
+		}
+
 		if err != nil {
 			logging.Errorf("Failed to execute paginated search: %v", err)
 			return c.Respond(&tele.CallbackResponse{Text: "Ошибка поиска"})
 		}
 
-		logging.Infof("Pagination search completed, found %d books", len(result.Books))
+		if convContext.SearchParams.QueryType == "author" {
+			logging.Infof("Pagination author search completed, found %d authors", len(result.Authors))
+		} else {
+			logging.Infof("Pagination book search completed, found %d books", len(result.Books))
+		}
 
 		// Update search params in context
 		if result.SearchParams != nil {
@@ -870,6 +883,71 @@ func (b *Bot) handleAllCallbacks(c tele.Context, conversationManager *Conversati
 
 		logging.Infof("Successfully edited message for user %d", telegramID)
 		return nil
+	}
+
+	// Handle author selection callbacks (author:ID)
+	if strings.HasPrefix(callbackData, "author:") {
+		logging.Infof("Processing author selection callback: %s for user %d", callbackData, telegramID)
+
+		authorIDStr := strings.TrimPrefix(callbackData, "author:")
+		authorID, err := strconv.ParseInt(authorIDStr, 10, 64)
+		if err != nil {
+			logging.Errorf("Invalid author ID in callback: %s", authorIDStr)
+			return c.Respond(&tele.CallbackResponse{Text: "Неверный ID автора"})
+		}
+
+		// Get author information
+		user, err := database.GetUserByTelegramID(telegramID)
+		if err != nil {
+			logging.Errorf("Failed to get user by telegram ID %d: %v", telegramID, err)
+			return c.Respond(&tele.CallbackResponse{Text: "Пользователь не найден"})
+		}
+
+		// Get author details
+		authorRequest := models.AuthorRequest{ID: authorID}
+		author, err := database.GetAuthor(authorRequest)
+		if err != nil {
+			logging.Errorf("Failed to get author %d: %v", authorID, err)
+			return c.Respond(&tele.CallbackResponse{Text: "Автор не найден"})
+		}
+
+		// Search for books by this author
+		filters := models.BookFilters{
+			Author: int(authorID),
+			Limit:  5,
+			Offset: 0,
+		}
+
+		books, totalCount, err := database.GetBooksEnhanced(user.ID, filters)
+		if err != nil {
+			logging.Errorf("Failed to search books by author %d: %v", authorID, err)
+			return c.Respond(&tele.CallbackResponse{Text: "Ошибка поиска книг автора"})
+		}
+
+		// Create response message
+		var responseText string
+		if len(books) == 0 {
+			responseText = fmt.Sprintf("👤 %s\n\nКниги этого автора не найдены в библиотеке.", author.FullName)
+		} else {
+			responseText = fmt.Sprintf("👤 %s\n\nНайдено %d книг(и) этого автора:\n\n", author.FullName, totalCount)
+
+			for i, book := range books {
+				responseText += fmt.Sprintf("%d. %s", i+1, book.Title)
+				if len(book.Series) > 0 && book.Series[0].Ser != "" {
+					responseText += fmt.Sprintf(" (серия: %s)", book.Series[0].Ser)
+				}
+				responseText += "\n"
+			}
+
+			if totalCount > len(books) {
+				responseText += fmt.Sprintf("\n... и еще %d книг(и)", totalCount-len(books))
+			}
+		}
+
+		return c.Respond(&tele.CallbackResponse{
+			Text:      responseText,
+			ShowAlert: true,
+		})
 	}
 
 	// Handle book selection callbacks (select:ID)

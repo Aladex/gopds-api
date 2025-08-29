@@ -22,6 +22,7 @@ type LLMService struct {
 type Command struct {
 	Command string `json:"command"`
 	Title   string `json:"title,omitempty"`
+	Author  string `json:"author,omitempty"`
 }
 
 // OpenAIRequest represents the request structure for OpenAI API
@@ -56,9 +57,17 @@ type APIError struct {
 
 const (
 	openAIAPIURL   = "https://api.openai.com/v1/chat/completions"
-	promptTemplate = `You are a library assistant bot. Parse the user query and conversation context to return a JSON object with the command and parameters. Supported commands for now: find_book (search books by title), unknown (for unrelated queries).
+	promptTemplate = `You are a library assistant bot. Parse the user query and conversation context to return a JSON object with the command and parameters. Supported commands: find_book (search books by title), find_author (search authors by name), unknown (for unrelated queries).
 
-If the query is unrelated to book search, return {"command": "unknown"}.
+If the query is about searching for books by title, return {"command": "find_book", "title": "book title"}.
+If the query is about searching for authors or books by author name, return {"command": "find_author", "author": "author name"}.
+If the query is unrelated to book/author search, return {"command": "unknown"}.
+
+Examples:
+- "найти книгу Война и мир" -> {"command": "find_book", "title": "Война и мир"}
+- "книги Толстого" -> {"command": "find_author", "author": "Толстой"}
+- "покажи авторов фантастики" -> {"command": "find_author", "author": "фантастика"}
+- "что такое погода" -> {"command": "unknown"}
 
 Conversation context: {{context}}
 
@@ -66,8 +75,9 @@ User query: {{query}}
 
 Return format:
 {
-  "command": "find_book" | "unknown",
-  "title": string (optional for find_book)
+  "command": "find_book" | "find_author" | "unknown",
+  "title": string (optional for find_book),
+  "author": string (optional for find_author)
 }`
 )
 
@@ -215,9 +225,17 @@ func (s *LLMService) validateCommand(command *Command) *Command {
 			// If no title provided for find_book, treat as unknown
 			return &Command{Command: "unknown"}
 		}
+	case "find_author":
+		// Normalize author
+		command.Author = strings.TrimSpace(command.Author)
+		if command.Author == "" {
+			// If no author provided for find_author, treat as unknown
+			return &Command{Command: "unknown"}
+		}
 	case "unknown":
-		// Clear title for unknown commands
+		// Clear title and author for unknown commands
 		command.Title = ""
+		command.Author = ""
 	default:
 		// Any unrecognized command becomes unknown
 		return &Command{Command: "unknown"}
