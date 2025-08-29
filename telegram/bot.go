@@ -420,18 +420,9 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 		return c.Send(result.Message, sendOptions...)
 	})
 
-	// Handler for pagination callbacks (prev_page, next_page)
-	b.bot.Handle("prev_page", func(c tele.Context) error {
-		return b.handlePaginationCallback(c, conversationManager, "prev")
-	})
-
-	b.bot.Handle("next_page", func(c tele.Context) error {
-		return b.handlePaginationCallback(c, conversationManager, "next")
-	})
-
-	// Handler for book selection callbacks (select:N)
+	// Handler for all callback queries (pagination and book selection)
 	b.bot.Handle(tele.OnCallback, func(c tele.Context) error {
-		return b.handleBookSelectionCallback(c, conversationManager)
+		return b.handleAllCallbacks(c, conversationManager)
 	})
 }
 
@@ -769,79 +760,117 @@ func (bm *BotManager) ClearConversationContext(token string, userID int64) error
 	return bm.conversationManager.ClearContext(token, userID)
 }
 
-// handlePaginationCallback handles pagination callbacks (prev_page, next_page)
-func (b *Bot) handlePaginationCallback(c tele.Context, conversationManager *ConversationManager, direction string) error {
-	telegramID := c.Sender().ID
-
-	// Check authorization
-	if !b.isAuthorizedUser(telegramID) {
-		return c.Respond(&tele.CallbackResponse{Text: "Unauthorized"})
-	}
-
-	user, err := database.GetUserByTelegramID(telegramID)
-	if err != nil {
-		return c.Respond(&tele.CallbackResponse{Text: "Пользователь не найден"})
-	}
-
-	// Get current context to retrieve search parameters
-	convContext, err := conversationManager.GetContext(b.token, telegramID)
-	if err != nil {
-		logging.Errorf("Failed to get context for pagination: %v", err)
-		return c.Respond(&tele.CallbackResponse{Text: "Ошибка получения контекста"})
-	}
-
-	if convContext.SearchParams == nil {
-		return c.Respond(&tele.CallbackResponse{Text: "Нет активного поиска для навигации"})
-	}
-
-	// Calculate new offset based on direction
-	newOffset := convContext.SearchParams.Offset
-	if direction == "next" {
-		newOffset += convContext.SearchParams.Limit
-	} else if direction == "prev" {
-		newOffset -= convContext.SearchParams.Limit
-		if newOffset < 0 {
-			newOffset = 0
-		}
-	}
-
-	// Execute search with new pagination
-	processor := commands.NewCommandProcessor()
-	result, err := processor.ExecuteFindBookWithPagination(convContext.SearchParams.Query, user.ID, newOffset, convContext.SearchParams.Limit)
-	if err != nil {
-		logging.Errorf("Failed to execute paginated search: %v", err)
-		return c.Respond(&tele.CallbackResponse{Text: "Ошибка поиска"})
-	}
-
-	// Update search params in context
-	if result.SearchParams != nil {
-		if err := conversationManager.UpdateSearchParams(b.token, telegramID, result.SearchParams); err != nil {
-			logging.Errorf("Failed to update search params: %v", err)
-		}
-	}
-
-	// Edit the message with new results
-	var sendOptions []interface{}
-	if result.ReplyMarkup != nil {
-		sendOptions = append(sendOptions, result.ReplyMarkup)
-	}
-
-	return c.Edit(result.Message, sendOptions...)
-}
-
-// handleBookSelectionCallback handles book selection callbacks (select:ID)
-func (b *Bot) handleBookSelectionCallback(c tele.Context, conversationManager *ConversationManager) error {
+// handleAllCallbacks handles all callback queries (pagination and book selection)
+func (b *Bot) handleAllCallbacks(c tele.Context, conversationManager *ConversationManager) error {
 	telegramID := c.Sender().ID
 	callbackData := c.Callback().Data
 
+	// Add detailed logging for debugging
+	logging.Infof("Received callback from user %d, data: %s", telegramID, callbackData)
+
 	// Check authorization
 	if !b.isAuthorizedUser(telegramID) {
+		logging.Warnf("Unauthorized callback attempt from user %d", telegramID)
 		return c.Respond(&tele.CallbackResponse{Text: "Unauthorized"})
 	}
 
-	// Handle different callback types
+	// Handle pagination callbacks (prev_page, next_page)
+	if callbackData == "prev_page" || callbackData == "next_page" {
+		logging.Infof("Processing pagination callback: %s for user %d", callbackData, telegramID)
+
+		direction := "next"
+		if callbackData == "prev_page" {
+			direction = "prev"
+		}
+
+		user, err := database.GetUserByTelegramID(telegramID)
+		if err != nil {
+			logging.Errorf("Failed to get user by telegram ID %d: %v", telegramID, err)
+			return c.Respond(&tele.CallbackResponse{Text: "Пользователь не найден"})
+		}
+
+		// Get current context to retrieve search parameters
+		convContext, err := conversationManager.GetContext(b.token, telegramID)
+		if err != nil {
+			logging.Errorf("Failed to get context for pagination: %v", err)
+			return c.Respond(&tele.CallbackResponse{Text: "Ошибка получения контекста"})
+		}
+
+		if convContext.SearchParams == nil {
+			logging.Warnf("No search params found in context for user %d", telegramID)
+			return c.Respond(&tele.CallbackResponse{Text: "Нет активного поиска для навигации"})
+		}
+
+		logging.Infof("Current search params for user %d: Query=%s, Offset=%d, Limit=%d",
+			telegramID, convContext.SearchParams.Query, convContext.SearchParams.Offset, convContext.SearchParams.Limit)
+
+		// Calculate new offset based on direction
+		newOffset := convContext.SearchParams.Offset
+		if direction == "next" {
+			newOffset += convContext.SearchParams.Limit
+		} else if direction == "prev" {
+			newOffset -= convContext.SearchParams.Limit
+			if newOffset < 0 {
+				newOffset = 0
+			}
+		}
+
+		logging.Infof("Navigating from offset %d to %d for user %d", convContext.SearchParams.Offset, newOffset, telegramID)
+
+		// Execute search with new pagination
+		processor := commands.NewCommandProcessor()
+		result, err := processor.ExecuteFindBookWithPagination(convContext.SearchParams.Query, user.ID, newOffset, convContext.SearchParams.Limit)
+		if err != nil {
+			logging.Errorf("Failed to execute paginated search: %v", err)
+			return c.Respond(&tele.CallbackResponse{Text: "Ошибка поиска"})
+		}
+
+		logging.Infof("Pagination search completed, found %d books", len(result.Books))
+
+		// Update search params in context
+		if result.SearchParams != nil {
+			if err := conversationManager.UpdateSearchParams(b.token, telegramID, result.SearchParams); err != nil {
+				logging.Errorf("Failed to update search params: %v", err)
+			} else {
+				logging.Infof("Updated search params in context: Offset=%d", result.SearchParams.Offset)
+			}
+		}
+
+		// Edit the message with new results
+		var sendOptions []interface{}
+		if result.ReplyMarkup != nil {
+			sendOptions = append(sendOptions, result.ReplyMarkup)
+		}
+
+		logging.Infof("Editing message for user %d with new pagination results", telegramID)
+
+		// Add callback response first to acknowledge the callback
+		err = c.Respond()
+		if err != nil {
+			logging.Errorf("Failed to respond to callback: %v", err)
+		}
+
+		// Edit the message with new results
+		editErr := c.Edit(result.Message, sendOptions...)
+		if editErr != nil {
+			logging.Errorf("Failed to edit message for user %d: %v", telegramID, editErr)
+			// Try to send a new message if editing fails
+			_, sendErr := c.Bot().Send(c.Chat(), result.Message, sendOptions...)
+			if sendErr != nil {
+				logging.Errorf("Failed to send new message after edit failure for user %d: %v", telegramID, sendErr)
+				return c.Respond(&tele.CallbackResponse{Text: "Ошибка обновления страницы"})
+			}
+			return nil
+		}
+
+		logging.Infof("Successfully edited message for user %d", telegramID)
+		return nil
+	}
+
+	// Handle book selection callbacks (select:ID)
 	if strings.HasPrefix(callbackData, "select:") {
-		// Book selection callback
+		logging.Infof("Processing book selection callback: %s for user %d", callbackData, telegramID)
+
 		bookIDStr := strings.TrimPrefix(callbackData, "select:")
 		bookID, err := strconv.ParseInt(bookIDStr, 10, 64)
 		if err != nil {
@@ -852,10 +881,11 @@ func (b *Bot) handleBookSelectionCallback(c tele.Context, conversationManager *C
 		// Update selected book ID in context
 		if err := conversationManager.UpdateSelectedBookID(b.token, telegramID, bookID); err != nil {
 			logging.Errorf("Failed to update selected book ID: %v", err)
+		} else {
+			logging.Infof("Selected book ID %d for user %d", bookID, telegramID)
 		}
 
 		// Get book information for confirmation
-		// For now, just show a confirmation message
 		responseText := fmt.Sprintf("📖 Книга выбрана (ID: %d)\n\nВ будущем здесь будет возможность скачивания.", bookID)
 
 		return c.Respond(&tele.CallbackResponse{
@@ -864,7 +894,8 @@ func (b *Bot) handleBookSelectionCallback(c tele.Context, conversationManager *C
 		})
 	}
 
-	// If not a select callback, ignore
+	// If not a known callback type, log and ignore
+	logging.Warnf("Unknown callback type received: %s from user %d", callbackData, telegramID)
 	return nil
 }
 
