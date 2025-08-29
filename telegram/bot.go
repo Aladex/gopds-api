@@ -765,8 +765,12 @@ func (b *Bot) handleAllCallbacks(c tele.Context, conversationManager *Conversati
 	telegramID := c.Sender().ID
 	callbackData := c.Callback().Data
 
+	// Clean callback data from any unwanted characters
+	callbackData = strings.TrimSpace(callbackData)
+	callbackData = strings.Trim(callbackData, "\f\n\r\t")
+
 	// Add detailed logging for debugging
-	logging.Infof("Received callback from user %d, data: %s", telegramID, callbackData)
+	logging.Infof("Received callback from user %d, data: %q (cleaned: %q)", telegramID, c.Callback().Data, callbackData)
 
 	// Check authorization
 	if !b.isAuthorizedUser(telegramID) {
