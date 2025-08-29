@@ -829,6 +829,15 @@ func (b *Bot) handleAllCallbacks(c tele.Context, conversationManager *Conversati
 
 		if convContext.SearchParams.QueryType == "author" {
 			result, err = processor.ExecuteFindAuthorWithPagination(convContext.SearchParams.Query, user.ID, newOffset, convContext.SearchParams.Limit)
+		} else if convContext.SearchParams.QueryType == "author_books" {
+			// Search for books by specific author ID
+			result, err = processor.ExecuteFindAuthorBooksWithPagination(
+				convContext.SearchParams.AuthorID,
+				convContext.SearchParams.Query,
+				user.ID,
+				newOffset,
+				convContext.SearchParams.Limit,
+			)
 		} else {
 			// Default to book search for backwards compatibility
 			result, err = processor.ExecuteFindBookWithPagination(convContext.SearchParams.Query, user.ID, newOffset, convContext.SearchParams.Limit)
@@ -918,7 +927,7 @@ func (b *Bot) handleAllCallbacks(c tele.Context, conversationManager *Conversati
 			Offset: 0,
 		}
 
-		books, totalCount, err := database.GetBooksEnhanced(user.ID, filters)
+		books, _, err := database.GetBooksEnhanced(user.ID, filters)
 		if err != nil {
 			logging.Errorf("Failed to search books by author %d: %v", authorID, err)
 			return c.Respond(&tele.CallbackResponse{Text: "Ошибка поиска книг автора"})
@@ -943,54 +952,12 @@ func (b *Bot) handleAllCallbacks(c tele.Context, conversationManager *Conversati
 		// Format message like normal book search results
 		processor := commands.NewCommandProcessor()
 
-		// Create a mock command result for displaying books
-		result := &commands.CommandResult{
-			Books: books,
-			SearchParams: &commands.SearchParams{
-				Query:      author.FullName,
-				QueryType:  "book", // Set as book search since we're showing books
-				Offset:     0,
-				Limit:      5,
-				TotalCount: totalCount,
-			},
+		// Use the new specialized function for author books
+		result, err := processor.ExecuteFindAuthorBooksWithPagination(authorID, author.FullName, user.ID, 0, 5)
+		if err != nil {
+			logging.Errorf("Failed to get author books for user %d: %v", telegramID, err)
+			return c.Respond(&tele.CallbackResponse{Text: "Ошибка поиска книг автора"})
 		}
-
-		// Format the message like book search results
-		currentPage := 1
-		totalPages := (totalCount + 5 - 1) / 5
-
-		var messageBuilder strings.Builder
-		messageBuilder.WriteString(fmt.Sprintf("📚 Книги автора %s:\n", author.FullName))
-		messageBuilder.WriteString(fmt.Sprintf("Страница %d из %d (всего найдено %d книг)\n\n", currentPage, totalPages, totalCount))
-
-		for i, book := range books {
-			// Format authors
-			var authorNames []string
-			for _, bookAuthor := range book.Authors {
-				authorNames = append(authorNames, bookAuthor.FullName)
-			}
-			authorsStr := strings.Join(authorNames, ", ")
-			if authorsStr == "" {
-				authorsStr = "Автор неизвестен"
-			}
-
-			// Add book entry with correct numbering
-			bookNumber := i + 1
-			messageBuilder.WriteString(fmt.Sprintf("%d. %s — %s", bookNumber, book.Title, authorsStr))
-
-			// Add series information if available
-			if len(book.Series) > 0 && book.Series[0].Ser != "" {
-				messageBuilder.WriteString(fmt.Sprintf(" (серия: %s)", book.Series[0].Ser))
-			}
-
-			messageBuilder.WriteString("\n")
-		}
-
-		messageBuilder.WriteString("\n💡 Выберите книгу по номеру или используйте навигацию:")
-
-		// Create inline keyboard with book selection buttons and pagination
-		result.ReplyMarkup = processor.CreateBookButtonsWithPagination(books, 0, 5, totalCount)
-		result.Message = messageBuilder.String()
 
 		// Send the message with book results
 		var sendOptions []interface{}
@@ -1005,8 +972,10 @@ func (b *Bot) handleAllCallbacks(c tele.Context, conversationManager *Conversati
 		}
 
 		// Update search params in context
-		if err := conversationManager.UpdateSearchParams(b.token, telegramID, result.SearchParams); err != nil {
-			logging.Errorf("Failed to update search params in context: %v", err)
+		if result.SearchParams != nil {
+			if err := conversationManager.UpdateSearchParams(b.token, telegramID, result.SearchParams); err != nil {
+				logging.Errorf("Failed to update search params in context: %v", err)
+			}
 		}
 
 		// Add bot message to context

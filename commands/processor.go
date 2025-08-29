@@ -29,7 +29,8 @@ type CommandResult struct {
 // SearchParams represents search parameters for pagination
 type SearchParams struct {
 	Query      string `json:"query"`
-	QueryType  string `json:"query_type"` // "book" or "author"
+	QueryType  string `json:"query_type"`          // "book", "author", or "author_books"
+	AuthorID   int64  `json:"author_id,omitempty"` // for author_books search type
 	Offset     int    `json:"offset"`
 	Limit      int    `json:"limit"`
 	TotalCount int    `json:"total_count"`
@@ -196,6 +197,87 @@ func (cp *CommandProcessor) executeFindAuthorWithPagination(author string, offse
 		SearchParams: &SearchParams{
 			Query:      author,
 			QueryType:  "author",
+			Offset:     offset,
+			Limit:      limit,
+			TotalCount: totalCount,
+		},
+	}, nil
+}
+
+// ExecuteFindAuthorBooksWithPagination executes a search for books by specific author ID with pagination
+func (cp *CommandProcessor) ExecuteFindAuthorBooksWithPagination(authorID int64, authorName string, userID int64, offset, limit int) (*CommandResult, error) {
+	// Create filters for author books search with pagination
+	filters := models.BookFilters{
+		Author: int(authorID),
+		Limit:  limit,
+		Offset: offset,
+	}
+
+	// Search for books using the existing database function
+	books, totalCount, err := database.GetBooksEnhanced(userID, filters)
+	if err != nil {
+		logging.Errorf("Failed to search books by author ID %d: %v", authorID, err)
+		return &CommandResult{
+			Message: "Произошла ошибка при поиске книг автора. Попробуйте позже.",
+		}, nil
+	}
+
+	if len(books) == 0 && offset == 0 {
+		return &CommandResult{
+			Message: fmt.Sprintf("📚 Книги автора %s не найдены в библиотеке.", authorName),
+		}, nil
+	}
+
+	if len(books) == 0 && offset > 0 {
+		return &CommandResult{
+			Message: "На этой странице нет результатов.",
+		}, nil
+	}
+
+	// Format the message like book search results
+	currentPage := (offset / limit) + 1
+	totalPages := (totalCount + limit - 1) / limit
+
+	var messageBuilder strings.Builder
+	messageBuilder.WriteString(fmt.Sprintf("📚 Книги автора %s:\n", authorName))
+	messageBuilder.WriteString(fmt.Sprintf("Страница %d из %d (всего найдено %d книг)\n\n", currentPage, totalPages, totalCount))
+
+	for i, book := range books {
+		// Format authors
+		var authorNames []string
+		for _, bookAuthor := range book.Authors {
+			authorNames = append(authorNames, bookAuthor.FullName)
+		}
+		authorsStr := strings.Join(authorNames, ", ")
+		if authorsStr == "" {
+			authorsStr = "Автор неизвестен"
+		}
+
+		// Add book entry with correct numbering
+		bookNumber := offset + i + 1
+		messageBuilder.WriteString(fmt.Sprintf("%d. %s — %s", bookNumber, book.Title, authorsStr))
+
+		// Add series information if available
+		if len(book.Series) > 0 && book.Series[0].Ser != "" {
+			messageBuilder.WriteString(fmt.Sprintf(" (серия: %s)", book.Series[0].Ser))
+		}
+
+		messageBuilder.WriteString("\n")
+	}
+
+	messageBuilder.WriteString("\n💡 Выберите книгу по номеру или используйте навигацию:")
+
+	// Create inline keyboard with book selection buttons and pagination
+	replyMarkup := cp.createBookButtonsWithPagination(books, offset, limit, totalCount)
+
+	return &CommandResult{
+		Message:     messageBuilder.String(),
+		Books:       books,
+		ReplyMarkup: replyMarkup,
+		SearchParams: &SearchParams{
+			Query:      authorName,
+			QueryType:  "author_books",
+			AuthorID:   authorID,
 			Offset:     offset,
 			Limit:      limit,
 			TotalCount: totalCount,
