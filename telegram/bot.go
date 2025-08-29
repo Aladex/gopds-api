@@ -127,16 +127,33 @@ func (bm *BotManager) createBotInstance(token string, userID int64) (*Bot, error
 func (b *Bot) setupHandlers() {
 	// Обработчик команды /start
 	b.bot.Handle("/start", func(c tele.Context) error {
-		// При первом /start связываем telegram_id с пользователем
 		telegramID := c.Sender().ID
 
-		// Проверяем, не привязан ли уже этот telegram_id к пользователю
-		existingUser, err := database.GetUserByTelegramID(telegramID)
-		if err == nil && existingUser.ID != 0 {
+		// Получаем владельца этого бота из базы данных
+		botOwner, err := database.GetUserByBotToken(b.token)
+		if err != nil {
+			logging.Errorf("Failed to get bot owner for token %s: %v", maskToken(b.token), err)
+			return c.Send("Ошибка конфигурации бота. Обратитесь к администратору.")
+		}
+
+		// Если у владельца бота уже есть telegram_id, проверяем эксклюзивность
+		if botOwner.TelegramID != 0 {
+			if int64(botOwner.TelegramID) != telegramID {
+				// Это чужой аккаунт - игнорируем
+				return nil
+			}
+			// Это владелец бота
 			return c.Send("Вы уже связаны с аккаунтом библиотеки!")
 		}
 
-		// Связываем telegram_id с пользователем через bot_token
+		// Проверяем, не связан ли этот telegram_id с другим аккаунтом
+		existingUser, err := database.GetUserByTelegramID(telegramID)
+		if err == nil && existingUser.ID != 0 && existingUser.ID != botOwner.ID {
+			// Этот telegram_id уже привязан к другому аккаунту
+			return nil
+		}
+
+		// Связываем telegram_id с владельцем бота
 		err = database.UpdateTelegramID(b.token, telegramID)
 		if err != nil {
 			log.Printf("Failed to update telegram_id for token %s: %v", maskToken(b.token), err)
@@ -148,8 +165,13 @@ func (b *Bot) setupHandlers() {
 
 	// Обработчик команды /search для поиска книг
 	b.bot.Handle("/search", func(c tele.Context) error {
-		// Проверяем, что пользователь связан
 		telegramID := c.Sender().ID
+
+		// Проверяем эксклюзивность: только владелец бота может использовать команды
+		if !b.isAuthorizedUser(telegramID) {
+			return nil // Игнорируем сообщения от неавторизованных пользователей
+		}
+
 		user, err := database.GetUserByTelegramID(telegramID)
 		if err != nil {
 			return c.Send("Сначала отправьте /start для связывания аккаунта.")
@@ -168,16 +190,34 @@ func (b *Bot) setupHandlers() {
 
 	// Обработчик всех остальных сообщений
 	b.bot.Handle(tele.OnText, func(c tele.Context) error {
-		// Проверяем, что пользователь связан
 		telegramID := c.Sender().ID
+
+		// Проверяем эксклюзивность: только владелец бота может использовать команды
+		if !b.isAuthorizedUser(telegramID) {
+			return nil // Игнорируем сообщения от неавторизованных пользователей
+		}
+
 		_, err := database.GetUserByTelegramID(telegramID)
 		if err != nil {
 			return c.Send("Сначала отправьте /start для связывания аккаунта.")
 		}
 
-		// Если это не команда, игнорируем
+		// Если это не команда, показываем помощь
 		return c.Send("Используйте команды:\n/start - связать аккаунт\n/search <запрос> - поиск книг")
 	})
+}
+
+// isAuthorizedUser проверяет, является ли пользователь владельцем этого бота
+func (b *Bot) isAuthorizedUser(telegramID int64) bool {
+	// Получаем владельца бота
+	botOwner, err := database.GetUserByBotToken(b.token)
+	if err != nil {
+		log.Printf("Failed to get bot owner for authorization check: %v", err)
+		return false
+	}
+
+	// Проверяем, что telegram_id совпадает с владельцем
+	return int64(botOwner.TelegramID) == telegramID
 }
 
 // HandleWebhook обрабатывает входящие webhook'и от Telegram
