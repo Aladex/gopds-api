@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"gopds-api/logging"
-	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -13,14 +12,16 @@ import (
 	"gopds-api/database"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis"
 	tele "gopkg.in/telebot.v3"
 )
 
 // BotManager manages Telegram bots linked to system users
 type BotManager struct {
-	bots   map[string]*Bot // token -> Bot
-	mutex  sync.RWMutex
-	config *Config
+	bots                map[string]*Bot // token -> Bot
+	mutex               sync.RWMutex
+	config              *Config
+	conversationManager *ConversationManager
 }
 
 // Bot represents a bot linked to a system user
@@ -36,10 +37,11 @@ type Config struct {
 }
 
 // NewBotManager creates a new bot manager
-func NewBotManager(config *Config) *BotManager {
+func NewBotManager(config *Config, redisClient *redis.Client) *BotManager {
 	return &BotManager{
-		bots:   make(map[string]*Bot),
-		config: config,
+		bots:                make(map[string]*Bot),
+		config:              config,
+		conversationManager: NewConversationManager(redisClient),
 	}
 }
 
@@ -51,23 +53,23 @@ func (bm *BotManager) InitializeExistingBots() error {
 		return fmt.Errorf("failed to get users with bot tokens: %v", err)
 	}
 
-	log.Printf("Found %d users with bot tokens, initializing bots...", len(users))
+	logging.Infof("Found %d users with bot tokens, initializing bots...", len(users))
 
 	for _, user := range users {
 		err := bm.createBotForUser(user.BotToken, user.ID)
 		if err != nil {
-			log.Printf("Failed to initialize bot for user %d: %v", user.ID, err)
+			logging.Infof("Failed to initialize bot for user %d: %v", user.ID, err)
 			continue
 		}
 
 		// Set webhook
 		err = bm.SetWebhook(user.BotToken)
 		if err != nil {
-			log.Printf("Failed to set webhook for user %d: %v", user.ID, err)
+			logging.Infof("Failed to set webhook for user %d: %v", user.ID, err)
 		}
 	}
 
-	log.Printf("Initialized %d telegram bots", len(bm.bots))
+	logging.Infof("Initialized %d telegram bots", len(bm.bots))
 	return nil
 }
 
@@ -133,7 +135,7 @@ func (bm *BotManager) createBotInstance(token string, userID int64) (*Bot, error
 	}
 
 	if err != nil {
-		log.Printf("tele.NewBot failed for user %d: %v", userID, err)
+		logging.Infof("tele.NewBot failed for user %d: %v", userID, err)
 		return nil, err
 	}
 
@@ -143,24 +145,35 @@ func (bm *BotManager) createBotInstance(token string, userID int64) (*Bot, error
 		userID: userID,
 	}
 
-	// Set up command handlers
-	bot.setupHandlers()
+	// Set up command handlers with conversation manager
+	bot.setupHandlers(bm.conversationManager)
 
 	return bot, nil
 }
 
 // setupHandlers sets up command handlers for the bot
-func (b *Bot) setupHandlers() {
+func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 	// Handler for /start command
 	b.bot.Handle("/start", func(c tele.Context) error {
 		telegramID := c.Sender().ID
 
+		// Process incoming message for context
+		if err := conversationManager.ProcessIncomingMessage(b.token, c.Message()); err != nil {
+			logging.Errorf("Failed to process incoming message: %v", err)
+		}
+
 		// Get the owner of this bot from the database
 		botOwner, err := database.GetUserByBotToken(b.token)
 		if err != nil {
-			log.Printf("Failed to get bot owner for token %s: %v", maskToken(b.token), err)
-			return c.Send("Bot configuration error. Please contact administrator.")
+			logging.Infof("Failed to get bot owner for token %s: %v", maskToken(b.token), err)
+			response := "Bot configuration error. Please contact administrator."
+			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+				logging.Errorf("Failed to process outgoing message: %v", err)
+			}
+			return c.Send(response)
 		}
+
+		var response string
 
 		// If the bot owner already has telegram_id, check exclusivity
 		if botOwner.TelegramID != 0 {
@@ -169,7 +182,11 @@ func (b *Bot) setupHandlers() {
 				return nil
 			}
 			// This is the bot owner
-			return c.Send("You are already linked to the library account!")
+			response = "You are already linked to the library account!"
+			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+				logging.Errorf("Failed to process outgoing message: %v", err)
+			}
+			return c.Send(response)
 		}
 
 		// Check if this telegram_id is linked to another account
@@ -182,16 +199,103 @@ func (b *Bot) setupHandlers() {
 		// Link telegram_id with the bot owner
 		err = database.UpdateTelegramID(b.token, telegramID)
 		if err != nil {
-			log.Printf("Failed to update telegram_id for token %s: %v", maskToken(b.token), err)
-			return c.Send("Error linking account. Please try again later.")
+			logging.Infof("Failed to update telegram_id for token %s: %v", maskToken(b.token), err)
+			response = "Error linking account. Please try again later."
+			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+				logging.Errorf("Failed to process outgoing message: %v", err)
+			}
+			return c.Send(response)
 		}
 
-		return c.Send("Welcome! Your account has been successfully linked to the library.")
+		response = "Welcome! Your account has been successfully linked to the library."
+		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+			logging.Errorf("Failed to process outgoing message: %v", err)
+		}
+		return c.Send(response)
+	})
+
+	// Handler for /context command to show current conversation context
+	b.bot.Handle("/context", func(c tele.Context) error {
+		telegramID := c.Sender().ID
+
+		// Process incoming message for context
+		if err := conversationManager.ProcessIncomingMessage(b.token, c.Message()); err != nil {
+			logging.Errorf("Failed to process incoming message: %v", err)
+		}
+
+		// Check exclusivity: only bot owner can use commands
+		if !b.isAuthorizedUser(telegramID) {
+			return nil // Ignore messages from unauthorized users
+		}
+
+		stats, err := conversationManager.GetContextStats(b.token, telegramID)
+		if err != nil {
+			response := "Error getting context stats."
+			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+				logging.Errorf("Failed to process outgoing message: %v", err)
+			}
+			return c.Send(response)
+		}
+
+		response := fmt.Sprintf("📊 Context Stats:\n"+
+			"Messages: %d\n"+
+			"Context length: %d/%d chars\n"+
+			"User messages: %d\n"+
+			"Bot messages: %d\n"+
+			"Created: %v\n"+
+			"Updated: %v",
+			stats["messages_count"],
+			stats["context_length"],
+			stats["max_length"],
+			stats["user_messages"],
+			stats["bot_messages"],
+			stats["created_at"],
+			stats["updated_at"])
+
+		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+			logging.Errorf("Failed to process outgoing message: %v", err)
+		}
+		return c.Send(response)
+	})
+
+	// Handler for /clear command to clear conversation context
+	b.bot.Handle("/clear", func(c tele.Context) error {
+		telegramID := c.Sender().ID
+
+		// Process incoming message for context
+		if err := conversationManager.ProcessIncomingMessage(b.token, c.Message()); err != nil {
+			logging.Errorf("Failed to process incoming message: %v", err)
+		}
+
+		// Check exclusivity: only bot owner can use commands
+		if !b.isAuthorizedUser(telegramID) {
+			return nil // Ignore messages from unauthorized users
+		}
+
+		err := conversationManager.ClearContext(b.token, telegramID)
+		if err != nil {
+			response := "Error clearing context."
+			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+				logging.Errorf("Failed to process outgoing message: %v", err)
+			}
+			return c.Send(response)
+		}
+
+		response := "🗑️ Conversation context cleared successfully."
+		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+			logging.Errorf("Failed to process outgoing message: %v", err)
+		}
+		return c.Send(response)
 	})
 
 	// Handler for /search command for book search
 	b.bot.Handle("/search", func(c tele.Context) error {
 		telegramID := c.Sender().ID
+
+		// Process incoming message for context
+		if err := conversationManager.ProcessIncomingMessage(b.token, c.Message()); err != nil {
+			logging.Errorf("Failed to process incoming message: %v", err)
+		}
 
 		// Check exclusivity: only bot owner can use commands
 		if !b.isAuthorizedUser(telegramID) {
@@ -200,23 +304,48 @@ func (b *Bot) setupHandlers() {
 
 		user, err := database.GetUserByTelegramID(telegramID)
 		if err != nil {
-			return c.Send("Please send /start first to link your account.")
+			response := "Please send /start first to link your account."
+			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+				logging.Errorf("Failed to process outgoing message: %v", err)
+			}
+			return c.Send(response)
 		}
 
 		// Get search query
 		query := strings.TrimPrefix(c.Text(), "/search ")
 		if query == "/search" || query == "" {
-			return c.Send("Usage: /search <book title or author>")
+			response := "Usage: /search <book title or author>"
+			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+				logging.Errorf("Failed to process outgoing message: %v", err)
+			}
+			return c.Send(response)
+		}
+
+		// Get conversation context for AI integration
+		contextStr, err := conversationManager.GetContextAsString(b.token, telegramID)
+		if err != nil {
+			logging.Errorf("Failed to get context string: %v", err)
+		} else if contextStr != "" {
+			logging.Infof("Search with context for user %d: %s", telegramID, contextStr)
 		}
 
 		// Book search logic will be here
 		// Placeholder for now
-		return c.Send(fmt.Sprintf("Searching books for: %s\nUser: %s", query, user.Login))
+		response := fmt.Sprintf("🔍 Searching books for: %s\nUser: %s", query, user.Login)
+		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+			logging.Errorf("Failed to process outgoing message: %v", err)
+		}
+		return c.Send(response)
 	})
 
 	// Handler for all other messages
 	b.bot.Handle(tele.OnText, func(c tele.Context) error {
 		telegramID := c.Sender().ID
+
+		// Process incoming message for context
+		if err := conversationManager.ProcessIncomingMessage(b.token, c.Message()); err != nil {
+			logging.Errorf("Failed to process incoming message: %v", err)
+		}
 
 		// Check exclusivity: only bot owner can use commands
 		if !b.isAuthorizedUser(telegramID) {
@@ -225,11 +354,32 @@ func (b *Bot) setupHandlers() {
 
 		_, err := database.GetUserByTelegramID(telegramID)
 		if err != nil {
-			return c.Send("Please send /start first to link your account.")
+			response := "Please send /start first to link your account."
+			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+				logging.Errorf("Failed to process outgoing message: %v", err)
+			}
+			return c.Send(response)
 		}
 
-		// If this is not a command, show help
-		return c.Send("Available commands:\n/start - link account\n/search <query> - search books")
+		// Get conversation context for AI integration
+		contextStr, err := conversationManager.GetContextAsString(b.token, telegramID)
+		if err != nil {
+			logging.Errorf("Failed to get context string: %v", err)
+		} else if contextStr != "" {
+			logging.Infof("Message with context for user %d: %s", telegramID, contextStr)
+		}
+
+		// If this is not a command, show help with available commands
+		response := "Available commands:\n" +
+			"/start - link account\n" +
+			"/search <query> - search books\n" +
+			"/context - show conversation stats\n" +
+			"/clear - clear conversation context"
+
+		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+			logging.Errorf("Failed to process outgoing message: %v", err)
+		}
+		return c.Send(response)
 	})
 }
 
@@ -238,7 +388,7 @@ func (b *Bot) isAuthorizedUser(telegramID int64) bool {
 	// Get bot owner
 	botOwner, err := database.GetUserByBotToken(b.token)
 	if err != nil {
-		log.Printf("Failed to get bot owner for authorization check: %v", err)
+		logging.Infof("Failed to get bot owner for authorization check: %v", err)
 		return false
 	}
 
@@ -255,7 +405,7 @@ func (bm *BotManager) HandleWebhook(c *gin.Context) {
 	bm.mutex.RUnlock()
 
 	if !exists {
-		log.Printf("Webhook received for unknown bot token: %s", maskToken(token))
+		logging.Infof("Webhook received for unknown bot token: %s", maskToken(token))
 		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
 		return
 	}
@@ -263,7 +413,7 @@ func (bm *BotManager) HandleWebhook(c *gin.Context) {
 	// Read request body to process update
 	var update tele.Update
 	if err := c.ShouldBindJSON(&update); err != nil {
-		log.Printf("Error parsing webhook for token %s: %v", maskToken(token), err)
+		logging.Infof("Error parsing webhook for token %s: %v", maskToken(token), err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid webhook data"})
 		return
 	}
@@ -395,12 +545,12 @@ func (bm *BotManager) RemoveBot(token string) error {
 	select {
 	case err := <-webhookDone:
 		if err != nil {
-			log.Printf("Warning: failed to remove webhook for bot %s: %v", maskToken(token), err)
+			logging.Errorf("Warning: failed to remove webhook for bot %s: %v", maskToken(token), err)
 		} else {
-			log.Printf("Webhook removed successfully for bot %s", maskToken(token))
+			logging.Infof("Webhook removed successfully for bot %s", maskToken(token))
 		}
 	case <-ctx.Done():
-		log.Printf("Warning: timeout removing webhook for bot %s", maskToken(token))
+		logging.Infof("Warning: timeout removing webhook for bot %s", maskToken(token))
 	}
 
 	// Stop bot synchronously with timeout
@@ -415,12 +565,12 @@ func (bm *BotManager) RemoveBot(token string) error {
 
 	select {
 	case <-stopDone:
-		log.Printf("Bot stopped successfully for token %s", maskToken(token))
+		logging.Infof("Bot stopped successfully for token %s", maskToken(token))
 	case <-ctx2.Done():
-		log.Printf("Warning: timeout stopping bot for token %s", maskToken(token))
+		logging.Infof("Warning: timeout stopping bot for token %s", maskToken(token))
 	}
 
-	log.Printf("Bot removed successfully for user %d", bot.userID)
+	logging.Infof("Bot removed successfully for user %d", bot.userID)
 	return nil
 }
 
@@ -441,6 +591,26 @@ func (bm *BotManager) ListActiveBots() []string {
 		tokens = append(tokens, fmt.Sprintf("%s (user %d)", maskToken(token), bot.userID))
 	}
 	return tokens
+}
+
+// GetConversationManager returns the conversation manager instance
+func (bm *BotManager) GetConversationManager() *ConversationManager {
+	return bm.conversationManager
+}
+
+// GetConversationContext returns conversation context for a specific user and bot
+func (bm *BotManager) GetConversationContext(token string, userID int64) (*ConversationContext, error) {
+	return bm.conversationManager.GetContext(token, userID)
+}
+
+// GetConversationContextAsString returns conversation context as formatted string
+func (bm *BotManager) GetConversationContextAsString(token string, userID int64) (string, error) {
+	return bm.conversationManager.GetContextAsString(token, userID)
+}
+
+// ClearConversationContext clears conversation context for a specific user and bot
+func (bm *BotManager) ClearConversationContext(token string, userID int64) error {
+	return bm.conversationManager.ClearContext(token, userID)
 }
 
 // maskToken masks token for logging

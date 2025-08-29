@@ -15,7 +15,7 @@ func WatchDirectory(dirPath string, interval time.Duration) {
 	for range ticker.C {
 		err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
-				log.Printf("Error accessing path %s: %v", path, err)
+				logging.Infof("Error accessing path %s: %v", path, err)
 				return nil
 			}
 
@@ -26,10 +26,10 @@ func WatchDirectory(dirPath string, interval time.Duration) {
 
 			// Check file age
 			if time.Since(info.ModTime()) > time.Hour {
-				log.Printf("Deleting file: %s (last modified: %v)", path, info.ModTime())
+				logging.Infof("Deleting file: %s (last modified: %v)", path, info.ModTime())
 				err := os.Remove(path)
 				if err != nil {
-					log.Printf("Failed to delete file %s: %v", path, err)
+					logging.Infof("Failed to delete file %s: %v", path, err)
 				}
 			}
 
@@ -37,7 +37,7 @@ func WatchDirectory(dirPath string, interval time.Duration) {
 		})
 
 		if err != nil {
-			log.Printf("Error walking the directory %s: %v", dirPath, err)
+			logging.Infof("Error walking the directory %s: %v", dirPath, err)
 		}
 	}
 }
