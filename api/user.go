@@ -2,11 +2,12 @@ package api
 
 import (
 	"errors"
-	"github.com/gin-gonic/gin"
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/models"
 	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
 // ActionUser method for changing user information

@@ -3,17 +3,17 @@ package opds
 import (
 	"errors"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 	"gopds-api/database"
 	"gopds-api/httputil"
-	"gopds-api/models"
+	"gopds-api/logging"
 	"gopds-api/utils"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/gin-gonic/gin"
+	"github.com/spf13/viper"
 )
 
 var bookTypes = map[string]string{
@@ -30,20 +30,29 @@ func DownloadBook(c *gin.Context) {
 		httputil.NewError(c, http.StatusBadRequest, errors.New("bad_book_id"))
 		return
 	}
-	bookRequest := models.BookDownload{
-		BookID: bookID,
-		Format: c.Param("format"),
-	}
 
-	book, err := database.GetBook(bookRequest.BookID)
+	format := c.Param("format")
+	userID := c.GetInt64("user_id")
+
+	book, err := database.GetBook(bookID)
 	if err != nil {
 		httputil.NewError(c, http.StatusNotFound, err)
 		return
 	}
 
+	if !book.Approved {
+		httputil.NewError(c, http.StatusNotFound, errors.New("book_not_approved"))
+		return
+	}
+
+	// Log user access if needed
+	if userID != 0 {
+		logging.Infof("User %d downloading book %d in format %s", userID, bookID, format)
+	}
+
 	zipPath := viper.GetString("app.files_path") + book.Path
 	if !utils.FileExists(zipPath) {
-		httputil.NewError(c, http.StatusNotFound, errors.New("book file not found")) // Send a 404 Not Found if the book file is missing
+		httputil.NewError(c, http.StatusNotFound, errors.New("book file not found"))
 		return
 	}
 
@@ -52,7 +61,7 @@ func DownloadBook(c *gin.Context) {
 	var rc io.ReadCloser
 	contentDisp := "attachment; filename=%s.%s"
 
-	switch strings.ToLower(c.Param("format")) {
+	switch strings.ToLower(format) {
 	case "epub":
 		rc, err = bp.Epub()
 	case "mobi":
@@ -62,29 +71,27 @@ func DownloadBook(c *gin.Context) {
 	case "zip":
 		rc, err = bp.Zip(book.FileName)
 	default:
-		httputil.NewError(c, http.StatusBadRequest, errors.New("unknown book format")) // Send a 400 Bad Request if the format is not handled.
+		httputil.NewError(c, http.StatusBadRequest, errors.New("unknown book format"))
+		return
+	}
+
+	if err != nil {
+		httputil.NewError(c, http.StatusInternalServerError, err)
 		return
 	}
 
 	defer func() {
 		if cerr := rc.Close(); cerr != nil {
-			logrus.Printf("failed to close file: %v", cerr)
+			logging.Errorf("failed to close file: %v", cerr)
 		}
 	}()
 
-	c.Header("Content-Disposition", fmt.Sprintf(contentDisp, book.DownloadName(), bookRequest.Format))
-	c.Header("Content-Type", bookTypes[strings.ToLower(bookRequest.Format)])
+	c.Header("Content-Disposition", fmt.Sprintf(contentDisp, book.DownloadName(), format))
+	c.Header("Content-Type", bookTypes[strings.ToLower(format)])
 	_, err = io.Copy(c.Writer, rc)
 
 	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			"status":      c.Writer.Status(),
-			"method":      c.Request.Method,
-			"error":       "client closed connection",
-			"ip":          c.ClientIP(),
-			"book_format": bookRequest.Format,
-			"user-agent":  c.Request.UserAgent(),
-		}).Info()
+		logging.Infof("Client closed connection: %v", err)
 		return
 	}
 }

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/sirupsen/logrus"
+	"gopds-api/logging"
 	"os"
 )
 
@@ -9,6 +9,10 @@ import (
 // It is used to ensure necessary directories are available at application start.
 func ensureUserPathExists(path string) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		logrus.Fatalln(os.MkdirAll(path, 0755))
+		if err := os.MkdirAll(path, 0755); err != nil {
+			logging.Errorf("Failed to create directory %s: %v", path, err)
+			panic(err)
+		}
+		logging.Infof("Created directory: %s", path)
 	}
 }

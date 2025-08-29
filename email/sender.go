@@ -5,12 +5,12 @@ import (
 	"crypto/tls"
 	"fmt"
 	assets "gopds-api"
+	"gopds-api/logging"
 	"html/template"
 	"net"
 	"net/mail"
 	"net/smtp"
 
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
 
@@ -30,7 +30,18 @@ func MailConnection() (*smtp.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return smtp.NewClient(conn, host)
+
+	c, err := smtp.NewClient(conn, host)
+	if err != nil {
+		return nil, err
+	}
+
+	auth := smtp.PlainAuth("", viper.GetString("email.user"), viper.GetString("email.password"), host)
+	if err = c.Auth(auth); err != nil {
+		return nil, err
+	}
+
+	return c, nil
 }
 
 func SendActivationEmail(data SendType) error {
@@ -52,51 +63,41 @@ func SendActivationEmail(data SendType) error {
 
 	ss, err := MailConnection()
 	if err != nil {
-		logrus.Println(err)
+		logging.Errorf("Failed to establish email connection: %v", err)
 		return err
 	}
-	servername := viper.GetString("email.smtp_server")
-	host, _, _ := net.SplitHostPort(servername)
-	auth := smtp.PlainAuth("", viper.GetString("email.user"), viper.GetString("email.password"), host)
-	if err := ss.Auth(auth); err != nil {
-		logrus.Println(err)
-		return err
-	}
+	defer ss.Quit()
 
 	if err := ss.Mail(from.Address); err != nil || ss.Rcpt(to.Address) != nil {
-		logrus.Println(err)
+		logging.Error(err)
 		return err
 	}
 
 	w, err := ss.Data()
 	if err != nil {
-		logrus.Println(err)
+		logging.Error(err)
 		return err
 	}
 
 	asset, err := assets.Assets.ReadFile("email/templates/reset_password.gohtml")
 	if err != nil {
-		logrus.Println(err)
+		logging.Error(err)
 		return err
 	}
 	tpl, err := template.New("reset_password.gohtml").Parse(string(asset))
 	if err != nil {
-		logrus.Println(err)
+		logging.Error(err)
 		return err
 	}
 	if err := tpl.ExecuteTemplate(&b, "reset_password.gohtml", data); err != nil {
-		logrus.Println(err)
+		logging.Error(err)
 		return err
 	}
 
 	if _, err := w.Write(b.Bytes()); err != nil || w.Close() != nil {
-		logrus.Println(err)
+		logging.Error(err)
 		return err
 	}
 
-	if err := ss.Quit(); err != nil {
-		logrus.Println(err)
-		return err
-	}
 	return nil
 }

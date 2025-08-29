@@ -1,9 +1,10 @@
 package sessions
 
 import (
-	"fmt"
+	"gopds-api/config"
+	"gopds-api/logging"
+
 	"github.com/go-redis/redis"
-	"github.com/spf13/viper"
 )
 
 var (
@@ -16,12 +17,19 @@ func SetRedisConnections(mainClient, tokenClient *redis.Client) {
 	rdbToken = tokenClient
 }
 
-func RedisConnection(dbNum int) *redis.Client {
-	return redis.NewClient(&redis.Options{
-		Addr: fmt.Sprintf("%v:%v",
-			viper.GetString("redis.host"),
-			viper.GetString("redis.port")),
-		Password: "", // no password set
+func RedisConnection(dbNum int, cfg *config.Config) *redis.Client {
+	client := redis.NewClient(&redis.Options{
+		Addr:     cfg.GetRedisAddress(),
+		Password: cfg.Redis.Password,
 		DB:       dbNum,
 	})
+
+	// Test connection
+	if _, err := client.Ping().Result(); err != nil {
+		logging.Errorf("Failed to connect to Redis (DB %d): %v", dbNum, err)
+		panic(err)
+	}
+
+	logging.Infof("Redis connection established (DB %d)", dbNum)
+	return client
 }

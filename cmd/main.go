@@ -7,6 +7,7 @@ import (
 	"errors"
 	"gopds-api/database"
 	_ "gopds-api/docs" // Import to include documentation for Swagger UI
+	"gopds-api/logging"
 	"gopds-api/sessions"
 	"gopds-api/tasks" // Import the tasks package for WatchDirectory
 	"net/http"
@@ -15,8 +16,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 )
 
 // @title GOPDS API
@@ -34,26 +33,26 @@ func main() {
 	sessions.SetRedisConnections(mainRedisClient, tokenRedisClient)
 
 	// Set the Gin mode based on the application configuration.
-	if !viper.GetBool("app.devel_mode") {
+	if !cfg.App.DevelMode {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	ensureUserPathExists(viper.GetString("app.users_path"))
-	ensureUserPathExists(viper.GetString("app.mobi_conversion_dir"))
+	ensureUserPathExists(cfg.App.UsersPath)
+	ensureUserPathExists(cfg.App.MobiConversionDir)
 
 	// Start watching the directory for e-book conversion tasks
-	go tasks.WatchDirectory(viper.GetString("app.mobi_conversion_dir"), 10*time.Minute)
+	go tasks.WatchDirectory(cfg.App.MobiConversionDir, 10*time.Minute)
 
 	route := gin.New()
 	setupMiddleware(route)
 	setupRoutes(route)
 
 	server := &http.Server{
-		Addr:           ":8085",
+		Addr:           cfg.GetServerAddress(),
 		Handler:        route,
-		ReadTimeout:    10 * time.Second,
-		WriteTimeout:   10 * time.Second,
-		MaxHeaderBytes: 1 << 20,
+		ReadTimeout:    time.Duration(cfg.Server.ReadTimeout) * time.Second,
+		WriteTimeout:   time.Duration(cfg.Server.WriteTimeout) * time.Second,
+		MaxHeaderBytes: cfg.Server.MaxHeaderBytes,
 	}
 
 	// Channel to listen for server start errors
@@ -61,7 +60,7 @@ func main() {
 
 	// Start the server in a goroutine
 	go func() {
-		logrus.Info("Server is starting at http://127.0.0.1:8085")
+		logging.Infof("Server is starting at http://%s", cfg.GetServerAddress())
 		serverErrors <- server.ListenAndServe()
 	}()
 
@@ -69,26 +68,28 @@ func main() {
 	select {
 	case err := <-serverErrors:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logrus.Fatalf("Could not listen on %s: %v\n", server.Addr, err)
+			logging.Errorf("Could not listen on %s: %v\n", server.Addr, err)
+			os.Exit(1)
 		}
 	case <-time.After(1 * time.Second):
-		logrus.Info("Server started successfully")
+		logging.Info("Server started successfully")
 	}
 
 	// Wait for interrupt signal to gracefully shutdown the server with
 	// a timeout of 5 seconds.
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt)
-	<-quit
-	logrus.Info("Shutting down server...")
 
-	// The context is used to inform the server it has 5 seconds to finish
-	// the request it is currently handling
+	<-quit
+	logging.Info("Server is shutting down...")
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+
 	if err := server.Shutdown(ctx); err != nil {
-		logrus.Fatal("Server forced to shutdown:", err)
+		logging.Errorf("Server forced to shutdown: %v", err)
+		os.Exit(1)
 	}
 
-	logrus.Info("Server exiting")
+	logging.Info("Server exited")
 }

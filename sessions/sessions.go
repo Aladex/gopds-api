@@ -2,13 +2,13 @@ package sessions
 
 import (
 	"context"
+	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/utils"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 )
 
 func CheckSessionKeyInRedis(ctx context.Context, token string) (string, error) {
@@ -22,19 +22,28 @@ func CheckSessionKeyInRedis(ctx context.Context, token string) (string, error) {
 func SetSessionKey(ctx context.Context, lu models.LoggedInUser) error {
 	_, err := rdb.WithContext(ctx).Set(*lu.Token, strings.ToLower(lu.User), 24*time.Hour).Result()
 	if err != nil {
-		logrus.Println(err)
+		logging.Error(err)
 		return err
 	}
 	return nil
 }
 
 // UpdateSessionKey updates a user's session key.
-func UpdateSessionKey(ctx context.Context, lu models.LoggedInUser) error {
-	_, err := rdb.WithContext(ctx).Expire(*lu.Token, 24*time.Hour).Result()
+func UpdateSessionKey(ctx context.Context, oldToken, newToken, user string) error {
+	// Delete the old session key
+	err := rdb.WithContext(ctx).Del(oldToken).Err()
 	if err != nil {
-		logrus.Println(err)
+		logging.Errorf("Failed to delete old session key: %v", err)
 		return err
 	}
+
+	// Set the new session key
+	_, err = rdb.WithContext(ctx).Set(newToken, strings.ToLower(user), 24*time.Hour).Result()
+	if err != nil {
+		logging.Errorf("Failed to set new session key: %v", err)
+		return err
+	}
+
 	return nil
 }
 
@@ -42,7 +51,7 @@ func UpdateSessionKey(ctx context.Context, lu models.LoggedInUser) error {
 func DeleteSessionKey(ctx context.Context, lu models.LoggedInUser) error {
 	_, err := rdb.WithContext(ctx).Del(*lu.Token).Result()
 	if err != nil {
-		logrus.Println(err)
+		logging.Error(err)
 		return err
 	}
 	return nil
@@ -52,12 +61,12 @@ func DeleteSessionKey(ctx context.Context, lu models.LoggedInUser) error {
 func DropAllSessions(token string) {
 	username, _, _, err := utils.CheckToken(token)
 	if err != nil {
-		logrus.Println(err)
+		logging.Error(err)
 		return
 	}
 	keys, err := rdb.Keys("*").Result()
 	if err != nil {
-		logrus.Println(err)
+		logging.Error(err)
 		return
 	}
 	for _, k := range keys {
@@ -78,7 +87,7 @@ func GenerateTokenPassword(user string) string {
 func CheckTokenPassword(token string) string {
 	keys, err := rdbToken.Keys("*").Result()
 	if err != nil {
-		logrus.Println(err)
+		logging.Error(err)
 		return ""
 	}
 	for _, k := range keys {
@@ -93,7 +102,7 @@ func CheckTokenPassword(token string) string {
 func DeleteTokenPassword(token string) {
 	keys, err := rdbToken.Keys("*").Result()
 	if err != nil {
-		logrus.Println(err)
+		logging.Error(err)
 		return
 	}
 	for _, k := range keys {
@@ -112,7 +121,7 @@ func BlacklistRefreshToken(ctx context.Context, refreshToken string) error {
 	blacklistKey := "blacklist:refresh:" + refreshToken
 	_, err := rdb.WithContext(ctx).Set(blacklistKey, "revoked", remainingTime).Result()
 	if err != nil {
-		logrus.Println("Error blacklisting refresh token:", err)
+		logging.Error("Error blacklisting refresh token:", err)
 		return err
 	}
 	return nil

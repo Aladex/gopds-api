@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"gopds-api/database"
 	"gopds-api/httputil"
+	"gopds-api/logging"
 	"gopds-api/utils"
 	"io"
 	"net/http"
@@ -16,7 +17,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
 
@@ -29,7 +29,7 @@ func ConvertBookToMobi(bookID int64) error {
 	mobiConversionDir := viper.GetString("app.mobi_conversion_dir")
 
 	if !utils.FileExists(zipPath) {
-		return fmt.Errorf("file %s not found", zipPath)
+		return fmt.Errorf("book file not found: %s", zipPath)
 	}
 
 	bp := utils.NewBookProcessor(book.FileName, zipPath) // Create a new BookProcessor for the book file.
@@ -41,7 +41,7 @@ func ConvertBookToMobi(bookID int64) error {
 	defer rc.Close()
 
 	filePath := filepath.Join(mobiConversionDir, fmt.Sprintf("%d.mobi", bookID))
-	logrus.Info("Creating mobi file:", filePath)
+	logging.Info("Creating mobi file:", filePath)
 	file, err := os.Create(filePath)
 	if err != nil {
 		return err
@@ -56,7 +56,7 @@ func ConvertBookToMobi(bookID int64) error {
 	readyChannels.Store(bookID, done)
 
 	// Delete the file after it has been sent
-	logrus.Infof("Book %d converted and stored at %s", bookID, filePath)
+	logging.Infof("Book %d converted and stored at %s", bookID, filePath)
 	return nil
 }
 
@@ -64,7 +64,7 @@ func ConvertBookToMobi(bookID int64) error {
 func deleteFile(filePath string) error {
 	err := os.Remove(filePath)
 	if err != nil {
-		logrus.Errorf("Failed to delete file %s: %v", filePath, err)
+		logging.Errorf("Failed to delete file %s: %v", filePath, err)
 	}
 	return err
 }
@@ -102,7 +102,7 @@ func DownloadConvertedBook(c *gin.Context) {
 	go func() {
 		err := deleteFile(filePath)
 		if err != nil {
-			logrus.Errorf("Failed to delete mobi file: %v", err)
+			logging.Errorf("Failed to delete mobi file: %v", err)
 		}
 	}()
 }
@@ -110,7 +110,7 @@ func DownloadConvertedBook(c *gin.Context) {
 func WebsocketHandler(c *gin.Context) {
 	conn, _, _, err := ws.UpgradeHTTP(c.Request, c.Writer)
 	if err != nil {
-		logrus.Error("Failed to upgrade to WebSocket:", err)
+		logging.Error("Failed to upgrade to WebSocket:", err)
 		return
 	}
 	defer conn.Close()
@@ -128,14 +128,14 @@ func WebsocketHandler(c *gin.Context) {
 		for {
 			msg, op, err := wsutil.ReadClientData(conn)
 			if err != nil {
-				logrus.Warn("WebSocket connection closed by client.")
+				logging.Warn("WebSocket connection closed by client.")
 				close(quit)
 				return
 			}
 
 			// Processing text messages from client
 			if op == ws.OpText {
-				logrus.Infof("Received message from client: %s", string(msg))
+				logging.Infof("Received message from client: %s", string(msg))
 
 				// Parsing message with conversion request
 				var request struct {
@@ -143,7 +143,7 @@ func WebsocketHandler(c *gin.Context) {
 					Format string `json:"format"`
 				}
 				if err := json.Unmarshal(msg, &request); err != nil {
-					logrus.Error("Failed to parse message from client:", err)
+					logging.Error("Failed to parse message from client:", err)
 					continue
 				}
 
@@ -152,16 +152,16 @@ func WebsocketHandler(c *gin.Context) {
 					go func(bookID int64) {
 						err := ConvertBookToMobi(bookID)
 						if err != nil {
-							logrus.Errorf("Failed to convert book to mobi: %v", err)
+							logging.Errorf("Failed to convert book to mobi: %v", err)
 							return
 						}
 						clientNotificationChannel <- strconv.FormatInt(bookID, 10) // Send to unique client channel
 					}(request.BookID)
 				} else {
-					logrus.Warnf("Unsupported format: %s", request.Format)
+					logging.Warnf("Unsupported format: %s", request.Format)
 				}
 			} else {
-				logrus.Infof("Received non-text message from client with opcode: %v", op)
+				logging.Infof("Received non-text message from client with opcode: %v", op)
 			}
 		}
 	}()
@@ -170,21 +170,21 @@ func WebsocketHandler(c *gin.Context) {
 	for {
 		select {
 		case bookID := <-clientNotificationChannel:
-			logrus.Infof("Notifying client about ready book: %s", bookID)
+			logging.Infof("Notifying client about ready book: %s", bookID)
 			if err := wsutil.WriteServerMessage(conn, ws.OpText, []byte(bookID)); err != nil {
-				logrus.Warn("Error writing to WebSocket:", err)
+				logging.Warn("Error writing to WebSocket:", err)
 				close(quit)
 				return
 			}
 		case <-ticker.C:
 			// Send a ping message to the client every 5 seconds
 			if err := wsutil.WriteServerMessage(conn, ws.OpPing, nil); err != nil {
-				logrus.Warn("Error sending ping to WebSocket:", err)
+				logging.Warn("Error sending ping to WebSocket:", err)
 				close(quit)
 				return
 			}
 		case <-quit:
-			logrus.Info("Connection closed by client request.")
+			logging.Info("Connection closed by client request.")
 			return
 		}
 	}

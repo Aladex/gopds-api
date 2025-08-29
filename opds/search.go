@@ -3,17 +3,19 @@ package opds
 import (
 	"errors"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/binding"
-	"github.com/sirupsen/logrus"
+	"net/url"
+	"time"
+
 	"gopds-api/database"
 	"gopds-api/httputil"
+	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/opdsutils"
 	"net/http"
-	"net/url"
 	"strings"
-	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 )
 
 const notFound = `<?xml version="1.0" encoding="utf-8"?>
@@ -43,68 +45,70 @@ type OpdsAuthorSearch struct {
 
 // Search basic search XML view for books and author search
 func Search(c *gin.Context) {
-	var filters searchTerms
-	if err := c.ShouldBindWith(&filters, binding.Query); err == nil {
-		searchRootLinks := []opdsutils.Link{
-			{
-				Href: "/opds",
-				Rel:  "start",
-				Type: "application/atom+xml;profile=opds-catalog",
-			},
-			{
-				Href: "/opds-opensearch.xml",
-				Rel:  "search",
-				Type: "application/opensearchdescription+xml",
-			},
-			{
-				Href: "/opds/search?searchTerms={searchTerms}",
-				Rel:  "search",
-				Type: "application/atom+xml",
-			},
-		}
-
-		feed := &opdsutils.Feed{
-			Title: "Поиск книг",
-			Links: searchRootLinks,
-		}
-		feed.Items = []*opdsutils.Item{
-			{
-				Title: "Поиск авторов",
-				Link: []opdsutils.Link{
-					{
-						Href: "/opds/search-author?name=" + url.QueryEscape(filters.Search),
-						Type: "application/atom+xml;profile=opds-catalog",
-					},
-				},
-				Id:      "tag:search:author",
-				Updated: time.Now(),
-				Content: "Поиск авторов по фамилии",
-			},
-			{
-				Title: "Поиск книг",
-				Link: []opdsutils.Link{
-					{
-						Href:  "/opds/books?title=" + url.QueryEscape(filters.Search),
-						Type:  "application/atom+xml;profile=opds-catalog",
-						Title: "",
-					},
-				},
-				Id:      "tag:search:book",
-				Updated: time.Now(),
-				Content: "Поиск книг по названию",
-			},
-		}
-
-		atom, err := feed.ToAtom()
-		if err != nil {
-			logrus.Println(err)
-		}
-
-		c.Data(200, "application/atom+xml;charset=utf-8", []byte(atom))
+	searchTerms := c.Query("searchTerms")
+	if searchTerms == "" {
+		httputil.NewError(c, http.StatusBadRequest, errors.New("searchTerms parameter is required"))
 		return
 	}
-	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
 
+	searchRootLinks := []opdsutils.Link{
+		{
+			Href: "/opds",
+			Rel:  "start",
+			Type: "application/atom+xml;profile=opds-catalog",
+		},
+		{
+			Href: "/opds-opensearch.xml",
+			Rel:  "search",
+			Type: "application/opensearchdescription+xml",
+		},
+		{
+			Href: "/opds/search?searchTerms={searchTerms}",
+			Rel:  "search",
+			Type: "application/atom+xml",
+		},
+	}
+
+	feed := &opdsutils.Feed{
+		Title: "Поиск книг",
+		Links: searchRootLinks,
+	}
+	feed.Items = []*opdsutils.Item{
+		{
+			Title: "Поиск авторов",
+			Link: []opdsutils.Link{
+				{
+					Href: "/opds/search-author?name=" + url.QueryEscape(searchTerms),
+					Type: "application/atom+xml;profile=opds-catalog",
+				},
+			},
+			Id:      "tag:search:author",
+			Updated: time.Now(),
+			Content: "Поиск авторов по фамилии",
+		},
+		{
+			Title: "Поиск книг",
+			Link: []opdsutils.Link{
+				{
+					Href:  "/opds/books?title=" + url.QueryEscape(searchTerms),
+					Type:  "application/atom+xml;profile=opds-catalog",
+					Title: "",
+				},
+			},
+			Id:      "tag:search:book",
+			Updated: time.Now(),
+			Content: "Поиск книг по названию",
+		},
+	}
+
+	atom, err := feed.ToAtom()
+	if err != nil {
+		logging.Errorf("Error converting feed to Atom: %v", err)
+		httputil.NewError(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	c.Data(200, "application/atom+xml;charset=utf-8", []byte(atom))
 }
 
 // GetBooks returns an list of books
@@ -176,7 +180,9 @@ func GetBooks(c *gin.Context) {
 		}
 		atom, err := feed.ToAtom()
 		if err != nil {
-			logrus.Println(err)
+			logging.Errorf("Error converting feed to Atom: %v", err)
+			httputil.NewError(c, http.StatusInternalServerError, err)
+			return
 		}
 
 		c.Data(200, "application/atom+xml;charset=utf-8", []byte(atom))
@@ -254,7 +260,9 @@ func GetAuthor(c *gin.Context) {
 		}
 		atom, err := feed.ToAtom()
 		if err != nil {
-			logrus.Println(err)
+			logging.Errorf("Error converting feed to Atom: %v", err)
+			httputil.NewError(c, http.StatusInternalServerError, err)
+			return
 		}
 		c.Data(200, "application/atom+xml;charset=utf-8", []byte(atom))
 		return

@@ -1,21 +1,23 @@
 package main
 
 import (
-	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
+	"gopds-api/config"
+	"gopds-api/logging"
 )
 
+var cfg *config.Config
+
 func init() {
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath(".")
-	if err := viper.ReadInConfig(); err != nil {
-		logrus.Fatalf("Fatal error config file: %s \n", err)
+	var err error
+	cfg, err = config.Load()
+	if err != nil {
+		logging.Errorf("Failed to load configuration: %v", err)
+		panic(err)
 	}
 
 	// Initialize dist folders for static files
 	if err := initializeDistFolders(); err != nil {
-		logrus.Fatalf("Error initializing dist folders: %s \n", err)
+		logging.Errorf("Error initializing dist folders: %v", err)
+		panic(err)
 	}
-
 }

@@ -1,22 +1,33 @@
 project_domain: "example.com"
 project_url: "https://example.com"
 secret_key: "randomSecretKey12345"
+
+server:
+  host: "127.0.0.1"
+  port: 8085
+  read_timeout: 10
+  write_timeout: 10
+  max_header_bytes: 1048576
+
 postgres:
   dbuser: exampleuser
   dbpass: examplepassword
   dbname: exampledb
   dbhost: "localhost:5432"
+  max_conns: 10
 
 redis:
   host: localhost
   port: 6379
+  password: ""
+  db: 0
 
 sessions:
   key: randomSessionKey12345
   refresh: randomRefreshKey12345
 
 app:
-  devel_mode: no
+  devel_mode: false
   cdn: "https://example.com"
   files_path: "/files/"
   users_path: "/users/"

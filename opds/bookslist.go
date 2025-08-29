@@ -1,12 +1,11 @@
 package opds
 
 import (
-	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
-	"github.com/sirupsen/logrus"
 	"gopds-api/database"
 	"gopds-api/httputil"
+	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/opdsutils"
 	"net/http"
@@ -47,8 +46,8 @@ func GetNewBooks(c *gin.Context) {
 
 	pageNum, err := strconv.Atoi(c.Param("page"))
 	if err != nil {
-		logrus.Println(err)
-		httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
+		logging.Error(err)
+		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
 	authorID, err := strconv.Atoi(c.Param("author"))
@@ -65,7 +64,8 @@ func GetNewBooks(c *gin.Context) {
 
 	books, tc, err := database.GetBooks(userID, filters)
 	if err != nil {
-		c.XML(500, err)
+		logging.Error(err)
+		c.AbortWithStatus(http.StatusInternalServerError)
 		return
 	}
 	var np string
@@ -138,7 +138,7 @@ func GetNewBooks(c *gin.Context) {
 
 	atom, err := feed.ToAtom()
 	if err != nil {
-		logrus.Println(err)
+		logging.Error(err)
 	}
 
 	c.Data(200, "application/atom+xml;charset=utf-8", []byte(atom))

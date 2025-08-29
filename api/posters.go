@@ -6,10 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/gin-gonic/gin"
-	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 	assets "gopds-api"
+	"gopds-api/logging"
+
+	"github.com/gin-gonic/gin"
+	"github.com/spf13/viper"
 )
 
 // Posters serves a file from a path specified in the request.
@@ -53,7 +54,7 @@ func Posters(c *gin.Context) {
 	if safePath == "cover-loading.png" {
 		asset, err := assets.Assets.ReadFile("static_assets/posters/cover-loading.png")
 		if err != nil {
-			logrus.Println("cover-loading.png not found in assets:", err)
+			logging.Error("cover-loading.png not found in assets:", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "cover image not available"})
 			return
 		}
@@ -65,7 +66,7 @@ func Posters(c *gin.Context) {
 	if _, err := os.Stat(fullPath); err == nil {
 		fileContent, err := os.ReadFile(fullPath)
 		if err != nil {
-			logrus.Println("Error reading file:", err)
+			logging.Error("Error reading file:", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "error reading file"})
 			return
 		}
@@ -77,7 +78,7 @@ func Posters(c *gin.Context) {
 	// Serve the default "no-cover.png" from assets if requested file is not found
 	asset, err := assets.Assets.ReadFile("static_assets/posters/no-cover.png")
 	if err != nil {
-		logrus.Println("no-cover.png not found in assets:", err)
+		logging.Error("no-cover.png not found in assets:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "no cover image available"})
 		return
 	}

@@ -1,21 +1,20 @@
 package main
 
 import (
-	"github.com/gin-gonic/gin"
-	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 	"gopds-api/logging"
 	"net/http"
 	"path"
 	"strings"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 // setupMiddleware configures global middleware for the gin.Engine instance.
 // It includes a custom logger and, if in development mode, a CORS middleware.
 func setupMiddleware(route *gin.Engine) {
 	route.Use(logging.GinrusLogger())
-	if viper.GetBool("app.devel_mode") {
+	if cfg.App.DevelMode {
 		route.Use(corsOptionsMiddleware())
 	}
 }
@@ -29,17 +28,14 @@ func serveStaticFilesMiddleware(fs http.FileSystem) gin.HandlerFunc {
 			indexFile, err := fs.Open("booksdump-frontend/build/index.html")
 			if err != nil {
 				// Log the error and send a 404 response if index.html cannot be opened
-				logrus.Errorf("Error opening index.html: %v", err)
+				logging.Errorf("Error opening index.html: %v", err)
 				c.AbortWithStatus(http.StatusNotFound)
 				return
 			}
 			defer indexFile.Close()
 
-			logrus.Infof("Serving index.html for request: %s", requestPath)
-
-			// Serve index.html directly
-			http.ServeContent(c.Writer, c.Request, "index.html", time.Now(), indexFile)
-			c.Abort()
+			// Serve index.html content
+			c.File("booksdump-frontend/build/index.html")
 			return
 		}
 

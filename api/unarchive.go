@@ -4,11 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 	"gopds-api/database"
 	"gopds-api/httputil"
+	"gopds-api/logging"
 	"gopds-api/utils"
 	"io"
 	"net/http"
@@ -16,6 +14,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/spf13/viper"
 )
 
 var bookTypes = map[string]string{
@@ -89,14 +90,7 @@ func GetBookFile(c *gin.Context) {
 	var buf bytes.Buffer
 	_, err = io.Copy(&buf, rc)
 	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			"status":      c.Writer.Status(),
-			"method":      c.Request.Method,
-			"error":       err.Error(),
-			"ip":          c.ClientIP(),
-			"book_format": format,
-			"user-agent":  c.Request.UserAgent(),
-		}).Error("failed to buffer file")
+		logging.Errorf("failed to buffer file: %v", err)
 		httputil.NewError(c, http.StatusInternalServerError, err)
 		return
 	}
