@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"fmt"
+	"gopds-api/logging"
 	"log"
 	"net/http"
 	"strings"
@@ -89,7 +90,7 @@ func (bm *BotManager) createBotForUser(token string, userID int64) error {
 	}
 
 	bm.bots[token] = bot
-	log.Printf("Bot created successfully for user %d", userID)
+	logging.Infof("Bot created successfully for user %d", userID)
 	return nil
 }
 
@@ -229,7 +230,7 @@ func (bm *BotManager) SetWebhook(token string) error {
 		return fmt.Errorf("failed to set webhook: %v", err)
 	}
 
-	log.Printf("Webhook set successfully for user %d: %s", bot.userID, webhookURL)
+	logging.Infof("Webhook set successfully for user %d: %s", bot.userID, webhookURL)
 	return nil
 }
 
