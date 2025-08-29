@@ -14,26 +14,26 @@ import (
 	tele "gopkg.in/telebot.v3"
 )
 
-// BotManager управляет Telegram ботами, связанными с пользователями системы
+// BotManager manages Telegram bots linked to system users
 type BotManager struct {
 	bots   map[string]*Bot // token -> Bot
 	mutex  sync.RWMutex
 	config *Config
 }
 
-// Bot представляет бот, связанный с пользователем системы
+// Bot represents a bot linked to a system user
 type Bot struct {
 	token  string
 	bot    *tele.Bot
-	userID int64 // ID пользователя в нашей системе, владельца этого бота
+	userID int64 // ID of the user in our system who owns this bot
 }
 
-// Config содержит настройки для ботов
+// Config contains settings for bots
 type Config struct {
-	BaseURL string // базовый URL для webhook'ов
+	BaseURL string // base URL for webhooks
 }
 
-// NewBotManager создает новый менеджер ботов
+// NewBotManager creates a new bot manager
 func NewBotManager(config *Config) *BotManager {
 	return &BotManager{
 		bots:   make(map[string]*Bot),
@@ -41,9 +41,9 @@ func NewBotManager(config *Config) *BotManager {
 	}
 }
 
-// InitializeExistingBots инициализирует ботов для всех пользователей с токенами
+// InitializeExistingBots initializes bots for all users with tokens
 func (bm *BotManager) InitializeExistingBots() error {
-	// Получаем всех пользователей с токенами ботов
+	// Get all users with bot tokens
 	users, err := database.GetUsersWithBotTokens()
 	if err != nil {
 		return fmt.Errorf("failed to get users with bot tokens: %v", err)
@@ -58,7 +58,7 @@ func (bm *BotManager) InitializeExistingBots() error {
 			continue
 		}
 
-		// Устанавливаем webhook
+		// Set webhook
 		err = bm.SetWebhook(user.BotToken)
 		if err != nil {
 			log.Printf("Failed to set webhook for user %d: %v", user.ID, err)
@@ -69,12 +69,12 @@ func (bm *BotManager) InitializeExistingBots() error {
 	return nil
 }
 
-// CreateBotForUser создает бота для конкретного пользователя
+// CreateBotForUser creates a bot for a specific user
 func (bm *BotManager) CreateBotForUser(token string, userID int64) error {
 	bm.mutex.Lock()
 	defer bm.mutex.Unlock()
 
-	// Проверяем, не существует ли уже бот с таким токеном
+	// Check if a bot with this token already exists
 	if _, exists := bm.bots[token]; exists {
 		return fmt.Errorf("bot with token already exists")
 	}
@@ -82,7 +82,7 @@ func (bm *BotManager) CreateBotForUser(token string, userID int64) error {
 	return bm.createBotForUser(token, userID)
 }
 
-// createBotForUser внутренняя функция создания бота (без мьютекса)
+// createBotForUser internal function for creating bot (without mutex)
 func (bm *BotManager) createBotForUser(token string, userID int64) error {
 	bot, err := bm.createBotInstance(token, userID)
 	if err != nil {
@@ -94,14 +94,14 @@ func (bm *BotManager) createBotForUser(token string, userID int64) error {
 	return nil
 }
 
-// createBotInstance создает экземпляр бота
+// createBotInstance creates a bot instance
 func (bm *BotManager) createBotInstance(token string, userID int64) (*Bot, error) {
 
-	// Настройки бота для работы с webhook'ами
+	// Bot settings for webhook operation
 	settings := tele.Settings{
 		Token: token,
 		Poller: &tele.Webhook{
-			Listen: "", // Мы будем обрабатывать webhook'и через gin роутер
+			Listen: "", // We will handle webhooks through gin router
 		},
 	}
 
@@ -117,110 +117,110 @@ func (bm *BotManager) createBotInstance(token string, userID int64) (*Bot, error
 		userID: userID,
 	}
 
-	// Настраиваем обработчики команд
+	// Set up command handlers
 	bot.setupHandlers()
 
 	return bot, nil
 }
 
-// setupHandlers настраивает обработчики команд для бота
+// setupHandlers sets up command handlers for the bot
 func (b *Bot) setupHandlers() {
-	// Обработчик команды /start
+	// Handler for /start command
 	b.bot.Handle("/start", func(c tele.Context) error {
 		telegramID := c.Sender().ID
 
-		// Получаем владельца этого бота из базы данных
+		// Get the owner of this bot from the database
 		botOwner, err := database.GetUserByBotToken(b.token)
 		if err != nil {
-			logging.Errorf("Failed to get bot owner for token %s: %v", maskToken(b.token), err)
-			return c.Send("Ошибка конфигурации бота. Обратитесь к администратору.")
+			log.Printf("Failed to get bot owner for token %s: %v", maskToken(b.token), err)
+			return c.Send("Bot configuration error. Please contact administrator.")
 		}
 
-		// Если у владельца бота уже есть telegram_id, проверяем эксклюзивность
+		// If the bot owner already has telegram_id, check exclusivity
 		if botOwner.TelegramID != 0 {
 			if int64(botOwner.TelegramID) != telegramID {
-				// Это чужой аккаунт - игнорируем
+				// This is someone else's account - ignore
 				return nil
 			}
-			// Это владелец бота
-			return c.Send("Вы уже связаны с аккаунтом библиотеки!")
+			// This is the bot owner
+			return c.Send("You are already linked to the library account!")
 		}
 
-		// Проверяем, не связан ли этот telegram_id с другим аккаунтом
+		// Check if this telegram_id is linked to another account
 		existingUser, err := database.GetUserByTelegramID(telegramID)
 		if err == nil && existingUser.ID != 0 && existingUser.ID != botOwner.ID {
-			// Этот telegram_id уже привязан к другому аккаунту
+			// This telegram_id is already linked to another account
 			return nil
 		}
 
-		// Связываем telegram_id с владельцем бота
+		// Link telegram_id with the bot owner
 		err = database.UpdateTelegramID(b.token, telegramID)
 		if err != nil {
 			log.Printf("Failed to update telegram_id for token %s: %v", maskToken(b.token), err)
-			return c.Send("Ошибка при связывании аккаунта. Попробуйте позже.")
+			return c.Send("Error linking account. Please try again later.")
 		}
 
-		return c.Send("Добро пожаловать! Ваш аккаунт успешно связан с библиотекой.")
+		return c.Send("Welcome! Your account has been successfully linked to the library.")
 	})
 
-	// Обработчик команды /search для поиска книг
+	// Handler for /search command for book search
 	b.bot.Handle("/search", func(c tele.Context) error {
 		telegramID := c.Sender().ID
 
-		// Проверяем эксклюзивность: только владелец бота может использовать команды
+		// Check exclusivity: only bot owner can use commands
 		if !b.isAuthorizedUser(telegramID) {
-			return nil // Игнорируем сообщения от неавторизованных пользователей
+			return nil // Ignore messages from unauthorized users
 		}
 
 		user, err := database.GetUserByTelegramID(telegramID)
 		if err != nil {
-			return c.Send("Сначала отправьте /start для связывания аккаунта.")
+			return c.Send("Please send /start first to link your account.")
 		}
 
-		// Получаем поисковый запрос
+		// Get search query
 		query := strings.TrimPrefix(c.Text(), "/search ")
 		if query == "/search" || query == "" {
-			return c.Send("Использование: /search <название книги или автор>")
+			return c.Send("Usage: /search <book title or author>")
 		}
 
-		// Здесь будет логика поиска книг
-		// Пока заглушка
-		return c.Send(fmt.Sprintf("Поиск книг по запросу: %s\nПользователь: %s", query, user.Login))
+		// Book search logic will be here
+		// Placeholder for now
+		return c.Send(fmt.Sprintf("Searching books for: %s\nUser: %s", query, user.Login))
 	})
 
-	// Обработчик всех остальных сообщений
+	// Handler for all other messages
 	b.bot.Handle(tele.OnText, func(c tele.Context) error {
 		telegramID := c.Sender().ID
 
-		// Проверяем эксклюзивность: только владелец бота может использовать команды
+		// Check exclusivity: only bot owner can use commands
 		if !b.isAuthorizedUser(telegramID) {
-			return nil // Игнорируем сообщения от неавторизованных пользователей
+			return nil // Ignore messages from unauthorized users
 		}
 
 		_, err := database.GetUserByTelegramID(telegramID)
 		if err != nil {
-			return c.Send("Сначала отправьте /start для связывания аккаунта.")
+			return c.Send("Please send /start first to link your account.")
 		}
 
-		// Если это не команда, показываем помощь
-		return c.Send("Используйте команды:\n/start - связать аккаунт\n/search <запрос> - поиск книг")
+		// If this is not a command, show help
+		return c.Send("Available commands:\n/start - link account\n/search <query> - search books")
 	})
 }
 
-// isAuthorizedUser проверяет, является ли пользователь владельцем этого бота
+// isAuthorizedUser checks if the user is the owner of this bot
 func (b *Bot) isAuthorizedUser(telegramID int64) bool {
-	// Получаем владельца бота
+	// Get bot owner
 	botOwner, err := database.GetUserByBotToken(b.token)
 	if err != nil {
 		log.Printf("Failed to get bot owner for authorization check: %v", err)
 		return false
 	}
 
-	// Проверяем, что telegram_id совпадает с владельцем
+	// Check that telegram_id matches the owner
 	return int64(botOwner.TelegramID) == telegramID
 }
 
-// HandleWebhook обрабатывает входящие webhook'и от Telegram
+// HandleWebhook handles incoming webhooks from Telegram
 func (bm *BotManager) HandleWebhook(c *gin.Context) {
 	token := c.Param("token")
 
@@ -233,7 +233,7 @@ func (bm *BotManager) HandleWebhook(c *gin.Context) {
 		return
 	}
 
-	// Читаем тело запроса для обработки update
+	// Read request body to process update
 	var update tele.Update
 	if err := c.ShouldBindJSON(&update); err != nil {
 		log.Printf("Error parsing webhook for token %s: %v", maskToken(token), err)
@@ -241,13 +241,13 @@ func (bm *BotManager) HandleWebhook(c *gin.Context) {
 		return
 	}
 
-	// Обрабатываем update через telebot
+	// Process update through telebot
 	bot.bot.ProcessUpdate(update)
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
-// SetWebhook устанавливает webhook для бота
+// SetWebhook sets webhook for the bot
 func (bm *BotManager) SetWebhook(token string) error {
 	bm.mutex.RLock()
 	bot, exists := bm.bots[token]
@@ -274,7 +274,7 @@ func (bm *BotManager) SetWebhook(token string) error {
 	return nil
 }
 
-// RemoveBot удаляет бота и очищает связь с пользователем
+// RemoveBot removes bot and clears connection with user
 func (bm *BotManager) RemoveBot(token string) error {
 	bm.mutex.Lock()
 	defer bm.mutex.Unlock()
@@ -284,28 +284,28 @@ func (bm *BotManager) RemoveBot(token string) error {
 		return fmt.Errorf("bot with token not found")
 	}
 
-	// Удаляем webhook
+	// Remove webhook
 	if err := bot.bot.RemoveWebhook(); err != nil {
 		log.Printf("Warning: failed to remove webhook for bot %s: %v", maskToken(token), err)
 	}
 
-	// Останавливаем бота
+	// Stop bot
 	bot.bot.Stop()
 
-	// Очищаем токен и telegram_id в базе данных
+	// Clear token and telegram_id in database
 	err := database.ClearBotToken(bot.userID)
 	if err != nil {
 		log.Printf("Warning: failed to clear bot token for user %d: %v", bot.userID, err)
 	}
 
-	// Удаляем из карты
+	// Remove from map
 	delete(bm.bots, token)
 
 	log.Printf("Bot removed successfully for user %d", bot.userID)
 	return nil
 }
 
-// maskToken маскирует токен для логирования
+// maskToken masks token for logging
 func maskToken(token string) string {
 	if len(token) < 10 {
 		return "***"

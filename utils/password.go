@@ -49,7 +49,7 @@ type Token struct {
 	UserID      string
 	DatabaseID  int64
 	IsSuperUser bool
-	TokenType   string // "access" или "refresh"
+	TokenType   string // "access" or "refresh"
 	jwt.RegisteredClaims
 }
 

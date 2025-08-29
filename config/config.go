@@ -231,7 +231,7 @@ func (c *Config) IsDevelopment() bool {
 	return c.App.DevelMode
 }
 
-// GetServerBaseURL возвращает базовый URL сервера для webhook'ов
+// GetServerBaseURL returns base URL for webhook endpoints
 func (c *Config) GetServerBaseURL() string {
 	if c.Domain != "" {
 		return c.Domain
@@ -239,6 +239,6 @@ func (c *Config) GetServerBaseURL() string {
 	if c.ProjectURL != "" {
 		return c.ProjectURL
 	}
-	// Fallback к локальному адресу
+	// Fallback to local address
 	return fmt.Sprintf("http://%s:%d", c.Server.Host, c.Server.Port)
 }

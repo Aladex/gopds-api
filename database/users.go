@@ -7,12 +7,8 @@ import (
 	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/utils"
-	"io"
-	"net/http"
 	"strings"
 	"time"
-
-	"github.com/spf13/viper"
 )
 
 func UserObject(search string) (models.User, error) {
@@ -296,28 +292,6 @@ func ActionUser(action models.AdminCommandToUser) (models.User, error) {
 	}
 }
 
-// Helper function to set webhook if bot token is provided
-func setWebhookIfNeeded(botToken string) error {
-	if botToken != "" {
-		webhookURL := fmt.Sprintf("https://api.telegram.org/bot%s/setWebhook?url=%s/telegram/%s",
-			botToken, viper.GetString("project_domain"), botToken)
-		resp, err := http.Get(webhookURL)
-		if err != nil {
-			return err
-		}
-		defer func(Body io.ReadCloser) {
-			err := Body.Close()
-			if err != nil {
-				logging.Error(err)
-			}
-		}(resp.Body)
-		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("failed to set webhook, status code: %d", resp.StatusCode)
-		}
-	}
-	return nil
-}
-
 // Helper function to update user details
 func updateUserDetails(userToChange, newUserDetails models.User) models.User {
 	userToChange.Login = newUserDetails.Login
@@ -340,7 +314,7 @@ func DeleteUser(id string) error {
 	return nil
 }
 
-// UpdateBotToken обновляет токен бота для пользователя
+// UpdateBotToken updates bot token for user
 func UpdateBotToken(userID int64, botToken string) error {
 	_, err := db.Model(&models.User{}).
 		Set("bot_token = ?", botToken).
@@ -349,14 +323,14 @@ func UpdateBotToken(userID int64, botToken string) error {
 	return err
 }
 
-// GetUserByBotToken находит пользователя по токену бота
+// GetUserByBotToken finds user by bot token
 func GetUserByBotToken(botToken string) (models.User, error) {
 	var user models.User
 	err := db.Model(&user).Where("bot_token = ?", botToken).First()
 	return user, err
 }
 
-// UpdateTelegramID обновляет Telegram ID для пользователя с указанным токеном бота
+// UpdateTelegramID updates Telegram ID for user with specified bot token
 func UpdateTelegramID(botToken string, telegramID int64) error {
 	_, err := db.Model(&models.User{}).
 		Set("telegram_id = ?", telegramID).
@@ -365,14 +339,14 @@ func UpdateTelegramID(botToken string, telegramID int64) error {
 	return err
 }
 
-// GetUserByTelegramID находит пользователя по Telegram ID
+// GetUserByTelegramID finds user by Telegram ID
 func GetUserByTelegramID(telegramID int64) (models.User, error) {
 	var user models.User
 	err := db.Model(&user).Where("telegram_id = ?", telegramID).First()
 	return user, err
 }
 
-// ClearBotToken очищает токен бота и Telegram ID для пользователя
+// ClearBotToken clears bot token and Telegram ID for user
 func ClearBotToken(userID int64) error {
 	_, err := db.Model(&models.User{}).
 		Set("bot_token = NULL, telegram_id = NULL").
@@ -381,7 +355,7 @@ func ClearBotToken(userID int64) error {
 	return err
 }
 
-// GetUsersWithBotTokens возвращает всех пользователей, у которых есть токены ботов
+// GetUsersWithBotTokens returns all users who have bot tokens
 func GetUsersWithBotTokens() ([]models.User, error) {
 	var users []models.User
 	err := db.Model(&users).Where("bot_token IS NOT NULL AND bot_token != ''").Select()
@@ -395,7 +369,7 @@ var telegramBotManager interface {
 	SetWebhook(token string) error
 }
 
-// SetTelegramBotManager устанавливает ссылку на BotManager для интеграции с админкой
+// SetTelegramBotManager sets reference to BotManager for admin panel integration
 func SetTelegramBotManager(manager interface {
 	CreateBotForUser(token string, userID int64) error
 	RemoveBot(token string) error
@@ -404,7 +378,7 @@ func SetTelegramBotManager(manager interface {
 	telegramBotManager = manager
 }
 
-// createBotInManager создает бота в BotManager
+// createBotInManager creates bot in BotManager
 func createBotInManager(token string, userID int64) error {
 	if telegramBotManager == nil {
 		logging.Warn("Telegram BotManager not set, skipping bot creation")
@@ -413,14 +387,19 @@ func createBotInManager(token string, userID int64) error {
 
 	err := telegramBotManager.CreateBotForUser(token, userID)
 	if err != nil {
+		// Check if this is an authorization error from Telegram
+		if strings.Contains(err.Error(), "Unauthorized (401)") {
+			logging.Errorf("Invalid bot token for user %d: %s. Please check the token in @BotFather", userID, err)
+			return fmt.Errorf("invalid bot token - please verify the token with @BotFather")
+		}
 		return err
 	}
 
-	// Устанавливаем webhook
+	// Set webhook
 	return telegramBotManager.SetWebhook(token)
 }
 
-// removeBotFromManager удаляет бота из BotManager
+// removeBotFromManager removes bot from BotManager
 func removeBotFromManager(token string) error {
 	if telegramBotManager == nil {
 		logging.Warn("Telegram BotManager not set, skipping bot removal")
