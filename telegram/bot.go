@@ -808,7 +808,8 @@ func (b *Bot) handleAllCallbacks(c tele.Context, conversationManager *Conversati
 		newOffset := convContext.SearchParams.Offset
 		if direction == "next" {
 			newOffset += convContext.SearchParams.Limit
-		} else if direction == "prev" {
+		} else {
+			// direction == "prev"
 			newOffset -= convContext.SearchParams.Limit
 			if newOffset < 0 {
 				newOffset = 0
