@@ -5,6 +5,7 @@ import (
 	"gopds-api/api"
 	"gopds-api/middlewares"
 	"gopds-api/opds"
+	"gopds-api/telegram"
 	"net/http"
 	"strings"
 	"time"
@@ -27,6 +28,10 @@ func setupRoutes(route *gin.Engine) {
 	// Add authenticated API routes with CSRF protection for state-changing operations
 	setupApiRoutes(route.Group("/api", middlewares.AuthMiddleware()))
 	setupLogoutRoutes(route.Group("/api", middlewares.AuthMiddleware()))
+	// Add Telegram webhook routes (public, no auth required)
+	setupTelegramWebhookRoutes(route.Group("/telegram"))
+	// Add Telegram API routes (public, no auth required for bot management)
+	setupTelegramApiRoutes(route.Group("/api/telegram"))
 	route.Use(serveStaticFilesMiddleware(NewHTTPFS(assets.Assets)))
 	rootFiles := listRootFiles()
 	for _, file := range rootFiles {
@@ -121,4 +126,14 @@ func isRegisteredRoute(path string, registeredRoutes map[string]struct{}) bool {
 // setupPublicAuthRoutes configures public authentication routes that do not require middleware authorization.
 func setupPublicAuthRoutes(group *gin.RouterGroup) {
 	api.SetupAuthRoutes(group)
+}
+
+// setupTelegramWebhookRoutes configures routes for Telegram webhook interactions.
+func setupTelegramWebhookRoutes(group *gin.RouterGroup) {
+	telegram.SetupWebhookRoutes(group)
+}
+
+// setupTelegramApiRoutes configures Telegram API routes that require authentication.
+func setupTelegramApiRoutes(group *gin.RouterGroup) {
+	telegram.SetupApiRoutes(group)
 }

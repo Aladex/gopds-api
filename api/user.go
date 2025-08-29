@@ -4,6 +4,7 @@ import (
 	"errors"
 	"gopds-api/database"
 	"gopds-api/httputil"
+	"gopds-api/logging"
 	"gopds-api/models"
 	"net/http"
 
@@ -27,18 +28,25 @@ import (
 func ActionUser(c *gin.Context) {
 	var action models.AdminCommandToUser
 	if err := c.ShouldBindJSON(&action); err == nil {
+		logging.Infof("ActionUser API called with: %+v", action)
+
 		if len(action.User.NewPassword) > 0 {
 			action.User.Password = action.User.NewPassword
 		}
 		user, err := database.ActionUser(action)
 		if err != nil {
+			logging.Errorf("ActionUser failed: %v", err)
 			c.JSON(500, err)
 			return
 		}
+		logging.Infof("ActionUser completed successfully, returning user: ID=%d, BotToken=%s",
+			user.ID, user.BotToken)
 		c.JSON(200, user)
 		return
+	} else {
+		logging.Errorf("ActionUser failed to parse JSON: %v", err)
+		httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
 	}
-	httputil.NewError(c, http.StatusBadRequest, errors.New("bad request"))
 }
 
 // DeleteUser method for deleting a user

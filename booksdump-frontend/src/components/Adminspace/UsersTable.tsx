@@ -126,7 +126,7 @@ const UsersTable: React.FC = () => {
             email: email,
             active: isActive,
             is_superuser: isSuperuser,
-            token: token,
+            bot_token: token,
         };
         if (newPassword) {
             updatedUser.new_password = newPassword; // Add password only if it is set

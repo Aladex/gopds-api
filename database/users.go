@@ -214,11 +214,13 @@ func UpdateUserProfile(userID int64, updates models.SelfUserChangeRequest) (mode
 	return user, nil
 }
 
-// UpdateUserByAdmin updates user data by admin (keeps existing functionality)
+// UpdateUserByAdmin updates user data by admin (integrated with new Telegram architecture)
 func UpdateUserByAdmin(action models.AdminCommandToUser) (models.User, error) {
+
 	var userToChange models.User
 	err := db.Model(&userToChange).Where("id = ?", action.User.ID).Select()
 	if err != nil {
+		logging.Errorf("Failed to select user %d: %v", action.User.ID, err)
 		return userToChange, err
 	}
 
@@ -229,22 +231,51 @@ func UpdateUserByAdmin(action models.AdminCommandToUser) (models.User, error) {
 		userToChange.Password = hashedPassword
 	}
 
-	// Check if BotToken has actually changed before setting webhook
-	botTokenChanged := userToChange.BotToken != action.User.BotToken
+	// Check if BotToken has actually changed
+	oldBotToken := userToChange.BotToken
+	botTokenChanged := oldBotToken != action.User.BotToken
+
+	logging.Infof("Bot token changed: %v (old='%s' -> new='%s')",
+		botTokenChanged, oldBotToken, action.User.BotToken)
 
 	// Update other user details (for admin operations)
 	userToChange = updateUserDetails(userToChange, action.User)
 
-	// Only set webhook if bot token has actually changed
-	if botTokenChanged && action.User.BotToken != "" {
-		if err := setWebhookIfNeeded(action.User.BotToken); err != nil {
-			return userToChange, err
+	// Handle bot token changes with new Telegram architecture
+	if botTokenChanged {
+		logging.Info("Processing bot token change...")
+		// Remove old bot if exists
+		if oldBotToken != "" {
+			logging.Infof("Removing old bot with token: %s", oldBotToken)
+			if err := removeBotFromManager(oldBotToken); err != nil {
+				logging.Error("Failed to remove old bot:", err)
+			}
+		}
+
+		// Create new bot if token provided
+		if action.User.BotToken != "" {
+			logging.Infof("Creating new bot with token: %s", action.User.BotToken)
+			if err := createBotInManager(action.User.BotToken, userToChange.ID); err != nil {
+				logging.Error("Failed to create new bot:", err)
+				// Don't fail the update if bot creation fails
+			}
 		}
 	}
 
-	if _, err := db.Model(&userToChange).WherePK().Update(); err != nil {
+	_, err = db.Model(&userToChange).WherePK().Update()
+	if err != nil {
+		logging.Errorf("Failed to update user in database: %v", err)
 		return userToChange, err
 	}
+
+	// Verify the update by reading the user again
+	var verifyUser models.User
+	err = db.Model(&verifyUser).Where("id = ?", userToChange.ID).Select()
+	if err == nil {
+		logging.Infof("Verification - user after update: ID=%d, BotToken=%s",
+			verifyUser.ID, verifyUser.BotToken)
+	}
+
 	return userToChange, nil
 }
 
@@ -307,4 +338,94 @@ func DeleteUser(id string) error {
 		return err
 	}
 	return nil
+}
+
+// UpdateBotToken обновляет токен бота для пользователя
+func UpdateBotToken(userID int64, botToken string) error {
+	_, err := db.Model(&models.User{}).
+		Set("bot_token = ?", botToken).
+		Where("id = ?", userID).
+		Update()
+	return err
+}
+
+// GetUserByBotToken находит пользователя по токену бота
+func GetUserByBotToken(botToken string) (models.User, error) {
+	var user models.User
+	err := db.Model(&user).Where("bot_token = ?", botToken).First()
+	return user, err
+}
+
+// UpdateTelegramID обновляет Telegram ID для пользователя с указанным токеном бота
+func UpdateTelegramID(botToken string, telegramID int64) error {
+	_, err := db.Model(&models.User{}).
+		Set("telegram_id = ?", telegramID).
+		Where("bot_token = ? AND telegram_id IS NULL", botToken).
+		Update()
+	return err
+}
+
+// GetUserByTelegramID находит пользователя по Telegram ID
+func GetUserByTelegramID(telegramID int64) (models.User, error) {
+	var user models.User
+	err := db.Model(&user).Where("telegram_id = ?", telegramID).First()
+	return user, err
+}
+
+// ClearBotToken очищает токен бота и Telegram ID для пользователя
+func ClearBotToken(userID int64) error {
+	_, err := db.Model(&models.User{}).
+		Set("bot_token = NULL, telegram_id = NULL").
+		Where("id = ?", userID).
+		Update()
+	return err
+}
+
+// GetUsersWithBotTokens возвращает всех пользователей, у которых есть токены ботов
+func GetUsersWithBotTokens() ([]models.User, error) {
+	var users []models.User
+	err := db.Model(&users).Where("bot_token IS NOT NULL AND bot_token != ''").Select()
+	return users, err
+}
+
+// Telegram Bot Manager integration functions
+var telegramBotManager interface {
+	CreateBotForUser(token string, userID int64) error
+	RemoveBot(token string) error
+	SetWebhook(token string) error
+}
+
+// SetTelegramBotManager устанавливает ссылку на BotManager для интеграции с админкой
+func SetTelegramBotManager(manager interface {
+	CreateBotForUser(token string, userID int64) error
+	RemoveBot(token string) error
+	SetWebhook(token string) error
+}) {
+	telegramBotManager = manager
+}
+
+// createBotInManager создает бота в BotManager
+func createBotInManager(token string, userID int64) error {
+	if telegramBotManager == nil {
+		logging.Warn("Telegram BotManager not set, skipping bot creation")
+		return nil
+	}
+
+	err := telegramBotManager.CreateBotForUser(token, userID)
+	if err != nil {
+		return err
+	}
+
+	// Устанавливаем webhook
+	return telegramBotManager.SetWebhook(token)
+}
+
+// removeBotFromManager удаляет бота из BotManager
+func removeBotFromManager(token string) error {
+	if telegramBotManager == nil {
+		logging.Warn("Telegram BotManager not set, skipping bot removal")
+		return nil
+	}
+
+	return telegramBotManager.RemoveBot(token)
 }

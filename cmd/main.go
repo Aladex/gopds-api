@@ -10,6 +10,7 @@ import (
 	"gopds-api/logging"
 	"gopds-api/sessions"
 	"gopds-api/tasks" // Import the tasks package for WatchDirectory
+	"gopds-api/telegram"
 	"net/http"
 	"os"
 	"os/signal"
@@ -24,6 +25,10 @@ import (
 // @contact.name API Support
 // @contact.email aladex@gmail.com
 // @BasePath /api
+
+// Глобальная переменная для менеджера Telegram ботов
+var telegramBotManager *telegram.BotManager
+
 func main() {
 	db := initializeDatabase()
 	defer closeDatabaseConnection(db)
@@ -31,6 +36,18 @@ func main() {
 
 	mainRedisClient, tokenRedisClient := initializeSessionManagement()
 	sessions.SetRedisConnections(mainRedisClient, tokenRedisClient)
+
+	// Инициализируем менеджер Telegram ботов
+	telegramConfig := &telegram.Config{
+		BaseURL: cfg.GetServerBaseURL(), // Нужно добавить эту функцию в config
+	}
+	telegramBotManager = telegram.NewBotManager(telegramConfig)
+
+	// Инициализируем Telegram компоненты
+	telegram.InitializeTelegram(telegramBotManager)
+
+	// Связываем BotManager с database пакетом для интеграции с админкой
+	database.SetTelegramBotManager(telegramBotManager)
 
 	// Set the Gin mode based on the application configuration.
 	if !cfg.App.DevelMode {

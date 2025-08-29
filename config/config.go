@@ -230,3 +230,15 @@ func (c *Config) GetRedisAddress() string {
 func (c *Config) IsDevelopment() bool {
 	return c.App.DevelMode
 }
+
+// GetServerBaseURL возвращает базовый URL сервера для webhook'ов
+func (c *Config) GetServerBaseURL() string {
+	if c.Domain != "" {
+		return c.Domain
+	}
+	if c.ProjectURL != "" {
+		return c.ProjectURL
+	}
+	// Fallback к локальному адресу
+	return fmt.Sprintf("http://%s:%d", c.Server.Host, c.Server.Port)
+}
