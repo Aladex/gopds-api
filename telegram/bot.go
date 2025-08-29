@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"gopds-api/commands"
 	"gopds-api/logging"
@@ -56,21 +57,37 @@ func (bm *BotManager) InitializeExistingBots() error {
 
 	logging.Infof("Found %d users with bot tokens, initializing bots...", len(users))
 
+	successfullyInitialized := 0
 	for _, user := range users {
 		err := bm.createBotForUser(user.BotToken, user.ID)
 		if err != nil {
-			logging.Infof("Failed to initialize bot for user %d: %v", user.ID, err)
+			logging.Errorf("Failed to initialize bot for user %d: %v", user.ID, err)
 			continue
 		}
 
-		// Set webhook
-		err = bm.SetWebhook(user.BotToken)
+		// Check if webhook is already correctly configured, only set if needed
+		isCorrect, err := bm.checkWebhookStatus(user.BotToken)
 		if err != nil {
-			logging.Infof("Failed to set webhook for user %d: %v", user.ID, err)
+			logging.Warnf("Failed to check webhook status for user %d during initialization: %v, will set webhook", user.ID, err)
+			// Proceed to set webhook if we can't check status
+			err = bm.SetWebhook(user.BotToken)
+			if err != nil {
+				logging.Errorf("Failed to set webhook for user %d: %v", user.ID, err)
+			}
+		} else if isCorrect {
+			logging.Infof("Webhook already correctly configured for user %d, skipping webhook setup", user.ID)
+		} else {
+			logging.Infof("Webhook needs to be set for user %d", user.ID)
+			err = bm.SetWebhook(user.BotToken)
+			if err != nil {
+				logging.Errorf("Failed to set webhook for user %d: %v", user.ID, err)
+			}
 		}
+
+		successfullyInitialized++
 	}
 
-	logging.Infof("Initialized %d telegram bots", len(bm.bots))
+	logging.Infof("Initialized %d telegram bots successfully", successfullyInitialized)
 	return nil
 }
 
@@ -439,6 +456,101 @@ func (bm *BotManager) HandleWebhook(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
+// checkWebhookStatus checks if webhook is already correctly configured
+func (bm *BotManager) checkWebhookStatus(token string) (bool, error) {
+	bm.mutex.RLock()
+	bot, exists := bm.bots[token]
+	bm.mutex.RUnlock()
+
+	if !exists {
+		return false, fmt.Errorf("bot with token not found")
+	}
+
+	expectedURL := fmt.Sprintf("%s/telegram/%s", bm.config.BaseURL, token)
+
+	// Since telebot.v3 doesn't provide GetWebhookInfo, we'll use a different approach
+	// We'll try to make a direct HTTP request to Telegram API to get webhook info
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	type webhookInfoResult struct {
+		ok  bool
+		url string
+		err error
+	}
+
+	resultChan := make(chan webhookInfoResult, 1)
+	go func() {
+		// Make direct HTTP request to Telegram API
+		apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/getWebhookInfo", token)
+
+		client := &http.Client{Timeout: 8 * time.Second}
+		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+		if err != nil {
+			resultChan <- webhookInfoResult{ok: false, err: err}
+			return
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			resultChan <- webhookInfoResult{ok: false, err: err}
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			resultChan <- webhookInfoResult{ok: false, err: fmt.Errorf("API returned status %d", resp.StatusCode)}
+			return
+		}
+
+		// Parse the response to get webhook URL
+		var result struct {
+			Ok     bool `json:"ok"`
+			Result struct {
+				URL string `json:"url"`
+			} `json:"result"`
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			resultChan <- webhookInfoResult{ok: false, err: err}
+			return
+		}
+
+		if !result.Ok {
+			resultChan <- webhookInfoResult{ok: false, err: fmt.Errorf("API returned ok=false")}
+			return
+		}
+
+		resultChan <- webhookInfoResult{ok: true, url: result.Result.URL, err: nil}
+	}()
+
+	select {
+	case result := <-resultChan:
+		if result.err != nil {
+			logging.Errorf("Failed to get webhook info for user %d: %v", bot.userID, result.err)
+			return false, result.err
+		}
+
+		// Check if webhook URL matches expected URL
+		if result.url == expectedURL {
+			logging.Infof("Webhook already correctly configured for user %d: %s", bot.userID, expectedURL)
+			return true, nil
+		}
+
+		if result.url != "" {
+			logging.Infof("Webhook exists but URL mismatch for user %d. Expected: %s, Current: %s",
+				bot.userID, expectedURL, result.url)
+		} else {
+			logging.Infof("No webhook configured for user %d", bot.userID)
+		}
+
+		return false, nil
+	case <-ctx.Done():
+		logging.Warnf("Timeout getting webhook info for user %d", bot.userID)
+		return false, fmt.Errorf("timeout getting webhook info")
+	}
+}
+
 // SetWebhook sets webhook for the bot
 func (bm *BotManager) SetWebhook(token string) error {
 	bm.mutex.RLock()
@@ -456,6 +568,15 @@ func (bm *BotManager) SetWebhook(token string) error {
 	logging.Infof("BaseURL configured: %s", bm.config.BaseURL)
 	logging.Infof("Webhook URL: %s", webhookURL)
 	logging.Infof("Bot token (masked): %s...%s", token[:5], token[len(token)-5:])
+
+	// Check if webhook is already correctly configured
+	isCorrect, err := bm.checkWebhookStatus(token)
+	if err != nil {
+		logging.Warnf("Failed to check webhook status for user %d: %v, proceeding with setup", bot.userID, err)
+	} else if isCorrect {
+		logging.Infof("Webhook already set up correctly for user %d, skipping setup", bot.userID)
+		return nil
+	}
 
 	// Step 1: First remove any existing webhook
 	logging.Infof("Step 1: Removing existing webhook for user %d...", bot.userID)

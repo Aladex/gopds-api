@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"gopds-api/logging"
 	"net/http"
 	"strconv"
 	"strings"
@@ -84,6 +85,25 @@ func (r *Routes) SetBotToken(c *gin.Context) {
 		return
 	}
 
+	// Get current user to check if they have an existing bot token
+	currentUser, err := database.GetUser(strconv.FormatInt(userID, 10))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to get user info: " + err.Error()})
+		return
+	}
+
+	// If user has an existing bot token, remove the old bot first
+	if currentUser.BotToken != "" && currentUser.BotToken != req.Token {
+		logging.Infof("User %d changing bot token from %s to %s", userID, maskToken(currentUser.BotToken), maskToken(req.Token))
+
+		// Remove old bot (this will also remove its webhook)
+		err = r.botManager.RemoveBot(currentUser.BotToken)
+		if err != nil {
+			logging.Errorf("Failed to remove old bot for user %d: %v", userID, err)
+			// Continue anyway - maybe the bot was already removed
+		}
+	}
+
 	// Обновляем токен в базе данных
 	err = database.UpdateBotToken(userID, req.Token)
 	if err != nil {
@@ -149,13 +169,25 @@ func (r *Routes) RemoveBotToken(c *gin.Context) {
 		return
 	}
 
-	// Удаляем бота
+	logging.Infof("User %d removing bot token %s", userID, maskToken(user.BotToken))
+
+	// Удаляем бота (это автоматически удалит webhook)
 	err = r.botManager.RemoveBot(user.BotToken)
 	if err != nil {
+		logging.Errorf("Failed to remove bot for user %d: %v", userID, err)
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to remove bot: " + err.Error()})
 		return
 	}
 
+	// Удаляем токен из базы данных
+	err = database.UpdateBotToken(userID, "")
+	if err != nil {
+		logging.Errorf("Failed to clear bot token for user %d: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Bot removed but failed to clear token from database: " + err.Error()})
+		return
+	}
+
+	logging.Infof("Successfully removed bot and cleared token for user %d", userID)
 	c.JSON(http.StatusOK, gin.H{"message": "Bot token removed successfully"})
 }
 
