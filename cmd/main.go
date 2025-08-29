@@ -26,7 +26,7 @@ import (
 // @contact.email aladex@gmail.com
 // @BasePath /api
 
-// Глобальная переменная для менеджера Telegram ботов
+// Global variable for the Telegram bot manager
 var telegramBotManager *telegram.BotManager
 
 func main() {
@@ -37,16 +37,16 @@ func main() {
 	mainRedisClient, tokenRedisClient := initializeSessionManagement()
 	sessions.SetRedisConnections(mainRedisClient, tokenRedisClient)
 
-	// Инициализируем менеджер Telegram ботов
+	// Initialize the Telegram bot manager
 	telegramConfig := &telegram.Config{
-		BaseURL: cfg.GetServerBaseURL(), // Нужно добавить эту функцию в config
+		BaseURL: cfg.GetServerBaseURL(), // Need to add this function to config
 	}
-	telegramBotManager = telegram.NewBotManager(telegramConfig)
+	telegramBotManager = telegram.NewBotManager(telegramConfig, mainRedisClient)
 
-	// Инициализируем Telegram компоненты
+	// Initialize Telegram components
 	telegram.InitializeTelegram(telegramBotManager)
 
-	// Связываем BotManager с database пакетом для интеграции с админкой
+	// Link BotManager with the database package for admin panel integration
 	database.SetTelegramBotManager(telegramBotManager)
 
 	// Set the Gin mode based on the application configuration.

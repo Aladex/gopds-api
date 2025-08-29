@@ -1,7 +1,7 @@
 package tasks
 
 import (
-	"log"
+	"gopds-api/logging"
 	"os"
 	"path/filepath"
 	"time"
