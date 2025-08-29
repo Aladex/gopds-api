@@ -199,72 +199,45 @@ func (cm *ConversationManager) ProcessIncomingMessage(botToken string, message *
 	}
 
 	userID := message.Sender.ID
-
-	// Add the user message to the context
-	err := cm.AddUserMessage(botToken, userID, message.Text)
-	if err != nil {
-		logging.Errorf("Failed to add user message to context: %v", err)
-		return err
-	}
-
-	logging.Debugf("Added user message to context for user %d: %s", userID, message.Text)
-	return nil
+	return cm.AddUserMessage(botToken, userID, message.Text)
 }
 
-// ProcessOutgoingMessage processes an outgoing message from the bot
+// ProcessOutgoingMessage processes an outgoing message to a user
 func (cm *ConversationManager) ProcessOutgoingMessage(botToken string, userID int64, text string) error {
-	if text == "" {
-		return nil
-	}
-
-	err := cm.AddBotMessage(botToken, userID, text)
-	if err != nil {
-		logging.Errorf("Failed to add bot message to context: %v", err)
-		return err
-	}
-
-	logging.Debugf("Added bot message to context for user %d: %s", userID, text)
-	return nil
+	return cm.AddBotMessage(botToken, userID, text)
 }
 
-// getRedisKey generates a Redis key for the context
-func (cm *ConversationManager) getRedisKey(botToken string, userID int64) string {
-	// Use the last 8 characters of the token for brevity
-	tokenSuffix := botToken
-	if len(botToken) > 8 {
-		tokenSuffix = botToken[len(botToken)-8:]
-	}
-	return fmt.Sprintf("%s%s:%d", ConversationKeyPrefix, tokenSuffix, userID)
-}
-
-// GetContextStats returns context statistics
+// GetContextStats returns statistics about the conversation context
 func (cm *ConversationManager) GetContextStats(botToken string, userID int64) (map[string]interface{}, error) {
 	context, err := cm.GetContext(botToken, userID)
 	if err != nil {
 		return nil, err
 	}
 
+	userMessages := 0
+	botMessages := 0
+	for _, message := range context.Messages {
+		if message.Type == "user" {
+			userMessages++
+		} else {
+			botMessages++
+		}
+	}
+
 	stats := map[string]interface{}{
 		"messages_count": len(context.Messages),
 		"context_length": cm.calculateContextLength(context),
 		"max_length":     MaxContextLength,
-		"created_at":     context.CreatedAt,
-		"updated_at":     context.UpdatedAt,
-	}
-
-	if len(context.Messages) > 0 {
-		userMessages := 0
-		botMessages := 0
-		for _, msg := range context.Messages {
-			if msg.Type == "user" {
-				userMessages++
-			} else {
-				botMessages++
-			}
-		}
-		stats["user_messages"] = userMessages
-		stats["bot_messages"] = botMessages
+		"user_messages":  userMessages,
+		"bot_messages":   botMessages,
+		"created_at":     context.CreatedAt.Format("2006-01-02 15:04:05"),
+		"updated_at":     context.UpdatedAt.Format("2006-01-02 15:04:05"),
 	}
 
 	return stats, nil
+}
+
+// getRedisKey generates a Redis key for the conversation context
+func (cm *ConversationManager) getRedisKey(botToken string, userID int64) string {
+	return fmt.Sprintf("%s%s:%d", ConversationKeyPrefix, botToken, userID)
 }

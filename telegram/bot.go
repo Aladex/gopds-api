@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"fmt"
+	"gopds-api/commands"
 	"gopds-api/logging"
 	"net/http"
 	"strings"
@@ -352,7 +353,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 			return nil // Ignore messages from unauthorized users
 		}
 
-		_, err := database.GetUserByTelegramID(telegramID)
+		user, err := database.GetUserByTelegramID(telegramID)
 		if err != nil {
 			response := "Please send /start first to link your account."
 			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
@@ -361,25 +362,37 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 			return c.Send(response)
 		}
 
-		// Get conversation context for AI integration
+		// Get conversation context for LLM processing
 		contextStr, err := conversationManager.GetContextAsString(b.token, telegramID)
 		if err != nil {
 			logging.Errorf("Failed to get context string: %v", err)
-		} else if contextStr != "" {
-			logging.Infof("Message with context for user %d: %s", telegramID, contextStr)
+			contextStr = "" // Continue with empty context
 		}
 
-		// If this is not a command, show help with available commands
-		response := "Available commands:\n" +
-			"/start - link account\n" +
-			"/search <query> - search books\n" +
-			"/context - show conversation stats\n" +
-			"/clear - clear conversation context"
+		// Create command processor and process the message with LLM
+		processor := commands.NewCommandProcessor()
+		result, err := processor.ProcessMessage(c.Text(), contextStr, user.ID)
+		if err != nil {
+			logging.Errorf("Failed to process message with LLM: %v", err)
+			response := "Произошла ошибка при обработке запроса. Попробуйте позже."
+			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+				logging.Errorf("Failed to process outgoing message: %v", err)
+			}
+			return c.Send(response)
+		}
 
-		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+		// Send response with optional inline keyboard
+		var sendOptions []interface{}
+		if result.ReplyMarkup != nil {
+			sendOptions = append(sendOptions, result.ReplyMarkup)
+		}
+
+		// Add bot message to context
+		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, result.Message); err != nil {
 			logging.Errorf("Failed to process outgoing message: %v", err)
 		}
-		return c.Send(response)
+
+		return c.Send(result.Message, sendOptions...)
 	})
 }
 
