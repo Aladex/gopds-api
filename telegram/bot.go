@@ -255,6 +255,7 @@ func (bm *BotManager) HandleWebhook(c *gin.Context) {
 	bm.mutex.RUnlock()
 
 	if !exists {
+		log.Printf("Webhook received for unknown bot token: %s", maskToken(token))
 		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
 		return
 	}
@@ -266,6 +267,8 @@ func (bm *BotManager) HandleWebhook(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid webhook data"})
 		return
 	}
+
+	logging.Infof("Processing webhook for user %d, update ID: %d", bot.userID, update.ID)
 
 	// Process update through telebot
 	bot.bot.ProcessUpdate(update)
@@ -285,6 +288,12 @@ func (bm *BotManager) SetWebhook(token string) error {
 
 	webhookURL := fmt.Sprintf("%s/telegram/%s", bm.config.BaseURL, token)
 
+	// Log the webhook configuration details
+	logging.Infof("Setting webhook for user %d", bot.userID)
+	logging.Infof("BaseURL configured: %s", bm.config.BaseURL)
+	logging.Infof("Webhook URL: %s", webhookURL)
+	logging.Infof("Bot token (masked): %s...%s", token[:5], token[len(token)-5:])
+
 	webhook := &tele.Webhook{
 		Endpoint: &tele.WebhookEndpoint{
 			PublicURL: webhookURL,
@@ -301,16 +310,22 @@ func (bm *BotManager) SetWebhook(token string) error {
 
 	resultChan := make(chan webhookResult, 1)
 	go func() {
+		logging.Infof("Calling Telegram API to set webhook...")
 		err := bot.bot.SetWebhook(webhook)
+		if err != nil {
+			logging.Errorf("Telegram API returned error: %v", err)
+		}
 		resultChan <- webhookResult{err: err}
 	}()
 
 	select {
 	case result := <-resultChan:
 		if result.err != nil {
+			logging.Errorf("Failed to set webhook for user %d with URL %s: %v", bot.userID, webhookURL, result.err)
 			return fmt.Errorf("failed to set webhook: %v", result.err)
 		}
 	case <-ctx.Done():
+		logging.Errorf("Timeout setting webhook for user %d with URL %s", bot.userID, webhookURL)
 		return fmt.Errorf("timeout setting webhook - token might be invalid")
 	}
 
@@ -372,6 +387,25 @@ func (bm *BotManager) RemoveBot(token string) error {
 
 	log.Printf("Bot removed successfully for user %d", bot.userID)
 	return nil
+}
+
+// GetBotCount returns the number of active bots for debugging
+func (bm *BotManager) GetBotCount() int {
+	bm.mutex.RLock()
+	defer bm.mutex.RUnlock()
+	return len(bm.bots)
+}
+
+// ListActiveBots returns list of active bot tokens for debugging
+func (bm *BotManager) ListActiveBots() []string {
+	bm.mutex.RLock()
+	defer bm.mutex.RUnlock()
+
+	tokens := make([]string, 0, len(bm.bots))
+	for token, bot := range bm.bots {
+		tokens = append(tokens, fmt.Sprintf("%s (user %d)", maskToken(token), bot.userID))
+	}
+	return tokens
 }
 
 // maskToken masks token for logging

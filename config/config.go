@@ -233,12 +233,20 @@ func (c *Config) IsDevelopment() bool {
 
 // GetServerBaseURL returns base URL for webhook endpoints
 func (c *Config) GetServerBaseURL() string {
+	var baseURL string
+
 	if c.Domain != "" {
-		return c.Domain
+		baseURL = c.Domain
+		logging.Infof("Using Domain for BaseURL: %s", baseURL)
+	} else if c.ProjectURL != "" {
+		baseURL = c.ProjectURL
+		logging.Infof("Using ProjectURL for BaseURL: %s", baseURL)
+	} else {
+		// Fallback to local address
+		baseURL = fmt.Sprintf("http://%s:%d", c.Server.Host, c.Server.Port)
+		logging.Infof("Using fallback local address for BaseURL: %s", baseURL)
 	}
-	if c.ProjectURL != "" {
-		return c.ProjectURL
-	}
-	// Fallback to local address
-	return fmt.Sprintf("http://%s:%d", c.Server.Host, c.Server.Port)
+
+	logging.Infof("Final BaseURL for webhooks: %s", baseURL)
+	return baseURL
 }

@@ -389,18 +389,23 @@ func SetTelegramBotManager(manager interface {
 	telegramBotManager = manager
 }
 
-// createBotInManager creates bot in BotManager
+// createBotInManager creates bot in BotManager and sets webhook
 func createBotInManager(token string, userID int64) error {
 	if telegramBotManager == nil {
 		logging.Warn("Telegram BotManager not set, skipping bot creation")
 		return nil
 	}
 
+	logging.Infof("Starting bot creation process for user %d", userID)
+	logging.Infof("Bot token (masked): %s...%s", token[:5], token[len(token)-5:])
+
 	// Create bot with timeout to avoid blocking admin operations
 	done := make(chan error, 1)
 	go func() {
+		logging.Infof("Creating bot instance for user %d...", userID)
 		err := telegramBotManager.CreateBotForUser(token, userID)
 		if err != nil {
+			logging.Errorf("Failed to create bot for user %d: %v", userID, err)
 			// Check if this is an authorization error from Telegram
 			if strings.Contains(err.Error(), "Unauthorized (401)") {
 				logging.Errorf("Invalid bot token for user %d: %s. Please check the token in @BotFather", userID, err)
@@ -411,14 +416,25 @@ func createBotInManager(token string, userID int64) error {
 			return
 		}
 
+		logging.Infof("Bot created successfully for user %d, now setting webhook...", userID)
 		// Set webhook
 		err = telegramBotManager.SetWebhook(token)
+		if err != nil {
+			logging.Errorf("Failed to set webhook for user %d: %v", userID, err)
+		} else {
+			logging.Infof("Webhook set successfully for user %d", userID)
+		}
 		done <- err
 	}()
 
 	// Wait for bot creation with timeout
 	select {
 	case err := <-done:
+		if err != nil {
+			logging.Errorf("Bot creation process failed for user %d: %v", userID, err)
+		} else {
+			logging.Infof("Bot creation process completed successfully for user %d", userID)
+		}
 		return err
 	case <-time.After(15 * time.Second):
 		logging.Errorf("Timeout creating bot for user %d - operation cancelled", userID)
