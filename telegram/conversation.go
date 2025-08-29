@@ -3,6 +3,7 @@ package telegram
 import (
 	"encoding/json"
 	"fmt"
+	"gopds-api/commands"
 	"gopds-api/logging"
 	"strings"
 	"time"
@@ -32,6 +33,10 @@ type ConversationContext struct {
 	Messages  []Message `json:"messages"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+	// Pagination state for book search
+	SearchParams *commands.SearchParams `json:"search_params,omitempty"`
+	// Selected book ID for future operations
+	SelectedBookID int64 `json:"selected_book_id,omitempty"`
 }
 
 // Message represents a message in the context
@@ -235,6 +240,32 @@ func (cm *ConversationManager) GetContextStats(botToken string, userID int64) (m
 	}
 
 	return stats, nil
+}
+
+// UpdateSearchParams updates the search parameters in the conversation context
+func (cm *ConversationManager) UpdateSearchParams(botToken string, userID int64, searchParams *commands.SearchParams) error {
+	context, err := cm.GetContext(botToken, userID)
+	if err != nil {
+		return fmt.Errorf("failed to get context: %v", err)
+	}
+
+	context.SearchParams = searchParams
+	context.UpdatedAt = time.Now()
+
+	return cm.saveContext(context)
+}
+
+// UpdateSelectedBookID updates the selected book ID in the conversation context
+func (cm *ConversationManager) UpdateSelectedBookID(botToken string, userID int64, bookID int64) error {
+	context, err := cm.GetContext(botToken, userID)
+	if err != nil {
+		return fmt.Errorf("failed to get context: %v", err)
+	}
+
+	context.SelectedBookID = bookID
+	context.UpdatedAt = time.Now()
+
+	return cm.saveContext(context)
 }
 
 // getRedisKey generates a Redis key for the conversation context

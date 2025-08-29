@@ -21,6 +21,16 @@ type CommandResult struct {
 	Message     string
 	Books       []models.Book
 	ReplyMarkup *tele.ReplyMarkup
+	// Pagination state for conversation context
+	SearchParams *SearchParams
+}
+
+// SearchParams represents search parameters for pagination
+type SearchParams struct {
+	Query      string `json:"query"`
+	Offset     int    `json:"offset"`
+	Limit      int    `json:"limit"`
+	TotalCount int    `json:"total_count"`
 }
 
 // NewCommandProcessor creates a new command processor
@@ -58,17 +68,27 @@ func (cp *CommandProcessor) executeCommand(command *llm.Command, userID int64) (
 
 // executeFindBook executes a book search command
 func (cp *CommandProcessor) executeFindBook(title string, userID int64) (*CommandResult, error) {
+	return cp.executeFindBookWithPagination(title, userID, 0, 5)
+}
+
+// ExecuteFindBookWithPagination executes a book search command with pagination (exported for callback handlers)
+func (cp *CommandProcessor) ExecuteFindBookWithPagination(title string, userID int64, offset, limit int) (*CommandResult, error) {
+	return cp.executeFindBookWithPagination(title, userID, offset, limit)
+}
+
+// executeFindBookWithPagination executes a book search command with pagination
+func (cp *CommandProcessor) executeFindBookWithPagination(title string, userID int64, offset, limit int) (*CommandResult, error) {
 	if title == "" {
 		return &CommandResult{
 			Message: "Пожалуйста, укажите название книги для поиска.",
 		}, nil
 	}
 
-	// Create filters for book search
+	// Create filters for book search with pagination
 	filters := models.BookFilters{
 		Title:  title,
-		Limit:  10,
-		Offset: 0,
+		Limit:  limit,
+		Offset: offset,
 	}
 
 	// Search for books using the existing database function
@@ -80,22 +100,34 @@ func (cp *CommandProcessor) executeFindBook(title string, userID int64) (*Comman
 		}, nil
 	}
 
-	if len(books) == 0 {
+	if len(books) == 0 && offset == 0 {
 		return &CommandResult{
 			Message: fmt.Sprintf("📚 Книги с названием \"%s\" не найдены.\n\nПопробуйте изменить запрос или использовать другие ключевые слова.", title),
 		}, nil
 	}
 
-	// Format the response message
-	message := cp.formatBookSearchResults(title, books, totalCount)
+	if len(books) == 0 && offset > 0 {
+		return &CommandResult{
+			Message: "На этой странице нет результатов.",
+		}, nil
+	}
 
-	// Create inline keyboard with book buttons
-	replyMarkup := cp.createBookButtons(books)
+	// Format the response message with pagination info
+	message := cp.formatBookSearchResultsWithPagination(title, books, totalCount, offset, limit)
+
+	// Create inline keyboard with number-based buttons and pagination
+	replyMarkup := cp.createBookButtonsWithPagination(books, offset, limit, totalCount)
 
 	return &CommandResult{
 		Message:     message,
 		Books:       books,
 		ReplyMarkup: replyMarkup,
+		SearchParams: &SearchParams{
+			Query:      title,
+			Offset:     offset,
+			Limit:      limit,
+			TotalCount: totalCount,
+		},
 	}, nil
 }
 
@@ -138,6 +170,44 @@ func (cp *CommandProcessor) formatBookSearchResults(query string, books []models
 	return builder.String()
 }
 
+// formatBookSearchResultsWithPagination formats the search results into a message with pagination info
+func (cp *CommandProcessor) formatBookSearchResultsWithPagination(query string, books []models.Book, totalCount, offset, limit int) string {
+	var builder strings.Builder
+
+	currentPage := (offset / limit) + 1
+	totalPages := (totalCount + limit - 1) / limit
+
+	builder.WriteString(fmt.Sprintf("📚 Результаты поиска для \"%s\":\n", query))
+	builder.WriteString(fmt.Sprintf("Страница %d из %d (всего найдено %d книг)\n\n", currentPage, totalPages, totalCount))
+
+	for i, book := range books {
+		// Format authors
+		var authorNames []string
+		for _, author := range book.Authors {
+			authorNames = append(authorNames, author.FullName)
+		}
+		authorsStr := strings.Join(authorNames, ", ")
+		if authorsStr == "" {
+			authorsStr = "Автор неизвестен"
+		}
+
+		// Add book entry with correct numbering
+		bookNumber := offset + i + 1
+		builder.WriteString(fmt.Sprintf("%d. %s — %s", bookNumber, book.Title, authorsStr))
+
+		// Add series information if available
+		if len(book.Series) > 0 && book.Series[0].Ser != "" {
+			builder.WriteString(fmt.Sprintf(" (серия: %s)", book.Series[0].Ser))
+		}
+
+		builder.WriteString("\n")
+	}
+
+	builder.WriteString("\n💡 Выберите книгу по номеру или используйте навигацию:")
+
+	return builder.String()
+}
+
 // createBookButtons creates inline keyboard buttons for books
 func (cp *CommandProcessor) createBookButtons(books []models.Book) *tele.ReplyMarkup {
 	if len(books) == 0 {
@@ -158,6 +228,50 @@ func (cp *CommandProcessor) createBookButtons(books []models.Book) *tele.ReplyMa
 
 		// Each book gets its own row
 		rows = append(rows, markup.Row(button))
+	}
+
+	markup.Inline(rows...)
+	return markup
+}
+
+// createBookButtonsWithPagination creates inline keyboard buttons for books with pagination
+func (cp *CommandProcessor) createBookButtonsWithPagination(books []models.Book, offset, limit, totalCount int) *tele.ReplyMarkup {
+	if len(books) == 0 {
+		return nil
+	}
+
+	markup := &tele.ReplyMarkup{}
+	var rows []tele.Row
+
+	// Create number-based selection buttons (2-3 per row)
+	var currentRow []tele.Btn
+	for i, book := range books {
+		bookNumber := offset + i + 1
+		button := markup.Data(fmt.Sprintf("%d", bookNumber), fmt.Sprintf("select:%d", book.ID))
+		currentRow = append(currentRow, button)
+
+		// Add row when we have 3 buttons or it's the last book
+		if len(currentRow) == 3 || i == len(books)-1 {
+			rows = append(rows, markup.Row(currentRow...))
+			currentRow = []tele.Btn{}
+		}
+	}
+
+	// Add pagination buttons
+	var paginationRow []tele.Btn
+
+	// Previous page button
+	if offset > 0 {
+		paginationRow = append(paginationRow, markup.Data("⬅️ Назад", "prev_page"))
+	}
+
+	// Next page button
+	if offset+limit < totalCount {
+		paginationRow = append(paginationRow, markup.Data("➡️ Вперед", "next_page"))
+	}
+
+	if len(paginationRow) > 0 {
+		rows = append(rows, markup.Row(paginationRow...))
 	}
 
 	markup.Inline(rows...)
