@@ -35,8 +35,8 @@ func serveStaticFilesMiddleware(fs http.FileSystem) gin.HandlerFunc {
 			defer indexFile.Close()
 
 			// Serve index.html content
-			c.File("booksdump-frontend/build/index.html")
-			return
+			http.ServeContent(c.Writer, c.Request, "index.html", time.Now(), indexFile)
+			c.Abort()
 		}
 
 		// Handle serving other static files from distFolders
