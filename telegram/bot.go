@@ -784,22 +784,22 @@ func (b *Bot) handlePaginationCallback(c tele.Context, conversationManager *Conv
 	}
 
 	// Get current context to retrieve search parameters
-	context, err := conversationManager.GetContext(b.token, telegramID)
+	convContext, err := conversationManager.GetContext(b.token, telegramID)
 	if err != nil {
 		logging.Errorf("Failed to get context for pagination: %v", err)
 		return c.Respond(&tele.CallbackResponse{Text: "Ошибка получения контекста"})
 	}
 
-	if context.SearchParams == nil {
+	if convContext.SearchParams == nil {
 		return c.Respond(&tele.CallbackResponse{Text: "Нет активного поиска для навигации"})
 	}
 
 	// Calculate new offset based on direction
-	newOffset := context.SearchParams.Offset
+	newOffset := convContext.SearchParams.Offset
 	if direction == "next" {
-		newOffset += context.SearchParams.Limit
+		newOffset += convContext.SearchParams.Limit
 	} else if direction == "prev" {
-		newOffset -= context.SearchParams.Limit
+		newOffset -= convContext.SearchParams.Limit
 		if newOffset < 0 {
 			newOffset = 0
 		}
@@ -807,7 +807,7 @@ func (b *Bot) handlePaginationCallback(c tele.Context, conversationManager *Conv
 
 	// Execute search with new pagination
 	processor := commands.NewCommandProcessor()
-	result, err := processor.ExecuteFindBookWithPagination(context.SearchParams.Query, user.ID, newOffset, context.SearchParams.Limit)
+	result, err := processor.ExecuteFindBookWithPagination(convContext.SearchParams.Query, user.ID, newOffset, convContext.SearchParams.Limit)
 	if err != nil {
 		logging.Errorf("Failed to execute paginated search: %v", err)
 		return c.Respond(&tele.CallbackResponse{Text: "Ошибка поиска"})
