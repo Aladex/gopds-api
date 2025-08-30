@@ -510,7 +510,11 @@ func (bm *BotManager) checkWebhookStatus(token string) (bool, error) {
 			resultChan <- webhookInfoResult{ok: false, err: err}
 			return
 		}
-		defer resp.Body.Close()
+		defer func() {
+			if closeErr := resp.Body.Close(); closeErr != nil {
+				logging.Errorf("Failed to close response body: %v", closeErr)
+			}
+		}()
 
 		if resp.StatusCode != http.StatusOK {
 			resultChan <- webhookInfoResult{ok: false, err: fmt.Errorf("API returned status %d", resp.StatusCode)}
@@ -902,14 +906,14 @@ func (b *Bot) handleAllCallbacks(c tele.Context, conversationManager *Conversati
 		authorID, err := strconv.ParseInt(authorIDStr, 10, 64)
 		if err != nil {
 			logging.Errorf("Invalid author ID in callback: %s", authorIDStr)
-			return c.Respond(&tele.CallbackResponse{Text: "Неверный ID автора"})
+			return c.Respond(&tele.CallbackResponse{Text: "Invalid author ID"})
 		}
 
 		// Get author information
 		user, err := database.GetUserByTelegramID(telegramID)
 		if err != nil {
 			logging.Errorf("Failed to get user by telegram ID %d: %v", telegramID, err)
-			return c.Respond(&tele.CallbackResponse{Text: "Пользователь не найден"})
+			return c.Respond(&tele.CallbackResponse{Text: "User not found"})
 		}
 
 		// Get author details
@@ -917,20 +921,7 @@ func (b *Bot) handleAllCallbacks(c tele.Context, conversationManager *Conversati
 		author, err := database.GetAuthor(authorRequest)
 		if err != nil {
 			logging.Errorf("Failed to get author %d: %v", authorID, err)
-			return c.Respond(&tele.CallbackResponse{Text: "Автор не найден"})
-		}
-
-		// Search for books by this author using full search with pagination
-		filters := models.BookFilters{
-			Author: int(authorID),
-			Limit:  5,
-			Offset: 0,
-		}
-
-		books, _, err := database.GetBooksEnhanced(user.ID, filters)
-		if err != nil {
-			logging.Errorf("Failed to search books by author %d: %v", authorID, err)
-			return c.Respond(&tele.CallbackResponse{Text: "Ошибка поиска книг автора"})
+			return c.Respond(&tele.CallbackResponse{Text: "Author not found"})
 		}
 
 		// Acknowledge the callback first
@@ -939,37 +930,39 @@ func (b *Bot) handleAllCallbacks(c tele.Context, conversationManager *Conversati
 			logging.Errorf("Failed to respond to callback: %v", err)
 		}
 
-		// Create a proper search result for books by this author
-		if len(books) == 0 {
-			message := fmt.Sprintf("📚 Книги автора %s не найдены в библиотеке.", author.FullName)
-			_, err = c.Bot().Send(c.Chat(), message)
-			if err != nil {
-				logging.Errorf("Failed to send author books message for user %d: %v", telegramID, err)
+		// Create a proper search result for books by this author using the command processor
+		processor := commands.NewCommandProcessor()
+
+		// Use the specialized function for author books
+		result, err := processor.ExecuteFindAuthorBooksWithPagination(authorID, author.FullName, user.ID, 0, 5)
+		if err != nil {
+			logging.Errorf("Failed to get author books for user %d: %v", telegramID, err)
+			// Try to edit the message with an error message
+			editErr := c.Edit("Error searching for books by this author.")
+			if editErr != nil {
+				logging.Errorf("Failed to edit message with error for user %d: %v", telegramID, editErr)
 			}
 			return nil
 		}
 
-		// Format message like normal book search results
-		processor := commands.NewCommandProcessor()
-
-		// Use the new specialized function for author books
-		result, err := processor.ExecuteFindAuthorBooksWithPagination(authorID, author.FullName, user.ID, 0, 5)
-		if err != nil {
-			logging.Errorf("Failed to get author books for user %d: %v", telegramID, err)
-			return c.Respond(&tele.CallbackResponse{Text: "Ошибка поиска книг автора"})
-		}
-
-		// Send the message with book results
+		// Edit the existing message with book results
 		var sendOptions []interface{}
 		if result.ReplyMarkup != nil {
 			sendOptions = append(sendOptions, result.ReplyMarkup)
 		}
 
-		_, err = c.Bot().Send(c.Chat(), result.Message, sendOptions...)
-		if err != nil {
-			logging.Errorf("Failed to send author books search results for user %d: %v", telegramID, err)
+		editErr := c.Edit(result.Message, sendOptions...)
+		if editErr != nil {
+			logging.Errorf("Failed to edit message for user %d: %v", telegramID, editErr)
+			// Fallback: try to send a new message if editing fails
+			_, sendErr := c.Bot().Send(c.Chat(), result.Message, sendOptions...)
+			if sendErr != nil {
+				logging.Errorf("Failed to send new message after edit failure for user %d: %v", telegramID, sendErr)
+			}
 			return nil
 		}
+
+		logging.Infof("Successfully edited message with author books for user %d", telegramID)
 
 		// Update search params in context
 		if result.SearchParams != nil {
