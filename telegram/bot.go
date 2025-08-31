@@ -372,7 +372,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 			return nil // Ignore messages from unauthorized users
 		}
 
-		user, err := database.GetUserByTelegramID(telegramID)
+		_, err := database.GetUserByTelegramID(telegramID)
 		if err != nil {
 			response := "Please send /start first to link your account."
 			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
@@ -390,10 +390,10 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 
 		// Create command processor and process the message with LLM
 		processor := commands.NewCommandProcessor()
-		result, err := processor.ProcessMessage(c.Text(), contextStr, user.ID)
+		result, err := processor.ProcessMessage(c.Text(), contextStr, telegramID)
 		if err != nil {
 			logging.Errorf("Failed to process message with LLM: %v", err)
-			response := "Произошла ошибка при обработке запроса. Попробуйте позже."
+			response := "An error occurred while processing the request. Please try again later."
 			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
 				logging.Errorf("Failed to process outgoing message: %v", err)
 			}
@@ -792,22 +792,22 @@ func (b *Bot) handleAllCallbacks(c tele.Context, conversationManager *Conversati
 			direction = "prev"
 		}
 
-		user, err := database.GetUserByTelegramID(telegramID)
+		_, err := database.GetUserByTelegramID(telegramID)
 		if err != nil {
 			logging.Errorf("Failed to get user by telegram ID %d: %v", telegramID, err)
-			return c.Respond(&tele.CallbackResponse{Text: "Пользователь не найден"})
+			return c.Respond(&tele.CallbackResponse{Text: "User not found"})
 		}
 
 		// Get current context to retrieve search parameters
 		convContext, err := conversationManager.GetContext(b.token, telegramID)
 		if err != nil {
 			logging.Errorf("Failed to get context for pagination: %v", err)
-			return c.Respond(&tele.CallbackResponse{Text: "Ошибка получения контекста"})
+			return c.Respond(&tele.CallbackResponse{Text: "Error getting context"})
 		}
 
 		if convContext.SearchParams == nil {
 			logging.Warnf("No search params found in context for user %d", telegramID)
-			return c.Respond(&tele.CallbackResponse{Text: "Нет активного поиска для навигации"})
+			return c.Respond(&tele.CallbackResponse{Text: "No active search for navigation"})
 		}
 
 		logging.Infof("Current search params for user %d: Query=%s, QueryType=%s, Offset=%d, Limit=%d",
@@ -832,24 +832,24 @@ func (b *Bot) handleAllCallbacks(c tele.Context, conversationManager *Conversati
 		var result *commands.CommandResult
 
 		if convContext.SearchParams.QueryType == "author" {
-			result, err = processor.ExecuteFindAuthorWithPagination(convContext.SearchParams.Query, user.ID, newOffset, convContext.SearchParams.Limit)
+			result, err = processor.ExecuteFindAuthorWithPagination(convContext.SearchParams.Query, telegramID, newOffset, convContext.SearchParams.Limit)
 		} else if convContext.SearchParams.QueryType == "author_books" {
 			// Search for books by specific author ID
 			result, err = processor.ExecuteFindAuthorBooksWithPagination(
 				convContext.SearchParams.AuthorID,
 				convContext.SearchParams.Query,
-				user.ID,
+				telegramID,
 				newOffset,
 				convContext.SearchParams.Limit,
 			)
 		} else {
 			// Default to book search for backwards compatibility
-			result, err = processor.ExecuteFindBookWithPagination(convContext.SearchParams.Query, user.ID, newOffset, convContext.SearchParams.Limit)
+			result, err = processor.ExecuteFindBookWithPagination(convContext.SearchParams.Query, telegramID, newOffset, convContext.SearchParams.Limit)
 		}
 
 		if err != nil {
 			logging.Errorf("Failed to execute paginated search: %v", err)
-			return c.Respond(&tele.CallbackResponse{Text: "Ошибка поиска"})
+			return c.Respond(&tele.CallbackResponse{Text: "Search error"})
 		}
 
 		if convContext.SearchParams.QueryType == "author" {
@@ -889,7 +889,7 @@ func (b *Bot) handleAllCallbacks(c tele.Context, conversationManager *Conversati
 			_, sendErr := c.Bot().Send(c.Chat(), result.Message, sendOptions...)
 			if sendErr != nil {
 				logging.Errorf("Failed to send new message after edit failure for user %d: %v", telegramID, sendErr)
-				return c.Respond(&tele.CallbackResponse{Text: "Ошибка обновления страницы"})
+				return c.Respond(&tele.CallbackResponse{Text: "Error updating page"})
 			}
 			return nil
 		}
@@ -910,7 +910,7 @@ func (b *Bot) handleAllCallbacks(c tele.Context, conversationManager *Conversati
 		}
 
 		// Get author information
-		user, err := database.GetUserByTelegramID(telegramID)
+		_, err = database.GetUserByTelegramID(telegramID)
 		if err != nil {
 			logging.Errorf("Failed to get user by telegram ID %d: %v", telegramID, err)
 			return c.Respond(&tele.CallbackResponse{Text: "User not found"})
@@ -934,7 +934,7 @@ func (b *Bot) handleAllCallbacks(c tele.Context, conversationManager *Conversati
 		processor := commands.NewCommandProcessor()
 
 		// Use the specialized function for author books
-		result, err := processor.ExecuteFindAuthorBooksWithPagination(authorID, author.FullName, user.ID, 0, 5)
+		result, err := processor.ExecuteFindAuthorBooksWithPagination(authorID, author.FullName, telegramID, 0, 5)
 		if err != nil {
 			logging.Errorf("Failed to get author books for user %d: %v", telegramID, err)
 			// Try to edit the message with an error message
@@ -987,7 +987,7 @@ func (b *Bot) handleAllCallbacks(c tele.Context, conversationManager *Conversati
 		bookID, err := strconv.ParseInt(bookIDStr, 10, 64)
 		if err != nil {
 			logging.Errorf("Invalid book ID in callback: %s", bookIDStr)
-			return c.Respond(&tele.CallbackResponse{Text: "Неверный ID книги"})
+			return c.Respond(&tele.CallbackResponse{Text: "Invalid book ID"})
 		}
 
 		// Update selected book ID in context
@@ -998,7 +998,7 @@ func (b *Bot) handleAllCallbacks(c tele.Context, conversationManager *Conversati
 		}
 
 		// Get book information for confirmation
-		responseText := fmt.Sprintf("📖 Книга выбрана (ID: %d)\n\nВ будущем здесь будет возможность скачивания.", bookID)
+		responseText := fmt.Sprintf("📖 Book selected (ID: %d)\n\nDownload functionality will be available here in the future.", bookID)
 
 		return c.Respond(&tele.CallbackResponse{
 			Text:      responseText,
