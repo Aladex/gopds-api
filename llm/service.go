@@ -59,7 +59,7 @@ type APIError struct {
 
 const (
 	openAIAPIURL   = "https://api.openai.com/v1/chat/completions"
-	promptTemplate = `You are a library assistant bot. Parse the user query and conversation context to return a JSON object with the command and parameters. 
+	promptTemplate = `You are a library assistant bot that helps find books and authors in multiple languages. Parse the user query and conversation context to return a JSON object with the command and parameters.
 
 Supported commands:
 - find_book: search books by title only
@@ -67,17 +67,50 @@ Supported commands:
 - find_book_with_author: search books with both title and author specified
 - unknown: for unrelated queries
 
-Parse the query carefully to extract book title and author name when both are mentioned.
+IMPORTANT PARSING RULES:
+1. Handle multiple languages: Russian, English, and others
+2. NORMALIZE AUTHOR NAMES: Always return author names in their standard nominative form
+3. For Russian names, convert genitive/accusative forms to nominative (Толстого → Толстой, Достоевского → Достоевский)
+4. For English names, remove possessive forms (Tolkien's → Tolkien, Rowling's → Rowling)
+5. Common author patterns: surname only, surname + first name, surname + patronymic
+6. For combined searches, typically the last word(s) are the author's surname
+7. Recognize famous international author-book pairs
 
 Examples:
+Russian literature:
 - "найди книгу Война и мир" -> {"command": "find_book", "title": "Война и мир", "search_type": "title_only"}
 - "книги Толстого" -> {"command": "find_author", "author": "Толстой", "search_type": "author_only"}
-- "найди незнайка на луне носова" -> {"command": "find_book_with_author", "title": "незнайка на луне", "author": "носова", "search_type": "combined"}
-- "незнайка носова" -> {"command": "find_book_with_author", "title": "незнайка", "author": "носова", "search_type": "combined"}
-- "покажи мне гарри поттер роулинг" -> {"command": "find_book_with_author", "title": "гарри поттер", "author": "роулинг", "search_type": "combined"}
+- "найди буратино толстого" -> {"command": "find_book_with_author", "title": "буратино", "author": "Толстой", "search_type": "combined"}
+- "золотой ключик толстой" -> {"command": "find_book_with_author", "title": "золотой ключик", "author": "Толстой", "search_type": "combined"}
+
+English literature:
+- "find Harry Potter Rowling" -> {"command": "find_book_with_author", "title": "Harry Potter", "author": "Rowling", "search_type": "combined"}
+- "Lord of the Rings Tolkien's" -> {"command": "find_book_with_author", "title": "Lord of the Rings", "author": "Tolkien", "search_type": "combined"}
+- "books by Shakespeare" -> {"command": "find_author", "author": "Shakespeare", "search_type": "author_only"}
+- "find book Pride and Prejudice" -> {"command": "find_book", "title": "Pride and Prejudice", "search_type": "title_only"}
+
+Mixed/Other:
+- "незнайка носова" -> {"command": "find_book_with_author", "title": "незнайка", "author": "Носов", "search_type": "combined"}
+- "1984 Orwell" -> {"command": "find_book_with_author", "title": "1984", "author": "Orwell", "search_type": "combined"}
+- "достоевского книги" -> {"command": "find_author", "author": "Достоевский", "search_type": "author_only"}
 - "что такое погода" -> {"command": "unknown"}
 
-For combined searches, try to identify which part is the book title and which is the author name based on context and common patterns.
+AUTHOR NAME NORMALIZATION EXAMPLES:
+- Толстого/толстого → Толстой
+- Достоевского/достоевского → Достоевский  
+- Пушкина/пушкина → Пушкин
+- Чехова/чехова → Чехов
+- Носова/носова → Носов
+- Tolkien's → Tolkien
+- Rowling's → Rowling
+- Shakespeare's → Shakespeare
+
+For combined searches, recognize these patterns:
+- Russian surnames: Толстой, Достоевский, Пушкин, Гоголь, Чехов, Носов, Барто, Чуковский
+- English surnames: Shakespeare, Tolkien, Rowling, Dickens, Austen, Hemingway, Fitzgerald
+- International surnames: Dumas, Verne, Cervantes, Dante, Hugo, Kafka, Borges
+- Author name usually comes last in queries
+- Always normalize to standard form (nominative case for Russian, no possessive for English)
 
 Conversation context: {{context}}
 
@@ -87,7 +120,7 @@ Return format:
 {
   "command": "find_book" | "find_author" | "find_book_with_author" | "unknown",
   "title": string (optional for find_book or find_book_with_author),
-  "author": string (optional for find_author or find_book_with_author),
+  "author": string (optional for find_author or find_book_with_author, NORMALIZED FORM),
   "search_type": "title_only" | "author_only" | "combined"
 }`
 )
@@ -232,13 +265,14 @@ func (s *LLMService) validateCommand(command *Command) *Command {
 	case "find_book":
 		// Normalize title
 		command.Title = strings.TrimSpace(command.Title)
+		command.Title = strings.ToLower(command.Title)
 		if command.Title == "" {
 			// If no title provided for find_book, treat as unknown
 			return &Command{Command: "unknown"}
 		}
 		command.SearchType = "title_only"
 	case "find_author":
-		// Normalize author
+		// Just trim whitespace - LLM handles normalization
 		command.Author = strings.TrimSpace(command.Author)
 		if command.Author == "" {
 			// If no author provided for find_author, treat as unknown
@@ -246,8 +280,9 @@ func (s *LLMService) validateCommand(command *Command) *Command {
 		}
 		command.SearchType = "author_only"
 	case "find_book_with_author":
-		// Normalize title and author for combined search
+		// Normalize title and trim author - LLM handles author normalization
 		command.Title = strings.TrimSpace(command.Title)
+		command.Title = strings.ToLower(command.Title)
 		command.Author = strings.TrimSpace(command.Author)
 		if command.Title == "" && command.Author == "" {
 			// If both title and author are empty, treat as unknown
