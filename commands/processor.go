@@ -419,11 +419,13 @@ func (cp *CommandProcessor) executeFindBookWithAuthorWithPagination(title, autho
 			languageMsg = fmt.Sprintf(" in %s language", user.BooksLang)
 		}
 
-		if title != "" && author != "" {
+		// Since we've reached this point, title is always non-empty due to the logic above
+		// The only variable condition is whether author filtering was applied
+		if author != "" {
 			return &CommandResult{
 				Message: fmt.Sprintf("📚 Books with title \"%s\" by author \"%s\"%s were not found.\n\nTry using different keywords or check the spelling.", title, author, languageMsg),
 			}, nil
-		} else if title != "" {
+		} else {
 			return &CommandResult{
 				Message: fmt.Sprintf("📚 Books with title \"%s\"%s were not found.\n\nTry using different keywords.", title, languageMsg),
 			}, nil
