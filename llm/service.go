@@ -23,6 +23,8 @@ type Command struct {
 	Command string `json:"command"`
 	Title   string `json:"title,omitempty"`
 	Author  string `json:"author,omitempty"`
+	// New field for combined search
+	SearchType string `json:"search_type,omitempty"` // "title_only", "author_only", "combined"
 }
 
 // OpenAIRequest represents the request structure for OpenAI API
@@ -57,17 +59,25 @@ type APIError struct {
 
 const (
 	openAIAPIURL   = "https://api.openai.com/v1/chat/completions"
-	promptTemplate = `You are a library assistant bot. Parse the user query and conversation context to return a JSON object with the command and parameters. Supported commands: find_book (search books by title), find_author (search authors by name), unknown (for unrelated queries).
+	promptTemplate = `You are a library assistant bot. Parse the user query and conversation context to return a JSON object with the command and parameters. 
 
-If the query is about searching for books by title, return {"command": "find_book", "title": "book title"}.
-If the query is about searching for authors or books by author name, return {"command": "find_author", "author": "author name"}.
-If the query is unrelated to book/author search, return {"command": "unknown"}.
+Supported commands:
+- find_book: search books by title only
+- find_author: search authors by name only  
+- find_book_with_author: search books with both title and author specified
+- unknown: for unrelated queries
+
+Parse the query carefully to extract book title and author name when both are mentioned.
 
 Examples:
-- "найти книгу Война и мир" -> {"command": "find_book", "title": "Война и мир"}
-- "книги Толстого" -> {"command": "find_author", "author": "Толстой"}
-- "покажи авторов фантастики" -> {"command": "find_author", "author": "фантастика"}
+- "найди книгу Война и мир" -> {"command": "find_book", "title": "Война и мир", "search_type": "title_only"}
+- "книги Толстого" -> {"command": "find_author", "author": "Толстой", "search_type": "author_only"}
+- "найди незнайка на луне носова" -> {"command": "find_book_with_author", "title": "незнайка на луне", "author": "носова", "search_type": "combined"}
+- "незнайка носова" -> {"command": "find_book_with_author", "title": "незнайка", "author": "носова", "search_type": "combined"}
+- "покажи мне гарри поттер роулинг" -> {"command": "find_book_with_author", "title": "гарри поттер", "author": "роулинг", "search_type": "combined"}
 - "что такое погода" -> {"command": "unknown"}
+
+For combined searches, try to identify which part is the book title and which is the author name based on context and common patterns.
 
 Conversation context: {{context}}
 
@@ -75,9 +85,10 @@ User query: {{query}}
 
 Return format:
 {
-  "command": "find_book" | "find_author" | "unknown",
-  "title": string (optional for find_book),
-  "author": string (optional for find_author)
+  "command": "find_book" | "find_author" | "find_book_with_author" | "unknown",
+  "title": string (optional for find_book or find_book_with_author),
+  "author": string (optional for find_author or find_book_with_author),
+  "search_type": "title_only" | "author_only" | "combined"
 }`
 )
 
@@ -225,6 +236,7 @@ func (s *LLMService) validateCommand(command *Command) *Command {
 			// If no title provided for find_book, treat as unknown
 			return &Command{Command: "unknown"}
 		}
+		command.SearchType = "title_only"
 	case "find_author":
 		// Normalize author
 		command.Author = strings.TrimSpace(command.Author)
@@ -232,6 +244,16 @@ func (s *LLMService) validateCommand(command *Command) *Command {
 			// If no author provided for find_author, treat as unknown
 			return &Command{Command: "unknown"}
 		}
+		command.SearchType = "author_only"
+	case "find_book_with_author":
+		// Normalize title and author for combined search
+		command.Title = strings.TrimSpace(command.Title)
+		command.Author = strings.TrimSpace(command.Author)
+		if command.Title == "" && command.Author == "" {
+			// If both title and author are empty, treat as unknown
+			return &Command{Command: "unknown"}
+		}
+		command.SearchType = "combined"
 	case "unknown":
 		// Clear title and author for unknown commands
 		command.Title = ""

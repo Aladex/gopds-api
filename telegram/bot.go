@@ -842,6 +842,28 @@ func (b *Bot) handleAllCallbacks(c tele.Context, conversationManager *Conversati
 				newOffset,
 				convContext.SearchParams.Limit,
 			)
+		} else if convContext.SearchParams.QueryType == "combined" {
+			// Handle combined search pagination - extract title and author from query
+			query := convContext.SearchParams.Query
+			var title, author string
+
+			// Try to parse the combined query format "title by author"
+			if strings.Contains(query, " by ") {
+				parts := strings.SplitN(query, " by ", 2)
+				if len(parts) == 2 {
+					title = strings.Trim(parts[0], "\"")
+					author = parts[1]
+				}
+			} else {
+				// Fallback to book search if parsing fails
+				title = query
+			}
+
+			if title != "" && author != "" {
+				result, err = processor.ExecuteFindBookWithAuthorWithPagination(title, author, telegramID, newOffset, convContext.SearchParams.Limit)
+			} else {
+				result, err = processor.ExecuteFindBookWithPagination(title, telegramID, newOffset, convContext.SearchParams.Limit)
+			}
 		} else {
 			// Default to book search for backwards compatibility
 			result, err = processor.ExecuteFindBookWithPagination(convContext.SearchParams.Query, telegramID, newOffset, convContext.SearchParams.Limit)

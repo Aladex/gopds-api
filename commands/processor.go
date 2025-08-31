@@ -63,6 +63,8 @@ func (cp *CommandProcessor) executeCommand(command *llm.Command, userID int64) (
 		return cp.executeFindBook(command.Title, userID)
 	case "find_author":
 		return cp.executeFindAuthor(command.Author, userID)
+	case "find_book_with_author":
+		return cp.executeFindBookWithAuthor(command.Title, command.Author, userID)
 	case "unknown":
 		return cp.createUnknownResponse(), nil
 	default:
@@ -315,6 +317,285 @@ func (cp *CommandProcessor) ExecuteFindAuthorBooksWithPagination(authorID int64,
 			TotalCount: totalCount,
 		},
 	}, nil
+}
+
+// executeFindBookWithAuthor executes a combined book and author search command
+func (cp *CommandProcessor) executeFindBookWithAuthor(title, author string, userID int64) (*CommandResult, error) {
+	return cp.executeFindBookWithAuthorWithPagination(title, author, userID, 0, 5)
+}
+
+// ExecuteFindBookWithAuthorWithPagination executes a combined book and author search with pagination (exported for callback handlers)
+func (cp *CommandProcessor) ExecuteFindBookWithAuthorWithPagination(title, author string, userID int64, offset, limit int) (*CommandResult, error) {
+	return cp.executeFindBookWithAuthorWithPagination(title, author, userID, offset, limit)
+}
+
+// executeFindBookWithAuthorWithPagination executes a combined book and author search with pagination
+func (cp *CommandProcessor) executeFindBookWithAuthorWithPagination(title, author string, userID int64, offset, limit int) (*CommandResult, error) {
+	if title == "" && author == "" {
+		return &CommandResult{
+			Message: "Please specify both book title and author name to search for.",
+		}, nil
+	}
+
+	// Get user's language preference
+	user, err := database.GetUserByTelegramID(userID)
+	if err != nil {
+		logging.Warnf("Failed to get user language preference for user %d: %v", userID, err)
+	}
+
+	// Step 1: Search by title first to get candidate books
+	var candidateBooks []models.Book
+
+	if title != "" {
+		// Create filters for book search with higher limit to get more candidates
+		filters := models.BookFilters{
+			Title:  title,
+			Limit:  200, // Get more candidates for filtering
+			Offset: 0,   // Always start from beginning for filtering
+		}
+
+		// Apply user's language preference if available
+		if err == nil && user.BooksLang != "" {
+			filters.Lang = user.BooksLang
+			logging.Infof("Applying language filter '%s' for combined search, user %d", user.BooksLang, userID)
+		}
+
+		// Search for books using the existing database function
+		books, _, err := database.GetBooksEnhanced(userID, filters)
+		if err != nil {
+			logging.Errorf("Failed to search books for combined search: %v", err)
+			return &CommandResult{
+				Message: "An error occurred while searching for books. Please try again later.",
+			}, nil
+		}
+		candidateBooks = books
+	} else {
+		// If no title provided, search by author only
+		return cp.executeFindAuthor(author, userID)
+	}
+
+	// Step 2: Filter books by author if author name is provided
+	var filteredBooks []models.Book
+	if author != "" {
+		logging.Infof("Filtering %d candidate books by author '%s'", len(candidateBooks), author)
+
+		// Normalize author name for comparison (remove common words, convert to lowercase)
+		normalizedSearchAuthor := cp.normalizeAuthorName(author)
+
+		for _, book := range candidateBooks {
+			// Check if any of the book's authors match the search author
+			for _, bookAuthor := range book.Authors {
+				normalizedBookAuthor := cp.normalizeAuthorName(bookAuthor.FullName)
+
+				// Check for various types of matches
+				if cp.authorsMatch(normalizedSearchAuthor, normalizedBookAuthor) {
+					filteredBooks = append(filteredBooks, book)
+					logging.Infof("Book '%s' matches: search author '%s' ≈ book author '%s'",
+						book.Title, normalizedSearchAuthor, normalizedBookAuthor)
+					break // Only add the book once even if multiple authors match
+				}
+			}
+		}
+	} else {
+		filteredBooks = candidateBooks
+	}
+
+	totalCount := len(filteredBooks)
+
+	// Step 3: Apply pagination to filtered results
+	var paginatedBooks []models.Book
+	if offset < len(filteredBooks) {
+		end := offset + limit
+		if end > len(filteredBooks) {
+			end = len(filteredBooks)
+		}
+		paginatedBooks = filteredBooks[offset:end]
+	}
+
+	// Step 4: Handle empty results
+	if len(filteredBooks) == 0 && offset == 0 {
+		languageMsg := ""
+		if err == nil && user.BooksLang != "" {
+			languageMsg = fmt.Sprintf(" in %s language", user.BooksLang)
+		}
+
+		if title != "" && author != "" {
+			return &CommandResult{
+				Message: fmt.Sprintf("📚 Books with title \"%s\" by author \"%s\"%s were not found.\n\nTry using different keywords or check the spelling.", title, author, languageMsg),
+			}, nil
+		} else if title != "" {
+			return &CommandResult{
+				Message: fmt.Sprintf("📚 Books with title \"%s\"%s were not found.\n\nTry using different keywords.", title, languageMsg),
+			}, nil
+		}
+	}
+
+	if len(paginatedBooks) == 0 && offset > 0 {
+		return &CommandResult{
+			Message: "No results on this page.",
+		}, nil
+	}
+
+	// Step 5: Format the response
+	queryDescription := cp.formatCombinedQuery(title, author)
+	message := cp.formatCombinedSearchResultsWithPagination(queryDescription, paginatedBooks, totalCount, offset, limit)
+
+	// Create inline keyboard with number-based buttons and pagination
+	replyMarkup := cp.createBookButtonsWithPagination(paginatedBooks, offset, limit, totalCount)
+
+	return &CommandResult{
+		Message:     message,
+		Books:       paginatedBooks,
+		ReplyMarkup: replyMarkup,
+		SearchParams: &SearchParams{
+			Query:      fmt.Sprintf("%s by %s", title, author),
+			QueryType:  "combined",
+			Offset:     offset,
+			Limit:      limit,
+			TotalCount: totalCount,
+		},
+	}, nil
+}
+
+// normalizeAuthorName normalizes author name for comparison
+func (cp *CommandProcessor) normalizeAuthorName(name string) string {
+	// Convert to lowercase and trim spaces
+	normalized := strings.ToLower(strings.TrimSpace(name))
+
+	// Remove common words that might interfere with matching
+	commonWords := []string{"и", "и.", "and", "де", "ван", "фон", "von", "van", "de", "la", "le", "du"}
+
+	words := strings.Fields(normalized)
+	var filteredWords []string
+
+	for _, word := range words {
+		isCommon := false
+		for _, common := range commonWords {
+			if word == common {
+				isCommon = true
+				break
+			}
+		}
+		if !isCommon && len(word) > 1 {
+			filteredWords = append(filteredWords, word)
+		}
+	}
+
+	return strings.Join(filteredWords, " ")
+}
+
+// authorsMatch checks if two normalized author names match
+func (cp *CommandProcessor) authorsMatch(searchAuthor, bookAuthor string) bool {
+	// Exact match
+	if searchAuthor == bookAuthor {
+		return true
+	}
+
+	// Split into words for partial matching
+	searchWords := strings.Fields(searchAuthor)
+	bookWords := strings.Fields(bookAuthor)
+
+	if len(searchWords) == 0 || len(bookWords) == 0 {
+		return false
+	}
+
+	// Case 1: Search contains book author (e.g., search "толстой лев" contains book author "толстой")
+	if strings.Contains(searchAuthor, bookAuthor) {
+		return true
+	}
+
+	// Case 2: Book author contains search author (e.g., book author "лев толстой" contains search "толстой")
+	if strings.Contains(bookAuthor, searchAuthor) {
+		return true
+	}
+
+	// Case 3: Check if any search word matches any book word (for surname matching)
+	for _, searchWord := range searchWords {
+		if len(searchWord) < 3 { // Skip very short words
+			continue
+		}
+
+		for _, bookWord := range bookWords {
+			if len(bookWord) < 3 {
+				continue
+			}
+
+			// Exact word match
+			if searchWord == bookWord {
+				return true
+			}
+
+			// Partial match for longer words (to handle different forms)
+			if len(searchWord) >= 4 && len(bookWord) >= 4 {
+				// Check if one word starts with the other (for surname variations)
+				if strings.HasPrefix(searchWord, bookWord) || strings.HasPrefix(bookWord, searchWord) {
+					return true
+				}
+
+				// Check for common substring (at least 4 characters)
+				if len(searchWord) >= 5 && len(bookWord) >= 5 {
+					for i := 0; i <= len(searchWord)-4; i++ {
+						substr := searchWord[i : i+4]
+						if strings.Contains(bookWord, substr) {
+							return true
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+// formatCombinedQuery formats the combined query description
+func (cp *CommandProcessor) formatCombinedQuery(title, author string) string {
+	if title != "" && author != "" {
+		return fmt.Sprintf("\"%s\" by %s", title, author)
+	} else if title != "" {
+		return fmt.Sprintf("\"%s\"", title)
+	} else if author != "" {
+		return fmt.Sprintf("books by %s", author)
+	}
+	return "books"
+}
+
+// formatCombinedSearchResultsWithPagination formats combined search results with pagination
+func (cp *CommandProcessor) formatCombinedSearchResultsWithPagination(query string, books []models.Book, totalCount, offset, limit int) string {
+	var builder strings.Builder
+
+	currentPage := (offset / limit) + 1
+	totalPages := (totalCount + limit - 1) / limit
+
+	builder.WriteString(fmt.Sprintf("📚 Search results for %s:\n", query))
+	builder.WriteString(fmt.Sprintf("Page %d of %d (total found %d books)\n\n", currentPage, totalPages, totalCount))
+
+	for i, book := range books {
+		// Format authors
+		var authorNames []string
+		for _, author := range book.Authors {
+			authorNames = append(authorNames, author.FullName)
+		}
+		authorsStr := strings.Join(authorNames, ", ")
+		if authorsStr == "" {
+			authorsStr = "Unknown author"
+		}
+
+		// Add book entry with correct numbering
+		bookNumber := offset + i + 1
+		builder.WriteString(fmt.Sprintf("%d. %s — %s", bookNumber, book.Title, authorsStr))
+
+		// Add series information if available
+		if len(book.Series) > 0 && book.Series[0].Ser != "" {
+			builder.WriteString(fmt.Sprintf(" (series: %s)", book.Series[0].Ser))
+		}
+
+		builder.WriteString("\n")
+	}
+
+	builder.WriteString("\n💡 Select a book by number or use navigation:")
+
+	return builder.String()
 }
 
 // formatBookSearchResults formats the search results into a readable message
