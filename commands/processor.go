@@ -85,15 +85,27 @@ func (cp *CommandProcessor) ExecuteFindBookWithPagination(title string, userID i
 func (cp *CommandProcessor) executeFindBookWithPagination(title string, userID int64, offset, limit int) (*CommandResult, error) {
 	if title == "" {
 		return &CommandResult{
-			Message: "Пожалуйста, укажите название книги для поиска.",
+			Message: "Please specify a book title to search for.",
 		}, nil
 	}
 
-	// Create filters for book search with pagination
+	// Get user's language preference
+	user, err := database.GetUserByTelegramID(userID)
+	if err != nil {
+		logging.Warnf("Failed to get user language preference for user %d: %v", userID, err)
+	}
+
+	// Create filters for book search with pagination and user's language preference
 	filters := models.BookFilters{
 		Title:  title,
 		Limit:  limit,
 		Offset: offset,
+	}
+
+	// Apply user's language preference if available
+	if err == nil && user.BooksLang != "" {
+		filters.Lang = user.BooksLang
+		logging.Infof("Applying language filter '%s' for user %d", user.BooksLang, userID)
 	}
 
 	// Search for books using the existing database function
@@ -101,19 +113,23 @@ func (cp *CommandProcessor) executeFindBookWithPagination(title string, userID i
 	if err != nil {
 		logging.Errorf("Failed to search books: %v", err)
 		return &CommandResult{
-			Message: "Произошла ошибка при поиске книг. Попробуйте позже.",
+			Message: "An error occurred while searching for books. Please try again later.",
 		}, nil
 	}
 
 	if len(books) == 0 && offset == 0 {
+		languageMsg := ""
+		if user.BooksLang != "" {
+			languageMsg = fmt.Sprintf(" in %s language", user.BooksLang)
+		}
 		return &CommandResult{
-			Message: fmt.Sprintf("📚 Книги с названием \"%s\" не найдены.\n\nПопробуйте изменить запрос или использовать другие ключевые слова.", title),
+			Message: fmt.Sprintf("📚 Books with title \"%s\"%s were not found.\n\nTry changing your search query or using other keywords.", title, languageMsg),
 		}, nil
 	}
 
 	if len(books) == 0 && offset > 0 {
 		return &CommandResult{
-			Message: "На этой странице нет результатов.",
+			Message: "No results on this page.",
 		}, nil
 	}
 
@@ -152,7 +168,7 @@ func (cp *CommandProcessor) ExecuteFindAuthorWithPagination(author string, userI
 func (cp *CommandProcessor) executeFindAuthorWithPagination(author string, offset, limit int) (*CommandResult, error) {
 	if author == "" {
 		return &CommandResult{
-			Message: "Пожалуйста, укажите имя автора для поиска.",
+			Message: "Please specify an author name to search for.",
 		}, nil
 	}
 
@@ -168,19 +184,19 @@ func (cp *CommandProcessor) executeFindAuthorWithPagination(author string, offse
 	if err != nil {
 		logging.Errorf("Failed to search authors: %v", err)
 		return &CommandResult{
-			Message: "Произошла ошибка при поиске авторов. Попробуйте позже.",
+			Message: "An error occurred while searching for authors. Please try again later.",
 		}, nil
 	}
 
 	if len(authors) == 0 && offset == 0 {
 		return &CommandResult{
-			Message: fmt.Sprintf("👤 Авторы с именем \"%s\" не найдены.\n\nПопробуйте изменить запрос или использовать другие ключевые слова.", author),
+			Message: fmt.Sprintf("👤 Authors with name \"%s\" were not found.\n\nTry changing your search query or using other keywords.", author),
 		}, nil
 	}
 
 	if len(authors) == 0 && offset > 0 {
 		return &CommandResult{
-			Message: "На этой странице нет результатов.",
+			Message: "No results on this page.",
 		}, nil
 	}
 
@@ -206,11 +222,23 @@ func (cp *CommandProcessor) executeFindAuthorWithPagination(author string, offse
 
 // ExecuteFindAuthorBooksWithPagination executes a search for books by specific author ID with pagination
 func (cp *CommandProcessor) ExecuteFindAuthorBooksWithPagination(authorID int64, authorName string, userID int64, offset, limit int) (*CommandResult, error) {
-	// Create filters for author books search with pagination
+	// Get user's language preference
+	user, err := database.GetUserByTelegramID(userID)
+	if err != nil {
+		logging.Warnf("Failed to get user language preference for user %d: %v", userID, err)
+	}
+
+	// Create filters for author books search with pagination and user's language preference
 	filters := models.BookFilters{
 		Author: int(authorID),
 		Limit:  limit,
 		Offset: offset,
+	}
+
+	// Apply user's language preference if available
+	if err == nil && user.BooksLang != "" {
+		filters.Lang = user.BooksLang
+		logging.Infof("Applying language filter '%s' for author books search, user %d", user.BooksLang, userID)
 	}
 
 	// Search for books using the existing database function
@@ -218,19 +246,23 @@ func (cp *CommandProcessor) ExecuteFindAuthorBooksWithPagination(authorID int64,
 	if err != nil {
 		logging.Errorf("Failed to search books by author ID %d: %v", authorID, err)
 		return &CommandResult{
-			Message: "Произошла ошибка при поиске книг автора. Попробуйте позже.",
+			Message: "An error occurred while searching for books by this author. Please try again later.",
 		}, nil
 	}
 
 	if len(books) == 0 && offset == 0 {
+		languageMsg := ""
+		if user.BooksLang != "" {
+			languageMsg = fmt.Sprintf(" in %s language", user.BooksLang)
+		}
 		return &CommandResult{
-			Message: fmt.Sprintf("📚 Книги автора %s не найдены в библиотеке.", authorName),
+			Message: fmt.Sprintf("📚 Books by %s%s were not found in the library.", authorName, languageMsg),
 		}, nil
 	}
 
 	if len(books) == 0 && offset > 0 {
 		return &CommandResult{
-			Message: "На этой странице нет результатов.",
+			Message: "No results on this page.",
 		}, nil
 	}
 
@@ -239,8 +271,8 @@ func (cp *CommandProcessor) ExecuteFindAuthorBooksWithPagination(authorID int64,
 	totalPages := (totalCount + limit - 1) / limit
 
 	var messageBuilder strings.Builder
-	messageBuilder.WriteString(fmt.Sprintf("📚 Книги автора %s:\n", authorName))
-	messageBuilder.WriteString(fmt.Sprintf("Страница %d из %d (всего найдено %d книг)\n\n", currentPage, totalPages, totalCount))
+	messageBuilder.WriteString(fmt.Sprintf("📚 Books by %s:\n", authorName))
+	messageBuilder.WriteString(fmt.Sprintf("Page %d of %d (total found %d books)\n\n", currentPage, totalPages, totalCount))
 
 	for i, book := range books {
 		// Format authors
@@ -250,7 +282,7 @@ func (cp *CommandProcessor) ExecuteFindAuthorBooksWithPagination(authorID int64,
 		}
 		authorsStr := strings.Join(authorNames, ", ")
 		if authorsStr == "" {
-			authorsStr = "Автор неизвестен"
+			authorsStr = "Unknown author"
 		}
 
 		// Add book entry with correct numbering
@@ -259,13 +291,13 @@ func (cp *CommandProcessor) ExecuteFindAuthorBooksWithPagination(authorID int64,
 
 		// Add series information if available
 		if len(book.Series) > 0 && book.Series[0].Ser != "" {
-			messageBuilder.WriteString(fmt.Sprintf(" (серия: %s)", book.Series[0].Ser))
+			messageBuilder.WriteString(fmt.Sprintf(" (series: %s)", book.Series[0].Ser))
 		}
 
 		messageBuilder.WriteString("\n")
 	}
 
-	messageBuilder.WriteString("\n💡 Выберите книгу по номеру или используйте навигацию:")
+	messageBuilder.WriteString("\n💡 Select a book by number or use navigation:")
 
 	// Create inline keyboard with book selection buttons and pagination
 	replyMarkup := cp.createBookButtonsWithPagination(books, offset, limit, totalCount)
