@@ -92,7 +92,7 @@ func ChangeRequest(c *gin.Context) {
 		}
 
 		go func() {
-			err := email.SendActivationEmail(registrationMessage)
+			err := email.SendPasswordResetEmail(registrationMessage)
 			if err != nil {
 				logging.Error(err)
 			}
