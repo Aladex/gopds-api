@@ -44,8 +44,9 @@ func MailConnection() (*smtp.Client, error) {
 	return c, nil
 }
 
-func SendActivationEmail(data SendType) error {
-	from := mail.Address{Name: "Робот", Address: viper.GetString("email.from")}
+// sendEmail is a helper function to send emails with a specific template
+func sendEmail(data SendType, templateName string) error {
+	from := mail.Address{Name: "BOOKSDUMP", Address: viper.GetString("email.from")}
 	to := mail.Address{Address: data.Email}
 	headers := map[string]string{
 		"From":         from.String(),
@@ -79,18 +80,21 @@ func SendActivationEmail(data SendType) error {
 		return err
 	}
 
-	asset, err := assets.Assets.ReadFile("email/templates/reset_password.gohtml")
+	templatePath := fmt.Sprintf("email/templates/%s", templateName)
+	asset, err := assets.Assets.ReadFile(templatePath)
 	if err != nil {
-		logging.Error(err)
+		logging.Errorf("Failed to read email template %s: %v", templateName, err)
 		return err
 	}
-	tpl, err := template.New("reset_password.gohtml").Parse(string(asset))
+
+	tpl, err := template.New(templateName).Parse(string(asset))
 	if err != nil {
-		logging.Error(err)
+		logging.Errorf("Failed to parse email template %s: %v", templateName, err)
 		return err
 	}
-	if err := tpl.ExecuteTemplate(&b, "reset_password.gohtml", data); err != nil {
-		logging.Error(err)
+
+	if err := tpl.ExecuteTemplate(&b, templateName, data); err != nil {
+		logging.Errorf("Failed to execute email template %s: %v", templateName, err)
 		return err
 	}
 
@@ -99,5 +103,16 @@ func SendActivationEmail(data SendType) error {
 		return err
 	}
 
+	logging.Infof("Email sent successfully to %s using template %s", data.Email, templateName)
 	return nil
+}
+
+// SendActivationEmail sends registration confirmation email
+func SendActivationEmail(data SendType) error {
+	return sendEmail(data, "registration.gohtml")
+}
+
+// SendPasswordResetEmail sends password reset email
+func SendPasswordResetEmail(data SendType) error {
+	return sendEmail(data, "password_reset.gohtml")
 }
