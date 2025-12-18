@@ -26,8 +26,8 @@ import (
 // @contact.email aladex@gmail.com
 // @BasePath /api
 
-// Global variable for the Telegram bot manager
-var telegramBotManager *telegram.BotManager
+// Global variable for the Telegram service
+var telegramService *telegram.TelegramService
 
 func main() {
 	db := initializeDatabase()
@@ -41,10 +41,16 @@ func main() {
 	telegramConfig := &telegram.Config{
 		BaseURL: cfg.GetServerBaseURL(), // Need to add this function to config
 	}
-	telegramBotManager = telegram.NewBotManager(telegramConfig, mainRedisClient)
+	telegramBotManager := telegram.NewBotManager(telegramConfig, mainRedisClient)
 
-	// Initialize Telegram components
-	telegram.InitializeTelegram(telegramBotManager)
+	// Initialize Telegram service
+	var err error
+	telegramService, err = telegram.NewTelegramService(telegramBotManager)
+	if err != nil {
+		logging.Errorf("Failed to initialize Telegram service: %v", err)
+		// Continue without Telegram functionality
+		telegramService = nil
+	}
 
 	// Link BotManager with the database package for admin panel integration
 	database.SetTelegramBotManager(telegramBotManager)

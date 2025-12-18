@@ -1,47 +1,57 @@
 package telegram
 
 import (
+	"fmt"
+
 	"github.com/gin-gonic/gin"
 )
 
-var (
-	// Global instance of bot manager
-	globalBotManager *BotManager
-	// Global instance of routes
-	globalRoutes *Routes
-)
+// TelegramService contains all Telegram-related components
+type TelegramService struct {
+	botManager *BotManager
+	routes     *Routes
+}
 
-// InitializeTelegram initializes Telegram components
-func InitializeTelegram(botManager *BotManager) {
-	globalBotManager = botManager
-	globalRoutes = NewRoutes(botManager)
+// NewTelegramService creates and initializes a new Telegram service
+func NewTelegramService(botManager *BotManager) (*TelegramService, error) {
+	if botManager == nil {
+		return nil, fmt.Errorf("botManager cannot be nil")
+	}
+
+	routes := NewRoutes(botManager)
 
 	// Initialize existing bots for users
-	err := botManager.InitializeExistingBots()
-	if err != nil {
-		panic("Failed to initialize existing bots: " + err.Error())
+	if err := botManager.InitializeExistingBots(); err != nil {
+		return nil, fmt.Errorf("failed to initialize existing bots: %w", err)
 	}
+
+	return &TelegramService{
+		botManager: botManager,
+		routes:     routes,
+	}, nil
 }
 
 // SetupWebhookRoutes sets up webhook routes for Telegram bots
-func SetupWebhookRoutes(group *gin.RouterGroup) {
-	if globalRoutes == nil {
-		panic("Telegram not initialized. Call InitializeTelegram first.")
-	}
-
+func (s *TelegramService) SetupWebhookRoutes(group *gin.RouterGroup) {
 	// Dynamic route for bot webhooks
 	// Format: /telegram/{token}
-	group.POST("/:token", globalRoutes.HandleWebhook)
+	group.POST("/:token", s.routes.HandleWebhook)
 }
 
 // SetupApiRoutes sets up API routes for managing Telegram bots
-func SetupApiRoutes(group *gin.RouterGroup) {
-	if globalRoutes == nil {
-		panic("Telegram not initialized. Call InitializeTelegram first.")
-	}
-
+func (s *TelegramService) SetupApiRoutes(group *gin.RouterGroup) {
 	// Routes for managing user's bot
-	group.POST("/bot", globalRoutes.SetBotToken)
-	group.DELETE("/bot", globalRoutes.RemoveBotToken)
-	group.GET("/bot/status", globalRoutes.GetBotStatus)
+	group.POST("/bot", s.routes.SetBotToken)
+	group.DELETE("/bot", s.routes.RemoveBotToken)
+	group.GET("/bot/status", s.routes.GetBotStatus)
+}
+
+// GetBotManager returns the bot manager instance
+func (s *TelegramService) GetBotManager() *BotManager {
+	return s.botManager
+}
+
+// GetRoutes returns the routes instance
+func (s *TelegramService) GetRoutes() *Routes {
+	return s.routes
 }

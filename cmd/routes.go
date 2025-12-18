@@ -5,7 +5,6 @@ import (
 	"gopds-api/api"
 	"gopds-api/middlewares"
 	"gopds-api/opds"
-	"gopds-api/telegram"
 	"net/http"
 	"strings"
 	"time"
@@ -130,10 +129,14 @@ func setupPublicAuthRoutes(group *gin.RouterGroup) {
 
 // setupTelegramWebhookRoutes configures routes for Telegram webhook interactions.
 func setupTelegramWebhookRoutes(group *gin.RouterGroup) {
-	telegram.SetupWebhookRoutes(group)
+	if telegramService != nil {
+		telegramService.SetupWebhookRoutes(group)
+	}
 }
 
 // setupTelegramApiRoutes configures Telegram API routes that require authentication.
 func setupTelegramApiRoutes(group *gin.RouterGroup) {
-	telegram.SetupApiRoutes(group)
+	if telegramService != nil {
+		telegramService.SetupApiRoutes(group)
+	}
 }

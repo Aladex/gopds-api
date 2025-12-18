@@ -1,6 +1,8 @@
 package telegram
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"gopds-api/commands"
@@ -29,7 +31,7 @@ type ConversationManager struct {
 // ConversationContext represents the conversation context with a user
 type ConversationContext struct {
 	UserID    int64     `json:"user_id"`
-	BotToken  string    `json:"bot_token"`
+	TokenHash string    `json:"token_hash"` // Hash of bot token for identification (not the actual token)
 	Messages  []Message `json:"messages"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -62,7 +64,7 @@ func (cm *ConversationManager) GetContext(botToken string, userID int64) (*Conve
 		// Context not found, create a new one
 		return &ConversationContext{
 			UserID:    userID,
-			BotToken:  botToken,
+			TokenHash: hashToken(botToken),
 			Messages:  make([]Message, 0),
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
@@ -142,7 +144,8 @@ func (cm *ConversationManager) calculateContextLength(context *ConversationConte
 
 // saveContext saves the context to Redis
 func (cm *ConversationManager) saveContext(context *ConversationContext) error {
-	key := cm.getRedisKey(context.BotToken, context.UserID)
+	// Build key using the hash stored in context
+	key := fmt.Sprintf("%s%s:%d", ConversationKeyPrefix, context.TokenHash, context.UserID)
 
 	data, err := json.Marshal(context)
 	if err != nil {
@@ -269,6 +272,14 @@ func (cm *ConversationManager) UpdateSelectedBookID(botToken string, userID int6
 }
 
 // getRedisKey generates a Redis key for the conversation context
+// Uses SHA256 hash of bot token to avoid storing sensitive data in key names
 func (cm *ConversationManager) getRedisKey(botToken string, userID int64) string {
-	return fmt.Sprintf("%s%s:%d", ConversationKeyPrefix, botToken, userID)
+	tokenHash := hashToken(botToken)
+	return fmt.Sprintf("%s%s:%d", ConversationKeyPrefix, tokenHash, userID)
+}
+
+// hashToken creates a SHA256 hash of the token for secure storage in Redis keys
+func hashToken(token string) string {
+	hash := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(hash[:])[:16] // Use first 16 chars for brevity
 }

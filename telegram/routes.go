@@ -11,41 +11,41 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Routes содержит все роуты для работы с Telegram ботами
+// Routes contains all routes for working with Telegram bots
 type Routes struct {
 	botManager *BotManager
 }
 
-// NewRoutes создает новый экземпляр роутов
+// NewRoutes creates a new instance of routes
 func NewRoutes(botManager *BotManager) *Routes {
 	return &Routes{
 		botManager: botManager,
 	}
 }
 
-// SetBotTokenRequest структура запроса для установки токена бота
+// SetBotTokenRequest structure of the request for setting the bot token
 type SetBotTokenRequest struct {
 	Token string `json:"token" binding:"required"`
 }
 
-// SetBotTokenResponse структура ответа при установке токена бота
+// SetBotTokenResponse structure of the response when setting the bot token
 type SetBotTokenResponse struct {
 	Message    string `json:"message"`
 	WebhookURL string `json:"webhook_url"`
 }
 
-// ErrorResponse структура ошибки
+// ErrorResponse error structure
 type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
-// SetBotToken устанавливает токен бота для текущего пользователя
-// @Summary Установить токен Telegram бота
-// @Description Устанавливает токен Telegram бота для текущего пользователя
+// SetBotToken sets the bot token for the current user
+// @Summary Set Telegram bot token
+// @Description Sets the Telegram bot token for the current user
 // @Tags telegram
 // @Accept json
 // @Produce json
-// @Param request body SetBotTokenRequest true "Токен бота"
+// @Param request body SetBotTokenRequest true "Bot token"
 // @Success 200 {object} SetBotTokenResponse
 // @Failure 400 {object} ErrorResponse
 // @Failure 401 {object} ErrorResponse
@@ -53,7 +53,7 @@ type ErrorResponse struct {
 // @Failure 500 {object} ErrorResponse
 // @Router /api/telegram/bot [post]
 func (r *Routes) SetBotToken(c *gin.Context) {
-	// Получаем ID пользователя из контекста (должен быть установлен middleware авторизации)
+	// Get user ID from context (must be set by authorization middleware)
 	userIDInterface, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not authenticated"})
@@ -72,13 +72,13 @@ func (r *Routes) SetBotToken(c *gin.Context) {
 		return
 	}
 
-	// Валидация токена
+	// Token validation
 	if !isValidToken(req.Token) {
 		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "Invalid bot token format"})
 		return
 	}
 
-	// Проверяем, не используется ли уже этот токен другим пользователем
+	// Check if this token is already used by another user
 	existingUser, err := database.GetUserByBotToken(req.Token)
 	if err == nil && existingUser.ID != userID {
 		c.JSON(http.StatusConflict, ErrorResponse{Error: "This bot token is already used by another user"})
@@ -104,21 +104,21 @@ func (r *Routes) SetBotToken(c *gin.Context) {
 		}
 	}
 
-	// Обновляем токен в базе данных
+	// Update token in database
 	err = database.UpdateBotToken(userID, req.Token)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to update bot token: " + err.Error()})
 		return
 	}
 
-	// Создаем бота
+	// Create bot
 	err = r.botManager.CreateBotForUser(req.Token, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to create bot: " + err.Error()})
 		return
 	}
 
-	// Устанавливаем webhook
+	// Set webhook
 	err = r.botManager.SetWebhook(req.Token)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Bot created but failed to set webhook: " + err.Error()})
@@ -132,9 +132,9 @@ func (r *Routes) SetBotToken(c *gin.Context) {
 	})
 }
 
-// RemoveBotToken удаляет токен бота для текущего пользователя
-// @Summary Удалить токен Telegram бота
-// @Description Удаляет токен Telegram бота для текущего пользователя
+// RemoveBotToken removes the bot token for the current user
+// @Summary Remove Telegram bot token
+// @Description Removes the Telegram bot token for the current user
 // @Tags telegram
 // @Accept json
 // @Produce json
@@ -144,7 +144,7 @@ func (r *Routes) SetBotToken(c *gin.Context) {
 // @Failure 500 {object} ErrorResponse
 // @Router /api/telegram/bot [delete]
 func (r *Routes) RemoveBotToken(c *gin.Context) {
-	// Получаем ID пользователя из контекста
+	// Get user ID from context
 	userIDInterface, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not authenticated"})
@@ -157,7 +157,7 @@ func (r *Routes) RemoveBotToken(c *gin.Context) {
 		return
 	}
 
-	// Получаем пользователя для получения токена
+	// Get user to get the token
 	user, err := database.GetUser(strconv.FormatInt(userID, 10))
 	if err != nil {
 		c.JSON(http.StatusNotFound, ErrorResponse{Error: "User not found"})
@@ -171,7 +171,7 @@ func (r *Routes) RemoveBotToken(c *gin.Context) {
 
 	logging.Infof("User %d removing bot token %s", userID, maskToken(user.BotToken))
 
-	// Удаляем бота (это автоматически удалит webhook)
+	// Remove bot (this will also remove its webhook)
 	err = r.botManager.RemoveBot(user.BotToken)
 	if err != nil {
 		logging.Errorf("Failed to remove bot for user %d: %v", userID, err)
@@ -179,7 +179,7 @@ func (r *Routes) RemoveBotToken(c *gin.Context) {
 		return
 	}
 
-	// Удаляем токен из базы данных
+	// Remove token from database
 	err = database.UpdateBotToken(userID, "")
 	if err != nil {
 		logging.Errorf("Failed to clear bot token for user %d: %v", userID, err)
@@ -191,9 +191,9 @@ func (r *Routes) RemoveBotToken(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Bot token removed successfully"})
 }
 
-// GetBotStatus получает статус бота для текущего пользователя
-// @Summary Получить статус Telegram бота
-// @Description Получает информацию о статусе Telegram бота для текущего пользователя
+// GetBotStatus gets the status of the bot for the current user
+// @Summary Get Telegram bot status
+// @Description Gets information about the status of the Telegram bot for the current user
 // @Tags telegram
 // @Accept json
 // @Produce json
@@ -202,7 +202,7 @@ func (r *Routes) RemoveBotToken(c *gin.Context) {
 // @Failure 404 {object} ErrorResponse
 // @Router /api/telegram/bot/status [get]
 func (r *Routes) GetBotStatus(c *gin.Context) {
-	// Получаем ID пользователя из контекста
+	// Get user ID from context
 	userIDInterface, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not authenticated"})
@@ -215,7 +215,7 @@ func (r *Routes) GetBotStatus(c *gin.Context) {
 		return
 	}
 
-	// Получаем пользователя
+	// Get user
 	user, err := database.GetUser(strconv.FormatInt(userID, 10))
 	if err != nil {
 		c.JSON(http.StatusNotFound, ErrorResponse{Error: "User not found"})
@@ -234,21 +234,21 @@ func (r *Routes) GetBotStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// HandleWebhook обрабатывает webhook от Telegram
+// HandleWebhook handles webhook from Telegram
 func (r *Routes) HandleWebhook(c *gin.Context) {
 	r.botManager.HandleWebhook(c)
 }
 
-// isValidToken проверяет формат токена Telegram бота
+// isValidToken checks the format of the Telegram bot token
 func isValidToken(token string) bool {
-	// Токен Telegram бота имеет формат: число:строка_из_букв_цифр_дефисов_подчеркиваний
-	// Например: 5106077210:AAEtczjlz4LAnpb5ANSvFe26lm-bxmdQeeo
+	// Telegram bot token format: number:string_of_letters_digits_dashes_underscores
+	// For example: 5106077210:AAEtczjlz4LAnpb5ANSvFe26lm-bxmdQeeo
 	parts := strings.Split(token, ":")
 	if len(parts) != 2 {
 		return false
 	}
 
-	// Первая часть должна быть числом
+	// First part must be a number
 	botID := parts[0]
 	if len(botID) < 1 {
 		return false
@@ -259,7 +259,7 @@ func isValidToken(token string) bool {
 		}
 	}
 
-	// Вторая часть должна содержать минимум 20 символов
+	// Second part must contain at least 20 characters
 	authToken := parts[1]
 	if len(authToken) < 20 {
 		return false
