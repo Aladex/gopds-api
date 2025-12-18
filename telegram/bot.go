@@ -7,6 +7,8 @@ import (
 	"gopds-api/commands"
 	"gopds-api/logging"
 	"gopds-api/models"
+	"gopds-api/utils"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -17,6 +19,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis"
+	"github.com/spf13/viper"
 	tele "gopkg.in/telebot.v3"
 )
 
@@ -322,7 +325,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 			return nil // Ignore messages from unauthorized users
 		}
 
-		user, err := database.GetUserByTelegramID(telegramID)
+		_, err := database.GetUserByTelegramID(telegramID)
 		if err != nil {
 			response := "Please send /start first to link your account."
 			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
@@ -349,13 +352,35 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 			logging.Infof("Search with context for user %d: %s", telegramID, contextStr)
 		}
 
-		// Book search logic will be here
-		// Placeholder for now
-		response := fmt.Sprintf("🔍 Searching books for: %s\nUser: %s", query, user.Login)
-		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+		processor := commands.NewCommandProcessor()
+		result, err := processor.ProcessMessage(query, contextStr, telegramID)
+		if err != nil {
+			logging.Errorf("Failed to process /search with LLM: %v", err)
+			response := "An error occurred while processing the search. Please try again later."
+			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+				logging.Errorf("Failed to process outgoing message: %v", err)
+			}
+			return c.Send(response)
+		}
+
+		var sendOptions []interface{}
+		if result.ReplyMarkup != nil {
+			sendOptions = append(sendOptions, result.ReplyMarkup)
+		}
+
+		// Add bot message to context
+		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, result.Message); err != nil {
 			logging.Errorf("Failed to process outgoing message: %v", err)
 		}
-		return c.Send(response)
+
+		// Update search params in context if available
+		if result.SearchParams != nil {
+			if err := conversationManager.UpdateSearchParams(b.token, telegramID, result.SearchParams); err != nil {
+				logging.Errorf("Failed to update search params in context: %v", err)
+			}
+		}
+
+		return c.Send(result.Message, sendOptions...)
 	})
 
 	// Handler for all other messages
@@ -1020,16 +1045,159 @@ func (b *Bot) handleAllCallbacks(c tele.Context, conversationManager *Conversati
 		}
 
 		// Get book information for confirmation
-		responseText := fmt.Sprintf("📖 Book selected (ID: %d)\n\nDownload functionality will be available here in the future.", bookID)
+		book, err := database.GetBook(bookID)
+		if err != nil {
+			logging.Errorf("Failed to get book %d: %v", bookID, err)
+			return c.Respond(&tele.CallbackResponse{Text: "Book not found"})
+		}
 
-		return c.Respond(&tele.CallbackResponse{
-			Text:      responseText,
-			ShowAlert: true,
-		})
+		// Build format selection keyboard
+		markup := &tele.ReplyMarkup{}
+		btnFB2 := markup.Data("📄 FB2", fmt.Sprintf("download:fb2:%d", bookID))
+		btnEPUB := markup.Data("📚 EPUB", fmt.Sprintf("download:epub:%d", bookID))
+		btnMOBI := markup.Data("📱 MOBI", fmt.Sprintf("download:mobi:%d", bookID))
+		btnZIP := markup.Data("🗂 ZIP", fmt.Sprintf("download:zip:%d", bookID))
+		markup.Inline(
+			markup.Row(btnFB2, btnEPUB),
+			markup.Row(btnMOBI, btnZIP),
+		)
+
+		// Acknowledge selection
+		if err := c.Respond(&tele.CallbackResponse{Text: "Book selected"}); err != nil {
+			logging.Errorf("Failed to respond to selection callback: %v", err)
+		}
+
+		// Send message with format options
+		messageText := fmt.Sprintf("📖 %s\nВыберите формат для скачивания:", book.Title)
+		_, sendErr := c.Bot().Send(c.Chat(), messageText, markup)
+		if sendErr != nil {
+			logging.Errorf("Failed to send download options for user %d: %v", telegramID, sendErr)
+			return nil
+		}
+
+		// Track outgoing message in context
+		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, messageText); err != nil {
+			logging.Errorf("Failed to process outgoing message: %v", err)
+		}
+
+		return nil
+	}
+
+	// Handle download callbacks (download:format:ID)
+	if strings.HasPrefix(callbackData, "download:") {
+		logging.Infof("Processing download callback: %s for user %d", callbackData, telegramID)
+
+		parts := strings.Split(callbackData, ":")
+		if len(parts) != 3 {
+			logging.Warnf("Invalid download callback format: %s", callbackData)
+			return c.Respond(&tele.CallbackResponse{Text: "Invalid download request"})
+		}
+
+		format := parts[1]
+		bookID, err := strconv.ParseInt(parts[2], 10, 64)
+		if err != nil {
+			logging.Errorf("Invalid book ID in download callback: %s", parts[2])
+			return c.Respond(&tele.CallbackResponse{Text: "Invalid book ID"})
+		}
+
+		book, err := database.GetBook(bookID)
+		if err != nil {
+			logging.Errorf("Failed to get book %d: %v", bookID, err)
+			return c.Respond(&tele.CallbackResponse{Text: "Book not found"})
+		}
+
+		// Acknowledge the callback early
+		if err := c.Respond(&tele.CallbackResponse{Text: "Готовим файл..."}); err != nil {
+			logging.Errorf("Failed to respond to download callback: %v", err)
+		}
+
+		// Send the file to the user
+		if err := b.sendBookFile(c, book, format, conversationManager); err != nil {
+			logging.Errorf("Failed to send book %d in format %s: %v", bookID, format, err)
+			_, sendErr := c.Bot().Send(c.Chat(), "Не удалось отправить книгу. Попробуйте другой формат или позже.")
+			if sendErr != nil {
+				logging.Errorf("Failed to send error message: %v", sendErr)
+			}
+		}
+
+		return nil
 	}
 
 	// If not a known callback type, log and ignore
 	logging.Warnf("Unknown callback type received: %s from user %d", callbackData, telegramID)
+	return nil
+}
+
+// sendBookFile sends the requested book file to the user in the chosen format
+func (b *Bot) sendBookFile(c tele.Context, book models.Book, format string, conversationManager *ConversationManager) error {
+	if !book.Approved {
+		return fmt.Errorf("book not approved for download")
+	}
+
+	format = strings.ToLower(format)
+
+	basePath := viper.GetString("app.files_path")
+	if basePath == "" {
+		return fmt.Errorf("files path not configured")
+	}
+
+	zipPath := basePath + book.Path
+	if !utils.FileExists(zipPath) {
+		return fmt.Errorf("book file not found at %s", zipPath)
+	}
+
+	bp := utils.NewBookProcessor(book.FileName, zipPath)
+
+	var (
+		rc       io.ReadCloser
+		err      error
+		fileName string
+	)
+
+	switch format {
+	case "fb2":
+		rc, err = bp.FB2()
+		fileName = fmt.Sprintf("%s.fb2", book.DownloadName())
+	case "epub":
+		rc, err = bp.Epub()
+		fileName = fmt.Sprintf("%s.epub", book.DownloadName())
+	case "mobi":
+		rc, err = bp.Mobi()
+		fileName = fmt.Sprintf("%s.mobi", book.DownloadName())
+	case "zip":
+		rc, err = bp.Zip(book.FileName)
+		fileName = fmt.Sprintf("%s.zip", book.DownloadName())
+	default:
+		return fmt.Errorf("unsupported format: %s", format)
+	}
+
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cerr := rc.Close(); cerr != nil {
+			logging.Errorf("Failed to close book reader: %v", cerr)
+		}
+	}()
+
+	doc := &tele.Document{
+		File:     tele.FromReader(rc),
+		FileName: fileName,
+		Caption:  fmt.Sprintf("📖 %s", book.Title),
+	}
+
+	_, err = c.Bot().Send(c.Chat(), doc)
+	if err != nil {
+		return err
+	}
+
+	if conversationManager != nil {
+		msg := fmt.Sprintf("Отправлена книга \"%s\" в формате %s", book.Title, strings.ToUpper(format))
+		if err := conversationManager.ProcessOutgoingMessage(b.token, c.Sender().ID, msg); err != nil {
+			logging.Errorf("Failed to process outgoing message: %v", err)
+		}
+	}
+
 	return nil
 }
 
