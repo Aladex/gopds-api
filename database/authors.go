@@ -6,9 +6,22 @@ import (
 
 // GetAuthors returns an array of authors and total count of authors
 func GetAuthors(filters models.AuthorFilters) ([]models.Author, int, error) {
-	authors := []models.Author{}
-	count, err := db.Model(&authors).
-		Where("full_name % ?", filters.Author).
+	var authors []models.Author
+
+	query := db.Model(&authors).
+		Where("full_name % ?", filters.Author)
+
+	// Filter by language if specified
+	if filters.Lang != "" {
+		query = query.
+			Join("JOIN opds_catalog_bauthor AS ba ON ba.author_id = author.id").
+			Join("JOIN opds_catalog_book AS b ON b.id = ba.book_id").
+			Where("b.lang = ?", filters.Lang).
+			Where("b.approved = true").
+			Group("author.id")
+	}
+
+	count, err := query.
 		Limit(filters.Limit).
 		Offset(filters.Offset).
 		OrderExpr("full_name <-> ? ASC", filters.Author).
