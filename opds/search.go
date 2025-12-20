@@ -19,17 +19,13 @@ import (
 )
 
 const notFound = `<?xml version="1.0" encoding="utf-8"?>
- <feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/terms/" xmlns:os="http://a9.com/-/spec/opensearch/1.1/" xmlns:opds="http://opds-spec.org/2010/catalog"> 
- <id>tag:search:books:notfound:</id>
+ <feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/terms/" xmlns:os="http://a9.com/-/spec/opensearch/1.1/" xmlns:opds="http://opds-spec.org/2010/catalog">
+ <id>tag:search:books:notfound</id>
  <title>Результат поиска</title>
  <link href="/opds-opensearch.xml" rel="search" type="application/opensearchdescription+xml" />
- <link href="/opds/search?searchTerm={searchTerms}" rel="search" type="application/atom+xml" />
+ <link href="/opds/search?searchTerms={searchTerms}" rel="search" type="application/atom+xml" />
  <link href="/opds" rel="start" type="application/atom+xml;profile=opds-catalog" />
 </feed>`
-
-type searchTerms struct {
-	Search string `form:"searchTerms" json:"searchTerms" binding:"required"`
-}
 
 // OpdsBooksSearch struct for book search
 type OpdsBooksSearch struct {
@@ -70,8 +66,10 @@ func Search(c *gin.Context) {
 	}
 
 	feed := &opdsutils.Feed{
-		Title: "Поиск книг",
-		Links: searchRootLinks,
+		Title:   "Поиск книг",
+		Id:      "tag:root:search",
+		Links:   searchRootLinks,
+		Updated: time.Now(),
 	}
 	feed.Items = []*opdsutils.Item{
 		{
@@ -153,15 +151,17 @@ func GetBooks(c *gin.Context) {
 				Type: "application/opensearchdescription+xml",
 			},
 			{
-				Href: "/opds/search?searchTerm={searchTerms}",
+				Href: "/opds/search?searchTerms={searchTerms}",
 				Rel:  "search",
 				Type: "application/atom+xml",
 			},
 		}
 
 		feed := &opdsutils.Feed{
-			Title: "Новые книги",
-			Links: rootLinks,
+			Title:   "Поиск книг",
+			Id:      fmt.Sprintf("tag:search:books:%s:%d", url.QueryEscape(filters.Title), filters.Page),
+			Links:   rootLinks,
+			Updated: time.Now(),
 		}
 		feed.Items = []*opdsutils.Item{}
 
@@ -171,11 +171,7 @@ func GetBooks(c *gin.Context) {
 		}
 
 		for _, book := range books {
-			authors := []string{}
 			bookItem := opdsutils.CreateItem(book, isKoreader)
-			for _, author := range book.Authors {
-				authors = append(authors, author.FullName)
-			}
 			feed.Items = append(feed.Items, &bookItem)
 		}
 		atom, err := feed.ToAtom()
@@ -233,15 +229,17 @@ func GetAuthor(c *gin.Context) {
 				Type: "application/opensearchdescription+xml",
 			},
 			{
-				Href: "/opds/search?searchTerm={searchTerms}",
+				Href: "/opds/search?searchTerms={searchTerms}",
 				Rel:  "search",
 				Type: "application/atom+xml",
 			},
 		}
 
 		feed := &opdsutils.Feed{
-			Title: "Поиск автора",
-			Links: rootLinks,
+			Title:   "Поиск автора",
+			Id:      fmt.Sprintf("tag:search:authors:%s:%d", url.QueryEscape(filters.Name), filters.Page),
+			Links:   rootLinks,
+			Updated: time.Now(),
 		}
 		feed.Items = []*opdsutils.Item{}
 		for _, a := range authors {

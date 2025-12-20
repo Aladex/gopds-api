@@ -64,6 +64,7 @@ type AtomFeed struct {
 	XmlnsOs   string   `xml:"xmlns:os,attr"`
 	XmlnsOpds string   `xml:"xmlns:opds,attr,omitempty"`
 	Title     string   `xml:"title"` // required
+	Id        string   `xml:"id"`    // required
 	Icon      string   `xml:"icon,omitempty"`
 	Updated   string   `xml:"updated"` // required
 	Links     []AtomLink

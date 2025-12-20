@@ -44,10 +44,10 @@ func (a *Atom) AtomFeed() *AtomFeed {
 		XmlnsOs:   "http://a9.com/-/spec/opensearch/1.1/",
 		XmlnsOpds: "http://opds-spec.org/2010/catalog",
 		Title:     a.Title,
+		Id:        a.Id,
 		Links:     links,
 		Icon:      "/favicon.ico",
-
-		Updated: updated,
+		Updated:   updated,
 	}
 	for _, e := range a.Items {
 		feed.Entries = append(feed.Entries, newAtomEntry(e))

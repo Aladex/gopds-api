@@ -99,8 +99,14 @@ func GetNewBooks(c *gin.Context) {
 			Type: "application/atom+xml;profile=opds-catalog"})
 	}
 
+	feedId := fmt.Sprintf("tag:root:new:%d:%d", pageNum, authorID)
+	if filters.Fav {
+		feedId = fmt.Sprintf("tag:root:favorites:%d", pageNum)
+	}
+
 	feed := &opdsutils.Feed{
 		Title:   "Лепробиблиотека",
+		Id:      feedId,
 		Links:   rootLinks,
 		Updated: time.Now(),
 	}
@@ -128,11 +134,7 @@ func GetNewBooks(c *gin.Context) {
 	}
 
 	for _, book := range books {
-		authors := []string{}
 		bookItem := opdsutils.CreateItem(book, isKoreader)
-		for _, author := range book.Authors {
-			authors = append(authors, author.FullName)
-		}
 		feed.Items = append(feed.Items, &bookItem)
 	}
 

@@ -73,6 +73,7 @@ func setupFileRoutes(group *gin.RouterGroup) {
 func setupDefaultRoutes(route *gin.Engine) {
 	route.GET("/books-posters/*filepath", api.Posters)
 	route.GET("/api/status", api.StatusCheck)
+	route.GET("/opds-opensearch.xml", opds.OpenSearch)
 	// Add CSRF protection to password change endpoints
 	route.POST("/api/change-password", middlewares.CSRFMiddleware(), api.ChangeUserState)
 	route.POST("/api/change-request", middlewares.CSRFMiddleware(), api.ChangeRequest)
