@@ -378,6 +378,205 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 		return c.Send(result.Message, sendOptions...)
 	})
 
+	// Handler for /b command - exact book search (bypasses LLM)
+	b.bot.Handle("/b", func(c tele.Context) error {
+		telegramID := c.Sender().ID
+
+		// Process incoming message for context
+		if err := conversationManager.ProcessIncomingMessage(b.token, c.Message()); err != nil {
+			logging.Errorf("Failed to process incoming message: %v", err)
+		}
+
+		// Check exclusivity: only bot owner can use commands
+		if !b.isAuthorizedUser(telegramID) {
+			return nil
+		}
+
+		_, err := database.GetUserByTelegramID(telegramID)
+		if err != nil {
+			response := "Please send /start first to link your account."
+			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+				logging.Errorf("Failed to process outgoing message: %v", err)
+			}
+			return c.Send(response)
+		}
+
+		// Get search query
+		query := strings.TrimPrefix(c.Text(), "/b ")
+		if query == "/b" || query == "" {
+			response := "📚 Exact book search\nUsage: /b <book title>\nExample: /b Война и мир"
+			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+				logging.Errorf("Failed to process outgoing message: %v", err)
+			}
+			return c.Send(response)
+		}
+
+		// Direct search without LLM
+		processor := commands.NewCommandProcessor()
+		result, err := processor.ExecuteDirectBookSearch(query, telegramID)
+		if err != nil {
+			logging.Errorf("Failed to execute direct book search: %v", err)
+			response := "An error occurred while searching. Please try again later."
+			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+				logging.Errorf("Failed to process outgoing message: %v", err)
+			}
+			return c.Send(response)
+		}
+
+		var sendOptions []interface{}
+		if result.ReplyMarkup != nil {
+			sendOptions = append(sendOptions, result.ReplyMarkup)
+		}
+
+		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, result.Message); err != nil {
+			logging.Errorf("Failed to process outgoing message: %v", err)
+		}
+
+		if result.SearchParams != nil {
+			if err := conversationManager.UpdateSearchParams(b.token, telegramID, result.SearchParams); err != nil {
+				logging.Errorf("Failed to update search params in context: %v", err)
+			}
+		}
+
+		return c.Send(result.Message, sendOptions...)
+	})
+
+	// Handler for /a command - exact author search (bypasses LLM)
+	b.bot.Handle("/a", func(c tele.Context) error {
+		telegramID := c.Sender().ID
+
+		// Process incoming message for context
+		if err := conversationManager.ProcessIncomingMessage(b.token, c.Message()); err != nil {
+			logging.Errorf("Failed to process incoming message: %v", err)
+		}
+
+		// Check exclusivity: only bot owner can use commands
+		if !b.isAuthorizedUser(telegramID) {
+			return nil
+		}
+
+		_, err := database.GetUserByTelegramID(telegramID)
+		if err != nil {
+			response := "Please send /start first to link your account."
+			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+				logging.Errorf("Failed to process outgoing message: %v", err)
+			}
+			return c.Send(response)
+		}
+
+		// Get search query
+		query := strings.TrimPrefix(c.Text(), "/a ")
+		if query == "/a" || query == "" {
+			response := "👤 Exact author search\nUsage: /a <author name>\nExample: /a Толстой"
+			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+				logging.Errorf("Failed to process outgoing message: %v", err)
+			}
+			return c.Send(response)
+		}
+
+		// Direct search without LLM
+		processor := commands.NewCommandProcessor()
+		result, err := processor.ExecuteDirectAuthorSearch(query)
+		if err != nil {
+			logging.Errorf("Failed to execute direct author search: %v", err)
+			response := "An error occurred while searching. Please try again later."
+			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+				logging.Errorf("Failed to process outgoing message: %v", err)
+			}
+			return c.Send(response)
+		}
+
+		var sendOptions []interface{}
+		if result.ReplyMarkup != nil {
+			sendOptions = append(sendOptions, result.ReplyMarkup)
+		}
+
+		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, result.Message); err != nil {
+			logging.Errorf("Failed to process outgoing message: %v", err)
+		}
+
+		if result.SearchParams != nil {
+			if err := conversationManager.UpdateSearchParams(b.token, telegramID, result.SearchParams); err != nil {
+				logging.Errorf("Failed to update search params in context: %v", err)
+			}
+		}
+
+		return c.Send(result.Message, sendOptions...)
+	})
+
+	// Handler for /ba command - exact combined search (bypasses LLM)
+	b.bot.Handle("/ba", func(c tele.Context) error {
+		telegramID := c.Sender().ID
+
+		// Process incoming message for context
+		if err := conversationManager.ProcessIncomingMessage(b.token, c.Message()); err != nil {
+			logging.Errorf("Failed to process incoming message: %v", err)
+		}
+
+		// Check exclusivity: only bot owner can use commands
+		if !b.isAuthorizedUser(telegramID) {
+			return nil
+		}
+
+		_, err := database.GetUserByTelegramID(telegramID)
+		if err != nil {
+			response := "Please send /start first to link your account."
+			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+				logging.Errorf("Failed to process outgoing message: %v", err)
+			}
+			return c.Send(response)
+		}
+
+		// Get search query
+		query := strings.TrimPrefix(c.Text(), "/ba ")
+		if query == "/ba" || query == "" {
+			response := "📚👤 Exact book+author search\nUsage: /ba <author>: <book title>\nExample: /ba Толстой: Война и мир"
+			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+				logging.Errorf("Failed to process outgoing message: %v", err)
+			}
+			return c.Send(response)
+		}
+
+		// Parse author and title from query (format: "author: title" or "author - title")
+		author, title := parseAuthorTitle(query)
+		if author == "" || title == "" {
+			response := "📚👤 Please use format: /ba <author>: <book title>\nExample: /ba Толстой: Война и мир"
+			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+				logging.Errorf("Failed to process outgoing message: %v", err)
+			}
+			return c.Send(response)
+		}
+
+		// Direct search without LLM
+		processor := commands.NewCommandProcessor()
+		result, err := processor.ExecuteDirectCombinedSearch(title, author, telegramID)
+		if err != nil {
+			logging.Errorf("Failed to execute direct combined search: %v", err)
+			response := "An error occurred while searching. Please try again later."
+			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+				logging.Errorf("Failed to process outgoing message: %v", err)
+			}
+			return c.Send(response)
+		}
+
+		var sendOptions []interface{}
+		if result.ReplyMarkup != nil {
+			sendOptions = append(sendOptions, result.ReplyMarkup)
+		}
+
+		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, result.Message); err != nil {
+			logging.Errorf("Failed to process outgoing message: %v", err)
+		}
+
+		if result.SearchParams != nil {
+			if err := conversationManager.UpdateSearchParams(b.token, telegramID, result.SearchParams); err != nil {
+				logging.Errorf("Failed to update search params in context: %v", err)
+			}
+		}
+
+		return c.Send(result.Message, sendOptions...)
+	})
+
 	// Handler for all other messages
 	b.bot.Handle(tele.OnText, func(c tele.Context) error {
 		telegramID := c.Sender().ID
@@ -790,4 +989,23 @@ func maskToken(token string) string {
 		return "***"
 	}
 	return token[:10] + "***"
+}
+
+// parseAuthorTitle parses author and title from query string
+// Supports formats: "author: title", "author - title", "author — title"
+func parseAuthorTitle(query string) (author, title string) {
+	// Try different separators
+	separators := []string{": ", " - ", " — ", ":", "-", "—"}
+
+	for _, sep := range separators {
+		if idx := strings.Index(query, sep); idx > 0 {
+			author = strings.TrimSpace(query[:idx])
+			title = strings.TrimSpace(query[idx+len(sep):])
+			if author != "" && title != "" {
+				return author, title
+			}
+		}
+	}
+
+	return "", ""
 }

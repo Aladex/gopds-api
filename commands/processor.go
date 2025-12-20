@@ -818,6 +818,39 @@ func (cp *CommandProcessor) createAuthorButtonsWithPagination(authors []models.A
 	return markup
 }
 
+// ExecuteDirectBookSearch performs exact book search without LLM (for /b command)
+func (cp *CommandProcessor) ExecuteDirectBookSearch(title string, userID int64) (*CommandResult, error) {
+	result, err := cp.executeFindBookWithPagination(title, userID, 0, 5)
+	if err != nil {
+		return nil, err
+	}
+	// Set query type for proper pagination handling
+	if result.SearchParams != nil {
+		result.SearchParams.QueryType = "book"
+	}
+	return result, nil
+}
+
+// ExecuteDirectAuthorSearch performs exact author search without LLM (for /a command)
+func (cp *CommandProcessor) ExecuteDirectAuthorSearch(author string) (*CommandResult, error) {
+	result, err := cp.executeFindAuthorWithPagination(author, 0, 5)
+	if err != nil {
+		return nil, err
+	}
+	// QueryType is already set to "author" in executeFindAuthorWithPagination
+	return result, nil
+}
+
+// ExecuteDirectCombinedSearch performs exact combined search without LLM (for /ba command)
+func (cp *CommandProcessor) ExecuteDirectCombinedSearch(title, author string, userID int64) (*CommandResult, error) {
+	result, err := cp.executeFindBookWithAuthorWithPagination(title, author, userID, 0, 5)
+	if err != nil {
+		return nil, err
+	}
+	// QueryType is already set to "combined" in executeFindBookWithAuthorWithPagination
+	return result, nil
+}
+
 // createUnknownResponse creates a response for unknown/unrelated queries
 func (cp *CommandProcessor) createUnknownResponse() *CommandResult {
 	return &CommandResult{
