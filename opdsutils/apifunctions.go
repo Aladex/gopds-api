@@ -59,11 +59,20 @@ func CreateItem(book models.Book, isKoreader bool) Item {
 		},
 	}
 	links = append(links, posterLinks...)
-	itemAuthors := []Author{}
+
+	// Add links to author's books
+	var itemAuthors []Author
 	for _, author := range book.Authors {
 		itemAuthors = append(itemAuthors, Author{
 			Name: author.FullName,
 			ID:   author.ID,
+		})
+		// Link to browse all books by this author
+		links = append(links, Link{
+			Href:  fmt.Sprintf("/opds/new/0/%d", author.ID),
+			Rel:   "related",
+			Type:  "application/atom+xml;profile=opds-catalog",
+			Title: fmt.Sprintf("Все книги: %s", author.FullName),
 		})
 	}
 

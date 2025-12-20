@@ -112,18 +112,36 @@ func GetNewBooks(c *gin.Context) {
 	}
 	feed.Items = []*opdsutils.Item{}
 
-	if !filters.Fav && hf && pageNum == 0 && filters.Author == 0 {
+	// Show navigation items only on the root page (page 0, no author filter, not favorites)
+	if !filters.Fav && pageNum == 0 && filters.Author == 0 {
+		// Add favorites link if user has favorites
+		if hf {
+			feed.Items = append(feed.Items, &opdsutils.Item{
+				Title: "Избранное",
+				Link: []opdsutils.Link{
+					{
+						Href: "/opds/favorites/0",
+						Type: "application/atom+xml;profile=opds-catalog",
+					},
+				},
+				Id:      "tag:nav:favorites",
+				Updated: time.Now(),
+				Content: "Избранное",
+			})
+		}
+
+		// Add languages navigation
 		feed.Items = append(feed.Items, &opdsutils.Item{
-			Title: "Избранное",
+			Title: "По языкам",
 			Link: []opdsutils.Link{
 				{
-					Href: "/opds/favorites/0",
+					Href: "/opds/languages",
 					Type: "application/atom+xml;profile=opds-catalog",
 				},
 			},
-			Id:      "tag:search:favorites",
+			Id:      "tag:nav:languages",
 			Updated: time.Now(),
-			Content: "Избранное",
+			Content: "Книги по языкам",
 		})
 	}
 
