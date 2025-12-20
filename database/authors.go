@@ -41,18 +41,3 @@ func GetAuthor(filter models.AuthorRequest) (models.Author, error) {
 	}
 	return author, nil
 }
-
-// AddAuthor returns an id of author after select or after insert if not exists
-func AddAuthor(author models.Author) (models.Author, error) {
-	fullName := author.FullName
-	if fullName == "" {
-		fullName = "Автор Неизвестен"
-	}
-	_, err := db.Model(&author).
-		Where("full_name = ?", fullName).
-		SelectOrInsert()
-	if err != nil {
-		return models.Author{}, err
-	}
-	return author, nil
-}
