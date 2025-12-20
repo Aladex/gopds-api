@@ -9,53 +9,32 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/binding"
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/opdsutils"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
+	"golang.org/x/text/language"
+	"golang.org/x/text/language/display"
 )
 
-// Language names mapping
-var langNames = map[string]string{
-	"ru": "Русский",
-	"en": "English",
-	"uk": "Українська",
-	"be": "Беларуская",
-	"de": "Deutsch",
-	"fr": "Français",
-	"es": "Español",
-	"it": "Italiano",
-	"pl": "Polski",
-	"cs": "Čeština",
-	"bg": "Български",
-	"sr": "Српски",
-	"hr": "Hrvatski",
-	"sk": "Slovenčina",
-	"hu": "Magyar",
-	"ro": "Română",
-	"nl": "Nederlands",
-	"pt": "Português",
-	"sv": "Svenska",
-	"da": "Dansk",
-	"no": "Norsk",
-	"fi": "Suomi",
-	"el": "Ελληνικά",
-	"tr": "Türkçe",
-	"ar": "العربية",
-	"he": "עברית",
-	"zh": "中文",
-	"ja": "日本語",
-	"ko": "한국어",
-}
-
+// getLangName returns the native name of a language by its ISO code
 func getLangName(code string) string {
-	if name, ok := langNames[code]; ok {
-		return name
+	if code == "" {
+		return "Unknown"
 	}
-	return strings.ToUpper(code)
+	tag, err := language.Parse(code)
+	if err != nil {
+		return strings.ToUpper(code)
+	}
+	name := display.Self.Name(tag)
+	if name == "" {
+		return strings.ToUpper(code)
+	}
+	return name
 }
 
 func langLinks(lang string) []opdsutils.Link {
@@ -185,19 +164,8 @@ func GetLanguageRoot(c *gin.Context) {
 			Updated: time.Now(),
 			Content: fmt.Sprintf("Все книги на языке %s", langName),
 		},
-		{
-			Title: "Поиск книг",
-			Link: []opdsutils.Link{
-				{
-					Href: fmt.Sprintf("/opds/lang/%s/search?searchTerms={searchTerms}", lang),
-					Type: "application/atom+xml",
-				},
-			},
-			Id:      fmt.Sprintf("tag:lang:%s:search", lang),
-			Updated: time.Now(),
-			Content: "Поиск книг и авторов",
-		},
 	}
+	// Note: Search is available via the search icon in the reader (rel="search" link in header)
 
 	atom, err := feed.ToAtom()
 	if err != nil {
