@@ -4,10 +4,13 @@ import (
 	"testing"
 	"time"
 
+	"gopds-api/commands"
+
 	"github.com/alicebob/miniredis/v2"
 	"github.com/go-redis/redis"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	tele "gopkg.in/telebot.v3"
 )
 
 func setupTestRedis(t *testing.T) (*redis.Client, func()) {
@@ -339,4 +342,171 @@ func TestContextUpdateTime(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.True(t, ctx2.UpdatedAt.After(firstUpdate))
+}
+
+func TestUpdateSearchParams(t *testing.T) {
+	redisClient, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	cm := NewConversationManager(redisClient)
+	botToken := "test-token"
+	userID := int64(12345)
+
+	searchParams := &commands.SearchParams{
+		Query:     "test query",
+		Offset:    10,
+		Limit:     5,
+		QueryType: "book",
+		AuthorID:  42,
+	}
+
+	err := cm.UpdateSearchParams(botToken, userID, searchParams)
+	require.NoError(t, err)
+
+	ctx, err := cm.GetContext(botToken, userID)
+	require.NoError(t, err)
+
+	assert.NotNil(t, ctx.SearchParams)
+	assert.Equal(t, "test query", ctx.SearchParams.Query)
+	assert.Equal(t, 10, ctx.SearchParams.Offset)
+	assert.Equal(t, 5, ctx.SearchParams.Limit)
+	assert.Equal(t, "book", ctx.SearchParams.QueryType)
+	assert.Equal(t, int64(42), ctx.SearchParams.AuthorID)
+}
+
+func TestUpdateSearchParams_OverwritesPrevious(t *testing.T) {
+	redisClient, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	cm := NewConversationManager(redisClient)
+	botToken := "test-token"
+	userID := int64(12345)
+
+	// Set initial params
+	params1 := &commands.SearchParams{
+		Query:  "first query",
+		Offset: 0,
+		Limit:  5,
+	}
+	err := cm.UpdateSearchParams(botToken, userID, params1)
+	require.NoError(t, err)
+
+	// Update with new params
+	params2 := &commands.SearchParams{
+		Query:  "second query",
+		Offset: 10,
+		Limit:  10,
+	}
+	err = cm.UpdateSearchParams(botToken, userID, params2)
+	require.NoError(t, err)
+
+	ctx, err := cm.GetContext(botToken, userID)
+	require.NoError(t, err)
+
+	// Should have the second params
+	assert.Equal(t, "second query", ctx.SearchParams.Query)
+	assert.Equal(t, 10, ctx.SearchParams.Offset)
+	assert.Equal(t, 10, ctx.SearchParams.Limit)
+}
+
+func TestProcessIncomingMessage(t *testing.T) {
+	redisClient, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	cm := NewConversationManager(redisClient)
+	botToken := "test-token"
+
+	// Create a mock telegram message
+	message := &tele.Message{
+		Sender: &tele.User{ID: 12345},
+		Text:   "Hello from user!",
+	}
+
+	err := cm.ProcessIncomingMessage(botToken, message)
+	require.NoError(t, err)
+
+	ctx, err := cm.GetContext(botToken, 12345)
+	require.NoError(t, err)
+
+	assert.Len(t, ctx.Messages, 1)
+	assert.Equal(t, "user", ctx.Messages[0].Type)
+	assert.Equal(t, "Hello from user!", ctx.Messages[0].Text)
+}
+
+func TestProcessIncomingMessage_EmptyText(t *testing.T) {
+	redisClient, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	cm := NewConversationManager(redisClient)
+	botToken := "test-token"
+
+	// Create a message with empty text
+	message := &tele.Message{
+		Sender: &tele.User{ID: 12345},
+		Text:   "",
+	}
+
+	err := cm.ProcessIncomingMessage(botToken, message)
+	require.NoError(t, err)
+
+	ctx, err := cm.GetContext(botToken, 12345)
+	require.NoError(t, err)
+
+	// Should not add empty message
+	assert.Empty(t, ctx.Messages)
+}
+
+func TestProcessOutgoingMessage(t *testing.T) {
+	redisClient, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	cm := NewConversationManager(redisClient)
+	botToken := "test-token"
+	userID := int64(12345)
+
+	err := cm.ProcessOutgoingMessage(botToken, userID, "Hello from bot!")
+	require.NoError(t, err)
+
+	ctx, err := cm.GetContext(botToken, userID)
+	require.NoError(t, err)
+
+	assert.Len(t, ctx.Messages, 1)
+	assert.Equal(t, "bot", ctx.Messages[0].Type)
+	assert.Equal(t, "Hello from bot!", ctx.Messages[0].Text)
+}
+
+func TestCalculateContextLength(t *testing.T) {
+	redisClient, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	cm := NewConversationManager(redisClient)
+
+	ctx := &ConversationContext{
+		Messages: []Message{
+			{Type: "user", Text: "Hello"},
+			{Type: "bot", Text: "World"},
+		},
+	}
+
+	length := cm.calculateContextLength(ctx)
+
+	// Each message adds: len(text) + len(type) + 50 (metadata)
+	// "Hello" (5) + "user" (4) + 50 = 59
+	// "World" (5) + "bot" (3) + 50 = 58
+	// Total = 117
+	assert.Equal(t, 117, length)
+}
+
+func TestCalculateContextLength_EmptyContext(t *testing.T) {
+	redisClient, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	cm := NewConversationManager(redisClient)
+
+	ctx := &ConversationContext{
+		Messages: []Message{},
+	}
+
+	length := cm.calculateContextLength(ctx)
+	assert.Equal(t, 0, length)
 }
