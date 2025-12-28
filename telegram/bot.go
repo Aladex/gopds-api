@@ -169,9 +169,55 @@ func (bm *BotManager) createBotInstance(token string, userID int64) (*Bot, error
 	return bot, nil
 }
 
+// PrivateChatMiddleware ensures bot only responds in private chats
+func PrivateChatMiddleware() tele.MiddlewareFunc {
+	return func(next tele.HandlerFunc) tele.HandlerFunc {
+		return func(c tele.Context) error {
+			if c.Chat() != nil && c.Chat().Type != tele.ChatPrivate {
+				// For callbacks show alert, for messages send text
+				if c.Callback() != nil {
+					return c.Respond(&tele.CallbackResponse{
+						Text:      "Бот работает только в личных сообщениях",
+						ShowAlert: true,
+					})
+				}
+				return c.Send("Этот бот работает только в личных сообщениях. Пожалуйста, напишите мне напрямую.")
+			}
+			return next(c)
+		}
+	}
+}
+
+// withAuth wraps a handler with authentication and message processing logic
+// It processes incoming messages and checks if the user is authorized
+// The telegramID is stored in context and can be retrieved via c.Get("telegramID").(int64)
+func (b *Bot) withAuth(conversationManager *ConversationManager, handler tele.HandlerFunc) tele.HandlerFunc {
+	return func(c tele.Context) error {
+		telegramID := c.Sender().ID
+
+		// Process incoming message for context
+		if err := conversationManager.ProcessIncomingMessage(b.token, c.Message()); err != nil {
+			logging.Errorf("Failed to process incoming message: %v", err)
+		}
+
+		// Check exclusivity: only bot owner can use commands
+		if !b.isAuthorizedUser(telegramID) {
+			return nil // Ignore messages from unauthorized users
+		}
+
+		// Store telegramID in context for handler access
+		c.Set("telegramID", telegramID)
+
+		return handler(c)
+	}
+}
+
 // setupHandlers sets up command handlers for the bot
 func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
-	// Handler for /start command
+	// Register middleware for private chat check
+	b.bot.Use(PrivateChatMiddleware())
+
+	// Handler for /start command (special case - doesn't require full authorization)
 	b.bot.Handle("/start", func(c tele.Context) error {
 		telegramID := c.Sender().ID
 
@@ -233,18 +279,8 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 	})
 
 	// Handler for /context command to show current conversation context
-	b.bot.Handle("/context", func(c tele.Context) error {
-		telegramID := c.Sender().ID
-
-		// Process incoming message for context
-		if err := conversationManager.ProcessIncomingMessage(b.token, c.Message()); err != nil {
-			logging.Errorf("Failed to process incoming message: %v", err)
-		}
-
-		// Check exclusivity: only bot owner can use commands
-		if !b.isAuthorizedUser(telegramID) {
-			return nil // Ignore messages from unauthorized users
-		}
+	b.bot.Handle("/context", b.withAuth(conversationManager, func(c tele.Context) error {
+		telegramID := c.Get("telegramID").(int64)
 
 		stats, err := conversationManager.GetContextStats(b.token, telegramID)
 		if err != nil {
@@ -274,21 +310,11 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 			logging.Errorf("Failed to process outgoing message: %v", err)
 		}
 		return c.Send(response)
-	})
+	}))
 
 	// Handler for /clear command to clear conversation context
-	b.bot.Handle("/clear", func(c tele.Context) error {
-		telegramID := c.Sender().ID
-
-		// Process incoming message for context
-		if err := conversationManager.ProcessIncomingMessage(b.token, c.Message()); err != nil {
-			logging.Errorf("Failed to process incoming message: %v", err)
-		}
-
-		// Check exclusivity: only bot owner can use commands
-		if !b.isAuthorizedUser(telegramID) {
-			return nil // Ignore messages from unauthorized users
-		}
+	b.bot.Handle("/clear", b.withAuth(conversationManager, func(c tele.Context) error {
+		telegramID := c.Get("telegramID").(int64)
 
 		err := conversationManager.ClearContext(b.token, telegramID)
 		if err != nil {
@@ -304,29 +330,15 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 			logging.Errorf("Failed to process outgoing message: %v", err)
 		}
 		return c.Send(response)
-	})
+	}))
 
 	// Handler for /search command for book search
-	b.bot.Handle("/search", func(c tele.Context) error {
-		telegramID := c.Sender().ID
+	b.bot.Handle("/search", b.withAuth(conversationManager, func(c tele.Context) error {
+		telegramID := c.Get("telegramID").(int64)
 
-		// Process incoming message for context
-		if err := conversationManager.ProcessIncomingMessage(b.token, c.Message()); err != nil {
-			logging.Errorf("Failed to process incoming message: %v", err)
-		}
-
-		// Check exclusivity: only bot owner can use commands
-		if !b.isAuthorizedUser(telegramID) {
-			return nil // Ignore messages from unauthorized users
-		}
-
-		_, err := database.GetUserByTelegramID(telegramID)
-		if err != nil {
-			response := "Please send /start first to link your account."
-			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
-				logging.Errorf("Failed to process outgoing message: %v", err)
-			}
-			return c.Send(response)
+		// Validate user is linked
+		if err := b.validateUserLinked(c, conversationManager, telegramID); err != nil {
+			return err
 		}
 
 		// Get search query
@@ -350,55 +362,19 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 		processor := commands.NewCommandProcessor()
 		result, err := processor.ProcessMessage(query, contextStr, telegramID)
 		if err != nil {
-			logging.Errorf("Failed to process /search with LLM: %v", err)
-			response := "An error occurred while processing the search. Please try again later."
-			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
-				logging.Errorf("Failed to process outgoing message: %v", err)
-			}
-			return c.Send(response)
+			return b.handleCommandError(c, conversationManager, telegramID, "/search with LLM", err)
 		}
 
-		var sendOptions []interface{}
-		if result.ReplyMarkup != nil {
-			sendOptions = append(sendOptions, result.ReplyMarkup)
-		}
-
-		// Add bot message to context
-		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, result.Message); err != nil {
-			logging.Errorf("Failed to process outgoing message: %v", err)
-		}
-
-		// Update search params in context if available
-		if result.SearchParams != nil {
-			if err := conversationManager.UpdateSearchParams(b.token, telegramID, result.SearchParams); err != nil {
-				logging.Errorf("Failed to update search params in context: %v", err)
-			}
-		}
-
-		return c.Send(result.Message, sendOptions...)
-	})
+		return b.processCommandResult(c, conversationManager, result, telegramID)
+	}))
 
 	// Handler for /b command - exact book search (bypasses LLM)
-	b.bot.Handle("/b", func(c tele.Context) error {
-		telegramID := c.Sender().ID
+	b.bot.Handle("/b", b.withAuth(conversationManager, func(c tele.Context) error {
+		telegramID := c.Get("telegramID").(int64)
 
-		// Process incoming message for context
-		if err := conversationManager.ProcessIncomingMessage(b.token, c.Message()); err != nil {
-			logging.Errorf("Failed to process incoming message: %v", err)
-		}
-
-		// Check exclusivity: only bot owner can use commands
-		if !b.isAuthorizedUser(telegramID) {
-			return nil
-		}
-
-		_, err := database.GetUserByTelegramID(telegramID)
-		if err != nil {
-			response := "Please send /start first to link your account."
-			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
-				logging.Errorf("Failed to process outgoing message: %v", err)
-			}
-			return c.Send(response)
+		// Validate user is linked
+		if err := b.validateUserLinked(c, conversationManager, telegramID); err != nil {
+			return err
 		}
 
 		// Get search query
@@ -415,53 +391,19 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 		processor := commands.NewCommandProcessor()
 		result, err := processor.ExecuteDirectBookSearch(query, telegramID)
 		if err != nil {
-			logging.Errorf("Failed to execute direct book search: %v", err)
-			response := "An error occurred while searching. Please try again later."
-			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
-				logging.Errorf("Failed to process outgoing message: %v", err)
-			}
-			return c.Send(response)
+			return b.handleCommandError(c, conversationManager, telegramID, "direct book search", err)
 		}
 
-		var sendOptions []interface{}
-		if result.ReplyMarkup != nil {
-			sendOptions = append(sendOptions, result.ReplyMarkup)
-		}
-
-		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, result.Message); err != nil {
-			logging.Errorf("Failed to process outgoing message: %v", err)
-		}
-
-		if result.SearchParams != nil {
-			if err := conversationManager.UpdateSearchParams(b.token, telegramID, result.SearchParams); err != nil {
-				logging.Errorf("Failed to update search params in context: %v", err)
-			}
-		}
-
-		return c.Send(result.Message, sendOptions...)
-	})
+		return b.processCommandResult(c, conversationManager, result, telegramID)
+	}))
 
 	// Handler for /a command - exact author search (bypasses LLM)
-	b.bot.Handle("/a", func(c tele.Context) error {
-		telegramID := c.Sender().ID
+	b.bot.Handle("/a", b.withAuth(conversationManager, func(c tele.Context) error {
+		telegramID := c.Get("telegramID").(int64)
 
-		// Process incoming message for context
-		if err := conversationManager.ProcessIncomingMessage(b.token, c.Message()); err != nil {
-			logging.Errorf("Failed to process incoming message: %v", err)
-		}
-
-		// Check exclusivity: only bot owner can use commands
-		if !b.isAuthorizedUser(telegramID) {
-			return nil
-		}
-
-		_, err := database.GetUserByTelegramID(telegramID)
-		if err != nil {
-			response := "Please send /start first to link your account."
-			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
-				logging.Errorf("Failed to process outgoing message: %v", err)
-			}
-			return c.Send(response)
+		// Validate user is linked
+		if err := b.validateUserLinked(c, conversationManager, telegramID); err != nil {
+			return err
 		}
 
 		// Get search query
@@ -478,53 +420,19 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 		processor := commands.NewCommandProcessor()
 		result, err := processor.ExecuteDirectAuthorSearch(query)
 		if err != nil {
-			logging.Errorf("Failed to execute direct author search: %v", err)
-			response := "An error occurred while searching. Please try again later."
-			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
-				logging.Errorf("Failed to process outgoing message: %v", err)
-			}
-			return c.Send(response)
+			return b.handleCommandError(c, conversationManager, telegramID, "direct author search", err)
 		}
 
-		var sendOptions []interface{}
-		if result.ReplyMarkup != nil {
-			sendOptions = append(sendOptions, result.ReplyMarkup)
-		}
-
-		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, result.Message); err != nil {
-			logging.Errorf("Failed to process outgoing message: %v", err)
-		}
-
-		if result.SearchParams != nil {
-			if err := conversationManager.UpdateSearchParams(b.token, telegramID, result.SearchParams); err != nil {
-				logging.Errorf("Failed to update search params in context: %v", err)
-			}
-		}
-
-		return c.Send(result.Message, sendOptions...)
-	})
+		return b.processCommandResult(c, conversationManager, result, telegramID)
+	}))
 
 	// Handler for /ba command - exact combined search (bypasses LLM)
-	b.bot.Handle("/ba", func(c tele.Context) error {
-		telegramID := c.Sender().ID
+	b.bot.Handle("/ba", b.withAuth(conversationManager, func(c tele.Context) error {
+		telegramID := c.Get("telegramID").(int64)
 
-		// Process incoming message for context
-		if err := conversationManager.ProcessIncomingMessage(b.token, c.Message()); err != nil {
-			logging.Errorf("Failed to process incoming message: %v", err)
-		}
-
-		// Check exclusivity: only bot owner can use commands
-		if !b.isAuthorizedUser(telegramID) {
-			return nil
-		}
-
-		_, err := database.GetUserByTelegramID(telegramID)
-		if err != nil {
-			response := "Please send /start first to link your account."
-			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
-				logging.Errorf("Failed to process outgoing message: %v", err)
-			}
-			return c.Send(response)
+		// Validate user is linked
+		if err := b.validateUserLinked(c, conversationManager, telegramID); err != nil {
+			return err
 		}
 
 		// Get search query
@@ -551,53 +459,19 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 		processor := commands.NewCommandProcessor()
 		result, err := processor.ExecuteDirectCombinedSearch(title, author, telegramID)
 		if err != nil {
-			logging.Errorf("Failed to execute direct combined search: %v", err)
-			response := "An error occurred while searching. Please try again later."
-			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
-				logging.Errorf("Failed to process outgoing message: %v", err)
-			}
-			return c.Send(response)
+			return b.handleCommandError(c, conversationManager, telegramID, "direct combined search", err)
 		}
 
-		var sendOptions []interface{}
-		if result.ReplyMarkup != nil {
-			sendOptions = append(sendOptions, result.ReplyMarkup)
-		}
-
-		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, result.Message); err != nil {
-			logging.Errorf("Failed to process outgoing message: %v", err)
-		}
-
-		if result.SearchParams != nil {
-			if err := conversationManager.UpdateSearchParams(b.token, telegramID, result.SearchParams); err != nil {
-				logging.Errorf("Failed to update search params in context: %v", err)
-			}
-		}
-
-		return c.Send(result.Message, sendOptions...)
-	})
+		return b.processCommandResult(c, conversationManager, result, telegramID)
+	}))
 
 	// Handler for all other messages
-	b.bot.Handle(tele.OnText, func(c tele.Context) error {
-		telegramID := c.Sender().ID
+	b.bot.Handle(tele.OnText, b.withAuth(conversationManager, func(c tele.Context) error {
+		telegramID := c.Get("telegramID").(int64)
 
-		// Process incoming message for context
-		if err := conversationManager.ProcessIncomingMessage(b.token, c.Message()); err != nil {
-			logging.Errorf("Failed to process incoming message: %v", err)
-		}
-
-		// Check exclusivity: only bot owner can use commands
-		if !b.isAuthorizedUser(telegramID) {
-			return nil // Ignore messages from unauthorized users
-		}
-
-		_, err := database.GetUserByTelegramID(telegramID)
-		if err != nil {
-			response := "Please send /start first to link your account."
-			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
-				logging.Errorf("Failed to process outgoing message: %v", err)
-			}
-			return c.Send(response)
+		// Validate user is linked
+		if err := b.validateUserLinked(c, conversationManager, telegramID); err != nil {
+			return err
 		}
 
 		// Get conversation context for LLM processing
@@ -611,34 +485,11 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 		processor := commands.NewCommandProcessor()
 		result, err := processor.ProcessMessage(c.Text(), contextStr, telegramID)
 		if err != nil {
-			logging.Errorf("Failed to process message with LLM: %v", err)
-			response := "An error occurred while processing the request. Please try again later."
-			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
-				logging.Errorf("Failed to process outgoing message: %v", err)
-			}
-			return c.Send(response)
+			return b.handleCommandError(c, conversationManager, telegramID, "message with LLM", err)
 		}
 
-		// Send response with optional inline keyboard
-		var sendOptions []interface{}
-		if result.ReplyMarkup != nil {
-			sendOptions = append(sendOptions, result.ReplyMarkup)
-		}
-
-		// Add bot message to context
-		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, result.Message); err != nil {
-			logging.Errorf("Failed to process outgoing message: %v", err)
-		}
-
-		// Update search params in context if available
-		if result.SearchParams != nil {
-			if err := conversationManager.UpdateSearchParams(b.token, telegramID, result.SearchParams); err != nil {
-				logging.Errorf("Failed to update search params in context: %v", err)
-			}
-		}
-
-		return c.Send(result.Message, sendOptions...)
-	})
+		return b.processCommandResult(c, conversationManager, result, telegramID)
+	}))
 
 	// Handler for all callback queries (pagination and book selection)
 	callbackHandler := NewCallbackHandler(b, conversationManager)
@@ -656,6 +507,62 @@ func (b *Bot) isAuthorizedUser(telegramID int64) bool {
 
 	// Check that telegram_id matches the owner
 	return int64(botOwner.TelegramID) == telegramID
+}
+
+// processCommandResult processes the result from command processor and sends response
+func (b *Bot) processCommandResult(c tele.Context, conversationManager *ConversationManager, result *commands.CommandResult, telegramID int64) error {
+	var sendOptions []interface{}
+	if result.ReplyMarkup != nil {
+		sendOptions = append(sendOptions, result.ReplyMarkup)
+	}
+
+	// Add bot message to context
+	if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, result.Message); err != nil {
+		logging.Errorf("Failed to process outgoing message: %v", err)
+	}
+
+	// Update search params in context if available
+	if result.SearchParams != nil {
+		if err := conversationManager.UpdateSearchParams(b.token, telegramID, result.SearchParams); err != nil {
+			logging.Errorf("Failed to update search params in context: %v", err)
+		}
+	}
+
+	return c.Send(result.Message, sendOptions...)
+}
+
+// handleCommandError handles errors from command processor
+func (b *Bot) handleCommandError(c tele.Context, conversationManager *ConversationManager, telegramID int64, cmdType string, err error) error {
+	logging.Errorf("Failed to execute %s: %v", cmdType, err)
+	response := "An error occurred while processing the request. Please try again later."
+	if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+		logging.Errorf("Failed to process outgoing message: %v", err)
+	}
+	return c.Send(response)
+}
+
+// validateUserLinked checks if user is linked to account and sends error if not
+func (b *Bot) validateUserLinked(c tele.Context, conversationManager *ConversationManager, telegramID int64) error {
+	_, err := database.GetUserByTelegramID(telegramID)
+	if err != nil {
+		response := "Please send /start first to link your account."
+		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+			logging.Errorf("Failed to process outgoing message: %v", err)
+		}
+		return c.Send(response)
+	}
+	return nil
+}
+
+// isPrivateChat checks if the chat is a private chat
+func (b *Bot) isPrivateChat(c tele.Context) bool {
+	return c.Chat().Type == tele.ChatPrivate
+}
+
+// sendPrivateChatWarning sends a warning that the bot only works in private chats
+func (b *Bot) sendPrivateChatWarning(c tele.Context) error {
+	response := "⚠️ Этот бот работает только в личных сообщениях. Пожалуйста, напишите мне напрямую."
+	return c.Send(response)
 }
 
 // HandleWebhook handles incoming webhooks from Telegram
