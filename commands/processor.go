@@ -862,3 +862,97 @@ func (cp *CommandProcessor) createUnknownResponse() *CommandResult {
 			"Или используйте команду /search <название книги или автор>",
 	}
 }
+
+// ExecuteShowFavorites shows user's favorite books with pagination
+func (cp *CommandProcessor) ExecuteShowFavorites(userID int64, offset, limit int) (*CommandResult, error) {
+	// Get user's favorite books using the Fav filter
+	filters := models.BookFilters{
+		Fav:    true,
+		Limit:  limit,
+		Offset: offset,
+	}
+
+	books, totalCount, err := database.GetBooksEnhanced(userID, filters)
+	if err != nil {
+		logging.Errorf("Failed to get favorite books for user %d: %v", userID, err)
+		return &CommandResult{
+			Message: "Произошла ошибка при получении избранного. Попробуйте позже.",
+		}, nil
+	}
+
+	// Check if user has any favorites
+	if len(books) == 0 && offset == 0 {
+		return &CommandResult{
+			Message: "📚 Ваш список избранного пуст.\n\n" +
+				"Чтобы добавить книгу в избранное, найдите её через поиск и используйте соответствующую функцию.",
+		}, nil
+	}
+
+	if len(books) == 0 && offset > 0 {
+		return &CommandResult{
+			Message: "На этой странице нет результатов.",
+		}, nil
+	}
+
+	// Format the response message with pagination info
+	message := cp.formatFavoriteBooksWithPagination(books, totalCount, offset, limit)
+
+	// Create inline keyboard with book selection buttons and pagination
+	replyMarkup := cp.createBookButtonsWithPagination(books, offset, limit, totalCount)
+
+	return &CommandResult{
+		Message:     message,
+		Books:       books,
+		ReplyMarkup: replyMarkup,
+		SearchParams: &SearchParams{
+			Query:      "favorites",
+			QueryType:  "favorites",
+			Offset:     offset,
+			Limit:      limit,
+			TotalCount: totalCount,
+		},
+	}, nil
+}
+
+// formatFavoriteBooksWithPagination formats favorite books list with pagination info
+func (cp *CommandProcessor) formatFavoriteBooksWithPagination(books []models.Book, totalCount, offset, limit int) string {
+	var builder strings.Builder
+
+	currentPage := (offset / limit) + 1
+	totalPages := (totalCount + limit - 1) / limit
+
+	builder.WriteString("⭐ Избранные книги:\n")
+	builder.WriteString(fmt.Sprintf("Страница %d из %d (всего %d книг)\n\n", currentPage, totalPages, totalCount))
+
+	for i, book := range books {
+		// Format authors
+		var authorNames []string
+		for _, author := range book.Authors {
+			authorNames = append(authorNames, author.FullName)
+		}
+		authorsStr := strings.Join(authorNames, ", ")
+		if authorsStr == "" {
+			authorsStr = "Автор неизвестен"
+		}
+
+		// Add book entry with correct numbering
+		bookNumber := offset + i + 1
+		builder.WriteString(fmt.Sprintf("%d. %s — %s", bookNumber, book.Title, authorsStr))
+
+		// Add series information if available
+		if len(book.Series) > 0 && book.Series[0].Ser != "" {
+			builder.WriteString(fmt.Sprintf(" (серия: %s)", book.Series[0].Ser))
+		}
+
+		// Add language info if available
+		if book.Lang != "" {
+			builder.WriteString(fmt.Sprintf(" [%s]", book.Lang))
+		}
+
+		builder.WriteString("\n")
+	}
+
+	builder.WriteString("\n💡 Выберите книгу по номеру или используйте навигацию:")
+
+	return builder.String()
+}

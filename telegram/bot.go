@@ -166,6 +166,12 @@ func (bm *BotManager) createBotInstance(token string, userID int64) (*Bot, error
 	// Set up command handlers with conversation manager
 	bot.setupHandlers(bm.conversationManager)
 
+	// Register commands in Telegram
+	if err := bot.registerCommands(); err != nil {
+		logging.Warnf("Failed to register commands for user %d: %v", userID, err)
+		// Not a critical error, continue with bot initialization
+	}
+
 	return bot, nil
 }
 
@@ -460,6 +466,25 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 		result, err := processor.ExecuteDirectCombinedSearch(title, author, telegramID)
 		if err != nil {
 			return b.handleCommandError(c, conversationManager, telegramID, "direct combined search", err)
+		}
+
+		return b.processCommandResult(c, conversationManager, result, telegramID)
+	}))
+
+	// Handler for /favorites command - show user's favorite books
+	b.bot.Handle("/favorites", b.withAuth(conversationManager, func(c tele.Context) error {
+		telegramID := c.Get("telegramID").(int64)
+
+		// Validate user is linked
+		if err := b.validateUserLinked(c, conversationManager, telegramID); err != nil {
+			return err
+		}
+
+		// Show favorites with pagination (start with page 1, 5 books per page)
+		processor := commands.NewCommandProcessor()
+		result, err := processor.ExecuteShowFavorites(telegramID, 0, 5)
+		if err != nil {
+			return b.handleCommandError(c, conversationManager, telegramID, "show favorites", err)
 		}
 
 		return b.processCommandResult(c, conversationManager, result, telegramID)
@@ -896,6 +921,71 @@ func maskToken(token string) string {
 		return "***"
 	}
 	return token[:10] + "***"
+}
+
+// registerCommands registers bot commands in Telegram via setMyCommands API
+func (b *Bot) registerCommands() error {
+	botCommands := []tele.Command{
+		{
+			Text:        "start",
+			Description: "Link your account to the library",
+		},
+		{
+			Text:        "search",
+			Description: "Search for books using natural language",
+		},
+		{
+			Text:        "b",
+			Description: "Exact book search by title",
+		},
+		{
+			Text:        "a",
+			Description: "Exact author search by name",
+		},
+		{
+			Text:        "ba",
+			Description: "Exact combined search (author: book)",
+		},
+		{
+			Text:        "favorites",
+			Description: "Show your favorite books",
+		},
+		{
+			Text:        "context",
+			Description: "Show conversation context statistics",
+		},
+		{
+			Text:        "clear",
+			Description: "Clear conversation context",
+		},
+	}
+
+	// Set commands with timeout to avoid hanging
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	type commandResult struct {
+		err error
+	}
+
+	resultChan := make(chan commandResult, 1)
+	go func() {
+		err := b.bot.SetCommands(botCommands)
+		resultChan <- commandResult{err: err}
+	}()
+
+	select {
+	case result := <-resultChan:
+		if result.err != nil {
+			logging.Errorf("Failed to register commands for user %d: %v", b.userID, result.err)
+			return result.err
+		}
+		logging.Infof("Successfully registered %d commands for user %d", len(botCommands), b.userID)
+		return nil
+	case <-ctx.Done():
+		logging.Errorf("Timeout registering commands for user %d", b.userID)
+		return fmt.Errorf("timeout registering commands")
+	}
 }
 
 // parseAuthorTitle parses author and title from query string

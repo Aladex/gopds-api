@@ -135,6 +135,8 @@ func (h *CallbackHandler) executeSearchWithPagination(
 			params.AuthorID, params.Query, telegramID, newOffset, params.Limit)
 	case "combined":
 		return h.executeCombinedSearch(processor, params.Query, telegramID, newOffset, params.Limit)
+	case "favorites":
+		return processor.ExecuteShowFavorites(telegramID, newOffset, params.Limit)
 	default:
 		return processor.ExecuteFindBookWithPagination(params.Query, telegramID, newOffset, params.Limit)
 	}
