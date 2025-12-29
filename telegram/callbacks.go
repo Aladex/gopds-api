@@ -8,6 +8,7 @@ import (
 	"gopds-api/models"
 	"gopds-api/utils"
 	"io"
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -213,9 +214,8 @@ func (h *CallbackHandler) handleAuthorSelection(c tele.Context, callbackData str
 
 	if editErr := c.Edit(result.Message, sendOptions...); editErr != nil {
 		logging.Errorf("Failed to edit message for user %d: %v", telegramID, editErr)
-		// Add main keyboard when sending new message as fallback
-		sendOptionsWithKeyboard := append(sendOptions, GetMainKeyboard())
-		if _, sendErr := c.Bot().Send(c.Chat(), result.Message, sendOptionsWithKeyboard...); sendErr != nil {
+		// Send new message as fallback
+		if _, sendErr := c.Bot().Send(c.Chat(), result.Message, sendOptions...); sendErr != nil {
 			logging.Errorf("Failed to send new message after edit failure for user %d: %v", telegramID, sendErr)
 		}
 		return nil
@@ -259,10 +259,31 @@ func (h *CallbackHandler) handleBookSelection(c tele.Context, callbackData strin
 		logging.Errorf("Failed to respond to selection callback: %v", err)
 	}
 
-	messageText := fmt.Sprintf("📖 %s\nВыберите формат для скачивания:", book.Title)
-	if _, sendErr := c.Bot().Send(c.Chat(), messageText, markup, GetMainKeyboard()); sendErr != nil {
-		logging.Errorf("Failed to send download options for user %d: %v", telegramID, sendErr)
-		return nil
+	// Build message with book details
+	messageText := h.formatBookDetailsMessage(book)
+
+	// Try to get and send book cover
+	coverURL := h.getBookCoverURL(book)
+	if coverURL != "" && h.isCoverAvailable(coverURL) {
+		// Send photo with caption
+		photo := &tele.Photo{
+			File:    tele.FromURL(coverURL),
+			Caption: messageText,
+		}
+		if _, sendErr := c.Bot().Send(c.Chat(), photo, markup, &tele.SendOptions{ParseMode: tele.ModeHTML}, GetMainKeyboard()); sendErr != nil {
+			logging.Warnf("Failed to send photo for book %d, falling back to text: %v", bookID, sendErr)
+			// Fallback to text message
+			if _, sendErr := c.Bot().Send(c.Chat(), messageText, markup, &tele.SendOptions{ParseMode: tele.ModeHTML}, GetMainKeyboard()); sendErr != nil {
+				logging.Errorf("Failed to send download options for user %d: %v", telegramID, sendErr)
+				return nil
+			}
+		}
+	} else {
+		// No cover available, send text message
+		if _, sendErr := c.Bot().Send(c.Chat(), messageText, markup, &tele.SendOptions{ParseMode: tele.ModeHTML}, GetMainKeyboard()); sendErr != nil {
+			logging.Errorf("Failed to send download options for user %d: %v", telegramID, sendErr)
+			return nil
+		}
 	}
 
 	h.processOutgoingMessage(telegramID, messageText)
@@ -313,7 +334,7 @@ func (h *CallbackHandler) handleDownload(c tele.Context, callbackData string) er
 
 	if err := h.sendBookFile(c, book, format); err != nil {
 		logging.Errorf("Failed to send book %d in format %s: %v", bookID, format, err)
-		if _, sendErr := c.Bot().Send(c.Chat(), "Не удалось отправить книгу. Попробуйте другой формат или позже.", GetMainKeyboard()); sendErr != nil {
+		if _, sendErr := c.Bot().Send(c.Chat(), "Не удалось отправить книгу. Попробуйте другой формат или позже."); sendErr != nil {
 			logging.Errorf("Failed to send error message: %v", sendErr)
 		}
 	}
@@ -356,7 +377,7 @@ func (h *CallbackHandler) sendBookFile(c tele.Context, book models.Book, format 
 		Caption:  fmt.Sprintf("📖 %s", book.Title),
 	}
 
-	if _, err := c.Bot().Send(c.Chat(), doc); err != nil {
+	if _, err := c.Bot().Send(c.Chat(), doc, GetMainKeyboard()); err != nil {
 		return err
 	}
 
@@ -432,9 +453,8 @@ func (h *CallbackHandler) editMessageWithResult(c tele.Context, result *commands
 
 	if editErr := c.Edit(result.Message, sendOptions...); editErr != nil {
 		logging.Errorf("Failed to edit message for user %d: %v", telegramID, editErr)
-		// Add main keyboard when sending new message as fallback
-		sendOptionsWithKeyboard := append(sendOptions, GetMainKeyboard())
-		if _, sendErr := c.Bot().Send(c.Chat(), result.Message, sendOptionsWithKeyboard...); sendErr != nil {
+		// Send new message as fallback
+		if _, sendErr := c.Bot().Send(c.Chat(), result.Message, sendOptions...); sendErr != nil {
 			logging.Errorf("Failed to send new message after edit failure for user %d: %v", telegramID, sendErr)
 			return c.Respond(&tele.CallbackResponse{Text: "Error updating page"})
 		}
@@ -443,4 +463,76 @@ func (h *CallbackHandler) editMessageWithResult(c tele.Context, result *commands
 
 	logging.Infof("Successfully edited message for user %d", telegramID)
 	return nil
+}
+
+// formatBookDetailsMessage formats book details for display
+func (h *CallbackHandler) formatBookDetailsMessage(book models.Book) string {
+	var message strings.Builder
+
+	// Title (bold)
+	message.WriteString(fmt.Sprintf("<b>%s</b>\n\n", escapeHTML(book.Title)))
+
+	// Description if available
+	if book.Annotation != "" {
+		annotation := book.Annotation
+		// Limit annotation length to avoid too long messages
+		maxLength := 500
+		if len(annotation) > maxLength {
+			annotation = annotation[:maxLength] + "..."
+		}
+		message.WriteString(fmt.Sprintf("%s\n\n", escapeHTML(annotation)))
+	}
+
+	// Format selection prompt
+	message.WriteString("Выберите формат для скачивания:")
+
+	return message.String()
+}
+
+// getBookCoverURL returns the cover URL for a book
+func (h *CallbackHandler) getBookCoverURL(book models.Book) string {
+	cdn := viper.GetString("app.cdn")
+	if cdn == "" {
+		logging.Warn("CDN URL is not configured")
+		return ""
+	}
+
+	if !book.Cover {
+		return ""
+	}
+
+	// Build cover URL based on book path and filename
+	// Format: /books-posters/{path}/{filename}.jpg
+	coverURL := fmt.Sprintf("%s/books-posters/%s/%s.jpg",
+		cdn,
+		strings.ReplaceAll(book.Path, ".", "-"),
+		strings.ReplaceAll(book.FileName, ".", "-"))
+
+	return coverURL
+}
+
+// isCoverAvailable checks if the cover URL is accessible
+func (h *CallbackHandler) isCoverAvailable(coverURL string) bool {
+	if coverURL == "" {
+		return false
+	}
+
+	// Make a HEAD request to check if the cover exists
+	resp, err := http.Head(coverURL)
+	if err != nil {
+		logging.Debugf("Failed to check cover availability: %v", err)
+		return false
+	}
+	defer resp.Body.Close()
+
+	// Check if the response is successful (2xx status code)
+	return resp.StatusCode >= 200 && resp.StatusCode < 300
+}
+
+// escapeHTML escapes HTML special characters for Telegram
+func escapeHTML(text string) string {
+	text = strings.ReplaceAll(text, "&", "&amp;")
+	text = strings.ReplaceAll(text, "<", "&lt;")
+	text = strings.ReplaceAll(text, ">", "&gt;")
+	return text
 }

@@ -187,7 +187,7 @@ func PrivateChatMiddleware() tele.MiddlewareFunc {
 						ShowAlert: true,
 					})
 				}
-				return c.Send("Этот бот работает только в личных сообщениях. Пожалуйста, напишите мне напрямую.", GetMainKeyboard())
+				return c.Send("Этот бот работает только в личных сообщениях. Пожалуйста, напишите мне напрямую.")
 			}
 			return next(c)
 		}
@@ -240,7 +240,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
 				logging.Errorf("Failed to process outgoing message: %v", err)
 			}
-			return c.Send(response, GetMainKeyboard())
+			return c.Send(response)
 		}
 
 		var response string
@@ -274,7 +274,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
 				logging.Errorf("Failed to process outgoing message: %v", err)
 			}
-			return c.Send(response, GetMainKeyboard())
+			return c.Send(response)
 		}
 
 		response = "Welcome! Your account has been successfully linked to the library.\n\nUse the keyboard buttons below to interact with the library:"
@@ -294,7 +294,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
 				logging.Errorf("Failed to process outgoing message: %v", err)
 			}
-			return c.Send(response, GetMainKeyboard())
+			return c.Send(response)
 		}
 
 		response := fmt.Sprintf("📊 Context Stats:\n"+
@@ -315,7 +315,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
 			logging.Errorf("Failed to process outgoing message: %v", err)
 		}
-		return c.Send(response, GetMainKeyboard())
+		return c.Send(response)
 	}))
 
 	// Handler for /clear command to clear conversation context
@@ -328,14 +328,14 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
 				logging.Errorf("Failed to process outgoing message: %v", err)
 			}
-			return c.Send(response, GetMainKeyboard())
+			return c.Send(response)
 		}
 
 		response := "🗑️ Conversation context cleared successfully."
 		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
 			logging.Errorf("Failed to process outgoing message: %v", err)
 		}
-		return c.Send(response, GetMainKeyboard())
+		return c.Send(response)
 	}))
 
 	// Handler for /search command for book search
@@ -354,7 +354,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
 				logging.Errorf("Failed to process outgoing message: %v", err)
 			}
-			return c.Send(response, GetMainKeyboard())
+			return c.Send(response)
 		}
 
 		// Get conversation context for AI integration
@@ -390,7 +390,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
 				logging.Errorf("Failed to process outgoing message: %v", err)
 			}
-			return c.Send(response, GetMainKeyboard())
+			return c.Send(response)
 		}
 
 		// Direct search without LLM
@@ -419,7 +419,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
 				logging.Errorf("Failed to process outgoing message: %v", err)
 			}
-			return c.Send(response, GetMainKeyboard())
+			return c.Send(response)
 		}
 
 		// Direct search without LLM
@@ -448,7 +448,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
 				logging.Errorf("Failed to process outgoing message: %v", err)
 			}
-			return c.Send(response, GetMainKeyboard())
+			return c.Send(response)
 		}
 
 		// Parse author and title from query (format: "author: title" or "author - title")
@@ -458,7 +458,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
 				logging.Errorf("Failed to process outgoing message: %v", err)
 			}
-			return c.Send(response, GetMainKeyboard())
+			return c.Send(response)
 		}
 
 		// Direct search without LLM
@@ -617,7 +617,7 @@ func (b *Bot) handleCommandError(c tele.Context, conversationManager *Conversati
 	if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
 		logging.Errorf("Failed to process outgoing message: %v", err)
 	}
-	return c.Send(response, GetMainKeyboard())
+	return c.Send(response)
 }
 
 // validateUserLinked checks if user is linked to account and sends error if not
@@ -628,7 +628,7 @@ func (b *Bot) validateUserLinked(c tele.Context, conversationManager *Conversati
 		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
 			logging.Errorf("Failed to process outgoing message: %v", err)
 		}
-		return c.Send(response, GetMainKeyboard())
+		return c.Send(response)
 	}
 	return nil
 }
@@ -641,7 +641,7 @@ func (b *Bot) isPrivateChat(c tele.Context) bool {
 // sendPrivateChatWarning sends a warning that the bot only works in private chats
 func (b *Bot) sendPrivateChatWarning(c tele.Context) error {
 	response := "⚠️ Этот бот работает только в личных сообщениях. Пожалуйста, напишите мне напрямую."
-	return c.Send(response, GetMainKeyboard())
+	return c.Send(response)
 }
 
 // HandleWebhook handles incoming webhooks from Telegram
@@ -1056,7 +1056,7 @@ func (b *Bot) handleKeyboardCommand(c tele.Context, conversationManager *Convers
 		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
 			logging.Errorf("Failed to process outgoing message: %v", err)
 		}
-		return c.Send(response, GetMainKeyboard())
+		return c.Send(response)
 
 	case "/favorites":
 		// Execute favorites command directly (no state needed)
@@ -1078,7 +1078,7 @@ func (b *Bot) handleKeyboardCommand(c tele.Context, conversationManager *Convers
 		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
 			logging.Errorf("Failed to process outgoing message: %v", err)
 		}
-		return c.Send(response, GetMainKeyboard())
+		return c.Send(response)
 
 	case "/b":
 		// Set user state to waiting for book title
@@ -1091,7 +1091,7 @@ func (b *Bot) handleKeyboardCommand(c tele.Context, conversationManager *Convers
 		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
 			logging.Errorf("Failed to process outgoing message: %v", err)
 		}
-		return c.Send(response, GetMainKeyboard())
+		return c.Send(response)
 
 	default:
 		logging.Warnf("Unknown keyboard command: %s", command)
@@ -1099,7 +1099,8 @@ func (b *Bot) handleKeyboardCommand(c tele.Context, conversationManager *Convers
 	}
 }
 
-// processCommandResultWithKeyboard processes command result and always shows the main keyboard
+// processCommandResultWithKeyboard processes command result (keeping for backwards compatibility)
+// Note: Main keyboard is persistent and doesn't need to be re-sent
 func (b *Bot) processCommandResultWithKeyboard(c tele.Context, conversationManager *ConversationManager, result *commands.CommandResult, telegramID int64) error {
 	var sendOptions []interface{}
 
@@ -1107,9 +1108,6 @@ func (b *Bot) processCommandResultWithKeyboard(c tele.Context, conversationManag
 	if result.ReplyMarkup != nil {
 		sendOptions = append(sendOptions, result.ReplyMarkup)
 	}
-
-	// Always add the main keyboard
-	sendOptions = append(sendOptions, GetMainKeyboard())
 
 	// Add bot message to context
 	if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, result.Message); err != nil {

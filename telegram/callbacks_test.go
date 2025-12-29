@@ -1,12 +1,15 @@
 package telegram
 
 import (
+	"strings"
 	"testing"
 
 	"gopds-api/commands"
+	"gopds-api/models"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/go-redis/redis"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -244,6 +247,189 @@ func TestExecuteCombinedSearch_ParsesQueryCorrectly(t *testing.T) {
 			} else {
 				assert.NotContains(t, tt.query, " by ")
 			}
+		})
+	}
+}
+
+func TestFormatBookDetailsMessage(t *testing.T) {
+	cm, cleanup := setupCallbackTestEnv(t)
+	defer cleanup()
+
+	handler := &CallbackHandler{
+		conversationManager: cm,
+	}
+
+	tests := []struct {
+		name     string
+		book     models.Book
+		contains []string
+	}{
+		{
+			name: "book with title and annotation",
+			book: models.Book{
+				Title:      "Test Book",
+				Annotation: "This is a test book description.",
+			},
+			contains: []string{
+				"<b>Test Book</b>",
+				"This is a test book description.",
+				"Выберите формат для скачивания:",
+			},
+		},
+		{
+			name: "book with title only",
+			book: models.Book{
+				Title:      "Another Book",
+				Annotation: "",
+			},
+			contains: []string{
+				"<b>Another Book</b>",
+				"Выберите формат для скачивания:",
+			},
+		},
+		{
+			name: "book with long annotation",
+			book: models.Book{
+				Title:      "Long Description Book",
+				Annotation: strings.Repeat("A", 600), // Longer than 500 chars
+			},
+			contains: []string{
+				"<b>Long Description Book</b>",
+				"...", // Should be truncated
+			},
+		},
+		{
+			name: "book with HTML characters in title",
+			book: models.Book{
+				Title:      "Book with <HTML> & special chars",
+				Annotation: "Description with <tags> & symbols",
+			},
+			contains: []string{
+				"&lt;HTML&gt;",
+				"&amp;",
+				"&lt;tags&gt;",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := handler.formatBookDetailsMessage(tt.book)
+
+			for _, substr := range tt.contains {
+				assert.Contains(t, result, substr, "Message should contain: %s", substr)
+			}
+		})
+	}
+}
+
+func TestGetBookCoverURL(t *testing.T) {
+	cm, cleanup := setupCallbackTestEnv(t)
+	defer cleanup()
+
+	handler := &CallbackHandler{
+		conversationManager: cm,
+	}
+
+	// Save original viper value and restore after test
+	originalCDN := viper.GetString("app.cdn")
+	defer viper.Set("app.cdn", originalCDN)
+
+	tests := []struct {
+		name     string
+		cdn      string
+		book     models.Book
+		expected string
+	}{
+		{
+			name: "book with cover",
+			cdn:  "https://example.com",
+			book: models.Book{
+				Cover:    true,
+				Path:     "/path/to/book",
+				FileName: "book.fb2",
+			},
+			expected: "https://example.com/books-posters//path/to/book/book-fb2.jpg",
+		},
+		{
+			name: "book without cover",
+			cdn:  "https://example.com",
+			book: models.Book{
+				Cover:    false,
+				Path:     "/path/to/book",
+				FileName: "book.fb2",
+			},
+			expected: "",
+		},
+		{
+			name: "no cdn configured",
+			cdn:  "",
+			book: models.Book{
+				Cover:    true,
+				Path:     "/path/to/book",
+				FileName: "book.fb2",
+			},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			viper.Set("app.cdn", tt.cdn)
+
+			result := handler.getBookCoverURL(tt.book)
+
+			if tt.expected == "" {
+				assert.Empty(t, result)
+			} else {
+				assert.Equal(t, tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestEscapeHTML(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "no special characters",
+			input:    "Hello World",
+			expected: "Hello World",
+		},
+		{
+			name:     "ampersand",
+			input:    "Tom & Jerry",
+			expected: "Tom &amp; Jerry",
+		},
+		{
+			name:     "less than and greater than",
+			input:    "<div>content</div>",
+			expected: "&lt;div&gt;content&lt;/div&gt;",
+		},
+		{
+			name:     "all special characters",
+			input:    "A & B < C > D",
+			expected: "A &amp; B &lt; C &gt; D",
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "multiple occurrences",
+			input:    "<<&&>>",
+			expected: "&lt;&lt;&amp;&amp;&gt;&gt;",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := escapeHTML(tt.input)
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
