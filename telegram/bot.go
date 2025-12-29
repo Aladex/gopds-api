@@ -252,11 +252,11 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 				return nil
 			}
 			// This is the bot owner
-			response = "You are already linked to the library account!"
+			response = "You are already linked to the library account!\n\nUse the keyboard buttons below to interact with the library:"
 			if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
 				logging.Errorf("Failed to process outgoing message: %v", err)
 			}
-			return c.Send(response)
+			return c.Send(response, GetMainKeyboard())
 		}
 
 		// Check if this telegram_id is linked to another account
@@ -277,11 +277,11 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 			return c.Send(response)
 		}
 
-		response = "Welcome! Your account has been successfully linked to the library."
+		response = "Welcome! Your account has been successfully linked to the library.\n\nUse the keyboard buttons below to interact with the library:"
 		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
 			logging.Errorf("Failed to process outgoing message: %v", err)
 		}
-		return c.Send(response)
+		return c.Send(response, GetMainKeyboard())
 	})
 
 	// Handler for /context command to show current conversation context
@@ -497,6 +497,12 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 		// Validate user is linked
 		if err := b.validateUserLinked(c, conversationManager, telegramID); err != nil {
 			return err
+		}
+
+		// Check if this is a keyboard button press
+		if command, isKeyboardButton := GetCommandFromButtonText(c.Text()); isKeyboardButton {
+			logging.Infof("Keyboard button pressed by user %d: %s -> %s", telegramID, c.Text(), command)
+			return b.handleKeyboardCommand(c, conversationManager, command, telegramID)
 		}
 
 		// Get conversation context for LLM processing
@@ -986,6 +992,75 @@ func (b *Bot) registerCommands() error {
 		logging.Errorf("Timeout registering commands for user %d", b.userID)
 		return fmt.Errorf("timeout registering commands")
 	}
+}
+
+// handleKeyboardCommand handles commands triggered by keyboard buttons
+func (b *Bot) handleKeyboardCommand(c tele.Context, conversationManager *ConversationManager, command string, telegramID int64) error {
+	switch command {
+	case "/search":
+		// Ask user for search query
+		response := "🔍 Please enter your search query (book title or author name):"
+		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+			logging.Errorf("Failed to process outgoing message: %v", err)
+		}
+		return c.Send(response, GetMainKeyboard())
+
+	case "/favorites":
+		// Execute favorites command directly
+		processor := commands.NewCommandProcessor()
+		result, err := processor.ExecuteShowFavorites(telegramID, 0, 5)
+		if err != nil {
+			return b.handleCommandError(c, conversationManager, telegramID, "show favorites", err)
+		}
+		return b.processCommandResultWithKeyboard(c, conversationManager, result, telegramID)
+
+	case "/a":
+		// Ask user for author name
+		response := "👤 Please enter the author name:\nExample: Толстой"
+		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+			logging.Errorf("Failed to process outgoing message: %v", err)
+		}
+		return c.Send(response, GetMainKeyboard())
+
+	case "/b":
+		// Ask user for book title
+		response := "📚 Please enter the book title:\nExample: Война и мир"
+		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+			logging.Errorf("Failed to process outgoing message: %v", err)
+		}
+		return c.Send(response, GetMainKeyboard())
+
+	default:
+		logging.Warnf("Unknown keyboard command: %s", command)
+		return nil
+	}
+}
+
+// processCommandResultWithKeyboard processes command result and always shows the main keyboard
+func (b *Bot) processCommandResultWithKeyboard(c tele.Context, conversationManager *ConversationManager, result *commands.CommandResult, telegramID int64) error {
+	var sendOptions []interface{}
+
+	// Add inline markup if present (for pagination, etc.)
+	if result.ReplyMarkup != nil {
+		sendOptions = append(sendOptions, result.ReplyMarkup)
+	}
+
+	// Always add the main keyboard
+	sendOptions = append(sendOptions, GetMainKeyboard())
+
+	// Add bot message to context
+	if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, result.Message); err != nil {
+		logging.Errorf("Failed to process outgoing message: %v", err)
+	}
+
+	// Update search params in context if available
+	if result.SearchParams != nil {
+		if err := conversationManager.UpdateSearchParams(b.token, telegramID, result.SearchParams); err != nil {
+			logging.Errorf("Failed to update search params in context: %v", err)
+		}
+	}
+
+	return c.Send(result.Message, sendOptions...)
 }
 
 // parseAuthorTitle parses author and title from query string
