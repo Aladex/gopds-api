@@ -213,7 +213,9 @@ func (h *CallbackHandler) handleAuthorSelection(c tele.Context, callbackData str
 
 	if editErr := c.Edit(result.Message, sendOptions...); editErr != nil {
 		logging.Errorf("Failed to edit message for user %d: %v", telegramID, editErr)
-		if _, sendErr := c.Bot().Send(c.Chat(), result.Message, sendOptions...); sendErr != nil {
+		// Add main keyboard when sending new message as fallback
+		sendOptionsWithKeyboard := append(sendOptions, GetMainKeyboard())
+		if _, sendErr := c.Bot().Send(c.Chat(), result.Message, sendOptionsWithKeyboard...); sendErr != nil {
 			logging.Errorf("Failed to send new message after edit failure for user %d: %v", telegramID, sendErr)
 		}
 		return nil
@@ -258,7 +260,7 @@ func (h *CallbackHandler) handleBookSelection(c tele.Context, callbackData strin
 	}
 
 	messageText := fmt.Sprintf("📖 %s\nВыберите формат для скачивания:", book.Title)
-	if _, sendErr := c.Bot().Send(c.Chat(), messageText, markup); sendErr != nil {
+	if _, sendErr := c.Bot().Send(c.Chat(), messageText, markup, GetMainKeyboard()); sendErr != nil {
 		logging.Errorf("Failed to send download options for user %d: %v", telegramID, sendErr)
 		return nil
 	}
@@ -311,7 +313,7 @@ func (h *CallbackHandler) handleDownload(c tele.Context, callbackData string) er
 
 	if err := h.sendBookFile(c, book, format); err != nil {
 		logging.Errorf("Failed to send book %d in format %s: %v", bookID, format, err)
-		if _, sendErr := c.Bot().Send(c.Chat(), "Не удалось отправить книгу. Попробуйте другой формат или позже."); sendErr != nil {
+		if _, sendErr := c.Bot().Send(c.Chat(), "Не удалось отправить книгу. Попробуйте другой формат или позже.", GetMainKeyboard()); sendErr != nil {
 			logging.Errorf("Failed to send error message: %v", sendErr)
 		}
 	}
@@ -430,7 +432,9 @@ func (h *CallbackHandler) editMessageWithResult(c tele.Context, result *commands
 
 	if editErr := c.Edit(result.Message, sendOptions...); editErr != nil {
 		logging.Errorf("Failed to edit message for user %d: %v", telegramID, editErr)
-		if _, sendErr := c.Bot().Send(c.Chat(), result.Message, sendOptions...); sendErr != nil {
+		// Add main keyboard when sending new message as fallback
+		sendOptionsWithKeyboard := append(sendOptions, GetMainKeyboard())
+		if _, sendErr := c.Bot().Send(c.Chat(), result.Message, sendOptionsWithKeyboard...); sendErr != nil {
 			logging.Errorf("Failed to send new message after edit failure for user %d: %v", telegramID, sendErr)
 			return c.Respond(&tele.CallbackResponse{Text: "Error updating page"})
 		}

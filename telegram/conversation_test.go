@@ -510,3 +510,186 @@ func TestCalculateContextLength_EmptyContext(t *testing.T) {
 	length := cm.calculateContextLength(ctx)
 	assert.Equal(t, 0, length)
 }
+
+func TestSetUserState(t *testing.T) {
+	redisClient, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	cm := NewConversationManager(redisClient)
+	botToken := "test-token"
+	userID := int64(12345)
+
+	err := cm.SetUserState(botToken, userID, "waiting_for_search")
+	require.NoError(t, err)
+
+	state, err := cm.GetUserState(botToken, userID)
+	require.NoError(t, err)
+
+	assert.Equal(t, "waiting_for_search", state)
+}
+
+func TestGetUserState_NoState(t *testing.T) {
+	redisClient, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	cm := NewConversationManager(redisClient)
+	botToken := "test-token"
+	userID := int64(12345)
+
+	state, err := cm.GetUserState(botToken, userID)
+	require.NoError(t, err)
+
+	assert.Empty(t, state)
+}
+
+func TestClearUserState(t *testing.T) {
+	redisClient, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	cm := NewConversationManager(redisClient)
+	botToken := "test-token"
+	userID := int64(12345)
+
+	// Set state
+	err := cm.SetUserState(botToken, userID, "waiting_for_author")
+	require.NoError(t, err)
+
+	// Clear state
+	err = cm.ClearUserState(botToken, userID)
+	require.NoError(t, err)
+
+	// Verify state is cleared
+	state, err := cm.GetUserState(botToken, userID)
+	require.NoError(t, err)
+	assert.Empty(t, state)
+}
+
+func TestSetUserState_EmptyStateClearsState(t *testing.T) {
+	redisClient, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	cm := NewConversationManager(redisClient)
+	botToken := "test-token"
+	userID := int64(12345)
+
+	// Set state
+	err := cm.SetUserState(botToken, userID, "waiting_for_book")
+	require.NoError(t, err)
+
+	// Set empty state (should clear it)
+	err = cm.SetUserState(botToken, userID, "")
+	require.NoError(t, err)
+
+	// Verify state is cleared
+	state, err := cm.GetUserState(botToken, userID)
+	require.NoError(t, err)
+	assert.Empty(t, state)
+}
+
+func TestUserState_AllStates(t *testing.T) {
+	redisClient, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	cm := NewConversationManager(redisClient)
+	botToken := "test-token"
+	userID := int64(12345)
+
+	states := []string{
+		"waiting_for_search",
+		"waiting_for_author",
+		"waiting_for_book",
+	}
+
+	for _, expectedState := range states {
+		err := cm.SetUserState(botToken, userID, expectedState)
+		require.NoError(t, err)
+
+		actualState, err := cm.GetUserState(botToken, userID)
+		require.NoError(t, err)
+		assert.Equal(t, expectedState, actualState)
+	}
+}
+
+func TestUserState_IsolatedForDifferentUsers(t *testing.T) {
+	redisClient, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	cm := NewConversationManager(redisClient)
+	botToken := "test-token"
+
+	// Set different states for different users
+	err := cm.SetUserState(botToken, 111, "waiting_for_search")
+	require.NoError(t, err)
+
+	err = cm.SetUserState(botToken, 222, "waiting_for_author")
+	require.NoError(t, err)
+
+	// Verify states are isolated
+	state1, err := cm.GetUserState(botToken, 111)
+	require.NoError(t, err)
+	assert.Equal(t, "waiting_for_search", state1)
+
+	state2, err := cm.GetUserState(botToken, 222)
+	require.NoError(t, err)
+	assert.Equal(t, "waiting_for_author", state2)
+}
+
+func TestUserState_IsolatedForDifferentBots(t *testing.T) {
+	redisClient, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	cm := NewConversationManager(redisClient)
+	userID := int64(12345)
+
+	// Set different states for different bots
+	err := cm.SetUserState("token-bot-1", userID, "waiting_for_search")
+	require.NoError(t, err)
+
+	err = cm.SetUserState("token-bot-2", userID, "waiting_for_book")
+	require.NoError(t, err)
+
+	// Verify states are isolated
+	state1, err := cm.GetUserState("token-bot-1", userID)
+	require.NoError(t, err)
+	assert.Equal(t, "waiting_for_search", state1)
+
+	state2, err := cm.GetUserState("token-bot-2", userID)
+	require.NoError(t, err)
+	assert.Equal(t, "waiting_for_book", state2)
+}
+
+func TestUserState_OverwritesPrevious(t *testing.T) {
+	redisClient, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	cm := NewConversationManager(redisClient)
+	botToken := "test-token"
+	userID := int64(12345)
+
+	// Set initial state
+	err := cm.SetUserState(botToken, userID, "waiting_for_search")
+	require.NoError(t, err)
+
+	// Overwrite with new state
+	err = cm.SetUserState(botToken, userID, "waiting_for_author")
+	require.NoError(t, err)
+
+	// Verify new state
+	state, err := cm.GetUserState(botToken, userID)
+	require.NoError(t, err)
+	assert.Equal(t, "waiting_for_author", state)
+}
+
+func TestGetUserStateKey(t *testing.T) {
+	redisClient, cleanup := setupTestRedis(t)
+	defer cleanup()
+
+	cm := NewConversationManager(redisClient)
+
+	key := cm.getUserStateKey("test-token", 12345)
+
+	assert.Contains(t, key, UserStateKeyPrefix)
+	assert.Contains(t, key, ":12345")
+	// Should not contain raw token
+	assert.NotContains(t, key, "test-token")
+}

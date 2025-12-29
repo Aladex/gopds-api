@@ -19,8 +19,12 @@ const (
 	MaxContextLength = 4096
 	// ConversationKeyPrefix Prefix for Redis keys
 	ConversationKeyPrefix = "telegram_conversation:"
+	// UserStateKeyPrefix Prefix for user state Redis keys
+	UserStateKeyPrefix = "telegram_user_state:"
 	// ConversationTTL TTL for context (7 days)
 	ConversationTTL = 7 * 24 * time.Hour
+	// UserStateTTL TTL for user state (1 hour)
+	UserStateTTL = 1 * time.Hour
 )
 
 // ConversationManager manages the conversation context with users
@@ -282,4 +286,58 @@ func (cm *ConversationManager) getRedisKey(botToken string, userID int64) string
 func hashToken(token string) string {
 	hash := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(hash[:])[:16] // Use first 16 chars for brevity
+}
+
+// SetUserState saves the user state to Redis
+// State can be: "waiting_for_search", "waiting_for_author", "waiting_for_book", or "" (empty)
+func (cm *ConversationManager) SetUserState(botToken string, userID int64, state string) error {
+	key := cm.getUserStateKey(botToken, userID)
+
+	if state == "" {
+		// Empty state means clear it
+		return cm.ClearUserState(botToken, userID)
+	}
+
+	err := cm.redisClient.Set(key, state, UserStateTTL).Err()
+	if err != nil {
+		return fmt.Errorf("failed to save user state to Redis: %v", err)
+	}
+
+	logging.Infof("Set user state for user %d: %s", userID, state)
+	return nil
+}
+
+// GetUserState retrieves the user state from Redis
+// Returns empty string if no state is set
+func (cm *ConversationManager) GetUserState(botToken string, userID int64) (string, error) {
+	key := cm.getUserStateKey(botToken, userID)
+
+	state, err := cm.redisClient.Get(key).Result()
+	if err == redis.Nil {
+		// No state set, return empty string
+		return "", nil
+	} else if err != nil {
+		return "", fmt.Errorf("failed to get user state from Redis: %v", err)
+	}
+
+	return state, nil
+}
+
+// ClearUserState clears the user state from Redis
+func (cm *ConversationManager) ClearUserState(botToken string, userID int64) error {
+	key := cm.getUserStateKey(botToken, userID)
+
+	err := cm.redisClient.Del(key).Err()
+	if err != nil && err != redis.Nil {
+		return fmt.Errorf("failed to clear user state: %v", err)
+	}
+
+	logging.Infof("Cleared user state for user %d", userID)
+	return nil
+}
+
+// getUserStateKey generates a Redis key for user state
+func (cm *ConversationManager) getUserStateKey(botToken string, userID int64) string {
+	tokenHash := hashToken(botToken)
+	return fmt.Sprintf("%s%s:%d", UserStateKeyPrefix, tokenHash, userID)
 }
