@@ -28,7 +28,7 @@ import {fetchWithAuth} from '../../api/config';
 import {useTranslation} from 'react-i18next';
 import {Logout, Menu as MenuIcon, Person, VolunteerActivism} from "@mui/icons-material";
 import {StyledTextField} from "../StyledDataItems";
-import {useCommonStyles} from "../themeStyles";
+import {buttonLinkSx} from "../commonStyles";
 import {useFav} from "../../context/FavContext";
 import { useSearchBar } from "../../context/SearchBarContext";
 import { getLanguageDisplaySafe, languageMapping } from "../../utils/languageUtils";
@@ -37,7 +37,6 @@ import DonateModal from "./DonateModal";
 const Header: React.FC = () => {
     const {logout, updateUser, user, updateLang} = useAuth();
     const navigate = useNavigate();
-    const classes = useCommonStyles();
     const theme = useTheme();
     const {t, i18n} = useTranslation();
     const [value, setValue] = useState(0);
@@ -481,12 +480,16 @@ const Header: React.FC = () => {
                 <DialogTitle>{(t('userInfo'))}</DialogTitle>
                 <DialogContent>
                     <Box display="flex" justifyContent="space-between" marginBottom={2}>
-                        <React.Fragment><button className={classes.buttonLink} onClick={togglePasswordFields}>
-                            {(t('changePassword'))}
-                        </button></React.Fragment>
-                        <React.Fragment><button className={classes.buttonLink} onClick={handleDropSessions}>
-                            {(t('dropSessions'))}
-                        </button></React.Fragment>
+                        <React.Fragment>
+                            <Box component="button" onClick={togglePasswordFields} sx={buttonLinkSx}>
+                                {(t('changePassword'))}
+                            </Box>
+                        </React.Fragment>
+                        <React.Fragment>
+                            <Box component="button" onClick={handleDropSessions} sx={buttonLinkSx}>
+                                {(t('dropSessions'))}
+                            </Box>
+                        </React.Fragment>
                     </Box>
                     {showPasswordFields && (
                         <>

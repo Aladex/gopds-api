@@ -14,7 +14,7 @@ import {
     TableBody,
     Paper,
     TableSortLabel,
-    Grid,
+    Stack,
     Checkbox,
     FormControlLabel, Button, DialogActions
 } from '@mui/material';
@@ -25,7 +25,7 @@ import { fetchWithAuth } from "../../api/config";
 import { formatDate } from "../../utils";
 import BookPagination from "../common/BookPagination";
 import { useTranslation } from 'react-i18next';
-import {useCommonStyles} from "../themeStyles";
+import {buttonLinkSx} from "../commonStyles";
 import {StyledTextField} from "../StyledDataItems";
 import {styled} from "@mui/material/styles";
 import CheckBoxIcon from '@mui/icons-material/CheckBox';
@@ -42,7 +42,6 @@ const UsersTable: React.FC = () => {
     const { t } = useTranslation();
     const [dialogOpen, setDialogOpen] = useState<boolean>(false);
     const [selectedUser, setSelectedUser] = useState<any>(null);
-    const classes = useCommonStyles();
     const [firstName, setFirstName] = useState<string>('');
     const [newPassword, setNewPassword] = useState<string>('');
     const [email, setEmail] = useState<string>('');
@@ -224,7 +223,9 @@ const UsersTable: React.FC = () => {
                 <DialogContent>
                     {selectedUser && (
                         <Box>
-                            <React.Fragment><button className={classes.buttonLink}>ID: {selectedUser.id}</button></React.Fragment>
+                            <React.Fragment>
+                                <Box component="span" sx={buttonLinkSx}>ID: {selectedUser.id}</Box>
+                            </React.Fragment>
                             <StyledTextField
                                 autoFocus
                                 margin="dense"
@@ -312,9 +313,9 @@ const UsersTable: React.FC = () => {
                     <Button color={"secondary"} onClick={handleUserChange}>{'Save'}</Button>
                 </DialogActions>
             </Dialog>
-            <Grid container spacing={3} justifyContent="center" sx={{ marginTop: 2 }}>
+            <Stack spacing={3} justifyContent="center" sx={{ marginTop: 2 }}>
                 <BookPagination totalPages={totalPages} currentPage={parseInt(page as string)} baseUrl={location.pathname} />
-            </Grid>
+            </Stack>
         </Box>
     );
 };

@@ -1,10 +1,10 @@
 import React from 'react';
-import {Typography} from '@mui/material';
+import {Typography, Box} from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useSearchBar } from '../../context/SearchBarContext';
 import { useAuthor} from "../../context/AuthorContext";
-import { useCommonStyles } from '../themeStyles';
+import { buttonLinkSx } from '../commonStyles';
 import {useFav} from "../../context/FavContext";
 
 interface Author {
@@ -17,7 +17,6 @@ interface AuthorsListProps {
 }
 
 const AuthorsList: React.FC<AuthorsListProps> = ({authors}) => {
-    const classes = useCommonStyles();
     const navigate = useNavigate();
     const { setSearchItem } = useSearchBar();
     const { t } = useTranslation();
@@ -39,9 +38,9 @@ const AuthorsList: React.FC<AuthorsListProps> = ({authors}) => {
                     authors.map((author: Author) => (
                         <React.Fragment key={author.id}>
                             <span> &#8226; </span>
-                            <button onClick={() => navigateToAuthor(author.id)} className={classes.buttonLink}>
+                            <Box component="button" onClick={() => navigateToAuthor(author.id)} sx={buttonLinkSx}>
                                 {author.full_name}
-                            </button>
+                            </Box>
                         </React.Fragment>
                     ))
                 ) : (

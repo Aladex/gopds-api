@@ -1,9 +1,9 @@
 import React from 'react';
-import { Typography } from '@mui/material';
+import { Typography, Box } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useSearchBar } from '../../context/SearchBarContext';
-import { useCommonStyles } from '../themeStyles';
+import { buttonLinkSx } from '../commonStyles';
 import {useFav} from "../../context/FavContext";
 
 interface Category {
@@ -17,7 +17,6 @@ interface CategoriesListProps {
 }
 
 const CategoriesList: React.FC<CategoriesListProps> = ({ categories }) => {
-    const classes = useCommonStyles();
     const navigate = useNavigate();
     const { setSearchItem } = useSearchBar();
     const { t } = useTranslation();
@@ -40,9 +39,9 @@ const CategoriesList: React.FC<CategoriesListProps> = ({ categories }) => {
                 {categories.map((category: Category) => (
                     <React.Fragment key={category.id}>
                         <span> &#8226; </span>
-                        <button onClick={() => navigateToCategory(category.id)} className={classes.buttonLink}>
+                        <Box component="button" onClick={() => navigateToCategory(category.id)} sx={buttonLinkSx}>
                             {category.ser}
-                        </button>
+                        </Box>
                     </React.Fragment>
                 ))}
             </Typography>
