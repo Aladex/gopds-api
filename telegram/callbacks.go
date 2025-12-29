@@ -265,22 +265,22 @@ func (h *CallbackHandler) handleBookSelection(c tele.Context, callbackData strin
 	// Try to get and send book cover
 	coverURL := h.getBookCoverURL(book)
 	if coverURL != "" && h.isCoverAvailable(coverURL) {
-		// Send photo with caption
+		// Send photo with caption and inline keyboard
 		photo := &tele.Photo{
 			File:    tele.FromURL(coverURL),
 			Caption: messageText,
 		}
-		if _, sendErr := c.Bot().Send(c.Chat(), photo, markup, &tele.SendOptions{ParseMode: tele.ModeHTML}, GetMainKeyboard()); sendErr != nil {
+		if _, sendErr := c.Bot().Send(c.Chat(), photo, markup, &tele.SendOptions{ParseMode: tele.ModeHTML}); sendErr != nil {
 			logging.Warnf("Failed to send photo for book %d, falling back to text: %v", bookID, sendErr)
 			// Fallback to text message
-			if _, sendErr := c.Bot().Send(c.Chat(), messageText, markup, &tele.SendOptions{ParseMode: tele.ModeHTML}, GetMainKeyboard()); sendErr != nil {
+			if _, sendErr := c.Bot().Send(c.Chat(), messageText, markup, &tele.SendOptions{ParseMode: tele.ModeHTML}); sendErr != nil {
 				logging.Errorf("Failed to send download options for user %d: %v", telegramID, sendErr)
 				return nil
 			}
 		}
 	} else {
 		// No cover available, send text message
-		if _, sendErr := c.Bot().Send(c.Chat(), messageText, markup, &tele.SendOptions{ParseMode: tele.ModeHTML}, GetMainKeyboard()); sendErr != nil {
+		if _, sendErr := c.Bot().Send(c.Chat(), messageText, markup, &tele.SendOptions{ParseMode: tele.ModeHTML}); sendErr != nil {
 			logging.Errorf("Failed to send download options for user %d: %v", telegramID, sendErr)
 			return nil
 		}
