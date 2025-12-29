@@ -91,10 +91,13 @@ func (cp *CommandProcessor) executeFindBookWithPagination(title string, userID i
 		}, nil
 	}
 
-	// Get user's language preference
+	// Get user's language preference and internal ID
 	user, err := database.GetUserByTelegramID(userID)
 	if err != nil {
 		logging.Warnf("Failed to get user language preference for user %d: %v", userID, err)
+		return &CommandResult{
+			Message: "Не удалось найти пользователя. Перепривяжите Telegram в настройках.",
+		}, nil
 	}
 
 	// Create filters for book search with pagination and user's language preference
@@ -111,7 +114,7 @@ func (cp *CommandProcessor) executeFindBookWithPagination(title string, userID i
 	}
 
 	// Search for books using the existing database function
-	books, totalCount, err := database.GetBooksEnhanced(userID, filters)
+	books, totalCount, err := database.GetBooksEnhanced(user.ID, filters)
 	if err != nil {
 		logging.Errorf("Failed to search books: %v", err)
 		return &CommandResult{
@@ -224,10 +227,13 @@ func (cp *CommandProcessor) executeFindAuthorWithPagination(author string, offse
 
 // ExecuteFindAuthorBooksWithPagination executes a search for books by specific author ID with pagination
 func (cp *CommandProcessor) ExecuteFindAuthorBooksWithPagination(authorID int64, authorName string, userID int64, offset, limit int) (*CommandResult, error) {
-	// Get user's language preference
+	// Get user's language preference and internal ID
 	user, err := database.GetUserByTelegramID(userID)
 	if err != nil {
 		logging.Warnf("Failed to get user language preference for user %d: %v", userID, err)
+		return &CommandResult{
+			Message: "Не удалось найти пользователя. Перепривяжите Telegram в настройках.",
+		}, nil
 	}
 
 	// Create filters for author books search with pagination and user's language preference
@@ -244,7 +250,7 @@ func (cp *CommandProcessor) ExecuteFindAuthorBooksWithPagination(authorID int64,
 	}
 
 	// Search for books using the existing database function
-	books, totalCount, err := database.GetBooksEnhanced(userID, filters)
+	books, totalCount, err := database.GetBooksEnhanced(user.ID, filters)
 	if err != nil {
 		logging.Errorf("Failed to search books by author ID %d: %v", authorID, err)
 		return &CommandResult{
@@ -337,10 +343,13 @@ func (cp *CommandProcessor) executeFindBookWithAuthorWithPagination(title, autho
 		}, nil
 	}
 
-	// Get user's language preference
+	// Get user's language preference and internal ID
 	user, err := database.GetUserByTelegramID(userID)
 	if err != nil {
 		logging.Warnf("Failed to get user language preference for user %d: %v", userID, err)
+		return &CommandResult{
+			Message: "Не удалось найти пользователя. Перепривяжите Telegram в настройках.",
+		}, nil
 	}
 
 	// Step 1: Search by title first to get candidate books
@@ -361,7 +370,7 @@ func (cp *CommandProcessor) executeFindBookWithAuthorWithPagination(title, autho
 		}
 
 		// Search for books using the existing database function
-		books, _, err := database.GetBooksEnhanced(userID, filters)
+		books, _, err := database.GetBooksEnhanced(user.ID, filters)
 		if err != nil {
 			logging.Errorf("Failed to search books for combined search: %v", err)
 			return &CommandResult{
@@ -865,6 +874,14 @@ func (cp *CommandProcessor) createUnknownResponse() *CommandResult {
 
 // ExecuteShowFavorites shows user's favorite books with pagination
 func (cp *CommandProcessor) ExecuteShowFavorites(userID int64, offset, limit int) (*CommandResult, error) {
+	user, err := database.GetUserByTelegramID(userID)
+	if err != nil {
+		logging.Warnf("Failed to get user for favorites %d: %v", userID, err)
+		return &CommandResult{
+			Message: "Не удалось найти пользователя. Перепривяжите Telegram в настройках.",
+		}, nil
+	}
+
 	// Get user's favorite books using the Fav filter
 	filters := models.BookFilters{
 		Fav:    true,
@@ -872,7 +889,7 @@ func (cp *CommandProcessor) ExecuteShowFavorites(userID int64, offset, limit int
 		Offset: offset,
 	}
 
-	books, totalCount, err := database.GetBooksEnhanced(userID, filters)
+	books, totalCount, err := database.GetBooksEnhanced(user.ID, filters)
 	if err != nil {
 		logging.Errorf("Failed to get favorite books for user %d: %v", userID, err)
 		return &CommandResult{

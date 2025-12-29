@@ -262,8 +262,14 @@ func applyNonTitleFilters(query *orm.Query, filters models.BookFilters, userID i
 			Where("user_id = ?", userID).
 			Order("id ASC").
 			Select(&booksIds)
-		if err == nil && len(booksIds) > 0 {
+		if err != nil {
+			logging.Warnf("Failed to load favorites for user %d: %v", userID, err)
+			return query.Where("1 = 0")
+		}
+		if len(booksIds) > 0 {
 			query = query.WhereIn("book.id IN (?)", booksIds)
+		} else {
+			return query.Where("1 = 0")
 		}
 	}
 
