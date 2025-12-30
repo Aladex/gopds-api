@@ -1,4 +1,4 @@
-import { Box, Card, Grid } from '@mui/material';
+import { Box, Card } from '@mui/material';
 import LinearProgress from '@mui/material/LinearProgress';
 
 function LinearIndeterminate() {
@@ -13,9 +13,9 @@ const SkeletonCard: React.FC = () => {
     return (
         // Margin top and bottom 2
         <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
-                <Grid item xs={12} md={12}>
-                    <LinearIndeterminate />
-                </Grid>
+            <Box sx={{ width: '100%' }}>
+                <LinearIndeterminate />
+            </Box>
         </Card>
     );
 };

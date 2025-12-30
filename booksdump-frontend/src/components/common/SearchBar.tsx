@@ -1,7 +1,7 @@
 import React from 'react';
 import {
     Box,
-    Grid,
+    Stack,
     Card,
     CardContent,
     Button,
@@ -69,15 +69,17 @@ const SearchBar: React.FC = () => {
     };
 
     return (
-        <Grid container justifyContent="center" spacing={4}>
-            <Grid item xs={12}>
-                <Box maxWidth={1200} mx="auto">
-                    <Card sx={{ boxShadow: 2, p: 1, my: 1 }}>
-                        <CardContent>
-                            <Grid container spacing={2} justifyContent="start">
-                                <Grid item xs={12} lg={9}>
-                                    <Grid container spacing={2}>
-                                        <Grid item xs={12} lg={4}>
+        <Box maxWidth={1200} mx="auto">
+            <Card sx={{ boxShadow: 2, p: 1, my: 1 }}>
+                <CardContent>
+                    <Stack
+                        direction={{ xs: 'column', lg: 'row' }}
+                        spacing={2}
+                        alignItems={{ xs: 'stretch', lg: 'flex-start' }}
+                    >
+                        <Box sx={{ flex: { xs: 1, lg: 3 } }}>
+                            <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2}>
+                                <Box sx={{ flex: { xs: 1, lg: 1 } }}>
                                             <StyledFormControl
                                                 fullWidth
                                                 sx={{
@@ -115,82 +117,85 @@ const SearchBar: React.FC = () => {
                                                     ))}
                                                 </Select>
                                             </StyledFormControl>
-                                        </Grid>
-                                        <Grid item xs={12} lg={8}>
-                                            <AutocompleteSearch
-                                                value={searchItem}
-                                                onChange={setSearchItem}
-                                                searchType={selectedSearch}
-                                                disabled={fav}
-                                                onEnterPressed={navigateToSearchResults}
-                                                placeholder={t('searchItem')}
-                                            />
-                                        </Grid>
-                                    </Grid>
-                                </Grid>
+                                </Box>
+                                <Box sx={{ flex: { xs: 1, lg: 2 } }}>
+                                    <AutocompleteSearch
+                                        value={searchItem}
+                                        onChange={setSearchItem}
+                                        searchType={selectedSearch}
+                                        disabled={fav}
+                                        onEnterPressed={navigateToSearchResults}
+                                        placeholder={t('searchItem')}
+                                    />
+                                </Box>
+                            </Stack>
+                        </Box>
 
-                                <Grid item xs={12} lg={3}>
-                                    <Grid container spacing={1} alignItems="center">
-                                        <Grid item xs={8} lg={6}>
-                                            <Button
+                        <Box sx={{ flex: { xs: 1, lg: 1 } }}>
+                            <Stack direction="row" spacing={1} alignItems="center">
+                                <Box sx={{ flex: { xs: 2, lg: 1 } }}>
+                                    <Button
+                                        sx={{
+                                            height: '56px',
+                                            minHeight: '56px'
+                                        }}
+                                        variant="contained"
+                                        onClick={navigateToSearchResults}
+                                        disabled={fav}
+                                        fullWidth
+                                    >
+                                        {t('search')}
+                                    </Button>
+                                </Box>
+                                <Box sx={{
+                                    flex: { xs: 1, lg: 1 },
+                                    display: 'flex',
+                                    justifyContent: 'center',
+                                    alignItems: 'center'
+                                }}>
+                                    <Box
+                                        onClick={() => favEnabled && setFavContext(!fav)}
+                                        sx={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            height: '56px',
+                                            cursor: favEnabled ? 'pointer' : 'default',
+                                            opacity: favEnabled ? 1 : 0.38,
+                                        }}
+                                    >
+                                        {fav ? (
+                                            <Favorite
                                                 sx={{
-                                                    height: '56px',
-                                                    minHeight: '56px'
+                                                    fontSize: '48px',
+                                                    color: '#2f2f2f',
+                                                    filter: 'drop-shadow(0px 2px 1px rgba(0,0,0,0.2)) drop-shadow(0px 1px 1px rgba(0,0,0,0.14)) drop-shadow(0px 1px 3px rgba(0,0,0,0.12))',
+                                                    '&:hover': {
+                                                        filter: 'drop-shadow(0px 3px 5px rgba(0,0,0,0.2)) drop-shadow(0px 6px 10px rgba(0,0,0,0.14)) drop-shadow(0px 1px 18px rgba(0,0,0,0.12))',
+                                                    }
                                                 }}
-                                                variant="contained"
-                                                onClick={navigateToSearchResults}
-                                                disabled={fav}
-                                                fullWidth
-                                            >
-                                                {t('search')}
-                                            </Button>
-                                        </Grid>
-                                        <Grid item xs={4} lg={6} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                                            <Box
-                                                onClick={() => favEnabled && setFavContext(!fav)}
+                                            />
+                                        ) : (
+                                            <FavoriteBorder
                                                 sx={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    height: '56px',
-                                                    cursor: favEnabled ? 'pointer' : 'default',
-                                                    opacity: favEnabled ? 1 : 0.38,
+                                                    fontSize: '48px',
+                                                    color: '#2f2f2f',
+                                                    filter: 'drop-shadow(0px 2px 1px rgba(0,0,0,0.2)) drop-shadow(0px 1px 1px rgba(0,0,0,0.14)) drop-shadow(0px 1px 3px rgba(0,0,0,0.12))',
+                                                    '&:hover': {
+                                                        filter: 'drop-shadow(0px 3px 5px rgba(0,0,0,0.2)) drop-shadow(0px 6px 10px rgba(0,0,0,0.14)) drop-shadow(0px 1px 18px rgba(0,0,0,0.12))',
+                                                        color: '#2f2f2f',
+                                                    }
                                                 }}
-                                            >
-                                                {fav ? (
-                                                    <Favorite
-                                                        sx={{
-                                                            fontSize: '48px',
-                                                            color: '#2f2f2f', // Using error.main color for active state
-                                                            filter: 'drop-shadow(0px 2px 1px rgba(0,0,0,0.2)) drop-shadow(0px 1px 1px rgba(0,0,0,0.14)) drop-shadow(0px 1px 3px rgba(0,0,0,0.12))',
-                                                            '&:hover': {
-                                                                filter: 'drop-shadow(0px 3px 5px rgba(0,0,0,0.2)) drop-shadow(0px 6px 10px rgba(0,0,0,0.14)) drop-shadow(0px 1px 18px rgba(0,0,0,0.12))',
-                                                            }
-                                                        }}
-                                                    />
-                                                ) : (
-                                                    <FavoriteBorder
-                                                        sx={{
-                                                            fontSize: '48px',
-                                                            color: '#2f2f2f', // Using secondary.main color for inactive state
-                                                            filter: 'drop-shadow(0px 2px 1px rgba(0,0,0,0.2)) drop-shadow(0px 1px 1px rgba(0,0,0,0.14)) drop-shadow(0px 1px 3px rgba(0,0,0,0.12))',
-                                                            '&:hover': {
-                                                                filter: 'drop-shadow(0px 3px 5px rgba(0,0,0,0.2)) drop-shadow(0px 6px 10px rgba(0,0,0,0.14)) drop-shadow(0px 1px 18px rgba(0,0,0,0.12))',
-                                                                color: '#2f2f2f', // On hover show active color
-                                                            }
-                                                        }}
-                                                    />
-                                                )}
-                                            </Box>
-                                        </Grid>
-                                    </Grid>
-                                </Grid>
-                            </Grid>
-                        </CardContent>
-                    </Card>
-                </Box>
-            </Grid>
-        </Grid>
+                                            />
+                                        )}
+                                    </Box>
+                                </Box>
+                            </Stack>
+                        </Box>
+                    </Stack>
+                </CardContent>
+            </Card>
+        </Box>
     );
 };
 

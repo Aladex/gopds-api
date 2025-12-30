@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { Route, Routes, Link, useLocation, useNavigate, Navigate } from 'react-router-dom';
-import { Box, Grid, Card, CardContent, Tabs, Tab } from '@mui/material';
+import { Box, Card, CardContent, Tabs, Tab } from '@mui/material';
 import UsersTable from './UsersTable';
 import InvitesTable from './InvitesTable';
 
@@ -24,11 +24,9 @@ const AdminSpace: React.FC = () => {
 
     return (
         <Box p={2}>
-            <Grid container justifyContent="center">
-                <Grid item xs={12}>
-                    <Box maxWidth={1400} mx="auto">
-                        <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
-                            <CardContent>
+            <Box maxWidth={1400} mx="auto">
+                <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
+                    <CardContent>
                                 <Tabs
                                     value={value}
                                     onChange={handleChange}
@@ -74,11 +72,9 @@ const AdminSpace: React.FC = () => {
                                         <Route path="*" element={<Navigate to="/admin/users" />} />
                                     </Routes>
                                 </Box>
-                            </CardContent>
-                        </Card>
-                    </Box>
-                </Grid>
-            </Grid>
+                    </CardContent>
+                </Card>
+            </Box>
         </Box>
     );
 };

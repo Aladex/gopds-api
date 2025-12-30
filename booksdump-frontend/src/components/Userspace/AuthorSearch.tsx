@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import {Grid, Box, Typography, List, ListItemText, Card, ListItemButton, CardContent} from '@mui/material';
+import {Stack, Box, Typography, List, ListItemText, Card, ListItemButton, CardContent} from '@mui/material';
 import { useParams, useLocation } from 'react-router-dom';
 import { fetchWithAuth} from '../../api/config';
 import BookPagination from "../common/BookPagination";
@@ -72,53 +72,43 @@ const AuthorSearch: React.FC = () => {
         <>
             <Box>
                 {loading ? (
-                    <Grid item xs={12}>
-                        <Box maxWidth={1200} mx="auto">
-                            <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
-                                {Array.from({ length: 10 }).map((_, index) => (
-                                    <SkeletonCard key={index} />
-                                ))}
-                            </Card>
-                        </Box>
-                    </Grid>
+                    <Box maxWidth={1200} mx="auto">
+                        <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
+                            {Array.from({ length: 10 }).map((_, index) => (
+                                <SkeletonCard key={index} />
+                            ))}
+                        </Card>
+                    </Box>
                 ) : authors.length === 0 ? (
-                    <Grid container justifyContent="center">
-                        <Grid item xs={12}>
-                            <Box maxWidth={1200} mx="auto">
-                                <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
-                                    <CardContent>
-                                        <Typography variant="h6" align="center">{t('noAuthorsFound')}</Typography>
-                                    </CardContent>
-                                </Card>
-                            </Box>
-                        </Grid>
-                    </Grid>
+                    <Box maxWidth={1200} mx="auto">
+                        <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
+                            <CardContent>
+                                <Typography variant="h6" align="center">{t('noAuthorsFound')}</Typography>
+                            </CardContent>
+                        </Card>
+                    </Box>
                 ) : (
-                    <Grid container justifyContent="center" spacing={4}>
-                        <Grid item xs={12}>
-                            <Box maxWidth={1200} mx="auto">
-                                <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
-                                    <Typography variant="h4" align="center">{t('authorsSearch')}</Typography>
-                                    {authors && authors.length > 0 ? (
-                                        <List>
-                                            {authors.map((author) => (
-                                                <ListItemButton key={author.id} onClick={() => handleAuthorClick(author.id)}>
-                                                    <ListItemText primary={author.full_name} />
-                                                </ListItemButton>
-                                            ))}
-                                        </List>
-                                    ) : (
-                                        <Typography variant="body1" align="center">No authors found</Typography>
-                                    )}
-                                </Card>
-                            </Box>
-                        </Grid>
-                    </Grid>
+                    <Box maxWidth={1200} mx="auto">
+                        <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
+                            <Typography variant="h4" align="center">{t('authorsSearch')}</Typography>
+                            {authors && authors.length > 0 ? (
+                                <List>
+                                    {authors.map((author) => (
+                                        <ListItemButton key={author.id} onClick={() => handleAuthorClick(author.id)}>
+                                            <ListItemText primary={author.full_name} />
+                                        </ListItemButton>
+                                    ))}
+                                </List>
+                            ) : (
+                                <Typography variant="body1" align="center">No authors found</Typography>
+                            )}
+                        </Card>
+                    </Box>
                 )}
             </Box>
-            <Grid container spacing={3} justifyContent="center" sx={{ marginTop: 2 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'center', marginTop: 2 }}>
                 <BookPagination totalPages={totalPages} currentPage={parseInt(page || '1', 10)} baseUrl={baseUrl} />
-            </Grid>
+            </Box>
         </>
     );
 };
