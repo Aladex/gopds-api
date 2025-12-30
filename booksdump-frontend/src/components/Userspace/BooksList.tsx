@@ -207,6 +207,9 @@ const BooksList: React.FC = () => {
                 console.error('Error fetching books', error);
                 dispatch({ type: 'FETCH_ERROR' });
             }
+
+            // Update language reference after successful fetch to prevent redirect loops
+            prevLangRef.current = user?.books_lang;
         };
 
         fetchBooks();
