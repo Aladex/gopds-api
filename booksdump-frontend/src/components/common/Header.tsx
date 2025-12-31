@@ -224,7 +224,7 @@ const Header: React.FC = () => {
                         <Box display="flex" justifyContent="space-between" alignItems="center" width="100%">
                             <Box display="flex" alignItems="center">
                                 <IconButton edge="start" color="inherit" aria-label="menu" onClick={handleDrawerToggle}>
-                                    <MenuIcon color="primary"/>
+                                    <MenuIcon color="inherit"/>
                                 </IconButton>
                             </Box>
                             <Box display="flex" alignItems="center" gap={0.5}>
@@ -315,9 +315,6 @@ const Header: React.FC = () => {
                                     ))}
                                 </Menu>
                                 <ThemeToggle />
-                                <Button sx={{ color: '#ffffff' }} onClick={handleUserInfo}>
-                                    <Person />
-                                </Button>
                                 <Button sx={{ color: '#ffffff' }} onClick={handleLogout}>
                                     <Logout/>
                                 </Button>
