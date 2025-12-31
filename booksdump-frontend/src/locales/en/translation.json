@@ -128,5 +128,10 @@
   "routeByCategory.books": "Search by category",
   "conversionInProgress": "Conversion in progress",
   "pleaseWait": "Please wait",
-  "csrfTokenInvalid": "CSRF token invalid"
+  "csrfTokenInvalid": "CSRF token invalid",
+  "switchToDark": "Switch to dark mode",
+  "switchToLight": "Switch to light mode",
+  "theme": "Theme",
+  "darkMode": "Dark Mode",
+  "lightMode": "Light Mode"
 }

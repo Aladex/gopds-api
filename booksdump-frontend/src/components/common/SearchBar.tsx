@@ -80,28 +80,7 @@ const SearchBar: React.FC = () => {
                         <Box sx={{ flex: { xs: 1, lg: 3 } }}>
                             <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2}>
                                 <Box sx={{ flex: { xs: 1, lg: 1 } }}>
-                                            <StyledFormControl
-                                                fullWidth
-                                                sx={{
-                                                    '& .MuiOutlinedInput-root': {
-                                                        '& fieldset': {
-                                                            borderColor: 'rgba(0, 0, 0, 0.23)',
-                                                        },
-                                                        '&:hover fieldset': {
-                                                            borderColor: 'black',
-                                                        },
-                                                        '&.Mui-focused fieldset': {
-                                                            borderColor: 'black',
-                                                        },
-                                                    },
-                                                    '& .MuiInputLabel-root': {
-                                                        color: '#2f2f2f',
-                                                    },
-                                                    '& .MuiInputLabel-root.Mui-focused': {
-                                                        color: '#2f2f2f',
-                                                    },
-                                                }}
-                                            >
+                                            <StyledFormControl fullWidth>
                                                 <InputLabel id="category-search-label">{t('categorySearch')}</InputLabel>
                                                 <Select
                                                     labelId="category-search-label"
@@ -168,7 +147,7 @@ const SearchBar: React.FC = () => {
                                             <Favorite
                                                 sx={{
                                                     fontSize: '48px',
-                                                    color: '#2f2f2f',
+                                                    color: (theme) => theme.palette.text.primary,
                                                     filter: 'drop-shadow(0px 2px 1px rgba(0,0,0,0.2)) drop-shadow(0px 1px 1px rgba(0,0,0,0.14)) drop-shadow(0px 1px 3px rgba(0,0,0,0.12))',
                                                     '&:hover': {
                                                         filter: 'drop-shadow(0px 3px 5px rgba(0,0,0,0.2)) drop-shadow(0px 6px 10px rgba(0,0,0,0.14)) drop-shadow(0px 1px 18px rgba(0,0,0,0.12))',
@@ -179,11 +158,11 @@ const SearchBar: React.FC = () => {
                                             <FavoriteBorder
                                                 sx={{
                                                     fontSize: '48px',
-                                                    color: '#2f2f2f',
+                                                    color: (theme) => theme.palette.text.primary,
                                                     filter: 'drop-shadow(0px 2px 1px rgba(0,0,0,0.2)) drop-shadow(0px 1px 1px rgba(0,0,0,0.14)) drop-shadow(0px 1px 3px rgba(0,0,0,0.12))',
                                                     '&:hover': {
                                                         filter: 'drop-shadow(0px 3px 5px rgba(0,0,0,0.2)) drop-shadow(0px 6px 10px rgba(0,0,0,0.14)) drop-shadow(0px 1px 18px rgba(0,0,0,0.12))',
-                                                        color: '#2f2f2f',
+                                                        color: (theme) => theme.palette.text.primary,
                                                     }
                                                 }}
                                             />

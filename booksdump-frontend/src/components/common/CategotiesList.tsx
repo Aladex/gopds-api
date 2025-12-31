@@ -35,11 +35,18 @@ const CategoriesList: React.FC<CategoriesListProps> = ({ categories }) => {
     return (
         <div>
             <Typography variant="subtitle1">{t('categories')}:</Typography>
-            <Typography variant="body2">
+            <Typography variant="body2" sx={{ color: 'text.primary' }}>
                 {categories.map((category: Category) => (
                     <React.Fragment key={category.id}>
                         <span> &#8226; </span>
-                        <Box component="button" onClick={() => navigateToCategory(category.id)} sx={buttonLinkSx}>
+                        <Box
+                            component="button"
+                            onClick={() => navigateToCategory(category.id)}
+                            sx={(theme) => ({
+                                ...buttonLinkSx(theme),
+                                color: theme.palette.text.primary,
+                            })}
+                        >
                             {category.ser}
                         </Box>
                     </React.Fragment>

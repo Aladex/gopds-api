@@ -12,14 +12,14 @@ interface PaginationProps {
 const StyledPagination = styled(MuiPagination)(({ theme }) => ({
     '& .MuiPaginationItem-root': {
         fontWeight: 'bold',
-        color: '#2f2f2f',
-        backgroundColor: 'white',
+        color: theme.palette.text.primary,
+        backgroundColor: theme.palette.background.paper,
     },
     '& .MuiPaginationItem-root:hover': {
-        backgroundColor: '#e0e0e0',
+        backgroundColor: theme.palette.action.hover,
     },
     '& .Mui-selected': {
-        color: 'white',
+        color: theme.palette.secondary.contrastText,
         backgroundColor: theme.palette.secondary.main,
     },
     '& .Mui-selected:hover': {

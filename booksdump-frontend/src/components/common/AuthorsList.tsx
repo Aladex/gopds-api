@@ -33,12 +33,19 @@ const AuthorsList: React.FC<AuthorsListProps> = ({authors}) => {
     return (
         <>
             <Typography variant="subtitle1">{t('authors')}:</Typography>
-            <Typography variant="body2">
+            <Typography variant="body2" sx={{ color: 'text.primary' }}>
                 {authors && authors.length > 0 ? (
                     authors.map((author: Author) => (
                         <React.Fragment key={author.id}>
                             <span> &#8226; </span>
-                            <Box component="button" onClick={() => navigateToAuthor(author.id)} sx={buttonLinkSx}>
+                            <Box
+                                component="button"
+                                onClick={() => navigateToAuthor(author.id)}
+                                sx={(theme) => ({
+                                    ...buttonLinkSx(theme),
+                                    color: theme.palette.text.primary,
+                                })}
+                            >
                                 {author.full_name}
                             </Box>
                         </React.Fragment>

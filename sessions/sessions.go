@@ -2,14 +2,18 @@ package sessions
 
 import (
 	"context"
-	"gopds-api/logging"
-	"gopds-api/models"
-	"gopds-api/utils"
 	"strings"
 	"time"
 
+	"gopds-api/logging"
+	"gopds-api/models"
+	"gopds-api/utils"
+
+	"github.com/go-redis/redis"
 	"github.com/google/uuid"
 )
+
+const themeKeyPrefix = "session:theme:"
 
 func CheckSessionKeyInRedis(ctx context.Context, token string) (string, error) {
 	username, err := rdb.WithContext(ctx).Get(token).Result()
@@ -30,7 +34,7 @@ func SetSessionKey(ctx context.Context, lu models.LoggedInUser) error {
 
 // DeleteSessionKey deletes a user's session key.
 func DeleteSessionKey(ctx context.Context, lu models.LoggedInUser) error {
-	_, err := rdb.WithContext(ctx).Del(*lu.Token).Result()
+	_, err := rdb.WithContext(ctx).Del(*lu.Token, themeKeyPrefix+*lu.Token).Result()
 	if err != nil {
 		logging.Error(err)
 		return err
@@ -51,10 +55,41 @@ func DropAllSessions(token string) {
 		return
 	}
 	for _, k := range keys {
+		if strings.HasPrefix(k, themeKeyPrefix) {
+			keyToken := strings.TrimPrefix(k, themeKeyPrefix)
+			if checkedUser, _, _, err := utils.CheckToken(keyToken); err == nil && checkedUser == username {
+				rdb.Del(k)
+			}
+			continue
+		}
 		if checkedUser, _, _, err := utils.CheckToken(k); err == nil && checkedUser == username {
-			rdb.Del(k)
+			rdb.Del(k, themeKeyPrefix+k)
 		}
 	}
+}
+
+func SetThemeForToken(ctx context.Context, token, theme string) error {
+	ttl, err := rdb.WithContext(ctx).TTL(token).Result()
+	if err != nil || ttl <= 0 {
+		ttl = 24 * time.Hour
+	}
+	_, err = rdb.WithContext(ctx).Set(themeKeyPrefix+token, theme, ttl).Result()
+	if err != nil {
+		logging.Error(err)
+		return err
+	}
+	return nil
+}
+
+func GetThemeForToken(ctx context.Context, token string) (string, error) {
+	theme, err := rdb.WithContext(ctx).Get(themeKeyPrefix + token).Result()
+	if err != nil {
+		if err == redis.Nil {
+			return "", nil
+		}
+		return "", err
+	}
+	return theme, nil
 }
 
 // GenerateTokenPassword generates a temporary token for password change.

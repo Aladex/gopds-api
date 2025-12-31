@@ -128,5 +128,10 @@
   "routeByCategory.books": "Поиск по категории",
   "conversionInProgress": "Конвертация в процессе",
   "pleaseWait": "Пожалуйста, подождите",
-  "csrfTokenInvalid": "Недействительный CSRF токен"
+  "csrfTokenInvalid": "Недействительный CSRF токен",
+  "switchToDark": "Переключить на темную тему",
+  "switchToLight": "Переключить на светлую тему",
+  "theme": "Тема",
+  "darkMode": "Темная тема",
+  "lightMode": "Светлая тема"
 }

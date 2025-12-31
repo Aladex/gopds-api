@@ -23,7 +23,6 @@ import {
     Menu
 } from '@mui/material';
 import {useAuth} from '../../context/AuthContext';
-import {useTheme} from '@mui/material/styles';
 import {fetchWithAuth} from '../../api/config';
 import {useTranslation} from 'react-i18next';
 import {Logout, Menu as MenuIcon, Person, VolunteerActivism} from "@mui/icons-material";
@@ -33,11 +32,11 @@ import {useFav} from "../../context/FavContext";
 import { useSearchBar } from "../../context/SearchBarContext";
 import { getLanguageDisplaySafe, languageMapping } from "../../utils/languageUtils";
 import DonateModal from "./DonateModal";
+import ThemeToggle from "./ThemeToggle";
 
 const Header: React.FC = () => {
     const {logout, updateUser, user, updateLang} = useAuth();
     const navigate = useNavigate();
-    const theme = useTheme();
     const {t, i18n} = useTranslation();
     const [value, setValue] = useState(0);
     const isMobile = useMediaQuery('(max-width:600px)');
@@ -214,7 +213,11 @@ const Header: React.FC = () => {
     };
 
     return (
-        <AppBar position="static" sx={{bgcolor: theme.palette.secondary.main}}>
+        <AppBar
+            position="static"
+            sx={{ bgcolor: '#2f2f2f', color: '#ffffff', backgroundImage: 'none' }}
+            style={{ backgroundColor: '#2f2f2f', color: '#ffffff', backgroundImage: 'none' }}
+        >
             <Toolbar>
                 {isMobile ? (
                     <>
@@ -243,7 +246,7 @@ const Header: React.FC = () => {
                                         borderRadius: '4px',
                                         gap: '2px',
                                         '&:hover': {
-                                            color: '#fff',
+                                            color: '#ffffff',
                                             backgroundColor: 'rgba(255, 255, 255, 0.04)',
                                         },
                                     }}
@@ -268,7 +271,7 @@ const Header: React.FC = () => {
                                         justifyContent: 'center',
                                         borderRadius: '4px',
                                         '&:hover': {
-                                            color: '#fff',
+                                            color: '#ffffff',
                                             backgroundColor: 'rgba(255, 255, 255, 0.04)',
                                         },
                                     }}
@@ -311,10 +314,11 @@ const Header: React.FC = () => {
                                         </MenuItem>
                                     ))}
                                 </Menu>
-                                <Button sx={{color: theme.palette.primary.main}} onClick={handleUserInfo}>
+                                <ThemeToggle />
+                                <Button sx={{ color: '#ffffff' }} onClick={handleUserInfo}>
                                     <Person />
                                 </Button>
-                                <Button sx={{color: theme.palette.primary.main}} onClick={handleLogout}>
+                                <Button sx={{ color: '#ffffff' }} onClick={handleLogout}>
                                     <Logout/>
                                 </Button>
                             </Box>
@@ -348,7 +352,13 @@ const Header: React.FC = () => {
                     <>
                         {/* Left part - tabs with logo */}
                         <Box sx={{borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center'}}>
-                            <Tabs value={value} onChange={handleChange} aria-label="basic tabs example">
+                            <Tabs
+                                value={value}
+                                onChange={handleChange}
+                                aria-label="basic tabs example"
+                                textColor="inherit"
+                                TabIndicatorProps={{ sx: { backgroundColor: '#ffffff' } }}
+                            >
                                 {menuItems.map((item, index) => (
                                     <Tab
                                         key={index}
@@ -365,7 +375,12 @@ const Header: React.FC = () => {
                                         }
                                         {...a11yProps(item.index)}
                                         onClick={() => handleTabClick(item.index, item.path)}
-                                        sx={{color: value === item.index ? 'inherit' : '#9e9e9e'}}
+                                        sx={{
+                                            color: value === item.index ? '#ffffff' : '#9e9e9e',
+                                            '&.Mui-selected': {
+                                                color: '#ffffff',
+                                            },
+                                        }}
                                     />
                                 ))}
                             </Tabs>
@@ -387,7 +402,7 @@ const Header: React.FC = () => {
                                     gap: '4px',
                                     marginLeft: 2,
                                     '&:hover': {
-                                        color: '#fff',
+                                        color: '#ffffff',
                                         backgroundColor: 'rgba(255, 255, 255, 0.04)',
                                     },
                                 }}
@@ -422,7 +437,7 @@ const Header: React.FC = () => {
                                     textOverflow: 'ellipsis',
                                     whiteSpace: 'nowrap',
                                     '&:hover': {
-                                        color: '#fff',
+                                        color: '#ffffff',
                                         backgroundColor: 'rgba(255, 255, 255, 0.04)',
                                     },
                                 }}
@@ -464,10 +479,11 @@ const Header: React.FC = () => {
                                     </MenuItem>
                                 ))}
                             </Menu>
-                            <Button sx={{color: theme.palette.primary.main}} onClick={handleUserInfo}>
+                            <ThemeToggle />
+                            <Button sx={{ color: '#ffffff' }} onClick={handleUserInfo}>
                                 {user?.username}
                             </Button>
-                            <Button sx={{color: theme.palette.primary.main}} onClick={handleLogout}>
+                            <Button sx={{ color: '#ffffff' }} onClick={handleLogout}>
                                 <IconButton color="inherit">
                                     <Logout/>
                                 </IconButton>

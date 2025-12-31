@@ -34,15 +34,15 @@ function ConversionModal() {
                     left: '50%',
                     transform: 'translate(-50%, -50%)',
                     textAlign: 'center',
-                    color: 'white',
+                    color: (theme) => theme.palette.common.white,
                     zIndex: (theme) => theme.zIndex.modal + 1,
                 }}
             >
-                <CircularProgress sx={{ color: 'white', zIndex: (theme) => theme.zIndex.modal + 1 }} />
-                <Typography id="conversion-modal-title" variant="h6" sx={{ mt: 2, color: 'white' }}>
+                <CircularProgress sx={{ color: (theme) => theme.palette.common.white, zIndex: (theme) => theme.zIndex.modal + 1 }} />
+                <Typography id="conversion-modal-title" variant="h6" sx={{ mt: 2, color: (theme) => theme.palette.common.white }}>
                     {t('conversionInProgress')}
                 </Typography>
-                <Typography id="conversion-modal-description" variant="body2" sx={{ color: 'white' }}>
+                <Typography id="conversion-modal-description" variant="body2" sx={{ color: (theme) => theme.palette.common.white }}>
                     {t('pleaseWait')}
                 </Typography>
             </Box>

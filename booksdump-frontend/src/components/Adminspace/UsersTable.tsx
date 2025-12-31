@@ -286,10 +286,10 @@ const UsersTable: React.FC = () => {
                                 label={t('active')}
                                 sx={{
                                     '& .MuiSvgIcon-root': {
-                                        color: 'black',
+                                        color: (theme) => theme.palette.text.primary,
                                     },
                                     '&.Mui-checked .MuiSvgIcon-root': {
-                                        color: 'black',
+                                        color: (theme) => theme.palette.text.primary,
                                     },
                                 }}
                             />
@@ -298,10 +298,10 @@ const UsersTable: React.FC = () => {
                                 label={t('superuser')}
                                 sx={{
                                     '& .MuiSvgIcon-root': {
-                                        color: 'black',
+                                        color: (theme) => theme.palette.text.primary,
                                     },
                                     '&.Mui-checked .MuiSvgIcon-root': {
-                                        color: 'black',
+                                        color: (theme) => theme.palette.text.primary,
                                     },
                                 }}
                             />

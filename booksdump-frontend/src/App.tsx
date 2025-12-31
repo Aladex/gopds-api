@@ -1,7 +1,4 @@
 import React, { useState, memo, useMemo, useCallback, useEffect } from 'react';
-import { ThemeProvider } from '@mui/material/styles';
-import CssBaseline from '@mui/material/CssBaseline';
-import theme from './theme';
 import { AuthorProvider } from './context/AuthorContext';
 import { BookConversionProvider } from './context/BookConversionContext';
 import { FavProvider } from "./context/FavContext";
@@ -21,16 +18,13 @@ const App: React.FC<{ isAuthenticated: boolean }> = memo(({ isAuthenticated }) =
     useAuthWebSocket("/api/books/ws", isAuthenticated);
 
     return (
-        <ThemeProvider theme={theme}>
-            <CssBaseline />
-            <Routes>
-                <Route path="/" element={<Navigate to="/books/page/1" />} />
-                {publicRoutes}
-                {privateRoutes}
-                {adminRoutes}
-                {notFoundRoutes}
-            </Routes>
-        </ThemeProvider>
+        <Routes>
+            <Route path="/" element={<Navigate to="/books/page/1" />} />
+            {publicRoutes}
+            {privateRoutes}
+            {adminRoutes}
+            {notFoundRoutes}
+        </Routes>
     );
 });
 

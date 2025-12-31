@@ -303,19 +303,25 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
       )}
       sx={{
         '& .MuiOutlinedInput-root': {
-          boxShadow: '0px 2px 1px -1px rgba(0,0,0,0.2), 0px 1px 1px 0px rgba(0,0,0,0.14), 0px 1px 3px 0px rgba(0,0,0,0.12)',
+          boxShadow: (theme) => theme.shadows[2],
           '& fieldset': {
-            borderColor: 'rgba(0, 0, 0, 0.23)',
+            borderColor: (theme) => theme.palette.divider,
           },
           '&:hover fieldset': {
-            borderColor: 'black',
+            borderColor: (theme) => theme.palette.text.primary,
           },
           '&.Mui-focused fieldset': {
-            borderColor: 'black',
+            borderColor: (theme) => theme.palette.text.primary,
           },
         },
+        '& .MuiInputBase-input': {
+          color: (theme) => theme.palette.text.primary,
+        },
         '& .MuiInputLabel-root': {
-          color: 'rgba(0, 0, 0, 0.6)',
+          color: (theme) => theme.palette.text.secondary,
+          '&.Mui-focused': {
+            color: (theme) => theme.palette.text.primary,
+          },
         },
       }}
     />

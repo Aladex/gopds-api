@@ -1,30 +1,30 @@
-import { styled } from '@mui/material/styles';
+import { styled, Theme } from '@mui/material/styles';
 import TextField from '@mui/material/TextField';
 import FormControlUnstyled from '@mui/material/FormControl';
 
-const commonStyles = {
+const commonStyles = (theme: Theme) => ({
     '& .MuiOutlinedInput-root': {
-        boxShadow: '0px 2px 1px -1px rgba(0,0,0,0.2), 0px 1px 1px 0px rgba(0,0,0,0.14), 0px 1px 3px 0px rgba(0,0,0,0.12)',
+        boxShadow: theme.shadows[2],
         '& fieldset': {
-            borderColor: 'rgba(0, 0, 0, 0.23)',
+            borderColor: theme.palette.divider,
         },
         '&:hover fieldset': {
-            borderColor: 'black',
+            borderColor: theme.palette.text.primary,
         },
         '&.Mui-focused fieldset': {
-            borderColor: 'black',
+            borderColor: theme.palette.text.primary,
         },
     },
     '& .MuiInputLabel-root': {
-        color: 'rgba(0, 0, 0, 0.6)',
+        color: theme.palette.text.secondary,
         '&.Mui-focused': {
-            color: 'black',
+            color: theme.palette.text.primary,
         },
     },
-};
+});
 
-const StyledTextField = styled(TextField)(commonStyles);
+const StyledTextField = styled(TextField)(({ theme }) => commonStyles(theme));
 
-const StyledFormControl = styled(FormControlUnstyled)(commonStyles); // Renamed to avoid conflict
+const StyledFormControl = styled(FormControlUnstyled)(({ theme }) => commonStyles(theme)); // Renamed to avoid conflict
 
 export { StyledTextField, StyledFormControl };

@@ -1,25 +1,26 @@
 /* src/components/styles/OpdsInfo.css */
 .opds-info {
-    background-color: #f9f9f9;
+    background-color: var(--app-bg-paper);
     padding: 20px;
     border-radius: 5px;
     box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
     font-family: Arial, sans-serif;
+    color: var(--app-text-primary);
 }
 
 .opds-info h2 {
-    color: #333;
+    color: var(--app-text-primary);
 }
 
 .opds-info p {
-    color: #666;
+    color: var(--app-text-secondary);
 }
 
 .opds-info code {
     display: block;
-    background-color: #eee;
+    background-color: var(--app-bg-muted);
     padding: 10px;
     border-radius: 3px;
     margin-top: 10px;
-    color: #333;
+    color: var(--app-text-primary);
 }

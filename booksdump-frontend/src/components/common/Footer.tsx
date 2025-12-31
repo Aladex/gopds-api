@@ -1,6 +1,6 @@
 // src/components/common/Footer.tsx
 import React, { useEffect, useState } from 'react';
-import '../styles/Footer.css';
+import { Box, Typography } from '@mui/material';
 import { fetchWithAuth } from '../../api/config';
 
 const Footer: React.FC = () => {
@@ -20,14 +20,30 @@ const Footer: React.FC = () => {
     }, []);
 
     return (
-        <footer className="footer">
-            <div className="left">
+        <Box
+            component="footer"
+            sx={{
+                backgroundColor: '#1e1e1e',
+                color: '#ffffff',
+                padding: '2px 10px',
+                width: '100%',
+                position: 'relative',
+                fontSize: '10px',
+                marginTop: 'auto',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+            }}
+        >
+            <Box>
                 {/* Removed donate button from here */}
-            </div>
-            <div className="right">
-                <p>App Version: {appVersion}</p>
-            </div>
-        </footer>
+            </Box>
+            <Box>
+                <Typography variant="caption" component="span">
+                    App Version: {appVersion}
+                </Typography>
+            </Box>
+        </Box>
     );
 };
 

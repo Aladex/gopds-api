@@ -1,4 +1,4 @@
-.PHONY: help build test clean docker-build docker-run frontend backend swagger deps lint security
+.PHONY: help build test clean docker-build docker-run frontend backend swagger deps lint security build-bin
 
 # Default target
 help: ## Show this help message
@@ -28,6 +28,11 @@ swagger: ## Generate Swagger documentation
 	swag init --generalInfo cmd/main.go
 
 build: frontend backend swagger ## Build everything
+
+build-bin: frontend swagger ## Build test binary (mirrors Dockerfile)
+	@echo "Building test binary..."
+	mkdir -p bin
+	CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bin/gopds cmd/*
 
 # Testing and Quality
 test: ## Run tests

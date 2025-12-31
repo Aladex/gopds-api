@@ -1,7 +1,7 @@
 import { SxProps, Theme } from '@mui/material/styles';
 
 // Common link styles using sx prop
-export const linkSx: SxProps<Theme> = (theme) => ({
+export const linkSx = (theme: Theme) => ({
     color: theme.palette.secondary.main,
     textDecoration: 'none',
     '&:hover': {
@@ -10,7 +10,7 @@ export const linkSx: SxProps<Theme> = (theme) => ({
 });
 
 // Common button link styles using sx prop
-export const buttonLinkSx: SxProps<Theme> = (theme) => ({
+export const buttonLinkSx = (theme: Theme) => ({
     background: 'none',
     border: 'none',
     padding: 0,
@@ -25,22 +25,22 @@ export const buttonLinkSx: SxProps<Theme> = (theme) => ({
 });
 
 // Form input styles using sx prop
-export const formInputSx: SxProps<Theme> = {
+export const formInputSx = (theme: Theme) => ({
     '& .MuiOutlinedInput-root': {
         '& fieldset': {
-            borderColor: 'rgba(0, 0, 0, 0.23)',
+            borderColor: theme.palette.divider,
         },
         '&:hover fieldset': {
-            borderColor: 'black',
+            borderColor: theme.palette.text.primary,
         },
         '&.Mui-focused fieldset': {
-            borderColor: 'black',
+            borderColor: theme.palette.text.primary,
         },
     },
     '& .MuiInputLabel-root': {
-        color: 'rgba(0, 0, 0, 0.6)',
+        color: theme.palette.text.secondary,
         '&.Mui-focused': {
-            color: 'black',
+            color: theme.palette.text.primary,
         },
     },
-};
+});

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import QRCode from 'qrcode';
+import { useTheme } from '@mui/material/styles';
 import '../styles/DonateModal.css';
 
 interface DonateModalProps {
@@ -8,6 +9,7 @@ interface DonateModalProps {
 }
 
 const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
+    const theme = useTheme();
     const [activeTab, setActiveTab] = useState<'tinkoff' | 'btc' | 'eth' | 'usdt' | 'paypal' | 'buymeacoffee'>('tinkoff');
     const [isVisible, setIsVisible] = useState(false);
     const [isClosing, setIsClosing] = useState(false);
@@ -20,6 +22,11 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
         usdt: 'TTE5dv9w9RSDMJ6k3tnpfuehH8UX9Fy4Ec'
     }), []);
 
+    const qrColors = useMemo(() => ({
+        dark: theme.palette.text.primary,
+        light: theme.palette.background.paper,
+    }), [theme.palette.background.paper, theme.palette.text.primary]);
+
     const generateQRCodes = useCallback(async () => {
         const codes: {[key: string]: string} = {};
         try {
@@ -27,17 +34,14 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
                 codes[currency] = await QRCode.toDataURL(address, {
                     width: 200,
                     margin: 2,
-                    color: {
-                        dark: '#2f2f2f',
-                        light: '#FFFFFF'
-                    }
+                    color: qrColors,
                 });
             }
             setQrCodes(codes);
         } catch (error) {
             console.error('Error generating QR codes:', error);
         }
-    }, [cryptoAddresses]);
+    }, [cryptoAddresses, qrColors]);
 
     useEffect(() => {
         if (open) {

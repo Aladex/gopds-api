@@ -382,7 +382,7 @@ const BooksList: React.FC = () => {
                                                     onClick={() => handleDownload('zip', book.id)}
                                                     variant="contained"
                                                     color="secondary"
-                                                    sx={{ mb: 1, color: 'white', minWidth: 120 }}
+                                                    sx={{ mb: 1, minWidth: 120 }}
                                                 >
                                                     FB2+ZIP
                                                 </Button>
@@ -391,7 +391,7 @@ const BooksList: React.FC = () => {
                                                     onClick={() => handleDownload('fb2', book.id)}
                                                     variant="contained"
                                                     color="secondary"
-                                                    sx={{ mb: 1, color: 'white', minWidth: 120 }}
+                                                    sx={{ mb: 1, minWidth: 120 }}
                                                 >
                                                     FB2
                                                 </Button>
@@ -400,7 +400,7 @@ const BooksList: React.FC = () => {
                                                     onClick={() => handleDownload('epub', book.id)}
                                                     variant="contained"
                                                     color="secondary"
-                                                    sx={{ mb: 1, color: 'white', minWidth: 120 }}
+                                                    sx={{ mb: 1, minWidth: 120 }}
                                                 >
                                                     EPUB
                                                 </Button>
@@ -409,7 +409,7 @@ const BooksList: React.FC = () => {
                                                     onClick={() => handleMobiDownloadClick(book.id)}
                                                     variant="contained"
                                                     color="secondary"
-                                                    sx={{ mb: 1, color: 'white', minWidth: 120 }}
+                                                    sx={{ mb: 1, minWidth: 120 }}
                                                     disabled={isBookConverting(book.id, 'mobi')}
                                                 >
                                                     MOBI
@@ -456,4 +456,3 @@ const BooksList: React.FC = () => {
 };
 
 export default BooksList;
-

@@ -34,8 +34,8 @@ const AdminSpace: React.FC = () => {
                                     textColor="inherit"
                                     indicatorColor="primary"
                                     TabIndicatorProps={{
-                                        style: {
-                                            backgroundColor: 'black',
+                                        sx: {
+                                            backgroundColor: (theme) => theme.palette.text.primary,
                                         },
                                     }}
                                 >
@@ -45,9 +45,12 @@ const AdminSpace: React.FC = () => {
                                         component={Link}
                                         to="/admin/users"
                                         sx={{
-                                            color: value.startsWith('/admin/users') ? 'black' : '#818181',
+                                            color: (theme) =>
+                                                value.startsWith('/admin/users')
+                                                    ? theme.palette.text.primary
+                                                    : theme.palette.text.secondary,
                                             '&.Mui-selected': {
-                                                color: 'black',
+                                                color: (theme) => theme.palette.text.primary,
                                             },
                                         }}
                                     />
@@ -57,9 +60,12 @@ const AdminSpace: React.FC = () => {
                                         component={Link}
                                         to="/admin/invites"
                                         sx={{
-                                            color: value.startsWith('/admin/invites') ? 'black' : '#818181',
+                                            color: (theme) =>
+                                                value.startsWith('/admin/invites')
+                                                    ? theme.palette.text.primary
+                                                    : theme.palette.text.secondary,
                                             '&.Mui-selected': {
-                                                color: 'black',
+                                                color: (theme) => theme.palette.text.primary,
                                             },
                                         }}
                                     />
