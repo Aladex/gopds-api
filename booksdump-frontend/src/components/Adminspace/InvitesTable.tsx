@@ -155,10 +155,10 @@ const InvitesTable: React.FC = () => {
                         />
                     </DialogContent>
                     <DialogActions>
-                        <Button onClick={() => setDialogOpen(false)} color={"secondary"}>
+                        <Button sx={{ color: 'text.primary' }} onClick={() => setDialogOpen(false)}>
                             Cancel
                         </Button>
-                        <Button onClick={handleAddInvite} color={"secondary"}>
+                        <Button sx={{ color: 'text.primary' }} onClick={handleAddInvite}>
                             Add
                         </Button>
                     </DialogActions>

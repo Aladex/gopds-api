@@ -567,8 +567,8 @@ const Header: React.FC = () => {
                     </FormControl>
                 </DialogContent>
                 <DialogActions>
-                    <Button color={"secondary"} onClick={handleDialogClose}>{'Cancel'}</Button>
-                    <Button color={"secondary"} onClick={handleUserChange}>{'Save'}</Button>
+                    <Button sx={{ color: 'text.primary' }} onClick={handleDialogClose}>{'Cancel'}</Button>
+                    <Button sx={{ color: 'text.primary' }} onClick={handleUserChange}>{'Save'}</Button>
                 </DialogActions>
             </Dialog>
             <DonateModal open={isDonateModalOpen} onClose={() => setIsDonateModalOpen(false)} />

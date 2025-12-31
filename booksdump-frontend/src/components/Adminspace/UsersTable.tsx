@@ -309,8 +309,8 @@ const UsersTable: React.FC = () => {
                     )}
                 </DialogContent>
                 <DialogActions>
-                    <Button color={"secondary"} onClick={handleDialogClose}>{'Cancel'}</Button>
-                    <Button color={"secondary"} onClick={handleUserChange}>{'Save'}</Button>
+                    <Button sx={{ color: 'text.primary' }} onClick={handleDialogClose}>{'Cancel'}</Button>
+                    <Button sx={{ color: 'text.primary' }} onClick={handleUserChange}>{'Save'}</Button>
                 </DialogActions>
             </Dialog>
             <Stack spacing={3} justifyContent="center" sx={{ marginTop: 2 }}>

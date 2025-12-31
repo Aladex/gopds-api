@@ -14,7 +14,7 @@ export const buttonLinkSx = (theme: Theme) => ({
     background: 'none',
     border: 'none',
     padding: 0,
-    color: theme.palette.secondary.main,
+    color: theme.palette.text.primary,
     textDecoration: 'none',
     cursor: 'pointer',
     fontFamily: 'inherit',
