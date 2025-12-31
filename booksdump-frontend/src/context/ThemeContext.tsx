@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, ReactNode } from 'react';
 import { PaletteMode } from '@mui/material';
 import { ThemeProvider as MuiThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
@@ -72,7 +72,7 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
         root.style.setProperty('--app-secondary-dark', secondaryDark);
     }, [theme]);
 
-    const persistTheme = async (newMode: PaletteMode) => {
+    const persistTheme = useCallback(async (newMode: PaletteMode) => {
         if (!isAuthenticated) {
             return;
         }
@@ -81,20 +81,20 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
         } catch (error) {
             // Ignore errors and keep current mode
         }
-    };
+    }, [isAuthenticated]);
 
-    const toggleTheme = () => {
+    const toggleTheme = useCallback(() => {
         setMode((prevMode) => {
             const nextMode = prevMode === 'light' ? 'dark' : 'light';
             void persistTheme(nextMode);
             return nextMode;
         });
-    };
+    }, [persistTheme]);
 
-    const setThemeMode = (newMode: PaletteMode) => {
+    const setThemeMode = useCallback((newMode: PaletteMode) => {
         setMode(newMode);
         void persistTheme(newMode);
-    };
+    }, [persistTheme]);
 
     const contextValue = useMemo(
         () => ({
@@ -102,7 +102,7 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
             toggleTheme,
             setThemeMode,
         }),
-        [mode]
+        [mode, toggleTheme, setThemeMode]
     );
 
     return (
