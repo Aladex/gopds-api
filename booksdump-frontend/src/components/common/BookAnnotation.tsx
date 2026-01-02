@@ -9,8 +9,7 @@ interface BookAnnotationProps {
 }
 
 const VISIBLE_CHARS = 200;
-const MIN_HIDDEN_CHARS = 80;
-const MIN_HIDDEN_RATIO = 0.3;
+const MIN_HIDDEN_RATIO = 0.2;
 
 const BookAnnotation: React.FC<BookAnnotationProps> = ({ annotation }) => {
   const { t } = useTranslation();
@@ -19,23 +18,18 @@ const BookAnnotation: React.FC<BookAnnotationProps> = ({ annotation }) => {
   const hiddenLength = annotation.length - VISIBLE_CHARS;
   const hiddenRatio = hiddenLength / annotation.length;
   const shouldTruncate =
-    annotation.length > VISIBLE_CHARS &&
-    hiddenLength >= MIN_HIDDEN_CHARS &&
-    hiddenRatio >= MIN_HIDDEN_RATIO;
+    annotation.length > VISIBLE_CHARS && hiddenRatio >= MIN_HIDDEN_RATIO;
+  const displayText =
+    shouldTruncate && !opened
+      ? `${annotation.slice(0, VISIBLE_CHARS).trimEnd()}…`
+      : annotation;
 
   return (
     <>
       {annotation && (
         <Box mt={2}>
           <Typography variant="subtitle1">{t("annotation")}:</Typography>
-          <Box
-            sx={{
-              maxHeight: opened ? "1000px" : "80px",
-              overflow: "hidden",
-              transition: "max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
-              position: "relative",
-            }}
-          >
+          <Box sx={{ position: "relative" }}>
             <Typography
               variant="body2"
               sx={{
@@ -43,23 +37,23 @@ const BookAnnotation: React.FC<BookAnnotationProps> = ({ annotation }) => {
                 wordBreak: "break-word",
               }}
             >
-              {annotation}
+              {displayText}
             </Typography>
-            {!opened && shouldTruncate && (
+            {shouldTruncate && !opened && (
               <Box
                 sx={{
                   position: "absolute",
                   bottom: 0,
                   left: 0,
                   right: 0,
-                  height: "40px",
+                  height: "28px",
                   background:
                     "linear-gradient(to bottom, transparent, var(--mui-palette-background-paper))",
                   pointerEvents: "none",
                 }}
               />
             )}
-              </Box>
+          </Box>
 
           {shouldTruncate && (
             <Box display="flex" justifyContent="center" mt={0.5}>
