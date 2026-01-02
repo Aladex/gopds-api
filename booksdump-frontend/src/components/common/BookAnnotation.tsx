@@ -55,7 +55,7 @@ const BookAnnotation: React.FC<BookAnnotationProps> = ({ annotation }) => {
                 }}
               />
             )}
-            а     </Box>
+              </Box>
 
           {shouldTruncate && (
             <Box display="flex" justifyContent="center" mt={0.5}>
