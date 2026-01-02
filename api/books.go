@@ -76,6 +76,9 @@ func GetBooks(c *gin.Context) {
 	var filters models.BookFilters
 	userID := c.GetInt64("user_id")
 	if err := c.ShouldBindWith(&filters, binding.Query); err == nil {
+		if filters.IncludeHidden && !c.GetBool("is_superuser") {
+			filters.IncludeHidden = false
+		}
 		books, count, err := database.GetBooks(userID, filters)
 		if err != nil {
 			c.JSON(500, err)

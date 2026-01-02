@@ -63,6 +63,9 @@ func main() {
 	ensureUserPathExists(cfg.App.UsersPath)
 	ensureUserPathExists(cfg.App.MobiConversionDir)
 
+	// Initialize application services (WebSocket manager, etc.)
+	initializeServices()
+
 	// Start watching the directory for e-book conversion tasks
 	go tasks.WatchDirectory(cfg.App.MobiConversionDir, 10*time.Minute)
 

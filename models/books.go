@@ -123,25 +123,28 @@ type Catalog struct {
 
 // Book struct for books
 type Book struct {
-	tableName     struct{}  `pg:"opds_catalog_book,discard_unknown_columns" json:"-"`
-	ID            int64     `pg:"id" json:"id"`
-	Path          string    `pg:"path" json:"path"`
-	Format        string    `pg:"format" json:"format"`
-	FileName      string    `pg:"filename" json:"filename"`
-	RegisterDate  time.Time `pg:"registerdate" json:"registerdate"`
-	DocDate       string    `pg:"docdate,use_zero" json:"docdate"`
-	Lang          string    `pg:"lang,use_zero" json:"lang"`
-	Title         string    `pg:"title" json:"title"`
-	Cover         bool      `pg:"cover" json:"cover"`
-	Annotation    string    `pg:"annotation" json:"annotation"`
-	Fav           bool      `pg:"-" json:"fav"`
-	Approved      bool      `pg:"approved" json:"approved"`
-	Authors       []Author  `pg:"many2many:opds_catalog_bauthor,join_fk:author_id" json:"authors"`
-	Series        []*Series `pg:"many2many:opds_catalog_bseries,join_fk:ser_id" json:"series"`
-	Users         []*User   `pg:"many2many:favorite_books,join_fk:book_id" json:"favorites"`
-	Covers        []*Cover  `pg:"covers,rel:has-many" json:"covers"`
-	FavoriteCount int       `pg:"-" json:"favorite_count"`
-	Position      int       `pg:"-" json:"position"`
+	tableName       struct{}  `pg:"opds_catalog_book,discard_unknown_columns" json:"-"`
+	ID              int64     `pg:"id" json:"id"`
+	Path            string    `pg:"path" json:"path"`
+	Format          string    `pg:"format" json:"format"`
+	FileName        string    `pg:"filename" json:"filename"`
+	RegisterDate    time.Time `pg:"registerdate" json:"registerdate"`
+	DocDate         string    `pg:"docdate,use_zero" json:"docdate"`
+	Lang            string    `pg:"lang,use_zero" json:"lang"`
+	Title           string    `pg:"title" json:"title"`
+	Cover           bool      `pg:"cover" json:"cover"`
+	Annotation      string    `pg:"annotation" json:"annotation"`
+	Fav             bool      `pg:"-" json:"fav"`
+	Approved        bool      `pg:"approved" json:"approved"`
+	MD5             string    `pg:"md5" json:"md5"`
+	DuplicateHidden bool      `pg:"duplicate_hidden" json:"duplicate_hidden"`
+	DuplicateOfID   *int64    `pg:"duplicate_of_id" json:"duplicate_of_id,omitempty"`
+	Authors         []Author  `pg:"many2many:opds_catalog_bauthor,join_fk:author_id" json:"authors"`
+	Series          []*Series `pg:"many2many:opds_catalog_bseries,join_fk:ser_id" json:"series"`
+	Users           []*User   `pg:"many2many:favorite_books,join_fk:book_id" json:"favorites"`
+	Covers          []*Cover  `pg:"covers,rel:has-many" json:"covers"`
+	FavoriteCount   int       `pg:"-" json:"favorite_count"`
+	Position        int       `pg:"-" json:"position"`
 }
 
 func (b *Book) DownloadName() string {
@@ -202,6 +205,7 @@ type BookFilters struct {
 	UnApproved     bool   `form:"unapproved" json:"unapproved"`
 	UsersFavorites bool   `form:"users_favorites" json:"users_favorites"`
 	Collection     int64  `form:"collection" json:"collection"`
+	IncludeHidden  bool   `form:"include_hidden" json:"include_hidden"`
 }
 
 // CollectionFilters params for filtering collections list
@@ -240,3 +244,19 @@ type Language struct {
 
 // Languages is a slice of Language
 type Languages []Language
+
+// AdminScanJob struct for tracking duplicate scan job progress
+type AdminScanJob struct {
+	tableName       struct{}   `pg:"admin_scan_jobs,discard_unknown_columns" json:"-"`
+	ID              int64      `pg:"id,pk" json:"id"`
+	Status          string     `pg:"status" json:"status"`
+	TotalBooks      int        `pg:"total_books" json:"total_books"`
+	ProcessedBooks  int        `pg:"processed_books" json:"processed_books"`
+	DuplicatesFound int        `pg:"duplicates_found" json:"duplicates_found"`
+	StartedAt       *time.Time `pg:"started_at" json:"started_at,omitempty"`
+	FinishedAt      *time.Time `pg:"finished_at" json:"finished_at,omitempty"`
+	Error           string     `pg:"error" json:"error,omitempty"`
+	ScanParams      string     `pg:"scan_params" json:"scan_params,omitempty"`
+	CreatedAt       time.Time  `pg:"created_at" json:"created_at"`
+	UpdatedAt       time.Time  `pg:"updated_at" json:"updated_at"`
+}

@@ -12,6 +12,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// ValidateTokenPublic is a public wrapper for validateToken for use in WebSocket handlers
+func ValidateTokenPublic(token string) (string, int64, bool, error) {
+	return validateToken(token)
+}
+
 // validateToken simplifies token validation by consolidating error handling.
 func validateToken(token string) (string, int64, bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -66,7 +71,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 
 		// Validate token
-		username, dbID, _, err := validateToken(token)
+		username, dbID, isSuperUser, err := validateToken(token)
 		if err != nil {
 			abortWithStatus(c, http.StatusUnauthorized, err.Error())
 			return
@@ -75,6 +80,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		// Set username and user_id in context
 		c.Set("username", username)
 		c.Set("user_id", dbID)
+		c.Set("is_superuser", isSuperUser)
 		c.Next()
 	}
 }

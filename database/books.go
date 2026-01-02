@@ -102,12 +102,11 @@ func getBooksByTitleEnhanced(userID int64, filters models.BookFilters, userFavs 
 		Relation("Users").
 		Relation("Series").
 		ColumnExpr("book.*, (SELECT COUNT(*) FROM favorite_books WHERE book_id = book.id) AS favorite_count").
-		Where("book.approved = true").
 		Where("book.title IS NOT NULL").
 		Where("book.title != ''").
 		Where("lower(book.title) LIKE ?", "%"+lowerQuery+"%")
 
-	// Apply other filters (lang, author, series, etc.)
+	// Apply other filters (lang, author, series, approved, duplicate_hidden, etc.)
 	bookQuery = applyNonTitleFilters(bookQuery, filters, userID)
 
 	// Get a larger set for better sorting (like autocomplete does with 500 limit)
@@ -132,7 +131,6 @@ func getBooksByTitleEnhanced(userID int64, filters models.BookFilters, userFavs 
 			Relation("Users").
 			Relation("Series").
 			ColumnExpr("book.*, (SELECT COUNT(*) FROM favorite_books WHERE book_id = book.id) AS favorite_count").
-			Where("book.approved = true").
 			Where("book.title IS NOT NULL").
 			Where("book.title != ''").
 			Where("book.title % ?", filters.Title).
@@ -283,6 +281,11 @@ func applyNonTitleFilters(query *orm.Query, filters models.BookFilters, userID i
 		query = query.Where("book.approved = true")
 	}
 
+	if !filters.IncludeHidden {
+		// Hide duplicate books from all results
+		query = query.Where("book.duplicate_hidden = ?", false)
+	}
+
 	if filters.Author != 0 {
 		var booksIds []int64
 		err := db.Model(&models.OrderToAuthor{}).
@@ -344,6 +347,7 @@ func GetLanguages() models.Languages {
 	err := db.Model(&models.Book{}).
 		Column("lang").
 		ColumnExpr("count(*) AS language_count").
+		Where("duplicate_hidden = ?", false).
 		Group("lang").
 		OrderExpr("language_count DESC").
 		Select(&langRes)
@@ -363,6 +367,7 @@ func IsValidLanguage(lang string) bool {
 
 	count, err := db.Model(&models.Book{}).
 		Where("lang = ?", lang).
+		Where("duplicate_hidden = ?", false).
 		Count()
 
 	if err != nil {
@@ -451,6 +456,7 @@ func GetAutocompleteSuggestions(query string, searchType string, authorID string
 		bookQuery := db.Model(&books).
 			Column("book.id", "book.title").
 			Where("book.approved = true").
+			Where("book.duplicate_hidden = false").
 			Where("book.title IS NOT NULL").
 			Where("book.title != ''").
 			Where("lower(book.title) LIKE ?", "%"+lowerQuery+"%")

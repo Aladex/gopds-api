@@ -17,6 +17,9 @@ func SetupAdminRoutes(r *gin.RouterGroup) {
 	r.POST("/user", ActionUser)
 	r.DELETE("/user/:id", DeleteUser)
 	r.POST("/update-book", UpdateBook)
+
+	// Setup duplicate management routes
+	SetupDuplicatesRoutes(r)
 }
 
 // UsersAnswer struct for users list in admin space

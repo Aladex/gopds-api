@@ -102,6 +102,8 @@ func setupApiRoutes(group *gin.RouterGroup) {
 // setupAdminRoutes configures routes for administrative functionalities.
 func setupAdminRoutes(group *gin.RouterGroup) {
 	api.SetupAdminRoutes(group)
+	// Setup admin WebSocket for real-time notifications
+	api.SetupAdminWebSocketRoute(group)
 }
 
 // getRegisteredRoutes retrieves all registered routes in the Gin engine
