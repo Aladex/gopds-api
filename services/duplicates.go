@@ -89,7 +89,7 @@ func ScanDuplicates(ctx context.Context, db *pg.DB, jobID int64, wsConn WebSocke
 	// Get all books (both approved and unapproved)
 	var books []models.Book
 	err = db.Model(&books).
-		Column("id", "path", "md5", "title").
+		Column("id", "path", "filename", "md5", "title").
 		Order("id ASC").
 		Select()
 	if err != nil {
