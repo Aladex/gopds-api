@@ -16,3 +16,4 @@
 /config.yaml
 bin/*
 /booksdump-frontend/.idea/
+.idea
