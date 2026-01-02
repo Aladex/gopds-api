@@ -1,6 +1,6 @@
 // src/components/BookAnnotation.tsx
 import React from "react";
-import { Box, Typography, Button } from "@mui/material";
+import { Box, Typography, IconButton } from "@mui/material";
 import { useTranslation } from "react-i18next";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 
@@ -8,10 +8,16 @@ interface BookAnnotationProps {
   annotation: string;
 }
 
+const VISIBLE_CHARS = 200;
+const MIN_HIDDEN_CHARS = 100;
+
 const BookAnnotation: React.FC<BookAnnotationProps> = ({ annotation }) => {
   const { t } = useTranslation();
   const [opened, setOpened] = React.useState(false);
-  const shouldTruncate = annotation.length > 200;
+
+  const hiddenLength = annotation.length - VISIBLE_CHARS;
+  const shouldTruncate =
+    annotation.length > VISIBLE_CHARS && hiddenLength >= MIN_HIDDEN_CHARS;
 
   return (
     <>
@@ -49,39 +55,30 @@ const BookAnnotation: React.FC<BookAnnotationProps> = ({ annotation }) => {
                 }}
               />
             )}
-          </Box>
+            а     </Box>
 
           {shouldTruncate && (
-            <Box mt={1}>
-              <Button
+            <Box display="flex" justifyContent="center" mt={0.5}>
+              <IconButton
                 size="small"
                 onClick={() => setOpened(!opened)}
-                endIcon={
-                  <ExpandMoreIcon
-                    sx={{
-                      transform: opened ? "rotate(180deg)" : "rotate(0deg)",
-                      transition: "transform 0.3s ease",
-                    }}
-                  />
-                }
+                aria-label={opened ? t("showLess") : t("readMore")}
                 sx={{
-                  textTransform: "none",
-                  fontStyle: "italic",
-                  fontWeight: 500,
-                  color: "secondary.contrastText",
-                  backgroundColor: "secondary.main",
-                  padding: "6px 14px",
-                  borderRadius: "8px",
+                  color: "text.secondary",
+                  padding: "4px",
                   "&:hover": {
-                    backgroundColor: "secondary.dark",
-                    transform: "translateY(-1px)",
-                    boxShadow: 1,
+                    color: "primary.main",
+                    backgroundColor: "action.hover",
                   },
-                  transition: "all 0.2s ease",
                 }}
               >
-                {opened ? t("showLess") : t("readMore")}
-              </Button>
+                <ExpandMoreIcon
+                  sx={{
+                    transform: opened ? "rotate(180deg)" : "rotate(0deg)",
+                    transition: "transform 0.3s ease",
+                  }}
+                />
+              </IconButton>
             </Box>
           )}
         </Box>
