@@ -239,7 +239,7 @@ func GetActiveScanJob(c *gin.Context) {
 		Select()
 	if err != nil {
 		if err == pg.ErrNoRows {
-			httputil.NewError(c, http.StatusNotFound, fmt.Errorf("no active scan job"))
+			c.JSON(http.StatusOK, gin.H{"status": "none"})
 			return
 		}
 		logging.Errorf("Failed to fetch active scan job: %v", err)

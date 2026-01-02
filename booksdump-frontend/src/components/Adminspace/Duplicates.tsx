@@ -68,6 +68,12 @@ const Duplicates: React.FC = () => {
     const fetchActiveScan = useCallback(async () => {
         try {
             const response = await fetchWithAuth.get('/admin/duplicates/scan/active');
+            if (response.data?.status === 'none' || !response.data) {
+                setStatusMessage(t('scanNotStarted'));
+                setIsScanning(false);
+                setScanProgress(null);
+                return;
+            }
             if (response.data) {
                 setScanProgress({
                     job_id: response.data.id,
@@ -81,12 +87,6 @@ const Duplicates: React.FC = () => {
                 setStatusMessage(t('scanStatusLoaded'));
             }
         } catch (error: any) {
-            if (error?.response?.status === 404) {
-                setStatusMessage(t('scanNotStarted'));
-                setIsScanning(false);
-                setScanProgress(null);
-                return;
-            }
             console.error(error);
         }
     }, [t]);
