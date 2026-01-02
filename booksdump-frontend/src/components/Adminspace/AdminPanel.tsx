@@ -3,11 +3,14 @@ import { Route, Routes, Link, useLocation, useNavigate, Navigate } from 'react-r
 import { Box, Card, CardContent, Tabs, Tab } from '@mui/material';
 import UsersTable from './UsersTable';
 import InvitesTable from './InvitesTable';
+import Duplicates from './Duplicates';
+import { useTranslation } from 'react-i18next';
 
 const AdminSpace: React.FC = () => {
     const location = useLocation();
     const navigate = useNavigate();
     const [value, setValue] = React.useState(location.pathname);
+    const { t } = useTranslation();
 
     useEffect(() => {
         if (location.pathname === '/admin') {
@@ -40,7 +43,7 @@ const AdminSpace: React.FC = () => {
                                     }}
                                 >
                                     <Tab
-                                        label="Users"
+                                        label={t('users')}
                                         value="/admin/users"
                                         component={Link}
                                         to="/admin/users"
@@ -55,7 +58,7 @@ const AdminSpace: React.FC = () => {
                                         }}
                                     />
                                     <Tab
-                                        label="Invites"
+                                        label={t('invites')}
                                         value="/admin/invites"
                                         component={Link}
                                         to="/admin/invites"
@@ -69,12 +72,28 @@ const AdminSpace: React.FC = () => {
                                             },
                                         }}
                                     />
+                                    <Tab
+                                        label={t('duplicates')}
+                                        value="/admin/duplicates"
+                                        component={Link}
+                                        to="/admin/duplicates"
+                                        sx={{
+                                            color: (theme) =>
+                                                value.startsWith('/admin/duplicates')
+                                                    ? theme.palette.text.primary
+                                                    : theme.palette.text.secondary,
+                                            '&.Mui-selected': {
+                                                color: (theme) => theme.palette.text.primary,
+                                            },
+                                        }}
+                                    />
                                 </Tabs>
                                 <Box>
                                     <Routes>
                                         <Route path="users" element={<UsersTable />} />
                                         <Route path="users/:page" element={<UsersTable />} />
                                         <Route path="invites" element={<InvitesTable />} />
+                                        <Route path="duplicates" element={<Duplicates />} />
                                         <Route path="*" element={<Navigate to="/admin/users" />} />
                                     </Routes>
                                 </Box>
