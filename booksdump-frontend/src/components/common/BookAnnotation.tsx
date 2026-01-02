@@ -9,15 +9,19 @@ interface BookAnnotationProps {
 }
 
 const VISIBLE_CHARS = 200;
-const MIN_HIDDEN_CHARS = 100;
+const MIN_HIDDEN_CHARS = 80;
+const MIN_HIDDEN_RATIO = 0.3;
 
 const BookAnnotation: React.FC<BookAnnotationProps> = ({ annotation }) => {
   const { t } = useTranslation();
   const [opened, setOpened] = React.useState(false);
 
   const hiddenLength = annotation.length - VISIBLE_CHARS;
+  const hiddenRatio = hiddenLength / annotation.length;
   const shouldTruncate =
-    annotation.length > VISIBLE_CHARS && hiddenLength >= MIN_HIDDEN_CHARS;
+    annotation.length > VISIBLE_CHARS &&
+    hiddenLength >= MIN_HIDDEN_CHARS &&
+    hiddenRatio >= MIN_HIDDEN_RATIO;
 
   return (
     <>
