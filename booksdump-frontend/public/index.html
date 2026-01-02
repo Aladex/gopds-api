@@ -26,6 +26,14 @@
     -->
     <title>Booksdump</title>
 
+    <script>
+      // Preload CSRF token to reduce request overhead
+      fetch('/api/csrf-token', { credentials: 'include' })
+        .then(function (response) { return response.json(); })
+        .then(function (data) { window.__CSRF_TOKEN__ = data.csrf_token; })
+        .catch(function (error) { console.error('Failed to preload CSRF:', error); });
+    </script>
+
     <!-- Скрипт для предотвращения FOUC -->
     <script>
       document.documentElement.className = 'no-js';

@@ -11,7 +11,7 @@ import LanguageInitializer from './components/LanguageInitializer';
 import { useAuth } from './context/AuthContext';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import useAuthWebSocket from './components/hooks/useAuthWebSocket';
-import LoadingSpinner from './components/common/LoadingSpinner';
+import AppSkeleton from './components/common/AppSkeleton';
 
 const App: React.FC<{ isAuthenticated: boolean }> = memo(({ isAuthenticated }) => {
     // Using WebSocket inside BookConversionProvider
@@ -69,7 +69,7 @@ const AppWrapper: React.FC = () => {
                 <LanguageInitializer onLanguageLoaded={handleLanguageLoaded} />
             )}
             {showLoading ? (
-                <LoadingSpinner message="loading" />
+                <AppSkeleton />
             ) : (
                 providers
             )}

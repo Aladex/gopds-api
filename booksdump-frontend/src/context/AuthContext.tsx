@@ -51,6 +51,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }, []);
 
     const getCsrfToken = useCallback(async () => {
+        const cookieToken = document.cookie
+            .split('; ')
+            .find((row) => row.startsWith('csrf_token='))
+            ?.split('=')[1];
+
+        if (cookieToken) {
+            setCsrfToken(cookieToken);
+            return;
+        }
+
+        const preloadedToken = (window as Window & { __CSRF_TOKEN__?: string }).__CSRF_TOKEN__;
+        if (preloadedToken) {
+            setCsrfToken(preloadedToken);
+            return;
+        }
+
         try {
             const response = await fetchWithAuth.get('/csrf-token');
             if (response.status === 200 && response.data.csrf_token) {
@@ -186,44 +202,38 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
             // For change password page, only get CSRF token and skip all auth checks
             if (isChangePasswordPage) {
-                await getCsrfToken();
-                setIsLoaded(true);
-                setIsLoading(false);
+                setIsLoading(true);
+                try {
+                    await getCsrfToken();
+                } finally {
+                    setIsLoaded(true);
+                    setIsLoading(false);
+                }
                 return;
             }
 
-            await getCsrfToken();
-
-            const isAuthPage = currentPath.includes('/login') ||
-                              currentPath.includes('/register') ||
-                              currentPath.includes('/forgot-password') ||
-                              currentPath.includes('/activation') ||
-                              currentPath.includes('/activate');
-
-            if (!isAuthPage) {
-                // For non-auth pages, try to login normally
-                login();
-            } else {
-                // For auth pages, still check if user is already authenticated
-                // but do it silently without triggering redirects
-                setIsLoading(true);
-                fetchWithAuth.get('/books/self-user')
-                    .then((response) => {
-                        setUser(response.data);
-                    })
-                    .catch(() => {
-                        // Silent fail - user is not authenticated, which is expected on auth pages
-                        setUser(null);
-                    })
-                    .finally(() => {
-                        setIsLoaded(true);
-                        setIsLoading(false);
-                    });
+            setIsLoading(true);
+            try {
+                const response = await fetchWithAuth.get('/init');
+                const initData = response.data || {};
+                if (initData.csrf_token) {
+                    setCsrfToken(initData.csrf_token);
+                } else {
+                    await getCsrfToken();
+                }
+                setUser(initData.user || null);
+            } catch (error) {
+                console.error('Error initializing auth', error);
+                setUser(null);
+                await getCsrfToken();
+            } finally {
+                setIsLoaded(true);
+                setIsLoading(false);
             }
         };
         initializeAuth();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [getCsrfToken]); // login и setUser намеренно исключены для предотвращения бесконечных циклов
+    }, [getCsrfToken]); // setUser is stable and login removed to avoid extra requests
 
     // Мемоизируем значение контекста для предотвращения ненужных перерендеров
     const contextValue = useMemo(() => ({

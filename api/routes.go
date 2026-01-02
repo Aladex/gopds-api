@@ -31,6 +31,7 @@ func SetupAuthRoutes(r *gin.RouterGroup) {
 	r.POST("/login", AuthCheck)
 	r.POST("/register", Registration)
 	r.GET("/csrf-token", GetCSRFToken)
+	r.GET("/init", InitSession)
 	r.POST("/refresh-token", RefreshToken)
 }
 

@@ -263,6 +263,70 @@ func GetCSRFToken(c *gin.Context) {
 	middlewares.SetCSRFToken(c)
 }
 
+// InitSession returns CSRF token and optional user data in a single call.
+// Auth godoc
+// @Summary Initialize session
+// @Description Returns CSRF token and current user data if authenticated
+// @Tags login
+// @Accept  json
+// @Produce  json
+// @Success 200 {object} map[string]any
+// @Router /api/init [get]
+func InitSession(c *gin.Context) {
+	csrfToken := middlewares.GenerateCSRFToken()
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie("csrf_token", csrfToken, 3600, "/", "", false, false)
+
+	response := gin.H{
+		"csrf_token":           csrfToken,
+		"translations_version": "1.0",
+	}
+
+	token, err := getTokenFromRequest(c)
+	if err != nil {
+		c.JSON(http.StatusOK, response)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	if _, err := sessions.CheckSessionKeyInRedis(ctx, token); err != nil {
+		c.JSON(http.StatusOK, response)
+		return
+	}
+
+	username, _, _, tokenType, err := utils.CheckTokenWithType(token)
+	if err != nil || tokenType != "access" {
+		c.JSON(http.StatusOK, response)
+		return
+	}
+
+	dbUser, err := database.GetUser(strings.ToLower(username))
+	if err != nil {
+		c.JSON(http.StatusOK, response)
+		return
+	}
+
+	if hf, err := database.HaveFavs(dbUser.ID); err == nil {
+		response["user"] = models.LoggedInUser{
+			User:        dbUser.Login,
+			BooksLang:   dbUser.BooksLang,
+			IsSuperuser: &dbUser.IsSuperUser,
+			FirstName:   dbUser.FirstName,
+			LastName:    dbUser.LastName,
+			HaveFavs:    &hf,
+			Collections: dbUser.Collections,
+		}
+	}
+
+	if theme, err := sessions.GetThemeForToken(ctx, token); err == nil {
+		response["theme"] = theme
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
 // ChangeUser method for updating user information by token
 // Auth godoc
 // @Summary Update user information
