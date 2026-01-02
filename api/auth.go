@@ -283,14 +283,74 @@ func InitSession(c *gin.Context) {
 	}
 
 	token, err := getTokenFromRequest(c)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// If access token is missing or invalid, try to refresh using refresh token
 	if err != nil {
+		refreshToken, refreshErr := c.Cookie("refresh_token")
+		if refreshErr == nil && refreshToken != "" {
+			username, _, _, tokenType, checkErr := utils.CheckTokenWithType(refreshToken)
+			if checkErr == nil && tokenType == "refresh" {
+				// Check if refresh token is blacklisted
+				if !sessions.IsRefreshTokenBlacklisted(ctx, refreshToken) {
+					dbUser, userErr := database.GetUser(strings.ToLower(username))
+					if userErr == nil && dbUser.Active {
+						// Create new token pair
+						newAccessToken, newRefreshToken, tokenErr := utils.CreateTokenPair(dbUser)
+						if tokenErr == nil {
+							// Blacklist old refresh token (token rotation)
+							if blacklistErr := sessions.BlacklistRefreshToken(ctx, refreshToken); blacklistErr != nil {
+								logging.Errorf("Failed to blacklist refresh token during init: %v", blacklistErr)
+							}
+
+							// Save new session in Redis
+							thisUser := models.LoggedInUser{
+								User:  strings.ToLower(dbUser.Login),
+								Token: &newAccessToken,
+							}
+							if sessionErr := sessions.SetSessionKey(ctx, thisUser); sessionErr != nil {
+								logging.Errorf("Failed to save session during init: %v", sessionErr)
+								// Continue anyway - user will get tokens in cookies
+							}
+
+							// Set new cookies
+							c.SetSameSite(http.SameSiteLaxMode)
+							c.SetCookie("token", newAccessToken, 900, "/", viper.GetString("project_domain"), !viper.GetBool("app.devel_mode"), true)
+							c.SetCookie("refresh_token", newRefreshToken, 604800, "/", viper.GetString("project_domain"), !viper.GetBool("app.devel_mode"), true)
+
+							// Add user data to response
+							if hf, err := database.HaveFavs(dbUser.ID); err == nil {
+								response["user"] = models.LoggedInUser{
+									User:        dbUser.Login,
+									BooksLang:   dbUser.BooksLang,
+									IsSuperuser: &dbUser.IsSuperUser,
+									FirstName:   dbUser.FirstName,
+									LastName:    dbUser.LastName,
+									HaveFavs:    &hf,
+									Collections: dbUser.Collections,
+								}
+							}
+
+							// Add theme if available
+							if theme, err := sessions.GetThemeForToken(ctx, newAccessToken); err == nil {
+								response["theme"] = theme
+							}
+
+							c.JSON(http.StatusOK, response)
+							return
+						}
+					}
+				}
+			}
+		}
+
+		// If refresh failed or no refresh token, return only CSRF token
 		c.JSON(http.StatusOK, response)
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
+	// Access token exists, validate it
 	if _, err := sessions.CheckSessionKeyInRedis(ctx, token); err != nil {
 		c.JSON(http.StatusOK, response)
 		return
