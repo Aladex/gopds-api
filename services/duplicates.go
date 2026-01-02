@@ -111,7 +111,7 @@ func ScanDuplicates(ctx context.Context, db *pg.DB, jobID int64, wsConn WebSocke
 	}
 
 	processedBooks := 0
-	errorCount := 0
+	var errorCount int64 = 0
 
 	totalBooksInt64 := int64(totalBooks)
 	progressCount := int64(0)
@@ -134,7 +134,7 @@ func ScanDuplicates(ctx context.Context, db *pg.DB, jobID int64, wsConn WebSocke
 					hash, hashErr := computeBookMD5(filePath, book.FileName)
 					if hashErr != nil {
 						logging.Warnf("Failed to compute MD5 for book ID %d (%s/%s): %v", book.ID, filePath, book.FileName, hashErr)
-						errorCount++
+						atomic.AddInt64(&errorCount, 1)
 					} else {
 						_, err = db.Model(&models.Book{}).
 							Set("md5 = ?", hash).
@@ -143,7 +143,7 @@ func ScanDuplicates(ctx context.Context, db *pg.DB, jobID int64, wsConn WebSocke
 							Update()
 						if err != nil {
 							logging.Errorf("Failed to update MD5 for book ID %d: %v", book.ID, err)
-							errorCount++
+							atomic.AddInt64(&errorCount, 1)
 						}
 					}
 				}
@@ -228,7 +228,7 @@ func ScanDuplicates(ctx context.Context, db *pg.DB, jobID int64, wsConn WebSocke
 		})
 	}
 
-	logging.Infof("Duplicate scan completed. Processed: %d, Duplicates: %d, Errors: %d", processedBooks, duplicatesFound, errorCount)
+	logging.Infof("Duplicate scan completed. Processed: %d, Duplicates: %d, Errors: %d", processedBooks, duplicatesFound, atomic.LoadInt64(&errorCount))
 	return nil
 }
 
