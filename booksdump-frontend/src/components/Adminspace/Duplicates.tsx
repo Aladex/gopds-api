@@ -69,9 +69,9 @@ const Duplicates: React.FC = () => {
         try {
             const response = await fetchWithAuth.get('/admin/duplicates/scan/active');
             if (response.data?.status === 'none' || !response.data) {
-                setStatusMessage(t('scanNotStarted'));
                 setIsScanning(false);
                 setScanProgress(null);
+                setStatusMessage(null);
                 return;
             }
             if (response.data) {
@@ -84,12 +84,11 @@ const Duplicates: React.FC = () => {
                     error: response.data.error,
                 });
                 setIsScanning(response.data.status === 'running' || response.data.status === 'pending');
-                setStatusMessage(t('scanStatusLoaded'));
             }
         } catch (error: any) {
             console.error(error);
         }
-    }, [t]);
+    }, []);
 
     const handleStartScan = useCallback(async () => {
         setScanError(null);
@@ -228,14 +227,8 @@ const Duplicates: React.FC = () => {
         <Box>
             <Typography variant="h6" align="center">{t('duplicates')}</Typography>
             <Box sx={{ my: 2 }}>
-                <Stack
-                    direction={{ xs: 'column', md: 'row' }}
-                    spacing={2}
-                    alignItems={{ xs: 'stretch', md: 'center' }}
-                    justifyContent="space-between"
-                    sx={{ mb: 2 }}
-                >
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start" sx={{ mb: 2 }}>
+                    <Box>
                         <TextField
                             label={t('workers')}
                             type="number"
@@ -247,46 +240,89 @@ const Duplicates: React.FC = () => {
                                     setWorkerCount(Math.max(1, Math.min(8, next)));
                                 }
                             }}
-                            inputProps={{ min: 1, max: 8 }}
-                            helperText={t('workersHint')}
-                            sx={{ minWidth: 160 }}
+                            sx={{ minWidth: 120, mb: 0.5 }}
                         />
-                        <Button variant="contained" onClick={handleStartScan} disabled={isScanning}>
-                            {t('startScan')}
-                        </Button>
-                        <Button
-                            variant="outlined"
-                            color="warning"
-                            onClick={handleStopScan}
-                            disabled={!isScanning}
-                        >
-                            {t('stopScan')}
-                        </Button>
-                        <Button
-                            variant="outlined"
-                            color="error"
-                            onClick={handleForceStopScan}
-                            disabled={!scanProgress}
-                        >
-                            {t('forceStopScan')}
-                        </Button>
-                    </Stack>
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
-                        <Button variant="outlined" onClick={fetchActiveScan}>
-                            {t('getStatus')}
-                        </Button>
-                        <Button variant="outlined" onClick={fetchGroups} disabled={isLoading}>
-                            {t('refresh')}
-                        </Button>
-                        <Button
-                            variant="contained"
-                            color="warning"
-                            onClick={handleHideDuplicates}
-                            disabled={isScanning}
-                        >
-                            {t('hideDuplicates')}
-                        </Button>
-                    </Stack>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                            {t('workersHint')}
+                        </Typography>
+                    </Box>
+                </Stack>
+
+                <Stack
+                    direction={{ xs: 'column', sm: 'row' }}
+                    spacing={1}
+                    alignItems="center"
+                    justifyContent="flex-start"
+                    sx={{ flexWrap: 'wrap' }}
+                >
+                    <Button
+                        variant="contained"
+                        onClick={handleStartScan}
+                        disabled={isScanning}
+                        sx={{
+                            minWidth: 120,
+                            '&:disabled': { opacity: 0.6, cursor: 'not-allowed' }
+                        }}
+                    >
+                        {t('startScan')}
+                    </Button>
+                    <Button
+                        variant="outlined"
+                        color="warning"
+                        onClick={handleStopScan}
+                        disabled={!isScanning}
+                        sx={{
+                            minWidth: 120,
+                            '&:disabled': { opacity: 0.6, cursor: 'not-allowed' }
+                        }}
+                    >
+                        {t('stopScan')}
+                    </Button>
+                    <Button
+                        variant="outlined"
+                        color="error"
+                        onClick={handleForceStopScan}
+                        disabled={!scanProgress}
+                        sx={{
+                            minWidth: 120,
+                            '&:disabled': { opacity: 0.6, cursor: 'not-allowed' }
+                        }}
+                    >
+                        {t('forceStopScan')}
+                    </Button>
+                    <Button
+                        variant="outlined"
+                        onClick={fetchActiveScan}
+                        sx={{
+                            minWidth: 120,
+                            '&:disabled': { opacity: 0.6, cursor: 'not-allowed' }
+                        }}
+                    >
+                        {t('getStatus')}
+                    </Button>
+                    <Button
+                        variant="outlined"
+                        onClick={fetchGroups}
+                        disabled={isLoading}
+                        sx={{
+                            minWidth: 120,
+                            '&:disabled': { opacity: 0.6, cursor: 'not-allowed' }
+                        }}
+                    >
+                        {t('refresh')}
+                    </Button>
+                    <Button
+                        variant="contained"
+                        color="warning"
+                        onClick={handleHideDuplicates}
+                        disabled={isScanning}
+                        sx={{
+                            minWidth: 120,
+                            '&:disabled': { opacity: 0.6, cursor: 'not-allowed' }
+                        }}
+                    >
+                        {t('hideDuplicates')}
+                    </Button>
                 </Stack>
             </Box>
 

@@ -9,7 +9,6 @@ import (
 	"gopds-api/logging"
 	"gopds-api/models"
 	"io"
-	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
