@@ -227,55 +227,68 @@ const Duplicates: React.FC = () => {
     return (
         <Box>
             <Typography variant="h6" align="center">{t('duplicates')}</Typography>
-            <Stack direction="row" spacing={2} justifyContent="center" sx={{ my: 2, flexWrap: 'wrap' }}>
-                <TextField
-                    label={t('workers')}
-                    type="number"
-                    size="small"
-                    value={workerCount}
-                    onChange={(event) => {
-                        const next = Number(event.target.value);
-                        if (!Number.isNaN(next)) {
-                            setWorkerCount(Math.max(1, Math.min(8, next)));
-                        }
-                    }}
-                    inputProps={{ min: 1, max: 8 }}
-                    helperText={t('workersHint')}
-                />
-                <Button variant="contained" onClick={handleStartScan} disabled={isScanning}>
-                    {t('startScan')}
-                </Button>
-                <Button
-                    variant="outlined"
-                    color="warning"
-                    onClick={handleStopScan}
-                    disabled={!isScanning}
+            <Box sx={{ my: 2 }}>
+                <Stack
+                    direction={{ xs: 'column', md: 'row' }}
+                    spacing={2}
+                    alignItems={{ xs: 'stretch', md: 'center' }}
+                    justifyContent="space-between"
+                    sx={{ mb: 2 }}
                 >
-                    {t('stopScan')}
-                </Button>
-                <Button
-                    variant="outlined"
-                    color="error"
-                    onClick={handleForceStopScan}
-                    disabled={!scanProgress}
-                >
-                    {t('forceStopScan')}
-                </Button>
-                <Button variant="outlined" onClick={fetchActiveScan}>
-                    {t('getStatus')}
-                </Button>
-                <Button variant="outlined" onClick={fetchGroups} disabled={isLoading}>
-                    {t('refresh')}
-                </Button>
-                <Button
-                    variant="outlined"
-                    color="warning"
-                    onClick={handleHideDuplicates}
-                    disabled={isScanning}
-                >
-                    {t('hideDuplicates')}
-                </Button>
-            </Stack>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
+                        <TextField
+                            label={t('workers')}
+                            type="number"
+                            size="small"
+                            value={workerCount}
+                            onChange={(event) => {
+                                const next = Number(event.target.value);
+                                if (!Number.isNaN(next)) {
+                                    setWorkerCount(Math.max(1, Math.min(8, next)));
+                                }
+                            }}
+                            inputProps={{ min: 1, max: 8 }}
+                            helperText={t('workersHint')}
+                            sx={{ minWidth: 160 }}
+                        />
+                        <Button variant="contained" onClick={handleStartScan} disabled={isScanning}>
+                            {t('startScan')}
+                        </Button>
+                        <Button
+                            variant="outlined"
+                            color="warning"
+                            onClick={handleStopScan}
+                            disabled={!isScanning}
+                        >
+                            {t('stopScan')}
+                        </Button>
+                        <Button
+                            variant="outlined"
+                            color="error"
+                            onClick={handleForceStopScan}
+                            disabled={!scanProgress}
+                        >
+                            {t('forceStopScan')}
+                        </Button>
+                    </Stack>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
+                        <Button variant="outlined" onClick={fetchActiveScan}>
+                            {t('getStatus')}
+                        </Button>
+                        <Button variant="outlined" onClick={fetchGroups} disabled={isLoading}>
+                            {t('refresh')}
+                        </Button>
+                        <Button
+                            variant="contained"
+                            color="warning"
+                            onClick={handleHideDuplicates}
+                            disabled={isScanning}
+                        >
+                            {t('hideDuplicates')}
+                        </Button>
+                    </Stack>
+                </Stack>
+            </Box>
 
             <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
                 <CardContent>
