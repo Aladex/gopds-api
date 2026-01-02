@@ -318,7 +318,7 @@ func GetDuplicateGroups(_ context.Context, db *pg.DB) ([]DuplicateGroup, error) 
 			Limit(5). // Get up to 5 example titles
 			Select()
 		if err != nil {
-			logging.Warnf("Failed to fetch books for hash %s: %v", r.MD5Hash, err)
+			logging.Warnf("Failed to fetch books for hash %s: %v", r.MD5, err)
 			continue
 		}
 
