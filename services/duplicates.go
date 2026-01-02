@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-pg/pg/v10"
@@ -53,10 +54,12 @@ const (
 var (
 	// Mutex to ensure only one scan runs at a time
 	scanMutex sync.Mutex
+	cancelMu  sync.Mutex
+	cancelMap = make(map[int64]context.CancelFunc)
 )
 
 // ScanDuplicates scans all books and computes MD5 hashes for duplicate detection
-func ScanDuplicates(ctx context.Context, db *pg.DB, jobID int64, wsConn WebSocketConnection, filesPath string) error {
+func ScanDuplicates(ctx context.Context, db *pg.DB, jobID int64, wsConn WebSocketConnection, filesPath string, workers int) error {
 	logging.Infof("Starting duplicate scan job %d", jobID)
 
 	// Update job status to running
@@ -110,63 +113,81 @@ func ScanDuplicates(ctx context.Context, db *pg.DB, jobID int64, wsConn WebSocke
 	processedBooks := 0
 	errorCount := 0
 
-	for i, book := range books {
-		// Check context cancellation
-		select {
-		case <-ctx.Done():
-			logging.Warn("Scan cancelled by context")
-			return updateJobError(db, jobID, "scan_cancelled")
-		default:
-		}
+	totalBooksInt64 := int64(totalBooks)
+	progressCount := int64(0)
+	jobs := make(chan models.Book, workers*2)
+	var wg sync.WaitGroup
 
-		// Skip if MD5 already exists
-		if book.MD5 != "" {
-			processedBooks++
-			continue
-		}
+	worker := func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case book, ok := <-jobs:
+				if !ok {
+					return
+				}
 
-		// Compute MD5 hash
-		filePath := filepath.Join(filesPath, book.Path)
-		hash, err := computeMD5(filePath)
-		if err != nil {
-			logging.Warnf("Failed to compute MD5 for book ID %d (%s): %v", book.ID, filePath, err)
-			errorCount++
-			// Continue processing even if file is missing
-			processedBooks++
-			continue
-		}
+				if book.MD5 == "" {
+					filePath := filepath.Join(filesPath, book.Path)
+					hash, hashErr := computeMD5(filePath)
+					if hashErr != nil {
+						logging.Warnf("Failed to compute MD5 for book ID %d (%s): %v", book.ID, filePath, hashErr)
+						errorCount++
+					} else {
+						_, err = db.Model(&models.Book{}).
+							Set("md5 = ?", hash).
+							Set("registerdate = registerdate"). // Preserve registerdate
+							Where("id = ?", book.ID).
+							Update()
+						if err != nil {
+							logging.Errorf("Failed to update MD5 for book ID %d: %v", book.ID, err)
+							errorCount++
+						}
+					}
+				}
 
-		// Update book with MD5 hash
-		_, err = db.Model(&models.Book{}).
-			Set("md5 = ?", hash).
-			Set("registerdate = registerdate"). // Preserve registerdate
-			Where("id = ?", book.ID).
-			Update()
-		if err != nil {
-			logging.Errorf("Failed to update MD5 for book ID %d: %v", book.ID, err)
-			errorCount++
-		}
+				current := atomic.AddInt64(&progressCount, 1)
+				if current%batchSize == 0 || current == totalBooksInt64 {
+					processedBooks = int(current)
+					err = updateJobProgress(db, jobID, processedBooks, 0)
+					if err != nil {
+						logging.Warnf("Failed to update job progress: %v", err)
+					}
 
-		processedBooks++
-
-		// Send progress update every batchSize books (without duplicatesFound during scan)
-		if (i+1)%batchSize == 0 || i == totalBooks-1 {
-			err = updateJobProgress(db, jobID, processedBooks, 0)
-			if err != nil {
-				logging.Warnf("Failed to update job progress: %v", err)
-			}
-
-			if wsConn != nil {
-				_ = wsConn.SendMessage("duplicate_scan_progress", DuplicateScanProgress{
-					JobID:           jobID,
-					Status:          "running",
-					ProcessedBooks:  processedBooks,
-					TotalBooks:      totalBooks,
-					DuplicatesFound: 0,
-				})
+					if wsConn != nil {
+						_ = wsConn.SendMessage("duplicate_scan_progress", DuplicateScanProgress{
+							JobID:           jobID,
+							Status:          "running",
+							ProcessedBooks:  processedBooks,
+							TotalBooks:      totalBooks,
+							DuplicatesFound: 0,
+						})
+					}
+				}
 			}
 		}
 	}
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go worker()
+	}
+
+	for _, book := range books {
+		select {
+		case <-ctx.Done():
+			close(jobs)
+			wg.Wait()
+			logging.Warn("Scan cancelled by context")
+			return updateJobError(db, jobID, "scan_cancelled")
+		case jobs <- book:
+		}
+	}
+	close(jobs)
+	wg.Wait()
+	processedBooks = int(atomic.LoadInt64(&progressCount))
 
 	// Calculate duplicates count after scanning is complete
 	duplicatesFound := 0
@@ -267,8 +288,8 @@ func GetDuplicateGroups(_ context.Context, db *pg.DB) ([]DuplicateGroup, error) 
 
 	// Query to find duplicate groups
 	type result struct {
-		MD5Hash string
-		Count   int
+		MD5   string `pg:"md5"`
+		Count int
 	}
 
 	var results []result
@@ -292,7 +313,7 @@ func GetDuplicateGroups(_ context.Context, db *pg.DB) ([]DuplicateGroup, error) 
 		var books []models.Book
 		err := db.Model(&books).
 			Column("id", "title").
-			Where("md5 = ?", r.MD5Hash).
+			Where("md5 = ?", r.MD5).
 			Order("id ASC").
 			Limit(5). // Get up to 5 example titles
 			Select()
@@ -311,7 +332,7 @@ func GetDuplicateGroups(_ context.Context, db *pg.DB) ([]DuplicateGroup, error) 
 		}
 
 		groups = append(groups, DuplicateGroup{
-			MD5Hash:       r.MD5Hash,
+			MD5Hash:       r.MD5,
 			Count:         r.Count,
 			BookIDs:       bookIDs,
 			ExampleTitles: titles,
@@ -410,4 +431,28 @@ func EnsureOneScanRunning(_ context.Context, db *pg.DB) error {
 	}
 
 	return err
+}
+
+func RegisterScanCancel(jobID int64, cancel context.CancelFunc) {
+	cancelMu.Lock()
+	defer cancelMu.Unlock()
+	cancelMap[jobID] = cancel
+}
+
+func UnregisterScanCancel(jobID int64) {
+	cancelMu.Lock()
+	defer cancelMu.Unlock()
+	delete(cancelMap, jobID)
+}
+
+func CancelScan(jobID int64) bool {
+	cancelMu.Lock()
+	defer cancelMu.Unlock()
+	cancel, ok := cancelMap[jobID]
+	if !ok {
+		return false
+	}
+	cancel()
+	delete(cancelMap, jobID)
+	return true
 }

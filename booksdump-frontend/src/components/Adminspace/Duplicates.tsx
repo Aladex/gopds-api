@@ -5,6 +5,7 @@ import {
     Card,
     CardContent,
     LinearProgress,
+    TextField,
     Stack,
     Table,
     TableBody,
@@ -40,6 +41,8 @@ const Duplicates: React.FC = () => {
     const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
     const [scanError, setScanError] = useState<string | null>(null);
     const [actionResult, setActionResult] = useState<string | null>(null);
+    const [statusMessage, setStatusMessage] = useState<string | null>(null);
+    const [workerCount, setWorkerCount] = useState<number>(1);
     const wsRef = useRef<WebSocket | null>(null);
 
     const progressPercent = useMemo(() => {
@@ -62,11 +65,40 @@ const Duplicates: React.FC = () => {
         }
     }, []);
 
+    const fetchActiveScan = useCallback(async () => {
+        try {
+            const response = await fetchWithAuth.get('/admin/duplicates/scan/active');
+            if (response.data) {
+                setScanProgress({
+                    job_id: response.data.id,
+                    status: response.data.status,
+                    processed_books: response.data.processed_books,
+                    total_books: response.data.total_books,
+                    duplicates_found: response.data.duplicates_found,
+                    error: response.data.error,
+                });
+                setIsScanning(response.data.status === 'running' || response.data.status === 'pending');
+                setStatusMessage(t('scanStatusLoaded'));
+            }
+        } catch (error: any) {
+            if (error?.response?.status === 404) {
+                setStatusMessage(t('scanNotStarted'));
+                setIsScanning(false);
+                setScanProgress(null);
+                return;
+            }
+            console.error(error);
+        }
+    }, [t]);
+
     const handleStartScan = useCallback(async () => {
         setScanError(null);
         setActionResult(null);
+        setStatusMessage(null);
         try {
-            const response = await fetchWithAuth.post('/admin/duplicates/scan');
+            const response = await fetchWithAuth.post('/admin/duplicates/scan', {
+                workers: workerCount,
+            });
             const jobId = response.data?.job_id;
             if (jobId) {
                 setScanProgress({
@@ -78,11 +110,16 @@ const Duplicates: React.FC = () => {
                 });
                 setIsScanning(true);
             }
-        } catch (error) {
+        } catch (error: any) {
+            if (error?.response?.status === 409) {
+                setStatusMessage(t('scanAlreadyRunning'));
+                await fetchActiveScan();
+                return;
+            }
             console.error(error);
             setScanError(t('scanError'));
         }
-    }, [t]);
+    }, [fetchActiveScan, t, workerCount]);
 
     const handleHideDuplicates = useCallback(async () => {
         setActionResult(null);
@@ -104,9 +141,46 @@ const Duplicates: React.FC = () => {
         }
     }, [fetchGroups, t]);
 
+    const handleStopScan = useCallback(async () => {
+        if (!scanProgress) {
+            return;
+        }
+        setActionResult(null);
+        try {
+            await fetchWithAuth.post(`/admin/duplicates/scan/${scanProgress.job_id}/stop`);
+            setStatusMessage(t('scanStopRequested'));
+            setIsScanning(false);
+            await fetchActiveScan();
+        } catch (error) {
+            console.error(error);
+            setScanError(t('scanStopError'));
+        }
+    }, [fetchActiveScan, scanProgress, t]);
+
+    const handleForceStopScan = useCallback(async () => {
+        if (!scanProgress) {
+            return;
+        }
+        const confirmed = window.confirm(t('forceStopConfirm'));
+        if (!confirmed) {
+            return;
+        }
+        setActionResult(null);
+        try {
+            await fetchWithAuth.post(`/admin/duplicates/scan/${scanProgress.job_id}/force-stop`);
+            setStatusMessage(t('scanForceStopRequested'));
+            setIsScanning(false);
+            await fetchActiveScan();
+        } catch (error) {
+            console.error(error);
+            setScanError(t('scanForceStopError'));
+        }
+    }, [fetchActiveScan, scanProgress, t]);
+
     useEffect(() => {
         fetchGroups().then(r => r);
-    }, [fetchGroups]);
+        fetchActiveScan().then(r => r);
+    }, [fetchGroups, fetchActiveScan]);
 
     useEffect(() => {
         const ws = new WebSocket(`${WS_URL}/api/admin/ws`);
@@ -154,8 +228,41 @@ const Duplicates: React.FC = () => {
         <Box>
             <Typography variant="h6" align="center">{t('duplicates')}</Typography>
             <Stack direction="row" spacing={2} justifyContent="center" sx={{ my: 2, flexWrap: 'wrap' }}>
+                <TextField
+                    label={t('workers')}
+                    type="number"
+                    size="small"
+                    value={workerCount}
+                    onChange={(event) => {
+                        const next = Number(event.target.value);
+                        if (!Number.isNaN(next)) {
+                            setWorkerCount(Math.max(1, Math.min(8, next)));
+                        }
+                    }}
+                    inputProps={{ min: 1, max: 8 }}
+                    helperText={t('workersHint')}
+                />
                 <Button variant="contained" onClick={handleStartScan} disabled={isScanning}>
                     {t('startScan')}
+                </Button>
+                <Button
+                    variant="outlined"
+                    color="warning"
+                    onClick={handleStopScan}
+                    disabled={!isScanning}
+                >
+                    {t('stopScan')}
+                </Button>
+                <Button
+                    variant="outlined"
+                    color="error"
+                    onClick={handleForceStopScan}
+                    disabled={!scanProgress}
+                >
+                    {t('forceStopScan')}
+                </Button>
+                <Button variant="outlined" onClick={fetchActiveScan}>
+                    {t('getStatus')}
                 </Button>
                 <Button variant="outlined" onClick={fetchGroups} disabled={isLoading}>
                     {t('refresh')}
@@ -196,6 +303,11 @@ const Duplicates: React.FC = () => {
                     ) : (
                         <Typography variant="body2" color="text.secondary">
                             {t('scanNotStarted')}
+                        </Typography>
+                    )}
+                    {statusMessage && (
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                            {statusMessage}
                         </Typography>
                     )}
                     {scanError && (
