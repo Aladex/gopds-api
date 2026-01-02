@@ -292,9 +292,18 @@ const Duplicates: React.FC = () => {
                     </Button>
                     <Button
                         variant="outlined"
+                        color="inherit"
                         onClick={fetchActiveScan}
                         sx={{
                             minWidth: 120,
+                            borderColor: (theme) => theme.palette.mode === 'dark'
+                                ? 'rgba(255, 255, 255, 0.23)'
+                                : 'rgba(0, 0, 0, 0.23)',
+                            '&:hover': {
+                                borderColor: (theme) => theme.palette.mode === 'dark'
+                                    ? 'rgba(255, 255, 255, 0.4)'
+                                    : 'rgba(0, 0, 0, 0.4)',
+                            },
                             '&:disabled': { opacity: 0.6, cursor: 'not-allowed' }
                         }}
                     >
@@ -302,10 +311,19 @@ const Duplicates: React.FC = () => {
                     </Button>
                     <Button
                         variant="outlined"
+                        color="inherit"
                         onClick={fetchGroups}
                         disabled={isLoading}
                         sx={{
                             minWidth: 120,
+                            borderColor: (theme) => theme.palette.mode === 'dark'
+                                ? 'rgba(255, 255, 255, 0.23)'
+                                : 'rgba(0, 0, 0, 0.23)',
+                            '&:hover': {
+                                borderColor: (theme) => theme.palette.mode === 'dark'
+                                    ? 'rgba(255, 255, 255, 0.4)'
+                                    : 'rgba(0, 0, 0, 0.4)',
+                            },
                             '&:disabled': { opacity: 0.6, cursor: 'not-allowed' }
                         }}
                     >
