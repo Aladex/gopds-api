@@ -36,9 +36,11 @@ const AdminSpace: React.FC = () => {
                                     aria-label="admin tabs"
                                     textColor="inherit"
                                     indicatorColor="primary"
-                                    TabIndicatorProps={{
-                                        sx: {
-                                            backgroundColor: (theme) => theme.palette.text.primary,
+                                    slotProps={{
+                                        indicator: {
+                                            sx: {
+                                                backgroundColor: (theme) => theme.palette.text.primary,
+                                            },
                                         },
                                     }}
                                 >
