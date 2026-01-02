@@ -373,7 +373,7 @@ func HideDuplicates(_ context.Context, db *pg.DB) (*HideResult, error) {
 
 	// Get all duplicate groups
 	type duplicateHash struct {
-		MD5Hash string
+		MD5 string `pg:"md5"`
 	}
 
 	var hashes []duplicateHash
@@ -397,11 +397,11 @@ func HideDuplicates(_ context.Context, db *pg.DB) (*HideResult, error) {
 		var books []models.Book
 		err := db.Model(&books).
 			Column("id").
-			Where("md5 = ?", h.MD5Hash).
+			Where("md5 = ?", h.MD5).
 			Order("id DESC"). // Newest first
 			Select()
 		if err != nil {
-			logging.Warnf("Failed to fetch books for hash %s: %v", h.MD5Hash, err)
+			logging.Warnf("Failed to fetch books for hash %s: %v", h.MD5, err)
 			continue
 		}
 
