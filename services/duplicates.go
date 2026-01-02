@@ -1,6 +1,7 @@
 package services
 
 import (
+	"archive/zip"
 	"context"
 	"crypto/md5"
 	"errors"
@@ -131,9 +132,9 @@ func ScanDuplicates(ctx context.Context, db *pg.DB, jobID int64, wsConn WebSocke
 
 				if book.MD5 == "" {
 					filePath := filepath.Join(filesPath, book.Path)
-					hash, hashErr := computeMD5(filePath)
+					hash, hashErr := computeBookMD5(filePath, book.FileName)
 					if hashErr != nil {
-						logging.Warnf("Failed to compute MD5 for book ID %d (%s): %v", book.ID, filePath, hashErr)
+						logging.Warnf("Failed to compute MD5 for book ID %d (%s/%s): %v", book.ID, filePath, book.FileName, hashErr)
 						errorCount++
 					} else {
 						_, err = db.Model(&models.Book{}).
@@ -232,22 +233,46 @@ func ScanDuplicates(ctx context.Context, db *pg.DB, jobID int64, wsConn WebSocke
 	return nil
 }
 
-// computeMD5 computes MD5 hash of a file
-func computeMD5(filePath string) (string, error) {
-	file, err := os.Open(filePath)
+// computeBookMD5 computes MD5 hash of a book file stored inside a zip archive.
+func computeBookMD5(zipPath string, filename string) (string, error) {
+	if filename == "" {
+		return "", errors.New("missing filename")
+	}
+	reader, err := zip.OpenReader(zipPath)
 	if err != nil {
 		return "", err
 	}
 	defer func() {
-		if closeErr := file.Close(); closeErr != nil {
-			logging.Warnf("Failed to close file %s: %v", filePath, closeErr)
+		if closeErr := reader.Close(); closeErr != nil {
+			logging.Warnf("Failed to close zip %s: %v", zipPath, closeErr)
+		}
+	}()
+
+	var target *zip.File
+	for _, f := range reader.File {
+		if f.Name == filename {
+			target = f
+			break
+		}
+	}
+	if target == nil {
+		return "", errors.New("book not found in archive")
+	}
+
+	rc, err := target.Open()
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if closeErr := rc.Close(); closeErr != nil {
+			logging.Warnf("Failed to close book stream %s/%s: %v", zipPath, filename, closeErr)
 		}
 	}()
 
 	hash := md5.New()
 	buffer := make([]byte, hashBufferSize)
 
-	_, err = io.CopyBuffer(hash, file, buffer)
+	_, err = io.CopyBuffer(hash, rc, buffer)
 	if err != nil {
 		return "", err
 	}
