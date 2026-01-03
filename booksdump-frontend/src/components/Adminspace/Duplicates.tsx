@@ -248,19 +248,23 @@ const Duplicates: React.FC = () => {
                     </Box>
                 </Stack>
 
-                <Stack
-                    direction={{ xs: 'column', sm: 'row' }}
-                    spacing={1}
-                    alignItems="center"
-                    justifyContent="flex-start"
-                    sx={{ flexWrap: 'wrap' }}
+                <Box
+                    sx={{
+                        display: 'flex',
+                        flexDirection: { xs: 'column', sm: 'row' },
+                        flexWrap: 'wrap',
+                        gap: 1,
+                    }}
                 >
                     <Button
                         variant="contained"
                         onClick={handleStartScan}
                         disabled={isScanning}
                         sx={{
-                            minWidth: 120,
+                            width: { xs: '100%', sm: 'calc(50% - 4px)', md: 'calc(33.333% - 6px)', lg: 'auto' },
+                            minWidth: { lg: 120 },
+                            height: { xs: 42, sm: 'auto' },
+                            minHeight: 36,
                             '&:disabled': { opacity: 0.6, cursor: 'not-allowed' }
                         }}
                     >
@@ -272,7 +276,10 @@ const Duplicates: React.FC = () => {
                         onClick={handleStopScan}
                         disabled={!isScanning}
                         sx={{
-                            minWidth: 120,
+                            width: { xs: '100%', sm: 'calc(50% - 4px)', md: 'calc(33.333% - 6px)', lg: 'auto' },
+                            minWidth: { lg: 120 },
+                            height: { xs: 42, sm: 'auto' },
+                            minHeight: 36,
                             '&:disabled': { opacity: 0.6, cursor: 'not-allowed' }
                         }}
                     >
@@ -284,7 +291,10 @@ const Duplicates: React.FC = () => {
                         onClick={handleForceStopScan}
                         disabled={!scanProgress}
                         sx={{
-                            minWidth: 120,
+                            width: { xs: '100%', sm: 'calc(50% - 4px)', md: 'calc(33.333% - 6px)', lg: 'auto' },
+                            minWidth: { lg: 120 },
+                            height: { xs: 42, sm: 'auto' },
+                            minHeight: 36,
                             '&:disabled': { opacity: 0.6, cursor: 'not-allowed' }
                         }}
                     >
@@ -295,7 +305,10 @@ const Duplicates: React.FC = () => {
                         color="inherit"
                         onClick={fetchActiveScan}
                         sx={{
-                            minWidth: 120,
+                            width: { xs: '100%', sm: 'calc(50% - 4px)', md: 'calc(33.333% - 6px)', lg: 'auto' },
+                            minWidth: { lg: 120 },
+                            height: { xs: 42, sm: 'auto' },
+                            minHeight: 36,
                             borderColor: (theme) => theme.palette.mode === 'dark'
                                 ? 'rgba(255, 255, 255, 0.23)'
                                 : 'rgba(0, 0, 0, 0.23)',
@@ -315,7 +328,10 @@ const Duplicates: React.FC = () => {
                         onClick={fetchGroups}
                         disabled={isLoading}
                         sx={{
-                            minWidth: 120,
+                            width: { xs: '100%', sm: 'calc(50% - 4px)', md: 'calc(33.333% - 6px)', lg: 'auto' },
+                            minWidth: { lg: 120 },
+                            height: { xs: 42, sm: 'auto' },
+                            minHeight: 36,
                             borderColor: (theme) => theme.palette.mode === 'dark'
                                 ? 'rgba(255, 255, 255, 0.23)'
                                 : 'rgba(0, 0, 0, 0.23)',
@@ -335,13 +351,16 @@ const Duplicates: React.FC = () => {
                         onClick={handleHideDuplicates}
                         disabled={isScanning}
                         sx={{
-                            minWidth: 120,
+                            width: { xs: '100%', sm: 'calc(50% - 4px)', md: 'calc(33.333% - 6px)', lg: 'auto' },
+                            minWidth: { lg: 120 },
+                            height: { xs: 42, sm: 'auto' },
+                            minHeight: 36,
                             '&:disabled': { opacity: 0.6, cursor: 'not-allowed' }
                         }}
                     >
                         {t('hideDuplicates')}
                     </Button>
-                </Stack>
+                </Box>
             </Box>
 
             <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>

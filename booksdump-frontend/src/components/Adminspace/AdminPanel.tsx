@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { Route, Routes, Link, useLocation, useNavigate, Navigate } from 'react-router-dom';
-import { Box, Card, CardContent, Tabs, Tab } from '@mui/material';
+import { Box, Card, CardContent, Tabs, Tab, useMediaQuery, useTheme } from '@mui/material';
 import UsersTable from './UsersTable';
 import InvitesTable from './InvitesTable';
 import Duplicates from './Duplicates';
@@ -11,6 +11,8 @@ const AdminSpace: React.FC = () => {
     const navigate = useNavigate();
     const [value, setValue] = React.useState(location.pathname);
     const { t } = useTranslation();
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
     useEffect(() => {
         if (location.pathname === '/admin') {
@@ -36,10 +38,35 @@ const AdminSpace: React.FC = () => {
                                     aria-label="admin tabs"
                                     textColor="inherit"
                                     indicatorColor="primary"
+                                    variant={isMobile ? 'scrollable' : 'standard'}
+                                    scrollButtons="auto"
+                                    allowScrollButtonsMobile
                                     slotProps={{
                                         indicator: {
                                             sx: {
                                                 backgroundColor: (theme) => theme.palette.text.primary,
+                                            },
+                                        },
+                                    }}
+                                    sx={{
+                                        '& .MuiTab-root': {
+                                            padding: {
+                                                xs: '12px 8px',
+                                                sm: '12px 12px',
+                                                md: '12px 16px',
+                                            },
+                                            minWidth: {
+                                                xs: 'auto',
+                                                md: 90,
+                                            },
+                                            fontSize: {
+                                                xs: '0.875rem',
+                                                md: '0.9375rem',
+                                            },
+                                        },
+                                        '& .MuiTabs-scrollButtons': {
+                                            '&.Mui-disabled': {
+                                                opacity: 0.3,
                                             },
                                         },
                                     }}

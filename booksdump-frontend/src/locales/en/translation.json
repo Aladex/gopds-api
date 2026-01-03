@@ -164,5 +164,9 @@
   "switchToLight": "Switch to light mode",
   "theme": "Theme",
   "darkMode": "Dark Mode",
-  "lightMode": "Light Mode"
+  "lightMode": "Light Mode",
+  "sortBy": "Sort by",
+  "sortAscending": "Sort ascending",
+  "sortDescending": "Sort descending",
+  "noUsersFound": "No users found"
 }

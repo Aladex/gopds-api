@@ -164,5 +164,9 @@
   "switchToLight": "Переключить на светлую тему",
   "theme": "Тема",
   "darkMode": "Темная тема",
-  "lightMode": "Светлая тема"
+  "lightMode": "Светлая тема",
+  "sortBy": "Сортировать по",
+  "sortAscending": "По возрастанию",
+  "sortDescending": "По убыванию",
+  "noUsersFound": "Пользователи не найдены"
 }
