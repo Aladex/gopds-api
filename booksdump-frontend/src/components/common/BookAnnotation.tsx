@@ -1,6 +1,6 @@
 // src/components/BookAnnotation.tsx
 import React from "react";
-import { Box, Typography, IconButton } from "@mui/material";
+import { Box, Typography, IconButton, Collapse } from "@mui/material";
 import { useTranslation } from "react-i18next";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 
@@ -19,10 +19,9 @@ const BookAnnotation: React.FC<BookAnnotationProps> = ({ annotation }) => {
   const hiddenRatio = hiddenLength / annotation.length;
   const shouldTruncate =
     annotation.length > VISIBLE_CHARS && hiddenRatio >= MIN_HIDDEN_RATIO;
-  const displayText =
-    shouldTruncate && !opened
-      ? `${annotation.slice(0, VISIBLE_CHARS).trimEnd()}…`
-      : annotation;
+
+  const visibleText = annotation.slice(0, VISIBLE_CHARS).trimEnd();
+  const hiddenText = annotation.slice(VISIBLE_CHARS);
 
   return (
     <>
@@ -37,8 +36,24 @@ const BookAnnotation: React.FC<BookAnnotationProps> = ({ annotation }) => {
                 wordBreak: "break-word",
               }}
             >
-              {displayText}
+              {shouldTruncate ? visibleText : annotation}
+              {shouldTruncate && !opened && "…"}
             </Typography>
+
+            {shouldTruncate && (
+              <Collapse in={opened} timeout={400}>
+                <Typography
+                  variant="body2"
+                  sx={{
+                    whiteSpace: "pre-line",
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {hiddenText}
+                </Typography>
+              </Collapse>
+            )}
+
             {shouldTruncate && !opened && (
               <Box
                 sx={{
