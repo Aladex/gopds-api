@@ -91,18 +91,38 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
                 </IconButton>
             </DialogTitle>
 
-            <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+            <Box
+                sx={{
+                    borderBottom: 1,
+                    borderColor: 'divider',
+                    bgcolor: 'action.selected',
+                }}
+            >
                 <Tabs
                     value={activeTab}
                     onChange={handleTabChange}
-                    variant="scrollable"
-                    scrollButtons="auto"
-                    allowScrollButtonsMobile
+                    variant="fullWidth"
                     sx={{
+                        minHeight: 'auto',
+                        '& .MuiTabs-flexContainer': {
+                            flexWrap: { xs: 'wrap', sm: 'nowrap' },
+                        },
                         '& .MuiTab-root': {
-                            minWidth: { xs: 80, sm: 100 },
-                            fontSize: { xs: '0.75rem', sm: '0.875rem' },
-                            px: { xs: 1, sm: 2 },
+                            minWidth: { xs: '33.33%', sm: 'auto' },
+                            minHeight: { xs: '40px', sm: '48px' },
+                            fontSize: { xs: '0.65rem', sm: '0.875rem' },
+                            px: { xs: 0.5, sm: 1 },
+                            py: { xs: 1, sm: 1.5 },
+                            textTransform: 'none',
+                            transition: 'all 0.3s ease',
+                            '&.Mui-selected': {
+                                bgcolor: 'background.paper',
+                                borderBottom: 2,
+                                borderColor: 'secondary.main',
+                            },
+                            '&:hover': {
+                                bgcolor: 'action.hover',
+                            },
                         },
                     }}
                 >
@@ -115,7 +135,14 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
                 </Tabs>
             </Box>
 
-            <DialogContent sx={{ pt: 3 }}>
+            <DialogContent
+                sx={{
+                    pt: 3,
+                    minHeight: { xs: '300px', sm: '350px' },
+                    maxHeight: { xs: '400px', sm: '450px' },
+                    overflowY: 'auto',
+                }}
+            >
                 {activeTab === 0 && (
                     <Box>
                         <Typography variant="h6" gutterBottom>Отправить деньги на Tinkoff</Typography>

@@ -53,6 +53,8 @@ const PrivateRoute: React.FC<{ children: React.ReactNode, requireSuperuser?: boo
                     flexDirection: 'column',
                     paddingTop: isMobile ? '48px' : 0,
                     paddingBottom: isMobile ? '80px' : 0,
+                    width: '100%',
+                    overflowX: 'hidden',
                 }}
             >
                 <Box sx={{ flex: 1 }}>
