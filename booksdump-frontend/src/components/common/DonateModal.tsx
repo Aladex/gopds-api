@@ -115,10 +115,16 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
                             py: { xs: 1, sm: 1.5 },
                             textTransform: 'none',
                             transition: 'all 0.3s ease',
+                            color: 'text.secondary',
                             '&.Mui-selected': {
                                 bgcolor: 'background.paper',
+                                color: 'text.primary',
+                                fontWeight: 600,
                                 borderBottom: 2,
                                 borderColor: 'secondary.main',
+                                boxShadow: theme.palette.mode === 'light'
+                                    ? '0 -2px 4px rgba(0,0,0,0.1)'
+                                    : 'none',
                             },
                             '&:hover': {
                                 bgcolor: 'action.hover',
@@ -131,15 +137,14 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
                     <Tab label="Ethereum" />
                     <Tab label="USDT" />
                     <Tab label="PayPal" />
-                    <Tab label="BuyMeACoffee" />
+                    <Tab label="Coffee ☕" />
                 </Tabs>
             </Box>
 
             <DialogContent
                 sx={{
                     pt: 3,
-                    minHeight: { xs: '300px', sm: '350px' },
-                    maxHeight: { xs: '400px', sm: '450px' },
+                    height: { xs: '420px', sm: '480px' },
                     overflowY: 'auto',
                 }}
             >
