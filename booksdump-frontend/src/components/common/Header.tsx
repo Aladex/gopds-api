@@ -1,4 +1,4 @@
-import React, {useMemo, useEffect, useState} from 'react';
+import React, {useMemo, useEffect, useRef, useState} from 'react';
 import {useNavigate} from 'react-router-dom';
 import {
     AppBar,
@@ -37,7 +37,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
     const [languageMenuAnchor, setLanguageMenuAnchor] = useState<null | HTMLElement>(null);
     const [isDonateModalOpen, setIsDonateModalOpen] = useState<boolean>(false);
     const [isHeaderVisible, setIsHeaderVisible] = useState(true);
-    const [lastScrollY, setLastScrollY] = useState(0);
+    const lastScrollYRef = useRef(0);
 
 
     // Filter languages to only show those that are supported and have proper display
@@ -100,18 +100,17 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
 
         const handleScroll = () => {
             const currentScrollY = window.scrollY;
+            const prevScrollY = lastScrollYRef.current;
 
-            setLastScrollY((prevScrollY) => {
-                if (currentScrollY < 50) {
-                    setIsHeaderVisible(true);
-                } else if (currentScrollY > prevScrollY) {
-                    setIsHeaderVisible(false);
-                } else {
-                    setIsHeaderVisible(true);
-                }
+            if (currentScrollY < 50) {
+                setIsHeaderVisible(true);
+            } else if (currentScrollY > prevScrollY) {
+                setIsHeaderVisible(false);
+            } else {
+                setIsHeaderVisible(true);
+            }
 
-                return currentScrollY;
-            });
+            lastScrollYRef.current = currentScrollY;
         };
 
         window.addEventListener('scroll', handleScroll, { passive: true });
