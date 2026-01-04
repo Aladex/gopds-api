@@ -4,54 +4,40 @@ import {
     AppBar,
     Box,
     Button,
-    Dialog,
-    DialogActions,
-    DialogContent,
-    DialogTitle,
-    Drawer,
     IconButton,
-    List,
-    ListItemButton,
-    ListItemText,
     Tab,
     Tabs,
     Toolbar,
     useMediaQuery,
-    Select,
     MenuItem,
-    FormControl,
     Menu
 } from '@mui/material';
 import {useAuth} from '../../context/AuthContext';
-import {fetchWithAuth} from '../../api/config';
 import {useTranslation} from 'react-i18next';
-import {Logout, Menu as MenuIcon, Person, VolunteerActivism} from "@mui/icons-material";
-import {StyledTextField} from "../StyledDataItems";
-import {buttonLinkSx} from "../commonStyles";
+import {Logout, VolunteerActivism} from "@mui/icons-material";
 import {useFav} from "../../context/FavContext";
 import { useSearchBar } from "../../context/SearchBarContext";
 import { getLanguageDisplaySafe, languageMapping } from "../../utils/languageUtils";
 import DonateModal from "./DonateModal";
 import ThemeToggle from "./ThemeToggle";
 
-const Header: React.FC = () => {
-    const {logout, updateUser, user, updateLang} = useAuth();
+type HeaderProps = {
+    onOpenProfile?: () => void;
+};
+
+const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
+    const {logout, user, updateLang} = useAuth();
     const navigate = useNavigate();
     const {t, i18n} = useTranslation();
     const [value, setValue] = useState(0);
     const isMobile = useMediaQuery('(max-width:600px)');
     const isVeryNarrow = useMediaQuery('(max-width:354px)'); // Check for very narrow screens
-    const [drawerOpen, setDrawerOpen] = useState(false);
-    const [dialogOpen, setDialogOpen] = useState(false);
-    const [showPasswordFields, setShowPasswordFields] = useState(false);
-    const [firstName, setFirstName] = useState(user?.first_name || '');
-    const [lastName, setLastName] = useState(user?.last_name || '');
-    const [oldPassword, setOldPassword] = useState('');
-    const [newPassword, setNewPassword] = useState('');
     const {  setFav } = useFav();
     const { languages, selectedLanguage, setSelectedLanguage } = useSearchBar();
     const [languageMenuAnchor, setLanguageMenuAnchor] = useState<null | HTMLElement>(null);
     const [isDonateModalOpen, setIsDonateModalOpen] = useState<boolean>(false);
+    const [isHeaderVisible, setIsHeaderVisible] = useState(true);
+    const [lastScrollY, setLastScrollY] = useState(0);
 
 
     // Filter languages to only show those that are supported and have proper display
@@ -101,17 +87,36 @@ const Header: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [t, user?.is_superuser, i18n.language]); // i18n.language необходим для обновления переводов
 
-    useEffect(() => {
-        if (user) {
-            setFirstName(user.first_name || '');
-            setLastName(user.last_name || '');
-        }
-    }, [user]);
-
     const handleLogout = () => {
         logout();
         navigate('/login');
     };
+
+    useEffect(() => {
+        if (!isMobile) {
+            setIsHeaderVisible(true);
+            return;
+        }
+
+        const handleScroll = () => {
+            const currentScrollY = window.scrollY;
+
+            setLastScrollY((prevScrollY) => {
+                if (currentScrollY < 50) {
+                    setIsHeaderVisible(true);
+                } else if (currentScrollY > prevScrollY) {
+                    setIsHeaderVisible(false);
+                } else {
+                    setIsHeaderVisible(true);
+                }
+
+                return currentScrollY;
+            });
+        };
+
+        window.addEventListener('scroll', handleScroll, { passive: true });
+        return () => window.removeEventListener('scroll', handleScroll);
+    }, [isMobile]);
 
     useEffect(() => {
         const currentPath = window.location.pathname;
@@ -127,26 +132,6 @@ const Header: React.FC = () => {
         setFav(false); // Reset fav when changing tabs
     };
 
-    const handleDrawerToggle = () => {
-        setDrawerOpen(!drawerOpen);
-    };
-
-    const handleMenuItemClick = (path: string) => {
-        navigate(path);
-        setFav(false); // Reset fav when clicking menu items
-        handleDrawerToggle();
-    };
-
-
-    const handleUserInfo = () => {
-        setDialogOpen(true);
-    };
-
-    const handleDialogClose = () => {
-        setDialogOpen(false);
-        setShowPasswordFields(false);
-    };
-
     const a11yProps = (index: number) => {
         return {
             id: `simple-tab-${index}`,
@@ -160,75 +145,30 @@ const Header: React.FC = () => {
         navigate(path);
     };
 
-
-    useEffect(() => {
-        const currentPath = window.location.pathname;
-        const currentTab = menuItems.findIndex(item => item.regex.test(currentPath));
-        if (currentTab !== -1) {
-            setValue(currentTab);
-        }
-    }, [menuItems]);
-
-    const togglePasswordFields = () => {
-        setShowPasswordFields(!showPasswordFields);
-    };
-
-    const handleUserChange = async () => {
-        handleDialogClose();
-        try {
-            const userData = {
-                username: user?.username,
-                first_name: firstName,
-                last_name: lastName,
-                new_password: newPassword,
-                password: oldPassword,
-                books_lang: user?.books_lang,
-            };
-            // Send a POST request to the server to update the user data
-            const response = await fetchWithAuth.post('/books/change-me', userData);
-
-            if (response.status === 200) { // Check if the request was successful
-                const data = response.data; // Parse the JSON response
-                updateUser(data); //
-            } else {
-                console.error('Failed to update user');
-            }
-        } catch (error) {
-            console.error('Error updating user:', error);
-            // Handle the error here
-        }
-    };
-    const handleDropSessions = async () => {
-        try {
-            const response = await fetchWithAuth(`/drop-sessions`);
-            if (response.status === 200) {
-                logout();
-                navigate('/login');
-            } else {
-                console.error('Failed to drop sessions');
-            }
-        } catch (error) {
-            console.error('Error dropping sessions:', error);
-        }
-    };
-
     return (
         <AppBar
-            position="static"
-            sx={{ bgcolor: '#2f2f2f', color: '#ffffff', backgroundImage: 'none' }}
+            position={isMobile ? 'fixed' : 'static'}
+            sx={{
+                bgcolor: '#2f2f2f',
+                color: '#ffffff',
+                backgroundImage: 'none',
+                transform: isMobile && !isHeaderVisible ? 'translateY(-100%)' : 'translateY(0)',
+                transition: isMobile ? 'transform 0.3s ease-in-out' : 'none',
+                zIndex: isMobile ? 1200 : 'auto',
+            }}
             style={{ backgroundColor: '#2f2f2f', color: '#ffffff', backgroundImage: 'none' }}
         >
-            <Toolbar>
+            <Toolbar sx={{ minHeight: isMobile ? 48 : 64 }}>
                 {isMobile ? (
                     <>
-                        <Box display="flex" justifyContent="space-between" alignItems="center" width="100%">
-                            <Box display="flex" alignItems="center">
-                                <IconButton edge="start" color="inherit" aria-label="menu" onClick={handleDrawerToggle}>
-                                    <MenuIcon color="inherit"/>
-                                </IconButton>
+                        <Box display="flex" alignItems="center" width="100%">
+                            <Box
+                                onClick={() => navigate('/books/page/1')}
+                                sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}
+                            >
+                                <img src="/logo.png" alt="Logo" style={{ width: 24, height: 24 }} />
                             </Box>
-                            <Box display="flex" alignItems="center" gap={0.5}>
-                                {/* Pseudo donate tab for mobile version - LEFT */}
+                            <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'center' }}>
                                 <Box
                                     onClick={() => setIsDonateModalOpen(true)}
                                     sx={{
@@ -254,7 +194,8 @@ const Header: React.FC = () => {
                                     <VolunteerActivism sx={{ fontSize: '1rem' }} />
                                     ДОНАТ
                                 </Box>
-                                {/* Pseudo language tab for mobile version */}
+                            </Box>
+                            <Box display="flex" alignItems="center" gap={0.5}>
                                 <Box
                                     onClick={handleLanguageMenuOpen}
                                     sx={{
@@ -278,7 +219,6 @@ const Header: React.FC = () => {
                                 >
                                     {selectedLanguage ? getLanguageDisplay(selectedLanguage) : t('language')}
                                 </Box>
-                                {/* Existing language menu */}
                                 <Menu
                                     anchorEl={languageMenuAnchor}
                                     open={Boolean(languageMenuAnchor)}
@@ -315,35 +255,8 @@ const Header: React.FC = () => {
                                     ))}
                                 </Menu>
                                 <ThemeToggle />
-                                <Button sx={{ color: '#ffffff' }} onClick={handleLogout}>
-                                    <Logout/>
-                                </Button>
                             </Box>
                         </Box>
-                        <Drawer
-                            anchor="left"
-                            open={drawerOpen}
-                            onClose={handleDrawerToggle}
-                            ModalProps={{
-                                keepMounted: true, // Better open performance on mobile.
-                            }}
-                            sx={{
-                                '& .MuiDrawer-paper': {
-                                    width: '70%', // Occupy the full width of the screen
-                                }
-                            }}
-                        >
-                            <List>
-                                {menuItems.map((item, index) => (
-                                    <ListItemButton key={index} onClick={() => handleMenuItemClick(item.path)}>
-                                        <ListItemText primary={item.label.toUpperCase()}/>
-                                    </ListItemButton>
-                                ))}
-                                <ListItemButton onClick={handleUserInfo}>
-                                    <ListItemText primary={user?.username}/>
-                                </ListItemButton>
-                            </List>
-                        </Drawer>
                     </>
                 ) : (
                     <>
@@ -477,7 +390,7 @@ const Header: React.FC = () => {
                                 ))}
                             </Menu>
                             <ThemeToggle />
-                            <Button sx={{ color: '#ffffff' }} onClick={handleUserInfo}>
+                            <Button sx={{ color: '#ffffff' }} onClick={() => onOpenProfile?.()}>
                                 {user?.username}
                             </Button>
                             <Button sx={{ color: '#ffffff' }} onClick={handleLogout}>
@@ -489,85 +402,6 @@ const Header: React.FC = () => {
                     </>
                 )}
             </Toolbar>
-            <Dialog open={dialogOpen} onClose={handleDialogClose}>
-                <DialogTitle>{(t('userInfo'))}</DialogTitle>
-                <DialogContent>
-                    <Box display="flex" justifyContent="space-between" marginBottom={2}>
-                        <React.Fragment>
-                            <Box component="button" onClick={togglePasswordFields} sx={buttonLinkSx}>
-                                {(t('changePassword'))}
-                            </Box>
-                        </React.Fragment>
-                        <React.Fragment>
-                            <Box component="button" onClick={handleDropSessions} sx={buttonLinkSx}>
-                                {(t('dropSessions'))}
-                            </Box>
-                        </React.Fragment>
-                    </Box>
-                    {showPasswordFields && (
-                        <>
-                            <StyledTextField
-                                autoFocus
-                                margin="dense"
-                                label={t('oldPassword')}
-                                type="password"
-                                sx={{marginBottom: 2}}
-                                fullWidth
-                                value={oldPassword}
-                                onChange={(e) => setOldPassword(e.target.value)}
-                            />
-                            <StyledTextField
-                                margin="dense"
-                                label={t('newPassword')}
-                                type="password"
-                                sx={{marginBottom: 2}}
-                                fullWidth
-                                value={newPassword}
-                                onChange={(e) => setNewPassword(e.target.value)}
-                            />
-                        </>
-                    )}
-                    <StyledTextField
-                        autoFocus
-                        margin="dense"
-                        label={t('firstName')}
-                        type="text"
-                        fullWidth
-                        sx={{marginBottom: 2}}
-                        value={firstName}
-                        onChange={(e) => setFirstName(e.target.value)}
-                    />
-                    <StyledTextField
-                        margin="dense"
-                        label={t('lastName')}
-                        type="text"
-                        fullWidth
-                        value={lastName}
-                        onChange={(e) => setLastName(e.target.value)}
-                    />
-                    <FormControl fullWidth margin="dense">
-                        <Select
-                            value={selectedLanguage}
-                            onChange={(e) => updateLangAndSelectedLanguage(e.target.value)}
-                            displayEmpty
-                            inputProps={{ 'aria-label': 'Select language' }}
-                        >
-                            <MenuItem value="" disabled>
-                                {t('selectLanguage')}
-                            </MenuItem>
-                            {supportedLanguages.map((lang) => (
-                                <MenuItem key={lang} value={lang}>
-                                    {getLanguageDisplay(lang)}
-                                </MenuItem>
-                            ))}
-                        </Select>
-                    </FormControl>
-                </DialogContent>
-                <DialogActions>
-                    <Button sx={{ color: 'text.primary' }} onClick={handleDialogClose}>{'Cancel'}</Button>
-                    <Button sx={{ color: 'text.primary' }} onClick={handleUserChange}>{'Save'}</Button>
-                </DialogActions>
-            </Dialog>
             <DonateModal open={isDonateModalOpen} onClose={() => setIsDonateModalOpen(false)} />
         </AppBar>
     );

@@ -31,13 +31,10 @@ const Footer: React.FC = () => {
                 fontSize: '10px',
                 marginTop: 'auto',
                 display: 'flex',
-                justifyContent: 'space-between',
+                justifyContent: 'center',
                 alignItems: 'center',
             }}
         >
-            <Box>
-                {/* Removed donate button from here */}
-            </Box>
             <Box>
                 <Typography variant="caption" component="span">
                     App Version: {appVersion}
