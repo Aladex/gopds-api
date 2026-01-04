@@ -69,7 +69,13 @@ const BottomNavigation: React.FC<BottomNavigationProps> = ({ isProfileOpen, onOp
                         color: '#9e9e9e',
                         minWidth: 0,
                     },
+                    '& .MuiBottomNavigationAction-root .MuiSvgIcon-root': {
+                        color: 'inherit',
+                    },
                     '& .Mui-selected': {
+                        color: '#ffffff',
+                    },
+                    '& .MuiBottomNavigationAction-root.Mui-selected .MuiSvgIcon-root': {
                         color: '#ffffff',
                     },
                 }}

@@ -51,7 +51,7 @@ const PrivateRoute: React.FC<{ children: React.ReactNode, requireSuperuser?: boo
                 <Box sx={{ flex: 1 }}>
                     {children}
                 </Box>
-                <Footer />
+                {!isMobile && <Footer />}
             </Box>
             {isMobile && (
                 <BottomNavigation isProfileOpen={isProfileOpen} onOpenProfile={handleOpenProfile} />

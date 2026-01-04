@@ -160,14 +160,14 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
             <Toolbar sx={{ minHeight: isMobile ? 48 : 64 }}>
                 {isMobile ? (
                     <>
-                        <Box display="flex" alignItems="center" width="100%">
+                        <Box display="flex" alignItems="center" justifyContent="space-between" width="100%">
                             <Box
                                 onClick={() => navigate('/books/page/1')}
                                 sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}
                             >
                                 <img src="/logo.png" alt="Logo" style={{ width: 24, height: 24 }} />
                             </Box>
-                            <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'center' }}>
+                            <Box display="flex" alignItems="center" gap={0.5}>
                                 <Box
                                     onClick={() => setIsDonateModalOpen(true)}
                                     sx={{
@@ -193,8 +193,6 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                                     <VolunteerActivism sx={{ fontSize: '1rem' }} />
                                     ДОНАТ
                                 </Box>
-                            </Box>
-                            <Box display="flex" alignItems="center" gap={0.5}>
                                 <Box
                                     onClick={handleLanguageMenuOpen}
                                     sx={{

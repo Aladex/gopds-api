@@ -23,9 +23,9 @@
     border-radius: 8px;
     width: 90%;
     max-width: 600px;
-    height: 70vh;
-    min-height: 500px;
-    max-height: 700px;
+    height: min(70vh, calc(100vh - 32px));
+    min-height: 0;
+    max-height: calc(100vh - 32px);
     display: flex;
     flex-direction: column;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
@@ -33,6 +33,7 @@
     transform: translateY(0);
     transition: transform 0.3s ease;
     animation: slideInFromBottom 0.3s ease;
+    margin: 16px;
 }
 
 .donate-modal.closing {
@@ -221,9 +222,9 @@
 @media (max-width: 768px) {
     .donate-modal {
         width: 95%;
-        margin: 10px;
-        height: 80vh;
-        min-height: 400px;
+        margin: 12px;
+        height: min(80vh, calc(100vh - 24px));
+        min-height: 0;
     }
 
     .donate-tabs {
