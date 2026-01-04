@@ -8,7 +8,8 @@
     background-color: rgba(0, 0, 0, 0.5);
     display: flex;
     justify-content: center;
-    align-items: center;
+    align-items: flex-start;
+    padding: 16px;
     z-index: 1000;
     opacity: 1;
     transition: opacity 0.3s ease;
@@ -23,7 +24,7 @@
     border-radius: 8px;
     width: 90%;
     max-width: 600px;
-    height: min(70vh, calc(100vh - 32px));
+    height: auto;
     min-height: 0;
     max-height: calc(100vh - 32px);
     display: flex;
@@ -33,7 +34,9 @@
     transform: translateY(0);
     transition: transform 0.3s ease;
     animation: slideInFromBottom 0.3s ease;
-    margin: 16px;
+    margin: 0;
+    overflow: hidden;
+    box-sizing: border-box;
 }
 
 .donate-modal.closing {
@@ -222,9 +225,9 @@
 @media (max-width: 768px) {
     .donate-modal {
         width: 95%;
-        margin: 12px;
-        height: min(80vh, calc(100vh - 24px));
+        height: auto;
         min-height: 0;
+        max-height: calc(100vh - 24px);
     }
 
     .donate-tabs {
