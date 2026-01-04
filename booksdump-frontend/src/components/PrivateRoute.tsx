@@ -7,19 +7,26 @@ import Header from './common/Header';
 import Footer from "./common/Footer";
 import BottomNavigation from './common/BottomNavigation';
 import ProfileDrawer from './common/ProfileDrawer';
+import ProfileDialog from './common/ProfileDialog';
 import LoadingSpinner from './common/LoadingSpinner';
 
 const PrivateRoute: React.FC<{ children: React.ReactNode, requireSuperuser?: boolean }> = memo(({ children, requireSuperuser = false }) => {
     const { isAuthenticated, user, isLoaded, isLoading } = useAuth();
     const isMobile = useMediaQuery('(max-width:600px)');
-    const [isProfileOpen, setIsProfileOpen] = useState(false);
+    const [isProfileDrawerOpen, setIsProfileDrawerOpen] = useState(false);
+    const [isProfileDialogOpen, setIsProfileDialogOpen] = useState(false);
 
     const handleOpenProfile = useCallback(() => {
-        setIsProfileOpen(true);
-    }, []);
+        if (isMobile) {
+            setIsProfileDrawerOpen(true);
+        } else {
+            setIsProfileDialogOpen(true);
+        }
+    }, [isMobile]);
 
     const handleCloseProfile = useCallback(() => {
-        setIsProfileOpen(false);
+        setIsProfileDrawerOpen(false);
+        setIsProfileDialogOpen(false);
     }, []);
 
     // Show loading spinner while checking authentication
@@ -54,9 +61,10 @@ const PrivateRoute: React.FC<{ children: React.ReactNode, requireSuperuser?: boo
                 {!isMobile && <Footer />}
             </Box>
             {isMobile && (
-                <BottomNavigation isProfileOpen={isProfileOpen} onOpenProfile={handleOpenProfile} />
+                <BottomNavigation isProfileOpen={isProfileDrawerOpen} onOpenProfile={handleOpenProfile} />
             )}
-            <ProfileDrawer open={isProfileOpen} onClose={handleCloseProfile} />
+            <ProfileDrawer open={isProfileDrawerOpen} onClose={handleCloseProfile} />
+            <ProfileDialog open={isProfileDialogOpen} onClose={handleCloseProfile} />
         </>
     );
 });
