@@ -317,7 +317,7 @@ func (s *RescanService) pendingToRescanValues(pending *models.BookRescanPending)
 
 // calculateDiff returns list of fields that changed
 func (s *RescanService) calculateDiff(old *models.BookRescanOldValues, new *models.BookRescanNewValues) []string {
-	var diff []string
+	diff := make([]string, 0) // Initialize as empty slice instead of nil
 
 	if old.Title != new.Title {
 		diff = append(diff, "title")
