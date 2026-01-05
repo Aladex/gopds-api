@@ -116,6 +116,9 @@ func (p *BookRescanPending) GetTags() []string {
 
 // SetAuthors marshals authors to JSON
 func (p *BookRescanPending) SetAuthors(authors []RescanAuthor) error {
+	if authors == nil {
+		authors = []RescanAuthor{}
+	}
 	data, err := json.Marshal(authors)
 	if err != nil {
 		return err
@@ -127,7 +130,7 @@ func (p *BookRescanPending) SetAuthors(authors []RescanAuthor) error {
 // SetSeries marshals series to JSON
 func (p *BookRescanPending) SetSeries(series *RescanSeries) error {
 	if series == nil {
-		p.SeriesJSON = nil
+		p.SeriesJSON = []byte("null")
 		return nil
 	}
 	data, err := json.Marshal(series)
@@ -140,6 +143,9 @@ func (p *BookRescanPending) SetSeries(series *RescanSeries) error {
 
 // SetTags marshals tags to JSON
 func (p *BookRescanPending) SetTags(tags []string) error {
+	if tags == nil {
+		tags = []string{}
+	}
 	data, err := json.Marshal(tags)
 	if err != nil {
 		return err
