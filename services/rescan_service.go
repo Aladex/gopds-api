@@ -251,6 +251,7 @@ func (s *RescanService) bookToRescanValues(book *models.Book) *models.BookRescan
 		DocDate:    book.DocDate,
 		Authors:    authors,
 		Series:     series,
+		Tags:       []string{}, // Empty tags for old values since books don't store tags yet
 		HasCover:   book.Cover,
 	}
 }
@@ -276,6 +277,12 @@ func (s *RescanService) parsedToRescanValues(book *parser.BookFile) *models.Book
 		}
 	}
 
+	// Ensure tags is never nil
+	tags := book.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+
 	return &models.BookRescanNewValues{
 		Title:      book.Title,
 		Annotation: book.Annotation,
@@ -283,13 +290,19 @@ func (s *RescanService) parsedToRescanValues(book *parser.BookFile) *models.Book
 		DocDate:    book.DocDate,
 		Authors:    authors,
 		Series:     series,
-		Tags:       book.Tags,
+		Tags:       tags,
 		HasCover:   book.Cover != nil,
 	}
 }
 
 // pendingToRescanValues converts pending rescan to new values for response
 func (s *RescanService) pendingToRescanValues(pending *models.BookRescanPending) *models.BookRescanNewValues {
+	// Ensure tags is never nil
+	tags := pending.GetTags()
+	if tags == nil {
+		tags = []string{}
+	}
+
 	return &models.BookRescanNewValues{
 		Title:      pending.Title,
 		Annotation: pending.Annotation,
@@ -297,7 +310,7 @@ func (s *RescanService) pendingToRescanValues(pending *models.BookRescanPending)
 		DocDate:    pending.DocDate,
 		Authors:    pending.GetAuthors(),
 		Series:     pending.GetSeries(),
-		Tags:       pending.GetTags(),
+		Tags:       tags,
 		HasCover:   pending.CoverUpdated,
 	}
 }
