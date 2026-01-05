@@ -2,14 +2,15 @@ package api
 
 import (
 	"errors"
-	"github.com/gin-gonic/gin"
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/models"
 	"gopds-api/services"
 	"net/http"
-	"os"
 	"strconv"
+
+	"github.com/gin-gonic/gin"
+	"github.com/spf13/viper"
 )
 
 // SetupAdminRoutes sets up the admin routes
@@ -248,15 +249,15 @@ func RescanBookPreview(c *gin.Context) {
 		return
 	}
 
-	// Get archives directory from config/environment
-	archivesDir := os.Getenv("BOOKS_ARCHIVES_DIR")
+	// Get archives directory from config
+	archivesDir := viper.GetString("app.files_path")
 	if archivesDir == "" {
-		archivesDir = "./books" // Default fallback
+		archivesDir = "./files/" // Default fallback
 	}
 
-	coversDir := os.Getenv("BOOKS_COVERS_DIR")
+	coversDir := viper.GetString("app.posters_path")
 	if coversDir == "" {
-		coversDir = "./covers" // Default fallback
+		coversDir = "./posters/" // Default fallback
 	}
 
 	// Create rescan service
@@ -313,15 +314,15 @@ func ApproveRescan(c *gin.Context) {
 		return
 	}
 
-	// Get archives directory from config/environment
-	archivesDir := os.Getenv("BOOKS_ARCHIVES_DIR")
+	// Get archives directory from config
+	archivesDir := viper.GetString("app.files_path")
 	if archivesDir == "" {
-		archivesDir = "./books"
+		archivesDir = "./files/" // Default fallback
 	}
 
-	coversDir := os.Getenv("BOOKS_COVERS_DIR")
+	coversDir := viper.GetString("app.posters_path")
 	if coversDir == "" {
-		coversDir = "./covers"
+		coversDir = "./posters/" // Default fallback
 	}
 
 	// Create rescan service
