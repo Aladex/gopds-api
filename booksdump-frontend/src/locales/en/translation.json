@@ -184,5 +184,22 @@
   "format": "Format",
   "saving": "Saving...",
   "bookUpdatedSuccessfully": "Book updated successfully",
-  "errorUpdatingBook": "Error updating book"
+  "errorUpdatingBook": "Error updating book",
+  "rescanBook": "Rescan book",
+  "rescanPreview": "Rescan Preview",
+  "rescanPreviewDescription": "Review the changes detected in the book file. Changed fields are highlighted.",
+  "rescanOldValue": "Current Value",
+  "rescanNewValue": "New Value",
+  "rescanChanged": "Changed",
+  "rescanEmpty": "(empty)",
+  "rescanApprove": "Approve Changes",
+  "rescanReject": "Reject Changes",
+  "rescanTags": "Tags",
+  "rescanNoTags": "No tags",
+  "rescanCover": "Cover",
+  "rescanHasCover": "Yes",
+  "rescanNoCover": "No",
+  "rescanPendingId": "Pending Rescan ID",
+  "rescanCompleted": "Rescan completed successfully",
+  "rescanRejected": "Rescan rejected"
 }

@@ -20,8 +20,10 @@ import StarOutlineIcon from '@mui/icons-material/StarOutline';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import EditIcon from '@mui/icons-material/Edit';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import BookPagination from "../common/BookPagination";
 import EditBookDialog from "../common/EditBookDialog";
+import RescanPreviewDialog from "../common/RescanPreviewDialog";
 import SkeletonCard from "../common/SkeletonCard";
 import AuthorsList from "../common/AuthorsList";
 import { useAuthor } from "../../context/AuthorContext";
@@ -130,6 +132,8 @@ const BooksList: React.FC = () => {
     const { state: conversionState, dispatch: conversionDispatch } = useBookConversion();
     const [editDialogOpen, setEditDialogOpen] = useState(false);
     const [bookToEdit, setBookToEdit] = useState<Book | null>(null);
+    const [rescanDialogOpen, setRescanDialogOpen] = useState(false);
+    const [bookToRescan, setBookToRescan] = useState<number | null>(null);
 
     const handleMobiDownloadClick = async (bookID: number) => {
         conversionDispatch({ type: 'ADD_CONVERTING_BOOK', payload: { bookID, format: 'mobi' } });
@@ -297,6 +301,22 @@ const BooksList: React.FC = () => {
         enqueueSnackbar(t('bookUpdatedSuccessfully'));
     };
 
+    const handleRescanBook = (bookId: number) => {
+        setBookToRescan(bookId);
+        setRescanDialogOpen(true);
+    };
+
+    const handleRescanDialogClose = () => {
+        setRescanDialogOpen(false);
+        setBookToRescan(null);
+    };
+
+    const handleRescanCompleted = () => {
+        enqueueSnackbar(t('rescanCompleted'));
+        // Optionally reload the book list to reflect any changes
+        // You could also update the specific book in the state if the backend returns the updated book
+    };
+
     const cover = (book: Book) => `${API_URL}/books-posters/${book.path.replace(/\W/g, '-')}/${book.filename.replace(/\W/g, '-')}.jpg`;
 
 
@@ -440,6 +460,12 @@ const BooksList: React.FC = () => {
                                                 {user?.is_superuser && (
                                                     <>
                                                         <IconButton
+                                                            onClick={() => handleRescanBook(book.id)}
+                                                            title={t('rescanBook')}
+                                                        >
+                                                            <RefreshIcon />
+                                                        </IconButton>
+                                                        <IconButton
                                                             onClick={() => handleEditBook(book)}
                                                             title={t('editBook')}
                                                         >
@@ -481,6 +507,12 @@ const BooksList: React.FC = () => {
                 onClose={handleEditDialogClose}
                 book={bookToEdit}
                 onBookUpdated={handleBookUpdated}
+            />
+            <RescanPreviewDialog
+                open={rescanDialogOpen}
+                onClose={handleRescanDialogClose}
+                bookId={bookToRescan}
+                onRescanCompleted={handleRescanCompleted}
             />
             <ConversionBackdrop />
         </Box>

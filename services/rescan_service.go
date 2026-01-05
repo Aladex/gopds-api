@@ -2,6 +2,7 @@ package services
 
 import (
 	"archive/zip"
+	"bytes"
 	"errors"
 	"fmt"
 	"gopds-api/database"
@@ -56,7 +57,7 @@ func (s *RescanService) RescanBookPreview(bookID int64, userID int64) (*models.R
 
 	// 4. Parse FB2 metadata
 	fbzParser := parser.NewFB2Parser(true) // readCover=true
-	parsedBook, err := fbzParser.Parse(fbzContent)
+	parsedBook, err := fbzParser.Parse(bytes.NewReader(fbzContent))
 	if err != nil {
 		logging.Error("Failed to parse FB2: %v", err)
 		return nil, fmt.Errorf("failed to parse FB2 file: %w", err)
@@ -290,28 +291,28 @@ func (s *RescanService) pendingToRescanValues(pending *models.BookRescanPending)
 }
 
 // calculateDiff returns list of fields that changed
-func (s *RescanService) calculateDiff(old, new *models.BookRescanOldValues, newValues *models.BookRescanNewValues) []string {
+func (s *RescanService) calculateDiff(old *models.BookRescanOldValues, new *models.BookRescanNewValues) []string {
 	var diff []string
 
-	if old.Title != newValues.Title {
+	if old.Title != new.Title {
 		diff = append(diff, "title")
 	}
-	if old.Annotation != newValues.Annotation {
+	if old.Annotation != new.Annotation {
 		diff = append(diff, "annotation")
 	}
-	if old.Lang != newValues.Lang {
+	if old.Lang != new.Lang {
 		diff = append(diff, "lang")
 	}
-	if old.DocDate != newValues.DocDate {
+	if old.DocDate != new.DocDate {
 		diff = append(diff, "docdate")
 	}
-	if !authorsEqual(old.Authors, newValues.Authors) {
+	if !authorsEqual(old.Authors, new.Authors) {
 		diff = append(diff, "authors")
 	}
-	if !seriesEqual(old.Series, newValues.Series) {
+	if !seriesEqual(old.Series, new.Series) {
 		diff = append(diff, "series")
 	}
-	if old.HasCover != newValues.HasCover {
+	if old.HasCover != new.HasCover {
 		diff = append(diff, "cover")
 	}
 

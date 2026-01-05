@@ -242,7 +242,7 @@ func updateBookSeries(tx *pg.Tx, bookID int64, series *models.RescanSeries) erro
 	serNo := int64(0)
 	if series.Index != "" {
 		// Try to parse series index as number
-		_, _ = parseIndex(series.Index, &serNo)
+		_ = parseIndex(series.Index, &serNo)
 	}
 
 	link := &models.OrderToSeries{

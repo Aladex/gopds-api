@@ -184,5 +184,22 @@
   "format": "Формат",
   "saving": "Сохранение...",
   "bookUpdatedSuccessfully": "Книга успешно обновлена",
-  "errorUpdatingBook": "Ошибка обновления книги"
+  "errorUpdatingBook": "Ошибка обновления книги",
+  "rescanBook": "Пересканировать книгу",
+  "rescanPreview": "Предпросмотр пересканирования",
+  "rescanPreviewDescription": "Просмотрите изменения, обнаруженные в файле книги. Измененные поля выделены.",
+  "rescanOldValue": "Текущее значение",
+  "rescanNewValue": "Новое значение",
+  "rescanChanged": "Изменено",
+  "rescanEmpty": "(пусто)",
+  "rescanApprove": "Принять изменения",
+  "rescanReject": "Отклонить изменения",
+  "rescanTags": "Теги",
+  "rescanNoTags": "Нет тегов",
+  "rescanCover": "Обложка",
+  "rescanHasCover": "Да",
+  "rescanNoCover": "Нет",
+  "rescanPendingId": "ID ожидающего пересканирования",
+  "rescanCompleted": "Пересканирование успешно завершено",
+  "rescanRejected": "Пересканирование отклонено"
 }
