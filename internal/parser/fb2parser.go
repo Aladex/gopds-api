@@ -1,10 +1,14 @@
 package parser
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/xml"
 	"io"
 	"strings"
+
+	"golang.org/x/text/encoding/charmap"
+	"golang.org/x/text/transform"
 )
 
 const (
@@ -57,7 +61,17 @@ func NewFB2Parser(readCover bool) *FB2Parser {
 func (p *FB2Parser) Parse(reader io.Reader) (*BookFile, error) {
 	p.reset()
 
-	decoder := xml.NewDecoder(reader)
+	// Read content to handle encoding detection
+	content, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	// Try to detect encoding from XML declaration and convert if needed
+	decodedContent := tryDecodeCharset(content)
+	decodedReader := bytes.NewReader(decodedContent)
+
+	decoder := xml.NewDecoder(decodedReader)
 	for {
 		token, err := decoder.Token()
 		if err == io.EOF {
@@ -344,4 +358,118 @@ func stripWhitespace(value string) string {
 		}
 	}
 	return builder.String()
+}
+
+// tryDecodeCharset detects encoding from XML declaration and converts to UTF-8
+func tryDecodeCharset(content []byte) []byte {
+	// Check if already UTF-8
+	if isValidUTF8(content) {
+		return content
+	}
+
+	// Try to detect encoding from XML declaration
+	declEnd := bytes.Index(content, []byte("?>"))
+	if declEnd > 0 && declEnd < 200 {
+		decl := string(content[:declEnd])
+		encoding := extractEncoding(decl)
+		if encoding != "" {
+			decoded := convertEncoding(content, encoding)
+			if decoded != nil {
+				return decoded
+			}
+		}
+	}
+
+	// If detection/conversion fails, try common encodings
+	for _, enc := range []string{"iso-8859-5", "windows-1251", "cp1251", "iso-8859-1"} {
+		decoded := convertEncoding(content, enc)
+		if decoded != nil && isValidUTF8(decoded) {
+			return decoded
+		}
+	}
+
+	// Return original content
+	return content
+}
+
+// isValidUTF8 checks if byte slice is valid UTF-8
+func isValidUTF8(data []byte) bool {
+	return utf8BytesValid(data)
+}
+
+// utf8BytesValid validates UTF-8 encoding
+func utf8BytesValid(data []byte) bool {
+	for i := 0; i < len(data); {
+		if data[i] < 0x80 {
+			i++
+			continue
+		}
+		if data[i]&0xE0 == 0xC0 {
+			if i+1 >= len(data) || data[i+1]&0xC0 != 0x80 {
+				return false
+			}
+			i += 2
+			continue
+		}
+		if data[i]&0xF0 == 0xE0 {
+			if i+2 >= len(data) || data[i+1]&0xC0 != 0x80 || data[i+2]&0xC0 != 0x80 {
+				return false
+			}
+			i += 3
+			continue
+		}
+		if data[i]&0xF8 == 0xF0 {
+			if i+3 >= len(data) || data[i+1]&0xC0 != 0x80 || data[i+2]&0xC0 != 0x80 || data[i+3]&0xC0 != 0x80 {
+				return false
+			}
+			i += 4
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// extractEncoding extracts encoding from XML declaration
+func extractEncoding(decl string) string {
+	start := strings.Index(decl, "encoding=")
+	if start == -1 {
+		return ""
+	}
+	start += 9
+	if start >= len(decl) {
+		return ""
+	}
+
+	quote := decl[start]
+	if quote != '"' && quote != '\'' {
+		return ""
+	}
+
+	start++
+	end := strings.IndexByte(decl[start:], quote)
+	if end == -1 {
+		return ""
+	}
+
+	return strings.ToLower(decl[start : start+end])
+}
+
+// convertEncoding converts bytes from source encoding to UTF-8
+func convertEncoding(content []byte, encoding string) []byte {
+	var dec transform.Transformer
+	switch strings.ToLower(encoding) {
+	case "iso-8859-1", "iso-8859-5", "latin1", "latin5":
+		dec = charmap.ISO8859_5.NewDecoder()
+	case "windows-1251", "cp1251":
+		dec = charmap.Windows1251.NewDecoder()
+	default:
+		return nil
+	}
+
+	result, _, err := transform.Bytes(dec, content)
+	if err != nil {
+		return nil
+	}
+	return result
 }
