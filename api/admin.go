@@ -6,7 +6,9 @@ import (
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/models"
+	"gopds-api/services"
 	"net/http"
+	"os"
 	"strconv"
 )
 
@@ -19,6 +21,10 @@ func SetupAdminRoutes(r *gin.RouterGroup) {
 	r.DELETE("/user/:id", DeleteUser)
 	r.POST("/update-book", UpdateBook)
 	r.PUT("/books/:id", UpdateBookByID)
+
+	// Book rescan routes
+	r.POST("/books/:id/rescan", RescanBookPreview)
+	r.POST("/books/:id/rescan/approve", ApproveRescan)
 
 	// Setup duplicate management routes
 	SetupDuplicatesRoutes(r)
@@ -206,6 +212,139 @@ func UpdateBookByID(c *gin.Context) {
 	// Return the updated book
 	c.JSON(http.StatusOK, models.Result{
 		Result: updatedBook,
+		Error:  nil,
+	})
+}
+
+// RescanBookPreview godoc
+// @Summary Preview book rescan changes
+// @Description Parse FB2 file and preview what will change without applying changes
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param id path int true "Book ID"
+// @Produce json
+// @Success 200 {object} models.RescanPreview "Preview of changes"
+// @Failure 400 {object} httputil.HTTPError "Bad request"
+// @Failure 404 {object} httputil.HTTPError "Book not found"
+// @Failure 500 {object} httputil.HTTPError "Internal server error"
+// @Router /api/admin/books/{id}/rescan [post]
+func RescanBookPreview(c *gin.Context) {
+	bookIDStr := c.Param("id")
+	bookID, err := strconv.ParseInt(bookIDStr, 10, 64)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, errors.New("invalid_book_id"))
+		return
+	}
+
+	// Get user from context (set by auth middleware)
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		httputil.NewError(c, http.StatusUnauthorized, errors.New("user_not_found"))
+		return
+	}
+	userID, ok := userIDVal.(int64)
+	if !ok {
+		httputil.NewError(c, http.StatusUnauthorized, errors.New("invalid_user_id"))
+		return
+	}
+
+	// Get archives directory from config/environment
+	archivesDir := os.Getenv("BOOKS_ARCHIVES_DIR")
+	if archivesDir == "" {
+		archivesDir = "./books" // Default fallback
+	}
+
+	coversDir := os.Getenv("BOOKS_COVERS_DIR")
+	if coversDir == "" {
+		coversDir = "./covers" // Default fallback
+	}
+
+	// Create rescan service
+	rescanService := services.NewRescanService(archivesDir, coversDir)
+
+	// Generate preview
+	preview, err := rescanService.RescanBookPreview(bookID, userID)
+	if err != nil {
+		if err.Error() == "book not found" {
+			httputil.NewError(c, http.StatusNotFound, err)
+		} else {
+			httputil.NewError(c, http.StatusInternalServerError, err)
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, models.Result{
+		Result: preview,
+		Error:  nil,
+	})
+}
+
+// ApproveRescan godoc
+// @Summary Approve or reject book rescan
+// @Description Apply or reject pending book rescan changes
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param id path int true "Book ID"
+// @Accept json
+// @Produce json
+// @Param body body models.RescanApprovalRequest true "Approval action"
+// @Success 200 {object} models.RescanApprovalResponse "Approval result"
+// @Failure 400 {object} httputil.HTTPError "Bad request"
+// @Failure 404 {object} httputil.HTTPError "Book not found"
+// @Failure 500 {object} httputil.HTTPError "Internal server error"
+// @Router /api/admin/books/{id}/rescan/approve [post]
+func ApproveRescan(c *gin.Context) {
+	bookIDStr := c.Param("id")
+	bookID, err := strconv.ParseInt(bookIDStr, 10, 64)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, errors.New("invalid_book_id"))
+		return
+	}
+
+	var approvalReq models.RescanApprovalRequest
+	if err := c.ShouldBindJSON(&approvalReq); err != nil {
+		httputil.NewError(c, http.StatusBadRequest, errors.New("invalid_request_body"))
+		return
+	}
+
+	// Validate action
+	if approvalReq.Action != "approve" && approvalReq.Action != "reject" {
+		httputil.NewError(c, http.StatusBadRequest, errors.New("invalid_action"))
+		return
+	}
+
+	// Get archives directory from config/environment
+	archivesDir := os.Getenv("BOOKS_ARCHIVES_DIR")
+	if archivesDir == "" {
+		archivesDir = "./books"
+	}
+
+	coversDir := os.Getenv("BOOKS_COVERS_DIR")
+	if coversDir == "" {
+		coversDir = "./covers"
+	}
+
+	// Create rescan service
+	rescanService := services.NewRescanService(archivesDir, coversDir)
+
+	var response *models.RescanApprovalResponse
+	if approvalReq.Action == "approve" {
+		response, err = rescanService.ApproveRescan(bookID)
+	} else {
+		response, err = rescanService.RejectRescan(bookID)
+	}
+
+	if err != nil {
+		if err.Error() == "book not found" || err.Error() == "no pending rescan found for this book" {
+			httputil.NewError(c, http.StatusNotFound, err)
+		} else {
+			httputil.NewError(c, http.StatusInternalServerError, err)
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, models.Result{
+		Result: response,
 		Error:  nil,
 	})
 }

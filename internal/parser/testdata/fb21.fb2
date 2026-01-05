@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.1" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <description>
+    <title-info>
+      <book-title>FB2.1 Format Book</book-title>
+      <author>
+        <first-name>Alexei</first-name>
+        <last-name>Tolstoy</last-name>
+      </author>
+      <genre>historical</genre>
+      <lang>RU</lang>
+      <annotation>
+        <p>A historical novel using FB2 2.1 format specification.</p>
+      </annotation>
+      <sequence name="Historical Chronicles" number="7"/>
+    </title-info>
+    <document-info>
+      <date>2022-12-01</date>
+    </document-info>
+  </description>
+  <body>
+    <p>In 1812, the Russian Empire faced its greatest challenge as Napoleon's Grand Army invaded from the west.</p>
+  </body>
+</FictionBook>

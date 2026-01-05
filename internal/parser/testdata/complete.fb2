@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <description>
+    <title-info>
+      <book-title>Complete Test Book</book-title>
+      <author>
+        <first-name>Ivan</first-name>
+        <last-name>Petrov</last-name>
+      </author>
+      <author>
+        <first-name>Maria</first-name>
+        <last-name>Sidorova</last-name>
+      </author>
+      <genre>science_fiction</genre>
+      <genre>adventure</genre>
+      <lang>ru</lang>
+      <annotation>
+        <p>This is the first paragraph of the annotation.</p>
+        <p>This is the second paragraph with more details.</p>
+        <p>And a third paragraph to complete the description.</p>
+      </annotation>
+      <sequence name="Space Opera Series" number="2"/>
+      <coverpage>
+        <image xlink:href="#cover"/>
+      </coverpage>
+    </title-info>
+    <document-info>
+      <date value="2023-06-15"/>
+    </document-info>
+  </description>
+  <body>
+    <section>
+      <p>Chapter 1: The Beginning</p>
+      <p>In a distant galaxy, far from Earth, there existed a civilization of advanced beings. They had conquered the stars and built magnificent structures across the cosmos. But their peaceful existence was about to be disrupted by an ancient force that had slept for millennia.</p>
+      <p>Our protagonist, Captain James Swift, received a distress signal from the outer colonies. He gathered his crew and prepared to investigate what seemed like a routine mission. Little did they know that this would be the beginning of an epic journey that would change the course of galactic history forever.</p>
+    </section>
+  </body>
+  <binary id="cover">
+    iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==
+  </binary>
+</FictionBook>
