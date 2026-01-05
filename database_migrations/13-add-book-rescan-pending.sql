@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS book_rescan_pending (
     tags_json JSONB,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    created_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL
+    created_by_user_id INTEGER REFERENCES auth_user(id) ON DELETE SET NULL
 );
 
 -- Create index for quick lookup by book_id
