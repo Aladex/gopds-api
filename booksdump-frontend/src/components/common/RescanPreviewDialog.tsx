@@ -86,10 +86,10 @@ const RescanPreviewDialog: React.FC<RescanPreviewDialogProps> = ({
 
     const renderField = (label: string, oldValue: any, newValue: any, fieldName: string) => {
         const isChanged = isDifferent(fieldName);
-        
+
         return (
             <Grid2 container spacing={2} sx={{ mb: 2 }}>
-                <Grid2 item xs={12}>
+                <Grid2 size={{ xs: 12 }}>
                     <Typography variant="subtitle2" color="text.secondary" gutterBottom>
                         {label}
                         {isChanged && (
@@ -102,7 +102,7 @@ const RescanPreviewDialog: React.FC<RescanPreviewDialogProps> = ({
                         )}
                     </Typography>
                 </Grid2>
-                <Grid2 item xs={6}>
+                <Grid2 size={{ xs: 6 }}>
                     <Paper
                         variant="outlined"
                         sx={{
@@ -117,7 +117,7 @@ const RescanPreviewDialog: React.FC<RescanPreviewDialogProps> = ({
                         <Typography variant="body2">{oldValue || t('rescanEmpty')}</Typography>
                     </Paper>
                 </Grid2>
-                <Grid2 item xs={6}>
+                <Grid2 size={{ xs: 6 }}>
                     <Paper
                         variant="outlined"
                         sx={{
