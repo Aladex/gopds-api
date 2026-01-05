@@ -19,7 +19,9 @@ import StarIcon from '@mui/icons-material/Star';
 import StarOutlineIcon from '@mui/icons-material/StarOutline';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import EditIcon from '@mui/icons-material/Edit';
 import BookPagination from "../common/BookPagination";
+import EditBookDialog from "../common/EditBookDialog";
 import SkeletonCard from "../common/SkeletonCard";
 import AuthorsList from "../common/AuthorsList";
 import { useAuthor } from "../../context/AuthorContext";
@@ -126,6 +128,8 @@ const BooksList: React.FC = () => {
     const [messageQueue, setMessageQueue] = useState<string[]>([]);
     const [currentMessage, setCurrentMessage] = useState<string | null>(null);
     const { state: conversionState, dispatch: conversionDispatch } = useBookConversion();
+    const [editDialogOpen, setEditDialogOpen] = useState(false);
+    const [bookToEdit, setBookToEdit] = useState<Book | null>(null);
 
     const handleMobiDownloadClick = async (bookID: number) => {
         conversionDispatch({ type: 'ADD_CONVERTING_BOOK', payload: { bookID, format: 'mobi' } });
@@ -278,6 +282,21 @@ const BooksList: React.FC = () => {
         }
     };
 
+    const handleEditBook = (book: Book) => {
+        setBookToEdit(book);
+        setEditDialogOpen(true);
+    };
+
+    const handleEditDialogClose = () => {
+        setEditDialogOpen(false);
+        setBookToEdit(null);
+    };
+
+    const handleBookUpdated = (updatedBook: Book) => {
+        dispatch({ type: 'UPDATE_BOOK', payload: updatedBook });
+        enqueueSnackbar(t('bookUpdatedSuccessfully'));
+    };
+
     const cover = (book: Book) => `${API_URL}/books-posters/${book.path.replace(/\W/g, '-')}/${book.filename.replace(/\W/g, '-')}.jpg`;
 
 
@@ -419,9 +438,17 @@ const BooksList: React.FC = () => {
                                         <CardActions sx={{ justifyContent: 'flex-end' }}>
                                             <Box sx={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
                                                 {user?.is_superuser && (
-                                                    <IconButton onClick={() => handleUpdateBook(book)}>
-                                                        {book.approved ? <CheckCircleIcon /> : <CheckCircleOutlineIcon />}
-                                                    </IconButton>
+                                                    <>
+                                                        <IconButton
+                                                            onClick={() => handleEditBook(book)}
+                                                            title={t('editBook')}
+                                                        >
+                                                            <EditIcon />
+                                                        </IconButton>
+                                                        <IconButton onClick={() => handleUpdateBook(book)}>
+                                                            {book.approved ? <CheckCircleIcon /> : <CheckCircleOutlineIcon />}
+                                                        </IconButton>
+                                                    </>
                                                 )}
                                                 <IconButton onClick={() => handleFavBook(book)}>
                                                     {book.fav ? <StarIcon /> : <StarOutlineIcon />}
@@ -449,6 +476,12 @@ const BooksList: React.FC = () => {
                     style={{ bottom: `${index * 50}px` }}
                 />
             ))}
+            <EditBookDialog
+                open={editDialogOpen}
+                onClose={handleEditDialogClose}
+                book={bookToEdit}
+                onBookUpdated={handleBookUpdated}
+            />
             <ConversionBackdrop />
         </Box>
     );

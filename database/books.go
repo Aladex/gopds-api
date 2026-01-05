@@ -426,18 +426,63 @@ func FavBook(userID int64, fav models.FavBook) (bool, error) {
 	return hf, err
 }
 
-// UpdateBook updates a book
-func UpdateBook(book models.Book) (models.Book, error) {
-	var bookToChange models.Book
-	err := db.Model(&bookToChange).Where("id = ?", book.ID).Select()
+// UpdateBook updates a book with provided fields
+func UpdateBook(updateReq models.BookUpdateRequest) (models.Book, error) {
+	var bookToUpdate models.Book
+
+	// First, retrieve the existing book
+	err := db.Model(&bookToUpdate).
+		Where("id = ?", updateReq.ID).
+		Relation("Authors").
+		Relation("Series").
+		Select()
 	if err != nil {
-		return bookToChange, err
+		return bookToUpdate, err
 	}
-	_, err = db.Model(&book).Set("approved = ?", book.Approved).Where("id = ?", book.ID).Update(&bookToChange)
+
+	// Build the update query dynamically based on provided fields
+	query := db.Model(&bookToUpdate).Where("id = ?", updateReq.ID)
+
+	// Only update fields that are provided (not nil)
+	if updateReq.Title != nil {
+		query = query.Set("title = ?", *updateReq.Title)
+	}
+	if updateReq.Annotation != nil {
+		query = query.Set("annotation = ?", *updateReq.Annotation)
+	}
+	if updateReq.Lang != nil {
+		query = query.Set("lang = ?", *updateReq.Lang)
+	}
+	if updateReq.DocDate != nil {
+		query = query.Set("docdate = ?", *updateReq.DocDate)
+	}
+	if updateReq.Approved != nil {
+		query = query.Set("approved = ?", *updateReq.Approved)
+	}
+	if updateReq.DuplicateHidden != nil {
+		query = query.Set("duplicate_hidden = ?", *updateReq.DuplicateHidden)
+	}
+	if updateReq.DuplicateOfID != nil {
+		query = query.Set("duplicate_of_id = ?", *updateReq.DuplicateOfID)
+	}
+
+	// Execute the update
+	_, err = query.Update()
 	if err != nil {
-		return bookToChange, err
+		return bookToUpdate, err
 	}
-	return bookToChange, nil
+
+	// Retrieve the updated book with all relations
+	err = db.Model(&bookToUpdate).
+		Where("id = ?", updateReq.ID).
+		Relation("Authors").
+		Relation("Series").
+		Select()
+	if err != nil {
+		return bookToUpdate, err
+	}
+
+	return bookToUpdate, nil
 }
 
 // GetAutocompleteSuggestions returns suggestions for autocomplete

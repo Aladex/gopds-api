@@ -168,5 +168,21 @@
   "sortBy": "Sort by",
   "sortAscending": "Sort ascending",
   "sortDescending": "Sort descending",
-  "noUsersFound": "No users found"
+  "noUsersFound": "No users found",
+  "editBook": "Edit book",
+  "title": "Title",
+  "titleRequired": "Title is required",
+  "publicationDate": "Publication date",
+  "dateFormatHint": "Format: YYYY-MM-DD or YYYY",
+  "languageCodeHint": "Two-letter language code (e.g., en, ru, uk)",
+  "noAuthors": "No authors",
+  "noSeries": "No series",
+  "authorsEditingNotImplemented": "Editing authors is not yet implemented",
+  "seriesEditingNotImplemented": "Editing series is not yet implemented",
+  "bookId": "Book ID",
+  "filename": "Filename",
+  "format": "Format",
+  "saving": "Saving...",
+  "bookUpdatedSuccessfully": "Book updated successfully",
+  "errorUpdatingBook": "Error updating book"
 }

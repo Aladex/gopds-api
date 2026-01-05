@@ -168,5 +168,21 @@
   "sortBy": "Сортировать по",
   "sortAscending": "По возрастанию",
   "sortDescending": "По убыванию",
-  "noUsersFound": "Пользователи не найдены"
+  "noUsersFound": "Пользователи не найдены",
+  "editBook": "Редактировать книгу",
+  "title": "Название",
+  "titleRequired": "Название обязательно",
+  "publicationDate": "Дата публикации",
+  "dateFormatHint": "Формат: ГГГГ-ММ-ДД или ГГГГ",
+  "languageCodeHint": "Двухбуквенный код языка (например, en, ru, uk)",
+  "noAuthors": "Нет авторов",
+  "noSeries": "Нет серий",
+  "authorsEditingNotImplemented": "Редактирование авторов пока не реализовано",
+  "seriesEditingNotImplemented": "Редактирование серий пока не реализовано",
+  "bookId": "ID книги",
+  "filename": "Имя файла",
+  "format": "Формат",
+  "saving": "Сохранение...",
+  "bookUpdatedSuccessfully": "Книга успешно обновлена",
+  "errorUpdatingBook": "Ошибка обновления книги"
 }

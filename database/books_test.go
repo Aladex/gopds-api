@@ -206,3 +206,122 @@ func BenchmarkAutocomplete(b *testing.B) {
 		}
 	}
 }
+
+// TestUpdateBook tests the UpdateBook function
+func TestUpdateBook(t *testing.T) {
+	if db == nil {
+		t.Skip("Database connection not available")
+	}
+
+	// Test updating title only
+	t.Run("Update title only", func(t *testing.T) {
+		// First, get a book to update (using filters to find any book)
+		filters := models.BookFilters{
+			Limit:  1,
+			Offset: 0,
+		}
+		books, _, err := GetBooks(1, filters)
+		if err != nil || len(books) == 0 {
+			t.Skip("No books available for testing")
+		}
+
+		originalBook := books[0]
+		newTitle := "Test Updated Title"
+
+		updateReq := models.BookUpdateRequest{
+			ID:    originalBook.ID,
+			Title: &newTitle,
+		}
+
+		updatedBook, err := UpdateBook(updateReq)
+		assert.NoError(t, err, "UpdateBook should not return error")
+		assert.Equal(t, newTitle, updatedBook.Title, "Title should be updated")
+		assert.Equal(t, originalBook.Lang, updatedBook.Lang, "Lang should remain unchanged")
+		assert.Equal(t, originalBook.Approved, updatedBook.Approved, "Approved should remain unchanged")
+
+		// Restore original title
+		restoreReq := models.BookUpdateRequest{
+			ID:    originalBook.ID,
+			Title: &originalBook.Title,
+		}
+		_, err = UpdateBook(restoreReq)
+		assert.NoError(t, err, "Should be able to restore original title")
+	})
+
+	// Test updating multiple fields
+	t.Run("Update multiple fields", func(t *testing.T) {
+		filters := models.BookFilters{
+			Limit:  1,
+			Offset: 0,
+		}
+		books, _, err := GetBooks(1, filters)
+		if err != nil || len(books) == 0 {
+			t.Skip("No books available for testing")
+		}
+
+		originalBook := books[0]
+		newTitle := "Test Title Multiple"
+		newAnnotation := "Test annotation"
+		approved := false
+
+		updateReq := models.BookUpdateRequest{
+			ID:         originalBook.ID,
+			Title:      &newTitle,
+			Annotation: &newAnnotation,
+			Approved:   &approved,
+		}
+
+		updatedBook, err := UpdateBook(updateReq)
+		assert.NoError(t, err, "UpdateBook should not return error")
+		assert.Equal(t, newTitle, updatedBook.Title, "Title should be updated")
+		assert.Equal(t, newAnnotation, updatedBook.Annotation, "Annotation should be updated")
+		assert.Equal(t, approved, updatedBook.Approved, "Approved should be updated")
+		assert.Equal(t, originalBook.Lang, updatedBook.Lang, "Lang should remain unchanged")
+
+		// Restore original values
+		restoreReq := models.BookUpdateRequest{
+			ID:         originalBook.ID,
+			Title:      &originalBook.Title,
+			Annotation: &originalBook.Annotation,
+			Approved:   &originalBook.Approved,
+		}
+		_, err = UpdateBook(restoreReq)
+		assert.NoError(t, err, "Should be able to restore original values")
+	})
+
+	// Test updating non-existent book
+	t.Run("Update non-existent book", func(t *testing.T) {
+		newTitle := "Test Title"
+		updateReq := models.BookUpdateRequest{
+			ID:    999999999, // Non-existent ID
+			Title: &newTitle,
+		}
+
+		_, err := UpdateBook(updateReq)
+		assert.Error(t, err, "Updating non-existent book should return error")
+	})
+
+	// Test with empty update request (no fields to update)
+	t.Run("Empty update request", func(t *testing.T) {
+		filters := models.BookFilters{
+			Limit:  1,
+			Offset: 0,
+		}
+		books, _, err := GetBooks(1, filters)
+		if err != nil || len(books) == 0 {
+			t.Skip("No books available for testing")
+		}
+
+		originalBook := books[0]
+
+		updateReq := models.BookUpdateRequest{
+			ID: originalBook.ID,
+			// No fields to update
+		}
+
+		updatedBook, err := UpdateBook(updateReq)
+		assert.NoError(t, err, "Empty update should not return error")
+		assert.Equal(t, originalBook.Title, updatedBook.Title, "Title should remain unchanged")
+		assert.Equal(t, originalBook.Lang, updatedBook.Lang, "Lang should remain unchanged")
+	})
+}

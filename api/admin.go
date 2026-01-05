@@ -7,6 +7,7 @@ import (
 	"gopds-api/httputil"
 	"gopds-api/models"
 	"net/http"
+	"strconv"
 )
 
 // SetupAdminRoutes sets up the admin routes
@@ -17,6 +18,7 @@ func SetupAdminRoutes(r *gin.RouterGroup) {
 	r.POST("/user", ActionUser)
 	r.DELETE("/user/:id", DeleteUser)
 	r.POST("/update-book", UpdateBook)
+	r.PUT("/books/:id", UpdateBookByID)
 
 	// Setup duplicate management routes
 	SetupDuplicatesRoutes(r)
@@ -121,28 +123,89 @@ func ChangeInvite(c *gin.Context) {
 
 // UpdateBook updates the information of a specific book.
 // @Summary Update book information
-// @Description Update the information of a specific book based on the provided JSON payload.
+// @Description Update the information of a specific book based on the provided JSON payload. Only provided fields will be updated.
 // @Tags admin
 // @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Accept json
 // @Produce json
-// @Param body body models.Book true "Book update information"
+// @Param body body models.BookUpdateRequest true "Book update information"
 // @Success 200 {object} models.Result "Book updated successfully"
 // @Failure 400 {object} httputil.HTTPError "Bad request - invalid input parameters"
+// @Failure 404 {object} httputil.HTTPError "Book not found"
 // @Failure 500 {object} httputil.HTTPError "Internal server error"
 // @Router /api/admin/update-book [post]
 func UpdateBook(c *gin.Context) {
-	var bookToUpdate models.Book
-	if err := c.ShouldBindJSON(&bookToUpdate); err == nil {
-		res, err := database.UpdateBook(bookToUpdate)
-		if err != nil {
-			httputil.NewError(c, http.StatusBadRequest, err)
+	var updateReq models.BookUpdateRequest
+	if err := c.ShouldBindJSON(&updateReq); err != nil {
+		httputil.NewError(c, http.StatusBadRequest, errors.New("invalid_request_body"))
+		return
+	}
+
+	// Update the book in database
+	updatedBook, err := database.UpdateBook(updateReq)
+	if err != nil {
+		// Check if book was not found
+		if err.Error() == "pg: no rows in result set" {
+			httputil.NewError(c, http.StatusNotFound, errors.New("book_not_found"))
 			return
 		}
-		// Return the result of the operation
-		c.JSON(200, models.Result{
-			Result: res,
-			Error:  nil,
-		})
+		httputil.NewError(c, http.StatusInternalServerError, err)
+		return
 	}
+
+	// Return the updated book
+	c.JSON(http.StatusOK, models.Result{
+		Result: updatedBook,
+		Error:  nil,
+	})
+}
+
+// UpdateBookByID updates the information of a specific book using URL parameter.
+// @Summary Update book information by ID
+// @Description Update the information of a specific book by ID based on the provided JSON payload. Only provided fields will be updated.
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param id path int true "Book ID"
+// @Accept json
+// @Produce json
+// @Param body body models.BookUpdateRequest true "Book update information"
+// @Success 200 {object} models.Result "Book updated successfully"
+// @Failure 400 {object} httputil.HTTPError "Bad request - invalid input parameters"
+// @Failure 404 {object} httputil.HTTPError "Book not found"
+// @Failure 500 {object} httputil.HTTPError "Internal server error"
+// @Router /api/admin/books/{id} [put]
+func UpdateBookByID(c *gin.Context) {
+	bookIDStr := c.Param("id")
+	bookID, err := strconv.ParseInt(bookIDStr, 10, 64)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, errors.New("invalid_book_id"))
+		return
+	}
+
+	var updateReq models.BookUpdateRequest
+	if err := c.ShouldBindJSON(&updateReq); err != nil {
+		httputil.NewError(c, http.StatusBadRequest, errors.New("invalid_request_body"))
+		return
+	}
+
+	// Set the ID from URL parameter
+	updateReq.ID = bookID
+
+	// Update the book in database
+	updatedBook, err := database.UpdateBook(updateReq)
+	if err != nil {
+		// Check if book was not found
+		if err.Error() == "pg: no rows in result set" {
+			httputil.NewError(c, http.StatusNotFound, errors.New("book_not_found"))
+			return
+		}
+		httputil.NewError(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	// Return the updated book
+	c.JSON(http.StatusOK, models.Result{
+		Result: updatedBook,
+		Error:  nil,
+	})
 }
