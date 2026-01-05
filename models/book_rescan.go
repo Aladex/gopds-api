@@ -72,7 +72,6 @@ type RescanPreview struct {
 
 // RescanApprovalRequest is the body for approve/reject
 type RescanApprovalRequest struct {
-	BookID int64  `json:"book_id" binding:"required"`
 	Action string `json:"action" binding:"required,oneof=approve reject"`
 }
 

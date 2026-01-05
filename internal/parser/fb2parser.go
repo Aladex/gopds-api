@@ -235,7 +235,8 @@ func (p *FB2Parser) extractAuthors() []Author {
 		if i < len(lastNames) {
 			last = strings.TrimSpace(lastNames[i])
 		}
-		full := strings.TrimSpace(strings.Join([]string{first, last}, " "))
+		// Format: LastName FirstName (family name first)
+		full := strings.TrimSpace(strings.Join([]string{last, first}, " "))
 		if full == "" {
 			continue
 		}
