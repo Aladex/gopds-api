@@ -15,7 +15,6 @@ import {
 import {useAuth} from '../../context/AuthContext';
 import {useTranslation} from 'react-i18next';
 import {Logout, VolunteerActivism} from "@mui/icons-material";
-import {useFav} from "../../context/FavContext";
 import { useSearchBar } from "../../context/SearchBarContext";
 import { getLanguageDisplaySafe, languageMapping } from "../../utils/languageUtils";
 import DonateModal from "./DonateModal";
@@ -32,7 +31,6 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
     const [value, setValue] = useState(0);
     const isMobile = useMediaQuery('(max-width:600px)');
     const isVeryNarrow = useMediaQuery('(max-width:354px)'); // Check for very narrow screens
-    const {  setFav } = useFav();
     const { languages, selectedLanguage, setSelectedLanguage } = useSearchBar();
     const [languageMenuAnchor, setLanguageMenuAnchor] = useState<null | HTMLElement>(null);
     const [isDonateModalOpen, setIsDonateModalOpen] = useState<boolean>(false);
@@ -122,13 +120,11 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
         const currentTab = menuItems.findIndex(item => item.regex.test(currentPath));
         if (currentTab !== -1) {
             setValue(currentTab);
-            setFav(false); // Reset fav when changing tabs
         }
-    }, [menuItems, setFav]);
+    }, [menuItems]);
 
     const handleChange = (event: React.SyntheticEvent, newValue: number) => {
         setValue(newValue);
-        setFav(false); // Reset fav when changing tabs
     };
 
     const a11yProps = (index: number) => {
@@ -140,7 +136,6 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
 
     const handleTabClick = (index: number, path: string) => {
         setValue(index);
-        setFav(false); // Reset fav when clicking tabs
         navigate(path);
     };
 

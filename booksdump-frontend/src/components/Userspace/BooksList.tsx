@@ -227,7 +227,6 @@ const BooksList: React.FC = () => {
                     fav.setFavEnabled(userResponse.data.have_favs);
                     if (location.pathname.includes('/books/favorite') && !userResponse.data.have_favs) {
                         navigate('/books/page/1');
-                        fav.setFav(false);
                     }
                 } else {
                     console.error('Failed to fetch updated user data');

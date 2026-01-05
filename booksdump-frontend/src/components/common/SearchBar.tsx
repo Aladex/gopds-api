@@ -28,7 +28,7 @@ const SearchBar: React.FC = () => {
     const { t } = useTranslation();
     const { searchItem, setSearchItem, selectedSearch, setSelectedSearch } = useSearchBar();
     const navigate = useNavigate();
-    const { fav, favEnabled, setFav } = useFav();
+    const { fav, favEnabled } = useFav();
     const searchOptions = useSearchOptions(setSelectedSearch);
 
     const records: Record[] = [
@@ -41,12 +41,6 @@ const SearchBar: React.FC = () => {
     const handleSetAuthorBook = () => {
         setAuthorBook(searchItem);
     };
-
-    const setFavContext = (newFav: boolean) => {
-        if (favEnabled) {
-            setFav(newFav);
-        }
-    }
 
     const navigateToSearchResults = () => {
         // Check that the search field is not empty and contains at least one character
@@ -133,7 +127,12 @@ const SearchBar: React.FC = () => {
                                     alignItems: 'center'
                                 }}>
                                     <Box
-                                        onClick={() => favEnabled && setFavContext(!fav)}
+                                        onClick={() => {
+                                            if (!favEnabled) {
+                                                return;
+                                            }
+                                            navigate(fav ? '/books/page/1' : '/books/favorite/1');
+                                        }}
                                         sx={{
                                             display: 'flex',
                                             alignItems: 'center',

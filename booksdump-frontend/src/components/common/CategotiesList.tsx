@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useSearchBar } from '../../context/SearchBarContext';
 import { buttonLinkSx } from '../commonStyles';
-import {useFav} from "../../context/FavContext";
 
 interface Category {
     id: number;
@@ -20,11 +19,8 @@ const CategoriesList: React.FC<CategoriesListProps> = ({ categories }) => {
     const navigate = useNavigate();
     const { setSearchItem } = useSearchBar();
     const { t } = useTranslation();
-    const { setFav } = useFav();
-
     const navigateToCategory = (categoryId: number) => {
         setSearchItem('');
-        setFav(false);
         navigate(`/books/find/category/${categoryId}/1`);
     };
 
