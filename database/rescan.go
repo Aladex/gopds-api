@@ -100,7 +100,10 @@ func ApplyRescanChanges(bookID int64) error {
 	book.DocDate = pending.DocDate
 	book.Cover = pending.CoverUpdated
 
-	_, err = tx.Model(book).WherePK().Update()
+	_, err = tx.Model(book).
+		Column("title", "annotation", "lang", "docdate", "cover").
+		WherePK().
+		Update()
 	if err != nil {
 		logging.Error(err)
 		return err
