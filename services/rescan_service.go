@@ -94,6 +94,10 @@ func (s *RescanService) RescanBookPreview(bookID int64, userID int64) (*models.R
 		pending.CoverData = parsedBook.Cover
 	}
 
+	// Debug: Log what we're about to save
+	logging.Info("Saving rescan pending: BookID=%d, AuthorsJSON=%s, SeriesJSON=%s, TagsJSON=%s",
+		pending.BookID, string(pending.AuthorsJSON), string(pending.SeriesJSON), string(pending.TagsJSON))
+
 	err = database.SaveRescanPending(pending)
 	if err != nil {
 		logging.Error("Failed to save pending rescan: %v", err)

@@ -7,21 +7,21 @@ import (
 
 // BookRescanPending stores pending book rescan results awaiting admin approval
 type BookRescanPending struct {
-	tableName       struct{}  `pg:"book_rescan_pending"`
-	ID              int64     `json:"id" pg:"id,pk"`
-	BookID          int64     `json:"book_id" pg:"book_id,notnull"`
-	Title           string    `json:"title" pg:"title"`
-	Annotation      string    `json:"annotation" pg:"annotation"`
-	Lang            string    `json:"lang" pg:"lang"`
-	DocDate         string    `json:"docdate" pg:"docdate"`
-	CoverData       []byte    `json:"-" pg:"cover_data"`
-	CoverUpdated    bool      `json:"cover_updated" pg:"cover_updated"`
-	AuthorsJSON     []byte    `json:"-" pg:"authors_json"`
-	SeriesJSON      []byte    `json:"-" pg:"series_json"`
-	TagsJSON        []byte    `json:"-" pg:"tags_json"`
-	CreatedAt       time.Time `json:"created_at" pg:"created_at,notnull,default:now()"`
-	UpdatedAt       time.Time `json:"updated_at" pg:"updated_at,notnull,default:now()"`
-	CreatedByUserID int64     `json:"created_by_user_id" pg:"created_by_user_id"`
+	tableName       struct{}        `pg:"book_rescan_pending"`
+	ID              int64           `json:"id" pg:"id,pk"`
+	BookID          int64           `json:"book_id" pg:"book_id,notnull"`
+	Title           string          `json:"title" pg:"title"`
+	Annotation      string          `json:"annotation" pg:"annotation"`
+	Lang            string          `json:"lang" pg:"lang"`
+	DocDate         string          `json:"docdate" pg:"docdate"`
+	CoverData       []byte          `json:"-" pg:"cover_data"`
+	CoverUpdated    bool            `json:"cover_updated" pg:"cover_updated"`
+	AuthorsJSON     json.RawMessage `json:"-" pg:"authors_json,type:jsonb"`
+	SeriesJSON      json.RawMessage `json:"-" pg:"series_json,type:jsonb"`
+	TagsJSON        json.RawMessage `json:"-" pg:"tags_json,type:jsonb"`
+	CreatedAt       time.Time       `json:"created_at" pg:"created_at,notnull,default:now()"`
+	UpdatedAt       time.Time       `json:"updated_at" pg:"updated_at,notnull,default:now()"`
+	CreatedByUserID int64           `json:"created_by_user_id" pg:"created_by_user_id"`
 }
 
 // RescanAuthor represents author info in rescan preview
@@ -92,7 +92,7 @@ func (p *BookRescanPending) GetAuthors() []RescanAuthor {
 		return []RescanAuthor{}
 	}
 	var authors []RescanAuthor
-	_ = json.Unmarshal(p.AuthorsJSON, &authors)
+	_ = json.Unmarshal([]byte(p.AuthorsJSON), &authors)
 	return authors
 }
 
@@ -101,7 +101,7 @@ func (p *BookRescanPending) GetSeries() *RescanSeries {
 		return nil
 	}
 	var series *RescanSeries
-	_ = json.Unmarshal(p.SeriesJSON, &series)
+	_ = json.Unmarshal([]byte(p.SeriesJSON), &series)
 	return series
 }
 
@@ -110,7 +110,7 @@ func (p *BookRescanPending) GetTags() []string {
 		return []string{}
 	}
 	var tags []string
-	_ = json.Unmarshal(p.TagsJSON, &tags)
+	_ = json.Unmarshal([]byte(p.TagsJSON), &tags)
 	return tags
 }
 
@@ -123,21 +123,21 @@ func (p *BookRescanPending) SetAuthors(authors []RescanAuthor) error {
 	if err != nil {
 		return err
 	}
-	p.AuthorsJSON = data
+	p.AuthorsJSON = json.RawMessage(data)
 	return nil
 }
 
 // SetSeries marshals series to JSON
 func (p *BookRescanPending) SetSeries(series *RescanSeries) error {
 	if series == nil {
-		p.SeriesJSON = []byte("null")
+		p.SeriesJSON = json.RawMessage("null")
 		return nil
 	}
 	data, err := json.Marshal(series)
 	if err != nil {
 		return err
 	}
-	p.SeriesJSON = data
+	p.SeriesJSON = json.RawMessage(data)
 	return nil
 }
 
@@ -150,6 +150,6 @@ func (p *BookRescanPending) SetTags(tags []string) error {
 	if err != nil {
 		return err
 	}
-	p.TagsJSON = data
+	p.TagsJSON = json.RawMessage(data)
 	return nil
 }
