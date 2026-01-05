@@ -9,6 +9,7 @@ import (
 	"gopds-api/internal/parser"
 	"gopds-api/logging"
 	"gopds-api/models"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -183,33 +184,40 @@ func (s *RescanService) RejectRescan(bookID int64) (*models.RescanApprovalRespon
 // Helper methods
 
 func (s *RescanService) extractFB2FromArchive(archivePath, fileName string) ([]byte, error) {
+	// First, try to open as ZIP archive
 	zr, err := zip.OpenReader(archivePath)
-	if err != nil {
-		return nil, err
-	}
-	defer zr.Close()
+	if err == nil {
+		// Successfully opened as ZIP, try to find the file inside
+		defer zr.Close()
 
-	// Find the file in the archive
-	for _, file := range zr.File {
-		if file.Name == fileName {
-			rc, err := file.Open()
-			if err != nil {
-				return nil, err
+		for _, file := range zr.File {
+			if file.Name == fileName {
+				rc, err := file.Open()
+				if err != nil {
+					return nil, err
+				}
+				defer rc.Close()
+
+				// Read file content
+				content, err := io.ReadAll(rc)
+				if err != nil {
+					return nil, err
+				}
+
+				return content, nil
 			}
-			defer rc.Close()
-
-			// Read file content
-			buf := make([]byte, file.UncompressedSize)
-			n, err := rc.Read(buf)
-			if err != nil && err.Error() != "EOF" {
-				return nil, err
-			}
-
-			return buf[:n], nil
 		}
+		return nil, fmt.Errorf("file not found in archive: %s", fileName)
 	}
 
-	return nil, fmt.Errorf("file not found in archive: %s", fileName)
+	// If not a valid ZIP, try to read as direct FB2 file
+	// This handles cases where the path points directly to an FB2 file
+	content, err := os.ReadFile(archivePath)
+	if err == nil {
+		return content, nil
+	}
+
+	return nil, fmt.Errorf("could not open as ZIP or read as file: %w", err)
 }
 
 // bookToRescanValues converts existing Book model to rescan old values
