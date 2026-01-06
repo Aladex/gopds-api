@@ -130,8 +130,8 @@ func (s *RescanService) RescanBookPreview(bookID int64, userID int64) (*models.R
 	return preview, nil
 }
 
-// ApproveRescan applies pending rescan changes to main book table
-func (s *RescanService) ApproveRescan(bookID int64) (*models.RescanApprovalResponse, error) {
+// ApproveRescan applies pending rescan changes to main book table with selective field updates
+func (s *RescanService) ApproveRescan(bookID int64, selectedFields *models.RescanApprovalRequest) (*models.RescanApprovalResponse, error) {
 	// 1. Check if pending rescan exists
 	pending, err := database.GetRescanPendingByBookID(bookID)
 	if err != nil {
@@ -150,29 +150,33 @@ func (s *RescanService) ApproveRescan(bookID int64) (*models.RescanApprovalRespo
 		return nil, errors.New("book not found")
 	}
 
-	// 3. Save or delete cover image to keep FS and DB in sync
+	// 3. Handle cover image based on selection
 	coverFile := posters.FilePath(s.coversDir, book.Path, book.FileName)
-	if pending.CoverUpdated {
-		if len(pending.CoverData) == 0 {
-			return nil, errors.New("pending rescan has no cover data")
-		}
-		if err := os.MkdirAll(filepath.Dir(coverFile), 0755); err != nil {
-			logging.Error("Failed to create cover directory: %v", err)
-			return nil, fmt.Errorf("failed to create cover directory: %w", err)
-		}
-		if err := os.WriteFile(coverFile, pending.CoverData, 0644); err != nil {
-			logging.Error("Failed to write cover file: %v", err)
-			return nil, fmt.Errorf("failed to write cover file: %w", err)
-		}
-	} else {
-		if err := os.Remove(coverFile); err != nil && !os.IsNotExist(err) {
-			logging.Error("Failed to remove cover file: %v", err)
-			return nil, fmt.Errorf("failed to remove cover file: %w", err)
+	shouldUpdateCover := models.ShouldUpdate(getSelectedFieldFlag(selectedFields, "cover"))
+
+	if shouldUpdateCover {
+		if pending.CoverUpdated {
+			if len(pending.CoverData) == 0 {
+				return nil, errors.New("pending rescan has no cover data")
+			}
+			if err := os.MkdirAll(filepath.Dir(coverFile), 0755); err != nil {
+				logging.Error("Failed to create cover directory: %v", err)
+				return nil, fmt.Errorf("failed to create cover directory: %w", err)
+			}
+			if err := os.WriteFile(coverFile, pending.CoverData, 0644); err != nil {
+				logging.Error("Failed to write cover file: %v", err)
+				return nil, fmt.Errorf("failed to write cover file: %w", err)
+			}
+		} else {
+			if err := os.Remove(coverFile); err != nil && !os.IsNotExist(err) {
+				logging.Error("Failed to remove cover file: %v", err)
+				return nil, fmt.Errorf("failed to remove cover file: %w", err)
+			}
 		}
 	}
 
-	// 4. Apply changes via database transaction
-	err = database.ApplyRescanChanges(bookID)
+	// 4. Apply changes via database transaction with selective fields
+	updatedFields, skippedFields, err := database.ApplySelectiveRescanChanges(bookID, selectedFields)
 	if err != nil {
 		logging.Error("Failed to apply rescan changes: %v", err)
 		return nil, fmt.Errorf("failed to apply changes: %w", err)
@@ -182,14 +186,29 @@ func (s *RescanService) ApproveRescan(bookID int64) (*models.RescanApprovalRespo
 	newValues := s.pendingToRescanValues(pending)
 
 	response := &models.RescanApprovalResponse{
-		Success: true,
-		Message: "Book rescan approved and applied",
-		BookID:  bookID,
-		Action:  "approve",
-		Updated: newValues,
+		Success:       true,
+		Message:       "Book rescan approved and applied",
+		BookID:        bookID,
+		Action:        "approve",
+		Updated:       newValues,
+		UpdatedFields: updatedFields,
+		SkippedFields: skippedFields,
 	}
 
 	return response, nil
+}
+
+// getSelectedFieldFlag returns the field flag from selectedFields
+func getSelectedFieldFlag(selectedFields *models.RescanApprovalRequest, field string) *bool {
+	if selectedFields == nil {
+		return nil // Default: update all
+	}
+	switch field {
+	case "cover":
+		return selectedFields.UpdateCover
+	default:
+		return nil
+	}
 }
 
 // RejectRescan removes pending rescan without applying changes

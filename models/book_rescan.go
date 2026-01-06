@@ -73,15 +73,93 @@ type RescanPreview struct {
 // RescanApprovalRequest is the body for approve/reject
 type RescanApprovalRequest struct {
 	Action string `json:"action" binding:"required,oneof=approve reject"`
+	// Fields to update (nil = update by default, true/false = explicit choice)
+	UpdateTitle      *bool `json:"update_title,omitempty"`
+	UpdateAnnotation *bool `json:"update_annotation,omitempty"`
+	UpdateLang       *bool `json:"update_lang,omitempty"`
+	UpdateDocDate    *bool `json:"update_docdate,omitempty"`
+	UpdateAuthors    *bool `json:"update_authors,omitempty"`
+	UpdateSeries     *bool `json:"update_series,omitempty"`
+	UpdateCover      *bool `json:"update_cover,omitempty"`
+	UpdateTags       *bool `json:"update_tags,omitempty"`
+}
+
+// SetDefaults sets all unspecified fields to true (update all by default)
+func (r *RescanApprovalRequest) SetDefaults() {
+	t := true
+	if r.UpdateTitle == nil {
+		r.UpdateTitle = &t
+	}
+	if r.UpdateAnnotation == nil {
+		r.UpdateAnnotation = &t
+	}
+	if r.UpdateLang == nil {
+		r.UpdateLang = &t
+	}
+	if r.UpdateDocDate == nil {
+		r.UpdateDocDate = &t
+	}
+	if r.UpdateAuthors == nil {
+		r.UpdateAuthors = &t
+	}
+	if r.UpdateSeries == nil {
+		r.UpdateSeries = &t
+	}
+	if r.UpdateCover == nil {
+		r.UpdateCover = &t
+	}
+	if r.UpdateTags == nil {
+		r.UpdateTags = &t
+	}
+}
+
+// GetUpdatedFields returns the list of field names that will be updated
+func (r *RescanApprovalRequest) GetUpdatedFields() []string {
+	var fields []string
+	if ShouldUpdate(r.UpdateTitle) {
+		fields = append(fields, "title")
+	}
+	if ShouldUpdate(r.UpdateAnnotation) {
+		fields = append(fields, "annotation")
+	}
+	if ShouldUpdate(r.UpdateLang) {
+		fields = append(fields, "lang")
+	}
+	if ShouldUpdate(r.UpdateDocDate) {
+		fields = append(fields, "docdate")
+	}
+	if ShouldUpdate(r.UpdateAuthors) {
+		fields = append(fields, "authors")
+	}
+	if ShouldUpdate(r.UpdateSeries) {
+		fields = append(fields, "series")
+	}
+	if ShouldUpdate(r.UpdateCover) {
+		fields = append(fields, "cover")
+	}
+	if ShouldUpdate(r.UpdateTags) {
+		fields = append(fields, "tags")
+	}
+	return fields
+}
+
+// ShouldUpdate returns true if a field should be updated (nil or true)
+func ShouldUpdate(flag *bool) bool {
+	if flag == nil {
+		return true // Default: update if not specified
+	}
+	return *flag
 }
 
 // RescanApprovalResponse is returned after approve/reject
 type RescanApprovalResponse struct {
-	Success bool                 `json:"success"`
-	Message string               `json:"message"`
-	BookID  int64                `json:"book_id"`
-	Action  string               `json:"action"`
-	Updated *BookRescanNewValues `json:"updated,omitempty"` // Only if approved
+	Success       bool                 `json:"success"`
+	Message       string               `json:"message"`
+	BookID        int64                `json:"book_id"`
+	Action        string               `json:"action"`
+	Updated       *BookRescanNewValues `json:"updated,omitempty"`        // Only if approved
+	UpdatedFields []string             `json:"updated_fields,omitempty"` // Which fields were applied
+	SkippedFields []string             `json:"skipped_fields,omitempty"` // Which fields were not applied
 }
 
 // Helper to unmarshal JSON fields

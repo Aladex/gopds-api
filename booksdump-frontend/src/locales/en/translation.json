@@ -202,5 +202,9 @@
   "rescanNoCover": "No",
   "rescanPendingId": "Pending Rescan ID",
   "rescanCompleted": "Rescan completed successfully",
-  "rescanRejected": "Rescan rejected"
+  "rescanRejected": "Rescan rejected",
+  "rescanSelectFields": "Select fields to update",
+  "selectAll": "Select all",
+  "deselectAll": "Deselect all",
+  "rescanUpdateSummary": "{{count}} of {{total}} changed fields selected"
 }

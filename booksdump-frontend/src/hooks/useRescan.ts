@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { fetchWithAuth } from '../api/config';
 
 interface Author {
@@ -31,9 +31,48 @@ export interface RescanPreview {
     diff: string[];
 }
 
-export interface RescanApprovalResponse {
-    message: string;
+export interface FieldSelection {
+    updateTitle: boolean;
+    updateAnnotation: boolean;
+    updateLang: boolean;
+    updateDocDate: boolean;
+    updateAuthors: boolean;
+    updateSeries: boolean;
+    updateCover: boolean;
+    updateTags: boolean;
 }
+
+export interface RescanApprovalRequest {
+    action: 'approve' | 'reject';
+    update_title?: boolean;
+    update_annotation?: boolean;
+    update_lang?: boolean;
+    update_docdate?: boolean;
+    update_authors?: boolean;
+    update_series?: boolean;
+    update_cover?: boolean;
+    update_tags?: boolean;
+}
+
+export interface RescanApprovalResponse {
+    success: boolean;
+    message: string;
+    book_id: number;
+    action: string;
+    updated_fields?: string[];
+    skipped_fields?: string[];
+}
+
+const defaultFieldSelection: FieldSelection = {
+    updateTitle: true,
+    updateAnnotation: true,
+    updateLang: true,
+    updateDocDate: true,
+    updateAuthors: true,
+    updateSeries: true,
+    updateCover: true,
+    updateTags: true,
+};
 
 export const useRescan = () => {
     const [loading, setLoading] = useState(false);
@@ -42,10 +81,14 @@ export const useRescan = () => {
     const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | null>(null);
     const [coverLoading, setCoverLoading] = useState(false);
     const [coverError, setCoverError] = useState<string | null>(null);
+    const [fieldSelection, setFieldSelection] = useState<FieldSelection>(defaultFieldSelection);
+    const [approvalResponse, setApprovalResponse] = useState<RescanApprovalResponse | null>(null);
 
     const fetchPreview = async (bookId: number): Promise<RescanPreview | null> => {
         setLoading(true);
         setError(null);
+        // Reset field selection to defaults when fetching new preview
+        setFieldSelection(defaultFieldSelection);
         try {
             const response = await fetchWithAuth.post(`/admin/books/${bookId}/rescan`);
             if (response.status === 200 && response.data.result) {
@@ -67,18 +110,85 @@ export const useRescan = () => {
         }
     };
 
+    const toggleField = useCallback((field: keyof FieldSelection) => {
+        setFieldSelection(prev => ({
+            ...prev,
+            [field]: !prev[field]
+        }));
+    }, []);
+
+    const selectAllFields = useCallback(() => {
+        setFieldSelection(defaultFieldSelection);
+    }, []);
+
+    const deselectAllFields = useCallback(() => {
+        setFieldSelection({
+            updateTitle: false,
+            updateAnnotation: false,
+            updateLang: false,
+            updateDocDate: false,
+            updateAuthors: false,
+            updateSeries: false,
+            updateCover: false,
+            updateTags: false,
+        });
+    }, []);
+
+    const getSelectedFieldsCount = useCallback((diff: string[]): { selected: number; total: number } => {
+        const fieldMap: Record<string, keyof FieldSelection> = {
+            'title': 'updateTitle',
+            'annotation': 'updateAnnotation',
+            'lang': 'updateLang',
+            'docdate': 'updateDocDate',
+            'authors': 'updateAuthors',
+            'series': 'updateSeries',
+            'cover': 'updateCover',
+            'tags': 'updateTags',
+        };
+
+        let selected = 0;
+        const changedFields = diff.filter(d => fieldMap[d]);
+
+        changedFields.forEach(field => {
+            const selectionKey = fieldMap[field];
+            if (selectionKey && fieldSelection[selectionKey]) {
+                selected++;
+            }
+        });
+
+        return { selected, total: changedFields.length };
+    }, [fieldSelection]);
+
     const approveRescan = async (
         bookId: number,
-        action: 'approve' | 'reject'
+        action: 'approve' | 'reject',
+        selectedFields?: FieldSelection
     ): Promise<boolean> => {
         setLoading(true);
         setError(null);
+        setApprovalResponse(null);
         try {
+            const body: RescanApprovalRequest = { action };
+
+            if (action === 'approve' && selectedFields) {
+                body.update_title = selectedFields.updateTitle;
+                body.update_annotation = selectedFields.updateAnnotation;
+                body.update_lang = selectedFields.updateLang;
+                body.update_docdate = selectedFields.updateDocDate;
+                body.update_authors = selectedFields.updateAuthors;
+                body.update_series = selectedFields.updateSeries;
+                body.update_cover = selectedFields.updateCover;
+                body.update_tags = selectedFields.updateTags;
+            }
+
             const response = await fetchWithAuth.post(
                 `/admin/books/${bookId}/rescan/approve`,
-                { action }
+                body
             );
             if (response.status === 200) {
+                if (response.data.result) {
+                    setApprovalResponse(response.data.result);
+                }
                 setPreview(null);
                 return true;
             } else {
@@ -137,6 +247,8 @@ export const useRescan = () => {
     const clearPreview = () => {
         setPreview(null);
         setError(null);
+        setFieldSelection(defaultFieldSelection);
+        setApprovalResponse(null);
         clearCoverPreview();
     };
 
@@ -147,10 +259,16 @@ export const useRescan = () => {
         coverPreviewUrl,
         coverLoading,
         coverError,
+        fieldSelection,
+        approvalResponse,
         fetchPreview,
         fetchPreviewCover,
         approveRescan,
         clearCoverPreview,
         clearPreview,
+        toggleField,
+        selectAllFields,
+        deselectAllFields,
+        getSelectedFieldsCount,
     };
 };

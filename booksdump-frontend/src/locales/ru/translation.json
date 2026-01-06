@@ -202,5 +202,9 @@
   "rescanNoCover": "Нет",
   "rescanPendingId": "ID ожидающего пересканирования",
   "rescanCompleted": "Пересканирование успешно завершено",
-  "rescanRejected": "Пересканирование отклонено"
+  "rescanRejected": "Пересканирование отклонено",
+  "rescanSelectFields": "Выберите поля для обновления",
+  "selectAll": "Выбрать все",
+  "deselectAll": "Снять выбор",
+  "rescanUpdateSummary": "{{count}} из {{total}} измененных полей выбрано"
 }

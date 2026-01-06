@@ -13,6 +13,9 @@ import {
     Chip,
     Grid2,
     Paper,
+    FormControlLabel,
+    Checkbox,
+    Divider,
 } from '@mui/material';
 import {
     Close as CloseIcon,
@@ -20,7 +23,7 @@ import {
     Cancel as CancelIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
-import { useRescan, RescanPreview } from '../../hooks/useRescan';
+import { useRescan } from '../../hooks/useRescan';
 
 interface Author {
     id: number;
@@ -54,11 +57,16 @@ const RescanPreviewDialog: React.FC<RescanPreviewDialogProps> = ({
         coverPreviewUrl,
         coverLoading,
         coverError,
+        fieldSelection,
         fetchPreview,
         fetchPreviewCover,
         clearCoverPreview,
         approveRescan,
         clearPreview,
+        toggleField,
+        selectAllFields,
+        deselectAllFields,
+        getSelectedFieldsCount,
     } = useRescan();
 
     useEffect(() => {
@@ -84,7 +92,7 @@ const RescanPreviewDialog: React.FC<RescanPreviewDialogProps> = ({
 
     const handleApprove = async () => {
         if (!bookId) return;
-        const success = await approveRescan(bookId, 'approve');
+        const success = await approveRescan(bookId, 'approve', fieldSelection);
         if (success) {
             onRescanCompleted();
             handleClose();
@@ -99,6 +107,7 @@ const RescanPreviewDialog: React.FC<RescanPreviewDialogProps> = ({
             handleClose();
         }
     };
+
 
     const isDifferent = (field: string) => {
         return preview?.diff.includes(field);
@@ -275,6 +284,130 @@ const RescanPreviewDialog: React.FC<RescanPreviewDialogProps> = ({
                                         }}
                                     />
                                 )}
+                            </Box>
+                        )}
+
+                        {/* Field Selection Section */}
+                        {preview.diff.length > 0 && (
+                            <Box sx={{ mt: 3, p: 2, bgcolor: 'background.paper', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                                <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600 }}>
+                                    {t('rescanSelectFields')}
+                                </Typography>
+
+                                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 1 }}>
+                                    {preview.diff.includes('title') && (
+                                        <FormControlLabel
+                                            control={
+                                                <Checkbox
+                                                    checked={fieldSelection.updateTitle}
+                                                    onChange={() => toggleField('updateTitle')}
+                                                />
+                                            }
+                                            label={t('title')}
+                                        />
+                                    )}
+                                    {preview.diff.includes('annotation') && (
+                                        <FormControlLabel
+                                            control={
+                                                <Checkbox
+                                                    checked={fieldSelection.updateAnnotation}
+                                                    onChange={() => toggleField('updateAnnotation')}
+                                                />
+                                            }
+                                            label={t('annotation')}
+                                        />
+                                    )}
+                                    {preview.diff.includes('lang') && (
+                                        <FormControlLabel
+                                            control={
+                                                <Checkbox
+                                                    checked={fieldSelection.updateLang}
+                                                    onChange={() => toggleField('updateLang')}
+                                                />
+                                            }
+                                            label={t('language')}
+                                        />
+                                    )}
+                                    {preview.diff.includes('docdate') && (
+                                        <FormControlLabel
+                                            control={
+                                                <Checkbox
+                                                    checked={fieldSelection.updateDocDate}
+                                                    onChange={() => toggleField('updateDocDate')}
+                                                />
+                                            }
+                                            label={t('publicationDate')}
+                                        />
+                                    )}
+                                    {preview.diff.includes('authors') && (
+                                        <FormControlLabel
+                                            control={
+                                                <Checkbox
+                                                    checked={fieldSelection.updateAuthors}
+                                                    onChange={() => toggleField('updateAuthors')}
+                                                />
+                                            }
+                                            label={t('authors')}
+                                        />
+                                    )}
+                                    {preview.diff.includes('series') && (
+                                        <FormControlLabel
+                                            control={
+                                                <Checkbox
+                                                    checked={fieldSelection.updateSeries}
+                                                    onChange={() => toggleField('updateSeries')}
+                                                />
+                                            }
+                                            label={t('series')}
+                                        />
+                                    )}
+                                    {preview.diff.includes('cover') && (
+                                        <FormControlLabel
+                                            control={
+                                                <Checkbox
+                                                    checked={fieldSelection.updateCover}
+                                                    onChange={() => toggleField('updateCover')}
+                                                />
+                                            }
+                                            label={t('rescanCover')}
+                                        />
+                                    )}
+                                    {preview.diff.includes('tags') && (
+                                        <FormControlLabel
+                                            control={
+                                                <Checkbox
+                                                    checked={fieldSelection.updateTags}
+                                                    onChange={() => toggleField('updateTags')}
+                                                />
+                                            }
+                                            label={t('rescanTags')}
+                                        />
+                                    )}
+                                </Box>
+
+                                <Box sx={{ mt: 2, display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+                                    <Button
+                                        variant="outlined"
+                                        size="small"
+                                        onClick={selectAllFields}
+                                    >
+                                        {t('selectAll')}
+                                    </Button>
+                                    <Button
+                                        variant="outlined"
+                                        size="small"
+                                        onClick={deselectAllFields}
+                                    >
+                                        {t('deselectAll')}
+                                    </Button>
+                                    <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
+                                    <Typography variant="body2" color="text.secondary">
+                                        {t('rescanUpdateSummary', {
+                                            count: getSelectedFieldsCount(preview.diff).selected,
+                                            total: getSelectedFieldsCount(preview.diff).total
+                                        })}
+                                    </Typography>
+                                </Box>
                             </Box>
                         )}
 

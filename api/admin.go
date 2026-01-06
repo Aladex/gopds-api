@@ -316,14 +316,14 @@ func RescanPreviewCover(c *gin.Context) {
 
 // ApproveRescan godoc
 // @Summary Approve or reject book rescan
-// @Description Apply or reject pending book rescan changes
+// @Description Apply or reject pending book rescan changes. When approving, you can selectively choose which fields to update.
 // @Tags admin
 // @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Param id path int true "Book ID"
 // @Accept json
 // @Produce json
-// @Param body body models.RescanApprovalRequest true "Approval action"
-// @Success 200 {object} models.RescanApprovalResponse "Approval result"
+// @Param body body models.RescanApprovalRequest true "Approval action with optional field selection"
+// @Success 200 {object} models.RescanApprovalResponse "Approval result with updated/skipped fields"
 // @Failure 400 {object} httputil.HTTPError "Bad request"
 // @Failure 404 {object} httputil.HTTPError "Book not found"
 // @Failure 500 {object} httputil.HTTPError "Internal server error"
@@ -348,6 +348,11 @@ func ApproveRescan(c *gin.Context) {
 		return
 	}
 
+	// If action is "approve", set defaults for any unspecified fields
+	if approvalReq.Action == "approve" {
+		approvalReq.SetDefaults()
+	}
+
 	// Get archives directory from config
 	archivesDir := viper.GetString("app.files_path")
 	if archivesDir == "" {
@@ -364,7 +369,7 @@ func ApproveRescan(c *gin.Context) {
 
 	var response *models.RescanApprovalResponse
 	if approvalReq.Action == "approve" {
-		response, err = rescanService.ApproveRescan(bookID)
+		response, err = rescanService.ApproveRescan(bookID, &approvalReq)
 	} else {
 		response, err = rescanService.RejectRescan(bookID)
 	}
