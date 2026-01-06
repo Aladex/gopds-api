@@ -72,6 +72,8 @@ func (p *FB2Parser) Parse(reader io.Reader) (*BookFile, error) {
 	decodedReader := bytes.NewReader(decodedContent)
 
 	decoder := xml.NewDecoder(decodedReader)
+	// Set CharsetReader to handle various encodings declared in XML
+	decoder.CharsetReader = makeCharsetReader
 	for {
 		token, err := decoder.Token()
 		if err == io.EOF {
@@ -473,4 +475,28 @@ func convertEncoding(content []byte, encoding string) []byte {
 		return nil
 	}
 	return result
+}
+
+// makeCharsetReader creates a reader that converts from the specified charset to UTF-8
+func makeCharsetReader(charset string, input io.Reader) (io.Reader, error) {
+	charset = strings.ToLower(charset)
+	switch charset {
+	case "utf-8", "utf8":
+		// Already UTF-8, return as-is
+		return input, nil
+	case "windows-1251", "cp1251", "cp-1251":
+		return transform.NewReader(input, charmap.Windows1251.NewDecoder()), nil
+	case "iso-8859-1", "latin1", "iso_8859-1":
+		return transform.NewReader(input, charmap.ISO8859_1.NewDecoder()), nil
+	case "iso-8859-5", "latin5", "iso_8859-5":
+		return transform.NewReader(input, charmap.ISO8859_5.NewDecoder()), nil
+	case "koi8-r", "koi8r":
+		return transform.NewReader(input, charmap.KOI8R.NewDecoder()), nil
+	case "koi8-u", "koi8u":
+		return transform.NewReader(input, charmap.KOI8U.NewDecoder()), nil
+	default:
+		// For unknown charsets, assume content was already converted by tryDecodeCharset
+		// and just return the input as-is
+		return input, nil
+	}
 }
