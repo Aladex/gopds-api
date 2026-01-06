@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"gopds-api/commands"
 	"gopds-api/database"
+	"gopds-api/internal/posters"
 	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/utils"
@@ -512,10 +513,9 @@ func (h *CallbackHandler) getBookCoverURL(book models.Book) string {
 
 	// Build cover URL based on book path and filename
 	// Format: /books-posters/{path}/{filename}.jpg
-	coverURL := fmt.Sprintf("%s/books-posters/%s/%s.jpg",
+	coverURL := fmt.Sprintf("%s/books-posters/%s",
 		cdn,
-		strings.ReplaceAll(book.Path, ".", "-"),
-		strings.ReplaceAll(book.FileName, ".", "-"))
+		posters.RelativePath(book.Path, book.FileName))
 
 	return coverURL
 }

@@ -47,13 +47,33 @@ const RescanPreviewDialog: React.FC<RescanPreviewDialogProps> = ({
     onRescanCompleted,
 }) => {
     const { t } = useTranslation();
-    const { loading, error, preview, fetchPreview, approveRescan, clearPreview } = useRescan();
+    const {
+        loading,
+        error,
+        preview,
+        coverPreviewUrl,
+        coverLoading,
+        coverError,
+        fetchPreview,
+        fetchPreviewCover,
+        clearCoverPreview,
+        approveRescan,
+        clearPreview,
+    } = useRescan();
 
     useEffect(() => {
         if (open && bookId) {
             fetchPreview(bookId);
         }
     }, [open, bookId]);
+
+    useEffect(() => {
+        if (preview && bookId && preview.new.has_cover) {
+            fetchPreviewCover(bookId);
+            return;
+        }
+        clearCoverPreview();
+    }, [preview, bookId]);
 
     const handleClose = () => {
         if (!loading) {
@@ -224,6 +244,38 @@ const RescanPreviewDialog: React.FC<RescanPreviewDialogProps> = ({
                             preview.old.has_cover ? t('rescanHasCover') : t('rescanNoCover'),
                             preview.new.has_cover ? t('rescanHasCover') : t('rescanNoCover'),
                             'cover'
+                        )}
+                        {preview.new.has_cover && (
+                            <Box sx={{ mt: 2 }}>
+                                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                                    {t('rescanCoverPreview')}
+                                </Typography>
+                                {coverError && (
+                                    <Alert severity="warning" sx={{ mb: 1 }}>
+                                        {coverError}
+                                    </Alert>
+                                )}
+                                {coverLoading && (
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                        <CircularProgress size={20} />
+                                        <Typography variant="body2">{t('loading')}</Typography>
+                                    </Box>
+                                )}
+                                {coverPreviewUrl && (
+                                    <Box
+                                        component="img"
+                                        src={coverPreviewUrl}
+                                        alt={t('rescanCover')}
+                                        sx={{
+                                            maxWidth: 220,
+                                            maxHeight: 320,
+                                            borderRadius: 1,
+                                            border: '1px solid',
+                                            borderColor: 'divider',
+                                        }}
+                                    />
+                                )}
+                            </Box>
                         )}
 
                         <Box sx={{ mt: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}>

@@ -3,9 +3,9 @@ package opdsutils
 import (
 	"fmt"
 	"github.com/spf13/viper"
+	"gopds-api/internal/posters"
 	"gopds-api/models"
 	"strconv"
-	"strings"
 )
 
 func rels() []string {
@@ -21,10 +21,9 @@ func createPostersLink(book models.Book) []Link {
 	var links []Link
 	posterLink := viper.GetString("app.cdn") + "/books-posters/no-cover.png"
 	if book.Cover {
-		posterLink = fmt.Sprintf("%s/books-posters/%s/%s.jpg",
+		posterLink = fmt.Sprintf("%s/books-posters/%s",
 			viper.GetString("app.cdn"),
-			strings.ReplaceAll(book.Path, ".", "-"),
-			strings.ReplaceAll(book.FileName, ".", "-"))
+			posters.RelativePath(book.Path, book.FileName))
 	}
 	for _, r := range rels() {
 		links = append(links, Link{

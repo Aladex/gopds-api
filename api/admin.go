@@ -25,6 +25,7 @@ func SetupAdminRoutes(r *gin.RouterGroup) {
 
 	// Book rescan routes
 	r.POST("/books/:id/rescan", RescanBookPreview)
+	r.GET("/books/:id/rescan/preview-cover", RescanPreviewCover)
 	r.POST("/books/:id/rescan/approve", ApproveRescan)
 
 	// Setup duplicate management routes
@@ -278,6 +279,39 @@ func RescanBookPreview(c *gin.Context) {
 		Result: preview,
 		Error:  nil,
 	})
+}
+
+// RescanPreviewCover godoc
+// @Summary Get rescan cover preview
+// @Description Returns the extracted cover image from pending rescan
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param id path int true "Book ID"
+// @Produce image/jpeg
+// @Success 200 {file} file "Cover image"
+// @Failure 404 {object} httputil.HTTPError "Cover not found"
+// @Failure 500 {object} httputil.HTTPError "Internal server error"
+// @Router /api/admin/books/{id}/rescan/preview-cover [get]
+func RescanPreviewCover(c *gin.Context) {
+	bookIDStr := c.Param("id")
+	bookID, err := strconv.ParseInt(bookIDStr, 10, 64)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, errors.New("invalid_book_id"))
+		return
+	}
+
+	pending, err := database.GetRescanPendingByBookID(bookID)
+	if err != nil {
+		httputil.NewError(c, http.StatusInternalServerError, err)
+		return
+	}
+	if pending == nil || !pending.CoverUpdated || len(pending.CoverData) == 0 {
+		httputil.NewError(c, http.StatusNotFound, errors.New("cover_not_found"))
+		return
+	}
+
+	contentType := http.DetectContentType(pending.CoverData)
+	c.Data(http.StatusOK, contentType, pending.CoverData)
 }
 
 // ApproveRescan godoc

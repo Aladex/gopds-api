@@ -197,6 +197,7 @@
   "rescanTags": "Tags",
   "rescanNoTags": "No tags",
   "rescanCover": "Cover",
+  "rescanCoverPreview": "Cover preview",
   "rescanHasCover": "Yes",
   "rescanNoCover": "No",
   "rescanPendingId": "Pending Rescan ID",

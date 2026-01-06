@@ -197,6 +197,7 @@
   "rescanTags": "Теги",
   "rescanNoTags": "Нет тегов",
   "rescanCover": "Обложка",
+  "rescanCoverPreview": "Предпросмотр обложки",
   "rescanHasCover": "Да",
   "rescanNoCover": "Нет",
   "rescanPendingId": "ID ожидающего пересканирования",

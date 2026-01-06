@@ -317,7 +317,8 @@ const BooksList: React.FC = () => {
         // You could also update the specific book in the state if the backend returns the updated book
     };
 
-    const cover = (book: Book) => `${API_URL}/books-posters/${book.path.replace(/\W/g, '-')}/${book.filename.replace(/\W/g, '-')}.jpg`;
+    const coverPath = (value: string) => value.replaceAll('.', '-').replace(/^\/+/, '');
+    const cover = (book: Book) => `${API_URL}/books-posters/${coverPath(book.path)}/${coverPath(book.filename)}.jpg`;
 
 
     return (

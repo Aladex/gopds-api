@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"gopds-api/database"
 	"gopds-api/internal/parser"
+	"gopds-api/internal/posters"
 	"gopds-api/logging"
 	"gopds-api/models"
 	"io"
@@ -128,32 +129,43 @@ func (s *RescanService) ApproveRescan(bookID int64) (*models.RescanApprovalRespo
 		return nil, errors.New("no pending rescan found for this book")
 	}
 
-	// 2. Save cover image if needed
-	if pending.CoverUpdated && len(pending.CoverData) > 0 {
-		// Get book to build cover path
-		book := &models.Book{}
-		err := database.GetDB().Model(book).Where("id = ?", bookID).Select(book)
-		if err != nil {
-			logging.Error("Failed to get book for cover save: %v", err)
-			// Don't fail the whole operation if cover save fails
-		} else {
-			coverDir := filepath.Join(s.coversDir, strings.ReplaceAll(book.Path, ".", "-"))
-			_ = os.MkdirAll(coverDir, 0755)
+	// 2. Get book to build cover path
+	book := &models.Book{}
+	err = database.GetDB().Model(book).Where("id = ?", bookID).Select(book)
+	if err != nil {
+		logging.Error("Failed to get book for cover save: %v", err)
+		return nil, errors.New("book not found")
+	}
 
-			coverFile := filepath.Join(coverDir,
-				strings.ReplaceAll(book.FileName, ".", "-")+".jpg")
-			_ = os.WriteFile(coverFile, pending.CoverData, 0644)
+	// 3. Save or delete cover image to keep FS and DB in sync
+	coverFile := posters.FilePath(s.coversDir, book.Path, book.FileName)
+	if pending.CoverUpdated {
+		if len(pending.CoverData) == 0 {
+			return nil, errors.New("pending rescan has no cover data")
+		}
+		if err := os.MkdirAll(filepath.Dir(coverFile), 0755); err != nil {
+			logging.Error("Failed to create cover directory: %v", err)
+			return nil, fmt.Errorf("failed to create cover directory: %w", err)
+		}
+		if err := os.WriteFile(coverFile, pending.CoverData, 0644); err != nil {
+			logging.Error("Failed to write cover file: %v", err)
+			return nil, fmt.Errorf("failed to write cover file: %w", err)
+		}
+	} else {
+		if err := os.Remove(coverFile); err != nil && !os.IsNotExist(err) {
+			logging.Error("Failed to remove cover file: %v", err)
+			return nil, fmt.Errorf("failed to remove cover file: %w", err)
 		}
 	}
 
-	// 3. Apply changes via database transaction
+	// 4. Apply changes via database transaction
 	err = database.ApplyRescanChanges(bookID)
 	if err != nil {
 		logging.Error("Failed to apply rescan changes: %v", err)
 		return nil, fmt.Errorf("failed to apply changes: %w", err)
 	}
 
-	// 4. Return success response
+	// 5. Return success response
 	newValues := s.pendingToRescanValues(pending)
 
 	response := &models.RescanApprovalResponse{

@@ -349,7 +349,7 @@ func TestGetBookCoverURL(t *testing.T) {
 				Path:     "/path/to/book",
 				FileName: "book.fb2",
 			},
-			expected: "https://example.com/books-posters//path/to/book/book-fb2.jpg",
+			expected: "https://example.com/books-posters/path/to/book/book-fb2.jpg",
 		},
 		{
 			name: "book without cover",

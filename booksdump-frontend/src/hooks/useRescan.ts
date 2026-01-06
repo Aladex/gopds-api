@@ -39,6 +39,9 @@ export const useRescan = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [preview, setPreview] = useState<RescanPreview | null>(null);
+    const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | null>(null);
+    const [coverLoading, setCoverLoading] = useState(false);
+    const [coverError, setCoverError] = useState<string | null>(null);
 
     const fetchPreview = async (bookId: number): Promise<RescanPreview | null> => {
         setLoading(true);
@@ -93,17 +96,61 @@ export const useRescan = () => {
         }
     };
 
+    const fetchPreviewCover = async (bookId: number): Promise<string | null> => {
+        setCoverLoading(true);
+        setCoverError(null);
+        try {
+            const response = await fetchWithAuth.get(`/admin/books/${bookId}/rescan/preview-cover`, {
+                responseType: 'blob',
+            });
+            if (response.status === 200) {
+                if (coverPreviewUrl) {
+                    URL.revokeObjectURL(coverPreviewUrl);
+                }
+                const objectUrl = URL.createObjectURL(response.data);
+                setCoverPreviewUrl(objectUrl);
+                return objectUrl;
+            }
+            setCoverError('Failed to fetch rescan cover preview');
+            return null;
+        } catch (err: any) {
+            const status = err.response?.status;
+            if (status !== 404) {
+                console.error('Error fetching rescan cover preview:', err);
+                setCoverError('Failed to fetch rescan cover preview');
+            }
+            return null;
+        } finally {
+            setCoverLoading(false);
+        }
+    };
+
+    const clearCoverPreview = () => {
+        if (coverPreviewUrl) {
+            URL.revokeObjectURL(coverPreviewUrl);
+        }
+        setCoverPreviewUrl(null);
+        setCoverError(null);
+        setCoverLoading(false);
+    };
+
     const clearPreview = () => {
         setPreview(null);
         setError(null);
+        clearCoverPreview();
     };
 
     return {
         loading,
         error,
         preview,
+        coverPreviewUrl,
+        coverLoading,
+        coverError,
         fetchPreview,
+        fetchPreviewCover,
         approveRescan,
+        clearCoverPreview,
         clearPreview,
     };
 };
