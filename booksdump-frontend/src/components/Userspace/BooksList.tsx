@@ -1,5 +1,5 @@
 import '../styles/BooksList.css';
-import React, { useReducer, useEffect, useRef } from 'react';
+import React, { useReducer, useEffect, useRef, useState, useCallback } from 'react';
 import ConversionBackdrop from '../hooks/convertingBooks';
 import {
     Typography,
@@ -32,7 +32,6 @@ import { useFav } from "../../context/FavContext";
 import BookAnnotation from "../common/BookAnnotation";
 import CoverLoader from "../common/CoverLoader";
 import { format } from 'date-fns';
-import { useState, useCallback } from 'react';
 import { useBookConversion } from '../../context/BookConversionContext';
 import { downloadViaIframe } from '../helpers/downloadViaIframe';
 import { getLanguageInfo, isLanguageSupported } from '../../utils/languageUtils';
@@ -158,70 +157,69 @@ const BooksList: React.FC = () => {
         return format(date, "dd.MM.yyyy, HH:mm");
     };
 
-    useEffect(() => {
-        // Update the `getParams` function in `src/components/Userspace/BooksList.tsx`
-        const getParams = () => {
-            const limit = 10;
-            const currentPage = parseInt(page || '1', 10);
-            const offset = (currentPage - 1) * limit;
-            let params: Record<string, any> = { limit, offset, lang: user?.books_lang || '' };
+    const getParams = useCallback(() => {
+        const limit = 10;
+        const currentPage = parseInt(page || '1', 10);
+        const offset = (currentPage - 1) * limit;
+        let params: Record<string, any> = { limit, offset, lang: user?.books_lang || '' };
 
-            if (location.pathname.includes('/books/find/author/') && id) {
-                params.author = id;
-                setAuthorId(id);
-                if (authorBook) params.title = authorBook;
-            } else if (location.pathname.includes('/books/find/category/') && id) {
-                params.series = id;
-                clearAuthorBook();
-            } else if (location.pathname.includes('/books/find/title/') && title) {
-                params.title = decodeURIComponent(title);
-                if (authorId) params.author = authorId;
-                clearAuthorBook();
-            }
+        if (location.pathname.includes('/books/find/author/') && id) {
+            params.author = id;
+            setAuthorId(id);
+            if (authorBook) params.title = authorBook;
+        } else if (location.pathname.includes('/books/find/category/') && id) {
+            params.series = id;
+            clearAuthorBook();
+        } else if (location.pathname.includes('/books/find/title/') && title) {
+            params.title = decodeURIComponent(title);
+            if (authorId) params.author = authorId;
+            clearAuthorBook();
+        }
 
-            if (location.pathname.includes('/books/favorite')) {
-                params.fav = true;
-                clearAuthorBook();
-            }
+        if (location.pathname.includes('/books/favorite')) {
+            params.fav = true;
+            clearAuthorBook();
+        }
 
-            if (location.pathname.includes('/books/users/favorites')) {
-                params.users_favorites = true;
-                clearAuthorBook();
-            }
+        if (location.pathname.includes('/books/users/favorites')) {
+            params.users_favorites = true;
+            clearAuthorBook();
+        }
 
-            return params;
-        };
+        return params;
+    }, [authorBook, authorId, clearAuthorBook, id, location.pathname, page, setAuthorId, title, user?.books_lang]);
 
-        const fetchBooks = async () => {
-            if (prevLangRef.current !== user?.books_lang && page !== '1') {
-                navigate('/books/page/1');
-                return;
-            }
+    const loadBooks = useCallback(async () => {
+        if (prevLangRef.current !== user?.books_lang && page !== '1') {
+            navigate('/books/page/1');
+            return;
+        }
 
-            dispatch({ type: 'SET_LOADING' });
+        dispatch({ type: 'SET_LOADING' });
 
-            try {
-                window.scrollTo(0, 0);
-                const params = getParams();
-                const response = await fetchWithAuth.get('/books/list', { params });
-                if (response.status === 200) {
-                    const data = response.data;
-                    dispatch({ type: 'FETCH_SUCCESS', payload: { books: data.books, totalPages: data.length } });
-                } else {
-                    console.error('Failed to fetch books');
-                    dispatch({ type: 'FETCH_ERROR' });
-                }
-            } catch (error) {
-                console.error('Error fetching books', error);
+        try {
+            window.scrollTo(0, 0);
+            const params = getParams();
+            const response = await fetchWithAuth.get('/books/list', { params });
+            if (response.status === 200) {
+                const data = response.data;
+                dispatch({ type: 'FETCH_SUCCESS', payload: { books: data.books, totalPages: data.length } });
+            } else {
+                console.error('Failed to fetch books');
                 dispatch({ type: 'FETCH_ERROR' });
             }
+        } catch (error) {
+            console.error('Error fetching books', error);
+            dispatch({ type: 'FETCH_ERROR' });
+        }
 
-            // Update language reference after successful fetch to prevent redirect loops
-            prevLangRef.current = user?.books_lang;
-        };
+        // Update language reference after successful fetch to prevent redirect loops
+        prevLangRef.current = user?.books_lang;
+    }, [getParams, navigate, page, user?.books_lang]);
 
-        fetchBooks();
-    }, [page, user?.books_lang, id, title, location.pathname, setAuthorId, clearAuthorBook, authorId, authorBook, navigate]);
+    useEffect(() => {
+        loadBooks();
+    }, [loadBooks]);
 
 
     const handleFavBook = async (book: Book) => {
@@ -299,6 +297,7 @@ const BooksList: React.FC = () => {
     const handleBookUpdated = (updatedBook: Book) => {
         dispatch({ type: 'UPDATE_BOOK', payload: updatedBook });
         enqueueSnackbar(t('bookUpdatedSuccessfully'));
+        loadBooks();
     };
 
     const handleRescanBook = (bookId: number) => {
@@ -313,8 +312,7 @@ const BooksList: React.FC = () => {
 
     const handleRescanCompleted = () => {
         enqueueSnackbar(t('rescanCompleted'));
-        // Optionally reload the book list to reflect any changes
-        // You could also update the specific book in the state if the backend returns the updated book
+        loadBooks();
     };
 
     const coverPath = (value: string) => value.replaceAll('.', '-').replace(/^\/+/, '');
