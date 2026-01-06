@@ -65,16 +65,29 @@ func (s *RescanService) RescanBookPreview(bookID int64, userID int64) (*models.R
 		return nil, fmt.Errorf("failed to parse FB2 file: %w", err)
 	}
 
-	// 5. Get old values
-	oldValues := s.bookToRescanValues(book)
+	// 5. Get series number from OrderToSeries table if series exists
+	var serNo int64 = 0
+	if len(book.Series) > 0 && book.Series[0] != nil {
+		orderToSeries := &models.OrderToSeries{}
+		err := database.GetDB().Model(orderToSeries).
+			Where("book_id = ? AND ser_id = ?", bookID, book.Series[0].ID).
+			Select(orderToSeries)
+		if err == nil {
+			serNo = orderToSeries.SerNo
+		}
+		// If error, just continue with serNo = 0 (no number assigned)
+	}
 
-	// 6. Get new values
+	// 6. Get old values
+	oldValues := s.bookToRescanValues(book, serNo)
+
+	// 7. Get new values
 	newValues := s.parsedToRescanValues(parsedBook)
 
-	// 7. Calculate diff
+	// 8. Calculate diff
 	diff := s.calculateDiff(oldValues, newValues)
 
-	// 8. Save to pending table
+	// 9. Save to pending table
 	pending := &models.BookRescanPending{
 		BookID:          bookID,
 		Title:           newValues.Title,
@@ -105,7 +118,7 @@ func (s *RescanService) RescanBookPreview(bookID int64, userID int64) (*models.R
 		return nil, err
 	}
 
-	// 9. Build and return preview
+	// 10. Build and return preview
 	preview := &models.RescanPreview{
 		BookID:          bookID,
 		Old:             oldValues,
@@ -237,7 +250,7 @@ func (s *RescanService) extractFB2FromArchive(archivePath, fileName string) ([]b
 }
 
 // bookToRescanValues converts existing Book model to rescan old values
-func (s *RescanService) bookToRescanValues(book *models.Book) *models.BookRescanOldValues {
+func (s *RescanService) bookToRescanValues(book *models.Book, serNo int64) *models.BookRescanOldValues {
 	// Get authors
 	authors := make([]models.RescanAuthor, len(book.Authors))
 	for i, author := range book.Authors {
@@ -247,12 +260,16 @@ func (s *RescanService) bookToRescanValues(book *models.Book) *models.BookRescan
 		}
 	}
 
-	// Get series
+	// Get series with index
 	var series *models.RescanSeries
 	if len(book.Series) > 0 && book.Series[0] != nil {
 		series = &models.RescanSeries{
 			ID:    book.Series[0].ID,
 			Title: book.Series[0].Ser,
+		}
+		// Set Index from database if series number exists
+		if serNo > 0 {
+			series.Index = fmt.Sprintf("%d", serNo)
 		}
 	}
 
