@@ -282,6 +282,17 @@ func (s *BookScanService) ProcessBook(zipFile *zip.File, archiveName string) (in
 	if err != nil {
 		return 0, fmt.Errorf("failed to parse FB2: %w", err)
 	}
+	if strings.TrimSpace(parsedBook.Title) == "" {
+		return 0, fmt.Errorf("missing title")
+	}
+	if len(parsedBook.Authors) == 0 {
+		parsedBook.Authors = []parser.Author{
+			{
+				Name:    "Автор неизвестен",
+				Sortkey: "Автор неизвестен",
+			},
+		}
+	}
 
 	// 3. Detect language
 	detectedLang := parsedBook.Language
