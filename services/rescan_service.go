@@ -18,15 +18,17 @@ import (
 
 // RescanService handles book rescanning with approval workflow
 type RescanService struct {
-	archivesDir string
-	coversDir   string
+	archivesDir      string
+	coversDir        string
+	languageDetector *LanguageDetector
 }
 
 // NewRescanService creates a new RescanService
-func NewRescanService(archivesDir, coversDir string) *RescanService {
+func NewRescanService(archivesDir, coversDir string, languageDetector *LanguageDetector) *RescanService {
 	return &RescanService{
-		archivesDir: archivesDir,
-		coversDir:   coversDir,
+		archivesDir:      archivesDir,
+		coversDir:        coversDir,
+		languageDetector: languageDetector,
 	}
 }
 
@@ -40,7 +42,7 @@ func (s *RescanService) RescanBookPreview(bookID int64, userID int64) (*models.R
 		Where("id = ?", bookID).
 		Select(book)
 	if err != nil {
-		logging.Error("Failed to get book: %v", err)
+		logging.Errorf("Failed to get book: %v", err)
 		return nil, errors.New("book not found")
 	}
 
@@ -53,7 +55,7 @@ func (s *RescanService) RescanBookPreview(bookID int64, userID int64) (*models.R
 	// 3. Open archive and extract FB2 file
 	fbzContent, err := s.extractFB2FromArchive(archivePath, book.FileName)
 	if err != nil {
-		logging.Error("Failed to extract FB2 from archive: %v", err)
+		logging.Errorf("Failed to extract FB2 from archive: %v", err)
 		return nil, fmt.Errorf("failed to extract FB2 file: %w", err)
 	}
 
@@ -61,7 +63,7 @@ func (s *RescanService) RescanBookPreview(bookID int64, userID int64) (*models.R
 	fbzParser := parser.NewFB2Parser(true) // readCover=true
 	parsedBook, err := fbzParser.Parse(bytes.NewReader(fbzContent))
 	if err != nil {
-		logging.Error("Failed to parse FB2: %v", err)
+		logging.Errorf("Failed to parse FB2: %v", err)
 		return nil, fmt.Errorf("failed to parse FB2 file: %w", err)
 	}
 
@@ -109,12 +111,12 @@ func (s *RescanService) RescanBookPreview(bookID int64, userID int64) (*models.R
 	}
 
 	// Debug: Log what we're about to save
-	logging.Info("Saving rescan pending: BookID=%d, AuthorsJSON=%s, SeriesJSON=%s, TagsJSON=%s",
+	logging.Infof("Saving rescan pending: BookID=%d, AuthorsJSON=%s, SeriesJSON=%s, TagsJSON=%s",
 		pending.BookID, string(pending.AuthorsJSON), string(pending.SeriesJSON), string(pending.TagsJSON))
 
 	err = database.SaveRescanPending(pending)
 	if err != nil {
-		logging.Error("Failed to save pending rescan: %v", err)
+		logging.Errorf("Failed to save pending rescan: %v", err)
 		return nil, err
 	}
 
@@ -135,7 +137,7 @@ func (s *RescanService) ApproveRescan(bookID int64, selectedFields *models.Resca
 	// 1. Check if pending rescan exists
 	pending, err := database.GetRescanPendingByBookID(bookID)
 	if err != nil {
-		logging.Error("Failed to get pending rescan: %v", err)
+		logging.Errorf("Failed to get pending rescan: %v", err)
 		return nil, err
 	}
 	if pending == nil {
@@ -146,7 +148,7 @@ func (s *RescanService) ApproveRescan(bookID int64, selectedFields *models.Resca
 	book := &models.Book{}
 	err = database.GetDB().Model(book).Where("id = ?", bookID).Select(book)
 	if err != nil {
-		logging.Error("Failed to get book for cover save: %v", err)
+		logging.Errorf("Failed to get book for cover save: %v", err)
 		return nil, errors.New("book not found")
 	}
 
@@ -160,16 +162,16 @@ func (s *RescanService) ApproveRescan(bookID int64, selectedFields *models.Resca
 				return nil, errors.New("pending rescan has no cover data")
 			}
 			if err := os.MkdirAll(filepath.Dir(coverFile), 0755); err != nil {
-				logging.Error("Failed to create cover directory: %v", err)
+				logging.Errorf("Failed to create cover directory: %v", err)
 				return nil, fmt.Errorf("failed to create cover directory: %w", err)
 			}
 			if err := os.WriteFile(coverFile, pending.CoverData, 0644); err != nil {
-				logging.Error("Failed to write cover file: %v", err)
+				logging.Errorf("Failed to write cover file: %v", err)
 				return nil, fmt.Errorf("failed to write cover file: %w", err)
 			}
 		} else {
 			if err := os.Remove(coverFile); err != nil && !os.IsNotExist(err) {
-				logging.Error("Failed to remove cover file: %v", err)
+				logging.Errorf("Failed to remove cover file: %v", err)
 				return nil, fmt.Errorf("failed to remove cover file: %w", err)
 			}
 		}
@@ -178,7 +180,7 @@ func (s *RescanService) ApproveRescan(bookID int64, selectedFields *models.Resca
 	// 4. Apply changes via database transaction with selective fields
 	updatedFields, skippedFields, err := database.ApplySelectiveRescanChanges(bookID, selectedFields)
 	if err != nil {
-		logging.Error("Failed to apply rescan changes: %v", err)
+		logging.Errorf("Failed to apply rescan changes: %v", err)
 		return nil, fmt.Errorf("failed to apply changes: %w", err)
 	}
 
@@ -215,7 +217,7 @@ func getSelectedFieldFlag(selectedFields *models.RescanApprovalRequest, field st
 func (s *RescanService) RejectRescan(bookID int64) (*models.RescanApprovalResponse, error) {
 	err := database.DeleteRescanPending(bookID)
 	if err != nil {
-		logging.Error("Failed to delete pending rescan: %v", err)
+		logging.Errorf("Failed to delete pending rescan: %v", err)
 		return nil, err
 	}
 
@@ -331,10 +333,19 @@ func (s *RescanService) parsedToRescanValues(book *parser.BookFile) *models.Book
 		tags = []string{}
 	}
 
+	// Detect language using language detector
+	detectedLang := book.Language // Default to tag language
+	if s.languageDetector != nil {
+		result := s.languageDetector.DetectLanguage(book.Language, book.TextSample)
+		detectedLang = result.Language
+		logging.Infof("Language detection for book: tag='%s', detected='%s', method='%s', confidence=%.2f",
+			book.Language, result.Language, result.Method, result.Confidence)
+	}
+
 	return &models.BookRescanNewValues{
 		Title:      book.Title,
 		Annotation: book.Annotation,
-		Lang:       book.Language,
+		Lang:       detectedLang,
 		DocDate:    book.DocDate,
 		Authors:    authors,
 		Series:     series,

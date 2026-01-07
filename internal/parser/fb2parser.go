@@ -102,6 +102,7 @@ func (p *FB2Parser) Parse(reader io.Reader) (*BookFile, error) {
 		DocDate:    p.extractDocDate(),
 		Annotation: p.extractAnnotation(),
 		BodySample: p.extractBodySample(),
+		TextSample: p.extractTextSample(),
 		Mimetype:   "fb2",
 	}
 
@@ -320,6 +321,20 @@ func (p *FB2Parser) extractCover() ([]byte, error) {
 
 func (p *FB2Parser) extractBodySample() string {
 	return strings.TrimSpace(p.bodySample.String())
+}
+
+func (p *FB2Parser) extractTextSample() string {
+	annotation := p.extractAnnotation()
+	body := p.extractBodySample()
+	sample := annotation + " " + body
+	sample = strings.TrimSpace(sample)
+
+	// Truncate to 2000 chars safely
+	runes := []rune(sample)
+	if len(runes) > 2000 {
+		sample = string(runes[:2000])
+	}
+	return sample
 }
 
 func normalizeName(name string) string {

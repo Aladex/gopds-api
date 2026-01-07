@@ -8,6 +8,7 @@ import (
 	"gopds-api/services"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
@@ -261,8 +262,16 @@ func RescanBookPreview(c *gin.Context) {
 		coversDir = "./posters/" // Default fallback
 	}
 
+	// Create language detector
+	enableOpenAI := viper.GetBool("ENABLE_OPENAI_LANG_DETECTION")
+	openaiTimeout := viper.GetDuration("OPENAI_LANG_DETECTION_TIMEOUT")
+	if openaiTimeout == 0 {
+		openaiTimeout = 5 * time.Second
+	}
+	languageDetector := services.NewLanguageDetector(enableOpenAI, openaiTimeout)
+
 	// Create rescan service
-	rescanService := services.NewRescanService(archivesDir, coversDir)
+	rescanService := services.NewRescanService(archivesDir, coversDir, languageDetector)
 
 	// Generate preview
 	preview, err := rescanService.RescanBookPreview(bookID, userID)
@@ -364,8 +373,11 @@ func ApproveRescan(c *gin.Context) {
 		coversDir = "./posters/" // Default fallback
 	}
 
+	// Create language detector (not used in approve/reject, but required by constructor)
+	languageDetector := services.NewLanguageDetector(false, 5*time.Second)
+
 	// Create rescan service
-	rescanService := services.NewRescanService(archivesDir, coversDir)
+	rescanService := services.NewRescanService(archivesDir, coversDir, languageDetector)
 
 	var response *models.RescanApprovalResponse
 	if approvalReq.Action == "approve" {
