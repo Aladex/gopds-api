@@ -7,6 +7,8 @@ import (
 	"io"
 	"strings"
 
+	"github.com/saintfish/chardet"
+	"golang.org/x/net/html/charset"
 	"golang.org/x/text/encoding/charmap"
 	"golang.org/x/text/transform"
 )
@@ -378,7 +380,8 @@ func stripWhitespace(value string) string {
 	return builder.String()
 }
 
-// tryDecodeCharset detects encoding from XML declaration and converts to UTF-8
+// tryDecodeCharset detects encoding from XML declaration and converts to UTF-8.
+// It also normalizes the XML declaration to encoding="utf-8" when conversion happens.
 func tryDecodeCharset(content []byte) []byte {
 	// Check if already UTF-8
 	if isValidUTF8(content) {
@@ -393,7 +396,7 @@ func tryDecodeCharset(content []byte) []byte {
 		if encoding != "" {
 			decoded := convertEncoding(content, encoding)
 			if decoded != nil {
-				return decoded
+				return normalizeEncodingDecl(decoded, "utf-8")
 			}
 		}
 	}
@@ -402,7 +405,15 @@ func tryDecodeCharset(content []byte) []byte {
 	for _, enc := range []string{"iso-8859-5", "windows-1251", "cp1251", "iso-8859-1"} {
 		decoded := convertEncoding(content, enc)
 		if decoded != nil && isValidUTF8(decoded) {
-			return decoded
+			return normalizeEncodingDecl(decoded, "utf-8")
+		}
+	}
+
+	// Heuristic detection fallback
+	if detected := detectCharset(content); detected != "" {
+		decoded := convertEncoding(content, detected)
+		if decoded != nil && isValidUTF8(decoded) {
+			return normalizeEncodingDecl(decoded, "utf-8")
 		}
 	}
 
@@ -473,6 +484,38 @@ func extractEncoding(decl string) string {
 	return strings.ToLower(decl[start : start+end])
 }
 
+// normalizeEncodingDecl rewrites XML declaration encoding to utf-8 if present.
+func normalizeEncodingDecl(content []byte, encoding string) []byte {
+	declEnd := bytes.Index(content, []byte("?>"))
+	if declEnd == -1 || declEnd > 200 {
+		return content
+	}
+	decl := string(content[:declEnd])
+	start := strings.Index(decl, "encoding=")
+	if start == -1 {
+		return content
+	}
+	start += 9
+	if start >= len(decl) {
+		return content
+	}
+
+	quote := decl[start]
+	if quote != '"' && quote != '\'' {
+		return content
+	}
+
+	start++
+	end := strings.IndexByte(decl[start:], quote)
+	if end == -1 {
+		return content
+	}
+
+	newDecl := decl[:start] + encoding + decl[start+end:]
+	normalized := append([]byte(newDecl), content[declEnd:]...)
+	return normalized
+}
+
 // convertEncoding converts bytes from source encoding to UTF-8
 func convertEncoding(content []byte, encoding string) []byte {
 	var dec transform.Transformer
@@ -482,7 +525,15 @@ func convertEncoding(content []byte, encoding string) []byte {
 	case "windows-1251", "cp1251":
 		dec = charmap.Windows1251.NewDecoder()
 	default:
-		return nil
+		reader, err := charset.NewReaderLabel(strings.ToLower(encoding), bytes.NewReader(content))
+		if err != nil {
+			return nil
+		}
+		decoded, err := io.ReadAll(reader)
+		if err != nil {
+			return nil
+		}
+		return decoded
 	}
 
 	result, _, err := transform.Bytes(dec, content)
@@ -510,8 +561,19 @@ func makeCharsetReader(charset string, input io.Reader) (io.Reader, error) {
 	case "koi8-u", "koi8u":
 		return transform.NewReader(input, charmap.KOI8U.NewDecoder()), nil
 	default:
-		// For unknown charsets, assume content was already converted by tryDecodeCharset
-		// and just return the input as-is
-		return input, nil
+		reader, err := charset.NewReaderLabel(charset, input)
+		if err != nil {
+			return input, nil
+		}
+		return reader, nil
 	}
+}
+
+func detectCharset(content []byte) string {
+	detector := chardet.NewTextDetector()
+	result, err := detector.DetectBest(content)
+	if err != nil || result == nil {
+		return ""
+	}
+	return strings.ToLower(result.Charset)
 }
