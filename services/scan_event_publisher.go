@@ -63,6 +63,7 @@ type ScanProgressEvent struct {
 	BooksProcessed    int       `json:"books_processed"`
 	TotalBooks        int       `json:"total_books"`
 	ProgressPercent   int       `json:"progress_percent"`
+	ElapsedSeconds    int64     `json:"elapsed_seconds"`
 	Timestamp         time.Time `json:"timestamp"`
 }
 
@@ -140,7 +141,7 @@ func (p *ScanEventPublisher) PublishScanError(err error) {
 	})
 }
 
-func (p *ScanEventPublisher) PublishScanProgress(currentArchive string, archivesProcessed, totalArchives, booksProcessed, totalBooks int) {
+func (p *ScanEventPublisher) PublishScanProgress(currentArchive string, archivesProcessed, totalArchives, booksProcessed, totalBooks int, elapsedSeconds int64) {
 	if p == nil || p.wsConn == nil {
 		return
 	}
@@ -159,6 +160,7 @@ func (p *ScanEventPublisher) PublishScanProgress(currentArchive string, archives
 		BooksProcessed:    booksProcessed,
 		TotalBooks:        totalBooks,
 		ProgressPercent:   progressPercent,
+		ElapsedSeconds:    elapsedSeconds,
 		Timestamp:         time.Now(),
 	})
 }

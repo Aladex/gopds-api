@@ -438,10 +438,17 @@ func runFullScan(sessionID string) {
 					totalArchives := scanState.totalArchives
 					currentArchive := scanState.currentArchive
 					totalBooks := scanState.totalBooks
+					startedAt := scanState.startedAt
 					scanState.mu.Unlock()
 
+					// Calculate elapsed seconds
+					var elapsedSeconds int64
+					if !startedAt.IsZero() {
+						elapsedSeconds = int64(time.Since(startedAt).Seconds())
+					}
+
 					// Send WebSocket progress update
-					scanner.PublishProgress(currentArchive, archivesProcessed, totalArchives, totalBooks, totalBooks)
+					scanner.PublishProgress(currentArchive, archivesProcessed, totalArchives, totalBooks, totalBooks, elapsedSeconds)
 				}
 			case <-progressDone:
 				return
@@ -496,10 +503,17 @@ func runSingleArchiveScan(sessionID string, archivePath string) {
 					archivesProcessed := scanState.archivesProcessed
 					totalArchives := scanState.totalArchives
 					currentArchive := scanState.currentArchive
+					startedAt := scanState.startedAt
 					scanState.mu.Unlock()
 
+					// Calculate elapsed seconds
+					var elapsedSeconds int64
+					if !startedAt.IsZero() {
+						elapsedSeconds = int64(time.Since(startedAt).Seconds())
+					}
+
 					// Send WebSocket progress update
-					scanner.PublishProgress(currentArchive, archivesProcessed, totalArchives, processed, total)
+					scanner.PublishProgress(currentArchive, archivesProcessed, totalArchives, processed, total, elapsedSeconds)
 				}
 			case <-progressDone:
 				return

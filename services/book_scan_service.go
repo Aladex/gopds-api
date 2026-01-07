@@ -87,9 +87,9 @@ func (s *BookScanService) GetScanProgress() (processed int, total int) {
 }
 
 // PublishProgress sends progress update via WebSocket if publisher is available.
-func (s *BookScanService) PublishProgress(currentArchive string, archivesProcessed, totalArchives, booksProcessed, totalBooks int) {
+func (s *BookScanService) PublishProgress(currentArchive string, archivesProcessed, totalArchives, booksProcessed, totalBooks int, elapsedSeconds int64) {
 	if s.publisher != nil {
-		s.publisher.PublishScanProgress(currentArchive, archivesProcessed, totalArchives, booksProcessed, totalBooks)
+		s.publisher.PublishScanProgress(currentArchive, archivesProcessed, totalArchives, booksProcessed, totalBooks, elapsedSeconds)
 	}
 }
 

@@ -110,6 +110,7 @@ interface ScanProgressEvent {
     books_processed: number;
     total_books: number;
     progress_percent: number;
+    elapsed_seconds: number;
     timestamp: string;
 }
 
@@ -287,18 +288,6 @@ const BookScanning: React.FC = () => {
 
         setIsRescanning(true);
 
-        // Initialize rescanProgress with basic structure so WebSocket updates work
-        setRescanProgress({
-            is_running: true,
-            total_archives: 1,
-            archives_processed: 0,
-            current_archive: archiveToRescan,
-            total_books: 0,
-            total_errors: 0,
-            progress_percent: 0,
-            elapsed_seconds: 0,
-        });
-
         try {
             // Start async rescan
             const startResponse = await fetchWithAuth.post('/admin/scan/archive', { name: archiveToRescan });
@@ -308,6 +297,20 @@ const BookScanning: React.FC = () => {
             }
 
             const { session_id } = startResponse.data as StartScanResponse;
+
+            // Initialize rescanProgress with session_id so we can track completion
+            setRescanProgress({
+                is_running: true,
+                session_id: session_id,
+                total_archives: 1,
+                archives_processed: 0,
+                current_archive: archiveToRescan,
+                total_books: 0,
+                total_errors: 0,
+                progress_percent: 0,
+                elapsed_seconds: 0,
+            });
+
 
             // Wait for scan to complete via WebSocket events
             // WebSocket handler will automatically update rescanProgress
@@ -323,7 +326,8 @@ const BookScanning: React.FC = () => {
                 const intervalId = setInterval(() => {
                     // Get latest status from state via a ref check
                     setRescanProgress((current) => {
-                        if (current && current.session_id === session_id && !current.is_running) {
+                        // Check if scan completed (is_running became false)
+                        if (current && !current.is_running && current.progress_percent >= 100) {
                             clearTimeout(timeoutId);
                             clearInterval(intervalId);
                             resolve();
@@ -466,6 +470,17 @@ const BookScanning: React.FC = () => {
                             elapsed_seconds: prev?.elapsed_seconds ?? 0,
                             finished_at: payload.timestamp,
                         }));
+
+                        // Also mark rescanProgress as completed
+                        setRescanProgress((prev) => prev ? {
+                            ...prev,
+                            is_running: false,
+                            progress_percent: 100,
+                            archives_processed: payload.total_archives,
+                            total_books: payload.total_books,
+                            total_errors: payload.total_errors,
+                        } : prev);
+
                         setStatusMessage(t('bookScanCompleted'));
                         fetchUnscanned().then(r => r);
                         fetchScanned().then(r => r);
@@ -480,6 +495,7 @@ const BookScanning: React.FC = () => {
                             total_archives: payload.total_archives,
                             total_books: payload.books_processed,
                             progress_percent: payload.progress_percent,
+                            elapsed_seconds: payload.elapsed_seconds,
                         } : prev);
 
                         // Also update rescanProgress if rescan dialog is open
@@ -490,6 +506,7 @@ const BookScanning: React.FC = () => {
                             total_archives: payload.total_archives,
                             total_books: payload.books_processed,
                             progress_percent: payload.progress_percent,
+                            elapsed_seconds: payload.elapsed_seconds,
                         } : prev);
                         break;
                     }
@@ -781,7 +798,7 @@ const BookScanning: React.FC = () => {
                 fullWidth
             >
                 <DialogTitle id="rescan-dialog-title">
-                    {isRescanning ? 'Rescanning Archive' : `${t('refresh')} ${t('bookScanArchive')}`}
+                    {isRescanning ? t('rescanningArchive') : `${t('refresh')} ${t('bookScanArchive')}`}
                 </DialogTitle>
                 <DialogContent>
                     {!isRescanning ? (
@@ -791,7 +808,7 @@ const BookScanning: React.FC = () => {
                     ) : (
                         <Box sx={{ py: 2 }}>
                             <Typography variant="body2" color="text.secondary" gutterBottom>
-                                Rescanning: <strong>{archiveToRescan}</strong>
+                                {t('rescanning')}: <strong>{archiveToRescan}</strong>
                             </Typography>
 
                             {rescanProgress && (
@@ -800,7 +817,7 @@ const BookScanning: React.FC = () => {
                                     <Box sx={{ mb: 2 }}>
                                         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
                                             <Typography variant="body2" color="text.secondary">
-                                                Progress
+                                                {t('rescanProgress')}
                                             </Typography>
                                             <Typography variant="body2" color="text.secondary">
                                                 {Math.round(rescanProgress.progress_percent)}%
@@ -815,7 +832,7 @@ const BookScanning: React.FC = () => {
                                     {/* Current Archive */}
                                     {rescanProgress.current_archive && (
                                         <Typography variant="body2" color="text.secondary" gutterBottom>
-                                            Current: {rescanProgress.current_archive}
+                                            {t('rescanCurrent')}: {rescanProgress.current_archive}
                                         </Typography>
                                     )}
 
@@ -823,7 +840,7 @@ const BookScanning: React.FC = () => {
                                     <Box sx={{ display: 'flex', gap: 3, mt: 2, flexWrap: 'wrap' }}>
                                         <Box>
                                             <Typography variant="caption" color="text.secondary">
-                                                Books Processed
+                                                {t('rescanBooksProcessed')}
                                             </Typography>
                                             <Typography variant="h6" color="primary">
                                                 {rescanProgress.total_books}
@@ -831,7 +848,7 @@ const BookScanning: React.FC = () => {
                                         </Box>
                                         <Box>
                                             <Typography variant="caption" color="text.secondary">
-                                                Errors
+                                                {t('rescanErrors')}
                                             </Typography>
                                             <Typography
                                                 variant="h6"
@@ -842,7 +859,7 @@ const BookScanning: React.FC = () => {
                                         </Box>
                                         <Box>
                                             <Typography variant="caption" color="text.secondary">
-                                                Elapsed Time
+                                                {t('rescanElapsedTime')}
                                             </Typography>
                                             <Typography variant="h6">
                                                 {rescanProgress.elapsed_seconds}s
@@ -856,7 +873,7 @@ const BookScanning: React.FC = () => {
                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 2 }}>
                                     <CircularProgress size={24} />
                                     <Typography variant="body2" color="text.secondary">
-                                        Starting rescan...
+                                        {t('rescanStarting')}
                                     </Typography>
                                 </Box>
                             )}
