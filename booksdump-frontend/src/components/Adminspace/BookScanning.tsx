@@ -61,6 +61,11 @@ interface ScannedArchiveInfo {
     scanned_at: string;
 }
 
+interface StartScanResponse {
+    session_id: string;
+    started_at: string;
+}
+
 interface ScanStartedEvent {
     total_archives: number;
     timestamp: string;
@@ -116,11 +121,13 @@ const BookScanning: React.FC = () => {
     const [rescanDialogOpen, setRescanDialogOpen] = useState(false);
     const [archiveToRescan, setArchiveToRescan] = useState<string | null>(null);
     const [isRescanning, setIsRescanning] = useState(false);
+    const [rescanProgress, setRescanProgress] = useState<ScanStatusResponse | null>(null);
     const [snackbarOpen, setSnackbarOpen] = useState(false);
     const [snackbarMessage, setSnackbarMessage] = useState('');
     const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error'>('success');
     const wsRef = useRef<WebSocket | null>(null);
     const scannedIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    const rescanPollingRef = useRef<NodeJS.Timeout | null>(null);
 
     const progressPercent = useMemo(() => {
         if (!status) {
@@ -271,31 +278,79 @@ const BookScanning: React.FC = () => {
         if (!archiveToRescan) return;
 
         setIsRescanning(true);
+        setRescanProgress(null);
+
         try {
-            const response = await fetchWithAuth.post(`/admin/scan/archive/${encodeURIComponent(archiveToRescan)}`);
+            // Start async rescan
+            const startResponse = await fetchWithAuth.post('/admin/scan/archive', { name: archiveToRescan });
 
-            // Show success message
-            setSnackbarMessage(t('bookScanArchiveComplete', { name: archiveToRescan }));
-            setSnackbarSeverity('success');
-            setSnackbarOpen(true);
+            if (!startResponse.data?.session_id) {
+                throw new Error('No session_id received from server');
+            }
 
-            // Close dialog
-            setRescanDialogOpen(false);
-            setArchiveToRescan(null);
+            const { session_id } = startResponse.data as StartScanResponse;
 
-            // Refresh the scanned archives list
-            await fetchScanned();
-            await fetchStatus();
+            // Poll status until complete
+            let isComplete = false;
+            let pollAttempts = 0;
+            const maxPollAttempts = 600; // 5 minutes maximum (600 * 500ms)
+
+            while (!isComplete && pollAttempts < maxPollAttempts) {
+                await new Promise(resolve => setTimeout(resolve, 500)); // Poll every 500ms
+                pollAttempts++;
+
+                try {
+                    const statusResponse = await fetchWithAuth.get('/admin/scan/status');
+
+                    if (statusResponse.data) {
+                        const currentStatus = statusResponse.data as ScanStatusResponse;
+
+                        // Update progress state to show in dialog
+                        setRescanProgress(currentStatus);
+
+                        // Check if this is our rescan session and if it's done
+                        if (currentStatus.session_id === session_id && !currentStatus.is_running) {
+                            isComplete = true;
+
+                            // Show results
+                            const message = `Archive "${archiveToRescan}" processed. ${currentStatus.total_books} books, ${currentStatus.total_errors} errors.`;
+                            setSnackbarMessage(message);
+                            setSnackbarSeverity(currentStatus.total_errors > 0 ? 'error' : 'success');
+
+                            // Refresh scanned archives list
+                            await fetchScanned();
+                            await fetchStatus();
+                            break;
+                        }
+                    }
+                } catch (statusError) {
+                    console.error('Error polling status:', statusError);
+                    // Continue polling despite errors
+                }
+            }
+
+            if (!isComplete) {
+                throw new Error('Rescan timeout - operation took too long');
+            }
+
         } catch (error: any) {
             console.error('Rescan error:', error);
 
-            // Show error message
-            const errorMessage = error?.response?.data?.message || t('bookScanArchiveError', { name: archiveToRescan });
+            const errorMessage = error?.response?.data?.message || error?.message || t('bookScanArchiveError', { name: archiveToRescan });
             setSnackbarMessage(errorMessage);
             setSnackbarSeverity('error');
-            setSnackbarOpen(true);
         } finally {
             setIsRescanning(false);
+            setRescanProgress(null);
+            setArchiveToRescan(null);
+            setRescanDialogOpen(false);
+            setSnackbarOpen(true);
+
+            // Clear any polling timeout
+            if (rescanPollingRef.current) {
+                clearTimeout(rescanPollingRef.current);
+                rescanPollingRef.current = null;
+            }
         }
     }, [archiveToRescan, fetchScanned, fetchStatus, t]);
 
@@ -671,23 +726,92 @@ const BookScanning: React.FC = () => {
             {/* Rescan Confirmation Dialog */}
             <Dialog
                 open={rescanDialogOpen}
-                onClose={handleRescanDialogClose}
+                onClose={isRescanning ? undefined : handleRescanDialogClose}
                 aria-labelledby="rescan-dialog-title"
                 aria-describedby="rescan-dialog-description"
+                maxWidth="sm"
+                fullWidth
             >
                 <DialogTitle id="rescan-dialog-title">
-                    {t('refresh')} {t('bookScanArchive')}
+                    {isRescanning ? 'Rescanning Archive' : `${t('refresh')} ${t('bookScanArchive')}`}
                 </DialogTitle>
                 <DialogContent>
-                    <DialogContentText id="rescan-dialog-description">
-                        {t('bookScanResetConfirm', { name: archiveToRescan || '' })}
-                    </DialogContentText>
-                    {isRescanning && (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 2 }}>
-                            <CircularProgress size={24} />
-                            <Typography variant="body2" color="text.secondary">
-                                Rescanning archive...
+                    {!isRescanning ? (
+                        <DialogContentText id="rescan-dialog-description">
+                            {t('bookScanResetConfirm', { name: archiveToRescan || '' })}
+                        </DialogContentText>
+                    ) : (
+                        <Box sx={{ py: 2 }}>
+                            <Typography variant="body2" color="text.secondary" gutterBottom>
+                                Rescanning: <strong>{archiveToRescan}</strong>
                             </Typography>
+
+                            {rescanProgress && (
+                                <Box sx={{ mt: 3 }}>
+                                    {/* Progress Bar */}
+                                    <Box sx={{ mb: 2 }}>
+                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                                            <Typography variant="body2" color="text.secondary">
+                                                Progress
+                                            </Typography>
+                                            <Typography variant="body2" color="text.secondary">
+                                                {Math.round(rescanProgress.progress_percent)}%
+                                            </Typography>
+                                        </Box>
+                                        <LinearProgress
+                                            variant="determinate"
+                                            value={Math.min(100, rescanProgress.progress_percent)}
+                                        />
+                                    </Box>
+
+                                    {/* Current Archive */}
+                                    {rescanProgress.current_archive && (
+                                        <Typography variant="body2" color="text.secondary" gutterBottom>
+                                            Current: {rescanProgress.current_archive}
+                                        </Typography>
+                                    )}
+
+                                    {/* Stats */}
+                                    <Box sx={{ display: 'flex', gap: 3, mt: 2, flexWrap: 'wrap' }}>
+                                        <Box>
+                                            <Typography variant="caption" color="text.secondary">
+                                                Books Processed
+                                            </Typography>
+                                            <Typography variant="h6" color="primary">
+                                                {rescanProgress.total_books}
+                                            </Typography>
+                                        </Box>
+                                        <Box>
+                                            <Typography variant="caption" color="text.secondary">
+                                                Errors
+                                            </Typography>
+                                            <Typography
+                                                variant="h6"
+                                                color={rescanProgress.total_errors > 0 ? 'error' : 'success.main'}
+                                            >
+                                                {rescanProgress.total_errors}
+                                            </Typography>
+                                        </Box>
+                                        <Box>
+                                            <Typography variant="caption" color="text.secondary">
+                                                Elapsed Time
+                                            </Typography>
+                                            <Typography variant="h6">
+                                                {rescanProgress.elapsed_seconds}s
+                                            </Typography>
+                                        </Box>
+                                    </Box>
+                                </Box>
+                            )}
+
+                            {!rescanProgress && (
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 2 }}>
+                                    <CircularProgress size={24} />
+                                    <Typography variant="body2" color="text.secondary">
+                                        Starting rescan...
+                                    </Typography>
+                                </Box>
+                            )}
                         </Box>
                     )}
                 </DialogContent>
@@ -695,14 +819,15 @@ const BookScanning: React.FC = () => {
                     <Button onClick={handleRescanDialogClose} disabled={isRescanning}>
                         {t('cancel')}
                     </Button>
-                    <Button
-                        onClick={handleRescanConfirm}
-                        variant="contained"
-                        color="primary"
-                        disabled={isRescanning}
-                    >
-                        {t('refresh')}
-                    </Button>
+                    {!isRescanning && (
+                        <Button
+                            onClick={handleRescanConfirm}
+                            variant="contained"
+                            color="primary"
+                        >
+                            {t('refresh')}
+                        </Button>
+                    )}
                 </DialogActions>
             </Dialog>
 

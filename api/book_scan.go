@@ -97,6 +97,10 @@ type ScannedArchivesResponse struct {
 	TotalCount      int                  `json:"total_count"`
 }
 
+type RescanArchiveRequest struct {
+	Name string `json:"name" binding:"required"`
+}
+
 func getArchivesDir() string {
 	archivesDir := viper.GetString("app.files_path")
 	if archivesDir == "" {
@@ -256,27 +260,33 @@ func GetUnscannedArchives(c *gin.Context) {
 }
 
 // ScanSpecificArchive godoc
-// @Summary Scan a specific archive
-// @Description Scan one archive by name (blocking)
+// @Summary Start archive rescan (async)
+// @Description Start rescanning a single archive (async). Use GET /api/admin/scan/status to check progress.
 // @Tags admin
 // @Param Authorization header string true "Token without 'Bearer' prefix"
-// @Param name path string true "Archive name"
+// @Accept json
+// @Param body body RescanArchiveRequest true "Archive name to rescan"
 // @Produce json
-// @Success 200 {object} ArchiveReportResponse
+// @Success 202 {object} StartScanResponse
 // @Failure 400 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError
 // @Failure 404 {object} httputil.HTTPError
 // @Failure 409 {object} httputil.HTTPError "Scan already running"
 // @Failure 500 {object} httputil.HTTPError
-// @Router /api/admin/scan/archive/{name} [post]
+// @Router /api/admin/scan/archive [post]
 func ScanSpecificArchive(c *gin.Context) {
+	var req RescanArchiveRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httputil.NewError(c, http.StatusBadRequest, errors.New("archive name required"))
+		return
+	}
+
 	if scanState.isRunning() {
 		httputil.NewError(c, http.StatusConflict, errors.New("scan already running"))
 		return
 	}
 
-	name := c.Param("name")
-	archivePath, err := resolveArchivePath(name)
+	archivePath, err := resolveArchivePath(req.Name)
 	if err != nil {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
@@ -291,14 +301,21 @@ func ScanSpecificArchive(c *gin.Context) {
 		return
 	}
 
-	scanner := newBookScanService()
-	report, err := scanner.ScanArchive(archivePath)
-	if err != nil {
-		httputil.NewError(c, http.StatusInternalServerError, err)
+	sessionID := fmt.Sprintf("rescan_%d", time.Now().UnixNano())
+	startedAt := time.Now()
+
+	if !scanState.tryStart(sessionID, startedAt) {
+		httputil.NewError(c, http.StatusConflict, errors.New("scan already running"))
 		return
 	}
 
-	c.JSON(http.StatusOK, archiveReportToResponse(report))
+	go runSingleArchiveScan(sessionID, archivePath)
+
+	c.JSON(http.StatusAccepted, StartScanResponse{
+		SessionID: sessionID,
+		StartedAt: startedAt,
+		Message:   "rescan started",
+	})
 }
 
 // ResetArchiveScanStatus godoc
@@ -413,6 +430,26 @@ func runFullScan(sessionID string) {
 		scanState.applyArchiveResult(sessionID, report, scanErr)
 	}
 
+	scanState.finish(sessionID)
+}
+
+func runSingleArchiveScan(sessionID string, archivePath string) {
+	defer func() {
+		if r := recover(); r != nil {
+			logging.Error(fmt.Sprintf("Panic in archive scan: %v", r))
+			scanState.fail(sessionID, fmt.Errorf("panic: %v", r))
+		}
+	}()
+
+	scanner := newBookScanService()
+	archivesDir := getArchivesDir()
+	archiveName := archiveNameFromPath(archivesDir, archivePath)
+
+	scanState.setTotalArchives(sessionID, 1)
+	scanState.setCurrentArchive(sessionID, archiveName)
+
+	report, err := scanner.ScanArchive(archivePath)
+	scanState.applyArchiveResult(sessionID, report, err)
 	scanState.finish(sessionID)
 }
 
