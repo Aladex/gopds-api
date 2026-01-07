@@ -136,7 +136,7 @@ type Book struct {
 	Lang            string    `pg:"lang,use_zero" json:"lang"`
 	Title           string    `pg:"title" json:"title"`
 	Cover           bool      `pg:"cover" json:"cover"`
-	Annotation      string    `pg:"annotation" json:"annotation"`
+	Annotation      string    `pg:"annotation,use_zero" json:"annotation"`
 	Fav             bool      `pg:"-" json:"fav"`
 	Approved        bool      `pg:"approved" json:"approved"`
 	MD5             string    `pg:"md5" json:"md5"`
