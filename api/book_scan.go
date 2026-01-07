@@ -130,11 +130,18 @@ func newBookScanService() *services.BookScanService {
 	skipDuplicates := getScanSkipDuplicates()
 
 	scanner := services.NewBookScanService(archivesDir, coversDir, languageDetector, skipDuplicates)
-	if wsManager != nil {
-		wsConn := services.NewAdminWSConnection(wsManager)
-		scanner.SetScanEventPublisher(services.NewScanEventPublisher(wsConn))
+	if publisher := newScanEventPublisher(); publisher != nil {
+		scanner.SetScanEventPublisher(publisher)
 	}
 	return scanner
+}
+
+func newScanEventPublisher() *services.ScanEventPublisher {
+	if wsManager == nil {
+		return nil
+	}
+	wsConn := services.NewAdminWSConnection(wsManager)
+	return services.NewScanEventPublisher(wsConn)
 }
 
 func getScanSkipDuplicates() bool {
@@ -409,16 +416,30 @@ func GetScannedArchives(c *gin.Context) {
 
 func runFullScan(sessionID string) {
 	scanner := newBookScanService()
+	publisher := newScanEventPublisher()
 	archives, err := scanner.GetUnscannedArchives()
 	if err != nil {
 		scanState.fail(sessionID, fmt.Errorf("failed to get unscanned archives: %w", err))
+		if publisher != nil {
+			publisher.PublishScanError(err)
+		}
 		return
 	}
 
 	scanState.setTotalArchives(sessionID, len(archives))
 	if len(archives) == 0 {
 		scanState.finish(sessionID)
+		if publisher != nil {
+			publisher.PublishScanCompleted(&services.ScanReport{
+				TotalArchives: 0,
+				Duration:      0,
+			})
+		}
 		return
+	}
+
+	if publisher != nil {
+		publisher.PublishScanStarted(len(archives))
 	}
 
 	// Start progress monitoring goroutine
@@ -457,17 +478,37 @@ func runFullScan(sessionID string) {
 	}()
 
 	archivesDir := getArchivesDir()
+	scanReport := &services.ScanReport{
+		TotalArchives:  len(archives),
+		ArchiveReports: []services.ArchiveReport{},
+		Errors:         []services.ScanError{},
+	}
+	scanStart := time.Now()
 	for _, archivePath := range archives {
 		archiveName := archiveNameFromPath(archivesDir, archivePath)
 		scanState.setCurrentArchive(sessionID, archiveName)
 
 		report, scanErr := scanner.ScanArchive(archivePath)
+		if report != nil {
+			scanReport.ArchiveReports = append(scanReport.ArchiveReports, *report)
+			scanReport.ProcessedBooks += report.BooksProcessed
+			scanReport.SkippedBooks += report.BooksSkipped
+			scanReport.Errors = append(scanReport.Errors, report.Errors...)
+		}
+		if scanErr != nil && publisher != nil {
+			publisher.PublishScanError(scanErr)
+		}
 		scanState.applyArchiveResult(sessionID, report, scanErr)
 	}
 
 	// Stop progress monitoring
 	close(progressDone)
 	progressTicker.Stop()
+
+	if publisher != nil {
+		scanReport.Duration = time.Since(scanStart)
+		publisher.PublishScanCompleted(scanReport)
+	}
 
 	scanState.finish(sessionID)
 }
@@ -481,11 +522,15 @@ func runSingleArchiveScan(sessionID string, archivePath string) {
 	}()
 
 	scanner := newBookScanService()
+	publisher := newScanEventPublisher()
 	archivesDir := getArchivesDir()
 	archiveName := archiveNameFromPath(archivesDir, archivePath)
 
 	scanState.setTotalArchives(sessionID, 1)
 	scanState.setCurrentArchive(sessionID, archiveName)
+	if publisher != nil {
+		publisher.PublishScanStarted(1)
+	}
 
 	// Start progress monitoring goroutine
 	progressTicker := time.NewTicker(500 * time.Millisecond)
@@ -523,6 +568,9 @@ func runSingleArchiveScan(sessionID string, archivePath string) {
 
 	// Start the actual scan
 	report, scanErr := scanner.ScanArchive(archivePath)
+	if scanErr != nil && publisher != nil {
+		publisher.PublishScanError(scanErr)
+	}
 
 	// Stop progress monitoring
 	close(progressDone)
@@ -530,6 +578,23 @@ func runSingleArchiveScan(sessionID string, archivePath string) {
 
 	// Apply final results
 	scanState.applyArchiveResult(sessionID, report, scanErr)
+	if publisher != nil {
+		scanReport := &services.ScanReport{
+			TotalArchives:  1,
+			ProcessedBooks: 0,
+			SkippedBooks:   0,
+			Errors:         []services.ScanError{},
+			Duration:       0,
+		}
+		if report != nil {
+			scanReport.ArchiveReports = []services.ArchiveReport{*report}
+			scanReport.ProcessedBooks = report.BooksProcessed
+			scanReport.SkippedBooks = report.BooksSkipped
+			scanReport.Errors = append(scanReport.Errors, report.Errors...)
+			scanReport.Duration = report.Duration
+		}
+		publisher.PublishScanCompleted(scanReport)
+	}
 	scanState.finish(sessionID)
 }
 

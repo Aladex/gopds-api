@@ -231,10 +231,8 @@ const BookScanning: React.FC = () => {
         setStatusMessage(null);
         setScanError(null);
         try {
-            await fetchWithAuth.post(`/admin/scan/archive/${encodeURIComponent(name)}`);
-            setStatusMessage(t('bookScanArchiveComplete', { name }));
-            await fetchStatus();
-            await fetchUnscanned();
+            await fetchWithAuth.post('/admin/scan/archive', { name });
+            setStatusMessage(t('bookScanStarted'));
         } catch (error) {
             console.error(error);
             setScanError(t('bookScanArchiveError', { name }));
