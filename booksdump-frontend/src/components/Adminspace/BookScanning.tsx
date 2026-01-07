@@ -1,13 +1,25 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+    Badge,
     Box,
     Button,
     Card,
     CardContent,
     Checkbox,
+    Chip,
+    CircularProgress,
+    Dialog,
+    DialogActions,
+    DialogContent,
+    DialogContentText,
+    DialogTitle,
     FormControlLabel,
+    IconButton,
     LinearProgress,
+    Snackbar,
     Stack,
+    Tab,
+    Tabs,
     Table,
     TableBody,
     TableCell,
@@ -16,6 +28,7 @@ import {
     TextField,
     Typography,
 } from '@mui/material';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import { fetchWithAuth, WS_URL } from '../../api/config';
 import { useTranslation } from 'react-i18next';
 
@@ -39,6 +52,13 @@ interface UnscannedArchiveInfo {
     size_mb: number;
     file_count: number;
     created_date: string;
+}
+
+interface ScannedArchiveInfo {
+    name: string;
+    books_count: number;
+    errors_count: number;
+    scanned_at: string;
 }
 
 interface ScanStartedEvent {
@@ -83,13 +103,24 @@ const BookScanning: React.FC = () => {
     const { t } = useTranslation();
     const [status, setStatus] = useState<ScanStatusResponse | null>(null);
     const [unscannedArchives, setUnscannedArchives] = useState<UnscannedArchiveInfo[]>([]);
+    const [scannedArchives, setScannedArchives] = useState<ScannedArchiveInfo[]>([]);
+    const [scannedTotalCount, setScannedTotalCount] = useState(0);
     const [isLoading, setIsLoading] = useState(false);
+    const [isLoadingScanned, setIsLoadingScanned] = useState(false);
     const [statusMessage, setStatusMessage] = useState<string | null>(null);
     const [scanError, setScanError] = useState<string | null>(null);
     const [resetName, setResetName] = useState('');
     const [deleteBooks, setDeleteBooks] = useState(false);
     const [lastBookTitle, setLastBookTitle] = useState<string | null>(null);
+    const [currentTab, setCurrentTab] = useState(0);
+    const [rescanDialogOpen, setRescanDialogOpen] = useState(false);
+    const [archiveToRescan, setArchiveToRescan] = useState<string | null>(null);
+    const [isRescanning, setIsRescanning] = useState(false);
+    const [snackbarOpen, setSnackbarOpen] = useState(false);
+    const [snackbarMessage, setSnackbarMessage] = useState('');
+    const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error'>('success');
     const wsRef = useRef<WebSocket | null>(null);
+    const scannedIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
     const progressPercent = useMemo(() => {
         if (!status) {
@@ -124,6 +155,30 @@ const BookScanning: React.FC = () => {
         } finally {
             setIsLoading(false);
         }
+    }, []);
+
+    const fetchScanned = useCallback(async () => {
+        setIsLoadingScanned(true);
+        try {
+            const response = await fetchWithAuth.get('/admin/scan/scanned');
+            setScannedArchives(response.data?.scanned_archives || []);
+            setScannedTotalCount(response.data?.total_count || 0);
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setIsLoadingScanned(false);
+        }
+    }, []);
+
+    const formatScannedDate = useCallback((dateString: string): string => {
+        const date = new Date(dateString);
+        return date.toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+        });
     }, []);
 
     const handleStartScan = useCallback(async () => {
@@ -202,10 +257,74 @@ const BookScanning: React.FC = () => {
         }
     }, [deleteBooks, fetchStatus, fetchUnscanned, resetName, t]);
 
+    const handleRescanClick = useCallback((archiveName: string) => {
+        setArchiveToRescan(archiveName);
+        setRescanDialogOpen(true);
+    }, []);
+
+    const handleRescanDialogClose = useCallback(() => {
+        setRescanDialogOpen(false);
+        setArchiveToRescan(null);
+    }, []);
+
+    const handleRescanConfirm = useCallback(async () => {
+        if (!archiveToRescan) return;
+
+        setIsRescanning(true);
+        try {
+            const response = await fetchWithAuth.post(`/admin/scan/archive/${encodeURIComponent(archiveToRescan)}`);
+
+            // Show success message
+            setSnackbarMessage(t('bookScanArchiveComplete', { name: archiveToRescan }));
+            setSnackbarSeverity('success');
+            setSnackbarOpen(true);
+
+            // Close dialog
+            setRescanDialogOpen(false);
+            setArchiveToRescan(null);
+
+            // Refresh the scanned archives list
+            await fetchScanned();
+            await fetchStatus();
+        } catch (error: any) {
+            console.error('Rescan error:', error);
+
+            // Show error message
+            const errorMessage = error?.response?.data?.message || t('bookScanArchiveError', { name: archiveToRescan });
+            setSnackbarMessage(errorMessage);
+            setSnackbarSeverity('error');
+            setSnackbarOpen(true);
+        } finally {
+            setIsRescanning(false);
+        }
+    }, [archiveToRescan, fetchScanned, fetchStatus, t]);
+
+    const handleSnackbarClose = useCallback(() => {
+        setSnackbarOpen(false);
+    }, []);
+
     useEffect(() => {
         fetchStatus().then(r => r);
         fetchUnscanned().then(r => r);
-    }, [fetchStatus, fetchUnscanned]);
+        fetchScanned().then(r => r);
+    }, [fetchStatus, fetchUnscanned, fetchScanned]);
+
+    // Auto-refresh scanned archives every 5 seconds when on scanned tab
+    useEffect(() => {
+        if (currentTab === 1) {
+            fetchScanned().then(r => r);
+            scannedIntervalRef.current = setInterval(() => {
+                fetchScanned().then(r => r);
+            }, 5000);
+        }
+
+        return () => {
+            if (scannedIntervalRef.current) {
+                clearInterval(scannedIntervalRef.current);
+                scannedIntervalRef.current = null;
+            }
+        };
+    }, [currentTab, fetchScanned]);
 
     useEffect(() => {
         const ws = new WebSocket(`${WS_URL}/api/admin/ws`);
@@ -324,9 +443,6 @@ const BookScanning: React.FC = () => {
                     <Button variant="outlined" onClick={fetchStatus}>
                         {t('bookScanStatusRefresh')}
                     </Button>
-                    <Button variant="outlined" onClick={fetchUnscanned} disabled={isLoading}>
-                        {t('bookScanUnscannedRefresh')}
-                    </Button>
                 </Stack>
 
                 <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
@@ -384,47 +500,140 @@ const BookScanning: React.FC = () => {
                 </Card>
 
                 <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
+                    <Tabs
+                        value={currentTab}
+                        onChange={(_, newValue) => setCurrentTab(newValue)}
+                        sx={{ borderBottom: 1, borderColor: 'divider' }}
+                    >
+                        <Tab label={t('bookScanUnscannedTitle')} />
+                        <Tab label={t('bookScanScannedTitle')} />
+                    </Tabs>
+
                     <CardContent>
-                        <Typography variant="subtitle1" gutterBottom>
-                            {t('bookScanUnscannedTitle')}
-                        </Typography>
-                        {unscannedArchives.length === 0 ? (
-                            <Typography variant="body2" color="text.secondary">
-                                {t('bookScanNoUnscanned')}
-                            </Typography>
-                        ) : (
-                            <Table size="small">
-                                <TableHead>
-                                    <TableRow>
-                                        <TableCell>{t('bookScanArchive')}</TableCell>
-                                        <TableCell>{t('bookScanSize')}</TableCell>
-                                        <TableCell>{t('bookScanFileCount')}</TableCell>
-                                        <TableCell>{t('bookScanCreated')}</TableCell>
-                                        <TableCell>{t('actions')}</TableCell>
-                                    </TableRow>
-                                </TableHead>
-                                <TableBody>
-                                    {unscannedArchives.map((archive) => (
-                                        <TableRow key={archive.name}>
-                                            <TableCell>{archive.name}</TableCell>
-                                            <TableCell>{archive.size_mb} MB</TableCell>
-                                            <TableCell>{archive.file_count}</TableCell>
-                                            <TableCell>
-                                                {new Date(archive.created_date).toLocaleString()}
-                                            </TableCell>
-                                            <TableCell>
-                                                <Button
-                                                    size="small"
-                                                    variant="outlined"
-                                                    onClick={() => handleScanArchive(archive.name)}
-                                                >
-                                                    {t('bookScanArchiveButton')}
-                                                </Button>
-                                            </TableCell>
-                                        </TableRow>
-                                    ))}
-                                </TableBody>
-                            </Table>
+                        {currentTab === 0 && (
+                            <>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                                    <Typography variant="subtitle2" color="text.secondary">
+                                        {t('bookScanTotalArchives', { count: unscannedArchives.length })}
+                                    </Typography>
+                                    <Button
+                                        size="small"
+                                        variant="outlined"
+                                        onClick={fetchUnscanned}
+                                        disabled={isLoading}
+                                    >
+                                        {t('bookScanUnscannedRefresh')}
+                                    </Button>
+                                </Box>
+                                {unscannedArchives.length === 0 ? (
+                                    <Typography variant="body2" color="text.secondary">
+                                        {t('bookScanNoUnscanned')}
+                                    </Typography>
+                                ) : (
+                                    <Table size="small">
+                                        <TableHead>
+                                            <TableRow>
+                                                <TableCell>{t('bookScanArchive')}</TableCell>
+                                                <TableCell>{t('bookScanSize')}</TableCell>
+                                                <TableCell>{t('bookScanFileCount')}</TableCell>
+                                                <TableCell>{t('bookScanCreated')}</TableCell>
+                                                <TableCell>{t('actions')}</TableCell>
+                                            </TableRow>
+                                        </TableHead>
+                                        <TableBody>
+                                            {unscannedArchives.map((archive) => (
+                                                <TableRow key={archive.name}>
+                                                    <TableCell>{archive.name}</TableCell>
+                                                    <TableCell>{archive.size_mb} MB</TableCell>
+                                                    <TableCell>{archive.file_count}</TableCell>
+                                                    <TableCell>
+                                                        {new Date(archive.created_date).toLocaleString()}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Button
+                                                            size="small"
+                                                            variant="outlined"
+                                                            onClick={() => handleScanArchive(archive.name)}
+                                                        >
+                                                            {t('bookScanArchiveButton')}
+                                                        </Button>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                )}
+                            </>
+                        )}
+
+                        {currentTab === 1 && (
+                            <>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                                    <Typography variant="subtitle2" color="text.secondary">
+                                        {t('bookScanTotalArchives', { count: scannedTotalCount })}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                        {t('bookScanAutoRefresh')}
+                                    </Typography>
+                                </Box>
+                                {isLoadingScanned && scannedArchives.length === 0 ? (
+                                    <Typography variant="body2" color="text.secondary">
+                                        {t('loading')}
+                                    </Typography>
+                                ) : scannedArchives.length === 0 ? (
+                                    <Typography variant="body2" color="text.secondary">
+                                        {t('bookScanNoScanned')}
+                                    </Typography>
+                                ) : (
+                                    <Table size="small">
+                                        <TableHead>
+                                            <TableRow>
+                                                <TableCell>{t('bookScanArchive')}</TableCell>
+                                                <TableCell>{t('bookScanBooksCount')}</TableCell>
+                                                <TableCell>{t('bookScanErrorsCount')}</TableCell>
+                                                <TableCell>{t('bookScanScannedAt')}</TableCell>
+                                                <TableCell>{t('actions')}</TableCell>
+                                            </TableRow>
+                                        </TableHead>
+                                        <TableBody>
+                                            {scannedArchives.map((archive) => (
+                                                <TableRow key={archive.name}>
+                                                    <TableCell>{archive.name}</TableCell>
+                                                    <TableCell>
+                                                        <Chip
+                                                            label={archive.books_count}
+                                                            color="success"
+                                                            size="small"
+                                                            sx={{ fontWeight: 'bold' }}
+                                                        />
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Chip
+                                                            label={archive.errors_count}
+                                                            color={archive.errors_count > 0 ? 'error' : 'success'}
+                                                            size="small"
+                                                            sx={{ fontWeight: 'bold' }}
+                                                        />
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {formatScannedDate(archive.scanned_at)}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <IconButton
+                                                            size="small"
+                                                            onClick={() => handleRescanClick(archive.name)}
+                                                            title={t('refresh')}
+                                                            color="primary"
+                                                        >
+                                                            <RefreshIcon />
+                                                        </IconButton>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                )}
+                            </>
                         )}
                     </CardContent>
                 </Card>
@@ -458,6 +667,53 @@ const BookScanning: React.FC = () => {
                     </CardContent>
                 </Card>
             </Box>
+
+            {/* Rescan Confirmation Dialog */}
+            <Dialog
+                open={rescanDialogOpen}
+                onClose={handleRescanDialogClose}
+                aria-labelledby="rescan-dialog-title"
+                aria-describedby="rescan-dialog-description"
+            >
+                <DialogTitle id="rescan-dialog-title">
+                    {t('refresh')} {t('bookScanArchive')}
+                </DialogTitle>
+                <DialogContent>
+                    <DialogContentText id="rescan-dialog-description">
+                        {t('bookScanResetConfirm', { name: archiveToRescan || '' })}
+                    </DialogContentText>
+                    {isRescanning && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 2 }}>
+                            <CircularProgress size={24} />
+                            <Typography variant="body2" color="text.secondary">
+                                Rescanning archive...
+                            </Typography>
+                        </Box>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={handleRescanDialogClose} disabled={isRescanning}>
+                        {t('cancel')}
+                    </Button>
+                    <Button
+                        onClick={handleRescanConfirm}
+                        variant="contained"
+                        color="primary"
+                        disabled={isRescanning}
+                    >
+                        {t('refresh')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Snackbar for notifications */}
+            <Snackbar
+                open={snackbarOpen}
+                autoHideDuration={4000}
+                onClose={handleSnackbarClose}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                message={snackbarMessage}
+            />
         </Box>
     );
 };

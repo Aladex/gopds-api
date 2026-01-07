@@ -33,6 +33,7 @@ func SetupAdminRoutes(r *gin.RouterGroup) {
 	r.POST("/scan", StartScan)
 	r.GET("/scan/status", GetScanStatus)
 	r.GET("/scan/unscanned", GetUnscannedArchives)
+	r.GET("/scan/scanned", GetScannedArchives)
 	r.POST("/scan/archive/:name", ScanSpecificArchive)
 	r.DELETE("/scan/reset/:name", ResetArchiveScanStatus)
 

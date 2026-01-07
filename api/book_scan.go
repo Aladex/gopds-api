@@ -85,6 +85,18 @@ type ArchiveReportResponse struct {
 	DurationMS     int64               `json:"duration_ms"`
 }
 
+type ScannedArchiveInfo struct {
+	Name        string     `json:"name"`
+	BooksCount  int        `json:"books_count"`
+	ErrorsCount int        `json:"errors_count"`
+	ScannedAt   *time.Time `json:"scanned_at"`
+}
+
+type ScannedArchivesResponse struct {
+	ScannedArchives []ScannedArchiveInfo `json:"scanned_archives"`
+	TotalCount      int                  `json:"total_count"`
+}
+
 func getArchivesDir() string {
 	archivesDir := viper.GetString("app.files_path")
 	if archivesDir == "" {
@@ -338,6 +350,44 @@ func ResetArchiveScanStatus(c *gin.Context) {
 		Result: "reset_ok",
 		Error:  nil,
 	})
+}
+
+// GetScannedArchives godoc
+// @Summary List scanned archives
+// @Description Returns scanned archive list with scan statistics
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Produce json
+// @Success 200 {object} ScannedArchivesResponse
+// @Failure 403 {object} httputil.HTTPError
+// @Failure 500 {object} httputil.HTTPError
+// @Router /api/admin/scan/scanned [get]
+func GetScannedArchives(c *gin.Context) {
+	catalogs, err := database.GetAllCatalogs()
+	if err != nil {
+		httputil.NewError(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	response := ScannedArchivesResponse{
+		ScannedArchives: make([]ScannedArchiveInfo, 0),
+		TotalCount:      0,
+	}
+
+	for _, catalog := range catalogs {
+		if !catalog.IsScanned {
+			continue
+		}
+		response.ScannedArchives = append(response.ScannedArchives, ScannedArchiveInfo{
+			Name:        catalog.CatName,
+			BooksCount:  catalog.BooksCount,
+			ErrorsCount: catalog.ErrorsCount,
+			ScannedAt:   catalog.ScannedAt,
+		})
+	}
+
+	response.TotalCount = len(response.ScannedArchives)
+	c.JSON(http.StatusOK, response)
 }
 
 func runFullScan(sessionID string) {
