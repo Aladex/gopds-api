@@ -115,10 +115,13 @@ type Cover struct {
 
 // Catalog struct for catalog
 type Catalog struct {
-	tableName struct{} `pg:"opds_catalog_catalog,discard_unknown_columns" json:"-"`
-	ID        int64    `pg:"id,pk" json:"id" form:"id"`
-	CatName   string   `pg:"cat_name" json:"cat_name" form:"cat_name"`
-	IsScanned bool     `pg:"is_scanned" json:"is_scanned" form:"is_scanned"`
+	tableName   struct{}   `pg:"opds_catalog_catalog,discard_unknown_columns" json:"-"`
+	ID          int64      `pg:"id,pk" json:"id" form:"id"`
+	CatName     string     `pg:"cat_name" json:"cat_name" form:"cat_name"`
+	IsScanned   bool       `pg:"is_scanned" json:"is_scanned" form:"is_scanned"`
+	ScannedAt   *time.Time `pg:"scanned_at" json:"scanned_at,omitempty" form:"scanned_at"`
+	BooksCount  int        `pg:"books_count" json:"books_count" form:"books_count"`
+	ErrorsCount int        `pg:"errors_count" json:"errors_count" form:"errors_count"`
 }
 
 // Book struct for books
