@@ -9,6 +9,7 @@ const (
 	ArchiveCompleted   = "archive_completed"
 	ScanCompleted      = "scan_completed"
 	ScanErrorEventType = "scan_error"
+	ScanProgress       = "scan_progress"
 )
 
 type ScanEventPublisher struct {
@@ -53,6 +54,16 @@ type ScanCompletedEvent struct {
 type ScanErrorEvent struct {
 	Message   string    `json:"message"`
 	Timestamp time.Time `json:"timestamp"`
+}
+
+type ScanProgressEvent struct {
+	CurrentArchive    string    `json:"current_archive"`
+	ArchivesProcessed int       `json:"archives_processed"`
+	TotalArchives     int       `json:"total_archives"`
+	BooksProcessed    int       `json:"books_processed"`
+	TotalBooks        int       `json:"total_books"`
+	ProgressPercent   int       `json:"progress_percent"`
+	Timestamp         time.Time `json:"timestamp"`
 }
 
 func NewScanEventPublisher(wsConn WebSocketConnection) *ScanEventPublisher {
@@ -126,5 +137,28 @@ func (p *ScanEventPublisher) PublishScanError(err error) {
 	_ = p.wsConn.SendMessage(ScanErrorEventType, ScanErrorEvent{
 		Message:   err.Error(),
 		Timestamp: time.Now(),
+	})
+}
+
+func (p *ScanEventPublisher) PublishScanProgress(currentArchive string, archivesProcessed, totalArchives, booksProcessed, totalBooks int) {
+	if p == nil || p.wsConn == nil {
+		return
+	}
+
+	progressPercent := 0
+	if totalBooks > 0 {
+		progressPercent = (booksProcessed * 100) / totalBooks
+	} else if totalArchives > 0 {
+		progressPercent = (archivesProcessed * 100) / totalArchives
+	}
+
+	_ = p.wsConn.SendMessage(ScanProgress, ScanProgressEvent{
+		CurrentArchive:    currentArchive,
+		ArchivesProcessed: archivesProcessed,
+		TotalArchives:     totalArchives,
+		BooksProcessed:    booksProcessed,
+		TotalBooks:        totalBooks,
+		ProgressPercent:   progressPercent,
+		Timestamp:         time.Now(),
 	})
 }

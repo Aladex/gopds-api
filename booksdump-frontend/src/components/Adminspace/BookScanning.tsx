@@ -104,6 +104,16 @@ interface ScanErrorEvent {
     timestamp: string;
 }
 
+interface ScanProgressEvent {
+    current_archive: string;
+    archives_processed: number;
+    total_archives: number;
+    books_processed: number;
+    total_books: number;
+    progress_percent: number;
+    timestamp: string;
+}
+
 const BookScanning: React.FC = () => {
     const { t } = useTranslation();
     const [status, setStatus] = useState<ScanStatusResponse | null>(null);
@@ -451,6 +461,18 @@ const BookScanning: React.FC = () => {
                         }));
                         setStatusMessage(t('bookScanCompleted'));
                         fetchUnscanned().then(r => r);
+                        break;
+                    }
+                    case 'scan_progress': {
+                        const payload = message.data as ScanProgressEvent;
+                        setStatus((prev) => prev ? {
+                            ...prev,
+                            current_archive: payload.current_archive,
+                            archives_processed: payload.archives_processed,
+                            total_archives: payload.total_archives,
+                            total_books: payload.books_processed,
+                            progress_percent: payload.progress_percent,
+                        } : prev);
                         break;
                     }
                     case 'scan_error': {

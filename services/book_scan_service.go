@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"gopds-api/database"
@@ -28,6 +29,11 @@ type BookScanService struct {
 	languageDetector *LanguageDetector
 	skipDuplicates   bool
 	publisher        *ScanEventPublisher
+
+	// Progress tracking
+	progressMu          sync.Mutex
+	currentBookIndex    int
+	totalBooksInArchive int
 }
 
 // ScanReport contains results of a scan operation
@@ -70,6 +76,21 @@ func NewBookScanService(archivesDir, coversDir string, languageDetector *Languag
 // SetScanEventPublisher attaches a scan event publisher for WebSocket updates.
 func (s *BookScanService) SetScanEventPublisher(publisher *ScanEventPublisher) {
 	s.publisher = publisher
+}
+
+// GetScanProgress returns the current progress of the archive scan.
+// Returns (currentBookIndex, totalBooksInArchive).
+func (s *BookScanService) GetScanProgress() (processed int, total int) {
+	s.progressMu.Lock()
+	defer s.progressMu.Unlock()
+	return s.currentBookIndex, s.totalBooksInArchive
+}
+
+// PublishProgress sends progress update via WebSocket if publisher is available.
+func (s *BookScanService) PublishProgress(currentArchive string, archivesProcessed, totalArchives, booksProcessed, totalBooks int) {
+	if s.publisher != nil {
+		s.publisher.PublishScanProgress(currentArchive, archivesProcessed, totalArchives, booksProcessed, totalBooks)
+	}
 }
 
 // GetUnscannedArchives returns list of unscanned archive file paths
@@ -169,16 +190,24 @@ func (s *BookScanService) ScanArchive(archivePath string) (*ArchiveReport, error
 		}
 	}()
 
-	// Process each FB2 file in the archive
+	// Count FB2 files in archive and initialize progress tracking
+	fb2Files := make([]*zip.File, 0)
 	for _, file := range zipReader.File {
-		if file.FileInfo().IsDir() {
-			continue
+		if !file.FileInfo().IsDir() && strings.HasSuffix(strings.ToLower(file.Name), ".fb2") {
+			fb2Files = append(fb2Files, file)
 		}
+	}
 
+	s.progressMu.Lock()
+	s.totalBooksInArchive = len(fb2Files)
+	s.currentBookIndex = 0
+	s.progressMu.Unlock()
+
+	logging.Infof("Found %d FB2 files in archive %s", len(fb2Files), archiveName)
+
+	// Process each FB2 file in the archive
+	for _, file := range fb2Files {
 		fileName := file.Name
-		if !strings.HasSuffix(strings.ToLower(fileName), ".fb2") {
-			continue
-		}
 
 		// Process the book
 		bookID, err := s.ProcessBook(file, archiveName)
@@ -195,11 +224,15 @@ func (s *BookScanService) ScanArchive(archivePath string) (*ArchiveReport, error
 				})
 				logging.Warnf("Failed to process book %s in %s: %v", fileName, archiveName, err)
 			}
-			continue
+		} else {
+			report.BooksProcessed++
+			logging.Debugf("Successfully processed book ID %d: %s", bookID, fileName)
 		}
 
-		report.BooksProcessed++
-		logging.Debugf("Successfully processed book ID %d: %s", bookID, fileName)
+		// Increment progress counter after processing (successful or not)
+		s.progressMu.Lock()
+		s.currentBookIndex++
+		s.progressMu.Unlock()
 
 		// Update progress in database periodically
 		if report.BooksProcessed%10 == 0 {

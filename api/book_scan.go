@@ -421,6 +421,34 @@ func runFullScan(sessionID string) {
 		return
 	}
 
+	// Start progress monitoring goroutine
+	progressTicker := time.NewTicker(500 * time.Millisecond)
+	defer progressTicker.Stop()
+
+	progressDone := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-progressTicker.C:
+				processed, total := scanner.GetScanProgress()
+				if total > 0 {
+					scanState.mu.Lock()
+					scanState.totalBooks = scanState.totalBooks - scanState.totalBooks%1000 + processed
+					archivesProcessed := scanState.archivesProcessed
+					totalArchives := scanState.totalArchives
+					currentArchive := scanState.currentArchive
+					totalBooks := scanState.totalBooks
+					scanState.mu.Unlock()
+
+					// Send WebSocket progress update
+					scanner.PublishProgress(currentArchive, archivesProcessed, totalArchives, totalBooks, totalBooks)
+				}
+			case <-progressDone:
+				return
+			}
+		}
+	}()
+
 	archivesDir := getArchivesDir()
 	for _, archivePath := range archives {
 		archiveName := archiveNameFromPath(archivesDir, archivePath)
@@ -429,6 +457,10 @@ func runFullScan(sessionID string) {
 		report, scanErr := scanner.ScanArchive(archivePath)
 		scanState.applyArchiveResult(sessionID, report, scanErr)
 	}
+
+	// Stop progress monitoring
+	close(progressDone)
+	progressTicker.Stop()
 
 	scanState.finish(sessionID)
 }
@@ -448,8 +480,42 @@ func runSingleArchiveScan(sessionID string, archivePath string) {
 	scanState.setTotalArchives(sessionID, 1)
 	scanState.setCurrentArchive(sessionID, archiveName)
 
-	report, err := scanner.ScanArchive(archivePath)
-	scanState.applyArchiveResult(sessionID, report, err)
+	// Start progress monitoring goroutine
+	progressTicker := time.NewTicker(500 * time.Millisecond)
+	defer progressTicker.Stop()
+
+	progressDone := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-progressTicker.C:
+				processed, total := scanner.GetScanProgress()
+				if total > 0 {
+					scanState.mu.Lock()
+					scanState.totalBooks = processed
+					archivesProcessed := scanState.archivesProcessed
+					totalArchives := scanState.totalArchives
+					currentArchive := scanState.currentArchive
+					scanState.mu.Unlock()
+
+					// Send WebSocket progress update
+					scanner.PublishProgress(currentArchive, archivesProcessed, totalArchives, processed, total)
+				}
+			case <-progressDone:
+				return
+			}
+		}
+	}()
+
+	// Start the actual scan
+	report, scanErr := scanner.ScanArchive(archivePath)
+
+	// Stop progress monitoring
+	close(progressDone)
+	progressTicker.Stop()
+
+	// Apply final results
+	scanState.applyArchiveResult(sessionID, report, scanErr)
 	scanState.finish(sessionID)
 }
 
