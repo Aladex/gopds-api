@@ -71,7 +71,10 @@ func (p *FB2Parser) Parse(reader io.Reader) (*BookFile, error) {
 
 	// Try to detect encoding from XML declaration and convert if needed
 	decodedContent := tryDecodeCharset(content)
+	decodedContent = sanitizeControlChars(decodedContent)
 	decodedContent = sanitizeInvalidTagOpenings(decodedContent)
+	decodedContent = sanitizeInvalidProcessingInstructions(decodedContent)
+	decodedContent = sanitizeInvalidAmpersands(decodedContent)
 	decodedReader := bytes.NewReader(decodedContent)
 
 	decoder := xml.NewDecoder(decodedReader)
@@ -391,11 +394,146 @@ func sanitizeInvalidTagOpenings(content []byte) []byte {
 
 func isLikelyXMLTagStart(b byte) bool {
 	switch b {
-	case '/', '?', '!', '_', ':':
+	case '/', '?', '!', '_':
 		return true
 	default:
 		return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 	}
+}
+
+func sanitizeInvalidProcessingInstructions(content []byte) []byte {
+	changed := false
+	out := make([]byte, 0, len(content))
+	for i := 0; i < len(content); i++ {
+		if content[i] == '<' && i+1 < len(content) && content[i+1] == '?' {
+			if i == 0 && hasPrefixFold(content, []byte("<?xml")) {
+				out = append(out, '<', '?')
+				i++
+				continue
+			}
+			out = append(out, '&', 'l', 't', ';', '?')
+			i++
+			changed = true
+			continue
+		}
+		out = append(out, content[i])
+	}
+	if !changed {
+		return content
+	}
+	return out
+}
+
+func hasPrefixFold(data []byte, prefix []byte) bool {
+	if len(data) < len(prefix) {
+		return false
+	}
+	for i := 0; i < len(prefix); i++ {
+		a := data[i]
+		b := prefix[i]
+		if a >= 'A' && a <= 'Z' {
+			a = a - 'A' + 'a'
+		}
+		if b >= 'A' && b <= 'Z' {
+			b = b - 'A' + 'a'
+		}
+		if a != b {
+			return false
+		}
+	}
+	return true
+}
+
+func sanitizeInvalidAmpersands(content []byte) []byte {
+	changed := false
+	out := make([]byte, 0, len(content))
+	for i := 0; i < len(content); i++ {
+		if content[i] != '&' {
+			out = append(out, content[i])
+			continue
+		}
+
+		semi := -1
+		for j := i + 1; j < len(content) && j-i <= 32; j++ {
+			if content[j] == ';' {
+				semi = j
+				break
+			}
+		}
+		if semi == -1 {
+			out = append(out, '&', 'a', 'm', 'p', ';')
+			changed = true
+			continue
+		}
+
+		entity := content[i+1 : semi]
+		if isValidEntity(entity) {
+			out = append(out, content[i:semi+1]...)
+			i = semi
+			continue
+		}
+
+		out = append(out, '&', 'a', 'm', 'p', ';')
+		changed = true
+	}
+	if !changed {
+		return content
+	}
+	return out
+}
+
+func isValidEntity(entity []byte) bool {
+	if len(entity) == 0 {
+		return false
+	}
+	switch string(entity) {
+	case "amp", "lt", "gt", "quot", "apos":
+		return true
+	}
+	if entity[0] != '#' {
+		return false
+	}
+	if len(entity) >= 2 && (entity[1] == 'x' || entity[1] == 'X') {
+		if len(entity) == 2 {
+			return false
+		}
+		for i := 2; i < len(entity); i++ {
+			b := entity[i]
+			if !((b >= '0' && b <= '9') || (b >= 'a' && b <= 'f') || (b >= 'A' && b <= 'F')) {
+				return false
+			}
+		}
+		return true
+	}
+	for i := 1; i < len(entity); i++ {
+		b := entity[i]
+		if b < '0' || b > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func sanitizeControlChars(content []byte) []byte {
+	changed := false
+	out := make([]byte, 0, len(content))
+	for i := 0; i < len(content); i++ {
+		b := content[i]
+		if b == '\t' || b == '\n' || b == '\r' {
+			out = append(out, b)
+			continue
+		}
+		if b < 0x20 {
+			out = append(out, ' ')
+			changed = true
+			continue
+		}
+		out = append(out, b)
+	}
+	if !changed {
+		return content
+	}
+	return out
 }
 
 func stripWhitespace(value string) string {
