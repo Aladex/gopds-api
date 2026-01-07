@@ -123,6 +123,7 @@
   "bookScanArchivesProcessed": "Archives processed: {{processed}} of {{total}}",
   "bookScanBooksProcessed": "Books added: {{count}}",
   "bookScanErrors": "Errors: {{count}}",
+  "bookScanProgress": "Progress",
   "bookScanCurrentArchive": "Current archive",
   "bookScanLastBook": "Last book",
   "bookScanStatusRefresh": "Refresh status",

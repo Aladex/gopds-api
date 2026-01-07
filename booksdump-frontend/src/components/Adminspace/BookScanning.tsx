@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Badge,
     Box,
     Button,
     Card,
@@ -134,7 +133,6 @@ const BookScanning: React.FC = () => {
     const [rescanProgress, setRescanProgress] = useState<ScanStatusResponse | null>(null);
     const [snackbarOpen, setSnackbarOpen] = useState(false);
     const [snackbarMessage, setSnackbarMessage] = useState('');
-    const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error'>('success');
     const wsRef = useRef<WebSocket | null>(null);
     const scannedIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const rescanPollingRef = useRef<NodeJS.Timeout | null>(null);
@@ -288,7 +286,18 @@ const BookScanning: React.FC = () => {
         if (!archiveToRescan) return;
 
         setIsRescanning(true);
-        setRescanProgress(null);
+
+        // Initialize rescanProgress with basic structure so WebSocket updates work
+        setRescanProgress({
+            is_running: true,
+            total_archives: 1,
+            archives_processed: 0,
+            current_archive: archiveToRescan,
+            total_books: 0,
+            total_errors: 0,
+            progress_percent: 0,
+            elapsed_seconds: 0,
+        });
 
         try {
             // Start async rescan
@@ -300,55 +309,49 @@ const BookScanning: React.FC = () => {
 
             const { session_id } = startResponse.data as StartScanResponse;
 
-            // Poll status until complete
-            let isComplete = false;
-            let pollAttempts = 0;
-            const maxPollAttempts = 600; // 5 minutes maximum (600 * 500ms)
+            // Wait for scan to complete via WebSocket events
+            // WebSocket handler will automatically update rescanProgress
+            await new Promise<void>((resolve, reject) => {
+                const maxWaitTime = 300000; // 5 minutes timeout
 
-            while (!isComplete && pollAttempts < maxPollAttempts) {
-                await new Promise(resolve => setTimeout(resolve, 500)); // Poll every 500ms
-                pollAttempts++;
+                // Set up timeout
+                const timeoutId = setTimeout(() => {
+                    reject(new Error('Rescan timeout - operation took too long'));
+                }, maxWaitTime);
 
-                try {
-                    const statusResponse = await fetchWithAuth.get('/admin/scan/status');
-
-                    if (statusResponse.data) {
-                        const currentStatus = statusResponse.data as ScanStatusResponse;
-
-                        // Update progress state to show in dialog
-                        setRescanProgress(currentStatus);
-
-                        // Check if this is our rescan session and if it's done
-                        if (currentStatus.session_id === session_id && !currentStatus.is_running) {
-                            isComplete = true;
-
-                            // Show results
-                            const message = `Archive "${archiveToRescan}" processed. ${currentStatus.total_books} books, ${currentStatus.total_errors} errors.`;
-                            setSnackbarMessage(message);
-                            setSnackbarSeverity(currentStatus.total_errors > 0 ? 'error' : 'success');
-
-                            // Refresh scanned archives list
-                            await fetchScanned();
-                            await fetchStatus();
-                            break;
+                // Check status periodically (WebSocket updates rescanProgress)
+                const intervalId = setInterval(() => {
+                    // Get latest status from state via a ref check
+                    setRescanProgress((current) => {
+                        if (current && current.session_id === session_id && !current.is_running) {
+                            clearTimeout(timeoutId);
+                            clearInterval(intervalId);
+                            resolve();
                         }
-                    }
-                } catch (statusError) {
-                    console.error('Error polling status:', statusError);
-                    // Continue polling despite errors
-                }
+                        return current;
+                    });
+                }, 500);
+
+                // Store interval ref for cleanup
+                rescanPollingRef.current = intervalId;
+            });
+
+            // Get final status for results message
+            const finalStatus = await fetchWithAuth.get('/admin/scan/status');
+            if (finalStatus.data) {
+                const message = `Archive "${archiveToRescan}" processed. ${finalStatus.data.total_books} books, ${finalStatus.data.total_errors} errors.`;
+                setSnackbarMessage(message);
             }
 
-            if (!isComplete) {
-                throw new Error('Rescan timeout - operation took too long');
-            }
+            // Refresh scanned archives list
+            await fetchScanned();
+            await fetchStatus();
 
         } catch (error: any) {
             console.error('Rescan error:', error);
 
             const errorMessage = error?.response?.data?.message || error?.message || t('bookScanArchiveError', { name: archiveToRescan });
             setSnackbarMessage(errorMessage);
-            setSnackbarSeverity('error');
         } finally {
             setIsRescanning(false);
             setRescanProgress(null);
@@ -374,13 +377,14 @@ const BookScanning: React.FC = () => {
         fetchScanned().then(r => r);
     }, [fetchStatus, fetchUnscanned, fetchScanned]);
 
-    // Auto-refresh scanned archives every 5 seconds when on scanned tab
+    // Auto-refresh scanned archives every 30 seconds when on scanned tab
+    // (WebSocket handles real-time updates, this is just a fallback)
     useEffect(() => {
         if (currentTab === 1) {
             fetchScanned().then(r => r);
             scannedIntervalRef.current = setInterval(() => {
                 fetchScanned().then(r => r);
-            }, 5000);
+            }, 30000); // Reduced frequency since WebSocket handles updates
         }
 
         return () => {
@@ -442,6 +446,9 @@ const BookScanning: React.FC = () => {
                             total_errors: prev.total_errors + payload.errors_count,
                             current_archive: '',
                         } : prev);
+
+                        // Update scanned archives list when an archive completes
+                        fetchScanned().then(r => r);
                         break;
                     }
                     case 'scan_completed': {
@@ -461,11 +468,22 @@ const BookScanning: React.FC = () => {
                         }));
                         setStatusMessage(t('bookScanCompleted'));
                         fetchUnscanned().then(r => r);
+                        fetchScanned().then(r => r);
                         break;
                     }
                     case 'scan_progress': {
                         const payload = message.data as ScanProgressEvent;
                         setStatus((prev) => prev ? {
+                            ...prev,
+                            current_archive: payload.current_archive,
+                            archives_processed: payload.archives_processed,
+                            total_archives: payload.total_archives,
+                            total_books: payload.books_processed,
+                            progress_percent: payload.progress_percent,
+                        } : prev);
+
+                        // Also update rescanProgress if rescan dialog is open
+                        setRescanProgress((prev) => prev ? {
                             ...prev,
                             current_archive: payload.current_archive,
                             archives_processed: payload.archives_processed,
@@ -502,7 +520,7 @@ const BookScanning: React.FC = () => {
                 wsRef.current = null;
             }
         };
-    }, [fetchUnscanned, t]);
+    }, [fetchUnscanned, fetchScanned, t]);
 
     return (
         <Box>
@@ -555,6 +573,14 @@ const BookScanning: React.FC = () => {
                                     </Typography>
                                 )}
                                 <Box sx={{ mt: 1 }}>
+                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                                        <Typography variant="body2" color="text.secondary">
+                                            {t('bookScanProgress')}
+                                        </Typography>
+                                        <Typography variant="body2" fontWeight="bold">
+                                            {Math.round(progressPercent)}%
+                                        </Typography>
+                                    </Box>
                                     <LinearProgress variant="determinate" value={progressPercent} />
                                 </Box>
                             </>

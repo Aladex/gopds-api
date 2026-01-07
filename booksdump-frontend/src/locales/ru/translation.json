@@ -123,6 +123,7 @@
   "bookScanArchivesProcessed": "Архивов обработано: {{processed}} из {{total}}",
   "bookScanBooksProcessed": "Книг добавлено: {{count}}",
   "bookScanErrors": "Ошибок: {{count}}",
+  "bookScanProgress": "Прогресс",
   "bookScanCurrentArchive": "Текущий архив",
   "bookScanLastBook": "Последняя книга",
   "bookScanStatusRefresh": "Обновить статус",
