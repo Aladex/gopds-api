@@ -4,6 +4,7 @@ import { Box, Card, CardContent, Tabs, Tab, useMediaQuery, useTheme } from '@mui
 import UsersTable from './UsersTable';
 import InvitesTable from './InvitesTable';
 import Duplicates from './Duplicates';
+import BookScanning from './BookScanning';
 import { useTranslation } from 'react-i18next';
 
 const AdminSpace: React.FC = () => {
@@ -102,6 +103,21 @@ const AdminSpace: React.FC = () => {
                                         }}
                                     />
                                     <Tab
+                                        label={t('bookScanning')}
+                                        value="/admin/book-scanning"
+                                        component={Link}
+                                        to="/admin/book-scanning"
+                                        sx={{
+                                            color: (theme) =>
+                                                value.startsWith('/admin/book-scanning')
+                                                    ? theme.palette.text.primary
+                                                    : theme.palette.text.secondary,
+                                            '&.Mui-selected': {
+                                                color: (theme) => theme.palette.text.primary,
+                                            },
+                                        }}
+                                    />
+                                    <Tab
                                         label={t('duplicates')}
                                         value="/admin/duplicates"
                                         component={Link}
@@ -122,6 +138,7 @@ const AdminSpace: React.FC = () => {
                                         <Route path="users" element={<UsersTable />} />
                                         <Route path="users/:page" element={<UsersTable />} />
                                         <Route path="invites" element={<InvitesTable />} />
+                                        <Route path="book-scanning" element={<BookScanning />} />
                                         <Route path="duplicates" element={<Duplicates />} />
                                         <Route path="*" element={<Navigate to="/admin/users" />} />
                                     </Routes>
