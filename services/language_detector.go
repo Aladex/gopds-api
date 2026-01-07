@@ -1,8 +1,13 @@
 package services
 
 import (
+	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +26,7 @@ const (
 	MethodOpenAI          DetectionMethod = "openai"
 	MethodTagFallback     DetectionMethod = "tag_fallback"
 	MethodUnknown         DetectionMethod = "unknown"
+	MethodDefault         DetectionMethod = "default_ru"
 )
 
 // LanguageDetectionResult contains the detected language and metadata
@@ -205,14 +211,14 @@ func (ld *LanguageDetector) DetectLanguage(tagLang, textSample string) LanguageD
 	standardizedTag := ld.StandardizeLanguage(tagLang)
 
 	// If no text sample, use tag as fallback
-	if textSample == "" || len(textSample) < 50 {
+	if textSample == "" || len([]rune(textSample)) < 100 {
 		logging.Debug("No text sample or too short, using tag as fallback")
 		result := LanguageDetectionResult{
 			Language:   standardizedTag,
 			Method:     MethodTagFallback,
 			Confidence: 0.0,
 		}
-		return result
+		return ld.ensureLanguage(result, textSample)
 	}
 
 	// Detect with lingua-go
@@ -238,15 +244,22 @@ func (ld *LanguageDetector) DetectLanguage(tagLang, textSample string) LanguageD
 			Confidence: confidence,
 		}
 	} else if confidence > 0.6 && standardizedTag != "" && standardizedTag != detectedLang {
-		// Case 3: Medium confidence + disagreement - could use OpenAI here
+		// Case 3: Medium confidence + disagreement - use OpenAI if enabled
 		logging.Warnf("Language detection disagreement: tag='%s', detected='%s' (confidence: %.2f)", standardizedTag, detectedLang, confidence)
 
-		// For now, trust lingua with medium confidence
-		// TODO: Add OpenAI verification here if enabled
-		result = LanguageDetectionResult{
-			Language:   detectedLang,
-			Method:     MethodLinguaMedium,
-			Confidence: confidence,
+		openaiLang := ld.detectWithOpenAI(textSample)
+		if openaiLang != "" && openaiLang != "unknown" {
+			result = LanguageDetectionResult{
+				Language:   openaiLang,
+				Method:     MethodOpenAI,
+				Confidence: confidence,
+			}
+		} else {
+			result = LanguageDetectionResult{
+				Language:   detectedLang,
+				Method:     MethodLinguaMedium,
+				Confidence: confidence,
+			}
 		}
 	} else if standardizedTag != "" {
 		// Case 4: Low confidence or no detection - fallback to tag
@@ -258,11 +271,20 @@ func (ld *LanguageDetector) DetectLanguage(tagLang, textSample string) LanguageD
 		}
 	} else {
 		// Case 5: No tag and no good detection
-		logging.Warn("Language detection: no tag and low confidence, returning 'unknown'")
-		result = LanguageDetectionResult{
-			Language:   "unknown",
-			Method:     MethodUnknown,
-			Confidence: confidence,
+		logging.Warn("Language detection: no tag and low confidence, trying OpenAI")
+		openaiLang := ld.detectWithOpenAI(textSample)
+		if openaiLang != "" && openaiLang != "unknown" {
+			result = LanguageDetectionResult{
+				Language:   openaiLang,
+				Method:     MethodOpenAI,
+				Confidence: confidence,
+			}
+		} else {
+			result = LanguageDetectionResult{
+				Language:   "unknown",
+				Method:     MethodUnknown,
+				Confidence: confidence,
+			}
 		}
 	}
 
@@ -272,7 +294,104 @@ func (ld *LanguageDetector) DetectLanguage(tagLang, textSample string) LanguageD
 	ld.textHashCache[textHash] = result
 	ld.cacheMutex.Unlock()
 
+	return ld.ensureLanguage(result, textSample)
+}
+
+func (ld *LanguageDetector) ensureLanguage(result LanguageDetectionResult, textSample string) LanguageDetectionResult {
+	if result.Language == "" || result.Language == "unknown" {
+		logging.Warnf("Language detection fallback to default 'ru' (method=%s)", result.Method)
+		result.Language = "ru"
+		result.Method = MethodDefault
+		result.Confidence = 0.0
+	}
 	return result
+}
+
+func (ld *LanguageDetector) detectWithOpenAI(textSample string) string {
+	if !ld.enableOpenAI {
+		return ""
+	}
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	if apiKey == "" {
+		logging.Warn("OPENAI_API_KEY is not set, skipping OpenAI language detection")
+		return ""
+	}
+
+	sample := truncateRunes(textSample, 300)
+	ctx, cancel := context.WithTimeout(context.Background(), ld.openaiTimeout)
+	defer cancel()
+
+	requestBody := map[string]interface{}{
+		"model": "gpt-4o-mini",
+		"messages": []map[string]string{
+			{
+				"role":    "user",
+				"content": "Detect the language of the following text and ответь строго ISO-639-1 кодом (ru, en, uk, fr, de, es, it, pt, pl, cs, zh, ja, ko). If unsure, answer ru.\n\nTEXT:\n" + sample,
+			},
+		},
+	}
+
+	bodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		logging.Warnf("OpenAI language detection marshal error: %v", err)
+		return ""
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(bodyBytes))
+	if err != nil {
+		logging.Warnf("OpenAI language detection request error: %v", err)
+		return ""
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client := &http.Client{Timeout: ld.openaiTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		logging.Warnf("OpenAI language detection call error: %v", err)
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		logging.Warnf("OpenAI language detection bad status: %d", resp.StatusCode)
+		return ""
+	}
+
+	var response struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		logging.Warnf("OpenAI language detection decode error: %v", err)
+		return ""
+	}
+	if len(response.Choices) == 0 {
+		return ""
+	}
+
+	reply := strings.TrimSpace(strings.ToLower(response.Choices[0].Message.Content))
+	reply = strings.Trim(reply, "\"'` \n\t")
+	if len(reply) > 5 {
+		reply = strings.Fields(reply)[0]
+	}
+
+	standardized := ld.StandardizeLanguage(reply)
+	if standardized == "" {
+		return ""
+	}
+	return standardized
+}
+
+func truncateRunes(value string, max int) string {
+	runes := []rune(strings.TrimSpace(value))
+	if len(runes) <= max {
+		return string(runes)
+	}
+	return string(runes[:max])
 }
 
 // hashText creates a SHA256 hash of the text for caching

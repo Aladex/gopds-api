@@ -286,7 +286,7 @@ func (s *BookScanService) ProcessBook(zipFile *zip.File, archiveName string) (in
 	// 3. Detect language
 	detectedLang := parsedBook.Language
 	if s.languageDetector != nil {
-		langResult := s.languageDetector.DetectLanguage(parsedBook.Language, parsedBook.TextSample)
+		langResult := s.languageDetector.DetectLanguage(parsedBook.Language, parsedBook.BodySample)
 		detectedLang = langResult.Language
 		logging.Debugf("Language detected for %s: %s (confidence: %.2f, method: %s)",
 			fileName, detectedLang, langResult.Confidence, langResult.Method)

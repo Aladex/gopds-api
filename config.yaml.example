@@ -39,6 +39,7 @@ app:
 scanning:
   skip_duplicates: true
   enable_language_detection: true
+  enable_openai_lang_detection: false
   openai_lang_detection_timeout: "5s"
   max_concurrent_files: 1
   batch_size: 50

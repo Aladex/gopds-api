@@ -336,7 +336,7 @@ func (s *RescanService) parsedToRescanValues(book *parser.BookFile) *models.Book
 	// Detect language using language detector
 	detectedLang := book.Language // Default to tag language
 	if s.languageDetector != nil {
-		result := s.languageDetector.DetectLanguage(book.Language, book.TextSample)
+		result := s.languageDetector.DetectLanguage(book.Language, book.BodySample)
 		detectedLang = result.Language
 		logging.Infof("Language detection for book: tag='%s', detected='%s', method='%s', confidence=%.2f",
 			book.Language, result.Language, result.Method, result.Confidence)

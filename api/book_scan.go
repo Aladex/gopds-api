@@ -163,7 +163,7 @@ func getLanguageDetectionSettings() (bool, bool, time.Duration) {
 		enableDetection = viper.GetBool("SCAN_ENABLE_LANGUAGE_DETECTION")
 	}
 
-	enableOpenAI := false
+	enableOpenAI := viper.GetBool("scanning.enable_openai_lang_detection")
 	if viper.IsSet("ENABLE_OPENAI_LANG_DETECTION") {
 		enableOpenAI = viper.GetBool("ENABLE_OPENAI_LANG_DETECTION")
 	}

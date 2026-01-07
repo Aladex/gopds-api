@@ -72,6 +72,7 @@ type AppConfig struct {
 type ScanningConfig struct {
 	SkipDuplicates             bool   `mapstructure:"skip_duplicates" yaml:"skip_duplicates"`
 	EnableLanguageDetection    bool   `mapstructure:"enable_language_detection" yaml:"enable_language_detection"`
+	EnableOpenAILangDetection  bool   `mapstructure:"enable_openai_lang_detection" yaml:"enable_openai_lang_detection"`
 	OpenAILangDetectionTimeout string `mapstructure:"openai_lang_detection_timeout" yaml:"openai_lang_detection_timeout"`
 	MaxConcurrentFiles         int    `mapstructure:"max_concurrent_files" yaml:"max_concurrent_files"`
 	BatchSize                  int    `mapstructure:"batch_size" yaml:"batch_size"`
@@ -170,6 +171,7 @@ func setDefaults() {
 	// Scanning defaults
 	viper.SetDefault("scanning.skip_duplicates", true)
 	viper.SetDefault("scanning.enable_language_detection", true)
+	viper.SetDefault("scanning.enable_openai_lang_detection", false)
 	viper.SetDefault("scanning.openai_lang_detection_timeout", "5s")
 	viper.SetDefault("scanning.max_concurrent_files", 1)
 	viper.SetDefault("scanning.batch_size", 50)
