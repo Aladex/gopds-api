@@ -61,8 +61,6 @@ func NewFB2Parser(readCover bool) *FB2Parser {
 
 // Parse reads FB2 XML from reader and returns parsed metadata.
 func (p *FB2Parser) Parse(reader io.Reader) (*BookFile, error) {
-	p.reset()
-
 	// Read content to handle encoding detection
 	content, err := io.ReadAll(reader)
 	if err != nil {
@@ -75,8 +73,27 @@ func (p *FB2Parser) Parse(reader io.Reader) (*BookFile, error) {
 	decodedContent = sanitizeInvalidTagOpenings(decodedContent)
 	decodedContent = sanitizeInvalidProcessingInstructions(decodedContent)
 	decodedContent = sanitizeInvalidAmpersands(decodedContent)
-	decodedReader := bytes.NewReader(decodedContent)
+	book, err := p.parseContent(decodedContent)
+	if err == nil {
+		return book, nil
+	}
 
+	fallback := trimAfterDescription(decodedContent)
+	if fallback != nil {
+		fallbackBook, fallbackErr := p.parseContent(fallback)
+		if fallbackErr == nil {
+			fallbackBook.Issues = append(fallbackBook.Issues, err.Error(), "parsed_without_body")
+			return fallbackBook, nil
+		}
+	}
+
+	return nil, err
+}
+
+func (p *FB2Parser) parseContent(content []byte) (*BookFile, error) {
+	p.reset()
+
+	decodedReader := bytes.NewReader(content)
 	decoder := xml.NewDecoder(decodedReader)
 	// Set CharsetReader to handle various encodings declared in XML
 	decoder.CharsetReader = makeCharsetReader
@@ -368,6 +385,20 @@ func normalizeCoverID(href string) string {
 func sanitizeText(value string) string {
 	value = strings.TrimSpace(value)
 	return strings.Trim(value, stripSymbols)
+}
+
+func trimAfterDescription(content []byte) []byte {
+	lower := bytes.ToLower(content)
+	end := bytes.Index(lower, []byte("</description>"))
+	if end == -1 {
+		return nil
+	}
+	end += len("</description>")
+	trimmed := content[:end]
+	if !bytes.Contains(bytes.ToLower(trimmed), []byte("</fictionbook>")) {
+		trimmed = append(trimmed, []byte("</FictionBook>")...)
+	}
+	return trimmed
 }
 
 func sanitizeInvalidTagOpenings(content []byte) []byte {
