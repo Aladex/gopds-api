@@ -71,6 +71,7 @@ func (p *FB2Parser) Parse(reader io.Reader) (*BookFile, error) {
 
 	// Try to detect encoding from XML declaration and convert if needed
 	decodedContent := tryDecodeCharset(content)
+	decodedContent = sanitizeInvalidTagOpenings(decodedContent)
 	decodedReader := bytes.NewReader(decodedContent)
 
 	decoder := xml.NewDecoder(decodedReader)
@@ -364,6 +365,37 @@ func normalizeCoverID(href string) string {
 func sanitizeText(value string) string {
 	value = strings.TrimSpace(value)
 	return strings.Trim(value, stripSymbols)
+}
+
+func sanitizeInvalidTagOpenings(content []byte) []byte {
+	changed := false
+	out := make([]byte, 0, len(content))
+	for i := 0; i < len(content); i++ {
+		b := content[i]
+		if b != '<' {
+			out = append(out, b)
+			continue
+		}
+		if i+1 >= len(content) || !isLikelyXMLTagStart(content[i+1]) {
+			out = append(out, '&', 'l', 't', ';')
+			changed = true
+			continue
+		}
+		out = append(out, b)
+	}
+	if !changed {
+		return content
+	}
+	return out
+}
+
+func isLikelyXMLTagStart(b byte) bool {
+	switch b {
+	case '/', '?', '!', '_', ':':
+		return true
+	default:
+		return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+	}
 }
 
 func stripWhitespace(value string) string {
