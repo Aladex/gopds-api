@@ -168,6 +168,50 @@ func UpdateScanProgress(archiveName string, booksCount, errorsCount int) error {
 	return nil
 }
 
+// DeleteBooksByArchive deletes books and related data for a specific archive.
+func DeleteBooksByArchive(archiveName string) (int, error) {
+	tx, err := db.Begin()
+	if err != nil {
+		logging.Error(fmt.Sprintf("Failed to start delete transaction for %s: %v", archiveName, err))
+		return 0, err
+	}
+	defer func() {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil && rollbackErr != pg.ErrTxDone {
+			logging.Warn(fmt.Sprintf("Failed to rollback delete transaction: %v", rollbackErr))
+		}
+	}()
+
+	deleteRelated := []string{
+		"DELETE FROM favorite_books WHERE book_id IN (SELECT id FROM opds_catalog_book WHERE path = ?)",
+		"DELETE FROM book_collection_books WHERE book_id IN (SELECT id FROM opds_catalog_book WHERE path = ?)",
+		"DELETE FROM covers WHERE book_id IN (SELECT id FROM opds_catalog_book WHERE path = ?)",
+		"DELETE FROM opds_catalog_bauthor WHERE book_id IN (SELECT id FROM opds_catalog_book WHERE path = ?)",
+		"DELETE FROM opds_catalog_bseries WHERE book_id IN (SELECT id FROM opds_catalog_book WHERE path = ?)",
+	}
+
+	for _, query := range deleteRelated {
+		if _, err := tx.Exec(query, archiveName); err != nil {
+			logging.Error(fmt.Sprintf("Failed to delete related rows for %s: %v", archiveName, err))
+			return 0, err
+		}
+	}
+
+	result, err := tx.Exec("DELETE FROM opds_catalog_book WHERE path = ?", archiveName)
+	if err != nil {
+		logging.Error(fmt.Sprintf("Failed to delete books for %s: %v", archiveName, err))
+		return 0, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		logging.Error(fmt.Sprintf("Failed to commit delete transaction for %s: %v", archiveName, err))
+		return 0, err
+	}
+
+	deleted := result.RowsAffected()
+	logging.Info(fmt.Sprintf("Deleted %d books for archive %s", deleted, archiveName))
+	return int(deleted), nil
+}
+
 // GetCatalogStats returns aggregated statistics across all catalogs
 func GetCatalogStats() (map[string]interface{}, error) {
 	var totalCatalogs, scannedCatalogs, totalBooks, totalErrors int

@@ -20,6 +20,7 @@ type Config struct {
 	Redis      RedisConfig    `mapstructure:"redis" yaml:"redis"`
 	Sessions   SessionsConfig `mapstructure:"sessions" yaml:"sessions"`
 	App        AppConfig      `mapstructure:"app" yaml:"app"`
+	Scanning   ScanningConfig `mapstructure:"scanning" yaml:"scanning"`
 	Email      EmailConfig    `mapstructure:"email" yaml:"email"`
 }
 
@@ -65,6 +66,15 @@ type AppConfig struct {
 	PostersPath       string `mapstructure:"posters_path" yaml:"posters_path"`
 	FileBookCDN       string `mapstructure:"file_book_cdn" yaml:"file_book_cdn"`
 	MobiConversionDir string `mapstructure:"mobi_conversion_dir" yaml:"mobi_conversion_dir"`
+}
+
+// ScanningConfig holds scanning-specific configuration
+type ScanningConfig struct {
+	SkipDuplicates             bool   `mapstructure:"skip_duplicates" yaml:"skip_duplicates"`
+	EnableLanguageDetection    bool   `mapstructure:"enable_language_detection" yaml:"enable_language_detection"`
+	OpenAILangDetectionTimeout string `mapstructure:"openai_lang_detection_timeout" yaml:"openai_lang_detection_timeout"`
+	MaxConcurrentFiles         int    `mapstructure:"max_concurrent_files" yaml:"max_concurrent_files"`
+	BatchSize                  int    `mapstructure:"batch_size" yaml:"batch_size"`
 }
 
 // EmailConfig holds email configuration
@@ -156,6 +166,13 @@ func setDefaults() {
 	viper.SetDefault("app.users_path", "./users/")
 	viper.SetDefault("app.posters_path", "./posters/")
 	viper.SetDefault("app.mobi_conversion_dir", "./mobi/")
+
+	// Scanning defaults
+	viper.SetDefault("scanning.skip_duplicates", true)
+	viper.SetDefault("scanning.enable_language_detection", true)
+	viper.SetDefault("scanning.openai_lang_detection_timeout", "5s")
+	viper.SetDefault("scanning.max_concurrent_files", 1)
+	viper.SetDefault("scanning.batch_size", 50)
 }
 
 // validateConfig validates the loaded configuration

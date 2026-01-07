@@ -36,6 +36,13 @@ app:
   file_book_cdn: "https://example.com"
   mobi_conversion_dir: "/mobi/"
 
+scanning:
+  skip_duplicates: true
+  enable_language_detection: true
+  openai_lang_detection_timeout: "5s"
+  max_concurrent_files: 1
+  batch_size: 50
+
 email:
   from: "no-reply@example.com"
   user: "apikey"

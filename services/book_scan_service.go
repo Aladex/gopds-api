@@ -27,6 +27,7 @@ type BookScanService struct {
 	coversDir        string
 	languageDetector *LanguageDetector
 	skipDuplicates   bool
+	publisher        *ScanEventPublisher
 }
 
 // ScanReport contains results of a scan operation
@@ -64,6 +65,11 @@ func NewBookScanService(archivesDir, coversDir string, languageDetector *Languag
 		languageDetector: languageDetector,
 		skipDuplicates:   skipDuplicates,
 	}
+}
+
+// SetScanEventPublisher attaches a scan event publisher for WebSocket updates.
+func (s *BookScanService) SetScanEventPublisher(publisher *ScanEventPublisher) {
+	s.publisher = publisher
 }
 
 // GetUnscannedArchives returns list of unscanned archive file paths
@@ -129,6 +135,9 @@ func (s *BookScanService) ScanArchive(archivePath string) (*ArchiveReport, error
 	}
 
 	logging.Infof("Starting scan of archive: %s", archiveName)
+	if s.publisher != nil {
+		s.publisher.PublishArchiveStarted(archiveName)
+	}
 
 	report := &ArchiveReport{
 		ArchiveName: archiveName,
@@ -207,6 +216,9 @@ func (s *BookScanService) ScanArchive(archivePath string) (*ArchiveReport, error
 	report.Duration = time.Since(startTime)
 	logging.Infof("Completed scan of %s: %d books processed, %d skipped, %d errors in %v",
 		archiveName, report.BooksProcessed, report.BooksSkipped, len(report.Errors), report.Duration)
+	if s.publisher != nil {
+		s.publisher.PublishArchiveCompleted(report)
+	}
 
 	return report, nil
 }
@@ -322,6 +334,9 @@ func (s *BookScanService) ProcessBook(zipFile *zip.File, archiveName string) (in
 	}
 
 	logging.Infof("Successfully added book ID %d: %s", book.ID, parsedBook.Title)
+	if s.publisher != nil {
+		s.publisher.PublishBookProcessed(archiveName, book.Title, book.ID)
+	}
 	return book.ID, nil
 }
 
@@ -474,13 +489,22 @@ func (s *BookScanService) ScanAll() (*ScanReport, error) {
 	// Get unscanned archives
 	archives, err := s.GetUnscannedArchives()
 	if err != nil {
+		if s.publisher != nil {
+			s.publisher.PublishScanError(err)
+		}
 		return nil, fmt.Errorf("failed to get unscanned archives: %w", err)
 	}
 
 	report.TotalArchives = len(archives)
+	if s.publisher != nil {
+		s.publisher.PublishScanStarted(report.TotalArchives)
+	}
 	if len(archives) == 0 {
 		logging.Info("No unscanned archives found")
 		report.Duration = time.Since(startTime)
+		if s.publisher != nil {
+			s.publisher.PublishScanCompleted(report)
+		}
 		return report, nil
 	}
 
@@ -490,6 +514,9 @@ func (s *BookScanService) ScanAll() (*ScanReport, error) {
 		if err != nil {
 			// Log error but continue with other archives
 			logging.Errorf("Failed to scan archive %s: %v", archivePath, err)
+			if s.publisher != nil {
+				s.publisher.PublishScanError(err)
+			}
 			if archiveReport != nil {
 				report.ArchiveReports = append(report.ArchiveReports, *archiveReport)
 			}
@@ -506,6 +533,9 @@ func (s *BookScanService) ScanAll() (*ScanReport, error) {
 
 	logging.Infof("Completed full scan: %d archives, %d books processed, %d skipped, %d errors in %v",
 		report.TotalArchives, report.ProcessedBooks, report.SkippedBooks, len(report.Errors), report.Duration)
+	if s.publisher != nil {
+		s.publisher.PublishScanCompleted(report)
+	}
 
 	return report, nil
 }

@@ -29,6 +29,13 @@ func SetupAdminRoutes(r *gin.RouterGroup) {
 	r.GET("/books/:id/rescan/preview-cover", RescanPreviewCover)
 	r.POST("/books/:id/rescan/approve", ApproveRescan)
 
+	// Book scan routes
+	r.POST("/scan", StartScan)
+	r.GET("/scan/status", GetScanStatus)
+	r.GET("/scan/unscanned", GetUnscannedArchives)
+	r.POST("/scan/archive/:name", ScanSpecificArchive)
+	r.DELETE("/scan/reset/:name", ResetArchiveScanStatus)
+
 	// Setup duplicate management routes
 	SetupDuplicatesRoutes(r)
 }
@@ -263,12 +270,11 @@ func RescanBookPreview(c *gin.Context) {
 	}
 
 	// Create language detector
-	enableOpenAI := viper.GetBool("ENABLE_OPENAI_LANG_DETECTION")
-	openaiTimeout := viper.GetDuration("OPENAI_LANG_DETECTION_TIMEOUT")
-	if openaiTimeout == 0 {
-		openaiTimeout = 5 * time.Second
+	enableDetection, enableOpenAI, openaiTimeout := getLanguageDetectionSettings()
+	var languageDetector *services.LanguageDetector
+	if enableDetection {
+		languageDetector = services.NewLanguageDetector(enableOpenAI, openaiTimeout)
 	}
-	languageDetector := services.NewLanguageDetector(enableOpenAI, openaiTimeout)
 
 	// Create rescan service
 	rescanService := services.NewRescanService(archivesDir, coversDir, languageDetector)
