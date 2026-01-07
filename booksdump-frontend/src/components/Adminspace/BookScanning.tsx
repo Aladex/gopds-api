@@ -53,6 +53,13 @@ interface UnscannedArchiveInfo {
     created_date: string;
 }
 
+interface ScanErrorItem {
+    file_name: string;
+    archive_name: string;
+    error: string;
+    timestamp: string;
+}
+
 interface ScannedArchiveInfo {
     name: string;
     books_count: number;
@@ -120,6 +127,8 @@ const BookScanning: React.FC = () => {
     const [unscannedArchives, setUnscannedArchives] = useState<UnscannedArchiveInfo[]>([]);
     const [scannedArchives, setScannedArchives] = useState<ScannedArchiveInfo[]>([]);
     const [scannedTotalCount, setScannedTotalCount] = useState(0);
+    const [scanErrors, setScanErrors] = useState<ScanErrorItem[]>([]);
+    const [selectedErrorIndex, setSelectedErrorIndex] = useState<number>(-1);
     const [isLoading, setIsLoading] = useState(false);
     const [isLoadingScanned, setIsLoadingScanned] = useState(false);
     const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -183,6 +192,16 @@ const BookScanning: React.FC = () => {
             console.error(error);
         } finally {
             setIsLoadingScanned(false);
+        }
+    }, []);
+
+    const fetchErrors = useCallback(async () => {
+        try {
+            const response = await fetchWithAuth.get('/admin/scan/errors');
+            setScanErrors(response.data?.errors || []);
+            setSelectedErrorIndex(-1);
+        } catch (error) {
+            console.error(error);
         }
     }, []);
 
@@ -275,6 +294,32 @@ const BookScanning: React.FC = () => {
         setArchiveToRescan(archiveName);
         setRescanDialogOpen(true);
     }, []);
+
+    const handleDownloadErrorFile = useCallback(async (item: ScanErrorItem) => {
+        try {
+            const response = await fetchWithAuth.get('/admin/scan/errors/file', {
+                params: {
+                    archive: item.archive_name,
+                    file: item.file_name,
+                },
+                responseType: 'blob',
+            });
+            const blob = new Blob([response.data]);
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            const parts = item.file_name.split('/');
+            const filename = parts[parts.length - 1] || 'scan_error_file';
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error(error);
+            setScanError(t('bookScanErrorDownloadError'));
+        }
+    }, [t]);
 
     const handleRescanDialogClose = useCallback(() => {
         setRescanDialogOpen(false);
@@ -377,7 +422,8 @@ const BookScanning: React.FC = () => {
         fetchStatus().then(r => r);
         fetchUnscanned().then(r => r);
         fetchScanned().then(r => r);
-    }, [fetchStatus, fetchUnscanned, fetchScanned]);
+        fetchErrors().then(r => r);
+    }, [fetchErrors, fetchStatus, fetchUnscanned, fetchScanned]);
 
     // Auto-refresh scanned archives every 30 seconds when on scanned tab
     // (WebSocket handles real-time updates, this is just a fallback)
@@ -482,6 +528,7 @@ const BookScanning: React.FC = () => {
                         setStatusMessage(t('bookScanCompleted'));
                         fetchUnscanned().then(r => r);
                         fetchScanned().then(r => r);
+                        fetchErrors().then(r => r);
                         break;
                     }
                     case 'scan_progress': {
@@ -535,7 +582,7 @@ const BookScanning: React.FC = () => {
                 wsRef.current = null;
             }
         };
-    }, [fetchUnscanned, fetchScanned, t]);
+    }, [fetchErrors, fetchUnscanned, fetchScanned, t]);
 
     return (
         <Box>
@@ -613,6 +660,69 @@ const BookScanning: React.FC = () => {
                             <Typography variant="body2" color="error" sx={{ mt: 1 }}>
                                 {scanError}
                             </Typography>
+                        )}
+                    </CardContent>
+                </Card>
+
+                <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
+                    <CardContent>
+                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center" sx={{ mb: 2 }}>
+                            <Typography variant="subtitle1">
+                                {t('bookScanErrorsTitle')}
+                            </Typography>
+                            <Button variant="outlined" onClick={fetchErrors}>
+                                {t('bookScanErrorsRefresh')}
+                            </Button>
+                        </Stack>
+                        {scanErrors.length === 0 ? (
+                            <Typography variant="body2" color="text.secondary">
+                                {t('bookScanNoErrors')}
+                            </Typography>
+                        ) : (
+                            <>
+                                <TextField
+                                    select
+                                    label={t('bookScanErrorsSelect')}
+                                    value={selectedErrorIndex >= 0 ? String(selectedErrorIndex) : ''}
+                                    onChange={(event) => setSelectedErrorIndex(Number(event.target.value))}
+                                    SelectProps={{ native: true }}
+                                    size="small"
+                                    sx={{ minWidth: 320, mb: 2 }}
+                                >
+                                    <option value="" disabled>
+                                        {t('bookScanErrorsSelectPlaceholder')}
+                                    </option>
+                                    {scanErrors.map((item, index) => (
+                                        <option key={`${item.archive_name}-${item.file_name}-${index}`} value={index}>
+                                            {item.archive_name} / {item.file_name}
+                                        </option>
+                                    ))}
+                                </TextField>
+                                {selectedErrorIndex >= 0 && scanErrors[selectedErrorIndex] && (
+                                    <Box>
+                                        <Typography variant="body2">
+                                            {t('bookScanErrorArchive')}: {scanErrors[selectedErrorIndex].archive_name}
+                                        </Typography>
+                                        <Typography variant="body2">
+                                            {t('bookScanErrorFile')}: {scanErrors[selectedErrorIndex].file_name}
+                                        </Typography>
+                                        <Typography variant="body2">
+                                            {t('bookScanErrorMessage')}: {scanErrors[selectedErrorIndex].error}
+                                        </Typography>
+                                        <Typography variant="body2" color="text.secondary">
+                                            {t('bookScanErrorTime')}: {new Date(scanErrors[selectedErrorIndex].timestamp).toLocaleString()}
+                                        </Typography>
+                                        <Button
+                                            variant="outlined"
+                                            size="small"
+                                            sx={{ mt: 2 }}
+                                            onClick={() => handleDownloadErrorFile(scanErrors[selectedErrorIndex])}
+                                        >
+                                            {t('bookScanErrorDownload')}
+                                        </Button>
+                                    </Box>
+                                )}
+                            </>
                         )}
                     </CardContent>
                 </Card>

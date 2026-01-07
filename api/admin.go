@@ -32,6 +32,8 @@ func SetupAdminRoutes(r *gin.RouterGroup) {
 	// Book scan routes
 	r.POST("/scan", StartScan)
 	r.GET("/scan/status", GetScanStatus)
+	r.GET("/scan/errors", GetScanErrors)
+	r.GET("/scan/errors/file", GetScanErrorFile)
 	r.GET("/scan/unscanned", GetUnscannedArchives)
 	r.GET("/scan/scanned", GetScannedArchives)
 	r.POST("/scan/archive", ScanSpecificArchive)

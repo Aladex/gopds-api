@@ -9,6 +9,7 @@ import (
 	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/services"
+	"io"
 	"math"
 	"net/http"
 	"os"
@@ -33,6 +34,7 @@ type bookScanState struct {
 	totalBooks        int
 	totalErrors       int
 	lastError         string
+	errors            []ScanErrorResponse
 }
 
 var scanState bookScanState
@@ -68,6 +70,10 @@ type UnscannedArchiveInfo struct {
 type UnscannedArchivesResponse struct {
 	UnscannedArchives []UnscannedArchiveInfo `json:"unscanned_archives"`
 	TotalCount        int                    `json:"total_count"`
+}
+
+type ScanErrorsResponse struct {
+	Errors []ScanErrorResponse `json:"errors"`
 }
 
 type ScanErrorResponse struct {
@@ -213,6 +219,103 @@ func StartScan(c *gin.Context) {
 // @Router /api/admin/scan/status [get]
 func GetScanStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, scanState.snapshot())
+}
+
+// GetScanErrors godoc
+// @Summary Get scan errors
+// @Description Returns recent scan errors for failed files
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Produce json
+// @Success 200 {object} ScanErrorsResponse
+// @Failure 403 {object} httputil.HTTPError
+// @Router /api/admin/scan/errors [get]
+func GetScanErrors(c *gin.Context) {
+	c.JSON(http.StatusOK, ScanErrorsResponse{
+		Errors: scanState.getErrors(),
+	})
+}
+
+// GetScanErrorFile godoc
+// @Summary Download a failed scan file
+// @Description Returns the original file from the archive for inspection
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param archive query string true "Archive name"
+// @Param file query string true "File path inside archive"
+// @Produce application/octet-stream
+// @Success 200 {file} file
+// @Failure 400 {object} httputil.HTTPError
+// @Failure 403 {object} httputil.HTTPError
+// @Failure 404 {object} httputil.HTTPError
+// @Failure 500 {object} httputil.HTTPError
+// @Router /api/admin/scan/errors/file [get]
+func GetScanErrorFile(c *gin.Context) {
+	archiveName := strings.TrimSpace(c.Query("archive"))
+	fileName := strings.TrimSpace(c.Query("file"))
+	if archiveName == "" || fileName == "" {
+		httputil.NewError(c, http.StatusBadRequest, errors.New("archive and file are required"))
+		return
+	}
+
+	archivePath, err := resolveArchivePath(archiveName)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	reader, err := zip.OpenReader(archivePath)
+	if err != nil {
+		httputil.NewError(c, http.StatusInternalServerError, err)
+		return
+	}
+	defer func() {
+		if closeErr := reader.Close(); closeErr != nil {
+			logging.Warnf("Failed to close archive %s: %v", archiveName, closeErr)
+		}
+	}()
+
+	var target *zip.File
+	for _, file := range reader.File {
+		if file.Name == fileName {
+			target = file
+			break
+		}
+	}
+
+	if target == nil {
+		httputil.NewError(c, http.StatusNotFound, errors.New("file not found in archive"))
+		return
+	}
+
+	fileReader, err := target.Open()
+	if err != nil {
+		httputil.NewError(c, http.StatusInternalServerError, err)
+		return
+	}
+	defer func() {
+		if closeErr := fileReader.Close(); closeErr != nil {
+			logging.Warnf("Failed to close file %s from %s: %v", fileName, archiveName, closeErr)
+		}
+	}()
+
+	content, err := io.ReadAll(fileReader)
+	if err != nil {
+		httputil.NewError(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	downloadName := filepath.Base(fileName)
+	if downloadName == "." || downloadName == string(os.PathSeparator) {
+		downloadName = "scan_error_file"
+	}
+	contentType := http.DetectContentType(content)
+	if strings.HasSuffix(strings.ToLower(downloadName), ".fb2") {
+		contentType = "application/xml"
+	}
+
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", downloadName))
+	c.Data(http.StatusOK, contentType, content)
 }
 
 // GetUnscannedArchives godoc
@@ -489,6 +592,7 @@ func runFullScan(sessionID string) {
 		scanState.setCurrentArchive(sessionID, archiveName)
 
 		report, scanErr := scanner.ScanArchive(archivePath)
+		scanState.addErrors(sessionID, report)
 		if report != nil {
 			scanReport.ArchiveReports = append(scanReport.ArchiveReports, *report)
 			scanReport.ProcessedBooks += report.BooksProcessed
@@ -568,6 +672,7 @@ func runSingleArchiveScan(sessionID string, archivePath string) {
 
 	// Start the actual scan
 	report, scanErr := scanner.ScanArchive(archivePath)
+	scanState.addErrors(sessionID, report)
 	if scanErr != nil && publisher != nil {
 		publisher.PublishScanError(scanErr)
 	}
@@ -614,6 +719,7 @@ func (s *bookScanState) tryStart(sessionID string, startedAt time.Time) bool {
 	s.totalBooks = 0
 	s.totalErrors = 0
 	s.lastError = ""
+	s.errors = nil
 	return true
 }
 
@@ -725,6 +831,43 @@ func (s *bookScanState) snapshot() ScanStatusResponse {
 	}
 
 	return response
+}
+
+func (s *bookScanState) addErrors(sessionID string, report *services.ArchiveReport) {
+	if report == nil || len(report.Errors) == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sessionID != sessionID {
+		return
+	}
+	const maxErrors = 500
+	if s.errors == nil {
+		s.errors = make([]ScanErrorResponse, 0, len(report.Errors))
+	}
+	for _, errItem := range report.Errors {
+		if len(s.errors) >= maxErrors {
+			break
+		}
+		s.errors = append(s.errors, ScanErrorResponse{
+			FileName:    errItem.FileName,
+			ArchiveName: errItem.ArchiveName,
+			Error:       errItem.Error,
+			Timestamp:   errItem.Timestamp,
+		})
+	}
+}
+
+func (s *bookScanState) getErrors() []ScanErrorResponse {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.errors) == 0 {
+		return nil
+	}
+	out := make([]ScanErrorResponse, len(s.errors))
+	copy(out, s.errors)
+	return out
 }
 
 func resolveArchivePath(name string) (string, error) {
