@@ -544,9 +544,9 @@ func convertEncoding(content []byte, encoding string) []byte {
 }
 
 // makeCharsetReader creates a reader that converts from the specified charset to UTF-8
-func makeCharsetReader(charset string, input io.Reader) (io.Reader, error) {
-	charset = strings.ToLower(charset)
-	switch charset {
+func makeCharsetReader(charsetLabel string, input io.Reader) (io.Reader, error) {
+	charsetLabel = strings.ToLower(charsetLabel)
+	switch charsetLabel {
 	case "utf-8", "utf8":
 		// Already UTF-8, return as-is
 		return input, nil
@@ -561,7 +561,7 @@ func makeCharsetReader(charset string, input io.Reader) (io.Reader, error) {
 	case "koi8-u", "koi8u":
 		return transform.NewReader(input, charmap.KOI8U.NewDecoder()), nil
 	default:
-		reader, err := charset.NewReaderLabel(charset, input)
+		reader, err := charset.NewReaderLabel(charsetLabel, input)
 		if err != nil {
 			return input, nil
 		}
