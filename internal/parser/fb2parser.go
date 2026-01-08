@@ -6,6 +6,8 @@ import (
 	"encoding/xml"
 	"io"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/saintfish/chardet"
 	"golang.org/x/net/html/charset"
@@ -251,7 +253,9 @@ func (p *FB2Parser) extractTitle() string {
 	if len(values) == 0 {
 		return ""
 	}
-	return sanitizeText(values[0])
+	title := sanitizeText(values[0])
+	title = normalizeWhitespace(title)
+	return normalizeNameCase(title)
 }
 
 func (p *FB2Parser) extractAuthors() []Author {
@@ -267,10 +271,12 @@ func (p *FB2Parser) extractAuthors() []Author {
 	for i := 0; i < maxLen; i++ {
 		var first, last string
 		if i < len(firstNames) {
-			first = strings.TrimSpace(firstNames[i])
+			first = normalizeWhitespace(firstNames[i])
+			first = normalizeNameCase(first)
 		}
 		if i < len(lastNames) {
-			last = strings.TrimSpace(lastNames[i])
+			last = normalizeWhitespace(lastNames[i])
+			last = normalizeNameCase(last)
 		}
 		// Format: LastName FirstName (family name first)
 		full := strings.TrimSpace(strings.Join([]string{last, first}, " "))
@@ -395,6 +401,132 @@ func normalizeCoverID(href string) string {
 func sanitizeText(value string) string {
 	value = strings.TrimSpace(value)
 	return strings.Trim(value, stripSymbols)
+}
+
+func normalizeWhitespace(value string) string {
+	parts := strings.Fields(value)
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " ")
+}
+
+func normalizeNameCase(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if !isMostlyUpper(value) {
+		return value
+	}
+
+	parts := strings.Fields(value)
+	if len(parts) == 0 {
+		return value
+	}
+
+	for i := range parts {
+		parts[i] = titleCaseToken(parts[i])
+	}
+	return strings.Join(parts, " ")
+}
+
+func isMostlyUpper(value string) bool {
+	letters := 0
+	upper := 0
+	lower := 0
+
+	for _, r := range value {
+		if !unicode.IsLetter(r) {
+			continue
+		}
+		letters++
+		if unicode.IsUpper(r) {
+			upper++
+		} else if unicode.IsLower(r) {
+			lower++
+		}
+	}
+
+	if letters < 4 {
+		return false
+	}
+	if lower == 0 && upper > 0 {
+		return true
+	}
+	return upper*100/letters >= 80
+}
+
+func titleCaseToken(token string) string {
+	leading, core, trailing := splitTokenPunct(token)
+	if core == "" {
+		return token
+	}
+	if isAbbreviation(core) || isRomanNumeral(core) {
+		return leading + strings.ToUpper(core) + trailing
+	}
+
+	lower := strings.ToLower(core)
+	r, size := utf8.DecodeRuneInString(lower)
+	if r == utf8.RuneError {
+		return token
+	}
+	return leading + strings.ToUpper(string(r)) + lower[size:] + trailing
+}
+
+func splitTokenPunct(token string) (string, string, string) {
+	if token == "" {
+		return "", "", ""
+	}
+
+	start := 0
+	end := len(token)
+	for start < end {
+		r, size := utf8.DecodeRuneInString(token[start:end])
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			break
+		}
+		start += size
+	}
+	for start < end {
+		r, size := utf8.DecodeLastRuneInString(token[start:end])
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			break
+		}
+		end -= size
+	}
+	return token[:start], token[start:end], token[end:]
+}
+
+func isAbbreviation(token string) bool {
+	clean := strings.Trim(token, ".")
+	if clean == "" {
+		return false
+	}
+	if utf8.RuneCountInString(clean) > 3 {
+		return false
+	}
+	for _, r := range clean {
+		if !unicode.IsLetter(r) {
+			return false
+		}
+		if unicode.IsLower(r) {
+			return false
+		}
+	}
+	return true
+}
+
+func isRomanNumeral(token string) bool {
+	for _, r := range token {
+		switch r {
+		case 'I', 'V', 'X', 'L', 'C', 'D', 'M':
+			continue
+		default:
+			return false
+		}
+	}
+	return token != ""
 }
 
 func trimAfterDescription(content []byte) []byte {

@@ -63,6 +63,62 @@ func TestFB2ParserParseBasic(t *testing.T) {
 	}
 }
 
+func TestFB2ParserNormalizationUppercase(t *testing.T) {
+	xml := `<?xml version="1.0" encoding="utf-8"?>
+<FictionBook>
+  <description>
+    <title-info>
+      <book-title>  ПСИХОЛОГИЧЕСКИЕ   РИСУНОЧНЫЕ  ТЕСТЫ  </book-title>
+      <author>
+        <first-name>  СЕРГЕЙ  </first-name>
+        <last-name> ПЕТРУШИН </last-name>
+      </author>
+    </title-info>
+  </description>
+</FictionBook>`
+
+	parser := NewFB2Parser(false)
+	book, err := parser.Parse(strings.NewReader(xml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if book.Title != "Психологические Рисуночные Тесты" {
+		t.Fatalf("unexpected title: %q", book.Title)
+	}
+	if len(book.Authors) != 1 || book.Authors[0].Name != "Петрушин Сергей" {
+		t.Fatalf("unexpected authors: %#v", book.Authors)
+	}
+}
+
+func TestFB2ParserNormalizationMixedCase(t *testing.T) {
+	xml := `<?xml version="1.0" encoding="utf-8"?>
+<FictionBook>
+  <description>
+    <title-info>
+      <book-title>Донесённое от обиженных</book-title>
+      <author>
+        <first-name>Иван</first-name>
+        <last-name>Иванов</last-name>
+      </author>
+    </title-info>
+  </description>
+</FictionBook>`
+
+	parser := NewFB2Parser(false)
+	book, err := parser.Parse(strings.NewReader(xml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if book.Title != "Донесённое от обиженных" {
+		t.Fatalf("unexpected title: %q", book.Title)
+	}
+	if len(book.Authors) != 1 || book.Authors[0].Name != "Иванов Иван" {
+		t.Fatalf("unexpected authors: %#v", book.Authors)
+	}
+}
+
 func TestFB2ParserCoverExtraction(t *testing.T) {
 	xml := `<?xml version="1.0" encoding="utf-8"?>
 <FictionBook xmlns:xlink="http://www.w3.org/1999/xlink">
