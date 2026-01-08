@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/go-pg/pg/v10"
 	"github.com/go-pg/pg/v10/orm"
 )
 
@@ -440,8 +441,19 @@ func UpdateBook(updateReq models.BookUpdateRequest) (models.Book, error) {
 		return bookToUpdate, err
 	}
 
+	tx, err := db.Begin()
+	if err != nil {
+		return bookToUpdate, err
+	}
+	commit := false
+	defer func() {
+		if !commit {
+			_ = tx.Rollback()
+		}
+	}()
+
 	// Build the update query dynamically based on provided fields
-	query := db.Model(&bookToUpdate).Where("id = ?", updateReq.ID)
+	query := tx.Model(&bookToUpdate).Where("id = ?", updateReq.ID)
 
 	// Only update fields that are provided (not nil)
 	if updateReq.Title != nil {
@@ -472,6 +484,23 @@ func UpdateBook(updateReq models.BookUpdateRequest) (models.Book, error) {
 		return bookToUpdate, err
 	}
 
+	if updateReq.Authors != nil {
+		if err := updateBookAuthorsFromUpdateRequest(tx, updateReq.ID, updateReq.Authors); err != nil {
+			return bookToUpdate, err
+		}
+	}
+
+	if updateReq.Series != nil {
+		if err := updateBookSeriesFromUpdateRequest(tx, updateReq.ID, updateReq.Series); err != nil {
+			return bookToUpdate, err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return bookToUpdate, err
+	}
+	commit = true
+
 	// Retrieve the updated book with all relations
 	err = db.Model(&bookToUpdate).
 		Where("id = ?", updateReq.ID).
@@ -483,6 +512,195 @@ func UpdateBook(updateReq models.BookUpdateRequest) (models.Book, error) {
 	}
 
 	return bookToUpdate, nil
+}
+
+func updateBookAuthorsFromUpdateRequest(tx *pg.Tx, bookID int64, authors []models.Author) error {
+	_, err := tx.Model(&models.OrderToAuthor{}).
+		Where("book_id = ?", bookID).
+		Delete()
+	if err != nil && err != pg.ErrNoRows {
+		return err
+	}
+
+	seenIDs := make(map[int64]struct{})
+	seenNames := make(map[string]struct{})
+
+	for _, author := range authors {
+		fullName := strings.TrimSpace(author.FullName)
+		if author.ID == 0 && fullName == "" {
+			continue
+		}
+
+		var authorID int64
+		if author.ID > 0 {
+			authorID = author.ID
+			if _, ok := seenIDs[authorID]; ok {
+				continue
+			}
+			exists := &models.Author{}
+			err := tx.Model(exists).
+				Where("id = ?", authorID).
+				Select(exists)
+			if err != nil && err != pg.ErrNoRows {
+				return err
+			}
+			if err == pg.ErrNoRows {
+				if fullName == "" {
+					continue
+				}
+				createdID, err := getOrCreateAuthorByName(tx, fullName)
+				if err != nil {
+					return err
+				}
+				authorID = createdID
+			}
+		} else {
+			normalized := strings.ToLower(fullName)
+			if _, ok := seenNames[normalized]; ok {
+				continue
+			}
+			createdID, err := getOrCreateAuthorByName(tx, fullName)
+			if err != nil {
+				return err
+			}
+			authorID = createdID
+			seenNames[normalized] = struct{}{}
+		}
+
+		if _, ok := seenIDs[authorID]; ok {
+			continue
+		}
+		_, err := tx.Model(&models.OrderToAuthor{
+			AuthorID: authorID,
+			BookID:   bookID,
+		}).Insert()
+		if err != nil {
+			return err
+		}
+		seenIDs[authorID] = struct{}{}
+	}
+
+	return nil
+}
+
+func updateBookSeriesFromUpdateRequest(tx *pg.Tx, bookID int64, series []models.Series) error {
+	_, err := tx.Model(&models.OrderToSeries{}).
+		Where("book_id = ?", bookID).
+		Delete()
+	if err != nil && err != pg.ErrNoRows {
+		return err
+	}
+
+	seenIDs := make(map[int64]struct{})
+	seenNames := make(map[string]struct{})
+
+	for _, entry := range series {
+		seriesName := strings.TrimSpace(entry.Ser)
+		if entry.ID == 0 && seriesName == "" {
+			continue
+		}
+
+		var seriesID int64
+		if entry.ID > 0 {
+			seriesID = entry.ID
+			if _, ok := seenIDs[seriesID]; ok {
+				continue
+			}
+			exists := &models.Series{}
+			err := tx.Model(exists).
+				Where("id = ?", seriesID).
+				Select(exists)
+			if err != nil && err != pg.ErrNoRows {
+				return err
+			}
+			if err == pg.ErrNoRows {
+				if seriesName == "" {
+					continue
+				}
+				createdID, err := getOrCreateSeriesByName(tx, seriesName)
+				if err != nil {
+					return err
+				}
+				seriesID = createdID
+			}
+		} else {
+			normalized := strings.ToLower(seriesName)
+			if _, ok := seenNames[normalized]; ok {
+				continue
+			}
+			createdID, err := getOrCreateSeriesByName(tx, seriesName)
+			if err != nil {
+				return err
+			}
+			seriesID = createdID
+			seenNames[normalized] = struct{}{}
+		}
+
+		if _, ok := seenIDs[seriesID]; ok {
+			continue
+		}
+		_, err := tx.Model(&models.OrderToSeries{
+			SeriesID: seriesID,
+			BookID:   bookID,
+			SerNo:    entry.SerNo,
+		}).Insert()
+		if err != nil {
+			return err
+		}
+		seenIDs[seriesID] = struct{}{}
+	}
+
+	return nil
+}
+
+func getOrCreateAuthorByName(tx *pg.Tx, name string) (int64, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return 0, errors.New("author name is empty")
+	}
+
+	existing := &models.Author{}
+	err := tx.Model(existing).
+		Where("full_name = ?", name).
+		Select(existing)
+	if err == nil {
+		return existing.ID, nil
+	}
+	if err != nil && err != pg.ErrNoRows {
+		return 0, err
+	}
+
+	author := &models.Author{FullName: name}
+	_, err = tx.Model(author).Insert()
+	if err != nil {
+		return 0, err
+	}
+	return author.ID, nil
+}
+
+func getOrCreateSeriesByName(tx *pg.Tx, name string) (int64, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return 0, errors.New("series name is empty")
+	}
+
+	existing := &models.Series{}
+	err := tx.Model(existing).
+		Where("ser = ?", name).
+		Select(existing)
+	if err == nil {
+		return existing.ID, nil
+	}
+	if err != nil && err != pg.ErrNoRows {
+		return 0, err
+	}
+
+	series := &models.Series{Ser: name}
+	_, err = tx.Model(series).Insert()
+	if err != nil {
+		return 0, err
+	}
+	return series.ID, nil
 }
 
 // GetAutocompleteSuggestions returns suggestions for autocomplete

@@ -10,7 +10,6 @@ import {
     Typography,
     Alert,
     CircularProgress,
-    TextField as MuiTextField,
     Autocomplete,
     Chip,
 } from '@mui/material';
@@ -67,13 +66,17 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
     const [docdate, setDocdate] = useState('');
     const [lang, setLang] = useState('');
     
-    // Authors and series (for future enhancement)
+    // Authors and series
     const [authors, setAuthors] = useState<Author[]>([]);
     const [series, setSeries] = useState<Series[]>([]);
 
-    // Available authors and series for autocomplete (for future)
+    // Available authors and series for autocomplete
     const [availableAuthors, setAvailableAuthors] = useState<Author[]>([]);
     const [availableSeries, setAvailableSeries] = useState<Series[]>([]);
+    const [authorsQuery, setAuthorsQuery] = useState('');
+    const [seriesQuery, setSeriesQuery] = useState('');
+    const [authorsLoading, setAuthorsLoading] = useState(false);
+    const [seriesLoading, setSeriesLoading] = useState(false);
 
     // Validation errors
     const [titleError, setTitleError] = useState('');
@@ -86,6 +89,8 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
             setLang(book.lang || '');
             setAuthors(book.authors || []);
             setSeries(book.series || []);
+            setAuthorsQuery('');
+            setSeriesQuery('');
             setError(null);
             setSuccess(false);
             setTitleError('');
@@ -100,11 +105,165 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
             setLang('');
             setAuthors([]);
             setSeries([]);
+            setAuthorsQuery('');
+            setSeriesQuery('');
             setError(null);
             setSuccess(false);
             setTitleError('');
             onClose();
         }
+    };
+
+    useEffect(() => {
+        if (!open) return;
+        const query = authorsQuery.trim();
+        if (query.length < 2) {
+            setAvailableAuthors([]);
+            setAuthorsLoading(false);
+            return;
+        }
+
+        let active = true;
+        setAuthorsLoading(true);
+        const timer = setTimeout(async () => {
+            try {
+                const response = await fetchWithAuth.get('/admin/authors/search', {
+                    params: { q: query, limit: 20 },
+                });
+                if (!active) return;
+                setAvailableAuthors(response.data?.authors || []);
+            } catch (err) {
+                if (!active) return;
+                setAvailableAuthors([]);
+            } finally {
+                if (active) {
+                    setAuthorsLoading(false);
+                }
+            }
+        }, 250);
+
+        return () => {
+            active = false;
+            clearTimeout(timer);
+        };
+    }, [authorsQuery, open]);
+
+    useEffect(() => {
+        if (!open) return;
+        const query = seriesQuery.trim();
+        if (query.length < 2) {
+            setAvailableSeries([]);
+            setSeriesLoading(false);
+            return;
+        }
+
+        let active = true;
+        setSeriesLoading(true);
+        const timer = setTimeout(async () => {
+            try {
+                const response = await fetchWithAuth.get('/admin/series/search', {
+                    params: { q: query, limit: 20 },
+                });
+                if (!active) return;
+                setAvailableSeries(response.data?.series || []);
+            } catch (err) {
+                if (!active) return;
+                setAvailableSeries([]);
+            } finally {
+                if (active) {
+                    setSeriesLoading(false);
+                }
+            }
+        }, 250);
+
+        return () => {
+            active = false;
+            clearTimeout(timer);
+        };
+    }, [seriesQuery, open]);
+
+    const normalizeAuthors = (values: Array<Author | string>): Author[] => {
+        const next: Author[] = [];
+        const seenIDs = new Set<number>();
+        const seenNames = new Set<string>();
+
+        values.forEach((value) => {
+            if (typeof value === 'string') {
+                const name = value.trim();
+                if (!name) return;
+                const normalized = name.toLowerCase();
+                if (seenNames.has(normalized)) return;
+                next.push({ id: 0, full_name: name });
+                seenNames.add(normalized);
+                return;
+            }
+
+            if (value.id && seenIDs.has(value.id)) return;
+            const name = value.full_name?.trim();
+            if (value.id) {
+                seenIDs.add(value.id);
+            } else if (name) {
+                const normalized = name.toLowerCase();
+                if (seenNames.has(normalized)) return;
+                seenNames.add(normalized);
+            }
+            next.push(value);
+        });
+
+        return next;
+    };
+
+    const normalizeSeries = (values: Array<Series | string>): Series[] => {
+        const next: Series[] = [];
+        const seenIDs = new Set<number>();
+        const seenNames = new Set<string>();
+
+        values.forEach((value) => {
+            if (typeof value === 'string') {
+                const name = value.trim();
+                if (!name) return;
+                const normalized = name.toLowerCase();
+                if (seenNames.has(normalized)) return;
+                next.push({ id: 0, ser: name, ser_no: 0 });
+                seenNames.add(normalized);
+                return;
+            }
+
+            if (value.id && seenIDs.has(value.id)) return;
+            const name = value.ser?.trim();
+            if (value.id) {
+                seenIDs.add(value.id);
+            } else if (name) {
+                const normalized = name.toLowerCase();
+                if (seenNames.has(normalized)) return;
+                seenNames.add(normalized);
+            }
+            next.push(value);
+        });
+
+        return next;
+    };
+
+    const updateSeriesNumber = (seriesID: number, seriesName: string, rawValue: string) => {
+        const trimmed = rawValue.trim();
+        let nextValue = 0;
+        if (trimmed !== '') {
+            const parsed = Number(trimmed);
+            if (!Number.isNaN(parsed)) {
+                nextValue = Math.max(0, Math.trunc(parsed));
+            }
+        }
+
+        setSeries((prev) =>
+            prev.map((entry) =>
+                entry.id === seriesID && entry.ser === seriesName
+                    ? {
+                          ...entry,
+                          ser_no: nextValue,
+                      }
+                    : entry
+            )
+        );
     };
 
     const validateForm = (): boolean => {
@@ -252,55 +411,118 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
                         helperText={t('languageCodeHint')}
                     />
 
-                    <Box>
-                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                            {t('authors')}
-                        </Typography>
-                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                            {authors.length > 0 ? (
-                                authors.map((author) => (
-                                    <Chip
-                                        key={author.id}
-                                        label={author.full_name}
-                                        variant="outlined"
-                                        size="small"
-                                    />
-                                ))
-                            ) : (
-                                <Typography variant="body2" color="text.secondary">
-                                    {t('noAuthors')}
-                                </Typography>
-                            )}
-                        </Box>
-                        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-                            {t('authorsEditingNotImplemented')}
-                        </Typography>
-                    </Box>
+                    <Autocomplete
+                        multiple
+                        freeSolo
+                        filterSelectedOptions
+                        options={availableAuthors}
+                        value={authors}
+                        inputValue={authorsQuery}
+                        onInputChange={(_, newInput, reason) => {
+                            if (reason !== 'reset') {
+                                setAuthorsQuery(newInput);
+                            }
+                        }}
+                        onChange={(_, newValue) => {
+                            setAuthors(normalizeAuthors(newValue));
+                        }}
+                        getOptionLabel={(option) =>
+                            typeof option === 'string' ? option : option.full_name
+                        }
+                        isOptionEqualToValue={(option, value) =>
+                            option.id !== 0 && value.id !== 0
+                                ? option.id === value.id
+                                : option.full_name === value.full_name
+                        }
+                        filterOptions={(options) => options}
+                        loading={authorsLoading}
+                        renderTags={(value, getTagProps) =>
+                            value.map((option, index) => (
+                                <Chip
+                                    variant="outlined"
+                                    label={option.full_name}
+                                    size="small"
+                                    {...getTagProps({ index })}
+                                />
+                            ))
+                        }
+                        renderInput={(params) => (
+                            <StyledTextField
+                                {...params}
+                                label={t('authors')}
+                                placeholder={t('authorsSearchOrCreate')}
+                                helperText={t('authorsEditHint')}
+                                disabled={loading}
+                            />
+                        )}
+                    />
 
-                    <Box>
-                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                            {t('series')}
-                        </Typography>
-                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                            {series.length > 0 ? (
-                                series.map((s) => (
-                                    <Chip
-                                        key={s.id}
-                                        label={`${s.ser}${s.ser_no ? ' #' + s.ser_no : ''}`}
-                                        variant="outlined"
-                                        size="small"
-                                    />
-                                ))
-                            ) : (
-                                <Typography variant="body2" color="text.secondary">
-                                    {t('noSeries')}
-                                </Typography>
-                            )}
+                    <Autocomplete
+                        multiple
+                        freeSolo
+                        filterSelectedOptions
+                        options={availableSeries}
+                        value={series}
+                        inputValue={seriesQuery}
+                        onInputChange={(_, newInput, reason) => {
+                            if (reason !== 'reset') {
+                                setSeriesQuery(newInput);
+                            }
+                        }}
+                        onChange={(_, newValue) => {
+                            setSeries(normalizeSeries(newValue));
+                        }}
+                        getOptionLabel={(option) =>
+                            typeof option === 'string' ? option : option.ser
+                        }
+                        isOptionEqualToValue={(option, value) =>
+                            option.id !== 0 && value.id !== 0
+                                ? option.id === value.id
+                                : option.ser === value.ser
+                        }
+                        filterOptions={(options) => options}
+                        loading={seriesLoading}
+                        renderTags={(value, getTagProps) =>
+                            value.map((option, index) => (
+                                <Chip
+                                    variant="outlined"
+                                    label={`${option.ser}${option.ser_no ? ' #' + option.ser_no : ''}`}
+                                    size="small"
+                                    {...getTagProps({ index })}
+                                />
+                            ))
+                        }
+                        renderInput={(params) => (
+                            <StyledTextField
+                                {...params}
+                                label={t('series')}
+                                placeholder={t('seriesSearchOrCreate')}
+                                helperText={t('seriesEditHint')}
+                                disabled={loading}
+                            />
+                        )}
+                    />
+
+                    {series.length > 0 && (
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                            <Typography variant="caption" color="text.secondary">
+                                {t('seriesNumberHint')}
+                            </Typography>
+                            {series.map((entry) => (
+                                <StyledTextField
+                                    key={`series-number-${entry.id}-${entry.ser}`}
+                                    label={`${entry.ser} ${t('seriesNumber')}`}
+                                    type="number"
+                                    value={entry.ser_no ? entry.ser_no : ''}
+                                    onChange={(e) =>
+                                        updateSeriesNumber(entry.id, entry.ser, e.target.value)
+                                    }
+                                    disabled={loading}
+                                    inputProps={{ min: 0 }}
+                                />
+                            ))}
                         </Box>
-                        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-                            {t('seriesEditingNotImplemented')}
-                        </Typography>
-                    </Box>
+                    )}
 
                     <Box sx={{ mt: 1, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}>
                         <Typography variant="caption" color="text.secondary" display="block">

@@ -23,6 +23,8 @@ func SetupAdminRoutes(r *gin.RouterGroup) {
 	r.DELETE("/user/:id", DeleteUser)
 	r.POST("/update-book", UpdateBook)
 	r.PUT("/books/:id", UpdateBookByID)
+	r.GET("/authors/search", SearchAuthors)
+	r.GET("/series/search", SearchSeries)
 
 	// Book rescan routes
 	r.POST("/books/:id/rescan", RescanBookPreview)

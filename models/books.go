@@ -234,14 +234,16 @@ type FavBook struct {
 
 // BookUpdateRequest struct for updating book information
 type BookUpdateRequest struct {
-	ID              int64   `json:"id" binding:"required"`
-	Title           *string `json:"title,omitempty"`
-	Annotation      *string `json:"annotation,omitempty"`
-	Lang            *string `json:"lang,omitempty"`
-	DocDate         *string `json:"docdate,omitempty"`
-	Approved        *bool   `json:"approved,omitempty"`
-	DuplicateOfID   *int64  `json:"duplicate_of_id,omitempty"`
-	DuplicateHidden *bool   `json:"duplicate_hidden,omitempty"`
+	ID              int64    `json:"id" binding:"required"`
+	Title           *string  `json:"title,omitempty"`
+	Annotation      *string  `json:"annotation,omitempty"`
+	Lang            *string  `json:"lang,omitempty"`
+	DocDate         *string  `json:"docdate,omitempty"`
+	Approved        *bool    `json:"approved,omitempty"`
+	DuplicateOfID   *int64   `json:"duplicate_of_id,omitempty"`
+	DuplicateHidden *bool    `json:"duplicate_hidden,omitempty"`
+	Authors         []Author `json:"authors,omitempty"`
+	Series          []Series `json:"series,omitempty"`
 }
 
 // AutocompleteSuggestion struct for autocomplete suggestions
