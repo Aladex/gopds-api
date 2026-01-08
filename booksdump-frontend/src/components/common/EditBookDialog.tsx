@@ -592,9 +592,10 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
                         </Typography>
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
                             <Button
-                                variant="outlined"
+                                variant="text"
                                 component="label"
                                 disabled={loading || coverUploading}
+                                sx={{ color: 'text.primary' }}
                             >
                                 {t('chooseCover')}
                                 <input
@@ -617,6 +618,7 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
                                 onClick={handleCoverUpload}
                                 disabled={!coverFile || loading || coverUploading}
                                 startIcon={coverUploading ? <CircularProgress size={16} /> : null}
+                                sx={{ ml: { xs: 0, sm: 1 } }}
                             >
                                 {coverUploading ? t('uploading') : t('uploadCover')}
                             </Button>
