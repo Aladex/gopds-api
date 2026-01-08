@@ -23,6 +23,7 @@ func SetupAdminRoutes(r *gin.RouterGroup) {
 	r.DELETE("/user/:id", DeleteUser)
 	r.POST("/update-book", UpdateBook)
 	r.PUT("/books/:id", UpdateBookByID)
+	r.POST("/books/:id/cover", UploadBookCover)
 	r.GET("/authors/search", SearchAuthors)
 	r.GET("/series/search", SearchSeries)
 

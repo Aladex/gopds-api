@@ -77,6 +77,10 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
     const [seriesQuery, setSeriesQuery] = useState('');
     const [authorsLoading, setAuthorsLoading] = useState(false);
     const [seriesLoading, setSeriesLoading] = useState(false);
+    const [coverFile, setCoverFile] = useState<File | null>(null);
+    const [coverUploading, setCoverUploading] = useState(false);
+    const [coverUploadSuccess, setCoverUploadSuccess] = useState(false);
+    const [coverUploadError, setCoverUploadError] = useState<string | null>(null);
 
     // Validation errors
     const [titleError, setTitleError] = useState('');
@@ -91,6 +95,10 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
             setSeries(book.series || []);
             setAuthorsQuery('');
             setSeriesQuery('');
+            setCoverFile(null);
+            setCoverUploading(false);
+            setCoverUploadSuccess(false);
+            setCoverUploadError(null);
             setError(null);
             setSuccess(false);
             setTitleError('');
@@ -107,6 +115,10 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
             setSeries([]);
             setAuthorsQuery('');
             setSeriesQuery('');
+            setCoverFile(null);
+            setCoverUploading(false);
+            setCoverUploadSuccess(false);
+            setCoverUploadError(null);
             setError(null);
             setSuccess(false);
             setTitleError('');
@@ -332,6 +344,41 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
 
     if (!book) return null;
 
+    const handleCoverUpload = async () => {
+        if (!book || !coverFile) return;
+
+        setCoverUploading(true);
+        setCoverUploadSuccess(false);
+        setCoverUploadError(null);
+
+        try {
+            const formData = new FormData();
+            formData.append('cover', coverFile);
+            const response = await fetchWithAuth.post(`/admin/books/${book.id}/cover`, formData, {
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                },
+            });
+
+            if (response.status === 200) {
+                setCoverUploadSuccess(true);
+                const updatedBookData = response.data.result || response.data;
+                onBookUpdated(updatedBookData);
+                setCoverFile(null);
+            } else {
+                setCoverUploadError(t('coverUploadError'));
+            }
+        } catch (err: any) {
+            if (err.response?.data?.detail) {
+                setCoverUploadError(err.response.data.detail);
+            } else {
+                setCoverUploadError(t('coverUploadError'));
+            }
+        } finally {
+            setCoverUploading(false);
+        }
+    };
+
     return (
         <Dialog 
             open={open} 
@@ -361,6 +408,18 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
                 {success && (
                     <Alert severity="success" sx={{ mb: 2 }}>
                         {t('bookUpdatedSuccessfully')}
+                    </Alert>
+                )}
+
+                {coverUploadSuccess && (
+                    <Alert severity="success" sx={{ mb: 2 }} onClose={() => setCoverUploadSuccess(false)}>
+                        {t('coverUploadSuccess')}
+                    </Alert>
+                )}
+
+                {coverUploadError && (
+                    <Alert severity="error" sx={{ mb: 2 }} onClose={() => setCoverUploadError(null)}>
+                        {coverUploadError}
                     </Alert>
                 )}
 
@@ -523,6 +582,46 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
                             ))}
                         </Box>
                     )}
+
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        <Typography variant="subtitle2" color="text.secondary">
+                            {t('cover')}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                            {t('coverUploadHint')}
+                        </Typography>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
+                            <Button
+                                variant="outlined"
+                                component="label"
+                                disabled={loading || coverUploading}
+                            >
+                                {t('chooseCover')}
+                                <input
+                                    type="file"
+                                    hidden
+                                    accept="image/*"
+                                    onChange={(e) => {
+                                        const file = e.target.files?.[0] || null;
+                                        setCoverFile(file);
+                                        setCoverUploadSuccess(false);
+                                        setCoverUploadError(null);
+                                    }}
+                                />
+                            </Button>
+                            <Typography variant="body2" color="text.secondary">
+                                {coverFile ? coverFile.name : t('noCoverSelected')}
+                            </Typography>
+                            <Button
+                                variant="contained"
+                                onClick={handleCoverUpload}
+                                disabled={!coverFile || loading || coverUploading}
+                                startIcon={coverUploading ? <CircularProgress size={16} /> : null}
+                            >
+                                {coverUploading ? t('uploading') : t('uploadCover')}
+                            </Button>
+                        </Box>
+                    </Box>
 
                     <Box sx={{ mt: 1, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}>
                         <Typography variant="caption" color="text.secondary" display="block">
