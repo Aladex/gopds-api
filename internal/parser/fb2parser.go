@@ -40,14 +40,16 @@ func NewFB2Parser(readCover bool) *FB2Parser {
 	parser := &FB2Parser{
 		readCover: readCover,
 		handlers: map[string]*TagHandler{
-			"title":       NewTagHandler([]string{"description", "title-info", "book-title"}),
-			"authorFirst": NewTagHandler([]string{"description", "title-info", "author", "first-name"}),
-			"authorLast":  NewTagHandler([]string{"description", "title-info", "author", "last-name"}),
-			"genre":       NewTagHandler([]string{"description", "title-info", "genre"}),
-			"lang":        NewTagHandler([]string{"description", "title-info", "lang"}),
-			"series":      NewTagHandler([]string{"description", "title-info", "sequence"}),
-			"annotation":  NewTagHandler([]string{"description", "title-info", "annotation", "p"}),
-			"docdate":     NewTagHandler([]string{"description", "document-info", "date"}),
+			"title":         NewTagHandler([]string{"description", "title-info", "book-title"}),
+			"authorFirst":   NewTagHandler([]string{"description", "title-info", "author", "first-name"}),
+			"authorLast":    NewTagHandler([]string{"description", "title-info", "author", "last-name"}),
+			"genre":         NewTagHandler([]string{"description", "title-info", "genre"}),
+			"lang":          NewTagHandler([]string{"description", "title-info", "lang"}),
+			"series":        NewTagHandler([]string{"description", "title-info", "sequence"}),
+			"annotation":    NewTagHandler([]string{"description", "title-info", "annotation", "p"}),
+			"annotationRaw": NewTagHandler([]string{"description", "title-info", "annotation"}),
+			"annotationDoc": NewTagHandler([]string{"description", "document-info", "annotation"}),
+			"docdate":       NewTagHandler([]string{"description", "document-info", "date"}),
 		},
 	}
 
@@ -74,8 +76,12 @@ func (p *FB2Parser) Parse(reader io.Reader) (*BookFile, error) {
 	decodedContent = sanitizeInvalidProcessingInstructions(decodedContent)
 	decodedContent = sanitizeInvalidAmpersands(decodedContent)
 	decodedContent = sanitizeXMLVersion(decodedContent)
+	decodedContent = sanitizeBrokenSelfClosingTags(decodedContent)
+	decodedContent = sanitizeBrokenEndTags(decodedContent)
+	decodedContent = sanitizeBrokenLangTag(decodedContent)
 	book, err := p.parseContent(decodedContent)
 	if err == nil {
+		p.ensureBodySample(decodedContent, book)
 		return book, nil
 	}
 
@@ -83,6 +89,7 @@ func (p *FB2Parser) Parse(reader io.Reader) (*BookFile, error) {
 	if fallback != nil {
 		fallbackBook, fallbackErr := p.parseContent(fallback)
 		if fallbackErr == nil {
+			p.ensureBodySample(decodedContent, fallbackBook)
 			fallbackBook.Issues = append(fallbackBook.Issues, err.Error(), "parsed_without_body")
 			return fallbackBook, nil
 		}
@@ -319,8 +326,15 @@ func (p *FB2Parser) extractLanguage() string {
 }
 
 func (p *FB2Parser) extractAnnotation() string {
-	text := p.handlers["annotation"].GetText("\n")
-	return strings.TrimSpace(text)
+	text := strings.TrimSpace(p.handlers["annotation"].GetText("\n"))
+	if text != "" {
+		return text
+	}
+	raw := strings.TrimSpace(p.handlers["annotationRaw"].GetText("\n"))
+	if raw != "" {
+		return raw
+	}
+	return strings.TrimSpace(p.handlers["annotationDoc"].GetText("\n"))
 }
 
 func (p *FB2Parser) extractDocDate() string {
@@ -352,15 +366,7 @@ func (p *FB2Parser) extractBodySample() string {
 func (p *FB2Parser) extractTextSample() string {
 	annotation := p.extractAnnotation()
 	body := p.extractBodySample()
-	sample := annotation + " " + body
-	sample = strings.TrimSpace(sample)
-
-	// Truncate to 2000 chars safely
-	runes := []rune(sample)
-	if len(runes) > 2000 {
-		sample = string(runes[:2000])
-	}
-	return sample
+	return truncateSample(annotation, body)
 }
 
 func normalizeName(name string) string {
@@ -568,6 +574,200 @@ func sanitizeControlChars(content []byte) []byte {
 		return content
 	}
 	return out
+}
+
+func (p *FB2Parser) ensureBodySample(content []byte, book *BookFile) {
+	if book == nil || book.BodySample != "" {
+		return
+	}
+	body := extractBodyTextFallback(content)
+	if body == "" {
+		return
+	}
+	book.BodySample = body
+	book.TextSample = truncateSample(book.Annotation, body)
+}
+
+func extractBodyTextFallback(content []byte) string {
+	lower := bytes.ToLower(content)
+	bodyStart := bytes.Index(lower, []byte("<body"))
+	if bodyStart != -1 {
+		tagEnd := bytes.IndexByte(lower[bodyStart:], '>')
+		if tagEnd != -1 {
+			start := bodyStart + tagEnd + 1
+			bodyEnd := bytes.Index(lower[start:], []byte("</body>"))
+			end := len(content)
+			if bodyEnd != -1 {
+				end = start + bodyEnd
+			}
+			if end > start {
+				if sample := stripTagsToSample(content[start:end]); sample != "" {
+					return sample
+				}
+			}
+		}
+	}
+
+	descEnd := bytes.Index(lower, []byte("</description>"))
+	if descEnd == -1 {
+		return ""
+	}
+	start := descEnd + len("</description>")
+	end := len(content)
+	binaryStart := bytes.Index(lower[start:], []byte("<binary"))
+	if binaryStart != -1 {
+		end = start + binaryStart
+	}
+	if end <= start {
+		return ""
+	}
+	return stripTagsToSample(content[start:end])
+}
+
+func stripTagsToSample(segment []byte) string {
+	out := make([]byte, 0, bodySampleLimit)
+	inTag := false
+	spacePending := false
+
+	for i := 0; i < len(segment); i++ {
+		b := segment[i]
+		if b == '<' {
+			inTag = true
+			spacePending = true
+			continue
+		}
+		if b == '>' {
+			inTag = false
+			continue
+		}
+		if inTag {
+			continue
+		}
+		if b == '\n' || b == '\r' || b == '\t' {
+			spacePending = true
+			continue
+		}
+		if spacePending {
+			if len(out) > 0 {
+				out = append(out, ' ')
+			}
+			spacePending = false
+		}
+		out = append(out, b)
+		if len(out) >= bodySampleLimit {
+			break
+		}
+	}
+
+	return strings.TrimSpace(string(out))
+}
+
+func truncateSample(annotation string, body string) string {
+	sample := strings.TrimSpace(strings.TrimSpace(annotation) + " " + strings.TrimSpace(body))
+	runes := []rune(sample)
+	if len(runes) > 2000 {
+		sample = string(runes[:2000])
+	}
+	return strings.TrimSpace(sample)
+}
+
+func sanitizeBrokenSelfClosingTags(content []byte) []byte {
+	if !bytes.Contains(content, []byte("/</")) {
+		return content
+	}
+	return bytes.ReplaceAll(content, []byte("/</"), []byte("/><"))
+}
+
+func sanitizeBrokenEndTags(content []byte) []byte {
+	changed := false
+	out := make([]byte, 0, len(content))
+	for i := 0; i < len(content); i++ {
+		if content[i] != '<' || i+2 >= len(content) || content[i+1] != '/' {
+			out = append(out, content[i])
+			continue
+		}
+
+		j := i + 2
+		for j < len(content) && isNameChar(content[j]) {
+			j++
+		}
+		if j == i+2 {
+			out = append(out, content[i])
+			continue
+		}
+
+		if j < len(content) && content[j] != '>' {
+			out = append(out, content[i:j]...)
+			out = append(out, '>')
+			changed = true
+			i = j - 1
+			continue
+		}
+
+		out = append(out, content[i])
+	}
+	if !changed {
+		return content
+	}
+	return out
+}
+
+func sanitizeBrokenLangTag(content []byte) []byte {
+	changed := false
+	out := make([]byte, 0, len(content))
+	for i := 0; i < len(content); i++ {
+		if i+5 >= len(content) || content[i] != '<' {
+			out = append(out, content[i])
+			continue
+		}
+		if !bytes.HasPrefix(content[i:], []byte("<lang")) {
+			out = append(out, content[i])
+			continue
+		}
+
+		nextTagOffset := bytes.IndexByte(content[i+1:], '<')
+		if nextTagOffset == -1 {
+			out = append(out, content[i])
+			continue
+		}
+		nextTag := i + 1 + nextTagOffset
+
+		gt := bytes.IndexByte(content[i:nextTag], '>')
+		if gt != -1 {
+			out = append(out, content[i])
+			continue
+		}
+
+		if !bytes.HasPrefix(content[nextTag:], []byte("</lang>")) {
+			out = append(out, content[i])
+			continue
+		}
+
+		out = append(out, []byte("<lang>")...)
+		out = append(out, content[i+5:nextTag]...)
+		changed = true
+		i = nextTag - 1
+		continue
+	}
+	if !changed {
+		return content
+	}
+	return out
+}
+
+func isNameChar(b byte) bool {
+	switch {
+	case b >= 'a' && b <= 'z':
+		return true
+	case b >= 'A' && b <= 'Z':
+		return true
+	case b >= '0' && b <= '9':
+		return true
+	case b == '-', b == '_', b == ':', b == '.':
+		return true
+	default:
+		return false
+	}
 }
 
 func sanitizeXMLVersion(content []byte) []byte {
