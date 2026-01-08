@@ -28,6 +28,8 @@ import {
     Typography,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import DeleteIcon from '@mui/icons-material/Delete';
+import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import { fetchWithAuth, WS_URL } from '../../api/config';
 import { useTranslation } from 'react-i18next';
 
@@ -294,6 +296,62 @@ const BookScanning: React.FC = () => {
         setArchiveToRescan(archiveName);
         setRescanDialogOpen(true);
     }, []);
+
+    const handleResetArchive = useCallback(async (archiveName: string, deleteBooks: boolean = false) => {
+        const confirmed = window.confirm(
+            deleteBooks
+                ? t('bookScanDeleteBooksConfirm')
+                : t('bookScanResetConfirm', { name: archiveName })
+        );
+        if (!confirmed) {
+            return;
+        }
+
+        if (deleteBooks) {
+            const confirmDelete = window.confirm(t('bookScanDeleteBooksConfirm'));
+            if (!confirmDelete) {
+                return;
+            }
+        }
+
+        try {
+            await fetchWithAuth.delete(
+                `/admin/scan/reset/${encodeURIComponent(archiveName)}?confirm=true&delete_books=${deleteBooks ? 'true' : 'false'}`
+            );
+            setSnackbarMessage(t('bookScanResetSuccess', { name: archiveName }));
+            setSnackbarOpen(true);
+            await fetchScanned();
+            await fetchStatus();
+            await fetchUnscanned();
+        } catch (error) {
+            console.error(error);
+            setSnackbarMessage(t('bookScanResetError'));
+            setSnackbarOpen(true);
+        }
+    }, [fetchScanned, fetchStatus, fetchUnscanned, t]);
+
+    const handleDeleteArchiveBooks = useCallback(async (archiveName: string) => {
+        const confirmed = window.confirm(
+            t('bookScanDeleteBooksConfirm') + '\n' + archiveName
+        );
+        if (!confirmed) {
+            return;
+        }
+
+        try {
+            await fetchWithAuth.delete(
+                `/admin/scan/reset/${encodeURIComponent(archiveName)}?confirm=true&delete_books=true`
+            );
+            setSnackbarMessage(t('bookScanResetSuccess', { name: archiveName }));
+            setSnackbarOpen(true);
+            await fetchScanned();
+            await fetchStatus();
+        } catch (error) {
+            console.error(error);
+            setSnackbarMessage(t('bookScanResetError'));
+            setSnackbarOpen(true);
+        }
+    }, [fetchScanned, fetchStatus, t]);
 
     const handleDownloadErrorFile = useCallback(async (item: ScanErrorItem) => {
         try {
@@ -597,7 +655,7 @@ const BookScanning: React.FC = () => {
                     >
                         {t('bookScanStart')}
                     </Button>
-                    <Button variant="outlined" onClick={fetchStatus}>
+                    <Button variant="contained" sx={{ backgroundColor: 'action.selected', color: 'text.primary' }} onClick={fetchStatus}>
                         {t('bookScanStatusRefresh')}
                     </Button>
                 </Stack>
@@ -670,7 +728,7 @@ const BookScanning: React.FC = () => {
                             <Typography variant="subtitle1">
                                 {t('bookScanErrorsTitle')}
                             </Typography>
-                            <Button variant="outlined" onClick={fetchErrors}>
+                            <Button variant="contained" sx={{ backgroundColor: 'action.selected', color: 'text.primary' }} size="small" onClick={fetchErrors}>
                                 {t('bookScanErrorsRefresh')}
                             </Button>
                         </Stack>
@@ -713,9 +771,9 @@ const BookScanning: React.FC = () => {
                                             {t('bookScanErrorTime')}: {new Date(scanErrors[selectedErrorIndex].timestamp).toLocaleString()}
                                         </Typography>
                                         <Button
-                                            variant="outlined"
+                                            variant="contained"
+                                            sx={{ mt: 2, backgroundColor: 'action.selected', color: 'text.primary' }}
                                             size="small"
-                                            sx={{ mt: 2 }}
                                             onClick={() => handleDownloadErrorFile(scanErrors[selectedErrorIndex])}
                                         >
                                             {t('bookScanErrorDownload')}
@@ -731,7 +789,20 @@ const BookScanning: React.FC = () => {
                     <Tabs
                         value={currentTab}
                         onChange={(_, newValue) => setCurrentTab(newValue)}
-                        sx={{ borderBottom: 1, borderColor: 'divider' }}
+                        sx={{
+                            borderBottom: 2,
+                            borderColor: 'divider',
+                            '& .MuiTab-root': {
+                                fontWeight: 500,
+                                color: 'text.secondary',
+                            },
+                            '& .MuiTab-root.Mui-selected': {
+                                fontWeight: 'bold',
+                                color: 'primary.contrastText',
+                                backgroundColor: 'primary.main',
+                                borderRadius: '4px 4px 0 0',
+                            },
+                        }}
                     >
                         <Tab label={t('bookScanUnscannedTitle')} />
                         <Tab label={t('bookScanScannedTitle')} />
@@ -746,7 +817,8 @@ const BookScanning: React.FC = () => {
                                     </Typography>
                                     <Button
                                         size="small"
-                                        variant="outlined"
+                                        variant="contained"
+                                        sx={{ backgroundColor: 'action.selected', color: 'text.primary' }}
                                         onClick={fetchUnscanned}
                                         disabled={isLoading}
                                     >
@@ -847,14 +919,50 @@ const BookScanning: React.FC = () => {
                                                         {formatScannedDate(archive.scanned_at)}
                                                     </TableCell>
                                                     <TableCell>
-                                                        <IconButton
-                                                            size="small"
-                                                            onClick={() => handleRescanClick(archive.name)}
-                                                            title={t('refresh')}
-                                                            color="primary"
-                                                        >
-                                                            <RefreshIcon />
-                                                        </IconButton>
+                                                        <Box sx={{ display: 'flex', gap: 1 }}>
+                                                            <IconButton
+                                                                size="small"
+                                                                onClick={() => handleRescanClick(archive.name)}
+                                                                title={t('refresh')}
+                                                                sx={{
+                                                                    backgroundColor: 'primary.main',
+                                                                    color: 'primary.contrastText',
+                                                                    '&:hover': {
+                                                                        backgroundColor: 'primary.dark',
+                                                                    },
+                                                                }}
+                                                            >
+                                                                <RefreshIcon />
+                                                            </IconButton>
+                                                            <IconButton
+                                                                size="small"
+                                                                onClick={() => handleResetArchive(archive.name, false)}
+                                                                title={t('bookScanResetTitle')}
+                                                                sx={{
+                                                                    backgroundColor: 'warning.main',
+                                                                    color: 'warning.contrastText',
+                                                                    '&:hover': {
+                                                                        backgroundColor: 'warning.dark',
+                                                                    },
+                                                                }}
+                                                            >
+                                                                <RestartAltIcon />
+                                                            </IconButton>
+                                                            <IconButton
+                                                                size="small"
+                                                                onClick={() => handleDeleteArchiveBooks(archive.name)}
+                                                                title={t('bookScanDeleteBooks')}
+                                                                sx={{
+                                                                    backgroundColor: 'error.main',
+                                                                    color: 'error.contrastText',
+                                                                    '&:hover': {
+                                                                        backgroundColor: 'error.dark',
+                                                                    },
+                                                                }}
+                                                            >
+                                                                <DeleteIcon />
+                                                            </IconButton>
+                                                        </Box>
                                                     </TableCell>
                                                 </TableRow>
                                             ))}
@@ -866,34 +974,6 @@ const BookScanning: React.FC = () => {
                     </CardContent>
                 </Card>
 
-                <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
-                    <CardContent>
-                        <Typography variant="subtitle1" gutterBottom>
-                            {t('bookScanResetTitle')}
-                        </Typography>
-                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
-                            <TextField
-                                label={t('bookScanResetName')}
-                                value={resetName}
-                                onChange={(event) => setResetName(event.target.value)}
-                                size="small"
-                                sx={{ minWidth: 260 }}
-                            />
-                            <FormControlLabel
-                                control={
-                                    <Checkbox
-                                        checked={deleteBooks}
-                                        onChange={(event) => setDeleteBooks(event.target.checked)}
-                                    />
-                                }
-                                label={t('bookScanDeleteBooks')}
-                            />
-                            <Button variant="outlined" color="warning" onClick={handleReset}>
-                                {t('bookScanResetButton')}
-                            </Button>
-                        </Stack>
-                    </CardContent>
-                </Card>
             </Box>
 
             {/* Rescan Confirmation Dialog */}

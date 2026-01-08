@@ -306,20 +306,24 @@ func updateJobError(db *pg.DB, jobID int64, errorMsg string) error {
 	return fmt.Errorf("%s", errorMsg)
 }
 
-// GetDuplicateGroups retrieves all groups of duplicate books
+// GetDuplicateGroups retrieves all groups of duplicate books using a single optimized query
 func GetDuplicateGroups(_ context.Context, db *pg.DB) ([]DuplicateGroup, error) {
 	logging.Info("Fetching duplicate groups")
 
-	// Query to find duplicate groups
-	type result struct {
-		MD5   string `pg:"md5"`
-		Count int
+	// Single optimized query using PostgreSQL array aggregation
+	type groupResult struct {
+		MD5           string   `pg:"md5"`
+		Count         int      `pg:"count"`
+		BookIDs       []int64  `pg:"book_ids,array"`
+		ExampleTitles []string `pg:"example_titles,array"`
 	}
 
-	var results []result
+	var results []groupResult
 	err := db.Model(&models.Book{}).
 		Column("md5").
 		ColumnExpr("COUNT(*) as count").
+		ColumnExpr("ARRAY_AGG(id ORDER BY id) as book_ids").
+		ColumnExpr("ARRAY_AGG(DISTINCT title ORDER BY title) as example_titles").
 		Where("md5 IS NOT NULL AND md5 != ''").
 		Group("md5").
 		Having("COUNT(*) > 1").
@@ -330,36 +334,18 @@ func GetDuplicateGroups(_ context.Context, db *pg.DB) ([]DuplicateGroup, error) 
 		return nil, err
 	}
 
+	// Convert results to DuplicateGroup objects
 	groups := make([]DuplicateGroup, 0, len(results))
-
-	// For each duplicate group, get book IDs and example titles
 	for _, r := range results {
-		var books []models.Book
-		err := db.Model(&books).
-			Column("id", "title").
-			Where("md5 = ?", r.MD5).
-			Order("id ASC").
-			Limit(5). // Get up to 5 example titles
-			Select()
-		if err != nil {
-			logging.Warnf("Failed to fetch books for hash %s: %v", r.MD5, err)
-			continue
+		exampleTitles := r.ExampleTitles
+		if len(exampleTitles) > 3 {
+			exampleTitles = exampleTitles[:3]
 		}
-
-		bookIDs := make([]int64, len(books))
-		titles := make([]string, 0, len(books))
-		for i, book := range books {
-			bookIDs[i] = book.ID
-			if len(titles) < 3 { // Only include 3 example titles
-				titles = append(titles, book.Title)
-			}
-		}
-
 		groups = append(groups, DuplicateGroup{
 			MD5Hash:       r.MD5,
 			Count:         r.Count,
-			BookIDs:       bookIDs,
-			ExampleTitles: titles,
+			BookIDs:       r.BookIDs,
+			ExampleTitles: exampleTitles,
 		})
 	}
 

@@ -271,7 +271,7 @@ const Duplicates: React.FC = () => {
                         {t('startScan')}
                     </Button>
                     <Button
-                        variant="outlined"
+                        variant="contained"
                         color="warning"
                         onClick={handleStopScan}
                         disabled={!isScanning}
@@ -286,7 +286,7 @@ const Duplicates: React.FC = () => {
                         {t('stopScan')}
                     </Button>
                     <Button
-                        variant="outlined"
+                        variant="contained"
                         color="error"
                         onClick={handleForceStopScan}
                         disabled={!scanProgress}
@@ -301,47 +301,33 @@ const Duplicates: React.FC = () => {
                         {t('forceStopScan')}
                     </Button>
                     <Button
-                        variant="outlined"
-                        color="inherit"
-                        onClick={fetchActiveScan}
+                        variant="contained"
                         sx={{
                             width: { xs: '100%', sm: 'calc(50% - 4px)', md: 'calc(33.333% - 6px)', lg: 'auto' },
                             minWidth: { lg: 120 },
                             height: { xs: 42, sm: 'auto' },
                             minHeight: 36,
-                            borderColor: (theme) => theme.palette.mode === 'dark'
-                                ? 'rgba(255, 255, 255, 0.23)'
-                                : 'rgba(0, 0, 0, 0.23)',
-                            '&:hover': {
-                                borderColor: (theme) => theme.palette.mode === 'dark'
-                                    ? 'rgba(255, 255, 255, 0.4)'
-                                    : 'rgba(0, 0, 0, 0.4)',
-                            },
+                            backgroundColor: 'action.selected',
+                            color: 'text.primary',
                             '&:disabled': { opacity: 0.6, cursor: 'not-allowed' }
                         }}
+                        onClick={fetchActiveScan}
                     >
                         {t('getStatus')}
                     </Button>
                     <Button
-                        variant="outlined"
-                        color="inherit"
-                        onClick={fetchGroups}
-                        disabled={isLoading}
+                        variant="contained"
                         sx={{
                             width: { xs: '100%', sm: 'calc(50% - 4px)', md: 'calc(33.333% - 6px)', lg: 'auto' },
                             minWidth: { lg: 120 },
                             height: { xs: 42, sm: 'auto' },
                             minHeight: 36,
-                            borderColor: (theme) => theme.palette.mode === 'dark'
-                                ? 'rgba(255, 255, 255, 0.23)'
-                                : 'rgba(0, 0, 0, 0.23)',
-                            '&:hover': {
-                                borderColor: (theme) => theme.palette.mode === 'dark'
-                                    ? 'rgba(255, 255, 255, 0.4)'
-                                    : 'rgba(0, 0, 0, 0.4)',
-                            },
+                            backgroundColor: 'action.selected',
+                            color: 'text.primary',
                             '&:disabled': { opacity: 0.6, cursor: 'not-allowed' }
                         }}
+                        onClick={fetchGroups}
+                        disabled={isLoading}
                     >
                         {t('refresh')}
                     </Button>
@@ -392,7 +378,7 @@ const Duplicates: React.FC = () => {
                         </Typography>
                     )}
                     {statusMessage && (
-                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                        <Typography variant="body2" color="info" sx={{ mt: 1, fontWeight: 500 }}>
                             {statusMessage}
                         </Typography>
                     )}
@@ -402,7 +388,7 @@ const Duplicates: React.FC = () => {
                         </Typography>
                     )}
                     {actionResult && (
-                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                        <Typography variant="body2" color="success" sx={{ mt: 1, fontWeight: 500 }}>
                             {actionResult}
                         </Typography>
                     )}
