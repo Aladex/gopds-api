@@ -97,6 +97,8 @@ func (p *FB2Parser) parseContent(content []byte) (*BookFile, error) {
 	decoder := xml.NewDecoder(decodedReader)
 	// Set CharsetReader to handle various encodings declared in XML
 	decoder.CharsetReader = makeCharsetReader
+	decoder.Strict = false
+	decoder.AutoClose = xml.HTMLAutoClose
 	for {
 		token, err := decoder.Token()
 		if err == io.EOF {
