@@ -79,6 +79,7 @@ func (p *FB2Parser) Parse(reader io.Reader) (*BookFile, error) {
 	decodedContent = sanitizeBrokenSelfClosingTags(decodedContent)
 	decodedContent = sanitizeBrokenEndTags(decodedContent)
 	decodedContent = sanitizeBrokenLangTag(decodedContent)
+	decodedContent = sanitizeMissingXlinkPrefix(decodedContent)
 	book, err := p.parseContent(decodedContent)
 	if err == nil {
 		p.ensureBodySample(decodedContent, book)
@@ -673,9 +674,27 @@ func truncateSample(annotation string, body string) string {
 
 func sanitizeBrokenSelfClosingTags(content []byte) []byte {
 	if !bytes.Contains(content, []byte("/</")) {
+		if !bytes.Contains(content, []byte("/\n<")) && !bytes.Contains(content, []byte("/\r\n<")) && !bytes.Contains(content, []byte("/\t<")) && !bytes.Contains(content, []byte("/ <")) {
+			return content
+		}
+	}
+	out := bytes.ReplaceAll(content, []byte("/</"), []byte("/><"))
+	out = bytes.ReplaceAll(out, []byte("/\r\n<"), []byte("/><"))
+	out = bytes.ReplaceAll(out, []byte("/\n<"), []byte("/><"))
+	out = bytes.ReplaceAll(out, []byte("/\t<"), []byte("/><"))
+	out = bytes.ReplaceAll(out, []byte("/ <"), []byte("/><"))
+	return out
+}
+
+func sanitizeMissingXlinkPrefix(content []byte) []byte {
+	if !bytes.Contains(content, []byte("xmlns:xlink")) {
 		return content
 	}
-	return bytes.ReplaceAll(content, []byte("/</"), []byte("/><"))
+	if bytes.Contains(content, []byte("xmlns:l")) {
+		return content
+	}
+	out := bytes.ReplaceAll(content, []byte(" l:href=\""), []byte(" xlink:href=\""))
+	return out
 }
 
 func sanitizeBrokenEndTags(content []byte) []byte {
