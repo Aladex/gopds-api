@@ -73,6 +73,7 @@ func (p *FB2Parser) Parse(reader io.Reader) (*BookFile, error) {
 	decodedContent = sanitizeInvalidTagOpenings(decodedContent)
 	decodedContent = sanitizeInvalidProcessingInstructions(decodedContent)
 	decodedContent = sanitizeInvalidAmpersands(decodedContent)
+	decodedContent = sanitizeXMLVersion(decodedContent)
 	book, err := p.parseContent(decodedContent)
 	if err == nil {
 		return book, nil
@@ -567,6 +568,46 @@ func sanitizeControlChars(content []byte) []byte {
 		return content
 	}
 	return out
+}
+
+func sanitizeXMLVersion(content []byte) []byte {
+	if len(content) == 0 {
+		return content
+	}
+
+	declEnd := bytes.Index(content, []byte("?>"))
+	if declEnd == -1 || declEnd > 200 {
+		return content
+	}
+	decl := string(content[:declEnd])
+	versionIdx := strings.Index(decl, "version=")
+	if versionIdx == -1 {
+		return content
+	}
+
+	versionIdx += len("version=")
+	if versionIdx >= len(decl) {
+		return content
+	}
+
+	quote := decl[versionIdx]
+	if quote != '"' && quote != '\'' {
+		return content
+	}
+
+	versionIdx++
+	end := strings.IndexByte(decl[versionIdx:], quote)
+	if end == -1 {
+		return content
+	}
+
+	version := strings.TrimSpace(decl[versionIdx : versionIdx+end])
+	if version == "1.0" {
+		return content
+	}
+
+	newDecl := decl[:versionIdx] + "1.0" + decl[versionIdx+end:]
+	return append([]byte(newDecl), content[declEnd:]...)
 }
 
 func stripWhitespace(value string) string {
