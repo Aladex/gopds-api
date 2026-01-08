@@ -104,6 +104,9 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
                     variant="fullWidth"
                     sx={{
                         minHeight: 'auto',
+                        '& .MuiTabs-indicator': {
+                            display: 'none',
+                        },
                         '& .MuiTabs-flexContainer': {
                             flexWrap: { xs: 'wrap', sm: 'nowrap' },
                         },
