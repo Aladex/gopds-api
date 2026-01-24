@@ -38,6 +38,7 @@ func ParseFB2Complete(xmlContent []byte, readCover bool) (*FB2Document, *parser.
 	decoded = sanitizeBrokenEndTags(decoded)
 	decoded = sanitizeBrokenLangTag(decoded)
 	decoded = sanitizeMissingXlinkPrefix(decoded)
+	decoded = repairBrokenXML(decoded)
 
 	// Initialize both parsers
 	metadataParser := parser.NewFB2Parser(readCover)
@@ -56,7 +57,11 @@ func ParseFB2Complete(xmlContent []byte, readCover bool) (*FB2Document, *parser.
 			break
 		}
 		if err != nil {
-			return nil, nil, err
+			docFallback, bookFallback, fallbackErr := parseFB2CompleteFallback(decoded, readCover)
+			if fallbackErr != nil {
+				return nil, nil, err
+			}
+			return docFallback, bookFallback, nil
 		}
 
 		switch t := token.(type) {
@@ -87,4 +92,17 @@ func ParseFB2Complete(xmlContent []byte, readCover bool) (*FB2Document, *parser.
 	}
 
 	return doc, bookFile, nil
+}
+
+func parseFB2CompleteFallback(content []byte, readCover bool) (*FB2Document, *parser.BookFile, error) {
+	bodyDoc, bodyErr := ParseFB2Body(content)
+	if bodyErr != nil {
+		return nil, nil, bodyErr
+	}
+	metaParser := parser.NewFB2Parser(readCover)
+	bookFile, metaErr := metaParser.Parse(bytes.NewReader(content))
+	if metaErr != nil {
+		return bodyDoc, &parser.BookFile{}, nil
+	}
+	return bodyDoc, bookFile, nil
 }
