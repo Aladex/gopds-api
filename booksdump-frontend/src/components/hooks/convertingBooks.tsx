@@ -1,16 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { Modal, Backdrop, CircularProgress, Typography, Box } from '@mui/material';
+import { Modal, Backdrop, CircularProgress, Typography, Box, Snackbar } from '@mui/material';
 import { useBookConversion } from '../../context/BookConversionContext';
 import { useTranslation } from "react-i18next";
 
 function ConversionModal() {
-    const { state } = useBookConversion();
+    const { state, dispatch } = useBookConversion();
     const [open, setOpen] = useState(false);
     const { t } = useTranslation();
 
     useEffect(() => {
         setOpen(state.convertingBooks.length > 0);
     }, [state.convertingBooks]);
+
 
     return (
         <Modal
@@ -45,6 +46,16 @@ function ConversionModal() {
                 <Typography id="conversion-modal-description" variant="body2" sx={{ color: (theme) => theme.palette.common.white }}>
                     {t('pleaseWait')}
                 </Typography>
+                {state.conversionErrors.map((err) => (
+                    <Snackbar
+                        key={`${err.bookID}-${err.format}`}
+                        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                        open={true}
+                        autoHideDuration={4000}
+                        message={err.message}
+                        onClose={() => dispatch({ type: 'REMOVE_CONVERSION_ERROR', payload: { bookID: err.bookID, format: err.format } })}
+                    />
+                ))}
             </Box>
         </Modal>
     );

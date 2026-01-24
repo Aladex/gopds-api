@@ -12,6 +12,7 @@ import (
 func SetupBookRoutes(r *gin.RouterGroup) {
 	r.GET("/list", GetBooks)
 	r.GET("/get/:format/:id", GetBookFile)
+	r.HEAD("/get/:format/:id", HeadBookFile)
 	r.GET("/langs", GetLangs)
 	r.GET("/self-user", SelfUser)
 	r.GET("/theme", GetThemePreference)

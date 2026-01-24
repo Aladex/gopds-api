@@ -7,14 +7,18 @@ interface BookConversion {
 
 interface State {
     convertingBooks: BookConversion[];
+    conversionErrors: { bookID: number; format: string; message: string }[];
 }
 
 type Action =
     | { type: 'ADD_CONVERTING_BOOK'; payload: BookConversion }
-    | { type: 'REMOVE_CONVERTING_BOOK'; payload: BookConversion };
+    | { type: 'REMOVE_CONVERTING_BOOK'; payload: BookConversion }
+    | { type: 'ADD_CONVERSION_ERROR'; payload: { bookID: number; format: string; message: string } }
+    | { type: 'REMOVE_CONVERSION_ERROR'; payload: { bookID: number; format: string } };
 
 const initialState: State = {
     convertingBooks: [],
+    conversionErrors: [],
 };
 
 const reducer = (state: State, action: Action): State => {
@@ -29,6 +33,18 @@ const reducer = (state: State, action: Action): State => {
                 ...state,
                 convertingBooks: state.convertingBooks.filter(
                     (book) => !(book.bookID === action.payload.bookID && book.format === action.payload.format)
+                ),
+            };
+        case 'ADD_CONVERSION_ERROR':
+            return {
+                ...state,
+                conversionErrors: [...state.conversionErrors, action.payload],
+            };
+        case 'REMOVE_CONVERSION_ERROR':
+            return {
+                ...state,
+                conversionErrors: state.conversionErrors.filter(
+                    (err) => !(err.bookID === action.payload.bookID && err.format === action.payload.format)
                 ),
             };
         default:

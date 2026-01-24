@@ -116,7 +116,7 @@ func WebsocketHandler(c *gin.Context) {
 	defer conn.Close()
 
 	// Create a channel for sending ping messages to the client
-	clientNotificationChannel := make(chan string)
+	clientNotificationChannel := make(chan []byte)
 	quit := make(chan struct{})
 
 	// Create a ticker for sending ping messages every 5 seconds
@@ -153,9 +153,21 @@ func WebsocketHandler(c *gin.Context) {
 						err := ConvertBookToMobi(bookID)
 						if err != nil {
 							logging.Errorf("Failed to convert book to mobi: %v", err)
+							message, _ := json.Marshal(map[string]interface{}{
+								"bookID": bookID,
+								"format": "mobi",
+								"status": "error",
+								"error":  err.Error(),
+							})
+							clientNotificationChannel <- message
 							return
 						}
-						clientNotificationChannel <- strconv.FormatInt(bookID, 10) // Send to unique client channel
+						message, _ := json.Marshal(map[string]interface{}{
+							"bookID": bookID,
+							"format": "mobi",
+							"status": "ready",
+						})
+						clientNotificationChannel <- message
 					}(request.BookID)
 				} else {
 					logging.Warnf("Unsupported format: %s", request.Format)
@@ -169,9 +181,9 @@ func WebsocketHandler(c *gin.Context) {
 	// Reading book ready notifications and sending them to client
 	for {
 		select {
-		case bookID := <-clientNotificationChannel:
-			logging.Infof("Notifying client about ready book: %s", bookID)
-			if err := wsutil.WriteServerMessage(conn, ws.OpText, []byte(bookID)); err != nil {
+		case message := <-clientNotificationChannel:
+			logging.Infof("Notifying client about conversion status")
+			if err := wsutil.WriteServerMessage(conn, ws.OpText, message); err != nil {
 				logging.Warn("Error writing to WebSocket:", err)
 				close(quit)
 				return

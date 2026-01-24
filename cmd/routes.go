@@ -66,6 +66,7 @@ func setupRoutes(route *gin.Engine) {
 // setupFileRoutes configures routes related to file operations.
 func setupFileRoutes(group *gin.RouterGroup) {
 	group.GET("/books/get/:format/:id", api.GetBookFile)
+	group.HEAD("/books/get/:format/:id", api.HeadBookFile)
 	group.GET("/books/conversion/:id", api.DownloadConvertedBook)
 }
 

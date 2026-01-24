@@ -9,7 +9,7 @@ import {
     CardContent,
     CardMedia,
     Button,
-    CardActions, IconButton, Snackbar
+    CardActions, IconButton, Snackbar, Modal, Backdrop
 } from '@mui/material';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { API_URL, fetchWithAuth } from '../../api/config';
@@ -133,8 +133,50 @@ const BooksList: React.FC = () => {
     const [bookToEdit, setBookToEdit] = useState<Book | null>(null);
     const [rescanDialogOpen, setRescanDialogOpen] = useState(false);
     const [bookToRescan, setBookToRescan] = useState<number | null>(null);
+    const [downloadErrorOpen, setDownloadErrorOpen] = useState(false);
+    const [downloadErrorMessage, setDownloadErrorMessage] = useState('');
+    const [downloadErrorTitle, setDownloadErrorTitle] = useState('');
+
+    const showDownloadError = (status: number, fallbackMessage?: string) => {
+        const title = t('downloadErrorTitle');
+        let message = fallbackMessage || t('downloadErrorUnknown');
+        if (status === 0) {
+            message = t('downloadErrorNetwork');
+        } else if (status === 401) {
+            message = t('downloadErrorUnauthorized');
+        } else if (status === 403) {
+            message = t('downloadErrorForbidden');
+        } else if (status === 404) {
+            message = t('downloadErrorNotFound');
+        }
+        setDownloadErrorTitle(title);
+        setDownloadErrorMessage(message);
+        setDownloadErrorOpen(true);
+    };
 
     const handleMobiDownloadClick = async (bookID: number) => {
+        const conversionUrl = `${API_URL}/api/files/books/conversion/${bookID}`;
+        try {
+            const conversionCheck = await fetch(conversionUrl, { method: 'HEAD', credentials: 'include' });
+            if (conversionCheck.ok) {
+                downloadViaIframe(conversionUrl, (status) => showDownloadError(status));
+                return;
+            }
+            if (conversionCheck.status !== 404) {
+                showDownloadError(conversionCheck.status);
+                return;
+            }
+            const sourceUrl = `${API_URL}/files/books/get/fb2/${bookID}`;
+            const sourceCheck = await fetch(sourceUrl, { method: 'HEAD', credentials: 'include' });
+            if (!sourceCheck.ok) {
+                showDownloadError(sourceCheck.status);
+                return;
+            }
+        } catch (_) {
+            showDownloadError(0);
+            return;
+        }
+
         conversionDispatch({ type: 'ADD_CONVERTING_BOOK', payload: { bookID, format: 'mobi' } });
     };
     const isBookConverting = (bookID: number, format: string) =>
@@ -142,7 +184,7 @@ const BooksList: React.FC = () => {
 
     const handleDownload = (format: string, bookID: number) => {
         const url = `${API_URL}/files/books/get/${format}/${bookID}`;
-        downloadViaIframe(url);
+        downloadViaIframe(url, (status) => showDownloadError(status));
     };
 
     const formatDate = (dateString: string) => {
@@ -513,6 +555,46 @@ const BooksList: React.FC = () => {
                 bookId={bookToRescan}
                 onRescanCompleted={handleRescanCompleted}
             />
+            <Modal
+                open={downloadErrorOpen}
+                onClose={() => setDownloadErrorOpen(false)}
+                closeAfterTransition
+                slots={{ backdrop: Backdrop }}
+                slotProps={{
+                    backdrop: {
+                        sx: {
+                            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                            zIndex: (theme) => theme.zIndex.drawer + 1,
+                        },
+                    },
+                }}
+            >
+                <Box
+                    sx={{
+                        position: 'absolute',
+                        top: '50%',
+                        left: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        textAlign: 'center',
+                        color: (theme) => theme.palette.common.white,
+                        zIndex: (theme) => theme.zIndex.modal + 1,
+                        backgroundColor: 'rgba(0,0,0,0.8)',
+                        padding: 3,
+                        borderRadius: 2,
+                        minWidth: 280,
+                    }}
+                >
+                    <Typography variant="h6" sx={{ mb: 1 }}>
+                        {downloadErrorTitle || t('downloadErrorTitle')}
+                    </Typography>
+                    <Typography variant="body2" sx={{ mb: 2 }}>
+                        {downloadErrorMessage}
+                    </Typography>
+                    <Button variant="contained" onClick={() => setDownloadErrorOpen(false)}>
+                        OK
+                    </Button>
+                </Box>
+            </Modal>
             <ConversionBackdrop />
         </Box>
     );

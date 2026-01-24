@@ -38,10 +38,39 @@ function useAuthWebSocket(endpoint: string, isAuthenticated: boolean) {
             }
 
             try {
-                const bookID = parseInt(data, 10);
+                const raw = typeof data === 'string' ? data : String(data);
+                const parsed = JSON.parse(raw);
+                if (parsed && typeof parsed.bookID === 'number' && parsed.status) {
+                    dispatch({ type: 'REMOVE_CONVERTING_BOOK', payload: { bookID: parsed.bookID, format: parsed.format || 'mobi' } });
+                    if (parsed.status === 'ready') {
+                        const downloadUrl = `${API_URL}/api/files/books/conversion/${parsed.bookID}`;
+                        const iframe = document.createElement('iframe');
+                        iframe.style.display = 'none';
+                        iframe.src = downloadUrl;
+                        document.body.appendChild(iframe);
 
+                        iframe.onload = () => {
+                            document.body.removeChild(iframe);
+                        };
+                    } else if (parsed.status === 'error') {
+                        dispatch({
+                            type: 'ADD_CONVERSION_ERROR',
+                            payload: {
+                                bookID: parsed.bookID,
+                                format: parsed.format || 'mobi',
+                                message: parsed.error || 'Conversion failed',
+                            },
+                        });
+                    }
+                    return;
+                }
+            } catch (_) {
+                // fall back to legacy format
+            }
+
+            const bookID = parseInt(String(data), 10);
+            if (!Number.isNaN(bookID)) {
                 dispatch({ type: 'REMOVE_CONVERTING_BOOK', payload: { bookID, format: 'mobi' } });
-
                 const downloadUrl = `${API_URL}/api/files/books/conversion/${bookID}`;
                 const iframe = document.createElement('iframe');
                 iframe.style.display = 'none';
@@ -51,8 +80,8 @@ function useAuthWebSocket(endpoint: string, isAuthenticated: boolean) {
                 iframe.onload = () => {
                     document.body.removeChild(iframe);
                 };
-            } catch (error) {
-                console.error("Error parsing WebSocket message:", data, error);
+            } else {
+                console.error("Error parsing WebSocket message:", data);
             }
         };
 

@@ -100,3 +100,41 @@ func GetBookFile(c *gin.Context) {
 	c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s.%s", book.DownloadName(), format))
 	http.ServeContent(c.Writer, c.Request, book.DownloadName()+"."+format, time.Now(), reader)
 }
+
+// HeadBookFile handles HEAD requests for book files without streaming content.
+func HeadBookFile(c *gin.Context) {
+	bookID, err := strconv.ParseInt(c.Param("id"), 10, 0)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, errors.New("bad_book_id"))
+		return
+	}
+	format := strings.ToLower(c.Param("format"))
+	contentType, ok := bookTypes[format]
+	if !ok {
+		httputil.NewError(c, http.StatusBadRequest, errors.New("unknown book format"))
+		return
+	}
+
+	book, err := database.GetBook(bookID)
+	if err != nil {
+		httputil.NewError(c, http.StatusNotFound, err)
+		return
+	}
+	zipPath := viper.GetString("app.files_path") + book.Path
+	if !utils.FileExists(zipPath) {
+		httputil.NewError(c, http.StatusNotFound, errors.New("book file not found"))
+		return
+	}
+
+	// Validate supported formats (same as GetBookFile)
+	switch format {
+	case "epub", "fb2", "zip":
+	default:
+		httputil.NewError(c, http.StatusBadRequest, errors.New("unsupported format"))
+		return
+	}
+
+	c.Writer.Header().Set("Content-Type", contentType)
+	c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s.%s", book.DownloadName(), format))
+	c.Status(http.StatusOK)
+}
