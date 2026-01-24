@@ -971,12 +971,19 @@ p.subtitle {
 
 img {
   max-width: 100%;
-  max-height: 100%;
+  height: auto;
 }
 
 .image {
   text-indent: 0em;
   text-align: center;
+}
+
+.image img {
+  display: block;
+  margin: 0 auto;
+  max-width: 100%;
+  height: auto;
 }
 
 .cover {
