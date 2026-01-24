@@ -1172,3 +1172,59 @@ func detectCharset(content []byte) string {
 	}
 	return strings.ToLower(result.Charset)
 }
+
+// --- Public methods for combined parsing (used by converter.ParseFB2Complete) ---
+
+// HandleStartElement processes an XML start element during combined parsing.
+// This method is called by ParseFB2Complete to feed metadata parser events.
+func (p *FB2Parser) HandleStartElement(elem xml.StartElement) {
+	p.handleStart(elem)
+}
+
+// HandleEndElement processes an XML end element during combined parsing.
+// This method is called by ParseFB2Complete to feed metadata parser events.
+func (p *FB2Parser) HandleEndElement(elem xml.EndElement) {
+	p.handleEnd(elem)
+}
+
+// HandleCharData processes XML character data during combined parsing.
+// This method is called by ParseFB2Complete to feed metadata parser events.
+func (p *FB2Parser) HandleCharData(data xml.CharData) {
+	p.handleChar(data)
+}
+
+// Reset resets the parser state for reuse in combined parsing.
+func (p *FB2Parser) Reset() {
+	p.reset()
+}
+
+// BuildBookFile constructs a BookFile from collected metadata after parsing.
+// This method is called by ParseFB2Complete after the XML has been traversed.
+func (p *FB2Parser) BuildBookFile(originalContent []byte) (*BookFile, error) {
+	book := &BookFile{
+		Title:      p.extractTitle(),
+		Authors:    p.extractAuthors(),
+		Tags:       p.extractTags(),
+		Series:     p.extractSeries(),
+		Language:   p.extractLanguage(),
+		DocDate:    p.extractDocDate(),
+		Annotation: p.extractAnnotation(),
+		BodySample: p.extractBodySample(),
+		TextSample: p.extractTextSample(),
+		Mimetype:   "fb2",
+	}
+
+	if p.readCover {
+		cover, err := p.extractCover()
+		if err != nil {
+			book.Issues = append(book.Issues, err.Error())
+		} else {
+			book.Cover = cover
+		}
+	}
+
+	// Ensure body sample is present
+	p.ensureBodySample(originalContent, book)
+
+	return book, nil
+}

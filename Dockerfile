@@ -8,12 +8,7 @@ RUN yarn build
 
 # Build stage
 FROM golang:1.24-alpine AS build-stage
-RUN apk add --no-cache unzip curl expat ca-certificates && \
-    curl -L https://github.com/rupor-github/fb2converter/releases/download/v1.67.1/fb2c_linux_amd64.zip -o fb2c_linux_amd64.zip && \
-    unzip fb2c_linux_amd64.zip -d /external_fb2mobi && \
-    chmod +x /external_fb2mobi/fb2c /external_fb2mobi/kindlegen && \
-    rm fb2c_linux_amd64.zip && \
-    apk del unzip curl
+RUN apk add --no-cache ca-certificates
 
 WORKDIR /app
 COPY go.mod go.sum ./
@@ -37,7 +32,7 @@ RUN apk --no-cache add ca-certificates tzdata && \
 
 WORKDIR /gopds
 COPY --from=build-stage /app/bin/gopds ./gopds
-COPY --from=build-stage /external_fb2mobi ./external_fb2mobi
+COPY --from=build-stage /app/kindlegen ./kindlegen
 COPY --from=build-stage /app/version ./version
 
 RUN chown -R gopds:gopds /gopds

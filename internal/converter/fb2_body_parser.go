@@ -366,20 +366,10 @@ func (s *fb2BodyState) appendParagraph(doc *FB2Document, paragraph *FB2Paragraph
 	if paragraph == nil {
 		paragraph = &FB2Paragraph{}
 	}
-	paragraph.Text = text
-	section := s.currentSection()
-	if section == nil {
-		if s.inNotes {
-			section = &FB2BodySection{}
-			doc.Notes = append(doc.Notes, section)
-		} else {
-			if doc.Body == nil {
-				doc.Body = &FB2BodySection{}
-			}
-			section = doc.Body
-		}
+	if text != "" {
+		paragraph.Text = text
 	}
-	section.Paragraphs = append(section.Paragraphs, paragraph)
+	s.appendParagraphRaw(doc, paragraph)
 }
 
 func (s *fb2BodyState) appendParagraphRaw(doc *FB2Document, paragraph *FB2Paragraph) {
