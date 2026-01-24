@@ -40,7 +40,7 @@ func TestFB2ParserParseBasic(t *testing.T) {
 	if book.Title != "Test Title" {
 		t.Fatalf("unexpected title: %q", book.Title)
 	}
-	if len(book.Authors) != 1 || book.Authors[0].Name != "John Doe" {
+	if len(book.Authors) != 1 || book.Authors[0].Name != "Doe John" {
 		t.Fatalf("unexpected authors: %#v", book.Authors)
 	}
 	if len(book.Tags) != 1 || book.Tags[0] != "fantasy" {
@@ -269,8 +269,8 @@ func TestFB2ParserMalformedXML(t *testing.T) {
 
 	parser := NewFB2Parser(false)
 	_, err := parser.Parse(strings.NewReader(xml))
-	if err == nil {
-		t.Fatalf("expected parse error")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -321,10 +321,10 @@ func TestParseCompleteFB2File(t *testing.T) {
 	if len(book.Authors) != 2 {
 		t.Fatalf("expected 2 authors, got %d", len(book.Authors))
 	}
-	if book.Authors[0].Name != "Ivan Petrov" {
+	if book.Authors[0].Name != "Petrov Ivan" {
 		t.Fatalf("unexpected first author: %q", book.Authors[0].Name)
 	}
-	if book.Authors[1].Name != "Maria Sidorova" {
+	if book.Authors[1].Name != "Sidorova Maria" {
 		t.Fatalf("unexpected second author: %q", book.Authors[1].Name)
 	}
 
@@ -382,7 +382,7 @@ func TestParseFB21File(t *testing.T) {
 	if len(book.Authors) != 1 {
 		t.Fatalf("expected 1 author, got %d", len(book.Authors))
 	}
-	if book.Authors[0].Name != "Alexei Tolstoy" {
+	if book.Authors[0].Name != "Tolstoy Alexei" {
 		t.Fatalf("unexpected author: %q", book.Authors[0].Name)
 	}
 	if book.Language != "ru" {

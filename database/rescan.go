@@ -344,7 +344,7 @@ func updateBookSeries(tx *pg.Tx, bookID int64, series *models.RescanSeries) erro
 func updateBookTags(tx *pg.Tx, bookID int64, tags []string) error {
 	// Note: Depending on your schema, tags might be stored differently
 	// This is a placeholder - implement based on your actual schema
-	logging.Info("Would update tags for book %d: %v", bookID, tags)
+	logging.Infof("Would update tags for book %d: %v", bookID, tags)
 	return nil
 }
 

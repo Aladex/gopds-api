@@ -211,12 +211,19 @@ func (ld *LanguageDetector) DetectLanguage(tagLang, textSample string) LanguageD
 	standardizedTag := ld.StandardizeLanguage(tagLang)
 
 	// If no text sample, use tag as fallback
-	if textSample == "" || len([]rune(textSample)) < 100 {
+	if textSample == "" || len([]rune(textSample)) < 20 {
 		logging.Debug("No text sample or too short, using tag as fallback")
 		result := LanguageDetectionResult{
 			Language:   standardizedTag,
 			Method:     MethodTagFallback,
 			Confidence: 0.0,
+		}
+		// Cache the result for consistency
+		if textSample != "" {
+			textHash := ld.hashText(textSample)
+			ld.cacheMutex.Lock()
+			ld.textHashCache[textHash] = result
+			ld.cacheMutex.Unlock()
 		}
 		return ld.ensureLanguage(result, textSample)
 	}
@@ -298,7 +305,7 @@ func (ld *LanguageDetector) DetectLanguage(tagLang, textSample string) LanguageD
 }
 
 func (ld *LanguageDetector) ensureLanguage(result LanguageDetectionResult, textSample string) LanguageDetectionResult {
-	if result.Language == "" || result.Language == "unknown" {
+	if (result.Language == "" || result.Language == "unknown") && strings.TrimSpace(textSample) != "" {
 		logging.Warnf("Language detection fallback to default 'ru' (method=%s)", result.Method)
 		result.Language = "ru"
 		result.Method = MethodDefault
