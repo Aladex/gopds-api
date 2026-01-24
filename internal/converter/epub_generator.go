@@ -331,6 +331,8 @@ func (g *EPUBGenerator) renderParagraph(p *FB2Paragraph) string {
 		return "<div class=\"emptyline\"></div>\n"
 	case "table":
 		return g.renderTable(p.Table)
+	case "image":
+		return "<div class=\"image\">" + content.String() + "</div>\n"
 	default:
 		return "<p>" + content.String() + "</p>\n"
 	}
@@ -1317,9 +1319,9 @@ func (g *EPUBGenerator) renderImage(builder *strings.Builder, el *FB2InlineEleme
 		builder.WriteString("<span class=\"fb2-image\">[image]</span>")
 		return
 	}
-	builder.WriteString("<div class=\"image\"><img src=\"images/")
+	builder.WriteString("<img src=\"images/")
 	builder.WriteString(html.EscapeString(image.Filename))
-	builder.WriteString("\" alt=\"\"/></div>")
+	builder.WriteString("\" alt=\"\"/>")
 }
 
 func buildCover(bookFile *parser.BookFile, images map[string]epubImage) *epubCover {

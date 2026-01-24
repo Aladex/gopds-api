@@ -20,6 +20,7 @@ const (
 	ParagraphKindPoemBreak  = "poem-break"
 	ParagraphKindEmptyLine  = "empty-line"
 	ParagraphKindTable      = "table"
+	ParagraphKindImage      = "image"
 )
 
 // Inline element types represent formatting and embedded content
@@ -482,7 +483,15 @@ func (s *fb2BodyState) handleStart(doc *FB2Document, elem xml.StartElement) {
 	case "strong", "emphasis", "code", "sup", "sub", "a":
 		s.pushInline(local, attrs)
 	case "image":
-		s.appendInline(&FB2InlineElement{Type: InlineTypeImage, Attrs: attrs})
+		if s.inParagraph || s.currentCell != nil {
+			s.appendInline(&FB2InlineElement{Type: InlineTypeImage, Attrs: attrs})
+			return
+		}
+		paragraph := &FB2Paragraph{
+			Kind:    ParagraphKindImage,
+			Content: []*FB2InlineElement{{Type: InlineTypeImage, Attrs: attrs}},
+		}
+		s.appendParagraphRaw(doc, paragraph)
 	case "br":
 		s.appendInline(&FB2InlineElement{Type: InlineTypeBreak})
 	}
