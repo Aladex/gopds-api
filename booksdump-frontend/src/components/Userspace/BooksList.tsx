@@ -155,17 +155,7 @@ const BooksList: React.FC = () => {
     };
 
     const handleMobiDownloadClick = async (bookID: number) => {
-        const conversionUrl = `${API_URL}/api/files/books/conversion/${bookID}`;
         try {
-            const conversionCheck = await fetch(conversionUrl, { method: 'HEAD', credentials: 'include' });
-            if (conversionCheck.ok) {
-                downloadViaIframe(conversionUrl, (status) => showDownloadError(status));
-                return;
-            }
-            if (conversionCheck.status !== 404) {
-                showDownloadError(conversionCheck.status);
-                return;
-            }
             const sourceUrl = `${API_URL}/files/books/get/fb2/${bookID}`;
             const sourceCheck = await fetch(sourceUrl, { method: 'HEAD', credentials: 'include' });
             if (!sourceCheck.ok) {
