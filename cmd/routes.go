@@ -68,6 +68,7 @@ func setupFileRoutes(group *gin.RouterGroup) {
 	group.GET("/books/get/:format/:id", api.GetBookFile)
 	group.HEAD("/books/get/:format/:id", api.HeadBookFile)
 	group.GET("/books/conversion/:id", api.DownloadConvertedBook)
+	group.HEAD("/books/conversion/:id", api.HeadConvertedBook)
 }
 
 // setupDefaultRoutes configures default routes for the application.

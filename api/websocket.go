@@ -107,6 +107,31 @@ func DownloadConvertedBook(c *gin.Context) {
 	}()
 }
 
+// HeadConvertedBook handles HEAD requests for converted MOBI files.
+func HeadConvertedBook(c *gin.Context) {
+	bookID := c.Param("id")
+	mobiConversionDir := viper.GetString("app.mobi_conversion_dir")
+	filePath := filepath.Join(mobiConversionDir, fmt.Sprintf("%s.mobi", bookID))
+
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+		return
+	}
+
+	bookIDInt, err := strconv.ParseInt(bookID, 10, 64)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, fmt.Errorf("invalid book ID: %v", err))
+		return
+	}
+	if _, err := database.GetBook(bookIDInt); err != nil {
+		httputil.NewError(c, http.StatusNotFound, err)
+		return
+	}
+
+	c.Header("Content-Type", "application/x-mobipocket-ebook")
+	c.Status(http.StatusOK)
+}
+
 func WebsocketHandler(c *gin.Context) {
 	conn, _, _, err := ws.UpgradeHTTP(c.Request, c.Writer)
 	if err != nil {
