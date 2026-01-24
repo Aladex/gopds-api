@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+  <description>
+    <title-info>
+      <genre>prose</genre>
+      <author>
+        <first-name>Test</first-name>
+        <last-name>Author</last-name>
+      </author>
+      <book-title>Special Elements Test</book-title>
+      <lang>en</lang>
+    </title-info>
+  </description>
+  <body>
+    <section>
+      <title><p>Special Elements</p></title>
+
+      <subtitle>Poems</subtitle>
+      <poem>
+        <stanza>
+          <v>First line of the poem</v>
+          <v>Second line of the poem</v>
+        </stanza>
+        <stanza>
+          <v>Third line after stanza break</v>
+          <v>Fourth line</v>
+        </stanza>
+        <text-author>Poem Author</text-author>
+      </poem>
+
+      <subtitle>Citations</subtitle>
+      <cite>
+        <p>This is a citation from another source.</p>
+        <p>It can have multiple paragraphs.</p>
+        <text-author>Citation Author</text-author>
+      </cite>
+
+      <subtitle>Epigraphs</subtitle>
+      <epigraph>
+        <p>An epigraph at the beginning.</p>
+        <text-author>Epigraph Author</text-author>
+      </epigraph>
+
+      <subtitle>Tables</subtitle>
+      <table>
+        <tr>
+          <th>Header 1</th>
+          <th>Header 2</th>
+          <th>Header 3</th>
+        </tr>
+        <tr>
+          <td>Cell 1-1</td>
+          <td>Cell 1-2</td>
+          <td>Cell 1-3</td>
+        </tr>
+        <tr>
+          <td>Cell 2-1</td>
+          <td>Cell 2-2 with <strong>bold</strong></td>
+          <td>Cell 2-3</td>
+        </tr>
+      </table>
+
+    </section>
+  </body>
+</FictionBook>

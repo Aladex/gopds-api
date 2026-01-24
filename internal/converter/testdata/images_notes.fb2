@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+  <description>
+    <title-info>
+      <genre>prose</genre>
+      <author>
+        <first-name>Test</first-name>
+        <last-name>Author</last-name>
+      </author>
+      <book-title>Images and Notes Test</book-title>
+      <lang>en</lang>
+    </title-info>
+  </description>
+  <body>
+    <section>
+      <title><p>Images and Notes</p></title>
+      <p>This paragraph has an inline image: <image l:href="#img1"/> in the text.</p>
+      <p>This text has a footnote reference<a l:href="#note1" type="note"><sup>1</sup></a>.</p>
+      <p>Another footnote reference<a l:href="#note2" type="note"><sup>2</sup></a> here.</p>
+    </section>
+  </body>
+  <body name="notes">
+    <section id="note1">
+      <title><p>1</p></title>
+      <p>This is the first footnote text.</p>
+    </section>
+    <section id="note2">
+      <title><p>2</p></title>
+      <p>This is the second footnote with <strong>formatting</strong>.</p>
+    </section>
+  </body>
+  <binary id="img1" content-type="image/png">iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==</binary>
+</FictionBook>

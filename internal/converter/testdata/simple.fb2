@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+  <description>
+    <title-info>
+      <genre>prose</genre>
+      <author>
+        <first-name>Test</first-name>
+        <last-name>Author</last-name>
+      </author>
+      <book-title>Simple Test Book</book-title>
+      <lang>en</lang>
+    </title-info>
+  </description>
+  <body>
+    <section>
+      <title><p>Chapter 1</p></title>
+      <p>First paragraph of the test book.</p>
+      <p>Second paragraph with some text.</p>
+    </section>
+  </body>
+</FictionBook>

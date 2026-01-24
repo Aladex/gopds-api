@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+  <description>
+    <title-info>
+      <genre>prose</genre>
+      <author>
+        <first-name>Тестовый</first-name>
+        <last-name>Автор</last-name>
+      </author>
+      <book-title>Тестовая Книга</book-title>
+      <lang>ru</lang>
+    </title-info>
+  </description>
+  <body>
+    <section>
+      <title><p>Глава 1</p></title>
+      <p>Первый параграф с кириллическим текстом.</p>
+      <p>Текст с <strong>жирным</strong> и <emphasis>курсивным</emphasis> форматированием.</p>
+      <p>Проверка специальных символов: «кавычки», тире — дефис - точка · и другие.</p>
+    </section>
+  </body>
+</FictionBook>

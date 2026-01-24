@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+  <description>
+    <title-info>
+      <genre>prose</genre>
+      <author>
+        <first-name>Test</first-name>
+        <last-name>Author</last-name>
+      </author>
+      <book-title>Nested Sections Test</book-title>
+      <lang>en</lang>
+    </title-info>
+  </description>
+  <body>
+    <section id="ch1">
+      <title><p>Chapter 1</p></title>
+      <p>Chapter 1 introduction.</p>
+      <section id="ch1-1">
+        <title><p>Section 1.1</p></title>
+        <p>Content of section 1.1.</p>
+        <section id="ch1-1-1">
+          <title><p>Subsection 1.1.1</p></title>
+          <p>Deep nested content.</p>
+        </section>
+      </section>
+      <section id="ch1-2">
+        <title><p>Section 1.2</p></title>
+        <p>Content of section 1.2.</p>
+      </section>
+    </section>
+    <section id="ch2">
+      <title><p>Chapter 2</p></title>
+      <p>Chapter 2 content.</p>
+    </section>
+  </body>
+</FictionBook>
