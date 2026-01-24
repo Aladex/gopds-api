@@ -4,10 +4,14 @@ import (
 	"archive/zip"
 	"bytes"
 	"errors"
+	"fmt"
+	"gopds-api/internal/converter"
+	"gopds-api/internal/parser"
 	"gopds-api/logging"
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -111,8 +115,39 @@ func (bp *BookProcessor) readWithoutConversion(rc io.ReadCloser) (io.ReadCloser,
 	return io.NopCloser(bytes.NewReader(buf.Bytes())), nil
 }
 
+// Epub generates an EPUB file from the FB2 book.
+// Returns an io.ReadCloser containing the complete EPUB archive.
 func (bp *BookProcessor) Epub() (io.ReadCloser, error) {
-	return bp.process(".epub", []string{"external_fb2mobi/fb2c", "convert", "--to", "epub"}, true)
+	fb2Content, err := bp.extractFB2()
+	if err != nil {
+		logging.Errorf("Failed to extract FB2 from archive %s: %v", bp.path, err)
+		return nil, fmt.Errorf("failed to extract FB2: %w", err)
+	}
+
+	// Parse metadata (title, authors, language, cover, etc.)
+	metadataParser := parser.NewFB2Parser(true)
+	bookFile, err := metadataParser.Parse(bytes.NewReader(fb2Content))
+	if err != nil {
+		logging.Errorf("Failed to parse FB2 metadata for %s: %v", bp.filename, err)
+		return nil, fmt.Errorf("failed to parse FB2 metadata: %w", err)
+	}
+
+	// Parse body structure (sections, paragraphs, formatting)
+	doc, err := converter.ParseFB2Body(fb2Content)
+	if err != nil {
+		logging.Errorf("Failed to parse FB2 body for %s: %v", bp.filename, err)
+		return nil, fmt.Errorf("failed to parse FB2 body: %w", err)
+	}
+
+	// Generate EPUB archive
+	generator := converter.NewEPUBGenerator()
+	epubReader, err := generator.GenerateEPUB(doc, bookFile)
+	if err != nil {
+		logging.Errorf("Failed to generate EPUB for %s: %v", bp.filename, err)
+		return nil, fmt.Errorf("failed to generate EPUB: %w", err)
+	}
+
+	return epubReader, nil
 }
 
 func (bp *BookProcessor) Mobi() (io.ReadCloser, error) {
@@ -155,4 +190,28 @@ func (bp *BookProcessor) Zip(df string) (io.ReadCloser, error) {
 	}
 
 	return nil, errors.New("book is not found")
+}
+
+func (bp *BookProcessor) extractFB2() ([]byte, error) {
+	reader, err := zip.OpenReader(bp.path)
+	if err != nil {
+		return nil, err
+	}
+	defer closeResource(reader)
+
+	for _, file := range reader.File {
+		if file.Name != bp.filename {
+			continue
+		}
+		if !strings.HasSuffix(strings.ToLower(file.Name), ".fb2") {
+			return nil, fmt.Errorf("file is not fb2: %s", file.Name)
+		}
+		rc, err := file.Open()
+		if err != nil {
+			return nil, err
+		}
+		defer closeResource(rc)
+		return io.ReadAll(rc)
+	}
+	return nil, errors.New("book not found")
 }
