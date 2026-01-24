@@ -177,18 +177,167 @@ func sanitizeControlChars(content []byte) []byte {
 	return out
 }
 
+// sanitizeBrokenSelfClosingTags fixes malformed self-closing tags.
+// Handles cases like:
+//   - <image .../</section> -> <image />
+//   - <image .../< -> <image /><
+//   - <empty-line / <p> -> <empty-line /><p>
 func sanitizeBrokenSelfClosingTags(content []byte) []byte {
-	if !bytes.Contains(content, []byte("/</")) {
-		if !bytes.Contains(content, []byte("/\n<")) && !bytes.Contains(content, []byte("/\r\n<")) && !bytes.Contains(content, []byte("/\t<")) && !bytes.Contains(content, []byte("/ <")) {
-			return content
+	changed := false
+	out := make([]byte, 0, len(content))
+
+	for i := 0; i < len(content); i++ {
+		if content[i] != '/' {
+			out = append(out, content[i])
+			continue
+		}
+
+		// Check if this is potentially a broken self-closing tag: "/" followed by whitespace or "<"
+		if i+1 >= len(content) {
+			out = append(out, content[i])
+			continue
+		}
+
+		next := content[i+1]
+
+		// Pattern: /</tag> or /</ or /< -> convert to />
+		if next == '<' {
+			// Look back to find the opening < of the current tag
+			if !isPartOfSelfClosingTag(content, i) {
+				out = append(out, content[i])
+				continue
+			}
+
+			// Skip whitespace between / and <
+			j := i + 1
+			for j < len(content) && (content[j] == ' ' || content[j] == '\t' || content[j] == '\n' || content[j] == '\r') {
+				j++
+			}
+
+			if j < len(content) && content[j] == '<' {
+				out = append(out, '/', '>')
+				changed = true
+
+				// Check if this is a closing tag like </section> and skip it
+				if j+1 < len(content) && content[j+1] == '/' {
+					// Find the end of this closing tag
+					gtPos := bytes.IndexByte(content[j:], '>')
+					if gtPos != -1 {
+						// Skip the entire closing tag
+						i = j + gtPos
+						continue
+					}
+				}
+
+				i = j - 1
+				continue
+			}
+		}
+
+		// Pattern: / followed by whitespace before < (e.g., "/ <" or "/ \n<")
+		if next == ' ' || next == '\t' || next == '\n' || next == '\r' {
+			if !isPartOfSelfClosingTag(content, i) {
+				out = append(out, content[i])
+				continue
+			}
+
+			// Look ahead for <
+			j := i + 1
+			for j < len(content) && (content[j] == ' ' || content[j] == '\t' || content[j] == '\n' || content[j] == '\r') {
+				j++
+			}
+
+			if j < len(content) && content[j] == '<' {
+				out = append(out, '/', '>')
+				changed = true
+				i = j - 1
+				continue
+			}
+		}
+
+		out = append(out, content[i])
+	}
+
+	if !changed {
+		return content
+	}
+	return out
+}
+
+// isPartOfSelfClosingTag checks if the "/" at position i is part of a self-closing tag
+func isPartOfSelfClosingTag(content []byte, slashPos int) bool {
+	// Look back to find the opening <
+	openPos := -1
+	for i := slashPos - 1; i >= 0 && i > slashPos-200; i-- {
+		if content[i] == '<' {
+			openPos = i
+			break
+		}
+		if content[i] == '>' {
+			// Found closing > before opening <, so this / is not part of a tag
+			return false
 		}
 	}
-	out := bytes.ReplaceAll(content, []byte("/</"), []byte("/><"))
-	out = bytes.ReplaceAll(out, []byte("/\r\n<"), []byte("/><"))
-	out = bytes.ReplaceAll(out, []byte("/\n<"), []byte("/><"))
-	out = bytes.ReplaceAll(out, []byte("/\t<"), []byte("/><"))
-	out = bytes.ReplaceAll(out, []byte("/ <"), []byte("/><"))
-	return out
+
+	if openPos == -1 {
+		return false
+	}
+
+	// Extract tag name
+	nameStart := openPos + 1
+	for nameStart < slashPos && (content[nameStart] == ' ' || content[nameStart] == '\t' || content[nameStart] == '\n' || content[nameStart] == '\r') {
+		nameStart++
+	}
+
+	if nameStart >= slashPos {
+		return false
+	}
+
+	// Check if this looks like an opening tag (not </ or <! or <?)
+	if content[nameStart] == '/' || content[nameStart] == '!' || content[nameStart] == '?' {
+		return false
+	}
+
+	// Tags that are typically self-closing in FB2
+	tagName := extractTagNameAt(content, nameStart)
+	switch strings.ToLower(tagName) {
+	case "image", "empty-line", "br", "img":
+		return true
+	}
+
+	// Also accept any tag that has attributes (likely malformed self-closing)
+	hasAttributes := false
+	for i := nameStart; i < slashPos; i++ {
+		if content[i] == ' ' || content[i] == '\t' || content[i] == '\n' || content[i] == '\r' {
+			// Check if there's a = sign after whitespace (indicates attribute)
+			for j := i; j < slashPos; j++ {
+				if content[j] == '=' {
+					hasAttributes = true
+					break
+				}
+				if content[j] != ' ' && content[j] != '\t' && content[j] != '\n' && content[j] != '\r' {
+					break
+				}
+			}
+			if hasAttributes {
+				break
+			}
+		}
+	}
+
+	return hasAttributes
+}
+
+// extractTagNameAt extracts the tag name starting at the given position
+func extractTagNameAt(content []byte, start int) string {
+	end := start
+	for end < len(content) && isNameChar(content[end]) {
+		end++
+	}
+	if end == start {
+		return ""
+	}
+	return string(content[start:end])
 }
 
 func sanitizeMissingXlinkPrefix(content []byte) []byte {
@@ -518,4 +667,163 @@ func detectCharset(content []byte) string {
 		return ""
 	}
 	return strings.ToLower(result.Charset)
+}
+
+// balanceSectionTags ensures all <section> tags are properly balanced.
+// This is critical for FB2 files where sections define the book structure.
+// It automatically closes unclosed sections and removes orphaned closing tags.
+func balanceSectionTags(content []byte) []byte {
+	if !bytes.Contains(content, []byte("<section")) && !bytes.Contains(content, []byte("</section>")) {
+		return content
+	}
+
+	out := make([]byte, 0, len(content))
+	sectionStack := make([]int, 0, 32) // Track nesting depth positions
+
+	i := 0
+	for i < len(content) {
+		if content[i] != '<' {
+			out = append(out, content[i])
+			i++
+			continue
+		}
+
+		// Find the end of the tag
+		gt := bytes.IndexByte(content[i:], '>')
+		if gt == -1 {
+			out = append(out, content[i:]...)
+			break
+		}
+		gt += i
+
+		tagContent := content[i+1 : gt]
+		tagStr := strings.TrimSpace(string(tagContent))
+
+		// Check if this is a <section> opening tag
+		if strings.HasPrefix(tagStr, "section") || strings.HasPrefix(tagStr, "section ") {
+			// Not a closing tag and not self-closing
+			if !strings.HasSuffix(tagStr, "/") {
+				sectionStack = append(sectionStack, len(out))
+			}
+			out = append(out, content[i:gt+1]...)
+			i = gt + 1
+			continue
+		}
+
+		// Check if this is a </section> closing tag
+		if strings.HasPrefix(tagStr, "/section") {
+			if len(sectionStack) > 0 {
+				// Valid closing tag, pop from stack
+				sectionStack = sectionStack[:len(sectionStack)-1]
+				out = append(out, content[i:gt+1]...)
+			} else {
+				// Orphaned closing tag, skip it
+				// (don't add to output)
+			}
+			i = gt + 1
+			continue
+		}
+
+		// Regular tag, just copy
+		out = append(out, content[i:gt+1]...)
+		i = gt + 1
+	}
+
+	// Close any remaining unclosed sections
+	for range sectionStack {
+		out = append(out, []byte("</section>")...)
+	}
+
+	return out
+}
+
+// balanceCommonTags ensures common FB2 tags are properly balanced.
+// Handles tags like <p>, <title>, <cite>, <epigraph>, <poem>, <stanza>, etc.
+func balanceCommonTags(content []byte) []byte {
+	// Tags to balance (order matters for nesting)
+	tags := []string{"title", "epigraph", "cite", "poem", "stanza", "p", "v", "subtitle", "text-author"}
+
+	out := content
+	for _, tag := range tags {
+		out = balanceSpecificTag(out, tag)
+	}
+	return out
+}
+
+// balanceSpecificTag balances a specific tag type
+func balanceSpecificTag(content []byte, tag string) []byte {
+	openTag := "<" + tag
+	closeTag := "</" + tag + ">"
+	closeTagBytes := []byte(closeTag)
+
+	if !bytes.Contains(content, []byte(openTag)) {
+		return content
+	}
+
+	out := make([]byte, 0, len(content))
+	stack := make([]int, 0, 16)
+
+	// Tags that should auto-close when encountering the same opening tag
+	// (e.g., <p> should close previous unclosed <p>)
+	autoCloseTags := map[string]bool{
+		"p": true, "v": true, "subtitle": true, "text-author": true,
+	}
+	shouldAutoClose := autoCloseTags[tag]
+
+	i := 0
+	for i < len(content) {
+		if content[i] != '<' {
+			out = append(out, content[i])
+			i++
+			continue
+		}
+
+		gt := bytes.IndexByte(content[i:], '>')
+		if gt == -1 {
+			out = append(out, content[i:]...)
+			break
+		}
+		gt += i
+
+		tagContent := content[i+1 : gt]
+		tagStr := strings.TrimSpace(string(tagContent))
+		lowerTag := strings.ToLower(tagStr)
+
+		// Check if this is our opening tag
+		if lowerTag == tag || strings.HasPrefix(lowerTag, tag+" ") {
+			if !strings.HasSuffix(tagStr, "/") {
+				// Auto-close previous tag of the same type if needed
+				if shouldAutoClose && len(stack) > 0 {
+					out = append(out, closeTagBytes...)
+					stack = stack[:len(stack)-1]
+				}
+				stack = append(stack, len(out))
+			}
+			out = append(out, content[i:gt+1]...)
+			i = gt + 1
+			continue
+		}
+
+		// Check if this is our closing tag
+		if lowerTag == "/"+tag {
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+				out = append(out, content[i:gt+1]...)
+			}
+			// Orphaned closing tags are skipped
+			i = gt + 1
+			continue
+		}
+
+		// Regular tag
+		out = append(out, content[i:gt+1]...)
+		i = gt + 1
+	}
+
+	// Close any remaining unclosed tags
+	for range stack {
+		out = append(out, closeTagBytes...)
+	}
+
+	return out
 }

@@ -97,16 +97,26 @@ type FB2TableCell struct {
 //
 // Returns FB2Document with parsed structure or error if parsing fails.
 func ParseFB2Body(xmlContent []byte) (*FB2Document, error) {
+	// Step 1: Decode charset and basic cleaning
 	decoded := tryDecodeCharset(xmlContent)
 	decoded = sanitizeControlChars(decoded)
 	decoded = sanitizeInvalidTagOpenings(decoded)
 	decoded = sanitizeInvalidProcessingInstructions(decoded)
 	decoded = sanitizeInvalidAmpersands(decoded)
 	decoded = sanitizeXMLVersion(decoded)
-	decoded = sanitizeBrokenSelfClosingTags(decoded)
+
+	// Step 2: Fix broken tags (universal repairs)
+	decoded = sanitizeBrokenSelfClosingTags(decoded) // Handles <image .../</section>
 	decoded = sanitizeBrokenEndTags(decoded)
 	decoded = sanitizeBrokenLangTag(decoded)
 	decoded = sanitizeMissingXlinkPrefix(decoded)
+
+	// Step 3: Balance critical FB2 structure tags
+	decoded = balanceSectionTags(decoded) // Balance <section> tags
+	decoded = balanceCommonTags(decoded)  // Balance <p>, <title>, <cite>, etc.
+
+	// Step 4: Final XML repair for any remaining issues
+	decoded = repairBrokenXML(decoded)
 
 	doc := &FB2Document{}
 	decoder := xml.NewDecoder(bytes.NewReader(decoded))
@@ -121,7 +131,7 @@ func ParseFB2Body(xmlContent []byte) (*FB2Document, error) {
 			break
 		}
 		if err != nil {
-			return nil, err
+			return parseFB2BodyLoose(decoded)
 		}
 
 		switch t := token.(type) {
@@ -138,6 +148,221 @@ func ParseFB2Body(xmlContent []byte) (*FB2Document, error) {
 		doc.Body = state.sectionStack[0]
 	}
 	return doc, nil
+}
+
+func repairBrokenXML(content []byte) []byte {
+	if len(content) == 0 {
+		return content
+	}
+
+	out := make([]byte, 0, len(content))
+	stack := make([]string, 0, 64)
+
+	for i := 0; i < len(content); {
+		if content[i] != '<' {
+			out = append(out, content[i])
+			i++
+			continue
+		}
+		gt := bytes.IndexByte(content[i:], '>')
+		if gt == -1 {
+			out = append(out, content[i:]...)
+			break
+		}
+		gt += i
+		tagBody := content[i+1 : gt]
+		tagStr := strings.TrimSpace(string(tagBody))
+		if tagStr == "" {
+			i = gt + 1
+			continue
+		}
+
+		if strings.HasPrefix(tagStr, "!--") || strings.HasPrefix(tagStr, "?") || strings.HasPrefix(tagStr, "!") {
+			out = append(out, content[i:gt+1]...)
+			i = gt + 1
+			continue
+		}
+
+		isEnd := strings.HasPrefix(tagStr, "/")
+		name := parseTagName(tagStr)
+		name = normalizeName(name)
+		if name == "" {
+			out = append(out, content[i:gt+1]...)
+			i = gt + 1
+			continue
+		}
+
+		if isEnd {
+			if idx := lastIndex(stack, name); idx != -1 {
+				stack = stack[:idx]
+				out = append(out, content[i:gt+1]...)
+			}
+			i = gt + 1
+			continue
+		}
+
+		selfClosing := strings.HasSuffix(tagStr, "/")
+		out = append(out, content[i:gt+1]...)
+		if !selfClosing && !isVoidTag(name) {
+			stack = append(stack, name)
+		}
+		i = gt + 1
+	}
+
+	for i := len(stack) - 1; i >= 0; i-- {
+		out = append(out, []byte("</"+stack[i]+">")...)
+	}
+	return out
+}
+
+func parseTagName(tag string) string {
+	tag = strings.TrimSpace(tag)
+	if tag == "" {
+		return ""
+	}
+	if tag[0] == '/' {
+		tag = strings.TrimSpace(tag[1:])
+	}
+	if tag == "" {
+		return ""
+	}
+	var name strings.Builder
+	for i := 0; i < len(tag); i++ {
+		b := tag[i]
+		if (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == ':' || b == '_' || b == '-' || b == '.' {
+			name.WriteByte(b)
+			continue
+		}
+		break
+	}
+	return name.String()
+}
+
+func lastIndex(stack []string, name string) int {
+	for i := len(stack) - 1; i >= 0; i-- {
+		if stack[i] == name {
+			return i
+		}
+	}
+	return -1
+}
+
+func isVoidTag(name string) bool {
+	switch name {
+	case "br", "img", "image", "empty-line":
+		return true
+	default:
+		return false
+	}
+}
+
+func parseFB2BodyLoose(content []byte) (*FB2Document, error) {
+	segment := extractBodySegment(content)
+	section := &FB2BodySection{}
+	title := extractFirstTagText(segment, "title")
+	if title != "" {
+		section.Title = normalizeWhitespace(title)
+	}
+	paragraphs := extractParagraphs(segment)
+	for _, text := range paragraphs {
+		section.Paragraphs = append(section.Paragraphs, &FB2Paragraph{Text: text})
+	}
+	if len(section.Paragraphs) == 0 && section.Title == "" {
+		return &FB2Document{Body: &FB2BodySection{}}, nil
+	}
+	return &FB2Document{Body: section}, nil
+}
+
+func extractBodySegment(content []byte) []byte {
+	lower := bytes.ToLower(content)
+	bodyStart := bytes.Index(lower, []byte("<body"))
+	if bodyStart == -1 {
+		return content
+	}
+	tagEnd := bytes.IndexByte(lower[bodyStart:], '>')
+	if tagEnd == -1 {
+		return content[bodyStart:]
+	}
+	start := bodyStart + tagEnd + 1
+	bodyEnd := bytes.Index(lower[start:], []byte("</body>"))
+	end := len(content)
+	if bodyEnd != -1 {
+		end = start + bodyEnd
+	}
+	return content[start:end]
+}
+
+func extractFirstTagText(content []byte, tag string) string {
+	openTag := "<" + tag
+	closeTag := "</" + tag + ">"
+	lower := bytes.ToLower(content)
+	openIdx := bytes.Index(lower, []byte(openTag))
+	if openIdx == -1 {
+		return ""
+	}
+	gt := bytes.IndexByte(lower[openIdx:], '>')
+	if gt == -1 {
+		return ""
+	}
+	start := openIdx + gt + 1
+	closeIdx := bytes.Index(lower[start:], []byte(closeTag))
+	if closeIdx == -1 {
+		return ""
+	}
+	return stripTags(content[start : start+closeIdx])
+}
+
+func extractParagraphs(content []byte) []string {
+	var paragraphs []string
+	lower := bytes.ToLower(content)
+	i := 0
+	for {
+		openIdx := bytes.Index(lower[i:], []byte("<p"))
+		if openIdx == -1 {
+			break
+		}
+		openIdx += i
+		gt := bytes.IndexByte(lower[openIdx:], '>')
+		if gt == -1 {
+			break
+		}
+		start := openIdx + gt + 1
+		end := len(content)
+		closeIdx := bytes.Index(lower[start:], []byte("</p>"))
+		nextOpen := bytes.Index(lower[start:], []byte("<p"))
+		if closeIdx != -1 {
+			end = start + closeIdx
+		}
+		if nextOpen != -1 && start+nextOpen < end {
+			end = start + nextOpen
+		}
+		text := normalizeWhitespace(stripTags(content[start:end]))
+		if text != "" {
+			paragraphs = append(paragraphs, text)
+		}
+		i = end
+	}
+	return paragraphs
+}
+
+func stripTags(content []byte) string {
+	var out strings.Builder
+	out.Grow(len(content))
+	inTag := false
+	for i := 0; i < len(content); i++ {
+		b := content[i]
+		switch b {
+		case '<':
+			inTag = true
+		case '>':
+			inTag = false
+		default:
+			if !inTag {
+				out.WriteByte(b)
+			}
+		}
+	}
+	return strings.TrimSpace(out.String())
 }
 
 type fb2BodyState struct {

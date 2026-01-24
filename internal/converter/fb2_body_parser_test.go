@@ -551,3 +551,211 @@ func TestParseFB2Body_InvalidXML(t *testing.T) {
 	}
 	t.Logf("Parser handled invalid XML gracefully with minimal document")
 }
+
+// TestSanitizeBrokenSelfClosingTags tests universal repairs for broken self-closing tags
+func TestSanitizeBrokenSelfClosingTags(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "Broken image tag with section closing",
+			input:    `<image xlink:href="#img1" /</section>`,
+			expected: `<image xlink:href="#img1" />`,
+		},
+		{
+			name:     "Broken self-closing with space before tag",
+			input:    `<empty-line / <p>text</p>`,
+			expected: `<empty-line /><p>text</p>`,
+		},
+		{
+			name:     "Broken self-closing with newline",
+			input:    "<image href=\"#img1\" /\n<section>",
+			expected: `<image href="#img1" /><section>`,
+		},
+		{
+			name:     "Normal self-closing tags should not change",
+			input:    `<image href="#img1" /><br/>`,
+			expected: `<image href="#img1" /><br/>`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sanitizeBrokenSelfClosingTags([]byte(tt.input))
+			resultStr := string(result)
+			if resultStr != tt.expected {
+				t.Errorf("Expected '%s', got '%s'", tt.expected, resultStr)
+			}
+		})
+	}
+}
+
+// TestBalanceSectionTags tests section tag balancing
+func TestBalanceSectionTags(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantBody bool
+	}{
+		{
+			name: "Unclosed section should be auto-closed",
+			input: `<?xml version="1.0"?>
+<FictionBook>
+<body>
+<section>
+<title><p>Chapter 1</p></title>
+<p>Text</p>
+</body>
+</FictionBook>`,
+			wantBody: true,
+		},
+		{
+			name: "Orphaned closing section should be removed",
+			input: `<?xml version="1.0"?>
+<FictionBook>
+<body>
+<p>Text</p>
+</section>
+</body>
+</FictionBook>`,
+			wantBody: true,
+		},
+		{
+			name: "Nested unclosed sections",
+			input: `<?xml version="1.0"?>
+<FictionBook>
+<body>
+<section>
+<title><p>Chapter 1</p></title>
+<section>
+<title><p>Section 1.1</p></title>
+<p>Text</p>
+</body>
+</FictionBook>`,
+			wantBody: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc, err := ParseFB2Body([]byte(tt.input))
+			if err != nil {
+				t.Fatalf("ParseFB2Body failed: %v", err)
+			}
+
+			if tt.wantBody && doc.Body == nil {
+				t.Error("Expected body to be parsed")
+			}
+		})
+	}
+}
+
+// TestBalanceCommonTags tests balancing of common FB2 tags
+func TestBalanceCommonTags(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantText string
+	}{
+		{
+			name: "Unclosed paragraph",
+			input: `<?xml version="1.0"?>
+<FictionBook>
+<body>
+<section>
+<p>First paragraph
+<p>Second paragraph</p>
+</section>
+</body>
+</FictionBook>`,
+			wantText: "First paragraph",
+		},
+		{
+			name: "Unclosed cite",
+			input: `<?xml version="1.0"?>
+<FictionBook>
+<body>
+<section>
+<cite>
+<p>Citation text</p>
+<section>
+<p>Next section</p>
+</section>
+</section>
+</body>
+</FictionBook>`,
+			wantText: "Citation text",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc, err := ParseFB2Body([]byte(tt.input))
+			if err != nil {
+				t.Fatalf("ParseFB2Body failed: %v", err)
+			}
+
+			if doc.Body == nil {
+				t.Fatal("Expected body to be parsed")
+			}
+
+			found := false
+			for _, para := range doc.Body.Paragraphs {
+				if para.Text == tt.wantText {
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				t.Errorf("Expected to find paragraph with text '%s'", tt.wantText)
+			}
+		})
+	}
+}
+
+// TestUniversalRepairs tests the complete repair pipeline
+func TestUniversalRepairs(t *testing.T) {
+	// Complex malformed FB2 with multiple issues
+	input := `<?xml version="1.0"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"
+             xmlns:xlink="http://www.w3.org/1999/xlink">
+<body>
+<section>
+<title><p>Chapter with Issues</p></title>
+<p>Normal text with <strong>bold</strong> and <emphasis>italic</emphasis>.</p>
+<image xlink:href="#img1" /</section>
+<section>
+<title><p>Another Chapter</p>
+<p>Text in unclosed section
+</body>
+</FictionBook>`
+
+	doc, err := ParseFB2Body([]byte(input))
+	if err != nil {
+		t.Fatalf("ParseFB2Body failed: %v", err)
+	}
+
+	if doc == nil || doc.Body == nil {
+		t.Fatal("Expected valid document with body")
+	}
+
+	// Should have parsed at least the first section
+	if doc.Body.Title == "" && len(doc.Body.SubSections) == 0 {
+		t.Error("Expected to find at least one section title")
+	}
+
+	// Should have some paragraphs
+	totalParagraphs := len(doc.Body.Paragraphs)
+	for _, sub := range doc.Body.SubSections {
+		totalParagraphs += len(sub.Paragraphs)
+	}
+
+	if totalParagraphs == 0 {
+		t.Error("Expected to find some paragraphs")
+	}
+
+	t.Logf("Successfully parsed malformed document with %d total paragraphs", totalParagraphs)
+}

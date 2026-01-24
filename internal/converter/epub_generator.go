@@ -249,18 +249,21 @@ func (g *EPUBGenerator) renderSectionShallow(builder *strings.Builder, section *
 }
 
 func (g *EPUBGenerator) renderSectionHeader(builder *strings.Builder, section *FB2BodySection, level int) {
-	if section == nil || builder == nil || section.Title == "" {
+	if section == nil || builder == nil {
 		return
 	}
 	anchor := g.sectionAnchor(section)
+	if anchor != "" {
+		builder.WriteString("<a id=\"")
+		builder.WriteString(html.EscapeString(anchor))
+		builder.WriteString("\"></a>\n")
+	}
+	if section.Title == "" {
+		return
+	}
 	heading := fmt.Sprintf("h%d", clampHeading(level))
 	builder.WriteString("<")
 	builder.WriteString(heading)
-	if anchor != "" {
-		builder.WriteString(" id=\"")
-		builder.WriteString(html.EscapeString(anchor))
-		builder.WriteString("\"")
-	}
 	builder.WriteString(">")
 	builder.WriteString(html.EscapeString(section.Title))
 	builder.WriteString("</")
