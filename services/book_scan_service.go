@@ -113,19 +113,19 @@ func (s *BookScanService) GetUnscannedArchives() ([]string, error) {
 
 	logging.Infof("Found %d ZIP archives in %s", len(archiveFiles), s.archivesDir)
 
-	// 2. Get unscanned catalogs from database
-	unscannedCatalogs, err := database.GetUnscannedCatalogs()
+	// 2. Get scanned catalogs from database
+	scannedCatalogs, err := database.GetScannedCatalogNames()
 	if err != nil {
 		return nil, err
 	}
 
 	// Create a map for faster lookup
-	unscannedMap := make(map[string]bool)
-	for _, catName := range unscannedCatalogs {
-		unscannedMap[catName] = true
+	scannedMap := make(map[string]bool)
+	for _, catName := range scannedCatalogs {
+		scannedMap[catName] = true
 	}
 
-	// 3. Filter archive files by unscanned status
+	// 3. Filter: archives on disk that are NOT scanned (no DB record or is_scanned=false)
 	var unscannedArchives []string
 	for _, archivePath := range archiveFiles {
 		// Get relative path from archives directory
@@ -135,8 +135,8 @@ func (s *BookScanService) GetUnscannedArchives() ([]string, error) {
 			continue
 		}
 
-		// Check if this archive is in unscanned list
-		if unscannedMap[relPath] {
+		// Include archive if it's NOT in the scanned list
+		if !scannedMap[relPath] {
 			unscannedArchives = append(unscannedArchives, archivePath)
 		}
 	}

@@ -10,15 +10,15 @@ import (
 	"github.com/go-pg/pg/v10"
 )
 
-// GetUnscannedCatalogs returns a list of catalog names that have not been scanned yet
-func GetUnscannedCatalogs() ([]string, error) {
+// GetScannedCatalogNames returns a list of catalog names that have been successfully scanned
+func GetScannedCatalogNames() ([]string, error) {
 	var catalogs []models.Catalog
 	err := db.Model(&catalogs).
-		Where("is_scanned = ?", false).
+		Where("is_scanned = ?", true).
 		Select()
 
 	if err != nil {
-		logging.Error(fmt.Sprintf("Failed to get unscanned catalogs: %v", err))
+		logging.Error(fmt.Sprintf("Failed to get scanned catalogs: %v", err))
 		return nil, err
 	}
 
@@ -27,7 +27,7 @@ func GetUnscannedCatalogs() ([]string, error) {
 		catalogNames[i] = catalog.CatName
 	}
 
-	logging.Debug(fmt.Sprintf("Found %d unscanned catalogs", len(catalogNames)))
+	logging.Debug(fmt.Sprintf("Found %d scanned catalogs", len(catalogNames)))
 	return catalogNames, nil
 }
 
