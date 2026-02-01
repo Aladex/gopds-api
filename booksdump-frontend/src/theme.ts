@@ -9,11 +9,11 @@ const getDesignTokens = (mode: PaletteMode): ThemeOptions => ({
             ? {
                 // Light mode colors
                 primary: {
-                    main: '#ffffff',
-                    contrastText: '#2f2f2f',
+                    main: '#424242',
+                    contrastText: '#ffffff',
                 },
                 secondary: {
-                    main: '#2f2f2f',
+                    main: '#616161',
                     contrastText: '#ffffff',
                 },
                 background: {
@@ -29,12 +29,12 @@ const getDesignTokens = (mode: PaletteMode): ThemeOptions => ({
             : {
                 // Dark mode colors
                 primary: {
-                    main: '#2f2f2f',
-                    contrastText: '#ffffff',
+                    main: '#e0e0e0',
+                    contrastText: '#121212',
                 },
                 secondary: {
-                    main: '#5a5a5a',
-                    contrastText: '#ffffff',
+                    main: '#9e9e9e',
+                    contrastText: '#121212',
                 },
                 background: {
                     default: '#121212',
@@ -74,6 +74,23 @@ const getDesignTokens = (mode: PaletteMode): ThemeOptions => ({
             styleOverrides: {
                 root: {
                     backgroundImage: 'none',
+                },
+            },
+        },
+        MuiBottomNavigation: {
+            styleOverrides: {
+                root: {
+                    backgroundColor: '#2f2f2f',
+                },
+            },
+        },
+        MuiBottomNavigationAction: {
+            styleOverrides: {
+                root: {
+                    color: '#9e9e9e',
+                    '&.Mui-selected': {
+                        color: '#ffffff',
+                    },
                 },
             },
         },

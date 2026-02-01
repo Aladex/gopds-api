@@ -143,14 +143,10 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
         <AppBar
             position={isMobile ? 'fixed' : 'static'}
             sx={{
-                bgcolor: '#2f2f2f',
-                color: '#ffffff',
-                backgroundImage: 'none',
                 transform: isMobile && !isHeaderVisible ? 'translateY(-100%)' : 'translateY(0)',
                 transition: isMobile ? 'transform 0.3s ease-in-out' : 'none',
                 zIndex: isMobile ? 1200 : 'auto',
             }}
-            style={{ backgroundColor: '#2f2f2f', color: '#ffffff', backgroundImage: 'none' }}
         >
             <Toolbar sx={{ minHeight: isMobile ? 48 : 64 }}>
                 {isMobile ? (
@@ -171,7 +167,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                                         height: '32px',
                                         padding: '4px 6px',
                                         cursor: 'pointer',
-                                        color: '#9e9e9e',
+                                        color: 'grey.500',
                                         fontSize: '0.7rem',
                                         fontWeight: 500,
                                         textTransform: 'uppercase',
@@ -180,7 +176,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                                         borderRadius: '4px',
                                         gap: '2px',
                                         '&:hover': {
-                                            color: '#ffffff',
+                                            color: 'common.white',
                                             backgroundColor: 'rgba(255, 255, 255, 0.04)',
                                         },
                                     }}
@@ -196,7 +192,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                                         height: '32px',
                                         padding: '4px 6px',
                                         cursor: 'pointer',
-                                        color: '#9e9e9e',
+                                        color: 'grey.500',
                                         fontSize: '0.7rem',
                                         fontWeight: 500,
                                         textTransform: 'uppercase',
@@ -204,7 +200,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                                         justifyContent: 'center',
                                         borderRadius: '4px',
                                         '&:hover': {
-                                            color: '#ffffff',
+                                            color: 'common.white',
                                             backgroundColor: 'rgba(255, 255, 255, 0.04)',
                                         },
                                     }}
@@ -259,7 +255,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                                 onChange={handleChange}
                                 aria-label="basic tabs example"
                                 textColor="inherit"
-                                TabIndicatorProps={{ sx: { backgroundColor: '#ffffff' } }}
+                                TabIndicatorProps={{ sx: { backgroundColor: 'common.white' } }}
                             >
                                 {menuItems.map((item, index) => (
                                     <Tab
@@ -278,9 +274,9 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                                         {...a11yProps(item.index)}
                                         onClick={() => handleTabClick(item.index, item.path)}
                                         sx={{
-                                            color: value === item.index ? '#ffffff' : '#9e9e9e',
+                                            color: value === item.index ? 'common.white' : 'grey.500',
                                             '&.Mui-selected': {
-                                                color: '#ffffff',
+                                                color: 'common.white',
                                             },
                                         }}
                                     />
@@ -295,7 +291,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                                     height: '48px',
                                     padding: '6px 8px',
                                     cursor: 'pointer',
-                                    color: '#9e9e9e',
+                                    color: 'grey.500',
                                     fontSize: '0.875rem',
                                     fontWeight: 500,
                                     textTransform: 'uppercase',
@@ -304,7 +300,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                                     gap: '4px',
                                     marginLeft: 2,
                                     '&:hover': {
-                                        color: '#ffffff',
+                                        color: 'common.white',
                                         backgroundColor: 'rgba(255, 255, 255, 0.04)',
                                     },
                                 }}
@@ -328,7 +324,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                                     height: '48px',
                                     padding: '6px 8px',
                                     cursor: 'pointer',
-                                    color: '#9e9e9e',
+                                    color: 'grey.500',
                                     fontSize: '0.875rem',
                                     fontWeight: 500,
                                     textTransform: 'uppercase',
@@ -339,7 +335,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                                     textOverflow: 'ellipsis',
                                     whiteSpace: 'nowrap',
                                     '&:hover': {
-                                        color: '#ffffff',
+                                        color: 'common.white',
                                         backgroundColor: 'rgba(255, 255, 255, 0.04)',
                                     },
                                 }}
@@ -382,10 +378,10 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                                 ))}
                             </Menu>
                             <ThemeToggle />
-                            <Button sx={{ color: '#ffffff' }} onClick={() => onOpenProfile?.()}>
+                            <Button sx={{ color: 'common.white' }} onClick={() => onOpenProfile?.()}>
                                 {user?.username}
                             </Button>
-                            <Button sx={{ color: '#ffffff' }} onClick={handleLogout}>
+                            <Button sx={{ color: 'common.white' }} onClick={handleLogout}>
                                 <IconButton color="inherit">
                                     <Logout/>
                                 </IconButton>

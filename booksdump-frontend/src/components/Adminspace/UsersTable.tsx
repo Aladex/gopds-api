@@ -169,7 +169,7 @@ const UserCard: React.FC<UserCardProps> = ({ user, onEdit, onDelete, t }) => {
                         startIcon={<EditIcon />}
                         onClick={() => onEdit(user)}
                         sx={{
-                            color: (theme) => theme.palette.mode === 'dark' ? 'info.main' : 'primary.main'
+                            color: 'primary.main'
                         }}
                     >
                         {t('edit')}
@@ -190,7 +190,7 @@ const UserCard: React.FC<UserCardProps> = ({ user, onEdit, onDelete, t }) => {
                         size="small"
                         onClick={() => onEdit(user)}
                         sx={{
-                            color: (theme) => theme.palette.mode === 'dark' ? 'info.main' : 'primary.main'
+                            color: 'primary.main'
                         }}
                         aria-label={t('edit')}
                     >

@@ -78,7 +78,7 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
             fullWidth
             PaperProps={{
                 sx: {
-                    backgroundColor: theme.palette.mode === 'dark' ? '#1e1e1e' : '#ffffff',
+                    backgroundColor: 'background.paper',
                     color: theme.palette.text.primary,
                     maxHeight: '90vh',
                 },

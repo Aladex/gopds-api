@@ -64,19 +64,8 @@ const BottomNavigation: React.FC<BottomNavigationProps> = ({ isProfileOpen, onOp
                 onChange={handleChange}
                 showLabels
                 sx={{
-                    bgcolor: '#2f2f2f',
                     '& .MuiBottomNavigationAction-root': {
-                        color: '#9e9e9e',
                         minWidth: 0,
-                    },
-                    '& .MuiBottomNavigationAction-root .MuiSvgIcon-root': {
-                        color: 'inherit',
-                    },
-                    '& .Mui-selected': {
-                        color: '#ffffff',
-                    },
-                    '& .MuiBottomNavigationAction-root.Mui-selected .MuiSvgIcon-root': {
-                        color: '#ffffff',
                     },
                 }}
             >

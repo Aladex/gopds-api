@@ -96,8 +96,8 @@ const ProfileDrawer: React.FC<ProfileDrawerProps> = ({ open, onClose }) => {
                     borderTopLeftRadius: 16,
                     borderTopRightRadius: 16,
                     padding: 2,
-                    backgroundColor: '#1e1e1e',
-                    color: '#ffffff',
+                    backgroundColor: 'background.paper',
+                    color: 'text.primary',
                 },
             }}
         >

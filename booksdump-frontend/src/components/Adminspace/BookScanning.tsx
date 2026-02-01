@@ -655,7 +655,7 @@ const BookScanning: React.FC = () => {
                     >
                         {t('bookScanStart')}
                     </Button>
-                    <Button variant="contained" sx={{ backgroundColor: 'action.selected', color: 'text.primary' }} onClick={fetchStatus}>
+                    <Button variant="outlined" onClick={fetchStatus}>
                         {t('bookScanStatusRefresh')}
                     </Button>
                 </Stack>
@@ -728,7 +728,7 @@ const BookScanning: React.FC = () => {
                             <Typography variant="subtitle1">
                                 {t('bookScanErrorsTitle')}
                             </Typography>
-                            <Button variant="contained" sx={{ backgroundColor: 'action.selected', color: 'text.primary' }} size="small" onClick={fetchErrors}>
+                            <Button variant="outlined" size="small" onClick={fetchErrors}>
                                 {t('bookScanErrorsRefresh')}
                             </Button>
                         </Stack>
@@ -771,8 +771,8 @@ const BookScanning: React.FC = () => {
                                             {t('bookScanErrorTime')}: {new Date(scanErrors[selectedErrorIndex].timestamp).toLocaleString()}
                                         </Typography>
                                         <Button
-                                            variant="contained"
-                                            sx={{ mt: 2, backgroundColor: 'action.selected', color: 'text.primary' }}
+                                            variant="outlined"
+                                            sx={{ mt: 2 }}
                                             size="small"
                                             onClick={() => handleDownloadErrorFile(scanErrors[selectedErrorIndex])}
                                         >
@@ -817,8 +817,7 @@ const BookScanning: React.FC = () => {
                                     </Typography>
                                     <Button
                                         size="small"
-                                        variant="contained"
-                                        sx={{ backgroundColor: 'action.selected', color: 'text.primary' }}
+                                        variant="outlined"
                                         onClick={fetchUnscanned}
                                         disabled={isLoading}
                                     >

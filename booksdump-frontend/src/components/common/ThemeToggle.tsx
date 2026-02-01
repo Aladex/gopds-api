@@ -12,7 +12,7 @@ const ThemeToggle: React.FC = () => {
         <Tooltip title={mode === 'light' ? t('switchToDark') : t('switchToLight')}>
             <IconButton
                 onClick={toggleTheme}
-                sx={{ color: '#ffffff' }}
+                sx={{ color: 'common.white' }}
             >
                 {mode === 'light' ? <Brightness4 /> : <Brightness7 />}
             </IconButton>

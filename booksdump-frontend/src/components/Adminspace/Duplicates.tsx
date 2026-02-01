@@ -301,14 +301,12 @@ const Duplicates: React.FC = () => {
                         {t('forceStopScan')}
                     </Button>
                     <Button
-                        variant="contained"
+                        variant="outlined"
                         sx={{
                             width: { xs: '100%', sm: 'calc(50% - 4px)', md: 'calc(33.333% - 6px)', lg: 'auto' },
                             minWidth: { lg: 120 },
                             height: { xs: 42, sm: 'auto' },
                             minHeight: 36,
-                            backgroundColor: 'action.selected',
-                            color: 'text.primary',
                             '&:disabled': { opacity: 0.6, cursor: 'not-allowed' }
                         }}
                         onClick={fetchActiveScan}
@@ -316,14 +314,12 @@ const Duplicates: React.FC = () => {
                         {t('getStatus')}
                     </Button>
                     <Button
-                        variant="contained"
+                        variant="outlined"
                         sx={{
                             width: { xs: '100%', sm: 'calc(50% - 4px)', md: 'calc(33.333% - 6px)', lg: 'auto' },
                             minWidth: { lg: 120 },
                             height: { xs: 42, sm: 'auto' },
                             minHeight: 36,
-                            backgroundColor: 'action.selected',
-                            color: 'text.primary',
                             '&:disabled': { opacity: 0.6, cursor: 'not-allowed' }
                         }}
                         onClick={fetchGroups}
