@@ -396,7 +396,7 @@ const BooksList: React.FC = () => {
                                         direction={{ xs: 'column', md: 'row' }}
                                         spacing={2}
                                     >
-                                        <Box sx={{ flex: { xs: 1, md: 3 } }}>
+                                        <Box sx={{ flex: { xs: 1, md: 3 }, minWidth: 0 }}>
                                             <Stack
                                                 direction={{ xs: 'column', md: 'row' }}
                                                 spacing={2}
