@@ -43,7 +43,9 @@ function useAuthWebSocket(endpoint: string, isAuthenticated: boolean) {
                 if (parsed && typeof parsed.bookID === 'number' && parsed.status) {
                     dispatch({ type: 'REMOVE_CONVERTING_BOOK', payload: { bookID: parsed.bookID, format: parsed.format || 'mobi' } });
                     if (parsed.status === 'ready') {
-                        const downloadUrl = `${API_URL}/api/files/books/conversion/${parsed.bookID}`;
+                        const downloadUrl = parsed.format === 'epub'
+                            ? `${API_URL}/api/files/books/conversion/epub/${parsed.bookID}`
+                            : `${API_URL}/api/files/books/conversion/${parsed.bookID}`;
                         const iframe = document.createElement('iframe');
                         iframe.style.display = 'none';
                         iframe.src = downloadUrl;

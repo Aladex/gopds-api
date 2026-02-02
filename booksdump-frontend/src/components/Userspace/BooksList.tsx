@@ -169,6 +169,23 @@ const BooksList: React.FC = () => {
 
         conversionDispatch({ type: 'ADD_CONVERTING_BOOK', payload: { bookID, format: 'mobi' } });
     };
+
+    const handleEpubDownloadClick = async (bookID: number) => {
+        try {
+            const sourceUrl = `${API_URL}/files/books/get/fb2/${bookID}`;
+            const sourceCheck = await fetch(sourceUrl, { method: 'HEAD', credentials: 'include' });
+            if (!sourceCheck.ok) {
+                showDownloadError(sourceCheck.status);
+                return;
+            }
+        } catch (_) {
+            showDownloadError(0);
+            return;
+        }
+
+        conversionDispatch({ type: 'ADD_CONVERTING_BOOK', payload: { bookID, format: 'epub' } });
+    };
+
     const isBookConverting = (bookID: number, format: string) =>
         conversionState.convertingBooks.some((book) => book.bookID === bookID && book.format === format);
 
@@ -466,10 +483,11 @@ const BooksList: React.FC = () => {
                                                 </Button>
                                                 <Button
                                                     component="a"
-                                                    onClick={() => handleDownload('epub', book.id)}
+                                                    onClick={() => handleEpubDownloadClick(book.id)}
                                                     variant="contained"
                                                     color="secondary"
                                                     sx={{ mb: 1, minWidth: 120 }}
+                                                    disabled={isBookConverting(book.id, 'epub')}
                                                 >
                                                     EPUB
                                                 </Button>

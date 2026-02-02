@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -19,6 +20,16 @@ import (
 	"github.com/gobwas/ws/wsutil"
 	"github.com/spf13/viper"
 )
+
+// ConvertedFile holds an in-memory converted file ready for download.
+type ConvertedFile struct {
+	Data        []byte
+	Filename    string
+	ContentType string
+}
+
+// epubStore is an in-memory store for converted EPUB files keyed by bookID.
+var epubStore sync.Map // key: int64 (bookID), value: *ConvertedFile
 
 func ConvertBookToMobi(bookID int64) error {
 	book, err := database.GetBook(bookID) // Retrieve the book details from the database
@@ -57,6 +68,39 @@ func ConvertBookToMobi(bookID int64) error {
 
 	// Delete the file after it has been sent
 	logging.Infof("Book %d converted and stored at %s", bookID, filePath)
+	return nil
+}
+
+func ConvertBookToEpub(bookID int64) error {
+	book, err := database.GetBook(bookID)
+	if err != nil {
+		return err
+	}
+	zipPath := viper.GetString("app.files_path") + book.Path
+
+	if !utils.FileExists(zipPath) {
+		return fmt.Errorf("book file not found: %s", zipPath)
+	}
+
+	bp := utils.NewBookProcessor(book.FileName, zipPath)
+	rc, err := bp.Epub()
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return err
+	}
+
+	epubStore.Store(bookID, &ConvertedFile{
+		Data:        data,
+		Filename:    book.DownloadName() + ".epub",
+		ContentType: "application/epub+zip",
+	})
+
+	logging.Infof("Book %d converted to EPUB and stored in memory (%d bytes)", bookID, len(data))
 	return nil
 }
 
@@ -190,6 +234,27 @@ func WebsocketHandler(c *gin.Context) {
 						message, _ := json.Marshal(map[string]interface{}{
 							"bookID": bookID,
 							"format": "mobi",
+							"status": "ready",
+						})
+						clientNotificationChannel <- message
+					}(request.BookID)
+				} else if request.Format == "epub" {
+					go func(bookID int64) {
+						err := ConvertBookToEpub(bookID)
+						if err != nil {
+							logging.Errorf("Failed to convert book to epub: %v", err)
+							message, _ := json.Marshal(map[string]interface{}{
+								"bookID": bookID,
+								"format": "epub",
+								"status": "error",
+								"error":  err.Error(),
+							})
+							clientNotificationChannel <- message
+							return
+						}
+						message, _ := json.Marshal(map[string]interface{}{
+							"bookID": bookID,
+							"format": "epub",
 							"status": "ready",
 						})
 						clientNotificationChannel <- message

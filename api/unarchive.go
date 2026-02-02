@@ -101,6 +101,47 @@ func GetBookFile(c *gin.Context) {
 	http.ServeContent(c.Writer, c.Request, book.DownloadName()+"."+format, time.Now(), reader)
 }
 
+// DownloadConvertedEpub serves a converted EPUB file from the in-memory store.
+func DownloadConvertedEpub(c *gin.Context) {
+	bookID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, fmt.Errorf("invalid book ID: %v", err))
+		return
+	}
+
+	val, ok := epubStore.Load(bookID)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Converted file not found"})
+		return
+	}
+	cf := val.(*ConvertedFile)
+
+	c.Writer.Header().Set("Content-Type", cf.ContentType)
+	c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", cf.Filename))
+	http.ServeContent(c.Writer, c.Request, cf.Filename, time.Now(), bytes.NewReader(cf.Data))
+
+	epubStore.Delete(bookID)
+}
+
+// HeadConvertedEpub handles HEAD requests for converted EPUB files.
+func HeadConvertedEpub(c *gin.Context) {
+	bookID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, fmt.Errorf("invalid book ID: %v", err))
+		return
+	}
+
+	val, ok := epubStore.Load(bookID)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Converted file not found"})
+		return
+	}
+	cf := val.(*ConvertedFile)
+
+	c.Writer.Header().Set("Content-Type", cf.ContentType)
+	c.Status(http.StatusOK)
+}
+
 // HeadBookFile handles HEAD requests for book files without streaming content.
 func HeadBookFile(c *gin.Context) {
 	bookID, err := strconv.ParseInt(c.Param("id"), 10, 0)
