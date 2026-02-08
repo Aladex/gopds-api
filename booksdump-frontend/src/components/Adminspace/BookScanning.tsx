@@ -260,6 +260,19 @@ const BookScanning: React.FC = () => {
         }
     }, []);
 
+    const fetchFixScanStatus = useCallback(async () => {
+        try {
+            const response = await fetchWithAuth.get('/admin/scan/fix/status');
+            const data = response.data as FixScanStatusResponse;
+            if (data?.is_running) {
+                setIsFixScanning(true);
+                setFixScanStatus(data);
+            }
+        } catch (error) {
+            console.error(error);
+        }
+    }, []);
+
     const formatScannedDate = useCallback((dateString: string): string => {
         const date = new Date(dateString);
         return date.toLocaleDateString('en-US', {
@@ -574,7 +587,8 @@ const BookScanning: React.FC = () => {
         fetchUnscanned().then(r => r);
         fetchScanned().then(r => r);
         fetchErrors().then(r => r);
-    }, [fetchErrors, fetchStatus, fetchUnscanned, fetchScanned]);
+        fetchFixScanStatus().then(r => r);
+    }, [fetchErrors, fetchFixScanStatus, fetchStatus, fetchUnscanned, fetchScanned]);
 
     // Auto-refresh scanned archives every 30 seconds when on scanned tab
     // (WebSocket handles real-time updates, this is just a fallback)
@@ -729,15 +743,19 @@ const BookScanning: React.FC = () => {
                     }
                     case 'fix_scan_progress': {
                         const payload = message.data as FixScanProgressEvent;
-                        setFixScanStatus((prev) => prev ? {
-                            ...prev,
+                        setIsFixScanning(true);
+                        setFixScanStatus((prev) => ({
+                            is_running: true,
+                            total_books: payload.total_books || prev?.total_books || 0,
+                            total_archives: prev?.total_archives ?? 0,
+                            started_at: prev?.started_at,
                             current_archive: payload.current_archive,
                             books_processed: payload.books_processed,
                             books_updated: payload.books_updated,
                             error_count: payload.error_count,
                             progress_percent: payload.progress_percent,
                             elapsed_seconds: payload.elapsed_seconds,
-                        } : prev);
+                        }));
                         break;
                     }
                     case 'fix_scan_completed': {
