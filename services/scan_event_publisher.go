@@ -10,6 +10,11 @@ const (
 	ScanCompleted      = "scan_completed"
 	ScanErrorEventType = "scan_error"
 	ScanProgress       = "scan_progress"
+
+	FixScanStartedType   = "fix_scan_started"
+	FixScanProgressType  = "fix_scan_progress"
+	FixScanCompletedType = "fix_scan_completed"
+	FixScanErrorType     = "fix_scan_error"
 )
 
 type ScanEventPublisher struct {
@@ -162,5 +167,103 @@ func (p *ScanEventPublisher) PublishScanProgress(currentArchive string, archives
 		ProgressPercent:   progressPercent,
 		ElapsedSeconds:    elapsedSeconds,
 		Timestamp:         time.Now(),
+	})
+}
+
+// Fix Scan event types and publish methods
+
+type FixScanStartedEvent struct {
+	ScanType      string    `json:"scan_type"`
+	TotalBooks    int       `json:"total_books"`
+	TotalArchives int       `json:"total_archives"`
+	Timestamp     time.Time `json:"timestamp"`
+}
+
+type FixScanProgressEvent struct {
+	ScanType        string    `json:"scan_type"`
+	CurrentArchive  string    `json:"current_archive"`
+	BooksProcessed  int       `json:"books_processed"`
+	TotalBooks      int       `json:"total_books"`
+	BooksUpdated    int       `json:"books_updated"`
+	ErrorCount      int       `json:"error_count"`
+	ProgressPercent int       `json:"progress_percent"`
+	ElapsedSeconds  int64     `json:"elapsed_seconds"`
+	Timestamp       time.Time `json:"timestamp"`
+}
+
+type FixScanCompletedEvent struct {
+	ScanType      string    `json:"scan_type"`
+	TotalBooks    int       `json:"total_books"`
+	UpdatedBooks  int       `json:"updated_books"`
+	TotalArchives int       `json:"total_archives"`
+	ErrorCount    int       `json:"error_count"`
+	DurationMS    int64     `json:"duration_ms"`
+	Timestamp     time.Time `json:"timestamp"`
+}
+
+type FixScanErrorEvent struct {
+	ScanType  string    `json:"scan_type"`
+	Message   string    `json:"message"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+func (p *ScanEventPublisher) PublishFixScanStarted(totalBooks, totalArchives int) {
+	if p == nil || p.wsConn == nil {
+		return
+	}
+	_ = p.wsConn.SendMessage(FixScanStartedType, FixScanStartedEvent{
+		ScanType:      "fix",
+		TotalBooks:    totalBooks,
+		TotalArchives: totalArchives,
+		Timestamp:     time.Now(),
+	})
+}
+
+func (p *ScanEventPublisher) PublishFixScanProgress(currentArchive string, booksProcessed, totalBooks, booksUpdated, errorCount int, elapsedSeconds int64) {
+	if p == nil || p.wsConn == nil {
+		return
+	}
+
+	progressPercent := 0
+	if totalBooks > 0 {
+		progressPercent = (booksProcessed * 100) / totalBooks
+	}
+
+	_ = p.wsConn.SendMessage(FixScanProgressType, FixScanProgressEvent{
+		ScanType:        "fix",
+		CurrentArchive:  currentArchive,
+		BooksProcessed:  booksProcessed,
+		TotalBooks:      totalBooks,
+		BooksUpdated:    booksUpdated,
+		ErrorCount:      errorCount,
+		ProgressPercent: progressPercent,
+		ElapsedSeconds:  elapsedSeconds,
+		Timestamp:       time.Now(),
+	})
+}
+
+func (p *ScanEventPublisher) PublishFixScanCompleted(report *FixScanReport) {
+	if p == nil || p.wsConn == nil || report == nil {
+		return
+	}
+	_ = p.wsConn.SendMessage(FixScanCompletedType, FixScanCompletedEvent{
+		ScanType:      "fix",
+		TotalBooks:    report.TotalBooks,
+		UpdatedBooks:  report.UpdatedBooks,
+		TotalArchives: report.TotalArchives,
+		ErrorCount:    report.ErrorCount,
+		DurationMS:    report.Duration.Milliseconds(),
+		Timestamp:     time.Now(),
+	})
+}
+
+func (p *ScanEventPublisher) PublishFixScanError(err error) {
+	if p == nil || p.wsConn == nil || err == nil {
+		return
+	}
+	_ = p.wsConn.SendMessage(FixScanErrorType, FixScanErrorEvent{
+		ScanType:  "fix",
+		Message:   err.Error(),
+		Timestamp: time.Now(),
 	})
 }

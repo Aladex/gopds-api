@@ -290,5 +290,12 @@
   "rescanSelectFields": "Выберите поля для обновления",
   "selectAll": "Выбрать все",
   "deselectAll": "Снять выбор",
-  "rescanUpdateSummary": "{{count}} из {{total}} измененных полей выбрано"
+  "rescanUpdateSummary": "{{count}} из {{total}} измененных полей выбрано",
+  "fixScanStart": "Исправить метаданные",
+  "fixScanStatusTitle": "Статус исправления метаданных",
+  "fixScanBooksProcessed": "Обработано книг: {{processed}} / {{total}}",
+  "fixScanBooksUpdated": "Обновлено книг: {{count}}",
+  "fixScanErrors": "Ошибок: {{count}}",
+  "fixScanCompleted": "Исправление завершено. Обновлено {{updated}} из {{total}} книг.",
+  "fixScanAlreadyRunning": "Исправление метаданных уже выполняется."
 }

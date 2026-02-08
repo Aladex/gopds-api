@@ -42,6 +42,11 @@ func SetupAdminRoutes(r *gin.RouterGroup) {
 	r.POST("/scan/archive", ScanSpecificArchive)
 	r.DELETE("/scan/reset/:name", ResetArchiveScanStatus)
 
+	// Fix scan routes
+	r.POST("/scan/fix", StartFixScan)
+	r.GET("/scan/fix/status", GetFixScanStatus)
+	r.POST("/scan/fix/cancel", CancelFixScan)
+
 	// Setup duplicate management routes
 	SetupDuplicatesRoutes(r)
 }

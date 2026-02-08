@@ -228,6 +228,16 @@ func getFieldFlag(selectedFields *models.RescanApprovalRequest, field string) *b
 	}
 }
 
+// UpdateBookAuthors is an exported wrapper for updateBookAuthors
+func UpdateBookAuthors(tx *pg.Tx, bookID int64, authors []models.RescanAuthor) error {
+	return updateBookAuthors(tx, bookID, authors)
+}
+
+// UpdateBookSeries is an exported wrapper for updateBookSeries
+func UpdateBookSeries(tx *pg.Tx, bookID int64, series *models.RescanSeries) error {
+	return updateBookSeries(tx, bookID, series)
+}
+
 // Helper functions
 
 // updateBookAuthors updates author relationships
@@ -339,12 +349,58 @@ func updateBookSeries(tx *pg.Tx, bookID int64, series *models.RescanSeries) erro
 	return err
 }
 
-// updateBookTags updates tags (we'll add this to genre/tags if supported)
-// For now, just logging that tags changed
+// UpdateBookTags is an exported wrapper for updateBookTags
+func UpdateBookTags(tx *pg.Tx, bookID int64, tags []string) error {
+	return updateBookTags(tx, bookID, tags)
+}
+
+// updateBookTags updates genre relationships for a book
 func updateBookTags(tx *pg.Tx, bookID int64, tags []string) error {
-	// Note: Depending on your schema, tags might be stored differently
-	// This is a placeholder - implement based on your actual schema
-	logging.Infof("Would update tags for book %d: %v", bookID, tags)
+	// Delete existing genre links
+	_, err := tx.Model(&models.OrderToGenre{}).
+		Where("book_id = ?", bookID).
+		Delete()
+	if err != nil && err != pg.ErrNoRows {
+		return err
+	}
+
+	// Insert new genre links
+	for _, tag := range tags {
+		if tag == "" {
+			continue
+		}
+
+		// Try to find existing genre
+		genreObj := &models.Genre{}
+		err := tx.Model(genreObj).
+			Where("genre = ?", tag).
+			Select(genreObj)
+
+		if err != nil && err != pg.ErrNoRows {
+			return err
+		}
+
+		// If genre doesn't exist, create it
+		if err == pg.ErrNoRows {
+			genreObj = &models.Genre{Genre: tag}
+			_, err = tx.Model(genreObj).Insert()
+			if err != nil {
+				return err
+			}
+		}
+
+		// Create link
+		link := &models.OrderToGenre{
+			GenreID: genreObj.ID,
+			BookID:  bookID,
+		}
+
+		_, err = tx.Model(link).Insert()
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

@@ -290,5 +290,12 @@
   "rescanSelectFields": "Select fields to update",
   "selectAll": "Select all",
   "deselectAll": "Deselect all",
-  "rescanUpdateSummary": "{{count}} of {{total}} changed fields selected"
+  "rescanUpdateSummary": "{{count}} of {{total}} changed fields selected",
+  "fixScanStart": "Fix metadata",
+  "fixScanStatusTitle": "Fix scan status",
+  "fixScanBooksProcessed": "Books processed: {{processed}} / {{total}}",
+  "fixScanBooksUpdated": "Books updated: {{count}}",
+  "fixScanErrors": "Errors: {{count}}",
+  "fixScanCompleted": "Fix scan completed. Updated {{updated}} of {{total}} books.",
+  "fixScanAlreadyRunning": "Fix scan already running."
 }

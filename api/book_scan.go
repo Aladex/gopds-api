@@ -192,6 +192,12 @@ func getLanguageDetectionSettings() (bool, bool, time.Duration) {
 // @Failure 500 {object} httputil.HTTPError
 // @Router /api/admin/scan [post]
 func StartScan(c *gin.Context) {
+	// Mutual exclusion with fix scan
+	if fixState.isRunning() {
+		httputil.NewError(c, http.StatusConflict, errors.New("fix scan already running"))
+		return
+	}
+
 	sessionID := fmt.Sprintf("scan_%d", time.Now().UnixNano())
 	startedAt := time.Now()
 	if !scanState.tryStart(sessionID, startedAt) {

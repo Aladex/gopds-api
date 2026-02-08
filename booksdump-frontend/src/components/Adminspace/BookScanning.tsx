@@ -123,6 +123,57 @@ interface ScanProgressEvent {
     timestamp: string;
 }
 
+interface FixScanStatusResponse {
+    is_running: boolean;
+    session_id?: string;
+    total_books: number;
+    books_processed: number;
+    books_updated: number;
+    total_archives: number;
+    current_archive?: string;
+    error_count: number;
+    progress_percent: number;
+    started_at?: string;
+    elapsed_seconds: number;
+    finished_at?: string;
+    last_error?: string;
+}
+
+interface FixScanStartedEvent {
+    scan_type: string;
+    total_books: number;
+    total_archives: number;
+    timestamp: string;
+}
+
+interface FixScanProgressEvent {
+    scan_type: string;
+    current_archive: string;
+    books_processed: number;
+    total_books: number;
+    books_updated: number;
+    error_count: number;
+    progress_percent: number;
+    elapsed_seconds: number;
+    timestamp: string;
+}
+
+interface FixScanCompletedEvent {
+    scan_type: string;
+    total_books: number;
+    updated_books: number;
+    total_archives: number;
+    error_count: number;
+    duration_ms: number;
+    timestamp: string;
+}
+
+interface FixScanErrorEvent {
+    scan_type: string;
+    message: string;
+    timestamp: string;
+}
+
 const BookScanning: React.FC = () => {
     const { t } = useTranslation();
     const [status, setStatus] = useState<ScanStatusResponse | null>(null);
@@ -145,6 +196,8 @@ const BookScanning: React.FC = () => {
     const [rescanProgress, setRescanProgress] = useState<ScanStatusResponse | null>(null);
     const [snackbarOpen, setSnackbarOpen] = useState(false);
     const [snackbarMessage, setSnackbarMessage] = useState('');
+    const [fixScanStatus, setFixScanStatus] = useState<FixScanStatusResponse | null>(null);
+    const [isFixScanning, setIsFixScanning] = useState(false);
     const wsRef = useRef<WebSocket | null>(null);
     const scannedIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const rescanPollingRef = useRef<NodeJS.Timeout | null>(null);
@@ -476,6 +529,46 @@ const BookScanning: React.FC = () => {
         setSnackbarOpen(false);
     }, []);
 
+    const handleStartFixScan = useCallback(async () => {
+        setStatusMessage(null);
+        setScanError(null);
+        try {
+            await fetchWithAuth.post('/admin/scan/fix', { workers: 4 });
+            setIsFixScanning(true);
+            setFixScanStatus({
+                is_running: true,
+                total_books: 0,
+                books_processed: 0,
+                books_updated: 0,
+                total_archives: 0,
+                error_count: 0,
+                progress_percent: 0,
+                elapsed_seconds: 0,
+            });
+            setSnackbarMessage(t('bookScanStarted'));
+            setSnackbarOpen(true);
+        } catch (error: any) {
+            if (error?.response?.status === 409) {
+                setSnackbarMessage(t('fixScanAlreadyRunning'));
+                setSnackbarOpen(true);
+                return;
+            }
+            console.error(error);
+            setScanError(t('bookScanStartError'));
+        }
+    }, [t]);
+
+    const handleCancelFixScan = useCallback(async () => {
+        try {
+            await fetchWithAuth.post('/admin/scan/fix/cancel');
+            setSnackbarMessage(t('scanStopRequested'));
+            setSnackbarOpen(true);
+        } catch (error) {
+            console.error(error);
+            setScanError(t('scanStopError'));
+        }
+    }, [t]);
+
     useEffect(() => {
         fetchStatus().then(r => r);
         fetchUnscanned().then(r => r);
@@ -618,6 +711,54 @@ const BookScanning: React.FC = () => {
                         setScanError(payload.message || t('bookScanError'));
                         break;
                     }
+                    case 'fix_scan_started': {
+                        const payload = message.data as FixScanStartedEvent;
+                        setIsFixScanning(true);
+                        setFixScanStatus({
+                            is_running: true,
+                            total_books: payload.total_books,
+                            books_processed: 0,
+                            books_updated: 0,
+                            total_archives: payload.total_archives,
+                            error_count: 0,
+                            progress_percent: 0,
+                            started_at: payload.timestamp,
+                            elapsed_seconds: 0,
+                        });
+                        break;
+                    }
+                    case 'fix_scan_progress': {
+                        const payload = message.data as FixScanProgressEvent;
+                        setFixScanStatus((prev) => prev ? {
+                            ...prev,
+                            current_archive: payload.current_archive,
+                            books_processed: payload.books_processed,
+                            books_updated: payload.books_updated,
+                            error_count: payload.error_count,
+                            progress_percent: payload.progress_percent,
+                            elapsed_seconds: payload.elapsed_seconds,
+                        } : prev);
+                        break;
+                    }
+                    case 'fix_scan_completed': {
+                        const payload = message.data as FixScanCompletedEvent;
+                        setIsFixScanning(false);
+                        setSnackbarMessage(t('fixScanCompleted', {
+                            updated: payload.updated_books,
+                            total: payload.total_books
+                        }));
+                        setSnackbarOpen(true);
+                        setTimeout(() => {
+                            setFixScanStatus(null);
+                        }, 3000);
+                        break;
+                    }
+                    case 'fix_scan_error': {
+                        const payload = message.data as FixScanErrorEvent;
+                        setSnackbarMessage(payload.message || t('scanError'));
+                        setSnackbarOpen(true);
+                        break;
+                    }
                     default:
                         break;
                 }
@@ -651,9 +792,17 @@ const BookScanning: React.FC = () => {
                     <Button
                         variant="contained"
                         onClick={handleStartScan}
-                        disabled={status?.is_running}
+                        disabled={status?.is_running || isFixScanning}
                     >
                         {t('bookScanStart')}
+                    </Button>
+                    <Button
+                        variant="outlined"
+                        color="secondary"
+                        onClick={handleStartFixScan}
+                        disabled={status?.is_running || isFixScanning}
+                    >
+                        {t('fixScanStart')}
                     </Button>
                     <Button variant="outlined" onClick={fetchStatus}>
                         {t('bookScanStatusRefresh')}
@@ -721,6 +870,56 @@ const BookScanning: React.FC = () => {
                         )}
                     </CardContent>
                 </Card>
+
+                {(isFixScanning || fixScanStatus) && (
+                    <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
+                        <CardContent>
+                            <Typography variant="subtitle1" gutterBottom>
+                                {t('fixScanStatusTitle')}
+                            </Typography>
+                            {fixScanStatus && (
+                                <>
+                                    <Typography variant="body2">
+                                        {t('fixScanBooksProcessed', { processed: fixScanStatus.books_processed, total: fixScanStatus.total_books })}
+                                    </Typography>
+                                    <Typography variant="body2">
+                                        {t('fixScanBooksUpdated', { count: fixScanStatus.books_updated })}
+                                    </Typography>
+                                    <Typography variant="body2">
+                                        {t('fixScanErrors', { count: fixScanStatus.error_count })}
+                                    </Typography>
+                                    {fixScanStatus.current_archive && (
+                                        <Typography variant="body2">
+                                            {t('bookScanCurrentArchive')}: {fixScanStatus.current_archive}
+                                        </Typography>
+                                    )}
+                                    <Box sx={{ mt: 1 }}>
+                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                                            <Typography variant="body2" color="text.secondary">
+                                                {t('bookScanProgress')}
+                                            </Typography>
+                                            <Typography variant="body2" fontWeight="bold">
+                                                {Math.round(fixScanStatus.progress_percent)}%
+                                            </Typography>
+                                        </Box>
+                                        <LinearProgress variant="determinate" value={Math.min(100, fixScanStatus.progress_percent)} />
+                                    </Box>
+                                    {isFixScanning && (
+                                        <Button
+                                            variant="outlined"
+                                            color="error"
+                                            size="small"
+                                            sx={{ mt: 2 }}
+                                            onClick={handleCancelFixScan}
+                                        >
+                                            {t('cancel')}
+                                        </Button>
+                                    )}
+                                </>
+                            )}
+                        </CardContent>
+                    </Card>
+                )}
 
                 <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
                     <CardContent>

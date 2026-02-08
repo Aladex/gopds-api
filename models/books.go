@@ -13,6 +13,7 @@ func init() {
 	// Register many-to-many models for ORM recognition.
 	orm.RegisterTable((*OrderToAuthor)(nil))
 	orm.RegisterTable((*OrderToSeries)(nil))
+	orm.RegisterTable((*OrderToGenre)(nil))
 	orm.RegisterTable((*UserToBook)(nil))
 	orm.RegisterTable((*BookCollectionBook)(nil)) // Register BookCollectionBook for m2m relation.
 }
@@ -144,6 +145,7 @@ type Book struct {
 	DuplicateOfID   *int64    `pg:"duplicate_of_id" json:"duplicate_of_id,omitempty"`
 	Authors         []Author  `pg:"many2many:opds_catalog_bauthor,join_fk:author_id" json:"authors"`
 	Series          []*Series `pg:"many2many:opds_catalog_bseries,join_fk:ser_id" json:"series"`
+	Genres          []Genre   `pg:"many2many:opds_catalog_bgenre,join_fk:genre_id" json:"genres"`
 	Users           []*User   `pg:"many2many:favorite_books,join_fk:book_id" json:"favorites"`
 	Covers          []*Cover  `pg:"covers,rel:has-many" json:"covers"`
 	FavoriteCount   int       `pg:"-" json:"favorite_count"`
@@ -169,6 +171,20 @@ type OrderToAuthor struct {
 	tableName struct{} `pg:"opds_catalog_bauthor,discard_unknown_columns" json:"-"`
 	AuthorID  int64
 	BookID    int64
+}
+
+// Genre struct for genres/tags
+type Genre struct {
+	tableName struct{} `pg:"opds_catalog_genre,discard_unknown_columns" json:"-"`
+	ID        int64    `pg:"id" json:"id"`
+	Genre     string   `pg:"genre" json:"genre"`
+}
+
+// OrderToGenre struct for many-to-many relation between books and genres
+type OrderToGenre struct {
+	tableName struct{} `pg:"opds_catalog_bgenre,discard_unknown_columns" json:"-"`
+	GenreID   int64    `pg:"genre_id"`
+	BookID    int64    `pg:"book_id"`
 }
 
 // UserToBook struct for many-to-many relation between users and books
