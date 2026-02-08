@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Skeleton } from '@mui/material';
+import { Box, Card, Skeleton, Stack } from '@mui/material';
 import { keyframes } from '@emotion/react';
 
 const fadeIn = keyframes`
@@ -16,6 +16,7 @@ const AppSkeleton: React.FC = () => {
                 animation: `${fadeIn} 300ms ease-out`,
             }}
         >
+            {/* Header */}
             <Box sx={{ bgcolor: '#2f2f2f', px: 2, py: 1.5 }}>
                 <Box
                     sx={{
@@ -43,60 +44,60 @@ const AppSkeleton: React.FC = () => {
                 </Box>
             </Box>
 
-            <Box sx={{ px: 2, py: 2 }}>
-                <Skeleton variant="rectangular" height={42} sx={{ mb: 2, borderRadius: 2 }} />
-
-                <Box
-                    sx={{
-                        display: { xs: 'block', md: 'grid' },
-                        gridTemplateColumns: { md: '2fr 1fr' },
-                        gap: 2,
-                    }}
-                >
-                    <Box>
-                        {[0, 1, 2, 3].map((item) => (
-                            <Box
-                                key={item}
-                                sx={{
-                                    display: 'flex',
-                                    gap: 2,
-                                    p: 2,
-                                    mb: 2,
-                                    borderRadius: 2,
-                                    bgcolor: 'background.paper',
-                                    boxShadow: 1,
-                                }}
-                            >
-                                <Skeleton variant="rectangular" width={72} height={96} sx={{ borderRadius: 1 }} />
-                                <Box sx={{ flex: 1 }}>
-                                    <Skeleton variant="text" width="60%" height={24} />
-                                    <Skeleton variant="text" width="40%" height={20} />
-                                    <Skeleton variant="text" width="90%" height={18} />
-                                    <Skeleton variant="text" width="75%" height={18} />
+            {/* Book cards list */}
+            <Stack spacing={0} sx={{ px: 2, py: 1 }}>
+                {[0, 1, 2, 3].map((item) => (
+                    <Box maxWidth={1200} mx="auto" key={item} sx={{ width: '100%' }}>
+                        <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
+                            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+                                {/* Left: cover + details */}
+                                <Box sx={{ flex: { xs: 1, md: 3 }, minWidth: 0 }}>
+                                    <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+                                        {/* Cover */}
+                                        <Box sx={{ flex: { xs: 1, md: 1 }, maxWidth: { md: '33.33%' } }}>
+                                            <Skeleton
+                                                variant="rectangular"
+                                                sx={{
+                                                    width: '100%',
+                                                    aspectRatio: '2/3',
+                                                    borderRadius: 1,
+                                                }}
+                                            />
+                                        </Box>
+                                        {/* Text details */}
+                                        <Box sx={{ flex: { xs: 1, md: 2 }, py: 1 }}>
+                                            <Skeleton variant="text" width="70%" height={32} />
+                                            <Skeleton variant="text" width="45%" height={20} sx={{ mt: 1 }} />
+                                            <Skeleton variant="text" width="40%" height={20} />
+                                            <Skeleton variant="text" width="30%" height={20} sx={{ mt: 1 }} />
+                                            <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
+                                                <Skeleton variant="rectangular" width={80} height={24} sx={{ borderRadius: 8 }} />
+                                                <Skeleton variant="rectangular" width={100} height={24} sx={{ borderRadius: 8 }} />
+                                            </Box>
+                                            <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                                                <Skeleton variant="rectangular" width={70} height={24} sx={{ borderRadius: 8 }} />
+                                            </Box>
+                                        </Box>
+                                    </Stack>
+                                    {/* Annotation */}
+                                    <Box sx={{ mt: 1, px: 2 }}>
+                                        <Skeleton variant="text" width="95%" height={18} />
+                                        <Skeleton variant="text" width="85%" height={18} />
+                                        <Skeleton variant="text" width="60%" height={18} />
+                                    </Box>
                                 </Box>
-                            </Box>
-                        ))}
+                                {/* Right: download buttons */}
+                                <Box sx={{ flex: { xs: 1, md: 1 }, display: 'flex', flexDirection: 'column', gap: 1, alignItems: { xs: 'stretch', md: 'flex-start' }, pt: 1 }}>
+                                    <Skeleton variant="rectangular" width={120} height={36} sx={{ borderRadius: 1 }} />
+                                    <Skeleton variant="rectangular" width={120} height={36} sx={{ borderRadius: 1 }} />
+                                    <Skeleton variant="rectangular" width={120} height={36} sx={{ borderRadius: 1 }} />
+                                    <Skeleton variant="rectangular" width={120} height={36} sx={{ borderRadius: 1 }} />
+                                </Box>
+                            </Stack>
+                        </Card>
                     </Box>
-                    <Box sx={{ display: { xs: 'none', md: 'block' } }}>
-                        {[0, 1, 2].map((item) => (
-                            <Box
-                                key={item}
-                                sx={{
-                                    p: 2,
-                                    mb: 2,
-                                    borderRadius: 2,
-                                    bgcolor: 'background.paper',
-                                    boxShadow: 1,
-                                }}
-                            >
-                                <Skeleton variant="text" width="70%" height={22} />
-                                <Skeleton variant="text" width="50%" height={18} />
-                                <Skeleton variant="text" width="80%" height={18} />
-                            </Box>
-                        ))}
-                    </Box>
-                </Box>
-            </Box>
+                ))}
+            </Stack>
         </Box>
     );
 };
