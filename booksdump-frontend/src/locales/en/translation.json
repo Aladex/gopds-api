@@ -297,5 +297,8 @@
   "fixScanBooksUpdated": "Books updated: {{count}}",
   "fixScanErrors": "Errors: {{count}}",
   "fixScanCompleted": "Fix scan completed. Updated {{updated}} of {{total}} books.",
-  "fixScanAlreadyRunning": "Fix scan already running."
+  "fixScanAlreadyRunning": "Fix scan already running.",
+  "genres": "Genres",
+  "noGenres": "No genres",
+  "routeByGenre.books": "Search by genre"
 }

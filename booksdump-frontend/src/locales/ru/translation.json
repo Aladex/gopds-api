@@ -297,5 +297,8 @@
   "fixScanBooksUpdated": "Обновлено книг: {{count}}",
   "fixScanErrors": "Ошибок: {{count}}",
   "fixScanCompleted": "Исправление завершено. Обновлено {{updated}} из {{total}} книг.",
-  "fixScanAlreadyRunning": "Исправление метаданных уже выполняется."
+  "fixScanAlreadyRunning": "Исправление метаданных уже выполняется.",
+  "genres": "Жанры",
+  "noGenres": "Нет жанров",
+  "routeByGenre.books": "Поиск по жанру"
 }

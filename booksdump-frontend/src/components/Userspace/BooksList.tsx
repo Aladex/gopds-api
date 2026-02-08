@@ -28,6 +28,7 @@ import SkeletonCard from "../common/SkeletonCard";
 import AuthorsList from "../common/AuthorsList";
 import { useAuthor } from "../../context/AuthorContext";
 import CategotiesList from "../common/CategotiesList";
+import GenresList from "../common/GenresList";
 import { useFav } from "../../context/FavContext";
 import BookAnnotation from "../common/BookAnnotation";
 import CoverLoader from "../common/CoverLoader";
@@ -41,6 +42,7 @@ interface Book {
     title: string;
     authors: { id: number; full_name: string }[];
     series: { id: number; ser: string; ser_no: number }[];
+    genres: { id: number; genre: string }[];
     annotation: string;
     filename: string;
     cover: string;
@@ -218,6 +220,9 @@ const BooksList: React.FC = () => {
             if (authorBook) params.title = authorBook;
         } else if (location.pathname.includes('/books/find/category/') && id) {
             params.series = id;
+            clearAuthorBook();
+        } else if (location.pathname.includes('/books/find/genre/') && id) {
+            params.genre = id;
             clearAuthorBook();
         } else if (location.pathname.includes('/books/find/title/') && title) {
             params.title = decodeURIComponent(title);
@@ -447,6 +452,9 @@ const BooksList: React.FC = () => {
                                                         </Box>
                                                         <Box mt={2}>
                                                             <CategotiesList categories={book.series} />
+                                                        </Box>
+                                                        <Box mt={1}>
+                                                            <GenresList genres={book.genres} />
                                                         </Box>
                                                     </CardContent>
                                                 </Box>

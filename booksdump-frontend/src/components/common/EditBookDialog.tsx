@@ -34,6 +34,7 @@ interface Book {
     title: string;
     authors: Author[];
     series: Series[];
+    genres: { id: number; genre: string }[];
     annotation: string;
     filename: string;
     cover: string;

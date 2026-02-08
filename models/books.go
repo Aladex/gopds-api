@@ -225,6 +225,7 @@ type BookFilters struct {
 	UsersFavorites bool   `form:"users_favorites" json:"users_favorites"`
 	Collection     int64  `form:"collection" json:"collection"`
 	IncludeHidden  bool   `form:"include_hidden" json:"include_hidden"`
+	Genre          int    `form:"genre" json:"genre"`
 }
 
 // CollectionFilters params for filtering collections list

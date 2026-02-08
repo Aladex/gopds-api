@@ -5,45 +5,44 @@ import { useTranslation } from 'react-i18next';
 import { useSearchBar } from '../../context/SearchBarContext';
 import { buttonLinkSx } from '../commonStyles';
 
-interface Category {
+interface Genre {
     id: number;
-    ser: string;
-    ser_no: number;
+    genre: string;
 }
 
-interface CategoriesListProps {
-    categories: Category[];
+interface GenresListProps {
+    genres: Genre[];
 }
 
-const CategoriesList: React.FC<CategoriesListProps> = ({ categories }) => {
+const GenresList: React.FC<GenresListProps> = ({ genres }) => {
     const navigate = useNavigate();
     const { setSearchItem } = useSearchBar();
     const { t } = useTranslation();
-    const navigateToCategory = (categoryId: number) => {
+    const navigateToGenre = (genreId: number) => {
         setSearchItem('');
-        navigate(`/books/find/category/${categoryId}/1`);
+        navigate(`/books/find/genre/${genreId}/1`);
     };
 
-    if (!categories || categories.length === 0) {
+    if (!genres || genres.length === 0) {
         return null;
     }
 
     return (
         <div>
-            <Typography variant="subtitle1">{t('categories')}:</Typography>
+            <Typography variant="subtitle1">{t('genres')}:</Typography>
             <Typography variant="body2" sx={{ color: 'text.primary' }}>
-                {categories.map((category: Category) => (
-                    <React.Fragment key={category.id}>
+                {genres.map((genre: Genre) => (
+                    <React.Fragment key={genre.id}>
                         <span> &#8226; </span>
                         <Box
                             component="button"
-                            onClick={() => navigateToCategory(category.id)}
+                            onClick={() => navigateToGenre(genre.id)}
                             sx={(theme) => ({
                                 ...buttonLinkSx(theme),
                                 color: theme.palette.text.primary,
                             })}
                         >
-                            {category.ser}{category.ser_no ? ` #${category.ser_no}` : ''}
+                            {genre.genre}
                         </Box>
                     </React.Fragment>
                 ))}
@@ -52,4 +51,4 @@ const CategoriesList: React.FC<CategoriesListProps> = ({ categories }) => {
     );
 };
 
-export default CategoriesList;
+export default GenresList;

@@ -41,6 +41,7 @@ func GetBooksEnhanced(userID int64, filters models.BookFilters) ([]models.Book, 
 		Relation("Authors").
 		Relation("Users").
 		Relation("Series").
+		Relation("Genres").
 		ColumnExpr("book.*, (SELECT COUNT(*) FROM favorite_books WHERE book_id = book.id) AS favorite_count")
 
 	query = applyNonTitleFilters(query, filters, userID)
@@ -102,6 +103,7 @@ func getBooksByTitleEnhanced(userID int64, filters models.BookFilters, userFavs 
 		Relation("Authors").
 		Relation("Users").
 		Relation("Series").
+		Relation("Genres").
 		ColumnExpr("book.*, (SELECT COUNT(*) FROM favorite_books WHERE book_id = book.id) AS favorite_count").
 		Where("book.title IS NOT NULL").
 		Where("book.title != ''").
@@ -131,6 +133,7 @@ func getBooksByTitleEnhanced(userID int64, filters models.BookFilters, userFavs 
 			Relation("Authors").
 			Relation("Users").
 			Relation("Series").
+			Relation("Genres").
 			ColumnExpr("book.*, (SELECT COUNT(*) FROM favorite_books WHERE book_id = book.id) AS favorite_count").
 			Where("book.title IS NOT NULL").
 			Where("book.title != ''").
@@ -321,6 +324,17 @@ func applyNonTitleFilters(query *orm.Query, filters models.BookFilters, userID i
 		}
 	}
 
+	if filters.Genre != 0 {
+		var booksIds []int64
+		err := db.Model(&models.OrderToGenre{}).
+			Column("book_id").
+			Where("genre_id = ?", filters.Genre).
+			Select(&booksIds)
+		if err == nil && len(booksIds) > 0 {
+			query = query.WhereIn("book.id IN (?)", booksIds)
+		}
+	}
+
 	return query
 }
 
@@ -436,6 +450,7 @@ func UpdateBook(updateReq models.BookUpdateRequest) (models.Book, error) {
 		Where("id = ?", updateReq.ID).
 		Relation("Authors").
 		Relation("Series").
+		Relation("Genres").
 		Select()
 	if err != nil {
 		return bookToUpdate, err
@@ -506,6 +521,7 @@ func UpdateBook(updateReq models.BookUpdateRequest) (models.Book, error) {
 		Where("id = ?", updateReq.ID).
 		Relation("Authors").
 		Relation("Series").
+		Relation("Genres").
 		Select()
 	if err != nil {
 		return bookToUpdate, err
