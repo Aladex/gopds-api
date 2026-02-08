@@ -210,122 +210,140 @@ func TestWSHandler_MultipleAdminsBroadcast(t *testing.T) {
 	assert.Equal(t, "test_event", msg2["type"])
 }
 
-// --- Origin validation ---
-// These tests exercise upgradeWithOriginCheck through a raw http.Handler
-// to test the actual origin logic that runs in production.
+// --- Origin validation (OriginCheckMiddleware) ---
+// These tests exercise the middleware that runs BEFORE auth,
+// ensuring evil origins get 403 regardless of authentication state.
 
-func TestWSUpgrade_OriginRejected(t *testing.T) {
-	viper.Set("app.allowed_origins", []string{"http://good.example.com"})
+// originTestRouter creates a gin router with OriginCheckMiddleware
+// protecting a simple handler that returns 200.
+func originTestRouter() *gin.Engine {
+	r := gin.New()
+	r.GET("/ws", OriginCheckMiddleware(), func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+	return r
+}
+
+func TestOriginMiddleware_RejectsEvilOrigin(t *testing.T) {
+	viper.Set("app.allowed_origins", []string{"good.example.com"})
 	viper.Set("app.devel_mode", false)
 	t.Cleanup(func() {
 		viper.Set("app.allowed_origins", []string{})
 	})
 
-	mgr := services.NewWebSocketManager()
-	wsManager = mgr
-	t.Cleanup(func() { wsManager = nil })
+	r := originTestRouter()
+	req := httptest.NewRequest("GET", "/ws", nil)
+	req.Header.Set("Origin", "http://evil.com")
+	w := httptest.NewRecorder()
 
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		c := gin.CreateTestContextOnly(w, gin.New())
-		c.Request = r
-		conn, err := upgradeWithOriginCheck(c)
-		if err != nil {
-			return
-		}
-		conn.CloseNow()
-	})
+	r.ServeHTTP(w, req)
 
-	s := httptest.NewServer(handler)
-	t.Cleanup(s.Close)
-
-	wsURL := "ws" + strings.TrimPrefix(s.URL, "http")
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	_, resp, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
-		HTTPHeader: http.Header{
-			"Origin": []string{"http://evil.com"},
-		},
-	})
-	assert.Error(t, err)
-	if resp != nil {
-		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
-	}
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Contains(t, w.Body.String(), "origin not allowed")
 }
 
-func TestWSUpgrade_OriginAllowed(t *testing.T) {
-	viper.Set("app.allowed_origins", []string{"http://good.example.com"})
+func TestOriginMiddleware_AllowsConfiguredOrigin(t *testing.T) {
+	viper.Set("app.allowed_origins", []string{"good.example.com"})
 	viper.Set("app.devel_mode", false)
 	t.Cleanup(func() {
 		viper.Set("app.allowed_origins", []string{})
 	})
 
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		opts := &websocket.AcceptOptions{
-			OriginPatterns: viper.GetStringSlice("app.allowed_origins"),
-		}
-		conn, err := websocket.Accept(w, r, opts)
-		if err != nil {
-			return
-		}
-		conn.Close(websocket.StatusNormalClosure, "")
-	})
+	r := originTestRouter()
+	req := httptest.NewRequest("GET", "/ws", nil)
+	req.Header.Set("Origin", "http://good.example.com")
+	w := httptest.NewRecorder()
 
-	s := httptest.NewServer(handler)
-	t.Cleanup(s.Close)
+	r.ServeHTTP(w, req)
 
-	wsURL := "ws" + strings.TrimPrefix(s.URL, "http")
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
-		HTTPHeader: http.Header{
-			"Origin": []string{"http://good.example.com"},
-		},
-	})
-	require.NoError(t, err)
-	conn.CloseNow()
+	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-func TestWSUpgrade_DevelModeAllowsLocalhost(t *testing.T) {
+func TestOriginMiddleware_AllowsSameOrigin(t *testing.T) {
+	viper.Set("app.allowed_origins", []string{})
+	viper.Set("app.devel_mode", false)
+
+	r := originTestRouter()
+	req := httptest.NewRequest("GET", "/ws", nil)
+	req.Host = "myapp.example.com"
+	req.Header.Set("Origin", "http://myapp.example.com")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestOriginMiddleware_AllowsNoOriginHeader(t *testing.T) {
+	viper.Set("app.allowed_origins", []string{})
+	viper.Set("app.devel_mode", false)
+
+	r := originTestRouter()
+	req := httptest.NewRequest("GET", "/ws", nil)
+	// No Origin header — same-origin or non-browser client.
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestOriginMiddleware_DevelModeAllowsLocalhost(t *testing.T) {
 	viper.Set("app.allowed_origins", []string{})
 	viper.Set("app.devel_mode", true)
 	t.Cleanup(func() {
 		viper.Set("app.devel_mode", false)
 	})
 
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		patterns := viper.GetStringSlice("app.allowed_origins")
-		if viper.GetBool("app.devel_mode") {
-			patterns = append(patterns, "127.0.0.1:3000", "localhost:3000")
-		}
-		opts := &websocket.AcceptOptions{}
-		if len(patterns) > 0 {
-			opts.OriginPatterns = patterns
-		} else {
-			opts.InsecureSkipVerify = true
-		}
-		conn, err := websocket.Accept(w, r, opts)
-		if err != nil {
-			return
-		}
-		conn.Close(websocket.StatusNormalClosure, "")
+	r := originTestRouter()
+	req := httptest.NewRequest("GET", "/ws", nil)
+	req.Header.Set("Origin", "http://localhost:3000")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestOriginMiddleware_DevelModeRejectsOtherOrigins(t *testing.T) {
+	viper.Set("app.allowed_origins", []string{})
+	viper.Set("app.devel_mode", true)
+	t.Cleanup(func() {
+		viper.Set("app.devel_mode", false)
 	})
 
-	s := httptest.NewServer(handler)
-	t.Cleanup(s.Close)
+	r := originTestRouter()
+	req := httptest.NewRequest("GET", "/ws", nil)
+	req.Header.Set("Origin", "http://evil.com")
+	w := httptest.NewRecorder()
 
-	wsURL := "ws" + strings.TrimPrefix(s.URL, "http")
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
+	r.ServeHTTP(w, req)
 
-	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
-		HTTPHeader: http.Header{
-			"Origin": []string{"http://localhost:3000"},
-		},
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestOriginMiddleware_OriginWithSchemePattern(t *testing.T) {
+	viper.Set("app.allowed_origins", []string{"https://secure.example.com"})
+	viper.Set("app.devel_mode", false)
+	t.Cleanup(func() {
+		viper.Set("app.allowed_origins", []string{})
 	})
-	require.NoError(t, err)
-	conn.CloseNow()
+
+	r := originTestRouter()
+
+	// HTTPS origin matching HTTPS pattern — allowed.
+	req := httptest.NewRequest("GET", "/ws", nil)
+	req.Header.Set("Origin", "https://secure.example.com")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// HTTP origin not matching HTTPS pattern — rejected.
+	req2 := httptest.NewRequest("GET", "/ws", nil)
+	req2.Header.Set("Origin", "http://secure.example.com")
+	w2 := httptest.NewRecorder()
+	r.ServeHTTP(w2, req2)
+	assert.Equal(t, http.StatusForbidden, w2.Code)
 }
 
 // --- Unknown message ---

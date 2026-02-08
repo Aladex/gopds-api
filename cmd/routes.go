@@ -24,6 +24,8 @@ func setupRoutes(route *gin.Engine) {
 	setupOpdsRoutes(route.Group("/opds", middlewares.BasicAuth()))
 	// Add public auth routes (no auth middleware)
 	setupPublicAuthRoutes(route.Group("/api"))
+	// WebSocket: Origin check BEFORE auth, so evil origins get 403 not 401
+	route.GET("/api/ws", api.OriginCheckMiddleware(), middlewares.AuthMiddleware(), api.UnifiedWebSocketHandler)
 	// Add authenticated API routes with CSRF protection for state-changing operations
 	setupApiRoutes(route.Group("/api", middlewares.AuthMiddleware()))
 	setupLogoutRoutes(route.Group("/api", middlewares.AuthMiddleware()))
@@ -106,8 +108,6 @@ func setupLogoutRoutes(group *gin.RouterGroup) {
 func setupApiRoutes(group *gin.RouterGroup) {
 	booksGroup := group.Group("/books")
 	api.SetupBookRoutes(booksGroup)
-	// Unified WebSocket endpoint for all authenticated users
-	api.SetupUnifiedWebSocketRoute(group)
 	// Setup admin routes with admin middleware
 	adminGroup := group.Group("/admin", middlewares.AdminMiddleware())
 	setupAdminRoutes(adminGroup)

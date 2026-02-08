@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
@@ -69,23 +71,71 @@ func (w *ginHijackWriter) Flush() {
 	}
 }
 
-// upgradeWithOriginCheck upgrades an HTTP connection to WebSocket with Origin
-// validation using coder/websocket's built-in OriginPatterns.
-func upgradeWithOriginCheck(c *gin.Context) (*websocket.Conn, error) {
+// allowedOriginPatterns returns the list of origin patterns from config,
+// with localhost entries added in devel mode.
+func allowedOriginPatterns() []string {
 	patterns := viper.GetStringSlice("app.allowed_origins")
-
 	if viper.GetBool("app.devel_mode") {
 		patterns = append(patterns, "127.0.0.1:3000", "localhost:3000")
 	}
+	return patterns
+}
 
-	opts := &websocket.AcceptOptions{}
-	if len(patterns) > 0 {
-		opts.OriginPatterns = patterns
-	} else {
-		opts.InsecureSkipVerify = true
+// OriginCheckMiddleware validates the Origin header BEFORE auth, so that
+// cross-origin requests get 403 Forbidden regardless of authentication state.
+// Same-origin requests (no Origin header, or Origin matching the Host) pass through.
+func OriginCheckMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		origin := c.GetHeader("Origin")
+		if origin == "" {
+			// No Origin header = same-origin or non-browser client. Allow.
+			c.Next()
+			return
+		}
+
+		u, err := url.Parse(origin)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "invalid origin"})
+			return
+		}
+
+		// Same-origin: Origin host matches request Host.
+		if strings.EqualFold(c.Request.Host, u.Host) {
+			c.Next()
+			return
+		}
+
+		patterns := allowedOriginPatterns()
+
+		// No configured patterns and not devel mode → reject cross-origin.
+		if len(patterns) == 0 {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "origin not allowed"})
+			return
+		}
+
+		for _, pattern := range patterns {
+			target := u.Host
+			if strings.Contains(pattern, "://") {
+				target = u.Scheme + "://" + u.Host
+			}
+			if strings.EqualFold(pattern, target) {
+				c.Next()
+				return
+			}
+		}
+
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "origin not allowed"})
+	}
+}
+
+// upgradeWebSocket upgrades an HTTP connection to WebSocket.
+// Origin is already validated by OriginCheckMiddleware, so we skip
+// origin verification in websocket.Accept.
+func upgradeWebSocket(c *gin.Context) (*websocket.Conn, error) {
+	opts := &websocket.AcceptOptions{
+		InsecureSkipVerify: true, // Origin already checked by middleware.
 	}
 
-	// Wrap gin's writer to fix Hijack() + WriteHeaderNow() compatibility.
 	w := &ginHijackWriter{ResponseWriter: c.Writer}
 
 	conn, err := websocket.Accept(w, c.Request, opts)

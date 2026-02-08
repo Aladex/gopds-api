@@ -11,11 +11,6 @@ import (
 	"gopds-api/logging"
 )
 
-// SetupUnifiedWebSocketRoute registers the unified WebSocket endpoint.
-func SetupUnifiedWebSocketRoute(r *gin.RouterGroup) {
-	r.GET("/ws", UnifiedWebSocketHandler)
-}
-
 // UnifiedWebSocketHandler handles WebSocket connections for all users.
 // Regular users receive book conversion notifications.
 // Admin users additionally receive scan progress and duplicate events.
@@ -28,7 +23,7 @@ func UnifiedWebSocketHandler(c *gin.Context) {
 	isSuperUser, _ := isSuperVal.(bool)
 	user, _ := username.(string)
 
-	conn, err := upgradeWithOriginCheck(c)
+	conn, err := upgradeWebSocket(c)
 	if err != nil {
 		logging.Errorf("WebSocket upgrade failed for user %s: %v", user, err)
 		return
