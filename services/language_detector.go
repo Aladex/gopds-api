@@ -42,6 +42,9 @@ type LanguageDetector struct {
 	enableOpenAI  bool
 	openaiTimeout time.Duration
 
+	// Set of ISO 639-1 codes that lingua can detect
+	linguaSupported map[string]bool
+
 	// Caches for performance
 	standardizationCache map[string]string
 	textHashCache        map[string]LanguageDetectionResult
@@ -50,30 +53,23 @@ type LanguageDetector struct {
 
 // NewLanguageDetector creates a new language detector with lingua-go
 func NewLanguageDetector(enableOpenAI bool, openaiTimeout time.Duration) *LanguageDetector {
-	// Build lingua detector with all supported languages
-	languages := []lingua.Language{
-		lingua.English,
-		lingua.Russian,
-		lingua.German,
-		lingua.French,
-		lingua.Spanish,
-		lingua.Italian,
-		lingua.Portuguese,
-		lingua.Ukrainian,
-		lingua.Polish,
-		lingua.Czech,
-		lingua.Chinese,
-		lingua.Japanese,
-		lingua.Korean,
-	}
-
+	// Build lingua detector with all 75 supported languages
+	allLangs := lingua.AllLanguages()
 	detector := lingua.NewLanguageDetectorBuilder().
-		FromLanguages(languages...).
+		FromLanguages(allLangs...).
 		WithPreloadedLanguageModels().
 		Build()
 
+	// Build lookup of ISO codes lingua can detect
+	supported := make(map[string]bool, len(allLangs))
+	for _, lang := range allLangs {
+		code := strings.ToLower(lang.IsoCode639_1().String())
+		supported[code] = true
+	}
+
 	return &LanguageDetector{
 		detector:             detector,
+		linguaSupported:      supported,
 		enableOpenAI:         enableOpenAI,
 		openaiTimeout:        openaiTimeout,
 		standardizationCache: make(map[string]string),
@@ -98,51 +94,145 @@ func (ld *LanguageDetector) StandardizeLanguage(rawLang string) string {
 	// Normalize to lowercase
 	normalized := strings.ToLower(strings.TrimSpace(rawLang))
 
-	// Language mapping table
+	// Language mapping table: ISO 639-1, ISO 639-2/3, and English names
+	// Covers all 75 lingua-go languages plus common FB2 metadata variants
 	langMap := map[string]string{
-		"ru":         "ru",
-		"rus":        "ru",
-		"russian":    "ru",
-		"en":         "en",
-		"eng":        "en",
-		"english":    "en",
-		"de":         "de",
-		"ger":        "de",
-		"deu":        "de",
-		"german":     "de",
-		"fr":         "fr",
-		"fre":        "fr",
-		"fra":        "fr",
-		"french":     "fr",
-		"es":         "es",
-		"spa":        "es",
-		"spanish":    "es",
-		"it":         "it",
-		"ita":        "it",
-		"italian":    "it",
-		"pt":         "pt",
-		"por":        "pt",
-		"portuguese": "pt",
-		"uk":         "uk",
-		"ukr":        "uk",
-		"ukrainian":  "uk",
-		"pl":         "pl",
-		"pol":        "pl",
-		"polish":     "pl",
-		"cs":         "cs",
-		"cze":        "cs",
-		"ces":        "cs",
-		"czech":      "cs",
-		"zh":         "zh",
-		"chi":        "zh",
-		"zho":        "zh",
-		"chinese":    "zh",
-		"ja":         "ja",
-		"jpn":        "ja",
-		"japanese":   "ja",
-		"ko":         "ko",
-		"kor":        "ko",
-		"korean":     "ko",
+		// Afrikaans
+		"af": "af", "afr": "af", "afrikaans": "af",
+		// Albanian
+		"sq": "sq", "alb": "sq", "sqi": "sq", "albanian": "sq",
+		// Arabic
+		"ar": "ar", "ara": "ar", "arabic": "ar",
+		// Armenian
+		"hy": "hy", "arm": "hy", "hye": "hy", "armenian": "hy",
+		// Azerbaijani
+		"az": "az", "aze": "az", "azerbaijani": "az",
+		// Basque
+		"eu": "eu", "baq": "eu", "eus": "eu", "basque": "eu",
+		// Belarusian
+		"be": "be", "bel": "be", "belarusian": "be",
+		// Bengali
+		"bn": "bn", "ben": "bn", "bengali": "bn",
+		// Bosnian
+		"bs": "bs", "bos": "bs", "bosnian": "bs",
+		// Bulgarian
+		"bg": "bg", "bul": "bg", "bulgarian": "bg",
+		// Catalan
+		"ca": "ca", "cat": "ca", "catalan": "ca",
+		// Chinese
+		"zh": "zh", "chi": "zh", "zho": "zh", "chinese": "zh",
+		// Croatian
+		"hr": "hr", "hrv": "hr", "croatian": "hr",
+		// Czech
+		"cs": "cs", "cze": "cs", "ces": "cs", "czech": "cs",
+		// Danish
+		"da": "da", "dan": "da", "danish": "da",
+		// Dutch
+		"nl": "nl", "dut": "nl", "nld": "nl", "dutch": "nl",
+		// English
+		"en": "en", "eng": "en", "english": "en",
+		// Esperanto
+		"eo": "eo", "epo": "eo", "esperanto": "eo",
+		// Estonian
+		"et": "et", "est": "et", "estonian": "et",
+		// Finnish
+		"fi": "fi", "fin": "fi", "finnish": "fi",
+		// French
+		"fr": "fr", "fre": "fr", "fra": "fr", "french": "fr",
+		// Georgian
+		"ka": "ka", "geo": "ka", "kat": "ka", "georgian": "ka",
+		// German
+		"de": "de", "ger": "de", "deu": "de", "german": "de",
+		// Greek
+		"el": "el", "gre": "el", "ell": "el", "greek": "el",
+		// Gujarati
+		"gu": "gu", "guj": "gu", "gujarati": "gu",
+		// Hebrew
+		"he": "he", "heb": "he", "hebrew": "he",
+		// Hindi
+		"hi": "hi", "hin": "hi", "hindi": "hi",
+		// Hungarian
+		"hu": "hu", "hun": "hu", "hungarian": "hu",
+		// Icelandic
+		"is": "is", "ice": "is", "isl": "is", "icelandic": "is",
+		// Indonesian
+		"id": "id", "ind": "id", "indonesian": "id",
+		// Irish
+		"ga": "ga", "gle": "ga", "irish": "ga",
+		// Italian
+		"it": "it", "ita": "it", "italian": "it",
+		// Japanese
+		"ja": "ja", "jpn": "ja", "japanese": "ja",
+		// Kazakh
+		"kk": "kk", "kaz": "kk", "kazakh": "kk",
+		// Korean
+		"ko": "ko", "kor": "ko", "korean": "ko",
+		// Latin
+		"la": "la", "lat": "la", "latin": "la",
+		// Latvian
+		"lv": "lv", "lav": "lv", "latvian": "lv",
+		// Lithuanian
+		"lt": "lt", "lit": "lt", "lithuanian": "lt",
+		// Macedonian
+		"mk": "mk", "mac": "mk", "mkd": "mk", "macedonian": "mk",
+		// Malay
+		"ms": "ms", "may": "ms", "msa": "ms", "malay": "ms",
+		// Maori
+		"mi": "mi", "mao": "mi", "mri": "mi", "maori": "mi",
+		// Marathi
+		"mr": "mr", "mar": "mr", "marathi": "mr",
+		// Mongolian
+		"mn": "mn", "mon": "mn", "mongolian": "mn",
+		// Norwegian Bokmal
+		"nb": "nb", "nob": "nb",
+		// Norwegian Nynorsk
+		"nn": "nn", "nno": "nn",
+		// Norwegian (generic → Bokmal)
+		"no": "nb", "nor": "nb", "norwegian": "nb",
+		// Persian
+		"fa": "fa", "per": "fa", "fas": "fa", "persian": "fa",
+		// Polish
+		"pl": "pl", "pol": "pl", "polish": "pl",
+		// Portuguese
+		"pt": "pt", "por": "pt", "portuguese": "pt",
+		// Punjabi
+		"pa": "pa", "pan": "pa", "punjabi": "pa",
+		// Romanian
+		"ro": "ro", "rum": "ro", "ron": "ro", "romanian": "ro",
+		// Russian
+		"ru": "ru", "rus": "ru", "russian": "ru",
+		// Serbian
+		"sr": "sr", "srp": "sr", "serbian": "sr",
+		// Slovak
+		"sk": "sk", "slo": "sk", "slk": "sk", "slovak": "sk",
+		// Slovene
+		"sl": "sl", "slv": "sl", "slovene": "sl", "slovenian": "sl",
+		// Somali
+		"so": "so", "som": "so", "somali": "so",
+		// Spanish
+		"es": "es", "spa": "es", "spanish": "es",
+		// Swahili
+		"sw": "sw", "swa": "sw", "swahili": "sw",
+		// Swedish
+		"sv": "sv", "swe": "sv", "swedish": "sv",
+		// Tagalog
+		"tl": "tl", "tgl": "tl", "tagalog": "tl",
+		// Tamil
+		"ta": "ta", "tam": "ta", "tamil": "ta",
+		// Telugu
+		"te": "te", "tel": "te", "telugu": "te",
+		// Thai
+		"th": "th", "tha": "th", "thai": "th",
+		// Turkish
+		"tr": "tr", "tur": "tr", "turkish": "tr",
+		// Ukrainian
+		"uk": "uk", "ukr": "uk", "ukrainian": "uk",
+		// Urdu
+		"ur": "ur", "urd": "ur", "urdu": "ur",
+		// Vietnamese
+		"vi": "vi", "vie": "vi", "vietnamese": "vi",
+		// Welsh
+		"cy": "cy", "wel": "cy", "cym": "cy", "welsh": "cy",
 	}
 
 	result, found := langMap[normalized]
@@ -161,6 +251,15 @@ func (ld *LanguageDetector) StandardizeLanguage(rawLang string) string {
 	ld.cacheMutex.Unlock()
 
 	return result
+}
+
+// canLinguaArbitrate returns true if lingua can reliably override the tag.
+// True when there is no tag, or the tag's language is one of lingua's 75 supported languages.
+func (ld *LanguageDetector) canLinguaArbitrate(standardizedTag string) bool {
+	if standardizedTag == "" || standardizedTag == "unknown" {
+		return true // no tag to contradict
+	}
+	return ld.linguaSupported[standardizedTag]
 }
 
 // detectWithLingua uses lingua-go to detect language from text
@@ -242,16 +341,16 @@ func (ld *LanguageDetector) DetectLanguage(tagLang, textSample string) LanguageD
 			Method:     MethodTagMatch,
 			Confidence: confidence,
 		}
-	} else if confidence > 0.85 {
-		// Case 2: Lingua-go is very confident
+	} else if confidence > 0.85 && ld.canLinguaArbitrate(standardizedTag) {
+		// Case 2: Lingua-go is very confident AND can arbitrate (tag is empty or lingua knows the tag language)
 		logging.Infof("Language detection: lingua-go confident on '%s' (confidence: %.2f, tag: %s)", detectedLang, confidence, standardizedTag)
 		result = LanguageDetectionResult{
 			Language:   detectedLang,
 			Method:     MethodLinguaConfident,
 			Confidence: confidence,
 		}
-	} else if confidence > 0.6 && standardizedTag != "" && standardizedTag != detectedLang {
-		// Case 3: Medium confidence + disagreement - use OpenAI if enabled
+	} else if standardizedTag != "" && standardizedTag != "unknown" && standardizedTag != detectedLang {
+		// Case 3: Tag disagrees with lingua and lingua can't reliably arbitrate - use OpenAI or trust tag
 		logging.Warnf("Language detection disagreement: tag='%s', detected='%s' (confidence: %.2f)", standardizedTag, detectedLang, confidence)
 
 		openaiLang := ld.detectWithOpenAI(textSample)
@@ -262,13 +361,14 @@ func (ld *LanguageDetector) DetectLanguage(tagLang, textSample string) LanguageD
 				Confidence: confidence,
 			}
 		} else {
+			// No OpenAI — trust the tag (lingua can't reliably arbitrate for this language)
 			result = LanguageDetectionResult{
-				Language:   detectedLang,
-				Method:     MethodLinguaMedium,
+				Language:   standardizedTag,
+				Method:     MethodTagFallback,
 				Confidence: confidence,
 			}
 		}
-	} else if standardizedTag != "" {
+	} else if standardizedTag != "" && standardizedTag != "unknown" {
 		// Case 4: Low confidence or no detection - fallback to tag
 		logging.Infof("Language detection: low confidence (%.2f), falling back to tag '%s'", confidence, standardizedTag)
 		result = LanguageDetectionResult{

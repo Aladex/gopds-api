@@ -49,7 +49,8 @@ func TestStandardizeLanguage(t *testing.T) {
 
 		// Edge cases
 		{"Empty string", "", ""},
-		{"Unknown long", "swahili", "unknown"},
+		{"Swahili", "swahili", "sw"},
+		{"Unknown long", "klingon", "unknown"},
 		{"Unknown short", "xx", "xx"},
 		{"With spaces", " ru ", "ru"},
 	}

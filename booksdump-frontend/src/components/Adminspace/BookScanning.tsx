@@ -26,6 +26,8 @@ import {
     TableRow,
     TextField,
     Typography,
+    useMediaQuery,
+    useTheme,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -176,6 +178,8 @@ interface FixScanErrorEvent {
 
 const BookScanning: React.FC = () => {
     const { t } = useTranslation();
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('md'));
     const [status, setStatus] = useState<ScanStatusResponse | null>(null);
     const [unscannedArchives, setUnscannedArchives] = useState<UnscannedArchiveInfo[]>([]);
     const [scannedArchives, setScannedArchives] = useState<ScannedArchiveInfo[]>([]);
@@ -962,7 +966,7 @@ const BookScanning: React.FC = () => {
                                     onChange={(event) => setSelectedErrorIndex(Number(event.target.value))}
                                     SelectProps={{ native: true }}
                                     size="small"
-                                    sx={{ minWidth: 320, mb: 2 }}
+                                    sx={{ minWidth: { xs: '100%', sm: 320 }, mb: 2 }}
                                 >
                                     <option value="" disabled>
                                         {t('bookScanErrorsSelectPlaceholder')}
@@ -1006,12 +1010,15 @@ const BookScanning: React.FC = () => {
                     <Tabs
                         value={currentTab}
                         onChange={(_, newValue) => setCurrentTab(newValue)}
+                        variant={isMobile ? 'fullWidth' : 'standard'}
                         sx={{
                             borderBottom: 2,
                             borderColor: 'divider',
                             '& .MuiTab-root': {
                                 fontWeight: 500,
                                 color: 'text.secondary',
+                                fontSize: { xs: '0.875rem', sm: '1rem' },
+                                minHeight: { xs: 48, sm: 64 },
                             },
                             '& .MuiTab-root.Mui-selected': {
                                 fontWeight: 'bold',
@@ -1045,6 +1052,43 @@ const BookScanning: React.FC = () => {
                                     <Typography variant="body2" color="text.secondary">
                                         {t('bookScanNoUnscanned')}
                                     </Typography>
+                                ) : isMobile ? (
+                                    <Stack spacing={2}>
+                                        {unscannedArchives.map((archive) => (
+                                            <Card key={archive.name} variant="outlined" sx={{ p: 2 }}>
+                                                <Typography
+                                                    variant="body2"
+                                                    fontWeight="bold"
+                                                    sx={{
+                                                        mb: 1,
+                                                        wordBreak: 'break-word',
+                                                        overflowWrap: 'break-word',
+                                                    }}
+                                                >
+                                                    {archive.name}
+                                                </Typography>
+                                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mb: 2 }}>
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        {t('bookScanSize')}: <strong>{archive.size_mb} MB</strong>
+                                                    </Typography>
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        {t('bookScanFileCount')}: <strong>{archive.file_count}</strong>
+                                                    </Typography>
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        {t('bookScanCreated')}: <strong>{new Date(archive.created_date).toLocaleString()}</strong>
+                                                    </Typography>
+                                                </Box>
+                                                <Button
+                                                    size="small"
+                                                    variant="outlined"
+                                                    fullWidth
+                                                    onClick={() => handleScanArchive(archive.name)}
+                                                >
+                                                    {t('bookScanArchiveButton')}
+                                                </Button>
+                                            </Card>
+                                        ))}
+                                    </Stack>
                                 ) : (
                                     <Table size="small">
                                         <TableHead>
@@ -1100,6 +1144,95 @@ const BookScanning: React.FC = () => {
                                     <Typography variant="body2" color="text.secondary">
                                         {t('bookScanNoScanned')}
                                     </Typography>
+                                ) : isMobile ? (
+                                    <Stack spacing={2}>
+                                        {scannedArchives.map((archive) => (
+                                            <Card key={archive.name} variant="outlined" sx={{ p: 2 }}>
+                                                <Typography
+                                                    variant="body2"
+                                                    fontWeight="bold"
+                                                    sx={{
+                                                        mb: 1,
+                                                        wordBreak: 'break-word',
+                                                        overflowWrap: 'break-word',
+                                                    }}
+                                                >
+                                                    {archive.name}
+                                                </Typography>
+                                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mb: 2 }}>
+                                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                        <Typography variant="caption" color="text.secondary">
+                                                            {t('bookScanBooksCount')}:
+                                                        </Typography>
+                                                        <Chip
+                                                            label={archive.books_count}
+                                                            color="success"
+                                                            size="small"
+                                                            sx={{ fontWeight: 'bold' }}
+                                                        />
+                                                    </Box>
+                                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                        <Typography variant="caption" color="text.secondary">
+                                                            {t('bookScanErrorsCount')}:
+                                                        </Typography>
+                                                        <Chip
+                                                            label={archive.errors_count}
+                                                            color={archive.errors_count > 0 ? 'error' : 'success'}
+                                                            size="small"
+                                                            sx={{ fontWeight: 'bold' }}
+                                                        />
+                                                    </Box>
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        {t('bookScanScannedAt')}: <strong>{formatScannedDate(archive.scanned_at)}</strong>
+                                                    </Typography>
+                                                </Box>
+                                                <Box sx={{ display: 'flex', gap: 1, justifyContent: 'space-around' }}>
+                                                    <IconButton
+                                                        size="small"
+                                                        onClick={() => handleRescanClick(archive.name)}
+                                                        title={t('refresh')}
+                                                        sx={{
+                                                            backgroundColor: 'primary.main',
+                                                            color: 'primary.contrastText',
+                                                            '&:hover': {
+                                                                backgroundColor: 'primary.dark',
+                                                            },
+                                                        }}
+                                                    >
+                                                        <RefreshIcon />
+                                                    </IconButton>
+                                                    <IconButton
+                                                        size="small"
+                                                        onClick={() => handleResetArchive(archive.name, false)}
+                                                        title={t('bookScanResetTitle')}
+                                                        sx={{
+                                                            backgroundColor: 'warning.main',
+                                                            color: 'warning.contrastText',
+                                                            '&:hover': {
+                                                                backgroundColor: 'warning.dark',
+                                                            },
+                                                        }}
+                                                    >
+                                                        <RestartAltIcon />
+                                                    </IconButton>
+                                                    <IconButton
+                                                        size="small"
+                                                        onClick={() => handleDeleteArchiveBooks(archive.name)}
+                                                        title={t('bookScanDeleteBooks')}
+                                                        sx={{
+                                                            backgroundColor: 'error.main',
+                                                            color: 'error.contrastText',
+                                                            '&:hover': {
+                                                                backgroundColor: 'error.dark',
+                                                            },
+                                                        }}
+                                                    >
+                                                        <DeleteIcon />
+                                                    </IconButton>
+                                                </Box>
+                                            </Card>
+                                        ))}
+                                    </Stack>
                                 ) : (
                                     <Table size="small">
                                         <TableHead>
