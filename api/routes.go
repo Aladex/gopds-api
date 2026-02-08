@@ -24,7 +24,6 @@ func SetupBookRoutes(r *gin.RouterGroup) {
 	r.POST("/author", GetAuthor)
 	r.POST("/file", GetBookFile)
 	r.POST("/fav", middlewares.CSRFMiddleware(), FavBook)
-	r.GET("/ws", WebsocketHandler)
 }
 
 // SetupAuthRoutes sets up routes for authentication (public routes)

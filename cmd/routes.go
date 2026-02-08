@@ -97,17 +97,16 @@ func setupLogoutRoutes(group *gin.RouterGroup) {
 func setupApiRoutes(group *gin.RouterGroup) {
 	booksGroup := group.Group("/books")
 	api.SetupBookRoutes(booksGroup)
+	// Unified WebSocket endpoint for all authenticated users
+	api.SetupUnifiedWebSocketRoute(group)
 	// Setup admin routes with admin middleware
 	adminGroup := group.Group("/admin", middlewares.AdminMiddleware())
 	setupAdminRoutes(adminGroup)
-
 }
 
 // setupAdminRoutes configures routes for administrative functionalities.
 func setupAdminRoutes(group *gin.RouterGroup) {
 	api.SetupAdminRoutes(group)
-	// Setup admin WebSocket for real-time notifications
-	api.SetupAdminWebSocketRoute(group)
 }
 
 // getRegisteredRoutes retrieves all registered routes in the Gin engine

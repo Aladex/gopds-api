@@ -44,7 +44,7 @@ func DeleteSessionKey(ctx context.Context, lu models.LoggedInUser) error {
 
 // DropAllSessions removes all session keys for a user.
 func DropAllSessions(token string) {
-	username, _, _, err := utils.CheckToken(token)
+	username, _, _, err := utils.CheckAccessToken(token)
 	if err != nil {
 		logging.Error(err)
 		return
@@ -57,12 +57,12 @@ func DropAllSessions(token string) {
 	for _, k := range keys {
 		if strings.HasPrefix(k, themeKeyPrefix) {
 			keyToken := strings.TrimPrefix(k, themeKeyPrefix)
-			if checkedUser, _, _, err := utils.CheckToken(keyToken); err == nil && checkedUser == username {
+			if checkedUser, _, _, err := utils.CheckAccessToken(keyToken); err == nil && checkedUser == username {
 				rdb.Del(k)
 			}
 			continue
 		}
-		if checkedUser, _, _, err := utils.CheckToken(k); err == nil && checkedUser == username {
+		if checkedUser, _, _, err := utils.CheckAccessToken(k); err == nil && checkedUser == username {
 			rdb.Del(k, themeKeyPrefix+k)
 		}
 	}

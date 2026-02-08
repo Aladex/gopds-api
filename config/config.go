@@ -58,14 +58,15 @@ type SessionsConfig struct {
 
 // AppConfig holds application-specific configuration
 type AppConfig struct {
-	DevelMode         bool   `mapstructure:"devel_mode" yaml:"devel_mode"`
-	CDN               string `mapstructure:"cdn" yaml:"cdn"`
-	FilesPath         string `mapstructure:"files_path" yaml:"files_path"`
-	UsersPath         string `mapstructure:"users_path" yaml:"users_path"`
-	BookCDNKey        string `mapstructure:"book_cdn_key" yaml:"book_cdn_key"`
-	PostersPath       string `mapstructure:"posters_path" yaml:"posters_path"`
-	FileBookCDN       string `mapstructure:"file_book_cdn" yaml:"file_book_cdn"`
-	MobiConversionDir string `mapstructure:"mobi_conversion_dir" yaml:"mobi_conversion_dir"`
+	DevelMode         bool     `mapstructure:"devel_mode" yaml:"devel_mode"`
+	CDN               string   `mapstructure:"cdn" yaml:"cdn"`
+	FilesPath         string   `mapstructure:"files_path" yaml:"files_path"`
+	UsersPath         string   `mapstructure:"users_path" yaml:"users_path"`
+	BookCDNKey        string   `mapstructure:"book_cdn_key" yaml:"book_cdn_key"`
+	PostersPath       string   `mapstructure:"posters_path" yaml:"posters_path"`
+	FileBookCDN       string   `mapstructure:"file_book_cdn" yaml:"file_book_cdn"`
+	MobiConversionDir string   `mapstructure:"mobi_conversion_dir" yaml:"mobi_conversion_dir"`
+	AllowedOrigins    []string `mapstructure:"allowed_origins" yaml:"allowed_origins"`
 }
 
 // ScanningConfig holds scanning-specific configuration
@@ -167,6 +168,7 @@ func setDefaults() {
 	viper.SetDefault("app.users_path", "./users/")
 	viper.SetDefault("app.posters_path", "./posters/")
 	viper.SetDefault("app.mobi_conversion_dir", "./mobi/")
+	viper.SetDefault("app.allowed_origins", []string{})
 
 	// Scanning defaults
 	viper.SetDefault("scanning.skip_duplicates", true)

@@ -502,7 +502,7 @@ const BookScanning: React.FC = () => {
     }, [currentTab, fetchScanned]);
 
     useEffect(() => {
-        const ws = new WebSocket(`${WS_URL}/api/admin/ws`);
+        const ws = new WebSocket(`${WS_URL}/api/ws`);
         wsRef.current = ws;
 
         ws.onmessage = (event) => {

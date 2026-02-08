@@ -96,7 +96,8 @@ func CheckPbkdf2(password, encoded string, keyLen int, h func() hash.Hash) (bool
 	return bytes.Equal(k, dk), nil
 }
 
-// CreateTokenPair creates both access and refresh tokens for the user
+// CreateTokenPair creates both access and refresh tokens for the user.
+// Access tokens are signed with sessions.key, refresh tokens with sessions.refresh.
 func CreateTokenPair(user models.User) (string, string, error) {
 	// Create access token (15 minutes)
 	accessToken := Token{
@@ -129,7 +130,7 @@ func CreateTokenPair(user models.User) (string, string, error) {
 		return "", "", err
 	}
 
-	refreshTokenString, err := jwt.NewWithClaims(jwt.GetSigningMethod("HS256"), refreshToken).SignedString([]byte(viper.GetString("sessions.key")))
+	refreshTokenString, err := jwt.NewWithClaims(jwt.GetSigningMethod("HS256"), refreshToken).SignedString([]byte(viper.GetString("sessions.refresh")))
 	if err != nil {
 		return "", "", err
 	}
@@ -137,8 +138,9 @@ func CreateTokenPair(user models.User) (string, string, error) {
 	return accessTokenString, refreshTokenString, nil
 }
 
-// CheckToken checks if the token is valid
-func CheckToken(token string) (string, int64, bool, error) {
+// CheckAccessToken validates an access token: verifies the signature with
+// sessions.key and rejects tokens that are not of type "access".
+func CheckAccessToken(token string) (string, int64, bool, error) {
 	tokenCheck, err := jwt.ParseWithClaims(token, &Token{}, func(token *jwt.Token) (interface{}, error) {
 		return []byte(viper.GetString("sessions.key")), nil
 	})
@@ -147,24 +149,37 @@ func CheckToken(token string) (string, int64, bool, error) {
 		return "", 0, false, err
 	}
 
-	if claims, ok := tokenCheck.Claims.(*Token); ok && tokenCheck.Valid {
-		return claims.UserID, claims.DatabaseID, claims.IsSuperUser, nil
+	claims, ok := tokenCheck.Claims.(*Token)
+	if !ok || !tokenCheck.Valid {
+		return "", 0, false, errors.New("invalid_token")
 	}
-	return "", 0, false, errors.New("invalid_token")
+
+	if claims.TokenType != "access" {
+		return "", 0, false, errors.New("invalid_token_type")
+	}
+
+	return claims.UserID, claims.DatabaseID, claims.IsSuperUser, nil
 }
 
-// CheckTokenWithType checks if the token is valid and returns token type
-func CheckTokenWithType(token string) (string, int64, bool, string, error) {
+// CheckRefreshToken validates a refresh token: verifies the signature with
+// sessions.refresh and rejects tokens that are not of type "refresh".
+func CheckRefreshToken(token string) (string, int64, bool, error) {
 	tokenCheck, err := jwt.ParseWithClaims(token, &Token{}, func(token *jwt.Token) (interface{}, error) {
-		return []byte(viper.GetString("sessions.key")), nil
+		return []byte(viper.GetString("sessions.refresh")), nil
 	})
 
 	if tokenCheck == nil {
-		return "", 0, false, "", err
+		return "", 0, false, err
 	}
 
-	if claims, ok := tokenCheck.Claims.(*Token); ok && tokenCheck.Valid {
-		return claims.UserID, claims.DatabaseID, claims.IsSuperUser, claims.TokenType, nil
+	claims, ok := tokenCheck.Claims.(*Token)
+	if !ok || !tokenCheck.Valid {
+		return "", 0, false, errors.New("invalid_token")
 	}
-	return "", 0, false, "", errors.New("invalid_token")
+
+	if claims.TokenType != "refresh" {
+		return "", 0, false, errors.New("invalid_token_type")
+	}
+
+	return claims.UserID, claims.DatabaseID, claims.IsSuperUser, nil
 }

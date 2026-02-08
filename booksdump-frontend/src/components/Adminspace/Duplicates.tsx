@@ -182,7 +182,7 @@ const Duplicates: React.FC = () => {
     }, [fetchGroups, fetchActiveScan]);
 
     useEffect(() => {
-        const ws = new WebSocket(`${WS_URL}/api/admin/ws`);
+        const ws = new WebSocket(`${WS_URL}/api/ws`);
         wsRef.current = ws;
 
         ws.onmessage = (event) => {

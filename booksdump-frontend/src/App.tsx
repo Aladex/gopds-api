@@ -15,7 +15,7 @@ import AppSkeleton from './components/common/AppSkeleton';
 
 const App: React.FC<{ isAuthenticated: boolean }> = memo(({ isAuthenticated }) => {
     // Using WebSocket inside BookConversionProvider
-    useAuthWebSocket("/api/books/ws", isAuthenticated);
+    useAuthWebSocket("/api/ws", isAuthenticated);
 
     return (
         <Routes>

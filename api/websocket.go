@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"fmt"
 	"gopds-api/database"
 	"gopds-api/httputil"
@@ -13,11 +12,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
-	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gobwas/ws"
-	"github.com/gobwas/ws/wsutil"
 	"github.com/spf13/viper"
 )
 
@@ -174,120 +170,4 @@ func HeadConvertedBook(c *gin.Context) {
 
 	c.Header("Content-Type", "application/x-mobipocket-ebook")
 	c.Status(http.StatusOK)
-}
-
-func WebsocketHandler(c *gin.Context) {
-	conn, _, _, err := ws.UpgradeHTTP(c.Request, c.Writer)
-	if err != nil {
-		logging.Error("Failed to upgrade to WebSocket:", err)
-		return
-	}
-	defer conn.Close()
-
-	// Create a channel for sending ping messages to the client
-	clientNotificationChannel := make(chan []byte)
-	quit := make(chan struct{})
-
-	// Create a ticker for sending ping messages every 5 seconds
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	// Reading messages from client
-	go func() {
-		for {
-			msg, op, err := wsutil.ReadClientData(conn)
-			if err != nil {
-				logging.Warn("WebSocket connection closed by client.")
-				close(quit)
-				return
-			}
-
-			// Processing text messages from client
-			if op == ws.OpText {
-				logging.Infof("Received message from client: %s", string(msg))
-
-				// Parsing message with conversion request
-				var request struct {
-					BookID int64  `json:"bookID"`
-					Format string `json:"format"`
-				}
-				if err := json.Unmarshal(msg, &request); err != nil {
-					logging.Error("Failed to parse message from client:", err)
-					continue
-				}
-
-				// Starting book conversion
-				if request.Format == "mobi" {
-					go func(bookID int64) {
-						err := ConvertBookToMobi(bookID)
-						if err != nil {
-							logging.Errorf("Failed to convert book to mobi: %v", err)
-							message, _ := json.Marshal(map[string]interface{}{
-								"bookID": bookID,
-								"format": "mobi",
-								"status": "error",
-								"error":  err.Error(),
-							})
-							clientNotificationChannel <- message
-							return
-						}
-						message, _ := json.Marshal(map[string]interface{}{
-							"bookID": bookID,
-							"format": "mobi",
-							"status": "ready",
-						})
-						clientNotificationChannel <- message
-					}(request.BookID)
-				} else if request.Format == "epub" {
-					go func(bookID int64) {
-						err := ConvertBookToEpub(bookID)
-						if err != nil {
-							logging.Errorf("Failed to convert book to epub: %v", err)
-							message, _ := json.Marshal(map[string]interface{}{
-								"bookID": bookID,
-								"format": "epub",
-								"status": "error",
-								"error":  err.Error(),
-							})
-							clientNotificationChannel <- message
-							return
-						}
-						message, _ := json.Marshal(map[string]interface{}{
-							"bookID": bookID,
-							"format": "epub",
-							"status": "ready",
-						})
-						clientNotificationChannel <- message
-					}(request.BookID)
-				} else {
-					logging.Warnf("Unsupported format: %s", request.Format)
-				}
-			} else {
-				logging.Infof("Received non-text message from client with opcode: %v", op)
-			}
-		}
-	}()
-
-	// Reading book ready notifications and sending them to client
-	for {
-		select {
-		case message := <-clientNotificationChannel:
-			logging.Infof("Notifying client about conversion status")
-			if err := wsutil.WriteServerMessage(conn, ws.OpText, message); err != nil {
-				logging.Warn("Error writing to WebSocket:", err)
-				close(quit)
-				return
-			}
-		case <-ticker.C:
-			// Send a ping message to the client every 5 seconds
-			if err := wsutil.WriteServerMessage(conn, ws.OpPing, nil); err != nil {
-				logging.Warn("Error sending ping to WebSocket:", err)
-				close(quit)
-				return
-			}
-		case <-quit:
-			logging.Info("Connection closed by client request.")
-			return
-		}
-	}
 }

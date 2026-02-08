@@ -290,8 +290,8 @@ func InitSession(c *gin.Context) {
 	if err != nil {
 		refreshToken, refreshErr := c.Cookie("refresh_token")
 		if refreshErr == nil && refreshToken != "" {
-			username, _, _, tokenType, checkErr := utils.CheckTokenWithType(refreshToken)
-			if checkErr == nil && tokenType == "refresh" {
+			username, _, _, checkErr := utils.CheckRefreshToken(refreshToken)
+			if checkErr == nil {
 				// Check if refresh token is blacklisted
 				if !sessions.IsRefreshTokenBlacklisted(ctx, refreshToken) {
 					dbUser, userErr := database.GetUser(strings.ToLower(username))
@@ -356,8 +356,8 @@ func InitSession(c *gin.Context) {
 		return
 	}
 
-	username, _, _, tokenType, err := utils.CheckTokenWithType(token)
-	if err != nil || tokenType != "access" {
+	username, _, _, err := utils.CheckAccessToken(token)
+	if err != nil {
 		c.JSON(http.StatusOK, response)
 		return
 	}
@@ -501,8 +501,8 @@ func RefreshToken(c *gin.Context) {
 		return
 	}
 
-	username, _, _, tokenType, err := utils.CheckTokenWithType(refreshToken)
-	if err != nil || tokenType != "refresh" {
+	username, _, _, err := utils.CheckRefreshToken(refreshToken)
+	if err != nil {
 		httputil.NewError(c, http.StatusUnauthorized, errors.New("invalid_refresh_token"))
 		return
 	}

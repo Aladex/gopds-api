@@ -3,63 +3,72 @@ package services
 import (
 	"encoding/json"
 	"gopds-api/logging"
-	"net"
 	"sync"
+	"sync/atomic"
 
-	"github.com/gobwas/ws"
-	"github.com/gobwas/ws/wsutil"
+	"github.com/coder/websocket"
 )
 
 // WSClient represents a connected WebSocket client
 type WSClient struct {
-	Conn     net.Conn
-	UserID   int64
-	IsAdmin  bool
-	Username string
-	mu       sync.Mutex
+	Conn       *websocket.Conn
+	ID         uint64
+	UserID     int64
+	IsAdmin    bool
+	Username   string
+	NotifyChan chan []byte
 }
+
+var clientIDCounter uint64
 
 // WebSocketManager manages WebSocket connections for admin notifications
 type WebSocketManager struct {
-	clients map[net.Conn]*WSClient
+	clients map[uint64]*WSClient
 	mu      sync.RWMutex
 }
 
 // NewWebSocketManager creates a new WebSocket manager
 func NewWebSocketManager() *WebSocketManager {
 	return &WebSocketManager{
-		clients: make(map[net.Conn]*WSClient),
+		clients: make(map[uint64]*WSClient),
 	}
 }
 
-// RegisterClient registers a new WebSocket client
-func (m *WebSocketManager) RegisterClient(conn net.Conn, userID int64, username string, isAdmin bool) {
+// RegisterClient registers a new WebSocket client and returns its unique ID
+func (m *WebSocketManager) RegisterClient(conn *websocket.Conn, userID int64, username string, isAdmin bool, notifyChan chan []byte) uint64 {
+	id := atomic.AddUint64(&clientIDCounter, 1)
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	client := &WSClient{
-		Conn:     conn,
-		UserID:   userID,
-		IsAdmin:  isAdmin,
-		Username: username,
+		Conn:       conn,
+		ID:         id,
+		UserID:     userID,
+		IsAdmin:    isAdmin,
+		Username:   username,
+		NotifyChan: notifyChan,
 	}
 
-	m.clients[conn] = client
+	m.clients[id] = client
 	logging.Infof("WebSocket client registered: user=%s (id=%d, admin=%v)", username, userID, isAdmin)
+	return id
 }
 
-// UnregisterClient removes a WebSocket client
-func (m *WebSocketManager) UnregisterClient(conn net.Conn) {
+// UnregisterClient removes a WebSocket client by its unique ID
+func (m *WebSocketManager) UnregisterClient(id uint64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if client, ok := m.clients[conn]; ok {
+	if client, ok := m.clients[id]; ok {
 		logging.Infof("WebSocket client unregistered: user=%s (id=%d)", client.Username, client.UserID)
-		delete(m.clients, conn)
+		delete(m.clients, id)
 	}
 }
 
-// BroadcastToAdmins sends a message to all connected admin clients
+// BroadcastToAdmins sends a message to all connected admin clients via their NotifyChan.
+// The actual write to the WebSocket connection happens in the handler's writer goroutine,
+// which eliminates concurrent writes to the same connection.
 func (m *WebSocketManager) BroadcastToAdmins(messageType string, data interface{}) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -81,15 +90,12 @@ func (m *WebSocketManager) BroadcastToAdmins(messageType string, data interface{
 			continue
 		}
 
-		client.mu.Lock()
-		err := wsutil.WriteServerMessage(client.Conn, ws.OpText, jsonData)
-		client.mu.Unlock()
-
-		if err != nil {
-			logging.Warnf("Failed to send message to admin %s: %v", client.Username, err)
-			continue
+		select {
+		case client.NotifyChan <- jsonData:
+			adminCount++
+		default:
+			logging.Warnf("NotifyChan full for admin %s, dropping message", client.Username)
 		}
-		adminCount++
 	}
 
 	logging.Infof("Broadcasted %s to %d admin clients", messageType, adminCount)
