@@ -371,6 +371,14 @@ func (s *BookScanService) ProcessBook(zipFile *zip.File, archiveName string) (in
 		}
 	}
 
+	// 9. Process genres/tags if present
+	if len(parsedBook.Tags) > 0 {
+		err = database.UpdateBookTags(tx, book.ID, parsedBook.Tags)
+		if err != nil {
+			return 0, fmt.Errorf("failed to process genres: %w", err)
+		}
+	}
+
 	// Commit transaction
 	err = tx.Commit()
 	if err != nil {

@@ -89,6 +89,8 @@ func GetBooksEnhanced(userID int64, filters models.BookFilters) ([]models.Book, 
 		books[i].Fav = isFav(userFavs, book)
 	}
 
+	populateSeriesNumbers(books)
+
 	return books, count, nil
 }
 
@@ -205,6 +207,8 @@ func getBooksByTitleEnhanced(userID int64, filters models.BookFilters, userFavs 
 		book.Fav = isFav(userFavs, book)
 		finalBooks = append(finalBooks, book)
 	}
+
+	populateSeriesNumbers(finalBooks)
 
 	return finalBooks, totalCount, nil
 }
@@ -344,6 +348,48 @@ func abs(x int) int {
 		return -x
 	}
 	return x
+}
+
+// populateSeriesNumbers loads ser_no from the junction table into already-loaded Series.
+// go-pg many-to-many doesn't carry over junction table columns, so we do it manually.
+func populateSeriesNumbers(books []models.Book) {
+	if len(books) == 0 {
+		return
+	}
+
+	bookIDs := make([]int64, 0, len(books))
+	for _, b := range books {
+		if len(b.Series) > 0 {
+			bookIDs = append(bookIDs, b.ID)
+		}
+	}
+	if len(bookIDs) == 0 {
+		return
+	}
+
+	var junctions []models.OrderToSeries
+	err := db.Model(&junctions).
+		Where("book_id IN (?)", pg.In(bookIDs)).
+		Select()
+	if err != nil {
+		logging.Warnf("Failed to load series numbers: %v", err)
+		return
+	}
+
+	// Build lookup: bookID -> serID -> serNo
+	type key struct{ bookID, serID int64 }
+	lookup := make(map[key]int64, len(junctions))
+	for _, j := range junctions {
+		lookup[key{j.BookID, j.SeriesID}] = j.SerNo
+	}
+
+	for i, book := range books {
+		for j, series := range book.Series {
+			if serNo, ok := lookup[key{book.ID, series.ID}]; ok {
+				books[i].Series[j].SerNo = serNo
+			}
+		}
+	}
 }
 
 // isFav checks if a book is favorited by the user
@@ -526,6 +572,10 @@ func UpdateBook(updateReq models.BookUpdateRequest) (models.Book, error) {
 	if err != nil {
 		return bookToUpdate, err
 	}
+
+	books := []models.Book{bookToUpdate}
+	populateSeriesNumbers(books)
+	bookToUpdate = books[0]
 
 	return bookToUpdate, nil
 }
