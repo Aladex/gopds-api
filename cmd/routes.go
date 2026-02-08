@@ -39,27 +39,36 @@ func setupRoutes(route *gin.Engine) {
 		})
 	}
 
-	// Adjust the NoRoute handler to serve index.html for unmatched routes
-	registeredRoutes := getRegisteredRoutes(route)
+	// NoRoute handler: distinguish API/service requests from SPA navigation.
 	route.NoRoute(func(c *gin.Context) {
-		// Check if the request path is not a registered route
-		if !isRegisteredRoute(c.Request.URL.Path, registeredRoutes) {
-			indexFile, err := NewHTTPFS(assets.Assets).Open("booksdump-frontend/build/index.html")
-			if err != nil {
-				c.AbortWithStatus(http.StatusNotFound)
-				return
-			}
-			defer func(indexFile http.File) {
-				err := indexFile.Close()
-				if err != nil {
-					c.AbortWithStatus(http.StatusInternalServerError)
-				}
-			}(indexFile)
-			http.ServeContent(c.Writer, c.Request, "index.html", time.Now(), indexFile)
-			c.Abort()
-		} else {
-			c.AbortWithStatus(http.StatusNotFound)
+		p := c.Request.URL.Path
+
+		// 1. Known service prefixes — always JSON 404.
+		if strings.HasPrefix(p, "/api/") ||
+			strings.HasPrefix(p, "/opds/") ||
+			strings.HasPrefix(p, "/files/") ||
+			strings.HasPrefix(p, "/telegram/") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
 		}
+
+		// 2. Client explicitly wants JSON (e.g. mobile app, curl) — JSON 404.
+		accept := c.GetHeader("Accept")
+		if strings.Contains(accept, "application/json") && !strings.Contains(accept, "text/html") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+
+		// 3. Everything else — SPA fallback (client-side routing).
+		indexFile, err := NewHTTPFS(assets.Assets).Open("booksdump-frontend/build/index.html")
+		if err != nil {
+			c.AbortWithStatus(http.StatusNotFound)
+			return
+		}
+		defer indexFile.Close()
+
+		http.ServeContent(c.Writer, c.Request, "index.html", time.Now(), indexFile)
+		c.Abort()
 	})
 }
 
@@ -107,25 +116,6 @@ func setupApiRoutes(group *gin.RouterGroup) {
 // setupAdminRoutes configures routes for administrative functionalities.
 func setupAdminRoutes(group *gin.RouterGroup) {
 	api.SetupAdminRoutes(group)
-}
-
-// getRegisteredRoutes retrieves all registered routes in the Gin engine
-func getRegisteredRoutes(route *gin.Engine) map[string]struct{} {
-	registeredRoutes := make(map[string]struct{})
-	for _, r := range route.Routes() {
-		registeredRoutes[r.Path] = struct{}{}
-	}
-	return registeredRoutes
-}
-
-// isRegisteredRoute checks if a given path matches any of the registered routes
-func isRegisteredRoute(path string, registeredRoutes map[string]struct{}) bool {
-	for route := range registeredRoutes {
-		if path == route || strings.HasPrefix(path, route) {
-			return true
-		}
-	}
-	return false
 }
 
 // setupPublicAuthRoutes configures public authentication routes that do not require middleware authorization.
