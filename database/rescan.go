@@ -365,11 +365,15 @@ func updateBookTags(tx *pg.Tx, bookID int64, tags []string) error {
 		return err
 	}
 
+	// Deduplicate tags
+	seen := make(map[string]bool, len(tags))
+
 	// Insert new genre links
 	for _, tag := range tags {
-		if tag == "" {
+		if tag == "" || seen[tag] {
 			continue
 		}
+		seen[tag] = true
 
 		// Try to find existing genre
 		genreObj := &models.Genre{}
