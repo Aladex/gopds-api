@@ -2,6 +2,7 @@ package database
 
 import (
 	"errors"
+	"fmt"
 	"gopds-api/logging"
 	"gopds-api/models"
 
@@ -406,34 +407,6 @@ func updateBookTags(tx *pg.Tx, bookID int64, tags []string) error {
 
 // Helper to parse series index
 func parseIndex(index string, result *int64) error {
-	_, err := parseInt(index, result)
+	_, err := fmt.Sscanf(index, "%d", result)
 	return err
-}
-
-// Simple parseInt helper
-func parseInt(s string, result *int64) (int64, error) {
-	var v int64
-	_, err := scan(s, "%d", &v)
-	if err == nil {
-		*result = v
-	}
-	return v, err
-}
-
-// Minimal scan function
-func scan(s string, format string, args ...interface{}) (int, error) {
-	// This is a placeholder - implement actual scanning as needed
-	// For now, return 0 if parsing fails
-	if len(args) == 0 {
-		return 0, nil
-	}
-
-	// Try to parse as integer
-	ptr, ok := args[0].(*int64)
-	if !ok {
-		return 0, errors.New("invalid argument type")
-	}
-
-	*ptr = 0
-	return 0, nil
 }
