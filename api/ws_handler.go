@@ -85,7 +85,7 @@ func UnifiedWebSocketHandler(c *gin.Context) {
 	}()
 
 	// Writer loop: the single goroutine that writes to the connection.
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for {

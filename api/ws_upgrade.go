@@ -12,17 +12,39 @@ import (
 )
 
 // ginHijackWriter wraps gin's ResponseWriter to fix WebSocket upgrade
-// compatibility. coder/websocket calls WriteHeader(101) before Hijack(),
-// but gin v1.9+ rejects Hijack() after WriteHeader() marks the response
-// as "written". This wrapper overrides Hijack() to bypass gin's check
-// by unwrapping to the underlying http.ResponseWriter.
+// compatibility with coder/websocket.
+//
+// Two issues exist between gin v1.9+ and coder/websocket:
+//
+//  1. gin rejects Hijack() after WriteHeader() sets the "written" flag.
+//     coder/websocket calls WriteHeader(101) before Hijack(), which is
+//     standard WebSocket protocol. Our Hijack() bypasses gin by unwrapping
+//     to the raw net/http ResponseWriter.
+//
+//  2. coder/websocket has a gin-specific workaround: it checks if the writer
+//     implements WriteHeaderNow() and calls it to flush the 101 response to
+//     the wire before hijacking. We must expose this method so the workaround
+//     fires; otherwise the 101 is never sent and the handshake fails silently.
 type ginHijackWriter struct {
 	http.ResponseWriter
 }
 
+// WriteHeaderNow exposes gin's WriteHeaderNow so that coder/websocket's
+// gin workaround (accept.go lines 153-157) can flush the 101 status and
+// headers to the wire before Hijack(). This also marks gin's writer as
+// "written", preventing a duplicate WriteHeader after the handler returns.
+func (w *ginHijackWriter) WriteHeaderNow() {
+	type writeHeaderNower interface {
+		WriteHeaderNow()
+	}
+	if g, ok := w.ResponseWriter.(writeHeaderNower); ok {
+		g.WriteHeaderNow()
+	}
+}
+
+// Hijack bypasses gin's "response already written" guard by unwrapping
+// to the raw net/http ResponseWriter whose Hijack() has no such check.
 func (w *ginHijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	// Unwrap through any middleware wrappers to reach the raw
-	// net/http ResponseWriter whose Hijack() has no Written() guard.
 	type unwrapper interface {
 		Unwrap() http.ResponseWriter
 	}
@@ -40,6 +62,7 @@ func (w *ginHijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return nil, nil, fmt.Errorf("underlying writer %T doesn't support hijacking", rw)
 }
 
+// Flush delegates to the underlying writer's Flush.
 func (w *ginHijackWriter) Flush() {
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
@@ -59,11 +82,10 @@ func upgradeWithOriginCheck(c *gin.Context) (*websocket.Conn, error) {
 	if len(patterns) > 0 {
 		opts.OriginPatterns = patterns
 	} else {
-		// No configured origins — accept all (InsecureSkipVerify equivalent)
 		opts.InsecureSkipVerify = true
 	}
 
-	// Wrap gin's writer to fix Hijack() after WriteHeader(101).
+	// Wrap gin's writer to fix Hijack() + WriteHeaderNow() compatibility.
 	w := &ginHijackWriter{ResponseWriter: c.Writer}
 
 	conn, err := websocket.Accept(w, c.Request, opts)
