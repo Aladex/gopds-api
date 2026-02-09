@@ -20,13 +20,10 @@ import (
 type DetectionMethod string
 
 const (
-	MethodTagMatch        DetectionMethod = "tag_match"
-	MethodLinguaConfident DetectionMethod = "lingua_confident"
-	MethodLinguaMedium    DetectionMethod = "lingua_medium"
-	MethodOpenAI          DetectionMethod = "openai"
-	MethodTagFallback     DetectionMethod = "tag_fallback"
-	MethodUnknown         DetectionMethod = "unknown"
-	MethodDefault         DetectionMethod = "default_ru"
+	MethodTagMatch       DetectionMethod = "tag_match"
+	MethodOpenAI         DetectionMethod = "openai"
+	MethodTagFallback    DetectionMethod = "tag_fallback"
+	MethodLinguaFallback DetectionMethod = "lingua_fallback"
 )
 
 // LanguageDetectionResult contains the detected language and metadata
@@ -42,9 +39,6 @@ type LanguageDetector struct {
 	enableOpenAI  bool
 	openaiTimeout time.Duration
 
-	// Set of ISO 639-1 codes that lingua can detect
-	linguaSupported map[string]bool
-
 	// Caches for performance
 	standardizationCache map[string]string
 	textHashCache        map[string]LanguageDetectionResult
@@ -54,22 +48,13 @@ type LanguageDetector struct {
 // NewLanguageDetector creates a new language detector with lingua-go
 func NewLanguageDetector(enableOpenAI bool, openaiTimeout time.Duration) *LanguageDetector {
 	// Build lingua detector with all 75 supported languages
-	allLangs := lingua.AllLanguages()
 	detector := lingua.NewLanguageDetectorBuilder().
-		FromLanguages(allLangs...).
+		FromLanguages(lingua.AllLanguages()...).
 		WithPreloadedLanguageModels().
 		Build()
 
-	// Build lookup of ISO codes lingua can detect
-	supported := make(map[string]bool, len(allLangs))
-	for _, lang := range allLangs {
-		code := strings.ToLower(lang.IsoCode639_1().String())
-		supported[code] = true
-	}
-
 	return &LanguageDetector{
 		detector:             detector,
-		linguaSupported:      supported,
 		enableOpenAI:         enableOpenAI,
 		openaiTimeout:        openaiTimeout,
 		standardizationCache: make(map[string]string),
@@ -253,15 +238,6 @@ func (ld *LanguageDetector) StandardizeLanguage(rawLang string) string {
 	return result
 }
 
-// canLinguaArbitrate returns true if lingua can reliably override the tag.
-// True when there is no tag, or the tag's language is one of lingua's 75 supported languages.
-func (ld *LanguageDetector) canLinguaArbitrate(standardizedTag string) bool {
-	if standardizedTag == "" || standardizedTag == "unknown" {
-		return true // no tag to contradict
-	}
-	return ld.linguaSupported[standardizedTag]
-}
-
 // detectWithLingua uses lingua-go to detect language from text
 func (ld *LanguageDetector) detectWithLingua(text string) (string, float64) {
 	if text == "" {
@@ -292,7 +268,10 @@ func (ld *LanguageDetector) languageToISO639(lang lingua.Language) string {
 	return strings.ToLower(isoCode)
 }
 
-// DetectLanguage performs intelligent language detection with voting
+// DetectLanguage performs language detection with a simplified 3-case logic:
+// 1. Tag + lingua agree → MethodTagMatch
+// 2. Disagreement or no tag → ask OpenAI (MethodOpenAI)
+// 3. OpenAI unavailable → fallback to lingua (MethodLinguaFallback)
 func (ld *LanguageDetector) DetectLanguage(tagLang, textSample string) LanguageDetectionResult {
 	// Check text hash cache first
 	if textSample != "" {
@@ -317,41 +296,32 @@ func (ld *LanguageDetector) DetectLanguage(tagLang, textSample string) LanguageD
 			Method:     MethodTagFallback,
 			Confidence: 0.0,
 		}
-		// Cache the result for consistency
 		if textSample != "" {
 			textHash := ld.hashText(textSample)
 			ld.cacheMutex.Lock()
 			ld.textHashCache[textHash] = result
 			ld.cacheMutex.Unlock()
 		}
-		return ld.ensureLanguage(result, textSample)
+		return result
 	}
 
 	// Detect with lingua-go
 	detectedLang, confidence := ld.detectWithLingua(textSample)
 
-	// Voting Logic
 	var result LanguageDetectionResult
 
-	// Case 1: Perfect agreement - tag matches detected language
-	if standardizedTag != "" && standardizedTag == detectedLang && confidence > 0.85 {
-		logging.Infof("Language detection: perfect agreement on '%s' (confidence: %.2f)", detectedLang, confidence)
+	// Case 1: Tag and lingua agree
+	if standardizedTag != "" && standardizedTag == detectedLang {
+		logging.Infof("Language detection: tag and lingua agree on '%s' (confidence: %.2f)", detectedLang, confidence)
 		result = LanguageDetectionResult{
 			Language:   detectedLang,
 			Method:     MethodTagMatch,
 			Confidence: confidence,
 		}
-	} else if confidence > 0.85 && ld.canLinguaArbitrate(standardizedTag) {
-		// Case 2: Lingua-go is very confident AND can arbitrate (tag is empty or lingua knows the tag language)
-		logging.Infof("Language detection: lingua-go confident on '%s' (confidence: %.2f, tag: %s)", detectedLang, confidence, standardizedTag)
-		result = LanguageDetectionResult{
-			Language:   detectedLang,
-			Method:     MethodLinguaConfident,
-			Confidence: confidence,
-		}
-	} else if standardizedTag != "" && standardizedTag != "unknown" && standardizedTag != detectedLang {
-		// Case 3: Tag disagrees with lingua and lingua can't reliably arbitrate - use OpenAI or trust tag
-		logging.Warnf("Language detection disagreement: tag='%s', detected='%s' (confidence: %.2f)", standardizedTag, detectedLang, confidence)
+	} else {
+		// Case 2: Disagreement, no tag, or unknown — ask OpenAI as arbiter
+		logging.Infof("Language detection: no agreement (tag='%s', lingua='%s', confidence=%.2f), trying OpenAI",
+			standardizedTag, detectedLang, confidence)
 
 		openaiLang := ld.detectWithOpenAI(textSample)
 		if openaiLang != "" && openaiLang != "unknown" {
@@ -361,35 +331,10 @@ func (ld *LanguageDetector) DetectLanguage(tagLang, textSample string) LanguageD
 				Confidence: confidence,
 			}
 		} else {
-			// No OpenAI — trust the tag (lingua can't reliably arbitrate for this language)
+			// Case 3: OpenAI unavailable or failed — fallback to lingua
 			result = LanguageDetectionResult{
-				Language:   standardizedTag,
-				Method:     MethodTagFallback,
-				Confidence: confidence,
-			}
-		}
-	} else if standardizedTag != "" && standardizedTag != "unknown" {
-		// Case 4: Low confidence or no detection - fallback to tag
-		logging.Infof("Language detection: low confidence (%.2f), falling back to tag '%s'", confidence, standardizedTag)
-		result = LanguageDetectionResult{
-			Language:   standardizedTag,
-			Method:     MethodTagFallback,
-			Confidence: confidence,
-		}
-	} else {
-		// Case 5: No tag and no good detection
-		logging.Warn("Language detection: no tag and low confidence, trying OpenAI")
-		openaiLang := ld.detectWithOpenAI(textSample)
-		if openaiLang != "" && openaiLang != "unknown" {
-			result = LanguageDetectionResult{
-				Language:   openaiLang,
-				Method:     MethodOpenAI,
-				Confidence: confidence,
-			}
-		} else {
-			result = LanguageDetectionResult{
-				Language:   "unknown",
-				Method:     MethodUnknown,
+				Language:   detectedLang,
+				Method:     MethodLinguaFallback,
 				Confidence: confidence,
 			}
 		}
@@ -401,16 +346,6 @@ func (ld *LanguageDetector) DetectLanguage(tagLang, textSample string) LanguageD
 	ld.textHashCache[textHash] = result
 	ld.cacheMutex.Unlock()
 
-	return ld.ensureLanguage(result, textSample)
-}
-
-func (ld *LanguageDetector) ensureLanguage(result LanguageDetectionResult, textSample string) LanguageDetectionResult {
-	if (result.Language == "" || result.Language == "unknown") && strings.TrimSpace(textSample) != "" {
-		logging.Warnf("Language detection fallback to default 'ru' (method=%s)", result.Method)
-		result.Language = "ru"
-		result.Method = MethodDefault
-		result.Confidence = 0.0
-	}
 	return result
 }
 
@@ -433,7 +368,7 @@ func (ld *LanguageDetector) detectWithOpenAI(textSample string) string {
 		"messages": []map[string]string{
 			{
 				"role":    "user",
-				"content": "Detect the language of the following text and ответь строго ISO-639-1 кодом (ru, en, uk, fr, de, es, it, pt, pl, cs, zh, ja, ko). If unsure, answer ru.\n\nTEXT:\n" + sample,
+				"content": "Detect the language of the following text. Reply with a single ISO 639-1 two-letter code only, nothing else.\n\nTEXT:\n" + sample,
 			},
 		},
 	}
