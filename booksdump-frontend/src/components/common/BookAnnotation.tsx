@@ -34,6 +34,7 @@ const BookAnnotation: React.FC<BookAnnotationProps> = ({ annotation }) => {
               sx={{
                 whiteSpace: "pre-line",
                 overflowWrap: "break-word",
+                textAlign: "justify",
               }}
             >
               {shouldTruncate ? visibleText : annotation}
@@ -47,6 +48,7 @@ const BookAnnotation: React.FC<BookAnnotationProps> = ({ annotation }) => {
                   sx={{
                     whiteSpace: "pre-line",
                     overflowWrap: "break-word",
+                    textAlign: "justify",
                   }}
                 >
                   {hiddenText}
