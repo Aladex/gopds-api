@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/spf13/viper"
 )
 
 // CSRFMiddleware provides CSRF protection
@@ -53,6 +54,6 @@ func GenerateCSRFToken() string {
 func SetCSRFToken(c *gin.Context) {
 	token := GenerateCSRFToken()
 	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie("csrf_token", token, 3600, "/", "", false, false) // httpOnly=false for JS access
+	c.SetCookie("csrf_token", token, 3600, "/", "", !viper.GetBool("app.devel_mode"), false) // httpOnly=false for JS access
 	c.JSON(http.StatusOK, gin.H{"csrf_token": token})
 }

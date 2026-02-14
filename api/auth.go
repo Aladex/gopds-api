@@ -147,7 +147,7 @@ func AuthCheck(c *gin.Context) {
 	c.SetCookie("refresh_token", refreshToken, 604800, "/", viper.GetString("project_domain"), !viper.GetBool("app.devel_mode"), true)
 	// Set CSRF token for authenticated operations
 	csrfToken := middlewares.GenerateCSRFToken()
-	c.SetCookie("csrf_token", csrfToken, 3600, "/", "", false, false) // httpOnly=false for JS access
+	c.SetCookie("csrf_token", csrfToken, 3600, "/", "", !viper.GetBool("app.devel_mode"), false) // httpOnly=false for JS access
 
 	c.JSON(200, thisUser)
 }
@@ -275,7 +275,7 @@ func GetCSRFToken(c *gin.Context) {
 func InitSession(c *gin.Context) {
 	csrfToken := middlewares.GenerateCSRFToken()
 	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie("csrf_token", csrfToken, 3600, "/", "", false, false)
+	c.SetCookie("csrf_token", csrfToken, 3600, "/", "", !viper.GetBool("app.devel_mode"), false)
 
 	response := gin.H{
 		"csrf_token":           csrfToken,
@@ -553,7 +553,7 @@ func RefreshToken(c *gin.Context) {
 	c.SetCookie("refresh_token", newRefreshToken, 604800, "/", viper.GetString("project_domain"), !viper.GetBool("app.devel_mode"), true) // 7 days
 	// Set CSRF token for authenticated operations
 	csrfToken := middlewares.GenerateCSRFToken()
-	c.SetCookie("csrf_token", csrfToken, 3600, "/", "", false, false) // httpOnly=false for JS access
+	c.SetCookie("csrf_token", csrfToken, 3600, "/", "", !viper.GetBool("app.devel_mode"), false) // httpOnly=false for JS access
 
 	c.JSON(http.StatusOK, gin.H{
 		"access_token":  accessToken,
