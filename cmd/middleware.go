@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"gopds-api/logging"
 	"net/http"
 	"path"
@@ -14,8 +15,35 @@ import (
 // It includes a custom logger and, if in development mode, a CORS middleware.
 func setupMiddleware(route *gin.Engine) {
 	route.Use(logging.GinrusLogger())
+	route.Use(securityHeadersMiddleware())
 	if cfg.App.DevelMode {
 		route.Use(corsOptionsMiddleware())
+	}
+}
+
+// securityHeadersMiddleware adds Content-Security-Policy and other security headers.
+func securityHeadersMiddleware() gin.HandlerFunc {
+	var connectSrc string
+	if cfg.App.DevelMode {
+		connectSrc = "'self' ws://127.0.0.1:8085"
+	} else {
+		connectSrc = fmt.Sprintf("'self' wss://%s", cfg.Domain)
+	}
+
+	csp := fmt.Sprintf(
+		"default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "+
+			"img-src 'self' data:; font-src 'self'; connect-src %s; manifest-src 'self'; "+
+			"frame-ancestors 'none'; form-action 'self'; base-uri 'self'; object-src 'none'",
+		connectSrc,
+	)
+
+	return func(c *gin.Context) {
+		c.Header("Content-Security-Policy", csp)
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("X-Frame-Options", "DENY")
+		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
+		c.Header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		c.Next()
 	}
 }
 
