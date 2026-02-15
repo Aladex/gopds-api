@@ -9,6 +9,7 @@ import (
 	"gopds-api/models"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -90,17 +91,50 @@ func runGenreTitleGeneration() {
 	start := time.Now()
 	updated := 0
 
+	// Build a set of existing titles to detect duplicates.
+	allGenres, _ := database.GetAllGenres()
+	existingTitles := make(map[string]bool, len(allGenres))
+	for _, g := range allGenres {
+		existingTitles[g.Title] = true
+	}
+
 	for i, genre := range genres {
 		if publisher != nil {
 			publisher.PublishGenreTitleGenProgress(len(genres), i, genre.Genre)
 		}
 
-		title := llmSvc.GenerateGenreTitle(genre.Genre)
-		if title != genre.Genre {
+		// Skip nonsensical tags like "?".
+		if strings.TrimSpace(genre.Genre) == "?" {
+			continue
+		}
+
+		// Fetch sample books for context.
+		var bookCtx []llm.GenreBookContext
+		samples, err := database.GetSampleBooksForGenre(genre.ID)
+		if err == nil {
+			for _, s := range samples {
+				bookCtx = append(bookCtx, llm.GenreBookContext{
+					Title:      s.Title,
+					Authors:    s.Authors,
+					Annotation: s.Annotation,
+				})
+			}
+		}
+
+		title := llmSvc.GenerateGenreTitleWithBooks(genre.Genre, bookCtx)
+
+		// If LLM returned a title that already exists, retry once asking for a different one.
+		if title != genre.Genre && existingTitles[title] {
+			logging.Infof("Genre title %q for %q collides with existing, retrying", title, genre.Genre)
+			title = llmSvc.GenerateGenreTitleUnique(genre.Genre, bookCtx, title)
+		}
+
+		if title != genre.Genre && !existingTitles[title] {
 			if err := database.UpdateGenreTitle(genre.ID, title); err != nil {
 				logging.Warnf("Failed to update genre %q title: %v", genre.Genre, err)
 				continue
 			}
+			existingTitles[title] = true
 			updated++
 		}
 	}

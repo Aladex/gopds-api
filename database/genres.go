@@ -3,6 +3,9 @@ package database
 import (
 	"gopds-api/logging"
 	"gopds-api/models"
+	"strings"
+
+	"github.com/go-pg/pg/v10"
 )
 
 // GenreAdmin is a flat representation of a genre for the admin API,
@@ -58,4 +61,51 @@ func GetGenresForTitleGeneration() ([]models.Genre, error) {
 		return nil, err
 	}
 	return genres, nil
+}
+
+// GenreSampleBook holds minimal book info for LLM context.
+type GenreSampleBook struct {
+	Title      string `json:"title"`
+	Authors    string `json:"authors"`
+	Annotation string `json:"annotation"`
+}
+
+// GetSampleBooksForGenre returns up to 5 books belonging to the given genre.
+func GetSampleBooksForGenre(genreID int64) ([]GenreSampleBook, error) {
+	var bookIDs []int64
+	err := db.Model(&models.OrderToGenre{}).
+		Column("book_id").
+		Where("genre_id = ?", genreID).
+		Limit(5).
+		Select(&bookIDs)
+	if err != nil || len(bookIDs) == 0 {
+		return nil, err
+	}
+
+	var books []models.Book
+	err = db.Model(&books).
+		Relation("Authors").
+		Where("book.id IN (?)", pg.In(bookIDs)).
+		Select()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]GenreSampleBook, 0, len(books))
+	for _, b := range books {
+		var authorNames []string
+		for _, a := range b.Authors {
+			authorNames = append(authorNames, a.FullName)
+		}
+		annotation := b.Annotation
+		if len(annotation) > 300 {
+			annotation = annotation[:300] + "..."
+		}
+		result = append(result, GenreSampleBook{
+			Title:      b.Title,
+			Authors:    strings.Join(authorNames, ", "),
+			Annotation: annotation,
+		})
+	}
+	return result, nil
 }

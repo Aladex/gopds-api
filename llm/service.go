@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // GetModel returns the OpenAI model from OPENAI_MODEL env, defaulting to gpt-4o-mini.
@@ -309,11 +311,53 @@ func (s *LLMService) validateCommand(command *Command) *Command {
 	return command
 }
 
+// capitalizeFirst upper-cases the first rune of s (works for cyrillic).
+func capitalizeFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	r, size := utf8.DecodeRuneInString(s)
+	if r == utf8.RuneError {
+		return s
+	}
+	return string(unicode.ToUpper(r)) + s[size:]
+}
+
+// GenreBookContext holds minimal book info passed to the LLM for better genre naming.
+type GenreBookContext struct {
+	Title      string
+	Authors    string
+	Annotation string
+}
+
 // GenerateGenreTitle asks OpenAI to produce a human-readable title for a genre tag.
 // Returns the genre tag itself if OpenAI is unavailable.
 func (s *LLMService) GenerateGenreTitle(genreTag string) string {
+	return s.GenerateGenreTitleWithBooks(genreTag, nil)
+}
+
+// GenerateGenreTitleWithBooks asks OpenAI to produce a human-readable title for a genre tag,
+// using sample books as additional context for better accuracy.
+func (s *LLMService) GenerateGenreTitleWithBooks(genreTag string, books []GenreBookContext) string {
 	if s.apiKey == "" {
 		return genreTag
+	}
+
+	var booksContext string
+	if len(books) > 0 {
+		var sb strings.Builder
+		sb.WriteString("\n\nHere are some books in this genre for context:\n")
+		for i, b := range books {
+			sb.WriteString(fmt.Sprintf("%d. \"%s\"", i+1, b.Title))
+			if b.Authors != "" {
+				sb.WriteString(fmt.Sprintf(" — %s", b.Authors))
+			}
+			if b.Annotation != "" {
+				sb.WriteString(fmt.Sprintf("\n   %s", b.Annotation))
+			}
+			sb.WriteString("\n")
+		}
+		booksContext = sb.String()
 	}
 
 	request := OpenAIRequest{
@@ -324,8 +368,8 @@ func (s *LLMService) GenerateGenreTitle(genreTag string) string {
 				Content: fmt.Sprintf(
 					"You are a librarian. Given the machine-readable book genre tag \"%s\", "+
 						"provide a short human-readable genre name in Russian. "+
-						"Reply with just the genre name, nothing else. No quotes, no punctuation, no explanation.",
-					genreTag),
+						"Reply with just the genre name, nothing else. No quotes, no punctuation, no explanation.%s",
+					genreTag, booksContext),
 			},
 		},
 	}
@@ -346,6 +390,66 @@ func (s *LLMService) GenerateGenreTitle(genreTag string) string {
 		return genreTag
 	}
 
+	title = capitalizeFirst(title)
 	logging.Infof("Generated genre title: %q -> %q", genreTag, title)
+	return title
+}
+
+// GenerateGenreTitleUnique retries genre title generation, explicitly excluding a conflicting title.
+func (s *LLMService) GenerateGenreTitleUnique(genreTag string, books []GenreBookContext, exclude string) string {
+	if s.apiKey == "" {
+		return genreTag
+	}
+
+	var booksContext string
+	if len(books) > 0 {
+		var sb strings.Builder
+		sb.WriteString("\n\nHere are some books in this genre for context:\n")
+		for i, b := range books {
+			sb.WriteString(fmt.Sprintf("%d. \"%s\"", i+1, b.Title))
+			if b.Authors != "" {
+				sb.WriteString(fmt.Sprintf(" — %s", b.Authors))
+			}
+			if b.Annotation != "" {
+				sb.WriteString(fmt.Sprintf("\n   %s", b.Annotation))
+			}
+			sb.WriteString("\n")
+		}
+		booksContext = sb.String()
+	}
+
+	request := OpenAIRequest{
+		Model: GetModel(),
+		Messages: []Message{
+			{
+				Role: "user",
+				Content: fmt.Sprintf(
+					"You are a librarian. Given the machine-readable book genre tag \"%s\", "+
+						"provide a short human-readable genre name in Russian. "+
+						"The name \"%s\" is already taken by another genre, so you MUST suggest a different name. "+
+						"Reply with just the genre name, nothing else. No quotes, no punctuation, no explanation.%s",
+					genreTag, exclude, booksContext),
+			},
+		},
+	}
+
+	response, err := s.callOpenAI(request)
+	if err != nil {
+		logging.Warnf("Failed to generate unique genre title for %q: %v", genreTag, err)
+		return genreTag
+	}
+
+	if len(response.Choices) == 0 {
+		return genreTag
+	}
+
+	title := strings.TrimSpace(response.Choices[0].Message.Content)
+	title = strings.Trim(title, "\"'`")
+	if title == "" || title == exclude {
+		return genreTag
+	}
+
+	title = capitalizeFirst(title)
+	logging.Infof("Generated unique genre title: %q -> %q (excluded %q)", genreTag, title, exclude)
 	return title
 }
