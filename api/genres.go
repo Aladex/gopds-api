@@ -123,10 +123,12 @@ func runGenreTitleGeneration() {
 
 		title := llmSvc.GenerateGenreTitleWithBooks(genre.Genre, bookCtx)
 
-		// If LLM returned a title that already exists, retry once asking for a different one.
-		if title != genre.Genre && existingTitles[title] {
-			logging.Infof("Genre title %q for %q collides with existing, retrying", title, genre.Genre)
-			title = llmSvc.GenerateGenreTitleUnique(genre.Genre, bookCtx, title)
+		// Retry up to 3 times if LLM keeps returning already-existing titles.
+		var excluded []string
+		for attempts := 0; attempts < 10 && title != genre.Genre && existingTitles[title]; attempts++ {
+			excluded = append(excluded, title)
+			logging.Infof("Genre title %q for %q collides with existing (attempt %d), retrying", title, genre.Genre, attempts+1)
+			title = llmSvc.GenerateGenreTitleUnique(genre.Genre, bookCtx, excluded)
 		}
 
 		if title != genre.Genre && !existingTitles[title] {

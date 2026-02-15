@@ -395,8 +395,8 @@ func (s *LLMService) GenerateGenreTitleWithBooks(genreTag string, books []GenreB
 	return title
 }
 
-// GenerateGenreTitleUnique retries genre title generation, explicitly excluding a conflicting title.
-func (s *LLMService) GenerateGenreTitleUnique(genreTag string, books []GenreBookContext, exclude string) string {
+// GenerateGenreTitleUnique retries genre title generation, explicitly excluding conflicting titles.
+func (s *LLMService) GenerateGenreTitleUnique(genreTag string, books []GenreBookContext, excluded []string) string {
 	if s.apiKey == "" {
 		return genreTag
 	}
@@ -418,6 +418,8 @@ func (s *LLMService) GenerateGenreTitleUnique(genreTag string, books []GenreBook
 		booksContext = sb.String()
 	}
 
+	excludeList := strings.Join(excluded, "\", \"")
+
 	request := OpenAIRequest{
 		Model: GetModel(),
 		Messages: []Message{
@@ -426,9 +428,9 @@ func (s *LLMService) GenerateGenreTitleUnique(genreTag string, books []GenreBook
 				Content: fmt.Sprintf(
 					"You are a librarian. Given the machine-readable book genre tag \"%s\", "+
 						"provide a short human-readable genre name in Russian. "+
-						"The name \"%s\" is already taken by another genre, so you MUST suggest a different name. "+
+						"The following names are already taken by other genres: \"%s\". You MUST suggest a different name. "+
 						"Reply with just the genre name, nothing else. No quotes, no punctuation, no explanation.%s",
-					genreTag, exclude, booksContext),
+					genreTag, excludeList, booksContext),
 			},
 		},
 	}
@@ -445,11 +447,16 @@ func (s *LLMService) GenerateGenreTitleUnique(genreTag string, books []GenreBook
 
 	title := strings.TrimSpace(response.Choices[0].Message.Content)
 	title = strings.Trim(title, "\"'`")
-	if title == "" || title == exclude {
+	if title == "" {
 		return genreTag
+	}
+	for _, ex := range excluded {
+		if title == ex {
+			return genreTag
+		}
 	}
 
 	title = capitalizeFirst(title)
-	logging.Infof("Generated unique genre title: %q -> %q (excluded %q)", genreTag, title, exclude)
+	logging.Infof("Generated unique genre title: %q -> %q (excluded %v)", genreTag, title, excluded)
 	return title
 }
