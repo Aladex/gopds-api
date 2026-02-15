@@ -80,7 +80,7 @@ const GenreManagement: React.FC = () => {
     const fetchGenres = useCallback(async () => {
         setIsLoading(true);
         try {
-            const response = await fetchWithAuth.get('/api/admin/genres');
+            const response = await fetchWithAuth.get('/admin/genres');
             setGenres(response.data.result || []);
         } catch (error) {
             console.error('Failed to fetch genres', error);
@@ -166,7 +166,7 @@ const GenreManagement: React.FC = () => {
 
     const handleSave = async (id: number) => {
         try {
-            await fetchWithAuth.put(`/api/admin/genres/${id}`, { title: editValue });
+            await fetchWithAuth.put(`/admin/genres/${id}`, { title: editValue });
             setGenres((prev) =>
                 prev.map((g) => (g.id === id ? { ...g, title: editValue } : g))
             );
@@ -190,7 +190,7 @@ const GenreManagement: React.FC = () => {
     const handleConfirmGenerate = async () => {
         setConfirmDialogOpen(false);
         try {
-            await fetchWithAuth.post('/api/admin/genres/generate-titles');
+            await fetchWithAuth.post('/admin/genres/generate-titles');
         } catch (error) {
             console.error('Failed to start genre title generation', error);
             setSnackbarMessage(t('bookScanStartError'));
