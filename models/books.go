@@ -2,6 +2,7 @@ package models
 
 import (
 	"bytes"
+	"encoding/json"
 	"regexp"
 	"strings"
 	"time"
@@ -177,7 +178,28 @@ type OrderToAuthor struct {
 type Genre struct {
 	tableName struct{} `pg:"opds_catalog_genre,discard_unknown_columns" json:"-"`
 	ID        int64    `pg:"id" json:"id"`
-	Genre     string   `pg:"genre" json:"genre"`
+	Genre     string   `pg:"genre" json:"-"`
+	Title     string   `pg:"title" json:"-"`
+}
+
+// DisplayName returns Title if set, otherwise falls back to Genre.
+func (g Genre) DisplayName() string {
+	if g.Title != "" {
+		return g.Title
+	}
+	return g.Genre
+}
+
+// MarshalJSON provides custom JSON with "genre" field using DisplayName fallback.
+func (g Genre) MarshalJSON() ([]byte, error) {
+	type genreJSON struct {
+		ID    int64  `json:"id"`
+		Genre string `json:"genre"`
+	}
+	return json.Marshal(genreJSON{
+		ID:    g.ID,
+		Genre: g.DisplayName(),
+	})
 }
 
 // OrderToGenre struct for many-to-many relation between books and genres
