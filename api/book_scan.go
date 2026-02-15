@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"gopds-api/database"
 	"gopds-api/httputil"
+	"gopds-api/llm"
 	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/services"
@@ -135,7 +136,8 @@ func newBookScanService() *services.BookScanService {
 
 	skipDuplicates := getScanSkipDuplicates()
 
-	scanner := services.NewBookScanService(archivesDir, coversDir, languageDetector, skipDuplicates)
+	llmSvc := llm.NewLLMService()
+	scanner := services.NewBookScanService(archivesDir, coversDir, languageDetector, skipDuplicates, llmSvc)
 	if publisher := newScanEventPublisher(); publisher != nil {
 		scanner.SetScanEventPublisher(publisher)
 	}

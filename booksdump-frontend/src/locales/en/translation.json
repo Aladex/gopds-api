@@ -300,5 +300,14 @@
   "fixScanAlreadyRunning": "Fix scan already running.",
   "genres": "Genres",
   "noGenres": "No genres",
-  "routeByGenre.books": "Search by genre"
+  "routeByGenre.books": "Search by genre",
+  "genreManagement": "Genres",
+  "genreTag": "Tag",
+  "genreTitle": "Title",
+  "generateWithAI": "Generate with AI",
+  "generateConfirm": "Generate titles for all genres without custom titles?",
+  "genreTitleUpdated": "Genre title updated",
+  "generatingTitles": "Generating titles...",
+  "titlesGenerated": "Generated {{count}} titles",
+  "searchGenres": "Search genres"
 }

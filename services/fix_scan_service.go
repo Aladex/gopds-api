@@ -16,6 +16,7 @@ import (
 	"gopds-api/database"
 	"gopds-api/internal/parser"
 	"gopds-api/internal/posters"
+	"gopds-api/llm"
 	"gopds-api/logging"
 	"gopds-api/models"
 )
@@ -25,6 +26,7 @@ type FixScanService struct {
 	archivesDir      string
 	coversDir        string
 	languageDetector *LanguageDetector
+	llmService       *llm.LLMService
 	publisher        *ScanEventPublisher
 
 	// Atomic counters for progress reporting from the handler's ticker
@@ -62,11 +64,12 @@ type archiveGroup struct {
 }
 
 // NewFixScanService creates a new FixScanService
-func NewFixScanService(archivesDir, coversDir string, ld *LanguageDetector) *FixScanService {
+func NewFixScanService(archivesDir, coversDir string, ld *LanguageDetector, llmSvc *llm.LLMService) *FixScanService {
 	s := &FixScanService{
 		archivesDir:      archivesDir,
 		coversDir:        coversDir,
 		languageDetector: ld,
+		llmService:       llmSvc,
 	}
 	s.CurrentArchive.Store("")
 	return s
@@ -398,7 +401,7 @@ func (s *FixScanService) processBook(book models.Book, archivePath string, fileI
 	}
 
 	// Update genres/tags
-	err = database.UpdateBookTags(tx, book.ID, parsed.Tags)
+	err = database.UpdateBookTags(tx, book.ID, parsed.Tags, s.llmService)
 	if err != nil {
 		addError(FixScanError{
 			BookID:      book.ID,

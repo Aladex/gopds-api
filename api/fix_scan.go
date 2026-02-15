@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"gopds-api/httputil"
+	"gopds-api/llm"
 	"gopds-api/logging"
 	"gopds-api/services"
 	"net/http"
@@ -262,7 +263,8 @@ func newFixScanService() *services.FixScanService {
 		ld = services.NewLanguageDetector(enableOpenAI, openaiTimeout)
 	}
 
-	return services.NewFixScanService(archivesDir, coversDir, ld)
+	llmSvc := llm.NewLLMService()
+	return services.NewFixScanService(archivesDir, coversDir, ld, llmSvc)
 }
 
 func runFixScan(ctx context.Context, sessionID string, workers int) {

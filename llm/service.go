@@ -12,6 +12,14 @@ import (
 	"time"
 )
 
+// GetModel returns the OpenAI model from OPENAI_MODEL env, defaulting to gpt-4o-mini.
+func GetModel() string {
+	if m := os.Getenv("OPENAI_MODEL"); m != "" {
+		return m
+	}
+	return "gpt-4o-mini"
+}
+
 // LLMService handles interaction with OpenAI API
 type LLMService struct {
 	apiKey     string
@@ -153,7 +161,7 @@ func (s *LLMService) ProcessQuery(userQuery, context string) (*Command, error) {
 
 	// Create OpenAI request
 	request := OpenAIRequest{
-		Model: "gpt-4o-mini",
+		Model: GetModel(),
 		Messages: []Message{
 			{
 				Role:    "user",
@@ -299,4 +307,45 @@ func (s *LLMService) validateCommand(command *Command) *Command {
 	}
 
 	return command
+}
+
+// GenerateGenreTitle asks OpenAI to produce a human-readable title for a genre tag.
+// Returns the genre tag itself if OpenAI is unavailable.
+func (s *LLMService) GenerateGenreTitle(genreTag string) string {
+	if s.apiKey == "" {
+		return genreTag
+	}
+
+	request := OpenAIRequest{
+		Model: GetModel(),
+		Messages: []Message{
+			{
+				Role: "user",
+				Content: fmt.Sprintf(
+					"You are a librarian. Given the machine-readable book genre tag \"%s\", "+
+						"provide a short human-readable genre name in Russian. "+
+						"Reply with just the genre name, nothing else. No quotes, no punctuation, no explanation.",
+					genreTag),
+			},
+		},
+	}
+
+	response, err := s.callOpenAI(request)
+	if err != nil {
+		logging.Warnf("Failed to generate genre title for %q: %v", genreTag, err)
+		return genreTag
+	}
+
+	if len(response.Choices) == 0 {
+		return genreTag
+	}
+
+	title := strings.TrimSpace(response.Choices[0].Message.Content)
+	title = strings.Trim(title, "\"'`")
+	if title == "" {
+		return genreTag
+	}
+
+	logging.Infof("Generated genre title: %q -> %q", genreTag, title)
+	return title
 }

@@ -16,6 +16,7 @@ import (
 	"gopds-api/database"
 	"gopds-api/internal/parser"
 	"gopds-api/internal/posters"
+	"gopds-api/llm"
 	"gopds-api/logging"
 	"gopds-api/models"
 
@@ -27,6 +28,7 @@ type BookScanService struct {
 	archivesDir      string
 	coversDir        string
 	languageDetector *LanguageDetector
+	llmService       *llm.LLMService
 	skipDuplicates   bool
 	publisher        *ScanEventPublisher
 
@@ -64,11 +66,12 @@ type ScanError struct {
 }
 
 // NewBookScanService creates a new BookScanService
-func NewBookScanService(archivesDir, coversDir string, languageDetector *LanguageDetector, skipDuplicates bool) *BookScanService {
+func NewBookScanService(archivesDir, coversDir string, languageDetector *LanguageDetector, skipDuplicates bool, llmSvc *llm.LLMService) *BookScanService {
 	return &BookScanService{
 		archivesDir:      archivesDir,
 		coversDir:        coversDir,
 		languageDetector: languageDetector,
+		llmService:       llmSvc,
 		skipDuplicates:   skipDuplicates,
 	}
 }
@@ -373,7 +376,7 @@ func (s *BookScanService) ProcessBook(zipFile *zip.File, archiveName string) (in
 
 	// 9. Process genres/tags if present
 	if len(parsedBook.Tags) > 0 {
-		err = database.UpdateBookTags(tx, book.ID, parsedBook.Tags)
+		err = database.UpdateBookTags(tx, book.ID, parsedBook.Tags, s.llmService)
 		if err != nil {
 			return 0, fmt.Errorf("failed to process genres: %w", err)
 		}

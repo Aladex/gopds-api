@@ -300,5 +300,14 @@
   "fixScanAlreadyRunning": "Исправление метаданных уже выполняется.",
   "genres": "Жанры",
   "noGenres": "Нет жанров",
-  "routeByGenre.books": "Поиск по жанру"
+  "routeByGenre.books": "Поиск по жанру",
+  "genreManagement": "Жанры",
+  "genreTag": "Тег",
+  "genreTitle": "Название",
+  "generateWithAI": "Сгенерировать ИИ",
+  "generateConfirm": "Сгенерировать названия для всех жанров без пользовательских названий?",
+  "genreTitleUpdated": "Название жанра обновлено",
+  "generatingTitles": "Генерация названий...",
+  "titlesGenerated": "Сгенерировано {{count}} названий",
+  "searchGenres": "Поиск жанров"
 }

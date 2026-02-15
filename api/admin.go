@@ -47,6 +47,11 @@ func SetupAdminRoutes(r *gin.RouterGroup) {
 	r.GET("/scan/fix/status", GetFixScanStatus)
 	r.POST("/scan/fix/cancel", CancelFixScan)
 
+	// Genre management routes
+	r.GET("/genres", GetGenres)
+	r.PUT("/genres/:id", UpdateGenreTitle)
+	r.POST("/genres/generate-titles", GenerateGenreTitles)
+
 	// Setup duplicate management routes
 	SetupDuplicatesRoutes(r)
 }

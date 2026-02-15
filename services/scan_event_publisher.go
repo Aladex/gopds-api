@@ -15,6 +15,10 @@ const (
 	FixScanProgressType  = "fix_scan_progress"
 	FixScanCompletedType = "fix_scan_completed"
 	FixScanErrorType     = "fix_scan_error"
+
+	GenreTitleGenStartedType   = "genre_title_gen_started"
+	GenreTitleGenProgressType  = "genre_title_gen_progress"
+	GenreTitleGenCompletedType = "genre_title_gen_completed"
 )
 
 type ScanEventPublisher struct {
@@ -265,5 +269,66 @@ func (p *ScanEventPublisher) PublishFixScanError(err error) {
 		ScanType:  "fix",
 		Message:   err.Error(),
 		Timestamp: time.Now(),
+	})
+}
+
+// Genre title generation events
+
+type GenreTitleGenStartedEvent struct {
+	Total     int       `json:"total"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+type GenreTitleGenProgressEvent struct {
+	Total           int       `json:"total"`
+	Processed       int       `json:"processed"`
+	CurrentGenre    string    `json:"current_genre"`
+	ProgressPercent int       `json:"progress_percent"`
+	Timestamp       time.Time `json:"timestamp"`
+}
+
+type GenreTitleGenCompletedEvent struct {
+	Total      int       `json:"total"`
+	Updated    int       `json:"updated"`
+	DurationMS int64     `json:"duration_ms"`
+	Timestamp  time.Time `json:"timestamp"`
+}
+
+func (p *ScanEventPublisher) PublishGenreTitleGenStarted(total int) {
+	if p == nil || p.wsConn == nil {
+		return
+	}
+	_ = p.wsConn.SendMessage(GenreTitleGenStartedType, GenreTitleGenStartedEvent{
+		Total:     total,
+		Timestamp: time.Now(),
+	})
+}
+
+func (p *ScanEventPublisher) PublishGenreTitleGenProgress(total, processed int, currentGenre string) {
+	if p == nil || p.wsConn == nil {
+		return
+	}
+	progressPercent := 0
+	if total > 0 {
+		progressPercent = (processed * 100) / total
+	}
+	_ = p.wsConn.SendMessage(GenreTitleGenProgressType, GenreTitleGenProgressEvent{
+		Total:           total,
+		Processed:       processed,
+		CurrentGenre:    currentGenre,
+		ProgressPercent: progressPercent,
+		Timestamp:       time.Now(),
+	})
+}
+
+func (p *ScanEventPublisher) PublishGenreTitleGenCompleted(total, updated int, durationMS int64) {
+	if p == nil || p.wsConn == nil {
+		return
+	}
+	_ = p.wsConn.SendMessage(GenreTitleGenCompletedType, GenreTitleGenCompletedEvent{
+		Total:      total,
+		Updated:    updated,
+		DurationMS: durationMS,
+		Timestamp:  time.Now(),
 	})
 }

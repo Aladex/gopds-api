@@ -3,6 +3,7 @@ package database
 import (
 	"errors"
 	"fmt"
+	"gopds-api/llm"
 	"gopds-api/logging"
 	"gopds-api/models"
 
@@ -178,7 +179,7 @@ func ApplySelectiveRescanChanges(bookID int64, selectedFields *models.RescanAppr
 	// Update tags (genres)
 	if models.ShouldUpdate(getFieldFlag(selectedFields, "tags")) {
 		tags := pending.GetTags()
-		err = updateBookTags(tx, bookID, tags)
+		err = updateBookTags(tx, bookID, tags, nil)
 		if err != nil {
 			logging.Error(err)
 			return nil, nil, err
@@ -351,12 +352,12 @@ func updateBookSeries(tx *pg.Tx, bookID int64, series *models.RescanSeries) erro
 }
 
 // UpdateBookTags is an exported wrapper for updateBookTags
-func UpdateBookTags(tx *pg.Tx, bookID int64, tags []string) error {
-	return updateBookTags(tx, bookID, tags)
+func UpdateBookTags(tx *pg.Tx, bookID int64, tags []string, llmService *llm.LLMService) error {
+	return updateBookTags(tx, bookID, tags, llmService)
 }
 
 // updateBookTags updates genre relationships for a book
-func updateBookTags(tx *pg.Tx, bookID int64, tags []string) error {
+func updateBookTags(tx *pg.Tx, bookID int64, tags []string, llmService *llm.LLMService) error {
 	// Delete existing genre links
 	_, err := tx.Model(&models.OrderToGenre{}).
 		Where("book_id = ?", bookID).
@@ -387,7 +388,11 @@ func updateBookTags(tx *pg.Tx, bookID int64, tags []string) error {
 
 		// If genre doesn't exist, create it
 		if err == pg.ErrNoRows {
-			genreObj = &models.Genre{Genre: tag}
+			title := tag
+			if llmService != nil {
+				title = llmService.GenerateGenreTitle(tag)
+			}
+			genreObj = &models.Genre{Genre: tag, Title: title}
 			_, err = tx.Model(genreObj).Insert()
 			if err != nil {
 				return err

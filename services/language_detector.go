@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/pemistahl/lingua-go"
+	"gopds-api/llm"
 	"gopds-api/logging"
 )
 
@@ -364,7 +365,7 @@ func (ld *LanguageDetector) detectWithOpenAI(textSample string) string {
 	defer cancel()
 
 	requestBody := map[string]interface{}{
-		"model": "gpt-4o-mini",
+		"model": llm.GetModel(),
 		"messages": []map[string]string{
 			{
 				"role":    "user",
