@@ -33,14 +33,14 @@ func securityHeadersMiddleware() gin.HandlerFunc {
 	csp := fmt.Sprintf(
 		"default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "+
 			"img-src 'self' data:; font-src 'self'; connect-src %s; manifest-src 'self'; "+
-			"frame-ancestors 'none'; form-action 'self'; base-uri 'self'; object-src 'none'",
+			"frame-src 'self'; frame-ancestors 'self'; form-action 'self'; base-uri 'self'; object-src 'none'",
 		connectSrc,
 	)
 
 	return func(c *gin.Context) {
 		c.Header("Content-Security-Policy", csp)
 		c.Header("X-Content-Type-Options", "nosniff")
-		c.Header("X-Frame-Options", "DENY")
+		c.Header("X-Frame-Options", "SAMEORIGIN")
 		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
 		c.Header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 		c.Next()
