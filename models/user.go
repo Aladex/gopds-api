@@ -55,6 +55,8 @@ type LoggedInUser struct {
 	Token       *string          `json:"token,omitempty"`
 	Collections []BookCollection `json:"collections"`
 	IsSuperuser *bool            `json:"is_superuser,omitempty"`
+	HasBotToken *bool            `json:"has_bot_token,omitempty"`
+	DateJoined  *time.Time       `json:"date_joined,omitempty"`
 }
 
 // LoginRequest struct for login request

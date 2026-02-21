@@ -1,7 +1,14 @@
 import axios from 'axios';
 
 const API_URL = process.env.REACT_APP_API_URL;
-const WS_URL = process.env.REACT_APP_WS_URL;
+
+// Derive WebSocket URL dynamically from the current page location
+// so the binary works both locally and in production without rebuild.
+const WS_URL = (() => {
+    const loc = window.location;
+    const wsProto = loc.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${wsProto}//${loc.host}`;
+})();
 
 // Function to read CSRF token from cookie
 const getCsrfTokenFromCookie = (): string | null => {

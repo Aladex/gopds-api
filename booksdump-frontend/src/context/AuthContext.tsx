@@ -9,6 +9,8 @@ interface User {
     is_superuser: boolean;
     books_lang?: string;
     have_favs?: boolean;
+    has_bot_token?: boolean;
+    date_joined?: string;
 }
 
 interface AuthContextType {

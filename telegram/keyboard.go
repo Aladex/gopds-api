@@ -16,6 +16,7 @@ var (
 	btnFavorites = KeyboardButton{Text: "⭐ Избранное", Command: "/favorites"}
 	btnAuthor    = KeyboardButton{Text: "👤 Автор", Command: "/a"}
 	btnBook      = KeyboardButton{Text: "📚 Книга", Command: "/b"}
+	btnDonate    = KeyboardButton{Text: "❤️ Поддержать", Command: "/donate"}
 )
 
 // GetMainKeyboard returns the main Reply Keyboard with basic commands
@@ -25,7 +26,6 @@ func GetMainKeyboard() *tele.ReplyMarkup {
 		OneTimeKeyboard: false,
 	}
 
-	// Create 2 rows with 2 buttons each
 	row1 := keyboard.Row(
 		keyboard.Text(btnSearch.Text),
 		keyboard.Text(btnFavorites.Text),
@@ -34,8 +34,11 @@ func GetMainKeyboard() *tele.ReplyMarkup {
 		keyboard.Text(btnAuthor.Text),
 		keyboard.Text(btnBook.Text),
 	)
+	row3 := keyboard.Row(
+		keyboard.Text(btnDonate.Text),
+	)
 
-	keyboard.Reply(row1, row2)
+	keyboard.Reply(row1, row2, row3)
 
 	return keyboard
 }
@@ -47,6 +50,7 @@ func GetCommandFromButtonText(text string) (string, bool) {
 		btnFavorites,
 		btnAuthor,
 		btnBook,
+		btnDonate,
 	}
 
 	for _, btn := range buttons {

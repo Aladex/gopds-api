@@ -490,6 +490,31 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 		return b.processCommandResult(c, conversationManager, result, telegramID)
 	}))
 
+	// Handler for /donate command
+	b.bot.Handle("/donate", b.withAuth(conversationManager, func(c tele.Context) error {
+		telegramID := c.Get("telegramID").(int64)
+
+		response := "❤️ Если проект вам полезен, вы можете поддержать его развитие:\n\n" +
+			"💳 *Крипто:*\n" +
+			"`bc1qv2pjsnkprer35u2whuquztvnvnggjsrqu4q43f` — Bitcoin\n" +
+			"`0xD053A0fE7C450b57da9FF169620EB178644b54C9` — Ethereum\n" +
+			"`TTE5dv9w9RSDMJ6k3tnpfuehH8UX9Fy4Ec` — USDT (TRC-20)"
+
+		markup := &tele.ReplyMarkup{}
+		markup.Inline(
+			markup.Row(markup.URL("Т-Банк", "https://tbank.ru/cf/634wAzuZc0Z")),
+			markup.Row(
+				markup.URL("PayPal", "https://www.paypal.com/donate/?hosted_button_id=PJ9RC6X742T62"),
+				markup.URL("☕ Coffee", "https://www.buymeacoffee.com/aladex"),
+			),
+		)
+
+		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+			logging.Errorf("Failed to process outgoing message: %v", err)
+		}
+		return c.Send(response, markup, tele.ModeMarkdown)
+	}))
+
 	// Handler for all other messages
 	b.bot.Handle(tele.OnText, b.withAuth(conversationManager, func(c tele.Context) error {
 		telegramID := c.Get("telegramID").(int64)
@@ -969,6 +994,120 @@ func (bm *BotManager) ClearConversationContext(token string, userID int64) error
 	return bm.conversationManager.ClearContext(token, userID)
 }
 
+// StartHealthCheck starts a periodic health check goroutine for all bots
+func (bm *BotManager) StartHealthCheck(ctx context.Context, interval time.Duration) {
+	go func() {
+		logging.Infof("Bot health check started with interval %v", interval)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				logging.Info("Bot health check stopped")
+				return
+			case <-ticker.C:
+				bm.runHealthCheck()
+			}
+		}
+	}()
+}
+
+// runHealthCheck validates all active bots and cleans up invalid ones
+func (bm *BotManager) runHealthCheck() {
+	bm.mutex.RLock()
+	tokens := make([]string, 0, len(bm.bots))
+	botUsers := make(map[string]int64)
+	for token, bot := range bm.bots {
+		tokens = append(tokens, token)
+		botUsers[token] = bot.userID
+	}
+	bm.mutex.RUnlock()
+
+	logging.Infof("Running health check for %d bots", len(tokens))
+
+	for _, token := range tokens {
+		userID := botUsers[token]
+
+		// Validate token via Telegram API
+		valid, err := bm.validateBotToken(token)
+		if err != nil {
+			logging.Warnf("Health check: failed to validate token for user %d: %v", userID, err)
+			continue
+		}
+
+		if !valid {
+			logging.Warnf("Health check: invalid token detected for user %d, removing bot", userID)
+			// Remove bot from manager
+			if err := bm.RemoveBot(token); err != nil {
+				logging.Errorf("Health check: failed to remove bot for user %d: %v", userID, err)
+			}
+			// Clear token in database
+			if err := database.ClearBotToken(userID); err != nil {
+				logging.Errorf("Health check: failed to clear bot token in DB for user %d: %v", userID, err)
+			}
+			continue
+		}
+
+		// Check webhook status
+		isCorrect, err := bm.checkWebhookStatus(token)
+		if err != nil {
+			logging.Warnf("Health check: failed to check webhook for user %d: %v", userID, err)
+			continue
+		}
+
+		if !isCorrect {
+			logging.Infof("Health check: webhook misconfigured for user %d, resetting", userID)
+			if err := bm.SetWebhook(token); err != nil {
+				logging.Errorf("Health check: failed to set webhook for user %d: %v", userID, err)
+			}
+		}
+	}
+
+	logging.Info("Bot health check completed")
+}
+
+// validateBotToken checks if a bot token is valid by calling Telegram's getMe API
+func (bm *BotManager) validateBotToken(token string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/getMe", token)
+
+	client := &http.Client{Timeout: 8 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to create request: %v", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("failed to call getMe: %v", err)
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			logging.Errorf("Failed to close response body: %v", closeErr)
+		}
+	}()
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return false, nil
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("getMe returned status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Ok bool `json:"ok"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return false, fmt.Errorf("failed to decode getMe response: %v", err)
+	}
+
+	return result.Ok, nil
+}
+
 // maskToken masks token for logging
 func maskToken(token string) string {
 	if len(token) < 10 {
@@ -1011,6 +1150,10 @@ func (b *Bot) registerCommands() error {
 		{
 			Text:        "clear",
 			Description: "Clear conversation context",
+		},
+		{
+			Text:        "donate",
+			Description: "Support the project",
 		},
 	}
 
@@ -1092,6 +1235,27 @@ func (b *Bot) handleKeyboardCommand(c tele.Context, conversationManager *Convers
 			logging.Errorf("Failed to process outgoing message: %v", err)
 		}
 		return c.Send(response)
+
+	case "/donate":
+		response := "❤️ Если проект вам полезен, вы можете поддержать его развитие:\n\n" +
+			"💳 *Крипто:*\n" +
+			"`bc1qv2pjsnkprer35u2whuquztvnvnggjsrqu4q43f` — Bitcoin\n" +
+			"`0xD053A0fE7C450b57da9FF169620EB178644b54C9` — Ethereum\n" +
+			"`TTE5dv9w9RSDMJ6k3tnpfuehH8UX9Fy4Ec` — USDT (TRC-20)"
+
+		markup := &tele.ReplyMarkup{}
+		markup.Inline(
+			markup.Row(markup.URL("Т-Банк", "https://tbank.ru/cf/634wAzuZc0Z")),
+			markup.Row(
+				markup.URL("PayPal", "https://www.paypal.com/donate/?hosted_button_id=PJ9RC6X742T62"),
+				markup.URL("☕ Coffee", "https://www.buymeacoffee.com/aladex"),
+			),
+		)
+
+		if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, response); err != nil {
+			logging.Errorf("Failed to process outgoing message: %v", err)
+		}
+		return c.Send(response, markup, tele.ModeMarkdown)
 
 	default:
 		logging.Warnf("Unknown keyboard command: %s", command)

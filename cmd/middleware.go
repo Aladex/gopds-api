@@ -22,22 +22,27 @@ func setupMiddleware(route *gin.Engine) {
 }
 
 // securityHeadersMiddleware adds Content-Security-Policy and other security headers.
+// CSP connect-src is built per-request from the Host header so that the WebSocket
+// URL always matches the origin the browser sees (works for both production domain
+// and local binary runs).
 func securityHeadersMiddleware() gin.HandlerFunc {
-	var connectSrc string
-	if cfg.App.DevelMode {
-		connectSrc = "'self' ws://127.0.0.1:8085"
-	} else {
-		connectSrc = fmt.Sprintf("'self' wss://%s", cfg.Domain)
-	}
-
-	csp := fmt.Sprintf(
-		"default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "+
-			"img-src 'self' data:; font-src 'self'; connect-src %s; manifest-src 'self'; "+
-			"frame-src 'self'; frame-ancestors 'self'; form-action 'self'; base-uri 'self'; object-src 'none'",
-		connectSrc,
-	)
+	// Static part of CSP (everything except connect-src)
+	const cspTemplate = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+		"img-src 'self' data:; font-src 'self'; connect-src %s; manifest-src 'self'; " +
+		"frame-src 'self'; frame-ancestors 'self'; form-action 'self'; base-uri 'self'; object-src 'none'"
 
 	return func(c *gin.Context) {
+		host := c.Request.Host // includes port if non-standard
+
+		// Determine ws scheme from the request (TLS or plain)
+		wsScheme := "ws"
+		if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
+			wsScheme = "wss"
+		}
+
+		connectSrc := fmt.Sprintf("'self' %s://%s", wsScheme, host)
+		csp := fmt.Sprintf(cspTemplate, connectSrc)
+
 		c.Header("Content-Security-Policy", csp)
 		c.Header("X-Content-Type-Options", "nosniff")
 		c.Header("X-Frame-Options", "SAMEORIGIN")

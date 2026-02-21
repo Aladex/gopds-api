@@ -124,6 +124,7 @@ func AuthCheck(c *gin.Context) {
 		return
 	}
 
+	hasBotToken := dbUser.BotToken != ""
 	thisUser := models.LoggedInUser{
 		User:        dbUser.Login,
 		FirstName:   dbUser.FirstName,
@@ -132,6 +133,8 @@ func AuthCheck(c *gin.Context) {
 		Token:       &accessToken,
 		IsSuperuser: &dbUser.IsSuperUser,
 		HaveFavs:    &hf,
+		HasBotToken: &hasBotToken,
+		DateJoined:  &dbUser.DateJoined,
 	}
 
 	if err := sessions.SetSessionKey(ctx, thisUser); err != nil {
@@ -238,6 +241,7 @@ func SelfUser(c *gin.Context) {
 	if hf, err := database.HaveFavs(dbUser.ID); err != nil {
 		httputil.NewError(c, http.StatusBadRequest, err)
 	} else {
+		hasBotToken := dbUser.BotToken != ""
 		c.JSON(http.StatusOK, models.LoggedInUser{
 			User:        dbUser.Login,
 			BooksLang:   dbUser.BooksLang,
@@ -246,6 +250,8 @@ func SelfUser(c *gin.Context) {
 			LastName:    dbUser.LastName,
 			HaveFavs:    &hf,
 			Collections: dbUser.Collections,
+			HasBotToken: &hasBotToken,
+			DateJoined:  &dbUser.DateJoined,
 		})
 	}
 }
@@ -321,6 +327,7 @@ func InitSession(c *gin.Context) {
 
 							// Add user data to response
 							if hf, err := database.HaveFavs(dbUser.ID); err == nil {
+								hasBotToken := dbUser.BotToken != ""
 								response["user"] = models.LoggedInUser{
 									User:        dbUser.Login,
 									BooksLang:   dbUser.BooksLang,
@@ -329,6 +336,8 @@ func InitSession(c *gin.Context) {
 									LastName:    dbUser.LastName,
 									HaveFavs:    &hf,
 									Collections: dbUser.Collections,
+									HasBotToken: &hasBotToken,
+									DateJoined:  &dbUser.DateJoined,
 								}
 							}
 
@@ -369,6 +378,7 @@ func InitSession(c *gin.Context) {
 	}
 
 	if hf, err := database.HaveFavs(dbUser.ID); err == nil {
+		hasBotToken := dbUser.BotToken != ""
 		response["user"] = models.LoggedInUser{
 			User:        dbUser.Login,
 			BooksLang:   dbUser.BooksLang,
@@ -377,6 +387,8 @@ func InitSession(c *gin.Context) {
 			LastName:    dbUser.LastName,
 			HaveFavs:    &hf,
 			Collections: dbUser.Collections,
+			HasBotToken: &hasBotToken,
+			DateJoined:  &dbUser.DateJoined,
 		}
 	}
 
@@ -472,6 +484,7 @@ func ChangeUser(c *gin.Context) {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
 	} else {
+		hasBotToken := updatedUser.BotToken != ""
 		c.JSON(http.StatusOK, models.LoggedInUser{
 			User:        updatedUser.Login,
 			FirstName:   updatedUser.FirstName,
@@ -479,6 +492,8 @@ func ChangeUser(c *gin.Context) {
 			IsSuperuser: &updatedUser.IsSuperUser,
 			BooksLang:   updatedUser.BooksLang,
 			HaveFavs:    &hf,
+			HasBotToken: &hasBotToken,
+			DateJoined:  &updatedUser.DateJoined,
 		})
 	}
 }

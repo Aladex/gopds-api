@@ -52,6 +52,13 @@ func main() {
 		telegramService = nil
 	}
 
+	// Start periodic health checks for Telegram bots
+	healthCheckCtx, healthCheckCancel := context.WithCancel(context.Background())
+	defer healthCheckCancel()
+	if telegramService != nil {
+		telegramService.GetBotManager().StartHealthCheck(healthCheckCtx, 24*time.Hour)
+	}
+
 	// Link BotManager with the database package for admin panel integration
 	database.SetTelegramBotManager(telegramBotManager)
 
