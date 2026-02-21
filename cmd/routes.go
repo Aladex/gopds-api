@@ -31,8 +31,8 @@ func setupRoutes(route *gin.Engine) {
 	setupLogoutRoutes(route.Group("/api", middlewares.AuthMiddleware()))
 	// Add Telegram webhook routes (public, no auth required)
 	setupTelegramWebhookRoutes(route.Group("/telegram"))
-	// Add Telegram API routes (public, no auth required for bot management)
-	setupTelegramApiRoutes(route.Group("/api/telegram"))
+	// Add Telegram API routes (requires authentication for bot management)
+	setupTelegramApiRoutes(route.Group("/api/telegram", middlewares.AuthMiddleware()))
 	route.Use(serveStaticFilesMiddleware(NewHTTPFS(assets.Assets)))
 	rootFiles := listRootFiles()
 	for _, file := range rootFiles {
@@ -130,7 +130,7 @@ func setupTelegramWebhookRoutes(group *gin.RouterGroup) {
 	}
 }
 
-// setupTelegramApiRoutes configures Telegram API routes that require authentication.
+// setupTelegramApiRoutes configures Telegram API routes (authenticated).
 func setupTelegramApiRoutes(group *gin.RouterGroup) {
 	if telegramService != nil {
 		telegramService.SetupApiRoutes(group)
