@@ -29,8 +29,7 @@ type SetBotTokenRequest struct {
 
 // SetBotTokenResponse structure of the response when setting the bot token
 type SetBotTokenResponse struct {
-	Message    string `json:"message"`
-	WebhookURL string `json:"webhook_url"`
+	Message string `json:"message"`
 }
 
 // ErrorResponse error structure
@@ -110,15 +109,15 @@ func (r *Routes) SetBotToken(c *gin.Context) {
 		}
 	}
 
-	// Update token in database
-	err = database.UpdateBotToken(userID, req.Token)
+	// Update token in database (generates webhook_uuid)
+	webhookUUID, err := database.UpdateBotToken(userID, req.Token)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to update bot token: " + err.Error()})
 		return
 	}
 
 	// Create bot
-	err = r.botManager.CreateBotForUser(req.Token, userID)
+	err = r.botManager.CreateBotForUser(req.Token, userID, webhookUUID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to create bot: " + err.Error()})
 		return
@@ -131,10 +130,8 @@ func (r *Routes) SetBotToken(c *gin.Context) {
 		return
 	}
 
-	webhookURL := r.botManager.config.BaseURL + "/telegram/" + req.Token
 	c.JSON(http.StatusOK, SetBotTokenResponse{
-		Message:    "Bot token set successfully",
-		WebhookURL: webhookURL,
+		Message: "Bot token set successfully",
 	})
 }
 
@@ -193,7 +190,7 @@ func (r *Routes) RemoveBotToken(c *gin.Context) {
 	}
 
 	// Remove token from database
-	err = database.UpdateBotToken(userID, "")
+	_, err = database.UpdateBotToken(userID, "")
 	if err != nil {
 		logging.Errorf("Failed to clear bot token for user %d: %v", userID, err)
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Bot removed but failed to clear token from database: " + err.Error()})
@@ -235,16 +232,10 @@ func (r *Routes) GetBotStatus(c *gin.Context) {
 		return
 	}
 
-	response := map[string]interface{}{
+	c.JSON(http.StatusOK, gin.H{
 		"has_bot_token":   user.BotToken != "",
 		"telegram_linked": user.TelegramID != 0,
-	}
-
-	if user.BotToken != "" {
-		response["webhook_url"] = r.botManager.config.BaseURL + "/telegram/" + user.BotToken
-	}
-
-	c.JSON(http.StatusOK, response)
+	})
 }
 
 // HandleWebhook handles webhook from Telegram

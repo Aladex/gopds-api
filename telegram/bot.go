@@ -21,6 +21,7 @@ import (
 // BotManager manages Telegram bots linked to system users
 type BotManager struct {
 	bots                map[string]*Bot // token -> Bot
+	uuidToBots          map[string]*Bot // webhook_uuid -> Bot
 	mutex               sync.RWMutex
 	config              *Config
 	conversationManager *ConversationManager
@@ -28,9 +29,10 @@ type BotManager struct {
 
 // Bot represents a bot linked to a system user
 type Bot struct {
-	token  string
-	bot    *tele.Bot
-	userID int64 // ID of the user in our system who owns this bot
+	token       string
+	bot         *tele.Bot
+	userID      int64  // ID of the user in our system who owns this bot
+	webhookUUID string // UUID used in webhook URL instead of token
 }
 
 // Config contains settings for bots
@@ -42,6 +44,7 @@ type Config struct {
 func NewBotManager(config *Config, redisClient *redis.Client) *BotManager {
 	return &BotManager{
 		bots:                make(map[string]*Bot),
+		uuidToBots:          make(map[string]*Bot),
 		config:              config,
 		conversationManager: NewConversationManager(redisClient),
 	}
@@ -59,7 +62,12 @@ func (bm *BotManager) InitializeExistingBots() error {
 
 	successfullyInitialized := 0
 	for _, user := range users {
-		err := bm.createBotForUser(user.BotToken, user.ID)
+		if user.WebhookUUID == "" {
+			logging.Warnf("User %d has bot token but no webhook_uuid, skipping", user.ID)
+			continue
+		}
+
+		err := bm.createBotForUser(user.BotToken, user.ID, user.WebhookUUID)
 		if err != nil {
 			logging.Errorf("Failed to initialize bot for user %d: %v", user.ID, err)
 			continue
@@ -92,7 +100,7 @@ func (bm *BotManager) InitializeExistingBots() error {
 }
 
 // CreateBotForUser creates a bot for a specific user
-func (bm *BotManager) CreateBotForUser(token string, userID int64) error {
+func (bm *BotManager) CreateBotForUser(token string, userID int64, webhookUUID string) error {
 	bm.mutex.Lock()
 	defer bm.mutex.Unlock()
 
@@ -101,18 +109,20 @@ func (bm *BotManager) CreateBotForUser(token string, userID int64) error {
 		return fmt.Errorf("bot with token already exists")
 	}
 
-	return bm.createBotForUser(token, userID)
+	return bm.createBotForUser(token, userID, webhookUUID)
 }
 
 // createBotForUser internal function for creating bot (without mutex)
-func (bm *BotManager) createBotForUser(token string, userID int64) error {
+func (bm *BotManager) createBotForUser(token string, userID int64, webhookUUID string) error {
 	bot, err := bm.createBotInstance(token, userID)
 	if err != nil {
 		return fmt.Errorf("failed to create bot: %v", err)
 	}
 
+	bot.webhookUUID = webhookUUID
 	bm.bots[token] = bot
-	logging.Infof("Bot created successfully for user %d", userID)
+	bm.uuidToBots[webhookUUID] = bot
+	logging.Infof("Bot created successfully for user %d (webhook UUID: %s)", userID, webhookUUID)
 	return nil
 }
 
@@ -671,14 +681,14 @@ func (b *Bot) sendPrivateChatWarning(c tele.Context) error {
 
 // HandleWebhook handles incoming webhooks from Telegram
 func (bm *BotManager) HandleWebhook(c *gin.Context) {
-	token := c.Param("token")
+	webhookUUID := c.Param("token")
 
 	bm.mutex.RLock()
-	bot, exists := bm.bots[token]
+	bot, exists := bm.uuidToBots[webhookUUID]
 	bm.mutex.RUnlock()
 
 	if !exists {
-		logging.Infof("Webhook received for unknown bot token: %s", maskToken(token))
+		logging.Infof("Webhook received for unknown UUID: %s", webhookUUID)
 		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
 		return
 	}
@@ -686,7 +696,7 @@ func (bm *BotManager) HandleWebhook(c *gin.Context) {
 	// Read request body to process update
 	var update tele.Update
 	if err := c.ShouldBindJSON(&update); err != nil {
-		logging.Infof("Error parsing webhook for token %s: %v", maskToken(token), err)
+		logging.Infof("Error parsing webhook for UUID %s: %v", webhookUUID, err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid webhook data"})
 		return
 	}
@@ -709,7 +719,7 @@ func (bm *BotManager) checkWebhookStatus(token string) (bool, error) {
 		return false, fmt.Errorf("bot with token not found")
 	}
 
-	expectedURL := fmt.Sprintf("%s/telegram/%s", bm.config.BaseURL, token)
+	expectedURL := fmt.Sprintf("%s/telegram/%s", bm.config.BaseURL, bot.webhookUUID)
 
 	// Since telebot.v3 doesn't provide GetWebhookInfo, we'll use a different approach
 	// We'll try to make a direct HTTP request to Telegram API to get webhook info
@@ -808,7 +818,7 @@ func (bm *BotManager) SetWebhook(token string) error {
 		return fmt.Errorf("bot with token not found")
 	}
 
-	webhookURL := fmt.Sprintf("%s/telegram/%s", bm.config.BaseURL, token)
+	webhookURL := fmt.Sprintf("%s/telegram/%s", bm.config.BaseURL, bot.webhookUUID)
 
 	// Log the webhook configuration details
 	logging.Infof("Setting webhook for user %d", bot.userID)
@@ -911,7 +921,8 @@ func (bm *BotManager) RemoveBot(token string) error {
 
 	logging.Infof("Starting bot removal process for user %d", bot.userID)
 
-	// Remove from map first to prevent new webhook processing
+	// Remove from maps first to prevent new webhook processing
+	delete(bm.uuidToBots, bot.webhookUUID)
 	delete(bm.bots, token)
 
 	// Remove webhook synchronously with timeout

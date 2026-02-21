@@ -9,6 +9,8 @@ import (
 	"gopds-api/utils"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func UserObject(search string) (models.User, error) {
@@ -325,13 +327,18 @@ func DeleteUser(id string) error {
 	return nil
 }
 
-// UpdateBotToken updates bot token for user
-func UpdateBotToken(userID int64, botToken string) error {
+// UpdateBotToken updates bot token and webhook_uuid for user
+func UpdateBotToken(userID int64, botToken string) (string, error) {
+	webhookUUID := ""
+	if botToken != "" {
+		webhookUUID = uuid.New().String()
+	}
 	_, err := db.Model(&models.User{}).
 		Set("bot_token = ?", botToken).
+		Set("webhook_uuid = ?", webhookUUID).
 		Where("id = ?", userID).
 		Update()
-	return err
+	return webhookUUID, err
 }
 
 // GetUserByBotToken finds user by bot token
@@ -357,13 +364,20 @@ func GetUserByTelegramID(telegramID int64) (models.User, error) {
 	return user, err
 }
 
-// ClearBotToken clears bot token and Telegram ID for user
+// ClearBotToken clears bot token, webhook_uuid and Telegram ID for user
 func ClearBotToken(userID int64) error {
 	_, err := db.Model(&models.User{}).
-		Set("bot_token = NULL, telegram_id = NULL").
+		Set("bot_token = NULL, telegram_id = NULL, webhook_uuid = ''").
 		Where("id = ?", userID).
 		Update()
 	return err
+}
+
+// GetUserByWebhookUUID finds user by webhook UUID
+func GetUserByWebhookUUID(webhookUUID string) (models.User, error) {
+	var user models.User
+	err := db.Model(&user).Where("webhook_uuid = ?", webhookUUID).First()
+	return user, err
 }
 
 // GetUsersWithBotTokens returns all users who have bot tokens
@@ -375,14 +389,14 @@ func GetUsersWithBotTokens() ([]models.User, error) {
 
 // Telegram Bot Manager integration functions
 var telegramBotManager interface {
-	CreateBotForUser(token string, userID int64) error
+	CreateBotForUser(token string, userID int64, webhookUUID string) error
 	RemoveBot(token string) error
 	SetWebhook(token string) error
 }
 
 // SetTelegramBotManager sets reference to BotManager for admin panel integration
 func SetTelegramBotManager(manager interface {
-	CreateBotForUser(token string, userID int64) error
+	CreateBotForUser(token string, userID int64, webhookUUID string) error
 	RemoveBot(token string) error
 	SetWebhook(token string) error
 }) {
@@ -396,6 +410,16 @@ func createBotInManager(token string, userID int64) error {
 		return nil
 	}
 
+	// Get user's webhook_uuid from DB
+	var user models.User
+	err := db.Model(&user).Column("webhook_uuid").Where("id = ?", userID).Select()
+	if err != nil {
+		return fmt.Errorf("failed to get webhook_uuid for user %d: %v", userID, err)
+	}
+	if user.WebhookUUID == "" {
+		return fmt.Errorf("user %d has no webhook_uuid", userID)
+	}
+
 	logging.Infof("Starting bot creation process for user %d", userID)
 	logging.Infof("Bot token (masked): %s...%s", token[:5], token[len(token)-5:])
 
@@ -403,7 +427,7 @@ func createBotInManager(token string, userID int64) error {
 	done := make(chan error, 1)
 	go func() {
 		logging.Infof("Creating bot instance for user %d...", userID)
-		err := telegramBotManager.CreateBotForUser(token, userID)
+		err := telegramBotManager.CreateBotForUser(token, userID, user.WebhookUUID)
 		if err != nil {
 			logging.Errorf("Failed to create bot for user %d: %v", userID, err)
 			// Check if this is an authorization error from Telegram

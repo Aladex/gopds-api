@@ -325,7 +325,7 @@ func TestCreateBotForUser_AlreadyExists(t *testing.T) {
 	bm.mutex.Unlock()
 
 	// Try to create a bot with the same token
-	err = bm.CreateBotForUser("existing-token", 2)
+	err = bm.CreateBotForUser("existing-token", 2, "test-uuid")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "already exists")
 }

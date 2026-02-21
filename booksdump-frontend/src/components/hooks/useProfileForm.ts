@@ -50,7 +50,7 @@ export const useProfileForm = (open: boolean) => {
         try {
             const response = await fetchWithAuth.get('/telegram/bot/status');
             if (response.status === 200 && response.data) {
-                setBotConnected(response.data.has_bot || false);
+                setBotConnected(response.data.has_bot_token || false);
             }
         } catch {
             // Silently fail - use has_bot_token from user
