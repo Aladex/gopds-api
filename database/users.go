@@ -14,8 +14,8 @@ import (
 func UserObject(search string) (models.User, error) {
 	userDB := new(models.User)
 	err := db.Model(userDB).
-		WhereOr("username ILIKE ?", search).
-		WhereOr("email ILIKE ?", search).
+		WhereOr("lower(username) = lower(?)", search).
+		WhereOr("lower(email) = lower(?)", search).
 		First()
 	if err != nil {
 		return *userDB, err
@@ -27,8 +27,8 @@ func UserObject(search string) (models.User, error) {
 func CheckUser(u models.LoginRequest) (bool, models.User, error) {
 	var userDB models.User
 	err := db.Model(&userDB).
-		WhereOr("username ILIKE ?", strings.ToLower(u.Login)).
-		WhereOr("email ILIKE ?", strings.ToLower(u.Login)).
+		WhereOr("lower(username) = lower(?)", u.Login).
+		WhereOr("lower(email) = lower(?)", u.Login).
 		First()
 	if err != nil {
 		return false, userDB, err
@@ -123,7 +123,7 @@ func GetInvites(invites *[]models.Invite) error {
 // GetUser function for return users object by username
 func GetUser(u string) (models.User, error) {
 	userDB := new(models.User)
-	err := db.Model(userDB).Where("username ILIKE ?", u).First()
+	err := db.Model(userDB).Where("lower(username) = lower(?)", u).First()
 	if err != nil {
 		return *userDB, err
 	}

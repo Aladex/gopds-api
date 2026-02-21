@@ -3,7 +3,6 @@ package telegram
 import (
 	"gopds-api/logging"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"gopds-api/database"
@@ -53,7 +52,7 @@ type ErrorResponse struct {
 // @Failure 500 {object} ErrorResponse
 // @Router /api/telegram/bot [post]
 func (r *Routes) SetBotToken(c *gin.Context) {
-	// Get user ID from context (must be set by authorization middleware)
+	// Get user ID and username from context (set by AuthMiddleware)
 	userIDInterface, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not authenticated"})
@@ -63,6 +62,13 @@ func (r *Routes) SetBotToken(c *gin.Context) {
 	userID, ok := userIDInterface.(int64)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "Invalid user ID"})
+		return
+	}
+
+	username, _ := c.Get("username")
+	usernameStr, ok := username.(string)
+	if !ok || usernameStr == "" {
+		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not authenticated"})
 		return
 	}
 
@@ -86,7 +92,7 @@ func (r *Routes) SetBotToken(c *gin.Context) {
 	}
 
 	// Get current user to check if they have an existing bot token
-	currentUser, err := database.GetUser(strconv.FormatInt(userID, 10))
+	currentUser, err := database.GetUser(usernameStr)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to get user info: " + err.Error()})
 		return
@@ -144,7 +150,7 @@ func (r *Routes) SetBotToken(c *gin.Context) {
 // @Failure 500 {object} ErrorResponse
 // @Router /api/telegram/bot [delete]
 func (r *Routes) RemoveBotToken(c *gin.Context) {
-	// Get user ID from context
+	// Get user ID and username from context (set by AuthMiddleware)
 	userIDInterface, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not authenticated"})
@@ -157,8 +163,15 @@ func (r *Routes) RemoveBotToken(c *gin.Context) {
 		return
 	}
 
+	username, _ := c.Get("username")
+	usernameStr, ok := username.(string)
+	if !ok || usernameStr == "" {
+		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not authenticated"})
+		return
+	}
+
 	// Get user to get the token
-	user, err := database.GetUser(strconv.FormatInt(userID, 10))
+	user, err := database.GetUser(usernameStr)
 	if err != nil {
 		c.JSON(http.StatusNotFound, ErrorResponse{Error: "User not found"})
 		return
@@ -202,21 +215,21 @@ func (r *Routes) RemoveBotToken(c *gin.Context) {
 // @Failure 404 {object} ErrorResponse
 // @Router /api/telegram/bot/status [get]
 func (r *Routes) GetBotStatus(c *gin.Context) {
-	// Get user ID from context
-	userIDInterface, exists := c.Get("user_id")
+	// Get username from context (set by AuthMiddleware)
+	username, exists := c.Get("username")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not authenticated"})
 		return
 	}
 
-	userID, ok := userIDInterface.(int64)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "Invalid user ID"})
+	usernameStr, ok := username.(string)
+	if !ok || usernameStr == "" {
+		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not authenticated"})
 		return
 	}
 
 	// Get user
-	user, err := database.GetUser(strconv.FormatInt(userID, 10))
+	user, err := database.GetUser(usernameStr)
 	if err != nil {
 		c.JSON(http.StatusNotFound, ErrorResponse{Error: "User not found"})
 		return
