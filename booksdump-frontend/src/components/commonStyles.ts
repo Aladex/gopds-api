@@ -1,4 +1,4 @@
-import { SxProps, Theme } from '@mui/material/styles';
+import { Theme } from '@mui/material/styles';
 
 // Common link styles using sx prop
 export const linkSx = (theme: Theme) => ({

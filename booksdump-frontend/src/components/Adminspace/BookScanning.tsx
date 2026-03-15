@@ -4,7 +4,6 @@ import {
     Button,
     Card,
     CardContent,
-    Checkbox,
     Chip,
     CircularProgress,
     Dialog,
@@ -12,7 +11,6 @@ import {
     DialogContent,
     DialogContentText,
     DialogTitle,
-    FormControlLabel,
     IconButton,
     LinearProgress,
     Snackbar,
@@ -328,39 +326,7 @@ const BookScanning: React.FC = () => {
             console.error(error);
             setScanError(t('bookScanArchiveError', { name }));
         }
-    }, [fetchStatus, fetchUnscanned, t]);
-
-    const handleReset = useCallback(async () => {
-        setStatusMessage(null);
-        setScanError(null);
-        if (!resetName.trim()) {
-            setScanError(t('bookScanResetNameRequired'));
-            return;
-        }
-        const confirmed = window.confirm(t('bookScanResetConfirm', { name: resetName }));
-        if (!confirmed) {
-            return;
-        }
-        if (deleteBooks) {
-            const confirmDelete = window.confirm(t('bookScanDeleteBooksConfirm'));
-            if (!confirmDelete) {
-                return;
-            }
-        }
-        try {
-            await fetchWithAuth.delete(
-                `/admin/scan/reset/${encodeURIComponent(resetName)}?confirm=true&delete_books=${deleteBooks ? 'true' : 'false'}`
-            );
-            setStatusMessage(t('bookScanResetSuccess', { name: resetName }));
-            setResetName('');
-            setDeleteBooks(false);
-            await fetchStatus();
-            await fetchUnscanned();
-        } catch (error) {
-            console.error(error);
-            setScanError(t('bookScanResetError'));
-        }
-    }, [deleteBooks, fetchStatus, fetchUnscanned, resetName, t]);
+    }, [t]);
 
     const handleRescanClick = useCallback((archiveName: string) => {
         setArchiveToRescan(archiveName);

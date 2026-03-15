@@ -331,5 +331,9 @@
   "telegramBot.removeError": "Error removing token",
   "memberSince": "Member since: {{date}}",
   "profileSaved": "Profile saved",
-  "profileSaveError": "Error saving profile"
+  "profileSaveError": "Error saving profile",
+  "profileTab.general": "General",
+  "profileTab.telegram": "Telegram",
+  "telegramBot.connectButton": "Connect",
+  "telegramBot.connecting": "Connecting..."
 }

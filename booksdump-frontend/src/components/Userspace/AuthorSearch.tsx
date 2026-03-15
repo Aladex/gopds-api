@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import {Stack, Box, Typography, List, ListItemText, Card, ListItemButton, CardContent} from '@mui/material';
+import {Box, Typography, List, ListItemText, Card, ListItemButton, CardContent} from '@mui/material';
 import { useParams, useLocation } from 'react-router-dom';
 import { fetchWithAuth} from '../../api/config';
 import BookPagination from "../common/BookPagination";

@@ -73,6 +73,7 @@ const RescanPreviewDialog: React.FC<RescanPreviewDialogProps> = ({
         if (open && bookId) {
             fetchPreview(bookId);
         }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open, bookId]);
 
     useEffect(() => {
@@ -81,6 +82,7 @@ const RescanPreviewDialog: React.FC<RescanPreviewDialogProps> = ({
             return;
         }
         clearCoverPreview();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [preview, bookId]);
 
     const handleClose = () => {

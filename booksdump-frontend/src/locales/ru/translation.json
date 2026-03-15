@@ -331,5 +331,9 @@
   "telegramBot.removeError": "Ошибка удаления токена",
   "memberSince": "Участник с: {{date}}",
   "profileSaved": "Профиль сохранён",
-  "profileSaveError": "Ошибка сохранения профиля"
+  "profileSaveError": "Ошибка сохранения профиля",
+  "profileTab.general": "Основное",
+  "profileTab.telegram": "Telegram",
+  "telegramBot.connectButton": "Подключить",
+  "telegramBot.connecting": "Подключение..."
 }
