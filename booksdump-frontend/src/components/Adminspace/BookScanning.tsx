@@ -188,8 +188,6 @@ const BookScanning: React.FC = () => {
     const [isLoadingScanned, setIsLoadingScanned] = useState(false);
     const [statusMessage, setStatusMessage] = useState<string | null>(null);
     const [scanError, setScanError] = useState<string | null>(null);
-    const [resetName, setResetName] = useState('');
-    const [deleteBooks, setDeleteBooks] = useState(false);
     const [lastBookTitle, setLastBookTitle] = useState<string | null>(null);
     const [currentTab, setCurrentTab] = useState(0);
     const [rescanDialogOpen, setRescanDialogOpen] = useState(false);
