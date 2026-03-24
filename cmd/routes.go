@@ -7,7 +7,6 @@ import (
 	"gopds-api/opds"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
@@ -37,6 +36,7 @@ func setupRoutes(route *gin.Engine) {
 	rootFiles := listRootFiles()
 	for _, file := range rootFiles {
 		route.GET(file, func(c *gin.Context) {
+			setStaticCacheHeaders(c, c.Request.URL.Path)
 			c.FileFromFS("booksdump-frontend/build"+c.Request.URL.Path, NewHTTPFS(assets.Assets))
 		})
 	}
@@ -69,7 +69,8 @@ func setupRoutes(route *gin.Engine) {
 		}
 		defer indexFile.Close()
 
-		http.ServeContent(c.Writer, c.Request, "index.html", time.Now(), indexFile)
+		setStaticCacheHeaders(c, "index.html")
+		http.ServeContent(c.Writer, c.Request, "index.html", buildTime, indexFile)
 		c.Abort()
 	})
 }

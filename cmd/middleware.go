@@ -11,6 +11,25 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// buildTime is set once at startup and used as a stable Last-Modified for embedded assets.
+// This ensures conditional GET (304) works correctly within a deployment.
+var buildTime = time.Now()
+
+// setStaticCacheHeaders sets Cache-Control based on the file path:
+//   - index.html → no-cache (always re-validate so new deploys are picked up)
+//   - static/* (hashed filenames) → immutable for 1 year
+//   - everything else → 1 hour
+func setStaticCacheHeaders(c *gin.Context, filePath string) {
+	switch {
+	case strings.HasSuffix(filePath, "index.html") || filePath == "/" || filePath == "":
+		c.Header("Cache-Control", "no-cache")
+	case strings.Contains(filePath, "/static/"):
+		c.Header("Cache-Control", "public, max-age=31536000, immutable")
+	default:
+		c.Header("Cache-Control", "public, max-age=3600")
+	}
+}
+
 // setupMiddleware configures global middleware for the gin.Engine instance.
 // It includes a custom logger and, if in development mode, a CORS middleware.
 func setupMiddleware(route *gin.Engine) {
@@ -68,7 +87,8 @@ func serveStaticFilesMiddleware(fs http.FileSystem) gin.HandlerFunc {
 			defer indexFile.Close()
 
 			// Serve index.html content
-			http.ServeContent(c.Writer, c.Request, "index.html", time.Now(), indexFile)
+			setStaticCacheHeaders(c, "index.html")
+			http.ServeContent(c.Writer, c.Request, "index.html", buildTime, indexFile)
 			c.Abort()
 		}
 
@@ -79,7 +99,8 @@ func serveStaticFilesMiddleware(fs http.FileSystem) gin.HandlerFunc {
 				file, err := fs.Open(filePath)
 				if err == nil {
 					defer file.Close()
-					http.ServeContent(c.Writer, c.Request, filePath, time.Now(), file)
+					setStaticCacheHeaders(c, requestPath)
+					http.ServeContent(c.Writer, c.Request, filePath, buildTime, file)
 					c.Abort()
 					return
 				}
