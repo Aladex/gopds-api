@@ -86,7 +86,7 @@ func DropAllSessions(c *gin.Context) {
 func AuthCheck(c *gin.Context) {
 	var user models.LoginRequest
 	if err := c.ShouldBindJSON(&user); err != nil {
-		httputil.NewError(c, http.StatusBadRequest, err)
+		httputil.NewError(c, http.StatusBadRequest, errors.New("invalid_request"))
 		return
 	}
 

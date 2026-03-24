@@ -8,6 +8,7 @@ import (
 	"gopds-api/database"
 	_ "gopds-api/docs" // Import to include documentation for Swagger UI
 	"gopds-api/logging"
+	"gopds-api/middlewares"
 	"gopds-api/sessions"
 	"gopds-api/tasks" // Import the tasks package for WatchDirectory
 	"gopds-api/telegram"
@@ -36,6 +37,8 @@ func main() {
 
 	mainRedisClient, tokenRedisClient := initializeSessionManagement()
 	sessions.SetRedisConnections(mainRedisClient, tokenRedisClient)
+	rateLimitRedis := sessions.RedisConnection(2, cfg)
+	middlewares.SetRateLimitRedis(rateLimitRedis)
 
 	// Initialize the Telegram bot manager
 	telegramConfig := &telegram.Config{

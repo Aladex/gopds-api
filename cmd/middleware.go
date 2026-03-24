@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"gopds-api/logging"
 	"net/http"
+	"os"
 	"path"
 	"strings"
 	"time"
@@ -11,9 +12,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// buildTime is set once at startup and used as a stable Last-Modified for embedded assets.
-// This ensures conditional GET (304) works correctly within a deployment.
-var buildTime = time.Now()
+// buildTime is the mtime of the running executable, used as a stable Last-Modified for embedded assets.
+// This ensures 304 Not Modified works correctly within a deployment and changes only when the binary changes.
+var buildTime = func() time.Time {
+	exe, err := os.Executable()
+	if err != nil {
+		return time.Time{}
+	}
+	info, err := os.Stat(exe)
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
+}()
 
 // setStaticCacheHeaders sets Cache-Control based on the file path:
 //   - index.html → no-cache (always re-validate so new deploys are picked up)
