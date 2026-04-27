@@ -246,8 +246,13 @@ type BookFilters struct {
 	UnApproved     bool   `form:"unapproved" json:"unapproved"`
 	UsersFavorites bool   `form:"users_favorites" json:"users_favorites"`
 	Collection     int64  `form:"collection" json:"collection"`
-	IncludeHidden  bool   `form:"include_hidden" json:"include_hidden"`
-	Genre          int    `form:"genre" json:"genre"`
+	// CuratedCollection filters books by membership in a published curated
+	// collection (book_collection_items + match_status IN auto_matched/manual).
+	// The query also enforces is_curated=true AND is_public=true so non-admin
+	// users cannot see drafts even if they guess the id.
+	CuratedCollection int64 `form:"curated_collection" json:"curated_collection"`
+	IncludeHidden    bool   `form:"include_hidden" json:"include_hidden"`
+	Genre            int    `form:"genre" json:"genre"`
 }
 
 // CollectionFilters params for filtering collections list

@@ -76,6 +76,15 @@ func GetBooksEnhanced(userID int64, filters models.BookFilters) ([]models.Book, 
 		query = query.Join("JOIN book_collection_books bcb ON bcb.book_id = book.id").
 			Where("bcb.book_collection_id = ?", filters.Collection).
 			Order("bcb.position ASC")
+	} else if filters.CuratedCollection != 0 {
+		query = query.
+			Join("JOIN book_collection_items bci ON bci.book_id = book.id").
+			Join("JOIN book_collections bc ON bc.id = bci.collection_id").
+			Where("bci.collection_id = ?", filters.CuratedCollection).
+			Where("bci.match_status IN (?)", pg.In([]string{models.MatchStatusAutoMatched, models.MatchStatusManual})).
+			Where("bc.is_curated = ?", true).
+			Where("bc.is_public = ?", true).
+			Order("bci.position ASC")
 	} else {
 		query = query.Order("book.id DESC")
 	}
@@ -326,6 +335,26 @@ func applyNonTitleFilters(query *orm.Query, filters models.BookFilters, userID i
 			Select(&booksIds)
 		if err == nil && len(booksIds) > 0 {
 			query = query.WhereIn("book.id IN (?)", booksIds)
+		}
+	}
+
+	if filters.CuratedCollection != 0 {
+		var booksIds []int64
+		err := db.Model((*models.BookCollectionItem)(nil)).
+			Column("book_collection_items.book_id").
+			Join("JOIN book_collections bc ON bc.id = book_collection_items.collection_id").
+			Where("book_collection_items.collection_id = ?", filters.CuratedCollection).
+			Where("book_collection_items.book_id IS NOT NULL").
+			Where("book_collection_items.match_status IN (?)", pg.In([]string{models.MatchStatusAutoMatched, models.MatchStatusManual})).
+			Where("bc.is_curated = ?", true).
+			Where("bc.is_public = ?", true).
+			Order("book_collection_items.position ASC").
+			Select(&booksIds)
+		if err == nil && len(booksIds) > 0 {
+			query = query.WhereIn("book.id IN (?)", booksIds)
+		} else {
+			// Empty / non-public collection: no books should match.
+			query = query.Where("FALSE")
 		}
 	}
 

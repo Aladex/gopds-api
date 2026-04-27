@@ -21,6 +21,7 @@ import {
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SearchIcon from '@mui/icons-material/Search';
+import SearchAndResolveDialog from './SearchAndResolveDialog';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -65,6 +66,7 @@ const ItemsTable: React.FC<{
     const { t } = useTranslation();
     const [manualID, setManualID] = useState<Record<number, string>>({});
     const [busy, setBusy] = useState<Record<number, boolean>>({});
+    const [searchFor, setSearchFor] = useState<{ itemID: number; query: string } | null>(null);
 
     const setItemBusy = (itemID: number, v: boolean) =>
         setBusy((prev) => ({ ...prev, [itemID]: v }));
@@ -107,6 +109,7 @@ const ItemsTable: React.FC<{
     const isResolvable = true;
 
     return (
+      <>
         <Table size="small">
             <TableHead>
                 <TableRow>
@@ -178,10 +181,7 @@ const ItemsTable: React.FC<{
                                     <Stack direction="row" spacing={1} alignItems="center">
                                         <IconButton
                                             size="small"
-                                            component="a"
-                                            href={`/books/find/title/${encodeURIComponent(it.external_title)}/1`}
-                                            target="_blank"
-                                            rel="noreferrer"
+                                            onClick={() => setSearchFor({ itemID: it.id, query: it.external_title })}
                                             title={t('curatedCollections.searchInLibrary', 'Search by title in library')}
                                         >
                                             <SearchIcon fontSize="small" />
@@ -228,6 +228,15 @@ const ItemsTable: React.FC<{
                 )}
             </TableBody>
         </Table>
+        <SearchAndResolveDialog
+            open={!!searchFor}
+            initialQuery={searchFor?.query ?? ''}
+            onClose={() => setSearchFor(null)}
+            onPick={async (bookID) => {
+                if (searchFor) await onResolve(searchFor.itemID, bookID);
+            }}
+        />
+      </>
     );
 };
 

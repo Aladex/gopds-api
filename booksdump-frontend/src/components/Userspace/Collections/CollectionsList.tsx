@@ -50,7 +50,7 @@ const CollectionsList: React.FC = () => {
                 <Stack spacing={2} mt={2}>
                     {rows.map((c) => (
                         <Card key={c.id}>
-                            <CardActionArea component={RouterLink} to={`/collections/${c.id}`}>
+                            <CardActionArea component={RouterLink} to={`/collections/${c.id}/page/1`}>
                                 <CardContent>
                                     <Typography variant="h6">{c.name}</Typography>
                                 </CardContent>

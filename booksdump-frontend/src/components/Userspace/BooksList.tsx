@@ -228,6 +228,9 @@ const BooksList: React.FC = () => {
             params.title = decodeURIComponent(title);
             if (authorId) params.author = authorId;
             clearAuthorBook();
+        } else if (location.pathname.startsWith('/collections/') && id) {
+            params.curated_collection = id;
+            clearAuthorBook();
         }
 
         if (location.pathname.includes('/books/favorite')) {
