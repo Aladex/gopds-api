@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"gopds-api/database"
 	"gopds-api/models"
 
 	"github.com/gin-gonic/gin"
@@ -48,6 +49,9 @@ func (f *fakePublicSvc) Get(ctx context.Context, id int64) (*models.BookCollecti
 func (f *fakePublicSvc) Books(ctx context.Context, collectionID int64) ([]models.Book, error) {
 	f.booksCalls = append(f.booksCalls, collectionID)
 	return f.booksResp, f.booksErr
+}
+func (f *fakePublicSvc) Covers(ctx context.Context, ids []int64) (map[int64][]database.CollectionCoverBook, error) {
+	return map[int64][]database.CollectionCoverBook{}, nil
 }
 
 func newPublicTestRouter(svc PublicCollectionsService) *gin.Engine {

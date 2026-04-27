@@ -1,8 +1,99 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Box, Card, CardActionArea, CardContent, Stack, Typography } from '@mui/material';
+import { Alert, Box, Card, CardActionArea, Typography } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { listPublicCollections, PublicCollectionRow } from './api';
+import { API_URL } from '../../../api/config';
+import {
+    CollectionCoverBook,
+    listPublicCollections,
+    PublicCollectionRow,
+} from './api';
+
+// coverPath mirrors Userspace/BooksList: covers live under the
+// books-posters/<sanitized-path>/<sanitized-filename>.jpg URL pattern.
+const coverPath = (value: string) => value.replaceAll('.', '-').replace(/^\/+/, '');
+
+const coverURL = (book: CollectionCoverBook) =>
+    book.cover && book.path && book.filename
+        ? `${API_URL}/books-posters/${coverPath(book.path)}/${coverPath(book.filename)}.jpg`
+        : null;
+
+// hashHue maps a collection name to a stable HSL hue so the empty-state
+// fallback gradient is at least consistent between reloads.
+const hashHue = (s: string) => {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return h % 360;
+};
+
+const CoverMosaic: React.FC<{ name: string; books?: CollectionCoverBook[] }> = ({ name, books }) => {
+    const real = (books ?? []).map((b) => ({ url: coverURL(b), title: b.title }));
+    const withCover = real.filter((b) => b.url);
+    // Pad to 4 tiles. Empty tiles get a generated initial-tile so the mosaic
+    // never has half-rendered holes.
+    const tiles = withCover.slice(0, 4);
+    while (tiles.length < 4) tiles.push({ url: null, title: name });
+
+    if (withCover.length === 0) {
+        // No covers anywhere — full-card gradient with the collection initial.
+        const hue = hashHue(name);
+        const initial = name.trim().charAt(0).toUpperCase() || '·';
+        return (
+            <Box
+                sx={{
+                    height: 220,
+                    background: `linear-gradient(135deg, hsl(${hue} 40% 50%), hsl(${(hue + 50) % 360} 40% 30%))`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#fff',
+                    fontSize: 84,
+                    fontWeight: 300,
+                    letterSpacing: -2,
+                }}
+            >
+                {initial}
+            </Box>
+        );
+    }
+
+    return (
+        <Box
+            sx={{
+                height: 220,
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gridTemplateRows: '1fr 1fr',
+                gap: '2px',
+                background: '#0001',
+            }}
+        >
+            {tiles.map((t, i) => {
+                if (t.url) {
+                    return (
+                        <Box
+                            key={i}
+                            sx={{
+                                backgroundImage: `url("${t.url}")`,
+                                backgroundSize: 'cover',
+                                backgroundPosition: 'center',
+                            }}
+                        />
+                    );
+                }
+                const hue = hashHue(name + i);
+                return (
+                    <Box
+                        key={i}
+                        sx={{
+                            background: `linear-gradient(135deg, hsl(${hue} 30% 55%), hsl(${(hue + 60) % 360} 30% 35%))`,
+                        }}
+                    />
+                );
+            })}
+        </Box>
+    );
+};
 
 const CollectionsList: React.FC = () => {
     const { t } = useTranslation();
@@ -47,17 +138,27 @@ const CollectionsList: React.FC = () => {
                     </Typography>
                 )}
 
-                <Stack spacing={2} mt={2}>
+                <Box
+                    sx={{
+                        mt: 2,
+                        display: 'grid',
+                        gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)' },
+                        gap: 2.5,
+                    }}
+                >
                     {rows.map((c) => (
-                        <Card key={c.id}>
+                        <Card key={c.id} sx={{ borderRadius: 3, overflow: 'hidden' }}>
                             <CardActionArea component={RouterLink} to={`/collections/${c.id}/page/1`}>
-                                <CardContent>
-                                    <Typography variant="h6">{c.name}</Typography>
-                                </CardContent>
+                                <CoverMosaic name={c.name} books={c.cover_books} />
+                                <Box p={2}>
+                                    <Typography variant="h6" sx={{ lineHeight: 1.2 }}>
+                                        {c.name}
+                                    </Typography>
+                                </Box>
                             </CardActionArea>
                         </Card>
                     ))}
-                </Stack>
+                </Box>
             </Box>
         </Box>
     );

@@ -10,6 +10,13 @@ jest.mock('../api', () => ({
     listPublicCollections: jest.fn().mockResolvedValue(sampleRows),
 }));
 
+// CollectionsList now imports API_URL from api/config which pulls axios (ESM).
+// Stub the config so jest 27 does not try to parse axios.
+jest.mock('../../../../api/config', () => ({
+    API_URL: 'http://test',
+    fetchWithAuth: { get: jest.fn(), post: jest.fn() },
+}));
+
 // react-router-dom is globally mapped to src/__mocks__/react-router-dom.tsx via package.json.
 
 jest.mock('react-i18next', () => ({

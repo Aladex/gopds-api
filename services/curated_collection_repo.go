@@ -185,3 +185,7 @@ func (PublicCuratedCollectionsService) Get(ctx context.Context, id int64) (*mode
 func (PublicCuratedCollectionsService) Books(ctx context.Context, collectionID int64) ([]models.Book, error) {
 	return database.GetPublicCollectionBooks(ctx, collectionID)
 }
+
+func (PublicCuratedCollectionsService) Covers(ctx context.Context, collectionIDs []int64) (map[int64][]database.CollectionCoverBook, error) {
+	return database.GetCollectionCovers(ctx, collectionIDs)
+}

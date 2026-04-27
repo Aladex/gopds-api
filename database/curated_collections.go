@@ -273,6 +273,61 @@ func GetPublicCuratedCollection(ctx context.Context, id int64) (*models.BookColl
 	return c, nil
 }
 
+// CollectionCoverBook is one row of the cover-strip we render on /collections cards.
+// Only the fields we actually need on the frontend (path/filename for cover URL,
+// cover flag, title for fallback initials) are exposed.
+type CollectionCoverBook struct {
+	CollectionID int64  `pg:"collection_id" json:"-"`
+	ID           int64  `pg:"id" json:"id"`
+	Path         string `pg:"path" json:"path"`
+	Filename     string `pg:"filename" json:"filename"`
+	Cover        bool   `pg:"cover" json:"cover"`
+	Title        string `pg:"title" json:"title"`
+	Rn           int    `pg:"rn" json:"-"`
+}
+
+// GetCollectionCovers returns up to 4 books per requested collection, prioritizing
+// rows with `cover=true` so cards show real artwork whenever the library has any.
+// When all matched items in a collection lack covers the collection's bucket is
+// simply empty — the frontend draws a coverless fallback.
+func GetCollectionCovers(ctx context.Context, collectionIDs []int64) (map[int64][]CollectionCoverBook, error) {
+	if len(collectionIDs) == 0 {
+		return map[int64][]CollectionCoverBook{}, nil
+	}
+	const q = `
+		SELECT collection_id, id, path, filename, cover, title, rn FROM (
+			SELECT
+				i.collection_id,
+				b.id,
+				b.path,
+				b.filename,
+				b.cover,
+				b.title,
+				ROW_NUMBER() OVER (
+					PARTITION BY i.collection_id
+					ORDER BY b.cover DESC, i.position ASC, i.id ASC
+				) AS rn
+			FROM book_collection_items i
+			JOIN opds_catalog_book b ON b.id = i.book_id
+			WHERE i.book_id IS NOT NULL
+			  AND i.match_status IN ('auto_matched', 'manual')
+			  AND i.collection_id IN (?)
+		) ranked
+		WHERE rn <= 4
+		ORDER BY collection_id, rn
+	`
+	var rows []CollectionCoverBook
+	_, err := db.QueryContext(ctx, &rows, q, pg.In(collectionIDs))
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int64][]CollectionCoverBook, len(collectionIDs))
+	for _, r := range rows {
+		out[r.CollectionID] = append(out[r.CollectionID], r)
+	}
+	return out, nil
+}
+
 // GetPublicCollectionBooks returns matched-or-manual books of a curated collection
 // preserving the curator-defined order from book_collection_items.position.
 // Items with NULL book_id, ambiguous, not_found or ignored are excluded.
