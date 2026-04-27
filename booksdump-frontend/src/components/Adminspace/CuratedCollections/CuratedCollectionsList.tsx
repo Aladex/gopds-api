@@ -18,6 +18,7 @@ import { useTranslation } from 'react-i18next';
 import { Link as RouterLink } from 'react-router-dom';
 import { CuratedCollection, deleteCuratedCollection, listCuratedCollections } from './api';
 import ImportForm from './ImportForm';
+import BatchImportForm from './BatchImportForm';
 
 const CuratedCollectionsList: React.FC = () => {
     const { t } = useTranslation();
@@ -50,6 +51,7 @@ const CuratedCollectionsList: React.FC = () => {
             </Typography>
 
             <ImportForm onCreated={() => refresh()} />
+            <BatchImportForm onCreated={() => refresh()} />
 
             {loadError && <Alert severity="error" sx={{ mt: 2 }}>{loadError}</Alert>}
 
