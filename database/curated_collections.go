@@ -48,6 +48,21 @@ func AddCollectionItem(ctx context.Context, collectionID int64, item models.Pers
 	return err
 }
 
+// UpdateCollectionImportStats writes only the import_stats jsonb column without
+// touching status / error. Used by the LLM resolver to push live progress
+// updates into the same json blob that the admin UI already polls via /status.
+func UpdateCollectionImportStats(ctx context.Context, collectionID int64, stats models.CollectionImportStats) error {
+	statsJSON, err := json.Marshal(stats)
+	if err != nil {
+		return err
+	}
+	_, err = db.ModelContext(ctx, (*models.BookCollection)(nil)).
+		Set("import_stats = ?", string(statsJSON)).
+		Where("id = ?", collectionID).
+		Update()
+	return err
+}
+
 // UpdateCollectionImportStatus finalizes the collection after the import loop completes.
 // stats is persisted into the import_stats JSONB column; go-pg handles the
 // struct↔jsonb conversion via the column tag on the model.

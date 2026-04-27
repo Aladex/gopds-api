@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 
 	"gopds-api/database"
 	"gopds-api/llm"
@@ -140,17 +141,63 @@ func (s *CuratedCollectionsService) AutoResolveAmbiguous(ctx context.Context, co
 // best candidate, augmenting each candidate with its annotation so the model
 // can disambiguate by content. Items where the LLM is unsure are left as-is.
 // Returns the number of items actually resolved.
+//
+// Live progress (processed/total + last few decisions) is pushed into
+// book_collections.import_stats.ai_progress after every LLM call so the admin
+// UI can poll it through /status. Running=true while the loop is active so a
+// refreshed page can pick the polling back up.
 func (s *CuratedCollectionsService) LLMResolveAmbiguous(ctx context.Context, collectionID int64, decidedByUserID *int64) (int, error) {
 	const pageSize = 1000
 	items, _, err := database.ListCollectionItems(ctx, collectionID, models.MatchStatusAmbiguous, 1, pageSize)
 	if err != nil {
 		return 0, err
 	}
+
+	// Snapshot the current stats so we don't blow away matched/ambiguous/total
+	// counters on every progress write.
+	col, err := database.GetCuratedCollection(ctx, collectionID)
+	if err != nil {
+		return 0, err
+	}
+	baseStats := models.CollectionImportStats{}
+	if col.ImportStats != nil {
+		baseStats = *col.ImportStats
+	}
+	startedAt := time.Now().UTC()
+	progress := &models.AIResolveProgress{
+		Running:   true,
+		Total:     len(items),
+		StartedAt: startedAt,
+		UpdatedAt: startedAt,
+	}
+	publish := func() {
+		snap := baseStats
+		copyProg := *progress
+		copyProg.UpdatedAt = time.Now().UTC()
+		snap.AIProgress = &copyProg
+		if err := database.UpdateCollectionImportStats(ctx, collectionID, snap); err != nil {
+			logging.Warnf("LLMResolveAmbiguous: publish progress: %v", err)
+		}
+	}
+	publish()
+	defer func() {
+		progress.Running = false
+		publish()
+	}()
+
 	llmSvc := llm.NewLLMService()
 	resolved := 0
 	for _, it := range items {
 		cands := readCandidatesFromItem(it)
+		decision := models.AIDecision{
+			ItemID:        it.ID,
+			ExternalTitle: it.ExternalTitle,
+			Action:        "skipped",
+		}
 		if len(cands) == 0 {
+			progress.Processed++
+			appendRecent(progress, decision)
+			publish()
 			continue
 		}
 		ids := make([]int64, 0, len(cands))
@@ -160,9 +207,11 @@ func (s *CuratedCollectionsService) LLMResolveAmbiguous(ctx context.Context, col
 		books, err := database.GetBooksByIDs(ids)
 		if err != nil {
 			logging.Warnf("LLMResolveAmbiguous: load candidates for item %d: %v", it.ID, err)
+			progress.Processed++
+			appendRecent(progress, decision)
+			publish()
 			continue
 		}
-		// Build a book_id → llm.AmbiguousCandidate map for the prompt.
 		byID := make(map[int64]llm.AmbiguousCandidate, len(books))
 		for _, b := range books {
 			authors := make([]string, 0, len(b.Authors))
@@ -183,23 +232,52 @@ func (s *CuratedCollectionsService) LLMResolveAmbiguous(ctx context.Context, col
 			}
 		}
 		if len(prompt) == 0 {
+			progress.Processed++
+			appendRecent(progress, decision)
+			publish()
 			continue
 		}
 		bookID, err := llmSvc.ResolveAmbiguousMatch(it.ExternalTitle, it.ExternalAuthor, prompt)
 		if err != nil {
 			logging.Warnf("LLMResolveAmbiguous: LLM call failed for item %d: %v", it.ID, err)
+			progress.Processed++
+			appendRecent(progress, decision)
+			publish()
 			continue
 		}
 		if bookID == nil {
+			progress.Processed++
+			appendRecent(progress, decision)
+			publish()
 			continue
 		}
 		if err := s.Resolve(ctx, it.ID, *bookID, decidedByUserID); err != nil {
 			logging.Warnf("LLMResolveAmbiguous: resolve %d -> %d failed: %v", it.ID, *bookID, err)
+			progress.Processed++
+			appendRecent(progress, decision)
+			publish()
 			continue
 		}
 		resolved++
+		decision.Action = "resolved"
+		decision.BookID = bookID
+		if hit, ok := byID[*bookID]; ok {
+			decision.BookTitle = hit.Title
+		}
+		progress.Processed++
+		progress.Resolved = resolved
+		appendRecent(progress, decision)
+		publish()
 	}
 	return resolved, nil
+}
+
+func appendRecent(p *models.AIResolveProgress, d models.AIDecision) {
+	const keep = 5
+	p.Recent = append(p.Recent, d)
+	if len(p.Recent) > keep {
+		p.Recent = p.Recent[len(p.Recent)-keep:]
+	}
 }
 
 // readCandidatesFromItem extracts the candidates list from external_extra.

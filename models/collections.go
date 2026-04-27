@@ -31,13 +31,36 @@ type MatchCandidate struct {
 // CollectionImportStats are aggregated counters returned to the admin and stored
 // in book_collections.import_stats. Matched counts both auto-matched results and
 // manual-from-cache hits. Processed/Total drive the live progress bar shown by
-// the admin UI while import_status is still 'importing'.
+// the admin UI while import_status is still 'importing'. AIProgress carries the
+// streaming state of an in-flight LLM resolution.
 type CollectionImportStats struct {
-	Matched   int `json:"matched"`
-	Ambiguous int `json:"ambiguous"`
-	NotFound  int `json:"not_found"`
-	Processed int `json:"processed"`
-	Total     int `json:"total"`
+	Matched    int                  `json:"matched"`
+	Ambiguous  int                  `json:"ambiguous"`
+	NotFound   int                  `json:"not_found"`
+	Processed  int                  `json:"processed"`
+	Total      int                  `json:"total"`
+	AIProgress *AIResolveProgress   `json:"ai_progress,omitempty"`
+}
+
+// AIResolveProgress is a snapshot of an in-flight LLMResolveAmbiguous run.
+// Updated after each LLM call so the admin UI can poll it via /status.
+type AIResolveProgress struct {
+	Running   bool         `json:"running"`
+	Processed int          `json:"processed"`
+	Total     int          `json:"total"`
+	Resolved  int          `json:"resolved"`
+	Recent    []AIDecision `json:"recent"` // last decisions, most recent last
+	StartedAt time.Time    `json:"started_at"`
+	UpdatedAt time.Time    `json:"updated_at"`
+}
+
+// AIDecision is one LLM verdict on one ambiguous item.
+type AIDecision struct {
+	ItemID        int64  `json:"item_id"`
+	ExternalTitle string `json:"external_title"`
+	Action        string `json:"action"` // "resolved" | "skipped"
+	BookID        *int64 `json:"book_id,omitempty"`
+	BookTitle     string `json:"book_title,omitempty"`
 }
 
 // PersistedCollectionItem is the storage shape for one curated collection item:

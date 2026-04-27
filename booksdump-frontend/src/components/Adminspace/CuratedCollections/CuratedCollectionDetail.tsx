@@ -378,17 +378,41 @@ const CuratedCollectionDetail: React.FC = () => {
         if (aiResolving) return;
         setAiResolving(true);
         try {
-            const { resolved } = await llmResolveCollection(id);
-            await Promise.all([loadCollection(), loadItems(tabKey), loadStatus()]);
-            if (typeof window !== 'undefined') {
-                window.alert(
-                    t('curatedCollections.aiResolveDone', '{{count}} items resolved by AI', { count: resolved }),
-                );
-            }
+            await llmResolveCollection(id);
+            // The endpoint returns 202 immediately. Live progress lives in
+            // status.stats.ai_progress and is picked up by the polling effect
+            // below.
         } finally {
             setAiResolving(false);
         }
     };
+
+    // Auto-poll while ai_progress.running is true. Survives a page refresh
+    // because the running flag is persisted in the DB.
+    useEffect(() => {
+        const ai = status?.stats?.ai_progress;
+        if (!ai?.running) return;
+        let cancelled = false;
+        const tick = async () => {
+            if (cancelled) return;
+            await loadStatus();
+            await loadItems(tabKey);
+            const cur = await getImportStatus(id);
+            if (cancelled) return;
+            if (cur.stats?.ai_progress?.running) {
+                setTimeout(tick, 2500);
+            } else {
+                loadCollection();
+                loadItems(tabKey);
+            }
+        };
+        const t = setTimeout(tick, 2500);
+        return () => {
+            cancelled = true;
+            clearTimeout(t);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [status?.stats?.ai_progress?.running, id]);
 
     if (!id) return <Alert severity="error">invalid id</Alert>;
     if (loadErr) return <Alert severity="error">{loadErr}</Alert>;
@@ -450,6 +474,45 @@ const CuratedCollectionDetail: React.FC = () => {
                         <Alert severity="error" sx={{ mt: 1 }}>
                             {status.import_error}
                         </Alert>
+                    )}
+                    {status?.stats?.ai_progress && (
+                        <Box mt={2} p={1.5} sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                            <Stack direction="row" spacing={2} alignItems="center" mb={1}>
+                                <Typography variant="body2">
+                                    {status.stats.ai_progress.running
+                                        ? t('curatedCollections.aiBoxRunning', 'AI resolving…')
+                                        : t('curatedCollections.aiBoxIdle', 'AI last run')}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                    {status.stats.ai_progress.processed} / {status.stats.ai_progress.total}
+                                    {' · '}
+                                    {t('curatedCollections.aiBoxResolved', 'resolved')}: {status.stats.ai_progress.resolved}
+                                </Typography>
+                            </Stack>
+                            {status.stats.ai_progress.total > 0 && (
+                                <LinearProgress
+                                    variant="determinate"
+                                    value={Math.min(100, Math.round((status.stats.ai_progress.processed / status.stats.ai_progress.total) * 100))}
+                                    sx={{ mb: 1 }}
+                                />
+                            )}
+                            {status.stats.ai_progress.recent && status.stats.ai_progress.recent.length > 0 && (
+                                <Box sx={{ fontSize: 13, fontFamily: 'monospace', color: 'text.secondary' }}>
+                                    {status.stats.ai_progress.recent
+                                        .slice()
+                                        .reverse()
+                                        .map((d, i) => (
+                                            <Box key={i} sx={{ py: 0.25 }}>
+                                                {d.action === 'resolved' ? '✓ ' : '· '}
+                                                <strong>{d.external_title}</strong>
+                                                {d.action === 'resolved' && d.book_title
+                                                    ? ` → #${d.book_id} ${d.book_title}`
+                                                    : ' — skipped'}
+                                            </Box>
+                                        ))}
+                                </Box>
+                            )}
+                        </Box>
                     )}
                     <Stack direction="row" spacing={1} mt={2}>
                         <Button variant="contained" size="small" onClick={togglePublish} disabled={importing}>

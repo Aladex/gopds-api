@@ -283,12 +283,18 @@ func (h *CuratedCollectionsHandler) llmResolve(c *gin.Context) {
 			decidedBy = &uid
 		}
 	}
-	resolved, err := h.Svc.LLMResolveAmbiguous(c.Request.Context(), id, decidedBy)
-	if err != nil {
-		respondCollectionError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"resolved": resolved})
+	// LLM resolution iterates one OpenAI call per ambiguous item — for a
+	// collection with hundreds of items this easily exceeds the proxy /
+	// axios timeout. Run it in the background with a detached context so
+	// client disconnects do not cancel mid-loop database writes.
+	go func(cid int64, decidedBy *int64) {
+		_, err := h.Svc.LLMResolveAmbiguous(context.Background(), cid, decidedBy)
+		if err != nil {
+			// Logged inside the service; nothing else to do here.
+			_ = err
+		}
+	}(id, decidedBy)
+	c.JSON(http.StatusAccepted, gin.H{"status": "started"})
 }
 
 // parseInt64Param reads an int64 path parameter and writes 400 if it is malformed.

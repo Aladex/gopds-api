@@ -26,10 +26,35 @@ export interface CollectionItem {
     position: number;
 }
 
+export interface AIDecision {
+    item_id: number;
+    external_title: string;
+    action: 'resolved' | 'skipped';
+    book_id?: number;
+    book_title?: string;
+}
+
+export interface AIResolveProgress {
+    running: boolean;
+    processed: number;
+    total: number;
+    resolved: number;
+    recent: AIDecision[];
+    started_at?: string;
+    updated_at?: string;
+}
+
 export interface ImportStatusInfo {
     status: string;
     import_error?: string;
-    stats: { matched?: number; ambiguous?: number; not_found?: number };
+    stats: {
+        matched?: number;
+        ambiguous?: number;
+        not_found?: number;
+        processed?: number;
+        total?: number;
+        ai_progress?: AIResolveProgress;
+    };
 }
 
 export interface ItemsPage {
