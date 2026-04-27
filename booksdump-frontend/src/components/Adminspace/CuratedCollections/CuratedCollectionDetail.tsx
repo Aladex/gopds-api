@@ -24,6 +24,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
+    autoResolveCollection,
     CollectionItem,
     CuratedCollection,
     deleteCuratedCollection,
@@ -100,7 +101,10 @@ const ItemsTable: React.FC<{
         }
     };
 
-    const isResolvable = statusKey === 'ambiguous' || statusKey === 'not_found';
+    // Resolution controls are always available — admin can re-resolve a
+    // previously matched item (typo, wrong edition picked) or rescue an
+    // ignored one by submitting a fresh book_id.
+    const isResolvable = true;
 
     return (
         <Table size="small">
@@ -342,6 +346,23 @@ const CuratedCollectionDetail: React.FC = () => {
         loadStatus();
     };
 
+    const [autoResolving, setAutoResolving] = useState(false);
+    const onAutoResolve = async () => {
+        if (autoResolving) return;
+        setAutoResolving(true);
+        try {
+            const { resolved } = await autoResolveCollection(id);
+            await Promise.all([loadCollection(), loadItems(tabKey), loadStatus()]);
+            if (typeof window !== 'undefined') {
+                window.alert(
+                    t('curatedCollections.autoResolveDone', '{{count}} items resolved', { count: resolved }),
+                );
+            }
+        } finally {
+            setAutoResolving(false);
+        }
+    };
+
     if (!id) return <Alert severity="error">invalid id</Alert>;
     if (loadErr) return <Alert severity="error">{loadErr}</Alert>;
     if (!coll) return <Typography>Loading…</Typography>;
@@ -418,11 +439,23 @@ const CuratedCollectionDetail: React.FC = () => {
 
             <Card>
                 <CardContent>
-                    <Tabs value={tabKey} onChange={(_, v) => setTabKey(v)}>
-                        {statusTabs.map((tab) => (
-                            <Tab key={tab.key} value={tab.key} label={tab.label} />
-                        ))}
-                    </Tabs>
+                    <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={1}>
+                        <Tabs value={tabKey} onChange={(_, v) => setTabKey(v)}>
+                            {statusTabs.map((tab) => (
+                                <Tab key={tab.key} value={tab.key} label={tab.label} />
+                            ))}
+                        </Tabs>
+                        <Button
+                            size="small"
+                            variant="outlined"
+                            disabled={autoResolving || importing || (stats.ambiguous ?? 0) === 0}
+                            onClick={onAutoResolve}
+                        >
+                            {autoResolving
+                                ? t('curatedCollections.autoResolving', 'Resolving…')
+                                : t('curatedCollections.autoResolveAll', 'Auto-resolve all ambiguous')}
+                        </Button>
+                    </Stack>
                     <Box mt={2}>
                         <ItemsTable
                             items={items}

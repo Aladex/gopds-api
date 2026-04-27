@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"errors"
 	"gopds-api/logging"
 	"gopds-api/models"
@@ -447,6 +448,30 @@ func GetBook(bookID int64) (models.Book, error) {
 		return *book, err
 	}
 	return *book, nil
+}
+
+// PickMostRecentBookID returns the id of the book among the given list that was
+// registered most recently (registerdate DESC, with id DESC as a tiebreaker).
+// Used by curated-collection auto-resolve to pick a single winner when the
+// matcher's top score is shared by several copies of the same book.
+func PickMostRecentBookID(ctx context.Context, ids []int64) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	if len(ids) == 1 {
+		return ids[0], nil
+	}
+	book := &models.Book{}
+	err := db.ModelContext(ctx, book).
+		Column("id").
+		Where("id IN (?)", pg.In(ids)).
+		Order("registerdate DESC", "id DESC").
+		Limit(1).
+		Select()
+	if err != nil {
+		return 0, err
+	}
+	return book.ID, nil
 }
 
 // GetBooksByIDs returns books matching the given ids preloaded with their authors.

@@ -90,6 +90,9 @@ func (f *fakeAdminSvc) Delete(ctx context.Context, id int64) error {
 	f.deleteCalls = append(f.deleteCalls, id)
 	return f.deleteErr
 }
+func (f *fakeAdminSvc) AutoResolveAmbiguous(ctx context.Context, id int64, decidedBy *int64) (int, error) {
+	return 0, nil
+}
 
 func newAdminTestRouter(svc CuratedCollectionsAdmin) *gin.Engine {
 	gin.SetMode(gin.TestMode)

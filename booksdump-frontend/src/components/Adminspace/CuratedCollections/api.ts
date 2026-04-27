@@ -94,6 +94,11 @@ export const ignoreItem = async (collectionID: number, itemID: number): Promise<
     await fetchWithAuth.post(`/admin/collections/${collectionID}/items/${itemID}/ignore`);
 };
 
+export const autoResolveCollection = async (collectionID: number): Promise<{ resolved: number }> => {
+    const resp = await fetchWithAuth.post(`/admin/collections/${collectionID}/auto-resolve`);
+    return resp.data;
+};
+
 export const patchCuratedCollection = async (
     id: number,
     patch: { name?: string; is_public?: boolean; source_url?: string },

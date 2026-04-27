@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 
 	"gopds-api/database"
 	"gopds-api/models"
@@ -106,6 +107,63 @@ func (s *CuratedCollectionsService) Update(ctx context.Context, id int64, patch 
 
 func (s *CuratedCollectionsService) Delete(ctx context.Context, id int64) error {
 	return database.DeleteCuratedCollection(ctx, id)
+}
+
+// AutoResolveAmbiguous picks a top candidate for every ambiguous item in the
+// collection and resolves it. The "top candidate" is the candidate with the
+// highest score; on a tie the book registered most recently wins. Returns
+// the number of items that were actually resolved.
+func (s *CuratedCollectionsService) AutoResolveAmbiguous(ctx context.Context, collectionID int64, decidedByUserID *int64) (int, error) {
+	const pageSize = 1000
+	items, _, err := database.ListCollectionItems(ctx, collectionID, models.MatchStatusAmbiguous, 1, pageSize)
+	if err != nil {
+		return 0, err
+	}
+	resolved := 0
+	for _, it := range items {
+		bookID, err := pickAutoResolveTarget(ctx, it)
+		if err != nil || bookID == 0 {
+			continue
+		}
+		if err := s.Resolve(ctx, it.ID, bookID, decidedByUserID); err != nil {
+			continue // best effort: skip this item, keep going
+		}
+		resolved++
+	}
+	return resolved, nil
+}
+
+// pickAutoResolveTarget reads candidates from external_extra and chooses the
+// best one according to the rule "highest score, ties broken by most-recently
+// registered book".
+func pickAutoResolveTarget(ctx context.Context, it models.BookCollectionItem) (int64, error) {
+	if len(it.ExternalExtra) == 0 {
+		return 0, nil
+	}
+	var extra struct {
+		Candidates []models.MatchCandidate `json:"candidates"`
+	}
+	if err := json.Unmarshal(it.ExternalExtra, &extra); err != nil {
+		return 0, err
+	}
+	if len(extra.Candidates) == 0 {
+		return 0, nil
+	}
+
+	maxScore := extra.Candidates[0].Score
+	for _, c := range extra.Candidates {
+		if c.Score > maxScore {
+			maxScore = c.Score
+		}
+	}
+	const tolerance = 0.001
+	tied := make([]int64, 0, len(extra.Candidates))
+	for _, c := range extra.Candidates {
+		if c.Score >= maxScore-tolerance {
+			tied = append(tied, c.BookID)
+		}
+	}
+	return database.PickMostRecentBookID(ctx, tied)
 }
 
 // PublicCuratedCollectionsService is the read-only counterpart used by authenticated

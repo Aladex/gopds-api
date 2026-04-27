@@ -27,6 +27,7 @@ type CuratedCollectionsAdmin interface {
 
 	Resolve(ctx context.Context, itemID, bookID int64, decidedByUserID *int64) error
 	Ignore(ctx context.Context, itemID int64) error
+	AutoResolveAmbiguous(ctx context.Context, collectionID int64, decidedByUserID *int64) (int, error)
 
 	Update(ctx context.Context, id int64, patch database.CuratedCollectionPatch) error
 	Delete(ctx context.Context, id int64) error
@@ -49,6 +50,7 @@ func (h *CuratedCollectionsHandler) Register(r *gin.RouterGroup) {
 	r.DELETE("/:id", h.delete)
 	r.POST("/:id/items/:itemID/resolve", h.resolve)
 	r.POST("/:id/items/:itemID/ignore", h.ignore)
+	r.POST("/:id/auto-resolve", h.autoResolve)
 }
 
 // --- DTOs ---
@@ -247,6 +249,25 @@ func (h *CuratedCollectionsHandler) ignore(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+func (h *CuratedCollectionsHandler) autoResolve(c *gin.Context) {
+	id, ok := parseInt64Param(c, "id")
+	if !ok {
+		return
+	}
+	var decidedBy *int64
+	if v, exists := c.Get("user_id"); exists {
+		if uid, ok := v.(int64); ok {
+			decidedBy = &uid
+		}
+	}
+	resolved, err := h.Svc.AutoResolveAmbiguous(c.Request.Context(), id, decidedBy)
+	if err != nil {
+		respondCollectionError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"resolved": resolved})
 }
 
 // parseInt64Param reads an int64 path parameter and writes 400 if it is malformed.
