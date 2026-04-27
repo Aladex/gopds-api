@@ -449,6 +449,21 @@ func GetBook(bookID int64) (models.Book, error) {
 	return *book, nil
 }
 
+// GetBooksByIDs returns books matching the given ids preloaded with their authors.
+// Used by the curated-collection admin UI to render candidate chips with full title
+// and author names instead of bare numeric ids.
+func GetBooksByIDs(ids []int64) ([]models.Book, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var books []models.Book
+	err := db.Model(&books).
+		Where("book.id IN (?)", pg.In(ids)).
+		Relation("Authors").
+		Select()
+	return books, err
+}
+
 func HaveFavs(userID int64) (bool, error) {
 	count, err := db.Model(&models.UserToBook{}).Where("user_id = ?", userID).Count()
 	if count == 0 || err != nil {

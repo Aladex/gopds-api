@@ -8,6 +8,7 @@ import (
 	"gopds-api/services"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -26,6 +27,7 @@ func SetupAdminRoutes(r *gin.RouterGroup) {
 	r.POST("/books/:id/cover", UploadBookCover)
 	r.GET("/authors/search", SearchAuthors)
 	r.GET("/series/search", SearchSeries)
+	r.GET("/books/lookup", LookupBooksByIDs)
 
 	// Book rescan routes
 	r.POST("/books/:id/rescan", RescanBookPreview)
@@ -421,4 +423,37 @@ func ApproveRescan(c *gin.Context) {
 		Result: response,
 		Error:  nil,
 	})
+}
+
+// LookupBooksByIDs returns the books matching the comma-separated `ids` query
+// param, preloaded with authors. Used by the curated-collection admin UI to
+// render candidate chips with title + author instead of bare numeric ids.
+func LookupBooksByIDs(c *gin.Context) {
+	raw := c.Query("ids")
+	if raw == "" {
+		c.JSON(http.StatusOK, []models.Book{})
+		return
+	}
+	parts := strings.Split(raw, ",")
+	ids := make([]int64, 0, len(parts))
+	for _, p := range parts {
+		id, err := strconv.ParseInt(strings.TrimSpace(p), 10, 64)
+		if err == nil && id > 0 {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		c.JSON(http.StatusOK, []models.Book{})
+		return
+	}
+	// Cap to a reasonable batch to keep the URL and the SQL bounded.
+	if len(ids) > 200 {
+		ids = ids[:200]
+	}
+	books, err := database.GetBooksByIDs(ids)
+	if err != nil {
+		httputil.NewError(c, http.StatusInternalServerError, err)
+		return
+	}
+	c.JSON(http.StatusOK, books)
 }

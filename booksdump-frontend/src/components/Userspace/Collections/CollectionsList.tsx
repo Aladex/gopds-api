@@ -36,27 +36,29 @@ const CollectionsList: React.FC = () => {
 
     return (
         <Box p={2}>
-            <Typography variant="h5" gutterBottom>
-                {t('publicCollections.title', 'Collections')}
-            </Typography>
-
-            {loaded && rows.length === 0 && (
-                <Typography color="text.secondary">
-                    {t('publicCollections.empty', 'No collections yet')}
+            <Box maxWidth={1200} mx="auto">
+                <Typography variant="h5" gutterBottom>
+                    {t('publicCollections.title', 'Collections')}
                 </Typography>
-            )}
 
-            <Stack spacing={2} mt={2}>
-                {rows.map((c) => (
-                    <Card key={c.id}>
-                        <CardActionArea component={RouterLink} to={`/collections/${c.id}`}>
-                            <CardContent>
-                                <Typography variant="h6">{c.name}</Typography>
-                            </CardContent>
-                        </CardActionArea>
-                    </Card>
-                ))}
-            </Stack>
+                {loaded && rows.length === 0 && (
+                    <Typography color="text.secondary">
+                        {t('publicCollections.empty', 'No collections yet')}
+                    </Typography>
+                )}
+
+                <Stack spacing={2} mt={2}>
+                    {rows.map((c) => (
+                        <Card key={c.id}>
+                            <CardActionArea component={RouterLink} to={`/collections/${c.id}`}>
+                                <CardContent>
+                                    <Typography variant="h6">{c.name}</Typography>
+                                </CardContent>
+                            </CardActionArea>
+                        </Card>
+                    ))}
+                </Stack>
+            </Box>
         </Box>
     );
 };

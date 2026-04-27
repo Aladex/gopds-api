@@ -18,6 +18,8 @@ export interface PublicCollectionBook {
     cover?: boolean;
     lang?: string;
     annotation?: string;
+    path?: string;
+    filename?: string;
 }
 
 export interface PublicCollectionDetail extends PublicCollectionRow {

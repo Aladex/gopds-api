@@ -104,3 +104,19 @@ export const patchCuratedCollection = async (
 export const deleteCuratedCollection = async (id: number): Promise<void> => {
     await fetchWithAuth.delete(`/admin/collections/${id}`);
 };
+
+// LookupBook is the slim shape returned by GET /admin/books/lookup — enough to
+// render a candidate chip with the real title and author of a local book.
+export interface LookupBook {
+    id: number;
+    title: string;
+    authors?: { id: number; full_name: string }[];
+}
+
+export const lookupBooksByIDs = async (ids: number[]): Promise<LookupBook[]> => {
+    if (ids.length === 0) return [];
+    const resp = await fetchWithAuth.get('/admin/books/lookup', {
+        params: { ids: ids.join(',') },
+    });
+    return resp.data ?? [];
+};

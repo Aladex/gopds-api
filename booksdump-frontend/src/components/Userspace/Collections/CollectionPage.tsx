@@ -13,10 +13,15 @@ import { useTranslation } from 'react-i18next';
 import { API_URL } from '../../../api/config';
 import { getPublicCollection, PublicCollectionBook, PublicCollectionDetail } from './api';
 
+// coverPath strips dots and leading slashes the way the rest of the userspace
+// builds book-posters URLs (see Userspace/BooksList.tsx).
+const coverPath = (value: string) => value.replaceAll('.', '-').replace(/^\/+/, '');
+
 const BookCard: React.FC<{ book: PublicCollectionBook }> = ({ book }) => {
-    const cover = book.cover
-        ? `${API_URL}/books-posters/${book.id}.jpg`
-        : undefined;
+    const cover =
+        book.cover && book.path && book.filename
+            ? `${API_URL}/books-posters/${coverPath(book.path)}/${coverPath(book.filename)}.jpg`
+            : undefined;
     const authors = (book.authors ?? []).map((a) => a.full_name).join(', ');
 
     return (
@@ -87,31 +92,33 @@ const CollectionPage: React.FC = () => {
 
     return (
         <Box p={2}>
-            <Box mb={2}>
-                <RouterLink to="/collections" style={{ textDecoration: 'none', color: 'inherit' }}>
-                    <Typography variant="body2" color="text.secondary">
-                        ← {t('publicCollections.backToList', 'All collections')}
-                    </Typography>
-                </RouterLink>
+            <Box maxWidth={1200} mx="auto">
+                <Box mb={2}>
+                    <RouterLink to="/collections" style={{ textDecoration: 'none', color: 'inherit' }}>
+                        <Typography variant="body2" color="text.secondary">
+                            ← {t('publicCollections.backToList', 'All collections')}
+                        </Typography>
+                    </RouterLink>
+                </Box>
+
+                <Typography variant="h4" gutterBottom>
+                    {data.name}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" mb={3}>
+                    {t('publicCollections.bookCount', { count: data.books.length, defaultValue: '{{count}} books' })}
+                </Typography>
+
+                <Stack spacing={2}>
+                    {data.books.map((b) => (
+                        <BookCard key={b.id} book={b} />
+                    ))}
+                    {data.books.length === 0 && (
+                        <Typography color="text.secondary">
+                            {t('publicCollections.emptyBooks', 'This collection has no books yet')}
+                        </Typography>
+                    )}
+                </Stack>
             </Box>
-
-            <Typography variant="h4" gutterBottom>
-                {data.name}
-            </Typography>
-            <Typography variant="body2" color="text.secondary" mb={3}>
-                {t('publicCollections.bookCount', { count: data.books.length, defaultValue: '{{count}} books' })}
-            </Typography>
-
-            <Stack spacing={2}>
-                {data.books.map((b) => (
-                    <BookCard key={b.id} book={b} />
-                ))}
-                {data.books.length === 0 && (
-                    <Typography color="text.secondary">
-                        {t('publicCollections.emptyBooks', 'This collection has no books yet')}
-                    </Typography>
-                )}
-            </Stack>
         </Box>
     );
 };

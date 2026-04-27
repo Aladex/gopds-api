@@ -32,6 +32,8 @@ import {
     ignoreItem,
     ImportStatusInfo,
     listCollectionItems,
+    LookupBook,
+    lookupBooksByIDs,
     patchCuratedCollection,
     resolveItem,
 } from './api';
@@ -55,9 +57,10 @@ function readCandidates(extra: any): CandidateInfo[] {
 const ItemsTable: React.FC<{
     items: CollectionItem[];
     statusKey: string;
+    bookInfo: Map<number, LookupBook>;
     onResolve: (itemID: number, bookID: number) => Promise<void>;
     onIgnore: (itemID: number) => Promise<void>;
-}> = ({ items, statusKey, onResolve, onIgnore }) => {
+}> = ({ items, statusKey, bookInfo, onResolve, onIgnore }) => {
     const { t } = useTranslation();
     const [manualID, setManualID] = useState<Record<number, string>>({});
     const [busy, setBusy] = useState<Record<number, boolean>>({});
@@ -120,30 +123,45 @@ const ItemsTable: React.FC<{
                             <TableCell>{it.external_title}</TableCell>
                             <TableCell>{it.external_author}</TableCell>
                             <TableCell>{it.match_score?.toFixed?.(2) ?? '—'}</TableCell>
-                            <TableCell sx={{ minWidth: 280 }}>
+                            <TableCell sx={{ minWidth: 360, maxWidth: 520 }}>
                                 {it.book_id ? (
-                                    <Chip
-                                        size="small"
-                                        component="a"
-                                        clickable
-                                        href={`/books/find/title/${encodeURIComponent(it.external_title)}/1`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        label={`#${it.book_id}`}
-                                    />
-                                ) : candidates.length > 0 ? (
-                                    <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-                                        {candidates.map((c) => (
+                                    (() => {
+                                        const b = bookInfo.get(it.book_id);
+                                        const label = b
+                                            ? `${b.title} — ${(b.authors ?? []).map((a) => a.full_name).join(', ') || '?'}`
+                                            : `#${it.book_id}`;
+                                        return (
                                             <Chip
-                                                key={c.book_id}
                                                 size="small"
-                                                clickable
-                                                disabled={!!busy[it.id]}
-                                                onClick={() => resolveTo(it.id, c.book_id)}
-                                                label={`#${c.book_id} · ${c.score.toFixed(2)}`}
-                                                sx={{ mb: 0.5 }}
+                                                color="success"
+                                                label={`#${it.book_id} · ${label}`}
+                                                sx={{ maxWidth: '100%', '& .MuiChip-label': { whiteSpace: 'normal' } }}
                                             />
-                                        ))}
+                                        );
+                                    })()
+                                ) : candidates.length > 0 ? (
+                                    <Stack spacing={0.5}>
+                                        {candidates.map((c) => {
+                                            const b = bookInfo.get(c.book_id);
+                                            const main = b
+                                                ? `${b.title} — ${(b.authors ?? []).map((a) => a.full_name).join(', ') || '?'}`
+                                                : `#${c.book_id}`;
+                                            return (
+                                                <Chip
+                                                    key={c.book_id}
+                                                    size="small"
+                                                    clickable
+                                                    disabled={!!busy[it.id]}
+                                                    onClick={() => resolveTo(it.id, c.book_id)}
+                                                    label={`${c.score.toFixed(2)} · ${main}`}
+                                                    sx={{
+                                                        maxWidth: '100%',
+                                                        justifyContent: 'flex-start',
+                                                        '& .MuiChip-label': { whiteSpace: 'normal' },
+                                                    }}
+                                                />
+                                            );
+                                        })}
                                     </Stack>
                                 ) : (
                                     <Typography variant="caption" color="text.secondary">
@@ -219,6 +237,7 @@ const CuratedCollectionDetail: React.FC = () => {
     const [status, setStatus] = useState<ImportStatusInfo | null>(null);
     const [tabKey, setTabKey] = useState<string>('auto_matched');
     const [items, setItems] = useState<CollectionItem[]>([]);
+    const [bookInfo, setBookInfo] = useState<Map<number, LookupBook>>(new Map());
     const [loadErr, setLoadErr] = useState<string | null>(null);
 
     const loadCollection = useCallback(async () => {
@@ -245,6 +264,24 @@ const CuratedCollectionDetail: React.FC = () => {
             try {
                 const page = await listCollectionItems(id, key);
                 setItems(page.items);
+
+                // Collect every book id we want to render — both already-resolved
+                // items and ambiguous candidates — and ask the backend for titles
+                // and authors so the chips show real metadata, not bare numbers.
+                const ids = new Set<number>();
+                for (const it of page.items) {
+                    if (typeof it.book_id === 'number' && it.book_id > 0) ids.add(it.book_id);
+                    const cands = readCandidates(it.external_extra);
+                    for (const c of cands) ids.add(c.book_id);
+                }
+                if (ids.size > 0) {
+                    const books = await lookupBooksByIDs(Array.from(ids));
+                    setBookInfo((prev) => {
+                        const next = new Map(prev);
+                        for (const b of books) next.set(b.id, b);
+                        return next;
+                    });
+                }
             } catch (err: any) {
                 setLoadErr(err?.message ?? 'load items failed');
             }
@@ -390,6 +427,7 @@ const CuratedCollectionDetail: React.FC = () => {
                         <ItemsTable
                             items={items}
                             statusKey={tabKey}
+                            bookInfo={bookInfo}
                             onResolve={onResolve}
                             onIgnore={onIgnore}
                         />
