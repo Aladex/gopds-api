@@ -60,5 +60,21 @@ CREATE TABLE IF NOT EXISTS public.book_match_decisions (
 
 -- Trgm-индекс на title для матчинга по нормализованному названию
 -- (на authors уже есть в миграции 09).
-CREATE INDEX IF NOT EXISTS opds_catalog_book_title_trgm_idx
-    ON public.opds_catalog_book USING GIN (lower(title) gin_trgm_ops);
+-- Используем DO-блок с проверкой содержимого индекса, а не имени, чтобы:
+--   * на свежей установке индекс был создан,
+--   * на проде, где уже есть аналогичный trgm-индекс под другим именем
+--     (`idx_book_title_trgm` от Django-legacy), не делать дубликат с
+--     блокирующим CREATE INDEX на самой большой таблице.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes
+        WHERE schemaname = 'public'
+          AND tablename = 'opds_catalog_book'
+          AND indexdef ILIKE '%gin_trgm_ops%'
+          AND indexdef ILIKE '%lower(title%'
+    ) THEN
+        CREATE INDEX opds_catalog_book_title_trgm_idx
+            ON public.opds_catalog_book USING GIN (lower(title) gin_trgm_ops);
+    END IF;
+END$$;
