@@ -133,8 +133,11 @@ func MatchOne(ctx context.Context, dl DecisionLookup, cf CandidateFinder, author
 			Score:  meaningful[0].Score,
 		}, nil
 	}
+	// Ambiguous: keep the top-N candidates and surface the best score so the
+	// admin UI can show "we found these N books, score X — pick one".
 	return MatchResult{
 		Status:     models.MatchStatusAmbiguous,
+		Score:      meaningful[0].Score,
 		Candidates: meaningful,
 	}, nil
 }

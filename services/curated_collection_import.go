@@ -108,7 +108,7 @@ func processItems(ctx context.Context, collectionID int64, items []ImportItem, r
 			return stats, fmt.Errorf("match item %d: %w", i, matchErr)
 		}
 
-		extra, err := buildExtra(in)
+		extra, err := buildExtra(in, res.Candidates)
 		if err != nil {
 			return stats, fmt.Errorf("encode extra for item %d: %w", i, err)
 		}
@@ -148,16 +148,24 @@ func validateImport(p ImportParams) error {
 	return nil
 }
 
-func buildExtra(in ImportItem) (json.RawMessage, error) {
-	if in.Year == 0 && len(in.Extra) == 0 {
+func buildExtra(in ImportItem, candidates []models.MatchCandidate) (json.RawMessage, error) {
+	if in.Year == 0 && len(in.Extra) == 0 && len(candidates) == 0 {
 		return nil, nil
 	}
-	payload := make(map[string]any, len(in.Extra)+1)
+	payload := make(map[string]any, len(in.Extra)+2)
 	for k, v := range in.Extra {
 		payload[k] = v
 	}
 	if in.Year != 0 {
 		payload["year"] = in.Year
+	}
+	if len(candidates) > 0 {
+		// Store top-10 to keep the row narrow even when ambiguity is wide.
+		top := candidates
+		if len(top) > 10 {
+			top = top[:10]
+		}
+		payload["candidates"] = top
 	}
 	return json.Marshal(payload)
 }
