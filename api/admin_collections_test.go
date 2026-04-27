@@ -203,11 +203,11 @@ func TestAdminCollections_Get_Success(t *testing.T) {
 // --- Status ---
 
 func TestAdminCollections_Status_Success(t *testing.T) {
-	statsJSON, _ := json.Marshal(models.CollectionImportStats{Matched: 2, Ambiguous: 1})
+	stats := models.CollectionImportStats{Matched: 2, Ambiguous: 1}
 	svc := &fakeAdminSvc{getResp: &models.BookCollection{
 		ID:           7,
 		ImportStatus: models.ImportStatusCompleted,
-		ImportStats:  statsJSON,
+		ImportStats:  &stats,
 	}}
 	r := newAdminTestRouter(svc)
 	rec := doJSON(t, r, http.MethodGet, "/api/admin/collections/7/status", nil)

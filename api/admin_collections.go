@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -150,8 +149,8 @@ func (h *CuratedCollectionsHandler) status(c *gin.Context) {
 		Status:      col.ImportStatus,
 		ImportError: col.ImportError,
 	}
-	if len(col.ImportStats) > 0 {
-		_ = json.Unmarshal(col.ImportStats, &resp.Stats)
+	if col.ImportStats != nil {
+		resp.Stats = *col.ImportStats
 	}
 	c.JSON(http.StatusOK, resp)
 }

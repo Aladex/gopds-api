@@ -63,24 +63,24 @@ type CollectionVote struct {
 // BookCollection struct for book_collections table.
 // UserID is nullable: curated admin collections have no owner user.
 type BookCollection struct {
-	tableName          struct{}        `pg:"book_collections,discard_unknown_columns" json:"-"`
-	ID                 int64           `pg:"id,pk" json:"id"`
-	UserID             *int64          `pg:"user_id" json:"user_id,omitempty"`
-	User               *User           `pg:"rel:has-one,fk:user_id" json:"-"`
-	Name               string          `pg:"name" json:"name"`
-	IsPublic           bool            `pg:"is_public,use_zero" json:"is_public"`
-	IsCurated          bool            `pg:"is_curated,use_zero" json:"is_curated"`
-	SourceURL          string          `pg:"source_url,use_zero" json:"source_url,omitempty"`
-	ImportStatus       string          `pg:"import_status,use_zero" json:"import_status,omitempty"`
-	ImportError        string          `pg:"import_error,use_zero" json:"import_error,omitempty"`
-	ImportedAt         *time.Time      `pg:"imported_at" json:"imported_at,omitempty"`
-	ImportStats        json.RawMessage `pg:"import_stats,type:jsonb" json:"import_stats,omitempty"`
-	CreatedAt          time.Time       `pg:"created_at" json:"created_at"`
-	UpdatedAt          time.Time       `pg:"updated_at" json:"updated_at"`
-	Books              []Book          `pg:"many2many:book_collection_books,join_fk:book_id" json:"-"`
-	BookIsInCollection bool            `pg:"-" json:"book_is_in_collection"`
-	BookIDs            []int64         `pg:"-" json:"book_ids"`
-	VoteCount          int             `pg:"-" json:"vote_count"`
+	tableName          struct{}               `pg:"book_collections,discard_unknown_columns" json:"-"`
+	ID                 int64                  `pg:"id,pk" json:"id"`
+	UserID             *int64                 `pg:"user_id" json:"user_id,omitempty"`
+	User               *User                  `pg:"rel:has-one,fk:user_id" json:"-"`
+	Name               string                 `pg:"name" json:"name"`
+	IsPublic           bool                   `pg:"is_public,use_zero" json:"is_public"`
+	IsCurated          bool                   `pg:"is_curated,use_zero" json:"is_curated"`
+	SourceURL          string                 `pg:"source_url,use_zero" json:"source_url,omitempty"`
+	ImportStatus       string                 `pg:"import_status,use_zero" json:"import_status,omitempty"`
+	ImportError        string                 `pg:"import_error,use_zero" json:"import_error,omitempty"`
+	ImportedAt         *time.Time             `pg:"imported_at" json:"imported_at,omitempty"`
+	ImportStats        *CollectionImportStats `pg:"import_stats,type:jsonb" json:"import_stats,omitempty"`
+	CreatedAt          time.Time              `pg:"created_at" json:"created_at"`
+	UpdatedAt          time.Time              `pg:"updated_at" json:"updated_at"`
+	Books              []Book                 `pg:"many2many:book_collection_books,join_fk:book_id" json:"-"`
+	BookIsInCollection bool                   `pg:"-" json:"book_is_in_collection"`
+	BookIDs            []int64                `pg:"-" json:"book_ids"`
+	VoteCount          int                    `pg:"-" json:"vote_count"`
 }
 
 // BookCollectionBook struct for many-to-many relation between books and book collections

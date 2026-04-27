@@ -48,7 +48,8 @@ func AddCollectionItem(ctx context.Context, collectionID int64, item models.Pers
 }
 
 // UpdateCollectionImportStatus finalizes the collection after the import loop completes.
-// stats is serialized into the import_stats JSONB column.
+// stats is persisted into the import_stats JSONB column; go-pg handles the
+// struct↔jsonb conversion via the column tag on the model.
 func UpdateCollectionImportStatus(ctx context.Context, collectionID int64, status, importError string, stats models.CollectionImportStats) error {
 	statsJSON, err := json.Marshal(stats)
 	if err != nil {
@@ -57,7 +58,7 @@ func UpdateCollectionImportStatus(ctx context.Context, collectionID int64, statu
 	_, err = db.ModelContext(ctx, (*models.BookCollection)(nil)).
 		Set("import_status = ?", status).
 		Set("import_error = ?", importError).
-		Set("import_stats = ?", json.RawMessage(statsJSON)).
+		Set("import_stats = ?", string(statsJSON)).
 		Set("imported_at = NOW()").
 		Where("id = ?", collectionID).
 		Update()
