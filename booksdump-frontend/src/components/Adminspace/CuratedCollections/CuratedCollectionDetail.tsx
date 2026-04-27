@@ -34,6 +34,7 @@ import {
     ignoreItem,
     ImportStatusInfo,
     listCollectionItems,
+    llmResolveCollection,
     LookupBook,
     lookupBooksByIDs,
     patchCuratedCollection,
@@ -372,6 +373,23 @@ const CuratedCollectionDetail: React.FC = () => {
         }
     };
 
+    const [aiResolving, setAiResolving] = useState(false);
+    const onAIResolve = async () => {
+        if (aiResolving) return;
+        setAiResolving(true);
+        try {
+            const { resolved } = await llmResolveCollection(id);
+            await Promise.all([loadCollection(), loadItems(tabKey), loadStatus()]);
+            if (typeof window !== 'undefined') {
+                window.alert(
+                    t('curatedCollections.aiResolveDone', '{{count}} items resolved by AI', { count: resolved }),
+                );
+            }
+        } finally {
+            setAiResolving(false);
+        }
+    };
+
     if (!id) return <Alert severity="error">invalid id</Alert>;
     if (loadErr) return <Alert severity="error">{loadErr}</Alert>;
     if (!coll) return <Typography>Loading…</Typography>;
@@ -454,16 +472,28 @@ const CuratedCollectionDetail: React.FC = () => {
                                 <Tab key={tab.key} value={tab.key} label={tab.label} />
                             ))}
                         </Tabs>
-                        <Button
-                            size="small"
-                            variant="outlined"
-                            disabled={autoResolving || importing || (stats.ambiguous ?? 0) === 0}
-                            onClick={onAutoResolve}
-                        >
-                            {autoResolving
-                                ? t('curatedCollections.autoResolving', 'Resolving…')
-                                : t('curatedCollections.autoResolveAll', 'Auto-resolve all ambiguous')}
-                        </Button>
+                        <Stack direction="row" spacing={1}>
+                            <Button
+                                size="small"
+                                variant="outlined"
+                                disabled={autoResolving || aiResolving || importing || (stats.ambiguous ?? 0) === 0}
+                                onClick={onAutoResolve}
+                            >
+                                {autoResolving
+                                    ? t('curatedCollections.autoResolving', 'Resolving…')
+                                    : t('curatedCollections.autoResolveAll', 'Auto-resolve all ambiguous')}
+                            </Button>
+                            <Button
+                                size="small"
+                                variant="outlined"
+                                disabled={autoResolving || aiResolving || importing || (stats.ambiguous ?? 0) === 0}
+                                onClick={onAIResolve}
+                            >
+                                {aiResolving
+                                    ? t('curatedCollections.aiResolving', 'AI…')
+                                    : t('curatedCollections.aiResolveAll', 'Resolve via AI')}
+                            </Button>
+                        </Stack>
                     </Stack>
                     <Box mt={2}>
                         <ItemsTable

@@ -395,6 +395,84 @@ func (s *LLMService) GenerateGenreTitleWithBooks(genreTag string, books []GenreB
 	return title
 }
 
+// AmbiguousCandidate is one local-library book that the matcher proposed for an
+// ambiguous curated-collection item. Used by ResolveAmbiguousMatch.
+type AmbiguousCandidate struct {
+	BookID     int64
+	Title      string
+	Authors    string
+	Annotation string
+}
+
+// ResolveAmbiguousMatch asks the model to pick the best local book among
+// candidates for one external (title, author) pair. Returns nil if the model
+// cannot confidently pick or the API is unavailable.
+func (s *LLMService) ResolveAmbiguousMatch(externalTitle, externalAuthor string, candidates []AmbiguousCandidate) (*int64, error) {
+	if s.apiKey == "" || len(candidates) == 0 {
+		return nil, nil
+	}
+
+	var sb strings.Builder
+	sb.WriteString("You are a librarian matching an external book listing to one local book in the library.\n")
+	sb.WriteString("External record:\n")
+	sb.WriteString(fmt.Sprintf("  title: %q\n", externalTitle))
+	sb.WriteString(fmt.Sprintf("  author: %q\n", externalAuthor))
+	sb.WriteString("\nCandidates already retrieved from the local catalog:\n")
+	for _, c := range candidates {
+		sb.WriteString(fmt.Sprintf("- id=%d | title=%q | author=%q\n", c.BookID, c.Title, c.Authors))
+		if a := strings.TrimSpace(c.Annotation); a != "" {
+			// Trim long annotations: a couple of paragraphs worth is plenty for
+			// disambiguation and keeps the prompt cheap.
+			if len([]rune(a)) > 600 {
+				a = string([]rune(a)[:600]) + "…"
+			}
+			sb.WriteString(fmt.Sprintf("  annotation: %s\n", a))
+		}
+	}
+	sb.WriteString(`
+Pick the candidate that most likely refers to the SAME work as the external record.
+Match across translations, alternative titles and transliteration. Be conservative —
+if no candidate is plausibly the same work, answer null.
+Reply with a single line of strict JSON, no comments, no markdown:
+{"book_id": <id from list> | null}`)
+
+	request := OpenAIRequest{
+		Model: GetModel(),
+		Messages: []Message{
+			{Role: "user", Content: sb.String()},
+		},
+	}
+	response, err := s.callOpenAI(request)
+	if err != nil {
+		return nil, err
+	}
+	if len(response.Choices) == 0 {
+		return nil, nil
+	}
+	content := strings.TrimSpace(response.Choices[0].Message.Content)
+	startIdx := strings.Index(content, "{")
+	endIdx := strings.LastIndex(content, "}")
+	if startIdx == -1 || endIdx == -1 || endIdx <= startIdx {
+		return nil, nil
+	}
+	var payload struct {
+		BookID *int64 `json:"book_id"`
+	}
+	if err := json.Unmarshal([]byte(content[startIdx:endIdx+1]), &payload); err != nil {
+		return nil, nil
+	}
+	if payload.BookID == nil {
+		return nil, nil
+	}
+	// Validate: result must be one of the candidate ids.
+	for _, c := range candidates {
+		if c.BookID == *payload.BookID {
+			return payload.BookID, nil
+		}
+	}
+	return nil, nil
+}
+
 // GenerateGenreTitleUnique retries genre title generation, explicitly excluding conflicting titles.
 func (s *LLMService) GenerateGenreTitleUnique(genreTag string, books []GenreBookContext, excluded []string) string {
 	if s.apiKey == "" {

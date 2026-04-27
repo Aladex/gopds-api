@@ -3,8 +3,11 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"gopds-api/database"
+	"gopds-api/llm"
+	"gopds-api/logging"
 	"gopds-api/models"
 )
 
@@ -133,32 +136,103 @@ func (s *CuratedCollectionsService) AutoResolveAmbiguous(ctx context.Context, co
 	return resolved, nil
 }
 
-// pickAutoResolveTarget reads candidates from external_extra and chooses the
-// best one according to the rule "highest score, ties broken by most-recently
-// registered book".
-func pickAutoResolveTarget(ctx context.Context, it models.BookCollectionItem) (int64, error) {
+// LLMResolveAmbiguous walks every ambiguous item and asks the LLM to pick the
+// best candidate, augmenting each candidate with its annotation so the model
+// can disambiguate by content. Items where the LLM is unsure are left as-is.
+// Returns the number of items actually resolved.
+func (s *CuratedCollectionsService) LLMResolveAmbiguous(ctx context.Context, collectionID int64, decidedByUserID *int64) (int, error) {
+	const pageSize = 1000
+	items, _, err := database.ListCollectionItems(ctx, collectionID, models.MatchStatusAmbiguous, 1, pageSize)
+	if err != nil {
+		return 0, err
+	}
+	llmSvc := llm.NewLLMService()
+	resolved := 0
+	for _, it := range items {
+		cands := readCandidatesFromItem(it)
+		if len(cands) == 0 {
+			continue
+		}
+		ids := make([]int64, 0, len(cands))
+		for _, c := range cands {
+			ids = append(ids, c.BookID)
+		}
+		books, err := database.GetBooksByIDs(ids)
+		if err != nil {
+			logging.Warnf("LLMResolveAmbiguous: load candidates for item %d: %v", it.ID, err)
+			continue
+		}
+		// Build a book_id → llm.AmbiguousCandidate map for the prompt.
+		byID := make(map[int64]llm.AmbiguousCandidate, len(books))
+		for _, b := range books {
+			authors := make([]string, 0, len(b.Authors))
+			for _, a := range b.Authors {
+				authors = append(authors, a.FullName)
+			}
+			byID[b.ID] = llm.AmbiguousCandidate{
+				BookID:     b.ID,
+				Title:      b.Title,
+				Authors:    strings.Join(authors, ", "),
+				Annotation: b.Annotation,
+			}
+		}
+		prompt := make([]llm.AmbiguousCandidate, 0, len(cands))
+		for _, c := range cands {
+			if hit, ok := byID[c.BookID]; ok {
+				prompt = append(prompt, hit)
+			}
+		}
+		if len(prompt) == 0 {
+			continue
+		}
+		bookID, err := llmSvc.ResolveAmbiguousMatch(it.ExternalTitle, it.ExternalAuthor, prompt)
+		if err != nil {
+			logging.Warnf("LLMResolveAmbiguous: LLM call failed for item %d: %v", it.ID, err)
+			continue
+		}
+		if bookID == nil {
+			continue
+		}
+		if err := s.Resolve(ctx, it.ID, *bookID, decidedByUserID); err != nil {
+			logging.Warnf("LLMResolveAmbiguous: resolve %d -> %d failed: %v", it.ID, *bookID, err)
+			continue
+		}
+		resolved++
+	}
+	return resolved, nil
+}
+
+// readCandidatesFromItem extracts the candidates list from external_extra.
+func readCandidatesFromItem(it models.BookCollectionItem) []models.MatchCandidate {
 	if len(it.ExternalExtra) == 0 {
-		return 0, nil
+		return nil
 	}
 	var extra struct {
 		Candidates []models.MatchCandidate `json:"candidates"`
 	}
 	if err := json.Unmarshal(it.ExternalExtra, &extra); err != nil {
-		return 0, err
+		return nil
 	}
-	if len(extra.Candidates) == 0 {
+	return extra.Candidates
+}
+
+// pickAutoResolveTarget reads candidates from external_extra and chooses the
+// best one according to the rule "highest score, ties broken by most-recently
+// registered book".
+func pickAutoResolveTarget(ctx context.Context, it models.BookCollectionItem) (int64, error) {
+	cands := readCandidatesFromItem(it)
+	if len(cands) == 0 {
 		return 0, nil
 	}
-
-	maxScore := extra.Candidates[0].Score
-	for _, c := range extra.Candidates {
+	maxScore := cands[0].Score
+	for _, c := range cands {
 		if c.Score > maxScore {
 			maxScore = c.Score
 		}
 	}
 	const tolerance = 0.001
-	tied := make([]int64, 0, len(extra.Candidates))
-	for _, c := range extra.Candidates {
+	tied := make([]int64, 0, len(cands))
+	for _, c := range cands {
 		if c.Score >= maxScore-tolerance {
 			tied = append(tied, c.BookID)
 		}

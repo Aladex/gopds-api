@@ -71,7 +71,7 @@ export const listCollectionItems = async (
     id: number,
     statusFilter: string,
     page = 1,
-    pageSize = 50,
+    pageSize = 500,
 ): Promise<ItemsPage> => {
     const resp = await fetchWithAuth.get(`/admin/collections/${id}/items`, {
         params: { status: statusFilter, page, page_size: pageSize },
@@ -96,6 +96,11 @@ export const ignoreItem = async (collectionID: number, itemID: number): Promise<
 
 export const autoResolveCollection = async (collectionID: number): Promise<{ resolved: number }> => {
     const resp = await fetchWithAuth.post(`/admin/collections/${collectionID}/auto-resolve`);
+    return resp.data;
+};
+
+export const llmResolveCollection = async (collectionID: number): Promise<{ resolved: number }> => {
+    const resp = await fetchWithAuth.post(`/admin/collections/${collectionID}/llm-resolve`);
     return resp.data;
 };
 
