@@ -30,11 +30,14 @@ type MatchCandidate struct {
 
 // CollectionImportStats are aggregated counters returned to the admin and stored
 // in book_collections.import_stats. Matched counts both auto-matched results and
-// manual-from-cache hits.
+// manual-from-cache hits. Processed/Total drive the live progress bar shown by
+// the admin UI while import_status is still 'importing'.
 type CollectionImportStats struct {
 	Matched   int `json:"matched"`
 	Ambiguous int `json:"ambiguous"`
 	NotFound  int `json:"not_found"`
+	Processed int `json:"processed"`
+	Total     int `json:"total"`
 }
 
 // PersistedCollectionItem is the storage shape for one curated collection item:

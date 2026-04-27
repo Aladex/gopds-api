@@ -142,9 +142,9 @@ func TestImport_SingleAutoMatchedItem(t *testing.T) {
 	assert.Equal(t, int64(42), *persisted.BookID)
 	assert.InDelta(t, 0.95, float64(persisted.MatchScore), 0.0001)
 
-	require.Len(t, repo.statusCalls, 1, "exactly one finalize call")
-	assert.Equal(t, models.ImportStatusCompleted, repo.statusCalls[0].status)
-	assert.Equal(t, models.CollectionImportStats{Matched: 1}, repo.statusCalls[0].stats)
+	final := repo.statusCalls[len(repo.statusCalls)-1]
+	assert.Equal(t, models.ImportStatusCompleted, final.status)
+	assert.Equal(t, models.CollectionImportStats{Matched: 1, Processed: 1, Total: 1}, final.stats)
 }
 
 func TestImport_ThreeMixedResults(t *testing.T) {
@@ -181,9 +181,9 @@ func TestImport_ThreeMixedResults(t *testing.T) {
 	assert.Equal(t, models.MatchStatusAmbiguous, repo.addedItems[1].MatchStatus)
 	assert.Equal(t, models.MatchStatusNotFound, repo.addedItems[2].MatchStatus)
 
-	require.Len(t, repo.statusCalls, 1)
-	assert.Equal(t, models.CollectionImportStats{Matched: 1, Ambiguous: 1, NotFound: 1}, repo.statusCalls[0].stats)
-	assert.Equal(t, models.ImportStatusCompleted, repo.statusCalls[0].status)
+	final := repo.statusCalls[len(repo.statusCalls)-1]
+	assert.Equal(t, models.CollectionImportStats{Matched: 1, Ambiguous: 1, NotFound: 1, Processed: 3, Total: 3}, final.stats)
+	assert.Equal(t, models.ImportStatusCompleted, final.status)
 }
 
 func TestImport_CountsManualAsMatched(t *testing.T) {
@@ -197,8 +197,8 @@ func TestImport_CountsManualAsMatched(t *testing.T) {
 	)
 
 	require.NoError(t, err)
-	require.Len(t, repo.statusCalls, 1)
-	assert.Equal(t, models.CollectionImportStats{Matched: 1}, repo.statusCalls[0].stats,
+	final := repo.statusCalls[len(repo.statusCalls)-1]
+	assert.Equal(t, models.CollectionImportStats{Matched: 1, Processed: 1, Total: 1}, final.stats,
 		"manual-from-cache must be counted as matched")
 	assert.Equal(t, models.MatchStatusManual, repo.addedItems[0].MatchStatus)
 }
@@ -213,9 +213,10 @@ func TestImport_MatcherErrorFinalizesAsFailed(t *testing.T) {
 	)
 
 	assert.Error(t, err)
-	require.Len(t, repo.statusCalls, 1, "must finalize even on matcher error")
-	assert.Equal(t, models.ImportStatusFailed, repo.statusCalls[0].status)
-	assert.Contains(t, repo.statusCalls[0].importError, "matcher boom")
+	require.NotEmpty(t, repo.statusCalls, "must finalize even on matcher error")
+	final := repo.statusCalls[len(repo.statusCalls)-1]
+	assert.Equal(t, models.ImportStatusFailed, final.status)
+	assert.Contains(t, final.importError, "matcher boom")
 }
 
 func TestImport_PersistsYearAsExtra(t *testing.T) {

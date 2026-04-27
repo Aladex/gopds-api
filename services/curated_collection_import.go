@@ -100,8 +100,12 @@ func StartImport(params ImportParams, repo CollectionRepo, matcher Matcher) (int
 // processItems is the per-item match+persist loop shared by Import and StartImport.
 // Returns aggregated stats and the first error encountered; the caller is responsible
 // for calling repo.UpdateStatus with the appropriate final status.
+//
+// During the loop we also push intermediate progress (status=importing, with
+// Processed/Total counters) so the polling admin UI can render a live progress
+// bar instead of a frozen 0/N until the loop finishes.
 func processItems(ctx context.Context, collectionID int64, items []ImportItem, repo CollectionRepo, matcher Matcher) (models.CollectionImportStats, error) {
-	var stats models.CollectionImportStats
+	stats := models.CollectionImportStats{Total: len(items)}
 	for i, in := range items {
 		res, matchErr := matcher.MatchOne(ctx, in.Author, in.Title)
 		if matchErr != nil {
@@ -133,6 +137,17 @@ func processItems(ctx context.Context, collectionID int64, items []ImportItem, r
 			stats.Ambiguous++
 		case models.MatchStatusNotFound:
 			stats.NotFound++
+		}
+		stats.Processed = i + 1
+
+		// Flush every item for short imports (so the user sees something
+		// immediately) and every 5 for longer ones (to keep the UPDATE rate
+		// reasonable). Skip the final flush — the caller will write the
+		// terminal completed/failed status with the same stats.
+		if stats.Processed < len(items) {
+			if len(items) < 20 || stats.Processed%5 == 0 {
+				_ = repo.UpdateStatus(ctx, collectionID, models.ImportStatusImporting, "", stats)
+			}
 		}
 	}
 	return stats, nil

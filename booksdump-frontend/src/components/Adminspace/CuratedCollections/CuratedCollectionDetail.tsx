@@ -7,6 +7,7 @@ import {
     CardContent,
     Chip,
     IconButton,
+    LinearProgress,
     Stack,
     Tab,
     Table,
@@ -19,6 +20,7 @@ import {
     Typography,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
+import SearchIcon from '@mui/icons-material/Search';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -34,14 +36,21 @@ import {
     resolveItem,
 } from './api';
 
-const STATUS_TABS = [
-    { key: 'auto_matched', label: 'Auto / Manual' }, // matched + manual handled by API: filter applies to one bucket. We'll handle 'matched' (auto+manual) by querying twice OR fall back to single filter — the tab key is what we send.
-    { key: 'ambiguous', label: 'Ambiguous' },
-    { key: 'not_found', label: 'Not found' },
-    { key: 'ignored', label: 'Ignored' },
-];
-
 const POLLING_INTERVAL_MS = 2500;
+
+interface CandidateInfo {
+    book_id: number;
+    score: number;
+}
+
+// readCandidates safely extracts the candidate list saved by the backend in
+// external_extra.candidates during ambiguous matching.
+function readCandidates(extra: any): CandidateInfo[] {
+    if (!extra || !Array.isArray(extra.candidates)) return [];
+    return extra.candidates
+        .filter((c: any) => c && typeof c.book_id === 'number')
+        .map((c: any) => ({ book_id: c.book_id, score: typeof c.score === 'number' ? c.score : 0 }));
+}
 
 const ItemsTable: React.FC<{
     items: CollectionItem[];
@@ -49,70 +58,148 @@ const ItemsTable: React.FC<{
     onResolve: (itemID: number, bookID: number) => Promise<void>;
     onIgnore: (itemID: number) => Promise<void>;
 }> = ({ items, statusKey, onResolve, onIgnore }) => {
-    const [resolving, setResolving] = useState<Record<number, string>>({});
+    const { t } = useTranslation();
+    const [manualID, setManualID] = useState<Record<number, string>>({});
+    const [busy, setBusy] = useState<Record<number, boolean>>({});
 
-    const submit = async (itemID: number) => {
-        const raw = resolving[itemID] ?? '';
+    const setItemBusy = (itemID: number, v: boolean) =>
+        setBusy((prev) => ({ ...prev, [itemID]: v }));
+
+    const resolveTo = async (itemID: number, bookID: number) => {
+        if (busy[itemID]) return;
+        setItemBusy(itemID, true);
+        try {
+            await onResolve(itemID, bookID);
+            setManualID((prev) => {
+                const next = { ...prev };
+                delete next[itemID];
+                return next;
+            });
+        } finally {
+            setItemBusy(itemID, false);
+        }
+    };
+
+    const submitManual = (itemID: number) => {
+        const raw = manualID[itemID] ?? '';
         const id = parseInt(raw, 10);
         if (Number.isNaN(id) || id <= 0) return;
-        await onResolve(itemID, id);
-        setResolving((prev) => {
-            const next = { ...prev };
-            delete next[itemID];
-            return next;
-        });
+        return resolveTo(itemID, id);
     };
+
+    const ignore = async (itemID: number) => {
+        if (busy[itemID]) return;
+        setItemBusy(itemID, true);
+        try {
+            await onIgnore(itemID);
+        } finally {
+            setItemBusy(itemID, false);
+        }
+    };
+
+    const isResolvable = statusKey === 'ambiguous' || statusKey === 'not_found';
 
     return (
         <Table size="small">
             <TableHead>
                 <TableRow>
                     <TableCell>#</TableCell>
-                    <TableCell>Title</TableCell>
-                    <TableCell>Author</TableCell>
-                    <TableCell>Score</TableCell>
-                    <TableCell>Book</TableCell>
+                    <TableCell>{t('curatedCollections.col.title', 'Title')}</TableCell>
+                    <TableCell>{t('curatedCollections.col.author', 'Author')}</TableCell>
+                    <TableCell>{t('curatedCollections.col.score', 'Score')}</TableCell>
+                    <TableCell>{t('curatedCollections.col.candidates', 'Candidates / Book')}</TableCell>
                     <TableCell></TableCell>
                 </TableRow>
             </TableHead>
             <TableBody>
-                {items.map((it) => (
-                    <TableRow key={it.id} hover>
-                        <TableCell>{it.position + 1}</TableCell>
-                        <TableCell>{it.external_title}</TableCell>
-                        <TableCell>{it.external_author}</TableCell>
-                        <TableCell>{it.match_score?.toFixed?.(2) ?? '—'}</TableCell>
-                        <TableCell>
-                            {it.book_id ? <Chip size="small" label={`#${it.book_id}`} /> : '—'}
-                        </TableCell>
-                        <TableCell>
-                            {(statusKey === 'ambiguous' || statusKey === 'not_found') && (
-                                <Stack direction="row" spacing={1} alignItems="center">
-                                    <TextField
+                {items.map((it) => {
+                    const candidates = readCandidates(it.external_extra);
+                    return (
+                        <TableRow key={it.id} hover>
+                            <TableCell>{it.position + 1}</TableCell>
+                            <TableCell>{it.external_title}</TableCell>
+                            <TableCell>{it.external_author}</TableCell>
+                            <TableCell>{it.match_score?.toFixed?.(2) ?? '—'}</TableCell>
+                            <TableCell sx={{ minWidth: 280 }}>
+                                {it.book_id ? (
+                                    <Chip
                                         size="small"
-                                        placeholder="book_id"
-                                        value={resolving[it.id] ?? ''}
-                                        onChange={(e) =>
-                                            setResolving((p) => ({ ...p, [it.id]: e.target.value }))
-                                        }
-                                        sx={{ width: 100 }}
+                                        component="a"
+                                        clickable
+                                        href={`/books/find/title/${encodeURIComponent(it.external_title)}/1`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        label={`#${it.book_id}`}
                                     />
-                                    <Button size="small" variant="outlined" onClick={() => submit(it.id)}>
-                                        Resolve
-                                    </Button>
-                                    <IconButton size="small" onClick={() => onIgnore(it.id)} title="Ignore">
-                                        <DeleteIcon fontSize="small" />
-                                    </IconButton>
-                                </Stack>
-                            )}
-                        </TableCell>
-                    </TableRow>
-                ))}
+                                ) : candidates.length > 0 ? (
+                                    <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                                        {candidates.map((c) => (
+                                            <Chip
+                                                key={c.book_id}
+                                                size="small"
+                                                clickable
+                                                disabled={!!busy[it.id]}
+                                                onClick={() => resolveTo(it.id, c.book_id)}
+                                                label={`#${c.book_id} · ${c.score.toFixed(2)}`}
+                                                sx={{ mb: 0.5 }}
+                                            />
+                                        ))}
+                                    </Stack>
+                                ) : (
+                                    <Typography variant="caption" color="text.secondary">
+                                        {t('curatedCollections.noCandidates', 'no candidates')}
+                                    </Typography>
+                                )}
+                            </TableCell>
+                            <TableCell>
+                                {isResolvable && (
+                                    <Stack direction="row" spacing={1} alignItems="center">
+                                        <IconButton
+                                            size="small"
+                                            component="a"
+                                            href={`/books/find/title/${encodeURIComponent(it.external_title)}/1`}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            title={t('curatedCollections.searchInLibrary', 'Search by title in library')}
+                                        >
+                                            <SearchIcon fontSize="small" />
+                                        </IconButton>
+                                        <TextField
+                                            size="small"
+                                            placeholder={t('curatedCollections.bookIdPlaceholder', 'book_id')}
+                                            value={manualID[it.id] ?? ''}
+                                            onChange={(e) =>
+                                                setManualID((p) => ({ ...p, [it.id]: e.target.value }))
+                                            }
+                                            sx={{ width: 100 }}
+                                        />
+                                        <Button
+                                            size="small"
+                                            variant="outlined"
+                                            disabled={!!busy[it.id]}
+                                            onClick={() => submitManual(it.id)}
+                                        >
+                                            {t('curatedCollections.resolve', 'Resolve')}
+                                        </Button>
+                                        <IconButton
+                                            size="small"
+                                            onClick={() => ignore(it.id)}
+                                            title={t('curatedCollections.ignoreAction', 'Ignore')}
+                                            disabled={!!busy[it.id]}
+                                        >
+                                            <DeleteIcon fontSize="small" />
+                                        </IconButton>
+                                    </Stack>
+                                )}
+                            </TableCell>
+                        </TableRow>
+                    );
+                })}
                 {items.length === 0 && (
                     <TableRow>
                         <TableCell colSpan={6}>
                             <Typography variant="body2" color="text.secondary" align="center">
-                                Empty
+                                {t('curatedCollections.tabEmpty', 'Empty')}
                             </Typography>
                         </TableCell>
                     </TableRow>
@@ -222,23 +309,47 @@ const CuratedCollectionDetail: React.FC = () => {
     if (loadErr) return <Alert severity="error">{loadErr}</Alert>;
     if (!coll) return <Typography>Loading…</Typography>;
 
-    const stats = status?.stats ?? coll.import_stats ?? {};
+    const stats: any = status?.stats ?? coll.import_stats ?? {};
     const importing = (status?.status ?? coll.import_status) === 'importing';
+    const processed: number = stats.processed ?? 0;
+    const total: number = stats.total ?? 0;
+    const progressPct = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+
+    const statusTabs = [
+        { key: 'auto_matched', label: t('curatedCollections.tab.autoMatched', 'Matched') },
+        { key: 'ambiguous', label: t('curatedCollections.tab.ambiguous', 'Ambiguous') },
+        { key: 'not_found', label: t('curatedCollections.tab.notFound', 'Not found') },
+        { key: 'ignored', label: t('curatedCollections.tab.ignored', 'Ignored') },
+    ];
 
     return (
         <Box>
             <Stack direction="row" alignItems="center" spacing={2} mb={2}>
                 <Typography variant="h5">{coll.name}</Typography>
                 {coll.is_public ? (
-                    <Chip size="small" label="public" color="success" />
+                    <Chip size="small" label={t('curatedCollections.public', 'Public')} color="success" />
                 ) : (
-                    <Chip size="small" label="draft" />
+                    <Chip size="small" label={t('curatedCollections.draft', 'Draft')} />
                 )}
-                {importing && <Chip size="small" label="importing…" color="warning" />}
+                {importing && (
+                    <Chip
+                        size="small"
+                        label={t('curatedCollections.importingChip', 'importing…')}
+                        color="warning"
+                    />
+                )}
             </Stack>
 
             <Card sx={{ mb: 2 }}>
                 <CardContent>
+                    {importing && total > 0 && (
+                        <Box mb={2}>
+                            <Typography variant="body2" color="text.secondary" gutterBottom>
+                                {t('curatedCollections.progress', 'Progress')}: {processed} / {total} ({progressPct}%)
+                            </Typography>
+                            <LinearProgress variant="determinate" value={progressPct} />
+                        </Box>
+                    )}
                     <Stack direction="row" spacing={2}>
                         <Typography variant="body2">
                             {t('curatedCollections.matched', 'Matched')}: {stats.matched ?? 0}
@@ -271,7 +382,7 @@ const CuratedCollectionDetail: React.FC = () => {
             <Card>
                 <CardContent>
                     <Tabs value={tabKey} onChange={(_, v) => setTabKey(v)}>
-                        {STATUS_TABS.map((tab) => (
+                        {statusTabs.map((tab) => (
                             <Tab key={tab.key} value={tab.key} label={tab.label} />
                         ))}
                     </Tabs>
