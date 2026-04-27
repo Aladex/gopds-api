@@ -31,6 +31,7 @@
   "byTitle": "Search book by title",
   "byAuthor": "Search author by name",
   "booksTab": "Books",
+  "collectionsTab": "Collections",
   "opdsTab": "OPDS",
   "donateTab": "Donate",
   "adminTab": "Admin",

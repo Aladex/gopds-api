@@ -76,10 +76,11 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
     const menuItems = useMemo(() => {
         const items = [
             { label: t('booksTab'), path: '/books/page/1', regex: /^\/books\/page\/\d+/, index: 0 },
-            { label: t('opdsTab'), path: '/catalog', regex: /^\/catalog/, index: 1 }
+            { label: t('collectionsTab', 'Подборки'), path: '/collections', regex: /^\/collections/, index: 1 },
+            { label: t('opdsTab'), path: '/catalog', regex: /^\/catalog/, index: 2 }
         ];
         if (user?.is_superuser) {
-            items.push({ label: t('adminTab'), path: '/admin', regex: /^\/admin/, index: 2 });
+            items.push({ label: t('adminTab'), path: '/admin', regex: /^\/admin/, index: 3 });
         }
         return items;
     // eslint-disable-next-line react-hooks/exhaustive-deps

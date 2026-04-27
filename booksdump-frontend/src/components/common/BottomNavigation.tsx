@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { BottomNavigation as MuiBottomNavigation, BottomNavigationAction, Paper } from '@mui/material';
-import { AdminPanelSettings, LibraryBooks, MenuBook, Person } from '@mui/icons-material';
+import { AdminPanelSettings, CollectionsBookmark, LibraryBooks, MenuBook, Person } from '@mui/icons-material';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
@@ -20,6 +20,7 @@ const BottomNavigation: React.FC<BottomNavigationProps> = ({ isProfileOpen, onOp
     const navItems = useMemo(() => {
         const items = [
             { value: 'books', label: t('booksTab'), icon: <MenuBook />, path: '/books/page/1', regex: /^\/books\/page\/\d+/ },
+            { value: 'collections', label: t('collectionsTab', 'Подборки'), icon: <CollectionsBookmark />, path: '/collections', regex: /^\/collections/ },
             { value: 'opds', label: t('opdsTab'), icon: <LibraryBooks />, path: '/catalog', regex: /^\/catalog/ },
         ];
 
