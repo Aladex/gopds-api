@@ -77,14 +77,21 @@ func GetBooksEnhanced(userID int64, filters models.BookFilters) ([]models.Book, 
 			Where("bcb.book_collection_id = ?", filters.Collection).
 			Order("bcb.position ASC")
 	} else if filters.CuratedCollection != 0 {
+		// Two-step approach: first pull the ordered list of book ids of the
+		// (published, curated) collection, then constrain the main book query
+		// with WhereIn + array_position for stable ordering. This avoids a
+		// JOIN-on-relations conflict that returned an empty result on prod.
+		ids, err := collectionBookIDsOrdered(filters.CuratedCollection)
+		if err != nil {
+			logging.Error(err)
+			return nil, 0, err
+		}
+		if len(ids) == 0 {
+			return []models.Book{}, 0, nil
+		}
 		query = query.
-			Join("JOIN book_collection_items bci ON bci.book_id = book.id").
-			Join("JOIN book_collections bc ON bc.id = bci.collection_id").
-			Where("bci.collection_id = ?", filters.CuratedCollection).
-			Where("bci.match_status IN (?)", pg.In([]string{models.MatchStatusAutoMatched, models.MatchStatusManual})).
-			Where("bc.is_curated = ?", true).
-			Where("bc.is_public = ?", true).
-			Order("bci.position ASC")
+			WhereIn("book.id IN (?)", ids).
+			OrderExpr("array_position(?, book.id)", pg.Array(ids))
 	} else {
 		query = query.Order("book.id DESC")
 	}
@@ -477,6 +484,27 @@ func GetBook(bookID int64) (models.Book, error) {
 		return *book, err
 	}
 	return *book, nil
+}
+
+// collectionBookIDsOrdered returns the resolved book ids of one published curated
+// collection in curator-defined order. Returns empty (not error) for missing /
+// unpublished / non-curated ids so callers don't leak drafts.
+func collectionBookIDsOrdered(collectionID int64) ([]int64, error) {
+	var ids []int64
+	err := db.Model((*models.BookCollectionItem)(nil)).
+		Column("book_collection_items.book_id").
+		Join("JOIN book_collections bc ON bc.id = book_collection_items.collection_id").
+		Where("book_collection_items.collection_id = ?", collectionID).
+		Where("book_collection_items.book_id IS NOT NULL").
+		Where("book_collection_items.match_status IN (?)", pg.In([]string{models.MatchStatusAutoMatched, models.MatchStatusManual})).
+		Where("bc.is_curated = ?", true).
+		Where("bc.is_public = ?", true).
+		Order("book_collection_items.position ASC").
+		Select(&ids)
+	if err != nil {
+		return nil, err
+	}
+	return ids, nil
 }
 
 // PickMostRecentBookID returns the id of the book among the given list that was
