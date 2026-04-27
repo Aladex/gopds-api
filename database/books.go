@@ -346,17 +346,7 @@ func applyNonTitleFilters(query *orm.Query, filters models.BookFilters, userID i
 	}
 
 	if filters.CuratedCollection != 0 {
-		var booksIds []int64
-		err := db.Model((*models.BookCollectionItem)(nil)).
-			Column("book_collection_items.book_id").
-			Join("JOIN book_collections bc ON bc.id = book_collection_items.collection_id").
-			Where("book_collection_items.collection_id = ?", filters.CuratedCollection).
-			Where("book_collection_items.book_id IS NOT NULL").
-			Where("book_collection_items.match_status IN (?)", pg.In([]string{models.MatchStatusAutoMatched, models.MatchStatusManual})).
-			Where("bc.is_curated = ?", true).
-			Where("bc.is_public = ?", true).
-			Order("book_collection_items.position ASC").
-			Select(&booksIds)
+		booksIds, err := collectionBookIDsOrdered(filters.CuratedCollection)
 		if err == nil && len(booksIds) > 0 {
 			query = query.WhereIn("book.id IN (?)", booksIds)
 		} else {
@@ -489,18 +479,23 @@ func GetBook(bookID int64) (models.Book, error) {
 // collectionBookIDsOrdered returns the resolved book ids of one published curated
 // collection in curator-defined order. Returns empty (not error) for missing /
 // unpublished / non-curated ids so callers don't leak drafts.
+//
+// Uses a raw query because go-pg's ORM aliases the model table differently
+// from the bare table name and JOIN ... ON book_collection_items.* fails with
+// "invalid reference to FROM-clause entry".
 func collectionBookIDsOrdered(collectionID int64) ([]int64, error) {
 	var ids []int64
-	err := db.Model((*models.BookCollectionItem)(nil)).
-		Column("book_collection_items.book_id").
-		Join("JOIN book_collections bc ON bc.id = book_collection_items.collection_id").
-		Where("book_collection_items.collection_id = ?", collectionID).
-		Where("book_collection_items.book_id IS NOT NULL").
-		Where("book_collection_items.match_status IN (?)", pg.In([]string{models.MatchStatusAutoMatched, models.MatchStatusManual})).
-		Where("bc.is_curated = ?", true).
-		Where("bc.is_public = ?", true).
-		Order("book_collection_items.position ASC").
-		Select(&ids)
+	_, err := db.Query(&ids, `
+		SELECT i.book_id
+		FROM book_collection_items i
+		JOIN book_collections bc ON bc.id = i.collection_id
+		WHERE i.collection_id = ?
+		  AND i.book_id IS NOT NULL
+		  AND i.match_status IN (?)
+		  AND bc.is_curated = TRUE
+		  AND bc.is_public = TRUE
+		ORDER BY i.position ASC
+	`, collectionID, pg.In([]string{models.MatchStatusAutoMatched, models.MatchStatusManual}))
 	if err != nil {
 		return nil, err
 	}
