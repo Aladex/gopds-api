@@ -67,11 +67,17 @@
     ]
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.1",
     "@types/js-cookie": "^3.0.6"
   },
   "resolutions": {
     "nth-check": ">=2.0.1",
     "postcss": ">=8.4.31",
     "webpack-dev-server": "^4.15.1"
+  },
+  "jest": {
+    "moduleNameMapper": {
+      "^react-router-dom$": "<rootDir>/src/__mocks__/react-router-dom.tsx"
+    }
   }
 }

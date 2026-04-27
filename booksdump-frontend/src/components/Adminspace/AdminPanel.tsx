@@ -6,6 +6,8 @@ import InvitesTable from './InvitesTable';
 import Duplicates from './Duplicates';
 import BookScanning from './BookScanning';
 import GenreManagement from './GenreManagement';
+import CuratedCollectionsList from './CuratedCollections/CuratedCollectionsList';
+import CuratedCollectionDetail from './CuratedCollections/CuratedCollectionDetail';
 import { useTranslation } from 'react-i18next';
 
 const AdminSpace: React.FC = () => {
@@ -148,6 +150,21 @@ const AdminSpace: React.FC = () => {
                                             },
                                         }}
                                     />
+                                    <Tab
+                                        label={t('curatedCollections.tab', 'Collections')}
+                                        value="/admin/collections"
+                                        component={Link}
+                                        to="/admin/collections"
+                                        sx={{
+                                            color: (theme) =>
+                                                value.startsWith('/admin/collections')
+                                                    ? theme.palette.text.primary
+                                                    : theme.palette.text.secondary,
+                                            '&.Mui-selected': {
+                                                color: (theme) => theme.palette.text.primary,
+                                            },
+                                        }}
+                                    />
                                 </Tabs>
                                 <Box>
                                     <Routes>
@@ -157,6 +174,8 @@ const AdminSpace: React.FC = () => {
                                         <Route path="book-scanning" element={<BookScanning />} />
                                         <Route path="duplicates" element={<Duplicates />} />
                                         <Route path="genres" element={<GenreManagement />} />
+                                        <Route path="collections" element={<CuratedCollectionsList />} />
+                                        <Route path="collections/:id" element={<CuratedCollectionDetail />} />
                                         <Route path="*" element={<Navigate to="/admin/users" />} />
                                     </Routes>
                                 </Box>

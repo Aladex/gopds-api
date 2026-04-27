@@ -5,6 +5,7 @@ import (
 	"gopds-api/api"
 	"gopds-api/middlewares"
 	"gopds-api/opds"
+	"gopds-api/services"
 	"net/http"
 	"strings"
 
@@ -109,6 +110,12 @@ func setupLogoutRoutes(group *gin.RouterGroup) {
 func setupApiRoutes(group *gin.RouterGroup) {
 	booksGroup := group.Group("/books")
 	api.SetupBookRoutes(booksGroup)
+
+	publicCollections := &api.PublicCollectionsHandler{
+		Svc: services.NewPublicCuratedCollectionsService(),
+	}
+	publicCollections.Register(group.Group("/collections"))
+
 	// Setup admin routes with admin middleware
 	adminGroup := group.Group("/admin", middlewares.AdminMiddleware())
 	setupAdminRoutes(adminGroup)
@@ -117,6 +124,11 @@ func setupApiRoutes(group *gin.RouterGroup) {
 // setupAdminRoutes configures routes for administrative functionalities.
 func setupAdminRoutes(group *gin.RouterGroup) {
 	api.SetupAdminRoutes(group)
+
+	curatedHandler := &api.CuratedCollectionsHandler{
+		Svc: services.NewCuratedCollectionsService(),
+	}
+	curatedHandler.Register(group.Group("/collections"))
 }
 
 // setupPublicAuthRoutes configures public authentication routes that do not require middleware authorization.
