@@ -7,6 +7,7 @@ import (
 	"gopds-api/models"
 
 	"github.com/go-pg/pg/v10"
+	"github.com/go-pg/pg/v10/orm"
 )
 
 // trigramTitleMin is the minimum similarity over `lower(title)` we even consider
@@ -125,22 +126,31 @@ func ListCollectionItems(ctx context.Context, collectionID int64, statusFilter s
 	if pageSize < 1 {
 		pageSize = 50
 	}
-	countQ := db.ModelContext(ctx, (*models.BookCollectionItem)(nil)).
-		Where("collection_id = ?", collectionID)
-	if statusFilter != "" {
-		countQ = countQ.Where("match_status = ?", statusFilter)
+	// "matched" is a virtual filter that combines auto-matched items with the
+	// ones the admin manually resolved — both are "found" from the user's POV.
+	matchedStatuses := []string{models.MatchStatusAutoMatched, models.MatchStatusManual}
+
+	applyFilter := func(q *orm.Query) *orm.Query {
+		switch statusFilter {
+		case "":
+			return q
+		case "matched":
+			return q.Where("match_status IN (?)", pg.In(matchedStatuses))
+		default:
+			return q.Where("match_status = ?", statusFilter)
+		}
 	}
+
+	countQ := applyFilter(db.ModelContext(ctx, (*models.BookCollectionItem)(nil)).
+		Where("collection_id = ?", collectionID))
 	total, err := countQ.Count()
 	if err != nil {
 		return nil, 0, err
 	}
 
 	var items []models.BookCollectionItem
-	listQ := db.ModelContext(ctx, &items).
-		Where("collection_id = ?", collectionID)
-	if statusFilter != "" {
-		listQ = listQ.Where("match_status = ?", statusFilter)
-	}
+	listQ := applyFilter(db.ModelContext(ctx, &items).
+		Where("collection_id = ?", collectionID))
 	err = listQ.
 		Order("position ASC", "id ASC").
 		Offset((page - 1) * pageSize).

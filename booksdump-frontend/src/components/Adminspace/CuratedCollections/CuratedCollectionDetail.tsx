@@ -235,7 +235,7 @@ const CuratedCollectionDetail: React.FC = () => {
 
     const [coll, setColl] = useState<CuratedCollection | null>(null);
     const [status, setStatus] = useState<ImportStatusInfo | null>(null);
-    const [tabKey, setTabKey] = useState<string>('auto_matched');
+    const [tabKey, setTabKey] = useState<string>('matched');
     const [items, setItems] = useState<CollectionItem[]>([]);
     const [bookInfo, setBookInfo] = useState<Map<number, LookupBook>>(new Map());
     const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -353,7 +353,7 @@ const CuratedCollectionDetail: React.FC = () => {
     const progressPct = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
 
     const statusTabs = [
-        { key: 'auto_matched', label: t('curatedCollections.tab.autoMatched', 'Matched') },
+        { key: 'matched', label: t('curatedCollections.tab.autoMatched', 'Matched') },
         { key: 'ambiguous', label: t('curatedCollections.tab.ambiguous', 'Ambiguous') },
         { key: 'not_found', label: t('curatedCollections.tab.notFound', 'Not found') },
         { key: 'ignored', label: t('curatedCollections.tab.ignored', 'Ignored') },
