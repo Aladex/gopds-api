@@ -268,6 +268,11 @@ func (c *Config) GetServerBaseURL() string {
 		logging.Infof("Using fallback local address for BaseURL: %s", baseURL)
 	}
 
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+	baseURL = strings.TrimRight(baseURL, "/")
+
 	logging.Infof("Final BaseURL for webhooks: %s", baseURL)
 	return baseURL
 }

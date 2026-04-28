@@ -180,7 +180,7 @@ func (bm *BotManager) createBotInstance(token string, userID int64) (*Bot, error
 // setupHandlers sets up command handlers for the bot
 func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 	// /start command
-	b.bot.RegisterHandler(tgbotapi.HandlerTypeMessageText, "/start", tgbotapi.MatchTypeCommand, func(ctx context.Context, bot *tgbotapi.Bot, update *tgbot.Update) {
+	b.bot.RegisterHandler(tgbotapi.HandlerTypeMessageText, "start", tgbotapi.MatchTypeCommand, func(ctx context.Context, bot *tgbotapi.Bot, update *tgbot.Update) {
 		telegramID := update.Message.From.ID
 
 		if err := conversationManager.ProcessIncomingMessage(b.token, &IncomingMessage{
@@ -232,7 +232,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 	})
 
 	// /context command
-	b.bot.RegisterHandler(tgbotapi.HandlerTypeMessageText, "/context", tgbotapi.MatchTypeCommand, b.withAuth(conversationManager, func(ctx context.Context, bot *tgbotapi.Bot, update *tgbot.Update, telegramID int64) {
+	b.bot.RegisterHandler(tgbotapi.HandlerTypeMessageText, "context", tgbotapi.MatchTypeCommand, b.withAuth(conversationManager, func(ctx context.Context, bot *tgbotapi.Bot, update *tgbot.Update, telegramID int64) {
 		stats, err := conversationManager.GetContextStats(b.token, telegramID)
 		if err != nil {
 			response := "Error getting context stats."
@@ -261,7 +261,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 	}))
 
 	// /clear command
-	b.bot.RegisterHandler(tgbotapi.HandlerTypeMessageText, "/clear", tgbotapi.MatchTypeCommand, b.withAuth(conversationManager, func(ctx context.Context, bot *tgbotapi.Bot, update *tgbot.Update, telegramID int64) {
+	b.bot.RegisterHandler(tgbotapi.HandlerTypeMessageText, "clear", tgbotapi.MatchTypeCommand, b.withAuth(conversationManager, func(ctx context.Context, bot *tgbotapi.Bot, update *tgbot.Update, telegramID int64) {
 		err := conversationManager.ClearContext(b.token, telegramID)
 		if err != nil {
 			response := "Error clearing context."
@@ -276,7 +276,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 	}))
 
 	// /search command
-	b.bot.RegisterHandler(tgbotapi.HandlerTypeMessageText, "/search", tgbotapi.MatchTypeCommand, b.withAuth(conversationManager, func(ctx context.Context, bot *tgbotapi.Bot, update *tgbot.Update, telegramID int64) {
+	b.bot.RegisterHandler(tgbotapi.HandlerTypeMessageText, "search", tgbotapi.MatchTypeCommand, b.withAuth(conversationManager, func(ctx context.Context, bot *tgbotapi.Bot, update *tgbot.Update, telegramID int64) {
 		if err := b.validateUserLinked(ctx, bot, conversationManager, telegramID, update.Message.Chat.ID); err != nil {
 			return
 		}
@@ -307,7 +307,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 	}))
 
 	// /b command - exact book search
-	b.bot.RegisterHandler(tgbotapi.HandlerTypeMessageText, "/b", tgbotapi.MatchTypeCommand, b.withAuth(conversationManager, func(ctx context.Context, bot *tgbotapi.Bot, update *tgbot.Update, telegramID int64) {
+	b.bot.RegisterHandler(tgbotapi.HandlerTypeMessageText, "b", tgbotapi.MatchTypeCommand, b.withAuth(conversationManager, func(ctx context.Context, bot *tgbotapi.Bot, update *tgbot.Update, telegramID int64) {
 		if err := b.validateUserLinked(ctx, bot, conversationManager, telegramID, update.Message.Chat.ID); err != nil {
 			return
 		}
@@ -331,7 +331,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 	}))
 
 	// /a command - exact author search
-	b.bot.RegisterHandler(tgbotapi.HandlerTypeMessageText, "/a", tgbotapi.MatchTypeCommand, b.withAuth(conversationManager, func(ctx context.Context, bot *tgbotapi.Bot, update *tgbot.Update, telegramID int64) {
+	b.bot.RegisterHandler(tgbotapi.HandlerTypeMessageText, "a", tgbotapi.MatchTypeCommand, b.withAuth(conversationManager, func(ctx context.Context, bot *tgbotapi.Bot, update *tgbot.Update, telegramID int64) {
 		if err := b.validateUserLinked(ctx, bot, conversationManager, telegramID, update.Message.Chat.ID); err != nil {
 			return
 		}
@@ -355,7 +355,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 	}))
 
 	// /ba command - exact combined search
-	b.bot.RegisterHandler(tgbotapi.HandlerTypeMessageText, "/ba", tgbotapi.MatchTypeCommand, b.withAuth(conversationManager, func(ctx context.Context, bot *tgbotapi.Bot, update *tgbot.Update, telegramID int64) {
+	b.bot.RegisterHandler(tgbotapi.HandlerTypeMessageText, "ba", tgbotapi.MatchTypeCommand, b.withAuth(conversationManager, func(ctx context.Context, bot *tgbotapi.Bot, update *tgbot.Update, telegramID int64) {
 		if err := b.validateUserLinked(ctx, bot, conversationManager, telegramID, update.Message.Chat.ID); err != nil {
 			return
 		}
@@ -387,7 +387,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 	}))
 
 	// /favorites command
-	b.bot.RegisterHandler(tgbotapi.HandlerTypeMessageText, "/favorites", tgbotapi.MatchTypeCommand, b.withAuth(conversationManager, func(ctx context.Context, bot *tgbotapi.Bot, update *tgbot.Update, telegramID int64) {
+	b.bot.RegisterHandler(tgbotapi.HandlerTypeMessageText, "favorites", tgbotapi.MatchTypeCommand, b.withAuth(conversationManager, func(ctx context.Context, bot *tgbotapi.Bot, update *tgbot.Update, telegramID int64) {
 		if err := b.validateUserLinked(ctx, bot, conversationManager, telegramID, update.Message.Chat.ID); err != nil {
 			return
 		}
@@ -403,7 +403,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 	}))
 
 	// /collections command
-	b.bot.RegisterHandler(tgbotapi.HandlerTypeMessageText, "/collections", tgbotapi.MatchTypeCommand, b.withAuth(conversationManager, func(ctx context.Context, bot *tgbotapi.Bot, update *tgbot.Update, telegramID int64) {
+	b.bot.RegisterHandler(tgbotapi.HandlerTypeMessageText, "collections", tgbotapi.MatchTypeCommand, b.withAuth(conversationManager, func(ctx context.Context, bot *tgbotapi.Bot, update *tgbot.Update, telegramID int64) {
 		if err := b.validateUserLinked(ctx, bot, conversationManager, telegramID, update.Message.Chat.ID); err != nil {
 			return
 		}
@@ -419,7 +419,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 	}))
 
 	// /donate command
-	b.bot.RegisterHandler(tgbotapi.HandlerTypeMessageText, "/donate", tgbotapi.MatchTypeCommand, b.withAuth(conversationManager, func(ctx context.Context, bot *tgbotapi.Bot, update *tgbot.Update, telegramID int64) {
+	b.bot.RegisterHandler(tgbotapi.HandlerTypeMessageText, "donate", tgbotapi.MatchTypeCommand, b.withAuth(conversationManager, func(ctx context.Context, bot *tgbotapi.Bot, update *tgbot.Update, telegramID int64) {
 		response := "❤️ Если проект вам полезен, вы можете поддержать его развитие:\n\n" +
 			"💳 *Крипто:*\n" +
 			"`bc1qv2pjsnkprer35u2whuquztvnvnggjsrqu4q43f` — Bitcoin\n" +
