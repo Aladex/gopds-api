@@ -379,9 +379,11 @@ const CuratedCollectionDetail: React.FC = () => {
         setAiResolving(true);
         try {
             await llmResolveCollection(id);
-            // The endpoint returns 202 immediately. Live progress lives in
-            // status.stats.ai_progress and is picked up by the polling effect
-            // below.
+            // The endpoint returns 202 immediately and the goroutine has
+            // already written ai_progress.running=true to the DB before
+            // returning. Pull the fresh status right away so the progress
+            // box and the polling effect kick in without a manual refresh.
+            await loadStatus();
         } finally {
             setAiResolving(false);
         }

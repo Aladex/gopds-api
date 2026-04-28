@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -137,6 +138,10 @@ func (s *CuratedCollectionsService) AutoResolveAmbiguous(ctx context.Context, co
 	return resolved, nil
 }
 
+// ErrAIResolveAlreadyRunning is returned when an LLM-resolve loop is already
+// in flight on this collection — UI shows a clearer error than 500.
+var ErrAIResolveAlreadyRunning = errors.New("ai resolve already running for this collection")
+
 // LLMResolveAmbiguous walks every ambiguous item and asks the LLM to pick the
 // best candidate, augmenting each candidate with its annotation so the model
 // can disambiguate by content. Items where the LLM is unsure are left as-is.
@@ -162,6 +167,9 @@ func (s *CuratedCollectionsService) LLMResolveAmbiguous(ctx context.Context, col
 	baseStats := models.CollectionImportStats{}
 	if col.ImportStats != nil {
 		baseStats = *col.ImportStats
+		if baseStats.AIProgress != nil && baseStats.AIProgress.Running {
+			return 0, ErrAIResolveAlreadyRunning
+		}
 	}
 	startedAt := time.Now().UTC()
 	progress := &models.AIResolveProgress{

@@ -11,8 +11,8 @@ import (
 
 // ImportItem is one row of a CSV / textarea paste, as parsed by the admin frontend.
 type ImportItem struct {
-	Title  string         `json:"title"`
-	Author string         `json:"author"`
+	Title  string         `json:"title" binding:"required,max=512"`
+	Author string         `json:"author" binding:"required,max=256"`
 	Year   int            `json:"year,omitempty"`
 	Extra  map[string]any `json:"extra,omitempty"`
 }

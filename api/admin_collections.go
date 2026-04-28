@@ -58,9 +58,9 @@ func (h *CuratedCollectionsHandler) Register(r *gin.RouterGroup) {
 // --- DTOs ---
 
 type curatedImportRequest struct {
-	Name      string                 `json:"name" binding:"required"`
-	SourceURL string                 `json:"source_url"`
-	Items     []services.ImportItem  `json:"items" binding:"required,min=1,dive"`
+	Name      string                `json:"name" binding:"required,max=255"`
+	SourceURL string                `json:"source_url" binding:"max=2048"`
+	Items     []services.ImportItem `json:"items" binding:"required,min=1,max=20000,dive"`
 }
 
 type curatedImportResponse struct {
@@ -101,6 +101,11 @@ type curatedResolveRequest struct {
 // --- Handlers ---
 
 func (h *CuratedCollectionsHandler) create(c *gin.Context) {
+	// Cap the request body so a malicious / accidental 1 GB upload cannot
+	// pin the process while ShouldBindJSON streams it into RAM. 5 MB is
+	// plenty for ~20k items × ~250-byte rows.
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 5<<20)
+
 	var req curatedImportRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -297,6 +302,18 @@ func (h *CuratedCollectionsHandler) llmResolve(c *gin.Context) {
 			decidedBy = &uid
 		}
 	}
+	// Pre-flight check synchronously so a duplicate click gets a clean 409
+	// instead of two parallel goroutines stomping on each other's progress.
+	col, err := h.Svc.Get(c.Request.Context(), id)
+	if err != nil {
+		respondCollectionError(c, err)
+		return
+	}
+	if col != nil && col.ImportStats != nil && col.ImportStats.AIProgress != nil && col.ImportStats.AIProgress.Running {
+		c.JSON(http.StatusConflict, gin.H{"error": "ai resolve already running"})
+		return
+	}
+
 	// LLM resolution iterates one OpenAI call per ambiguous item — for a
 	// collection with hundreds of items this easily exceeds the proxy /
 	// axios timeout. Run it in the background with a detached context so
