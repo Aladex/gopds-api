@@ -362,15 +362,10 @@ func (s *CuratedCollectionsService) LLMSearchNotFound(ctx context.Context, colle
 		if author == "" {
 			author = it.ExternalAuthor
 		}
-		// Don't waste a matcher call if the model returned something
-		// indistinguishable from the original input.
-		if strings.EqualFold(title, it.ExternalTitle) && strings.EqualFold(author, it.ExternalAuthor) {
-			progress.Processed++
-			appendRecent(progress, decision)
-			publish()
-			continue
-		}
-
+		// Always rerun the matcher even if the model returned the same pair —
+		// the matcher itself may have been broadened (lower threshold, prefix
+		// lane) since the item was first imported, so the same input can now
+		// produce candidates that were missed before.
 		res, err := matcher.MatchOne(ctx, author, title)
 		if err != nil {
 			logging.Warnf("LLMSearchNotFound: rerun match for item %d: %v", it.ID, err)
