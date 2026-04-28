@@ -20,7 +20,7 @@ func setupRouter() *gin.Engine {
 	r := gin.New()
 	g := r.Group("/opds")
 	g.GET("/collections/:page", GetCollections)
-	g.GET("/collections/:id/:page", GetCollectionBooks)
+	g.GET("/collection/:id/:page", GetCollectionBooks)
 	return r
 }
 
@@ -126,7 +126,7 @@ func TestGetCollectionBooks_ReturnsAtomXML(t *testing.T) {
 	}
 
 	router := setupRouter()
-	rec := doGET(t, router, "/opds/collections/1/0")
+	rec := doGET(t, router, "/opds/collection/1/0")
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "application/atom+xml;charset=utf-8", rec.Header().Get("Content-Type"))
@@ -142,7 +142,7 @@ func TestGetCollectionBooks_ContainsAcquisitionLinks(t *testing.T) {
 	}
 
 	router := setupRouter()
-	rec := doGET(t, router, "/opds/collections/1/0")
+	rec := doGET(t, router, "/opds/collection/1/0")
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
@@ -158,7 +158,7 @@ func TestGetCollectionBooks_NotFound(t *testing.T) {
 	}
 
 	router := setupRouter()
-	rec := doGET(t, router, "/opds/collections/999999/0")
+	rec := doGET(t, router, "/opds/collection/999999/0")
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
@@ -169,7 +169,7 @@ func TestGetCollectionBooks_Pagination(t *testing.T) {
 	}
 
 	router := setupRouter()
-	rec := doGET(t, router, "/opds/collections/1/0")
+	rec := doGET(t, router, "/opds/collection/1/0")
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
@@ -183,7 +183,7 @@ func TestGetCollectionBooks_InvalidID(t *testing.T) {
 	}
 
 	router := setupRouter()
-	rec := doGET(t, router, "/opds/collections/abc/0")
+	rec := doGET(t, router, "/opds/collection/abc/0")
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

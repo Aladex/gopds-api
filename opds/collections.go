@@ -70,7 +70,7 @@ func GetCollections(c *gin.Context) {
 			Title: col.Name,
 			Link: []opdsutils.Link{
 				{
-					Href: fmt.Sprintf("/opds/collections/%d/0", col.ID),
+					Href: fmt.Sprintf("/opds/collection/%d/0", col.ID),
 					Type: "application/atom+xml;profile=opds-catalog",
 				},
 			},
@@ -147,7 +147,7 @@ func GetCollectionBooks(c *gin.Context) {
 
 	if hasNextPage(10, pageNum, total) {
 		rootLinks = append(rootLinks, opdsutils.Link{
-			Href: fmt.Sprintf("/opds/collections/%d/%d", collectionID, pageNum+1),
+			Href: fmt.Sprintf("/opds/collection/%d/%d", collectionID, pageNum+1),
 			Rel:  "next",
 			Type: "application/atom+xml;profile=opds-catalog",
 		})

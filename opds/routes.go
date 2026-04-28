@@ -27,7 +27,7 @@ func SetupOpdsRoutes(r *gin.RouterGroup) {
 
 	// Collections navigation
 	r.GET("/collections/:page", GetCollections)
-	r.GET("/collections/:id/:page", GetCollectionBooks)
+	r.GET("/collection/:id/:page", GetCollectionBooks)
 
 	// Download
 	r.GET("/get/:format/:id", DownloadBook)
