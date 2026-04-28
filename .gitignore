@@ -18,3 +18,4 @@ bin/*
 /booksdump-frontend/.idea/
 .idea
 /plans/
+AGENTS.md

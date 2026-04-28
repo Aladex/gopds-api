@@ -143,6 +143,20 @@ func GetNewBooks(c *gin.Context) {
 			Updated: time.Now(),
 			Content: "Книги по языкам",
 		})
+
+		// Add collections navigation
+		feed.Items = append(feed.Items, &opdsutils.Item{
+			Title: "Подборки",
+			Link: []opdsutils.Link{
+				{
+					Href: "/opds/collections/0",
+					Type: "application/atom+xml;profile=opds-catalog",
+				},
+			},
+			Id:      "tag:nav:collections",
+			Updated: time.Now(),
+			Content: "Подборки книг",
+		})
 	}
 
 	// Check if userAgent contains koreader

@@ -48,6 +48,8 @@ func (h *CallbackHandler) Handle(c tele.Context) error {
 		return h.handlePagination(c, callbackData)
 	case strings.HasPrefix(callbackData, "author:"):
 		return h.handleAuthorSelection(c, callbackData)
+	case strings.HasPrefix(callbackData, "collection:"):
+		return h.handleCollectionSelection(c, callbackData)
 	case strings.HasPrefix(callbackData, "select:"):
 		return h.handleBookSelection(c, callbackData)
 	case strings.HasPrefix(callbackData, "download:"):
@@ -134,11 +136,15 @@ func (h *CallbackHandler) executeSearchWithPagination(
 		return processor.ExecuteFindAuthorWithPagination(params.Query, telegramID, newOffset, params.Limit)
 	case "author_books":
 		return processor.ExecuteFindAuthorBooksWithPagination(
-			params.AuthorID, params.Query, telegramID, newOffset, params.Limit)
+			params.RefID, params.Query, telegramID, newOffset, params.Limit)
 	case "combined":
 		return h.executeCombinedSearch(processor, params.Query, telegramID, newOffset, params.Limit)
 	case "favorites":
 		return processor.ExecuteShowFavorites(telegramID, newOffset, params.Limit)
+	case "collection_books":
+		return processor.ExecuteCollectionBooks(params.RefID, telegramID, newOffset, params.Limit)
+	case "collections":
+		return processor.ExecuteShowCollections(newOffset, params.Limit)
 	default:
 		return processor.ExecuteFindBookWithPagination(params.Query, telegramID, newOffset, params.Limit)
 	}
@@ -167,6 +173,51 @@ func (h *CallbackHandler) executeCombinedSearch(
 		return processor.ExecuteFindBookWithAuthorWithPagination(title, author, telegramID, offset, limit)
 	}
 	return processor.ExecuteFindBookWithPagination(title, telegramID, offset, limit)
+}
+
+// handleCollectionSelection handles collection:ID callbacks
+func (h *CallbackHandler) handleCollectionSelection(c tele.Context, callbackData string) error {
+	telegramID := c.Sender().ID
+	logging.Infof("Processing collection selection callback: %s for user %d", callbackData, telegramID)
+
+	collectionIDStr := strings.TrimPrefix(callbackData, "collection:")
+	collectionID, err := strconv.ParseInt(collectionIDStr, 10, 64)
+	if err != nil {
+		logging.Errorf("Invalid collection ID in callback: %s", collectionIDStr)
+		return c.Respond(&tele.CallbackResponse{Text: "Invalid collection ID"})
+	}
+
+	if err := c.Respond(); err != nil {
+		logging.Errorf("Failed to respond to callback: %v", err)
+	}
+
+	processor := commands.NewCommandProcessor()
+	result, err := processor.ExecuteCollectionBooks(collectionID, telegramID, 0, 5)
+	if err != nil {
+		logging.Errorf("Failed to get collection books for user %d: %v", telegramID, err)
+		if editErr := c.Edit("Error loading collection books."); editErr != nil {
+			logging.Errorf("Failed to edit message with error for user %d: %v", telegramID, editErr)
+		}
+		return nil
+	}
+
+	var sendOptions []interface{}
+	if result.ReplyMarkup != nil {
+		sendOptions = append(sendOptions, result.ReplyMarkup)
+	}
+
+	if editErr := c.Edit(result.Message, sendOptions...); editErr != nil {
+		logging.Errorf("Failed to edit message for user %d: %v", telegramID, editErr)
+		if _, sendErr := c.Bot().Send(c.Chat(), result.Message, sendOptions...); sendErr != nil {
+			logging.Errorf("Failed to send new message after edit failure for user %d: %v", telegramID, sendErr)
+		}
+		return nil
+	}
+
+	h.updateSearchParamsInContext(telegramID, result.SearchParams)
+	h.processOutgoingMessage(telegramID, result.Message)
+
+	return nil
 }
 
 // handleAuthorSelection handles author:ID callbacks

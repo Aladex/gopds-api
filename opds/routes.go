@@ -25,6 +25,10 @@ func SetupOpdsRoutes(r *gin.RouterGroup) {
 	r.GET("/lang/:lang/search-authors", SearchAuthorsByLanguage)
 	r.GET("/lang/:lang/author/:author/:page", GetAuthorBooksByLanguage)
 
+	// Collections navigation
+	r.GET("/collections/:page", GetCollections)
+	r.GET("/collections/:id/:page", GetCollectionBooks)
+
 	// Download
 	r.GET("/get/:format/:id", DownloadBook)
 }

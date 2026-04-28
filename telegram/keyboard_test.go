@@ -47,6 +47,12 @@ func TestGetCommandFromButtonText(t *testing.T) {
 			expectedFound: true,
 		},
 		{
+			name:          "Collections button",
+			buttonText:    "📦 Подборки",
+			expectedCmd:   "/collections",
+			expectedFound: true,
+		},
+		{
 			name:          "Unknown button",
 			buttonText:    "Unknown",
 			expectedCmd:   "",

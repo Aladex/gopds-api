@@ -441,6 +441,26 @@ func GetPublicCollectionBooks(ctx context.Context, collectionID int64) ([]models
 	return books, err
 }
 
+// GetPublicCollectionBooksPage returns a paginated slice of matched-or-manual books
+// from a curated collection, preserving position order. total is the full count
+// regardless of page, so callers can determine whether more pages exist.
+func GetPublicCollectionBooksPage(ctx context.Context, collectionID int64, offset, limit int) ([]models.Book, int, error) {
+	var books []models.Book
+	total, err := db.ModelContext(ctx, &books).
+		ColumnExpr("book.*").
+		Join("JOIN book_collection_items i ON i.book_id = book.id").
+		Where("i.collection_id = ?", collectionID).
+		Where("i.match_status IN (?)", pg.In([]string{
+			models.MatchStatusAutoMatched,
+			models.MatchStatusManual,
+		})).
+		OrderExpr("i.position ASC, i.id ASC").
+		Offset(offset).
+		Limit(limit).
+		SelectAndCount()
+	return books, total, err
+}
+
 // FindCollectionCandidates retrieves a pool of plausible local books for one
 // normalized (author, title) pair. Strategy is recall-first: we want to feed
 // the LLM resolver as many candidates as could conceivably be the same work

@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"gopds-api/database"
 	"gopds-api/llm"
@@ -30,7 +31,7 @@ type CommandResult struct {
 type SearchParams struct {
 	Query      string `json:"query"`
 	QueryType  string `json:"query_type"`          // "book", "author", or "author_books"
-	AuthorID   int64  `json:"author_id,omitempty"` // for author_books search type
+	RefID      int64  `json:"ref_id,omitempty"`  // ID of related entity (author, collection, etc.)
 	Offset     int    `json:"offset"`
 	Limit      int    `json:"limit"`
 	TotalCount int    `json:"total_count"`
@@ -317,7 +318,7 @@ func (cp *CommandProcessor) ExecuteFindAuthorBooksWithPagination(authorID int64,
 		SearchParams: &SearchParams{
 			Query:      authorName,
 			QueryType:  "author_books",
-			AuthorID:   authorID,
+			RefID:      authorID,
 			Offset:     offset,
 			Limit:      limit,
 			TotalCount: totalCount,
@@ -858,6 +859,188 @@ func (cp *CommandProcessor) ExecuteDirectCombinedSearch(title, author string, us
 	}
 	// QueryType is already set to "combined" in executeFindBookWithAuthorWithPagination
 	return result, nil
+}
+
+// ExecuteShowCollections shows public curated collections with pagination
+func (cp *CommandProcessor) ExecuteShowCollections(offset, limit int) (*CommandResult, error) {
+	ctx := context.Background()
+	page := (offset / limit) + 1
+	collections, total, err := database.ListPublicCuratedCollections(ctx, page, limit)
+	if err != nil {
+		logging.Errorf("Failed to list public collections: %v", err)
+		return &CommandResult{
+			Message: "Произошла ошибка при получении подборок. Попробуйте позже.",
+		}, nil
+	}
+
+	if len(collections) == 0 && offset == 0 {
+		return &CommandResult{
+			Message: "📦 Публичные подборки пока недоступны.",
+		}, nil
+	}
+
+	if len(collections) == 0 && offset > 0 {
+		return &CommandResult{
+			Message: "На этой странице нет результатов.",
+		}, nil
+	}
+
+	message := cp.formatCollectionsWithPagination(collections, total, offset, limit)
+	replyMarkup := cp.createCollectionButtonsWithPagination(collections, offset, limit, total)
+
+	return &CommandResult{
+		Message:     message,
+		ReplyMarkup: replyMarkup,
+		SearchParams: &SearchParams{
+			Query:      "collections",
+			QueryType:  "collections",
+			Offset:     offset,
+			Limit:      limit,
+			TotalCount: total,
+		},
+	}, nil
+}
+
+// ExecuteCollectionBooks shows books from a specific collection with pagination
+func (cp *CommandProcessor) ExecuteCollectionBooks(collectionID int64, userID int64, offset, limit int) (*CommandResult, error) {
+	ctx := context.Background()
+	col, err := database.GetPublicCuratedCollection(ctx, collectionID)
+	if err != nil {
+		return &CommandResult{
+			Message: "📦 Подборка не найдена.",
+		}, nil
+	}
+
+	books, total, err := database.GetPublicCollectionBooksPage(ctx, collectionID, offset, limit)
+	if err != nil {
+		logging.Errorf("Failed to get collection books: %v", err)
+		return &CommandResult{
+			Message: "Произошла ошибка при получении книг подборки. Попробуйте позже.",
+		}, nil
+	}
+
+	if len(books) == 0 && offset == 0 {
+		return &CommandResult{
+			Message: fmt.Sprintf("📦 Подборка \"%s\" пока не содержит книг.", col.Name),
+		}, nil
+	}
+
+	if len(books) == 0 && offset > 0 {
+		return &CommandResult{
+			Message: "На этой странице нет результатов.",
+		}, nil
+	}
+
+	_ = userID // reserved for future fav support
+	message := cp.formatCollectionBooksWithPagination(col.Name, books, total, offset, limit)
+	replyMarkup := cp.createBookButtonsWithPagination(books, offset, limit, total)
+
+	return &CommandResult{
+		Message:     message,
+		Books:       books,
+		ReplyMarkup: replyMarkup,
+		SearchParams: &SearchParams{
+			Query:      col.Name,
+			QueryType:  "collection_books",
+			RefID:      collectionID,
+			Offset:     offset,
+			Limit:      limit,
+			TotalCount: total,
+		},
+	}, nil
+}
+
+// formatCollectionsWithPagination formats collections list with pagination info
+func (cp *CommandProcessor) formatCollectionsWithPagination(collections []models.BookCollection, totalCount, offset, limit int) string {
+	var builder strings.Builder
+
+	currentPage := (offset / limit) + 1
+	totalPages := (totalCount + limit - 1) / limit
+
+	builder.WriteString("📦 Подборки книг:\n")
+	builder.WriteString(fmt.Sprintf("Страница %d из %d (всего %d подборок)\n\n", currentPage, totalPages, totalCount))
+
+	for i, col := range collections {
+		number := offset + i + 1
+		builder.WriteString(fmt.Sprintf("%d. %s", number, col.Name))
+		if col.SourceURL != "" {
+			builder.WriteString(fmt.Sprintf(" (источник: %s)", col.SourceURL))
+		}
+		builder.WriteString("\n")
+	}
+
+	builder.WriteString("\n💡 Выберите подборку по номеру или используйте навигацию:")
+	return builder.String()
+}
+
+// createCollectionButtonsWithPagination creates inline keyboard for collections with pagination
+func (cp *CommandProcessor) createCollectionButtonsWithPagination(collections []models.BookCollection, offset, limit, totalCount int) *tele.ReplyMarkup {
+	if len(collections) == 0 {
+		return nil
+	}
+
+	markup := &tele.ReplyMarkup{}
+	var rows []tele.Row
+
+	var currentRow []tele.Btn
+	for i, col := range collections {
+		number := offset + i + 1
+		button := markup.Data(fmt.Sprintf("%d", number), fmt.Sprintf("collection:%d", col.ID))
+		currentRow = append(currentRow, button)
+
+		if len(currentRow) == 3 || i == len(collections)-1 {
+			rows = append(rows, markup.Row(currentRow...))
+			currentRow = []tele.Btn{}
+		}
+	}
+
+	var paginationRow []tele.Btn
+	if offset > 0 {
+		paginationRow = append(paginationRow, markup.Data("⬅️ Назад", "prev_page"))
+	}
+	if offset+limit < totalCount {
+		paginationRow = append(paginationRow, markup.Data("➡️ Вперед", "next_page"))
+	}
+	if len(paginationRow) > 0 {
+		rows = append(rows, markup.Row(paginationRow...))
+	}
+
+	markup.Inline(rows...)
+	return markup
+}
+
+// formatCollectionBooksWithPagination formats collection books list with pagination info
+func (cp *CommandProcessor) formatCollectionBooksWithPagination(collectionName string, books []models.Book, totalCount, offset, limit int) string {
+	var builder strings.Builder
+
+	currentPage := (offset / limit) + 1
+	totalPages := (totalCount + limit - 1) / limit
+
+	builder.WriteString(fmt.Sprintf("📦 Подборка \"%s\":\n", collectionName))
+	builder.WriteString(fmt.Sprintf("Страница %d из %d (всего %d книг)\n\n", currentPage, totalPages, totalCount))
+
+	for i, book := range books {
+		var authorNames []string
+		for _, author := range book.Authors {
+			authorNames = append(authorNames, author.FullName)
+		}
+		authorsStr := strings.Join(authorNames, ", ")
+		if authorsStr == "" {
+			authorsStr = "Автор неизвестен"
+		}
+
+		bookNumber := offset + i + 1
+		builder.WriteString(fmt.Sprintf("%d. %s — %s", bookNumber, book.Title, authorsStr))
+
+		if len(book.Series) > 0 && book.Series[0].Ser != "" {
+			builder.WriteString(fmt.Sprintf(" (серия: %s)", book.Series[0].Ser))
+		}
+
+		builder.WriteString("\n")
+	}
+
+	builder.WriteString("\n💡 Выберите книгу по номеру или используйте навигацию:")
+	return builder.String()
 }
 
 // createUnknownResponse creates a response for unknown/unrelated queries

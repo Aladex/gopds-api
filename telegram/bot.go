@@ -500,6 +500,23 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 		return b.processCommandResult(c, conversationManager, result, telegramID)
 	}))
 
+	// Handler for /collections command - show public curated collections
+	b.bot.Handle("/collections", b.withAuth(conversationManager, func(c tele.Context) error {
+		telegramID := c.Get("telegramID").(int64)
+
+		if err := b.validateUserLinked(c, conversationManager, telegramID); err != nil {
+			return err
+		}
+
+		processor := commands.NewCommandProcessor()
+		result, err := processor.ExecuteShowCollections(0, 5)
+		if err != nil {
+			return b.handleCommandError(c, conversationManager, telegramID, "show collections", err)
+		}
+
+		return b.processCommandResult(c, conversationManager, result, telegramID)
+	}))
+
 	// Handler for /donate command
 	b.bot.Handle("/donate", b.withAuth(conversationManager, func(c tele.Context) error {
 		telegramID := c.Get("telegramID").(int64)
@@ -1155,6 +1172,10 @@ func (b *Bot) registerCommands() error {
 			Description: "Show your favorite books",
 		},
 		{
+			Text:        "collections",
+			Description: "Browse curated book collections",
+		},
+		{
 			Text:        "context",
 			Description: "Show conversation context statistics",
 		},
@@ -1218,6 +1239,14 @@ func (b *Bot) handleKeyboardCommand(c tele.Context, conversationManager *Convers
 		result, err := processor.ExecuteShowFavorites(telegramID, 0, 5)
 		if err != nil {
 			return b.handleCommandError(c, conversationManager, telegramID, "show favorites", err)
+		}
+		return b.processCommandResultWithKeyboard(c, conversationManager, result, telegramID)
+
+	case "/collections":
+		processor := commands.NewCommandProcessor()
+		result, err := processor.ExecuteShowCollections(0, 5)
+		if err != nil {
+			return b.handleCommandError(c, conversationManager, telegramID, "show collections", err)
 		}
 		return b.processCommandResultWithKeyboard(c, conversationManager, result, telegramID)
 

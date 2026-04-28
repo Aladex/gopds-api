@@ -357,7 +357,7 @@ func TestUpdateSearchParams(t *testing.T) {
 		Offset:    10,
 		Limit:     5,
 		QueryType: "book",
-		AuthorID:  42,
+		RefID:     42,
 	}
 
 	err := cm.UpdateSearchParams(botToken, userID, searchParams)
@@ -371,7 +371,7 @@ func TestUpdateSearchParams(t *testing.T) {
 	assert.Equal(t, 10, ctx.SearchParams.Offset)
 	assert.Equal(t, 5, ctx.SearchParams.Limit)
 	assert.Equal(t, "book", ctx.SearchParams.QueryType)
-	assert.Equal(t, int64(42), ctx.SearchParams.AuthorID)
+	assert.Equal(t, int64(42), ctx.SearchParams.RefID)
 }
 
 func TestUpdateSearchParams_OverwritesPrevious(t *testing.T) {
