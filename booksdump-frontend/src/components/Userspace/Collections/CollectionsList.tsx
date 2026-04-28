@@ -137,8 +137,16 @@ const CollectionsList: React.FC = () => {
     }
 
     return (
-        <Box p={2}>
-            <Box maxWidth={1200} mx="auto">
+        <Box p={2} sx={{ minHeight: 'calc(100vh - 160px)' }}>
+            <Box
+                maxWidth={1200}
+                mx="auto"
+                sx={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    minHeight: 'calc(100vh - 200px)',
+                }}
+            >
                 <Typography variant="h5" gutterBottom>
                     {t('publicCollections.title', 'Collections')}
                 </Typography>
@@ -172,7 +180,7 @@ const CollectionsList: React.FC = () => {
                 </Box>
 
                 {totalPages > 1 && (
-                    <Stack alignItems="center" mt={3}>
+                    <Stack alignItems="center" mt="auto" pt={3}>
                         <BookPagination
                             totalPages={totalPages}
                             currentPage={page}
