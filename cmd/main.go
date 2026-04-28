@@ -42,7 +42,7 @@ func main() {
 
 	// Initialize the Telegram bot manager
 	telegramConfig := &telegram.Config{
-		BaseURL: cfg.GetServerBaseURL(), // Need to add this function to config
+		BaseURL: cfg.GetTelegramWebhookBaseURL(),
 	}
 	telegramBotManager := telegram.NewBotManager(telegramConfig, mainRedisClient)
 

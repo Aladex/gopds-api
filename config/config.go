@@ -13,8 +13,9 @@ import (
 // Config represents the main configuration structure
 type Config struct {
 	Server     ServerConfig   `mapstructure:"server" yaml:"server"`
-	ProjectURL string         `mapstructure:"project_url" yaml:"project_url"`
-	Domain     string         `mapstructure:"project_domain" yaml:"project_domain"`
+	ProjectURL         string `mapstructure:"project_url" yaml:"project_url"`
+	Domain             string `mapstructure:"project_domain" yaml:"project_domain"`
+	TelegramWebhookURL string `mapstructure:"telegram_webhook_url" yaml:"telegram_webhook_url"`
 	SecretKey  string         `mapstructure:"secret_key" yaml:"secret_key"`
 	Postgres   PostgresConfig `mapstructure:"postgres" yaml:"postgres"`
 	Redis      RedisConfig    `mapstructure:"redis" yaml:"redis"`
@@ -275,4 +276,23 @@ func (c *Config) GetServerBaseURL() string {
 
 	logging.Infof("Final BaseURL for webhooks: %s", baseURL)
 	return baseURL
+}
+
+// GetTelegramWebhookBaseURL returns the base URL Telegram should call to
+// deliver webhooks. If telegram_webhook_url is set, it overrides the
+// project domain — useful when the main host is unreachable from Telegram
+// (e.g. hosted in a network blocked from Telegram's servers) and a CDN
+// proxy on a separate hostname is needed.
+func (c *Config) GetTelegramWebhookBaseURL() string {
+	if c.TelegramWebhookURL == "" {
+		return c.GetServerBaseURL()
+	}
+
+	u := c.TelegramWebhookURL
+	if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+		u = "https://" + u
+	}
+	u = strings.TrimRight(u, "/")
+	logging.Infof("Using TelegramWebhookURL for webhooks: %s", u)
+	return u
 }
