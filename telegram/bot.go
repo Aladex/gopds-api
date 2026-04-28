@@ -9,6 +9,7 @@ import (
 	"gopds-api/commands"
 	"gopds-api/logging"
 	"net/http"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -136,7 +137,7 @@ func (bm *BotManager) createBotInstance(token string, userID int64) (*Bot, error
 	resultChan := make(chan botResult, 1)
 	go func() {
 		opts := []tgbotapi.Option{
-			tgbotapi.WithMiddlewares(privateChatMiddleware),
+			tgbotapi.WithMiddlewares(recoverMiddleware, privateChatMiddleware),
 			tgbotapi.WithWebhookSecretToken(webhookSecretFromToken(token)),
 			tgbotapi.WithDefaultHandler(func(ctx context.Context, b *tgbotapi.Bot, update *tgbot.Update) {
 				logging.Debugf("Unhandled update type in bot for user %d", userID)
@@ -1174,6 +1175,22 @@ func parseAuthorTitle(query string) (author, title string) {
 	}
 
 	return "", ""
+}
+
+// recoverMiddleware catches panics from downstream handlers so a single
+// faulty update can't take down the whole bot process. Notably, the
+// go-telegram/bot library panics inside its multipart-form builder when
+// InputFileUpload.Data wraps a struct-typed io.Reader (e.g. io.NopCloser),
+// and that panic propagates out of its async handler goroutine.
+func recoverMiddleware(next tgbotapi.HandlerFunc) tgbotapi.HandlerFunc {
+	return func(ctx context.Context, b *tgbotapi.Bot, update *tgbot.Update) {
+		defer func() {
+			if r := recover(); r != nil {
+				logging.Errorf("Bot handler panic recovered: %v\n%s", r, debug.Stack())
+			}
+		}()
+		next(ctx, b, update)
+	}
 }
 
 // privateChatMiddleware rejects updates from non-private chats.

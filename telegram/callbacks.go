@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"gopds-api/commands"
@@ -458,19 +459,26 @@ func (h *CallbackHandler) sendBookFile(ctx context.Context, b *tgbotapi.Bot, cha
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if cerr := rc.Close(); cerr != nil {
-			logging.Errorf("Failed to close book reader: %v", cerr)
-		}
-	}()
+
+	// Buffer the entire file in memory: go-telegram/bot calls
+	// reflect.Value.IsNil on InputFileUpload.Data, which panics when the
+	// concrete io.Reader is a struct value (e.g. io.NopCloser). Wrapping
+	// the bytes in *bytes.Reader (a pointer type) sidesteps that.
+	data, err := io.ReadAll(rc)
+	if cerr := rc.Close(); cerr != nil {
+		logging.Errorf("Failed to close book reader: %v", cerr)
+	}
+	if err != nil {
+		return fmt.Errorf("read book content: %w", err)
+	}
 
 	_, err = b.SendDocument(ctx, &tgbotapi.SendDocumentParams{
 		ChatID: chatID,
 		Document: &tgbot.InputFileUpload{
 			Filename: fileName,
-			Data:     rc,
+			Data:     bytes.NewReader(data),
 		},
-		Caption: fmt.Sprintf("📖 %s", book.Title),
+		Caption:     fmt.Sprintf("📖 %s", book.Title),
 		ReplyMarkup: GetMainKeyboard(),
 	})
 	if err != nil {
