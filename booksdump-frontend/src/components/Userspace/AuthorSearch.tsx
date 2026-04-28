@@ -69,8 +69,8 @@ const AuthorSearch: React.FC = () => {
     };
 
     return (
-        <>
-            <Box>
+        <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: 'calc(100vh - 200px)' }}>
+            <Box sx={{ flex: 1 }}>
                 {loading ? (
                     <Box maxWidth={1200} mx="auto">
                         <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
@@ -106,10 +106,10 @@ const AuthorSearch: React.FC = () => {
                     </Box>
                 )}
             </Box>
-            <Box sx={{ display: 'flex', justifyContent: 'center', marginTop: 2 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 'auto', pt: 2 }}>
                 <BookPagination totalPages={totalPages} currentPage={parseInt(page || '1', 10)} baseUrl={baseUrl} />
             </Box>
-        </>
+        </Box>
     );
 };
 

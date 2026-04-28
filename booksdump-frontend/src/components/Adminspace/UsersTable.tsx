@@ -331,7 +331,7 @@ const UsersTable: React.FC = () => {
     };
 
     return (
-        <Box>
+        <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: 'calc(100vh - 240px)' }}>
             <Typography variant="h6" align="center">{(t('users'))}</Typography>
             <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
                 <StyledTextField
@@ -580,7 +580,7 @@ const UsersTable: React.FC = () => {
                     <Button sx={{ color: 'text.primary' }} onClick={handleUserChange}>{'Save'}</Button>
                 </DialogActions>
             </Dialog>
-            <Stack spacing={3} justifyContent="center" sx={{ marginTop: 2 }}>
+            <Stack spacing={3} justifyContent="center" sx={{ mt: 'auto', pt: 2 }}>
                 <BookPagination totalPages={totalPages} currentPage={parseInt(page as string)} baseUrl={location.pathname} />
             </Stack>
         </Box>

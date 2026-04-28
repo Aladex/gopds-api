@@ -377,7 +377,7 @@ const BooksList: React.FC = () => {
 
 
     return (
-        <Box>
+        <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: 'calc(100vh - 200px)' }}>
             {state.loading ? (
                 <Stack spacing={0}>
                     {Array.from({ length: 10 }).map((_, index) => (
@@ -395,7 +395,7 @@ const BooksList: React.FC = () => {
                     </Card>
                 </Box>
             ) : (
-                <>
+                <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
                     <Stack spacing={0}>
                         {state.books.map((book) => (
                             <Box maxWidth={1200} mx="auto" key={book.id} sx={{ width: '100%' }}>
@@ -545,11 +545,11 @@ const BooksList: React.FC = () => {
                                 </Box>
                         ))}
                     </Stack>
-                    <Box sx={{ display: 'flex', justifyContent: 'center', marginTop: 2 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'center', mt: 'auto', pt: 2 }}>
                         <BookPagination totalPages={state.totalPages} currentPage={parseInt(page as string)}
                                         baseUrl={location.pathname} />
                     </Box>
-                </>
+                </Box>
             )}
             {messageQueue.map((msg, index) => (
                 <Snackbar

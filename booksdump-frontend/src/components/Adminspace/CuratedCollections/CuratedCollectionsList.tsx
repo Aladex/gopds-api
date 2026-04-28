@@ -56,7 +56,7 @@ const CuratedCollectionsList: React.FC = () => {
     };
 
     return (
-        <Box>
+        <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: 'calc(100vh - 240px)' }}>
             <Typography variant="h5" gutterBottom>
                 {t('curatedCollections.title', 'Curated collections')}
             </Typography>
@@ -66,8 +66,8 @@ const CuratedCollectionsList: React.FC = () => {
 
             {loadError && <Alert severity="error" sx={{ mt: 2 }}>{loadError}</Alert>}
 
-            <Card sx={{ mt: 2 }}>
-                <CardContent>
+            <Card sx={{ mt: 2, display: 'flex', flexDirection: 'column', flex: 1 }}>
+                <CardContent sx={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
                     <Table size="small">
                         <TableHead>
                             <TableRow>
@@ -116,7 +116,7 @@ const CuratedCollectionsList: React.FC = () => {
                         </TableBody>
                     </Table>
                     {totalPages > 1 && (
-                        <Stack alignItems="center" mt={2}>
+                        <Stack alignItems="center" mt="auto" pt={2}>
                             <BookPagination
                                 totalPages={totalPages}
                                 currentPage={page}
