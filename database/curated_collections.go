@@ -202,6 +202,27 @@ func ResolveCollectionItem(ctx context.Context, itemID, bookID int64) error {
 	return err
 }
 
+// RewriteItemFromNotFound moves an item out of the not_found bucket after a
+// retry (e.g. an LLM-suggested alternative query) found candidates. Caller
+// passes the new bucket (ambiguous / auto_matched) plus optional book_id and
+// the candidates list to drop into external_extra.
+func RewriteItemFromNotFound(ctx context.Context, itemID int64, status string, bookID *int64, score float32, candidates []models.MatchCandidate) error {
+	extraJSON, err := json.Marshal(map[string]any{"candidates": candidates})
+	if err != nil {
+		return err
+	}
+	q := db.ModelContext(ctx, (*models.BookCollectionItem)(nil)).
+		Set("match_status = ?", status).
+		Set("match_score = ?", score).
+		Set("external_extra = ?", string(extraJSON)).
+		Where("id = ?", itemID)
+	if bookID != nil {
+		q = q.Set("book_id = ?", *bookID)
+	}
+	_, err = q.Update()
+	return err
+}
+
 // IgnoreCollectionItem flips the item to status=ignored without touching book_id.
 func IgnoreCollectionItem(ctx context.Context, itemID int64) error {
 	_, err := db.ModelContext(ctx, (*models.BookCollectionItem)(nil)).

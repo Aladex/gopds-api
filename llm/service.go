@@ -473,6 +473,76 @@ Reply with a single line of strict JSON, no comments, no markdown:
 	return nil, nil
 }
 
+// SuggestedQuery is one alternative title/author pair returned by
+// SuggestAlternativeQuery. Either field may be empty if the model is unsure.
+type SuggestedQuery struct {
+	Title  string
+	Author string
+}
+
+// SuggestAlternativeQuery asks the model to propose a more search-friendly
+// title/author pair when the matcher could not find anything for the original
+// external record. Returns a single suggestion (the model's best guess).
+//
+// Typical use: external "Скотское хозяйство" by "Джорж Оруэлл" → suggestion
+// {"Скотный двор", "Джордж Оруэлл"}.
+func (s *LLMService) SuggestAlternativeQuery(externalTitle, externalAuthor string) (*SuggestedQuery, error) {
+	if s.apiKey == "" {
+		return nil, nil
+	}
+	prompt := fmt.Sprintf(`You are a librarian. A book listing was found in an external catalog
+that my local Russian-language library cannot match. Suggest the most likely
+alternative title and author so the catalog has a better chance of matching it.
+The replacement could be the canonical Russian translation, the original-language
+title, an alternative transliteration of the author's name, or a clarified
+multi-volume short title.
+
+External record:
+  title: %q
+  author: %q
+
+Rules:
+- Prefer the form an average Russian-language library uses.
+- If the input is already canonical, return the same values unchanged.
+- Output exactly one suggestion.
+
+Reply with strict JSON, no markdown, no commentary:
+{"title": "...", "author": "..."}`, externalTitle, externalAuthor)
+
+	request := OpenAIRequest{
+		Model: GetModel(),
+		Messages: []Message{
+			{Role: "user", Content: prompt},
+		},
+	}
+	response, err := s.callOpenAI(request)
+	if err != nil {
+		return nil, err
+	}
+	if len(response.Choices) == 0 {
+		return nil, nil
+	}
+	content := strings.TrimSpace(response.Choices[0].Message.Content)
+	startIdx := strings.Index(content, "{")
+	endIdx := strings.LastIndex(content, "}")
+	if startIdx == -1 || endIdx == -1 || endIdx <= startIdx {
+		return nil, nil
+	}
+	var payload struct {
+		Title  string `json:"title"`
+		Author string `json:"author"`
+	}
+	if err := json.Unmarshal([]byte(content[startIdx:endIdx+1]), &payload); err != nil {
+		return nil, nil
+	}
+	payload.Title = strings.TrimSpace(payload.Title)
+	payload.Author = strings.TrimSpace(payload.Author)
+	if payload.Title == "" && payload.Author == "" {
+		return nil, nil
+	}
+	return &SuggestedQuery{Title: payload.Title, Author: payload.Author}, nil
+}
+
 // GenerateGenreTitleUnique retries genre title generation, explicitly excluding conflicting titles.
 func (s *LLMService) GenerateGenreTitleUnique(genreTag string, books []GenreBookContext, excluded []string) string {
 	if s.apiKey == "" {

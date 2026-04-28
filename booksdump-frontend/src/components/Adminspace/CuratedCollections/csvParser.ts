@@ -50,7 +50,9 @@ function parseCsvLine(line: string): string[] {
 
 // parseCsv accepts a CSV with a strict header `title,author,year` (year optional).
 // Quoted values, escaped quotes (`""` → `"`) and \r\n line endings are supported.
-// Rows with empty title or author are reported as errors and skipped.
+// Rows with an empty title or author are silently skipped — these are common in
+// scraped data (anthologies / multi-volume sets / conference proceedings) and
+// would only spam the warning panel, not give the admin anything actionable.
 export function parseCsv(text: string): ParseResult {
     const items: ParsedItem[] = [];
     const errors: string[] = [];
@@ -80,7 +82,7 @@ export function parseCsv(text: string): ParseResult {
         const title = (cols[titleIdx] ?? '').trim();
         const author = (cols[authorIdx] ?? '').trim();
         if (!title || !author) {
-            errors.push(`line ${i + 1}: empty title or author`);
+            // Silent skip — see header comment.
             continue;
         }
         const item: ParsedItem = { title, author };
@@ -146,7 +148,7 @@ export function parseTextarea(text: string): ParseResult {
         const author = cols[0] ?? '';
         const title = cols[1] ?? '';
         if (!author || !title) {
-            errors.push(`line ${idx + 1}: empty author or title`);
+            // Silent skip — incomplete pasted lines are not actionable warnings.
             return;
         }
         const item: ParsedItem = { author, title };

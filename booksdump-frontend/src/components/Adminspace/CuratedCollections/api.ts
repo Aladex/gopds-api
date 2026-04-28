@@ -140,6 +140,11 @@ export const llmResolveCollection = async (collectionID: number): Promise<{ reso
     return resp.data;
 };
 
+export const llmSearchNotFound = async (collectionID: number): Promise<{ status: string }> => {
+    const resp = await fetchWithAuth.post(`/admin/collections/${collectionID}/llm-search-not-found`);
+    return resp.data;
+};
+
 export const patchCuratedCollection = async (
     id: number,
     patch: { name?: string; is_public?: boolean; source_url?: string },

@@ -29,6 +29,7 @@ type CuratedCollectionsAdmin interface {
 	Ignore(ctx context.Context, itemID int64) error
 	AutoResolveAmbiguous(ctx context.Context, collectionID int64, decidedByUserID *int64) (int, error)
 	LLMResolveAmbiguous(ctx context.Context, collectionID int64, decidedByUserID *int64) (int, error)
+	LLMSearchNotFound(ctx context.Context, collectionID int64, decidedByUserID *int64) (int, error)
 
 	Update(ctx context.Context, id int64, patch database.CuratedCollectionPatch) error
 	Delete(ctx context.Context, id int64) error
@@ -53,6 +54,7 @@ func (h *CuratedCollectionsHandler) Register(r *gin.RouterGroup) {
 	r.POST("/:id/items/:itemID/ignore", h.ignore)
 	r.POST("/:id/auto-resolve", h.autoResolve)
 	r.POST("/:id/llm-resolve", h.llmResolve)
+	r.POST("/:id/llm-search-not-found", h.llmSearchNotFound)
 }
 
 // --- DTOs ---
@@ -322,6 +324,35 @@ func (h *CuratedCollectionsHandler) llmResolve(c *gin.Context) {
 		_, err := h.Svc.LLMResolveAmbiguous(context.Background(), cid, decidedBy)
 		if err != nil {
 			// Logged inside the service; nothing else to do here.
+			_ = err
+		}
+	}(id, decidedBy)
+	c.JSON(http.StatusAccepted, gin.H{"status": "started"})
+}
+
+func (h *CuratedCollectionsHandler) llmSearchNotFound(c *gin.Context) {
+	id, ok := parseInt64Param(c, "id")
+	if !ok {
+		return
+	}
+	var decidedBy *int64
+	if v, exists := c.Get("user_id"); exists {
+		if uid, ok := v.(int64); ok {
+			decidedBy = &uid
+		}
+	}
+	col, err := h.Svc.Get(c.Request.Context(), id)
+	if err != nil {
+		respondCollectionError(c, err)
+		return
+	}
+	if col != nil && col.ImportStats != nil && col.ImportStats.AIProgress != nil && col.ImportStats.AIProgress.Running {
+		c.JSON(http.StatusConflict, gin.H{"error": "ai resolve already running"})
+		return
+	}
+	go func(cid int64, decidedBy *int64) {
+		_, err := h.Svc.LLMSearchNotFound(context.Background(), cid, decidedBy)
+		if err != nil {
 			_ = err
 		}
 	}(id, decidedBy)

@@ -42,10 +42,12 @@ type CollectionImportStats struct {
 	AIProgress *AIResolveProgress   `json:"ai_progress,omitempty"`
 }
 
-// AIResolveProgress is a snapshot of an in-flight LLMResolveAmbiguous run.
-// Updated after each LLM call so the admin UI can poll it via /status.
+// AIResolveProgress is a snapshot of an in-flight LLM-driven loop. Updated after
+// each LLM call so the admin UI can poll it via /status. Mode lets the UI label
+// the progress correctly without two separate jsonb fields.
 type AIResolveProgress struct {
 	Running   bool         `json:"running"`
+	Mode      string       `json:"mode,omitempty"` // "resolve_ambiguous" | "search_not_found"
 	Processed int          `json:"processed"`
 	Total     int          `json:"total"`
 	Resolved  int          `json:"resolved"`

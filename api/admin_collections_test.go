@@ -96,6 +96,9 @@ func (f *fakeAdminSvc) AutoResolveAmbiguous(ctx context.Context, id int64, decid
 func (f *fakeAdminSvc) LLMResolveAmbiguous(ctx context.Context, id int64, decidedBy *int64) (int, error) {
 	return 0, nil
 }
+func (f *fakeAdminSvc) LLMSearchNotFound(ctx context.Context, id int64, decidedBy *int64) (int, error) {
+	return 0, nil
+}
 
 func newAdminTestRouter(svc CuratedCollectionsAdmin) *gin.Engine {
 	gin.SetMode(gin.TestMode)

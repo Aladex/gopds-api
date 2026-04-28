@@ -383,6 +383,8 @@
   "curatedCollections.aiBoxRunning": "AI разруливает…",
   "curatedCollections.aiBoxIdle": "Последний прогон AI",
   "curatedCollections.aiBoxResolved": "разрулено",
+  "curatedCollections.aiSearchNotFound": "Найти через AI",
+  "curatedCollections.aiSearching": "AI ищет…",
   "curatedCollections.batchTitle": "Пакетный импорт",
   "curatedCollections.batchHint": "Перетащи один или несколько CSV-файлов. Каждый файл — отдельная коллекция, имя берётся из имени файла.",
   "curatedCollections.dropHere": "Перетащи CSV сюда",

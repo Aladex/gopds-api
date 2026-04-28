@@ -174,6 +174,7 @@ func (s *CuratedCollectionsService) LLMResolveAmbiguous(ctx context.Context, col
 	startedAt := time.Now().UTC()
 	progress := &models.AIResolveProgress{
 		Running:   true,
+		Mode:      "resolve_ambiguous",
 		Total:     len(items),
 		StartedAt: startedAt,
 		UpdatedAt: startedAt,
@@ -274,6 +275,150 @@ func (s *CuratedCollectionsService) LLMResolveAmbiguous(ctx context.Context, col
 		}
 		progress.Processed++
 		progress.Resolved = resolved
+		appendRecent(progress, decision)
+		publish()
+	}
+	return resolved, nil
+}
+
+// LLMSearchNotFound iterates over every not_found item, asks the model for an
+// alternative title/author pair (e.g. canonical Russian translation, original
+// title, transliteration variant), reruns the matcher with the suggestion and
+// rewrites the item if the rerun produced anything usable. Auto-matched items
+// flip to manual + cache; ambiguous items move to the Ambiguous tab with the
+// fresh candidates; nothing changes when the matcher still returns not_found.
+//
+// Shares the same ai_progress slot as LLMResolveAmbiguous (Mode discriminates
+// in UI), and refuses to start when one is already running.
+func (s *CuratedCollectionsService) LLMSearchNotFound(ctx context.Context, collectionID int64, decidedByUserID *int64) (int, error) {
+	const pageSize = 1000
+	items, _, err := database.ListCollectionItems(ctx, collectionID, models.MatchStatusNotFound, 1, pageSize)
+	if err != nil {
+		return 0, err
+	}
+
+	col, err := database.GetCuratedCollection(ctx, collectionID)
+	if err != nil {
+		return 0, err
+	}
+	baseStats := models.CollectionImportStats{}
+	if col.ImportStats != nil {
+		baseStats = *col.ImportStats
+		if baseStats.AIProgress != nil && baseStats.AIProgress.Running {
+			return 0, ErrAIResolveAlreadyRunning
+		}
+	}
+	startedAt := time.Now().UTC()
+	progress := &models.AIResolveProgress{
+		Running:   true,
+		Mode:      "search_not_found",
+		Total:     len(items),
+		StartedAt: startedAt,
+		UpdatedAt: startedAt,
+	}
+	publish := func() {
+		snap := baseStats
+		copyProg := *progress
+		copyProg.UpdatedAt = time.Now().UTC()
+		snap.AIProgress = &copyProg
+		if err := database.UpdateCollectionImportStats(ctx, collectionID, snap); err != nil {
+			logging.Warnf("LLMSearchNotFound: publish progress: %v", err)
+		}
+	}
+	publish()
+	defer func() {
+		progress.Running = false
+		publish()
+	}()
+
+	llmSvc := llm.NewLLMService()
+	matcher := NewCuratedMatcher()
+	resolved := 0
+	for _, it := range items {
+		decision := models.AIDecision{
+			ItemID:        it.ID,
+			ExternalTitle: it.ExternalTitle,
+			Action:        "skipped",
+		}
+		suggestion, err := llmSvc.SuggestAlternativeQuery(it.ExternalTitle, it.ExternalAuthor)
+		if err != nil {
+			logging.Warnf("LLMSearchNotFound: suggest for item %d: %v", it.ID, err)
+			progress.Processed++
+			appendRecent(progress, decision)
+			publish()
+			continue
+		}
+		if suggestion == nil {
+			progress.Processed++
+			appendRecent(progress, decision)
+			publish()
+			continue
+		}
+		title := suggestion.Title
+		author := suggestion.Author
+		if title == "" {
+			title = it.ExternalTitle
+		}
+		if author == "" {
+			author = it.ExternalAuthor
+		}
+		// Don't waste a matcher call if the model returned something
+		// indistinguishable from the original input.
+		if strings.EqualFold(title, it.ExternalTitle) && strings.EqualFold(author, it.ExternalAuthor) {
+			progress.Processed++
+			appendRecent(progress, decision)
+			publish()
+			continue
+		}
+
+		res, err := matcher.MatchOne(ctx, author, title)
+		if err != nil {
+			logging.Warnf("LLMSearchNotFound: rerun match for item %d: %v", it.ID, err)
+			progress.Processed++
+			appendRecent(progress, decision)
+			publish()
+			continue
+		}
+
+		switch res.Status {
+		case models.MatchStatusAutoMatched, models.MatchStatusManual:
+			// Strong hit on the suggested pair → manual-resolve so it gets
+			// cached in book_match_decisions for future imports.
+			if res.BookID == nil {
+				progress.Processed++
+				appendRecent(progress, decision)
+				publish()
+				continue
+			}
+			if err := s.Resolve(ctx, it.ID, *res.BookID, decidedByUserID); err != nil {
+				logging.Warnf("LLMSearchNotFound: resolve %d -> %d failed: %v", it.ID, *res.BookID, err)
+				progress.Processed++
+				appendRecent(progress, decision)
+				publish()
+				continue
+			}
+			resolved++
+			decision.Action = "resolved"
+			decision.BookID = res.BookID
+			books, _ := database.GetBooksByIDs([]int64{*res.BookID})
+			if len(books) > 0 {
+				decision.BookTitle = books[0].Title
+			}
+			progress.Resolved = resolved
+		case models.MatchStatusAmbiguous:
+			// Move from not_found into ambiguous with fresh candidates so the
+			// admin can either click a chip or run the AI-resolve pass next.
+			if err := database.RewriteItemFromNotFound(ctx, it.ID, models.MatchStatusAmbiguous, nil, res.Score, res.Candidates); err != nil {
+				logging.Warnf("LLMSearchNotFound: rewrite item %d: %v", it.ID, err)
+				progress.Processed++
+				appendRecent(progress, decision)
+				publish()
+				continue
+			}
+			decision.Action = "moved_to_ambiguous"
+		}
+
+		progress.Processed++
 		appendRecent(progress, decision)
 		publish()
 	}

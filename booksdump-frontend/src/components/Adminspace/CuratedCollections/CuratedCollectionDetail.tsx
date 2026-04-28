@@ -35,6 +35,7 @@ import {
     ImportStatusInfo,
     listCollectionItems,
     llmResolveCollection,
+    llmSearchNotFound,
     LookupBook,
     lookupBooksByIDs,
     patchCuratedCollection,
@@ -379,13 +380,21 @@ const CuratedCollectionDetail: React.FC = () => {
         setAiResolving(true);
         try {
             await llmResolveCollection(id);
-            // The endpoint returns 202 immediately and the goroutine has
-            // already written ai_progress.running=true to the DB before
-            // returning. Pull the fresh status right away so the progress
-            // box and the polling effect kick in without a manual refresh.
             await loadStatus();
         } finally {
             setAiResolving(false);
+        }
+    };
+
+    const [aiSearching, setAiSearching] = useState(false);
+    const onAISearchNotFound = async () => {
+        if (aiSearching) return;
+        setAiSearching(true);
+        try {
+            await llmSearchNotFound(id);
+            await loadStatus();
+        } finally {
+            setAiSearching(false);
         }
     };
 
@@ -531,17 +540,18 @@ const CuratedCollectionDetail: React.FC = () => {
 
             <Card>
                 <CardContent>
-                    <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={1}>
-                        <Tabs value={tabKey} onChange={(_, v) => setTabKey(v)}>
-                            {statusTabs.map((tab) => (
-                                <Tab key={tab.key} value={tab.key} label={tab.label} />
-                            ))}
-                        </Tabs>
-                        <Stack direction="row" spacing={1}>
+                    <Tabs value={tabKey} onChange={(_, v) => setTabKey(v)}>
+                        {statusTabs.map((tab) => (
+                            <Tab key={tab.key} value={tab.key} label={tab.label} />
+                        ))}
+                    </Tabs>
+
+                    {tabKey === 'ambiguous' && (
+                        <Stack direction="row" spacing={1} mt={2}>
                             <Button
                                 size="small"
                                 variant="outlined"
-                                disabled={autoResolving || aiResolving || importing || (stats.ambiguous ?? 0) === 0}
+                                disabled={autoResolving || aiResolving || aiSearching || importing || (stats.ambiguous ?? 0) === 0}
                                 onClick={onAutoResolve}
                             >
                                 {autoResolving
@@ -551,7 +561,7 @@ const CuratedCollectionDetail: React.FC = () => {
                             <Button
                                 size="small"
                                 variant="outlined"
-                                disabled={autoResolving || aiResolving || importing || (stats.ambiguous ?? 0) === 0}
+                                disabled={autoResolving || aiResolving || aiSearching || importing || (stats.ambiguous ?? 0) === 0}
                                 onClick={onAIResolve}
                             >
                                 {aiResolving
@@ -559,7 +569,23 @@ const CuratedCollectionDetail: React.FC = () => {
                                     : t('curatedCollections.aiResolveAll', 'Resolve via AI')}
                             </Button>
                         </Stack>
-                    </Stack>
+                    )}
+
+                    {tabKey === 'not_found' && (
+                        <Stack direction="row" spacing={1} mt={2}>
+                            <Button
+                                size="small"
+                                variant="outlined"
+                                disabled={autoResolving || aiResolving || aiSearching || importing || (stats.not_found ?? 0) === 0}
+                                onClick={onAISearchNotFound}
+                            >
+                                {aiSearching
+                                    ? t('curatedCollections.aiSearching', 'AI searching…')
+                                    : t('curatedCollections.aiSearchNotFound', 'Find via AI')}
+                            </Button>
+                        </Stack>
+                    )}
+
                     <Box mt={2}>
                         <ItemsTable
                             items={items}

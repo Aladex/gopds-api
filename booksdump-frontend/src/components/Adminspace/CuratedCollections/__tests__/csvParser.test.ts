@@ -50,14 +50,14 @@ Brave New World,Aldous Huxley`;
         expect(errors.length).toBeGreaterThan(0);
     });
 
-    it('skips rows with empty title or author and reports errors', () => {
+    it('silently skips rows with empty title or author', () => {
         const text = `title,author,year
 ,Orwell,1949
 Brave New World,,1932
 Valid,Author,2000`;
         const { items, errors } = parseCsv(text);
         expect(items).toEqual([{ title: 'Valid', author: 'Author', year: 2000 }]);
-        expect(errors).toHaveLength(2);
+        expect(errors).toHaveLength(0);
     });
 
     it('handles CRLF line endings', () => {

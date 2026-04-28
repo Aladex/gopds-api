@@ -381,6 +381,8 @@
   "curatedCollections.aiBoxRunning": "AI resolving…",
   "curatedCollections.aiBoxIdle": "AI last run",
   "curatedCollections.aiBoxResolved": "resolved",
+  "curatedCollections.aiSearchNotFound": "Find via AI",
+  "curatedCollections.aiSearching": "AI searching…",
   "curatedCollections.batchTitle": "Batch import",
   "curatedCollections.batchHint": "Drop one or more CSV files. Each file becomes one collection — name is taken from the file name.",
   "curatedCollections.dropHere": "Drop CSV files here",
