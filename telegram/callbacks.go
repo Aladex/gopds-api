@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	tgbotapi "github.com/go-telegram/bot"
 	tgbot "github.com/go-telegram/bot/models"
@@ -335,44 +336,40 @@ func (h *CallbackHandler) handleBookSelection(ctx context.Context, b *tgbotapi.B
 	if !hasMsg {
 		chatID = q.From.ID
 	}
-	coverURL := h.getBookCoverURL(book)
-	if coverURL != "" && h.isCoverAvailable(coverURL) {
+	// Telegram fetches Photo URLs from its own network and cannot reach the
+	// project's CDN (Russian-hosted). Download the cover bytes ourselves and
+	// upload them as a file; fall back to a plain text message on any failure.
+	coverBytes := h.fetchBookCover(book)
+	if coverBytes != nil {
 		_, sendErr := b.SendPhoto(ctx, &tgbotapi.SendPhotoParams{
-			ChatID:    chatID,
-			Photo:     &tgbot.InputFileString{Data: coverURL},
+			ChatID: chatID,
+			Photo: &tgbot.InputFileUpload{
+				Filename: fmt.Sprintf("cover-%d.jpg", book.ID),
+				Data:     bytes.NewReader(coverBytes),
+			},
 			Caption:   messageText,
 			ParseMode: tgbot.ParseModeHTML,
 			ReplyMarkup: &tgbot.InlineKeyboardMarkup{
 				InlineKeyboard: markup.InlineKeyboard,
 			},
 		})
-		if sendErr != nil {
-			logging.Warnf("Failed to send photo for book %d, falling back to text: %v", bookID, sendErr)
-			_, textErr := b.SendMessage(ctx, &tgbotapi.SendMessageParams{
-				ChatID:    chatID,
-				Text:      messageText,
-				ParseMode: tgbot.ParseModeHTML,
-				ReplyMarkup: &tgbot.InlineKeyboardMarkup{
-					InlineKeyboard: markup.InlineKeyboard,
-				},
-			})
-			if textErr != nil {
-				logging.Errorf("Failed to send download options for user %d: %v", telegramID, textErr)
-			}
-		}
-	} else {
-		_, sendErr := b.SendMessage(ctx, &tgbotapi.SendMessageParams{
-			ChatID:    chatID,
-			Text:      messageText,
-			ParseMode: tgbot.ParseModeHTML,
-			ReplyMarkup: &tgbot.InlineKeyboardMarkup{
-				InlineKeyboard: markup.InlineKeyboard,
-			},
-		})
-		if sendErr != nil {
-			logging.Errorf("Failed to send download options for user %d: %v", telegramID, sendErr)
+		if sendErr == nil {
+			h.processOutgoingMessage(telegramID, messageText)
 			return nil
 		}
+		logging.Warnf("Failed to send photo for book %d, falling back to text: %v", bookID, sendErr)
+	}
+
+	if _, sendErr := b.SendMessage(ctx, &tgbotapi.SendMessageParams{
+		ChatID:    chatID,
+		Text:      messageText,
+		ParseMode: tgbot.ParseModeHTML,
+		ReplyMarkup: &tgbot.InlineKeyboardMarkup{
+			InlineKeyboard: markup.InlineKeyboard,
+		},
+	}); sendErr != nil {
+		logging.Errorf("Failed to send download options for user %d: %v", telegramID, sendErr)
+		return nil
 	}
 
 	h.processOutgoingMessage(telegramID, messageText)
@@ -650,20 +647,41 @@ func (h *CallbackHandler) getBookCoverURL(book models.Book) string {
 	return coverURL
 }
 
-// isCoverAvailable checks if the cover URL is accessible
-func (h *CallbackHandler) isCoverAvailable(coverURL string) bool {
+// fetchBookCover downloads the book cover from the configured CDN. Returns nil
+// on any failure (no cover, network error, non-2xx, oversize). The bot uploads
+// the bytes to Telegram itself because Telegram cannot reach the CDN directly
+// when the project is hosted in a network blocked from Telegram's servers.
+func (h *CallbackHandler) fetchBookCover(book models.Book) []byte {
+	coverURL := h.getBookCoverURL(book)
 	if coverURL == "" {
-		return false
+		return nil
 	}
 
-	resp, err := http.Head(coverURL)
+	const maxCoverBytes = 10 * 1024 * 1024 // Telegram caps photo uploads at ~10MB
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(coverURL)
 	if err != nil {
-		logging.Debugf("Failed to check cover availability: %v", err)
-		return false
+		logging.Debugf("Failed to fetch cover for book %d: %v", book.ID, err)
+		return nil
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	return resp.StatusCode >= 200 && resp.StatusCode < 300
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		logging.Debugf("Cover for book %d returned status %d", book.ID, resp.StatusCode)
+		return nil
+	}
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxCoverBytes+1))
+	if err != nil {
+		logging.Debugf("Failed to read cover for book %d: %v", book.ID, err)
+		return nil
+	}
+	if len(data) > maxCoverBytes {
+		logging.Debugf("Cover for book %d exceeds %d bytes, skipping", book.ID, maxCoverBytes)
+		return nil
+	}
+	return data
 }
 
 // escapeHTML escapes HTML special characters for Telegram

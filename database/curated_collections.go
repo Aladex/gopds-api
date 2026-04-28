@@ -430,6 +430,8 @@ func GetPublicCollectionBooks(ctx context.Context, collectionID int64) ([]models
 	var books []models.Book
 	err := db.ModelContext(ctx, &books).
 		ColumnExpr("book.*").
+		Relation("Authors").
+		Relation("Series").
 		Join("JOIN book_collection_items i ON i.book_id = book.id").
 		Where("i.collection_id = ?", collectionID).
 		Where("i.match_status IN (?)", pg.In([]string{
@@ -448,6 +450,8 @@ func GetPublicCollectionBooksPage(ctx context.Context, collectionID int64, offse
 	var books []models.Book
 	total, err := db.ModelContext(ctx, &books).
 		ColumnExpr("book.*").
+		Relation("Authors").
+		Relation("Series").
 		Join("JOIN book_collection_items i ON i.book_id = book.id").
 		Where("i.collection_id = ?", collectionID).
 		Where("i.match_status IN (?)", pg.In([]string{
