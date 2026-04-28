@@ -64,8 +64,8 @@ func (f *fakeAdminSvc) StartImport(ctx context.Context, params services.ImportPa
 	f.startImportCalls = append(f.startImportCalls, params)
 	return f.startImportID, f.startImportErr
 }
-func (f *fakeAdminSvc) List(ctx context.Context) ([]models.BookCollection, error) {
-	return f.listResp, f.listErr
+func (f *fakeAdminSvc) List(ctx context.Context, page, pageSize int) ([]models.BookCollection, int, error) {
+	return f.listResp, len(f.listResp), f.listErr
 }
 func (f *fakeAdminSvc) Get(ctx context.Context, id int64) (*models.BookCollection, error) {
 	return f.getResp, f.getErr
@@ -181,9 +181,13 @@ func TestAdminCollections_List_Success(t *testing.T) {
 	rec := doJSON(t, r, http.MethodGet, "/api/admin/collections", nil)
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	var got []models.BookCollection
+	var got struct {
+		Rows  []models.BookCollection `json:"rows"`
+		Total int                     `json:"total"`
+	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	assert.Len(t, got, 2)
+	assert.Len(t, got.Rows, 2)
+	assert.Equal(t, 2, got.Total)
 }
 
 // --- Get ---

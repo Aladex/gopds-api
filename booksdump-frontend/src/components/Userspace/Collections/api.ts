@@ -35,9 +35,19 @@ export interface PublicCollectionDetail extends PublicCollectionRow {
     books: PublicCollectionBook[];
 }
 
-export const listPublicCollections = async (): Promise<PublicCollectionRow[]> => {
-    const resp = await fetchWithAuth.get('/collections');
-    return resp.data ?? [];
+export interface PublicCollectionsPage {
+    rows: PublicCollectionRow[];
+    total: number;
+    page: number;
+    page_size: number;
+}
+
+export const listPublicCollections = async (page = 1, pageSize = 12): Promise<PublicCollectionsPage> => {
+    const resp = await fetchWithAuth.get('/collections', { params: { page, page_size: pageSize } });
+    if (Array.isArray(resp.data)) {
+        return { rows: resp.data, total: resp.data.length, page, page_size: pageSize };
+    }
+    return resp.data ?? { rows: [], total: 0, page, page_size: pageSize };
 };
 
 export const getPublicCollection = async (id: number): Promise<PublicCollectionDetail> => {

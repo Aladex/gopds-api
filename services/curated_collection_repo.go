@@ -72,8 +72,8 @@ func (s *CuratedCollectionsService) StartImport(ctx context.Context, params Impo
 	return StartImport(params, s.Repo, s.Matcher)
 }
 
-func (s *CuratedCollectionsService) List(ctx context.Context) ([]models.BookCollection, error) {
-	return database.ListCuratedCollections(ctx)
+func (s *CuratedCollectionsService) List(ctx context.Context, page, pageSize int) ([]models.BookCollection, int, error) {
+	return database.ListCuratedCollections(ctx, page, pageSize)
 }
 
 func (s *CuratedCollectionsService) Get(ctx context.Context, id int64) (*models.BookCollection, error) {
@@ -326,8 +326,8 @@ func NewPublicCuratedCollectionsService() *PublicCuratedCollectionsService {
 	return &PublicCuratedCollectionsService{}
 }
 
-func (PublicCuratedCollectionsService) List(ctx context.Context) ([]models.BookCollection, error) {
-	return database.ListPublicCuratedCollections(ctx)
+func (PublicCuratedCollectionsService) List(ctx context.Context, page, pageSize int) ([]models.BookCollection, int, error) {
+	return database.ListPublicCuratedCollections(ctx, page, pageSize)
 }
 
 func (PublicCuratedCollectionsService) Get(ctx context.Context, id int64) (*models.BookCollection, error) {

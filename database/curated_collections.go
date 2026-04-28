@@ -122,14 +122,23 @@ func GetCuratedCollection(ctx context.Context, id int64) (*models.BookCollection
 	return c, nil
 }
 
-// ListCuratedCollections returns all is_curated=true collections, newest first.
-func ListCuratedCollections(ctx context.Context) ([]models.BookCollection, error) {
+// ListCuratedCollections returns is_curated=true collections, newest first,
+// paginated. total is the number of curated collections regardless of page.
+func ListCuratedCollections(ctx context.Context, page, pageSize int) ([]models.BookCollection, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 25
+	}
 	var out []models.BookCollection
-	err := db.ModelContext(ctx, &out).
+	total, err := db.ModelContext(ctx, &out).
 		Where("is_curated = ?", true).
 		Order("created_at DESC").
-		Select()
-	return out, err
+		Offset((page - 1) * pageSize).
+		Limit(pageSize).
+		SelectAndCount()
+	return out, total, err
 }
 
 // ListCollectionItems returns items of one collection, optionally filtered by match_status,
@@ -261,16 +270,25 @@ func DeleteCuratedCollection(ctx context.Context, id int64) error {
 	return nil
 }
 
-// ListPublicCuratedCollections returns curated collections that are also published.
-// Drafts and UGC are filtered out at this layer so the public handler can trust the result.
-func ListPublicCuratedCollections(ctx context.Context) ([]models.BookCollection, error) {
+// ListPublicCuratedCollections returns published curated collections, newest first,
+// paginated. Drafts and UGC are filtered out at this layer so the public handler
+// can trust the result.
+func ListPublicCuratedCollections(ctx context.Context, page, pageSize int) ([]models.BookCollection, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 12
+	}
 	var out []models.BookCollection
-	err := db.ModelContext(ctx, &out).
+	total, err := db.ModelContext(ctx, &out).
 		Where("is_curated = ?", true).
 		Where("is_public = ?", true).
 		Order("created_at DESC").
-		Select()
-	return out, err
+		Offset((page - 1) * pageSize).
+		Limit(pageSize).
+		SelectAndCount()
+	return out, total, err
 }
 
 // GetPublicCuratedCollection fetches one published curated collection.

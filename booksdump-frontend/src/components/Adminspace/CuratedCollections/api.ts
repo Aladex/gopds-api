@@ -77,9 +77,20 @@ export const importCuratedCollection = async (
     return resp.data;
 };
 
-export const listCuratedCollections = async (): Promise<CuratedCollection[]> => {
-    const resp = await fetchWithAuth.get('/admin/collections');
-    return resp.data ?? [];
+export interface CuratedCollectionsPage {
+    rows: CuratedCollection[];
+    total: number;
+    page: number;
+    page_size: number;
+}
+
+export const listCuratedCollections = async (page = 1, pageSize = 25): Promise<CuratedCollectionsPage> => {
+    const resp = await fetchWithAuth.get('/admin/collections', { params: { page, page_size: pageSize } });
+    // tolerate the legacy {array} shape during a deploy window
+    if (Array.isArray(resp.data)) {
+        return { rows: resp.data, total: resp.data.length, page, page_size: pageSize };
+    }
+    return resp.data ?? { rows: [], total: 0, page, page_size: pageSize };
 };
 
 export const getCuratedCollection = async (id: number): Promise<CuratedCollection> => {

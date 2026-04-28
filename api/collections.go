@@ -19,7 +19,7 @@ import (
 // or UGC (is_curated=false) — that filtering is the implementation's responsibility,
 // the handler trusts what it gets.
 type PublicCollectionsService interface {
-	List(ctx context.Context) ([]models.BookCollection, error)
+	List(ctx context.Context, page, pageSize int) ([]models.BookCollection, int, error)
 	Get(ctx context.Context, id int64) (*models.BookCollection, error)
 	Books(ctx context.Context, collectionID int64) ([]models.Book, error)
 	Covers(ctx context.Context, collectionIDs []int64) (map[int64][]database.CollectionCoverBook, error)
@@ -47,6 +47,13 @@ type publicCollectionDTO struct {
 	CoverBooks []database.CollectionCoverBook `json:"cover_books"`
 }
 
+type publicCollectionsListResponse struct {
+	Rows     []publicCollectionDTO `json:"rows"`
+	Total    int                   `json:"total"`
+	Page     int                   `json:"page"`
+	PageSize int                   `json:"page_size"`
+}
+
 // publicCollectionDetailDTO carries the curated book list. We pass through the existing
 // models.Book (same shape as elsewhere on the public API) and add no items metadata.
 type publicCollectionDetailDTO struct {
@@ -57,7 +64,9 @@ type publicCollectionDetailDTO struct {
 }
 
 func (h *PublicCollectionsHandler) list(c *gin.Context) {
-	out, err := h.Svc.List(c.Request.Context())
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "12"))
+	out, total, err := h.Svc.List(c.Request.Context(), page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -83,7 +92,12 @@ func (h *PublicCollectionsHandler) list(c *gin.Context) {
 			CoverBooks: covers[col.ID],
 		})
 	}
-	c.JSON(http.StatusOK, dtos)
+	c.JSON(http.StatusOK, publicCollectionsListResponse{
+		Rows:     dtos,
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+	})
 }
 
 func (h *PublicCollectionsHandler) get(c *gin.Context) {

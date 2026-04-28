@@ -6,6 +6,8 @@ import {
     CardContent,
     Chip,
     IconButton,
+    Pagination,
+    Stack,
     Table,
     TableBody,
     TableCell,
@@ -20,23 +22,32 @@ import { CuratedCollection, deleteCuratedCollection, listCuratedCollections } fr
 import ImportForm from './ImportForm';
 import BatchImportForm from './BatchImportForm';
 
+const PAGE_SIZE = 25;
+
 const CuratedCollectionsList: React.FC = () => {
     const { t } = useTranslation();
     const [rows, setRows] = useState<CuratedCollection[]>([]);
+    const [page, setPage] = useState(1);
+    const [total, setTotal] = useState(0);
     const [loadError, setLoadError] = useState<string | null>(null);
 
-    const refresh = useCallback(async () => {
+    const refresh = useCallback(async (targetPage: number = page) => {
         try {
-            const data = await listCuratedCollections();
-            setRows(data);
+            const data = await listCuratedCollections(targetPage, PAGE_SIZE);
+            setRows(data.rows);
+            setTotal(data.total);
+            setPage(data.page);
         } catch (err: any) {
             setLoadError(err?.message ?? 'failed');
         }
-    }, []);
+    }, [page]);
 
     useEffect(() => {
-        refresh();
-    }, [refresh]);
+        refresh(page);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [page]);
+
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
     const onDelete = async (id: number) => {
         if (!window.confirm(t('curatedCollections.confirmDelete', 'Delete this collection?'))) return;
@@ -50,8 +61,8 @@ const CuratedCollectionsList: React.FC = () => {
                 {t('curatedCollections.title', 'Curated collections')}
             </Typography>
 
-            <ImportForm onCreated={() => refresh()} />
-            <BatchImportForm onCreated={() => refresh()} />
+            <ImportForm onCreated={() => refresh(1)} />
+            <BatchImportForm onCreated={() => refresh(1)} />
 
             {loadError && <Alert severity="error" sx={{ mt: 2 }}>{loadError}</Alert>}
 
@@ -104,6 +115,16 @@ const CuratedCollectionsList: React.FC = () => {
                             )}
                         </TableBody>
                     </Table>
+                    {totalPages > 1 && (
+                        <Stack alignItems="center" mt={2}>
+                            <Pagination
+                                count={totalPages}
+                                page={page}
+                                onChange={(_, p) => setPage(p)}
+                                size="small"
+                            />
+                        </Stack>
+                    )}
                 </CardContent>
             </Card>
         </Box>

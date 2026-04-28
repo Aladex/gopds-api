@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Box, Card, CardActionArea, Typography } from '@mui/material';
+import { Alert, Box, Card, CardActionArea, Pagination, Stack, Typography } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { API_URL } from '../../../api/config';
@@ -95,19 +95,25 @@ const CoverMosaic: React.FC<{ name: string; books?: CollectionCoverBook[] }> = (
     );
 };
 
+const PAGE_SIZE = 12;
+
 const CollectionsList: React.FC = () => {
     const { t } = useTranslation();
     const [rows, setRows] = useState<PublicCollectionRow[]>([]);
+    const [page, setPage] = useState(1);
+    const [total, setTotal] = useState(0);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [loaded, setLoaded] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
-        listPublicCollections()
+        listPublicCollections(page, PAGE_SIZE)
             .then((data) => {
                 if (!cancelled) {
-                    setRows(data);
+                    setRows(data.rows);
+                    setTotal(data.total);
                     setLoaded(true);
+                    if (typeof window !== 'undefined') window.scrollTo(0, 0);
                 }
             })
             .catch((err) => {
@@ -119,7 +125,9 @@ const CollectionsList: React.FC = () => {
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [page]);
+
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
     if (loadError) {
         return <Alert severity="error">{loadError}</Alert>;
@@ -159,6 +167,16 @@ const CollectionsList: React.FC = () => {
                         </Card>
                     ))}
                 </Box>
+
+                {totalPages > 1 && (
+                    <Stack alignItems="center" mt={3}>
+                        <Pagination
+                            count={totalPages}
+                            page={page}
+                            onChange={(_, p) => setPage(p)}
+                        />
+                    </Stack>
+                )}
             </Box>
         </Box>
     );

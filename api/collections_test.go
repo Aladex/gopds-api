@@ -39,8 +39,8 @@ type fakePublicSvc struct {
 	booksCalls []int64
 }
 
-func (f *fakePublicSvc) List(ctx context.Context) ([]models.BookCollection, error) {
-	return f.listResp, f.listErr
+func (f *fakePublicSvc) List(ctx context.Context, page, pageSize int) ([]models.BookCollection, int, error) {
+	return f.listResp, len(f.listResp), f.listErr
 }
 func (f *fakePublicSvc) Get(ctx context.Context, id int64) (*models.BookCollection, error) {
 	f.getCalls = append(f.getCalls, id)
@@ -73,10 +73,14 @@ func TestPublicCollections_List_Success(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
 
-	var got []map[string]any
+	var got struct {
+		Rows  []map[string]any `json:"rows"`
+		Total int              `json:"total"`
+	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Len(t, got, 2)
-	for _, item := range got {
+	require.Len(t, got.Rows, 2)
+	assert.Equal(t, 2, got.Total)
+	for _, item := range got.Rows {
 		assert.Contains(t, item, "id")
 		assert.Contains(t, item, "name")
 		for _, key := range adminFieldsForbiddenInList {
@@ -91,9 +95,13 @@ func TestPublicCollections_List_Empty(t *testing.T) {
 	rec := doJSON(t, r, http.MethodGet, "/api/collections", nil)
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	var got []map[string]any
+	var got struct {
+		Rows  []map[string]any `json:"rows"`
+		Total int              `json:"total"`
+	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	assert.Equal(t, []map[string]any{}, got, "must serialize empty list as [], not null")
+	assert.Equal(t, []map[string]any{}, got.Rows, "must serialize empty list as [], not null")
+	assert.Equal(t, 0, got.Total)
 }
 
 func TestPublicCollections_Get_Success(t *testing.T) {

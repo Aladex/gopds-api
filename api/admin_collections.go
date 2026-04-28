@@ -20,7 +20,7 @@ import (
 type CuratedCollectionsAdmin interface {
 	StartImport(ctx context.Context, params services.ImportParams) (collectionID int64, err error)
 
-	List(ctx context.Context) ([]models.BookCollection, error)
+	List(ctx context.Context, page, pageSize int) ([]models.BookCollection, int, error)
 	Get(ctx context.Context, id int64) (*models.BookCollection, error)
 
 	ListItems(ctx context.Context, collectionID int64, statusFilter string, page, pageSize int) (items []models.BookCollectionItem, total int, err error)
@@ -81,6 +81,13 @@ type curatedItemsResponse struct {
 	PageSize int                         `json:"page_size"`
 }
 
+type curatedListResponse struct {
+	Rows     []models.BookCollection `json:"rows"`
+	Total    int                     `json:"total"`
+	Page     int                     `json:"page"`
+	PageSize int                     `json:"page_size"`
+}
+
 type curatedPatchRequest struct {
 	Name      *string `json:"name,omitempty"`
 	IsPublic  *bool   `json:"is_public,omitempty"`
@@ -115,7 +122,9 @@ func (h *CuratedCollectionsHandler) create(c *gin.Context) {
 }
 
 func (h *CuratedCollectionsHandler) list(c *gin.Context) {
-	out, err := h.Svc.List(c.Request.Context())
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "25"))
+	out, total, err := h.Svc.List(c.Request.Context(), page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -123,7 +132,12 @@ func (h *CuratedCollectionsHandler) list(c *gin.Context) {
 	if out == nil {
 		out = []models.BookCollection{}
 	}
-	c.JSON(http.StatusOK, out)
+	c.JSON(http.StatusOK, curatedListResponse{
+		Rows:     out,
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+	})
 }
 
 func (h *CuratedCollectionsHandler) get(c *gin.Context) {

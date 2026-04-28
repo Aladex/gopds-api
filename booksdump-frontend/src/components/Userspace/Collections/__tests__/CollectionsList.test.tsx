@@ -7,8 +7,9 @@ const sampleRows = [
 ];
 
 jest.mock('../api', () => ({
-    listPublicCollections: jest.fn().mockResolvedValue(sampleRows),
+    listPublicCollections: jest.fn().mockResolvedValue({ rows: [], total: 0, page: 1, page_size: 12 }),
 }));
+const samplePage = { rows: sampleRows, total: sampleRows.length, page: 1, page_size: 12 };
 
 // CollectionsList now imports API_URL from api/config which pulls axios (ESM).
 // Stub the config so jest 27 does not try to parse axios.
@@ -48,7 +49,7 @@ const adminFieldsMustNotAppear = [
 describe('CollectionsList (public)', () => {
     beforeEach(() => {
         jest.clearAllMocks();
-        api.listPublicCollections.mockResolvedValue(sampleRows);
+        api.listPublicCollections.mockResolvedValue(samplePage);
     });
 
     it('renders cards for each collection', async () => {
@@ -60,7 +61,7 @@ describe('CollectionsList (public)', () => {
     });
 
     it('shows empty state when there are no public collections', async () => {
-        api.listPublicCollections.mockResolvedValue([]);
+        api.listPublicCollections.mockResolvedValue({ rows: [], total: 0, page: 1, page_size: 12 });
         render(<CollectionsList />);
         expect(await screen.findByText(/No collections yet/i)).toBeInTheDocument();
     });
