@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Box, Card, CardActionArea, Pagination, Stack, Typography } from '@mui/material';
-import { Link as RouterLink } from 'react-router-dom';
+import { Alert, Box, Card, CardActionArea, Stack, Typography } from '@mui/material';
+import { Link as RouterLink, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { API_URL } from '../../../api/config';
+import BookPagination from '../../common/BookPagination';
 import {
     CollectionCoverBook,
     listPublicCollections,
@@ -99,8 +100,10 @@ const PAGE_SIZE = 12;
 
 const CollectionsList: React.FC = () => {
     const { t } = useTranslation();
+    const { page: pageParam } = useParams<{ page?: string }>();
+    const page = Math.max(1, parseInt(pageParam ?? '1', 10) || 1);
+
     const [rows, setRows] = useState<PublicCollectionRow[]>([]);
-    const [page, setPage] = useState(1);
     const [total, setTotal] = useState(0);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [loaded, setLoaded] = useState(false);
@@ -170,10 +173,10 @@ const CollectionsList: React.FC = () => {
 
                 {totalPages > 1 && (
                     <Stack alignItems="center" mt={3}>
-                        <Pagination
-                            count={totalPages}
-                            page={page}
-                            onChange={(_, p) => setPage(p)}
+                        <BookPagination
+                            totalPages={totalPages}
+                            currentPage={page}
+                            baseUrl={`/collections/page/${page}`}
                         />
                     </Stack>
                 )}

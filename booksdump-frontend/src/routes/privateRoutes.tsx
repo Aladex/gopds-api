@@ -21,6 +21,7 @@ const privateRoutes = (
             <Route path="/books/find/title/:title/:page" element={<TitleSetter titleKey="routeByBookName.books"><BooksList /></TitleSetter>} />
             <Route path="/authors/:author/:page" element={<TitleSetter titleKey="routeByAuthorName.books"><AuthorSearch /></TitleSetter>} />
             <Route path="/collections" element={<TitleSetter titleKey="publicCollections.title"><CollectionsList /></TitleSetter>} />
+            <Route path="/collections/page/:page" element={<TitleSetter titleKey="publicCollections.title"><CollectionsList /></TitleSetter>} />
             <Route path="/collections/:id/page/:page" element={<TitleSetter titleKey="publicCollections.title"><CollectionView /></TitleSetter>} />
         </Route>
         <Route path="/catalog" element={<PrivateRoute><OpdsInfo /></PrivateRoute>} />

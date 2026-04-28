@@ -6,7 +6,6 @@ import {
     CardContent,
     Chip,
     IconButton,
-    Pagination,
     Stack,
     Table,
     TableBody,
@@ -17,7 +16,8 @@ import {
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useTranslation } from 'react-i18next';
-import { Link as RouterLink } from 'react-router-dom';
+import { Link as RouterLink, useParams } from 'react-router-dom';
+import BookPagination from '../../common/BookPagination';
 import { CuratedCollection, deleteCuratedCollection, listCuratedCollections } from './api';
 import ImportForm from './ImportForm';
 import BatchImportForm from './BatchImportForm';
@@ -26,26 +26,26 @@ const PAGE_SIZE = 25;
 
 const CuratedCollectionsList: React.FC = () => {
     const { t } = useTranslation();
+    const { page: pageParam } = useParams<{ page?: string }>();
+    const page = Math.max(1, parseInt(pageParam ?? '1', 10) || 1);
+
     const [rows, setRows] = useState<CuratedCollection[]>([]);
-    const [page, setPage] = useState(1);
     const [total, setTotal] = useState(0);
     const [loadError, setLoadError] = useState<string | null>(null);
 
-    const refresh = useCallback(async (targetPage: number = page) => {
+    const refresh = useCallback(async () => {
         try {
-            const data = await listCuratedCollections(targetPage, PAGE_SIZE);
+            const data = await listCuratedCollections(page, PAGE_SIZE);
             setRows(data.rows);
             setTotal(data.total);
-            setPage(data.page);
         } catch (err: any) {
             setLoadError(err?.message ?? 'failed');
         }
     }, [page]);
 
     useEffect(() => {
-        refresh(page);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [page]);
+        refresh();
+    }, [refresh]);
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -61,8 +61,8 @@ const CuratedCollectionsList: React.FC = () => {
                 {t('curatedCollections.title', 'Curated collections')}
             </Typography>
 
-            <ImportForm onCreated={() => refresh(1)} />
-            <BatchImportForm onCreated={() => refresh(1)} />
+            <ImportForm onCreated={() => refresh()} />
+            <BatchImportForm onCreated={() => refresh()} />
 
             {loadError && <Alert severity="error" sx={{ mt: 2 }}>{loadError}</Alert>}
 
@@ -117,11 +117,10 @@ const CuratedCollectionsList: React.FC = () => {
                     </Table>
                     {totalPages > 1 && (
                         <Stack alignItems="center" mt={2}>
-                            <Pagination
-                                count={totalPages}
-                                page={page}
-                                onChange={(_, p) => setPage(p)}
-                                size="small"
+                            <BookPagination
+                                totalPages={totalPages}
+                                currentPage={page}
+                                baseUrl={`/admin/collections/page/${page}`}
                             />
                         </Stack>
                     )}

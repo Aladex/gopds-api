@@ -175,6 +175,7 @@ const AdminSpace: React.FC = () => {
                                         <Route path="duplicates" element={<Duplicates />} />
                                         <Route path="genres" element={<GenreManagement />} />
                                         <Route path="collections" element={<CuratedCollectionsList />} />
+                                        <Route path="collections/page/:page" element={<CuratedCollectionsList />} />
                                         <Route path="collections/:id" element={<CuratedCollectionDetail />} />
                                         <Route path="*" element={<Navigate to="/admin/users" />} />
                                     </Routes>
