@@ -659,7 +659,11 @@ func (bm *BotManager) HandleWebhook(c *gin.Context) {
 
 	logging.Infof("Processing webhook for user %d, update ID: %d", bot.userID, update.ID)
 
-	bot.bot.ProcessUpdate(c.Request.Context(), &update)
+	// Detach from gin's request context: ProcessUpdate dispatches handlers in a
+	// goroutine, but gin cancels c.Request.Context() the moment we return — so
+	// any outgoing Telegram API call from the handler would fail with
+	// "context canceled".
+	bot.bot.ProcessUpdate(context.Background(), &update)
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
