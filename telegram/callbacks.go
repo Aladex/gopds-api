@@ -614,11 +614,7 @@ func (h *CallbackHandler) formatBookDetailsMessage(book models.Book) string {
 	message.WriteString(fmt.Sprintf("<b>%s</b>\n\n", escapeHTML(book.Title)))
 
 	if book.Annotation != "" {
-		annotation := book.Annotation
-		maxLength := 500
-		if len(annotation) > maxLength {
-			annotation = annotation[:maxLength] + "..."
-		}
+		annotation := truncateRunes(book.Annotation, 500)
 		message.WriteString(fmt.Sprintf("%s\n\n", escapeHTML(annotation)))
 	}
 
@@ -668,4 +664,16 @@ func escapeHTML(text string) string {
 	text = strings.ReplaceAll(text, "<", "&lt;")
 	text = strings.ReplaceAll(text, ">", "&gt;")
 	return text
+}
+
+// truncateRunes shortens a UTF-8 string to at most maxRunes runes, appending
+// an ellipsis when truncated. Slicing the underlying bytes would break
+// multi-byte characters (Cyrillic etc.) and Telegram rejects such payloads
+// with "Bad Request: text must be encoded in UTF-8".
+func truncateRunes(s string, maxRunes int) string {
+	r := []rune(s)
+	if len(r) <= maxRunes {
+		return s
+	}
+	return string(r[:maxRunes]) + "..."
 }
