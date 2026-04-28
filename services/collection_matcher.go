@@ -9,10 +9,13 @@ import (
 )
 
 // Similarity thresholds for collection import matcher.
-// Tuned empirically; revisit during phase 3 on real data.
+// Recall-first since the LLM resolver does the actual disambiguation:
+// MidThreshold is low enough to admit title-only prefix hits (where the
+// author lane contributes 0), HighThreshold stays high so we never auto-pick
+// a single weak result.
 const (
 	HighThreshold = 0.85
-	MidThreshold  = 0.50
+	MidThreshold  = 0.30
 )
 
 // MatchResult is the outcome of matching one external pair against the local catalog.

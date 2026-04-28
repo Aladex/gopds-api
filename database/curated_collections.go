@@ -11,8 +11,13 @@ import (
 )
 
 // trigramTitleMin is the minimum similarity over `lower(title)` we even consider
-// a candidate. Anything below is below noise and is filtered out before bucketing.
-const trigramTitleMin = 0.30
+// a candidate. Lowered from 0.30 to 0.20 because pg_trgm penalizes huge length
+// differences harshly — e.g. "Читая между строк ДНК" against the local long
+// title "Читая между строк ДНК. Второй код нашей жизни, или Книга, которую
+// нужно прочитать всем" scores ~0.29, just under the old threshold. The extra
+// noise from the lower bar lands in the Ambiguous bucket where the LLM resolver
+// can pick the right one out.
+const trigramTitleMin = 0.20
 
 // CreateCuratedCollection inserts a new curated collection skeleton with
 // status=importing, is_curated=true, is_public=false. The user_id stays NULL —
@@ -436,36 +441,58 @@ func GetPublicCollectionBooks(ctx context.Context, collectionID int64) ([]models
 	return books, err
 }
 
-// FindCollectionCandidates runs trigram similarity over the local catalog for one
-// normalized (author, title) pair. Returns up to 10 candidates ordered by combined
-// score = title_sim * 0.6 + author_sim * 0.4.
+// FindCollectionCandidates retrieves a pool of plausible local books for one
+// normalized (author, title) pair. Strategy is recall-first: we want to feed
+// the LLM resolver as many candidates as could conceivably be the same work
+// and let it decide, instead of pre-filtering by score.
 //
-// Title similarity is the primary filter (must exceed trigramTitleMin); author
-// similarity is an additive boost. Books without authors fall back to author_sim = 0
-// via COALESCE.
+// Two retrieval lanes, OR'ed together:
+//   - trigram similarity over lower(title) with a low floor (trigramTitleMin),
+//     catches translations / partial overlaps;
+//   - prefix match `lower(title) LIKE 'external_title%'`, catches the case
+//     where the external listing carries the canonical short form and the
+//     local copy spells out a long subtitle (e.g. "Читая между строк ДНК"
+//     vs "Читая между строк ДНК. Второй код нашей жизни…").
+//
+// The combined score = title_sim * 0.6 + author_sim * 0.4 still drives the
+// ordering, but we cap at 20 instead of 10 so the LLM has more to choose from.
 func FindCollectionCandidates(ctx context.Context, authorNorm, titleNorm string) ([]models.MatchCandidate, error) {
 	if titleNorm == "" {
 		return nil, nil
 	}
+	prefix := titleNorm + "%"
 
 	query := `
 		SELECT b.id AS book_id,
-		       (similarity(lower(b.title), ?) * 0.6 +
-		        COALESCE(MAX(similarity(lower(a.full_name), ?)), 0) * 0.4)::real AS score
+		       (GREATEST(
+		            similarity(lower(b.title), ?),
+		            CASE WHEN lower(b.title) LIKE ? THEN 0.7 ELSE 0 END
+		        ) * 0.6 +
+		        COALESCE((
+		            SELECT MAX(similarity(lower(a.full_name), ?))
+		            FROM opds_catalog_bauthor ba
+		            JOIN opds_catalog_author a ON a.id = ba.author_id
+		            WHERE ba.book_id = b.id
+		        ), 0) * 0.4)::real AS score
 		FROM opds_catalog_book b
-		LEFT JOIN opds_catalog_bauthor ba ON ba.book_id = b.id
-		LEFT JOIN opds_catalog_author a ON a.id = ba.author_id
 		WHERE similarity(lower(b.title), ?) > ?
-		GROUP BY b.id, b.title
+		   OR lower(b.title) LIKE ?
 		ORDER BY score DESC
-		LIMIT 10
+		LIMIT 20
 	`
 	type row struct {
 		BookID int64   `pg:"book_id"`
 		Score  float32 `pg:"score"`
 	}
 	var rows []row
-	_, err := db.QueryContext(ctx, &rows, query, titleNorm, authorNorm, titleNorm, trigramTitleMin)
+	_, err := db.QueryContext(ctx, &rows, query,
+		titleNorm,         // similarity(lower(title), ?)
+		prefix,            // CASE WHEN lower(title) LIKE ? THEN 0.7 ELSE 0
+		authorNorm,        // similarity(lower(full_name), ?)
+		titleNorm,         // WHERE similarity > ?
+		trigramTitleMin,   // threshold
+		prefix,            // OR lower(title) LIKE ?
+	)
 	if err != nil {
 		return nil, err
 	}

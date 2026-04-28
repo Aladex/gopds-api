@@ -180,7 +180,7 @@ func TestMatchOne_NotFound_AllCandidatesBelowMidThreshold(t *testing.T) {
 			return nil, nil
 		}),
 		CandidateFinderFunc(func(ctx context.Context, a, t string) ([]models.MatchCandidate, error) {
-			return []models.MatchCandidate{{BookID: 5, Score: 0.3}}, nil
+			return []models.MatchCandidate{{BookID: 5, Score: 0.15}}, nil
 		}),
 		"Author", "Title",
 	)
