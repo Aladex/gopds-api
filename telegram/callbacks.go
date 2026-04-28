@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"context"
 	"fmt"
 	"gopds-api/commands"
 	"gopds-api/database"
@@ -13,8 +14,9 @@ import (
 	"strconv"
 	"strings"
 
+	tgbotapi "github.com/go-telegram/bot"
+	tgbot "github.com/go-telegram/bot/models"
 	"github.com/spf13/viper"
-	tele "gopkg.in/telebot.v3"
 )
 
 // CallbackHandler handles Telegram callback queries
@@ -31,29 +33,42 @@ func NewCallbackHandler(bot *Bot, conversationManager *ConversationManager) *Cal
 	}
 }
 
+// callbackMessageInfo extracts chatID and messageID from a callback query's message.
+func callbackMessageInfo(q *tgbot.CallbackQuery) (chatID int64, messageID int, ok bool) {
+	if q.Message.Message == nil {
+		return 0, 0, false
+	}
+	return q.Message.Message.Chat.ID, q.Message.Message.ID, true
+}
+
 // Handle routes callback to appropriate handler based on callback data
-func (h *CallbackHandler) Handle(c tele.Context) error {
-	telegramID := c.Sender().ID
-	callbackData := h.cleanCallbackData(c.Callback().Data)
+func (h *CallbackHandler) Handle(ctx context.Context, b *tgbotapi.Bot, update *tgbot.Update) error {
+	q := update.CallbackQuery
+	telegramID := q.From.ID
+	callbackData := h.cleanCallbackData(q.Data)
 
 	logging.Infof("Received callback from user %d, data: %q", telegramID, callbackData)
 
 	if !h.bot.isAuthorizedUser(telegramID) {
 		logging.Warnf("Unauthorized callback attempt from user %d", telegramID)
-		return c.Respond(&tele.CallbackResponse{Text: "Unauthorized"})
+		_, _ = b.AnswerCallbackQuery(ctx, &tgbotapi.AnswerCallbackQueryParams{
+			CallbackQueryID: q.ID,
+			Text:            "Unauthorized",
+		})
+		return nil
 	}
 
 	switch {
 	case callbackData == "prev_page" || callbackData == "next_page":
-		return h.handlePagination(c, callbackData)
+		return h.handlePagination(ctx, b, update, callbackData)
 	case strings.HasPrefix(callbackData, "author:"):
-		return h.handleAuthorSelection(c, callbackData)
+		return h.handleAuthorSelection(ctx, b, update, callbackData)
 	case strings.HasPrefix(callbackData, "collection:"):
-		return h.handleCollectionSelection(c, callbackData)
+		return h.handleCollectionSelection(ctx, b, update, callbackData)
 	case strings.HasPrefix(callbackData, "select:"):
-		return h.handleBookSelection(c, callbackData)
+		return h.handleBookSelection(ctx, b, update, callbackData)
 	case strings.HasPrefix(callbackData, "download:"):
-		return h.handleDownload(c, callbackData)
+		return h.handleDownload(ctx, b, update, callbackData)
 	default:
 		logging.Warnf("Unknown callback type received: %s from user %d", callbackData, telegramID)
 		return nil
@@ -67,9 +82,31 @@ func (h *CallbackHandler) cleanCallbackData(data string) string {
 	return data
 }
 
+// answerCallback acknowledges the callback query (no text shown to user).
+func (h *CallbackHandler) answerCallback(ctx context.Context, b *tgbotapi.Bot, q *tgbot.CallbackQuery) {
+	_, err := b.AnswerCallbackQuery(ctx, &tgbotapi.AnswerCallbackQueryParams{
+		CallbackQueryID: q.ID,
+	})
+	if err != nil {
+		logging.Errorf("Failed to answer callback: %v", err)
+	}
+}
+
+// answerCallbackText acknowledges the callback query with a toast text.
+func (h *CallbackHandler) answerCallbackText(ctx context.Context, b *tgbotapi.Bot, q *tgbot.CallbackQuery, text string) {
+	_, err := b.AnswerCallbackQuery(ctx, &tgbotapi.AnswerCallbackQueryParams{
+		CallbackQueryID: q.ID,
+		Text:            text,
+	})
+	if err != nil {
+		logging.Errorf("Failed to answer callback: %v", err)
+	}
+}
+
 // handlePagination handles prev_page and next_page callbacks
-func (h *CallbackHandler) handlePagination(c tele.Context, callbackData string) error {
-	telegramID := c.Sender().ID
+func (h *CallbackHandler) handlePagination(ctx context.Context, b *tgbotapi.Bot, update *tgbot.Update, callbackData string) error {
+	q := update.CallbackQuery
+	telegramID := q.From.ID
 	logging.Infof("Processing pagination callback: %s for user %d", callbackData, telegramID)
 
 	direction := "next"
@@ -80,18 +117,21 @@ func (h *CallbackHandler) handlePagination(c tele.Context, callbackData string) 
 	_, err := database.GetUserByTelegramID(telegramID)
 	if err != nil {
 		logging.Errorf("Failed to get user by telegram ID %d: %v", telegramID, err)
-		return c.Respond(&tele.CallbackResponse{Text: "User not found"})
+		h.answerCallbackText(ctx, b, q, "User not found")
+		return nil
 	}
 
 	convContext, err := h.conversationManager.GetContext(h.bot.token, telegramID)
 	if err != nil {
 		logging.Errorf("Failed to get context for pagination: %v", err)
-		return c.Respond(&tele.CallbackResponse{Text: "Error getting context"})
+		h.answerCallbackText(ctx, b, q, "Error getting context")
+		return nil
 	}
 
 	if convContext.SearchParams == nil {
 		logging.Warnf("No search params found in context for user %d", telegramID)
-		return c.Respond(&tele.CallbackResponse{Text: "No active search for navigation"})
+		h.answerCallbackText(ctx, b, q, "No active search for navigation")
+		return nil
 	}
 
 	newOffset := h.calculateNewOffset(convContext.SearchParams, direction)
@@ -101,12 +141,13 @@ func (h *CallbackHandler) handlePagination(c tele.Context, callbackData string) 
 	result, err := h.executeSearchWithPagination(convContext.SearchParams, telegramID, newOffset)
 	if err != nil {
 		logging.Errorf("Failed to execute paginated search: %v", err)
-		return c.Respond(&tele.CallbackResponse{Text: "Search error"})
+		h.answerCallbackText(ctx, b, q, "Search error")
+		return nil
 	}
 
 	h.updateSearchParamsInContext(telegramID, result.SearchParams)
 
-	return h.editMessageWithResult(c, result, telegramID)
+	return h.editMessageWithResult(ctx, b, q, result, telegramID)
 }
 
 // calculateNewOffset calculates the new offset based on direction
@@ -176,43 +217,30 @@ func (h *CallbackHandler) executeCombinedSearch(
 }
 
 // handleCollectionSelection handles collection:ID callbacks
-func (h *CallbackHandler) handleCollectionSelection(c tele.Context, callbackData string) error {
-	telegramID := c.Sender().ID
+func (h *CallbackHandler) handleCollectionSelection(ctx context.Context, b *tgbotapi.Bot, update *tgbot.Update, callbackData string) error {
+	q := update.CallbackQuery
+	telegramID := q.From.ID
 	logging.Infof("Processing collection selection callback: %s for user %d", callbackData, telegramID)
 
 	collectionIDStr := strings.TrimPrefix(callbackData, "collection:")
 	collectionID, err := strconv.ParseInt(collectionIDStr, 10, 64)
 	if err != nil {
 		logging.Errorf("Invalid collection ID in callback: %s", collectionIDStr)
-		return c.Respond(&tele.CallbackResponse{Text: "Invalid collection ID"})
+		h.answerCallbackText(ctx, b, q, "Invalid collection ID")
+		return nil
 	}
 
-	if err := c.Respond(); err != nil {
-		logging.Errorf("Failed to respond to callback: %v", err)
-	}
+	h.answerCallback(ctx, b, q)
 
 	processor := commands.NewCommandProcessor()
 	result, err := processor.ExecuteCollectionBooks(collectionID, telegramID, 0, 5)
 	if err != nil {
 		logging.Errorf("Failed to get collection books for user %d: %v", telegramID, err)
-		if editErr := c.Edit("Error loading collection books."); editErr != nil {
-			logging.Errorf("Failed to edit message with error for user %d: %v", telegramID, editErr)
-		}
+		h.editOrSend(ctx, b, q, "Error loading collection books.", nil)
 		return nil
 	}
 
-	var sendOptions []interface{}
-	if result.ReplyMarkup != nil {
-		sendOptions = append(sendOptions, result.ReplyMarkup)
-	}
-
-	if editErr := c.Edit(result.Message, sendOptions...); editErr != nil {
-		logging.Errorf("Failed to edit message for user %d: %v", telegramID, editErr)
-		if _, sendErr := c.Bot().Send(c.Chat(), result.Message, sendOptions...); sendErr != nil {
-			logging.Errorf("Failed to send new message after edit failure for user %d: %v", telegramID, sendErr)
-		}
-		return nil
-	}
+	h.editOrSend(ctx, b, q, result.Message, result.ReplyMarkup)
 
 	h.updateSearchParamsInContext(telegramID, result.SearchParams)
 	h.processOutgoingMessage(telegramID, result.Message)
@@ -221,57 +249,45 @@ func (h *CallbackHandler) handleCollectionSelection(c tele.Context, callbackData
 }
 
 // handleAuthorSelection handles author:ID callbacks
-func (h *CallbackHandler) handleAuthorSelection(c tele.Context, callbackData string) error {
-	telegramID := c.Sender().ID
+func (h *CallbackHandler) handleAuthorSelection(ctx context.Context, b *tgbotapi.Bot, update *tgbot.Update, callbackData string) error {
+	q := update.CallbackQuery
+	telegramID := q.From.ID
 	logging.Infof("Processing author selection callback: %s for user %d", callbackData, telegramID)
 
 	authorIDStr := strings.TrimPrefix(callbackData, "author:")
 	authorID, err := strconv.ParseInt(authorIDStr, 10, 64)
 	if err != nil {
 		logging.Errorf("Invalid author ID in callback: %s", authorIDStr)
-		return c.Respond(&tele.CallbackResponse{Text: "Invalid author ID"})
+		h.answerCallbackText(ctx, b, q, "Invalid author ID")
+		return nil
 	}
 
 	_, err = database.GetUserByTelegramID(telegramID)
 	if err != nil {
 		logging.Errorf("Failed to get user by telegram ID %d: %v", telegramID, err)
-		return c.Respond(&tele.CallbackResponse{Text: "User not found"})
+		h.answerCallbackText(ctx, b, q, "User not found")
+		return nil
 	}
 
 	authorRequest := models.AuthorRequest{ID: authorID}
 	author, err := database.GetAuthor(authorRequest)
 	if err != nil {
 		logging.Errorf("Failed to get author %d: %v", authorID, err)
-		return c.Respond(&tele.CallbackResponse{Text: "Author not found"})
+		h.answerCallbackText(ctx, b, q, "Author not found")
+		return nil
 	}
 
-	if err := c.Respond(); err != nil {
-		logging.Errorf("Failed to respond to callback: %v", err)
-	}
+	h.answerCallback(ctx, b, q)
 
 	processor := commands.NewCommandProcessor()
 	result, err := processor.ExecuteFindAuthorBooksWithPagination(authorID, author.FullName, telegramID, 0, 5)
 	if err != nil {
 		logging.Errorf("Failed to get author books for user %d: %v", telegramID, err)
-		if editErr := c.Edit("Error searching for books by this author."); editErr != nil {
-			logging.Errorf("Failed to edit message with error for user %d: %v", telegramID, editErr)
-		}
+		h.editOrSend(ctx, b, q, "Error searching for books by this author.", nil)
 		return nil
 	}
 
-	var sendOptions []interface{}
-	if result.ReplyMarkup != nil {
-		sendOptions = append(sendOptions, result.ReplyMarkup)
-	}
-
-	if editErr := c.Edit(result.Message, sendOptions...); editErr != nil {
-		logging.Errorf("Failed to edit message for user %d: %v", telegramID, editErr)
-		// Send new message as fallback
-		if _, sendErr := c.Bot().Send(c.Chat(), result.Message, sendOptions...); sendErr != nil {
-			logging.Errorf("Failed to send new message after edit failure for user %d: %v", telegramID, sendErr)
-		}
-		return nil
-	}
+	h.editOrSend(ctx, b, q, result.Message, result.ReplyMarkup)
 
 	logging.Infof("Successfully edited message with author books for user %d", telegramID)
 
@@ -282,15 +298,17 @@ func (h *CallbackHandler) handleAuthorSelection(c tele.Context, callbackData str
 }
 
 // handleBookSelection handles select:ID callbacks
-func (h *CallbackHandler) handleBookSelection(c tele.Context, callbackData string) error {
-	telegramID := c.Sender().ID
+func (h *CallbackHandler) handleBookSelection(ctx context.Context, b *tgbotapi.Bot, update *tgbot.Update, callbackData string) error {
+	q := update.CallbackQuery
+	telegramID := q.From.ID
 	logging.Infof("Processing book selection callback: %s for user %d", callbackData, telegramID)
 
 	bookIDStr := strings.TrimPrefix(callbackData, "select:")
 	bookID, err := strconv.ParseInt(bookIDStr, 10, 64)
 	if err != nil {
 		logging.Errorf("Invalid book ID in callback: %s", bookIDStr)
-		return c.Respond(&tele.CallbackResponse{Text: "Invalid book ID"})
+		h.answerCallbackText(ctx, b, q, "Invalid book ID")
+		return nil
 	}
 
 	if err := h.conversationManager.UpdateSelectedBookID(h.bot.token, telegramID, bookID); err != nil {
@@ -302,46 +320,55 @@ func (h *CallbackHandler) handleBookSelection(c tele.Context, callbackData strin
 	book, err := database.GetBook(bookID)
 	if err != nil {
 		logging.Errorf("Failed to get book %d: %v", bookID, err)
-		return c.Respond(&tele.CallbackResponse{Text: "Book not found"})
+		h.answerCallbackText(ctx, b, q, "Book not found")
+		return nil
 	}
 
 	markup := h.buildFormatSelectionKeyboard(bookID)
 
-	if err := c.Respond(&tele.CallbackResponse{Text: "Book selected"}); err != nil {
-		logging.Errorf("Failed to respond to selection callback: %v", err)
-	}
+	h.answerCallbackText(ctx, b, q, "Book selected")
 
-	// Build message with book details
 	messageText := h.formatBookDetailsMessage(book)
 
-	// Try to get and send book cover
+	chatID, _, hasMsg := callbackMessageInfo(q)
+	if !hasMsg {
+		chatID = q.From.ID
+	}
 	coverURL := h.getBookCoverURL(book)
 	if coverURL != "" && h.isCoverAvailable(coverURL) {
-		// Send photo with caption and inline keyboard
-		photo := &tele.Photo{
-			File:    tele.FromURL(coverURL),
-			Caption: messageText,
-		}
-		// Set ReplyMarkup in SendOptions for inline buttons to appear
-		sendOpts := &tele.SendOptions{
-			ParseMode:   tele.ModeHTML,
-			ReplyMarkup: markup,
-		}
-		if _, sendErr := c.Bot().Send(c.Chat(), photo, sendOpts); sendErr != nil {
+		_, sendErr := b.SendPhoto(ctx, &tgbotapi.SendPhotoParams{
+			ChatID:    chatID,
+			Photo:     &tgbot.InputFileString{Data: coverURL},
+			Caption:   messageText,
+			ParseMode: tgbot.ParseModeHTML,
+			ReplyMarkup: &tgbot.InlineKeyboardMarkup{
+				InlineKeyboard: markup.InlineKeyboard,
+			},
+		})
+		if sendErr != nil {
 			logging.Warnf("Failed to send photo for book %d, falling back to text: %v", bookID, sendErr)
-			// Fallback to text message
-			if _, sendErr := c.Bot().Send(c.Chat(), messageText, sendOpts); sendErr != nil {
-				logging.Errorf("Failed to send download options for user %d: %v", telegramID, sendErr)
-				return nil
+			_, textErr := b.SendMessage(ctx, &tgbotapi.SendMessageParams{
+				ChatID:    chatID,
+				Text:      messageText,
+				ParseMode: tgbot.ParseModeHTML,
+				ReplyMarkup: &tgbot.InlineKeyboardMarkup{
+					InlineKeyboard: markup.InlineKeyboard,
+				},
+			})
+			if textErr != nil {
+				logging.Errorf("Failed to send download options for user %d: %v", telegramID, textErr)
 			}
 		}
 	} else {
-		// No cover available, send text message
-		sendOpts := &tele.SendOptions{
-			ParseMode:   tele.ModeHTML,
-			ReplyMarkup: markup,
-		}
-		if _, sendErr := c.Bot().Send(c.Chat(), messageText, sendOpts); sendErr != nil {
+		_, sendErr := b.SendMessage(ctx, &tgbotapi.SendMessageParams{
+			ChatID:    chatID,
+			Text:      messageText,
+			ParseMode: tgbot.ParseModeHTML,
+			ReplyMarkup: &tgbot.InlineKeyboardMarkup{
+				InlineKeyboard: markup.InlineKeyboard,
+			},
+		})
+		if sendErr != nil {
 			logging.Errorf("Failed to send download options for user %d: %v", telegramID, sendErr)
 			return nil
 		}
@@ -352,59 +379,64 @@ func (h *CallbackHandler) handleBookSelection(c tele.Context, callbackData strin
 }
 
 // buildFormatSelectionKeyboard builds inline keyboard for format selection
-func (h *CallbackHandler) buildFormatSelectionKeyboard(bookID int64) *tele.ReplyMarkup {
-	markup := &tele.ReplyMarkup{}
-	btnFB2 := markup.Data("📄 FB2", fmt.Sprintf("download:fb2:%d", bookID))
-	btnEPUB := markup.Data("📚 EPUB", fmt.Sprintf("download:epub:%d", bookID))
-	btnMOBI := markup.Data("📱 MOBI", fmt.Sprintf("download:mobi:%d", bookID))
-	btnZIP := markup.Data("🗂 ZIP", fmt.Sprintf("download:zip:%d", bookID))
-	markup.Inline(
-		markup.Row(btnFB2, btnEPUB),
-		markup.Row(btnMOBI, btnZIP),
-	)
-	return markup
+func (h *CallbackHandler) buildFormatSelectionKeyboard(bookID int64) *tgbot.InlineKeyboardMarkup {
+	return &tgbot.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgbot.InlineKeyboardButton{
+			{
+				{Text: "📄 FB2", CallbackData: fmt.Sprintf("download:fb2:%d", bookID), Style: "success"},
+				{Text: "📚 EPUB", CallbackData: fmt.Sprintf("download:epub:%d", bookID), Style: "success"},
+			},
+			{
+				{Text: "📱 MOBI", CallbackData: fmt.Sprintf("download:mobi:%d", bookID), Style: "success"},
+				{Text: "🗂 ZIP", CallbackData: fmt.Sprintf("download:zip:%d", bookID), Style: "success"},
+			},
+		},
+	}
 }
 
 // handleDownload handles download:format:ID callbacks
-func (h *CallbackHandler) handleDownload(c tele.Context, callbackData string) error {
-	telegramID := c.Sender().ID
+func (h *CallbackHandler) handleDownload(ctx context.Context, b *tgbotapi.Bot, update *tgbot.Update, callbackData string) error {
+	q := update.CallbackQuery
+	telegramID := q.From.ID
 	logging.Infof("Processing download callback: %s for user %d", callbackData, telegramID)
 
 	parts := strings.Split(callbackData, ":")
 	if len(parts) != 3 {
 		logging.Warnf("Invalid download callback format: %s", callbackData)
-		return c.Respond(&tele.CallbackResponse{Text: "Invalid download request"})
+		h.answerCallbackText(ctx, b, q, "Invalid download request")
+		return nil
 	}
 
 	format := parts[1]
 	bookID, err := strconv.ParseInt(parts[2], 10, 64)
 	if err != nil {
 		logging.Errorf("Invalid book ID in download callback: %s", parts[2])
-		return c.Respond(&tele.CallbackResponse{Text: "Invalid book ID"})
+		h.answerCallbackText(ctx, b, q, "Invalid book ID")
+		return nil
 	}
 
 	book, err := database.GetBook(bookID)
 	if err != nil {
 		logging.Errorf("Failed to get book %d: %v", bookID, err)
-		return c.Respond(&tele.CallbackResponse{Text: "Book not found"})
+		h.answerCallbackText(ctx, b, q, "Book not found")
+		return nil
 	}
 
-	if err := c.Respond(&tele.CallbackResponse{Text: "Готовим файл..."}); err != nil {
-		logging.Errorf("Failed to respond to download callback: %v", err)
-	}
+	h.answerCallbackText(ctx, b, q, "Готовим файл...")
 
-	if err := h.sendBookFile(c, book, format); err != nil {
+	if err := h.sendBookFile(ctx, b, telegramID, book, format); err != nil {
 		logging.Errorf("Failed to send book %d in format %s: %v", bookID, format, err)
-		if _, sendErr := c.Bot().Send(c.Chat(), "Не удалось отправить книгу. Попробуйте другой формат или позже."); sendErr != nil {
-			logging.Errorf("Failed to send error message: %v", sendErr)
-		}
+		_, _ = b.SendMessage(ctx, &tgbotapi.SendMessageParams{
+			ChatID: telegramID,
+			Text:   "Не удалось отправить книгу. Попробуйте другой формат или позже.",
+		})
 	}
 
 	return nil
 }
 
 // sendBookFile sends the book file to user in specified format
-func (h *CallbackHandler) sendBookFile(c tele.Context, book models.Book, format string) error {
+func (h *CallbackHandler) sendBookFile(ctx context.Context, b *tgbotapi.Bot, chatID int64, book models.Book, format string) error {
 	if !book.Approved {
 		return fmt.Errorf("book not approved for download")
 	}
@@ -432,18 +464,21 @@ func (h *CallbackHandler) sendBookFile(c tele.Context, book models.Book, format 
 		}
 	}()
 
-	doc := &tele.Document{
-		File:     tele.FromReader(rc),
-		FileName: fileName,
-		Caption:  fmt.Sprintf("📖 %s", book.Title),
-	}
-
-	if _, err := c.Bot().Send(c.Chat(), doc, GetMainKeyboard()); err != nil {
+	_, err = b.SendDocument(ctx, &tgbotapi.SendDocumentParams{
+		ChatID: chatID,
+		Document: &tgbot.InputFileUpload{
+			Filename: fileName,
+			Data:     rc,
+		},
+		Caption: fmt.Sprintf("📖 %s", book.Title),
+		ReplyMarkup: GetMainKeyboard(),
+	})
+	if err != nil {
 		return err
 	}
 
 	msg := fmt.Sprintf("Отправлена книга \"%s\" в формате %s", book.Title, strings.ToUpper(format))
-	h.processOutgoingMessage(c.Sender().ID, msg)
+	h.processOutgoingMessage(chatID, msg)
 
 	return nil
 }
@@ -499,26 +534,72 @@ func (h *CallbackHandler) processOutgoingMessage(telegramID int64, message strin
 	}
 }
 
-// editMessageWithResult edits message with search result
-func (h *CallbackHandler) editMessageWithResult(c tele.Context, result *commands.CommandResult, telegramID int64) error {
-	var sendOptions []interface{}
-	if result.ReplyMarkup != nil {
-		sendOptions = append(sendOptions, result.ReplyMarkup)
+// editOrSend tries to edit the callback message; on failure sends a new one.
+func (h *CallbackHandler) editOrSend(ctx context.Context, b *tgbotapi.Bot, q *tgbot.CallbackQuery, text string, markup *tgbot.InlineKeyboardMarkup) {
+	chatID, messageID, ok := callbackMessageInfo(q)
+	if !ok {
+		logging.Warnf("Cannot extract message info from callback, sending new message to user %d", q.From.ID)
+		h.sendMessage(ctx, b, q.From.ID, text, markup)
+		return
 	}
 
+	editParams := &tgbotapi.EditMessageTextParams{
+		ChatID:    chatID,
+		MessageID: messageID,
+		Text:      text,
+	}
+	if markup != nil {
+		editParams.ReplyMarkup = markup
+	}
+
+	_, editErr := b.EditMessageText(ctx, editParams)
+	if editErr != nil {
+		logging.Errorf("Failed to edit message for chat %d: %v, sending new message", chatID, editErr)
+		h.sendMessage(ctx, b, chatID, text, markup)
+	}
+}
+
+// sendMessage sends a text message with optional inline keyboard.
+func (h *CallbackHandler) sendMessage(ctx context.Context, b *tgbotapi.Bot, chatID int64, text string, markup *tgbot.InlineKeyboardMarkup) {
+	params := &tgbotapi.SendMessageParams{
+		ChatID: chatID,
+		Text:   text,
+	}
+	if markup != nil {
+		params.ReplyMarkup = markup
+	}
+	_, err := b.SendMessage(ctx, params)
+	if err != nil {
+		logging.Errorf("Failed to send message to chat %d: %v", chatID, err)
+	}
+}
+
+// editMessageWithResult edits message with search result
+func (h *CallbackHandler) editMessageWithResult(ctx context.Context, b *tgbotapi.Bot, q *tgbot.CallbackQuery, result *commands.CommandResult, telegramID int64) error {
 	logging.Infof("Editing message for user %d with new pagination results", telegramID)
 
-	if err := c.Respond(); err != nil {
-		logging.Errorf("Failed to respond to callback: %v", err)
+	h.answerCallback(ctx, b, q)
+
+	chatID, messageID, ok := callbackMessageInfo(q)
+	if !ok {
+		logging.Warnf("Cannot extract message info from callback for user %d, sending new message", telegramID)
+		h.sendMessage(ctx, b, telegramID, result.Message, result.ReplyMarkup)
+		return nil
 	}
 
-	if editErr := c.Edit(result.Message, sendOptions...); editErr != nil {
-		logging.Errorf("Failed to edit message for user %d: %v", telegramID, editErr)
-		// Send new message as fallback
-		if _, sendErr := c.Bot().Send(c.Chat(), result.Message, sendOptions...); sendErr != nil {
-			logging.Errorf("Failed to send new message after edit failure for user %d: %v", telegramID, sendErr)
-			return c.Respond(&tele.CallbackResponse{Text: "Error updating page"})
-		}
+	editParams := &tgbotapi.EditMessageTextParams{
+		ChatID:    chatID,
+		MessageID: messageID,
+		Text:      result.Message,
+	}
+	if result.ReplyMarkup != nil {
+		editParams.ReplyMarkup = result.ReplyMarkup
+	}
+
+	_, editErr := b.EditMessageText(ctx, editParams)
+	if editErr != nil {
+		logging.Errorf("Failed to edit message for user %d: %v, sending new message", telegramID, editErr)
+		h.sendMessage(ctx, b, chatID, result.Message, result.ReplyMarkup)
 		return nil
 	}
 
@@ -530,13 +611,10 @@ func (h *CallbackHandler) editMessageWithResult(c tele.Context, result *commands
 func (h *CallbackHandler) formatBookDetailsMessage(book models.Book) string {
 	var message strings.Builder
 
-	// Title (bold)
 	message.WriteString(fmt.Sprintf("<b>%s</b>\n\n", escapeHTML(book.Title)))
 
-	// Description if available
 	if book.Annotation != "" {
 		annotation := book.Annotation
-		// Limit annotation length to avoid too long messages
 		maxLength := 500
 		if len(annotation) > maxLength {
 			annotation = annotation[:maxLength] + "..."
@@ -544,7 +622,6 @@ func (h *CallbackHandler) formatBookDetailsMessage(book models.Book) string {
 		message.WriteString(fmt.Sprintf("%s\n\n", escapeHTML(annotation)))
 	}
 
-	// Format selection prompt
 	message.WriteString("Выберите формат для скачивания:")
 
 	return message.String()
@@ -562,8 +639,6 @@ func (h *CallbackHandler) getBookCoverURL(book models.Book) string {
 		return ""
 	}
 
-	// Build cover URL based on book path and filename
-	// Format: /books-posters/{path}/{filename}.jpg
 	coverURL := fmt.Sprintf("%s/books-posters/%s",
 		cdn,
 		posters.RelativePath(book.Path, book.FileName))
@@ -577,7 +652,6 @@ func (h *CallbackHandler) isCoverAvailable(coverURL string) bool {
 		return false
 	}
 
-	// Make a HEAD request to check if the cover exists
 	resp, err := http.Head(coverURL)
 	if err != nil {
 		logging.Debugf("Failed to check cover availability: %v", err)
@@ -585,7 +659,6 @@ func (h *CallbackHandler) isCoverAvailable(coverURL string) bool {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	// Check if the response is successful (2xx status code)
 	return resp.StatusCode >= 200 && resp.StatusCode < 300
 }
 

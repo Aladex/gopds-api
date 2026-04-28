@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/go-redis/redis"
-	tele "gopkg.in/telebot.v3"
 )
 
 const (
@@ -204,14 +203,20 @@ func (cm *ConversationManager) ClearContext(botToken string, userID int64) error
 	return nil
 }
 
+// IncomingMessage is a lib-agnostic DTO for incoming Telegram messages.
+type IncomingMessage struct {
+	SenderID  int64
+	Text      string
+	MessageID int
+}
+
 // ProcessIncomingMessage processes an incoming message from a user
-func (cm *ConversationManager) ProcessIncomingMessage(botToken string, message *tele.Message) error {
+func (cm *ConversationManager) ProcessIncomingMessage(botToken string, message *IncomingMessage) error {
 	if message.Text == "" {
-		return nil // Ignore messages without text
+		return nil
 	}
 
-	userID := message.Sender.ID
-	return cm.AddUserMessage(botToken, userID, message.Text)
+	return cm.AddUserMessage(botToken, message.SenderID, message.Text)
 }
 
 // ProcessOutgoingMessage processes an outgoing message to a user

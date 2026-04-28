@@ -10,7 +10,6 @@ import (
 	"github.com/go-redis/redis"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	tele "gopkg.in/telebot.v3"
 )
 
 func setupTestRedis(t *testing.T) (*redis.Client, func()) {
@@ -417,9 +416,9 @@ func TestProcessIncomingMessage(t *testing.T) {
 	botToken := "test-token"
 
 	// Create a mock telegram message
-	message := &tele.Message{
-		Sender: &tele.User{ID: 12345},
-		Text:   "Hello from user!",
+	message := &IncomingMessage{
+		SenderID:  12345,
+		Text:      "Hello from user!",
 	}
 
 	err := cm.ProcessIncomingMessage(botToken, message)
@@ -441,9 +440,9 @@ func TestProcessIncomingMessage_EmptyText(t *testing.T) {
 	botToken := "test-token"
 
 	// Create a message with empty text
-	message := &tele.Message{
-		Sender: &tele.User{ID: 12345},
-		Text:   "",
+	message := &IncomingMessage{
+		SenderID:  12345,
+		Text:      "",
 	}
 
 	err := cm.ProcessIncomingMessage(botToken, message)

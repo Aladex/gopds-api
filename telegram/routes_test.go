@@ -3,6 +3,7 @@ package telegram
 import (
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -120,6 +121,73 @@ func TestHandleWebhook_UnknownBot(t *testing.T) {
 
 	// Should return 404 for unknown bot
 	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestWebhookSecretFromToken_Deterministic(t *testing.T) {
+	token := "123456789:ABCdefGHIjklMNOpqrSTUvwxYZ"
+	s1 := webhookSecretFromToken(token)
+	s2 := webhookSecretFromToken(token)
+	assert.Equal(t, s1, s2)
+}
+
+func TestWebhookSecretFromToken_Format(t *testing.T) {
+	s := webhookSecretFromToken("123456789:ABCdefGHIjklMNOpqrSTUvwxYZ")
+	assert.Len(t, s, 32, "secret must be 32 chars")
+	assert.NotEmpty(t, s)
+	matched, err := regexp.MatchString(`^[A-Za-z0-9_-]+$`, s)
+	require.NoError(t, err)
+	assert.True(t, matched, "secret must match Telegram's secret_token regex")
+}
+
+func TestWebhookSecretFromToken_DependsOnToken(t *testing.T) {
+	s1 := webhookSecretFromToken("123:abc")
+	s2 := webhookSecretFromToken("123:abd")
+	assert.NotEqual(t, s1, s2)
+}
+
+func TestHandleWebhook_MissingSecretToken(t *testing.T) {
+	router, botManager, cleanup := setupTestRouter(t)
+	defer cleanup()
+
+	const fakeToken = "555:secret-token"
+	const fakeUUID = "uuid-missing-secret"
+	fakeBot := &Bot{token: fakeToken, webhookUUID: fakeUUID}
+	botManager.bots[fakeToken] = fakeBot
+	botManager.uuidToBots[fakeUUID] = fakeBot
+
+	routes := NewRoutes(botManager)
+	router.POST("/telegram/:token", routes.HandleWebhook)
+
+	req := httptest.NewRequest(http.MethodPost, "/telegram/"+fakeUUID, strings.NewReader("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestHandleWebhook_WrongSecretToken(t *testing.T) {
+	router, botManager, cleanup := setupTestRouter(t)
+	defer cleanup()
+
+	const fakeToken = "555:secret-token"
+	const fakeUUID = "uuid-wrong-secret"
+	fakeBot := &Bot{token: fakeToken, webhookUUID: fakeUUID}
+	botManager.bots[fakeToken] = fakeBot
+	botManager.uuidToBots[fakeUUID] = fakeBot
+
+	routes := NewRoutes(botManager)
+	router.POST("/telegram/:token", routes.HandleWebhook)
+
+	req := httptest.NewRequest(http.MethodPost, "/telegram/"+fakeUUID, strings.NewReader("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "definitely-not-the-right-secret")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
 func TestSetBotToken_NoAuth(t *testing.T) {

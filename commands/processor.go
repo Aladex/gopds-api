@@ -9,7 +9,7 @@ import (
 	"gopds-api/models"
 	"strings"
 
-	tele "gopkg.in/telebot.v3"
+	tgbot "github.com/go-telegram/bot/models"
 )
 
 // CommandProcessor handles execution of parsed commands
@@ -22,7 +22,7 @@ type CommandResult struct {
 	Message     string
 	Books       []models.Book
 	Authors     []models.Author
-	ReplyMarkup *tele.ReplyMarkup
+	ReplyMarkup *tgbot.InlineKeyboardMarkup
 	// Pagination state for conversation context
 	SearchParams *SearchParams
 }
@@ -709,123 +709,113 @@ func (cp *CommandProcessor) formatAuthorSearchResultsWithPagination(query string
 	return builder.String()
 }
 
+// inlineRow builds a single-row inline keyboard from buttons.
+func inlineRow(btns ...tgbot.InlineKeyboardButton) []tgbot.InlineKeyboardButton {
+	return btns
+}
+
+// appendPaginationRow adds prev/next navigation buttons to the keyboard rows.
+func appendPaginationRow(rows [][]tgbot.InlineKeyboardButton, offset, limit, totalCount int) [][]tgbot.InlineKeyboardButton {
+	var paginationRow []tgbot.InlineKeyboardButton
+	if offset > 0 {
+		paginationRow = append(paginationRow, tgbot.InlineKeyboardButton{
+			Text:         "⬅️ Назад",
+			CallbackData: "prev_page",
+			Style:        "primary",
+		})
+	}
+	if offset+limit < totalCount {
+		paginationRow = append(paginationRow, tgbot.InlineKeyboardButton{
+			Text:         "➡️ Вперед",
+			CallbackData: "next_page",
+			Style:        "primary",
+		})
+	}
+	if len(paginationRow) > 0 {
+		rows = append(rows, paginationRow)
+	}
+	return rows
+}
+
 // createBookButtons creates inline keyboard buttons for books
-func (cp *CommandProcessor) createBookButtons(books []models.Book) *tele.ReplyMarkup {
+func (cp *CommandProcessor) createBookButtons(books []models.Book) *tgbot.InlineKeyboardMarkup {
 	if len(books) == 0 {
 		return nil
 	}
 
-	markup := &tele.ReplyMarkup{}
-	var rows []tele.Row
+	var rows [][]tgbot.InlineKeyboardButton
 
 	for _, book := range books {
-		// Truncate title if too long for button
 		buttonText := book.Title
 		if len(buttonText) > 50 {
 			buttonText = buttonText[:47] + "..."
 		}
-
-		button := markup.Data(buttonText, fmt.Sprintf("book:%d", book.ID))
-
-		// Each book gets its own row
-		rows = append(rows, markup.Row(button))
+		rows = append(rows, inlineRow(tgbot.InlineKeyboardButton{
+			Text:         buttonText,
+			CallbackData: fmt.Sprintf("book:%d", book.ID),
+		}))
 	}
 
-	markup.Inline(rows...)
-	return markup
+	return &tgbot.InlineKeyboardMarkup{InlineKeyboard: rows}
 }
 
 // createBookButtonsWithPagination creates inline keyboard buttons for books with pagination
-func (cp *CommandProcessor) createBookButtonsWithPagination(books []models.Book, offset, limit, totalCount int) *tele.ReplyMarkup {
+func (cp *CommandProcessor) createBookButtonsWithPagination(books []models.Book, offset, limit, totalCount int) *tgbot.InlineKeyboardMarkup {
 	if len(books) == 0 {
 		return nil
 	}
 
-	markup := &tele.ReplyMarkup{}
-	var rows []tele.Row
+	var rows [][]tgbot.InlineKeyboardButton
 
-	// Create number-based selection buttons (2-3 per row)
-	var currentRow []tele.Btn
+	var currentRow []tgbot.InlineKeyboardButton
 	for i, book := range books {
 		bookNumber := offset + i + 1
-		button := markup.Data(fmt.Sprintf("%d", bookNumber), fmt.Sprintf("select:%d", book.ID))
-		currentRow = append(currentRow, button)
+		currentRow = append(currentRow, tgbot.InlineKeyboardButton{
+			Text:         fmt.Sprintf("%d", bookNumber),
+			CallbackData: fmt.Sprintf("select:%d", book.ID),
+		})
 
-		// Add row when we have 3 buttons or it's the last book
 		if len(currentRow) == 3 || i == len(books)-1 {
-			rows = append(rows, markup.Row(currentRow...))
-			currentRow = []tele.Btn{}
+			rows = append(rows, currentRow)
+			currentRow = nil
 		}
 	}
 
-	// Add pagination buttons
-	var paginationRow []tele.Btn
+	rows = appendPaginationRow(rows, offset, limit, totalCount)
 
-	// Previous page button
-	if offset > 0 {
-		paginationRow = append(paginationRow, markup.Data("⬅️ Назад", "prev_page"))
-	}
-
-	// Next page button
-	if offset+limit < totalCount {
-		paginationRow = append(paginationRow, markup.Data("➡️ Вперед", "next_page"))
-	}
-
-	if len(paginationRow) > 0 {
-		rows = append(rows, markup.Row(paginationRow...))
-	}
-
-	markup.Inline(rows...)
-	return markup
+	return &tgbot.InlineKeyboardMarkup{InlineKeyboard: rows}
 }
 
 // CreateBookButtonsWithPagination creates inline keyboard buttons for books with pagination (exported for external use)
-func (cp *CommandProcessor) CreateBookButtonsWithPagination(books []models.Book, offset, limit, totalCount int) *tele.ReplyMarkup {
+func (cp *CommandProcessor) CreateBookButtonsWithPagination(books []models.Book, offset, limit, totalCount int) *tgbot.InlineKeyboardMarkup {
 	return cp.createBookButtonsWithPagination(books, offset, limit, totalCount)
 }
 
 // createAuthorButtonsWithPagination creates inline keyboard buttons for authors with pagination
-func (cp *CommandProcessor) createAuthorButtonsWithPagination(authors []models.Author, offset, limit, totalCount int) *tele.ReplyMarkup {
+func (cp *CommandProcessor) createAuthorButtonsWithPagination(authors []models.Author, offset, limit, totalCount int) *tgbot.InlineKeyboardMarkup {
 	if len(authors) == 0 {
 		return nil
 	}
 
-	markup := &tele.ReplyMarkup{}
-	var rows []tele.Row
+	var rows [][]tgbot.InlineKeyboardButton
 
-	// Create number-based selection buttons (2-3 per row)
-	var currentRow []tele.Btn
+	var currentRow []tgbot.InlineKeyboardButton
 	for i, author := range authors {
 		authorNumber := offset + i + 1
-		button := markup.Data(fmt.Sprintf("%d", authorNumber), fmt.Sprintf("author:%d", author.ID))
-		currentRow = append(currentRow, button)
+		currentRow = append(currentRow, tgbot.InlineKeyboardButton{
+			Text:         fmt.Sprintf("%d", authorNumber),
+			CallbackData: fmt.Sprintf("author:%d", author.ID),
+		})
 
-		// Add row when we have 3 buttons or it's the last author
 		if len(currentRow) == 3 || i == len(authors)-1 {
-			rows = append(rows, markup.Row(currentRow...))
-			currentRow = []tele.Btn{}
+			rows = append(rows, currentRow)
+			currentRow = nil
 		}
 	}
 
-	// Add pagination buttons
-	var paginationRow []tele.Btn
+	rows = appendPaginationRow(rows, offset, limit, totalCount)
 
-	// Previous page button
-	if offset > 0 {
-		paginationRow = append(paginationRow, markup.Data("⬅️ Назад", "prev_page"))
-	}
-
-	// Next page button
-	if offset+limit < totalCount {
-		paginationRow = append(paginationRow, markup.Data("➡️ Вперед", "next_page"))
-	}
-
-	if len(paginationRow) > 0 {
-		rows = append(rows, markup.Row(paginationRow...))
-	}
-
-	markup.Inline(rows...)
-	return markup
+	return &tgbot.InlineKeyboardMarkup{InlineKeyboard: rows}
 }
 
 // ExecuteDirectBookSearch performs exact book search without LLM (for /b command)
@@ -974,39 +964,30 @@ func (cp *CommandProcessor) formatCollectionsWithPagination(collections []models
 }
 
 // createCollectionButtonsWithPagination creates inline keyboard for collections with pagination
-func (cp *CommandProcessor) createCollectionButtonsWithPagination(collections []models.BookCollection, offset, limit, totalCount int) *tele.ReplyMarkup {
+func (cp *CommandProcessor) createCollectionButtonsWithPagination(collections []models.BookCollection, offset, limit, totalCount int) *tgbot.InlineKeyboardMarkup {
 	if len(collections) == 0 {
 		return nil
 	}
 
-	markup := &tele.ReplyMarkup{}
-	var rows []tele.Row
+	var rows [][]tgbot.InlineKeyboardButton
 
-	var currentRow []tele.Btn
+	var currentRow []tgbot.InlineKeyboardButton
 	for i, col := range collections {
 		number := offset + i + 1
-		button := markup.Data(fmt.Sprintf("%d", number), fmt.Sprintf("collection:%d", col.ID))
-		currentRow = append(currentRow, button)
+		currentRow = append(currentRow, tgbot.InlineKeyboardButton{
+			Text:         fmt.Sprintf("%d", number),
+			CallbackData: fmt.Sprintf("collection:%d", col.ID),
+		})
 
 		if len(currentRow) == 3 || i == len(collections)-1 {
-			rows = append(rows, markup.Row(currentRow...))
-			currentRow = []tele.Btn{}
+			rows = append(rows, currentRow)
+			currentRow = nil
 		}
 	}
 
-	var paginationRow []tele.Btn
-	if offset > 0 {
-		paginationRow = append(paginationRow, markup.Data("⬅️ Назад", "prev_page"))
-	}
-	if offset+limit < totalCount {
-		paginationRow = append(paginationRow, markup.Data("➡️ Вперед", "next_page"))
-	}
-	if len(paginationRow) > 0 {
-		rows = append(rows, markup.Row(paginationRow...))
-	}
+	rows = appendPaginationRow(rows, offset, limit, totalCount)
 
-	markup.Inline(rows...)
-	return markup
+	return &tgbot.InlineKeyboardMarkup{InlineKeyboard: rows}
 }
 
 // formatCollectionBooksWithPagination formats collection books list with pagination info
