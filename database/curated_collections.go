@@ -125,12 +125,7 @@ func GetCuratedCollection(ctx context.Context, id int64) (*models.BookCollection
 // ListCuratedCollections returns is_curated=true collections, newest first,
 // paginated. total is the number of curated collections regardless of page.
 func ListCuratedCollections(ctx context.Context, page, pageSize int) ([]models.BookCollection, int, error) {
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 {
-		pageSize = 25
-	}
+	page, pageSize = clampListPaging(page, pageSize, 25)
 	var out []models.BookCollection
 	total, err := db.ModelContext(ctx, &out).
 		Where("is_curated = ?", true).
@@ -144,12 +139,10 @@ func ListCuratedCollections(ctx context.Context, page, pageSize int) ([]models.B
 // ListCollectionItems returns items of one collection, optionally filtered by match_status,
 // paginated. Returns the page slice and the total count of matching rows for pagination.
 func ListCollectionItems(ctx context.Context, collectionID int64, statusFilter string, page, pageSize int) ([]models.BookCollectionItem, int, error) {
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 {
-		pageSize = 50
-	}
+	// Items table can grow into the thousands per collection, so the items
+	// guard allows a larger window than the collection list (admin needs to
+	// see everything ambiguous in one go), but still finite.
+	page, pageSize = clampItemsPaging(page, pageSize)
 	// "matched" is a virtual filter that combines auto-matched items with the
 	// ones the admin manually resolved — both are "found" from the user's POV.
 	matchedStatuses := []string{models.MatchStatusAutoMatched, models.MatchStatusManual}
@@ -274,12 +267,7 @@ func DeleteCuratedCollection(ctx context.Context, id int64) error {
 // paginated. Drafts and UGC are filtered out at this layer so the public handler
 // can trust the result.
 func ListPublicCuratedCollections(ctx context.Context, page, pageSize int) ([]models.BookCollection, int, error) {
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 {
-		pageSize = 12
-	}
+	page, pageSize = clampListPaging(page, pageSize, 12)
 	var out []models.BookCollection
 	total, err := db.ModelContext(ctx, &out).
 		Where("is_curated = ?", true).
@@ -289,6 +277,54 @@ func ListPublicCuratedCollections(ctx context.Context, page, pageSize int) ([]mo
 		Limit(pageSize).
 		SelectAndCount()
 	return out, total, err
+}
+
+// clampItemsPaging is the items-list version: bigger ceilings (page_size up
+// to 1000, offset up to 100k) so the admin UI can pull all items of a single
+// collection in one shot if it wants to.
+func clampItemsPaging(page, pageSize int) (int, int) {
+	const (
+		maxPageSize   = 1000
+		maxOffsetRows = 100_000
+	)
+	if pageSize < 1 {
+		pageSize = 50
+	}
+	if pageSize > maxPageSize {
+		pageSize = maxPageSize
+	}
+	if page < 1 {
+		page = 1
+	}
+	maxPage := (maxOffsetRows / pageSize) + 1
+	if page > maxPage {
+		page = maxPage
+	}
+	return page, pageSize
+}
+
+// clampListPaging guards the list endpoints from runaway page/page_size values:
+// page is capped so the offset stays inside maxOffsetRows, page_size is capped
+// at maxPageSize. Defaults kick in for non-positive inputs.
+func clampListPaging(page, pageSize, defaultPageSize int) (int, int) {
+	const (
+		maxPageSize    = 100
+		maxOffsetRows  = 10_000
+	)
+	if pageSize < 1 {
+		pageSize = defaultPageSize
+	}
+	if pageSize > maxPageSize {
+		pageSize = maxPageSize
+	}
+	if page < 1 {
+		page = 1
+	}
+	maxPage := (maxOffsetRows / pageSize) + 1
+	if page > maxPage {
+		page = maxPage
+	}
+	return page, pageSize
 }
 
 // GetPublicCuratedCollection fetches one published curated collection.
