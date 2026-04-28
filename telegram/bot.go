@@ -421,31 +421,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 
 	// /donate command
 	b.bot.RegisterHandler(tgbotapi.HandlerTypeMessageText, "donate", tgbotapi.MatchTypeCommand, b.withAuth(conversationManager, func(ctx context.Context, bot *tgbotapi.Bot, update *tgbot.Update, telegramID int64) {
-		response := "❤️ Если проект вам полезен, вы можете поддержать его развитие:\n\n" +
-			"💳 *Крипто:*\n" +
-			"`bc1qv2pjsnkprer35u2whuquztvnvnggjsrqu4q43f` — Bitcoin\n" +
-			"`0xD053A0fE7C450b57da9FF169620EB178644b54C9` — Ethereum\n" +
-			"`TTE5dv9w9RSDMJ6k3tnpfuehH8UX9Fy4Ec` — USDT (TRC-20)"
-
-		markup := &tgbot.InlineKeyboardMarkup{
-			InlineKeyboard: [][]tgbot.InlineKeyboardButton{
-				{
-					{Text: "Т-Банк", URL: "https://tbank.ru/cf/634wAzuZc0Z"},
-				},
-				{
-					{Text: "PayPal", URL: "https://www.paypal.com/donate/?hosted_button_id=PJ9RC6X742T62"},
-					{Text: "☕ Coffee", URL: "https://www.buymeacoffee.com/aladex"},
-				},
-			},
-		}
-
-		_ = conversationManager.ProcessOutgoingMessage(b.token, telegramID, response)
-		_, _ = bot.SendMessage(ctx, &tgbotapi.SendMessageParams{
-			ChatID:    update.Message.Chat.ID,
-			Text:      response,
-			ParseMode: tgbot.ParseModeMarkdown,
-			ReplyMarkup: markup,
-		})
+		b.sendDonate(ctx, bot, conversationManager, telegramID, update.Message.Chat.ID)
 	}))
 
 	// Default handler for all text messages (keyboard buttons + free text)
@@ -1128,31 +1104,7 @@ func (b *Bot) handleKeyboardCommand(ctx context.Context, bot *tgbotapi.Bot, conv
 		b.sendMessage(ctx, bot, chatID, response, nil)
 
 	case "/donate":
-		response := "❤️ Если проект вам полезен, вы можете поддержать его развитие:\n\n" +
-			"💳 *Крипто:*\n" +
-			"`bc1qv2pjsnkprer35u2whuquztvnvnggjsrqu4q43f` — Bitcoin\n" +
-			"`0xD053A0fE7C450b57da9FF169620EB178644b54C9` — Ethereum\n" +
-			"`TTE5dv9w9RSDMJ6k3tnpfuehH8UX9Fy4Ec` — USDT (TRC-20)"
-
-		markup := &tgbot.InlineKeyboardMarkup{
-			InlineKeyboard: [][]tgbot.InlineKeyboardButton{
-				{
-					{Text: "Т-Банк", URL: "https://tbank.ru/cf/634wAzuZc0Z"},
-				},
-				{
-					{Text: "PayPal", URL: "https://www.paypal.com/donate/?hosted_button_id=PJ9RC6X742T62"},
-					{Text: "☕ Coffee", URL: "https://www.buymeacoffee.com/aladex"},
-				},
-			},
-		}
-
-		_ = conversationManager.ProcessOutgoingMessage(b.token, telegramID, response)
-		_, _ = bot.SendMessage(ctx, &tgbotapi.SendMessageParams{
-			ChatID:      chatID,
-			Text:        response,
-			ParseMode:   tgbot.ParseModeMarkdown,
-			ReplyMarkup: markup,
-		})
+		b.sendDonate(ctx, bot, conversationManager, telegramID, chatID)
 
 	default:
 		logging.Warnf("Unknown keyboard command: %s", command)
@@ -1175,6 +1127,39 @@ func parseAuthorTitle(query string) (author, title string) {
 	}
 
 	return "", ""
+}
+
+// sendDonate sends the donate message used by both the /donate slash command
+// and the keyboard "❤️ Поддержать" button. HTML mode is used because Telegram's
+// legacy Markdown parser silently rejects messages on the slightest format
+// surprise (mismatched underscore/star, characters in code spans), and the
+// previous code swallowed the SendMessage error so failures were invisible.
+func (b *Bot) sendDonate(ctx context.Context, bot *tgbotapi.Bot, conversationManager *ConversationManager, telegramID int64, chatID int64) {
+	const response = "❤️ Если проект вам полезен, вы можете поддержать его развитие:\n\n" +
+		"💳 <b>Крипто:</b>\n" +
+		"<code>bc1qv2pjsnkprer35u2whuquztvnvnggjsrqu4q43f</code> — Bitcoin\n" +
+		"<code>0xD053A0fE7C450b57da9FF169620EB178644b54C9</code> — Ethereum\n" +
+		"<code>TTE5dv9w9RSDMJ6k3tnpfuehH8UX9Fy4Ec</code> — USDT (TRC-20)"
+
+	markup := &tgbot.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgbot.InlineKeyboardButton{
+			{{Text: "Т-Банк", URL: "https://tbank.ru/cf/634wAzuZc0Z"}},
+			{
+				{Text: "PayPal", URL: "https://www.paypal.com/donate/?hosted_button_id=PJ9RC6X742T62"},
+				{Text: "☕ Coffee", URL: "https://www.buymeacoffee.com/aladex"},
+			},
+		},
+	}
+
+	_ = conversationManager.ProcessOutgoingMessage(b.token, telegramID, response)
+	if _, err := bot.SendMessage(ctx, &tgbotapi.SendMessageParams{
+		ChatID:      chatID,
+		Text:        response,
+		ParseMode:   tgbot.ParseModeHTML,
+		ReplyMarkup: markup,
+	}); err != nil {
+		logging.Errorf("Failed to send donate message to user %d: %v", telegramID, err)
+	}
 }
 
 // recoverMiddleware catches panics from downstream handlers so a single
