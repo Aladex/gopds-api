@@ -64,7 +64,7 @@ const ItemsTable: React.FC<{
     bookInfo: Map<number, LookupBook>;
     onResolve: (itemID: number, bookID: number) => Promise<void>;
     onIgnore: (itemID: number) => Promise<void>;
-}> = ({ items, statusKey, bookInfo, onResolve, onIgnore }) => {
+}> = ({ items, bookInfo, onResolve, onIgnore }) => {
     const { t } = useTranslation();
     const [manualID, setManualID] = useState<Record<number, string>>({});
     const [busy, setBusy] = useState<Record<number, boolean>>({});

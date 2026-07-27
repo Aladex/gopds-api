@@ -39,11 +39,21 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
     const { t } = useTranslation();
     const { languages, selectedLanguage, setSelectedLanguage } = useSearchBar();
     const [isDonateModalOpen, setIsDonateModalOpen] = useState(false);
-    const [isHeaderVisible, setIsHeaderVisible] = useState(true);
+    const [hiddenByScroll, setHiddenByScroll] = useState(false);
     const lastScrollYRef = useRef(0);
 
     const isMobile = useMediaQuery('(max-width: 600px)');
     const isVeryNarrow = useMediaQuery('(max-width: 354px)');
+
+    // Coming back to the narrow layout brings the bar back. Only the scroll
+    // handler hides it, and it only runs while narrow, so a value left over from
+    // an earlier narrow session would otherwise keep the bar hidden until the
+    // reader happened to scroll.
+    const [wasMobile, setWasMobile] = useState(isMobile);
+    if (wasMobile !== isMobile) {
+        setWasMobile(isMobile);
+        setHiddenByScroll(false);
+    }
 
     const navItems = useNavItems(Boolean(user?.is_superuser));
     const current = activeNavItem(navItems, location.pathname);
@@ -72,7 +82,6 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
 
     useEffect(() => {
         if (!isMobile) {
-            setIsHeaderVisible(true);
             return;
         }
 
@@ -82,11 +91,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
 
             // Near the top the bar always shows; below that it follows the
             // direction of travel, so reading down a list gives back the space.
-            if (currentScrollY < 50) {
-                setIsHeaderVisible(true);
-            } else {
-                setIsHeaderVisible(currentScrollY <= previous);
-            }
+            setHiddenByScroll(currentScrollY >= 50 && currentScrollY > previous);
 
             lastScrollYRef.current = currentScrollY;
         };
@@ -145,7 +150,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                 isMobile
                     ? 'fixed inset-x-0 top-0 z-chrome-top transition-transform duration-300'
                     : 'static',
-                isMobile && !isHeaderVisible && '-translate-y-full',
+                isMobile && hiddenByScroll && '-translate-y-full',
             )}
         >
             <div className={cn('flex items-center px-4', isMobile ? 'h-12' : 'h-16')}>

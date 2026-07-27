@@ -45,7 +45,10 @@ let toggle: () => void;
 
 const Probe: React.FC = () => {
     const { mode, toggleTheme } = useTheme();
-    toggle = toggleTheme;
+    // Captured in an effect rather than during render, which must stay pure.
+    React.useEffect(() => {
+        toggle = toggleTheme;
+    }, [toggleTheme]);
     return <span data-testid="mode">{mode}</span>;
 };
 

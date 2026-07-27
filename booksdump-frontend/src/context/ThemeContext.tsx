@@ -47,7 +47,7 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
                 if (theme === 'light' || theme === 'dark') {
                     setMode(theme);
                 }
-            } catch (error) {
+            } catch {
                 // Ignore errors and keep current mode
             }
         };
@@ -91,7 +91,7 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
         }
         try {
             await booksApi.setThemePreference(newMode);
-        } catch (error) {
+        } catch {
             // Ignore errors and keep current mode
         }
     }, [isAuthenticated]);

@@ -33,19 +33,32 @@ const BOOKS = [
     { value: 'Звездная тень', type: 'book' as const, id: 2 },
 ];
 
+/**
+ * The box is fully controlled, so the harness owns the value the way the search
+ * panel does — otherwise typing would go nowhere.
+ */
+const Harness: React.FC<
+    { onChange: (v: string) => void } & Partial<React.ComponentProps<typeof AutocompleteSearch>>
+> = ({ onChange, ...props }) => {
+    const [value, setValue] = React.useState(props.value ?? '');
+    return (
+        <AutocompleteSearch
+            searchType="title"
+            placeholder="Поиск"
+            {...props}
+            value={value}
+            onChange={(next) => {
+                setValue(next);
+                onChange(next);
+            }}
+        />
+    );
+};
+
 function setup(props: Partial<React.ComponentProps<typeof AutocompleteSearch>> = {}) {
     const onChange = vi.fn();
     const onEnterPressed = vi.fn();
-    const view = render(
-        <AutocompleteSearch
-            value=""
-            onChange={onChange}
-            searchType="title"
-            onEnterPressed={onEnterPressed}
-            placeholder="Поиск"
-            {...props}
-        />,
-    );
+    const view = render(<Harness onChange={onChange} onEnterPressed={onEnterPressed} {...props} />);
     return { ...view, onChange, onEnterPressed, input: screen.getByRole('combobox') };
 }
 
@@ -180,14 +193,28 @@ describe('AutocompleteSearch', () => {
         expect(input).toHaveAttribute('type', 'text');
     });
 
-    it('follows the query the panel puts in it', async () => {
-        const { rerender, input } = setup({ value: 'Пришвин' });
-        expect(input).toHaveValue('Пришвин');
+    it('keeps no copy of the query — the panel owns it', async () => {
+        const user = userEvent.setup();
+        const onChange = vi.fn();
+        const { rerender } = render(
+            <AutocompleteSearch
+                value="Пришвин"
+                onChange={onChange}
+                searchType="title"
+                placeholder="Поиск"
+            />,
+        );
+        expect(screen.getByRole('combobox')).toHaveValue('Пришвин');
+
+        // Typing reports upwards and changes nothing on its own: a box that kept
+        // its own copy would drift from the panel that resets it.
+        await user.type(screen.getByRole('combobox'), 'X');
+        expect(onChange).toHaveBeenCalledWith('ПришвинX');
+        expect(screen.getByRole('combobox')).toHaveValue('Пришвин');
 
         rerender(
-            <AutocompleteSearch value="" onChange={vi.fn()} searchType="title" placeholder="Поиск" />,
+            <AutocompleteSearch value="" onChange={onChange} searchType="title" placeholder="Поиск" />,
         );
-
-        await waitFor(() => expect(screen.getByRole('combobox')).toHaveValue(''));
+        expect(screen.getByRole('combobox')).toHaveValue('');
     });
 });

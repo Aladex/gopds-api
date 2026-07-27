@@ -37,21 +37,23 @@ export const useProfileForm = (open: boolean) => {
         }
     }, [user, open]);
 
-    useEffect(() => {
-        if (open) {
-            fetchBotStatus();
-        }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open]);
-
+    // Declared before the effect that calls it: reaching forward to a const
+    // happens to work, because the effect runs after the whole body, but it is
+    // a temporal dead zone away from a crash if the call ever moves.
     const fetchBotStatus = useCallback(async () => {
         try {
             const status = await telegramApi.getBotStatus();
             setBotConnected(status?.has_bot_token || false);
         } catch {
-            // Silently fail - use has_bot_token from user
+            // The user's own has_bot_token stands in when the status is unknown.
         }
     }, []);
+
+    useEffect(() => {
+        if (open) {
+            fetchBotStatus();
+        }
+    }, [open, fetchBotStatus]);
 
     const resetFields = useCallback(() => {
         setShowPasswordFields(false);

@@ -115,7 +115,7 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
                 const data = await adminApi.searchAuthors(query);
                 if (!active) return;
                 setAvailableAuthors(data?.authors || []);
-            } catch (err) {
+            } catch {
                 if (!active) return;
                 setAvailableAuthors([]);
             } finally {
@@ -147,7 +147,7 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
                 const data = await adminApi.searchSeries(query);
                 if (!active) return;
                 setAvailableSeries(data?.series || []);
-            } catch (err) {
+            } catch {
                 if (!active) return;
                 setAvailableSeries([]);
             } finally {

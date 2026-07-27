@@ -63,6 +63,14 @@ jobs:
         version: v2.12.2
         args: --new-from-merge-base=origin/${{ github.base_ref || 'master' }}
 
+    # ESLint cannot report only the new lines, so a changed file is linted
+    # whole. Severity carries the distinction instead: errors block, warnings
+    # are the backlog inherited from the years the frontend had no linter.
+    - name: Run ESLint on changed frontend files
+      run: make lint-frontend-new
+      env:
+        LINT_BASE: origin/${{ github.base_ref || 'master' }}
+
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
       with:

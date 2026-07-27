@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 
 /**
  * useMediaQuery reports whether a CSS media query currently matches, and keeps
@@ -8,11 +8,17 @@ import { useEffect, useState } from 'react';
  * component has to make a different decision rather than a different style — the
  * pager, for instance, shows fewer page numbers on a narrow screen, and there is
  * no way to un-render an element from a media query.
+ *
+ * The viewport is state owned by the browser, not by React, so it is read
+ * through useSyncExternalStore. Mirroring it into useState would mean rendering
+ * once with a guess and again with the answer.
  */
+
 /**
  * matchMediaOrNull returns null where the environment has no matchMedia at all.
  * A missing optional API must not take a whole page down with it, so callers
- * fall back to the wide layout rather than throwing.
+ * fall back to the wide layout rather than throwing. jsdom is one such
+ * environment.
  */
 const matchMediaOrNull = (query: string): MediaQueryList | null =>
     typeof window === 'undefined' || typeof window.matchMedia !== 'function'
@@ -20,24 +26,24 @@ const matchMediaOrNull = (query: string): MediaQueryList | null =>
         : window.matchMedia(query);
 
 export function useMediaQuery(query: string): boolean {
-    const [matches, setMatches] = useState(() => matchMediaOrNull(query)?.matches ?? false);
+    const subscribe = useCallback(
+        (onChange: () => void) => {
+            const list = matchMediaOrNull(query);
+            if (!list) {
+                return () => {};
+            }
+            list.addEventListener('change', onChange);
+            return () => list.removeEventListener('change', onChange);
+        },
+        [query],
+    );
 
-    useEffect(() => {
-        const list = matchMediaOrNull(query);
-        if (!list) {
-            return;
-        }
+    const getSnapshot = useCallback(() => matchMediaOrNull(query)?.matches ?? false, [query]);
 
-        // Read once on mount too: the query may have changed since the initial
-        // state was computed.
-        setMatches(list.matches);
+    // The server has no viewport; assume the wide layout, as the CSS does.
+    const getServerSnapshot = useCallback(() => false, []);
 
-        const onChange = (event: MediaQueryListEvent) => setMatches(event.matches);
-        list.addEventListener('change', onChange);
-        return () => list.removeEventListener('change', onChange);
-    }, [query]);
-
-    return matches;
+    return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
 
 export default useMediaQuery;

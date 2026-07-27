@@ -3,31 +3,42 @@ import { renderHook, act } from '@testing-library/react';
 import { useMediaQuery } from '../useMediaQuery';
 
 // The setup file installs a matchMedia that never matches, so each test here
-// installs its own stub to control what the viewport claims to be.
+// installs its own stub. The stub behaves as a real MediaQueryList does: its
+// `matches` property reflects the viewport now, and listeners are told when it
+// changes — the hook reads the property rather than trusting the event.
 
-type Listener = (event: MediaQueryListEvent) => void;
+type Listener = () => void;
 
-function installMatchMedia(matches: boolean) {
-    const listeners: Listener[] = [];
+function installMatchMedia(initial: boolean) {
+    let matches = initial;
+    const listeners = new Set<Listener>();
     const removed: Listener[] = [];
 
     window.matchMedia = ((query: string) => ({
-        matches,
+        get matches() {
+            return matches;
+        },
         media: query,
         onchange: null,
         addListener: () => {},
         removeListener: () => {},
-        addEventListener: (_: string, listener: Listener) => listeners.push(listener),
-        removeEventListener: (_: string, listener: Listener) => removed.push(listener),
+        addEventListener: (_: string, listener: Listener) => listeners.add(listener),
+        removeEventListener: (_: string, listener: Listener) => {
+            removed.push(listener);
+            listeners.delete(listener);
+        },
         dispatchEvent: () => false,
     })) as unknown as typeof window.matchMedia;
 
     return {
-        listeners,
+        get listenerCount() {
+            return listeners.size;
+        },
         removed,
-        emit: (next: boolean) =>
+        resize: (next: boolean) =>
             act(() => {
-                listeners.forEach((listener) => listener({ matches: next } as MediaQueryListEvent));
+                matches = next;
+                listeners.forEach((listener) => listener());
             }),
     };
 }
@@ -51,7 +62,7 @@ describe('useMediaQuery', () => {
         const { result } = renderHook(() => useMediaQuery('(max-width: 779px)'));
         expect(result.current).toBe(false);
 
-        media.emit(true);
+        media.resize(true);
 
         expect(result.current).toBe(true);
     });
@@ -59,11 +70,12 @@ describe('useMediaQuery', () => {
     it('lets go of the listener when it unmounts', () => {
         const media = installMatchMedia(false);
         const { unmount } = renderHook(() => useMediaQuery('(max-width: 779px)'));
+        expect(media.listenerCount).toBe(1);
 
         unmount();
 
+        expect(media.listenerCount).toBe(0);
         expect(media.removed).toHaveLength(1);
-        expect(media.removed[0]).toBe(media.listeners[0]);
     });
 
     it('takes nothing down when the environment has no media queries', () => {

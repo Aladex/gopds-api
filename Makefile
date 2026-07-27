@@ -1,5 +1,5 @@
 .PHONY: help verify bootstrap build build-bin build-frontend backend frontend frontend-placeholder swagger \
-	deps deps-frontend test test-backend test-integration test-frontend test-coverage clean lint lint-new fmt staticcheck security \
+	deps deps-frontend test test-backend test-integration test-frontend test-coverage clean lint lint-new lint-frontend lint-frontend-new fmt staticcheck security \
 	docker-build docker-run docker-compose-up docker-compose-down dev migrate-up migrate-down release pre-commit \
 	db-dump db-restore db-seed db-reset
 
@@ -19,7 +19,7 @@ GOSEC_VERSION       := v2.28.0
 STATICCHECK_VERSION := 2026.1
 
 # Base revision the new-code lint gate compares against; CI overrides it per PR.
-LINT_BASE           := origin/master
+LINT_BASE           ?= origin/master
 
 # Default target
 help: ## Show this help message
@@ -119,6 +119,26 @@ lint-new: ## Run linters over new code only — same gate as CI
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION) run \
 		--new-from-merge-base=$(LINT_BASE)
 
+lint-frontend: ## Run ESLint over the whole frontend (reports warnings too)
+	@echo "Running ESLint over the frontend..."
+	cd $(FRONTEND_DIR) && yarn --silent lint
+
+# Fails on errors only. Unlike golangci-lint, ESLint cannot report just the new
+# lines, so a changed file is linted whole — gating on warnings would fail on a
+# backlog the change did not introduce. Severity carries the distinction
+# instead: error blocks, warning is the backlog, visible via lint-frontend.
+lint-frontend-new: ## Fail on ESLint errors in frontend files changed since $(LINT_BASE)
+	@echo "Running ESLint on frontend changes since $(LINT_BASE)..."
+	@files=$$(git diff --name-only --diff-filter=ACMR \
+		$$(git merge-base $(LINT_BASE) HEAD) -- \
+		'$(FRONTEND_DIR)/**/*.ts' '$(FRONTEND_DIR)/**/*.tsx' \
+		| sed 's|^$(FRONTEND_DIR)/||'); \
+	if [ -z "$$files" ]; then \
+		echo "No frontend files changed."; \
+	else \
+		cd $(FRONTEND_DIR) && npx eslint --no-warn-ignored --quiet $$files; \
+	fi
+
 fmt: ## Apply formatters (gofmt, goimports)
 	@echo "Applying formatters..."
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION) fmt
@@ -196,9 +216,9 @@ migrate-down: ## Run database migrations down
 	# Add your migration rollback command here
 
 # Release
-release: clean build test lint-new security ## Prepare for release
+release: clean build test lint-new lint-frontend-new security ## Prepare for release
 	@echo "Release preparation complete!"
 
 # Quick checks before commit
-pre-commit: lint-new test ## Run pre-commit checks
+pre-commit: lint-new lint-frontend-new test ## Run pre-commit checks
 	@echo "Pre-commit checks passed!"

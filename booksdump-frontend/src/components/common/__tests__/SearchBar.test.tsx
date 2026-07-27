@@ -15,7 +15,12 @@ import SearchBar from '../SearchBar';
 let currentPath = '';
 
 const PathProbe: React.FC = () => {
-    currentPath = useLocation().pathname;
+    const { pathname } = useLocation();
+    // Recorded in an effect, not during render: writing to the outside world
+    // while rendering is the side effect React asks components not to have.
+    React.useEffect(() => {
+        currentPath = pathname;
+    }, [pathname]);
     return null;
 };
 
