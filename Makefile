@@ -81,9 +81,9 @@ test-integration: bootstrap ## Run the full Go suite, including tests that requi
 	@echo "Running backend tests including integration tests..."
 	go test -race ./...
 
-test-frontend: ## Run frontend tests once, without watch mode
+test-frontend: ## Run frontend tests once (`vitest run` does not watch)
 	@echo "Running frontend tests..."
-	cd $(FRONTEND_DIR) && CI=true yarn test --watchAll=false
+	cd $(FRONTEND_DIR) && CI=true yarn test
 
 test: test-backend ## Alias for test-backend
 
