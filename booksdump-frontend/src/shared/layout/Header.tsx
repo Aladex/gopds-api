@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { HeartHandshake, LogOut } from 'lucide-react';
@@ -12,12 +12,18 @@ import {
 } from '@/shared/ui/dropdown-menu';
 import { cn } from '@/shared/lib/utils';
 
+import * as systemApi from '@/api/system';
 import { useAuth } from '@/context/AuthContext';
 import { useSearchBar } from '@/context/SearchBarContext';
 import { getLanguageDisplaySafe, languageMapping } from '@/shared/lib/languageUtils';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import { activeNavItem, useNavItems } from '@/shared/layout/navItems';
-import DonateModal from '@/shared/layout/DonateModal';
+/*
+ * Loaded on demand. The dialog pulls in a QR code generator worth about twenty
+ * kilobytes, and most readers never open it — there is no reason for everyone
+ * to download it on first paint.
+ */
+const DonateModal = React.lazy(() => import('@/shared/layout/DonateModal'));
 import ThemeToggle from '@/shared/layout/ThemeToggle';
 
 type HeaderProps = {
@@ -39,6 +45,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
     const { t } = useTranslation();
     const { languages, selectedLanguage, setSelectedLanguage } = useSearchBar();
     const [isDonateModalOpen, setIsDonateModalOpen] = useState(false);
+    const [canDonate, setCanDonate] = useState(false);
     const [hiddenByScroll, setHiddenByScroll] = useState(false);
     const lastScrollYRef = useRef(0);
 
@@ -80,6 +87,24 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
         navigate('/login');
     };
 
+    // Whether there is anything to offer at all. An installation that has
+    // configured no methods should not show the button, rather than open an
+    // empty dialog.
+    useEffect(() => {
+        let cancelled = false;
+        systemApi
+            .getDonateMethods()
+            .then((methods) => {
+                if (!cancelled) setCanDonate(methods.length > 0);
+            })
+            .catch(() => {
+                // Nothing to offer if we cannot find out.
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
     useEffect(() => {
         if (!isMobile) {
             return;
@@ -100,7 +125,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
         return () => window.removeEventListener('scroll', handleScroll);
     }, [isMobile]);
 
-    const donateButton = (
+    const donateButton = !canDonate ? null : (
         <button
             type="button"
             onClick={() => setIsDonateModalOpen(true)}
@@ -219,7 +244,11 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                 )}
             </div>
 
-            <DonateModal open={isDonateModalOpen} onClose={() => setIsDonateModalOpen(false)} />
+            {isDonateModalOpen && (
+                <Suspense fallback={null}>
+                    <DonateModal open onClose={() => setIsDonateModalOpen(false)} />
+                </Suspense>
+            )}
         </header>
     );
 };

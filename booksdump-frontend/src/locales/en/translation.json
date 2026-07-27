@@ -431,5 +431,9 @@
   "profileSection.sessions": "Sessions",
   "passwordSavedWithProfile": "The new password takes effect when you press Save below",
   "removeItem": "Remove {{name}}",
-  "editBookHint": "Edit the book's metadata and save the changes."
+  "editBookHint": "Edit the book's metadata and save the changes.",
+  "donateTitle": "Support the project",
+  "donateOpen": "Open",
+  "copy": "Copy",
+  "copied": "Copied"
 }

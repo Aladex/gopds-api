@@ -1,303 +1,174 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import QRCode from 'qrcode';
-import { useTheme } from '@mui/material/styles';
-import {
-    Dialog,
-    DialogTitle,
-    DialogContent,
-    IconButton,
-    Box,
-    Tabs,
-    Tab,
-    Typography,
-    Button,
-} from '@mui/material';
-import { Close as CloseIcon } from '@mui/icons-material';
+import { Check, Copy, ExternalLink } from 'lucide-react';
 
-interface DonateModalProps {
+import * as systemApi from '@/api/system';
+import type { DonateMethod } from '@/api/system';
+import { useTheme } from '@/context/ThemeContext';
+import { Button } from '@/shared/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/shared/ui/dialog';
+import { cn } from '@/shared/lib/utils';
+
+/**
+ * DonateModal shows the ways of supporting the service that its operator has
+ * configured.
+ *
+ * It knows nothing about Bitcoin or PayPal. Each method arrives from
+ * /api/donate saying how it wants to be shown — an address to copy, a card
+ * number, a link to follow — so adding one is an edit to the configuration
+ * rather than to this file. It used to be six tabs written into the markup,
+ * with every address repeated three times: once for its code, once as text,
+ * once inside the copy button.
+ */
+
+type DonateModalProps = {
     open: boolean;
     onClose: () => void;
-}
+};
 
-// Constants belong at module scope, where they really are created once. A
-// useMemo would only have promised that.
-const CRYPTO_ADDRESSES = {
-    bitcoin: 'bc1qv2pjsnkprer35u2whuquztvnvnggjsrqu4q43f',
-    ethereum: '0xD053A0fE7C450b57da9FF169620EB178644b54C9',
-    usdt: 'TTE5dv9w9RSDMJ6k3tnpfuehH8UX9Fy4Ec',
+/** formatCard groups the digits the way they are printed on the card. */
+const formatCard = (value: string) => value.replace(/(.{4})/g, '$1 ').trim();
+
+const CopyButton: React.FC<{ value: string; label: string }> = ({ value, label }) => {
+    const { t } = useTranslation();
+    const [copied, setCopied] = useState(false);
+
+    // The tick is the whole of the feedback, so it has to clear itself — and
+    // clean up, or closing the dialog mid-timeout leaves a timer running.
+    useEffect(() => {
+        if (!copied) return;
+        const timer = setTimeout(() => setCopied(false), 1500);
+        return () => clearTimeout(timer);
+    }, [copied]);
+
+    return (
+        <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            aria-label={`${t('copy')}: ${label}`}
+            onClick={() => {
+                navigator.clipboard.writeText(value);
+                setCopied(true);
+            }}
+        >
+            {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+            {copied ? t('copied') : t('copy')}
+        </Button>
+    );
+};
+
+const QrCode: React.FC<{ value: string }> = ({ value }) => {
+    const { mode } = useTheme();
+    const [dataUrl, setDataUrl] = useState('');
+
+    useEffect(() => {
+        let cancelled = false;
+        QRCode.toDataURL(value, {
+            width: 200,
+            margin: 2,
+            // Drawn in the theme's colours, which is the reason this stays on
+            // the client: a code rendered by the server would have to be told
+            // them, and cached per colour.
+            color:
+                mode === 'dark'
+                    ? { dark: '#ffffff', light: '#1e1e1e' }
+                    : { dark: '#000000', light: '#ffffff' },
+        })
+            .then((url) => {
+                if (!cancelled) setDataUrl(url);
+            })
+            .catch((error) => console.error('Error generating QR code:', error));
+        return () => {
+            cancelled = true;
+        };
+    }, [value, mode]);
+
+    if (!dataUrl) {
+        return null;
+    }
+    return (
+        <img src={dataUrl} alt="" aria-hidden="true" className="size-[200px] self-center rounded" />
+    );
+};
+
+const Method: React.FC<{ method: DonateMethod }> = ({ method }) => {
+    const { t } = useTranslation();
+    const shown = method.kind === 'card' ? formatCard(method.value) : method.value;
+
+    return (
+        <section className="flex flex-col gap-2 border-t border-border pt-4 first:border-t-0 first:pt-0">
+            <h3 className="text-sm font-medium">{method.label}</h3>
+
+            {method.kind === 'link' ? (
+                <Button asChild variant="outline" size="sm" className="self-start">
+                    <a href={method.value} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink className="size-4" />
+                        {t('donateOpen')}
+                    </a>
+                </Button>
+            ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                    <code
+                        className={cn(
+                            'min-w-0 flex-1 rounded bg-muted px-2 py-1.5 text-[13px] break-all',
+                            method.kind === 'card' && 'break-normal tracking-wider',
+                        )}
+                    >
+                        {shown}
+                    </code>
+                    <CopyButton value={method.value} label={method.label} />
+                </div>
+            )}
+
+            {method.link && method.kind !== 'link' && (
+                <Button asChild variant="link" size="sm" className="h-auto self-start p-0 text-xs">
+                    <a href={method.link} target="_blank" rel="noopener noreferrer">
+                        {t('donateOpen')}
+                    </a>
+                </Button>
+            )}
+
+            {method.qr && <QrCode value={method.value} />}
+        </section>
+    );
 };
 
 const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
-    const theme = useTheme();
-    const [activeTab, setActiveTab] = useState(0);
-    const [qrCodes, setQrCodes] = useState<{[key: string]: string}>({});
-
-    // Read out as plain strings: a dependency compared by value needs no stable
-    // identity, and so needs no memo to give it one.
-    const qrDark = theme.palette.text.primary;
-    const qrLight = theme.palette.background.paper;
-
-    const generateQRCodes = useCallback(async () => {
-        const codes: {[key: string]: string} = {};
-        try {
-            for (const [currency, address] of Object.entries(CRYPTO_ADDRESSES)) {
-                codes[currency] = await QRCode.toDataURL(address, {
-                    width: 200,
-                    margin: 2,
-                    color: { dark: qrDark, light: qrLight },
-                });
-            }
-            setQrCodes(codes);
-        } catch (error) {
-            console.error('Error generating QR codes:', error);
-        }
-    }, [qrDark, qrLight]);
+    const { t } = useTranslation();
+    const [methods, setMethods] = useState<DonateMethod[]>([]);
 
     useEffect(() => {
-        if (open) {
-            // Generate QR codes for crypto addresses
-            generateQRCodes().catch((error) => {
-                console.error('Error generating QR codes:', error);
-            });
+        if (!open) {
+            return;
         }
-    }, [open, generateQRCodes]);
-
-    const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
-        setActiveTab(newValue);
-    };
-
-    const copyToClipboard = (text: string) => {
-        navigator.clipboard.writeText(text);
-        // Can add copy notification here
-    };
+        let cancelled = false;
+        systemApi
+            .getDonateMethods()
+            .then((list) => {
+                if (!cancelled) setMethods(list ?? []);
+            })
+            .catch((error) => console.error('Error fetching donate methods:', error));
+        return () => {
+            cancelled = true;
+        };
+    }, [open]);
 
     return (
-        <Dialog
-            open={open}
-            onClose={onClose}
-            maxWidth="sm"
-            fullWidth
-            PaperProps={{
-                sx: {
-                    backgroundColor: 'background.paper',
-                    color: theme.palette.text.primary,
-                    maxHeight: '90vh',
-                },
-            }}
-        >
-            <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
-                <Typography variant="h6">Поддержать проект</Typography>
-                <IconButton onClick={onClose} size="small">
-                    <CloseIcon />
-                </IconButton>
-            </DialogTitle>
-
-            <Box
-                sx={{
-                    borderBottom: 1,
-                    borderColor: 'divider',
-                    bgcolor: 'action.selected',
-                }}
-            >
-                <Tabs
-                    value={activeTab}
-                    onChange={handleTabChange}
-                    variant="fullWidth"
-                    sx={{
-                        minHeight: 'auto',
-                        '& .MuiTabs-indicator': {
-                            display: 'none',
-                        },
-                        '& .MuiTabs-flexContainer': {
-                            flexWrap: { xs: 'wrap', sm: 'nowrap' },
-                        },
-                        '& .MuiTab-root': {
-                            minWidth: { xs: '33.33%', sm: 'auto' },
-                            minHeight: { xs: '40px', sm: '48px' },
-                            fontSize: { xs: '0.65rem', sm: '0.875rem' },
-                            px: { xs: 0.5, sm: 1 },
-                            py: { xs: 1, sm: 1.5 },
-                            textTransform: 'none',
-                            transition: 'all 0.3s ease',
-                            color: 'text.secondary',
-                            '&.Mui-selected': {
-                                bgcolor: 'background.paper',
-                                color: 'text.primary',
-                                fontWeight: 600,
-                                borderBottom: 2,
-                                borderColor: 'secondary.main',
-                                boxShadow: theme.palette.mode === 'light'
-                                    ? '0 -2px 4px rgba(0,0,0,0.1)'
-                                    : 'none',
-                            },
-                            '&:hover': {
-                                bgcolor: 'action.hover',
-                            },
-                        },
-                    }}
-                >
-                    <Tab label="Tinkoff" />
-                    <Tab label="Bitcoin" />
-                    <Tab label="Ethereum" />
-                    <Tab label="USDT" />
-                    <Tab label="PayPal" />
-                    <Tab label="Coffee ☕" />
-                </Tabs>
-            </Box>
-
+        <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
             <DialogContent
-                sx={{
-                    pt: 3,
-                    height: { xs: '420px', sm: '480px' },
-                    overflowY: 'auto',
-                }}
+                closeLabel={t('close')}
+                className="scrollbar-thin max-h-[85vh] overflow-y-auto sm:max-w-md"
             >
-                {activeTab === 0 && (
-                    <Box>
-                        <Typography variant="h6" gutterBottom>Отправить деньги на Tinkoff</Typography>
-                        <Box sx={{ mb: 2 }}>
-                            <Typography variant="body2" color="text.secondary" gutterBottom>Номер карты:</Typography>
-                            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-                                <Typography variant="body1" sx={{ fontFamily: 'monospace', flexGrow: 1 }}>
-                                    5536 9139 9418 6852
-                                </Typography>
-                                <Button
-                                    variant="contained"
-                                    size="small"
-                                    onClick={() => copyToClipboard('5536913994186852')}
-                                >
-                                    Копировать
-                                </Button>
-                            </Box>
-                        </Box>
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontStyle: 'italic' }}>
-                            Или по ссылке:
-                        </Typography>
-                        <Button
-                            variant="contained"
-                            color="secondary"
-                            href="https://tbank.ru/cf/634wAzuZc0Z"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            fullWidth
-                            size="large"
-                        >
-                            Т-БАНК
-                        </Button>
-                    </Box>
-                )}
+                <DialogTitle>{t('donateTitle')}</DialogTitle>
+                <DialogDescription className="sr-only">{t('donateTitle')}</DialogDescription>
 
-                {activeTab === 1 && (
-                    <Box>
-                        <Typography variant="h6" gutterBottom>Отправить донат Bitcoin</Typography>
-                        <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1, bgcolor: 'background.default' }}>
-                            <Typography variant="subtitle2" gutterBottom><strong>Bitcoin:</strong></Typography>
-                            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', mb: 2 }}>
-                                <Typography variant="body2" sx={{ fontFamily: 'monospace', wordBreak: 'break-all', flexGrow: 1 }}>
-                                    bc1qv2pjsnkprer35u2whuquztvnvnggjsrqu4q43f
-                                </Typography>
-                                <Button
-                                    variant="contained"
-                                    size="small"
-                                    onClick={() => copyToClipboard('bc1qv2pjsnkprer35u2whuquztvnvnggjsrqu4q43f')}
-                                >
-                                    Копировать
-                                </Button>
-                            </Box>
-                            {qrCodes.bitcoin && (
-                                <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-                                    <img src={qrCodes.bitcoin} alt="QR Code для Bitcoin" style={{ maxWidth: 200, borderRadius: 8 }} />
-                                </Box>
-                            )}
-                        </Box>
-                    </Box>
-                )}
-
-                {activeTab === 2 && (
-                    <Box>
-                        <Typography variant="h6" gutterBottom>Отправить донат Ethereum (ERC20)</Typography>
-                        <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1, bgcolor: 'background.default' }}>
-                            <Typography variant="subtitle2" gutterBottom><strong>Ethereum:</strong></Typography>
-                            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', mb: 2 }}>
-                                <Typography variant="body2" sx={{ fontFamily: 'monospace', wordBreak: 'break-all', flexGrow: 1 }}>
-                                    0xD053A0fE7C450b57da9FF169620EB178644b54C9
-                                </Typography>
-                                <Button
-                                    variant="contained"
-                                    size="small"
-                                    onClick={() => copyToClipboard('0xD053A0fE7C450b57da9FF169620EB178644b54C9')}
-                                >
-                                    Копировать
-                                </Button>
-                            </Box>
-                            {qrCodes.ethereum && (
-                                <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-                                    <img src={qrCodes.ethereum} alt="QR Code для Ethereum" style={{ maxWidth: 200, borderRadius: 8 }} />
-                                </Box>
-                            )}
-                        </Box>
-                    </Box>
-                )}
-
-                {activeTab === 3 && (
-                    <Box>
-                        <Typography variant="h6" gutterBottom>Отправить донат USDT</Typography>
-                        <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1, bgcolor: 'background.default' }}>
-                            <Typography variant="subtitle2" gutterBottom><strong>USDT (TRON):</strong></Typography>
-                            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', mb: 2 }}>
-                                <Typography variant="body2" sx={{ fontFamily: 'monospace', wordBreak: 'break-all', flexGrow: 1 }}>
-                                    TTE5dv9w9RSDMJ6k3tnpfuehH8UX9Fy4Ec
-                                </Typography>
-                                <Button
-                                    variant="contained"
-                                    size="small"
-                                    onClick={() => copyToClipboard('TTE5dv9w9RSDMJ6k3tnpfuehH8UX9Fy4Ec')}
-                                >
-                                    Копировать
-                                </Button>
-                            </Box>
-                            {qrCodes.usdt && (
-                                <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-                                    <img src={qrCodes.usdt} alt="QR Code для USDT" style={{ maxWidth: 200, borderRadius: 8 }} />
-                                </Box>
-                            )}
-                        </Box>
-                    </Box>
-                )}
-
-                {activeTab === 4 && (
-                    <Box>
-                        <Typography variant="h6" gutterBottom>Отправить донат через PayPal</Typography>
-                        <Button
-                            variant="contained"
-                            color="secondary"
-                            href="https://www.paypal.com/donate/?hosted_button_id=PJ9RC6X742T62"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            fullWidth
-                            size="large"
-                        >
-                            Открыть PayPal
-                        </Button>
-                    </Box>
-                )}
-
-                {activeTab === 5 && (
-                    <Box>
-                        <Typography variant="h6" gutterBottom>Отправить донат через BuyMeACoffee</Typography>
-                        <Button
-                            variant="contained"
-                            color="secondary"
-                            href="https://www.buymeacoffee.com/aladex"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            fullWidth
-                            size="large"
-                        >
-                            Открыть BuyMeACoffee
-                        </Button>
-                    </Box>
-                )}
+                <div className="flex flex-col gap-4">
+                    {methods.map((method) => (
+                        <Method key={method.id} method={method} />
+                    ))}
+                </div>
             </DialogContent>
         </Dialog>
     );
