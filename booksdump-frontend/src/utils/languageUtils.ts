@@ -265,12 +265,16 @@ export const isLanguageSupported = (code: string): boolean => {
         return false;
     }
 
-    // First check format
-    if (!isValidLanguageCodeFormat(code)) {
+    // Normalize before validating: isValidLanguageCodeFormat deliberately rejects
+    // anything that is not already lowercase and trimmed, so checking the raw
+    // input first made the normalization below unreachable and turned this
+    // lookup into a case-sensitive one.
+    const normalizedCode = code.toLowerCase().trim();
+
+    if (!isValidLanguageCodeFormat(normalizedCode)) {
         return false;
     }
 
-    const normalizedCode = code.toLowerCase().trim();
     return normalizedCode in languageMapping;
 };
 
