@@ -1,130 +1,20 @@
-import axios from 'axios';
+/**
+ * Base URLs.
+ *
+ * The JSON transport lives in http.ts and the resource clients beside it; this
+ * file only holds the two addresses that other transports need — downloads and
+ * WebSockets, which are not JSON and have their own lifecycles.
+ */
 
-const API_URL = import.meta.env.VITE_API_URL;
+/** Empty in production, so requests are same-origin against the Go binary. */
+const API_URL = import.meta.env.VITE_API_URL ?? '';
 
-// Derive WebSocket URL dynamically from the current page location
-// so the binary works both locally and in production without rebuild.
+// Derived from the current page location so the binary works both locally and
+// in production without a rebuild.
 const WS_URL = (() => {
     const loc = window.location;
     const wsProto = loc.protocol === 'https:' ? 'wss:' : 'ws:';
     return `${wsProto}//${loc.host}`;
 })();
 
-// Function to read CSRF token from cookie
-const getCsrfTokenFromCookie = (): string | null => {
-    const cookieValue = document.cookie
-        .split('; ')
-        .find(row => row.startsWith('csrf_token='))
-        ?.split('=')[1];
-    return cookieValue || null;
-};
-
-const axiosInstance = axios.create({
-    baseURL: `${API_URL}/api`,
-    headers: {
-        'Content-Type': 'application/json',
-    },
-    withCredentials: true, // Include credentials with every request
-});
-
-// Request interceptor to add CSRF token
-axiosInstance.interceptors.request.use(
-    (config) => {
-        // Add CSRF token to POST, PUT, DELETE requests
-        if (['post', 'put', 'delete', 'patch'].includes(config.method?.toLowerCase() || '')) {
-            // Always get fresh token from cookie
-            const freshToken = getCsrfTokenFromCookie();
-            if (freshToken) {
-                config.headers['X-CSRF-Token'] = freshToken;
-            }
-        }
-        return config;
-    },
-    (error) => Promise.reject(error)
-);
-
-// Response interceptor to handle token refresh
-axiosInstance.interceptors.response.use(
-    (response) => response,
-    async (error) => {
-        const originalRequest = error.config;
-
-        // If 401 and not already retrying, try to refresh token
-        if (error.response?.status === 401 && !originalRequest._retry) {
-            originalRequest._retry = true;
-
-            // Don't try to refresh if we're already on login page or making login/auth requests
-            const currentPath = window.location.pathname;
-            const isAuthPage = currentPath.includes('/login') ||
-                              currentPath.includes('/register') ||
-                              currentPath.includes('/forgot-password') ||
-                              currentPath.includes('/activation') ||
-                              currentPath.includes('/activate') ||
-                              currentPath.includes('/change-password');
-
-            const isAuthRequest = originalRequest.url?.includes('/login') ||
-                                 originalRequest.url?.includes('/refresh-token') ||
-                                 originalRequest.url?.includes('/csrf-token');
-
-            if (!isAuthPage && !isAuthRequest) {
-                try {
-                    // Try to refresh token
-                    const refreshResponse = await axios.post(`${API_URL}/api/refresh-token`, {}, {
-                        withCredentials: true
-                    });
-
-                    if (refreshResponse.status === 200) {
-                        // Retry original request
-                        return axiosInstance(originalRequest);
-                    }
-                } catch (refreshError) {
-                    // Refresh failed, redirect to login only if not already on auth page
-                    if (!isAuthPage) {
-                        window.location.href = '/login';
-                    }
-                    return Promise.reject(refreshError);
-                }
-            }
-        }
-
-        if (error.response?.status === 404) {
-            window.location.href = '/404';
-        }
-
-        return Promise.reject(error);
-    }
-);
-
-
-// Enhanced fetch wrapper that automatically adds CSRF token
-export const fetchWithCsrf = async (url: string, options: RequestInit = {}): Promise<Response> => {
-    const method = options.method?.toUpperCase() || 'GET';
-
-    // Clone headers to avoid mutating the original
-    const headers = new Headers(options.headers);
-
-    // Add CSRF token for state-changing requests
-    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
-        const freshToken = getCsrfTokenFromCookie();
-        if (freshToken) {
-            headers.set('X-CSRF-Token', freshToken);
-        }
-    }
-
-    // Ensure Content-Type is set for JSON requests
-    if (!headers.has('Content-Type') && options.body && typeof options.body === 'string') {
-        headers.set('Content-Type', 'application/json');
-    }
-
-    // Merge the enhanced options
-    const enhancedOptions: RequestInit = {
-        ...options,
-        headers,
-        credentials: 'include', // Always include credentials for CSRF cookies
-    };
-
-    return fetch(url, enhancedOptions);
-};
-
-export { API_URL, axiosInstance as fetchWithAuth };
-export { WS_URL };
+export { API_URL, WS_URL };

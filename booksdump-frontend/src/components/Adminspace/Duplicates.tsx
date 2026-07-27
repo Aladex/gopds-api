@@ -14,7 +14,8 @@ import {
     TableRow,
     Typography,
 } from '@mui/material';
-import { fetchWithAuth, WS_URL } from '../../api/config';
+import * as adminApi from '@/api/admin';
+import { WS_URL } from '../../api/config';
 import { useTranslation } from 'react-i18next';
 
 interface DuplicateGroup {
@@ -22,6 +23,16 @@ interface DuplicateGroup {
     count: number;
     book_ids: number[];
     example_titles: string[];
+}
+
+/** ActiveScan is the row GET /admin/duplicates/scan/active returns. */
+interface ActiveScan {
+    id: number;
+    status: string;
+    processed_books: number;
+    total_books: number;
+    duplicates_found: number;
+    error?: string;
 }
 
 interface ScanProgress {
@@ -56,8 +67,8 @@ const Duplicates: React.FC = () => {
         setIsLoading(true);
         setActionResult(null);
         try {
-            const response = await fetchWithAuth.get('/admin/duplicates');
-            setGroups(response.data?.groups || []);
+            const data = await adminApi.listDuplicates<{ groups?: DuplicateGroup[] }>();
+            setGroups(data?.groups || []);
         } catch (error) {
             console.error(error);
         } finally {
@@ -67,7 +78,7 @@ const Duplicates: React.FC = () => {
 
     const fetchActiveScan = useCallback(async () => {
         try {
-            const response = await fetchWithAuth.get('/admin/duplicates/scan/active');
+            const response = { data: await adminApi.getActiveDuplicateScan<ActiveScan | { status: 'none' } | null>() };
             if (response.data?.status === 'none' || !response.data) {
                 setIsScanning(false);
                 setScanProgress(null);
@@ -75,15 +86,16 @@ const Duplicates: React.FC = () => {
                 return;
             }
             if (response.data) {
+                const scan = response.data as ActiveScan;
                 setScanProgress({
-                    job_id: response.data.id,
-                    status: response.data.status,
-                    processed_books: response.data.processed_books,
-                    total_books: response.data.total_books,
-                    duplicates_found: response.data.duplicates_found,
-                    error: response.data.error,
+                    job_id: scan.id,
+                    status: scan.status,
+                    processed_books: scan.processed_books,
+                    total_books: scan.total_books,
+                    duplicates_found: scan.duplicates_found,
+                    error: scan.error,
                 });
-                setIsScanning(response.data.status === 'running' || response.data.status === 'pending');
+                setIsScanning(scan.status === 'running' || scan.status === 'pending');
             }
         } catch (error: any) {
             console.error(error);
@@ -95,10 +107,10 @@ const Duplicates: React.FC = () => {
         setActionResult(null);
         setStatusMessage(null);
         try {
-            const response = await fetchWithAuth.post('/admin/duplicates/scan', {
+            const started = await adminApi.startDuplicateScan<{ job_id?: number }>({
                 workers: workerCount,
             });
-            const jobId = response.data?.job_id;
+            const jobId = started?.job_id;
             if (jobId) {
                 setScanProgress({
                     job_id: jobId,
@@ -127,9 +139,9 @@ const Duplicates: React.FC = () => {
             return;
         }
         try {
-            const response = await fetchWithAuth.post('/admin/duplicates/hide');
-            const hiddenCount = response.data?.hidden_count ?? 0;
-            const skippedEmpty = response.data?.skipped_empty ?? 0;
+            const result = await adminApi.hideDuplicates<{ hidden_count?: number; skipped_empty?: number }>(undefined);
+            const hiddenCount = result?.hidden_count ?? 0;
+            const skippedEmpty = result?.skipped_empty ?? 0;
             setActionResult(
                 t('hideDuplicatesResult', { hidden: hiddenCount, skipped: skippedEmpty })
             );
@@ -146,7 +158,7 @@ const Duplicates: React.FC = () => {
         }
         setActionResult(null);
         try {
-            await fetchWithAuth.post(`/admin/duplicates/scan/${scanProgress.job_id}/stop`);
+            await adminApi.stopDuplicateScan(scanProgress.job_id);
             setStatusMessage(t('scanStopRequested'));
             setIsScanning(false);
             await fetchActiveScan();
@@ -166,7 +178,7 @@ const Duplicates: React.FC = () => {
         }
         setActionResult(null);
         try {
-            await fetchWithAuth.post(`/admin/duplicates/scan/${scanProgress.job_id}/force-stop`);
+            await adminApi.forceStopDuplicateScan(scanProgress.job_id);
             setStatusMessage(t('scanForceStopRequested'));
             setIsScanning(false);
             await fetchActiveScan();

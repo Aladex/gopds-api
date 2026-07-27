@@ -1,7 +1,7 @@
 import { ApiError } from '../errors';
 import { http, request } from '../http';
 
-// The same contract the axios transport was pinned to in config.test.ts, plus
+// The contract the previous axios transport was pinned to before removal, plus
 // the behaviours that are new: errors arrive as ApiError, a 404 no longer
 // navigates, and an empty body is not a parse failure.
 

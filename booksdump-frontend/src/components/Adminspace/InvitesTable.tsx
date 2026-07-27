@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Typography, Box, Paper, IconButton, Dialog, DialogTitle, DialogContent, DialogActions, Button } from '@mui/material';
 import { Table, TableContainer, TableHead, TableRow, TableCell, TableBody } from '@mui/material';
-import { fetchWithAuth } from "../../api/config";
+import * as adminApi from '@/api/admin';
 import { DateTimePicker, LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFnsV3';
 import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
@@ -30,8 +30,7 @@ const InvitesTable: React.FC = () => {
         // Fetch all invites from the database
         const fetchInvites = async () => {
             try {
-                const response = await fetchWithAuth.get('/admin/invites');
-                const data = await response.data;
+                const data = await adminApi.listInvites<Invite>();
                 setInvites(data.result);
             } catch (error) {
                 console.error(error);
@@ -43,13 +42,8 @@ const InvitesTable: React.FC = () => {
 
     const handleInviteChange = async (invite: Invite) => {
         try {
-            const response = await fetchWithAuth.post('/admin/invite', {
-                action: 'update',
-                invite: invite,
-            });
-            if (response.status === 200) {
-                setInvites(invites.map(inv => inv.id === invite.id ? invite : inv));
-            }
+            await adminApi.changeInvite('update', invite);
+            setInvites(invites.map(inv => inv.id === invite.id ? invite : inv));
         } catch (error) {
             console.error(error);
         }
@@ -57,13 +51,8 @@ const InvitesTable: React.FC = () => {
 
     const handleDeleteInvite = async (invite: Invite) => {
         try {
-            const response = await fetchWithAuth.post('/admin/invite', {
-                action: 'delete',
-                invite: invite,
-            });
-            if (response.status === 200) {
-                setInvites(invites.filter(inv => inv.id !== invite.id));
-            }
+            await adminApi.changeInvite('delete', invite);
+            setInvites(invites.filter(inv => inv.id !== invite.id));
         } catch (error) {
             console.error(error);
         }
@@ -83,18 +72,13 @@ const InvitesTable: React.FC = () => {
             before_date: new Date(new Date().setMonth(new Date().getMonth() + 1)).toISOString(),
         };
         try {
-            const response = await fetchWithAuth.post('/admin/invite', {
-                action: 'create',
-                invite: newInvite,
-            });
-            if (response.status === 200) {
-                // Fetch the updated list of invites
-                const fetchResponse = await fetchWithAuth.get('/admin/invites');
-                const data = await fetchResponse.data;
-                setInvites(data.result);
-                setDialogOpen(false);
-                setNewInviteCode('');
-            }
+            await adminApi.changeInvite('create', newInvite);
+
+            // Fetch the updated list of invites
+            const data = await adminApi.listInvites<Invite>();
+            setInvites(data.result);
+            setDialogOpen(false);
+            setNewInviteCode('');
         } catch (error) {
             console.error(error);
         }

@@ -47,3 +47,96 @@ export const getRescanCoverPreview = (bookID: number) =>
 
 export const approveRescan = <TResult>(bookID: number, payload: unknown) =>
     http.post<{ result?: TResult; error?: string }>(`/admin/books/${bookID}/rescan/approve`, payload);
+
+// --- Invites -------------------------------------------------------------
+
+export const listInvites = <TInvite>() =>
+    http.get<{ result: TInvite[] }>('/admin/invites');
+
+/** changeInvite performs create, update or delete depending on the action. */
+export const changeInvite = <TInvite>(action: 'create' | 'update' | 'delete', invite: TInvite) =>
+    http.post<unknown>('/admin/invite', { action, invite });
+
+// --- Users ---------------------------------------------------------------
+
+export interface UsersQuery {
+    limit: number;
+    offset: number;
+    username?: string;
+    order?: string;
+    desc?: boolean;
+}
+
+export const listUsers = <TUser>(query: UsersQuery) =>
+    http.post<{ users: TUser[]; length: number }>('/admin/users', query);
+
+export const changeUser = <TUser>(action: 'create' | 'update' | 'delete', user: TUser) =>
+    http.post<{ user?: TUser }>('/admin/user', { action, user });
+
+export const deleteUser = (userID: number | string) =>
+    http.delete<unknown>(`/admin/user/${userID}`);
+
+// --- Genres --------------------------------------------------------------
+
+export const listGenres = <TGenre>() => http.get<{ result: TGenre[] }>('/admin/genres');
+
+export const updateGenre = <TGenre>(genreID: number, genre: unknown) =>
+    http.put<{ result?: TGenre }>(`/admin/genres/${genreID}`, genre);
+
+export const generateGenreTitles = (payload?: unknown) =>
+    http.post<unknown>('/admin/genres/generate-titles', payload);
+
+// --- Duplicates ----------------------------------------------------------
+
+export const listDuplicates = <TGroup>(query?: Record<string, string | number | boolean | undefined>) =>
+    http.get<TGroup>('/admin/duplicates', { query });
+
+export const getActiveDuplicateScan = <TScan>() =>
+    http.get<TScan>('/admin/duplicates/scan/active');
+
+export const startDuplicateScan = <TScan>(payload?: unknown) =>
+    http.post<TScan>('/admin/duplicates/scan', payload);
+
+export const stopDuplicateScan = (scanID: number | string) =>
+    http.post<unknown>(`/admin/duplicates/scan/${scanID}/stop`);
+
+export const forceStopDuplicateScan = (scanID: number | string) =>
+    http.post<unknown>(`/admin/duplicates/scan/${scanID}/force-stop`);
+
+export const hideDuplicates = <TResult>(payload: unknown) =>
+    http.post<TResult>('/admin/duplicates/hide', payload);
+
+// --- Archive scanning ----------------------------------------------------
+
+export const getScanStatus = <TStatus>() => http.get<TStatus>('/admin/scan/status');
+
+export const listScannedArchives = <TArchives>(query?: Record<string, string | number | boolean | undefined>) =>
+    http.get<TArchives>('/admin/scan/scanned', { query });
+
+export const listUnscannedArchives = <TArchives>(query?: Record<string, string | number | boolean | undefined>) =>
+    http.get<TArchives>('/admin/scan/unscanned', { query });
+
+export const listScanErrors = <TErrors>(query?: Record<string, string | number | boolean | undefined>) =>
+    http.get<TErrors>('/admin/scan/errors', { query });
+
+/** getScanErrorFile downloads the offending file itself, so it is not JSON. */
+export const getScanErrorFile = (archive: string, file: string) =>
+    requestBlob('/admin/scan/errors/file', { query: { archive, file } });
+
+/** resetArchive forgets a scanned archive, optionally deleting its books. */
+export const resetArchive = (archiveName: string, deleteBooks: boolean) =>
+    http.delete<unknown>(`/admin/scan/reset/${encodeURIComponent(archiveName)}`, {
+        query: { confirm: true, delete_books: deleteBooks },
+    });
+
+export const startScan = <TResult>(payload?: unknown) => http.post<TResult>('/admin/scan', payload);
+
+export const scanArchive = <TResult>(payload: unknown) =>
+    http.post<TResult>('/admin/scan/archive', payload);
+
+export const getFixScanStatus = <TStatus>() => http.get<TStatus>('/admin/scan/fix/status');
+
+export const startFixScan = <TResult>(payload?: unknown) =>
+    http.post<TResult>('/admin/scan/fix', payload);
+
+export const cancelFixScan = () => http.post<unknown>('/admin/scan/fix/cancel');

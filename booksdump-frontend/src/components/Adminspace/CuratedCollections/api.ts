@@ -1,4 +1,4 @@
-import { fetchWithAuth } from '../../../api/config';
+import { http } from '@/api/http';
 import type { ParsedItem } from './csvParser';
 
 export interface CuratedCollection {
@@ -69,12 +69,11 @@ export const importCuratedCollection = async (
     sourceUrl: string,
     items: ParsedItem[],
 ): Promise<{ collection_id: number; status: string }> => {
-    const resp = await fetchWithAuth.post('/admin/collections', {
+    return http.post<{ collection_id: number; status: string }>('/admin/collections', {
         name,
         source_url: sourceUrl || undefined,
         items,
     });
-    return resp.data;
 };
 
 export interface CuratedCollectionsPage {
@@ -85,22 +84,22 @@ export interface CuratedCollectionsPage {
 }
 
 export const listCuratedCollections = async (page = 1, pageSize = 25): Promise<CuratedCollectionsPage> => {
-    const resp = await fetchWithAuth.get('/admin/collections', { params: { page, page_size: pageSize } });
+    const body = await http.get<CuratedCollectionsPage | CuratedCollection[]>('/admin/collections', {
+        query: { page, page_size: pageSize },
+    });
     // tolerate the legacy {array} shape during a deploy window
-    if (Array.isArray(resp.data)) {
-        return { rows: resp.data, total: resp.data.length, page, page_size: pageSize };
+    if (Array.isArray(body)) {
+        return { rows: body, total: body.length, page, page_size: pageSize };
     }
-    return resp.data ?? { rows: [], total: 0, page, page_size: pageSize };
+    return body ?? { rows: [], total: 0, page, page_size: pageSize };
 };
 
 export const getCuratedCollection = async (id: number): Promise<CuratedCollection> => {
-    const resp = await fetchWithAuth.get(`/admin/collections/${id}`);
-    return resp.data;
+    return http.get<CuratedCollection>(`/admin/collections/${id}`);
 };
 
 export const getImportStatus = async (id: number): Promise<ImportStatusInfo> => {
-    const resp = await fetchWithAuth.get(`/admin/collections/${id}/status`);
-    return resp.data;
+    return http.get<ImportStatusInfo>(`/admin/collections/${id}/status`);
 };
 
 export const listCollectionItems = async (
@@ -109,10 +108,9 @@ export const listCollectionItems = async (
     page = 1,
     pageSize = 500,
 ): Promise<ItemsPage> => {
-    const resp = await fetchWithAuth.get(`/admin/collections/${id}/items`, {
-        params: { status: statusFilter, page, page_size: pageSize },
+    return http.get<ItemsPage>(`/admin/collections/${id}/items`, {
+        query: { status: statusFilter, page, page_size: pageSize },
     });
-    return resp.data;
 };
 
 export const resolveItem = async (
@@ -120,40 +118,36 @@ export const resolveItem = async (
     itemID: number,
     bookID: number,
 ): Promise<void> => {
-    await fetchWithAuth.post(
-        `/admin/collections/${collectionID}/items/${itemID}/resolve`,
-        { book_id: bookID },
-    );
+    await http.post(`/admin/collections/${collectionID}/items/${itemID}/resolve`, {
+        book_id: bookID,
+    });
 };
 
 export const ignoreItem = async (collectionID: number, itemID: number): Promise<void> => {
-    await fetchWithAuth.post(`/admin/collections/${collectionID}/items/${itemID}/ignore`);
+    await http.post(`/admin/collections/${collectionID}/items/${itemID}/ignore`);
 };
 
 export const autoResolveCollection = async (collectionID: number): Promise<{ resolved: number }> => {
-    const resp = await fetchWithAuth.post(`/admin/collections/${collectionID}/auto-resolve`);
-    return resp.data;
+    return http.post<{ resolved: number }>(`/admin/collections/${collectionID}/auto-resolve`);
 };
 
 export const llmResolveCollection = async (collectionID: number): Promise<{ resolved: number }> => {
-    const resp = await fetchWithAuth.post(`/admin/collections/${collectionID}/llm-resolve`);
-    return resp.data;
+    return http.post<{ resolved: number }>(`/admin/collections/${collectionID}/llm-resolve`);
 };
 
 export const llmSearchNotFound = async (collectionID: number): Promise<{ status: string }> => {
-    const resp = await fetchWithAuth.post(`/admin/collections/${collectionID}/llm-search-not-found`);
-    return resp.data;
+    return http.post<{ status: string }>(`/admin/collections/${collectionID}/llm-search-not-found`);
 };
 
 export const patchCuratedCollection = async (
     id: number,
     patch: { name?: string; is_public?: boolean; source_url?: string },
 ): Promise<void> => {
-    await fetchWithAuth.patch(`/admin/collections/${id}`, patch);
+    await http.patch(`/admin/collections/${id}`, patch);
 };
 
 export const deleteCuratedCollection = async (id: number): Promise<void> => {
-    await fetchWithAuth.delete(`/admin/collections/${id}`);
+    await http.delete(`/admin/collections/${id}`);
 };
 
 // LookupBook is the slim shape returned by GET /admin/books/lookup — enough to
@@ -166,8 +160,8 @@ export interface LookupBook {
 
 export const lookupBooksByIDs = async (ids: number[]): Promise<LookupBook[]> => {
     if (ids.length === 0) return [];
-    const resp = await fetchWithAuth.get('/admin/books/lookup', {
-        params: { ids: ids.join(',') },
+    const body = await http.get<LookupBook[]>('/admin/books/lookup', {
+        query: { ids: ids.join(',') },
     });
-    return resp.data ?? [];
+    return body ?? [];
 };

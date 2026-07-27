@@ -42,7 +42,7 @@ import LoginIcon from '@mui/icons-material/Login';
 import SupervisorAccountIcon from '@mui/icons-material/SupervisorAccount';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
-import { fetchWithAuth } from "../../api/config";
+import * as adminApi from '@/api/admin';
 import { formatDate } from "../../utils";
 import BookPagination from "../common/BookPagination";
 import { useTranslation } from 'react-i18next';
@@ -243,15 +243,14 @@ const UsersTable: React.FC = () => {
             const limit = 50;
             const offset = (parseInt(page || '1') - 1) * limit;
             try {
-                const response = await fetchWithAuth.post('/admin/users', {
+                const data = await adminApi.listUsers<User>({
                     limit,
                     offset,
                     username: searchQuery,
                     order: sortColumn,
                     desc: sortOrder,
                 });
-                const data = response.data;
-                setUsers(data.users); // Assuming your API returns a field called 'users'
+                setUsers(data.users);
                 setTotalPages(data.length);
             } catch (error) {
                 console.error(error);
@@ -288,12 +287,8 @@ const UsersTable: React.FC = () => {
 
     const handleDeleteClick = async (user: any) => {
         try {
-            const response = await fetchWithAuth.delete(`/admin/user/${user.id}`);
-            if (response.status === 200) {
-                setUsers(users.filter(u => u.id !== user.id));
-            } else {
-                console.error('Failed to delete user:', response.statusText);
-            }
+            await adminApi.deleteUser(user.id);
+            setUsers(users.filter(u => u.id !== user.id));
         } catch (error) {
             console.error('Error deleting user:', error);
         }
@@ -314,16 +309,9 @@ const UsersTable: React.FC = () => {
             updatedUser.new_password = newPassword; // Add password only if it is set
         }
         try {
-            const response = await fetchWithAuth.post('/admin/user', {
-                action: 'update',
-                user: updatedUser
-            });
-            // const data = response.data;
-            // setUsers(users.map(user => user.id === data.user.id ? data.user : user));
-            if (response.status === 200) {
-                // Update the user in the users array
-                setUsers(users.map(user => user.id === updatedUser.id ? updatedUser : user));
-            }
+            await adminApi.changeUser('update', updatedUser);
+            // Update the user in the users array
+            setUsers(users.map(user => user.id === updatedUser.id ? updatedUser : user));
             handleDialogClose();
         } catch (error) {
             console.error(error);

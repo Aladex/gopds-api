@@ -11,7 +11,7 @@ import {
     Typography,
 } from '@mui/material';
 import { useTranslation } from 'react-i18next';
-import { fetchWithAuth } from '../../../api/config';
+import * as booksApi from '@/api/books';
 
 interface SearchHit {
     id: number;
@@ -42,10 +42,8 @@ const SearchAndResolveDialog: React.FC<{
         if (!query.trim()) return;
         setLoading(true);
         try {
-            const resp = await fetchWithAuth.get('/books/list', {
-                params: { title: query.trim(), limit: 20, offset: 0 },
-            });
-            setHits(resp.data?.books ?? []);
+            const data = await booksApi.listBooks({ title: query.trim(), limit: 20, offset: 0 });
+            setHits(data?.books ?? []);
         } finally {
             setLoading(false);
         }
@@ -57,10 +55,12 @@ const SearchAndResolveDialog: React.FC<{
             (async () => {
                 setLoading(true);
                 try {
-                    const resp = await fetchWithAuth.get('/books/list', {
-                        params: { title: initialQuery.trim(), limit: 20, offset: 0 },
+                    const data = await booksApi.listBooks({
+                        title: initialQuery.trim(),
+                        limit: 20,
+                        offset: 0,
                     });
-                    setHits(resp.data?.books ?? []);
+                    setHits(data?.books ?? []);
                 } finally {
                     setLoading(false);
                 }

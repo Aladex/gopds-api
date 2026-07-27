@@ -30,7 +30,8 @@ import {
 import RefreshIcon from '@mui/icons-material/Refresh';
 import DeleteIcon from '@mui/icons-material/Delete';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
-import { fetchWithAuth, WS_URL } from '../../api/config';
+import * as adminApi from '@/api/admin';
+import { WS_URL } from '../../api/config';
 import { useTranslation } from 'react-i18next';
 
 interface ScanStatusResponse {
@@ -217,9 +218,9 @@ const BookScanning: React.FC = () => {
 
     const fetchStatus = useCallback(async () => {
         try {
-            const response = await fetchWithAuth.get('/admin/scan/status');
-            setStatus(response.data);
-            setScanError(response.data?.last_error || null);
+            const data = await adminApi.getScanStatus<ScanStatusResponse>();
+            setStatus(data);
+            setScanError(data?.last_error || null);
         } catch (error) {
             console.error(error);
         }
@@ -228,8 +229,8 @@ const BookScanning: React.FC = () => {
     const fetchUnscanned = useCallback(async () => {
         setIsLoading(true);
         try {
-            const response = await fetchWithAuth.get('/admin/scan/unscanned');
-            setUnscannedArchives(response.data?.unscanned_archives || []);
+            const data = await adminApi.listUnscannedArchives<{ unscanned_archives?: UnscannedArchiveInfo[] }>();
+            setUnscannedArchives(data?.unscanned_archives || []);
         } catch (error) {
             console.error(error);
         } finally {
@@ -240,9 +241,9 @@ const BookScanning: React.FC = () => {
     const fetchScanned = useCallback(async () => {
         setIsLoadingScanned(true);
         try {
-            const response = await fetchWithAuth.get('/admin/scan/scanned');
-            setScannedArchives(response.data?.scanned_archives || []);
-            setScannedTotalCount(response.data?.total_count || 0);
+            const data = await adminApi.listScannedArchives<{ scanned_archives?: ScannedArchiveInfo[]; total_count?: number }>();
+            setScannedArchives(data?.scanned_archives || []);
+            setScannedTotalCount(data?.total_count || 0);
         } catch (error) {
             console.error(error);
         } finally {
@@ -252,8 +253,8 @@ const BookScanning: React.FC = () => {
 
     const fetchErrors = useCallback(async () => {
         try {
-            const response = await fetchWithAuth.get('/admin/scan/errors');
-            setScanErrors(response.data?.errors || []);
+            const data = await adminApi.listScanErrors<{ errors?: ScanErrorItem[] }>();
+            setScanErrors(data?.errors || []);
             setSelectedErrorIndex(-1);
         } catch (error) {
             console.error(error);
@@ -262,8 +263,7 @@ const BookScanning: React.FC = () => {
 
     const fetchFixScanStatus = useCallback(async () => {
         try {
-            const response = await fetchWithAuth.get('/admin/scan/fix/status');
-            const data = response.data as FixScanStatusResponse;
+            const data = await adminApi.getFixScanStatus<FixScanStatusResponse>();
             if (data?.is_running) {
                 setIsFixScanning(true);
                 setFixScanStatus(data);
@@ -288,11 +288,11 @@ const BookScanning: React.FC = () => {
         setStatusMessage(null);
         setScanError(null);
         try {
-            const response = await fetchWithAuth.post('/admin/scan');
-            const startedAt = response.data?.started_at;
+            const started = await adminApi.startScan<{ started_at?: string; session_id?: string }>();
+            const startedAt = started?.started_at;
             setStatus((prev) => ({
                 is_running: true,
-                session_id: response.data?.session_id,
+                session_id: started?.session_id,
                 total_archives: prev?.total_archives ?? 0,
                 archives_processed: 0,
                 current_archive: '',
@@ -318,7 +318,7 @@ const BookScanning: React.FC = () => {
         setStatusMessage(null);
         setScanError(null);
         try {
-            await fetchWithAuth.post('/admin/scan/archive', { name });
+            await adminApi.scanArchive({ name });
             setStatusMessage(t('bookScanStarted'));
         } catch (error) {
             console.error(error);
@@ -349,9 +349,7 @@ const BookScanning: React.FC = () => {
         }
 
         try {
-            await fetchWithAuth.delete(
-                `/admin/scan/reset/${encodeURIComponent(archiveName)}?confirm=true&delete_books=${deleteBooks ? 'true' : 'false'}`
-            );
+            await adminApi.resetArchive(archiveName, deleteBooks);
             setSnackbarMessage(t('bookScanResetSuccess', { name: archiveName }));
             setSnackbarOpen(true);
             await fetchScanned();
@@ -373,9 +371,7 @@ const BookScanning: React.FC = () => {
         }
 
         try {
-            await fetchWithAuth.delete(
-                `/admin/scan/reset/${encodeURIComponent(archiveName)}?confirm=true&delete_books=true`
-            );
+            await adminApi.resetArchive(archiveName, true);
             setSnackbarMessage(t('bookScanResetSuccess', { name: archiveName }));
             setSnackbarOpen(true);
             await fetchScanned();
@@ -389,13 +385,7 @@ const BookScanning: React.FC = () => {
 
     const handleDownloadErrorFile = useCallback(async (item: ScanErrorItem) => {
         try {
-            const response = await fetchWithAuth.get('/admin/scan/errors/file', {
-                params: {
-                    archive: item.archive_name,
-                    file: item.file_name,
-                },
-                responseType: 'blob',
-            });
+            const response = { data: await adminApi.getScanErrorFile(item.archive_name, item.file_name) };
             const blob = new Blob([response.data]);
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
@@ -425,13 +415,13 @@ const BookScanning: React.FC = () => {
 
         try {
             // Start async rescan
-            const startResponse = await fetchWithAuth.post('/admin/scan/archive', { name: archiveToRescan });
+            const startResponse = await adminApi.scanArchive<StartScanResponse>({ name: archiveToRescan });
 
-            if (!startResponse.data?.session_id) {
+            if (!startResponse?.session_id) {
                 throw new Error('No session_id received from server');
             }
 
-            const { session_id } = startResponse.data as StartScanResponse;
+            const { session_id } = startResponse;
 
             // Initialize rescanProgress with session_id so we can track completion
             setRescanProgress({
@@ -476,7 +466,7 @@ const BookScanning: React.FC = () => {
             });
 
             // Get final status for results message
-            const finalStatus = await fetchWithAuth.get('/admin/scan/status');
+            const finalStatus = { data: await adminApi.getScanStatus<ScanStatusResponse>() };
             if (finalStatus.data) {
                 const message = `Archive "${archiveToRescan}" processed. ${finalStatus.data.total_books} books, ${finalStatus.data.total_errors} errors.`;
                 setSnackbarMessage(message);
@@ -514,7 +504,7 @@ const BookScanning: React.FC = () => {
         setStatusMessage(null);
         setScanError(null);
         try {
-            await fetchWithAuth.post('/admin/scan/fix', { workers: 4 });
+            await adminApi.startFixScan({ workers: 4 });
             setIsFixScanning(true);
             setFixScanStatus({
                 is_running: true,
@@ -541,7 +531,7 @@ const BookScanning: React.FC = () => {
 
     const handleCancelFixScan = useCallback(async () => {
         try {
-            await fetchWithAuth.post('/admin/scan/fix/cancel');
+            await adminApi.cancelFixScan();
             setSnackbarMessage(t('scanStopRequested'));
             setSnackbarOpen(true);
         } catch (error) {

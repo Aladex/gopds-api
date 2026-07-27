@@ -27,7 +27,8 @@ import EditIcon from '@mui/icons-material/Edit';
 import SaveIcon from '@mui/icons-material/Save';
 import CloseIcon from '@mui/icons-material/Close';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
-import { fetchWithAuth, WS_URL } from '../../api/config';
+import * as adminApi from '@/api/admin';
+import { WS_URL } from '../../api/config';
 import { useTranslation } from 'react-i18next';
 
 interface GenreAdmin {
@@ -80,8 +81,8 @@ const GenreManagement: React.FC = () => {
     const fetchGenres = useCallback(async () => {
         setIsLoading(true);
         try {
-            const response = await fetchWithAuth.get('/admin/genres');
-            setGenres(response.data.result || []);
+            const data = await adminApi.listGenres<GenreAdmin>();
+            setGenres(data.result || []);
         } catch (error) {
             console.error('Failed to fetch genres', error);
         } finally {
@@ -166,7 +167,7 @@ const GenreManagement: React.FC = () => {
 
     const handleSave = async (id: number) => {
         try {
-            await fetchWithAuth.put(`/admin/genres/${id}`, { title: editValue });
+            await adminApi.updateGenre(id, { title: editValue });
             setGenres((prev) =>
                 prev.map((g) => (g.id === id ? { ...g, title: editValue } : g))
             );
@@ -190,7 +191,7 @@ const GenreManagement: React.FC = () => {
     const handleConfirmGenerate = async () => {
         setConfirmDialogOpen(false);
         try {
-            await fetchWithAuth.post('/admin/genres/generate-titles');
+            await adminApi.generateGenreTitles();
         } catch (error) {
             console.error('Failed to start genre title generation', error);
             setSnackbarMessage(t('bookScanStartError'));
