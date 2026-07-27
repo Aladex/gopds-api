@@ -273,19 +273,41 @@ make test-frontend
 
 #### Integration tests
 
-The OPDS collection tests in `opds/collections_test.go` talk to a real
-PostgreSQL and skip themselves under `go test -short`. `make test-backend` and
-`make verify` run in short mode, so they pass without any running service.
+The OPDS collection tests in `opds/collections_test.go` read the catalog from a
+real PostgreSQL. They skip themselves under `go test -short` and, when no
+database is configured, skip with an explanatory message rather than failing.
+`make test-backend` and `make verify` run in short mode, so they pass without
+any running service.
 
-To run them, start the services and use the full suite:
+To run them, prepare a local database and use the full suite:
 
 ```bash
 docker-compose up -d postgres redis
+make db-dump      # pull the catalog out of production (needs kubectl access)
+make db-reset     # restore it locally and create test users
 make test-integration
 ```
 
-Without a database these tests fail with a nil pointer dereference in
-`database.ListPublicCuratedCollections` rather than a clean error.
+### Development dataset
+
+`make db-dump` copies a development dataset out of the production database. It
+takes **only the catalog** — books, authors, genres, series and collections —
+and deliberately leaves `auth_user`, `favorite_books` and `invites` behind,
+because those hold real email addresses, password hashes and live Telegram bot
+tokens that no test needs. The script fails if an excluded table appears in the
+output. Dumps land in `.dumps/`, which is git-ignored.
+
+`make db-seed` then creates synthetic accounts, hashed with the application's
+own `utils.CreatePasswordHash`, and repoints imported collections at them:
+
+| user | password | role |
+|--------|----------|------------|
+| admin | admin | superuser |
+| user1 | test123 | regular |
+| user2 | test123 | regular |
+
+`make db-reset` runs the restore and the seed together. Both refuse to touch
+anything but a local database.
 
 ### Linting
 

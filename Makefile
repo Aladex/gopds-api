@@ -1,6 +1,7 @@
 .PHONY: help verify bootstrap build build-bin build-frontend backend frontend frontend-placeholder swagger \
 	deps deps-frontend test test-backend test-integration test-frontend test-coverage clean lint lint-new fmt staticcheck security \
-	docker-build docker-run docker-compose-up docker-compose-down dev migrate-up migrate-down release pre-commit
+	docker-build docker-run docker-compose-up docker-compose-down dev migrate-up migrate-down release pre-commit \
+	db-dump db-restore db-seed db-reset
 
 # These targets are ordered pipelines, not independent compile units: bootstrap
 # must finish before tests, and dependencies must be installed before the build
@@ -77,8 +78,19 @@ test-backend: bootstrap ## Run Go tests that need no database or frontend toolch
 	@echo "Running backend tests..."
 	go test -short -race ./...
 
+# Points at the docker-compose database by default; override any of these to run
+# against something else. Prepare the data with `make db-reset`.
+TEST_DB_HOST ?= 127.0.0.1:5432
+TEST_DB_USER ?= gopds
+TEST_DB_PASS ?= gopds_password
+TEST_DB_NAME ?= gopds
+
 test-integration: bootstrap ## Run the full Go suite, including tests that require PostgreSQL
-	@echo "Running backend tests including integration tests..."
+	@echo "Running backend tests including integration tests against $(TEST_DB_HOST)/$(TEST_DB_NAME)..."
+	GOPDS_POSTGRES_DBHOST=$(TEST_DB_HOST) \
+	GOPDS_POSTGRES_DBUSER=$(TEST_DB_USER) \
+	GOPDS_POSTGRES_DBPASS=$(TEST_DB_PASS) \
+	GOPDS_POSTGRES_DBNAME=$(TEST_DB_NAME) \
 	go test -race ./...
 
 test-frontend: ## Run frontend tests once (`vitest run` does not watch)
@@ -146,6 +158,33 @@ clean: ## Clean build artifacts and generated inputs
 	rm -rf docs/
 	rm -f coverage.out coverage.html
 	go clean
+
+# Development dataset
+#
+# db-dump reads production; everything else only ever touches the local
+# database from docker-compose. The dump deliberately excludes auth_user,
+# favorite_books and invites — see scripts/dump-prod-catalog.sh.
+DUMP_DIR   := .dumps
+LOCAL_PG   := PGPASSWORD=gopds_password psql -h 127.0.0.1 -p 5432 -U gopds -d gopds
+
+db-dump: ## Pull the catalog (no user data) out of production into $(DUMP_DIR)
+	./scripts/dump-prod-catalog.sh
+
+db-restore: ## Replace the local database with the dumped catalog
+	@test -f $(DUMP_DIR)/schema.sql.gz || { echo "No dump found. Run 'make db-dump' first."; exit 1; }
+	@echo "Recreating the local schema..."
+	$(LOCAL_PG) -q -c 'DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;'
+	@echo "Restoring schema..."
+	gunzip -c $(DUMP_DIR)/schema.sql.gz | $(LOCAL_PG) -q -v ON_ERROR_STOP=1
+	@echo "Restoring catalog data (this takes a few minutes)..."
+	gunzip -c $(DUMP_DIR)/catalog.sql.gz | $(LOCAL_PG) -q -v ON_ERROR_STOP=1
+	@echo "Restore complete."
+
+db-seed: ## Create synthetic users and reattach imported rows to them
+	go run ./scripts/seeddb
+
+db-reset: db-restore db-seed ## Restore the catalog and seed users in one step
+	@echo "Local development database ready."
 
 # Database
 migrate-up: ## Run database migrations up

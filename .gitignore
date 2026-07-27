@@ -20,3 +20,6 @@ bin/*
 /booksdump-frontend/.idea/
 .idea
 AGENTS.md
+
+# Development database dumps pulled from production (never committed)
+/.dumps/
