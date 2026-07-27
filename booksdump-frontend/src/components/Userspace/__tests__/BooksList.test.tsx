@@ -42,8 +42,8 @@ const authorState = {
 };
 vi.mock('../../../context/AuthorContext', () => ({ useAuthor: () => authorState }));
 
-// AuthorsList, CategotiesList and GenresList all reach for the search context to
-// seed the box when a reader clicks through to a filtered list.
+// The card clears the search box when a reader clicks through to a filtered
+// list, so the filter applies rather than a stale query.
 const searchBarState = {
     searchItem: '',
     setSearchItem: vi.fn(),
