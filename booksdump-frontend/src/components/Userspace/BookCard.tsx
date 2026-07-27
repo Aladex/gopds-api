@@ -95,13 +95,37 @@ const BookCard: React.FC<BookCardProps> = ({
             }}
             className="cursor-pointer rounded border border-border bg-card p-4 transition-colors hover:border-muted-foreground"
         >
-            <div className="grid grid-cols-[104px_minmax(0,1fr)] gap-4 md:grid-cols-[104px_minmax(0,1fr)_auto]">
-                <img
-                    src={cover}
-                    alt={book.title}
-                    loading="lazy"
-                    className="h-[150px] w-[104px] flex-none rounded-sm bg-muted object-cover"
-                />
+            <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-4">
+                <div className="flex flex-col gap-2">
+                    <img
+                        src={cover}
+                        alt={book.title}
+                        loading="lazy"
+                        className="h-[150px] w-[104px] flex-none rounded-sm bg-muted object-cover"
+                    />
+                    {/* max-content columns so the two rows line up; equal columns
+                        would leave FB2+ZIP overflowing its half. */}
+                    <div className="grid grid-cols-[max-content_max-content] gap-x-2 gap-y-0.5">
+                        {DOWNLOAD_FORMATS.map((format) => {
+                            const converting = isBookConverting(book.id, format.id);
+                            return (
+                                <button
+                                    key={format.id}
+                                    type="button"
+                                    disabled={converting}
+                                    onClick={() => handleFormat(format.id)}
+                                    className={cn(
+                                        'rounded px-1 py-0.5 text-[12px] text-primary hover:bg-accent hover:underline',
+                                        'disabled:cursor-default disabled:text-muted-foreground disabled:no-underline disabled:hover:bg-transparent',
+                                    )}
+                                >
+                                    {converting && <span className="mr-0.5 inline-block animate-spin">◌</span>}
+                                    {format.label}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
 
                 <div className="flex min-w-0 flex-col gap-1.5">
                     <h3 className="text-lg font-medium text-balance">{book.title}</h3>
@@ -187,28 +211,6 @@ const BookCard: React.FC<BookCardProps> = ({
                     )}
                 </div>
 
-                <div className="col-span-full flex flex-wrap items-start justify-start gap-0.5 self-start md:col-span-1 md:justify-end">
-                    {DOWNLOAD_FORMATS.map((format, index) => {
-                        const converting = isBookConverting(book.id, format.id);
-                        return (
-                            <React.Fragment key={format.id}>
-                                {index > 0 && <span className="text-xs text-muted-foreground">·</span>}
-                                <button
-                                    type="button"
-                                    disabled={converting}
-                                    onClick={() => handleFormat(format.id)}
-                                    className={cn(
-                                        'rounded px-1.5 py-1 text-[13px] text-primary hover:bg-accent hover:underline',
-                                        'disabled:cursor-default disabled:text-muted-foreground disabled:no-underline disabled:hover:bg-transparent',
-                                    )}
-                                >
-                                    {converting && <span className="mr-1 inline-block animate-spin">◌</span>}
-                                    {format.label}
-                                </button>
-                            </React.Fragment>
-                        );
-                    })}
-                </div>
             </div>
 
             <div className="mt-2 flex items-center justify-end gap-0.5 border-t border-border pt-2.5">
