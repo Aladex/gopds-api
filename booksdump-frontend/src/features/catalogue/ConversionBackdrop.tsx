@@ -1,64 +1,60 @@
-import React, { useEffect, useState } from 'react';
-import { Modal, Backdrop, CircularProgress, Typography, Box, Snackbar } from '@mui/material';
-import { useBookConversion } from '@/context/BookConversionContext';
-import { useTranslation } from "react-i18next";
+import React, { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 
-function ConversionModal() {
+import { useBookConversion } from '@/context/BookConversionContext';
+
+/**
+ * ConversionBackdrop covers the catalogue while a book is being converted.
+ *
+ * The conversion rewrites the very file the reader just asked for, and a second
+ * request for the same book while the first is in flight is wasted work on the
+ * server, so the page is blocked rather than merely marked busy.
+ */
+function ConversionBackdrop() {
     const { state, dispatch } = useBookConversion();
-    const [open, setOpen] = useState(false);
     const { t } = useTranslation();
 
+    /*
+     * Failures are raised and drained from the queue in the same pass: left in
+     * state they would be re-raised on every render. The toast id — the book and
+     * the format that failed — collapses a repeat of the same failure instead of
+     * stacking a second copy of it.
+     */
     useEffect(() => {
-        setOpen(state.convertingBooks.length > 0);
-    }, [state.convertingBooks]);
+        state.conversionErrors.forEach((err) => {
+            toast.error(err.message, {
+                id: `conversion-${err.bookID}-${err.format}`,
+                duration: 4000,
+            });
+            dispatch({
+                type: 'REMOVE_CONVERSION_ERROR',
+                payload: { bookID: err.bookID, format: err.format },
+            });
+        });
+    }, [state.conversionErrors, dispatch]);
 
+    if (state.convertingBooks.length === 0) {
+        return null;
+    }
 
     return (
-        <Modal
-            open={open}
-            closeAfterTransition
-            slots={{ backdrop: Backdrop }}
-            slotProps={{
-                backdrop: {
-                    sx: {
-                        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-                        zIndex: (theme) => theme.zIndex.drawer + 1,
-                    },
-                },
-            }}
-            disableAutoFocus
+        // Always white on the dim: the backdrop is dark in either theme.
+        <div
+            role="status"
+            aria-live="polite"
+            className="fixed inset-0 z-modal flex flex-col items-center justify-center gap-2 bg-black/50 px-4 text-center text-white"
         >
-            <Box
-                sx={{
-                    position: 'absolute',
-                    top: '50%',
-                    left: '50%',
-                    transform: 'translate(-50%, -50%)',
-                    textAlign: 'center',
-                    color: (theme) => theme.palette.common.white,
-                    zIndex: (theme) => theme.zIndex.modal + 1,
-                }}
-            >
-                <CircularProgress sx={{ color: (theme) => theme.palette.common.white, zIndex: (theme) => theme.zIndex.modal + 1 }} />
-                <Typography id="conversion-modal-title" variant="h6" sx={{ mt: 2, color: (theme) => theme.palette.common.white }}>
-                    {t('conversionInProgress')}
-                </Typography>
-                <Typography id="conversion-modal-description" variant="body2" sx={{ color: (theme) => theme.palette.common.white }}>
-                    {t('pleaseWait')}
-                </Typography>
-                {state.conversionErrors.map((err) => (
-                    <Snackbar
-                        key={`${err.bookID}-${err.format}`}
-                        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-                        open={true}
-                        autoHideDuration={4000}
-                        message={err.message}
-                        onClose={() => dispatch({ type: 'REMOVE_CONVERSION_ERROR', payload: { bookID: err.bookID, format: err.format } })}
-                    />
-                ))}
-            </Box>
-        </Modal>
+            <Loader2 aria-hidden="true" className="size-10 animate-spin" />
+            <p id="conversion-modal-title" className="text-lg font-medium">
+                {t('conversionInProgress')}
+            </p>
+            <p id="conversion-modal-description" className="text-sm">
+                {t('pleaseWait')}
+            </p>
+        </div>
     );
 }
 
-export default ConversionModal;
+export default ConversionBackdrop;

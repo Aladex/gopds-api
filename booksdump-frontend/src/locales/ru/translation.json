@@ -432,5 +432,7 @@
   "loginSubtitle": "Войдите, чтобы продолжить читать",
   "profileSection.password": "Пароль",
   "profileSection.sessions": "Сессии",
-  "passwordSavedWithProfile": "Новый пароль применится, когда вы нажмёте «Сохранить» внизу"
+  "passwordSavedWithProfile": "Новый пароль применится, когда вы нажмёте «Сохранить» внизу",
+  "removeItem": "Удалить: {{name}}",
+  "editBookHint": "Измените метаданные книги и сохраните изменения."
 }

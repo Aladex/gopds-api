@@ -429,5 +429,7 @@
   "loginSubtitle": "Sign in to keep reading",
   "profileSection.password": "Password",
   "profileSection.sessions": "Sessions",
-  "passwordSavedWithProfile": "The new password takes effect when you press Save below"
+  "passwordSavedWithProfile": "The new password takes effect when you press Save below",
+  "removeItem": "Remove {{name}}",
+  "editBookHint": "Edit the book's metadata and save the changes."
 }
