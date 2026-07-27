@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 
 	"gopds-api/logging"
@@ -12,17 +13,17 @@ import (
 
 // Config represents the main configuration structure
 type Config struct {
-	Server     ServerConfig   `mapstructure:"server" yaml:"server"`
-	ProjectURL         string `mapstructure:"project_url" yaml:"project_url"`
-	Domain             string `mapstructure:"project_domain" yaml:"project_domain"`
-	TelegramWebhookURL string `mapstructure:"telegram_webhook_url" yaml:"telegram_webhook_url"`
-	SecretKey  string         `mapstructure:"secret_key" yaml:"secret_key"`
-	Postgres   PostgresConfig `mapstructure:"postgres" yaml:"postgres"`
-	Redis      RedisConfig    `mapstructure:"redis" yaml:"redis"`
-	Sessions   SessionsConfig `mapstructure:"sessions" yaml:"sessions"`
-	App        AppConfig      `mapstructure:"app" yaml:"app"`
-	Scanning   ScanningConfig `mapstructure:"scanning" yaml:"scanning"`
-	Email      EmailConfig    `mapstructure:"email" yaml:"email"`
+	Server             ServerConfig   `mapstructure:"server" yaml:"server"`
+	ProjectURL         string         `mapstructure:"project_url" yaml:"project_url"`
+	Domain             string         `mapstructure:"project_domain" yaml:"project_domain"`
+	TelegramWebhookURL string         `mapstructure:"telegram_webhook_url" yaml:"telegram_webhook_url"`
+	SecretKey          string         `mapstructure:"secret_key" yaml:"secret_key"`
+	Postgres           PostgresConfig `mapstructure:"postgres" yaml:"postgres"`
+	Redis              RedisConfig    `mapstructure:"redis" yaml:"redis"`
+	Sessions           SessionsConfig `mapstructure:"sessions" yaml:"sessions"`
+	App                AppConfig      `mapstructure:"app" yaml:"app"`
+	Scanning           ScanningConfig `mapstructure:"scanning" yaml:"scanning"`
+	Email              EmailConfig    `mapstructure:"email" yaml:"email"`
 }
 
 // ServerConfig holds server-specific configuration
@@ -122,6 +123,15 @@ func Load() (*Config, error) {
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.SetEnvPrefix("GOPDS")
 
+	// AutomaticEnv alone is not enough: Unmarshal only visits keys viper already
+	// knows about, so any key without a default or a config-file entry is read as
+	// empty no matter what the environment says. That covers every secret
+	// (secret_key, postgres credentials, session keys, ...), which .env.example
+	// documents as configurable. Binding each key explicitly makes them reachable.
+	if err := bindEnvKeys(reflect.TypeOf(Config{}), ""); err != nil {
+		return nil, fmt.Errorf("error binding environment variables: %w", err)
+	}
+
 	// Read config file
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
@@ -143,6 +153,38 @@ func Load() (*Config, error) {
 
 	logging.Infof("Configuration loaded successfully from: %s", viper.ConfigFileUsed())
 	return cfg, nil
+}
+
+// bindEnvKeys walks a configuration struct and registers every leaf key with
+// viper, so environment variables reach keys that have neither a default nor an
+// entry in the config file. The prefix carries the dotted path of the enclosing
+// struct, matching the mapstructure tags used for unmarshaling.
+func bindEnvKeys(t reflect.Type, prefix string) error {
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+
+		tag := field.Tag.Get("mapstructure")
+		if tag == "" || tag == "-" {
+			continue
+		}
+
+		key := tag
+		if prefix != "" {
+			key = prefix + "." + tag
+		}
+
+		if field.Type.Kind() == reflect.Struct {
+			if err := bindEnvKeys(field.Type, key); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if err := viper.BindEnv(key); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // setDefaults sets default configuration values
