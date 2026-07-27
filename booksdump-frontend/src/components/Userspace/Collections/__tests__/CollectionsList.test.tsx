@@ -3,14 +3,14 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 import CollectionsList from '../CollectionsList';
-import * as api from '../api';
+import * as api from '@/api/collections';
 
 const sampleRows = [
     { id: 1, name: 'Antiutopias' },
     { id: 2, name: 'Russian classics' },
 ];
 
-vi.mock('../api', () => ({
+vi.mock('@/api/collections', () => ({
     listPublicCollections: vi.fn().mockResolvedValue({ rows: [], total: 0, page: 1, page_size: 12 }),
 }));
 const samplePage = { rows: sampleRows, total: sampleRows.length, page: 1, page_size: 12 };

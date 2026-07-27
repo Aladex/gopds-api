@@ -1,4 +1,4 @@
-import { fetchWithAuth } from '../../../api/config';
+import { http } from './http';
 
 export interface CollectionCoverBook {
     id: number;
@@ -43,14 +43,15 @@ export interface PublicCollectionsPage {
 }
 
 export const listPublicCollections = async (page = 1, pageSize = 12): Promise<PublicCollectionsPage> => {
-    const resp = await fetchWithAuth.get('/collections', { params: { page, page_size: pageSize } });
-    if (Array.isArray(resp.data)) {
-        return { rows: resp.data, total: resp.data.length, page, page_size: pageSize };
+    const body = await http.get<PublicCollectionsPage | PublicCollectionRow[]>('/collections', {
+        query: { page, page_size: pageSize },
+    });
+    // The endpoint has returned a bare array in the past; keep tolerating it.
+    if (Array.isArray(body)) {
+        return { rows: body, total: body.length, page, page_size: pageSize };
     }
-    return resp.data ?? { rows: [], total: 0, page, page_size: pageSize };
+    return body ?? { rows: [], total: 0, page, page_size: pageSize };
 };
 
-export const getPublicCollection = async (id: number): Promise<PublicCollectionDetail> => {
-    const resp = await fetchWithAuth.get(`/collections/${id}`);
-    return resp.data;
-};
+export const getPublicCollection = async (id: number): Promise<PublicCollectionDetail> =>
+    http.get<PublicCollectionDetail>(`/collections/${id}`);

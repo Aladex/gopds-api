@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import { useParams } from 'react-router-dom';
 import BooksList from '../BooksList';
-import { getPublicCollection, PublicCollectionDetail } from './api';
+import { getPublicCollection, PublicCollectionDetail } from '@/api/collections';
 
 // CollectionView wraps the regular BooksList with a heading carrying the
 // collection's display name. The list itself reads `?curated_collection=:id`

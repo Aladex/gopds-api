@@ -8,7 +8,7 @@ import {
     CollectionCoverBook,
     listPublicCollections,
     PublicCollectionRow,
-} from './api';
+} from '@/api/collections';
 
 // coverPath mirrors Userspace/BooksList: covers live under the
 // books-posters/<sanitized-path>/<sanitized-filename>.jpg URL pattern.

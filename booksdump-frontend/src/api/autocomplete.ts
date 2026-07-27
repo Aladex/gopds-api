@@ -1,4 +1,4 @@
-import { fetchWithAuth } from './config';
+import { http } from './http';
 
 export interface AutocompleteSuggestion {
   value: string;
@@ -18,24 +18,16 @@ export const autocompleteService = {
         return [];
       }
 
-      const params: any = { query, type };
-      if (authorId) {
-        params.author = authorId;
-      }
-      if (lang) {
-        params.lang = lang;
-      }
-
-      const response = await fetchWithAuth.get<AutocompleteResponse>('/books/autocomplete', {
-        params
+      const response = await http.get<AutocompleteResponse>('/books/autocomplete', {
+        query: { query, type, author: authorId, lang },
       });
 
-      if (!response.data?.suggestions) {
+      if (!response?.suggestions) {
         return [];
       }
 
       // Filter null/undefined values
-      const validSuggestions = response.data.suggestions.filter(suggestion =>
+      const validSuggestions = response.suggestions.filter(suggestion =>
         suggestion && suggestion.value && suggestion.value.trim() !== ''
       );
 
