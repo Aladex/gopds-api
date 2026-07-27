@@ -14,6 +14,8 @@ const (
 	dockerfilePath = "Dockerfile"
 	makefilePath   = "Makefile"
 	workflowsDir   = ".github/workflows"
+	readmePath     = "README.md"
+	frontendDir    = "booksdump-frontend"
 )
 
 // unpinnedTags are tags that move under you, so an image built today and an
@@ -249,6 +251,64 @@ func TestCIActionsAndToolsArePinned(t *testing.T) {
 					t.Errorf("%s:%d %s: %s", path, lineNum+1, check.what, strings.TrimSpace(line))
 				}
 			}
+		}
+	}
+}
+
+// TestReadmeGoVersionMatchesGoMod guards that the README does not send people
+// after a Go version the module cannot build with.
+func TestReadmeGoVersionMatchesGoMod(t *testing.T) {
+	goDirective, _ := goModVersions(t)
+	want := majorMinor(goDirective)
+
+	re := regexp.MustCompile(`Go\s+(\d+\.\d+)`)
+	matches := re.FindAllStringSubmatch(readRepoFile(t, readmePath), -1)
+	if len(matches) == 0 {
+		t.Fatal("README mentions no Go version at all")
+	}
+
+	for _, m := range matches {
+		if got := m[1]; got != want {
+			t.Errorf("README mentions Go %s, but go.mod requires %s", got, want)
+		}
+	}
+}
+
+// TestReadmeReactVersionMatchesPackageJSON guards the same for the frontend.
+func TestReadmeReactVersionMatchesPackageJSON(t *testing.T) {
+	pkg := readRepoFile(t, filepath.Join(frontendDir, "package.json"))
+
+	m := regexp.MustCompile(`"react":\s*"\D*(\d+)`).FindStringSubmatch(pkg)
+	if m == nil {
+		t.Fatal("package.json does not depend on react")
+	}
+	want := m[1]
+
+	re := regexp.MustCompile(`React\s+(\d+)`)
+	matches := re.FindAllStringSubmatch(readRepoFile(t, readmePath), -1)
+	if len(matches) == 0 {
+		t.Fatal("README mentions no React version at all")
+	}
+
+	for _, match := range matches {
+		if got := match[1]; got != want {
+			t.Errorf("README mentions React %s, but package.json depends on React %s", got, want)
+		}
+	}
+}
+
+// TestReadmeUsesTheProjectPackageManager guards against instructions that would
+// desynchronise yarn.lock, which is the lockfile this repository actually has.
+func TestReadmeUsesTheProjectPackageManager(t *testing.T) {
+	if _, err := os.Stat(filepath.Join(frontendDir, "yarn.lock")); err != nil {
+		t.Fatalf("expected a yarn lockfile: %v", err)
+	}
+
+	readme := readRepoFile(t, readmePath)
+	for lineNum, line := range strings.Split(readme, "\n") {
+		if regexp.MustCompile(`\bnpm\s+(install|run|start|ci)\b`).MatchString(line) {
+			t.Errorf("README:%d tells the reader to use npm, but the project uses yarn: %s",
+				lineNum+1, strings.TrimSpace(line))
 		}
 	}
 }

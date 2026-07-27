@@ -9,7 +9,7 @@ A comprehensive book management system and OPDS server built with Go, featuring 
 ## Technologies
 
 **Backend:**
-- **Go 1.23** - High-performance backend API
+- **Go 1.24** - High-performance backend API
 - **Gin** - Fast HTTP web framework
 - **PostgreSQL** - Primary database with full-text search capabilities
 - **Redis** - Session storage and caching
@@ -17,7 +17,7 @@ A comprehensive book management system and OPDS server built with Go, featuring 
 - **Swagger/OpenAPI** - Automatic API documentation
 
 **Frontend:**
-- **React 18** with TypeScript
+- **React 19** with TypeScript
 - **Material-UI (MUI)** - Modern component library
 - **i18next** - Internationalization support
 - **Axios** - HTTP client
@@ -180,7 +180,7 @@ docker-compose up -d
    - Go 1.24+
    - PostgreSQL 12+
    - Redis 6+
-   - Node.js 20+ (for frontend)
+   - Node.js 20+ and Yarn 1.x (for frontend)
    - kindlegen (optional, for MOBI conversion)
 
 2. **Database Setup:**
@@ -190,18 +190,23 @@ docker-compose up -d
    # Run additional migrations in order...
    ```
 
-3. **Backend:**
+3. **Build everything:**
    ```bash
-   go mod download
-   go build -o gopds-api cmd/main.go
-   ./gopds-api
+   # Frontend production build, Swagger docs, then the Go binary
+   make build
+   ./bin/gopds
    ```
 
-4. **Frontend:**
+   The Go binary embeds the frontend from `booksdump-frontend/build/`, so that
+   directory must exist before the backend compiles. `make build` produces it.
+   For backend-only work `make bootstrap` installs a placeholder there instead,
+   which needs no Node toolchain.
+
+4. **Frontend only:**
    ```bash
    cd booksdump-frontend
-   npm install
-   npm run build
+   yarn install --frozen-lockfile
+   yarn build
    ```
 
 5. **MOBI Support (Optional):**
@@ -229,29 +234,70 @@ See `config.yaml.example` for all available options.
 
 ## Development
 
+All tool versions are pinned in the `Makefile` and guarded by `versions_test.go`,
+so the commands below use the same versions as CI and the Docker build.
+
 ### Backend Development
 ```bash
-# Install dependencies
-go mod download
+# Prepare generated inputs: Swagger docs and the embedded frontend placeholder.
+# Required once on a fresh checkout, before the backend will compile.
+make bootstrap
 
-# Run with hot reload (install air)
+# Regenerate API documentation only (pinned swaggo/swag)
+make swagger
+
+# Run with hot reload (install air separately)
 air
-
-# Generate API documentation
-swag init -g cmd/main.go
 ```
 
 ### Frontend Development
 ```bash
 cd booksdump-frontend
-npm install
-npm start
+yarn install --frozen-lockfile
+yarn start
 ```
 
 ### Running Tests
+
 ```bash
-go test ./...
+# Everything: bootstrap, frontend deps, frontend tests, production frontend
+# build, then the Go build and test suite. Works on a fresh clone.
+make verify
+
+# Go tests that need no database and no Node toolchain
+make test-backend
+
+# Frontend tests only
+make test-frontend
 ```
+
+#### Integration tests
+
+The OPDS collection tests in `opds/collections_test.go` talk to a real
+PostgreSQL and skip themselves under `go test -short`. `make test-backend` and
+`make verify` run in short mode, so they pass without any running service.
+
+To run them, start the services and use the full suite:
+
+```bash
+docker-compose up -d postgres redis
+make test-integration
+```
+
+Without a database these tests fail with a nil pointer dereference in
+`database.ListPublicCuratedCollections` rather than a clean error.
+
+### Linting
+
+```bash
+make lint          # golangci-lint, pinned
+make staticcheck   # staticcheck, pinned
+make security      # gosec, pinned
+```
+
+`make lint` currently reports a large backlog of pre-existing findings. The
+lint configuration was migrated from the golangci-lint v1 format, having been
+unparseable — and therefore silently skipped — for a long time.
 
 ## Roadmap
 
