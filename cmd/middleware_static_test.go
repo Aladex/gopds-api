@@ -12,11 +12,13 @@ import (
 )
 
 // newStaticTestContext builds a gin context for a bare GET request.
-func newStaticTestContext(target string) (*gin.Context, *httptest.ResponseRecorder) {
+func newStaticTestContext(t *testing.T, target string) (*gin.Context, *httptest.ResponseRecorder) {
+	t.Helper()
+
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodGet, target, nil)
+	c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, http.NoBody)
 	return c, rec
 }
 
@@ -24,7 +26,7 @@ func newStaticTestContext(target string) (*gin.Context, *httptest.ResponseRecord
 // answered directly from the embedded SPA entry point, with revalidating cache
 // headers, and that the middleware chain stops there.
 func TestServeStaticFilesMiddlewareServesIndexAtRoot(t *testing.T) {
-	c, rec := newStaticTestContext("/")
+	c, rec := newStaticTestContext(t, "/")
 
 	serveStaticFilesMiddleware(NewHTTPFS(assets.Assets))(c)
 
@@ -52,7 +54,7 @@ func TestServeStaticFilesMiddlewarePassesThroughUnknownPath(t *testing.T) {
 	distFolders = nil
 	t.Cleanup(func() { distFolders = nil })
 
-	c, rec := newStaticTestContext("/api/books/list")
+	c, rec := newStaticTestContext(t, "/api/books/list")
 
 	serveStaticFilesMiddleware(NewHTTPFS(assets.Assets))(c)
 

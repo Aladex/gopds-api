@@ -71,11 +71,21 @@ linters:
       - legacy
       - std-error-handling
     rules:
+      # Tests deliberately repeat literals, embed obviously fake credentials as
+      # fixtures, and are long and repetitive where that keeps them readable.
       - linters:
+          - dupl
           - funlen
+          - goconst
           - gocyclo
+          - gosec
           - mnd
         path: _test\.go
+      # go-pg resolves the tableName marker field through reflection, so the
+      # unused linter cannot see the reference.
+      - linters:
+          - unused
+        text: field tableName is unused
     paths:
       - .*\.pb\.go$
       - vendor
