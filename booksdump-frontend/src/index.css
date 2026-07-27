@@ -90,6 +90,20 @@
     }
 
     /*
+     * Form controls do not inherit colour or font from their surroundings: the
+     * browser gives them its own, which is black text on a black card, with a
+     * black caret to match. Preflight fixes this and is not loaded here.
+     */
+    input,
+    optgroup,
+    select,
+    textarea {
+        color: inherit;
+        font: inherit;
+        letter-spacing: inherit;
+    }
+
+    /*
      * Anchors otherwise arrive in the browser's own link blue with an underline,
      * which outranks any inherited colour because the UA sets it on the element
      * itself. Every link in this application is styled by the component that
