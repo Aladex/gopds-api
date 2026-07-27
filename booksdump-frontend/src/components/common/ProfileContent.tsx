@@ -134,28 +134,13 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
 
     return (
         <div className="flex flex-col">
-            <div className="flex items-center justify-between gap-2">
-                <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-                    <span className="truncate font-semibold">{user?.username}</span>
-                    {user?.date_joined && (
-                        <span className="truncate text-xs text-muted-foreground">
-                            {t('memberSince', { date: formatDate(user.date_joined) })}
-                        </span>
-                    )}
-                </div>
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => {
-                        resetFields();
-                        handleLogout();
-                    }}
-                    title={t('logoutButton')}
-                    aria-label={t('logoutButton')}
-                    className="shrink-0 text-muted-foreground"
-                >
-                    <LogOut className="size-4" />
-                </Button>
+            <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 pr-8">
+                <span className="truncate font-semibold">{user?.username}</span>
+                {user?.date_joined && (
+                    <span className="truncate text-xs text-muted-foreground">
+                        {t('memberSince', { date: formatDate(user.date_joined) })}
+                    </span>
+                )}
             </div>
 
             <Group title={t('profileSection.personalData')} first>
@@ -212,7 +197,23 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                     </div>
                 </Expandable>
 
-                <div className="mt-4">
+                {/*
+                  Signing out and ending every session are the same act at two
+                  scopes — this device, or all of them — so they sit together,
+                  the wider one marked as the heavier.
+                */}
+                <div className="mt-4 flex flex-wrap gap-2">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                            resetFields();
+                            handleLogout();
+                        }}
+                    >
+                        <LogOut className="size-4" />
+                        {t('logoutButton')}
+                    </Button>
                     <Button
                         variant="outline"
                         size="sm"
