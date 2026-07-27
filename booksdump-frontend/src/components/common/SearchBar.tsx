@@ -79,8 +79,13 @@ const SearchBar: React.FC = () => {
     return (
         <div className="mx-auto w-full max-w-[1200px] py-1.5">
             <div className="rounded border border-border bg-card p-3.5">
-                <div className="grid items-end gap-3 md:grid-cols-[minmax(170px,1fr)_minmax(0,2.6fr)_auto_auto]">
-                    <div className="flex min-w-0 flex-col gap-1.5">
+                {/*
+                  Narrow screens stack the two fields but keep the search button
+                  and the favourites toggle on one row — the toggle is a small
+                  square and a row of its own leaves it stranded.
+                */}
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3 md:grid-cols-[minmax(170px,1fr)_minmax(0,2.6fr)_auto_auto]">
+                    <div className="col-span-2 flex min-w-0 flex-col gap-1.5 md:col-span-1">
                         <label
                             htmlFor="search-category"
                             className="text-xs text-muted-foreground"
@@ -105,7 +110,7 @@ const SearchBar: React.FC = () => {
                         </Select>
                     </div>
 
-                    <div className="flex min-w-0 flex-col gap-1.5">
+                    <div className="col-span-2 flex min-w-0 flex-col gap-1.5 md:col-span-1">
                         <span className="text-xs text-muted-foreground">{t('searchQuery')}</span>
                         <AutocompleteSearch
                             value={searchItem}
