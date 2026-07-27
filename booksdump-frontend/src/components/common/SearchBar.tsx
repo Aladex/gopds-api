@@ -79,7 +79,7 @@ const SearchBar: React.FC = () => {
     return (
         <div className="mx-auto w-full max-w-[1200px] py-1.5">
             <div className="rounded border border-border bg-card p-3.5">
-                <div className="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(150px,1fr)_minmax(0,2fr)_auto_auto]">
+                <div className="grid items-end gap-3 md:grid-cols-[minmax(170px,1fr)_minmax(0,2.6fr)_auto_auto]">
                     <div className="flex min-w-0 flex-col gap-1.5">
                         <label
                             htmlFor="search-category"
@@ -105,8 +105,8 @@ const SearchBar: React.FC = () => {
                         </Select>
                     </div>
 
-                    <div className="flex min-w-0 flex-col gap-1.5 sm:col-span-2 lg:col-span-1">
-                        <span className="text-xs text-muted-foreground">{t('searchItem')}</span>
+                    <div className="flex min-w-0 flex-col gap-1.5">
+                        <span className="text-xs text-muted-foreground">{t('searchQuery')}</span>
                         <AutocompleteSearch
                             value={searchItem}
                             onChange={setSearchItem}

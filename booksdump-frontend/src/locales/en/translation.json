@@ -411,5 +411,6 @@
   "bookFavAdd": "Add to favourites",
   "bookFavRemove": "Remove from favourites",
   "showFavourites": "Show favourites",
-  "showAllBooks": "Show all books"
+  "showAllBooks": "Show all books",
+  "searchQuery": "Search query"
 }

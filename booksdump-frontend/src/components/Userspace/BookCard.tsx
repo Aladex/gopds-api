@@ -192,7 +192,7 @@ const BookCard: React.FC<BookCardProps> = ({
                     )}
                 </div>
 
-                <div className="col-span-full flex flex-wrap items-center justify-start gap-0.5 md:col-span-1 md:justify-end">
+                <div className="col-span-full flex flex-wrap items-start justify-start gap-0.5 self-start md:col-span-1 md:justify-end">
                     {DOWNLOAD_FORMATS.map((format, index) => {
                         const converting = isBookConverting(book.id, format.id);
                         return (
