@@ -1,5 +1,5 @@
-import { http, requestBlob } from './http';
-import type { Author, Book, Series } from './books';
+import { http, requestBlob } from '@/api/http';
+import type { Author, Book, Series } from '@/api/books';
 
 /**
  * Administrative endpoints.

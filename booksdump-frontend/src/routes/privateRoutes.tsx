@@ -1,13 +1,13 @@
 import React from 'react';
 import { Route } from 'react-router-dom';
-import PrivateRoute from '../components/PrivateRoute';
-import BooksList from '../components/Userspace/BooksList';
-import TitleSetter from '../components/common/TitleSetter';
-import AuthorSearch from '../components/Userspace/AuthorSearch';
-import OpdsInfo from "../components/Userspace/OpdsInfo";
-import LayoutWithSearchBar from '../components/Layouts/LayoutWithSearchBar';
-import CollectionsList from '../components/Userspace/Collections/CollectionsList';
-import CollectionView from '../components/Userspace/Collections/CollectionView';
+import PrivateRoute from '@/components/PrivateRoute';
+import BooksList from '@/components/Userspace/BooksList';
+import TitleSetter from '@/components/common/TitleSetter';
+import AuthorSearch from '@/components/Userspace/AuthorSearch';
+import OpdsInfo from "@/components/Userspace/OpdsInfo";
+import LayoutWithSearchBar from '@/components/Layouts/LayoutWithSearchBar';
+import CollectionsList from '@/components/Userspace/Collections/CollectionsList';
+import CollectionView from '@/components/Userspace/Collections/CollectionView';
 
 const privateRoutes = (
     <>

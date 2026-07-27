@@ -16,16 +16,16 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 
-import { useAuth } from '../../context/AuthContext';
-import ConversionBackdrop from '../hooks/convertingBooks';
-import BookPagination from '../common/BookPagination';
-import EditBookDialog from '../common/EditBookDialog';
-import RescanPreviewDialog from '../common/RescanPreviewDialog';
-import SkeletonCard from '../common/SkeletonCard';
-import { useBooksQuery } from './hooks/useBooksQuery';
-import { useFavouriteToggle } from './hooks/useFavouriteToggle';
-import { useBookDownloads } from './hooks/useBookDownloads';
-import BookCard from './BookCard';
+import { useAuth } from '@/context/AuthContext';
+import ConversionBackdrop from '@/components/hooks/convertingBooks';
+import BookPagination from '@/components/common/BookPagination';
+import EditBookDialog from '@/components/common/EditBookDialog';
+import RescanPreviewDialog from '@/components/common/RescanPreviewDialog';
+import SkeletonCard from '@/components/common/SkeletonCard';
+import { useBooksQuery } from '@/components/Userspace/hooks/useBooksQuery';
+import { useFavouriteToggle } from '@/components/Userspace/hooks/useFavouriteToggle';
+import { useBookDownloads } from '@/components/Userspace/hooks/useBookDownloads';
+import BookCard from '@/components/Userspace/BookCard';
 
 const SKELETON_COUNT = 10;
 

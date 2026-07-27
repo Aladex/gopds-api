@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "@/context/AuthContext";
 import { useTranslation } from 'react-i18next';
 
 const LanguageInitializer: React.FC<{ onLanguageLoaded: () => void }> = ({ onLanguageLoaded }) => {

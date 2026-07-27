@@ -8,7 +8,7 @@ import {
     DrawerTitle,
 } from '@/components/ui/drawer';
 
-import ProfileContent, { focusFirstProfileField } from './ProfileContent';
+import ProfileContent, { focusFirstProfileField } from '@/components/common/ProfileContent';
 
 type ProfileDrawerProps = {
     open: boolean;

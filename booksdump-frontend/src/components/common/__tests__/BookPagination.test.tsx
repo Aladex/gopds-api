@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 
-import BookPagination from '../BookPagination';
+import BookPagination from '@/components/common/BookPagination';
 
 // The pager is how a reader reaches anything past the first ten books, so what
 // matters is that its links are real addresses and that clicking one moves the

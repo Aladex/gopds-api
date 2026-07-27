@@ -1,10 +1,10 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-import ImportForm from '../ImportForm';
-import * as api from '../api';
+import ImportForm from '@/components/Adminspace/CuratedCollections/ImportForm';
+import * as api from '@/components/Adminspace/CuratedCollections/api';
 
-vi.mock('../api', () => ({
+vi.mock('@/components/Adminspace/CuratedCollections/api', () => ({
     importCuratedCollection: vi.fn().mockResolvedValue({ collection_id: 1, status: 'importing' }),
 }));
 

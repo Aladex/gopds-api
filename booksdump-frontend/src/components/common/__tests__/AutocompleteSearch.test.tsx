@@ -2,8 +2,8 @@ import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import AutocompleteSearch from '../AutocompleteSearch';
-import { autocompleteService } from '../../../api/autocomplete';
+import AutocompleteSearch from '@/components/common/AutocompleteSearch';
+import { autocompleteService } from '@/api/autocomplete';
 
 // What matters here is not the markup but the request discipline. The suggestion
 // endpoint is hit on every keystroke a reader makes, so the four-character
@@ -11,17 +11,17 @@ import { autocompleteService } from '../../../api/autocomplete';
 // box and a load generator — and a mismapped type silently returns the wrong
 // kind of suggestion with no error to notice.
 
-vi.mock('../../../api/autocomplete', () => ({
+vi.mock('@/api/autocomplete', () => ({
     autocompleteService: { getSuggestions: vi.fn() },
 }));
 
 const getSuggestions = vi.mocked(autocompleteService.getSuggestions);
 
 const authorState = { authorId: '' };
-vi.mock('../../../context/AuthorContext', () => ({ useAuthor: () => authorState }));
+vi.mock('@/context/AuthorContext', () => ({ useAuthor: () => authorState }));
 
 const searchBarState = { selectedLanguage: 'ru' };
-vi.mock('../../../context/SearchBarContext', () => ({ useSearchBar: () => searchBarState }));
+vi.mock('@/context/SearchBarContext', () => ({ useSearchBar: () => searchBarState }));
 
 // A stable t: an effect-keyed identity that changes every render would loop.
 const translate = (key: string, fallback?: string) => fallback ?? key;

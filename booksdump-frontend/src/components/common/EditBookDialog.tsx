@@ -18,7 +18,7 @@ import { Close as CloseIcon } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import * as adminApi from '@/api/admin';
 import { isApiError } from '@/api/errors';
-import { StyledTextField } from '../StyledDataItems';
+import { StyledTextField } from '@/components/StyledDataItems';
 
 type EditBookDialogProps = {
     open: boolean;

@@ -1,4 +1,4 @@
-import { activeNavItem, type NavItem } from '../navItems';
+import { activeNavItem, type NavItem } from '@/components/common/navItems';
 
 // The header and the bottom bar both highlight the current section from this
 // function. Getting it wrong means the interface tells the reader they are

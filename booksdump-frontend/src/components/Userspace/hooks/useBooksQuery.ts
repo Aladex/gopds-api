@@ -4,8 +4,8 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import * as booksApi from '@/api/books';
 import type { Book, BooksQuery } from '@/api/books';
 
-import { useAuth } from '../../../context/AuthContext';
-import { useAuthor } from '../../../context/AuthorContext';
+import { useAuth } from '@/context/AuthContext';
+import { useAuthor } from '@/context/AuthorContext';
 
 /**
  * useBooksQuery owns everything about *which* books are on screen: it derives

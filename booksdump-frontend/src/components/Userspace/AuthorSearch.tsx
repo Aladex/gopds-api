@@ -2,11 +2,11 @@ import React, { useState, useEffect } from 'react';
 import {Box, Typography, List, ListItemText, Card, ListItemButton, CardContent} from '@mui/material';
 import { useParams, useLocation } from 'react-router-dom';
 import * as booksApi from '@/api/books';
-import BookPagination from "../common/BookPagination";
-import SkeletonCard from "../common/SkeletonCard";
+import BookPagination from "@/components/common/BookPagination";
+import SkeletonCard from "@/components/common/SkeletonCard";
 import {useNavigate} from 'react-router-dom';
-import { useSearchBar } from '../../context/SearchBarContext';
-import { useAuthor} from "../../context/AuthorContext";
+import { useSearchBar } from '@/context/SearchBarContext';
+import { useAuthor} from "@/context/AuthorContext";
 import { useTranslation } from "react-i18next";
 
 interface Author {

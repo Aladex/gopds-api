@@ -4,14 +4,14 @@ import { Navigate } from 'react-router-dom';
 
 import { cn } from '@/lib/utils';
 
-import { useAuth } from '../context/AuthContext';
-import Header from './common/Header';
-import Footer from './common/Footer';
-import BottomNavigation from './common/BottomNavigation';
-import ProfileDrawer from './common/ProfileDrawer';
-import ProfileDialog from './common/ProfileDialog';
-import LoadingSpinner from './common/LoadingSpinner';
-import { useMediaQuery } from './hooks/useMediaQuery';
+import { useAuth } from '@/context/AuthContext';
+import Header from '@/components/common/Header';
+import Footer from '@/components/common/Footer';
+import BottomNavigation from '@/components/common/BottomNavigation';
+import ProfileDrawer from '@/components/common/ProfileDrawer';
+import ProfileDialog from '@/components/common/ProfileDialog';
+import LoadingSpinner from '@/components/common/LoadingSpinner';
+import { useMediaQuery } from '@/components/hooks/useMediaQuery';
 
 const PrivateRoute: React.FC<{ children: React.ReactNode; requireSuperuser?: boolean }> = memo(
     ({ children, requireSuperuser = false }) => {

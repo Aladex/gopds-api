@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Button, Typography, CardContent, CardActions, Box, IconButton, InputAdornment } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '@/context/AuthContext';
 import { QuestionMark, Person, Lock } from '@mui/icons-material';
 import * as authApi from '@/api/auth';
 import { isApiError } from '@/api/errors';
-import LoginCenteredBox from "../common/CenteredBox";
+import LoginCenteredBox from "@/components/common/CenteredBox";
 import { useTranslation } from 'react-i18next';
-import { StyledTextField } from "../StyledDataItems";
+import { StyledTextField } from "@/components/StyledDataItems";
 
 const Login: React.FC = () => {
     const [username, setUsername] = useState('');

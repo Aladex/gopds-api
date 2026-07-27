@@ -2,7 +2,7 @@ import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-import CollectionsList from '../CollectionsList';
+import CollectionsList from '@/components/Userspace/Collections/CollectionsList';
 import * as api from '@/api/collections';
 
 const sampleRows = [
@@ -16,7 +16,7 @@ vi.mock('@/api/collections', () => ({
 const samplePage = { rows: sampleRows, total: sampleRows.length, page: 1, page_size: 12 };
 
 // Stub the API config so the component never reaches the network.
-vi.mock('../../../../api/config', () => ({
+vi.mock('@/api/config', () => ({
     API_URL: 'http://test',
     fetchWithAuth: { get: vi.fn(), post: vi.fn() },
 }));

@@ -6,7 +6,7 @@ import {
     filterSupportedLanguages,
     getLanguageDisplaySafe,
     languageMapping
-} from './languageUtils';
+} from '@/utils/languageUtils';
 
 describe('languageUtils', () => {
     describe('getLanguageInfo', () => {

@@ -1,6 +1,6 @@
-import { API_URL } from '../../../api/config';
-import { useBookConversion } from '../../../context/BookConversionContext';
-import { downloadViaIframe } from '../../helpers/downloadViaIframe';
+import { API_URL } from '@/api/config';
+import { useBookConversion } from '@/context/BookConversionContext';
+import { downloadViaIframe } from '@/components/helpers/downloadViaIframe';
 
 /**
  * useBookDownloads owns getting a file to the reader.

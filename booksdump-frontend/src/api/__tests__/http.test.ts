@@ -1,5 +1,5 @@
-import { ApiError } from '../errors';
-import { http, request } from '../http';
+import { ApiError } from '@/api/errors';
+import { http, request } from '@/api/http';
 
 // The contract the previous axios transport was pinned to before removal, plus
 // the behaviours that are new: errors arrive as ApiError, a 404 no longer

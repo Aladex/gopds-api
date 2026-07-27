@@ -13,11 +13,11 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 
-import { useAuthor } from '../../context/AuthorContext';
-import { useFav } from '../../context/FavContext';
-import { useSearchBar } from '../../context/SearchBarContext';
-import useSearchOptions from '../hooks/useSearchOptions';
-import AutocompleteSearch from './AutocompleteSearch';
+import { useAuthor } from '@/context/AuthorContext';
+import { useFav } from '@/context/FavContext';
+import { useSearchBar } from '@/context/SearchBarContext';
+import useSearchOptions from '@/components/hooks/useSearchOptions';
+import AutocompleteSearch from '@/components/common/AutocompleteSearch';
 
 interface SearchRecord {
     option: string;

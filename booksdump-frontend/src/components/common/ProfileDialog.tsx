@@ -8,7 +8,7 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 
-import ProfileContent, { focusFirstProfileField } from './ProfileContent';
+import ProfileContent, { focusFirstProfileField } from '@/components/common/ProfileContent';
 
 type ProfileDialogProps = {
     open: boolean;

@@ -11,8 +11,8 @@ import {
 } from '@/components/ui/pagination';
 import { cn } from '@/lib/utils';
 
-import { useMediaQuery } from '../hooks/useMediaQuery';
-import { pageBaseUrl, paginationRange } from './paginationRange';
+import { useMediaQuery } from '@/components/hooks/useMediaQuery';
+import { pageBaseUrl, paginationRange } from '@/components/common/paginationRange';
 
 interface PaginationProps {
     totalPages: number;

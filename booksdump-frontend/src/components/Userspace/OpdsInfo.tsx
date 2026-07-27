@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Box, Card, CardContent } from '@mui/material';
-import '../styles/OpdsInfo.css';
+import '@/components/styles/OpdsInfo.css';
 
 const OpdsInfo: React.FC = () => {
     const { t } = useTranslation();

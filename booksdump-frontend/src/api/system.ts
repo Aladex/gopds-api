@@ -1,4 +1,4 @@
-import { http } from './http';
+import { http } from '@/api/http';
 
 /** Application-level endpoints that belong to no particular resource. */
 

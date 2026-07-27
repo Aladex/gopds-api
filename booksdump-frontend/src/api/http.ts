@@ -1,4 +1,4 @@
-import { ApiError, messageFromBody } from './errors';
+import { ApiError, messageFromBody } from '@/api/errors';
 
 /**
  * The single JSON transport. Every resource client goes through request(); file

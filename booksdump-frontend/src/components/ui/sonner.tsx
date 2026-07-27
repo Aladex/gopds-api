@@ -9,7 +9,7 @@ import {
 } from "lucide-react"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 
-import { useTheme } from "../../context/ThemeContext"
+import { useTheme } from "@/context/ThemeContext"
 
 // shadcn ships this component wired to next-themes. This application has its own
 // ThemeContext, which is also where the shadcn colour tokens come from, so the

@@ -2,19 +2,19 @@ import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import { Button } from '../button';
-import { Input } from '../input';
-import { Badge } from '../badge';
-import { Skeleton } from '../skeleton';
-import { Alert, AlertDescription, AlertTitle } from '../alert';
-import { Card, CardContent, CardHeader, CardTitle } from '../card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
     Dialog,
     DialogContent,
     DialogDescription,
     DialogTitle,
     DialogTrigger,
-} from '../dialog';
+} from '@/components/ui/dialog';
 
 // These cover the primitives as contracts the feature slices will rely on:
 // they render, they are operable by keyboard, and their variants are

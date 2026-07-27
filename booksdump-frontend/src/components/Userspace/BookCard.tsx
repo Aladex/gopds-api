@@ -8,9 +8,9 @@ import { Button } from '@/components/ui/button';
 import { Expandable } from '@/components/ui/expandable';
 import { cn } from '@/lib/utils';
 
-import { API_URL } from '../../api/config';
-import { useAuthor } from '../../context/AuthorContext';
-import { useSearchBar } from '../../context/SearchBarContext';
+import { API_URL } from '@/api/config';
+import { useAuthor } from '@/context/AuthorContext';
+import { useSearchBar } from '@/context/SearchBarContext';
 
 /**
  * BookCard renders one row of the catalogue.

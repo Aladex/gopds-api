@@ -15,7 +15,7 @@ import {
     Typography,
 } from '@mui/material';
 import * as adminApi from '@/api/admin';
-import { WS_URL } from '../../api/config';
+import { WS_URL } from '@/api/config';
 import { useTranslation } from 'react-i18next';
 
 interface DuplicateGroup {

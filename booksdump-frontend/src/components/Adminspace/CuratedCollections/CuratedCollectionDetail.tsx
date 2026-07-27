@@ -21,7 +21,7 @@ import {
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SearchIcon from '@mui/icons-material/Search';
-import SearchAndResolveDialog from './SearchAndResolveDialog';
+import SearchAndResolveDialog from '@/components/Adminspace/CuratedCollections/SearchAndResolveDialog';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -40,7 +40,7 @@ import {
     lookupBooksByIDs,
     patchCuratedCollection,
     resolveItem,
-} from './api';
+} from '@/components/Adminspace/CuratedCollections/api';
 
 const POLLING_INTERVAL_MS = 2500;
 

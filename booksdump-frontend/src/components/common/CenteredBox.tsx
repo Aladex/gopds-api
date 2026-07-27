@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Card, useMediaQuery } from '@mui/material';
-import theme from '../../theme';
+import theme from '@/theme';
 import { Link } from 'react-router-dom';
 
 interface ILoginCenteredBoxProps {

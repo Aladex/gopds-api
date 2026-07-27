@@ -1,4 +1,4 @@
-import { parseCsv, parseTextarea } from '../csvParser';
+import { parseCsv, parseTextarea } from '@/components/Adminspace/CuratedCollections/csvParser';
 
 describe('parseCsv', () => {
     it('parses canonical title,author,year CSV', () => {

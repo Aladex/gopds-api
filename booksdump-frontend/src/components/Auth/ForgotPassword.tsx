@@ -3,11 +3,11 @@ import React, { useState } from 'react';
 import { Button, Typography, CardContent, CardActions, IconButton, Box} from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import LoginCenteredBox from "../common/CenteredBox";
+import LoginCenteredBox from "@/components/common/CenteredBox";
 import { useTranslation } from 'react-i18next';
 import * as authApi from '@/api/auth';
 import { isApiError } from '@/api/errors';
-import { StyledTextField} from "../StyledDataItems";
+import { StyledTextField} from "@/components/StyledDataItems";
 
 const ForgotPassword: React.FC = () => {
     const [email, setEmail] = useState('');

@@ -1,4 +1,4 @@
-import { paginationRange, pageBaseUrl } from '../paginationRange';
+import { paginationRange, pageBaseUrl } from '@/components/common/paginationRange';
 
 // The pager is the only way to reach page 40000 of the catalogue, so its
 // arithmetic is worth pinning down: an off-by-one here either hides the last

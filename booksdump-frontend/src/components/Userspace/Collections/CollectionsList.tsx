@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { Alert, Box, Card, CardActionArea, Stack, Typography } from '@mui/material';
 import { Link as RouterLink, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { API_URL } from '../../../api/config';
-import BookPagination from '../../common/BookPagination';
+import { API_URL } from '@/api/config';
+import BookPagination from '@/components/common/BookPagination';
 import {
     CollectionCoverBook,
     listPublicCollections,

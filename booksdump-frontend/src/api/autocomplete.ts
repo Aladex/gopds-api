@@ -1,4 +1,4 @@
-import { http } from './http';
+import { http } from '@/api/http';
 
 export interface AutocompleteSuggestion {
   value: string;

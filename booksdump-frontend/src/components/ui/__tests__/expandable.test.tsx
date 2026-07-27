@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen, act } from '@testing-library/react';
 
-import { Expandable } from '../expandable';
+import { Expandable } from '@/components/ui/expandable';
 
 // The point of this component is that it animates where the obvious techniques
 // cannot. jsdom computes no real layout, so what is asserted here is the state

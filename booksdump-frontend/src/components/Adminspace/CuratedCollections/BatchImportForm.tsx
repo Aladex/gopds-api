@@ -18,8 +18,8 @@ import {
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useTranslation } from 'react-i18next';
-import { importCuratedCollection } from './api';
-import { parseCsv, ParsedItem } from './csvParser';
+import { importCuratedCollection } from '@/components/Adminspace/CuratedCollections/api';
+import { parseCsv, ParsedItem } from '@/components/Adminspace/CuratedCollections/csvParser';
 
 type Status = 'pending' | 'importing' | 'done' | 'error';
 

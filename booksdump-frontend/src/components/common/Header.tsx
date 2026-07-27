@@ -12,13 +12,13 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 
-import { useAuth } from '../../context/AuthContext';
-import { useSearchBar } from '../../context/SearchBarContext';
-import { getLanguageDisplaySafe, languageMapping } from '../../utils/languageUtils';
-import { useMediaQuery } from '../hooks/useMediaQuery';
-import { activeNavItem, useNavItems } from './navItems';
-import DonateModal from './DonateModal';
-import ThemeToggle from './ThemeToggle';
+import { useAuth } from '@/context/AuthContext';
+import { useSearchBar } from '@/context/SearchBarContext';
+import { getLanguageDisplaySafe, languageMapping } from '@/utils/languageUtils';
+import { useMediaQuery } from '@/components/hooks/useMediaQuery';
+import { activeNavItem, useNavItems } from '@/components/common/navItems';
+import DonateModal from '@/components/common/DonateModal';
+import ThemeToggle from '@/components/common/ThemeToggle';
 
 type HeaderProps = {
     onOpenProfile?: () => void;

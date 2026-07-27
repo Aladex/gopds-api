@@ -1,4 +1,4 @@
-import { http } from './http';
+import { http } from '@/api/http';
 
 /** Per-user Telegram bot configuration. */
 

@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 
-import SearchBar from '../SearchBar';
+import SearchBar from '@/components/common/SearchBar';
 
 // Characterisation tests written before the search panel is rebuilt on shadcn.
 // The URLs this panel constructs are the contract between the search box and
@@ -25,7 +25,7 @@ const PathProbe: React.FC = () => {
 };
 
 const favState = { fav: false, favEnabled: true, setFavEnabled: vi.fn() };
-vi.mock('../../../context/FavContext', () => ({ useFav: () => favState }));
+vi.mock('@/context/FavContext', () => ({ useFav: () => favState }));
 
 const authorState = {
     authorId: '',
@@ -33,7 +33,7 @@ const authorState = {
     clearAuthorId: vi.fn(),
     clearAuthorBook: vi.fn(),
 };
-vi.mock('../../../context/AuthorContext', () => ({ useAuthor: () => authorState }));
+vi.mock('@/context/AuthorContext', () => ({ useAuthor: () => authorState }));
 
 const searchState = {
     searchItem: '',
@@ -45,7 +45,7 @@ const searchState = {
         searchState.selectedSearch = v;
     }),
 };
-vi.mock('../../../context/SearchBarContext', () => ({ useSearchBar: () => searchState }));
+vi.mock('@/context/SearchBarContext', () => ({ useSearchBar: () => searchState }));
 
 // t must keep a stable identity across renders. useSearchOptions has an effect
 // keyed on it, so a mock that returns a fresh function every call spins the
@@ -56,7 +56,7 @@ vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 
 // The autocomplete talks to the network; the panel's own behaviour is what is
 // under test, so stand in with a plain input that reports typing and Enter.
-vi.mock('../AutocompleteSearch', () => ({
+vi.mock('@/components/common/AutocompleteSearch', () => ({
     default: ({
         value,
         onChange,

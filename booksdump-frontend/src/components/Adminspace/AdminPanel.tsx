@@ -1,13 +1,13 @@
 import React, { useEffect } from 'react';
 import { Route, Routes, Link, useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { Box, Card, CardContent, Tabs, Tab, useMediaQuery, useTheme } from '@mui/material';
-import UsersTable from './UsersTable';
-import InvitesTable from './InvitesTable';
-import Duplicates from './Duplicates';
-import BookScanning from './BookScanning';
-import GenreManagement from './GenreManagement';
-import CuratedCollectionsList from './CuratedCollections/CuratedCollectionsList';
-import CuratedCollectionDetail from './CuratedCollections/CuratedCollectionDetail';
+import UsersTable from '@/components/Adminspace/UsersTable';
+import InvitesTable from '@/components/Adminspace/InvitesTable';
+import Duplicates from '@/components/Adminspace/Duplicates';
+import BookScanning from '@/components/Adminspace/BookScanning';
+import GenreManagement from '@/components/Adminspace/GenreManagement';
+import CuratedCollectionsList from '@/components/Adminspace/CuratedCollections/CuratedCollectionsList';
+import CuratedCollectionDetail from '@/components/Adminspace/CuratedCollections/CuratedCollectionDetail';
 import { useTranslation } from 'react-i18next';
 
 const AdminSpace: React.FC = () => {

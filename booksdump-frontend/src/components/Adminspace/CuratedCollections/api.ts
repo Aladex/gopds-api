@@ -1,5 +1,5 @@
 import { http } from '@/api/http';
-import type { ParsedItem } from './csvParser';
+import type { ParsedItem } from '@/components/Adminspace/CuratedCollections/csvParser';
 
 export interface CuratedCollection {
     id: number;

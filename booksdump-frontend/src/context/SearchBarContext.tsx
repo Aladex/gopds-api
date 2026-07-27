@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useMemo, useCallback, useEffect, ReactNode } from 'react';
 import * as booksApi from '@/api/books';
-import { useAuth } from './AuthContext';
-import { filterSupportedLanguages } from '../utils/languageUtils';
+import { useAuth } from '@/context/AuthContext';
+import { filterSupportedLanguages } from '@/utils/languageUtils';
 
 interface SearchBarContextType {
     selectedSearch: string;

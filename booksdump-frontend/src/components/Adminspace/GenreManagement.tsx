@@ -28,7 +28,7 @@ import SaveIcon from '@mui/icons-material/Save';
 import CloseIcon from '@mui/icons-material/Close';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import * as adminApi from '@/api/admin';
-import { WS_URL } from '../../api/config';
+import { WS_URL } from '@/api/config';
 import { useTranslation } from 'react-i18next';
 
 interface GenreAdmin {

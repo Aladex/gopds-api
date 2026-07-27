@@ -1,9 +1,9 @@
 import React from 'react';
 import { render, screen, act, waitFor } from '@testing-library/react';
 
-import { ThemeProvider, useTheme } from '../ThemeContext';
+import { ThemeProvider, useTheme } from '@/context/ThemeContext';
 import * as booksApi from '@/api/books';
-import { useAuth } from '../AuthContext';
+import { useAuth } from '@/context/AuthContext';
 
 // The theme is the one thing a design-system change can silently break, so this
 // pins the behaviour before Tailwind and shadcn arrive: where the initial mode
@@ -15,7 +15,7 @@ vi.mock('@/api/books', () => ({
     setThemePreference: vi.fn(),
 }));
 
-vi.mock('../AuthContext', () => ({
+vi.mock('@/context/AuthContext', () => ({
     useAuth: vi.fn(),
 }));
 

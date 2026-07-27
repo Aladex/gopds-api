@@ -8,7 +8,7 @@ import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 import AddIcon from "@mui/icons-material/Add";
 import {useTranslation} from "react-i18next";
 import { styled } from '@mui/material/styles';
-import {StyledTextField} from "../StyledDataItems";
+import {StyledTextField} from "@/components/StyledDataItems";
 
 interface Invite {
     id?: string;

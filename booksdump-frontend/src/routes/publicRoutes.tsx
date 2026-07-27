@@ -1,13 +1,13 @@
 // src/routes/publicRoutes.tsx
 import React from 'react';
 import { Route } from 'react-router-dom';
-import Login from '../components/Auth/Login';
-import Registration from '../components/Auth/Registration';
-import ForgotPassword from '../components/Auth/ForgotPassword';
-import TitleSetter from '../components/common/TitleSetter';
-import PublicRoute from "../components/PublicRoute";
-import ChangePassword from "../components/Auth/ChangePassword";
-import Activation from "../components/Auth/Activation";
+import Login from '@/components/Auth/Login';
+import Registration from '@/components/Auth/Registration';
+import ForgotPassword from '@/components/Auth/ForgotPassword';
+import TitleSetter from '@/components/common/TitleSetter';
+import PublicRoute from "@/components/PublicRoute";
+import ChangePassword from "@/components/Auth/ChangePassword";
+import Activation from "@/components/Auth/Activation";
 
 const publicRoutes = (
     <Route path="/" element={<PublicRoute />}>

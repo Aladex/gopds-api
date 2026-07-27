@@ -1,18 +1,18 @@
 import React, { useState, memo, useMemo, useCallback, useEffect } from 'react';
-import { AuthorProvider } from './context/AuthorContext';
-import { BookConversionProvider } from './context/BookConversionContext';
-import { FavProvider } from "./context/FavContext";
-import { SearchBarProvider } from './context/SearchBarContext';
-import publicRoutes from './routes/publicRoutes';
-import privateRoutes from './routes/privateRoutes';
-import adminRoutes from "./routes/adminRoutes";
-import notFoundRoutes from "./routes/notFoundRoutes";
-import LanguageInitializer from './components/LanguageInitializer';
-import { useAuth } from './context/AuthContext';
+import { AuthorProvider } from '@/context/AuthorContext';
+import { BookConversionProvider } from '@/context/BookConversionContext';
+import { FavProvider } from "@/context/FavContext";
+import { SearchBarProvider } from '@/context/SearchBarContext';
+import publicRoutes from '@/routes/publicRoutes';
+import privateRoutes from '@/routes/privateRoutes';
+import adminRoutes from "@/routes/adminRoutes";
+import notFoundRoutes from "@/routes/notFoundRoutes";
+import LanguageInitializer from '@/components/LanguageInitializer';
+import { useAuth } from '@/context/AuthContext';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import useAuthWebSocket from './components/hooks/useAuthWebSocket';
-import AppSkeleton from './components/common/AppSkeleton';
-import { Toaster } from './components/ui/sonner';
+import useAuthWebSocket from '@/components/hooks/useAuthWebSocket';
+import AppSkeleton from '@/components/common/AppSkeleton';
+import { Toaster } from '@/components/ui/sonner';
 
 const App: React.FC<{ isAuthenticated: boolean }> = memo(({ isAuthenticated }) => {
     // Using WebSocket inside BookConversionProvider

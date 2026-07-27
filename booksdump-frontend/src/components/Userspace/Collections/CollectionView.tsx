@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import { useParams } from 'react-router-dom';
-import BooksList from '../BooksList';
+import BooksList from '@/components/Userspace/BooksList';
 import { getPublicCollection, PublicCollectionDetail } from '@/api/collections';
 
 // CollectionView wraps the regular BooksList with a heading carrying the

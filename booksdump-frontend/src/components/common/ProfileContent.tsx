@@ -7,7 +7,7 @@ import { Expandable } from '@/components/ui/expandable';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
-import { useProfileForm } from '../hooks/useProfileForm';
+import { useProfileForm } from '@/components/hooks/useProfileForm';
 
 type ProfileContentProps = {
     open: boolean;

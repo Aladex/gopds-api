@@ -12,8 +12,8 @@ import {
 
 import { cn } from '@/lib/utils';
 
-import { useAuth } from '../../context/AuthContext';
-import { activeNavItem, useNavItems, type NavItem } from './navItems';
+import { useAuth } from '@/context/AuthContext';
+import { activeNavItem, useNavItems, type NavItem } from '@/components/common/navItems';
 
 type BottomNavigationProps = {
     isProfileOpen: boolean;

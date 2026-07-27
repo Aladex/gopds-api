@@ -2,9 +2,9 @@ import React, { createContext, useContext, useState, useEffect, useMemo, useCall
 import { PaletteMode } from '@mui/material';
 import { ThemeProvider as MuiThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
-import { createAppTheme } from '../theme';
+import { createAppTheme } from '@/theme';
 import * as booksApi from '@/api/books';
-import { useAuth } from './AuthContext';
+import { useAuth } from '@/context/AuthContext';
 
 interface ThemeContextType {
     mode: PaletteMode;

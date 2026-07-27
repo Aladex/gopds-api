@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Button, Typography, CardContent, CardActions, Box, IconButton } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import LoginCenteredBox from "../common/CenteredBox";
+import LoginCenteredBox from "@/components/common/CenteredBox";
 import { useTranslation } from 'react-i18next';
 import * as authApi from '@/api/auth';
 import { isApiError } from '@/api/errors';
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import { StyledTextField } from "../StyledDataItems";
+import { StyledTextField } from "@/components/StyledDataItems";
 
 const Registration: React.FC = () => {
     const [username, setUsername] = useState('');

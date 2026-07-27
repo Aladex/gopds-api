@@ -1,12 +1,12 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import './index.css';
-import AppWrapper from './App';
+import '@/index.css';
+import AppWrapper from '@/App';
 import { I18nextProvider } from 'react-i18next';
-import i18n from './i18n'; // Adjust the path according to where your i18n configuration file is located
+import i18n from '@/i18n'; // Adjust the path according to where your i18n configuration file is located
 import { BrowserRouter as Router } from 'react-router-dom';
-import { AuthProvider } from './context/AuthContext';
-import { ThemeProvider } from './context/ThemeContext';
+import { AuthProvider } from '@/context/AuthContext';
+import { ThemeProvider } from '@/context/ThemeContext';
 
 const root = ReactDOM.createRoot(document.getElementById('root') as HTMLElement);
 

@@ -17,8 +17,8 @@ import {
     Typography,
 } from '@mui/material';
 import { useTranslation } from 'react-i18next';
-import { importCuratedCollection } from './api';
-import { parseCsv, parseTextarea, ParsedItem } from './csvParser';
+import { importCuratedCollection } from '@/components/Adminspace/CuratedCollections/api';
+import { parseCsv, parseTextarea, ParsedItem } from '@/components/Adminspace/CuratedCollections/csvParser';
 
 type ImportTab = 'csv' | 'text';
 

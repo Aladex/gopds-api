@@ -31,7 +31,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import DeleteIcon from '@mui/icons-material/Delete';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import * as adminApi from '@/api/admin';
-import { WS_URL } from '../../api/config';
+import { WS_URL } from '@/api/config';
 import { useTranslation } from 'react-i18next';
 
 interface ScanStatusResponse {

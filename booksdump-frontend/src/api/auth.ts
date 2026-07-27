@@ -1,4 +1,4 @@
-import { http, request } from './http';
+import { http, request } from '@/api/http';
 
 /**
  * Authentication and account endpoints.

@@ -1,9 +1,9 @@
 // src/routes/adminRoutes.tsx
 import React from 'react';
 import { Route, Navigate } from 'react-router-dom';
-import AdminSpace from '../components/Adminspace/AdminPanel';
-import PrivateRoute from '../components/PrivateRoute';
-import TitleSetter from '../components/common/TitleSetter';
+import AdminSpace from '@/components/Adminspace/AdminPanel';
+import PrivateRoute from '@/components/PrivateRoute';
+import TitleSetter from '@/components/common/TitleSetter';
 
 const adminRoutes = (
     <>

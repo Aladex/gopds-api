@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { WS_URL, API_URL } from '../../api/config';
-import { useBookConversion } from '../../context/BookConversionContext';
+import { WS_URL, API_URL } from '@/api/config';
+import { useBookConversion } from '@/context/BookConversionContext';
 
 const OpPing = 0x9;
 const OpPong = 0xa;

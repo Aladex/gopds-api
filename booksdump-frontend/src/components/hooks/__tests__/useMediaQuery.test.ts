@@ -1,6 +1,6 @@
 import { renderHook, act } from '@testing-library/react';
 
-import { useMediaQuery } from '../useMediaQuery';
+import { useMediaQuery } from '@/components/hooks/useMediaQuery';
 
 // The setup file installs a matchMedia that never matches, so each test here
 // installs its own stub. The stub behaves as a real MediaQueryList does: its

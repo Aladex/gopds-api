@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
-import BooksList from '../BooksList';
+import BooksList from '@/components/Userspace/BooksList';
 import * as booksApi from '@/api/books';
 import * as authApi from '@/api/auth';
 import type { Book } from '@/api/books';
@@ -29,10 +29,10 @@ vi.mock('@/api/admin', () => ({ updateBook: vi.fn() }));
 const authState = {
     user: { username: 'reader', first_name: '', last_name: '', is_superuser: false, books_lang: 'ru' },
 };
-vi.mock('../../../context/AuthContext', () => ({ useAuth: () => authState }));
+vi.mock('@/context/AuthContext', () => ({ useAuth: () => authState }));
 
 const favState = { fav: false, favEnabled: true, setFavEnabled: vi.fn() };
-vi.mock('../../../context/FavContext', () => ({ useFav: () => favState }));
+vi.mock('@/context/FavContext', () => ({ useFav: () => favState }));
 
 const authorState = {
     authorId: '',
@@ -40,7 +40,7 @@ const authorState = {
     setAuthorId: vi.fn(),
     clearAuthorBook: vi.fn(),
 };
-vi.mock('../../../context/AuthorContext', () => ({ useAuthor: () => authorState }));
+vi.mock('@/context/AuthorContext', () => ({ useAuthor: () => authorState }));
 
 // The card clears the search box when a reader clicks through to a filtered
 // list, so the filter applies rather than a stale query.
@@ -53,7 +53,7 @@ const searchBarState = {
     selectedLanguage: 'ru',
     setSelectedLanguage: vi.fn(),
 };
-vi.mock('../../../context/SearchBarContext', () => ({ useSearchBar: () => searchBarState }));
+vi.mock('@/context/SearchBarContext', () => ({ useSearchBar: () => searchBarState }));
 
 // The real hook returns { state, dispatch }; BooksList derives
 // isBookConverting itself from state.convertingBooks.
@@ -62,16 +62,16 @@ const conversionState: {
     conversionErrors: { bookID: number; format: string; message: string }[];
 } = { convertingBooks: [], conversionErrors: [] };
 const conversionValue = { state: conversionState, dispatch: vi.fn() };
-vi.mock('../../../context/BookConversionContext', () => ({
+vi.mock('@/context/BookConversionContext', () => ({
     useBookConversion: () => conversionValue,
 }));
 
-vi.mock('../../helpers/downloadViaIframe', () => ({ downloadViaIframe: vi.fn() }));
+vi.mock('@/components/helpers/downloadViaIframe', () => ({ downloadViaIframe: vi.fn() }));
 
 // The conversion backdrop is a full-screen MUI modal. It is a separate concern,
 // and leaving it in hides the card behind an overlay whenever a conversion is
 // in flight.
-vi.mock('../../hooks/convertingBooks', () => ({ default: () => null }));
+vi.mock('@/components/hooks/convertingBooks', () => ({ default: () => null }));
 
 const listBooks = vi.mocked(booksApi.listBooks);
 const toggleFavourite = vi.mocked(booksApi.toggleFavourite);

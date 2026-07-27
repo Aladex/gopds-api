@@ -23,7 +23,7 @@ import {
     Cancel as CancelIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
-import { useRescan } from '../../hooks/useRescan';
+import { useRescan } from '@/hooks/useRescan';
 
 interface Author {
     id: number;

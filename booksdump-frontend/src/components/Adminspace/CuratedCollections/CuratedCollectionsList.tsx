@@ -17,10 +17,10 @@ import {
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useTranslation } from 'react-i18next';
 import { Link as RouterLink, useParams } from 'react-router-dom';
-import BookPagination from '../../common/BookPagination';
-import { CuratedCollection, deleteCuratedCollection, listCuratedCollections } from './api';
-import ImportForm from './ImportForm';
-import BatchImportForm from './BatchImportForm';
+import BookPagination from '@/components/common/BookPagination';
+import { CuratedCollection, deleteCuratedCollection, listCuratedCollections } from '@/components/Adminspace/CuratedCollections/api';
+import ImportForm from '@/components/Adminspace/CuratedCollections/ImportForm';
+import BatchImportForm from '@/components/Adminspace/CuratedCollections/BatchImportForm';
 
 const PAGE_SIZE = 25;
 

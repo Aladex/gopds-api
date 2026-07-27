@@ -5,7 +5,7 @@ import * as authApi from '@/api/auth';
 import { isApiError } from '@/api/errors';
 import { useTranslation } from 'react-i18next';
 import { LinearProgress, Box, Typography } from '@mui/material';
-import LoginCenteredBox from '../common/CenteredBox';
+import LoginCenteredBox from '@/components/common/CenteredBox';
 import CardContent from '@mui/material/CardContent';
 
 const Activation: React.FC = () => {

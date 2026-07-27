@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Modal, Backdrop, CircularProgress, Typography, Box, Snackbar } from '@mui/material';
-import { useBookConversion } from '../../context/BookConversionContext';
+import { useBookConversion } from '@/context/BookConversionContext';
 import { useTranslation } from "react-i18next";
 
 function ConversionModal() {

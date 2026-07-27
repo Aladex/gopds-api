@@ -6,8 +6,8 @@ import * as authApi from '@/api/auth';
 import * as booksApi from '@/api/books';
 import type { Book } from '@/api/books';
 
-import { useFav } from '../../../context/FavContext';
-import type { BooksListAction } from './useBooksQuery';
+import { useFav } from '@/context/FavContext';
+import type { BooksListAction } from '@/components/Userspace/hooks/useBooksQuery';
 
 /**
  * useFavouriteToggle owns adding and removing a favourite.
