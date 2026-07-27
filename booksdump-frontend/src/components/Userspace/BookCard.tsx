@@ -20,12 +20,21 @@ import { useSearchBar } from '../../context/SearchBarContext';
  * would otherwise stretch every row in the list to fit the longest one.
  */
 
+/**
+ * The archived download is labelled ZIP rather than FB2+ZIP so all four labels
+ * are of a length, which lets them sit in an even block the exact width of the
+ * cover. Next to FB2, EPUB and MOBI it reads as what it is: the same book, in an
+ * archive.
+ */
 const DOWNLOAD_FORMATS = [
-    { id: 'zip', label: 'FB2+ZIP' },
+    { id: 'zip', label: 'ZIP' },
     { id: 'fb2', label: 'FB2' },
     { id: 'epub', label: 'EPUB' },
     { id: 'mobi', label: 'MOBI' },
 ] as const;
+
+/** Matches the cover, so the block of formats sits flush beneath it. */
+const COVER_WIDTH = 104;
 
 const VISIBLE_AUTHORS = 2;
 
@@ -95,17 +104,22 @@ const BookCard: React.FC<BookCardProps> = ({
             }}
             className="cursor-pointer rounded border border-border bg-card p-4 transition-colors hover:border-muted-foreground"
         >
-            <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-4">
+            <div
+                className="grid gap-4"
+                style={{ gridTemplateColumns: `${COVER_WIDTH}px minmax(0, 1fr)` }}
+            >
                 <div className="flex flex-col gap-2">
                     <img
                         src={cover}
                         alt={book.title}
                         loading="lazy"
-                        className="h-[150px] w-[104px] flex-none rounded-sm bg-muted object-cover"
+                        style={{ width: COVER_WIDTH }}
+                        className="h-[150px] flex-none rounded-sm bg-muted object-cover"
                     />
-                    {/* max-content columns so the two rows line up; equal columns
-                        would leave FB2+ZIP overflowing its half. */}
-                    <div className="grid grid-cols-[max-content_max-content] gap-x-2 gap-y-0.5">
+                    {/* Two equal cells with the label centred in each, so the four
+                        read as an even block rather than four links of differing
+                        length. */}
+                    <div className="grid grid-cols-2 gap-1">
                         {DOWNLOAD_FORMATS.map((format) => {
                             const converting = isBookConverting(book.id, format.id);
                             return (
@@ -115,7 +129,7 @@ const BookCard: React.FC<BookCardProps> = ({
                                     disabled={converting}
                                     onClick={() => handleFormat(format.id)}
                                     className={cn(
-                                        'rounded px-1 py-0.5 text-[12px] text-primary hover:bg-accent hover:underline',
+                                        'rounded py-0.5 text-center text-[12px] text-primary hover:bg-accent hover:underline',
                                         'disabled:cursor-default disabled:text-muted-foreground disabled:no-underline disabled:hover:bg-transparent',
                                     )}
                                 >

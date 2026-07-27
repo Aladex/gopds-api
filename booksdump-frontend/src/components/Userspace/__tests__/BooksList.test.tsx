@@ -190,8 +190,10 @@ describe('BooksList rendering', () => {
         renderAt('/books/page/1');
         await screen.findByText('Заклятые в любви');
 
-        for (const format of ['FB2+ZIP', 'FB2', 'EPUB', 'MOBI']) {
-            expect(screen.getByRole('button', { name: new RegExp(`^\\W*${format.replace('+', '\\+')}$`) }))
+        // ZIP is the archived FB2; the label is short so the four sit in an even
+        // block under the cover.
+        for (const format of ['ZIP', 'FB2', 'EPUB', 'MOBI']) {
+            expect(screen.getByRole('button', { name: new RegExp(`^\\W*${format}$`) }))
                 .toBeInTheDocument();
         }
     });
