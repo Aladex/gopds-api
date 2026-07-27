@@ -182,12 +182,22 @@
     --radius-xl: calc(var(--radius) + 4px);
 }
 
-body {
-  /* Background now comes from MUI CssBaseline and theme */
+/*
+ * MUI's CssBaseline is injected into the head at runtime, so it lands after
+ * this file and wins on equal specificity. It was quietly imposing two things
+ * on every piece of text in the application: Roboto, in place of the system
+ * stack named right here, and letter-spacing: 0.00938em — a hair over a tenth
+ * of a pixel per character, which is nothing to look at and a lot to read.
+ *
+ * `html body` outranks it. The whole rule goes away with CssBaseline itself,
+ * once the last MUI component is gone.
+ */
+html body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
   'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
   sans-serif;
+  letter-spacing: normal;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   display: flex;
