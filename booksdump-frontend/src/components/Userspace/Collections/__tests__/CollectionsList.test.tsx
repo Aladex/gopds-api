@@ -1,32 +1,34 @@
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+
+import CollectionsList from '../CollectionsList';
+import * as api from '../api';
 
 const sampleRows = [
     { id: 1, name: 'Antiutopias' },
     { id: 2, name: 'Russian classics' },
 ];
 
-jest.mock('../api', () => ({
-    listPublicCollections: jest.fn().mockResolvedValue({ rows: [], total: 0, page: 1, page_size: 12 }),
+vi.mock('../api', () => ({
+    listPublicCollections: vi.fn().mockResolvedValue({ rows: [], total: 0, page: 1, page_size: 12 }),
 }));
 const samplePage = { rows: sampleRows, total: sampleRows.length, page: 1, page_size: 12 };
 
-// CollectionsList now imports API_URL from api/config which pulls axios (ESM).
-// Stub the config so jest 27 does not try to parse axios.
-jest.mock('../../../../api/config', () => ({
+// Stub the API config so the component never reaches the network.
+vi.mock('../../../../api/config', () => ({
     API_URL: 'http://test',
-    fetchWithAuth: { get: jest.fn(), post: jest.fn() },
+    fetchWithAuth: { get: vi.fn(), post: vi.fn() },
 }));
 
-// react-router-dom is globally mapped to src/__mocks__/react-router-dom.tsx via package.json.
-
-jest.mock('react-i18next', () => ({
+vi.mock('react-i18next', () => ({
     useTranslation: () => ({ t: (_key: string, fallback?: any) => fallback ?? _key }),
 }));
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const CollectionsList = require('../CollectionsList').default;
-const api = require('../api');
+const listPublicCollections = vi.mocked(api.listPublicCollections);
+
+// The component renders router Links, so it needs a real router context.
+const renderList = () => render(<CollectionsList />, { wrapper: MemoryRouter });
 
 const adminFieldsMustNotAppear = [
     'source_url',
@@ -48,27 +50,27 @@ const adminFieldsMustNotAppear = [
 
 describe('CollectionsList (public)', () => {
     beforeEach(() => {
-        jest.clearAllMocks();
-        api.listPublicCollections.mockResolvedValue(samplePage);
+        vi.clearAllMocks();
+        listPublicCollections.mockResolvedValue(samplePage);
     });
 
     it('renders cards for each collection', async () => {
-        render(<CollectionsList />);
+        renderList();
 
-        await waitFor(() => expect(api.listPublicCollections).toHaveBeenCalled());
+        await waitFor(() => expect(listPublicCollections).toHaveBeenCalled());
         expect(await screen.findByText('Antiutopias')).toBeInTheDocument();
         expect(await screen.findByText('Russian classics')).toBeInTheDocument();
     });
 
     it('shows empty state when there are no public collections', async () => {
-        api.listPublicCollections.mockResolvedValue({ rows: [], total: 0, page: 1, page_size: 12 });
-        render(<CollectionsList />);
+        listPublicCollections.mockResolvedValue({ rows: [], total: 0, page: 1, page_size: 12 });
+        renderList();
         expect(await screen.findByText(/No collections yet/i)).toBeInTheDocument();
     });
 
     it('does not leak admin metadata into the rendered DOM', async () => {
-        render(<CollectionsList />);
-        await waitFor(() => expect(api.listPublicCollections).toHaveBeenCalled());
+        renderList();
+        await waitFor(() => expect(listPublicCollections).toHaveBeenCalled());
         await screen.findByText('Antiutopias');
 
         const html = document.body.innerHTML.toLowerCase();

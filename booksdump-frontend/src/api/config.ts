@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = process.env.REACT_APP_API_URL;
+const API_URL = import.meta.env.VITE_API_URL;
 
 // Derive WebSocket URL dynamically from the current page location
 // so the binary works both locally and in production without rebuild.

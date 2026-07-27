@@ -1,25 +1,25 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-jest.mock('../api', () => ({
-    importCuratedCollection: jest.fn().mockResolvedValue({ collection_id: 1, status: 'importing' }),
+import ImportForm from '../ImportForm';
+import * as api from '../api';
+
+vi.mock('../api', () => ({
+    importCuratedCollection: vi.fn().mockResolvedValue({ collection_id: 1, status: 'importing' }),
 }));
 
 // react-i18next mock — return fallback as the rendered text.
-jest.mock('react-i18next', () => ({
+vi.mock('react-i18next', () => ({
     useTranslation: () => ({ t: (_key: string, fallback?: string) => fallback ?? _key }),
 }));
 
-// Import after mocks so the component uses the mocked modules.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const ImportForm = require('../ImportForm').default;
-const api = require('../api');
+const importCuratedCollection = vi.mocked(api.importCuratedCollection);
 
 describe('ImportForm', () => {
     beforeEach(() => {
-        jest.clearAllMocks();
+        vi.clearAllMocks();
         // clearAllMocks wipes mock implementations too — re-arm the default.
-        api.importCuratedCollection.mockResolvedValue({ collection_id: 1, status: 'importing' });
+        importCuratedCollection.mockResolvedValue({ collection_id: 1, status: 'importing' });
     });
 
     it('renders both CSV and Paste tabs', () => {
@@ -59,7 +59,7 @@ describe('ImportForm', () => {
     });
 
     it('calls importCuratedCollection on submit with parsed payload', async () => {
-        const onCreated = jest.fn();
+        const onCreated = vi.fn();
         render(<ImportForm onCreated={onCreated} />);
 
         fireEvent.change(screen.getByLabelText(/^Name/i), { target: { value: 'Sel' } });
@@ -72,7 +72,7 @@ describe('ImportForm', () => {
         fireEvent.click(submit);
 
         await waitFor(() =>
-            expect(api.importCuratedCollection).toHaveBeenCalledWith('Sel', '', [
+            expect(importCuratedCollection).toHaveBeenCalledWith('Sel', '', [
                 { title: '1984', author: 'Orwell', year: 1949 },
             ]),
         );
