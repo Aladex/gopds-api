@@ -36,7 +36,7 @@ const CenteredBox: React.FC<React.PropsWithChildren> = ({ children }) => {
                 />
             </Link>
 
-            <Card className="relative w-full max-w-[700px] gap-0 p-6">{children}</Card>
+            <Card className="relative w-full max-w-[400px] gap-0 p-6">{children}</Card>
         </div>
     );
 };

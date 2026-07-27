@@ -424,5 +424,7 @@
   "resetError": "Could not send the reset link",
   "resetLinkSent": "A reset link is on its way to your inbox",
   "activating": "Activating your account…",
-  "activationError": "Could not activate the account. Please try again later."
+  "activationError": "Could not activate the account. Please try again later.",
+  "welcomeBack": "Welcome back",
+  "loginSubtitle": "Sign in to keep reading"
 }

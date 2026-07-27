@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { HelpCircle, Lock, User } from 'lucide-react';
+import { Lock, User } from 'lucide-react';
 
 import { Button } from '@/shared/ui/button';
 import { useAuth } from '@/context/AuthContext';
@@ -81,20 +81,20 @@ const Login: React.FC = () => {
     return (
         <CenteredBox>
             <AuthForm
-                title={t('login')}
+                title={t('welcomeBack')}
+                subtitle={t('loginSubtitle')}
                 error={loginError}
                 onSubmit={handleLogin}
                 submitLabel={t('loginButton')}
                 secondaryAction={
                     <Button
                         type="button"
-                        variant="ghost"
-                        size="icon-sm"
+                        variant="link"
+                        size="sm"
                         onClick={() => navigate('/forgot-password')}
-                        aria-label={t('forgotPassword')}
-                        title={t('forgotPassword')}
+                        className="h-auto p-0 text-xs text-muted-foreground hover:text-foreground"
                     >
-                        <HelpCircle className="size-4" />
+                        {t('forgotPassword')}
                     </Button>
                 }
             >

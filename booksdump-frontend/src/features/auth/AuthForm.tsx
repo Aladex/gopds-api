@@ -1,9 +1,8 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, Loader2, type LucideIcon } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Loader2, type LucideIcon } from 'lucide-react';
 
-import { Alert, AlertDescription } from '@/shared/ui/alert';
 import { Button } from '@/shared/ui/button';
 import { Input } from '@/shared/ui/input';
 
@@ -69,9 +68,9 @@ export const AuthField: React.FC<AuthFieldProps> = ({
 );
 
 /**
- * BackToLogin is the small arrow every screen but the sign-in one carries. It
- * is an icon button rather than a link because it is a way out of a dead end,
- * not a destination worth its own place in the tab order's reading.
+ * BackToLogin is the way out of every screen but the sign-in one. It says so in
+ * words: an unlabelled arrow asks the reader to guess where it goes, and the
+ * translation for it was already written.
  */
 export const BackToLogin: React.FC = () => {
     const { t } = useTranslation();
@@ -80,19 +79,21 @@ export const BackToLogin: React.FC = () => {
     return (
         <Button
             type="button"
-            variant="ghost"
-            size="icon-sm"
+            variant="link"
+            size="sm"
             onClick={() => navigate('/login')}
-            aria-label={t('BackButton')}
-            title={t('BackButton')}
+            className="h-auto gap-1 p-0 text-xs text-muted-foreground hover:text-foreground"
         >
-            <ArrowLeft className="size-4" />
+            <ArrowLeft aria-hidden="true" className="size-3.5" />
+            {t('BackButton')}
         </Button>
     );
 };
 
 type AuthFormProps = React.PropsWithChildren<{
     title: string;
+    /** A second line saying something the title and the button do not. */
+    subtitle?: string;
     /** Empty when there is nothing to report; the alert announces itself. */
     error?: string;
     onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
@@ -105,6 +106,7 @@ type AuthFormProps = React.PropsWithChildren<{
 
 export const AuthForm: React.FC<AuthFormProps> = ({
     title,
+    subtitle,
     error,
     onSubmit,
     submitLabel,
@@ -114,22 +116,33 @@ export const AuthForm: React.FC<AuthFormProps> = ({
     children,
 }) => (
     <form onSubmit={onSubmit} className="flex flex-col gap-4">
-        <h1 className="text-center text-lg font-semibold">{title}</h1>
+        <div>
+            <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
+            {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
+        </div>
 
-        {error && (
-            <Alert variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
-            </Alert>
-        )}
+        <div className="flex flex-col gap-3">{children}</div>
 
-        {children}
+        <div className="flex flex-col gap-3">
+            {/*
+              A line, not a panel: the message is one short sentence, and a
+              bordered box around it drew more attention to the frame than to the
+              words. It sits by the button rather than above the fields, so
+              appearing pushes the button down and leaves the fields where the
+              reader's hands already are.
+            */}
+            {error && (
+                <p role="alert" className="flex items-start gap-2 text-sm text-destructive">
+                    <AlertCircle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+                    {error}
+                </p>
+            )}
 
-        <div className="flex items-center justify-between pt-2">
-            {secondaryAction ?? <span />}
-            <Button type="submit" size="sm" disabled={submitDisabled}>
+            <Button type="submit" className="w-full" disabled={submitDisabled}>
                 {busy && <Loader2 aria-hidden="true" className="size-4 animate-spin" />}
                 {submitLabel}
             </Button>
+            {secondaryAction && <div className="flex justify-center">{secondaryAction}</div>}
         </div>
     </form>
 );
