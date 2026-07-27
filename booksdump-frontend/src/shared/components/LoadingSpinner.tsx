@@ -1,34 +1,36 @@
 import React from 'react';
-import { Box, CircularProgress, Typography } from '@mui/material';
 import { useTranslation } from 'react-i18next';
+import { Loader2 } from 'lucide-react';
+
+import { cn } from '@/shared/lib/utils';
 
 interface LoadingSpinnerProps {
+    /** A translation key, not a finished string. */
     message?: string;
-    size?: number;
+    className?: string;
 }
 
-const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({ 
-    message, 
-    size = 40 
-}) => {
+/**
+ * LoadingSpinner fills the space where something is still arriving.
+ *
+ * The minimum height keeps the page from collapsing and springing back as the
+ * content lands. role="status" so the wait is announced rather than being a
+ * silent pause.
+ */
+const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({ message, className }) => {
     const { t } = useTranslation();
 
     return (
-        <Box
-            display="flex"
-            flexDirection="column"
-            alignItems="center"
-            justifyContent="center"
-            minHeight="200px"
-            gap={2}
-        >
-            <CircularProgress size={size} />
-            {message && (
-                <Typography variant="body2" color="textSecondary">
-                    {t(message)}
-                </Typography>
+        <div
+            role="status"
+            className={cn(
+                'flex min-h-[200px] flex-col items-center justify-center gap-3',
+                className,
             )}
-        </Box>
+        >
+            <Loader2 aria-hidden="true" className="size-8 animate-spin text-muted-foreground" />
+            {message && <p className="text-sm text-muted-foreground">{t(message)}</p>}
+        </div>
     );
 };
 

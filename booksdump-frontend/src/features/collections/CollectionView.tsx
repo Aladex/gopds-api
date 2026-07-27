@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Typography } from '@mui/material';
 import { useParams } from 'react-router-dom';
 import BooksList from '@/features/catalogue/BooksList';
 import { getPublicCollection, PublicCollectionDetail } from '@/api/collections';
@@ -31,9 +30,9 @@ const CollectionView: React.FC = () => {
     return (
         <>
             {(coll || err) && (
-                <Box maxWidth={1200} mx="auto" px={2} pt={2}>
-                    <Typography variant="h5">{err ? 'Error' : coll?.name}</Typography>
-                </Box>
+                <div className="mx-auto w-full max-w-[1200px] px-4 pt-4">
+                    <h1 className="text-lg font-medium">{err ? 'Error' : coll?.name}</h1>
+                </div>
             )}
             <BooksList />
         </>

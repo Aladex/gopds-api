@@ -1,44 +1,22 @@
-// src/components/common/Footer.tsx
 import React, { useEffect, useState } from 'react';
-import { Box, Typography } from '@mui/material';
+
 import * as systemApi from '@/api/system';
 
+/** Footer carries the build the reader is looking at, and nothing else. */
 const Footer: React.FC = () => {
-    const [appVersion, setAppVersion] = useState<string>('');
+    const [appVersion, setAppVersion] = useState('');
 
     useEffect(() => {
-        const fetchAppVersion = async () => {
-            try {
-                const { result } = await systemApi.getStatus();
-                setAppVersion(result);
-            } catch (error) {
-                console.error('Error fetching app version:', error);
-            }
-        };
-
-        fetchAppVersion();
+        systemApi
+            .getStatus()
+            .then(({ result }) => setAppVersion(result))
+            .catch((error) => console.error('Error fetching app version:', error));
     }, []);
 
     return (
-        <Box
-            component="footer"
-            sx={{
-                backgroundColor: '#1e1e1e',
-                color: 'common.white',
-                padding: '2px 10px',
-                width: '100%',
-                position: 'relative',
-                fontSize: '10px',
-                marginTop: 'auto',
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-            }}
-        >
-            <Typography variant="caption" component="span">
-                App Version: {appVersion}
-            </Typography>
-        </Box>
+        <footer className="mt-auto flex w-full items-center justify-center bg-neutral-800 px-2.5 py-0.5 text-[10px] text-white">
+            App Version: {appVersion}
+        </footer>
     );
 };
 

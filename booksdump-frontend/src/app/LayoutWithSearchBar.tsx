@@ -1,16 +1,15 @@
 import React, { memo } from 'react';
 import { Outlet } from 'react-router-dom';
-import SearchBar from '@/features/catalogue/SearchBar';
-import { Box } from '@mui/material';
 
-const LayoutWithSearchBar: React.FC = memo(() => {
-    return (
-        <Box p={2}>
-            <SearchBar />
-            <Outlet />
-        </Box>
-    );
-});
+import SearchBar from '@/features/catalogue/SearchBar';
+
+/** The frame every list route shares: the search panel above, the list below. */
+const LayoutWithSearchBar: React.FC = memo(() => (
+    <div className="p-4">
+        <SearchBar />
+        <Outlet />
+    </div>
+));
 
 LayoutWithSearchBar.displayName = 'LayoutWithSearchBar';
 
