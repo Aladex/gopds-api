@@ -153,6 +153,10 @@ describe('ThemeContext', () => {
             '--app-secondary-main',
             '--app-secondary-contrast',
             '--app-secondary-dark',
+            '--app-error-main',
+            '--app-error-contrast',
+            '--app-warning-main',
+            '--app-info-main',
         ];
         for (const name of published) {
             expect(cssVar(name), `${name} should be published`).not.toBe('');

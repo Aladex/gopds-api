@@ -13,8 +13,75 @@
 @layer theme, base, components, utilities;
 @import 'tailwindcss/theme.css' layer(theme);
 @import 'tailwindcss/utilities.css' layer(utilities);
+@import 'tw-animate-css';
 
 @import './transitions.css';
+
+/*
+ * shadcn's tokens are aliases onto the custom properties ThemeContext publishes
+ * from the MUI theme. Nothing here holds a colour of its own: the MUI palette
+ * stays the single source of truth, so shadcn components and the MUI screens
+ * they sit next to cannot drift apart, and switching the theme moves both at
+ * once with no extra wiring.
+ *
+ * When MUI eventually leaves, the --app-* definitions move here and the aliases
+ * below stay as they are.
+ */
+:root {
+    --background: var(--app-bg-default);
+    --foreground: var(--app-text-primary);
+
+    --card: var(--app-bg-paper);
+    --card-foreground: var(--app-text-primary);
+    --popover: var(--app-bg-paper);
+    --popover-foreground: var(--app-text-primary);
+
+    --primary: var(--app-secondary-main);
+    --primary-foreground: var(--app-secondary-contrast);
+    --secondary: var(--app-bg-muted);
+    --secondary-foreground: var(--app-text-primary);
+
+    --muted: var(--app-bg-muted);
+    --muted-foreground: var(--app-text-secondary);
+    --accent: var(--app-action-hover);
+    --accent-foreground: var(--app-text-primary);
+
+    --destructive: var(--app-error-main);
+    --destructive-foreground: var(--app-error-contrast);
+
+    --border: var(--app-divider);
+    --input: var(--app-divider);
+    --ring: var(--app-secondary-main);
+
+    --radius: 0.5rem;
+}
+
+@theme inline {
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+
+    --radius-sm: calc(var(--radius) - 4px);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) + 4px);
+}
 
 body {
   /* Background now comes from MUI CssBaseline and theme */

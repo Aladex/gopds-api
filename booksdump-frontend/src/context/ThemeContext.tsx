@@ -70,6 +70,13 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
         root.style.setProperty('--app-secondary-main', theme.palette.secondary.main);
         root.style.setProperty('--app-secondary-contrast', theme.palette.secondary.contrastText);
         root.style.setProperty('--app-secondary-dark', secondaryDark);
+
+        // Status colours, so components outside MUI can reach the same palette
+        // instead of hard-coding their own and drifting from it.
+        root.style.setProperty('--app-error-main', theme.palette.error.main);
+        root.style.setProperty('--app-error-contrast', theme.palette.error.contrastText);
+        root.style.setProperty('--app-warning-main', theme.palette.warning.main);
+        root.style.setProperty('--app-info-main', theme.palette.info.main);
     }, [theme]);
 
     const persistTheme = useCallback(async (newMode: PaletteMode) => {
