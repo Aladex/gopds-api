@@ -12,7 +12,7 @@ import (
 )
 
 // clientRoutes mirrors the routes declared in the SPA router
-// (booksdump-frontend/src/routes/*.tsx). Deep-linking to any of them must reach
+// (booksdump-frontend/src/app/routes/*.tsx). Deep-linking to any of them must reach
 // the SPA rather than a 404, because routing happens in the browser.
 var clientRoutes = []string{
 	"/",
