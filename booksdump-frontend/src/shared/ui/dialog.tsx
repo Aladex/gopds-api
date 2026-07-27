@@ -66,8 +66,15 @@ function DialogContent({
         // bg-popover rather than shadcn's bg-background: in this palette the
         // background is the grey desk the page sits on and the popover colour is
         // the paper, which is what a dialog should be made of.
+        //
+        // A phone gets a narrower margin and less padding than shadcn's
+        // default: 2rem of inset and 1.5rem of padding leave 260px of usable
+        // width on a 340px screen, in which a wallet address wraps four times.
+        // 1rem and 1rem leave 308px, and the dialog still reads as a card over
+        // the page rather than a screen of its own. Above sm the cap does the
+        // limiting and neither figure applies.
         className={cn(
-          "fixed top-[50%] left-[50%] z-modal grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border bg-popover p-6 shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-w-lg",
+          "fixed top-[50%] left-[50%] z-modal grid w-full max-w-[calc(100%-1rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border bg-popover p-4 shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-w-lg sm:p-6",
           className
         )}
         {...props}
