@@ -178,4 +178,19 @@ describe('ThemeContext', () => {
         expect(cssVar('--app-bg-default')).not.toBe(light.background);
         expect(cssVar('--app-text-primary')).not.toBe(light.foreground);
     });
+
+    it('marks the root with the mode, which is what Tailwind reads', async () => {
+        // index.css binds the dark: variant to this attribute. Without it the
+        // variant follows the operating system instead, and every shadcn
+        // component styled for dark would disagree with the chosen theme.
+        renderTheme();
+        await screen.findByTestId('mode');
+
+        expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+
+        act(() => toggle());
+        await waitFor(() => expect(screen.getByTestId('mode')).toHaveTextContent('dark'));
+
+        expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    });
 });

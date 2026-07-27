@@ -18,6 +18,14 @@
 @import './transitions.css';
 
 /*
+ * Bind Tailwind's dark: variant to the theme this application is showing.
+ * By default the variant follows prefers-color-scheme, but the theme here is
+ * chosen in the interface and stored per user, so the two routinely disagree.
+ * ThemeContext stamps data-theme on the root element.
+ */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/*
  * Preflight is deliberately not loaded, so bare elements keep their native
  * browser appearance — a plain <button> renders with a grey face and a border.
  * MUI resets only inside its own components, so anything built with Tailwind

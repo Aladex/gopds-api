@@ -76,6 +76,13 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
         root.style.setProperty('--app-error-contrast', theme.palette.error.contrastText);
         root.style.setProperty('--app-warning-main', theme.palette.warning.main);
         root.style.setProperty('--app-info-main', theme.palette.info.main);
+
+        // Tailwind's dark: variant is bound to this attribute in index.css.
+        // Without it the variant falls back to the operating system's preference,
+        // which says nothing about the theme this application is actually showing
+        // — a reader on a light desktop who chose the dark theme would get the
+        // light halves of every shadcn component.
+        root.setAttribute('data-theme', theme.palette.mode);
     }, [theme]);
 
     const persistTheme = useCallback(async (newMode: PaletteMode) => {
