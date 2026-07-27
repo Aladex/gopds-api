@@ -2,14 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { ArrowLeft, Loader2, Lock } from 'lucide-react';
+import { Loader2, Lock } from 'lucide-react';
 
-import { Alert, AlertDescription } from '@/shared/ui/alert';
-import { Button } from '@/shared/ui/button';
-import { Input } from '@/shared/ui/input';
 import * as authApi from '@/api/auth';
 import { isApiError } from '@/api/errors';
 import CenteredBox from '@/features/auth/CenteredBox';
+import { AuthField, AuthForm, BackToLogin } from '@/features/auth/AuthForm';
 
 const ChangePassword: React.FC = () => {
     const [newPassword, setNewPassword] = useState('');
@@ -44,6 +42,8 @@ const ChangePassword: React.FC = () => {
 
         try {
             await authApi.changePassword({ token: token ?? '', password: newPassword });
+            // Landing back on the sign-in screen with nothing said looks like
+            // the attempt was thrown away.
             toast.success(t('passwordChanged'));
             navigate('/login');
         } catch (error) {
@@ -70,8 +70,8 @@ const ChangePassword: React.FC = () => {
     };
 
     // The token is checked before the field appears: offering a box to type a
-    // new password into and only then admitting the link is dead wastes the
-    // one thing the reader came here to do.
+    // new password into and only then admitting the link is dead wastes the one
+    // thing the reader came here to do.
     if (isValidating) {
         return (
             <CenteredBox>
@@ -85,60 +85,30 @@ const ChangePassword: React.FC = () => {
 
     return (
         <CenteredBox>
-            <form onSubmit={handleChangePassword} className="flex flex-col gap-4">
-                <h1 className="text-center text-lg font-semibold">{t('changePassword')}</h1>
-
-                {changeError && (
-                    <Alert variant="destructive">
-                        <AlertDescription>{changeError}</AlertDescription>
-                    </Alert>
-                )}
-
-                <div className="flex flex-col gap-1.5">
-                    <label
-                        htmlFor="change-password-new"
-                        className="text-xs text-muted-foreground"
-                    >
-                        {t('newPassword')}
-                    </label>
-                    <div className="relative">
-                        <Lock
-                            aria-hidden="true"
-                            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-                        />
-                        {/*
-                          There is no current-password field to pair this with:
-                          the token from the mail is what proves who is asking.
-                        */}
-                        <Input
-                            id="change-password-new"
-                            name="new-password"
-                            type="password"
-                            autoComplete="new-password"
-                            value={newPassword}
-                            onChange={(event) => setNewPassword(event.target.value)}
-                            className="pl-9"
-                        />
-                    </div>
-                </div>
-
-                <div className="flex items-center justify-between pt-2">
-                    <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() => navigate('/login')}
-                        aria-label={t('BackButton')}
-                        title={t('BackButton')}
-                    >
-                        <ArrowLeft className="size-4" />
-                    </Button>
-                    <Button type="submit" size="sm" disabled={!newPassword || isChanging}>
-                        {isChanging && <Loader2 aria-hidden="true" className="size-4 animate-spin" />}
-                        {t('changePasswordButton')}
-                    </Button>
-                </div>
-            </form>
+            <AuthForm
+                title={t('changePassword')}
+                error={changeError}
+                onSubmit={handleChangePassword}
+                submitLabel={t('changePasswordButton')}
+                submitDisabled={!newPassword || isChanging}
+                busy={isChanging}
+                secondaryAction={<BackToLogin />}
+            >
+                {/*
+                  There is no current-password field to pair this with: the
+                  token from the mail is what proves who is asking.
+                */}
+                <AuthField
+                    id="change-password-new"
+                    name="new-password"
+                    label={t('newPassword')}
+                    icon={Lock}
+                    type="password"
+                    autoComplete="new-password"
+                    value={newPassword}
+                    onChange={setNewPassword}
+                />
+            </AuthForm>
         </CenteredBox>
     );
 };

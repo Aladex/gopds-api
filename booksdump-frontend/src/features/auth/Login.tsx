@@ -3,13 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { HelpCircle, Lock, User } from 'lucide-react';
 
-import { Alert, AlertDescription } from '@/shared/ui/alert';
 import { Button } from '@/shared/ui/button';
-import { Input } from '@/shared/ui/input';
 import { useAuth } from '@/context/AuthContext';
 import * as authApi from '@/api/auth';
 import { isApiError } from '@/api/errors';
 import CenteredBox from '@/features/auth/CenteredBox';
+import { AuthField, AuthForm } from '@/features/auth/AuthForm';
 
 const Login: React.FC = () => {
     const [username, setUsername] = useState('');
@@ -81,57 +80,12 @@ const Login: React.FC = () => {
 
     return (
         <CenteredBox>
-            <form onSubmit={handleLogin} className="flex flex-col gap-4">
-                <h1 className="text-lg font-semibold">{t('login')}</h1>
-
-                {loginError && (
-                    <Alert variant="destructive">
-                        <AlertDescription>{loginError}</AlertDescription>
-                    </Alert>
-                )}
-
-                <div className="flex flex-col gap-1.5">
-                    <label htmlFor="login-username" className="text-xs text-muted-foreground">
-                        {t('username')}
-                    </label>
-                    <div className="relative">
-                        <User
-                            aria-hidden="true"
-                            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-                        />
-                        <Input
-                            id="login-username"
-                            name="username"
-                            autoComplete="username"
-                            value={username}
-                            onChange={(event) => setUsername(event.target.value)}
-                            className="pl-9"
-                        />
-                    </div>
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                    <label htmlFor="login-password" className="text-xs text-muted-foreground">
-                        {t('password')}
-                    </label>
-                    <div className="relative">
-                        <Lock
-                            aria-hidden="true"
-                            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-                        />
-                        <Input
-                            id="login-password"
-                            name="password"
-                            type="password"
-                            autoComplete="current-password"
-                            value={password}
-                            onChange={(event) => setPassword(event.target.value)}
-                            className="pl-9"
-                        />
-                    </div>
-                </div>
-
-                <div className="flex items-center justify-between pt-2">
+            <AuthForm
+                title={t('login')}
+                error={loginError}
+                onSubmit={handleLogin}
+                submitLabel={t('loginButton')}
+                secondaryAction={
                     <Button
                         type="button"
                         variant="ghost"
@@ -142,11 +96,28 @@ const Login: React.FC = () => {
                     >
                         <HelpCircle className="size-4" />
                     </Button>
-                    <Button type="submit" size="sm">
-                        {t('loginButton')}
-                    </Button>
-                </div>
-            </form>
+                }
+            >
+                <AuthField
+                    id="login-username"
+                    name="username"
+                    label={t('username')}
+                    icon={User}
+                    autoComplete="username"
+                    value={username}
+                    onChange={setUsername}
+                />
+                <AuthField
+                    id="login-password"
+                    name="password"
+                    label={t('password')}
+                    icon={Lock}
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={setPassword}
+                />
+            </AuthForm>
         </CenteredBox>
     );
 };
