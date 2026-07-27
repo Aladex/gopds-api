@@ -420,5 +420,6 @@
   "goToPage": "Страница {{page}}",
   "close": "Закрыть",
   "donate": "Донат",
-  "logout": "Выход"
+  "logout": "Выход",
+  "publicCollections.loadError": "Не удалось загрузить подборки"
 }

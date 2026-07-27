@@ -417,5 +417,6 @@
   "goToPage": "Page {{page}}",
   "close": "Close",
   "donate": "Donate",
-  "logout": "Log out"
+  "logout": "Log out",
+  "publicCollections.loadError": "Could not load collections"
 }
