@@ -1,22 +1,27 @@
 import React from 'react';
-import { IconButton, Tooltip } from '@mui/material';
-import { Brightness4, Brightness7 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
+import { Moon, Sun } from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+
 import { useTheme } from '../../context/ThemeContext';
 
 const ThemeToggle: React.FC = () => {
     const { mode, toggleTheme } = useTheme();
     const { t } = useTranslation();
+    const label = mode === 'light' ? t('switchToDark') : t('switchToLight');
 
     return (
-        <Tooltip title={mode === 'light' ? t('switchToDark') : t('switchToLight')}>
-            <IconButton
-                onClick={toggleTheme}
-                sx={{ color: 'common.white' }}
-            >
-                {mode === 'light' ? <Brightness4 /> : <Brightness7 />}
-            </IconButton>
-        </Tooltip>
+        <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleTheme}
+            title={label}
+            aria-label={label}
+            className="text-white hover:bg-white/10 hover:text-white"
+        >
+            {mode === 'light' ? <Moon className="size-5" /> : <Sun className="size-5" />}
+        </Button>
     );
 };
 

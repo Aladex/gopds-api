@@ -1,90 +1,69 @@
-import React, {useMemo, useEffect, useRef, useState} from 'react';
-import {useNavigate} from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { HeartHandshake, LogOut } from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
 import {
-    AppBar,
-    Box,
-    Button,
-    IconButton,
-    Tab,
-    Tabs,
-    Toolbar,
-    useMediaQuery,
-    MenuItem,
-    Menu
-} from '@mui/material';
-import {useAuth} from '../../context/AuthContext';
-import {useTranslation} from 'react-i18next';
-import {Logout, VolunteerActivism} from "@mui/icons-material";
-import { useSearchBar } from "../../context/SearchBarContext";
-import { getLanguageDisplaySafe, languageMapping } from "../../utils/languageUtils";
-import DonateModal from "./DonateModal";
-import ThemeToggle from "./ThemeToggle";
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { cn } from '@/lib/utils';
+
+import { useAuth } from '../../context/AuthContext';
+import { useSearchBar } from '../../context/SearchBarContext';
+import { getLanguageDisplaySafe, languageMapping } from '../../utils/languageUtils';
+import { useMediaQuery } from '../hooks/useMediaQuery';
+import { activeNavItem, useNavItems } from './navItems';
+import DonateModal from './DonateModal';
+import ThemeToggle from './ThemeToggle';
 
 type HeaderProps = {
     onOpenProfile?: () => void;
 };
 
+/**
+ * Header is the application's top bar.
+ *
+ * It carries the section navigation on a desktop; on a phone that job belongs to
+ * the bottom bar, so all that stays up here is the logo, the donate link, the
+ * language and the theme — and the bar itself gets out of the way as the reader
+ * scrolls down a long list.
+ */
 const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
-    const {logout, user, updateLang} = useAuth();
+    const { logout, user, updateLang } = useAuth();
     const navigate = useNavigate();
-    const {t, i18n} = useTranslation();
-    const [value, setValue] = useState(0);
-    const isMobile = useMediaQuery('(max-width:600px)');
-    const isVeryNarrow = useMediaQuery('(max-width:354px)'); // Check for very narrow screens
+    const location = useLocation();
+    const { t } = useTranslation();
     const { languages, selectedLanguage, setSelectedLanguage } = useSearchBar();
-    const [languageMenuAnchor, setLanguageMenuAnchor] = useState<null | HTMLElement>(null);
-    const [isDonateModalOpen, setIsDonateModalOpen] = useState<boolean>(false);
+    const [isDonateModalOpen, setIsDonateModalOpen] = useState(false);
     const [isHeaderVisible, setIsHeaderVisible] = useState(true);
     const lastScrollYRef = useRef(0);
 
+    const isMobile = useMediaQuery('(max-width: 600px)');
+    const isVeryNarrow = useMediaQuery('(max-width: 354px)');
 
-    // Filter languages to only show those that are supported and have proper display
-    const supportedLanguages = languages.filter(lang => {
-        const display = getLanguageDisplaySafe(lang);
-        return display !== null;
-    });
+    const navItems = useNavItems(Boolean(user?.is_superuser));
+    const current = activeNavItem(navItems, location.pathname);
 
-    // Function to get language display based on screen width
-    const getLanguageDisplay = (lang: string) => {
-        if (isVeryNarrow) {
-            // On very narrow screens show flag emoji + ISO code
-            const languageInfo = languageMapping[lang];
-            if (languageInfo) {
-                return `${languageInfo.flag} ${lang.toUpperCase()}`;
-            }
-            return lang.toUpperCase(); // Fallback if no emoji available
-        } else {
-            // On regular screens show full name
+    // Only languages the interface knows how to name are offered.
+    const supportedLanguages = languages.filter((lang) => getLanguageDisplaySafe(lang) !== null);
+
+    /** A narrow bar has room for a flag and a code, but not a language's name. */
+    const languageLabel = (lang: string) => {
+        if (!isVeryNarrow) {
             return getLanguageDisplaySafe(lang);
         }
+        const info = languageMapping[lang];
+        return info ? `${info.flag} ${lang.toUpperCase()}` : lang.toUpperCase();
     };
 
-    const updateLangAndSelectedLanguage = (lang: string) => {
+    const chooseLanguage = (lang: string) => {
         updateLang(lang);
         setSelectedLanguage(lang);
-        setLanguageMenuAnchor(null); // Close menu after selection
     };
-
-    const handleLanguageMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
-        setLanguageMenuAnchor(event.currentTarget);
-    };
-
-    const handleLanguageMenuClose = () => {
-        setLanguageMenuAnchor(null);
-    };
-
-    const menuItems = useMemo(() => {
-        const items = [
-            { label: t('booksTab'), path: '/books/page/1', regex: /^\/books\/page\/\d+/, index: 0 },
-            { label: t('collectionsTab', 'Подборки'), path: '/collections', regex: /^\/collections/, index: 1 },
-            { label: t('opdsTab'), path: '/catalog', regex: /^\/catalog/, index: 2 }
-        ];
-        if (user?.is_superuser) {
-            items.push({ label: t('adminTab'), path: '/admin', regex: /^\/admin/, index: 3 });
-        }
-        return items;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [t, user?.is_superuser, i18n.language]); // i18n.language необходим для обновления переводов
 
     const handleLogout = () => {
         logout();
@@ -99,14 +78,14 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
 
         const handleScroll = () => {
             const currentScrollY = window.scrollY;
-            const prevScrollY = lastScrollYRef.current;
+            const previous = lastScrollYRef.current;
 
+            // Near the top the bar always shows; below that it follows the
+            // direction of travel, so reading down a list gives back the space.
             if (currentScrollY < 50) {
                 setIsHeaderVisible(true);
-            } else if (currentScrollY > prevScrollY) {
-                setIsHeaderVisible(false);
             } else {
-                setIsHeaderVisible(true);
+                setIsHeaderVisible(currentScrollY <= previous);
             }
 
             lastScrollYRef.current = currentScrollY;
@@ -116,283 +95,127 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
         return () => window.removeEventListener('scroll', handleScroll);
     }, [isMobile]);
 
-    useEffect(() => {
-        const currentPath = window.location.pathname;
-        const currentTab = menuItems.findIndex(item => item.regex.test(currentPath));
-        if (currentTab !== -1) {
-            setValue(currentTab);
-        }
-    }, [menuItems]);
+    const donateButton = (
+        <button
+            type="button"
+            onClick={() => setIsDonateModalOpen(true)}
+            className={cn(
+                'flex items-center gap-1 rounded px-2 font-medium uppercase text-neutral-400',
+                'hover:bg-white/5 hover:text-white',
+                isMobile ? 'h-8 text-[0.7rem]' : 'h-12 text-sm',
+            )}
+        >
+            <HeartHandshake className={isMobile ? 'size-4' : 'size-5'} />
+            {t('donate', 'Донат')}
+        </button>
+    );
 
-    const handleChange = (event: React.SyntheticEvent, newValue: number) => {
-        setValue(newValue);
-    };
-
-    const a11yProps = (index: number) => {
-        return {
-            id: `simple-tab-${index}`,
-            'aria-controls': `simple-tabpanel-${index}`,
-        };
-    };
-
-    const handleTabClick = (index: number, path: string) => {
-        setValue(index);
-        navigate(path);
-    };
+    const languageMenu = (
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <button
+                    type="button"
+                    className={cn(
+                        'flex items-center justify-center truncate rounded px-2 font-medium uppercase text-neutral-400',
+                        'hover:bg-white/5 hover:text-white',
+                        isMobile ? 'h-8 min-w-[50px] text-[0.7rem]' : 'h-12 max-w-[120px] text-sm',
+                    )}
+                >
+                    {selectedLanguage ? languageLabel(selectedLanguage) : t('language')}
+                </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align={isMobile ? 'center' : 'start'}>
+                {supportedLanguages.map((lang) => (
+                    <DropdownMenuItem
+                        key={lang}
+                        onSelect={() => chooseLanguage(lang)}
+                        className={cn(selectedLanguage === lang && 'bg-accent')}
+                    >
+                        {languageLabel(lang)}
+                    </DropdownMenuItem>
+                ))}
+            </DropdownMenuContent>
+        </DropdownMenu>
+    );
 
     return (
-        <AppBar
-            position={isMobile ? 'fixed' : 'static'}
-            sx={{
-                transform: isMobile && !isHeaderVisible ? 'translateY(-100%)' : 'translateY(0)',
-                transition: isMobile ? 'transform 0.3s ease-in-out' : 'none',
-                zIndex: isMobile ? 1200 : 'auto',
-            }}
+        <header
+            className={cn(
+                'w-full bg-neutral-900 text-white',
+                isMobile
+                    ? 'fixed inset-x-0 top-0 z-[1200] transition-transform duration-300'
+                    : 'static',
+                isMobile && !isHeaderVisible && '-translate-y-full',
+            )}
         >
-            <Toolbar sx={{ minHeight: isMobile ? 48 : 64 }}>
+            <div className={cn('flex items-center px-4', isMobile ? 'h-12' : 'h-16')}>
                 {isMobile ? (
-                    <>
-                        <Box display="flex" alignItems="center" justifyContent="space-between" width="100%">
-                            <Box
-                                onClick={() => navigate('/books/page/1')}
-                                sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}
-                            >
-                                <img src="/logo.png" alt="Logo" style={{ width: 24, height: 24 }} />
-                            </Box>
-                            <Box display="flex" alignItems="center" gap={0.5}>
-                                <Box
-                                    onClick={() => setIsDonateModalOpen(true)}
-                                    sx={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        height: '32px',
-                                        padding: '4px 6px',
-                                        cursor: 'pointer',
-                                        color: 'grey.500',
-                                        fontSize: '0.7rem',
-                                        fontWeight: 500,
-                                        textTransform: 'uppercase',
-                                        minWidth: 'fit-content',
-                                        justifyContent: 'center',
-                                        borderRadius: '4px',
-                                        gap: '2px',
-                                        '&:hover': {
-                                            color: 'common.white',
-                                            backgroundColor: 'rgba(255, 255, 255, 0.04)',
-                                        },
-                                    }}
-                                >
-                                    <VolunteerActivism sx={{ fontSize: '1rem' }} />
-                                    ДОНАТ
-                                </Box>
-                                <Box
-                                    onClick={handleLanguageMenuOpen}
-                                    sx={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        height: '32px',
-                                        padding: '4px 6px',
-                                        cursor: 'pointer',
-                                        color: 'grey.500',
-                                        fontSize: '0.7rem',
-                                        fontWeight: 500,
-                                        textTransform: 'uppercase',
-                                        minWidth: '50px',
-                                        justifyContent: 'center',
-                                        borderRadius: '4px',
-                                        '&:hover': {
-                                            color: 'common.white',
-                                            backgroundColor: 'rgba(255, 255, 255, 0.04)',
-                                        },
-                                    }}
-                                >
-                                    {selectedLanguage ? getLanguageDisplay(selectedLanguage) : t('language')}
-                                </Box>
-                                <Menu
-                                    anchorEl={languageMenuAnchor}
-                                    open={Boolean(languageMenuAnchor)}
-                                    onClose={handleLanguageMenuClose}
-                                    anchorOrigin={{
-                                        vertical: 'bottom',
-                                        horizontal: 'center',
-                                    }}
-                                    transformOrigin={{
-                                        vertical: 'top',
-                                        horizontal: 'center',
-                                    }}
-                                    slotProps={{
-                                        paper: {
-                                            sx: {
-                                                '& .MuiMenuItem-root': {
-                                                    fontSize: '0.75rem',
-                                                    minHeight: '32px',
-                                                    paddingY: '4px',
-                                                    paddingX: '8px',
-                                                },
-                                            }
-                                        }
-                                    }}
-                                >
-                                    {supportedLanguages.map((lang) => (
-                                        <MenuItem
-                                            key={lang}
-                                            onClick={() => updateLangAndSelectedLanguage(lang)}
-                                            selected={selectedLanguage === lang}
-                                        >
-                                            {getLanguageDisplay(lang)}
-                                        </MenuItem>
-                                    ))}
-                                </Menu>
-                                <ThemeToggle />
-                            </Box>
-                        </Box>
-                    </>
+                    <div className="flex w-full items-center justify-between">
+                        <Link to="/books/page/1" aria-label={t('booksTab')} className="flex items-center">
+                            <img src="/logo.png" alt="" className="size-6" />
+                        </Link>
+                        <div className="flex items-center gap-0.5">
+                            {donateButton}
+                            {languageMenu}
+                            <ThemeToggle />
+                        </div>
+                    </div>
                 ) : (
                     <>
-                        {/* Left part - tabs with logo */}
-                        <Box sx={{borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center'}}>
-                            <Tabs
-                                value={value}
-                                onChange={handleChange}
-                                aria-label="basic tabs example"
-                                textColor="inherit"
-                                TabIndicatorProps={{ sx: { backgroundColor: 'common.white' } }}
-                            >
-                                {menuItems.map((item, index) => (
-                                    <Tab
-                                        key={index}
-                                        label={
-                                            index === 0 ? (
-                                                // For the first tab (BOOKS) add logo
-                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                    <img src="/logo.png" alt="Logo" style={{ width: 24, height: 24 }} />
-                                                    {item.label}
-                                                </Box>
-                                            ) : (
-                                                item.label
-                                            )
-                                        }
-                                        {...a11yProps(item.index)}
-                                        onClick={() => handleTabClick(item.index, item.path)}
-                                        sx={{
-                                            color: value === item.index ? 'common.white' : 'grey.500',
-                                            '&.Mui-selected': {
-                                                color: 'common.white',
-                                            },
-                                        }}
-                                    />
-                                ))}
-                            </Tabs>
-                            {/* Donate button after tabs */}
-                            <Box
-                                onClick={() => setIsDonateModalOpen(true)}
-                                sx={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    height: '48px',
-                                    padding: '6px 8px',
-                                    cursor: 'pointer',
-                                    color: 'grey.500',
-                                    fontSize: '0.875rem',
-                                    fontWeight: 500,
-                                    textTransform: 'uppercase',
-                                    minWidth: 'fit-content',
-                                    justifyContent: 'center',
-                                    gap: '4px',
-                                    marginLeft: 2,
-                                    '&:hover': {
-                                        color: 'common.white',
-                                        backgroundColor: 'rgba(255, 255, 255, 0.04)',
-                                    },
-                                }}
-                            >
-                                <VolunteerActivism sx={{ fontSize: '1.2rem' }} />
-                                ДОНАТ
-                            </Box>
-                        </Box>
+                        {/*
+                          These navigate rather than switch panels, so they are
+                          links marked with aria-current — not tabs, which would
+                          promise tabpanels that do not exist.
+                        */}
+                        <nav aria-label={t('booksTab')} className="flex items-center self-stretch">
+                            {navItems.map((item) => (
+                                <Link
+                                    key={item.id}
+                                    to={item.path}
+                                    aria-current={current?.id === item.id ? 'page' : undefined}
+                                    className={cn(
+                                        'flex items-center gap-2 self-stretch border-b-2 px-4 text-sm font-medium uppercase tracking-wide',
+                                        current?.id === item.id
+                                            ? 'border-white text-white'
+                                            : 'border-transparent text-neutral-400 hover:text-white',
+                                    )}
+                                >
+                                    {item.id === 'books' && <img src="/logo.png" alt="" className="size-6" />}
+                                    {item.label}
+                                </Link>
+                            ))}
+                            <div className="ml-4 flex items-center">{donateButton}</div>
+                        </nav>
 
-                        {/* Spacer to push right elements away */}
-                        <Box sx={{ flexGrow: 1 }} />
+                        <div className="flex-1" />
 
-                        {/* Right part - language selector, user, logout */}
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            {/* Language tab */}
-                            <Box
-                                onClick={handleLanguageMenuOpen}
-                                sx={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    height: '48px',
-                                    padding: '6px 8px',
-                                    cursor: 'pointer',
-                                    color: 'grey.500',
-                                    fontSize: '0.875rem',
-                                    fontWeight: 500,
-                                    textTransform: 'uppercase',
-                                    minWidth: 'fit-content',
-                                    maxWidth: '120px',
-                                    justifyContent: 'center',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap',
-                                    '&:hover': {
-                                        color: 'common.white',
-                                        backgroundColor: 'rgba(255, 255, 255, 0.04)',
-                                    },
-                                }}
-                            >
-                                {selectedLanguage ? getLanguageDisplay(selectedLanguage) : t('language')}
-                            </Box>
-                            <Menu
-                                anchorEl={languageMenuAnchor}
-                                open={Boolean(languageMenuAnchor)}
-                                onClose={handleLanguageMenuClose}
-                                anchorOrigin={{
-                                    vertical: 'bottom',
-                                    horizontal: 'left',
-                                }}
-                                transformOrigin={{
-                                    vertical: 'top',
-                                    horizontal: 'left',
-                                }}
-                                slotProps={{
-                                    paper: {
-                                        sx: {
-                                            '& .MuiMenuItem-root': {
-                                                fontSize: '0.875rem',
-                                                minHeight: '36px',
-                                                paddingY: '6px',
-                                                paddingX: '12px',
-                                            },
-                                        }
-                                    }
-                                }}
-                            >
-                                {supportedLanguages.map((lang) => (
-                                    <MenuItem
-                                        key={lang}
-                                        onClick={() => updateLangAndSelectedLanguage(lang)}
-                                        selected={selectedLanguage === lang}
-                                    >
-                                        {getLanguageDisplay(lang)}
-                                    </MenuItem>
-                                ))}
-                            </Menu>
+                        <div className="flex items-center gap-1">
+                            {languageMenu}
                             <ThemeToggle />
-                            <Button sx={{ color: 'common.white' }} onClick={() => onOpenProfile?.()}>
+                            <Button
+                                variant="ghost"
+                                onClick={() => onOpenProfile?.()}
+                                className="text-white hover:bg-white/10 hover:text-white"
+                            >
                                 {user?.username}
                             </Button>
-                            <Button sx={{ color: 'common.white' }} onClick={handleLogout}>
-                                <IconButton color="inherit">
-                                    <Logout/>
-                                </IconButton>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={handleLogout}
+                                title={t('logout', 'Выход')}
+                                aria-label={t('logout', 'Выход')}
+                                className="text-white hover:bg-white/10 hover:text-white"
+                            >
+                                <LogOut className="size-5" />
                             </Button>
-                        </Box>
+                        </div>
                     </>
                 )}
-            </Toolbar>
+            </div>
+
             <DonateModal open={isDonateModalOpen} onClose={() => setIsDonateModalOpen(false)} />
-        </AppBar>
+        </header>
     );
 };
 

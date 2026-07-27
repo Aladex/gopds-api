@@ -26,6 +26,16 @@
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
 
 /*
+ * Every panel that scrolls — a suggestion list, a language menu — otherwise
+ * shows the platform's own scrollbar, which is the widest piece of system
+ * chrome left in the interface.
+ */
+@utility scrollbar-thin {
+    scrollbar-color: var(--border) transparent;
+    scrollbar-width: thin;
+}
+
+/*
  * Preflight is deliberately not loaded, so bare elements keep their native
  * browser appearance — a plain <button> renders with a grey face and a border.
  * MUI resets only inside its own components, so anything built with Tailwind
@@ -33,6 +43,19 @@
  * classes, so MUI's own buttons and inputs still win.
  */
 @layer base {
+    /*
+     * Without preflight the initial border-color applies, which is currentColor
+     * — so a bare `border` class, as shadcn writes it throughout, draws a border
+     * in the text colour. On dark surfaces that is a stark white outline. Give
+     * every element the theme's divider as its default instead; components that
+     * name a colour still override it.
+     */
+    *,
+    ::before,
+    ::after {
+        border-color: var(--border);
+    }
+
     button,
     [type='button'],
     [type='reset'],

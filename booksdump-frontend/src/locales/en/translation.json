@@ -415,5 +415,7 @@
   "previousPage": "Previous page",
   "nextPage": "Next page",
   "goToPage": "Page {{page}}",
-  "close": "Close"
+  "close": "Close",
+  "donate": "Donate",
+  "logout": "Log out"
 }

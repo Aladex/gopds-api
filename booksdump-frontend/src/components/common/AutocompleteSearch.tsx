@@ -247,10 +247,7 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
                         // list-none: Tailwind is loaded without preflight here, so
                         // a bare <li> would still show its marker.
                         'absolute z-50 mt-1 max-h-72 w-full list-none overflow-y-auto rounded-md border border-border bg-popover p-1 shadow-md',
-                        // The platform scrollbar is the last piece of system chrome
-                        // on this panel; thin it down and put it in the theme's own
-                        // colours.
-                        '[scrollbar-color:var(--border)_transparent] [scrollbar-width:thin]',
+                        'scrollbar-thin',
                     )}
                 >
                     {suggestions.length === 0 ? (
