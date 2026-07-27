@@ -6,7 +6,7 @@ import * as authApi from '@/api/auth';
 import * as booksApi from '@/api/books';
 import type { Book } from '@/api/books';
 
-import { useFav } from '@/context/FavContext';
+import { useAuth } from '@/context/AuthContext';
 import type { BooksListAction } from '@/features/catalogue/hooks/useBooksQuery';
 
 /**
@@ -18,7 +18,9 @@ import type { BooksListAction } from '@/features/catalogue/hooks/useBooksQuery';
  * any favourites remain, which is what enables the favourites filter — and if
  * the last one just went, staying on /books/favorite would show an empty page.
  *
- * Extracted from BooksList unchanged.
+ * The refreshed reader replaces the one held in AuthContext, which owns that
+ * record. It used to be written to a copy of the flag kept beside it, leaving
+ * the original saying the reader still had favourites after the last one went.
  */
 export function useFavouriteToggle(
     dispatch: React.Dispatch<BooksListAction>,
@@ -27,7 +29,7 @@ export function useFavouriteToggle(
     const { t } = useTranslation();
     const location = useLocation();
     const navigate = useNavigate();
-    const fav = useFav();
+    const { updateUser } = useAuth();
 
     return useCallback(
         async (book: Book) => {
@@ -37,7 +39,7 @@ export function useFavouriteToggle(
                 await booksApi.toggleFavourite(book.id, !book.fav);
 
                 const currentUser = await authApi.getCurrentUser();
-                fav.setFavEnabled(Boolean(currentUser.have_favs));
+                updateUser(currentUser);
                 if (location.pathname.includes('/books/favorite') && !currentUser.have_favs) {
                     navigate('/books/page/1');
                 }
@@ -48,6 +50,6 @@ export function useFavouriteToggle(
                 notify(!book.fav ? t('errorAddingFavorite') : t('errorRemovingFavorite'));
             }
         },
-        [dispatch, fav, location.pathname, navigate, notify, t],
+        [dispatch, location.pathname, navigate, notify, t, updateUser],
     );
 }
