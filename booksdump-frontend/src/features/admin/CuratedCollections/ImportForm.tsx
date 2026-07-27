@@ -1,62 +1,76 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { AlertCircle, AlertTriangle, Upload } from 'lucide-react';
+
+import { Alert, AlertDescription } from '@/shared/ui/alert';
+import { Button, buttonVariants } from '@/shared/ui/button';
+import { Card, CardContent } from '@/shared/ui/card';
+import { Field } from '@/shared/ui/field';
+import { Input } from '@/shared/ui/input';
 import {
-    Alert,
-    Box,
-    Button,
-    Card,
-    CardContent,
-    Stack,
-    Tab,
     Table,
     TableBody,
     TableCell,
     TableHead,
+    TableHeader,
     TableRow,
-    Tabs,
-    TextField,
-    Typography,
-} from '@mui/material';
-import { useTranslation } from 'react-i18next';
+} from '@/shared/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/tabs';
+import { Textarea } from '@/shared/ui/textarea';
+import { cn } from '@/shared/lib/utils';
+
 import { importCuratedCollection } from '@/features/admin/CuratedCollections/api';
 import { parseCsv, parseTextarea, ParsedItem } from '@/features/admin/CuratedCollections/csvParser';
 
 type ImportTab = 'csv' | 'text';
 
+/** A pasted list can be thousands of rows; the preview shows enough to check. */
+const PREVIEW_LIMIT = 200;
+
 const PreviewTable: React.FC<{ items: ParsedItem[] }> = ({ items }) => {
+    const { t } = useTranslation();
     if (items.length === 0) return null;
+
     return (
-        <Box mt={2}>
-            <Typography variant="subtitle2" gutterBottom>
-                Preview ({items.length})
-            </Typography>
-            <Box sx={{ maxHeight: 240, overflow: 'auto', border: 1, borderColor: 'divider' }}>
-                <Table size="small">
-                    <TableHead>
+        <div className="flex flex-col gap-1">
+            <h4 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                {t('curatedCollections.preview', 'Preview')} ({items.length})
+            </h4>
+            <div className="scrollbar-thin max-h-60 overflow-auto rounded border border-border">
+                <Table>
+                    <TableHeader>
                         <TableRow>
-                            <TableCell>#</TableCell>
-                            <TableCell>Title</TableCell>
-                            <TableCell>Author</TableCell>
-                            <TableCell>Year</TableCell>
+                            <TableHead className="w-12 text-right">#</TableHead>
+                            <TableHead>{t('title', 'Title')}</TableHead>
+                            <TableHead>{t('author', 'Author')}</TableHead>
+                            <TableHead className="text-right">{t('year', 'Year')}</TableHead>
                         </TableRow>
-                    </TableHead>
+                    </TableHeader>
                     <TableBody>
-                        {items.slice(0, 200).map((it, i) => (
-                            <TableRow key={i}>
-                                <TableCell>{i + 1}</TableCell>
-                                <TableCell>{it.title}</TableCell>
-                                <TableCell>{it.author}</TableCell>
-                                <TableCell>{it.year ?? ''}</TableCell>
+                        {items.slice(0, PREVIEW_LIMIT).map((item, index) => (
+                            <TableRow key={index}>
+                                <TableCell className="text-right tabular-nums text-muted-foreground">
+                                    {index + 1}
+                                </TableCell>
+                                <TableCell>{item.title}</TableCell>
+                                <TableCell>{item.author}</TableCell>
+                                <TableCell className="text-right tabular-nums">
+                                    {item.year ?? ''}
+                                </TableCell>
                             </TableRow>
                         ))}
                     </TableBody>
                 </Table>
-            </Box>
-            {items.length > 200 && (
-                <Typography variant="caption" color="text.secondary">
-                    Showing first 200 of {items.length}
-                </Typography>
+            </div>
+            {items.length > PREVIEW_LIMIT && (
+                <p className="text-xs text-muted-foreground">
+                    {t('curatedCollections.previewTruncated', 'Showing the first {{shown}} of {{total}}', {
+                        shown: PREVIEW_LIMIT,
+                        total: items.length,
+                    })}
+                </p>
             )}
-        </Box>
+        </div>
     );
 };
 
@@ -108,8 +122,10 @@ const ImportForm: React.FC<{ onCreated: (id: number) => void }> = ({ onCreated }
         setErrors(result.errors);
     };
 
-    const onTabChange = (_: any, newTab: ImportTab) => {
-        setTab(newTab);
+    // Each tab parses by its own rules, so what the other one produced is not
+    // this one's preview.
+    const onTabChange = (next: string) => {
+        setTab(next as ImportTab);
         setItems([]);
         setErrors([]);
     };
@@ -127,107 +143,141 @@ const ImportForm: React.FC<{ onCreated: (id: number) => void }> = ({ onCreated }
             setTextareaText('');
             setItems([]);
             setErrors([]);
-        } catch (err: any) {
-            setSubmitError(err?.response?.data?.error ?? err?.message ?? 'failed');
+        } catch (err) {
+            setSubmitError(err instanceof Error ? err.message : 'failed');
         } finally {
             setSubmitting(false);
         }
     };
 
     return (
-        <Card sx={{ mt: 2, boxShadow: 1 }}>
-            <CardContent>
-                <Typography variant="h6" gutterBottom>
+        <Card>
+            <CardContent className="flex flex-col gap-4">
+                <h2 className="text-base font-medium">
                     {t('curatedCollections.importTitle', 'Import collection')}
-                </Typography>
-                <Stack spacing={2}>
-                    <TextField
-                        label={t('curatedCollections.name', 'Name')}
-                        size="small"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
+                </h2>
+
+                <Field id="import-name" label={`${t('curatedCollections.name', 'Name')} *`}>
+                    <Input
+                        id="import-name"
                         required
+                        value={name}
+                        onChange={(event) => setName(event.target.value)}
                     />
-                    <TextField
-                        label={t('curatedCollections.sourceUrl', 'Source URL (admin note)')}
-                        size="small"
-                        value={sourceUrl}
-                        onChange={(e) => setSourceUrl(e.target.value)}
+                </Field>
+
+                <Field
+                    id="import-source-url"
+                    label={t('curatedCollections.sourceUrl', 'Source URL (admin note)')}
+                >
+                    <Input
+                        id="import-source-url"
                         placeholder="https://..."
+                        value={sourceUrl}
+                        onChange={(event) => setSourceUrl(event.target.value)}
                     />
+                </Field>
 
-                    <Tabs value={tab} onChange={onTabChange}>
-                        <Tab label="CSV" value="csv" />
-                        <Tab label={t('curatedCollections.textPaste', 'Paste text')} value="text" />
-                    </Tabs>
+                <Tabs value={tab} onValueChange={onTabChange}>
+                    <TabsList className="w-auto self-start">
+                        <TabsTrigger value="csv">CSV</TabsTrigger>
+                        <TabsTrigger value="text">
+                            {t('curatedCollections.textPaste', 'Paste text')}
+                        </TabsTrigger>
+                    </TabsList>
 
-                    {tab === 'csv' && (
-                        <Box>
-                            <Button variant="outlined" component="label" size="small">
-                                {t('curatedCollections.uploadCsv', 'Upload CSV')}
-                                <input
-                                    type="file"
-                                    accept=".csv,text/csv"
-                                    hidden
-                                    onChange={(e) => {
-                                        const f = e.target.files?.[0];
-                                        if (f) handleFile(f);
-                                    }}
-                                />
-                            </Button>
-                            <TextField
-                                label={t('curatedCollections.csvBody', 'CSV body')}
-                                placeholder="title,author,year&#10;1984,Orwell,1949"
-                                multiline
-                                minRows={6}
-                                fullWidth
-                                value={csvText}
-                                onChange={(e) => onCsvTextChange(e.target.value)}
-                                sx={{ mt: 2 }}
-                            />
-                        </Box>
-                    )}
-
-                    {tab === 'text' && (
-                        <TextField
-                            label={t('curatedCollections.pasteList', 'Paste list (Author; Title)')}
-                            placeholder="George Orwell; 1984&#10;Aldous Huxley; Brave New World"
-                            multiline
-                            minRows={6}
-                            fullWidth
-                            value={textareaText}
-                            onChange={(e) => onTextareaChange(e.target.value)}
-                        />
-                    )}
-
-                    <PreviewTable items={items} />
-
-                    {errors.length > 0 && (
-                        <Alert severity="warning">
-                            <Typography variant="body2">
-                                {t('curatedCollections.parseWarnings', 'Parser warnings:')}
-                            </Typography>
-                            <ul style={{ margin: 0 }}>
-                                {errors.slice(0, 5).map((e, i) => (
-                                    <li key={i}>{e}</li>
-                                ))}
-                                {errors.length > 5 && <li>… {errors.length - 5} more</li>}
-                            </ul>
-                        </Alert>
-                    )}
-
-                    {submitError && <Alert severity="error">{submitError}</Alert>}
-
-                    <Box>
-                        <Button
-                            variant="contained"
-                            onClick={onSubmit}
-                            disabled={!name.trim() || items.length === 0 || submitting}
+                    <TabsContent value="csv" className="flex flex-col gap-3">
+                        {/*
+                          A file input styled as a button by wrapping it in its
+                          own label: the browser's own control cannot be styled,
+                          and replacing it with a button would mean scripting a
+                          click onto a hidden input for no gain.
+                        */}
+                        <label
+                            className={cn(
+                                buttonVariants({ variant: 'outline', size: 'sm' }),
+                                'cursor-pointer self-start',
+                            )}
                         >
-                            {t('curatedCollections.startImport', 'Start import')}
-                        </Button>
-                    </Box>
-                </Stack>
+                            <Upload className="size-4" />
+                            {t('curatedCollections.uploadCsv', 'Upload CSV')}
+                            <input
+                                type="file"
+                                accept=".csv,text/csv"
+                                className="sr-only"
+                                onChange={(event) => {
+                                    const file = event.target.files?.[0];
+                                    if (file) handleFile(file);
+                                }}
+                            />
+                        </label>
+
+                        <Field id="import-csv" label={t('curatedCollections.csvBody', 'CSV body')}>
+                            <Textarea
+                                id="import-csv"
+                                rows={6}
+                                placeholder={'title,author,year\n1984,Orwell,1949'}
+                                value={csvText}
+                                onChange={(event) => onCsvTextChange(event.target.value)}
+                            />
+                        </Field>
+                    </TabsContent>
+
+                    <TabsContent value="text">
+                        <Field
+                            id="import-paste"
+                            label={t('curatedCollections.pasteList', 'Paste list (Author; Title)')}
+                        >
+                            <Textarea
+                                id="import-paste"
+                                rows={6}
+                                placeholder={'George Orwell; 1984\nAldous Huxley; Brave New World'}
+                                value={textareaText}
+                                onChange={(event) => onTextareaChange(event.target.value)}
+                            />
+                        </Field>
+                    </TabsContent>
+                </Tabs>
+
+                <PreviewTable items={items} />
+
+                {errors.length > 0 && (
+                    <Alert>
+                        <AlertTriangle className="size-4" />
+                        <AlertDescription className="flex flex-col gap-1">
+                            <span>{t('curatedCollections.parseWarnings', 'Parser warnings:')}</span>
+                            {/* p-0 because Tailwind runs without preflight, so a
+                                bare list keeps the browser's 40px indent. */}
+                            <ul className="list-inside list-disc p-0">
+                                {errors.slice(0, 5).map((error, index) => (
+                                    <li key={index}>{error}</li>
+                                ))}
+                                {errors.length > 5 && (
+                                    <li>
+                                        {t('curatedCollections.moreWarnings', '… {{count}} more', {
+                                            count: errors.length - 5,
+                                        })}
+                                    </li>
+                                )}
+                            </ul>
+                        </AlertDescription>
+                    </Alert>
+                )}
+
+                {submitError && (
+                    <Alert variant="destructive">
+                        <AlertCircle className="size-4" />
+                        <AlertDescription>{submitError}</AlertDescription>
+                    </Alert>
+                )}
+
+                <Button
+                    className="self-start"
+                    onClick={onSubmit}
+                    disabled={!name.trim() || items.length === 0 || submitting}
+                >
+                    {t('curatedCollections.startImport', 'Start import')}
+                </Button>
             </CardContent>
         </Card>
     );

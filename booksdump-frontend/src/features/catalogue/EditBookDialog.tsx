@@ -14,6 +14,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/shared/ui/dialog';
+import { Field } from '@/shared/ui/field';
 import { Input } from '@/shared/ui/input';
 import { cn } from '@/shared/lib/utils';
 
@@ -53,38 +54,6 @@ const DismissButton: React.FC<{ label: string; onClick: () => void }> = ({ label
     </button>
 );
 
-/**
- * Field is a labelled control.
- *
- * The label is a real <label> rather than a placeholder so it survives the
- * field being filled in — a form of eight inputs is unreadable once the hints
- * that named them have been typed over.
- */
-const Field: React.FC<{
-    id: string;
-    label: string;
-    children: React.ReactNode;
-    hint?: string;
-    error?: string;
-}> = ({ id, label, children, hint, error }) => (
-    <div className="flex flex-col gap-1">
-        <label htmlFor={id} className="text-xs text-muted-foreground">
-            {label}
-        </label>
-        {children}
-        {error ? (
-            <p id={`${id}-hint`} role="alert" className="text-xs text-destructive">
-                {error}
-            </p>
-        ) : (
-            hint && (
-                <p id={`${id}-hint`} className="text-xs text-muted-foreground">
-                    {hint}
-                </p>
-            )
-        )}
-    </div>
-);
 
 /**
  * TokenField picks several values out of a server-side search, and accepts one

@@ -437,5 +437,9 @@
   "copy": "Copy",
   "copied": "Copied",
   "publicCollections.loadError": "Could not load collections",
-  "noInvites": "No invites yet"
+  "noInvites": "No invites yet",
+  "curatedCollections.preview": "Preview",
+  "curatedCollections.previewTruncated": "Showing the first {{shown}} of {{total}}",
+  "curatedCollections.moreWarnings": "… {{count}} more",
+  "year": "Year"
 }

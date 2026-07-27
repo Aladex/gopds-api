@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 import ImportForm from '@/features/admin/CuratedCollections/ImportForm';
 import * as api from '@/features/admin/CuratedCollections/api';
@@ -86,7 +87,9 @@ describe('ImportForm', () => {
         });
         expect(await screen.findByText('1984')).toBeInTheDocument();
 
-        fireEvent.click(screen.getByRole('tab', { name: /paste/i }));
+        // userEvent rather than fireEvent: the tabs activate on pointer down,
+        // as a real click does, and a bare click event never reaches them.
+        await userEvent.click(screen.getByRole('tab', { name: /paste/i }));
         await waitFor(() => expect(screen.queryByText('1984')).not.toBeInTheDocument());
     });
 });

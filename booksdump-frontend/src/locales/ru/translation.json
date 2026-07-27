@@ -440,5 +440,9 @@
   "copy": "Копировать",
   "copied": "Скопировано",
   "publicCollections.loadError": "Не удалось загрузить подборки",
-  "noInvites": "Приглашений пока нет"
+  "noInvites": "Приглашений пока нет",
+  "curatedCollections.preview": "Предпросмотр",
+  "curatedCollections.previewTruncated": "Показаны первые {{shown}} из {{total}}",
+  "curatedCollections.moreWarnings": "… ещё {{count}}",
+  "year": "Год"
 }
