@@ -113,13 +113,13 @@ const BookCard: React.FC<BookCardProps> = ({
               the card's full width. On a wider screen the same three blocks fall
               into the two columns they had.
             */}
-            <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-x-3 gap-y-3 sm:grid-cols-[104px_minmax(0,1fr)] sm:gap-x-4 sm:gap-y-1.5">
+            <div className="grid grid-cols-[104px_minmax(0,1fr)] gap-x-4 gap-y-3 sm:gap-y-1.5">
                 <div className="contents sm:row-span-2 sm:flex sm:flex-col sm:gap-2">
                     <img
                         src={cover}
                         alt={book.title}
                         loading="lazy"
-                        className="col-start-1 row-start-1 h-[127px] w-[88px] flex-none rounded-sm bg-muted object-cover sm:h-[150px] sm:w-[104px]"
+                        className="col-start-1 row-start-1 h-[150px] w-[104px] flex-none rounded-sm bg-muted object-cover"
                     />
                     {/* Two equal cells with the label centred in each, so the four
                         read as an even block rather than four links of differing
@@ -139,7 +139,7 @@ const BookCard: React.FC<BookCardProps> = ({
                                     disabled={converting}
                                     onClick={() => handleFormat(format.id)}
                                     className={cn(
-                                        'flex min-h-11 items-center justify-center rounded border border-border text-center text-[13px] text-primary',
+                                        'flex min-h-9 items-center justify-center rounded border border-border text-center text-[13px] text-primary',
                                         'hover:bg-accent hover:underline',
                                         'sm:min-h-0 sm:border-0 sm:py-0.5 sm:text-[12px]',
                                         'disabled:cursor-default disabled:text-muted-foreground disabled:no-underline disabled:hover:bg-transparent',
