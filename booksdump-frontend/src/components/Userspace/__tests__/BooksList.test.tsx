@@ -191,7 +191,8 @@ describe('BooksList rendering', () => {
         await screen.findByText('Заклятые в любви');
 
         for (const format of ['FB2+ZIP', 'FB2', 'EPUB', 'MOBI']) {
-            expect(screen.getByRole('button', { name: format })).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: new RegExp(`^\\W*${format.replace('+', '\\+')}$`) }))
+                .toBeInTheDocument();
         }
     });
 
@@ -200,12 +201,11 @@ describe('BooksList rendering', () => {
         renderAt('/books/page/1');
         await screen.findByText('Заклятые в любви');
 
-        // These are anchors carrying role="button", not real buttons, so the
-        // disabled state is announced through aria-disabled and enforced only by
-        // MUI's pointer-events rule. The rebuild should use a real <button
-        // disabled> so the guarantee does not depend on CSS.
-        expect(screen.getByRole('button', { name: 'EPUB' })).toHaveAttribute('aria-disabled', 'true');
-        expect(screen.getByRole('button', { name: 'MOBI' })).not.toHaveAttribute('aria-disabled');
+        // Real disabled buttons now, so the guarantee is in the semantics rather
+        // than in a pointer-events rule. The name carries a spinner while the
+        // conversion runs.
+        expect(screen.getByRole('button', { name: /EPUB$/ })).toBeDisabled();
+        expect(screen.getByRole('button', { name: /^MOBI$/ })).toBeEnabled();
     });
 
     it('says so when a book has no annotation', async () => {
@@ -221,8 +221,8 @@ describe('BooksList moderation controls', () => {
         renderAt('/books/page/1');
         await screen.findByText('Заклятые в любви');
 
-        expect(screen.queryByTitle('rescanBook')).not.toBeInTheDocument();
-        expect(screen.queryByTitle('editBook')).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'rescanBook' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'editBook' })).not.toBeInTheDocument();
     });
 
     it('shows a superuser the rescan and edit controls', async () => {
@@ -230,22 +230,15 @@ describe('BooksList moderation controls', () => {
         renderAt('/books/page/1');
         await screen.findByText('Заклятые в любви');
 
-        expect(screen.getByTitle('rescanBook')).toBeInTheDocument();
-        expect(screen.getByTitle('editBook')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'rescanBook' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'editBook' })).toBeInTheDocument();
     });
 });
 
 describe('BooksList favourite toggle', () => {
-    /**
-     * The favourite control carries no accessible name today — no aria-label and
-     * no title — so it can only be found through its icon. Worth giving it one
-     * during the rebuild.
-     */
+    /** The favourite control now carries an accessible name, so ask for it. */
     function favouriteButton() {
-        const icon = document.querySelector('[data-testid="StarOutlineIcon"], [data-testid="StarIcon"]');
-        const button = icon?.closest('button');
-        if (!button) throw new Error('favourite button not found');
-        return button;
+        return screen.getByRole('button', { name: /bookFav(Add|Remove)/ });
     }
 
     it('sends the new state and refreshes the reader', async () => {

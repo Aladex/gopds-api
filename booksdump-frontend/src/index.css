@@ -18,6 +18,36 @@
 @import './transitions.css';
 
 /*
+ * Preflight is deliberately not loaded, so bare elements keep their native
+ * browser appearance — a plain <button> renders with a grey face and a border.
+ * MUI resets only inside its own components, so anything built with Tailwind
+ * needs this much of a reset. It lives in the base layer, below MUI's emotion
+ * classes, so MUI's own buttons and inputs still win.
+ */
+@layer base {
+    button,
+    [type='button'],
+    [type='reset'],
+    [type='submit'] {
+        appearance: none;
+        background-color: transparent;
+        background-image: none;
+        border: 0;
+        color: inherit;
+        font: inherit;
+        letter-spacing: inherit;
+        margin: 0;
+        padding: 0;
+        text-align: inherit;
+        cursor: pointer;
+    }
+
+    button:disabled {
+        cursor: default;
+    }
+}
+
+/*
  * shadcn's tokens are aliases onto the custom properties ThemeContext publishes
  * from the MUI theme. Nothing here holds a colour of its own: the MUI palette
  * stays the single source of truth, so shadcn components and the MUI screens

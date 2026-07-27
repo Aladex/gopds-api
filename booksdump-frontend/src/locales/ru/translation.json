@@ -406,5 +406,11 @@
   "publicCollections.bookCount_one": "{{count}} книга",
   "publicCollections.bookCount_few": "{{count}} книги",
   "publicCollections.bookCount_many": "{{count}} книг",
-  "publicCollections.emptyBooks": "В этой подборке пока нет книг"
+  "publicCollections.emptyBooks": "В этой подборке пока нет книг",
+  "languageNotSupported": "Язык не поддерживается",
+  "andMore": "и ещё {{count}}",
+  "bookApproved": "Одобрено",
+  "bookNotApproved": "Не одобрено",
+  "bookFavAdd": "Добавить в избранное",
+  "bookFavRemove": "Убрать из избранного"
 }

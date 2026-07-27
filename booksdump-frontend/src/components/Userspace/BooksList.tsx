@@ -42,6 +42,7 @@ import { getLanguageInfo, isLanguageSupported } from '../../utils/languageUtils'
 import { useBooksQuery } from './hooks/useBooksQuery';
 import { useFavouriteToggle } from './hooks/useFavouriteToggle';
 import { useBookDownloads } from './hooks/useBookDownloads';
+import BookCard from './BookCard';
 
 const BooksList: React.FC = () => {
     const { user } = useAuth();
@@ -185,151 +186,21 @@ const BooksList: React.FC = () => {
                 <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
                     <Stack spacing={0}>
                         {state.books.map((book) => (
-                            <Box maxWidth={1200} mx="auto" key={book.id} sx={{ width: '100%' }}>
-                                <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
-                                    <Stack
-                                        direction={{ xs: 'column', md: 'row' }}
-                                        spacing={2}
-                                    >
-                                        <Box sx={{ flex: { xs: 1, md: 3 }, minWidth: 0 }}>
-                                            <Stack
-                                                direction={{ xs: 'column', md: 'row' }}
-                                                spacing={2}
-                                            >
-                                                <Box sx={{ flex: { xs: 1, md: 1 }, maxWidth: { md: '33.33%' } }}>
-                                                    <CardMedia
-                                                        component={CoverLoader}
-                                                        imageUrl={cover(book)}
-                                                        alt={book.title}
-                                                    />
-                                                </Box>
-                                                <Box sx={{ flex: { xs: 1, md: 2 } }}>
-                                                    <CardContent>
-                                                        <Typography variant="h5">{book.title}</Typography>
-                                                        <Typography sx={{ mb: 2 }} variant="body2" color="textSecondary">
-                                                            {t('bookAdded')}: {formatDate(book.registerdate)}
-                                                        </Typography>
-                                                        <Typography sx={{ mb: 2 }} variant="body2" color="textSecondary">
-                                                            {t('bookPublished')}: {formatDate(book.docdate)}
-                                                        </Typography>
-                                                        <Typography variant="body2" color="textSecondary"
-                                                                    sx={{ display: 'flex', alignItems: 'center' }}>
-                                                            {t('language')}:
-                                                            {isLanguageSupported(book.lang) ? (
-                                                                <Box sx={{
-                                                                    ml: 1,
-                                                                    display: 'flex',
-                                                                    alignItems: 'center',
-                                                                    gap: 0.5
-                                                                }}>
-                                                                    <Typography variant="body2" sx={{ fontSize: '1.2em' }}>
-                                                                        {getLanguageInfo(book.lang).flag}
-                                                                    </Typography>
-                                                                    <Typography variant="body2">
-                                                                        {getLanguageInfo(book.lang).name}
-                                                                    </Typography>
-                                                                </Box>
-                                                            ) : (
-                                                                <Box sx={{ ml: 1 }}>
-                                                                    <Typography variant="body2" color="textSecondary">
-                                                                        {t('languageNotSupported')}
-                                                                    </Typography>
-                                                                </Box>
-                                                            )}
-                                                        </Typography>
-                                                        <Box mt={2}>
-                                                            <AuthorsList authors={book.authors} />
-                                                        </Box>
-                                                        <Box mt={2}>
-                                                            <CategotiesList categories={book.series} />
-                                                        </Box>
-                                                        <Box mt={1}>
-                                                            <GenresList genres={book.genres} />
-                                                        </Box>
-                                                    </CardContent>
-                                                </Box>
-                                            </Stack>
-                                            <CardContent>
-                                                {book.annotation ? (
-                                                    <BookAnnotation annotation={book.annotation} />
-                                                ) : (
-                                                    <Box mt={2}>
-                                                        <Typography variant="body2">{t('noAnnotation')}</Typography>
-                                                    </Box>
-                                                )}
-                                            </CardContent>
-                                        </Box>
-                                        <Box sx={{ flex: { xs: 1, md: 1 } }}>
-                                            <Box className="download-buttons">
-                                                <Button
-                                                    component="a"
-                                                    onClick={() => handleDownload('zip', book.id)}
-                                                    variant="contained"
-                                                    color="secondary"
-                                                    sx={{ mb: 1, minWidth: 120 }}
-                                                >
-                                                    FB2+ZIP
-                                                </Button>
-                                                <Button
-                                                    component="a"
-                                                    onClick={() => handleDownload('fb2', book.id)}
-                                                    variant="contained"
-                                                    color="secondary"
-                                                    sx={{ mb: 1, minWidth: 120 }}
-                                                >
-                                                    FB2
-                                                </Button>
-                                                <Button
-                                                    component="a"
-                                                    onClick={() => handleEpubDownloadClick(book.id)}
-                                                    variant="contained"
-                                                    color="secondary"
-                                                    sx={{ mb: 1, minWidth: 120 }}
-                                                    disabled={isBookConverting(book.id, 'epub')}
-                                                >
-                                                    EPUB
-                                                </Button>
-                                                <Button
-                                                    component="a"
-                                                    onClick={() => handleMobiDownloadClick(book.id)}
-                                                    variant="contained"
-                                                    color="secondary"
-                                                    sx={{ mb: 1, minWidth: 120 }}
-                                                    disabled={isBookConverting(book.id, 'mobi')}
-                                                >
-                                                    MOBI
-                                                </Button>
-                                            </Box>
-                                        </Box>
-                                    </Stack>
-                                        <CardActions sx={{ justifyContent: 'flex-end' }}>
-                                            <Box sx={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
-                                                {user?.is_superuser && (
-                                                    <>
-                                                        <IconButton
-                                                            onClick={() => handleRescanBook(book.id)}
-                                                            title={t('rescanBook')}
-                                                        >
-                                                            <RefreshIcon />
-                                                        </IconButton>
-                                                        <IconButton
-                                                            onClick={() => handleEditBook(book)}
-                                                            title={t('editBook')}
-                                                        >
-                                                            <EditIcon />
-                                                        </IconButton>
-                                                        <IconButton onClick={() => handleUpdateBook(book)}>
-                                                            {book.approved ? <CheckCircleIcon /> : <CheckCircleOutlineIcon />}
-                                                        </IconButton>
-                                                    </>
-                                                )}
-                                                <IconButton onClick={() => handleFavBook(book)}>
-                                                    {book.fav ? <StarIcon /> : <StarOutlineIcon />}
-                                                </IconButton>
-                                            </Box>
-                                        </CardActions>
-                                    </Card>
-                                </Box>
+                            <div key={book.id} className="mx-auto w-full max-w-[1200px] py-1.5">
+                                <BookCard
+                                    book={book}
+                                    isSuperuser={Boolean(user?.is_superuser)}
+                                    formatDate={formatDate}
+                                    isBookConverting={isBookConverting}
+                                    onDownload={handleDownload}
+                                    onEpubRequest={handleEpubDownloadClick}
+                                    onMobiRequest={handleMobiDownloadClick}
+                                    onToggleFavourite={handleFavBook}
+                                    onToggleApproved={handleUpdateBook}
+                                    onRescan={handleRescanBook}
+                                    onEdit={handleEditBook}
+                                />
+                            </div>
                         ))}
                     </Stack>
                     <Box sx={{ display: 'flex', justifyContent: 'center', mt: 'auto', pt: 2 }}>

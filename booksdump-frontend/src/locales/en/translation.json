@@ -403,5 +403,11 @@
   "publicCollections.backToList": "All collections",
   "publicCollections.bookCount_one": "{{count}} book",
   "publicCollections.bookCount_other": "{{count}} books",
-  "publicCollections.emptyBooks": "This collection has no books yet"
+  "publicCollections.emptyBooks": "This collection has no books yet",
+  "languageNotSupported": "Language not supported",
+  "andMore": "and {{count}} more",
+  "bookApproved": "Approved",
+  "bookNotApproved": "Not approved",
+  "bookFavAdd": "Add to favourites",
+  "bookFavRemove": "Remove from favourites"
 }
