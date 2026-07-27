@@ -53,19 +53,21 @@ export interface BooksPage {
     length: number;
 }
 
+/** BooksQuery mirrors models.BookFilters on the backend, field for field. */
 export interface BooksQuery {
     limit?: number;
     offset?: number;
     title?: string;
     author?: number | string;
     series?: number | string;
+    genre?: number | string;
     lang?: string;
     fav?: boolean;
-    users_fav?: boolean;
-    category?: number | string;
-    genre?: number | string;
-    approved?: boolean;
     unapproved?: boolean;
+    users_favorites?: boolean;
+    collection?: number | string;
+    curated_collection?: number | string;
+    include_hidden?: boolean;
 }
 
 export interface Language {
