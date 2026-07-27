@@ -1,5 +1,5 @@
 .PHONY: help verify bootstrap build build-bin build-frontend backend frontend frontend-placeholder swagger \
-	deps deps-frontend test test-backend test-integration test-frontend test-coverage clean lint staticcheck security \
+	deps deps-frontend test test-backend test-integration test-frontend test-coverage clean lint lint-new fmt staticcheck security \
 	docker-build docker-run docker-compose-up docker-compose-down dev migrate-up migrate-down release pre-commit
 
 # These targets are ordered pipelines, not independent compile units: bootstrap
@@ -16,6 +16,9 @@ SWAG_VERSION        := v1.16.6
 GOLANGCI_VERSION    := v2.12.2
 GOSEC_VERSION       := v2.28.0
 STATICCHECK_VERSION := 2026.1
+
+# Base revision the new-code lint gate compares against; CI overrides it per PR.
+LINT_BASE           := origin/master
 
 # Default target
 help: ## Show this help message
@@ -95,9 +98,18 @@ test-coverage: test ## Run tests with coverage report
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated: coverage.html"
 
-lint: ## Run linters (pinned version)
+lint: ## Run linters over the whole tree (reports the pre-existing backlog too)
 	@echo "Running golangci-lint $(GOLANGCI_VERSION)..."
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION) run
+
+lint-new: ## Run linters over new code only — same gate as CI
+	@echo "Running golangci-lint $(GOLANGCI_VERSION) on changes since $(LINT_BASE)..."
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION) run \
+		--new-from-merge-base=$(LINT_BASE)
+
+fmt: ## Apply formatters (gofmt, goimports)
+	@echo "Applying formatters..."
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION) fmt
 
 staticcheck: ## Run staticcheck (pinned version)
 	@echo "Running staticcheck $(STATICCHECK_VERSION)..."
@@ -145,9 +157,9 @@ migrate-down: ## Run database migrations down
 	# Add your migration rollback command here
 
 # Release
-release: clean build test lint security ## Prepare for release
+release: clean build test lint-new security ## Prepare for release
 	@echo "Release preparation complete!"
 
 # Quick checks before commit
-pre-commit: lint test ## Run pre-commit checks
+pre-commit: lint-new test ## Run pre-commit checks
 	@echo "Pre-commit checks passed!"

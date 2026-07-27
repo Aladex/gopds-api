@@ -1,5 +1,5 @@
 # Frontend build stage
-FROM node:20.16.0-alpine3.20 AS frontend-build
+FROM node:24.18.0-alpine3.23 AS frontend-build
 WORKDIR /app
 COPY booksdump-frontend/package.json booksdump-frontend/yarn.lock ./
 RUN yarn install --frozen-lockfile
@@ -7,7 +7,7 @@ COPY booksdump-frontend/ .
 RUN yarn build
 
 # Build stage
-FROM golang:1.24.11-alpine3.21 AS build-stage
+FROM golang:1.26.5-alpine3.23 AS build-stage
 RUN apk add --no-cache ca-certificates
 
 WORKDIR /app
@@ -25,7 +25,7 @@ ARG VERSION=dev-version
 RUN echo $VERSION > /app/version
 
 # Production stage
-FROM alpine:3.20.10 AS production-stage
+FROM alpine:3.23.5 AS production-stage
 RUN apk --no-cache add ca-certificates tzdata && \
     addgroup -g 1000 gopds && \
     adduser -D -s /bin/sh -u 1000 -G gopds gopds

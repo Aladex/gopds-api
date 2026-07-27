@@ -89,7 +89,7 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/aladex/gopds-api
+        - gopds-api
   exclusions:
     generated: lax
     paths:

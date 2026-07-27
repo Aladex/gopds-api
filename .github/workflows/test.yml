@@ -27,13 +27,13 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.24'
+        go-version: '1.26'
         cache: true
 
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '20'
+        node-version: '24'
         cache: 'yarn'
         cache-dependency-path: booksdump-frontend/yarn.lock
 
@@ -54,10 +54,14 @@ jobs:
     - name: Run staticcheck
       run: staticcheck ./...
 
-    - name: Install golangci-lint
+    # Gated on new code only. The repository carries a large backlog of findings
+    # from the years the lint config was unparseable and therefore never ran;
+    # this keeps new code clean without blocking on that backlog.
+    - name: Run golangci-lint on new code
       uses: golangci/golangci-lint-action@v9.3.0
       with:
         version: v2.12.2
+        args: --new-from-merge-base=origin/${{ github.base_ref || 'master' }}
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
@@ -74,7 +78,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.24'
+        go-version: '1.26'
 
     # Installed directly instead of through securecodewarrior/github-action-gosec,
     # which only ever published a moving @master ref.

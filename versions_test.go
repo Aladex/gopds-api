@@ -16,6 +16,7 @@ const (
 	workflowsDir   = ".github/workflows"
 	readmePath     = "README.md"
 	frontendDir    = "booksdump-frontend"
+	golangciPath   = ".golangci.yml"
 )
 
 // unpinnedTags are tags that move under you, so an image built today and an
@@ -252,6 +253,55 @@ func TestCIActionsAndToolsArePinned(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// TestNodeVersionMatchesBetweenDockerfileAndCI guards that the frontend is built
+// and tested on the same Node major everywhere.
+func TestNodeVersionMatchesBetweenDockerfileAndCI(t *testing.T) {
+	var want string
+	for _, image := range dockerfileImages(t) {
+		if !strings.HasPrefix(image, "node:") {
+			continue
+		}
+		want = strings.Split(strings.TrimPrefix(image, "node:"), ".")[0]
+	}
+	if want == "" {
+		t.Fatal("Dockerfile has no node base image")
+	}
+
+	re := regexp.MustCompile(`node-version:\s*'?"?(\d+)`)
+	var found bool
+	for path, body := range workflowFiles(t) {
+		for _, m := range re.FindAllStringSubmatch(body, -1) {
+			found = true
+			if got := m[1]; got != want {
+				t.Errorf("%s builds on Node %s, but the Dockerfile uses Node %s", path, got, want)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no workflow sets node-version")
+	}
+}
+
+// TestGoimportsLocalPrefixMatchesModulePath guards that the import grouping rule
+// actually matches this module's imports instead of silently applying to nothing.
+func TestGoimportsLocalPrefixMatchesModulePath(t *testing.T) {
+	m := regexp.MustCompile(`(?m)^module\s+(\S+)`).FindStringSubmatch(readRepoFile(t, goModPath))
+	if m == nil {
+		t.Fatal("go.mod has no module directive")
+	}
+	want := m[1]
+
+	p := regexp.MustCompile(`local-prefixes:\s*\n\s*-\s*(\S+)`).
+		FindStringSubmatch(readRepoFile(t, golangciPath))
+	if p == nil {
+		t.Fatal(".golangci.yml does not configure goimports local-prefixes")
+	}
+
+	if got := p[1]; got != want {
+		t.Errorf("goimports local-prefixes is %q, but the module is %q", got, want)
 	}
 }
 

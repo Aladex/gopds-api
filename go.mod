@@ -1,8 +1,8 @@
 module gopds-api
 
-go 1.24.0
+go 1.26.0
 
-toolchain go1.24.11
+toolchain go1.26.5
 
 require (
 	github.com/alicebob/miniredis/v2 v2.36.1

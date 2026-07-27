@@ -9,7 +9,7 @@ A comprehensive book management system and OPDS server built with Go, featuring 
 ## Technologies
 
 **Backend:**
-- **Go 1.24** - High-performance backend API
+- **Go 1.26** - High-performance backend API
 - **Gin** - Fast HTTP web framework
 - **PostgreSQL** - Primary database with full-text search capabilities
 - **Redis** - Session storage and caching
@@ -177,10 +177,10 @@ docker-compose up -d
 ### Manual Installation
 
 1. **Prerequisites:**
-   - Go 1.24+
+   - Go 1.26+
    - PostgreSQL 12+
    - Redis 6+
-   - Node.js 20+ and Yarn 1.x (for frontend)
+   - Node.js 24+ and Yarn 1.x (for frontend)
    - kindlegen (optional, for MOBI conversion)
 
 2. **Database Setup:**
