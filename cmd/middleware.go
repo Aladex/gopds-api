@@ -27,15 +27,20 @@ var buildTime = func() time.Time {
 	return info.ModTime()
 }()
 
+// hashedAssetDirs are the directories a bundler writes content-hashed files to.
+// Vite uses assets/, create-react-app used static/; both are kept so the rule
+// does not silently stop applying when the build system changes.
+var hashedAssetDirs = []string{"/assets/", "/static/"}
+
 // setStaticCacheHeaders sets Cache-Control based on the file path:
 //   - index.html → no-cache (always re-validate so new deploys are picked up)
-//   - static/* (hashed filenames) → immutable for 1 year
+//   - hashed bundler output → immutable for 1 year
 //   - everything else → 1 hour
 func setStaticCacheHeaders(c *gin.Context, filePath string) {
 	switch {
 	case strings.HasSuffix(filePath, "index.html") || filePath == "/" || filePath == "":
 		c.Header("Cache-Control", "no-cache")
-	case strings.Contains(filePath, "/static/"):
+	case containsAny(filePath, hashedAssetDirs):
 		c.Header("Cache-Control", "public, max-age=31536000, immutable")
 	default:
 		c.Header("Cache-Control", "public, max-age=3600")
@@ -145,4 +150,14 @@ func corsOptionsMiddleware() gin.HandlerFunc {
 			c.Next()
 		}
 	}
+}
+
+// containsAny reports whether s contains any of the given substrings.
+func containsAny(s string, substrings []string) bool {
+	for _, sub := range substrings {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
 }
