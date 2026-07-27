@@ -1,5 +1,5 @@
 .PHONY: help verify bootstrap build build-bin build-frontend backend frontend frontend-placeholder swagger \
-	deps deps-frontend test test-backend test-integration test-frontend test-coverage clean lint security \
+	deps deps-frontend test test-backend test-integration test-frontend test-coverage clean lint staticcheck security \
 	docker-build docker-run docker-compose-up docker-compose-down dev migrate-up migrate-down release pre-commit
 
 # These targets are ordered pipelines, not independent compile units: bootstrap
@@ -11,7 +11,11 @@
 FRONTEND_DIR := booksdump-frontend
 
 # Pinned tool versions — keep in sync with Dockerfile and .github/workflows.
-SWAG_VERSION := v1.16.6
+# versions_test.go guards that these stay aligned.
+SWAG_VERSION        := v1.16.6
+GOLANGCI_VERSION    := v2.12.2
+GOSEC_VERSION       := v2.28.0
+STATICCHECK_VERSION := 2026.1
 
 # Default target
 help: ## Show this help message
@@ -91,22 +95,26 @@ test-coverage: test ## Run tests with coverage report
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated: coverage.html"
 
-lint: ## Run linters
-	@echo "Running golangci-lint..."
-	golangci-lint run --timeout=5m
+lint: ## Run linters (pinned version)
+	@echo "Running golangci-lint $(GOLANGCI_VERSION)..."
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION) run
 
-security: ## Run security checks
-	@echo "Running gosec security scanner..."
-	gosec ./...
+staticcheck: ## Run staticcheck (pinned version)
+	@echo "Running staticcheck $(STATICCHECK_VERSION)..."
+	go run honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION) ./...
+
+security: ## Run security checks (pinned version)
+	@echo "Running gosec $(GOSEC_VERSION)..."
+	go run github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION) ./...
 
 # Docker
 docker-build: ## Build Docker image
 	@echo "Building Docker image..."
-	docker build -t gopds-api:latest .
+	docker build -t gopds-api:dev .
 
 docker-run: ## Run Docker container
 	@echo "Running Docker container..."
-	docker run --rm -p 8085:8085 gopds-api:latest
+	docker run --rm -p 8085:8085 gopds-api:dev
 
 docker-compose-up: ## Start services with docker-compose
 	docker-compose up -d

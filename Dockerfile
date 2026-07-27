@@ -7,7 +7,7 @@ COPY booksdump-frontend/ .
 RUN yarn build
 
 # Build stage
-FROM golang:1.24-alpine AS build-stage
+FROM golang:1.24.11-alpine3.21 AS build-stage
 RUN apk add --no-cache ca-certificates
 
 WORKDIR /app
@@ -16,7 +16,7 @@ RUN go mod download
 COPY . .
 COPY --from=frontend-build /app/build /app/booksdump-frontend/build
 
-RUN go install github.com/swaggo/swag/cmd/swag@latest && \
+RUN go install github.com/swaggo/swag/cmd/swag@v1.16.6 && \
     swag init --generalInfo cmd/main.go && \
     CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bin/gopds cmd/*
 
@@ -25,7 +25,7 @@ ARG VERSION=dev-version
 RUN echo $VERSION > /app/version
 
 # Production stage
-FROM alpine:3.20 AS production-stage
+FROM alpine:3.20.10 AS production-stage
 RUN apk --no-cache add ca-certificates tzdata && \
     addgroup -g 1000 gopds && \
     adduser -D -s /bin/sh -u 1000 -G gopds gopds
