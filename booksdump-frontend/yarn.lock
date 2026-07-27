@@ -709,7 +709,7 @@
   resolved "https://registry.yarnpkg.com/@radix-ui/react-context/-/react-context-1.2.2.tgz#fe2548e98465f5f9b776c5953de35d04a8919b6b"
   integrity sha512-RHCUGwKHDr0hDGg4X7ma4JG4/+12qxw8rkh5QKdDldlCvtja6nUx1Ef/8HVrJze81lEsgLQlqjzjGNHantgnQA==
 
-"@radix-ui/react-dialog@1.1.23":
+"@radix-ui/react-dialog@1.1.23", "@radix-ui/react-dialog@^1.1.1":
   version "1.1.23"
   resolved "https://registry.yarnpkg.com/@radix-ui/react-dialog/-/react-dialog-1.1.23.tgz#b7d8e83a3ccf97e46f3c3f477a0bf563f0de8239"
   integrity sha512-Ksw4WeROkO4rC9k/onilX/Ao2Cr1ku1unMNH+XSCcP4jSXYu7HDsg9n4ojMjVb22XpYjAQ9qfrFlVbru1vXDUA==
@@ -2893,6 +2893,13 @@ use-sync-external-store@^1.6.0:
   version "1.6.0"
   resolved "https://registry.yarnpkg.com/use-sync-external-store/-/use-sync-external-store-1.6.0.tgz#b174bfa65cb2b526732d9f2ac0a408027876f32d"
   integrity sha512-Pp6GSwGP/NrPIrxVFAIkOQeyw8lFenOHijQWkUTrDvrF4ALqylP2C/KCkeS9dpUM3KvYRQhna5vt7IL95+ZQ9w==
+
+vaul@^1.1.2:
+  version "1.1.2"
+  resolved "https://registry.yarnpkg.com/vaul/-/vaul-1.1.2.tgz#c959f8b9dc2ed4f7d99366caee433fbef91f5ba9"
+  integrity sha512-ZFkClGpWyI2WUQjdLJ/BaGuV6AVQiJ3uELGk3OYtP+B6yCO7Cmn9vPFXVJkRaGkOJu3m8bQMgtyzNHixULceQA==
+  dependencies:
+    "@radix-ui/react-dialog" "^1.1.1"
 
 vite@8.1.5, "vite@^6.0.0 || ^7.0.0 || ^8.0.0":
   version "8.1.5"

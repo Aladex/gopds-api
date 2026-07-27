@@ -1,18 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { useAuth } from '../../context/AuthContext';
 import * as authApi from '@/api/auth';
 import * as telegramApi from '@/api/telegram';
 
-interface SnackbarState {
-    open: boolean;
-    message: string;
-    severity: 'success' | 'error';
-}
-
 export const useProfileForm = (open: boolean) => {
     const { logout, updateUser, user } = useAuth();
     const navigate = useNavigate();
+    const { t } = useTranslation();
 
     const [firstName, setFirstName] = useState('');
     const [lastName, setLastName] = useState('');
@@ -25,12 +22,12 @@ export const useProfileForm = (open: boolean) => {
     const [botConnected, setBotConnected] = useState(user?.has_bot_token || false);
     const [botLoading, setBotLoading] = useState(false);
 
-    // Snackbar
-    const [snackbar, setSnackbar] = useState<SnackbarState>({
-        open: false,
-        message: '',
-        severity: 'success',
-    });
+    // Outcomes are announced through the application's toaster rather than a
+    // snackbar owned by this hook.
+    const notify = useCallback(
+        (key: string, ok = true) => (ok ? toast.success(t(key)) : toast.error(t(key))),
+        [t],
+    );
 
     useEffect(() => {
         if (user && open) {
@@ -63,10 +60,6 @@ export const useProfileForm = (open: boolean) => {
         setBotToken('');
     }, []);
 
-    const closeSnackbar = useCallback(() => {
-        setSnackbar((prev) => ({ ...prev, open: false }));
-    }, []);
-
     const handleUserChange = useCallback(async () => {
         try {
             const userData = {
@@ -79,16 +72,16 @@ export const useProfileForm = (open: boolean) => {
             };
             const updated = await authApi.updateCurrentUser(userData);
             updateUser(updated);
-            setSnackbar({ open: true, message: 'profileSaved', severity: 'success' });
+            notify('profileSaved');
             setShowPasswordFields(false);
             setOldPassword('');
             setNewPassword('');
             return true;
         } catch {
-            setSnackbar({ open: true, message: 'profileSaveError', severity: 'error' });
+            notify('profileSaveError', false);
         }
         return false;
-    }, [user, firstName, lastName, newPassword, oldPassword, updateUser]);
+    }, [user, firstName, lastName, newPassword, oldPassword, updateUser, notify]);
 
     const handleDropSessions = useCallback(async () => {
         try {
@@ -112,17 +105,17 @@ export const useProfileForm = (open: boolean) => {
             await telegramApi.setBotToken(botToken.trim());
             setBotConnected(true);
             setBotToken('');
-            setSnackbar({ open: true, message: 'telegramBot.tokenSet', severity: 'success' });
+            notify('telegramBot.tokenSet');
             // Update user context
             if (user) {
                 updateUser({ ...user, has_bot_token: true });
             }
         } catch {
-            setSnackbar({ open: true, message: 'telegramBot.tokenError', severity: 'error' });
+            notify('telegramBot.tokenError', false);
         } finally {
             setBotLoading(false);
         }
-    }, [botToken, user, updateUser]);
+    }, [botToken, user, updateUser, notify]);
 
     const handleRemoveBotToken = useCallback(async () => {
         setBotLoading(true);
@@ -130,17 +123,17 @@ export const useProfileForm = (open: boolean) => {
             await telegramApi.removeBotToken();
             {
                 setBotConnected(false);
-                setSnackbar({ open: true, message: 'telegramBot.tokenRemoved', severity: 'success' });
+                notify('telegramBot.tokenRemoved');
                 if (user) {
                     updateUser({ ...user, has_bot_token: false });
                 }
             }
         } catch {
-            setSnackbar({ open: true, message: 'telegramBot.removeError', severity: 'error' });
+            notify('telegramBot.removeError', false);
         } finally {
             setBotLoading(false);
         }
-    }, [user, updateUser]);
+    }, [user, updateUser, notify]);
 
     const togglePasswordFields = useCallback(() => {
         setShowPasswordFields((prev) => !prev);
@@ -156,7 +149,6 @@ export const useProfileForm = (open: boolean) => {
         botToken,
         botConnected,
         botLoading,
-        snackbar,
         user,
 
         // Setters
@@ -174,6 +166,5 @@ export const useProfileForm = (open: boolean) => {
         handleRemoveBotToken,
         togglePasswordFields,
         resetFields,
-        closeSnackbar,
     };
 };

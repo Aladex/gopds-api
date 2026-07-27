@@ -1,54 +1,39 @@
 import React from 'react';
-import { SwipeableDrawer, Box, IconButton } from '@mui/material';
-import CloseIcon from '@mui/icons-material/Close';
-import ProfileContent from './ProfileContent';
+import { useTranslation } from 'react-i18next';
+
+import {
+    Drawer,
+    DrawerContent,
+    DrawerDescription,
+    DrawerTitle,
+} from '@/components/ui/drawer';
+
+import ProfileContent, { focusFirstProfileField } from './ProfileContent';
 
 type ProfileDrawerProps = {
     open: boolean;
     onClose: () => void;
 };
 
+/**
+ * ProfileDrawer is the profile on a phone: a sheet from the bottom edge, which
+ * can be swiped away as well as dismissed.
+ */
 const ProfileDrawer: React.FC<ProfileDrawerProps> = ({ open, onClose }) => {
+    const { t } = useTranslation();
+
     return (
-        <SwipeableDrawer
-            anchor="bottom"
-            open={open}
-            onClose={onClose}
-            onOpen={() => {}}
-            disableSwipeToOpen={false}
-            PaperProps={{
-                sx: {
-                    borderTopLeftRadius: 16,
-                    borderTopRightRadius: 16,
-                    px: { xs: 1.5, sm: 2 },
-                    py: { xs: 1.5, sm: 2 },
-                    backgroundColor: 'background.paper',
-                    color: 'text.primary',
-                },
-            }}
-        >
-            <Box sx={{ maxHeight: '80vh', overflowY: 'auto' }}>
-                {/* Swipe indicator + close button */}
-                <Box display="flex" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
-                    <Box sx={{ flex: 1 }} />
-                    <Box
-                        sx={{
-                            width: 36,
-                            height: 4,
-                            borderRadius: 2,
-                            bgcolor: 'text.secondary',
-                            opacity: 0.3,
-                        }}
-                    />
-                    <Box sx={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
-                        <IconButton onClick={onClose} size="small" sx={{ color: 'text.secondary' }}>
-                            <CloseIcon fontSize="small" />
-                        </IconButton>
-                    </Box>
-                </Box>
-                <ProfileContent open={open} onClose={onClose} />
-            </Box>
-        </SwipeableDrawer>
+        <Drawer open={open} onOpenChange={(next) => !next && onClose()}>
+            <DrawerContent onOpenAutoFocus={focusFirstProfileField} className="max-h-[85vh]">
+                {/* The heading names the sheet for a screen reader; on screen the
+                    profile leads with the username instead. */}
+                <DrawerTitle className="sr-only">{t('user')}</DrawerTitle>
+                <DrawerDescription className="sr-only">{t('profileSection.personalData')}</DrawerDescription>
+                <div className="scrollbar-thin overflow-y-auto px-4 pb-6">
+                    <ProfileContent open={open} onClose={onClose} />
+                </div>
+            </DrawerContent>
+        </Drawer>
     );
 };
 

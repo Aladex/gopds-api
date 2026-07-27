@@ -143,7 +143,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
             className={cn(
                 'w-full bg-neutral-900 text-white',
                 isMobile
-                    ? 'fixed inset-x-0 top-0 z-[1200] transition-transform duration-300'
+                    ? 'fixed inset-x-0 top-0 z-chrome-top transition-transform duration-300'
                     : 'static',
                 isMobile && !isHeaderVisible && '-translate-y-full',
             )}

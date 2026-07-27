@@ -50,7 +50,7 @@ const BottomNavigation: React.FC<BottomNavigationProps> = ({ isProfileOpen, onOp
     return (
         <nav
             aria-label={t('user')}
-            className="fixed inset-x-0 bottom-0 z-[1100] flex bg-neutral-800 shadow-[0_-2px_8px_rgba(0,0,0,0.4)]"
+            className="fixed inset-x-0 bottom-0 z-chrome flex bg-neutral-800 shadow-[0_-2px_8px_rgba(0,0,0,0.4)]"
         >
             {navItems.map((item) => {
                 const Icon = ICONS[item.id];

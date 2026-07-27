@@ -36,6 +36,18 @@
 }
 
 /*
+ * Stacking order, named so the next component does not have to guess.
+ * shadcn ships its overlays at z-50, which is below the fixed header and bottom
+ * bar this application pins over the page — a dialog opened on a phone left the
+ * navigation lit up above the dimmed backdrop and covering its buttons.
+ */
+@theme {
+    --z-index-chrome: 1100;
+    --z-index-chrome-top: 1200;
+    --z-index-modal: 1300;
+}
+
+/*
  * Preflight is deliberately not loaded, so bare elements keep their native
  * browser appearance — a plain <button> renders with a grey face and a border.
  * MUI resets only inside its own components, so anything built with Tailwind
