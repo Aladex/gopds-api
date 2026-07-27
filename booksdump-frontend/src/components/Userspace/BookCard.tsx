@@ -11,7 +11,6 @@ import { cn } from '@/lib/utils';
 import { API_URL } from '../../api/config';
 import { useAuthor } from '../../context/AuthorContext';
 import { useSearchBar } from '../../context/SearchBarContext';
-import { getLanguageInfo, isLanguageSupported } from '../../utils/languageUtils';
 
 /**
  * BookCard renders one row of the catalogue.
@@ -77,7 +76,6 @@ const BookCard: React.FC<BookCardProps> = ({
     const shownAuthors = open ? authors : authors.slice(0, VISIBLE_AUTHORS);
     const hiddenAuthors = authors.length - shownAuthors.length;
 
-    const language = isLanguageSupported(book.lang) ? getLanguageInfo(book.lang) : null;
     const cover = `${API_URL}/books-posters/${coverPath(book.path)}/${coverPath(book.filename)}.jpg`;
 
     const handleFormat = (id: string) => {
@@ -98,26 +96,12 @@ const BookCard: React.FC<BookCardProps> = ({
             className="cursor-pointer rounded border border-border bg-card p-4 transition-colors hover:border-muted-foreground"
         >
             <div className="grid grid-cols-[104px_minmax(0,1fr)] gap-4 md:grid-cols-[104px_minmax(0,1fr)_auto]">
-                <div className="flex w-[104px] flex-none flex-col gap-1.5">
-                    <img
-                        src={cover}
-                        alt={book.title}
-                        loading="lazy"
-                        className="h-[150px] w-full rounded-sm bg-muted object-cover"
-                    />
-                    {/* The language belongs to the file being downloaded, so it sits
-                        with the cover rather than among the catalogue dates. */}
-                    <span className="flex items-center justify-center gap-1 text-xs text-muted-foreground">
-                        {language ? (
-                            <>
-                                <span aria-hidden="true">{language.flag}</span>
-                                {language.name}
-                            </>
-                        ) : (
-                            t('languageNotSupported')
-                        )}
-                    </span>
-                </div>
+                <img
+                    src={cover}
+                    alt={book.title}
+                    loading="lazy"
+                    className="h-[150px] w-[104px] flex-none rounded-sm bg-muted object-cover"
+                />
 
                 <div className="flex min-w-0 flex-col gap-1.5">
                     <h3 className="text-lg font-medium text-balance">{book.title}</h3>
