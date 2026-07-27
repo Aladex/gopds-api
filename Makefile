@@ -1,4 +1,7 @@
-.PHONY: help build test clean docker-build docker-run frontend frontend-placeholder backend swagger deps lint security build-bin
+.PHONY: help build test clean docker-build docker-run frontend frontend-placeholder backend swagger bootstrap deps lint security build-bin
+
+# Pinned tool versions — keep in sync with Dockerfile and .github/workflows.
+SWAG_VERSION := v1.16.6
 
 # Default target
 help: ## Show this help message
@@ -32,9 +35,12 @@ backend: deps ## Build backend
 	@echo "Building backend..."
 	go build -o bin/gopds cmd/*
 
-swagger: ## Generate Swagger documentation
-	@echo "Generating Swagger docs..."
-	swag init --generalInfo cmd/main.go
+swagger: ## Generate Swagger documentation (pinned CLI version)
+	@echo "Generating Swagger docs with swag $(SWAG_VERSION)..."
+	go run github.com/swaggo/swag/cmd/swag@$(SWAG_VERSION) init --generalInfo cmd/main.go
+
+bootstrap: swagger frontend-placeholder ## Prepare generated inputs required to compile and test the backend
+	@echo "Bootstrap complete."
 
 build: frontend backend swagger ## Build everything
 
