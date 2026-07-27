@@ -8,6 +8,7 @@ import type { DonateMethod } from '@/api/system';
 import { useTheme } from '@/context/ThemeContext';
 import { Button } from '@/shared/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/shared/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/tabs';
 import { cn } from '@/shared/lib/utils';
 
 /**
@@ -17,9 +18,12 @@ import { cn } from '@/shared/lib/utils';
  * It knows nothing about Bitcoin or PayPal. Each method arrives from
  * /api/donate saying how it wants to be shown — an address to copy, a card
  * number, a link to follow — so adding one is an edit to the configuration
- * rather than to this file. It used to be six tabs written into the markup,
- * with every address repeated three times: once for its code, once as text,
- * once inside the copy button.
+ * rather than to this file. The tabs are built from that same list: it used to
+ * be six of them written into the markup, with every address repeated three
+ * times — once for its code, once as text, once inside the copy button.
+ *
+ * A tab also means only the method being looked at is mounted, so the QR codes
+ * of the others are never drawn.
  */
 
 type DonateModalProps = {
@@ -98,9 +102,7 @@ const Method: React.FC<{ method: DonateMethod }> = ({ method }) => {
     const shown = method.kind === 'card' ? formatCard(method.value) : method.value;
 
     return (
-        <section className="flex flex-col gap-2 border-t border-border pt-4 first:border-t-0 first:pt-0">
-            <h3 className="text-sm font-medium">{method.label}</h3>
-
+        <div className="flex flex-col gap-2">
             {method.kind === 'link' ? (
                 <Button asChild variant="outline" size="sm" className="self-start">
                     <a href={method.value} target="_blank" rel="noopener noreferrer">
@@ -131,13 +133,14 @@ const Method: React.FC<{ method: DonateMethod }> = ({ method }) => {
             )}
 
             {method.qr && <QrCode value={method.value} />}
-        </section>
+        </div>
     );
 };
 
 const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
     const { t } = useTranslation();
     const [methods, setMethods] = useState<DonateMethod[]>([]);
+    const [chosen, setChosen] = useState<string>();
 
     useEffect(() => {
         if (!open) {
@@ -155,6 +158,12 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
         };
     }, [open]);
 
+    // The methods arrive after the first render, so the open tab cannot simply
+    // be initial state. Deriving it — the chosen one while it is still on
+    // offer, the first otherwise — means no effect has to correct it when the
+    // list changes under a configuration the reader has never seen.
+    const active = methods.some((method) => method.id === chosen) ? chosen : methods[0]?.id;
+
     return (
         <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
             <DialogContent
@@ -164,11 +173,31 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
                 <DialogTitle>{t('donateTitle')}</DialogTitle>
                 <DialogDescription className="sr-only">{t('donateTitle')}</DialogDescription>
 
-                <div className="flex flex-col gap-4">
-                    {methods.map((method) => (
-                        <Method key={method.id} method={method} />
-                    ))}
-                </div>
+                {/* One way of giving needs no choosing between ways — but it
+                    still needs naming, which is otherwise the tab's job. */}
+                {methods.length === 1 ? (
+                    <section className="flex flex-col gap-2">
+                        <h3 className="text-sm font-medium">{methods[0].label}</h3>
+                        <Method method={methods[0]} />
+                    </section>
+                ) : (
+                    methods.length > 1 && (
+                        <Tabs value={active} onValueChange={setChosen}>
+                            <TabsList>
+                                {methods.map((method) => (
+                                    <TabsTrigger key={method.id} value={method.id}>
+                                        {method.label}
+                                    </TabsTrigger>
+                                ))}
+                            </TabsList>
+                            {methods.map((method) => (
+                                <TabsContent key={method.id} value={method.id}>
+                                    <Method method={method} />
+                                </TabsContent>
+                            ))}
+                        </Tabs>
+                    )
+                )}
             </DialogContent>
         </Dialog>
     );
