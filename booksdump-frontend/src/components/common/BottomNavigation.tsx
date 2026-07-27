@@ -1,92 +1,84 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { BottomNavigation as MuiBottomNavigation, BottomNavigationAction, Paper } from '@mui/material';
-import { AdminPanelSettings, CollectionsBookmark, LibraryBooks, MenuBook, Person } from '@mui/icons-material';
-import { useLocation, useNavigate } from 'react-router-dom';
+import React from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import {
+    BookOpen,
+    Library,
+    Rss,
+    ShieldUser,
+    User,
+    type LucideIcon,
+} from 'lucide-react';
+
+import { cn } from '@/lib/utils';
+
 import { useAuth } from '../../context/AuthContext';
+import { activeNavItem, useNavItems, type NavItem } from './navItems';
 
 type BottomNavigationProps = {
     isProfileOpen: boolean;
     onOpenProfile: () => void;
 };
 
+const ICONS: Record<NavItem['id'], LucideIcon> = {
+    books: BookOpen,
+    collections: Library,
+    opds: Rss,
+    admin: ShieldUser,
+};
+
+/**
+ * BottomNavigation carries the section navigation on a phone, where the header
+ * has no room for it. The profile sits alongside the sections because that is
+ * where a reader looks for it, though it opens a panel rather than a route.
+ */
 const BottomNavigation: React.FC<BottomNavigationProps> = ({ isProfileOpen, onOpenProfile }) => {
-    const navigate = useNavigate();
     const location = useLocation();
     const { t } = useTranslation();
     const { user } = useAuth();
-    const [value, setValue] = useState('books');
 
-    const navItems = useMemo(() => {
-        const items = [
-            { value: 'books', label: t('booksTab'), icon: <MenuBook />, path: '/books/page/1', regex: /^\/books\/page\/\d+/ },
-            { value: 'collections', label: t('collectionsTab', 'Подборки'), icon: <CollectionsBookmark />, path: '/collections', regex: /^\/collections/ },
-            { value: 'opds', label: t('opdsTab'), icon: <LibraryBooks />, path: '/catalog', regex: /^\/catalog/ },
-        ];
+    const navItems = useNavItems(Boolean(user?.is_superuser));
+    // An open profile takes the highlight off whatever section is behind it.
+    const current = isProfileOpen ? null : (activeNavItem(navItems, location.pathname) ?? navItems[0]);
 
-        if (user?.is_superuser) {
-            items.push({ value: 'admin', label: t('adminTab'), icon: <AdminPanelSettings />, path: '/admin', regex: /^\/admin/ });
-        }
-
-        return items;
-    }, [t, user?.is_superuser]);
-
-    useEffect(() => {
-        if (isProfileOpen) {
-            setValue('profile');
-            return;
-        }
-
-        const match = navItems.find((item) => item.regex.test(location.pathname));
-        if (match) {
-            setValue(match.value);
-        } else {
-            setValue('books');
-        }
-    }, [isProfileOpen, location.pathname, navItems]);
-
-    const handleChange = (_event: React.SyntheticEvent, newValue: string) => {
-        if (newValue === 'profile') {
-            onOpenProfile();
-            setValue('profile');
-            return;
-        }
-
-        const target = navItems.find((item) => item.value === newValue);
-        if (target) {
-            navigate(target.path);
-        }
-    };
+    const itemClass = (active: boolean) =>
+        cn(
+            'flex min-w-0 flex-1 flex-col items-center gap-0.5 px-1 py-1.5 text-[11px]',
+            active ? 'text-white' : 'text-neutral-400 hover:text-white',
+        );
 
     return (
-        <Paper sx={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 1100, bgcolor: '#2f2f2f' }} elevation={8}>
-            <MuiBottomNavigation
-                value={value}
-                onChange={handleChange}
-                showLabels
-                sx={{
-                    '& .MuiBottomNavigationAction-root': {
-                        minWidth: 0,
-                    },
-                }}
-            >
-                {navItems.map((item) => (
-                    <BottomNavigationAction
-                        key={item.value}
-                        value={item.value}
-                        label={item.label}
-                        icon={item.icon}
+        <nav
+            aria-label={t('user')}
+            className="fixed inset-x-0 bottom-0 z-[1100] flex bg-neutral-800 shadow-[0_-2px_8px_rgba(0,0,0,0.4)]"
+        >
+            {navItems.map((item) => {
+                const Icon = ICONS[item.id];
+                const active = current?.id === item.id;
+                return (
+                    <Link
+                        key={item.id}
+                        to={item.path}
                         aria-label={item.label}
-                    />
-                ))}
-                <BottomNavigationAction
-                    value="profile"
-                    label={t('user')}
-                    icon={<Person />}
-                    aria-label={t('user')}
-                />
-            </MuiBottomNavigation>
-        </Paper>
+                        aria-current={active ? 'page' : undefined}
+                        className={itemClass(active)}
+                    >
+                        <Icon className="size-6" />
+                        <span className="max-w-full truncate">{item.label}</span>
+                    </Link>
+                );
+            })}
+            <button
+                type="button"
+                onClick={onOpenProfile}
+                aria-label={t('user')}
+                aria-expanded={isProfileOpen}
+                className={itemClass(isProfileOpen)}
+            >
+                <User className="size-6" />
+                <span className="max-w-full truncate">{t('user')}</span>
+            </button>
+        </nav>
     );
 };
 
