@@ -160,7 +160,13 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                 </div>
             </Group>
 
-            <Group title={t('profileSection.security')}>
+            {/*
+              Password and sessions are separate groups on purpose. Together,
+              the two session buttons sat directly beneath the password fields
+              and read as the way to commit them — while the button that
+              actually does is the Save at the foot.
+            */}
+            <Group title={t('profileSection.password')}>
                 <button
                     type="button"
                     onClick={togglePasswordFields}
@@ -194,15 +200,20 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                             value={newPassword}
                             onChange={setNewPassword}
                         />
+                        <p className="text-xs text-muted-foreground">
+                            {t('passwordSavedWithProfile')}
+                        </p>
                     </div>
                 </Expandable>
+            </Group>
 
-                {/*
-                  Signing out and ending every session are the same act at two
-                  scopes — this device, or all of them — so they sit together,
-                  the wider one marked as the heavier.
-                */}
-                <div className="mt-4 flex flex-wrap gap-2">
+            {/*
+              Signing out and ending every session are the same act at two
+              scopes — this device, or all of them — so they sit together, the
+              wider one marked as the heavier.
+            */}
+            <Group title={t('profileSection.sessions')}>
+                <div className="flex flex-wrap gap-2">
                     <Button
                         variant="outline"
                         size="sm"

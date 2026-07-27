@@ -426,5 +426,8 @@
   "activating": "Activating your account…",
   "activationError": "Could not activate the account. Please try again later.",
   "welcomeBack": "Welcome back",
-  "loginSubtitle": "Sign in to keep reading"
+  "loginSubtitle": "Sign in to keep reading",
+  "profileSection.password": "Password",
+  "profileSection.sessions": "Sessions",
+  "passwordSavedWithProfile": "The new password takes effect when you press Save below"
 }

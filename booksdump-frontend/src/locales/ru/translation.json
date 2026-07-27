@@ -429,5 +429,8 @@
   "activating": "Активируем аккаунт…",
   "activationError": "Не удалось активировать аккаунт. Попробуйте позже.",
   "welcomeBack": "С возвращением",
-  "loginSubtitle": "Войдите, чтобы продолжить читать"
+  "loginSubtitle": "Войдите, чтобы продолжить читать",
+  "profileSection.password": "Пароль",
+  "profileSection.sessions": "Сессии",
+  "passwordSavedWithProfile": "Новый пароль применится, когда вы нажмёте «Сохранить» внизу"
 }
