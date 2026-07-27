@@ -417,5 +417,7 @@
   "goToPage": "Page {{page}}",
   "close": "Close",
   "donate": "Donate",
-  "logout": "Log out"
+  "logout": "Log out",
+  "removeItem": "Remove {{name}}",
+  "editBookHint": "Edit the book's metadata and save the changes."
 }
