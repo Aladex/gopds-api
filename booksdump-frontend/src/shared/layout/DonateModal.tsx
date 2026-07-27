@@ -8,7 +8,9 @@ import type { DonateMethod } from '@/api/system';
 import { useTheme } from '@/context/ThemeContext';
 import { Button } from '@/shared/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/shared/ui/dialog';
+import { Drawer, DrawerContent, DrawerDescription, DrawerTitle } from '@/shared/ui/drawer';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/tabs';
+import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import { cn } from '@/shared/lib/utils';
 
 /**
@@ -34,6 +36,11 @@ type DonateModalProps = {
 /** formatCard groups the digits the way they are printed on the card. */
 const formatCard = (value: string) => value.replace(/(.{4})/g, '$1 ').trim();
 
+/**
+ * CopyButton is an icon rather than a labelled button: it sits inside the block
+ * holding the value, where what it copies is unambiguous and the word for it
+ * would cost more width than the address can spare.
+ */
 const CopyButton: React.FC<{ value: string; label: string }> = ({ value, label }) => {
     const { t } = useTranslation();
     const [copied, setCopied] = useState(false);
@@ -46,19 +53,22 @@ const CopyButton: React.FC<{ value: string; label: string }> = ({ value, label }
         return () => clearTimeout(timer);
     }, [copied]);
 
+    const name = `${copied ? t('copied') : t('copy')}: ${label}`;
+
     return (
         <Button
             type="button"
-            variant="outline"
-            size="sm"
-            aria-label={`${t('copy')}: ${label}`}
+            variant="ghost"
+            size="icon"
+            className="shrink-0 hover:bg-background/60"
+            aria-label={name}
+            title={name}
             onClick={() => {
                 navigator.clipboard.writeText(value);
                 setCopied(true);
             }}
         >
             {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-            {copied ? t('copied') : t('copy')}
         </Button>
     );
 };
@@ -111,10 +121,16 @@ const Method: React.FC<{ method: DonateMethod }> = ({ method }) => {
                     </a>
                 </Button>
             ) : (
-                <div className="flex flex-wrap items-center gap-2">
+                /*
+                  The copy control lives inside the block it copies, as an icon.
+                  A labelled button beside the address took 135px of a 308px
+                  sheet, leaving the address to wrap three times to say what it
+                  could have said in two.
+                */
+                <div className="flex items-start gap-1 rounded bg-muted py-1.5 pr-1.5 pl-2">
                     <code
                         className={cn(
-                            'min-w-0 flex-1 rounded bg-muted px-2 py-1.5 text-[13px] break-all',
+                            'min-w-0 flex-1 self-center text-[13px] break-all',
                             method.kind === 'card' && 'break-normal tracking-wider',
                         )}
                     >
@@ -141,6 +157,8 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
     const { t } = useTranslation();
     const [methods, setMethods] = useState<DonateMethod[]>([]);
     const [chosen, setChosen] = useState<string>();
+    // The same break the profile uses to choose between a sheet and a dialog.
+    const isMobile = useMediaQuery('(max-width: 600px)');
 
     useEffect(() => {
         if (!open) {
@@ -164,40 +182,64 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
     // list changes under a configuration the reader has never seen.
     const active = methods.some((method) => method.id === chosen) ? chosen : methods[0]?.id;
 
+    const body =
+        // One way of giving needs no choosing between ways — but it still needs
+        // naming, which is otherwise the tab's job.
+        methods.length === 1 ? (
+            <section className="flex flex-col gap-2">
+                <h3 className="text-sm font-medium">{methods[0].label}</h3>
+                <Method method={methods[0]} />
+            </section>
+        ) : (
+            methods.length > 1 && (
+                <Tabs value={active} onValueChange={setChosen}>
+                    <TabsList>
+                        {methods.map((method) => (
+                            <TabsTrigger key={method.id} value={method.id}>
+                                {method.label}
+                            </TabsTrigger>
+                        ))}
+                    </TabsList>
+                    {methods.map((method) => (
+                        <TabsContent key={method.id} value={method.id}>
+                            <Method method={method} />
+                        </TabsContent>
+                    ))}
+                </Tabs>
+            )
+        );
+
+    // The same sheet the profile and the language use: a phone has the room to
+    // show every method's tab at once, which a dialog inset from both edges
+    // does not.
+    if (isMobile) {
+        return (
+            <Drawer open={open} onOpenChange={(next) => !next && onClose()}>
+                <DrawerContent className="max-h-[85vh]">
+                    <DrawerTitle className="px-4 pb-1 text-base font-medium">
+                        {t('donateTitle')}
+                    </DrawerTitle>
+                    <DrawerDescription className="sr-only">{t('donateTitle')}</DrawerDescription>
+                    <div className="scrollbar-thin overflow-y-auto px-4 pb-6">{body}</div>
+                </DrawerContent>
+            </Drawer>
+        );
+    }
+
     return (
         <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+            {/*
+              Wide enough that six tabs — what this project itself offers — sit
+              in one row rather than scrolling. Beyond that the list scrolls,
+              which is the honest fallback for a count nobody here decides.
+            */}
             <DialogContent
                 closeLabel={t('close')}
-                className="scrollbar-thin max-h-[85vh] overflow-y-auto sm:max-w-md"
+                className="scrollbar-thin max-h-[85vh] overflow-y-auto sm:max-w-xl"
             >
                 <DialogTitle>{t('donateTitle')}</DialogTitle>
                 <DialogDescription className="sr-only">{t('donateTitle')}</DialogDescription>
-
-                {/* One way of giving needs no choosing between ways — but it
-                    still needs naming, which is otherwise the tab's job. */}
-                {methods.length === 1 ? (
-                    <section className="flex flex-col gap-2">
-                        <h3 className="text-sm font-medium">{methods[0].label}</h3>
-                        <Method method={methods[0]} />
-                    </section>
-                ) : (
-                    methods.length > 1 && (
-                        <Tabs value={active} onValueChange={setChosen}>
-                            <TabsList>
-                                {methods.map((method) => (
-                                    <TabsTrigger key={method.id} value={method.id}>
-                                        {method.label}
-                                    </TabsTrigger>
-                                ))}
-                            </TabsList>
-                            {methods.map((method) => (
-                                <TabsContent key={method.id} value={method.id}>
-                                    <Method method={method} />
-                                </TabsContent>
-                            ))}
-                        </Tabs>
-                    )
-                )}
+                {body}
             </DialogContent>
         </Dialog>
     );

@@ -20,6 +20,17 @@ vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 
 vi.mock('@/context/ThemeContext', () => ({ useTheme: () => ({ mode: 'light' }) }));
 
+// jsdom has no viewport, so useMediaQuery reports the wide layout and the
+// mobile branch would never run. narrow() switches it for a test.
+const matches = { current: false };
+vi.mock('@/shared/hooks/useMediaQuery', () => ({
+    useMediaQuery: () => matches.current,
+    default: () => matches.current,
+}));
+const narrow = () => {
+    matches.current = true;
+};
+
 // The code itself is drawn on a canvas jsdom does not implement; that it was
 // asked for at all is what these tests care about.
 vi.mock('qrcode', () => ({
@@ -42,6 +53,7 @@ const openWith = async (methods: unknown[]) => {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    matches.current = false;
 });
 
 test('gives every configured method a tab, in the order configured', async () => {
@@ -87,6 +99,20 @@ test('shows nothing to give to when nothing is configured', async () => {
     await waitFor(() => expect(getDonateMethods).toHaveBeenCalled());
     expect(screen.queryByRole('tab')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /copy/i })).not.toBeInTheDocument();
+});
+
+test('on a phone the methods arrive in a sheet, tabs and all', async () => {
+    narrow();
+    await openWith([bitcoin, card, boosty]);
+
+    // A dialog is inset from both edges; the sheet is not, which is the whole
+    // reason for the branch.
+    expect(document.querySelector('[data-slot="drawer-content"]')).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="dialog-content"]')).not.toBeInTheDocument();
+
+    const tabs = await screen.findAllByRole('tab');
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['Bitcoin', 'Card', 'Boosty']);
+    expect(screen.getByText('bc1qtest')).toBeInTheDocument();
 });
 
 test('a link method is followed rather than copied', async () => {
