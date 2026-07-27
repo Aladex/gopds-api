@@ -1,331 +1,291 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import {
-  Autocomplete,
-  TextField,
-  Box,
-  Typography,
-  Chip,
-  CircularProgress
-} from '@mui/material';
-import { Book, Person } from '@mui/icons-material';
-import { autocompleteService, AutocompleteSuggestion } from '../../api/autocomplete';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { BookOpen, Loader2, User } from 'lucide-react';
+
+import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
+
+import { autocompleteService, AutocompleteSuggestion } from '../../api/autocomplete';
 import { useAuthor } from '../../context/AuthorContext';
 import { useSearchBar } from '../../context/SearchBarContext';
-import { useNavigate } from 'react-router-dom';
+
+/**
+ * AutocompleteSearch is a free-text search box that offers suggestions.
+ *
+ * It is not a picker: the reader may submit anything they typed, whether or not
+ * it matches a suggestion. That is why this is an input with a listbox beside it
+ * rather than a combobox that insists on a selection.
+ *
+ * The request rules are load-bearing and unchanged from the MUI version:
+ * nothing is asked for under four characters, requests are debounced, and each
+ * new keystroke aborts the one in flight — otherwise a slow answer to an old
+ * query lands after a fast answer to the current one and replaces it.
+ */
+
+const MIN_QUERY_LENGTH = 4;
+const DEBOUNCE_MS = 300;
 
 interface AutocompleteSearchProps {
-  value: string;
-  onChange: (value: string) => void;
-  searchType: string;
-  disabled?: boolean;
-  onEnterPressed?: () => void;
-  placeholder?: string;
+    value: string;
+    onChange: (value: string) => void;
+    searchType: string;
+    disabled?: boolean;
+    onEnterPressed?: () => void;
+    placeholder?: string;
+}
+
+/** apiTypeFor maps a panel search mode onto the autocomplete endpoint's own. */
+function apiTypeFor(searchType: string): 'title' | 'author' | 'all' {
+    switch (searchType) {
+        case 'title':
+            return 'title';
+        case 'author':
+            return 'author';
+        // An author's own books are still searched by title.
+        case 'authorsBookSearch':
+            return 'title';
+        default:
+            return 'all';
+    }
+}
+
+function debounce<A extends unknown[]>(fn: (...args: A) => void, delay: number) {
+    let timeoutId: ReturnType<typeof setTimeout>;
+    return (...args: A) => {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => fn(...args), delay);
+    };
 }
 
 const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
-  value,
-  onChange,
-  searchType,
-  disabled = false,
-  onEnterPressed,
-  placeholder
+    value,
+    onChange,
+    searchType,
+    disabled = false,
+    onEnterPressed,
+    placeholder,
 }) => {
-  const { t } = useTranslation();
-  const { authorId } = useAuthor();
-  const { selectedLanguage } = useSearchBar();
-  const [suggestions, setSuggestions] = useState<AutocompleteSuggestion[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [inputValue, setInputValue] = useState(value);
-  const navigate = useNavigate();
-  const abortControllerRef = useRef<AbortController | null>(null);
+    const { t } = useTranslation();
+    const { authorId } = useAuthor();
+    const { selectedLanguage } = useSearchBar();
 
-  // Debounce function for request optimization
-  const debounce = (func: Function, delay: number) => {
-    let timeoutId: NodeJS.Timeout;
-    return (...args: any[]) => {
-      clearTimeout(timeoutId);
-      timeoutId = setTimeout(() => func.apply(null, args), delay);
-    };
-  };
+    const [suggestions, setSuggestions] = useState<AutocompleteSuggestion[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [inputValue, setInputValue] = useState(value);
+    const [open, setOpen] = useState(false);
+    const [highlighted, setHighlighted] = useState(-1);
 
-  // Memoized function for fetching suggestions
-  const fetchSuggestions = useMemo(
-    () => debounce(async (query: string, type: string, currentAuthorId: string, currentLanguage: string) => {
-      // Cancel previous request if exists
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
+    const abortControllerRef = useRef<AbortController | null>(null);
+    const latestQueryRef = useRef(value);
+    const containerRef = useRef<HTMLDivElement | null>(null);
 
-      if (!query || query.trim().length < 4) {
-        setSuggestions([]);
-        setLoading(false);
-        return;
-      }
+    const fetchSuggestions = useMemo(
+        () =>
+            debounce(
+                async (query: string, type: string, currentAuthorId: string, currentLanguage: string) => {
+                    abortControllerRef.current?.abort();
 
-      const trimmedQuery = query.trim();
+                    const trimmed = query.trim();
+                    if (trimmed.length < MIN_QUERY_LENGTH) {
+                        setSuggestions([]);
+                        setLoading(false);
+                        return;
+                    }
 
-      // Additional check to ensure query still matches current inputValue
-      if (query !== inputValue) {
-        setSuggestions([]);
-        setLoading(false);
-        return;
-      }
+                    const controller = new AbortController();
+                    abortControllerRef.current = controller;
+                    setLoading(true);
 
-      // Create new AbortController for this request
-      abortControllerRef.current = new AbortController();
+                    try {
+                        const results = await autocompleteService.getSuggestions(
+                            trimmed,
+                            apiTypeFor(type),
+                            type === 'authorsBookSearch' && currentAuthorId ? currentAuthorId : undefined,
+                            currentLanguage,
+                        );
 
-      setLoading(true);
-      try {
-        // Another check before sending request
-        if (query !== inputValue || trimmedQuery.length < 4) {
-          setSuggestions([]);
-          setLoading(false);
-          return;
-        }
-
-        // Map search types to API parameters
-        let apiType: 'title' | 'author' | 'all';
-
-        switch (type) {
-          case 'title':
-            apiType = 'title';
-            break;
-          case 'author':
-            apiType = 'author';
-            break;
-          case 'authorsBookSearch':
-            apiType = 'title';
-            break;
-          default:
-            apiType = 'all';
-        }
-
-        // Pass authorId only for author's book search
-        const authorIdParam = type === 'authorsBookSearch' && currentAuthorId ? currentAuthorId : undefined;
-
-        // Pass language to autocomplete
-        const results = await autocompleteService.getSuggestions(trimmedQuery, apiType, authorIdParam, currentLanguage);
-
-        // Check if request wasn't cancelled AND query is still relevant
-        if (abortControllerRef.current && !abortControllerRef.current.signal.aborted && query === inputValue) {
-          setSuggestions(results || []);
-        } else {
-          setSuggestions([]);
-        }
-      } catch (error) {
-        if (abortControllerRef.current && !abortControllerRef.current.signal.aborted) {
-          setSuggestions([]);
-        }
-      } finally {
-        if (abortControllerRef.current && !abortControllerRef.current.signal.aborted) {
-          setLoading(false);
-        }
-      }
-    }, 300),
-    [inputValue]
-  );
-
-  // Effect for fetching suggestions when query, searchType, authorId or selectedLanguage changes
-  useEffect(() => {
-    if (!inputValue || inputValue.trim().length < 4) {
-      // Cancel current request if string became short or empty
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-        abortControllerRef.current = null;
-      }
-      setSuggestions([]);
-      setLoading(false);
-      return;
-    }
-
-    // Send request only if all checks pass
-    fetchSuggestions(inputValue, searchType, authorId, selectedLanguage);
-  }, [inputValue, searchType, authorId, selectedLanguage, fetchSuggestions]);
-
-  // Synchronization with external value
-  useEffect(() => {
-    setInputValue(value);
-  }, [value]);
-
-  // Cleanup on component unmount
-  useEffect(() => {
-    return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    };
-  }, []);
-
-  const getIcon = (type: string) => {
-    switch (type) {
-      case 'book':
-        return <Book fontSize="small" />;
-      case 'author':
-        return <Person fontSize="small" />;
-      default:
-        return null;
-    }
-  };
-
-  const getTypeLabel = (type: string) => {
-    switch (type) {
-      case 'book':
-        return t('book');
-      case 'author':
-        return t('author');
-      default:
-        return '';
-    }
-  };
-
-  return (
-    <Autocomplete
-      freeSolo
-      options={suggestions}
-      inputValue={inputValue}
-      value={null}
-      onInputChange={(event, newInputValue) => {
-        // Clear suggestions immediately on any input change
-        if (newInputValue !== inputValue) {
-          setSuggestions([]);
-          setLoading(false);
-        }
-
-        setInputValue(newInputValue);
-        onChange(newInputValue);
-      }}
-      onChange={(event, newValue) => {
-        if (typeof newValue === 'string') {
-          onChange(newValue);
-        } else if (newValue) {
-          onChange(newValue.value);
-        }
-      }}
-      getOptionLabel={(option) =>
-        typeof option === 'string' ? option : option.value
-      }
-      isOptionEqualToValue={(_option, _value) => {
-        return false;
-      }}
-      filterOptions={(options, _params) => {
-        return options;
-      }}
-      openOnFocus={false}
-      clearOnBlur={false}
-      selectOnFocus={false}
-      handleHomeEndKeys={true}
-      disableCloseOnSelect={false}
-      blurOnSelect={true}
-      autoSelect={false}
-      clearOnEscape={true}
-      disabled={disabled}
-      loading={loading}
-      loadingText={t('loading')}
-      noOptionsText={inputValue.trim().length < 4 ? t('typeToSearch') : t('noOptions')}
-      renderInput={(params) => (
-        <TextField
-          {...params}
-          label={placeholder || t('searchItem')}
-          fullWidth
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && onEnterPressed) {
-              // Проверяем, есть ли открытые опции автокомплита
-              const autocompleteOpen = document.querySelector('[role="listbox"]');
-              const hasSelectedOption = document.querySelector('[role="option"][aria-selected="true"]');
-
-              // Запускаем поиск только если автокомплит закрыт или нет выбранной опции
-              if (!autocompleteOpen || !hasSelectedOption) {
-                e.preventDefault();
-                onEnterPressed();
-              }
-              // Если есть выбранная опция в автокомплите, позволяем стандартному поведению сработать
-            }
-          }}
-          InputProps={{
-            ...params.InputProps,
-            endAdornment: (
-              <>
-                {loading ? <CircularProgress color="inherit" size={20} /> : null}
-                {params.InputProps.endAdornment}
-              </>
+                        // Drop the answer if the reader has typed on since.
+                        if (controller.signal.aborted || query !== latestQueryRef.current) {
+                            return;
+                        }
+                        setSuggestions(results || []);
+                        setHighlighted(-1);
+                        setOpen(true);
+                    } catch {
+                        if (!controller.signal.aborted) {
+                            setSuggestions([]);
+                        }
+                    } finally {
+                        if (!controller.signal.aborted) {
+                            setLoading(false);
+                        }
+                    }
+                },
+                DEBOUNCE_MS,
             ),
-          }}
-        />
-      )}
-      renderOption={(props, option) => (
-        <Box component="li" {...props} onClick={(e) => {
-          // Prevent default behavior
-          e.preventDefault();
+        [],
+    );
 
-          // First update the search field with the selected suggestion value
-          setInputValue(option.value);
-          onChange(option.value);
+    useEffect(() => {
+        latestQueryRef.current = inputValue;
 
-          // Clear suggestions and loading state immediately
-          setSuggestions([]);
-          setLoading(false);
+        if (inputValue.trim().length < MIN_QUERY_LENGTH) {
+            abortControllerRef.current?.abort();
+            abortControllerRef.current = null;
+            setSuggestions([]);
+            setLoading(false);
+            return;
+        }
 
-          // Force blur to close the autocomplete dropdown
-          if (e.currentTarget) {
-            const autocompleteInput = document.querySelector('input[type="text"]') as HTMLInputElement;
-            if (autocompleteInput) {
-              autocompleteInput.blur();
+        fetchSuggestions(inputValue, searchType, authorId, selectedLanguage);
+    }, [inputValue, searchType, authorId, selectedLanguage, fetchSuggestions]);
+
+    // Keep in step when the panel resets the query, for instance after
+    // navigating to a filtered list.
+    useEffect(() => {
+        setInputValue(value);
+    }, [value]);
+
+    useEffect(() => () => abortControllerRef.current?.abort(), []);
+
+    useEffect(() => {
+        if (!open) return;
+        const onPointerDown = (event: MouseEvent) => {
+            if (!containerRef.current?.contains(event.target as Node)) {
+                setOpen(false);
             }
-          }
+        };
+        document.addEventListener('mousedown', onPointerDown);
+        return () => document.removeEventListener('mousedown', onPointerDown);
+    }, [open]);
 
-          // Navigate after a small delay to ensure UI updates
-          setTimeout(() => {
-            if (option.type === 'book') {
-              navigate(`/books/find/title/${encodeURIComponent(option.value)}/1`);
-            } else if (option.type === 'author') {
-              navigate(`/authors/${encodeURIComponent(option.value)}/1`);
+    const handleInput = (next: string) => {
+        // Clear straight away: stale suggestions under a changed query are worse
+        // than none.
+        setSuggestions([]);
+        setLoading(false);
+        setHighlighted(-1);
+        setInputValue(next);
+        onChange(next);
+    };
+
+    const pick = (suggestion: AutocompleteSuggestion) => {
+        setInputValue(suggestion.value);
+        onChange(suggestion.value);
+        setOpen(false);
+        setSuggestions([]);
+    };
+
+    const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+        const listOpen = open && suggestions.length > 0;
+
+        if (event.key === 'ArrowDown' && listOpen) {
+            event.preventDefault();
+            setHighlighted((index) => (index + 1) % suggestions.length);
+            return;
+        }
+        if (event.key === 'ArrowUp' && listOpen) {
+            event.preventDefault();
+            setHighlighted((index) => (index <= 0 ? suggestions.length - 1 : index - 1));
+            return;
+        }
+        if (event.key === 'Escape') {
+            setOpen(false);
+            return;
+        }
+        if (event.key === 'Enter') {
+            // A highlighted suggestion is a choice; anything else submits what
+            // was typed.
+            if (listOpen && highlighted >= 0) {
+                event.preventDefault();
+                pick(suggestions[highlighted]);
+                return;
             }
-          }, 100);
-        }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
-            <Box sx={{ mr: 1, display: 'flex', alignItems: 'center' }}>
-              {getIcon(option.type)}
-            </Box>
-            <Box sx={{ flexGrow: 1 }}>
-              <Typography variant="body2">
-                {option.value}
-              </Typography>
-            </Box>
-            <Chip
-              label={getTypeLabel(option.type)}
-              size="small"
-              variant="outlined"
-              sx={{ ml: 1 }}
+            setOpen(false);
+            onEnterPressed?.();
+        }
+    };
+
+    const hint =
+        inputValue.trim().length < MIN_QUERY_LENGTH ? t('typeToSearch') : t('noOptions');
+    const showList = open && !disabled && (loading || suggestions.length > 0 || inputValue.trim().length > 0);
+
+    return (
+        <div ref={containerRef} className="relative">
+            {/*
+              Deliberately type="text", not "search": a search input draws the
+              browser's own clear button, which is system chrome this interface
+              does not use anywhere else — and it lands exactly where the loading
+              spinner goes.
+            */}
+            <Input
+                type="text"
+                role="combobox"
+                aria-expanded={showList}
+                aria-autocomplete="list"
+                aria-label={placeholder || t('searchItem')}
+                placeholder={placeholder || t('searchItem')}
+                value={inputValue}
+                disabled={disabled}
+                onChange={(event) => handleInput(event.target.value)}
+                onFocus={() => suggestions.length > 0 && setOpen(true)}
+                onKeyDown={handleKeyDown}
+                className="w-full"
             />
-          </Box>
-        </Box>
-      )}
-      sx={{
-        '& .MuiOutlinedInput-root': {
-          boxShadow: (theme) => theme.shadows[2],
-          '& fieldset': {
-            borderColor: (theme) => theme.palette.divider,
-          },
-          '&:hover fieldset': {
-            borderColor: (theme) => theme.palette.text.primary,
-          },
-          '&.Mui-focused fieldset': {
-            borderColor: (theme) => theme.palette.text.primary,
-          },
-        },
-        '& .MuiInputBase-input': {
-          color: (theme) => theme.palette.text.primary,
-        },
-        '& .MuiInputLabel-root': {
-          color: (theme) => theme.palette.text.secondary,
-          '&.Mui-focused': {
-            color: (theme) => theme.palette.text.primary,
-          },
-        },
-      }}
-    />
-  );
+
+            {loading && (
+                <Loader2
+                    aria-hidden="true"
+                    className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 animate-spin text-muted-foreground"
+                />
+            )}
+
+            {showList && (
+                <ul
+                    role="listbox"
+                    className={cn(
+                        'absolute z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-md border border-border bg-popover p-1 shadow-md',
+                        // The platform scrollbar is the last piece of system chrome
+                        // on this panel; thin it down and put it in the theme's own
+                        // colours.
+                        '[scrollbar-color:var(--border)_transparent] [scrollbar-width:thin]',
+                    )}
+                >
+                    {suggestions.length === 0 ? (
+                        <li className="px-2 py-1.5 text-sm text-muted-foreground">
+                            {loading ? t('loading') : hint}
+                        </li>
+                    ) : (
+                        suggestions.map((suggestion, index) => (
+                            <li key={`${suggestion.type}-${suggestion.value}-${index}`}>
+                                <button
+                                    type="button"
+                                    role="option"
+                                    aria-selected={index === highlighted}
+                                    onMouseEnter={() => setHighlighted(index)}
+                                    onClick={() => pick(suggestion)}
+                                    className={cn(
+                                        'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm',
+                                        index === highlighted && 'bg-accent text-accent-foreground',
+                                    )}
+                                >
+                                    {suggestion.type === 'author' ? (
+                                        <User aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+                                    ) : (
+                                        <BookOpen aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+                                    )}
+                                    <span className="min-w-0 flex-1 truncate">{suggestion.value}</span>
+                                    <span className="shrink-0 text-xs text-muted-foreground">
+                                        {suggestion.type === 'author' ? t('author') : t('book')}
+                                    </span>
+                                </button>
+                            </li>
+                        ))
+                    )}
+                </ul>
+            )}
+        </div>
+    );
 };
 
 export default AutocompleteSearch;

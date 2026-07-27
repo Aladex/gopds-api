@@ -92,7 +92,7 @@ const SearchBar: React.FC = () => {
                             onValueChange={setSelectedSearch}
                             disabled={fav}
                         >
-                            <SelectTrigger id="search-category" className="h-10 w-full">
+                            <SelectTrigger id="search-category" className="w-full">
                                 <SelectValue placeholder={t('categorySearch')} />
                             </SelectTrigger>
                             <SelectContent>
@@ -121,7 +121,7 @@ const SearchBar: React.FC = () => {
                         type="button"
                         onClick={navigateToSearchResults}
                         disabled={fav}
-                        className="h-10 px-6 uppercase tracking-wide"
+                        className="px-6 uppercase tracking-wide"
                     >
                         {t('search')}
                     </Button>
@@ -135,9 +135,9 @@ const SearchBar: React.FC = () => {
                         aria-pressed={fav}
                         title={fav ? t('showAllBooks') : t('showFavourites')}
                         aria-label={fav ? t('showAllBooks') : t('showFavourites')}
-                        className={cn('size-10', fav && 'border-amber-500 text-amber-500')}
+                        className={cn(fav && 'border-amber-500 text-amber-500')}
                     >
-                        <Heart className={cn('size-5', fav && 'fill-current')} />
+                        <Heart className={cn('size-4', fav && 'fill-current')} />
                     </Button>
                 </div>
             </div>
