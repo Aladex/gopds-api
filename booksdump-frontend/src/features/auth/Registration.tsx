@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button, Typography, CardContent, CardActions, Box, IconButton } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import LoginCenteredBox from "@/shared/components/CenteredBox";
+import CenteredBox from "@/features/auth/CenteredBox";
 import { useTranslation } from 'react-i18next';
 import * as authApi from '@/api/auth';
 import { isApiError } from '@/api/errors';
@@ -53,7 +53,7 @@ const Registration: React.FC = () => {
     };
 
     return (
-        <LoginCenteredBox>
+        <CenteredBox>
             {isRegistered ? (
                 <>
                     <CardContent>
@@ -120,7 +120,7 @@ const Registration: React.FC = () => {
                     {regError && <Typography color="error" textAlign="center">{regError}</Typography>}
                 </>
             )}
-        </LoginCenteredBox>
+        </CenteredBox>
     );
 };
 

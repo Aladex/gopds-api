@@ -5,7 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { QuestionMark, Person, Lock } from '@mui/icons-material';
 import * as authApi from '@/api/auth';
 import { isApiError } from '@/api/errors';
-import LoginCenteredBox from "@/shared/components/CenteredBox";
+import CenteredBox from "@/features/auth/CenteredBox";
 import { useTranslation } from 'react-i18next';
 import { StyledTextField } from "@/shared/components/StyledDataItems";
 
@@ -72,7 +72,7 @@ const Login: React.FC = () => {
     };
 
     return (
-        <LoginCenteredBox>
+        <CenteredBox>
             <CardContent>
                 <Typography variant="h6" textAlign="left">{t('login')}</Typography>
                 {loginError && <Typography color="error">{loginError}</Typography>}
@@ -120,7 +120,7 @@ const Login: React.FC = () => {
                     </Button>
                 </Box>
             </CardActions>
-        </LoginCenteredBox>
+        </CenteredBox>
     );
 };
 

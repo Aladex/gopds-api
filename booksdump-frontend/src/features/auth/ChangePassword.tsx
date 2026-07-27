@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Button, Typography, CardContent, CardActions, IconButton, Box, CircularProgress } from '@mui/material';
 import { useNavigate, useParams } from 'react-router-dom';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import LoginCenteredBox from "@/shared/components/CenteredBox";
+import CenteredBox from "@/features/auth/CenteredBox";
 import { useTranslation } from 'react-i18next';
 import * as authApi from '@/api/auth';
 import { isApiError } from '@/api/errors';
@@ -66,19 +66,19 @@ const ChangePassword: React.FC = () => {
 
     if (isValidating) {
         return (
-            <LoginCenteredBox>
+            <CenteredBox>
                 <CardContent>
                     <Typography variant="h6" textAlign="center">{t('validatingToken')}</Typography>
                     <Box display="flex" justifyContent="center" mt={2}>
                         <CircularProgress />
                     </Box>
                 </CardContent>
-            </LoginCenteredBox>
+            </CenteredBox>
         );
     }
 
     return (
-        <LoginCenteredBox>
+        <CenteredBox>
             <CardContent>
                 <Typography variant="h6" textAlign="center">{t('changePassword')}</Typography>
                 <StyledTextField
@@ -101,7 +101,7 @@ const ChangePassword: React.FC = () => {
                 </Box>
             </CardActions>
             {changeError && <Typography color="error" textAlign="center">{changeError}</Typography>}
-        </LoginCenteredBox>
+        </CenteredBox>
     );
 };
 

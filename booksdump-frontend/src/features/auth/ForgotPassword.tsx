@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Button, Typography, CardContent, CardActions, IconButton, Box} from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import LoginCenteredBox from "@/shared/components/CenteredBox";
+import CenteredBox from "@/features/auth/CenteredBox";
 import { useTranslation } from 'react-i18next';
 import * as authApi from '@/api/auth';
 import { isApiError } from '@/api/errors';
@@ -38,7 +38,7 @@ const ForgotPassword: React.FC = () => {
 
 
     return (
-        <LoginCenteredBox>
+        <CenteredBox>
                 <CardContent>
                     <Typography variant="h6" textAlign="center">{t('forgotPassword')}</Typography>
                     <StyledTextField
@@ -61,7 +61,7 @@ const ForgotPassword: React.FC = () => {
                     </Box>
                 </CardActions>
             {resetError && <Typography color="error" textAlign="center">{resetError}</Typography>}
-        </LoginCenteredBox>
+        </CenteredBox>
     );
 };
 

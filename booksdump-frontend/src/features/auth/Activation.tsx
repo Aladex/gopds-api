@@ -5,7 +5,7 @@ import * as authApi from '@/api/auth';
 import { isApiError } from '@/api/errors';
 import { useTranslation } from 'react-i18next';
 import { LinearProgress, Box, Typography } from '@mui/material';
-import LoginCenteredBox from '@/shared/components/CenteredBox';
+import CenteredBox from '@/features/auth/CenteredBox';
 import CardContent from '@mui/material/CardContent';
 
 const Activation: React.FC = () => {
@@ -50,7 +50,7 @@ const Activation: React.FC = () => {
     }, []);
 
     return (
-        <LoginCenteredBox>
+        <CenteredBox>
             <CardContent>
                 <Typography variant="h6" textAlign="center">{t('activation')}</Typography>
                 <Box textAlign="center">
@@ -58,7 +58,7 @@ const Activation: React.FC = () => {
                     <LinearProgress variant="determinate" value={progress} color={"secondary"} />
                 </Box>
             </CardContent>
-        </LoginCenteredBox>
+        </CenteredBox>
     );
 };
 
