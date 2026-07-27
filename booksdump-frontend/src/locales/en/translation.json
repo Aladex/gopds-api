@@ -409,5 +409,7 @@
   "bookApproved": "Approved",
   "bookNotApproved": "Not approved",
   "bookFavAdd": "Add to favourites",
-  "bookFavRemove": "Remove from favourites"
+  "bookFavRemove": "Remove from favourites",
+  "showFavourites": "Show favourites",
+  "showAllBooks": "Show all books"
 }

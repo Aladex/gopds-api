@@ -1,46 +1,50 @@
 import React from 'react';
-import {
-    Box,
-    Stack,
-    Card,
-    CardContent,
-    Button,
-    Select,
-    MenuItem,
-    InputLabel
-} from '@mui/material';
 import { useTranslation } from 'react-i18next';
-import { Favorite, FavoriteBorder } from "@mui/icons-material";
 import { useNavigate } from 'react-router-dom';
-import { useFav } from "../../context/FavContext";
-import { useAuthor } from "../../context/AuthorContext";
-import { useSearchBar } from "../../context/SearchBarContext";
-import { StyledFormControl} from "../StyledDataItems";
-import useSearchOptions from "../hooks/useSearchOptions";
-import AutocompleteSearch from "./AutocompleteSearch";
+import { Heart } from 'lucide-react';
 
-interface Record {
+import { Button } from '@/components/ui/button';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
+import { cn } from '@/lib/utils';
+
+import { useAuthor } from '../../context/AuthorContext';
+import { useFav } from '../../context/FavContext';
+import { useSearchBar } from '../../context/SearchBarContext';
+import useSearchOptions from '../hooks/useSearchOptions';
+import AutocompleteSearch from './AutocompleteSearch';
+
+interface SearchRecord {
     option: string;
     path: string;
 }
 
+/**
+ * SearchBar turns a query into a route. Nothing here fetches: the list route it
+ * navigates to does the loading.
+ *
+ * While the favourites filter is on, every control is disabled — the backend
+ * cannot search inside favourites, so an enabled box would promise something it
+ * would not deliver.
+ */
 const SearchBar: React.FC = () => {
     const { t } = useTranslation();
     const { searchItem, setSearchItem, selectedSearch, setSelectedSearch } = useSearchBar();
     const navigate = useNavigate();
     const { fav, favEnabled } = useFav();
     const searchOptions = useSearchOptions(setSelectedSearch);
+    const { authorId, setAuthorBook, clearAuthorId, clearAuthorBook } = useAuthor();
 
-    const records: Record[] = [
+    const records: SearchRecord[] = [
         { option: 'authorsBookSearch', path: `/books/find/author/` },
         { option: 'title', path: `/books/find/title/${encodeURIComponent(searchItem)}/1` },
         { option: 'author', path: `/authors/${encodeURIComponent(searchItem)}/1` },
     ];
-    const {authorId, setAuthorBook, clearAuthorId, clearAuthorBook } = useAuthor();
-
-    const handleSetAuthorBook = () => {
-        setAuthorBook(searchItem);
-    };
 
     const navigateToSearchResults = () => {
         // Check that the search field is not empty and contains at least one character
@@ -48,132 +52,96 @@ const SearchBar: React.FC = () => {
             return;
         }
 
-        const record = records.find(record => record.option === selectedSearch);
-        handleSetAuthorBook();
-        if (record) {
-            // If option is 'authorsBookSearch', set authorId in AuthorContext, else clear it
-            if (record.option !== 'authorsBookSearch') {
-                clearAuthorId();
-                clearAuthorBook();
-                navigate(record.path);
-            } else {
-                navigate(record.path + authorId + '/1');
-            }
+        const record = records.find((item) => item.option === selectedSearch);
+        setAuthorBook(searchItem);
+        if (!record) {
+            return;
+        }
+
+        // Searching an author's own books keeps the author id; anything else
+        // starts from a clean slate.
+        if (record.option !== 'authorsBookSearch') {
+            clearAuthorId();
+            clearAuthorBook();
+            navigate(record.path);
+        } else {
+            navigate(record.path + authorId + '/1');
         }
     };
 
-    return (
-        <Box maxWidth={1200} mx="auto">
-            <Card sx={{ boxShadow: 2, p: 1, my: 1 }}>
-                <CardContent>
-                    <Stack
-                        direction={{ xs: 'column', lg: 'row' }}
-                        spacing={2}
-                        alignItems={{ xs: 'stretch', lg: 'flex-start' }}
-                    >
-                        <Box sx={{ flex: { xs: 1, lg: 3 } }}>
-                            <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2}>
-                                <Box sx={{ flex: { xs: 1, lg: 1 } }}>
-                                            <StyledFormControl fullWidth>
-                                                <InputLabel id="category-search-label">{t('categorySearch')}</InputLabel>
-                                                <Select
-                                                    labelId="category-search-label"
-                                                    value={selectedSearch}
-                                                    onChange={(e) => setSelectedSearch(e.target.value as string)}
-                                                    disabled={fav}
-                                                    label={t('categorySearch')}
-                                                >
-                                                    {searchOptions.map((option) => (
-                                                        <MenuItem key={option.value} value={option.value}>
-                                                            {option.label}
-                                                        </MenuItem>
-                                                    ))}
-                                                </Select>
-                                            </StyledFormControl>
-                                </Box>
-                                <Box sx={{ flex: { xs: 1, lg: 2 } }}>
-                                    <AutocompleteSearch
-                                        value={searchItem}
-                                        onChange={setSearchItem}
-                                        searchType={selectedSearch}
-                                        disabled={fav}
-                                        onEnterPressed={navigateToSearchResults}
-                                        placeholder={t('searchItem')}
-                                    />
-                                </Box>
-                            </Stack>
-                        </Box>
+    const toggleFavourites = () => {
+        if (!favEnabled) {
+            return;
+        }
+        navigate(fav ? '/books/page/1' : '/books/favorite/1');
+    };
 
-                        <Box sx={{ flex: { xs: 1, lg: 1 } }}>
-                            <Stack direction="row" spacing={1} alignItems="center">
-                                <Box sx={{ flex: { xs: 2, lg: 1 } }}>
-                                    <Button
-                                        sx={{
-                                            height: '56px',
-                                            minHeight: '56px'
-                                        }}
-                                        variant="contained"
-                                        onClick={navigateToSearchResults}
-                                        disabled={fav}
-                                        fullWidth
-                                    >
-                                        {t('search')}
-                                    </Button>
-                                </Box>
-                                <Box sx={{
-                                    flex: { xs: 1, lg: 1 },
-                                    display: 'flex',
-                                    justifyContent: 'center',
-                                    alignItems: 'center'
-                                }}>
-                                    <Box
-                                        onClick={() => {
-                                            if (!favEnabled) {
-                                                return;
-                                            }
-                                            navigate(fav ? '/books/page/1' : '/books/favorite/1');
-                                        }}
-                                        sx={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            height: '56px',
-                                            cursor: favEnabled ? 'pointer' : 'default',
-                                            opacity: favEnabled ? 1 : 0.38,
-                                        }}
-                                    >
-                                        {fav ? (
-                                            <Favorite
-                                                sx={{
-                                                    fontSize: '48px',
-                                                    color: (theme) => theme.palette.text.primary,
-                                                    filter: 'drop-shadow(0px 2px 1px rgba(0,0,0,0.2)) drop-shadow(0px 1px 1px rgba(0,0,0,0.14)) drop-shadow(0px 1px 3px rgba(0,0,0,0.12))',
-                                                    '&:hover': {
-                                                        filter: 'drop-shadow(0px 3px 5px rgba(0,0,0,0.2)) drop-shadow(0px 6px 10px rgba(0,0,0,0.14)) drop-shadow(0px 1px 18px rgba(0,0,0,0.12))',
-                                                    }
-                                                }}
-                                            />
-                                        ) : (
-                                            <FavoriteBorder
-                                                sx={{
-                                                    fontSize: '48px',
-                                                    color: (theme) => theme.palette.text.primary,
-                                                    filter: 'drop-shadow(0px 2px 1px rgba(0,0,0,0.2)) drop-shadow(0px 1px 1px rgba(0,0,0,0.14)) drop-shadow(0px 1px 3px rgba(0,0,0,0.12))',
-                                                    '&:hover': {
-                                                        filter: 'drop-shadow(0px 3px 5px rgba(0,0,0,0.2)) drop-shadow(0px 6px 10px rgba(0,0,0,0.14)) drop-shadow(0px 1px 18px rgba(0,0,0,0.12))',
-                                                        color: (theme) => theme.palette.text.primary,
-                                                    }
-                                                }}
-                                            />
-                                        )}
-                                    </Box>
-                                </Box>
-                            </Stack>
-                        </Box>
-                    </Stack>
-                </CardContent>
-            </Card>
-        </Box>
+    return (
+        <div className="mx-auto w-full max-w-[1200px] py-1.5">
+            <div className="rounded border border-border bg-card p-3.5">
+                <div className="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(150px,1fr)_minmax(0,2fr)_auto_auto]">
+                    <div className="flex min-w-0 flex-col gap-1.5">
+                        <label
+                            htmlFor="search-category"
+                            className="text-xs text-muted-foreground"
+                        >
+                            {t('categorySearch')}
+                        </label>
+                        <Select
+                            value={selectedSearch}
+                            onValueChange={setSelectedSearch}
+                            disabled={fav}
+                        >
+                            <SelectTrigger id="search-category" className="h-10 w-full">
+                                <SelectValue placeholder={t('categorySearch')} />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {searchOptions.map((option) => (
+                                    <SelectItem key={option.value} value={option.value}>
+                                        {option.label}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+
+                    <div className="flex min-w-0 flex-col gap-1.5 sm:col-span-2 lg:col-span-1">
+                        <span className="text-xs text-muted-foreground">{t('searchItem')}</span>
+                        <AutocompleteSearch
+                            value={searchItem}
+                            onChange={setSearchItem}
+                            searchType={selectedSearch}
+                            disabled={fav}
+                            onEnterPressed={navigateToSearchResults}
+                            placeholder={t('searchItem')}
+                        />
+                    </div>
+
+                    <Button
+                        type="button"
+                        onClick={navigateToSearchResults}
+                        disabled={fav}
+                        className="h-10 px-6 uppercase tracking-wide"
+                    >
+                        {t('search')}
+                    </Button>
+
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={toggleFavourites}
+                        disabled={!favEnabled}
+                        aria-pressed={fav}
+                        title={fav ? t('showAllBooks') : t('showFavourites')}
+                        aria-label={fav ? t('showAllBooks') : t('showFavourites')}
+                        className={cn('size-10', fav && 'border-amber-500 text-amber-500')}
+                    >
+                        <Heart className={cn('size-5', fav && 'fill-current')} />
+                    </Button>
+                </div>
+            </div>
+        </div>
     );
 };
 

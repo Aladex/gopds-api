@@ -152,7 +152,9 @@ describe('SearchBar in favourites mode', () => {
 
         expect(screen.getByRole('button', { name: /search/i })).toBeDisabled();
         expect(screen.getByLabelText('searchItem')).toBeDisabled();
-        expect(screen.getByRole('combobox')).toHaveAttribute('aria-disabled', 'true');
+        // Radix marks the trigger disabled for real rather than announcing it
+        // through aria-disabled, so keyboard focus skips it too.
+        expect(screen.getByRole('combobox')).toBeDisabled();
     });
 
     it('leaves the panel usable when the filter is off', () => {
@@ -160,5 +162,13 @@ describe('SearchBar in favourites mode', () => {
 
         expect(screen.getByRole('button', { name: /search/i })).toBeEnabled();
         expect(screen.getByLabelText('searchItem')).toBeEnabled();
+        expect(screen.getByRole('combobox')).toBeEnabled();
+    });
+
+    it('offers the favourites filter only to a reader who has favourites', () => {
+        favState.favEnabled = false;
+        renderBar();
+
+        expect(screen.getByRole('button', { name: 'showFavourites' })).toBeDisabled();
     });
 });

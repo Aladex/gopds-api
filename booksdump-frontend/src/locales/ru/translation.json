@@ -412,5 +412,7 @@
   "bookApproved": "Одобрено",
   "bookNotApproved": "Не одобрено",
   "bookFavAdd": "Добавить в избранное",
-  "bookFavRemove": "Убрать из избранного"
+  "bookFavRemove": "Убрать из избранного",
+  "showFavourites": "Показать избранное",
+  "showAllBooks": "Показать все книги"
 }
