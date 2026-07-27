@@ -1,105 +1,90 @@
 import React from 'react';
-import { Box, Card, Skeleton, Stack } from '@mui/material';
-import { keyframes } from '@emotion/react';
 
-const fadeIn = keyframes`
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
-`;
+/**
+ * AppSkeleton stands in for the whole application while the session and the
+ * language are still loading.
+ *
+ * It runs before i18n exists, so it can carry no text — which makes its shape
+ * the only thing it can say. It draws the header and a few book cards in the
+ * proportions Header and SkeletonCard use, so the interface that replaces it
+ * lands where the reader is already looking instead of shifting under them.
+ *
+ * The breakpoints are Tailwind's rather than Header's own media queries: the
+ * skeleton has no state to consult and a placeholder does not need the exact
+ * pixel where the bar changes height.
+ */
 
-const AppSkeleton: React.FC = () => {
-    return (
-        <Box
-            sx={{
-                minHeight: '100vh',
-                bgcolor: 'background.default',
-                animation: `${fadeIn} 300ms ease-out`,
-            }}
-        >
-            {/* Header */}
-            <Box sx={{ bgcolor: '#2f2f2f', px: 2, py: 1.5 }}>
-                <Box
-                    sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 2,
-                        flexWrap: 'wrap',
-                    }}
-                >
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Skeleton variant="circular" width={28} height={28} sx={{ bgcolor: 'grey.700' }} />
-                        <Skeleton variant="rectangular" width={160} height={24} sx={{ bgcolor: 'grey.700' }} />
-                        <Box sx={{ display: { xs: 'none', sm: 'flex' }, gap: 1 }}>
-                            <Skeleton variant="rectangular" width={90} height={22} sx={{ bgcolor: 'grey.700' }} />
-                            <Skeleton variant="rectangular" width={90} height={22} sx={{ bgcolor: 'grey.700' }} />
-                            <Skeleton variant="rectangular" width={90} height={22} sx={{ bgcolor: 'grey.700' }} />
-                        </Box>
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Skeleton variant="circular" width={28} height={28} sx={{ bgcolor: 'grey.700' }} />
-                        <Skeleton variant="circular" width={28} height={28} sx={{ bgcolor: 'grey.700' }} />
-                        <Skeleton variant="rectangular" width={72} height={24} sx={{ bgcolor: 'grey.700', borderRadius: 12 }} />
-                    </Box>
-                </Box>
-            </Box>
+const CARD_COUNT = 4;
 
-            {/* Book cards list */}
-            <Stack spacing={0} sx={{ px: 2, py: 1 }}>
-                {[0, 1, 2, 3].map((item) => (
-                    <Box maxWidth={1200} mx="auto" key={item} sx={{ width: '100%' }}>
-                        <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
-                            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-                                {/* Left: cover + details */}
-                                <Box sx={{ flex: { xs: 1, md: 3 }, minWidth: 0 }}>
-                                    <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-                                        {/* Cover */}
-                                        <Box sx={{ flex: { xs: 1, md: 1 }, maxWidth: { md: '33.33%' } }}>
-                                            <Skeleton
-                                                variant="rectangular"
-                                                sx={{
-                                                    width: '100%',
-                                                    aspectRatio: '2/3',
-                                                    borderRadius: 1,
-                                                }}
-                                            />
-                                        </Box>
-                                        {/* Text details */}
-                                        <Box sx={{ flex: { xs: 1, md: 2 }, py: 1 }}>
-                                            <Skeleton variant="text" width="70%" height={32} />
-                                            <Skeleton variant="text" width="45%" height={20} sx={{ mt: 1 }} />
-                                            <Skeleton variant="text" width="40%" height={20} />
-                                            <Skeleton variant="text" width="30%" height={20} sx={{ mt: 1 }} />
-                                            <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
-                                                <Skeleton variant="rectangular" width={80} height={24} sx={{ borderRadius: 8 }} />
-                                                <Skeleton variant="rectangular" width={100} height={24} sx={{ borderRadius: 8 }} />
-                                            </Box>
-                                            <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
-                                                <Skeleton variant="rectangular" width={70} height={24} sx={{ borderRadius: 8 }} />
-                                            </Box>
-                                        </Box>
-                                    </Stack>
-                                    {/* Annotation */}
-                                    <Box sx={{ mt: 1, px: 2 }}>
-                                        <Skeleton variant="text" width="95%" height={18} />
-                                        <Skeleton variant="text" width="85%" height={18} />
-                                        <Skeleton variant="text" width="60%" height={18} />
-                                    </Box>
-                                </Box>
-                                {/* Right: download buttons */}
-                                <Box sx={{ flex: { xs: 1, md: 1 }, display: 'flex', flexDirection: 'column', gap: 1, alignItems: { xs: 'stretch', md: 'flex-start' }, pt: 1 }}>
-                                    <Skeleton variant="rectangular" width={120} height={36} sx={{ borderRadius: 1 }} />
-                                    <Skeleton variant="rectangular" width={120} height={36} sx={{ borderRadius: 1 }} />
-                                    <Skeleton variant="rectangular" width={120} height={36} sx={{ borderRadius: 1 }} />
-                                    <Skeleton variant="rectangular" width={120} height={36} sx={{ borderRadius: 1 }} />
-                                </Box>
-                            </Stack>
-                        </Card>
-                    </Box>
-                ))}
-            </Stack>
-        </Box>
-    );
-};
+/** Matches SkeletonCard's cover, so the two placeholders agree. */
+const COVER_WIDTH = 104;
+
+/** Header is dark in both themes, so its placeholders are too. */
+const barBlock = 'animate-pulse rounded bg-white/15';
+
+const bodyBlock = 'animate-pulse rounded bg-muted';
+
+const AppSkeleton: React.FC = () => (
+    <div
+        aria-hidden="true"
+        className="min-h-screen animate-in fade-in duration-300 bg-background"
+    >
+        {/* Header: logo and section links on the left, controls on the right. */}
+        <div className="flex h-12 w-full items-center gap-4 bg-neutral-900 px-4 sm:h-16">
+            <div className="size-6 flex-none animate-pulse rounded-full bg-white/15" />
+            <div className="hidden items-center gap-6 sm:flex">
+                <div className={`h-4 w-20 ${barBlock}`} />
+                <div className={`h-4 w-24 ${barBlock}`} />
+                <div className={`h-4 w-20 ${barBlock}`} />
+            </div>
+            <div className="flex-1" />
+            <div className="flex items-center gap-2">
+                <div className={`h-4 w-14 ${barBlock}`} />
+                <div className="size-5 animate-pulse rounded-full bg-white/15" />
+                <div className={`hidden h-4 w-20 sm:block ${barBlock}`} />
+            </div>
+        </div>
+
+        {/* The catalogue is the first screen after loading, so it is what the
+            placeholder draws — the same card frame SkeletonCard uses. */}
+        <div className="flex flex-col p-4">
+            {Array.from({ length: CARD_COUNT }).map((_, index) => (
+                <div key={index} className="mx-auto w-full max-w-[1200px] py-1.5">
+                    <div className="rounded border border-border bg-card p-4">
+                        <div
+                            className="grid gap-4"
+                            style={{ gridTemplateColumns: `${COVER_WIDTH}px minmax(0, 1fr)` }}
+                        >
+                            <div className="flex flex-col gap-2">
+                                <div
+                                    style={{ width: COVER_WIDTH }}
+                                    className={`h-[150px] rounded-sm ${bodyBlock}`}
+                                />
+                                {/* Four download formats in two columns. */}
+                                <div className="grid grid-cols-2 gap-1">
+                                    <div className={`h-4 ${bodyBlock}`} />
+                                    <div className={`h-4 ${bodyBlock}`} />
+                                    <div className={`h-4 ${bodyBlock}`} />
+                                    <div className={`h-4 ${bodyBlock}`} />
+                                </div>
+                            </div>
+                            <div className="flex min-w-0 flex-col gap-2.5 py-1">
+                                <div className={`h-5 w-2/5 ${bodyBlock}`} />
+                                <div className={`h-3 w-3/5 ${bodyBlock}`} />
+                                <div className={`h-3 w-1/3 ${bodyBlock}`} />
+                                <div className={`mt-1 h-3 w-full ${bodyBlock}`} />
+                                <div className={`h-3 w-4/5 ${bodyBlock}`} />
+                            </div>
+                        </div>
+                        {/* The card's action row, ruled off the same way. */}
+                        <div className="mt-2 flex justify-end gap-1 border-t border-border pt-2.5">
+                            <div className={`size-6 ${bodyBlock}`} />
+                        </div>
+                    </div>
+                </div>
+            ))}
+        </div>
+    </div>
+);
 
 export default AppSkeleton;

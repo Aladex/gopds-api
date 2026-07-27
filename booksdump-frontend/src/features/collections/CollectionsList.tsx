@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Box, Card, CardActionArea, Stack, Typography } from '@mui/material';
-import { Link as RouterLink, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { AlertCircle } from 'lucide-react';
+
+import { Alert, AlertDescription, AlertTitle } from '@/shared/ui/alert';
+
 import { API_URL } from '@/api/config';
 import BookPagination from '@/features/catalogue/BookPagination';
 import {
@@ -27,6 +30,16 @@ const hashHue = (s: string) => {
     return h % 360;
 };
 
+/**
+ * The gradients are derived from the collection name, so they live in style
+ * rather than in a class: there is no finite set of them to name.
+ */
+const gradient = (hue: number, offset: number, saturation: number, from: number, to: number) =>
+    `linear-gradient(135deg, hsl(${hue} ${saturation}% ${from}%), hsl(${(hue + offset) % 360} ${saturation}% ${to}%))`;
+
+/** Tall enough for four cover tiles to read as covers rather than as swatches. */
+const MOSAIC_HEIGHT = 220;
+
 const CoverMosaic: React.FC<{ name: string; books?: CollectionCoverBook[] }> = ({ name, books }) => {
     const real = (books ?? []).map((b) => ({ url: coverURL(b), title: b.title }));
     const withCover = real.filter((b) => b.url);
@@ -37,64 +50,52 @@ const CoverMosaic: React.FC<{ name: string; books?: CollectionCoverBook[] }> = (
 
     if (withCover.length === 0) {
         // No covers anywhere — full-card gradient with the collection initial.
-        const hue = hashHue(name);
         const initial = name.trim().charAt(0).toUpperCase() || '·';
         return (
-            <Box
-                sx={{
-                    height: 220,
-                    background: `linear-gradient(135deg, hsl(${hue} 40% 50%), hsl(${(hue + 50) % 360} 40% 30%))`,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#fff',
-                    fontSize: 84,
-                    fontWeight: 300,
-                    letterSpacing: -2,
-                }}
+            <div
+                aria-hidden="true"
+                style={{ height: MOSAIC_HEIGHT, background: gradient(hashHue(name), 50, 40, 50, 30) }}
+                className="flex items-center justify-center text-[84px] font-light leading-none tracking-tighter text-white"
             >
                 {initial}
-            </Box>
+            </div>
         );
     }
 
     return (
-        <Box
-            sx={{
-                height: 220,
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                gridTemplateRows: '1fr 1fr',
-                gap: '2px',
-                background: '#0001',
-            }}
+        // The gap shows the surface underneath, which is what draws the seams
+        // between the four tiles — no borders involved.
+        <div
+            aria-hidden="true"
+            style={{ height: MOSAIC_HEIGHT }}
+            className="grid grid-cols-2 grid-rows-2 gap-0.5 bg-border"
         >
-            {tiles.map((t, i) => {
-                if (t.url) {
-                    return (
-                        <Box
-                            key={i}
-                            sx={{
-                                backgroundImage: `url("${t.url}")`,
-                                backgroundSize: 'cover',
-                                backgroundPosition: 'center',
-                            }}
-                        />
-                    );
-                }
-                const hue = hashHue(name + i);
-                return (
-                    <Box
+            {tiles.map((tile, i) =>
+                tile.url ? (
+                    <img
                         key={i}
-                        sx={{
-                            background: `linear-gradient(135deg, hsl(${hue} 30% 55%), hsl(${(hue + 60) % 360} 30% 35%))`,
-                        }}
+                        src={tile.url}
+                        alt=""
+                        loading="lazy"
+                        className="size-full bg-muted object-cover"
                     />
-                );
-            })}
-        </Box>
+                ) : (
+                    <div key={i} style={{ background: gradient(hashHue(name + i), 60, 30, 55, 35) }} />
+                ),
+            )}
+        </div>
     );
 };
+
+/** A card-shaped placeholder, so the grid does not jump when the rows arrive. */
+const SkeletonTile: React.FC = () => (
+    <div aria-hidden="true" className="overflow-hidden rounded-xl border border-border bg-card">
+        <div style={{ height: MOSAIC_HEIGHT }} className="animate-pulse bg-muted" />
+        <div className="p-4">
+            <div className="h-5 w-1/2 animate-pulse rounded bg-muted" />
+        </div>
+    </div>
+);
 
 const PAGE_SIZE = 12;
 
@@ -133,63 +134,60 @@ const CollectionsList: React.FC = () => {
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
     if (loadError) {
-        return <Alert severity="error">{loadError}</Alert>;
+        return (
+            <div className="mx-auto w-full max-w-[1200px] p-4">
+                <Alert variant="destructive">
+                    <AlertCircle />
+                    <AlertTitle>{t('publicCollections.loadError', 'Could not load collections')}</AlertTitle>
+                    <AlertDescription>{loadError}</AlertDescription>
+                </Alert>
+            </div>
+        );
     }
 
     return (
-        <Box p={2} sx={{ minHeight: 'calc(100vh - 160px)' }}>
-            <Box
-                maxWidth={1200}
-                mx="auto"
-                sx={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    minHeight: 'calc(100vh - 200px)',
-                }}
-            >
-                <Typography variant="h5" gutterBottom>
+        <div className="min-h-[calc(100vh-160px)] p-4">
+            <div className="mx-auto flex min-h-[calc(100vh-200px)] w-full max-w-[1200px] flex-col">
+                <h1 className="mb-2 text-2xl font-medium">
                     {t('publicCollections.title', 'Collections')}
-                </Typography>
+                </h1>
 
                 {loaded && rows.length === 0 && (
-                    <Typography color="text.secondary">
+                    <p className="text-muted-foreground">
                         {t('publicCollections.empty', 'No collections yet')}
-                    </Typography>
+                    </p>
                 )}
 
-                <Box
-                    sx={{
-                        mt: 2,
-                        display: 'grid',
-                        gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)' },
-                        gap: 2.5,
-                    }}
-                >
-                    {rows.map((c) => (
-                        <Card key={c.id} sx={{ borderRadius: 3, overflow: 'hidden' }}>
-                            <CardActionArea component={RouterLink} to={`/collections/${c.id}/page/1`}>
-                                <CoverMosaic name={c.name} books={c.cover_books} />
-                                <Box p={2}>
-                                    <Typography variant="h6" sx={{ lineHeight: 1.2 }}>
-                                        {c.name}
-                                    </Typography>
-                                </Box>
-                            </CardActionArea>
-                        </Card>
-                    ))}
-                </Box>
+                <div className="mt-4 grid gap-5 sm:grid-cols-2 md:grid-cols-3">
+                    {loaded
+                        ? rows.map((c) => (
+                              <Link
+                                  key={c.id}
+                                  to={`/collections/${c.id}/page/1`}
+                                  className="block overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-muted-foreground"
+                              >
+                                  <CoverMosaic name={c.name} books={c.cover_books} />
+                                  <h2 className="p-4 text-lg font-medium leading-tight text-balance">
+                                      {c.name}
+                                  </h2>
+                              </Link>
+                          ))
+                        : Array.from({ length: PAGE_SIZE }).map((_, index) => (
+                              <SkeletonTile key={index} />
+                          ))}
+                </div>
 
                 {totalPages > 1 && (
-                    <Stack alignItems="center" mt="auto" pt={3}>
+                    <div className="mt-auto flex justify-center pt-6">
                         <BookPagination
                             totalPages={totalPages}
                             currentPage={page}
                             baseUrl={`/collections/page/${page}`}
                         />
-                    </Stack>
+                    </div>
                 )}
-            </Box>
-        </Box>
+            </div>
+        </div>
     );
 };
 

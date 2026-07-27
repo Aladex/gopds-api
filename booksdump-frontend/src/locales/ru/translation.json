@@ -438,5 +438,6 @@
   "donateTitle": "Поддержать проект",
   "donateOpen": "Открыть",
   "copy": "Копировать",
-  "copied": "Скопировано"
+  "copied": "Скопировано",
+  "publicCollections.loadError": "Не удалось загрузить подборки"
 }
