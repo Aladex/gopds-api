@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Button, Typography, CardContent, CardActions, Box, IconButton, InputAdornment } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { HelpCircle, Lock, User } from 'lucide-react';
+
+import { Alert, AlertDescription } from '@/shared/ui/alert';
+import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
 import { useAuth } from '@/context/AuthContext';
-import { QuestionMark, Person, Lock } from '@mui/icons-material';
 import * as authApi from '@/api/auth';
 import { isApiError } from '@/api/errors';
-import CenteredBox from "@/features/auth/CenteredBox";
-import { useTranslation } from 'react-i18next';
-import { StyledTextField } from "@/shared/components/StyledDataItems";
+import CenteredBox from '@/features/auth/CenteredBox';
 
 const Login: React.FC = () => {
     const [username, setUsername] = useState('');
@@ -26,20 +28,26 @@ const Login: React.FC = () => {
 
     // Don't render the form if user is authenticated or still loading
     if (!isLoaded || isAuthenticated) {
-        return null; // or a loading spinner
+        return null;
     }
 
-    const handleLogin = async () => {
-        // Check if both username and password are entered
+    const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+
+        // The submit button stays enabled on purpose: a disabled button gives a
+        // reader nothing to press and no reason why, whereas submitting says it.
         if (!username || !password) {
             setLoginError(t('usernameAndPasswordRequired'));
-            return; // Exit the function early if either is missing
+            return;
         }
+
+        setLoginError('');
 
         try {
             const userData = await authApi.login({ username, password });
 
-            // Сразу устанавливаем пользователя из ответа login API
+            // The login response already carries the account, so there is no
+            // reason to ask the server who just signed in.
             setUser({
                 username: userData.username,
                 first_name: userData.first_name,
@@ -73,53 +81,72 @@ const Login: React.FC = () => {
 
     return (
         <CenteredBox>
-            <CardContent>
-                <Typography variant="h6" textAlign="left">{t('login')}</Typography>
-                {loginError && <Typography color="error">{loginError}</Typography>}
-                <StyledTextField
-                    label={t('username')}
-                    onChange={(e) => setUsername(e.target.value)}
-                    fullWidth
-                    margin="normal"
-                    InputProps={{
-                        startAdornment: (
-                            <InputAdornment position="start">
-                                <Person />
-                            </InputAdornment>
-                        ),
-                    }}
-                />
-                <StyledTextField
-                    label={t('password')}
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    onKeyUp={(e) => {
-                        if (e.key === 'Enter') {
-                            handleLogin().then(r => r);
-                        }
-                    }}
-                    fullWidth
-                    margin="normal"
-                    InputProps={{
-                        startAdornment: (
-                            <InputAdornment position="start">
-                                <Lock />
-                            </InputAdornment>
-                        ),
-                    }}
-                />
-            </CardContent>
-            <CardActions>
-                <Box display="flex" justifyContent="space-between" width="100%">
-                    <IconButton onClick={() => navigate('/forgot-password')} aria-label={t('forgotPassword')} size="small">
-                        <QuestionMark />
-                    </IconButton>
-                    <Button variant="contained" disabled={!username || !password} color="primary" size="small"  onClick={handleLogin}>
+            <form onSubmit={handleLogin} className="flex flex-col gap-4">
+                <h1 className="text-lg font-semibold">{t('login')}</h1>
+
+                {loginError && (
+                    <Alert variant="destructive">
+                        <AlertDescription>{loginError}</AlertDescription>
+                    </Alert>
+                )}
+
+                <div className="flex flex-col gap-1.5">
+                    <label htmlFor="login-username" className="text-xs text-muted-foreground">
+                        {t('username')}
+                    </label>
+                    <div className="relative">
+                        <User
+                            aria-hidden="true"
+                            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+                        />
+                        <Input
+                            id="login-username"
+                            name="username"
+                            autoComplete="username"
+                            value={username}
+                            onChange={(event) => setUsername(event.target.value)}
+                            className="pl-9"
+                        />
+                    </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                    <label htmlFor="login-password" className="text-xs text-muted-foreground">
+                        {t('password')}
+                    </label>
+                    <div className="relative">
+                        <Lock
+                            aria-hidden="true"
+                            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+                        />
+                        <Input
+                            id="login-password"
+                            name="password"
+                            type="password"
+                            autoComplete="current-password"
+                            value={password}
+                            onChange={(event) => setPassword(event.target.value)}
+                            className="pl-9"
+                        />
+                    </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => navigate('/forgot-password')}
+                        aria-label={t('forgotPassword')}
+                        title={t('forgotPassword')}
+                    >
+                        <HelpCircle className="size-4" />
+                    </Button>
+                    <Button type="submit" size="sm">
                         {t('loginButton')}
                     </Button>
-                </Box>
-            </CardActions>
+                </div>
+            </form>
         </CenteredBox>
     );
 };
