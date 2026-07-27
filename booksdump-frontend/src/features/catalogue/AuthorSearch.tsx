@@ -89,9 +89,10 @@ const AuthorSearch: React.FC = () => {
                     ) : (
                         <div className="rounded border border-border bg-card p-4">
                             <h2 className="mb-2 text-center text-2xl font-medium">{t('authorsSearch')}</h2>
-                            {/* list-none: Tailwind runs without preflight, so a bare
-                                <li> would still show its marker. */}
-                            <ul className="list-none">
+                            {/* Tailwind runs without preflight, so a bare <ul> keeps
+                                both its markers and the browser's 40px inline start
+                                padding, which would indent every author. */}
+                            <ul className="list-none p-0">
                                 {authors.map((author) => (
                                     <li key={author.id}>
                                         <button

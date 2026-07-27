@@ -28,3 +28,6 @@ AGENTS.md
 /.claude/
 /node_modules/
 /.lighthouseci/
+
+# Incremental build state written by `tsc -b`
+*.tsbuildinfo
