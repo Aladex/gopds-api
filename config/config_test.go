@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -17,13 +18,19 @@ var requiredEnv = map[string]string{
 	"GOPDS_SESSIONS_REFRESH": "env-refresh-key",
 }
 
-// isolate gives a test a clean viper instance and a scratch working directory,
-// so config discovery and the directories validation creates stay contained.
+// isolate gives a test a clean viper instance, a scratch working directory and
+// an environment with no GOPDS_* variables, so config discovery, the directories
+// validation creates, and the precedence assertions all stay contained.
+//
+// Clearing the environment matters: the caller may legitimately have GOPDS_*
+// set — `make test-integration` exports the database credentials — and those
+// would override config-file values under test.
 func isolate(t *testing.T) {
 	t.Helper()
 
 	viper.Reset()
 	t.Cleanup(viper.Reset)
+	clearGopdsEnv(t)
 
 	original, err := os.Getwd()
 	if err != nil {
@@ -37,6 +44,25 @@ func isolate(t *testing.T) {
 			t.Fatalf("restoring working directory: %v", err)
 		}
 	})
+}
+
+// clearGopdsEnv removes every GOPDS_* variable for the duration of the test and
+// restores the previous environment afterwards.
+func clearGopdsEnv(t *testing.T) {
+	t.Helper()
+
+	for _, entry := range os.Environ() {
+		key, value, _ := strings.Cut(entry, "=")
+		if !strings.HasPrefix(key, "GOPDS_") {
+			continue
+		}
+		// t.Setenv registers the restore; unset right after so the variable is
+		// absent rather than empty.
+		t.Setenv(key, value)
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatalf("unsetting %s: %v", key, err)
+		}
+	}
 }
 
 // setEnv sets environment variables for the duration of the test.

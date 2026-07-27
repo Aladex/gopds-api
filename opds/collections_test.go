@@ -1,6 +1,7 @@
 package opds
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -36,9 +37,7 @@ func doGET(t *testing.T, router *gin.Engine, path string) *httptest.ResponseReco
 // --- Phase 1: Collection list (navigation feed) ---
 
 func TestGetCollections_ReturnsAtomXML(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
+	requireDatabase(t)
 
 	router := setupRouter()
 	rec := doGET(t, router, "/opds/collections/0")
@@ -52,9 +51,7 @@ func TestGetCollections_ReturnsAtomXML(t *testing.T) {
 }
 
 func TestGetCollections_ContainsCollectionEntries(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
+	requireDatabase(t)
 
 	router := setupRouter()
 	rec := doGET(t, router, "/opds/collections/0")
@@ -68,9 +65,7 @@ func TestGetCollections_ContainsCollectionEntries(t *testing.T) {
 }
 
 func TestGetCollections_PaginationHasNext(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
+	requireDatabase(t)
 
 	router := setupRouter()
 	rec := doGET(t, router, "/opds/collections/0")
@@ -84,9 +79,7 @@ func TestGetCollections_PaginationHasNext(t *testing.T) {
 }
 
 func TestGetCollections_InvalidPage(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
+	requireDatabase(t)
 
 	router := setupRouter()
 	// Page "abc" should not panic; handler should return 400 or gracefully handle
@@ -97,9 +90,7 @@ func TestGetCollections_InvalidPage(t *testing.T) {
 }
 
 func TestCollectionsLinkInRootFeed(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
+	requireDatabase(t)
 
 	// This test verifies that the root OPDS feed at /opds/new/0/0
 	// includes a navigation entry pointing to /opds/collections/0.
@@ -121,12 +112,10 @@ func TestCollectionsLinkInRootFeed(t *testing.T) {
 // --- Phase 2: Collection books (acquisition feed) ---
 
 func TestGetCollectionBooks_ReturnsAtomXML(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
+	requireDatabase(t)
 
 	router := setupRouter()
-	rec := doGET(t, router, "/opds/collection/1/0")
+	rec := doGET(t, router, fmt.Sprintf("/opds/collection/%d/0", anyPublicCuratedCollectionID(t)))
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "application/atom+xml;charset=utf-8", rec.Header().Get("Content-Type"))
@@ -137,12 +126,10 @@ func TestGetCollectionBooks_ReturnsAtomXML(t *testing.T) {
 }
 
 func TestGetCollectionBooks_ContainsAcquisitionLinks(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
+	requireDatabase(t)
 
 	router := setupRouter()
-	rec := doGET(t, router, "/opds/collection/1/0")
+	rec := doGET(t, router, fmt.Sprintf("/opds/collection/%d/0", anyPublicCuratedCollectionID(t)))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
@@ -153,9 +140,7 @@ func TestGetCollectionBooks_ContainsAcquisitionLinks(t *testing.T) {
 }
 
 func TestGetCollectionBooks_NotFound(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
+	requireDatabase(t)
 
 	router := setupRouter()
 	rec := doGET(t, router, "/opds/collection/999999/0")
@@ -164,12 +149,10 @@ func TestGetCollectionBooks_NotFound(t *testing.T) {
 }
 
 func TestGetCollectionBooks_Pagination(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
+	requireDatabase(t)
 
 	router := setupRouter()
-	rec := doGET(t, router, "/opds/collection/1/0")
+	rec := doGET(t, router, fmt.Sprintf("/opds/collection/%d/0", anyPublicCuratedCollectionID(t)))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
@@ -178,9 +161,7 @@ func TestGetCollectionBooks_Pagination(t *testing.T) {
 }
 
 func TestGetCollectionBooks_InvalidID(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
+	requireDatabase(t)
 
 	router := setupRouter()
 	rec := doGET(t, router, "/opds/collection/abc/0")
