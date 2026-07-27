@@ -43,8 +43,15 @@ func setupRoutes(route *gin.Engine) {
 		})
 	}
 
-	// NoRoute handler: distinguish API/service requests from SPA navigation.
-	route.NoRoute(func(c *gin.Context) {
+	route.NoRoute(spaFallbackHandler(NewHTTPFS(assets.Assets)))
+}
+
+// spaFallbackHandler distinguishes API/service requests from SPA navigation for
+// paths no route matched. Browsers must receive the application shell so that
+// client-side routing can take over on a deep link or a reload, while backend
+// namespaces keep reporting a missing resource.
+func spaFallbackHandler(fs http.FileSystem) gin.HandlerFunc {
+	return func(c *gin.Context) {
 		p := c.Request.URL.Path
 
 		// 1. Known service prefixes — always JSON 404.
@@ -64,7 +71,7 @@ func setupRoutes(route *gin.Engine) {
 		}
 
 		// 3. Everything else — SPA fallback (client-side routing).
-		indexFile, err := NewHTTPFS(assets.Assets).Open("booksdump-frontend/build/index.html")
+		indexFile, err := fs.Open("booksdump-frontend/build/index.html")
 		if err != nil {
 			c.AbortWithStatus(http.StatusNotFound)
 			return
@@ -74,7 +81,7 @@ func setupRoutes(route *gin.Engine) {
 		setStaticCacheHeaders(c, "index.html")
 		http.ServeContent(c.Writer, c.Request, "index.html", buildTime, indexFile)
 		c.Abort()
-	})
+	}
 }
 
 // setupFileRoutes configures routes related to file operations.
