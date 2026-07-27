@@ -417,5 +417,12 @@
   "goToPage": "Page {{page}}",
   "close": "Close",
   "donate": "Donate",
-  "logout": "Log out"
+  "logout": "Log out",
+  "validatingToken": "Checking the link…",
+  "changePasswordError": "Could not change the password",
+  "passwordChanged": "Password changed. Sign in with the new one.",
+  "resetError": "Could not send the reset link",
+  "resetLinkSent": "A reset link is on its way to your inbox",
+  "activating": "Activating your account…",
+  "activationError": "Could not activate the account. Please try again later."
 }

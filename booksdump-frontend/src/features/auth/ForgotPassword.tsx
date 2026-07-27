@@ -1,13 +1,13 @@
-// src/components/Auth/ForgotPassword.tsx
 import React, { useState } from 'react';
-import { Button, Typography, CardContent, CardActions, IconButton, Box} from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import LoginCenteredBox from "@/shared/components/CenteredBox";
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
+import { Mail } from 'lucide-react';
+
 import * as authApi from '@/api/auth';
 import { isApiError } from '@/api/errors';
-import { StyledTextField} from "@/shared/components/StyledDataItems";
+import CenteredBox from '@/features/auth/CenteredBox';
+import { AuthField, AuthForm, BackToLogin } from '@/features/auth/AuthForm';
 
 const ForgotPassword: React.FC = () => {
     const [email, setEmail] = useState('');
@@ -15,15 +15,21 @@ const ForgotPassword: React.FC = () => {
     const [resetError, setResetError] = useState('');
     const { t } = useTranslation();
 
-    const handleReset = async () => {
+    const handleReset = async (event: React.FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        setResetError('');
+
         try {
             await authApi.requestPasswordChange(email);
-            navigate("/login");
+            // The next step happens in the reader's inbox, so this screen has
+            // to say so before it disappears.
+            toast.success(t('resetLinkSent'));
+            navigate('/login');
         } catch (error) {
             const errorMessages: Record<string, string> = {
                 bad_form: t('badForm'),
                 invalid_user: t('invalidUser'),
-                'CSRF token invalid': t('csrfTokenInvalid') || 'CSRF token invalid',
+                'CSRF token invalid': t('csrfTokenInvalid'),
             };
             const body = isApiError(error)
                 ? (error.body as { error?: string; message?: string } | undefined)
@@ -36,32 +42,28 @@ const ForgotPassword: React.FC = () => {
         }
     };
 
-
     return (
-        <LoginCenteredBox>
-                <CardContent>
-                    <Typography variant="h6" textAlign="center">{t('forgotPassword')}</Typography>
-                    <StyledTextField
-                        label="Email"
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        fullWidth
-                        margin="normal"
-                    />
-                </CardContent>
-                <CardActions>
-                    <Box display="flex" justifyContent="space-between" width="100%">
-                        <IconButton onClick={() => navigate('/login')} size="small" aria-label={t('BackButton')}>
-                            <ArrowBackIcon />
-                        </IconButton>
-                        <Button variant="contained" color="primary" size="small" onClick={handleReset} disabled={!email}>
-                            {t('resetPasswordButton')}
-                        </Button>
-                    </Box>
-                </CardActions>
-            {resetError && <Typography color="error" textAlign="center">{resetError}</Typography>}
-        </LoginCenteredBox>
+        <CenteredBox>
+            <AuthForm
+                title={t('forgotPassword')}
+                error={resetError}
+                onSubmit={handleReset}
+                submitLabel={t('resetPasswordButton')}
+                submitDisabled={!email}
+                secondaryAction={<BackToLogin />}
+            >
+                <AuthField
+                    id="forgot-password-email"
+                    name="email"
+                    label={t('email')}
+                    icon={Mail}
+                    type="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={setEmail}
+                />
+            </AuthForm>
+        </CenteredBox>
     );
 };
 

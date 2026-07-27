@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Button, Typography, CardContent, CardActions, IconButton, Box, CircularProgress } from '@mui/material';
 import { useNavigate, useParams } from 'react-router-dom';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import LoginCenteredBox from "@/shared/components/CenteredBox";
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
+import { Loader2, Lock } from 'lucide-react';
+
 import * as authApi from '@/api/auth';
 import { isApiError } from '@/api/errors';
-import { StyledTextField } from "@/shared/components/StyledDataItems";
+import CenteredBox from '@/features/auth/CenteredBox';
+import { AuthField, AuthForm, BackToLogin } from '@/features/auth/AuthForm';
 
 const ChangePassword: React.FC = () => {
     const [newPassword, setNewPassword] = useState('');
@@ -34,12 +35,16 @@ const ChangePassword: React.FC = () => {
         tokenValidation();
     }, [token, navigate]);
 
-    const handleChangePassword = async () => {
+    const handleChangePassword = async (event: React.FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
         setIsChanging(true);
         setChangeError('');
 
         try {
             await authApi.changePassword({ token: token ?? '', password: newPassword });
+            // Landing back on the sign-in screen with nothing said looks like
+            // the attempt was thrown away.
+            toast.success(t('passwordChanged'));
             navigate('/login');
         } catch (error) {
             if (isApiError(error) && error.isNotFound) {
@@ -49,7 +54,7 @@ const ChangePassword: React.FC = () => {
             const errorMessages: Record<string, string> = {
                 bad_form: t('badForm'),
                 invalid_user: t('invalidUser'),
-                'CSRF token invalid': t('csrfTokenInvalid') || 'CSRF token invalid',
+                'CSRF token invalid': t('csrfTokenInvalid'),
             };
             const body = isApiError(error)
                 ? (error.body as { error?: string; message?: string } | undefined)
@@ -64,44 +69,47 @@ const ChangePassword: React.FC = () => {
         }
     };
 
+    // The token is checked before the field appears: offering a box to type a
+    // new password into and only then admitting the link is dead wastes the one
+    // thing the reader came here to do.
     if (isValidating) {
         return (
-            <LoginCenteredBox>
-                <CardContent>
-                    <Typography variant="h6" textAlign="center">{t('validatingToken')}</Typography>
-                    <Box display="flex" justifyContent="center" mt={2}>
-                        <CircularProgress />
-                    </Box>
-                </CardContent>
-            </LoginCenteredBox>
+            <CenteredBox>
+                <div className="flex flex-col items-center gap-4" role="status">
+                    <p>{t('validatingToken')}</p>
+                    <Loader2 aria-hidden="true" className="size-6 animate-spin text-primary" />
+                </div>
+            </CenteredBox>
         );
     }
 
     return (
-        <LoginCenteredBox>
-            <CardContent>
-                <Typography variant="h6" textAlign="center">{t('changePassword')}</Typography>
-                <StyledTextField
+        <CenteredBox>
+            <AuthForm
+                title={t('changePassword')}
+                error={changeError}
+                onSubmit={handleChangePassword}
+                submitLabel={t('changePasswordButton')}
+                submitDisabled={!newPassword || isChanging}
+                busy={isChanging}
+                secondaryAction={<BackToLogin />}
+            >
+                {/*
+                  There is no current-password field to pair this with: the
+                  token from the mail is what proves who is asking.
+                */}
+                <AuthField
+                    id="change-password-new"
+                    name="new-password"
                     label={t('newPassword')}
+                    icon={Lock}
                     type="password"
+                    autoComplete="new-password"
                     value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    fullWidth
-                    margin="normal"
+                    onChange={setNewPassword}
                 />
-            </CardContent>
-            <CardActions>
-                <Box display="flex" justifyContent="space-between" width="100%">
-                    <IconButton onClick={() => navigate('/login')} size="small" aria-label={t('BackButton')}>
-                        <ArrowBackIcon />
-                    </IconButton>
-                    <Button variant="contained" color="primary" size="small" onClick={handleChangePassword} disabled={!newPassword || isChanging}>
-                        {isChanging ? <CircularProgress size={24} /> : t('changePasswordButton')}
-                    </Button>
-                </Box>
-            </CardActions>
-            {changeError && <Typography color="error" textAlign="center">{changeError}</Typography>}
-        </LoginCenteredBox>
+            </AuthForm>
+        </CenteredBox>
     );
 };
 
