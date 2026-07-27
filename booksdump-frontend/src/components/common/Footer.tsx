@@ -1,7 +1,7 @@
 // src/components/common/Footer.tsx
 import React, { useEffect, useState } from 'react';
 import { Box, Typography } from '@mui/material';
-import { fetchWithAuth } from '../../api/config';
+import * as systemApi from '@/api/system';
 
 const Footer: React.FC = () => {
     const [appVersion, setAppVersion] = useState<string>('');
@@ -9,8 +9,8 @@ const Footer: React.FC = () => {
     useEffect(() => {
         const fetchAppVersion = async () => {
             try {
-                const response = await fetchWithAuth.get('/status');
-                setAppVersion(response.data.result);
+                const { result } = await systemApi.getStatus();
+                setAppVersion(result);
             } catch (error) {
                 console.error('Error fetching app version:', error);
             }

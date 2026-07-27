@@ -172,6 +172,49 @@ export async function request<T = unknown>(path: string, options: RequestOptions
     return parsed as T;
 }
 
+/**
+ * requestBlob is the same call as request(), for endpoints that answer with
+ * binary data rather than JSON. It exists so image and file responses still go
+ * through one place for credentials, CSRF and the refresh dance.
+ */
+export async function requestBlob(path: string, options: RequestOptions = {}): Promise<Blob> {
+    const { body, query, skipRefresh, headers: initHeaders, ...rest } = options;
+    const method = (rest.method ?? 'GET').toUpperCase();
+
+    const headers = new Headers(initHeaders);
+    if (WRITE_METHODS.has(method)) {
+        const token = csrfToken();
+        if (token) {
+            headers.set('X-CSRF-Token', token);
+        }
+    }
+
+    let response: Response;
+    try {
+        response = await fetch(buildUrl(path, query), {
+            ...rest,
+            method,
+            headers,
+            body: prepareBody(body, headers),
+            credentials: 'include',
+        });
+    } catch (cause) {
+        throw ApiError.network(cause);
+    }
+
+    if (response.status === 401 && !skipRefresh && !isAuthEndpoint(path) && !onAuthRoute()) {
+        if (await refreshSession()) {
+            return requestBlob(path, { ...options, skipRefresh: true });
+        }
+    }
+
+    if (!response.ok) {
+        throw new ApiError(response.statusText || `HTTP ${response.status}`, response.status);
+    }
+
+    return response.blob();
+}
+
 export const http = {
     get: <T>(path: string, options?: RequestOptions) => request<T>(path, { ...options, method: 'GET' }),
     post: <T>(path: string, body?: unknown, options?: RequestOptions) =>

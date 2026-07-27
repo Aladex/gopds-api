@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useMemo, useCallback, useEffect, ReactNode } from 'react';
-import { fetchWithAuth } from '../api/config';
+import * as booksApi from '@/api/books';
 import { useAuth } from './AuthContext';
 import { filterSupportedLanguages } from '../utils/languageUtils';
 
@@ -39,17 +39,10 @@ export const SearchBarProvider: React.FC<{ children: ReactNode }> = ({ children 
         if (isAuthenticated) {
             const fetchLanguages = async () => {
                 try {
-                    const response = await fetchWithAuth.get('/books/langs');
-                    if (response.status === 200) {
-                        const data = response.data;
-                        // Fixed: field is called 'lang', not 'language'
-                        const languageList = data.langs.map((item: { lang: string; language_count: number }) => item.lang);
-                        // Filter only supported languages
-                        const supportedLanguages = filterSupportedLanguages(languageList);
-                        setLanguages(supportedLanguages);
-                    } else {
-                        console.error('Failed to fetch languages');
-                    }
+                    const { langs } = await booksApi.listLanguages();
+                    const languageList = langs.map((item) => item.lang);
+                    // Filter only supported languages
+                    setLanguages(filterSupportedLanguages(languageList));
                 } catch (error) {
                     console.error('Error fetching languages', error);
                 }

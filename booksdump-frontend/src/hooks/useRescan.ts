@@ -1,5 +1,15 @@
 import { useState, useCallback } from 'react';
-import { fetchWithAuth } from '../api/config';
+import * as adminApi from '@/api/admin';
+import { isApiError } from '@/api/errors';
+
+/** errorDetail pulls the backend's message out of an ApiError body. */
+function errorDetail(err: unknown, fallback: string): string {
+    if (!isApiError(err)) {
+        return fallback;
+    }
+    const body = err.body as { detail?: string; error?: string } | undefined;
+    return body?.detail || body?.error || fallback;
+}
 
 interface Author {
     id: number;
@@ -90,20 +100,16 @@ export const useRescan = () => {
         // Reset field selection to defaults when fetching new preview
         setFieldSelection(defaultFieldSelection);
         try {
-            const response = await fetchWithAuth.post(`/admin/books/${bookId}/rescan`);
-            if (response.status === 200 && response.data.result) {
-                const previewData = response.data.result;
-                setPreview(previewData);
-                return previewData;
-            } else {
-                const errorMsg = response.data.error || 'Failed to fetch rescan preview';
-                setError(errorMsg);
-                return null;
+            const data = await adminApi.rescanBook<RescanPreview>(bookId);
+            if (data.result) {
+                setPreview(data.result);
+                return data.result;
             }
-        } catch (err: any) {
+            setError(data.error || 'Failed to fetch rescan preview');
+            return null;
+        } catch (err) {
             console.error('Error fetching rescan preview:', err);
-            const errorMsg = err.response?.data?.detail || err.response?.data?.error || 'Failed to fetch rescan preview';
-            setError(errorMsg);
+            setError(errorDetail(err, 'Failed to fetch rescan preview'));
             return null;
         } finally {
             setLoading(false);
@@ -181,25 +187,15 @@ export const useRescan = () => {
                 body.update_tags = selectedFields.updateTags;
             }
 
-            const response = await fetchWithAuth.post(
-                `/admin/books/${bookId}/rescan/approve`,
-                body
-            );
-            if (response.status === 200) {
-                if (response.data.result) {
-                    setApprovalResponse(response.data.result);
-                }
-                setPreview(null);
-                return true;
-            } else {
-                const errorMsg = response.data.error || 'Failed to process rescan action';
-                setError(errorMsg);
-                return false;
+            const data = await adminApi.approveRescan<RescanApprovalResponse>(bookId, body);
+            if (data.result) {
+                setApprovalResponse(data.result);
             }
-        } catch (err: any) {
+            setPreview(null);
+            return true;
+        } catch (err) {
             console.error('Error processing rescan action:', err);
-            const errorMsg = err.response?.data?.detail || err.response?.data?.error || 'Failed to process rescan action';
-            setError(errorMsg);
+            setError(errorDetail(err, 'Failed to process rescan action'));
             return false;
         } finally {
             setLoading(false);
@@ -210,21 +206,15 @@ export const useRescan = () => {
         setCoverLoading(true);
         setCoverError(null);
         try {
-            const response = await fetchWithAuth.get(`/admin/books/${bookId}/rescan/preview-cover`, {
-                responseType: 'blob',
-            });
-            if (response.status === 200) {
-                if (coverPreviewUrl) {
-                    URL.revokeObjectURL(coverPreviewUrl);
-                }
-                const objectUrl = URL.createObjectURL(response.data);
-                setCoverPreviewUrl(objectUrl);
-                return objectUrl;
+            const blob = await adminApi.getRescanCoverPreview(bookId);
+            if (coverPreviewUrl) {
+                URL.revokeObjectURL(coverPreviewUrl);
             }
-            setCoverError('Failed to fetch rescan cover preview');
-            return null;
-        } catch (err: any) {
-            const status = err.response?.status;
+            const objectUrl = URL.createObjectURL(blob);
+            setCoverPreviewUrl(objectUrl);
+            return objectUrl;
+        } catch (err) {
+            const status = isApiError(err) ? err.status : undefined;
             if (status !== 404) {
                 console.error('Error fetching rescan cover preview:', err);
                 setCoverError('Failed to fetch rescan cover preview');

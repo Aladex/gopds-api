@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { fetchWithAuth } from '../../api/config';
+import * as authApi from '@/api/auth';
+import * as telegramApi from '@/api/telegram';
 
 interface SnackbarState {
     open: boolean;
@@ -48,10 +49,8 @@ export const useProfileForm = (open: boolean) => {
 
     const fetchBotStatus = useCallback(async () => {
         try {
-            const response = await fetchWithAuth.get('/telegram/bot/status');
-            if (response.status === 200 && response.data) {
-                setBotConnected(response.data.has_bot_token || false);
-            }
+            const status = await telegramApi.getBotStatus();
+            setBotConnected(status?.has_bot_token || false);
         } catch {
             // Silently fail - use has_bot_token from user
         }
@@ -78,16 +77,13 @@ export const useProfileForm = (open: boolean) => {
                 password: oldPassword,
                 books_lang: user?.books_lang,
             };
-            const response = await fetchWithAuth.post('/books/change-me', userData);
-
-            if (response.status === 200) {
-                updateUser(response.data);
-                setSnackbar({ open: true, message: 'profileSaved', severity: 'success' });
-                setShowPasswordFields(false);
-                setOldPassword('');
-                setNewPassword('');
-                return true;
-            }
+            const updated = await authApi.updateCurrentUser(userData);
+            updateUser(updated);
+            setSnackbar({ open: true, message: 'profileSaved', severity: 'success' });
+            setShowPasswordFields(false);
+            setOldPassword('');
+            setNewPassword('');
+            return true;
         } catch {
             setSnackbar({ open: true, message: 'profileSaveError', severity: 'error' });
         }
@@ -96,11 +92,9 @@ export const useProfileForm = (open: boolean) => {
 
     const handleDropSessions = useCallback(async () => {
         try {
-            const response = await fetchWithAuth('/drop-sessions');
-            if (response.status === 200) {
-                logout();
-                navigate('/login');
-            }
+            await authApi.dropSessions();
+            logout();
+            navigate('/login');
         } catch (error) {
             console.error('Error dropping sessions:', error);
         }
@@ -115,15 +109,13 @@ export const useProfileForm = (open: boolean) => {
         if (!botToken.trim()) return;
         setBotLoading(true);
         try {
-            const response = await fetchWithAuth.post('/telegram/bot', { token: botToken.trim() });
-            if (response.status === 200) {
-                setBotConnected(true);
-                setBotToken('');
-                setSnackbar({ open: true, message: 'telegramBot.tokenSet', severity: 'success' });
-                // Update user context
-                if (user) {
-                    updateUser({ ...user, has_bot_token: true });
-                }
+            await telegramApi.setBotToken(botToken.trim());
+            setBotConnected(true);
+            setBotToken('');
+            setSnackbar({ open: true, message: 'telegramBot.tokenSet', severity: 'success' });
+            // Update user context
+            if (user) {
+                updateUser({ ...user, has_bot_token: true });
             }
         } catch {
             setSnackbar({ open: true, message: 'telegramBot.tokenError', severity: 'error' });
@@ -135,8 +127,8 @@ export const useProfileForm = (open: boolean) => {
     const handleRemoveBotToken = useCallback(async () => {
         setBotLoading(true);
         try {
-            const response = await fetchWithAuth.delete('/telegram/bot');
-            if (response.status === 200) {
+            await telegramApi.removeBotToken();
+            {
                 setBotConnected(false);
                 setSnackbar({ open: true, message: 'telegramBot.tokenRemoved', severity: 'success' });
                 if (user) {

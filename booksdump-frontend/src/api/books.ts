@@ -1,0 +1,93 @@
+import { http } from './http';
+
+/** Book catalogue, favourites, language and theme preferences. */
+
+export interface Author {
+    id: number;
+    full_name: string;
+}
+
+export interface Genre {
+    id: number;
+    genre: string;
+    section?: string;
+}
+
+export interface Series {
+    id: number;
+    ser: string;
+    ser_no: number;
+}
+
+/**
+ * Book mirrors models.Book on the backend.
+ *
+ * Note `cover` is a boolean — whether the book has one — not a URL. Components
+ * used to declare it as a string locally, which nothing read, so the mistake
+ * stayed invisible.
+ */
+export interface Book {
+    id: number;
+    title: string;
+    authors: Author[];
+    series: Series[];
+    genres: Genre[];
+    annotation: string;
+    filename: string;
+    cover: boolean;
+    registerdate: string;
+    docdate: string;
+    lang: string;
+    fav: boolean;
+    approved: boolean;
+    path: string;
+    format: string;
+    favorite_count: number;
+    md5?: string;
+    duplicate_hidden?: boolean;
+    position?: number;
+}
+
+export interface BooksPage {
+    books: Book[];
+    length: number;
+}
+
+export interface BooksQuery {
+    limit?: number;
+    offset?: number;
+    title?: string;
+    author?: number | string;
+    series?: number | string;
+    lang?: string;
+    fav?: boolean;
+    users_fav?: boolean;
+    category?: number | string;
+    genre?: number | string;
+    approved?: boolean;
+    unapproved?: boolean;
+}
+
+export interface Language {
+    lang: string;
+    language_count: number;
+}
+
+export type ThemeMode = 'light' | 'dark';
+
+export const listBooks = (query: BooksQuery) =>
+    http.get<BooksPage>('/books/list', { query: query as Record<string, string | number | boolean | undefined> });
+
+export const listAuthors = (query: { author?: string; limit?: number; offset?: number }) =>
+    http.get<{ authors: Author[]; length: number }>('/books/authors', { query });
+
+export const listLanguages = () => http.get<{ langs: Language[] }>('/books/langs');
+
+/** toggleFavourite adds or removes a book from the caller's favourites. */
+export const toggleFavourite = (bookID: number, fav: boolean) =>
+    http.post<{ have_favs: boolean }>('/books/fav', { book_id: bookID, fav });
+
+export const getThemePreference = () => http.get<{ theme?: ThemeMode }>('/books/theme');
+
+export const setThemePreference = (theme: ThemeMode) =>
+    http.post<void>('/books/theme', { theme });

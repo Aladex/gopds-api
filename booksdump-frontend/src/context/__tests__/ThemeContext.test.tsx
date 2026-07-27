@@ -2,7 +2,7 @@ import React from 'react';
 import { render, screen, act, waitFor } from '@testing-library/react';
 
 import { ThemeProvider, useTheme } from '../ThemeContext';
-import { fetchWithAuth } from '../../api/config';
+import * as booksApi from '@/api/books';
 import { useAuth } from '../AuthContext';
 
 // The theme is the one thing a design-system change can silently break, so this
@@ -10,17 +10,17 @@ import { useAuth } from '../AuthContext';
 // comes from, when the preference is read from and written to the server, and
 // the CSS custom properties the rest of the application reads.
 
-vi.mock('../../api/config', () => ({
-    fetchWithAuth: { get: vi.fn(), post: vi.fn() },
-    API_URL: 'http://test',
+vi.mock('@/api/books', () => ({
+    getThemePreference: vi.fn(),
+    setThemePreference: vi.fn(),
 }));
 
 vi.mock('../AuthContext', () => ({
     useAuth: vi.fn(),
 }));
 
-const mockedGet = vi.mocked(fetchWithAuth.get);
-const mockedPost = vi.mocked(fetchWithAuth.post);
+const mockedGet = vi.mocked(booksApi.getThemePreference);
+const mockedPost = vi.mocked(booksApi.setThemePreference);
 const mockedUseAuth = vi.mocked(useAuth);
 
 /** setSystemPrefersDark stubs the media query jsdom does not implement. */
@@ -66,8 +66,8 @@ beforeEach(() => {
     document.documentElement.removeAttribute('style');
     setSystemPrefersDark(false);
     setAuth({ isLoaded: true, isAuthenticated: false });
-    mockedGet.mockResolvedValue({ data: {} } as never);
-    mockedPost.mockResolvedValue({ data: {} } as never);
+    mockedGet.mockResolvedValue({});
+    mockedPost.mockResolvedValue(undefined);
 });
 
 describe('ThemeContext', () => {
@@ -87,11 +87,11 @@ describe('ThemeContext', () => {
 
     it('applies the preference stored on the server for a signed-in user', async () => {
         setAuth({ isLoaded: true, isAuthenticated: true });
-        mockedGet.mockResolvedValue({ data: { theme: 'dark' } } as never);
+        mockedGet.mockResolvedValue({ theme: 'dark' });
 
         renderTheme();
 
-        await waitFor(() => expect(mockedGet).toHaveBeenCalledWith('/books/theme'));
+        await waitFor(() => expect(mockedGet).toHaveBeenCalled());
         await waitFor(() => expect(screen.getByTestId('mode')).toHaveTextContent('dark'));
     });
 
@@ -107,7 +107,7 @@ describe('ThemeContext', () => {
     it('keeps the current mode when the server has no preference stored', async () => {
         setSystemPrefersDark(true);
         setAuth({ isLoaded: true, isAuthenticated: true });
-        mockedGet.mockResolvedValue({ data: {} } as never);
+        mockedGet.mockResolvedValue({});
 
         renderTheme();
 
@@ -123,7 +123,7 @@ describe('ThemeContext', () => {
         act(() => toggle());
 
         await waitFor(() =>
-            expect(mockedPost).toHaveBeenCalledWith('/books/theme', { theme: 'dark' }),
+            expect(mockedPost).toHaveBeenCalledWith('dark'),
         );
         expect(screen.getByTestId('mode')).toHaveTextContent('dark');
     });

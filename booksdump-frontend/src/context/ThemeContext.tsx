@@ -3,7 +3,7 @@ import { PaletteMode } from '@mui/material';
 import { ThemeProvider as MuiThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { createAppTheme } from '../theme';
-import { fetchWithAuth } from '../api/config';
+import * as booksApi from '@/api/books';
 import { useAuth } from './AuthContext';
 
 interface ThemeContextType {
@@ -43,8 +43,7 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
 
         const loadTheme = async () => {
             try {
-                const response = await fetchWithAuth.get('/books/theme');
-                const theme = response.data?.theme;
+                const { theme } = await booksApi.getThemePreference();
                 if (theme === 'light' || theme === 'dark') {
                     setMode(theme);
                 }
@@ -84,7 +83,7 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
             return;
         }
         try {
-            await fetchWithAuth.post('/books/theme', { theme: newMode });
+            await booksApi.setThemePreference(newMode);
         } catch (error) {
             // Ignore errors and keep current mode
         }

@@ -56,6 +56,9 @@ export const login = (credentials: LoginRequest) => http.post<User>('/login', cr
 
 export const logout = () => http.get<void>('/logout');
 
+/** dropSessions invalidates every session the current user holds. */
+export const dropSessions = () => http.get<void>('/drop-sessions');
+
 export const register = (payload: RegisterRequest) => http.post<unknown>('/register', payload);
 
 /** activate confirms a registration or password-reset token. */

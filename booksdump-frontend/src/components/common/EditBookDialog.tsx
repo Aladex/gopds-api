@@ -1,3 +1,4 @@
+import type { Author, Book, Series } from '@/api/books';
 import React, { useEffect, useState } from 'react';
 import {
     Box,
@@ -15,38 +16,9 @@ import {
 } from '@mui/material';
 import { Close as CloseIcon } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
-import { fetchWithAuth } from '../../api/config';
+import * as adminApi from '@/api/admin';
+import { isApiError } from '@/api/errors';
 import { StyledTextField } from '../StyledDataItems';
-
-interface Author {
-    id: number;
-    full_name: string;
-}
-
-interface Series {
-    id: number;
-    ser: string;
-    ser_no: number;
-}
-
-interface Book {
-    id: number;
-    title: string;
-    authors: Author[];
-    series: Series[];
-    genres: { id: number; genre: string }[];
-    annotation: string;
-    filename: string;
-    cover: string;
-    registerdate: string;
-    docdate: string;
-    lang: string;
-    fav: boolean;
-    approved: boolean;
-    path: string;
-    format: string;
-    favorite_count: number;
-}
 
 type EditBookDialogProps = {
     open: boolean;
@@ -140,11 +112,9 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
         setAuthorsLoading(true);
         const timer = setTimeout(async () => {
             try {
-                const response = await fetchWithAuth.get('/admin/authors/search', {
-                    params: { q: query, limit: 20 },
-                });
+                const data = await adminApi.searchAuthors(query);
                 if (!active) return;
-                setAvailableAuthors(response.data?.authors || []);
+                setAvailableAuthors(data?.authors || []);
             } catch (err) {
                 if (!active) return;
                 setAvailableAuthors([]);
@@ -174,11 +144,9 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
         setSeriesLoading(true);
         const timer = setTimeout(async () => {
             try {
-                const response = await fetchWithAuth.get('/admin/series/search', {
-                    params: { q: query, limit: 20 },
-                });
+                const data = await adminApi.searchSeries(query);
                 if (!active) return;
-                setAvailableSeries(response.data?.series || []);
+                setAvailableSeries(data?.series || []);
             } catch (err) {
                 if (!active) return;
                 setAvailableSeries([]);
@@ -316,28 +284,22 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
                 series: series,
             };
 
-            const response = await fetchWithAuth.put(`/admin/books/${book.id}`, updatedBook);
+            const data = await adminApi.saveBook(book.id, updatedBook);
 
-            if (response.status === 200) {
-                setSuccess(true);
-                // Backend returns data in format: { result: Book, error: null }
-                const updatedBookData = response.data.result || response.data;
-                onBookUpdated(updatedBookData);
+            setSuccess(true);
+            // Backend returns data in format: { result: Book, error: null }
+            onBookUpdated((data.result ?? data) as Book);
 
-                // Close dialog after a short delay to show success message
-                setTimeout(() => {
-                    handleClose();
-                }, 1000);
-            } else {
-                setError(t('errorUpdatingBook'));
-            }
-        } catch (err: any) {
+            // Close dialog after a short delay to show success message
+            setTimeout(() => {
+                handleClose();
+            }, 1000);
+        } catch (err) {
             console.error('Error updating book:', err);
-            if (err.response?.data?.detail) {
-                setError(err.response.data.detail);
-            } else {
-                setError(t('errorUpdatingBook'));
-            }
+            const detail = isApiError(err)
+                ? (err.body as { detail?: string } | undefined)?.detail
+                : undefined;
+            setError(detail || t('errorUpdatingBook'));
         } finally {
             setLoading(false);
         }
@@ -355,26 +317,16 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
         try {
             const formData = new FormData();
             formData.append('cover', coverFile);
-            const response = await fetchWithAuth.post(`/admin/books/${book.id}/cover`, formData, {
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                },
-            });
+            const data = await adminApi.uploadBookCover(book.id, formData);
 
-            if (response.status === 200) {
-                setCoverUploadSuccess(true);
-                const updatedBookData = response.data.result || response.data;
-                onBookUpdated(updatedBookData);
-                setCoverFile(null);
-            } else {
-                setCoverUploadError(t('coverUploadError'));
-            }
-        } catch (err: any) {
-            if (err.response?.data?.detail) {
-                setCoverUploadError(err.response.data.detail);
-            } else {
-                setCoverUploadError(t('coverUploadError'));
-            }
+            setCoverUploadSuccess(true);
+            onBookUpdated((data.result ?? data) as Book);
+            setCoverFile(null);
+        } catch (err) {
+            const detail = isApiError(err)
+                ? (err.body as { detail?: string } | undefined)?.detail
+                : undefined;
+            setCoverUploadError(detail || t('coverUploadError'));
         } finally {
             setCoverUploading(false);
         }

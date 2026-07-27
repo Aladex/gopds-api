@@ -12,7 +12,11 @@ import {
     CardActions, IconButton, Snackbar, Modal, Backdrop
 } from '@mui/material';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
-import { API_URL, fetchWithAuth } from '../../api/config';
+import { API_URL } from '../../api/config';
+import * as booksApi from '@/api/books';
+import type { Book } from '@/api/books';
+import * as adminApi from '@/api/admin';
+import * as authApi from '@/api/auth';
 import { useAuth } from '../../context/AuthContext';
 import { useTranslation } from 'react-i18next';
 import StarIcon from '@mui/icons-material/Star';
@@ -36,25 +40,6 @@ import { format } from 'date-fns';
 import { useBookConversion } from '../../context/BookConversionContext';
 import { downloadViaIframe } from '../helpers/downloadViaIframe';
 import { getLanguageInfo, isLanguageSupported } from '../../utils/languageUtils';
-
-interface Book {
-    id: number;
-    title: string;
-    authors: { id: number; full_name: string }[];
-    series: { id: number; ser: string; ser_no: number }[];
-    genres: { id: number; genre: string }[];
-    annotation: string;
-    filename: string;
-    cover: string;
-    registerdate: string;
-    docdate: string;
-    lang: string;
-    fav: boolean;
-    approved: boolean;
-    path: string;
-    format: string;
-    favorite_count: number;
-}
 
 interface State {
     books: Book[];
@@ -257,14 +242,8 @@ const BooksList: React.FC = () => {
         try {
             window.scrollTo(0, 0);
             const params = getParams();
-            const response = await fetchWithAuth.get('/books/list', { params });
-            if (response.status === 200) {
-                const data = response.data;
-                dispatch({ type: 'FETCH_SUCCESS', payload: { books: data.books, totalPages: data.length } });
-            } else {
-                console.error('Failed to fetch books');
-                dispatch({ type: 'FETCH_ERROR' });
-            }
+            const data = await booksApi.listBooks(params);
+            dispatch({ type: 'FETCH_SUCCESS', payload: { books: data.books, totalPages: data.length } });
         } catch (error) {
             console.error('Error fetching books', error);
             dispatch({ type: 'FETCH_ERROR' });
@@ -283,23 +262,14 @@ const BooksList: React.FC = () => {
         try {
             dispatch({ type: 'TOGGLE_FAV', payload: book.id });
 
-            const response = await fetchWithAuth.post('/books/fav', { book_id: book.id, fav: !book.fav });
-            if (response.status === 200) {
-                const userResponse = await fetchWithAuth.get('/books/self-user');
-                if (userResponse.status === 200) {
-                    fav.setFavEnabled(userResponse.data.have_favs);
-                    if (location.pathname.includes('/books/favorite') && !userResponse.data.have_favs) {
-                        navigate('/books/page/1');
-                    }
-                } else {
-                    console.error('Failed to fetch updated user data');
-                }
-                enqueueSnackbar(!book.fav ? t('bookFavAddedSuccessfully') : t('bookFavRemovedSuccessfully'));
-            } else {
-                console.error('Failed to update favorite status');
-                dispatch({ type: 'TOGGLE_FAV', payload: book.id });
-                enqueueSnackbar(!book.fav ? t('errorAddingFavorite') : t('errorRemovingFavorite'));
+            await booksApi.toggleFavourite(book.id, !book.fav);
+
+            const currentUser = await authApi.getCurrentUser();
+            fav.setFavEnabled(Boolean(currentUser.have_favs));
+            if (location.pathname.includes('/books/favorite') && !currentUser.have_favs) {
+                navigate('/books/page/1');
             }
+            enqueueSnackbar(!book.fav ? t('bookFavAddedSuccessfully') : t('bookFavRemovedSuccessfully'));
         } catch (error) {
             console.error('Error favoriting book', error);
             dispatch({ type: 'TOGGLE_FAV', payload: book.id });
@@ -333,8 +303,7 @@ const BooksList: React.FC = () => {
         const newBook = { ...book, approved: !book.approved };
         try {
             dispatch({ type: 'UPDATE_BOOK', payload: newBook });
-            const response = await fetchWithAuth.post('/admin/update-book', newBook);
-            if (response.status !== 200) throw new Error('Failed to update book');
+            await adminApi.updateBook(newBook);
         } catch (error) {
             console.error('Error updating book', error);
             dispatch({ type: 'UPDATE_BOOK', payload: book });

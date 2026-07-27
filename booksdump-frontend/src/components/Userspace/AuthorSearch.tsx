@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {Box, Typography, List, ListItemText, Card, ListItemButton, CardContent} from '@mui/material';
 import { useParams, useLocation } from 'react-router-dom';
-import { fetchWithAuth} from '../../api/config';
+import * as booksApi from '@/api/books';
 import BookPagination from "../common/BookPagination";
 import SkeletonCard from "../common/SkeletonCard";
 import {useNavigate} from 'react-router-dom';
@@ -36,15 +36,12 @@ const AuthorSearch: React.FC = () => {
                 const currentPage = parseInt(page || '1', 10);
                 const offset = (currentPage - 1) * limit;
 
-                const response = await fetchWithAuth.get(`/books/authors`, {
-                    params: {
-                        limit,
-                        offset,
-                        author: decodeURIComponent(author || ''),
-                    },
+                const responseData = await booksApi.listAuthors({
+                    limit,
+                    offset,
+                    author: decodeURIComponent(author || ''),
                 });
 
-                const responseData = await response.data; // Convert response to JSON
                 if (responseData.authors && Array.isArray(responseData.authors)) {
                     setAuthors(responseData.authors);
                     setTotalPages(responseData.length);
