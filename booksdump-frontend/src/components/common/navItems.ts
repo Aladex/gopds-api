@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 /**
@@ -18,22 +17,24 @@ export interface NavItem {
     regex: RegExp;
 }
 
+/**
+ * Built afresh on every render rather than memoised. It is four small objects,
+ * nobody puts the array in a dependency list, and a memo would have needed
+ * i18n.language named by hand so the labels followed a language change —
+ * a dependency the linter could not see and had to be told to ignore.
+ */
 export function useNavItems(isSuperuser: boolean): NavItem[] {
-    const { t, i18n } = useTranslation();
+    const { t } = useTranslation();
 
-    return useMemo(() => {
-        const items: NavItem[] = [
-            { id: 'books', label: t('booksTab'), path: '/books/page/1', regex: /^\/books\/page\/\d+/ },
-            { id: 'collections', label: t('collectionsTab', 'Подборки'), path: '/collections', regex: /^\/collections/ },
-            { id: 'opds', label: t('opdsTab'), path: '/catalog', regex: /^\/catalog/ },
-        ];
-        if (isSuperuser) {
-            items.push({ id: 'admin', label: t('adminTab'), path: '/admin', regex: /^\/admin/ });
-        }
-        return items;
-        // i18n.language is needed so the labels follow a language change.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [t, isSuperuser, i18n.language]);
+    const items: NavItem[] = [
+        { id: 'books', label: t('booksTab'), path: '/books/page/1', regex: /^\/books\/page\/\d+/ },
+        { id: 'collections', label: t('collectionsTab', 'Подборки'), path: '/collections', regex: /^\/collections/ },
+        { id: 'opds', label: t('opdsTab'), path: '/catalog', regex: /^\/catalog/ },
+    ];
+    if (isSuperuser) {
+        items.push({ id: 'admin', label: t('adminTab'), path: '/admin', regex: /^\/admin/ });
+    }
+    return items;
 }
 
 /** activeNavItem finds the section a path belongs to, or null outside them all. */

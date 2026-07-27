@@ -35,8 +35,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const [resetFavCallback, setResetFavCallback] = useState<() => void>(() => () => {});
     const navigate = useNavigate();
 
-    // Мемоизируем isAuthenticated для предотвращения ненужных перерендеров
-    const isAuthenticated = useMemo(() => !!user, [user]);
+    const isAuthenticated = !!user;
 
     // Обертка для setUser с логированием
     const setUser = useCallback((newUser: User | null) => {

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     Box,
     Button,
@@ -56,12 +56,15 @@ const Duplicates: React.FC = () => {
     const [workerCount, setWorkerCount] = useState<number>(1);
     const wsRef = useRef<WebSocket | null>(null);
 
-    const progressPercent = useMemo(() => {
-        if (!scanProgress || scanProgress.total_books === 0) {
-            return 0;
-        }
-        return Math.min(100, Math.round((scanProgress.processed_books / scanProgress.total_books) * 100));
-    }, [scanProgress]);
+    // A division and a rounding, read straight into a progress bar: memoising it
+    // costs more bookkeeping than the arithmetic it saves.
+    const progressPercent =
+        !scanProgress || scanProgress.total_books === 0
+            ? 0
+            : Math.min(
+                  100,
+                  Math.round((scanProgress.processed_books / scanProgress.total_books) * 100),
+              );
 
     const fetchGroups = useCallback(async () => {
         setIsLoading(true);

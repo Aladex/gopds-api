@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     Box,
     Button,
@@ -203,18 +203,17 @@ const BookScanning: React.FC = () => {
     const scannedIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const rescanPollingRef = useRef<NodeJS.Timeout | null>(null);
 
-    const progressPercent = useMemo(() => {
-        if (!status) {
-            return 0;
-        }
-        if (status.total_archives === 0) {
+    /** progressPercent prefers the server's own figure, falling back to the counts. */
+    const percentFromStatus = () => {
+        if (!status || status.total_archives === 0) {
             return 0;
         }
         if (status.progress_percent) {
             return Math.min(100, status.progress_percent);
         }
         return Math.min(100, Math.round((status.archives_processed / status.total_archives) * 100));
-    }, [status]);
+    };
+    const progressPercent = percentFromStatus();
 
     const fetchStatus = useCallback(async () => {
         try {

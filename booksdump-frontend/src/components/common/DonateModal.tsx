@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import QRCode from 'qrcode';
 import { useTheme } from '@mui/material/styles';
 import {
@@ -19,38 +19,39 @@ interface DonateModalProps {
     onClose: () => void;
 }
 
+// Constants belong at module scope, where they really are created once. A
+// useMemo would only have promised that.
+const CRYPTO_ADDRESSES = {
+    bitcoin: 'bc1qv2pjsnkprer35u2whuquztvnvnggjsrqu4q43f',
+    ethereum: '0xD053A0fE7C450b57da9FF169620EB178644b54C9',
+    usdt: 'TTE5dv9w9RSDMJ6k3tnpfuehH8UX9Fy4Ec',
+};
+
 const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
     const theme = useTheme();
     const [activeTab, setActiveTab] = useState(0);
     const [qrCodes, setQrCodes] = useState<{[key: string]: string}>({});
 
-    // Crypto addresses - use useMemo so the object is not recreated
-    const cryptoAddresses = useMemo(() => ({
-        bitcoin: 'bc1qv2pjsnkprer35u2whuquztvnvnggjsrqu4q43f',
-        ethereum: '0xD053A0fE7C450b57da9FF169620EB178644b54C9',
-        usdt: 'TTE5dv9w9RSDMJ6k3tnpfuehH8UX9Fy4Ec'
-    }), []);
-
-    const qrColors = useMemo(() => ({
-        dark: theme.palette.text.primary,
-        light: theme.palette.background.paper,
-    }), [theme.palette.background.paper, theme.palette.text.primary]);
+    // Read out as plain strings: a dependency compared by value needs no stable
+    // identity, and so needs no memo to give it one.
+    const qrDark = theme.palette.text.primary;
+    const qrLight = theme.palette.background.paper;
 
     const generateQRCodes = useCallback(async () => {
         const codes: {[key: string]: string} = {};
         try {
-            for (const [currency, address] of Object.entries(cryptoAddresses)) {
+            for (const [currency, address] of Object.entries(CRYPTO_ADDRESSES)) {
                 codes[currency] = await QRCode.toDataURL(address, {
                     width: 200,
                     margin: 2,
-                    color: qrColors,
+                    color: { dark: qrDark, light: qrLight },
                 });
             }
             setQrCodes(codes);
         } catch (error) {
             console.error('Error generating QR codes:', error);
         }
-    }, [cryptoAddresses, qrColors]);
+    }, [qrDark, qrLight]);
 
     useEffect(() => {
         if (open) {
