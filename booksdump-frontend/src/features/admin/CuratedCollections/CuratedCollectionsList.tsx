@@ -1,24 +1,27 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Link as RouterLink, useParams } from 'react-router-dom';
+import { AlertCircle, Trash2 } from 'lucide-react';
+
+import { Alert, AlertDescription } from '@/shared/ui/alert';
+import { Badge } from '@/shared/ui/badge';
+import { Button } from '@/shared/ui/button';
+import { Card, CardContent } from '@/shared/ui/card';
 import {
-    Alert,
-    Box,
-    Card,
-    CardContent,
-    Chip,
-    IconButton,
-    Stack,
     Table,
     TableBody,
     TableCell,
     TableHead,
+    TableHeader,
     TableRow,
-    Typography,
-} from '@mui/material';
-import DeleteIcon from '@mui/icons-material/Delete';
-import { useTranslation } from 'react-i18next';
-import { Link as RouterLink, useParams } from 'react-router-dom';
+} from '@/shared/ui/table';
+
 import BookPagination from '@/features/catalogue/BookPagination';
-import { CuratedCollection, deleteCuratedCollection, listCuratedCollections } from '@/features/admin/CuratedCollections/api';
+import {
+    CuratedCollection,
+    deleteCuratedCollection,
+    listCuratedCollections,
+} from '@/features/admin/CuratedCollections/api';
 import ImportForm from '@/features/admin/CuratedCollections/ImportForm';
 import BatchImportForm from '@/features/admin/CuratedCollections/BatchImportForm';
 
@@ -38,8 +41,8 @@ const CuratedCollectionsList: React.FC = () => {
             const data = await listCuratedCollections(page, PAGE_SIZE);
             setRows(data.rows);
             setTotal(data.total);
-        } catch (err: any) {
-            setLoadError(err?.message ?? 'failed');
+        } catch (err) {
+            setLoadError(err instanceof Error ? err.message : 'failed');
         }
     }, [page]);
 
@@ -56,77 +59,117 @@ const CuratedCollectionsList: React.FC = () => {
     };
 
     return (
-        <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: 'calc(100vh - 240px)' }}>
-            <Typography variant="h5" gutterBottom>
+        <div className="flex min-h-[calc(100vh-240px)] flex-col gap-4">
+            <h1 className="text-xl font-medium">
                 {t('curatedCollections.title', 'Curated collections')}
-            </Typography>
+            </h1>
 
             <ImportForm onCreated={() => refresh()} />
             <BatchImportForm onCreated={() => refresh()} />
 
-            {loadError && <Alert severity="error" sx={{ mt: 2 }}>{loadError}</Alert>}
+            {loadError && (
+                <Alert variant="destructive">
+                    <AlertCircle className="size-4" />
+                    <AlertDescription>{loadError}</AlertDescription>
+                </Alert>
+            )}
 
-            <Card sx={{ mt: 2, display: 'flex', flexDirection: 'column', flex: 1 }}>
-                <CardContent sx={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-                    <Table size="small">
-                        <TableHead>
+            <Card className="flex flex-1 flex-col">
+                <CardContent className="flex flex-1 flex-col">
+                    <Table>
+                        <TableHeader>
                             <TableRow>
-                                <TableCell>{t('curatedCollections.name', 'Name')}</TableCell>
-                                <TableCell>{t('curatedCollections.status', 'Status')}</TableCell>
-                                <TableCell>{t('curatedCollections.matched', 'Matched')}</TableCell>
-                                <TableCell>{t('curatedCollections.ambiguous', 'Ambiguous')}</TableCell>
-                                <TableCell>{t('curatedCollections.notFound', 'Not found')}</TableCell>
-                                <TableCell>{t('curatedCollections.public', 'Public')}</TableCell>
-                                <TableCell></TableCell>
+                                <TableHead>{t('curatedCollections.name', 'Name')}</TableHead>
+                                <TableHead>{t('curatedCollections.status', 'Status')}</TableHead>
+                                {/* Counts read down a column, so they are right
+                                    aligned and set in figures of one width. */}
+                                <TableHead className="text-right">
+                                    {t('curatedCollections.matched', 'Matched')}
+                                </TableHead>
+                                <TableHead className="text-right">
+                                    {t('curatedCollections.ambiguous', 'Ambiguous')}
+                                </TableHead>
+                                <TableHead className="text-right">
+                                    {t('curatedCollections.notFound', 'Not found')}
+                                </TableHead>
+                                <TableHead>{t('curatedCollections.public', 'Public')}</TableHead>
+                                {/* The column of delete buttons still needs a
+                                    name, or a screen reader announces the cell
+                                    without saying which column it is in. */}
+                                <TableHead>
+                                    <span className="sr-only">
+                                        {t('curatedCollections.delete', 'Delete')}
+                                    </span>
+                                </TableHead>
                             </TableRow>
-                        </TableHead>
+                        </TableHeader>
                         <TableBody>
                             {rows.map((row) => (
-                                <TableRow key={row.id} hover>
+                                <TableRow key={row.id}>
                                     <TableCell>
-                                        <RouterLink to={`/admin/collections/${row.id}`}>{row.name}</RouterLink>
+                                        <RouterLink
+                                            to={`/admin/collections/${row.id}`}
+                                            className="border-b border-border hover:border-current"
+                                        >
+                                            {row.name}
+                                        </RouterLink>
                                     </TableCell>
-                                    <TableCell>{row.import_status ?? '-'}</TableCell>
-                                    <TableCell>{row.import_stats?.matched ?? 0}</TableCell>
-                                    <TableCell>{row.import_stats?.ambiguous ?? 0}</TableCell>
-                                    <TableCell>{row.import_stats?.not_found ?? 0}</TableCell>
+                                    <TableCell className="text-muted-foreground">
+                                        {row.import_status ?? '—'}
+                                    </TableCell>
+                                    <TableCell className="text-right tabular-nums">
+                                        {row.import_stats?.matched ?? 0}
+                                    </TableCell>
+                                    <TableCell className="text-right tabular-nums">
+                                        {row.import_stats?.ambiguous ?? 0}
+                                    </TableCell>
+                                    <TableCell className="text-right tabular-nums">
+                                        {row.import_stats?.not_found ?? 0}
+                                    </TableCell>
                                     <TableCell>
                                         {row.is_public ? (
-                                            <Chip size="small" label="public" color="success" />
+                                            <Badge>{t('curatedCollections.public', 'Public')}</Badge>
                                         ) : (
-                                            <Chip size="small" label="draft" />
+                                            <Badge variant="secondary">
+                                                {t('curatedCollections.draft', 'Draft')}
+                                            </Badge>
                                         )}
                                     </TableCell>
                                     <TableCell>
-                                        <IconButton size="small" onClick={() => onDelete(row.id)}>
-                                            <DeleteIcon fontSize="small" />
-                                        </IconButton>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon-sm"
+                                            onClick={() => onDelete(row.id)}
+                                            title={t('curatedCollections.delete', 'Delete')}
+                                            aria-label={`${t('curatedCollections.delete', 'Delete')}: ${row.name}`}
+                                        >
+                                            <Trash2 className="size-4" />
+                                        </Button>
                                     </TableCell>
                                 </TableRow>
                             ))}
                             {rows.length === 0 && (
                                 <TableRow>
-                                    <TableCell colSpan={7}>
-                                        <Typography variant="body2" color="text.secondary" align="center">
-                                            {t('curatedCollections.empty', 'No curated collections yet')}
-                                        </Typography>
+                                    <TableCell colSpan={7} className="py-6 text-center text-muted-foreground">
+                                        {t('curatedCollections.empty', 'No curated collections yet')}
                                     </TableCell>
                                 </TableRow>
                             )}
                         </TableBody>
                     </Table>
+
                     {totalPages > 1 && (
-                        <Stack alignItems="center" mt="auto" pt={2}>
+                        <div className="mt-auto flex justify-center pt-4">
                             <BookPagination
                                 totalPages={totalPages}
                                 currentPage={page}
-                                baseUrl={`/admin/collections/page/${page}`}
+                                baseUrl="/admin/collections/page"
                             />
-                        </Stack>
+                        </div>
                     )}
                 </CardContent>
             </Card>
-        </Box>
+        </div>
     );
 };
 

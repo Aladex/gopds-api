@@ -45,6 +45,19 @@
     --z-index-chrome: 1100;
     --z-index-chrome-top: 1200;
     --z-index-modal: 1300;
+
+    /* An indeterminate progress bar: a stripe crossing its own track, for work
+       that has started but cannot say how far along it is. */
+    --animate-progress-slide: progress-slide 1.4s ease-in-out infinite;
+
+    @keyframes progress-slide {
+        0% {
+            transform: translateX(-100%);
+        }
+        100% {
+            transform: translateX(300%);
+        }
+    }
 }
 
 /*
