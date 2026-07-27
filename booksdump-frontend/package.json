@@ -37,11 +37,13 @@
     "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "4.3.3",
     "@testing-library/dom": "^10.4.1",
     "@types/js-cookie": "^3.0.6",
     "@vitejs/plugin-react": "6.0.4",
     "@vitest/coverage-v8": "4.1.10",
     "jsdom": "29.1.1",
+    "tailwindcss": "4.3.3",
     "vite": "8.1.5",
     "vitest": "4.1.10"
   },

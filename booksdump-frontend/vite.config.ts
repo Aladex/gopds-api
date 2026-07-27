@@ -1,10 +1,18 @@
 // defineConfig comes from vitest/config rather than vite so the `test` block is
 // typed; it is the same Vite config otherwise.
+import path from 'node:path';
+
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
-    plugins: [react()],
+    plugins: [react(), tailwindcss()],
+    resolve: {
+        alias: {
+            '@': path.resolve(import.meta.dirname, 'src'),
+        },
+    },
     build: {
         // The Go binary embeds booksdump-frontend/build via go:embed, and
         // cmd/filesystem.go, cmd/middleware.go and cmd/routes.go all resolve

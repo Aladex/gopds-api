@@ -1,4 +1,19 @@
 /* src/index.css */
+
+/*
+ * Tailwind is imported in pieces rather than through `@import "tailwindcss"`,
+ * which would also pull in preflight.
+ *
+ * Preflight is a global reset, and this application already has one: MUI's
+ * CssBaseline, rendered by ThemeContext. Loading both would mean two resets
+ * fighting over the same elements — preflight would, among other things,
+ * replace the Roboto stack CssBaseline applies to body. MUI stays responsible
+ * for the base layer while it is still rendering most of the interface.
+ */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+
 @import './transitions.css';
 
 body {
