@@ -31,6 +31,8 @@ import (
 var telegramService *telegram.TelegramService
 
 func main() {
+	loadConfiguration()
+
 	db := initializeDatabase()
 	defer closeDatabaseConnection(db)
 	database.SetDB(db)

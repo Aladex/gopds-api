@@ -7,7 +7,12 @@ import (
 
 var cfg *config.Config
 
-func init() {
+// loadConfiguration loads the application configuration and prepares the list of
+// embedded frontend directories. It runs at the start of main rather than from an
+// init function: initializing a package must not perform I/O or panic, otherwise
+// the package cannot be tested at all — every test in it would abort before
+// starting, with no way to prepare the environment first.
+func loadConfiguration() {
 	var err error
 	cfg, err = config.Load()
 	if err != nil {
