@@ -2,12 +2,14 @@ package api
 
 import (
 	"errors"
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
+
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/models"
-	"net/http"
 )
 
 // AuthorAnswer struct for authors list on search page

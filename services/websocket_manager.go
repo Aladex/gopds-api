@@ -2,9 +2,10 @@ package services
 
 import (
 	"encoding/json"
-	"gopds-api/logging"
 	"sync"
 	"sync/atomic"
+
+	"gopds-api/logging"
 
 	"github.com/coder/websocket"
 )

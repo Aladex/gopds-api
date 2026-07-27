@@ -4,10 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"gopds-api/database"
-	"gopds-api/httputil"
-	"gopds-api/internal/posters"
-	"gopds-api/models"
 	"image"
 	"image/color"
 	"image/draw"
@@ -17,6 +13,11 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+
+	"gopds-api/database"
+	"gopds-api/httputil"
+	"gopds-api/internal/posters"
+	"gopds-api/models"
 
 	_ "image/gif"
 	_ "image/png"

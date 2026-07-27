@@ -3,10 +3,11 @@ package database
 import (
 	"context"
 	"errors"
-	"gopds-api/logging"
-	"gopds-api/models"
 	"sort"
 	"strings"
+
+	"gopds-api/logging"
+	"gopds-api/models"
 
 	"github.com/go-pg/pg/v10"
 	"github.com/go-pg/pg/v10/orm"

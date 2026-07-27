@@ -5,12 +5,13 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"gopds-api/internal/converter"
-	"gopds-api/logging"
 	"io"
 	"os"
 	"os/exec"
 	"strings"
+
+	"gopds-api/internal/converter"
+	"gopds-api/logging"
 
 	"github.com/google/uuid"
 )

@@ -5,10 +5,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"gopds-api/commands"
-	"gopds-api/logging"
 	"strings"
 	"time"
+
+	"gopds-api/commands"
+	"gopds-api/logging"
 
 	"github.com/go-redis/redis"
 )

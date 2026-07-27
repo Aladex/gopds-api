@@ -3,11 +3,12 @@ package middlewares
 import (
 	"context"
 	"errors"
+	"net/http"
+	"time"
+
 	"gopds-api/models"
 	"gopds-api/sessions"
 	"gopds-api/utils"
-	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
 )

@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/go-pg/pg/v10"
 	"github.com/go-redis/redis"
+
 	"gopds-api/logging"
 	"gopds-api/sessions"
 )

@@ -7,13 +7,14 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"gopds-api/models"
 	"hash"
 	"math/big"
 	"math/rand"
 	"strconv"
 	"strings"
 	"time"
+
+	"gopds-api/models"
 
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/spf13/viper"

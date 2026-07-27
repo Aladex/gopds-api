@@ -6,13 +6,14 @@ import (
 	"net/url"
 	"time"
 
+	"net/http"
+	"strings"
+
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/opdsutils"
-	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"

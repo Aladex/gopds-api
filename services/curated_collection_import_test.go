@@ -13,13 +13,13 @@ import (
 
 // fakeRepo is an in-memory CollectionRepo used by the orchestrator tests.
 type fakeRepo struct {
-	createCalls  []createCall
-	addedItems   []models.PersistedCollectionItem
-	statusCalls  []statusCall
-	nextID       int64
-	createErr    error
-	addItemErr   error
-	updateErr    error
+	createCalls []createCall
+	addedItems  []models.PersistedCollectionItem
+	statusCalls []statusCall
+	nextID      int64
+	createErr   error
+	addItemErr  error
+	updateErr   error
 }
 
 type createCall struct {

@@ -3,6 +3,10 @@ package api
 import (
 	"context"
 	"errors"
+	"net/http"
+	"strings"
+	"time"
+
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/logging"
@@ -10,9 +14,6 @@ import (
 	"gopds-api/models"
 	"gopds-api/sessions"
 	"gopds-api/utils"
-	"net/http"
-	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"

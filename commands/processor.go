@@ -3,11 +3,12 @@ package commands
 import (
 	"context"
 	"fmt"
+	"strings"
+
 	"gopds-api/database"
 	"gopds-api/llm"
 	"gopds-api/logging"
 	"gopds-api/models"
-	"strings"
 
 	tgbot "github.com/go-telegram/bot/models"
 )
@@ -30,8 +31,8 @@ type CommandResult struct {
 // SearchParams represents search parameters for pagination
 type SearchParams struct {
 	Query      string `json:"query"`
-	QueryType  string `json:"query_type"`          // "book", "author", or "author_books"
-	RefID      int64  `json:"ref_id,omitempty"`  // ID of related entity (author, collection, etc.)
+	QueryType  string `json:"query_type"`       // "book", "author", or "author_books"
+	RefID      int64  `json:"ref_id,omitempty"` // ID of related entity (author, collection, etc.)
 	Offset     int    `json:"offset"`
 	Limit      int    `json:"limit"`
 	TotalCount int    `json:"total_count"`

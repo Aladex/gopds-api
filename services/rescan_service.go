@@ -5,15 +5,16 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+
 	"gopds-api/database"
 	"gopds-api/internal/parser"
 	"gopds-api/internal/posters"
 	"gopds-api/logging"
 	"gopds-api/models"
-	"io"
-	"os"
-	"path/filepath"
-	"strings"
 )
 
 // RescanService handles book rescanning with approval workflow

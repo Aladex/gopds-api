@@ -34,12 +34,12 @@ type MatchCandidate struct {
 // the admin UI while import_status is still 'importing'. AIProgress carries the
 // streaming state of an in-flight LLM resolution.
 type CollectionImportStats struct {
-	Matched    int                  `json:"matched"`
-	Ambiguous  int                  `json:"ambiguous"`
-	NotFound   int                  `json:"not_found"`
-	Processed  int                  `json:"processed"`
-	Total      int                  `json:"total"`
-	AIProgress *AIResolveProgress   `json:"ai_progress,omitempty"`
+	Matched    int                `json:"matched"`
+	Ambiguous  int                `json:"ambiguous"`
+	NotFound   int                `json:"not_found"`
+	Processed  int                `json:"processed"`
+	Total      int                `json:"total"`
+	AIProgress *AIResolveProgress `json:"ai_progress,omitempty"`
 }
 
 // AIResolveProgress is a snapshot of an in-flight LLM-driven loop. Updated after
@@ -143,11 +143,11 @@ type BookCollectionItem struct {
 // resolution so that the same external pair encountered in another collection import
 // is matched automatically without admin intervention.
 type BookMatchDecision struct {
-	tableName        struct{}  `pg:"book_match_decisions,discard_unknown_columns" json:"-"`
-	ID               int64     `pg:"id,pk" json:"id"`
-	AuthorNorm       string    `pg:"author_norm" json:"author_norm"`
-	TitleNorm        string    `pg:"title_norm" json:"title_norm"`
-	BookID           int64     `pg:"book_id" json:"book_id"`
-	DecidedByUserID  *int64    `pg:"decided_by_user_id" json:"decided_by_user_id,omitempty"`
-	CreatedAt        time.Time `pg:"created_at" json:"created_at"`
+	tableName       struct{}  `pg:"book_match_decisions,discard_unknown_columns" json:"-"`
+	ID              int64     `pg:"id,pk" json:"id"`
+	AuthorNorm      string    `pg:"author_norm" json:"author_norm"`
+	TitleNorm       string    `pg:"title_norm" json:"title_norm"`
+	BookID          int64     `pg:"book_id" json:"book_id"`
+	DecidedByUserID *int64    `pg:"decided_by_user_id" json:"decided_by_user_id,omitempty"`
+	CreatedAt       time.Time `pg:"created_at" json:"created_at"`
 }

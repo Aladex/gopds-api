@@ -1,8 +1,9 @@
 package database
 
 import (
-	"gopds-api/models"
 	"testing"
+
+	"gopds-api/models"
 
 	"github.com/stretchr/testify/assert"
 )

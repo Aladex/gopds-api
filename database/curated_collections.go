@@ -334,8 +334,8 @@ func clampItemsPaging(page, pageSize int) (int, int) {
 // at maxPageSize. Defaults kick in for non-positive inputs.
 func clampListPaging(page, pageSize, defaultPageSize int) (int, int) {
 	const (
-		maxPageSize    = 100
-		maxOffsetRows  = 10_000
+		maxPageSize   = 100
+		maxOffsetRows = 10_000
 	)
 	if pageSize < 1 {
 		pageSize = defaultPageSize
@@ -510,12 +510,12 @@ func FindCollectionCandidates(ctx context.Context, authorNorm, titleNorm string)
 	}
 	var rows []row
 	_, err := db.QueryContext(ctx, &rows, query,
-		titleNorm,         // similarity(lower(title), ?)
-		prefix,            // CASE WHEN lower(title) LIKE ? THEN 0.7 ELSE 0
-		authorNorm,        // similarity(lower(full_name), ?)
-		titleNorm,         // WHERE similarity > ?
-		trigramTitleMin,   // threshold
-		prefix,            // OR lower(title) LIKE ?
+		titleNorm,       // similarity(lower(title), ?)
+		prefix,          // CASE WHEN lower(title) LIKE ? THEN 0.7 ELSE 0
+		authorNorm,      // similarity(lower(full_name), ?)
+		titleNorm,       // WHERE similarity > ?
+		trigramTitleMin, // threshold
+		prefix,          // OR lower(title) LIKE ?
 	)
 	if err != nil {
 		return nil, err
@@ -527,4 +527,3 @@ func FindCollectionCandidates(ctx context.Context, authorNorm, titleNorm string)
 	}
 	return out, nil
 }
-

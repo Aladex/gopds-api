@@ -1,9 +1,10 @@
 package main
 
 import (
-	assets "gopds-api"
 	"slices"
 	"testing"
+
+	assets "gopds-api"
 )
 
 // TestInitializeDistFolders verifies the embedded frontend tree can be walked.

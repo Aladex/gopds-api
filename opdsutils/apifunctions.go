@@ -2,10 +2,12 @@ package opdsutils
 
 import (
 	"fmt"
+	"strconv"
+
 	"github.com/spf13/viper"
+
 	"gopds-api/internal/posters"
 	"gopds-api/models"
-	"strconv"
 )
 
 func rels() []string {

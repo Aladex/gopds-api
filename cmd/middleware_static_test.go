@@ -1,11 +1,12 @@
 package main
 
 import (
-	assets "gopds-api"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	assets "gopds-api"
 
 	"github.com/gin-gonic/gin"
 )

@@ -1,9 +1,10 @@
 package api
 
 import (
+	"os"
+
 	"gopds-api/middlewares"
 	"gopds-api/models"
-	"os"
 
 	"github.com/gin-gonic/gin"
 )

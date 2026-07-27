@@ -2,16 +2,17 @@ package api
 
 import (
 	"fmt"
-	"gopds-api/database"
-	"gopds-api/httputil"
-	"gopds-api/logging"
-	"gopds-api/utils"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
+
+	"gopds-api/database"
+	"gopds-api/httputil"
+	"gopds-api/logging"
+	"gopds-api/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"

@@ -2,8 +2,9 @@ package converter
 
 import (
 	"bytes"
-	"gopds-api/internal/parser"
 	"testing"
+
+	"gopds-api/internal/parser"
 )
 
 // TestParseFB2Complete_Basic tests basic combined parsing

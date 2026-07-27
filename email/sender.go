@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"crypto/tls"
 	"fmt"
-	assets "gopds-api"
-	"gopds-api/logging"
 	"html/template"
 	"net"
 	"net/mail"
 	"net/smtp"
+
+	assets "gopds-api"
+	"gopds-api/logging"
 
 	"github.com/spf13/viper"
 )

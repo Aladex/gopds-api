@@ -4,11 +4,12 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
+
 	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/utils"
-	"strings"
-	"time"
 
 	"github.com/google/uuid"
 )

@@ -2,16 +2,18 @@ package opds
 
 import (
 	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/gin-gonic/gin"
+
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/opdsutils"
-	"net/http"
-	"strconv"
-	"strings"
-	"time"
 )
 
 func hasNextPage(limit, currentPage, totalCount int) bool {

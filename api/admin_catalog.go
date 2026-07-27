@@ -1,12 +1,13 @@
 package api
 
 import (
-	"gopds-api/database"
-	"gopds-api/httputil"
-	"gopds-api/models"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"gopds-api/database"
+	"gopds-api/httputil"
+	"gopds-api/models"
 
 	"github.com/gin-gonic/gin"
 )

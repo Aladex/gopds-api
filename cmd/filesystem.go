@@ -2,11 +2,12 @@ package main
 
 import (
 	"embed"
-	assets "gopds-api"
 	"io/fs"
 	"net/http"
 	"path"
 	"strings"
+
+	assets "gopds-api"
 )
 
 // initializeDistFolders initializes the distFolders variable with the list of folders in the frontend build directory.

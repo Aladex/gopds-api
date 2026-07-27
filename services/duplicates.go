@@ -6,13 +6,14 @@ import (
 	"crypto/md5"
 	"errors"
 	"fmt"
-	"gopds-api/logging"
-	"gopds-api/models"
 	"io"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"gopds-api/logging"
+	"gopds-api/models"
 
 	"github.com/go-pg/pg/v10"
 )

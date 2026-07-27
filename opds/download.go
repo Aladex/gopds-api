@@ -3,14 +3,15 @@ package opds
 import (
 	"errors"
 	"fmt"
-	"gopds-api/database"
-	"gopds-api/httputil"
-	"gopds-api/logging"
-	"gopds-api/utils"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"gopds-api/database"
+	"gopds-api/httputil"
+	"gopds-api/logging"
+	"gopds-api/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"

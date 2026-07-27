@@ -5,6 +5,11 @@ package main
 import (
 	"context"
 	"errors"
+	"net/http"
+	"os"
+	"os/signal"
+	"time"
+
 	"gopds-api/database"
 	_ "gopds-api/docs" // Import to include documentation for Swagger UI
 	"gopds-api/logging"
@@ -12,10 +17,6 @@ import (
 	"gopds-api/sessions"
 	"gopds-api/tasks" // Import the tasks package for WatchDirectory
 	"gopds-api/telegram"
-	"net/http"
-	"os"
-	"os/signal"
-	"time"
 
 	"github.com/gin-gonic/gin"
 )

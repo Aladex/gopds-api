@@ -2,14 +2,15 @@ package api
 
 import (
 	"errors"
-	"gopds-api/database"
-	"gopds-api/httputil"
-	"gopds-api/models"
-	"gopds-api/services"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"gopds-api/database"
+	"gopds-api/httputil"
+	"gopds-api/models"
+	"gopds-api/services"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"

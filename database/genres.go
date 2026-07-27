@@ -1,9 +1,10 @@
 package database
 
 import (
+	"strings"
+
 	"gopds-api/logging"
 	"gopds-api/models"
-	"strings"
 
 	"github.com/go-pg/pg/v10"
 )

@@ -2,11 +2,12 @@ package api
 
 import (
 	"errors"
+	"net/http"
+
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/logging"
 	"gopds-api/models"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 )

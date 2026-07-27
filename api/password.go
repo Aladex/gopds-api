@@ -3,13 +3,14 @@ package api
 import (
 	"errors"
 	"fmt"
+	"net/http"
+
 	"gopds-api/database"
 	"gopds-api/email"
 	"gopds-api/httputil"
 	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/sessions"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"

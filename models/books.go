@@ -251,8 +251,8 @@ type BookFilters struct {
 	// The query also enforces is_curated=true AND is_public=true so non-admin
 	// users cannot see drafts even if they guess the id.
 	CuratedCollection int64 `form:"curated_collection" json:"curated_collection"`
-	IncludeHidden    bool   `form:"include_hidden" json:"include_hidden"`
-	Genre            int    `form:"genre" json:"genre"`
+	IncludeHidden     bool  `form:"include_hidden" json:"include_hidden"`
+	Genre             int   `form:"genre" json:"genre"`
 }
 
 // CollectionFilters params for filtering collections list

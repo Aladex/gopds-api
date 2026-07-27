@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"gopds-api/logging"
 	"io"
 	"net/http"
 	"os"
@@ -12,6 +11,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"gopds-api/logging"
 )
 
 // GetModel returns the OpenAI model from OPENAI_MODEL env, defaulting to gpt-4o-mini.

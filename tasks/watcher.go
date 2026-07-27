@@ -1,10 +1,11 @@
 package tasks
 
 import (
-	"gopds-api/logging"
 	"os"
 	"path/filepath"
 	"time"
+
+	"gopds-api/logging"
 )
 
 // WatchDirectory monitors a directory and deletes files older than an hour.

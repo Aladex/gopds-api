@@ -1,8 +1,9 @@
 package database
 
 import (
-	"gopds-api/models"
 	"strings"
+
+	"gopds-api/models"
 )
 
 func SearchAuthors(query string, limit int) ([]models.Author, error) {

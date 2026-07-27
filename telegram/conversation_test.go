@@ -417,8 +417,8 @@ func TestProcessIncomingMessage(t *testing.T) {
 
 	// Create a mock telegram message
 	message := &IncomingMessage{
-		SenderID:  12345,
-		Text:      "Hello from user!",
+		SenderID: 12345,
+		Text:     "Hello from user!",
 	}
 
 	err := cm.ProcessIncomingMessage(botToken, message)
@@ -441,8 +441,8 @@ func TestProcessIncomingMessage_EmptyText(t *testing.T) {
 
 	// Create a message with empty text
 	message := &IncomingMessage{
-		SenderID:  12345,
-		Text:      "",
+		SenderID: 12345,
+		Text:     "",
 	}
 
 	err := cm.ProcessIncomingMessage(botToken, message)

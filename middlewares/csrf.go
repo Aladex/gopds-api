@@ -3,8 +3,9 @@ package middlewares
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"gopds-api/utils"
 	"net/http"
+
+	"gopds-api/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"

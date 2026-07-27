@@ -1,13 +1,14 @@
 package main
 
 import (
+	"net/http"
+	"strings"
+
 	assets "gopds-api"
 	"gopds-api/api"
 	"gopds-api/middlewares"
 	"gopds-api/opds"
 	"gopds-api/services"
-	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"

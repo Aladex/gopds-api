@@ -1,8 +1,9 @@
 package main
 
 import (
-	"gopds-api/logging"
 	"os"
+
+	"gopds-api/logging"
 )
 
 // ensureUserPathExists checks if the specified path exists and creates it if it does not.

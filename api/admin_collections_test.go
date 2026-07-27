@@ -21,25 +21,25 @@ import (
 
 // fakeAdminSvc is an in-memory CuratedCollectionsAdmin for httptest.
 type fakeAdminSvc struct {
-	startImportCalls   []services.ImportParams
-	startImportID      int64
-	startImportErr     error
-	listResp           []models.BookCollection
-	listErr            error
-	getResp            *models.BookCollection
-	getErr             error
-	listItemsCalls     []listItemsCall
-	listItemsResp      []models.BookCollectionItem
-	listItemsTotal     int
-	listItemsErr       error
-	resolveCalls       []resolveCall
-	resolveErr         error
-	ignoreCalls        []int64
-	ignoreErr          error
-	updateCalls        []updateCall
-	updateErr          error
-	deleteCalls        []int64
-	deleteErr          error
+	startImportCalls []services.ImportParams
+	startImportID    int64
+	startImportErr   error
+	listResp         []models.BookCollection
+	listErr          error
+	getResp          *models.BookCollection
+	getErr           error
+	listItemsCalls   []listItemsCall
+	listItemsResp    []models.BookCollectionItem
+	listItemsTotal   int
+	listItemsErr     error
+	resolveCalls     []resolveCall
+	resolveErr       error
+	ignoreCalls      []int64
+	ignoreErr        error
+	updateCalls      []updateCall
+	updateErr        error
+	deleteCalls      []int64
+	deleteErr        error
 }
 
 type listItemsCall struct {
@@ -50,9 +50,9 @@ type listItemsCall struct {
 }
 
 type resolveCall struct {
-	itemID         int64
-	bookID         int64
-	decidedBy      *int64
+	itemID    int64
+	bookID    int64
+	decidedBy *int64
 }
 
 type updateCall struct {

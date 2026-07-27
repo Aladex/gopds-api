@@ -3,10 +3,11 @@ package converter
 import (
 	"archive/zip"
 	"bytes"
-	"gopds-api/internal/parser"
 	"io"
 	"strings"
 	"testing"
+
+	"gopds-api/internal/parser"
 )
 
 // TestGenerateEPUB_Basic tests basic EPUB generation
