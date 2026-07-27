@@ -1,17 +1,8 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, ReactNode } from 'react';
-import { fetchWithAuth } from '../api/config';
+import * as authApi from '@/api/auth';
+import type { User } from '@/api/auth';
+import { isApiError } from '@/api/errors';
 import { useNavigate } from 'react-router-dom';
-
-interface User {
-    username: string;
-    first_name: string;
-    last_name: string;
-    is_superuser: boolean;
-    books_lang?: string;
-    have_favs?: boolean;
-    has_bot_token?: boolean;
-    date_joined?: string;
-}
 
 interface AuthContextType {
     isAuthenticated: boolean;
@@ -70,9 +61,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
 
         try {
-            const response = await fetchWithAuth.get('/csrf-token');
-            if (response.status === 200 && response.data.csrf_token) {
-                setCsrfToken(response.data.csrf_token);
+            const { csrf_token: token } = await authApi.getCsrfToken();
+            if (token) {
+                setCsrfToken(token);
             }
         } catch (error) {
             console.error('Error fetching CSRF token', error);
@@ -81,10 +72,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     const refreshToken = useCallback(async () => {
         try {
-            const response = await fetchWithAuth.post('/refresh-token');
-            if (response.status === 200) {
-                return true;
-            }
+            await authApi.refreshSession();
+            return true;
         } catch (error) {
             console.error('Error refreshing token', error);
 
@@ -110,29 +99,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         if (isLoading) return;
 
         setIsLoading(true);
-        fetchWithAuth.get('/books/self-user')
-            .then((response) => {
-                setUser(response.data);
+        // The transport already refreshes once and replays on 401, so a 401
+        // reaching here means the session is genuinely gone.
+        authApi.getCurrentUser()
+            .then((currentUser) => {
+                setUser(currentUser);
             })
-            .catch(async (error) => {
-                if (error.response && error.response.status === 401) {
-                    // Try to refresh token once
-                    const refreshed = await refreshToken();
-                    if (refreshed) {
-                        // Retry getting user data
-                        try {
-                            const response = await fetchWithAuth.get('/books/self-user');
-                            setUser(response.data);
-                        } catch (retryError) {
-                            setUser(null);
-                        }
-                    } else {
-                        setUser(null);
-                    }
-                } else {
+            .catch((error: unknown) => {
+                if (!isApiError(error) || !error.isUnauthorized) {
                     console.error('Error fetching user data', error);
-                    setUser(null);
                 }
+                setUser(null);
             })
             .finally(() => {
                 setIsLoaded(true);
@@ -143,23 +120,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const updateLang = useCallback(async (language: string) => {
         if (user) {
             try {
-                const response = await fetchWithAuth.post('/books/change-me', {
-                    books_lang: language
-                });
-                if (response.status === 200) {
-                    // Сбрасываем избранное перед сменой языка
-                    if (resetFavCallback) {
-                        resetFavCallback();
-                    }
+                await authApi.updateCurrentUser({ books_lang: language });
 
-                    // Обновляем пользователя с новым языком
-                    setUser({ ...user, books_lang: language });
-
-                    // При смене языка всегда перенаправляем на обычную страницу книг
-                    navigate('/books/page/1');
-                } else {
-                    console.error('Failed to update language');
+                // Сбрасываем избранное перед сменой языка
+                if (resetFavCallback) {
+                    resetFavCallback();
                 }
+
+                // Обновляем пользователя с новым языком
+                setUser({ ...user, books_lang: language });
+
+                // При смене языка всегда перенаправляем на обычную страницу книг
+                navigate('/books/page/1');
             } catch (error) {
                 console.error('Error updating language', error);
             }
@@ -171,7 +143,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
         setIsLoading(true);
         try {
-            await fetchWithAuth.get('/logout');
+            await authApi.logout();
         } catch (error) {
             console.error('Error logging out', error);
         } finally {
@@ -216,8 +188,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
             setIsLoading(true);
             try {
-                const response = await fetchWithAuth.get('/init');
-                const initData = response.data || {};
+                const initData = (await authApi.getInit()) ?? {};
                 if (initData.csrf_token) {
                     setCsrfToken(initData.csrf_token);
                 } else {

@@ -3,7 +3,8 @@ import { Button, Typography, CardContent, CardActions, Box, IconButton } from '@
 import { useNavigate } from 'react-router-dom';
 import LoginCenteredBox from "../common/CenteredBox";
 import { useTranslation } from 'react-i18next';
-import { API_URL, fetchWithCsrf } from '../../api/config';
+import * as authApi from '@/api/auth';
+import { isApiError } from '@/api/errors';
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { StyledTextField } from "../StyledDataItems";
 
@@ -31,28 +32,23 @@ const Registration: React.FC = () => {
         };
 
         try {
-            const response = await fetchWithCsrf(`${API_URL}/api/register`, {
-                method: 'POST',
-                body: JSON.stringify(userData),
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                const errorMessages: Record<string, string> = {
-                    bad_invite: t('badInvite'),
-                    bad_form: t('badForm'),
-                    user_exists: t('userExists'),
-                    'CSRF token invalid': t('csrfTokenInvalid') || 'CSRF token invalid',
-                };
-                const errorMessage = errorMessages[errorData.error] || errorMessages[errorData.message] || t('registrationError');
-                setRegError(errorMessage);
-                return;
-            }
-
+            await authApi.register(userData);
             setIsRegistered(true);
         } catch (error) {
-            console.error('Error registering:', error);
-            setRegError(t('registrationError'));
+            const errorMessages: Record<string, string> = {
+                bad_invite: t('badInvite'),
+                bad_form: t('badForm'),
+                user_exists: t('userExists'),
+                'CSRF token invalid': t('csrfTokenInvalid') || 'CSRF token invalid',
+            };
+            const body = isApiError(error)
+                ? (error.body as { error?: string; message?: string } | undefined)
+                : undefined;
+            setRegError(
+                errorMessages[body?.error ?? ''] ||
+                    errorMessages[body?.message ?? ''] ||
+                    t('registrationError'),
+            );
         }
     };
 

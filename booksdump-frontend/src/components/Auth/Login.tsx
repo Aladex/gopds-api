@@ -3,7 +3,8 @@ import { Button, Typography, CardContent, CardActions, Box, IconButton, InputAdo
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { QuestionMark, Person, Lock } from '@mui/icons-material';
-import { API_URL } from '../../api/config';
+import * as authApi from '@/api/auth';
+import { isApiError } from '@/api/errors';
 import LoginCenteredBox from "../common/CenteredBox";
 import { useTranslation } from 'react-i18next';
 import { StyledTextField } from "../StyledDataItems";
@@ -36,31 +37,22 @@ const Login: React.FC = () => {
         }
 
         try {
-            const response = await fetch(`${API_URL}/api/login`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ username, password }),
+            const userData = await authApi.login({ username, password });
+
+            // Сразу устанавливаем пользователя из ответа login API
+            setUser({
+                username: userData.username,
+                first_name: userData.first_name,
+                last_name: userData.last_name,
+                is_superuser: userData.is_superuser,
+                books_lang: userData.books_lang,
+                have_favs: userData.have_favs,
             });
-
-            if (response.ok) {
-                const userData = await response.json();
-
-                // Сразу устанавливаем пользователя из ответа login API
-                const userForContext = {
-                    username: userData.username,
-                    first_name: userData.first_name,
-                    last_name: userData.last_name,
-                    is_superuser: userData.is_superuser,
-                    books_lang: userData.books_lang,
-                    have_favs: userData.have_favs
-                };
-                setUser(userForContext);
-                navigate('/books/page/1');
-            } else if (response.status === 403) {
-                const errorData = await response.json();
-                switch (errorData.message) {
+            navigate('/books/page/1');
+        } catch (error) {
+            if (isApiError(error) && error.status === 403) {
+                const message = (error.body as { message?: string } | undefined)?.message;
+                switch (message) {
                     case 'bad_credentials':
                         setLoginError(t('badCredentials'));
                         break;
@@ -73,10 +65,8 @@ const Login: React.FC = () => {
                     default:
                         setLoginError(t('loginOrPasswordIncorrect'));
                 }
-            } else {
-                console.error('Error logging in:', response.statusText);
+                return;
             }
-        } catch (error) {
             console.error('Error logging in:', error);
         }
     };
