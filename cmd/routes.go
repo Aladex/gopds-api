@@ -6,6 +6,7 @@ import (
 
 	assets "gopds-api"
 	"gopds-api/api"
+	"gopds-api/config"
 	"gopds-api/middlewares"
 	"gopds-api/opds"
 	"gopds-api/services"
@@ -17,11 +18,11 @@ import (
 
 // setupRoutes defines all route handlers and groups them by their functionality.
 // It includes routes for Swagger UI, file handling, default operations, OPDS feed, API, admin, and Telegram bot interactions.
-func setupRoutes(route *gin.Engine) {
+func setupRoutes(route *gin.Engine, donate []config.DonateMethod) {
 	route.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	setupFileRoutes(route.Group("/files", middlewares.AuthMiddleware()))
 	setupFileRoutes(route.Group("/api/files", middlewares.AuthMiddleware()))
-	setupDefaultRoutes(route)
+	setupDefaultRoutes(route, donate)
 	setupOpdsRoutes(route.Group("/opds", middlewares.BasicAuth()))
 	// Add public auth routes (no auth middleware)
 	setupPublicAuthRoutes(route.Group("/api"))
@@ -95,9 +96,11 @@ func setupFileRoutes(group *gin.RouterGroup) {
 }
 
 // setupDefaultRoutes configures default routes for the application.
-func setupDefaultRoutes(route *gin.Engine) {
+func setupDefaultRoutes(route *gin.Engine, donate []config.DonateMethod) {
 	route.GET("/books-posters/*filepath", api.Posters)
 	route.GET("/api/status", api.StatusCheck)
+	// Public: every value served here is an address meant to be handed out.
+	route.GET("/api/donate", api.DonateMethods(donate))
 	route.GET("/opds-opensearch.xml", opds.OpenSearch)
 	// Add CSRF protection to password change endpoints
 	route.POST("/api/change-password", middlewares.CSRFMiddleware(), api.ChangeUserState)

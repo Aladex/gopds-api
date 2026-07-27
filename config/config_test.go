@@ -216,3 +216,64 @@ func TestLoadKeepsDefaultsWhenUnset(t *testing.T) {
 		t.Errorf("Postgres.MaxConns = %d, want the default %d", cfg.Postgres.MaxConns, 10)
 	}
 }
+
+// The donate methods are the one part of the configuration a reader sees, and
+// the one an operator is most likely to get wrong: a fork that forgets to
+// change them would otherwise advertise the original author's wallet.
+func TestLoadReadsDonateMethods(t *testing.T) {
+	isolate(t)
+	setEnv(t, requiredEnv)
+	writeConfigFile(t, `
+donate:
+  - id: tinkoff
+    label: Tinkoff
+    kind: card
+    value: "5536913994186852"
+    link: https://tbank.ru/cf/abc
+  - id: bitcoin
+    label: Bitcoin
+    kind: address
+    value: bc1qexample
+    qr: true
+`)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if len(cfg.Donate) != 2 {
+		t.Fatalf("expected 2 donate methods, got %d", len(cfg.Donate))
+	}
+
+	first := cfg.Donate[0]
+	if first.ID != "tinkoff" || first.Kind != "card" || first.Value != "5536913994186852" {
+		t.Errorf("first method read wrongly: %+v", first)
+	}
+	if first.Link != "https://tbank.ru/cf/abc" {
+		t.Errorf("link not read: %q", first.Link)
+	}
+	if first.QR {
+		t.Error("a card number is nothing to scan; qr should stay off unless asked for")
+	}
+	if !cfg.Donate[1].QR {
+		t.Error("qr: true was not read")
+	}
+}
+
+// Nothing configured is the ordinary case for anyone running their own copy,
+// and it has to mean "offer nothing" rather than "fall back to someone else's".
+func TestLoadLeavesDonateEmptyWhenUnset(t *testing.T) {
+	isolate(t)
+	setEnv(t, requiredEnv)
+	writeConfigFile(t, "server:\n  port: 8085\n")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if len(cfg.Donate) != 0 {
+		t.Errorf("expected no donate methods, got %+v", cfg.Donate)
+	}
+}

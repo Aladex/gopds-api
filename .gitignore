@@ -23,3 +23,8 @@ AGENTS.md
 
 # Development database dumps pulled from production (never committed)
 /.dumps/
+
+# Agent worktrees and stray npx artefacts at the repository root
+/.claude/
+/node_modules/
+/.lighthouseci/

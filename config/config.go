@@ -24,6 +24,31 @@ type Config struct {
 	App                AppConfig      `mapstructure:"app" yaml:"app"`
 	Scanning           ScanningConfig `mapstructure:"scanning" yaml:"scanning"`
 	Email              EmailConfig    `mapstructure:"email" yaml:"email"`
+
+	// Donate is deliberately a list rather than a fixed set of fields: which
+	// ways of giving are offered is the operator's business, not this
+	// application's. An empty list means the interface offers none, which is
+	// what anyone running their own copy should get until they say otherwise.
+	Donate []DonateMethod `mapstructure:"donate" yaml:"donate"`
+}
+
+// DonateMethod is one way of supporting the service.
+type DonateMethod struct {
+	// ID is a stable handle for the method, independent of its label.
+	ID string `mapstructure:"id" yaml:"id" json:"id"`
+	// Label is shown as-is: these are proper nouns, not translated strings.
+	Label string `mapstructure:"label" yaml:"label" json:"label"`
+	// Kind tells the interface how to present Value: "address" for something
+	// to be copied, "card" for a payment card, "link" for somewhere to go.
+	Kind string `mapstructure:"kind" yaml:"kind" json:"kind"`
+	// Value is the address, the card number or the URL, by Kind.
+	Value string `mapstructure:"value" yaml:"value" json:"value"`
+	// Link is an optional way to pay that accompanies a Value worth showing,
+	// such as a bank's transfer page beside a card number.
+	Link string `mapstructure:"link" yaml:"link" json:"link,omitempty"`
+	// QR asks for a scannable code. A wallet address or a URL is worth
+	// scanning; a card number is not, so this is opt-in per method.
+	QR bool `mapstructure:"qr" yaml:"qr" json:"qr"`
 }
 
 // ServerConfig holds server-specific configuration
@@ -177,6 +202,13 @@ func bindEnvKeys(t reflect.Type, prefix string) error {
 			if err := bindEnvKeys(field.Type, key); err != nil {
 				return err
 			}
+			continue
+		}
+
+		// A list of structures has no sensible single environment variable to
+		// come from; binding one would only give viper a string where it
+		// expects a list. Such settings live in the config file.
+		if field.Type.Kind() == reflect.Slice && field.Type.Elem().Kind() == reflect.Struct {
 			continue
 		}
 

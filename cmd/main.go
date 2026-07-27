@@ -84,7 +84,7 @@ func main() {
 
 	route := gin.New()
 	setupMiddleware(route)
-	setupRoutes(route)
+	setupRoutes(route, cfg.Donate)
 
 	server := &http.Server{
 		Addr:           cfg.GetServerAddress(),
