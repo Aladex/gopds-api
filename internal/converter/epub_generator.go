@@ -228,18 +228,6 @@ func (g *EPUBGenerator) sectionToFile(section *FB2BodySection, depth int, filena
 	}
 }
 
-func (g *EPUBGenerator) renderSection(builder *strings.Builder, section *FB2BodySection, level int) {
-	if section == nil {
-		return
-	}
-	g.renderSectionHeader(builder, section, level)
-	g.renderParagraphs(builder, section.Paragraphs)
-
-	for _, sub := range section.SubSections {
-		g.renderSection(builder, sub, level+1)
-	}
-}
-
 func (g *EPUBGenerator) renderSectionShallow(builder *strings.Builder, section *FB2BodySection, level int) {
 	if section == nil {
 		return

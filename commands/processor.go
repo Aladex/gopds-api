@@ -611,45 +611,6 @@ func (cp *CommandProcessor) formatCombinedSearchResultsWithPagination(query stri
 	return builder.String()
 }
 
-// formatBookSearchResults formats the search results into a readable message
-func (cp *CommandProcessor) formatBookSearchResults(query string, books []models.Book, totalCount int) string {
-	var builder strings.Builder
-
-	builder.WriteString(fmt.Sprintf("📚 Результаты поиска для \"%s\":\n", query))
-
-	if totalCount > len(books) {
-		builder.WriteString(fmt.Sprintf("Показано %d из %d найденных книг\n\n", len(books), totalCount))
-	} else {
-		builder.WriteString(fmt.Sprintf("Найдено %d книг(и)\n\n", len(books)))
-	}
-
-	for i, book := range books {
-		// Format authors
-		var authorNames []string
-		for _, author := range book.Authors {
-			authorNames = append(authorNames, author.FullName)
-		}
-		authorsStr := strings.Join(authorNames, ", ")
-		if authorsStr == "" {
-			authorsStr = "Автор неизвестен"
-		}
-
-		// Add book entry
-		builder.WriteString(fmt.Sprintf("%d. %s — %s", i+1, book.Title, authorsStr))
-
-		// Add series information if available
-		if len(book.Series) > 0 && book.Series[0].Ser != "" {
-			builder.WriteString(fmt.Sprintf(" (серия: %s)", book.Series[0].Ser))
-		}
-
-		builder.WriteString("\n")
-	}
-
-	builder.WriteString("\n💡 Нажмите на название книги ниже для получения дополнительной информации.")
-
-	return builder.String()
-}
-
 // formatBookSearchResultsWithPagination formats the search results into a message with pagination info
 func (cp *CommandProcessor) formatBookSearchResultsWithPagination(query string, books []models.Book, totalCount, offset, limit int) string {
 	var builder strings.Builder
@@ -710,11 +671,6 @@ func (cp *CommandProcessor) formatAuthorSearchResultsWithPagination(query string
 	return builder.String()
 }
 
-// inlineRow builds a single-row inline keyboard from buttons.
-func inlineRow(btns ...tgbot.InlineKeyboardButton) []tgbot.InlineKeyboardButton {
-	return btns
-}
-
 // appendPaginationRow adds prev/next navigation buttons to the keyboard rows.
 func appendPaginationRow(rows [][]tgbot.InlineKeyboardButton, offset, limit, totalCount int) [][]tgbot.InlineKeyboardButton {
 	var paginationRow []tgbot.InlineKeyboardButton
@@ -736,28 +692,6 @@ func appendPaginationRow(rows [][]tgbot.InlineKeyboardButton, offset, limit, tot
 		rows = append(rows, paginationRow)
 	}
 	return rows
-}
-
-// createBookButtons creates inline keyboard buttons for books
-func (cp *CommandProcessor) createBookButtons(books []models.Book) *tgbot.InlineKeyboardMarkup {
-	if len(books) == 0 {
-		return nil
-	}
-
-	var rows [][]tgbot.InlineKeyboardButton
-
-	for _, book := range books {
-		buttonText := book.Title
-		if len(buttonText) > 50 {
-			buttonText = buttonText[:47] + "..."
-		}
-		rows = append(rows, inlineRow(tgbot.InlineKeyboardButton{
-			Text:         buttonText,
-			CallbackData: fmt.Sprintf("book:%d", book.ID),
-		}))
-	}
-
-	return &tgbot.InlineKeyboardMarkup{InlineKeyboard: rows}
 }
 
 // createBookButtonsWithPagination creates inline keyboard buttons for books with pagination

@@ -85,14 +85,6 @@ type ScanErrorResponse struct {
 	Timestamp   time.Time `json:"timestamp"`
 }
 
-type ArchiveReportResponse struct {
-	ArchiveName    string              `json:"archive_name"`
-	BooksProcessed int                 `json:"books_processed"`
-	BooksSkipped   int                 `json:"books_skipped"`
-	Errors         []ScanErrorResponse `json:"errors"`
-	DurationMS     int64               `json:"duration_ms"`
-}
-
 type ScannedArchiveInfo struct {
 	Name        string     `json:"name"`
 	BooksCount  int        `json:"books_count"`
@@ -933,25 +925,4 @@ func countArchiveFiles(archivePath string) int {
 		}
 	}
 	return count
-}
-
-func archiveReportToResponse(report *services.ArchiveReport) ArchiveReportResponse {
-	response := ArchiveReportResponse{
-		ArchiveName:    report.ArchiveName,
-		BooksProcessed: report.BooksProcessed,
-		BooksSkipped:   report.BooksSkipped,
-		DurationMS:     report.Duration.Milliseconds(),
-	}
-	if len(report.Errors) > 0 {
-		response.Errors = make([]ScanErrorResponse, 0, len(report.Errors))
-		for _, errItem := range report.Errors {
-			response.Errors = append(response.Errors, ScanErrorResponse{
-				FileName:    errItem.FileName,
-				ArchiveName: errItem.ArchiveName,
-				Error:       errItem.Error,
-				Timestamp:   errItem.Timestamp,
-			})
-		}
-	}
-	return response
 }

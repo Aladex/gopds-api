@@ -467,16 +467,6 @@ func createBotInManager(token string, userID int64) error {
 	}
 }
 
-// removeBotFromManager removes bot from BotManager
-func removeBotFromManager(token string) error {
-	if telegramBotManager == nil {
-		logging.Warn("Telegram BotManager not set, skipping bot removal")
-		return nil
-	}
-
-	return telegramBotManager.RemoveBot(token)
-}
-
 // removeBotFromManagerSync removes bot from BotManager synchronously, blocking until done
 func removeBotFromManagerSync(token string) error {
 	if telegramBotManager == nil {
