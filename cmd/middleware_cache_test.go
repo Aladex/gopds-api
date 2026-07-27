@@ -12,7 +12,7 @@ import (
 //
 // The entry document must always be revalidated, or a deploy never reaches
 // browsers holding an old copy. Bundler output carries a content hash in the
-// file name, so it can be cached indefinitely — but only if the rule recognises
+// file name, so it can be cached indefinitely — but only if the rule recognizes
 // the directory the bundler actually writes to.
 func TestSetStaticCacheHeaders(t *testing.T) {
 	const (
