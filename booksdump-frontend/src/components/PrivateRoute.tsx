@@ -1,5 +1,5 @@
 // src/components/PrivateRoute.tsx
-import React, { memo, useCallback, useState } from 'react';
+import React, { memo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 
 import { cn } from '@/lib/utils';
@@ -21,19 +21,21 @@ const PrivateRoute: React.FC<{ children: React.ReactNode; requireSuperuser?: boo
         const [isProfileDialogOpen, setIsProfileDialogOpen] = useState(false);
 
         // The profile is a sheet on a phone and a dialog on a desktop; which one
-        // opens is decided here so both presentations share one trigger.
-        const handleOpenProfile = useCallback(() => {
+        // opens is decided here so both presentations share one trigger. Neither
+        // is memoised: they are passed to click handlers, never to a dependency
+        // list, and the React Compiler handles the rest.
+        const handleOpenProfile = () => {
             if (isMobile) {
                 setIsProfileDrawerOpen(true);
             } else {
                 setIsProfileDialogOpen(true);
             }
-        }, [isMobile]);
+        };
 
-        const handleCloseProfile = useCallback(() => {
+        const handleCloseProfile = () => {
             setIsProfileDrawerOpen(false);
             setIsProfileDialogOpen(false);
-        }, []);
+        };
 
         // Show loading spinner while checking authentication
         if (!isLoaded || isLoading) {

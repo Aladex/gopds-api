@@ -6,6 +6,12 @@ import { useAuth } from '../../context/AuthContext';
 import * as authApi from '@/api/auth';
 import * as telegramApi from '@/api/telegram';
 
+/*
+ * Only the two whose identity is read stay wrapped: notify and fetchBotStatus
+ * are named in dependency lists below. Everything else is called from a click
+ * handler, so a fresh function each render is observed by nobody and the React
+ * Compiler memoises what is worth memoising.
+ */
 export const useProfileForm = (open: boolean) => {
     const { logout, updateUser, user } = useAuth();
     const navigate = useNavigate();
@@ -55,14 +61,14 @@ export const useProfileForm = (open: boolean) => {
         }
     }, [open, fetchBotStatus]);
 
-    const resetFields = useCallback(() => {
+    const resetFields = () => {
         setShowPasswordFields(false);
         setOldPassword('');
         setNewPassword('');
         setBotToken('');
-    }, []);
+    };
 
-    const handleUserChange = useCallback(async () => {
+    const handleUserChange = async () => {
         try {
             const userData = {
                 username: user?.username,
@@ -83,9 +89,9 @@ export const useProfileForm = (open: boolean) => {
             notify('profileSaveError', false);
         }
         return false;
-    }, [user, firstName, lastName, newPassword, oldPassword, updateUser, notify]);
+    };
 
-    const handleDropSessions = useCallback(async () => {
+    const handleDropSessions = async () => {
         try {
             await authApi.dropSessions();
             logout();
@@ -93,14 +99,14 @@ export const useProfileForm = (open: boolean) => {
         } catch (error) {
             console.error('Error dropping sessions:', error);
         }
-    }, [logout, navigate]);
+    };
 
-    const handleLogout = useCallback(() => {
+    const handleLogout = () => {
         logout();
         navigate('/login');
-    }, [logout, navigate]);
+    };
 
-    const handleSetBotToken = useCallback(async () => {
+    const handleSetBotToken = async () => {
         if (!botToken.trim()) return;
         setBotLoading(true);
         try {
@@ -117,9 +123,9 @@ export const useProfileForm = (open: boolean) => {
         } finally {
             setBotLoading(false);
         }
-    }, [botToken, user, updateUser, notify]);
+    };
 
-    const handleRemoveBotToken = useCallback(async () => {
+    const handleRemoveBotToken = async () => {
         setBotLoading(true);
         try {
             await telegramApi.removeBotToken();
@@ -135,11 +141,11 @@ export const useProfileForm = (open: boolean) => {
         } finally {
             setBotLoading(false);
         }
-    }, [user, updateUser, notify]);
+    };
 
-    const togglePasswordFields = useCallback(() => {
+    const togglePasswordFields = () => {
         setShowPasswordFields((prev) => !prev);
-    }, []);
+    };
 
     return {
         // State
