@@ -114,17 +114,22 @@ const BookCard: React.FC<BookCardProps> = ({
               into the two columns they had.
             */}
             <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-x-3 gap-y-3 sm:grid-cols-[104px_minmax(0,1fr)] sm:gap-x-4 sm:gap-y-1.5">
-                <div className="flex flex-col gap-2 sm:row-span-2">
+                <div className="contents sm:row-span-2 sm:flex sm:flex-col sm:gap-2">
                     <img
                         src={cover}
                         alt={book.title}
                         loading="lazy"
-                        className="h-[127px] w-[88px] flex-none rounded-sm bg-muted object-cover sm:h-[150px] sm:w-[104px]"
+                        className="col-start-1 row-start-1 h-[127px] w-[88px] flex-none rounded-sm bg-muted object-cover sm:h-[150px] sm:w-[104px]"
                     />
                     {/* Two equal cells with the label centred in each, so the four
                         read as an even block rather than four links of differing
                         length. */}
-                    <div className="grid grid-cols-2 gap-1">
+                    {/* At the foot of the card on a phone, two to a row and
+                        tall enough to hit: beside an 88px cover each of these
+                        was 42 by 22, half the size a finger reliably lands on.
+                        Beside the text on a wider screen they go back to being
+                        quiet links under the cover. */}
+                    <div className="col-span-2 row-start-3 grid grid-cols-2 gap-2 pt-1 sm:col-span-1 sm:gap-1 sm:pt-0">
                         {DOWNLOAD_FORMATS.map((format) => {
                             const converting = isBookConverting(book.id, format.id);
                             return (
@@ -134,7 +139,9 @@ const BookCard: React.FC<BookCardProps> = ({
                                     disabled={converting}
                                     onClick={() => handleFormat(format.id)}
                                     className={cn(
-                                        'rounded py-0.5 text-center text-[12px] text-primary hover:bg-accent hover:underline',
+                                        'flex min-h-11 items-center justify-center rounded border border-border text-center text-[13px] text-primary',
+                                        'hover:bg-accent hover:underline',
+                                        'sm:min-h-0 sm:border-0 sm:py-0.5 sm:text-[12px]',
                                         'disabled:cursor-default disabled:text-muted-foreground disabled:no-underline disabled:hover:bg-transparent',
                                     )}
                                 >
@@ -146,7 +153,7 @@ const BookCard: React.FC<BookCardProps> = ({
                     </div>
                 </div>
 
-                <div className="flex min-w-0 flex-col gap-1.5">
+                <div className="col-start-2 row-start-1 flex min-w-0 flex-col gap-1.5">
                     <h3 className="text-lg font-medium text-balance">{book.title}</h3>
 
                     <div className="flex flex-wrap gap-x-3.5 gap-y-1 text-[13px] text-muted-foreground">
@@ -159,7 +166,7 @@ const BookCard: React.FC<BookCardProps> = ({
                     </div>
                 </div>
 
-                <div className="col-span-2 flex min-w-0 flex-col gap-1.5 sm:col-span-1 sm:col-start-2">
+                <div className="col-span-2 row-start-2 flex min-w-0 flex-col gap-1.5 sm:col-span-1 sm:col-start-2">
 
                     {authors.length > 0 && (
                         <div className="flex flex-wrap items-baseline gap-1.5 text-sm">
