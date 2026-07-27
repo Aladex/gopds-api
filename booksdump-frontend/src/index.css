@@ -53,6 +53,18 @@
     button:disabled {
         cursor: default;
     }
+
+    /*
+     * Anchors otherwise arrive in the browser's own link blue with an underline,
+     * which outranks any inherited colour because the UA sets it on the element
+     * itself. Every link in this application is styled by the component that
+     * renders it — a pager button, a tab, a title — so the default is never what
+     * is wanted. MUI's own Link still wins, as its styles sit above this layer.
+     */
+    a {
+        color: inherit;
+        text-decoration: inherit;
+    }
 }
 
 /*

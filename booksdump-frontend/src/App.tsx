@@ -12,6 +12,7 @@ import { useAuth } from './context/AuthContext';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import useAuthWebSocket from './components/hooks/useAuthWebSocket';
 import AppSkeleton from './components/common/AppSkeleton';
+import { Toaster } from './components/ui/sonner';
 
 const App: React.FC<{ isAuthenticated: boolean }> = memo(({ isAuthenticated }) => {
     // Using WebSocket inside BookConversionProvider
@@ -73,6 +74,8 @@ const AppWrapper: React.FC = () => {
             ) : (
                 providers
             )}
+            {/* One toaster for the whole application; anything can call toast(). */}
+            <Toaster position="bottom-right" />
         </>
     );
 };

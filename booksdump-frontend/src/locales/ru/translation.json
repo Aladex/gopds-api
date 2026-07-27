@@ -414,5 +414,9 @@
   "bookFavRemove": "Убрать из избранного",
   "showFavourites": "Показать избранное",
   "showAllBooks": "Показать все книги",
-  "searchQuery": "Поисковый запрос"
+  "searchQuery": "Поисковый запрос",
+  "previousPage": "Предыдущая страница",
+  "nextPage": "Следующая страница",
+  "goToPage": "Страница {{page}}",
+  "close": "Закрыть"
 }

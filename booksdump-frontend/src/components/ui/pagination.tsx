@@ -27,7 +27,9 @@ function PaginationContent({
   return (
     <ul
       data-slot="pagination-content"
-      className={cn("flex flex-row items-center gap-1", className)}
+      // list-none because this project loads Tailwind without preflight, so a
+      // bare <li> would still show its marker.
+      className={cn("flex list-none flex-row items-center gap-1", className)}
       {...props}
     />
   )

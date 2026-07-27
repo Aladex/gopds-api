@@ -7,15 +7,19 @@ import {
   OctagonXIcon,
   TriangleAlertIcon,
 } from "lucide-react"
-import { useTheme } from "next-themes"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 
+import { useTheme } from "../../context/ThemeContext"
+
+// shadcn ships this component wired to next-themes. This application has its own
+// ThemeContext, which is also where the shadcn colour tokens come from, so the
+// toaster reads the theme from there rather than adding a second source of it.
 const Toaster = ({ ...props }: ToasterProps) => {
-  const { theme = "system" } = useTheme()
+  const { mode } = useTheme()
 
   return (
     <Sonner
-      theme={theme as ToasterProps["theme"]}
+      theme={mode}
       className="toaster group"
       icons={{
         success: <CircleCheckIcon className="size-4" />,

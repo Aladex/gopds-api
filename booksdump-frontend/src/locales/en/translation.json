@@ -411,5 +411,9 @@
   "bookFavRemove": "Remove from favourites",
   "showFavourites": "Show favourites",
   "showAllBooks": "Show all books",
-  "searchQuery": "Search query"
+  "searchQuery": "Search query",
+  "previousPage": "Previous page",
+  "nextPage": "Next page",
+  "goToPage": "Page {{page}}",
+  "close": "Close"
 }

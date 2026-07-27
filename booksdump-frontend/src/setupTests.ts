@@ -3,3 +3,21 @@
 // expect(element).toHaveTextContent(/react/i)
 // learn more: https://github.com/testing-library/jest-dom
 import '@testing-library/jest-dom';
+
+// jsdom implements no media queries at all, so window.matchMedia is missing.
+// Components that ask about the viewport would otherwise take the whole tree
+// down under test while working perfectly in a browser. Everything reports as
+// not matching, which puts tests on the wide layout unless one says otherwise.
+if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
+    window.matchMedia = (query: string) =>
+        ({
+            matches: false,
+            media: query,
+            onchange: null,
+            addListener: () => {},
+            removeListener: () => {},
+            addEventListener: () => {},
+            removeEventListener: () => {},
+            dispatchEvent: () => false,
+        }) as unknown as MediaQueryList;
+}
