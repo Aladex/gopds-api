@@ -37,85 +37,22 @@ import { useFav } from "../../context/FavContext";
 import BookAnnotation from "../common/BookAnnotation";
 import CoverLoader from "../common/CoverLoader";
 import { format } from 'date-fns';
-import { useBookConversion } from '../../context/BookConversionContext';
 import { downloadViaIframe } from '../helpers/downloadViaIframe';
 import { getLanguageInfo, isLanguageSupported } from '../../utils/languageUtils';
-
-interface State {
-    books: Book[];
-    loading: boolean;
-    totalPages: number;
-    menuLoading: boolean;
-    selectedBook: number | null;
-}
-
-type Action =
-    | { type: 'FETCH_SUCCESS'; payload: { books: Book[]; totalPages: number } }
-    | { type: 'FETCH_ERROR' }
-    | { type: 'SET_LOADING' }
-    | { type: 'SET_MENU_LOADING'; payload: boolean }
-    | { type: 'SET_SELECTED_BOOK'; payload: number | null }
-    | { type: 'UPDATE_BOOK'; payload: Book }
-    | { type: 'TOGGLE_FAV'; payload: number }
-    ;
-
-const initialState: State = {
-    books: [],
-    loading: true,
-    totalPages: 0,
-    menuLoading: false,
-    selectedBook: null,
-};
-
-function reducer(state: State, action: Action): State {
-    switch (action.type) {
-        case 'FETCH_SUCCESS':
-            return {
-                ...state,
-                books: action.payload.books,
-                totalPages: action.payload.totalPages,
-                loading: false,
-            };
-        case 'FETCH_ERROR':
-            return { ...state, loading: false };
-        case 'SET_LOADING':
-            return { ...state, loading: true };
-        case 'SET_MENU_LOADING':
-            return { ...state, menuLoading: action.payload };
-        case 'SET_SELECTED_BOOK':
-            return { ...state, selectedBook: action.payload };
-        case 'UPDATE_BOOK':
-            return {
-                ...state,
-                books: state.books.map((b) =>
-                    b.id === action.payload.id ? action.payload : b
-                ),
-            };
-        case 'TOGGLE_FAV':
-            return {
-                ...state,
-                books: state.books.map((b) =>
-                    b.id === action.payload ? { ...b, fav: !b.fav } : b
-                ),
-            };
-        default:
-            return state;
-    }
-}
+import { useBooksQuery } from './hooks/useBooksQuery';
+import { useFavouriteToggle } from './hooks/useFavouriteToggle';
+import { useBookDownloads } from './hooks/useBookDownloads';
 
 const BooksList: React.FC = () => {
     const { user } = useAuth();
-    const { page, id, title } = useParams<{ page: string, id?: string, title?: string }>();
+    const { page } = useParams<{ page: string }>();
     const { t } = useTranslation();
-    const { authorId, authorBook, setAuthorId, clearAuthorBook } = useAuthor();
     const location = useLocation();
     const fav = useFav();
     const navigate = useNavigate();
-    const prevLangRef = useRef(user?.books_lang);
-    const [state, dispatch] = useReducer(reducer, initialState);
+    const { state, dispatch, loadBooks } = useBooksQuery();
     const [messageQueue, setMessageQueue] = useState<string[]>([]);
     const [currentMessage, setCurrentMessage] = useState<string | null>(null);
-    const { state: conversionState, dispatch: conversionDispatch } = useBookConversion();
     const [editDialogOpen, setEditDialogOpen] = useState(false);
     const [bookToEdit, setBookToEdit] = useState<Book | null>(null);
     const [rescanDialogOpen, setRescanDialogOpen] = useState(false);
@@ -141,45 +78,8 @@ const BooksList: React.FC = () => {
         setDownloadErrorOpen(true);
     };
 
-    const handleMobiDownloadClick = async (bookID: number) => {
-        try {
-            const sourceUrl = `${API_URL}/files/books/get/fb2/${bookID}`;
-            const sourceCheck = await fetch(sourceUrl, { method: 'HEAD', credentials: 'include' });
-            if (!sourceCheck.ok) {
-                showDownloadError(sourceCheck.status);
-                return;
-            }
-        } catch (_) {
-            showDownloadError(0);
-            return;
-        }
-
-        conversionDispatch({ type: 'ADD_CONVERTING_BOOK', payload: { bookID, format: 'mobi' } });
-    };
-
-    const handleEpubDownloadClick = async (bookID: number) => {
-        try {
-            const sourceUrl = `${API_URL}/files/books/get/fb2/${bookID}`;
-            const sourceCheck = await fetch(sourceUrl, { method: 'HEAD', credentials: 'include' });
-            if (!sourceCheck.ok) {
-                showDownloadError(sourceCheck.status);
-                return;
-            }
-        } catch (_) {
-            showDownloadError(0);
-            return;
-        }
-
-        conversionDispatch({ type: 'ADD_CONVERTING_BOOK', payload: { bookID, format: 'epub' } });
-    };
-
-    const isBookConverting = (bookID: number, format: string) =>
-        conversionState.convertingBooks.some((book) => book.bookID === bookID && book.format === format);
-
-    const handleDownload = (format: string, bookID: number) => {
-        const url = `${API_URL}/files/books/get/${format}/${bookID}`;
-        downloadViaIframe(url, (status) => showDownloadError(status));
-    };
+    const { handleDownload, handleEpubDownloadClick, handleMobiDownloadClick, isBookConverting } =
+        useBookDownloads(showDownloadError);
 
     const formatDate = (dateString: string) => {
         if (dateString === "") {
@@ -191,90 +91,6 @@ const BooksList: React.FC = () => {
         }
         const date = new Date(timestamp);
         return format(date, "dd.MM.yyyy, HH:mm");
-    };
-
-    const getParams = useCallback(() => {
-        const limit = 10;
-        const currentPage = parseInt(page || '1', 10);
-        const offset = (currentPage - 1) * limit;
-        let params: Record<string, any> = { limit, offset, lang: user?.books_lang || '' };
-
-        if (location.pathname.includes('/books/find/author/') && id) {
-            params.author = id;
-            setAuthorId(id);
-            if (authorBook) params.title = authorBook;
-        } else if (location.pathname.includes('/books/find/category/') && id) {
-            params.series = id;
-            clearAuthorBook();
-        } else if (location.pathname.includes('/books/find/genre/') && id) {
-            params.genre = id;
-            clearAuthorBook();
-        } else if (location.pathname.includes('/books/find/title/') && title) {
-            params.title = decodeURIComponent(title);
-            if (authorId) params.author = authorId;
-            clearAuthorBook();
-        } else if (location.pathname.startsWith('/collections/') && id) {
-            params.curated_collection = id;
-            clearAuthorBook();
-        }
-
-        if (location.pathname.includes('/books/favorite')) {
-            params.fav = true;
-            clearAuthorBook();
-        }
-
-        if (location.pathname.includes('/books/users/favorites')) {
-            params.users_favorites = true;
-            clearAuthorBook();
-        }
-
-        return params;
-    }, [authorBook, authorId, clearAuthorBook, id, location.pathname, page, setAuthorId, title, user?.books_lang]);
-
-    const loadBooks = useCallback(async () => {
-        if (prevLangRef.current !== user?.books_lang && page !== '1') {
-            navigate('/books/page/1');
-            return;
-        }
-
-        dispatch({ type: 'SET_LOADING' });
-
-        try {
-            window.scrollTo(0, 0);
-            const params = getParams();
-            const data = await booksApi.listBooks(params);
-            dispatch({ type: 'FETCH_SUCCESS', payload: { books: data.books, totalPages: data.length } });
-        } catch (error) {
-            console.error('Error fetching books', error);
-            dispatch({ type: 'FETCH_ERROR' });
-        }
-
-        // Update language reference after successful fetch to prevent redirect loops
-        prevLangRef.current = user?.books_lang;
-    }, [getParams, navigate, page, user?.books_lang]);
-
-    useEffect(() => {
-        loadBooks();
-    }, [loadBooks]);
-
-
-    const handleFavBook = async (book: Book) => {
-        try {
-            dispatch({ type: 'TOGGLE_FAV', payload: book.id });
-
-            await booksApi.toggleFavourite(book.id, !book.fav);
-
-            const currentUser = await authApi.getCurrentUser();
-            fav.setFavEnabled(Boolean(currentUser.have_favs));
-            if (location.pathname.includes('/books/favorite') && !currentUser.have_favs) {
-                navigate('/books/page/1');
-            }
-            enqueueSnackbar(!book.fav ? t('bookFavAddedSuccessfully') : t('bookFavRemovedSuccessfully'));
-        } catch (error) {
-            console.error('Error favoriting book', error);
-            dispatch({ type: 'TOGGLE_FAV', payload: book.id });
-            enqueueSnackbar(!book.fav ? t('errorAddingFavorite') : t('errorRemovingFavorite'));
-        }
     };
 
     const enqueueSnackbar = (message: string) => {
@@ -294,6 +110,8 @@ const BooksList: React.FC = () => {
             setMessageQueue((prevQueue) => prevQueue.slice(1));
         }
     }, [messageQueue]);
+
+    const handleFavBook = useFavouriteToggle(dispatch, enqueueSnackbar);
 
     const handleCloseSnackbar = (message: string) => {
         setMessageQueue((prevQueue) => prevQueue.filter((msg) => msg !== message));
