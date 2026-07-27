@@ -439,5 +439,6 @@
   "donateOpen": "Открыть",
   "copy": "Копировать",
   "copied": "Скопировано",
-  "publicCollections.loadError": "Не удалось загрузить подборки"
+  "publicCollections.loadError": "Не удалось загрузить подборки",
+  "noInvites": "Приглашений пока нет"
 }

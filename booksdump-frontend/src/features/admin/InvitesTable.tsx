@@ -1,14 +1,26 @@
 import React, { useEffect, useState } from 'react';
-import { Typography, Box, Paper, IconButton, Dialog, DialogTitle, DialogContent, DialogActions, Button } from '@mui/material';
-import { Table, TableContainer, TableHead, TableRow, TableCell, TableBody } from '@mui/material';
+import { useTranslation } from 'react-i18next';
+import { Plus, Trash2 } from 'lucide-react';
+
 import * as adminApi from '@/api/admin';
-import { DateTimePicker, LocalizationProvider } from '@mui/x-date-pickers';
-import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFnsV3';
-import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
-import AddIcon from "@mui/icons-material/Add";
-import {useTranslation} from "react-i18next";
-import { styled } from '@mui/material/styles';
-import {StyledTextField} from "@/shared/components/StyledDataItems";
+import { Button } from '@/shared/ui/button';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/shared/ui/dialog';
+import { Input } from '@/shared/ui/input';
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from '@/shared/ui/table';
 
 interface Invite {
     id?: string;
@@ -16,18 +28,46 @@ interface Invite {
     before_date: string;
 }
 
+/**
+ * The expiry is edited with the browser's own datetime field.
+ *
+ * It replaces a date picker that carried @mui/x-date-pickers and a date-fns
+ * adapter for this one input on this one screen. The native control is already
+ * localised, already keyboard operable, and on a phone it is the platform's own
+ * wheel rather than a calendar grid drawn at desktop proportions.
+ */
+
+/**
+ * toLocalInput renders an instant the way datetime-local wants it: local wall
+ * clock, to the minute, with no zone. toISOString would give UTC and the field
+ * would silently show the wrong hour to anyone east or west of it.
+ */
+const toLocalInput = (iso: string): string => {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) {
+        return '';
+    }
+    const pad = (value: number) => String(value).padStart(2, '0');
+    return (
+        `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+        `T${pad(date.getHours())}:${pad(date.getMinutes())}`
+    );
+};
+
+/** A month from now, which is what a new invite is worth by default. */
+const defaultExpiry = () => {
+    const date = new Date();
+    date.setMonth(date.getMonth() + 1);
+    return date.toISOString();
+};
+
 const InvitesTable: React.FC = () => {
-    const [invites, setInvites] = useState<Invite[]>([]);
-    const [dialogOpen, setDialogOpen] = useState<boolean>(false);
-    const [newInviteCode, setNewInviteCode] = useState<string>('');
     const { t } = useTranslation();
-    const NarrowTableCell = styled(TableCell)({
-        width: '50px', // Adjust the width as needed
-        padding: '0 8px', // Optional: Adjust padding for better alignment
-    });
+    const [invites, setInvites] = useState<Invite[]>([]);
+    const [dialogOpen, setDialogOpen] = useState(false);
+    const [newInviteCode, setNewInviteCode] = useState('');
 
     useEffect(() => {
-        // Fetch all invites from the database
         const fetchInvites = async () => {
             try {
                 const data = await adminApi.listInvites<Invite>();
@@ -43,7 +83,7 @@ const InvitesTable: React.FC = () => {
     const handleInviteChange = async (invite: Invite) => {
         try {
             await adminApi.changeInvite('update', invite);
-            setInvites(invites.map(inv => inv.id === invite.id ? invite : inv));
+            setInvites(invites.map((inv) => (inv.id === invite.id ? invite : inv)));
         } catch (error) {
             console.error(error);
         }
@@ -52,29 +92,29 @@ const InvitesTable: React.FC = () => {
     const handleDeleteInvite = async (invite: Invite) => {
         try {
             await adminApi.changeInvite('delete', invite);
-            setInvites(invites.filter(inv => inv.id !== invite.id));
+            setInvites(invites.filter((inv) => inv.id !== invite.id));
         } catch (error) {
             console.error(error);
         }
     };
 
-    const handleDateChange = (inviteId?: string) => (date: Date | null) => {
-        if (!date || !inviteId) return;
-        const invite = invites.find(inv => inv.id === inviteId);
-        if (!invite) return;
-        const updatedInvite = { ...invite, before_date: date.toISOString() };
-        handleInviteChange(updatedInvite).then(r => r);
+    const handleDateChange = (invite: Invite) => (value: string) => {
+        // An empty or half-typed field is not a date; leave the invite alone
+        // rather than sending the server an Invalid Date.
+        const date = new Date(value);
+        if (!value || Number.isNaN(date.getTime())) {
+            return;
+        }
+        handleInviteChange({ ...invite, before_date: date.toISOString() });
     };
 
     const handleAddInvite = async () => {
-        const newInvite = {
-            invite: newInviteCode,
-            before_date: new Date(new Date().setMonth(new Date().getMonth() + 1)).toISOString(),
-        };
         try {
-            await adminApi.changeInvite('create', newInvite);
+            await adminApi.changeInvite('create', {
+                invite: newInviteCode,
+                before_date: defaultExpiry(),
+            });
 
-            // Fetch the updated list of invites
             const data = await adminApi.listInvites<Invite>();
             setInvites(data.result);
             setDialogOpen(false);
@@ -85,70 +125,105 @@ const InvitesTable: React.FC = () => {
     };
 
     return (
-        <LocalizationProvider dateAdapter={AdapterDateFns}>
-            <Box>
-                <Box display="flex" justifyContent="space-between" alignItems="center">
-                    <Typography variant="h6" align="center">{t('invites')}</Typography>
-                    <IconButton onClick={() => setDialogOpen(true)}>
-                        <AddIcon />
-                    </IconButton>
-                </Box>
-                <TableContainer component={Paper}>
-                    <Table>
-                        <TableHead>
-                            <TableRow>
-                                <TableCell>{t('inviteId')}</TableCell>
-                                <TableCell>{t('inviteCode')}</TableCell>
-                                <TableCell>{t('beforeDate')}</TableCell>
-                                <TableCell>{t('actions')}</TableCell>
+        <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+                <h2 className="text-base font-medium">{t('invites')}</h2>
+                <Button
+                    variant="outline"
+                    size="icon-sm"
+                    onClick={() => setDialogOpen(true)}
+                    title={t('addInvite')}
+                    aria-label={t('addInvite')}
+                >
+                    <Plus className="size-4" />
+                </Button>
+            </div>
+
+            <div className="rounded border border-border bg-card">
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>{t('inviteId')}</TableHead>
+                            <TableHead>{t('inviteCode')}</TableHead>
+                            <TableHead>{t('beforeDate')}</TableHead>
+                            <TableHead>{t('actions')}</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {invites.map((invite) => (
+                            <TableRow key={invite.id}>
+                                <TableCell className="tabular-nums text-muted-foreground">
+                                    {invite.id}
+                                </TableCell>
+                                <TableCell className="font-medium">{invite.invite}</TableCell>
+                                <TableCell>
+                                    <Input
+                                        type="datetime-local"
+                                        aria-label={`${t('beforeDate')}: ${invite.invite}`}
+                                        value={toLocalInput(invite.before_date)}
+                                        onChange={(event) =>
+                                            handleDateChange(invite)(event.target.value)
+                                        }
+                                        // The picker glyph is drawn black by the
+                                        // browser, invisible on a dark field.
+                                        className="w-auto min-w-[13rem] dark:[&::-webkit-calendar-picker-indicator]:invert"
+                                    />
+                                </TableCell>
+                                <TableCell className="w-12">
+                                    <Button
+                                        variant="ghost"
+                                        size="icon-sm"
+                                        onClick={() => handleDeleteInvite(invite)}
+                                        title={t('delete')}
+                                        aria-label={`${t('delete')}: ${invite.invite}`}
+                                    >
+                                        <Trash2 className="size-4" />
+                                    </Button>
+                                </TableCell>
                             </TableRow>
-                        </TableHead>
-                        <TableBody>
-                            {invites.map((invite) => (
-                                <TableRow key={invite.id}>
-                                    <TableCell>{invite.id}</TableCell>
-                                    <TableCell>{invite.invite}</TableCell>
-                                    <TableCell>
-                                        <DateTimePicker
-                                            value={invite.before_date ? new Date(invite.before_date) : null}
-                                            onChange={(newValue) => handleDateChange(invite.id)(newValue)}
-                                            ampm={false}
-                                        />
-                                    </TableCell>
-                                    <NarrowTableCell>
-                                        <IconButton onClick={() => handleDeleteInvite(invite)}>
-                                            <DeleteForeverIcon />
-                                        </IconButton>
-                                    </NarrowTableCell>
-                                </TableRow>
-                            ))}
-                        </TableBody>
-                    </Table>
-                </TableContainer>
-                <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)}>
-                    <DialogTitle>{t('addInvite')}</DialogTitle>
-                    <DialogContent>
-                        <StyledTextField
-                            autoFocus
-                            margin="dense"
-                            label="Invite Code"
-                            type="text"
-                            fullWidth
-                            value={newInviteCode}
-                            onChange={(e) => setNewInviteCode(e.target.value)}
-                        />
-                    </DialogContent>
-                    <DialogActions>
-                        <Button sx={{ color: 'text.primary' }} onClick={() => setDialogOpen(false)}>
-                            Cancel
+                        ))}
+                        {invites.length === 0 && (
+                            <TableRow>
+                                <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">
+                                    {t('noInvites', 'No invites yet')}
+                                </TableCell>
+                            </TableRow>
+                        )}
+                    </TableBody>
+                </Table>
+            </div>
+
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <DialogContent closeLabel={t('close')}>
+                    <DialogHeader>
+                        <DialogTitle>{t('addInvite')}</DialogTitle>
+                        <DialogDescription className="sr-only">{t('addInvite')}</DialogDescription>
+                    </DialogHeader>
+
+                    <Input
+                        autoFocus
+                        aria-label={t('inviteCode')}
+                        placeholder={t('inviteCode')}
+                        value={newInviteCode}
+                        onChange={(event) => setNewInviteCode(event.target.value)}
+                        onKeyDown={(event) => {
+                            if (event.key === 'Enter' && newInviteCode.trim()) {
+                                handleAddInvite();
+                            }
+                        }}
+                    />
+
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={() => setDialogOpen(false)}>
+                            {t('cancel')}
                         </Button>
-                        <Button sx={{ color: 'text.primary' }} onClick={handleAddInvite}>
-                            Add
+                        <Button onClick={handleAddInvite} disabled={!newInviteCode.trim()}>
+                            {t('addInvite')}
                         </Button>
-                    </DialogActions>
-                </Dialog>
-            </Box>
-        </LocalizationProvider>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </div>
     );
 };
 

@@ -436,5 +436,6 @@
   "donateOpen": "Open",
   "copy": "Copy",
   "copied": "Copied",
-  "publicCollections.loadError": "Could not load collections"
+  "publicCollections.loadError": "Could not load collections",
+  "noInvites": "No invites yet"
 }
