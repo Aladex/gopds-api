@@ -1,4 +1,14 @@
-.PHONY: help build test clean docker-build docker-run frontend frontend-placeholder backend swagger bootstrap deps lint security build-bin
+.PHONY: help verify bootstrap build build-bin build-frontend backend frontend frontend-placeholder swagger \
+	deps deps-frontend test test-backend test-integration test-frontend test-coverage clean lint security \
+	docker-build docker-run docker-compose-up docker-compose-down dev migrate-up migrate-down release pre-commit
+
+# These targets are ordered pipelines, not independent compile units: bootstrap
+# must finish before tests, and dependencies must be installed before the build
+# that uses them. Nothing here gains from parallelism, and running with -j
+# silently breaks the order, so keep the whole makefile serial.
+.NOTPARALLEL:
+
+FRONTEND_DIR := booksdump-frontend
 
 # Pinned tool versions — keep in sync with Dockerfile and .github/workflows.
 SWAG_VERSION := v1.16.6
@@ -11,27 +21,31 @@ help: ## Show this help message
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-15s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 # Development
-deps: ## Install dependencies
+deps: deps-frontend ## Install all dependencies
 	@echo "Installing Go dependencies..."
 	go mod download
 	go mod tidy
+
+deps-frontend: ## Install frontend dependencies from the lockfile
 	@echo "Installing frontend dependencies..."
-	cd booksdump-frontend && yarn install
+	cd $(FRONTEND_DIR) && yarn install --frozen-lockfile
 
-frontend: ## Build frontend
+build-frontend: ## Production frontend build (the real embed input)
 	@echo "Building frontend..."
-	cd booksdump-frontend && yarn build
+	cd $(FRONTEND_DIR) && yarn build
 
-frontend-placeholder: ## Create the embed placeholder when no real frontend build exists
-	@if [ -f booksdump-frontend/build/index.html ]; then \
+frontend: build-frontend ## Alias for build-frontend
+
+frontend-placeholder: ## Install the embed placeholder when no real frontend build exists
+	@if [ -f $(FRONTEND_DIR)/build/index.html ]; then \
 		echo "Frontend build present, keeping it."; \
 	else \
 		echo "No frontend build found, installing embed placeholder..."; \
-		mkdir -p booksdump-frontend/build; \
-		cp booksdump-frontend/placeholder/index.html booksdump-frontend/build/index.html; \
+		mkdir -p $(FRONTEND_DIR)/build; \
+		cp $(FRONTEND_DIR)/placeholder/index.html $(FRONTEND_DIR)/build/index.html; \
 	fi
 
-backend: deps ## Build backend
+backend: bootstrap ## Build backend
 	@echo "Building backend..."
 	go build -o bin/gopds cmd/*
 
@@ -42,17 +56,35 @@ swagger: ## Generate Swagger documentation (pinned CLI version)
 bootstrap: swagger frontend-placeholder ## Prepare generated inputs required to compile and test the backend
 	@echo "Bootstrap complete."
 
-build: frontend backend swagger ## Build everything
+build: build-frontend swagger backend ## Build everything against a real frontend build
 
-build-bin: frontend swagger ## Build test binary (mirrors Dockerfile)
+build-bin: build-frontend swagger ## Build test binary (mirrors Dockerfile)
 	@echo "Building test binary..."
 	mkdir -p bin
 	CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bin/gopds cmd/*
 
 # Testing and Quality
-test: ## Run tests
-	@echo "Running tests..."
-	go test -v -race -coverprofile=coverage.out ./...
+# Short mode skips the tests that talk to a real database — see opds/collections_test.go.
+# It needs neither the frontend toolchain nor any running service.
+test-backend: bootstrap ## Run Go tests that need no database or frontend toolchain
+	@echo "Running backend tests..."
+	go test -short -race ./...
+
+test-integration: bootstrap ## Run the full Go suite, including tests that require PostgreSQL
+	@echo "Running backend tests including integration tests..."
+	go test -race ./...
+
+test-frontend: ## Run frontend tests once, without watch mode
+	@echo "Running frontend tests..."
+	cd $(FRONTEND_DIR) && CI=true yarn test --watchAll=false
+
+test: test-backend ## Alias for test-backend
+
+verify: bootstrap deps-frontend test-frontend build-frontend ## Complete clean-checkout verification
+	@echo "Verifying the backend against the real frontend build..."
+	go build ./...
+	go test -short -race -coverprofile=coverage.out ./...
+	@echo "Verification complete."
 
 test-coverage: test ## Run tests with coverage report
 	@echo "Generating coverage report..."
@@ -87,10 +119,11 @@ dev: ## Run in development mode
 	@echo "Starting development server..."
 	go run cmd/*
 
-clean: ## Clean build artifacts
+clean: ## Clean build artifacts and generated inputs
 	@echo "Cleaning..."
 	rm -rf bin/
-	rm -rf booksdump-frontend/build/
+	rm -rf $(FRONTEND_DIR)/build/
+	rm -rf docs/
 	rm -f coverage.out coverage.html
 	go clean
 
