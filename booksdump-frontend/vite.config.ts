@@ -3,11 +3,29 @@
 import path from 'node:path';
 
 import { defineConfig } from 'vitest/config';
-import react from '@vitejs/plugin-react';
+import react, { reactCompilerPreset } from '@vitejs/plugin-react';
+import babel from '@rolldown/plugin-babel';
 import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
-    plugins: [react(), tailwindcss()],
+    plugins: [
+        react(),
+        /*
+         * The React Compiler memoises components and hooks automatically, and
+         * gets the dependencies right, which hand-placed useMemo and useCallback
+         * routinely do not.
+         *
+         * It only compiles what it can prove safe: anything that breaks the
+         * rules of React is left exactly as written. The same analysis powers
+         * the react-hooks lint rules, so whatever it skips is already reported
+         * by `make lint-frontend`.
+         *
+         * The plugin itself runs on oxc; the compiler is a Babel pass, hence
+         * the extra Babel step here.
+         */
+        babel({ presets: [reactCompilerPreset()] }),
+        tailwindcss(),
+    ],
     resolve: {
         alias: {
             '@': path.resolve(import.meta.dirname, 'src'),
