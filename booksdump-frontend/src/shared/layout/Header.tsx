@@ -4,18 +4,12 @@ import { useTranslation } from 'react-i18next';
 import { HeartHandshake, LogOut } from 'lucide-react';
 
 import { Button } from '@/shared/ui/button';
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from '@/shared/ui/dropdown-menu';
 import { cn } from '@/shared/lib/utils';
 
 import * as systemApi from '@/api/system';
 import { useAuth } from '@/context/AuthContext';
 import { useSearchBar } from '@/context/SearchBarContext';
-import { getLanguageDisplaySafe, languageMapping } from '@/shared/lib/languageUtils';
+import LanguageSwitcher from '@/shared/layout/LanguageSwitcher';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import { activeNavItem, useNavItems } from '@/shared/layout/navItems';
 /*
@@ -64,18 +58,6 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
 
     const navItems = useNavItems(Boolean(user?.is_superuser));
     const current = activeNavItem(navItems, location.pathname);
-
-    // Only languages the interface knows how to name are offered.
-    const supportedLanguages = languages.filter((lang) => getLanguageDisplaySafe(lang) !== null);
-
-    /** A narrow bar has room for a flag and a code, but not a language's name. */
-    const languageLabel = (lang: string) => {
-        if (!isVeryNarrow) {
-            return getLanguageDisplaySafe(lang);
-        }
-        const info = languageMapping[lang];
-        return info ? `${info.flag} ${lang.toUpperCase()}` : lang.toUpperCase();
-    };
 
     const chooseLanguage = (lang: string) => {
         updateLang(lang);
@@ -141,31 +123,13 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
     );
 
     const languageMenu = (
-        <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-                <button
-                    type="button"
-                    className={cn(
-                        'flex items-center justify-center truncate rounded px-2 font-medium uppercase text-neutral-400',
-                        'hover:bg-white/5 hover:text-white',
-                        isMobile ? 'h-8 min-w-[50px] text-[0.7rem]' : 'h-12 max-w-[120px] text-sm',
-                    )}
-                >
-                    {selectedLanguage ? languageLabel(selectedLanguage) : t('language')}
-                </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align={isMobile ? 'center' : 'start'}>
-                {supportedLanguages.map((lang) => (
-                    <DropdownMenuItem
-                        key={lang}
-                        onSelect={() => chooseLanguage(lang)}
-                        className={cn(selectedLanguage === lang && 'bg-accent')}
-                    >
-                        {languageLabel(lang)}
-                    </DropdownMenuItem>
-                ))}
-            </DropdownMenuContent>
-        </DropdownMenu>
+        <LanguageSwitcher
+            languages={languages}
+            selected={selectedLanguage}
+            onSelect={chooseLanguage}
+            isMobile={isMobile}
+            isVeryNarrow={isVeryNarrow}
+        />
     );
 
     return (
