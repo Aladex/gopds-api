@@ -1,4 +1,4 @@
-.PHONY: help build test clean docker-build docker-run frontend backend swagger deps lint security build-bin
+.PHONY: help build test clean docker-build docker-run frontend frontend-placeholder backend swagger deps lint security build-bin
 
 # Default target
 help: ## Show this help message
@@ -18,6 +18,15 @@ deps: ## Install dependencies
 frontend: ## Build frontend
 	@echo "Building frontend..."
 	cd booksdump-frontend && yarn build
+
+frontend-placeholder: ## Create the embed placeholder when no real frontend build exists
+	@if [ -f booksdump-frontend/build/index.html ]; then \
+		echo "Frontend build present, keeping it."; \
+	else \
+		echo "No frontend build found, installing embed placeholder..."; \
+		mkdir -p booksdump-frontend/build; \
+		cp booksdump-frontend/placeholder/index.html booksdump-frontend/build/index.html; \
+	fi
 
 backend: deps ## Build backend
 	@echo "Building backend..."

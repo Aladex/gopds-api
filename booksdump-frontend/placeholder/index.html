@@ -1,0 +1,30 @@
+<!doctype html>
+<!--
+  gopds development placeholder — NOT a real frontend build.
+
+  The Go binary embeds booksdump-frontend/build/*. That directory is generated
+  and git-ignored, so a clean checkout has nothing to embed and the backend
+  fails to compile. `make frontend-placeholder` copies this file into
+  booksdump-frontend/build/index.html when no real build is present, which lets
+  backend tests run without installing the frontend toolchain.
+
+  `make frontend` (yarn build) overwrites it with the real application.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>gopds — frontend not built</title>
+  </head>
+  <body>
+    <main>
+      <h1>Frontend is not built</h1>
+      <p>
+        This is a development placeholder embedded because
+        <code>booksdump-frontend/build/</code> contained no production build.
+      </p>
+      <p>Run <code>make frontend</code> to build the real application.</p>
+    </main>
+  </body>
+</html>
