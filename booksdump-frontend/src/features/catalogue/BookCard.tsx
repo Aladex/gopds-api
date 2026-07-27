@@ -33,9 +33,6 @@ const DOWNLOAD_FORMATS = [
     { id: 'mobi', label: 'MOBI' },
 ] as const;
 
-/** Matches the cover, so the block of formats sits flush beneath it. */
-const COVER_WIDTH = 104;
-
 const VISIBLE_AUTHORS = 2;
 
 export interface BookCardProps {
@@ -104,17 +101,25 @@ const BookCard: React.FC<BookCardProps> = ({
             }}
             className="cursor-pointer rounded border border-border bg-card p-4 transition-colors hover:border-muted-foreground"
         >
-            <div
-                className="grid gap-4"
-                style={{ gridTemplateColumns: `${COVER_WIDTH}px minmax(0, 1fr)` }}
-            >
-                <div className="flex flex-col gap-2">
+            {/*
+              One grid, two arrangements. A phone has no room for a cover beside
+              the whole text: at 340px that leaves 155px, in which the title
+              breaks in two, every label parts from its value and the annotation
+              comes to a couple of words — before a book with several authors
+              makes it worse.
+              
+              So only the title and the dates sit beside the cover, which is what
+              a reader scans first, and the metadata and annotation drop below to
+              the card's full width. On a wider screen the same three blocks fall
+              into the two columns they had.
+            */}
+            <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-x-3 gap-y-3 sm:grid-cols-[104px_minmax(0,1fr)] sm:gap-x-4 sm:gap-y-1.5">
+                <div className="flex flex-col gap-2 sm:row-span-2">
                     <img
                         src={cover}
                         alt={book.title}
                         loading="lazy"
-                        style={{ width: COVER_WIDTH }}
-                        className="h-[150px] flex-none rounded-sm bg-muted object-cover"
+                        className="h-[127px] w-[88px] flex-none rounded-sm bg-muted object-cover sm:h-[150px] sm:w-[104px]"
                     />
                     {/* Two equal cells with the label centred in each, so the four
                         read as an even block rather than four links of differing
@@ -152,6 +157,9 @@ const BookCard: React.FC<BookCardProps> = ({
                             {t('bookPublished')} {formatDate(book.docdate)}
                         </span>
                     </div>
+                </div>
+
+                <div className="col-span-2 flex min-w-0 flex-col gap-1.5 sm:col-span-1 sm:col-start-2">
 
                     {authors.length > 0 && (
                         <div className="flex flex-wrap items-baseline gap-1.5 text-sm">
