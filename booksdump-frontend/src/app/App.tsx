@@ -1,4 +1,4 @@
-import React, { useState, memo, useMemo, useCallback, useEffect } from 'react';
+import React, { memo, useMemo } from 'react';
 import { AuthorProvider } from '@/context/AuthorContext';
 import { BookConversionProvider } from '@/context/BookConversionContext';
 import { FavProvider } from "@/context/FavContext";
@@ -7,7 +7,7 @@ import publicRoutes from '@/app/routes/publicRoutes';
 import privateRoutes from '@/app/routes/privateRoutes';
 import adminRoutes from "@/app/routes/adminRoutes";
 import notFoundRoutes from "@/app/routes/notFoundRoutes";
-import LanguageInitializer from '@/app/LanguageInitializer';
+import { InterfaceLanguageProvider } from '@/context/InterfaceLanguageContext';
 import { useAuth } from '@/context/AuthContext';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import useAuthWebSocket from '@/shared/hooks/useAuthWebSocket';
@@ -32,20 +32,7 @@ const App: React.FC<{ isAuthenticated: boolean }> = memo(({ isAuthenticated }) =
 App.displayName = 'App';
 
 const AppWrapper: React.FC = () => {
-    const [isLanguageLoaded, setIsLanguageLoaded] = useState(false);
     const { isLoaded, isAuthenticated } = useAuth();
-
-    // Используем useCallback для стабильной ссылки на функцию
-    const handleLanguageLoaded = useCallback(() => {
-        setIsLanguageLoaded(true);
-    }, []);
-
-    // Сброс состояния языка при изменении пользователя
-    useEffect(() => {
-        if (!isLoaded) {
-            setIsLanguageLoaded(false);
-        }
-    }, [isLoaded]);
 
     // Мемоизируем провайдеры чтобы избежать ненужных перерендеров
     const providers = useMemo(() => (
@@ -60,20 +47,16 @@ const AppWrapper: React.FC = () => {
         </FavProvider>
     ), [isAuthenticated]);
 
-    // Показываем спиннер если AuthContext не загружен или язык не инициализирован
-    const showLoading = !isLoaded || !isLanguageLoaded;
-
     return (
         <>
-            {/* LanguageInitializer должен работать только когда AuthContext загружен */}
-            {isLoaded && (
-                <LanguageInitializer onLanguageLoaded={handleLanguageLoaded} />
-            )}
-            {showLoading ? (
-                <AppSkeleton />
-            ) : (
-                providers
-            )}
+            {/*
+              The locale resolves from storage or the browser without asking
+              anyone, so there is nothing to wait for beyond the account the
+              application already waits on.
+            */}
+            <InterfaceLanguageProvider>
+                {!isLoaded ? <AppSkeleton /> : providers}
+            </InterfaceLanguageProvider>
             {/* One toaster for the whole application; anything can call toast(). */}
             <Toaster position="bottom-right" />
         </>

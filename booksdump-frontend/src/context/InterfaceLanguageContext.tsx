@@ -91,8 +91,6 @@ export const InterfaceLanguageProvider: React.FC<React.PropsWithChildren> = ({ c
     // to the user object — persisting updates it, and a second pass would read
     // back what it had just written.
     const reconciled = useRef(false);
-    const current = useRef(language);
-    current.current = language;
 
     useEffect(() => {
         if (!user) {
@@ -109,8 +107,8 @@ export const InterfaceLanguageProvider: React.FC<React.PropsWithChildren> = ({ c
         // A choice just made by hand outranks the stored one: undoing it a
         // moment after the reader made it is the worst of the options.
         if (chosenThisSession) {
-            if (fromAccount !== current.current) {
-                void persist(current.current);
+            if (fromAccount !== language) {
+                void persist(language);
             }
             return;
         }
@@ -127,7 +125,10 @@ export const InterfaceLanguageProvider: React.FC<React.PropsWithChildren> = ({ c
         storeLanguage(derived);
         setLanguageState(derived);
         void persist(derived);
-    }, [user, persist]);
+        // `language` is read here but is not what this reconciles on: the guard
+        // above lets the body run once per sign-in, so a later change to it
+        // cannot bring us back round.
+    }, [user, persist, language]);
 
     const value = useMemo(() => ({ language, setLanguage }), [language, setLanguage]);
 
