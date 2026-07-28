@@ -17,8 +17,8 @@ COPY . .
 COPY --from=frontend-build /app/build /app/booksdump-frontend/build
 
 RUN go install github.com/swaggo/swag/cmd/swag@v1.16.6 && \
-    swag init --generalInfo cmd/main.go && \
-    CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bin/gopds cmd/*
+    swag init --generalInfo cmd/gopds/main.go --output internal/swaggerdocs && \
+    CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bin/gopds ./cmd/gopds
 
 # Add version file
 ARG VERSION=dev-version

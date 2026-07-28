@@ -55,11 +55,11 @@ frontend-placeholder: ## Install the embed placeholder when no real frontend bui
 
 backend: bootstrap ## Build backend
 	@echo "Building backend..."
-	go build -o bin/gopds cmd/*
+	go build -o bin/gopds ./cmd/gopds
 
 swagger: ## Generate Swagger documentation (pinned CLI version)
 	@echo "Generating Swagger docs with swag $(SWAG_VERSION)..."
-	go run github.com/swaggo/swag/cmd/swag@$(SWAG_VERSION) init --generalInfo cmd/main.go
+	go run github.com/swaggo/swag/cmd/swag@$(SWAG_VERSION) init --generalInfo cmd/gopds/main.go --output internal/swaggerdocs
 
 bootstrap: swagger frontend-placeholder ## Prepare generated inputs required to compile and test the backend
 	@echo "Bootstrap complete."
@@ -69,7 +69,7 @@ build: build-frontend swagger backend ## Build everything against a real fronten
 build-bin: build-frontend swagger ## Build test binary (mirrors Dockerfile)
 	@echo "Building test binary..."
 	mkdir -p bin
-	CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bin/gopds cmd/*
+	CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bin/gopds ./cmd/gopds
 
 # Testing and Quality
 # Short mode skips the tests that talk to a real database — see opds/collections_test.go.
@@ -183,13 +183,13 @@ docker-compose-down: ## Stop services with docker-compose
 # Development helpers
 dev: ## Run in development mode
 	@echo "Starting development server..."
-	go run cmd/*
+	go run ./cmd/gopds
 
 clean: ## Clean build artifacts and generated inputs
 	@echo "Cleaning..."
 	rm -rf bin/
 	rm -rf $(FRONTEND_DIR)/build/
-	rm -rf docs/
+	rm -rf internal/swaggerdocs/
 	rm -f coverage.out coverage.html
 	go clean
 

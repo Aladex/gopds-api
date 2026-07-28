@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"gopds-api/database"
-	_ "gopds-api/docs" // Import to include documentation for Swagger UI
+	_ "gopds-api/internal/swaggerdocs" // Import to include documentation for Swagger UI
 	"gopds-api/logging"
 	"gopds-api/middlewares"
 	"gopds-api/sessions"
