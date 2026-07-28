@@ -112,9 +112,9 @@ const Method: React.FC<{ method: DonateMethod }> = ({ method }) => {
     const shown = method.kind === 'card' ? formatCard(method.value) : method.value;
 
     return (
-        <div className="flex flex-col gap-2">
+        <div className="flex w-full flex-col items-center gap-2">
             {method.kind === 'link' ? (
-                <Button asChild variant="outline" size="sm" className="self-start">
+                <Button asChild variant="outline" size="sm">
                     <a href={method.value} target="_blank" rel="noopener noreferrer">
                         <ExternalLink className="size-4" />
                         {t('donateOpen')}
@@ -127,7 +127,7 @@ const Method: React.FC<{ method: DonateMethod }> = ({ method }) => {
                   sheet, leaving the address to wrap three times to say what it
                   could have said in two.
                 */
-                <div className="flex items-start gap-1 rounded bg-muted py-1.5 pr-1.5 pl-2">
+                <div className="flex w-full items-start gap-1 rounded bg-muted py-1.5 pr-1.5 pl-2">
                     <code
                         className={cn(
                             'min-w-0 flex-1 self-center text-[13px] break-all',
@@ -141,7 +141,7 @@ const Method: React.FC<{ method: DonateMethod }> = ({ method }) => {
             )}
 
             {method.link && method.kind !== 'link' && (
-                <Button asChild variant="link" size="sm" className="h-auto self-start p-0 text-xs">
+                <Button asChild variant="link" size="sm" className="h-auto p-0 text-xs">
                     <a href={method.link} target="_blank" rel="noopener noreferrer">
                         {t('donateOpen')}
                     </a>
@@ -182,11 +182,28 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
     // list changes under a configuration the reader has never seen.
     const active = methods.some((method) => method.id === chosen) ? chosen : methods[0]?.id;
 
+    /**
+     * The panel keeps one height whichever method is showing.
+     *
+     * Methods differ wildly — a wallet address under a 200px QR code against a
+     * single button — and the dialog is centred, so switching tab used to move
+     * it by half the difference. Going from Bitcoin to PayPal took 220px off
+     * the dialog and carried the tab strip 110px down the screen, out from
+     * under the cursor that had just clicked it.
+     *
+     * The reserve is the tallest shape the configured methods can take, not a
+     * constant: an operator offering nothing but cards and links should not
+     * get a dialog sized around a QR code nobody has.
+     */
+    const room = methods.some((method) => method.qr)
+        ? 'min-h-[17rem]' // address, an optional link, and a 200px code
+        : 'min-h-24';
+
     const body =
         // One way of giving needs no choosing between ways — but it still needs
         // naming, which is otherwise the tab's job.
         methods.length === 1 ? (
-            <section className="flex flex-col gap-2">
+            <section className={cn('flex flex-col items-center justify-center gap-2', room)}>
                 <h3 className="text-sm font-medium">{methods[0].label}</h3>
                 <Method method={methods[0]} />
             </section>
@@ -201,7 +218,11 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
                         ))}
                     </TabsList>
                     {methods.map((method) => (
-                        <TabsContent key={method.id} value={method.id}>
+                        <TabsContent
+                            key={method.id}
+                            value={method.id}
+                            className={cn('flex flex-col items-center justify-center', room)}
+                        >
                             <Method method={method} />
                         </TabsContent>
                     ))}
