@@ -1,18 +1,6 @@
 /* src/index.css */
 
-/*
- * Tailwind is imported in pieces rather than through `@import "tailwindcss"`,
- * which would also pull in preflight.
- *
- * Preflight is a global reset, and this application already has one: MUI's
- * CssBaseline, rendered by ThemeContext. Loading both would mean two resets
- * fighting over the same elements — preflight would, among other things,
- * replace the Roboto stack CssBaseline applies to body. MUI stays responsible
- * for the base layer while it is still rendering most of the interface.
- */
-@layer theme, base, components, utilities;
-@import 'tailwindcss/theme.css' layer(theme);
-@import 'tailwindcss/utilities.css' layer(utilities);
+@import 'tailwindcss';
 @import 'tw-animate-css';
 
 @import './transitions.css';
@@ -61,111 +49,69 @@
 }
 
 /*
- * Preflight is deliberately not loaded, so bare elements keep their native
- * browser appearance — a plain <button> renders with a grey face and a border.
- * MUI resets only inside its own components, so anything built with Tailwind
- * needs this much of a reset. It lives in the base layer, below MUI's emotion
- * classes, so MUI's own buttons and inputs still win.
- */
-@layer base {
-    /*
-     * Without preflight the initial border-color applies, which is currentColor
-     * — so a bare `border` class, as shadcn writes it throughout, draws a border
-     * in the text colour. On dark surfaces that is a stark white outline. Give
-     * every element the theme's divider as its default instead; components that
-     * name a colour still override it.
-     */
-    *,
-    ::before,
-    ::after {
-        border-color: var(--border);
-    }
-
-    button,
-    [type='button'],
-    [type='reset'],
-    [type='submit'] {
-        appearance: none;
-        background-color: transparent;
-        background-image: none;
-        border: 0;
-        color: inherit;
-        font: inherit;
-        letter-spacing: inherit;
-        margin: 0;
-        padding: 0;
-        text-align: inherit;
-        cursor: pointer;
-    }
-
-    button:disabled {
-        cursor: default;
-    }
-
-    /*
-     * Form controls do not inherit colour or font from their surroundings: the
-     * browser gives them its own, which is black text on a black card, with a
-     * black caret to match. Preflight fixes this and is not loaded here.
-     */
-    input,
-    optgroup,
-    select,
-    textarea {
-        color: inherit;
-        font: inherit;
-        letter-spacing: inherit;
-    }
-
-    /*
-     * Anchors otherwise arrive in the browser's own link blue with an underline,
-     * which outranks any inherited colour because the UA sets it on the element
-     * itself. Every link in this application is styled by the component that
-     * renders it — a pager button, a tab, a title — so the default is never what
-     * is wanted. MUI's own Link still wins, as its styles sit above this layer.
-     */
-    a {
-        color: inherit;
-        text-decoration: inherit;
-    }
-}
-
-/*
- * shadcn's tokens are aliases onto the custom properties ThemeContext publishes
- * from the MUI theme. Nothing here holds a colour of its own: the MUI palette
- * stays the single source of truth, so shadcn components and the MUI screens
- * they sit next to cannot drift apart, and switching the theme moves both at
- * once with no extra wiring.
+ * The palette.
  *
- * When MUI eventually leaves, the --app-* definitions move here and the aliases
- * below stay as they are.
+ * These values were MUI's until the last of it was removed; they are set out
+ * here now, once, in the two themes the interface offers. They are the same
+ * colours it has always shown — the definitions moved, nothing was repainted.
+ *
+ * The names below are shadcn's, because every component in this application
+ * uses them. Anything wanting a colour reaches for a token, never a literal.
  */
 :root {
-    --background: var(--app-bg-default);
-    --foreground: var(--app-text-primary);
+    --background: #b3b3b3;
+    --foreground: #000000;
 
-    --card: var(--app-bg-paper);
-    --card-foreground: var(--app-text-primary);
-    --popover: var(--app-bg-paper);
-    --popover-foreground: var(--app-text-primary);
+    --card: #ffffff;
+    --card-foreground: #000000;
+    --popover: #ffffff;
+    --popover-foreground: #000000;
 
-    --primary: var(--app-secondary-main);
-    --primary-foreground: var(--app-secondary-contrast);
-    --secondary: var(--app-bg-muted);
-    --secondary-foreground: var(--app-text-primary);
+    --primary: #616161;
+    --primary-foreground: #ffffff;
+    --secondary: rgba(0, 0, 0, 0.08);
+    --secondary-foreground: #000000;
 
-    --muted: var(--app-bg-muted);
-    --muted-foreground: var(--app-text-secondary);
-    --accent: var(--app-action-hover);
-    --accent-foreground: var(--app-text-primary);
+    --muted: rgba(0, 0, 0, 0.08);
+    --muted-foreground: rgba(0, 0, 0, 0.6);
+    --accent: rgba(0, 0, 0, 0.04);
+    --accent-foreground: #000000;
 
-    --destructive: var(--app-error-main);
-    --destructive-foreground: var(--app-error-contrast);
+    --destructive: #ff5252;
+    --destructive-foreground: #ffffff;
 
-    --border: var(--app-divider);
-    --input: var(--app-divider);
-    --ring: var(--app-secondary-main);
+    --border: rgba(0, 0, 0, 0.12);
+    --input: rgba(0, 0, 0, 0.12);
+    --ring: #616161;
 
     --radius: 0.5rem;
+}
+
+[data-theme='dark'] {
+    --background: #121212;
+    --foreground: #ffffff;
+
+    --card: #1e1e1e;
+    --card-foreground: #ffffff;
+    --popover: #1e1e1e;
+    --popover-foreground: #ffffff;
+
+    --primary: #9e9e9e;
+    --primary-foreground: #121212;
+    --secondary: rgba(255, 255, 255, 0.16);
+    --secondary-foreground: #ffffff;
+
+    --muted: rgba(255, 255, 255, 0.16);
+    --muted-foreground: rgba(255, 255, 255, 0.7);
+    --accent: rgba(255, 255, 255, 0.08);
+    --accent-foreground: #ffffff;
+
+    --destructive: #ff5252;
+    --destructive-foreground: #ffffff;
+
+    --border: rgba(255, 255, 255, 0.12);
+    --input: rgba(255, 255, 255, 0.12);
+    --ring: #9e9e9e;
 }
 
 @theme inline {
@@ -195,35 +141,43 @@
     --radius-xl: calc(var(--radius) + 4px);
 }
 
-/*
- * MUI's CssBaseline is injected into the head at runtime, so it lands after
- * this file and wins on equal specificity. It was quietly imposing two things
- * on every piece of text in the application: Roboto, in place of the system
- * stack named right here, and letter-spacing: 0.00938em — a hair over a tenth
- * of a pixel per character, which is nothing to look at and a lot to read.
- *
- * `html body` outranks it. The whole rule goes away with CssBaseline itself,
- * once the last MUI component is gone.
- */
-html body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-  'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-  sans-serif;
-  letter-spacing: normal;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-}
+@layer base {
+    /*
+     * Preflight resets every border to `0 solid`, which leaves the colour at
+     * currentColor — so a bare `border`, as shadcn writes it throughout, would
+     * draw in the text colour. shadcn's own setup carries this same rule for
+     * the same reason.
+     */
+    *,
+    ::before,
+    ::after {
+        border-color: var(--border);
+    }
 
-#root {
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-}
+    /*
+     * The page itself carries the palette. MUI's CssBaseline used to paint the
+     * body, and taking it away left the body transparent — the interface still
+     * looked right because every panel paints its own background, but the space
+     * around and past them was whatever the browser felt like.
+     *
+     * It is also a column, with the footer at the bottom of it however little
+     * content there is above.
+     */
+    body {
+        background-color: var(--background);
+        color: var(--foreground);
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+    }
 
-main {
-  flex: 1;
+    #root {
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+    }
+
+    main {
+        flex: 1;
+    }
 }

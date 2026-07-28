@@ -1,15 +1,22 @@
-import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, ReactNode } from 'react';
-import { PaletteMode } from '@mui/material';
-import { ThemeProvider as MuiThemeProvider } from '@mui/material/styles';
-import CssBaseline from '@mui/material/CssBaseline';
-import { createAppTheme } from '@/shared/theme';
+import React, {
+    createContext,
+    useContext,
+    useState,
+    useEffect,
+    useMemo,
+    useCallback,
+    ReactNode,
+} from 'react';
+
 import * as booksApi from '@/api/books';
 import { useAuth } from '@/context/AuthContext';
 
+export type ThemeMode = 'light' | 'dark';
+
 interface ThemeContextType {
-    mode: PaletteMode;
+    mode: ThemeMode;
     toggleTheme: () => void;
-    setThemeMode: (mode: PaletteMode) => void;
+    setThemeMode: (mode: ThemeMode) => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
@@ -18,23 +25,23 @@ interface ThemeProviderProps {
     children: ReactNode;
 }
 
+/**
+ * ThemeProvider owns which of the two themes the interface is showing.
+ *
+ * It holds no colours. The palettes live in index.css, one per theme, and this
+ * only says which is in force by stamping data-theme on the root element —
+ * which is what both the CSS variables and Tailwind's dark: variant key off.
+ *
+ * The system preference is the opening guess, replaced by the reader's own
+ * stored choice as soon as it arrives.
+ */
 export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
     const { isLoaded, isAuthenticated } = useAuth();
 
-    // Initialize from system preference
-    const getInitialMode = (): PaletteMode => {
-        // Check system preference
-        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-            return 'dark';
-        }
+    const getInitialMode = (): ThemeMode =>
+        window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 
-        return 'light';
-    };
-
-    const [mode, setMode] = useState<PaletteMode>(getInitialMode);
-
-    // Create theme based on mode
-    const theme = useMemo(() => createAppTheme(mode), [mode]);
+    const [mode, setMode] = useState<ThemeMode>(getInitialMode);
 
     useEffect(() => {
         if (!isLoaded || !isAuthenticated) {
@@ -56,45 +63,26 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
     }, [isLoaded, isAuthenticated]);
 
     useEffect(() => {
-        const root = document.documentElement;
-        const secondaryDark = theme.palette.secondary.dark ?? theme.palette.secondary.main;
+        document.documentElement.setAttribute('data-theme', mode);
+        // colour-scheme tells the browser which way to paint what this
+        // application does not: scrollbars, the controls it still leaves
+        // native, and the space beyond the end of the page.
+        document.documentElement.style.colorScheme = mode;
+    }, [mode]);
 
-        root.style.setProperty('--app-bg-default', theme.palette.background.default);
-        root.style.setProperty('--app-bg-paper', theme.palette.background.paper);
-        root.style.setProperty('--app-bg-muted', theme.palette.action.selected);
-        root.style.setProperty('--app-text-primary', theme.palette.text.primary);
-        root.style.setProperty('--app-text-secondary', theme.palette.text.secondary);
-        root.style.setProperty('--app-divider', theme.palette.divider);
-        root.style.setProperty('--app-action-hover', theme.palette.action.hover);
-        root.style.setProperty('--app-secondary-main', theme.palette.secondary.main);
-        root.style.setProperty('--app-secondary-contrast', theme.palette.secondary.contrastText);
-        root.style.setProperty('--app-secondary-dark', secondaryDark);
-
-        // Status colours, so components outside MUI can reach the same palette
-        // instead of hard-coding their own and drifting from it.
-        root.style.setProperty('--app-error-main', theme.palette.error.main);
-        root.style.setProperty('--app-error-contrast', theme.palette.error.contrastText);
-        root.style.setProperty('--app-warning-main', theme.palette.warning.main);
-        root.style.setProperty('--app-info-main', theme.palette.info.main);
-
-        // Tailwind's dark: variant is bound to this attribute in index.css.
-        // Without it the variant falls back to the operating system's preference,
-        // which says nothing about the theme this application is actually showing
-        // — a reader on a light desktop who chose the dark theme would get the
-        // light halves of every shadcn component.
-        root.setAttribute('data-theme', theme.palette.mode);
-    }, [theme]);
-
-    const persistTheme = useCallback(async (newMode: PaletteMode) => {
-        if (!isAuthenticated) {
-            return;
-        }
-        try {
-            await booksApi.setThemePreference(newMode);
-        } catch {
-            // Ignore errors and keep current mode
-        }
-    }, [isAuthenticated]);
+    const persistTheme = useCallback(
+        async (newMode: ThemeMode) => {
+            if (!isAuthenticated) {
+                return;
+            }
+            try {
+                await booksApi.setThemePreference(newMode);
+            } catch {
+                // Ignore errors and keep current mode
+            }
+        },
+        [isAuthenticated],
+    );
 
     const toggleTheme = useCallback(() => {
         setMode((prevMode) => {
@@ -104,28 +92,20 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
         });
     }, [persistTheme]);
 
-    const setThemeMode = useCallback((newMode: PaletteMode) => {
-        setMode(newMode);
-        void persistTheme(newMode);
-    }, [persistTheme]);
+    const setThemeMode = useCallback(
+        (newMode: ThemeMode) => {
+            setMode(newMode);
+            void persistTheme(newMode);
+        },
+        [persistTheme],
+    );
 
     const contextValue = useMemo(
-        () => ({
-            mode,
-            toggleTheme,
-            setThemeMode,
-        }),
-        [mode, toggleTheme, setThemeMode]
+        () => ({ mode, toggleTheme, setThemeMode }),
+        [mode, toggleTheme, setThemeMode],
     );
 
-    return (
-        <ThemeContext.Provider value={contextValue}>
-            <MuiThemeProvider theme={theme}>
-                <CssBaseline />
-                {children}
-            </MuiThemeProvider>
-        </ThemeContext.Provider>
-    );
+    return <ThemeContext.Provider value={contextValue}>{children}</ThemeContext.Provider>;
 };
 
 export const useTheme = () => {

@@ -5,10 +5,12 @@ import { ThemeProvider, useTheme } from '@/context/ThemeContext';
 import * as booksApi from '@/api/books';
 import { useAuth } from '@/context/AuthContext';
 
-// The theme is the one thing a design-system change can silently break, so this
-// pins the behaviour before Tailwind and shadcn arrive: where the initial mode
-// comes from, when the preference is read from and written to the server, and
-// the CSS custom properties the rest of the application reads.
+// The theme is the one thing a design-system change can silently break: where
+// the initial mode comes from, when the preference is read from and written to
+// the server, and how the rest of the application is told which one is on.
+//
+// The palettes themselves are two blocks of CSS keyed on data-theme, so what
+// this provider owes everyone else is that attribute — not a set of colours.
 
 vi.mock('@/api/books', () => ({
     getThemePreference: vi.fn(),
@@ -58,10 +60,6 @@ function renderTheme() {
             <Probe />
         </ThemeProvider>,
     );
-}
-
-function cssVar(name: string) {
-    return document.documentElement.style.getPropertyValue(name);
 }
 
 beforeEach(() => {
@@ -141,47 +139,6 @@ describe('ThemeContext', () => {
         expect(mockedPost).not.toHaveBeenCalled();
     });
 
-    it('publishes the palette as CSS custom properties', async () => {
-        renderTheme();
-        await screen.findByTestId('mode');
-
-        const published = [
-            '--app-bg-default',
-            '--app-bg-paper',
-            '--app-bg-muted',
-            '--app-text-primary',
-            '--app-text-secondary',
-            '--app-divider',
-            '--app-action-hover',
-            '--app-secondary-main',
-            '--app-secondary-contrast',
-            '--app-secondary-dark',
-            '--app-error-main',
-            '--app-error-contrast',
-            '--app-warning-main',
-            '--app-info-main',
-        ];
-        for (const name of published) {
-            expect(cssVar(name), `${name} should be published`).not.toBe('');
-        }
-    });
-
-    it('republishes the custom properties when the mode changes', async () => {
-        renderTheme();
-        await screen.findByTestId('mode');
-
-        const light = {
-            background: cssVar('--app-bg-default'),
-            foreground: cssVar('--app-text-primary'),
-        };
-
-        act(() => toggle());
-        await waitFor(() => expect(screen.getByTestId('mode')).toHaveTextContent('dark'));
-
-        expect(cssVar('--app-bg-default')).not.toBe(light.background);
-        expect(cssVar('--app-text-primary')).not.toBe(light.foreground);
-    });
-
     it('marks the root with the mode, which is what Tailwind reads', async () => {
         // index.css binds the dark: variant to this attribute. Without it the
         // variant follows the operating system instead, and every shadcn
@@ -195,5 +152,20 @@ describe('ThemeContext', () => {
         await waitFor(() => expect(screen.getByTestId('mode')).toHaveTextContent('dark'));
 
         expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    });
+
+    it('tells the browser which way to paint what it still owns', async () => {
+        // Scrollbars, native controls and the overscroll area are the
+        // browser's, and colour-scheme is the only way to ask for the dark
+        // ones. Getting this wrong leaves white scrollbars on a black page.
+        renderTheme();
+        await screen.findByTestId('mode');
+
+        expect(document.documentElement.style.colorScheme).toBe('light');
+
+        act(() => toggle());
+        await waitFor(() => expect(screen.getByTestId('mode')).toHaveTextContent('dark'));
+
+        expect(document.documentElement.style.colorScheme).toBe('dark');
     });
 });
