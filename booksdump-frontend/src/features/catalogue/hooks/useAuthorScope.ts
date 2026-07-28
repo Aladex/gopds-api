@@ -58,10 +58,14 @@ const useAuthorScope = (onEnter?: OnEnter): AuthorScope => {
     // a crossing, and the scope comes on for a reader who opened the page cold.
     const wasAvailable = useRef(false);
 
-    // onEnter is read through a ref so a caller passing a fresh closure on
-    // every render does not re-fire the crossing.
+    // onEnter is held in a ref so a caller passing a fresh closure on every
+    // render does not re-fire the crossing. It is updated in an effect rather
+    // than during render: a render that never commits would otherwise leave
+    // the ref holding a callback belonging to a state that never existed.
     const enter = useRef(onEnter);
-    enter.current = onEnter;
+    useEffect(() => {
+        enter.current = onEnter;
+    });
 
     useEffect(() => {
         if (wasAvailable.current === available) {
