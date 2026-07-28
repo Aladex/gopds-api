@@ -31,7 +31,11 @@ Brave New World,Aldous Huxley`;
 "Plain Title","King, Stephen",2010`;
         const { items, errors } = parseCsv(text);
         expect(errors).toHaveLength(0);
-        expect(items[0]).toEqual({ title: 'Doctor Sleep, A Novel', author: 'Stephen King', year: 2013 });
+        expect(items[0]).toEqual({
+            title: 'Doctor Sleep, A Novel',
+            author: 'Stephen King',
+            year: 2013,
+        });
         expect(items[1]).toEqual({ title: 'Plain Title', author: 'King, Stephen', year: 2010 });
     });
 

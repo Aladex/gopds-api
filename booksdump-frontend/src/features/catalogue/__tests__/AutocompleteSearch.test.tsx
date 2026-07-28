@@ -225,7 +225,12 @@ describe('AutocompleteSearch', () => {
         expect(screen.getByRole('combobox')).toHaveValue('Пришвин');
 
         rerender(
-            <AutocompleteSearch value="" onChange={onChange} searchType="title" placeholder="Поиск" />,
+            <AutocompleteSearch
+                value=""
+                onChange={onChange}
+                searchType="title"
+                placeholder="Поиск"
+            />,
         );
         expect(screen.getByRole('combobox')).toHaveValue('');
     });

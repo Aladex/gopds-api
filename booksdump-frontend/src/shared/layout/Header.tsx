@@ -126,7 +126,11 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
             <div className={cn('flex items-center px-4', isMobile ? 'h-12' : 'h-16')}>
                 {isMobile ? (
                     <div className="flex w-full items-center justify-between">
-                        <Link to="/books/page/1" aria-label={t('booksTab')} className="flex items-center">
+                        <Link
+                            to="/books/page/1"
+                            aria-label={t('booksTab')}
+                            className="flex items-center"
+                        >
                             <img src="/logo.png" alt="" className="size-6" />
                         </Link>
                         <div className="flex items-center gap-0.5">
@@ -154,7 +158,9 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                                             : 'border-transparent text-neutral-400 hover:text-white',
                                     )}
                                 >
-                                    {item.id === 'books' && <img src="/logo.png" alt="" className="size-6" />}
+                                    {item.id === 'books' && (
+                                        <img src="/logo.png" alt="" className="size-6" />
+                                    )}
                                     {item.label}
                                 </Link>
                             ))}

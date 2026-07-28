@@ -1,12 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 
-import {
-    Drawer,
-    DrawerContent,
-    DrawerDescription,
-    DrawerTitle,
-} from '@/shared/ui/drawer';
+import { Drawer, DrawerContent, DrawerDescription, DrawerTitle } from '@/shared/ui/drawer';
 
 import ProfileContent from '@/features/profile/ProfileContent';
 
@@ -56,7 +51,9 @@ const ProfileDrawer: React.FC<ProfileDrawerProps> = ({ open, onClose }) => {
                 {/* The heading names the sheet for a screen reader; on screen the
                     profile leads with the username instead. */}
                 <DrawerTitle className="sr-only">{t('user')}</DrawerTitle>
-                <DrawerDescription className="sr-only">{t('profileSection.personalData')}</DrawerDescription>
+                <DrawerDescription className="sr-only">
+                    {t('profileSection.personalData')}
+                </DrawerDescription>
                 <div className="scrollbar-thin overflow-y-auto px-4 pb-6">
                     <ProfileContent open={open} onClose={onClose} />
                 </div>

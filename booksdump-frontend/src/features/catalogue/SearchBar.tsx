@@ -4,13 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Heart, Plus, X } from 'lucide-react';
 
 import { Button } from '@/shared/ui/button';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/shared/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/ui/select';
 import { cn } from '@/shared/lib/utils';
 
 import { useAuth } from '@/context/AuthContext';
@@ -122,10 +116,7 @@ const SearchBar: React.FC = () => {
                 */}
                 <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-end gap-3 md:grid-cols-[minmax(150px,max-content)_minmax(0,1fr)_auto_auto_auto]">
                     <div className="col-span-3 flex min-w-0 flex-col gap-1.5 md:col-span-1">
-                        <label
-                            htmlFor="search-category"
-                            className="text-xs text-muted-foreground"
-                        >
+                        <label htmlFor="search-category" className="text-xs text-muted-foreground">
                             {t('searchWhat')}
                         </label>
                         <Select

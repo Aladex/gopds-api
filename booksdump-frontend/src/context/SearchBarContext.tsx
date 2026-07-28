@@ -1,4 +1,12 @@
-import React, { createContext, useContext, useState, useMemo, useCallback, useEffect, ReactNode } from 'react';
+import React, {
+    createContext,
+    useContext,
+    useState,
+    useMemo,
+    useCallback,
+    useEffect,
+    ReactNode,
+} from 'react';
 import * as booksApi from '@/api/books';
 import { useAuth } from '@/context/AuthContext';
 import { filterSupportedLanguages } from '@/shared/lib/languageUtils';
@@ -36,9 +44,18 @@ export const SearchBarProvider: React.FC<{ children: ReactNode }> = ({ children 
     const clearSelectedSearch = useCallback(() => setSelectedSearch('title'), []);
 
     const memoizedSetLanguages = useCallback((languages: string[]) => setLanguages(languages), []);
-    const memoizedSetSearchItem = useCallback((searchValue: string) => setSearchItem(searchValue), []);
-    const memoizedSetSelectedSearch = useCallback((selectedSearch: string) => setSelectedSearch(selectedSearch), []);
-    const memoizedSetSelectedLanguage = useCallback((language: string) => setSelectedLanguage(language), []);
+    const memoizedSetSearchItem = useCallback(
+        (searchValue: string) => setSearchItem(searchValue),
+        [],
+    );
+    const memoizedSetSelectedSearch = useCallback(
+        (selectedSearch: string) => setSelectedSearch(selectedSearch),
+        [],
+    );
+    const memoizedSetSelectedLanguage = useCallback(
+        (language: string) => setSelectedLanguage(language),
+        [],
+    );
 
     useEffect(() => {
         setSelectedLanguage(user?.books_lang ?? '');
@@ -62,24 +79,34 @@ export const SearchBarProvider: React.FC<{ children: ReactNode }> = ({ children 
         }
     }, [isAuthenticated]);
 
-    const contextValue = useMemo(() => ({
-        searchItem,
-        selectedSearch,
-        languages,
-        languagesLoaded,
-        selectedLanguage,
-        setLanguages: memoizedSetLanguages,
-        setSearchItem: memoizedSetSearchItem,
-        setSelectedSearch: memoizedSetSelectedSearch,
-        setSelectedLanguage: memoizedSetSelectedLanguage,
-        clearSelectedSearch,
-    }), [searchItem, selectedSearch, languages, languagesLoaded, selectedLanguage, memoizedSetLanguages, memoizedSetSearchItem, memoizedSetSelectedSearch, memoizedSetSelectedLanguage, clearSelectedSearch]);
-
-    return (
-        <SearchBarContext.Provider value={contextValue}>
-            {children}
-        </SearchBarContext.Provider>
+    const contextValue = useMemo(
+        () => ({
+            searchItem,
+            selectedSearch,
+            languages,
+            languagesLoaded,
+            selectedLanguage,
+            setLanguages: memoizedSetLanguages,
+            setSearchItem: memoizedSetSearchItem,
+            setSelectedSearch: memoizedSetSelectedSearch,
+            setSelectedLanguage: memoizedSetSelectedLanguage,
+            clearSelectedSearch,
+        }),
+        [
+            searchItem,
+            selectedSearch,
+            languages,
+            languagesLoaded,
+            selectedLanguage,
+            memoizedSetLanguages,
+            memoizedSetSearchItem,
+            memoizedSetSelectedSearch,
+            memoizedSetSelectedLanguage,
+            clearSelectedSearch,
+        ],
     );
+
+    return <SearchBarContext.Provider value={contextValue}>{children}</SearchBarContext.Provider>;
 };
 
 export const useSearchBar = (): SearchBarContextType => {

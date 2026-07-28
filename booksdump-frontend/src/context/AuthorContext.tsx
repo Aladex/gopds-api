@@ -1,4 +1,12 @@
-import React, { createContext, useContext, useState, useMemo, useCallback, useRef, ReactNode } from 'react';
+import React, {
+    createContext,
+    useContext,
+    useState,
+    useMemo,
+    useCallback,
+    useRef,
+    ReactNode,
+} from 'react';
 
 interface AuthorContextType {
     authorId: string;
@@ -52,22 +60,30 @@ export const AuthorProvider: React.FC<AuthorProviderProps> = ({ children }) => {
     const memoizedSetAuthorName = useCallback((name: string) => setAuthorName(name), []);
     const memoizedSetAuthorBook = useCallback((book: string) => setAuthorBook(book), []);
 
-    const contextValue = useMemo(() => ({
-        authorId,
-        authorName,
-        authorBook,
-        setAuthorId: memoizedSetAuthorId,
-        setAuthorName: memoizedSetAuthorName,
-        setAuthorBook: memoizedSetAuthorBook,
-        clearAuthorId,
-        clearAuthorBook,
-    }), [authorId, authorName, authorBook, memoizedSetAuthorId, memoizedSetAuthorName, memoizedSetAuthorBook, clearAuthorId, clearAuthorBook]);
-
-    return (
-        <AuthorContext.Provider value={contextValue}>
-            {children}
-        </AuthorContext.Provider>
+    const contextValue = useMemo(
+        () => ({
+            authorId,
+            authorName,
+            authorBook,
+            setAuthorId: memoizedSetAuthorId,
+            setAuthorName: memoizedSetAuthorName,
+            setAuthorBook: memoizedSetAuthorBook,
+            clearAuthorId,
+            clearAuthorBook,
+        }),
+        [
+            authorId,
+            authorName,
+            authorBook,
+            memoizedSetAuthorId,
+            memoizedSetAuthorName,
+            memoizedSetAuthorBook,
+            clearAuthorId,
+            clearAuthorBook,
+        ],
     );
+
+    return <AuthorContext.Provider value={contextValue}>{children}</AuthorContext.Provider>;
 };
 
 export const useAuthor = (): AuthorContextType => {

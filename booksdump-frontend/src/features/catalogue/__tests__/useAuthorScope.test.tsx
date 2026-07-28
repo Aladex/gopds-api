@@ -57,7 +57,7 @@ describe('useAuthorScope', () => {
         expect(result.current.id).toBe('42');
     });
 
-    it("puts the panel in the mode the scope belongs to on arrival", () => {
+    it('puts the panel in the mode the scope belongs to on arrival', () => {
         // A reader who got here by searching for a name is still in "authors by
         // name", where a scope means nothing and is not even shown. They had to
         // know to switch modes themselves to search the books in front of them.

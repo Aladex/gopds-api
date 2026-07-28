@@ -55,7 +55,6 @@ const DismissButton: React.FC<{ label: string; onClick: () => void }> = ({ label
     </button>
 );
 
-
 /**
  * TokenField picks several values out of a server-side search, and accepts one
  * that is not there yet.
@@ -236,7 +235,8 @@ const TokenField: React.FC<{
                                         onClick={() => onPick(option.key)}
                                         className={cn(
                                             'w-full rounded px-2 py-1.5 text-left text-sm',
-                                            index === highlighted && 'bg-accent text-accent-foreground',
+                                            index === highlighted &&
+                                                'bg-accent text-accent-foreground',
                                         )}
                                     >
                                         {option.label}
@@ -470,8 +470,8 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
                           ...entry,
                           ser_no: nextValue,
                       }
-                    : entry
-            )
+                    : entry,
+            ),
         );
     };
 
@@ -746,7 +746,9 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
 
                         {series.length > 0 && (
                             <div className="flex flex-col gap-2">
-                                <p className="text-xs text-muted-foreground">{t('seriesNumberHint')}</p>
+                                <p className="text-xs text-muted-foreground">
+                                    {t('seriesNumberHint')}
+                                </p>
                                 {series.map((entry) => {
                                     const numberId = `series-number-${entry.id}-${entry.ser}`;
                                     return (
@@ -776,7 +778,9 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
                         )}
 
                         <div className="flex flex-col gap-2">
-                            <p className="text-xs font-medium text-muted-foreground">{t('cover')}</p>
+                            <p className="text-xs font-medium text-muted-foreground">
+                                {t('cover')}
+                            </p>
                             <p className="text-xs text-muted-foreground">{t('coverUploadHint')}</p>
                             <div className="flex flex-wrap items-center gap-2">
                                 {/*
@@ -821,9 +825,7 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
                                     disabled={!coverFile || loading || coverUploading}
                                     onClick={handleCoverUpload}
                                 >
-                                    {coverUploading && (
-                                        <BouncingDots />
-                                    )}
+                                    {coverUploading && <BouncingDots />}
                                     {coverUploading ? t('uploading') : t('uploadCover')}
                                 </Button>
                             </div>

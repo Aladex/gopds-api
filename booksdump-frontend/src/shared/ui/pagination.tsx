@@ -30,7 +30,10 @@ function PaginationContent({
       // Without preflight a bare <ul> keeps the browser's list styling: not
       // only the markers but a 40px inline start padding, which pushed every
       // page number that far right and overflowed the pager past the cards.
-      className={cn("flex list-none flex-row items-center gap-1 p-0", className)}
+      className={cn(
+        "flex list-none flex-row items-center gap-1 p-0",
+        className,
+      )}
       {...props}
     />
   )
@@ -61,7 +64,7 @@ function PaginationLink({
           variant: isActive ? "outline" : "ghost",
           size,
         }),
-        className
+        className,
       )}
       {...props}
     />

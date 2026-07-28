@@ -84,10 +84,12 @@ describe('Login form wiring', () => {
         await userEvent.type(screen.getByLabelText('password'), 'secret');
         await userEvent.type(screen.getByLabelText('username'), '{Enter}');
 
-        await waitFor(() => expect(login).toHaveBeenCalledWith({
-            username: 'reader',
-            password: 'secret',
-        }));
+        await waitFor(() =>
+            expect(login).toHaveBeenCalledWith({
+                username: 'reader',
+                password: 'secret',
+            }),
+        );
     });
 
     it('keeps the username field controlled', async () => {
@@ -117,14 +119,16 @@ describe('Login outcomes', () => {
         await userEvent.type(screen.getByLabelText('username'), 'reader');
         await userEvent.type(screen.getByLabelText('password'), 'secret{Enter}');
 
-        await waitFor(() => expect(auth.setUser).toHaveBeenCalledWith({
-            username: 'reader',
-            first_name: 'Ada',
-            last_name: 'Lovelace',
-            is_superuser: false,
-            books_lang: 'ru',
-            have_favs: true,
-        }));
+        await waitFor(() =>
+            expect(auth.setUser).toHaveBeenCalledWith({
+                username: 'reader',
+                first_name: 'Ada',
+                last_name: 'Lovelace',
+                is_superuser: false,
+                books_lang: 'ru',
+                have_favs: true,
+            }),
+        );
         expect(navigate).toHaveBeenCalledWith('/books/page/1');
     });
 

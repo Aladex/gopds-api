@@ -78,7 +78,9 @@ export interface Language {
 export type ThemeMode = 'light' | 'dark';
 
 export const listBooks = (query: BooksQuery) =>
-    http.get<BooksPage>('/books/list', { query: query as Record<string, string | number | boolean | undefined> });
+    http.get<BooksPage>('/books/list', {
+        query: query as Record<string, string | number | boolean | undefined>,
+    });
 
 export const listAuthors = (query: { author?: string; limit?: number; offset?: number }) =>
     http.get<{ authors: Author[]; length: number }>('/books/authors', { query });
@@ -99,5 +101,4 @@ export const toggleFavourite = (bookID: number, fav: boolean) =>
 
 export const getThemePreference = () => http.get<{ theme?: ThemeMode }>('/books/theme');
 
-export const setThemePreference = (theme: ThemeMode) =>
-    http.post<void>('/books/theme', { theme });
+export const setThemePreference = (theme: ThemeMode) => http.post<void>('/books/theme', { theme });

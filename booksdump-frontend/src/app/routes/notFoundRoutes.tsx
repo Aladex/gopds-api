@@ -3,8 +3,6 @@ import React from 'react';
 import { Route } from 'react-router-dom';
 import NotFoundRoute from '@/app/NotFoundRoute';
 
-const notFoundRoutes = (
-    <Route path="*" element={<NotFoundRoute />} />
-);
+const notFoundRoutes = <Route path="*" element={<NotFoundRoute />} />;
 
 export default notFoundRoutes;

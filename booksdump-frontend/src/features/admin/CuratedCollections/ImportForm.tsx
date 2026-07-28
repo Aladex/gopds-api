@@ -7,14 +7,7 @@ import { Button, buttonVariants } from '@/shared/ui/button';
 import { Card, CardContent } from '@/shared/ui/card';
 import { Field } from '@/shared/ui/field';
 import { Input } from '@/shared/ui/input';
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from '@/shared/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/tabs';
 import { Textarea } from '@/shared/ui/textarea';
 import { cn } from '@/shared/lib/utils';
@@ -64,10 +57,14 @@ const PreviewTable: React.FC<{ items: ParsedItem[] }> = ({ items }) => {
             </div>
             {items.length > PREVIEW_LIMIT && (
                 <p className="text-xs text-muted-foreground">
-                    {t('curatedCollections.previewTruncated', 'Showing the first {{shown}} of {{total}}', {
-                        shown: PREVIEW_LIMIT,
-                        total: items.length,
-                    })}
+                    {t(
+                        'curatedCollections.previewTruncated',
+                        'Showing the first {{shown}} of {{total}}',
+                        {
+                            shown: PREVIEW_LIMIT,
+                            total: items.length,
+                        },
+                    )}
                 </p>
             )}
         </div>

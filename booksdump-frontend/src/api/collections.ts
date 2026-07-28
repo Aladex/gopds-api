@@ -42,7 +42,10 @@ export interface PublicCollectionsPage {
     page_size: number;
 }
 
-export const listPublicCollections = async (page = 1, pageSize = 12): Promise<PublicCollectionsPage> => {
+export const listPublicCollections = async (
+    page = 1,
+    pageSize = 12,
+): Promise<PublicCollectionsPage> => {
     const body = await http.get<PublicCollectionsPage | PublicCollectionRow[]>('/collections', {
         query: { page, page_size: pageSize },
     });

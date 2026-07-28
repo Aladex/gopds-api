@@ -81,10 +81,12 @@ describe('ChangePassword form wiring', () => {
 
         await userEvent.type(await screen.findByLabelText('newPassword'), 'fresh{Enter}');
 
-        await waitFor(() => expect(changePassword).toHaveBeenCalledWith({
-            token: 'reset-token',
-            password: 'fresh',
-        }));
+        await waitFor(() =>
+            expect(changePassword).toHaveBeenCalledWith({
+                token: 'reset-token',
+                password: 'fresh',
+            }),
+        );
     });
 });
 

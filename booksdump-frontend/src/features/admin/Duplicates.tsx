@@ -8,14 +8,7 @@ import { Card, CardContent } from '@/shared/ui/card';
 import { Field } from '@/shared/ui/field';
 import { Input } from '@/shared/ui/input';
 import { Progress } from '@/shared/ui/progress';
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from '@/shared/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/ui/table';
 import { cn } from '@/shared/lib/utils';
 import * as adminApi from '@/api/admin';
 import { isApiError } from '@/api/errors';
@@ -167,7 +160,9 @@ const Duplicates: React.FC = () => {
             }>(undefined);
             const hiddenCount = result?.hidden_count ?? 0;
             const skippedEmpty = result?.skipped_empty ?? 0;
-            setActionResult(t('hideDuplicatesResult', { hidden: hiddenCount, skipped: skippedEmpty }));
+            setActionResult(
+                t('hideDuplicatesResult', { hidden: hiddenCount, skipped: skippedEmpty }),
+            );
             await fetchGroups();
         } catch (error) {
             console.error(error);

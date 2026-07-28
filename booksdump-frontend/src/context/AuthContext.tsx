@@ -1,4 +1,12 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, ReactNode } from 'react';
+import React, {
+    createContext,
+    useContext,
+    useState,
+    useCallback,
+    useEffect,
+    useMemo,
+    ReactNode,
+} from 'react';
 import * as authApi from '@/api/auth';
 import type { User } from '@/api/auth';
 import { isApiError } from '@/api/errors';
@@ -17,7 +25,7 @@ interface AuthContextType {
     updateLang: (language: string) => void;
     refreshToken: () => Promise<boolean>;
     getCsrfToken: () => Promise<void>;
-    resetFavCallback?: () => void;  // Добавляем колбэк для сброса избранного
+    resetFavCallback?: () => void; // Добавляем колбэк для сброса избранного
     setResetFavCallback: (callback: () => void) => void;
 }
 
@@ -78,12 +86,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
             // Check if we're on an auth page - don't redirect if we are
             const currentPath = window.location.pathname;
-            const isAuthPage = currentPath.includes('/login') ||
-                              currentPath.includes('/register') ||
-                              currentPath.includes('/forgot-password') ||
-                              currentPath.includes('/activation') ||
-                              currentPath.includes('/activate') ||
-                              currentPath.includes('/change-password');
+            const isAuthPage =
+                currentPath.includes('/login') ||
+                currentPath.includes('/register') ||
+                currentPath.includes('/forgot-password') ||
+                currentPath.includes('/activation') ||
+                currentPath.includes('/activate') ||
+                currentPath.includes('/change-password');
 
             setUser(null);
             if (!isAuthPage) {
@@ -100,7 +109,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         setIsLoading(true);
         // The transport already refreshes once and replays on 401, so a 401
         // reaching here means the session is genuinely gone.
-        authApi.getCurrentUser()
+        authApi
+            .getCurrentUser()
             .then((currentUser) => {
                 setUser(currentUser);
             })
@@ -116,26 +126,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             });
     }, [refreshToken, isLoading, setUser]);
 
-    const updateLang = useCallback(async (language: string) => {
-        if (user) {
-            try {
-                await authApi.updateCurrentUser({ books_lang: language });
+    const updateLang = useCallback(
+        async (language: string) => {
+            if (user) {
+                try {
+                    await authApi.updateCurrentUser({ books_lang: language });
 
-                // Сбрасываем избранное перед сменой языка
-                if (resetFavCallback) {
-                    resetFavCallback();
+                    // Сбрасываем избранное перед сменой языка
+                    if (resetFavCallback) {
+                        resetFavCallback();
+                    }
+
+                    // Обновляем пользователя с новым языком
+                    setUser({ ...user, books_lang: language });
+
+                    // При смене языка всегда перенаправляем на обычную страницу книг
+                    navigate('/books/page/1');
+                } catch (error) {
+                    console.error('Error updating language', error);
                 }
-
-                // Обновляем пользователя с новым языком
-                setUser({ ...user, books_lang: language });
-
-                // При смене языка всегда перенаправляем на обычную страницу книг
-                navigate('/books/page/1');
-            } catch (error) {
-                console.error('Error updating language', error);
             }
-        }
-    }, [user, navigate, setUser, resetFavCallback]);
+        },
+        [user, navigate, setUser, resetFavCallback],
+    );
 
     const logout = useCallback(async () => {
         if (isLoading) return;
@@ -162,9 +175,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
     }, [navigate, isLoading, setUser, getCsrfToken]);
 
-    const updateUser = useCallback((userData: User) => {
-        setUser(userData);
-    }, [setUser]);
+    const updateUser = useCallback(
+        (userData: User) => {
+            setUser(userData);
+        },
+        [setUser],
+    );
 
     // Initialize CSRF token and user data
     useEffect(() => {
@@ -204,32 +220,45 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             }
         };
         initializeAuth();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [getCsrfToken]); // setUser is stable and login removed to avoid extra requests
 
     // Мемоизируем значение контекста для предотвращения ненужных перерендеров
-    const contextValue = useMemo(() => ({
-        isAuthenticated,
-        user,
-        isLoaded,
-        isLoading,
-        csrfToken,
-        setUser,
-        updateLang,
-        updateUser,
-        login,
-        logout,
-        refreshToken,
-        getCsrfToken,
-        resetFavCallback,
-        setResetFavCallback,
-    }), [isAuthenticated, user, isLoaded, isLoading, csrfToken, setUser, updateLang, updateUser, login, logout, refreshToken, getCsrfToken, resetFavCallback]);
-
-    return (
-        <AuthContext.Provider value={contextValue}>
-            {children}
-        </AuthContext.Provider>
+    const contextValue = useMemo(
+        () => ({
+            isAuthenticated,
+            user,
+            isLoaded,
+            isLoading,
+            csrfToken,
+            setUser,
+            updateLang,
+            updateUser,
+            login,
+            logout,
+            refreshToken,
+            getCsrfToken,
+            resetFavCallback,
+            setResetFavCallback,
+        }),
+        [
+            isAuthenticated,
+            user,
+            isLoaded,
+            isLoading,
+            csrfToken,
+            setUser,
+            updateLang,
+            updateUser,
+            login,
+            logout,
+            refreshToken,
+            getCsrfToken,
+            resetFavCallback,
+        ],
     );
+
+    return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>;
 };
 
 export const useAuth = () => {

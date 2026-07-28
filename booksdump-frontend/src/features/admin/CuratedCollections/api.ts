@@ -83,10 +83,16 @@ export interface CuratedCollectionsPage {
     page_size: number;
 }
 
-export const listCuratedCollections = async (page = 1, pageSize = 25): Promise<CuratedCollectionsPage> => {
-    const body = await http.get<CuratedCollectionsPage | CuratedCollection[]>('/admin/collections', {
-        query: { page, page_size: pageSize },
-    });
+export const listCuratedCollections = async (
+    page = 1,
+    pageSize = 25,
+): Promise<CuratedCollectionsPage> => {
+    const body = await http.get<CuratedCollectionsPage | CuratedCollection[]>(
+        '/admin/collections',
+        {
+            query: { page, page_size: pageSize },
+        },
+    );
     // tolerate the legacy {array} shape during a deploy window
     if (Array.isArray(body)) {
         return { rows: body, total: body.length, page, page_size: pageSize };
@@ -127,7 +133,9 @@ export const ignoreItem = async (collectionID: number, itemID: number): Promise<
     await http.post(`/admin/collections/${collectionID}/items/${itemID}/ignore`);
 };
 
-export const autoResolveCollection = async (collectionID: number): Promise<{ resolved: number }> => {
+export const autoResolveCollection = async (
+    collectionID: number,
+): Promise<{ resolved: number }> => {
     return http.post<{ resolved: number }>(`/admin/collections/${collectionID}/auto-resolve`);
 };
 

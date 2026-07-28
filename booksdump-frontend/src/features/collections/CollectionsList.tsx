@@ -7,11 +7,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/shared/ui/alert';
 
 import { API_URL } from '@/api/config';
 import BookPagination from '@/features/catalogue/BookPagination';
-import {
-    CollectionCoverBook,
-    listPublicCollections,
-    PublicCollectionRow,
-} from '@/api/collections';
+import { CollectionCoverBook, listPublicCollections, PublicCollectionRow } from '@/api/collections';
 
 // coverPath mirrors Userspace/BooksList: covers live under the
 // books-posters/<sanitized-path>/<sanitized-filename>.jpg URL pattern.
@@ -40,7 +36,10 @@ const gradient = (hue: number, offset: number, saturation: number, from: number,
 /** Tall enough for four cover tiles to read as covers rather than as swatches. */
 const MOSAIC_HEIGHT = 220;
 
-const CoverMosaic: React.FC<{ name: string; books?: CollectionCoverBook[] }> = ({ name, books }) => {
+const CoverMosaic: React.FC<{ name: string; books?: CollectionCoverBook[] }> = ({
+    name,
+    books,
+}) => {
     const real = (books ?? []).map((b) => ({ url: coverURL(b), title: b.title }));
     const withCover = real.filter((b) => b.url);
     // Pad to 4 tiles. Empty tiles get a generated initial-tile so the mosaic
@@ -54,7 +53,10 @@ const CoverMosaic: React.FC<{ name: string; books?: CollectionCoverBook[] }> = (
         return (
             <div
                 aria-hidden="true"
-                style={{ height: MOSAIC_HEIGHT, background: gradient(hashHue(name), 50, 40, 50, 30) }}
+                style={{
+                    height: MOSAIC_HEIGHT,
+                    background: gradient(hashHue(name), 50, 40, 50, 30),
+                }}
                 className="flex items-center justify-center text-[84px] font-light leading-none tracking-tighter text-white"
             >
                 {initial}
@@ -80,7 +82,10 @@ const CoverMosaic: React.FC<{ name: string; books?: CollectionCoverBook[] }> = (
                         className="size-full bg-muted object-cover"
                     />
                 ) : (
-                    <div key={i} style={{ background: gradient(hashHue(name + i), 60, 30, 55, 35) }} />
+                    <div
+                        key={i}
+                        style={{ background: gradient(hashHue(name + i), 60, 30, 55, 35) }}
+                    />
                 ),
             )}
         </div>
@@ -138,7 +143,9 @@ const CollectionsList: React.FC = () => {
             <div className="mx-auto w-full max-w-[1200px] p-4">
                 <Alert variant="destructive">
                     <AlertCircle />
-                    <AlertTitle>{t('publicCollections.loadError', 'Could not load collections')}</AlertTitle>
+                    <AlertTitle>
+                        {t('publicCollections.loadError', 'Could not load collections')}
+                    </AlertTitle>
                     <AlertDescription>{loadError}</AlertDescription>
                 </Alert>
             </div>

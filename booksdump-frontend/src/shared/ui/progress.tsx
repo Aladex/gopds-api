@@ -25,7 +25,7 @@ function Progress({
       value={indeterminate ? null : value}
       className={cn(
         "relative h-1.5 w-full overflow-hidden rounded-full bg-primary/20",
-        className
+        className,
       )}
       {...props}
     >
@@ -35,9 +35,13 @@ function Progress({
           "h-full bg-primary transition-transform",
           indeterminate
             ? "w-1/3 animate-progress-slide motion-reduce:w-full motion-reduce:animate-none motion-reduce:opacity-60"
-            : "w-full"
+            : "w-full",
         )}
-        style={indeterminate ? undefined : { transform: `translateX(-${100 - (value ?? 0)}%)` }}
+        style={
+          indeterminate
+            ? undefined
+            : { transform: `translateX(-${100 - (value ?? 0)}%)` }
+        }
       />
     </ProgressPrimitive.Root>
   )

@@ -14,7 +14,9 @@ import { downloadViaIframe } from '@/shared/lib/downloadViaIframe';
  * are called from click handlers, not named in a dependency list — and the React
  * Compiler memoises what is worth memoising.
  */
-export function useBookDownloads(showDownloadError: (status: number, fallbackMessage?: string) => void) {
+export function useBookDownloads(
+    showDownloadError: (status: number, fallbackMessage?: string) => void,
+) {
     const { state: conversionState, dispatch: conversionDispatch } = useBookConversion();
 
     /** sourceAvailable reports whether the FB2 a conversion needs is there. */

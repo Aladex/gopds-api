@@ -31,7 +31,7 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
         "file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground",
         inputFocusRing,
         inputInvalid,
-        className
+        className,
       )}
       {...props}
     />

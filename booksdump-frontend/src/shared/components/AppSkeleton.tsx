@@ -25,10 +25,7 @@ const barBlock = 'animate-pulse rounded bg-white/15';
 const bodyBlock = 'animate-pulse rounded bg-muted';
 
 const AppSkeleton: React.FC = () => (
-    <div
-        aria-hidden="true"
-        className="min-h-screen animate-in fade-in duration-300 bg-background"
-    >
+    <div aria-hidden="true" className="min-h-screen animate-in fade-in duration-300 bg-background">
         {/* Header: logo and section links on the left, controls on the right. */}
         <div className="flex h-12 w-full items-center gap-4 bg-neutral-900 px-4 sm:h-16">
             <div className="size-6 flex-none animate-pulse rounded-full bg-white/15" />

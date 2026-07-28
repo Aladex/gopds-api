@@ -251,7 +251,6 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                         tab !== 'security' && 'invisible',
                     )}
                 >
-
                     {/*
                       Password and sessions are separate groups on purpose. Together,
                       the two session buttons sat directly beneath the password fields
@@ -368,14 +367,18 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                                     ) : (
                                         <AlertCircle aria-hidden="true" className="size-3" />
                                     )}
-                                    {botConnected ? t('telegramBot.connected') : t('telegramBot.notConfigured')}
+                                    {botConnected
+                                        ? t('telegramBot.connected')
+                                        : t('telegramBot.notConfigured')}
                                 </span>
                             </>
                         }
                     >
                         {botConnected ? (
                             <>
-                                <p className="mb-3 text-sm text-muted-foreground">{t('telegramBot.startHint')}</p>
+                                <p className="mb-3 text-sm text-muted-foreground">
+                                    {t('telegramBot.startHint')}
+                                </p>
                                 <Button
                                     variant="outline"
                                     size="sm"
@@ -389,7 +392,10 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                         ) : (
                             <>
                                 <p className="mb-2 text-xs text-muted-foreground">
-                                    <Trans i18nKey="telegramBot.tokenHint" components={{ botfather: <BotFatherLink /> }} />{' '}
+                                    <Trans
+                                        i18nKey="telegramBot.tokenHint"
+                                        components={{ botfather: <BotFatherLink /> }}
+                                    />{' '}
                                     <button
                                         type="button"
                                         onClick={() => setShowInstruction((value) => !value)}
@@ -403,7 +409,10 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                                 <Expandable open={showInstruction} peekLines={0} fade={false}>
                                     <ol className="mb-3 list-decimal pl-5 text-xs text-muted-foreground [&>li]:mb-1">
                                         <li>
-                                            <Trans i18nKey="telegramBot.step1" components={{ botfather: <BotFatherLink /> }} />
+                                            <Trans
+                                                i18nKey="telegramBot.step1"
+                                                components={{ botfather: <BotFatherLink /> }}
+                                            />
                                         </li>
                                         <li>{t('telegramBot.step2')}</li>
                                         <li>{t('telegramBot.step3')}</li>
@@ -425,7 +434,9 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                                     disabled={botLoading || !botToken.trim()}
                                     onClick={handleSetBotToken}
                                 >
-                                    {botLoading ? t('telegramBot.connecting') : t('telegramBot.connectButton')}
+                                    {botLoading
+                                        ? t('telegramBot.connecting')
+                                        : t('telegramBot.connectButton')}
                                 </Button>
                             </>
                         )}

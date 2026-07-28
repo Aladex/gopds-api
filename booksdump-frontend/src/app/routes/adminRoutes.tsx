@@ -7,7 +7,14 @@ import TitleSetter from '@/app/TitleSetter';
 
 const adminRoutes = (
     <>
-        <Route path="/admin" element={<PrivateRoute requireSuperuser={true}><Navigate to="/admin/users" replace /></PrivateRoute>} />
+        <Route
+            path="/admin"
+            element={
+                <PrivateRoute requireSuperuser={true}>
+                    <Navigate to="/admin/users" replace />
+                </PrivateRoute>
+            }
+        />
         <Route
             path="/admin/*"
             element={

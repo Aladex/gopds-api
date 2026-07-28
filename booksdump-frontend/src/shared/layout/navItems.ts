@@ -28,7 +28,12 @@ export function useNavItems(isSuperuser: boolean): NavItem[] {
 
     const items: NavItem[] = [
         { id: 'books', label: t('booksTab'), path: '/books/page/1', regex: /^\/books\/page\/\d+/ },
-        { id: 'collections', label: t('collectionsTab', 'Подборки'), path: '/collections', regex: /^\/collections/ },
+        {
+            id: 'collections',
+            label: t('collectionsTab', 'Подборки'),
+            path: '/collections',
+            regex: /^\/collections/,
+        },
         { id: 'opds', label: t('opdsTab'), path: '/catalog', regex: /^\/catalog/ },
     ];
     if (isSuperuser) {

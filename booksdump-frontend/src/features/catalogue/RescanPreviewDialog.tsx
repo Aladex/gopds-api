@@ -41,7 +41,11 @@ type RescanPreviewDialogProps = {
  * offers one per field it would actually change, so a librarian can take the
  * new annotation without losing the author they corrected by hand.
  */
-const SELECTABLE_FIELDS: Array<{ field: string; selection: keyof FieldSelection; labelKey: string }> = [
+const SELECTABLE_FIELDS: Array<{
+    field: string;
+    selection: keyof FieldSelection;
+    labelKey: string;
+}> = [
     { field: 'title', selection: 'updateTitle', labelKey: 'title' },
     { field: 'annotation', selection: 'updateAnnotation', labelKey: 'annotation' },
     { field: 'lang', selection: 'updateLang', labelKey: 'language' },
@@ -82,7 +86,7 @@ const RescanPreviewDialog: React.FC<RescanPreviewDialogProps> = ({
         if (open && bookId) {
             fetchPreview(bookId);
         }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open, bookId]);
 
     useEffect(() => {
@@ -158,7 +162,9 @@ const RescanPreviewDialog: React.FC<RescanPreviewDialogProps> = ({
                                 : 'border-border bg-background',
                         )}
                     >
-                        <p className="mb-0.5 text-[11px] text-muted-foreground">{t('rescanOldValue')}</p>
+                        <p className="mb-0.5 text-[11px] text-muted-foreground">
+                            {t('rescanOldValue')}
+                        </p>
                         <p className="text-sm break-words">{oldValue || t('rescanEmpty')}</p>
                     </div>
                     <div
@@ -169,7 +175,9 @@ const RescanPreviewDialog: React.FC<RescanPreviewDialogProps> = ({
                                 : 'border-border bg-background',
                         )}
                     >
-                        <p className="mb-0.5 text-[11px] text-muted-foreground">{t('rescanNewValue')}</p>
+                        <p className="mb-0.5 text-[11px] text-muted-foreground">
+                            {t('rescanNewValue')}
+                        </p>
                         <p className="text-sm break-words">{newValue || t('rescanEmpty')}</p>
                     </div>
                 </div>
@@ -177,7 +185,8 @@ const RescanPreviewDialog: React.FC<RescanPreviewDialogProps> = ({
         );
     };
 
-    const renderAuthors = (authors: Author[]) => authors.map((a) => a.name).join(', ') || t('noAuthors');
+    const renderAuthors = (authors: Author[]) =>
+        authors.map((a) => a.name).join(', ') || t('noAuthors');
 
     const renderSeries = (series: Series | null) => {
         if (!series) return t('noSeries');
@@ -227,37 +236,41 @@ const RescanPreviewDialog: React.FC<RescanPreviewDialogProps> = ({
                                 t('authors'),
                                 renderAuthors(preview.old.authors),
                                 renderAuthors(preview.new.authors),
-                                'authors'
+                                'authors',
                             )}
                             {renderField(
                                 t('series'),
                                 renderSeries(preview.old.series),
                                 renderSeries(preview.new.series),
-                                'series'
+                                'series',
                             )}
                             {renderField(
                                 t('rescanTags'),
                                 renderTags(preview.old.tags),
                                 renderTags(preview.new.tags),
-                                'tags'
+                                'tags',
                             )}
                             {renderField(
                                 t('publicationDate'),
                                 preview.old.docdate,
                                 preview.new.docdate,
-                                'docdate'
+                                'docdate',
                             )}
                             {renderField(
                                 t('annotation'),
-                                preview.old.annotation ? preview.old.annotation.substring(0, 200) + '...' : '',
-                                preview.new.annotation ? preview.new.annotation.substring(0, 200) + '...' : '',
-                                'annotation'
+                                preview.old.annotation
+                                    ? preview.old.annotation.substring(0, 200) + '...'
+                                    : '',
+                                preview.new.annotation
+                                    ? preview.new.annotation.substring(0, 200) + '...'
+                                    : '',
+                                'annotation',
                             )}
                             {renderField(
                                 t('rescanCover'),
                                 preview.old.has_cover ? t('rescanHasCover') : t('rescanNoCover'),
                                 preview.new.has_cover ? t('rescanHasCover') : t('rescanNoCover'),
-                                'cover'
+                                'cover',
                             )}
 
                             {preview.new.has_cover && (
@@ -290,7 +303,9 @@ const RescanPreviewDialog: React.FC<RescanPreviewDialogProps> = ({
 
                             {preview.diff.length > 0 && (
                                 <div className="mt-4 rounded-md border border-border bg-card p-3">
-                                    <p className="mb-2 text-sm font-semibold">{t('rescanSelectFields')}</p>
+                                    <p className="mb-2 text-sm font-semibold">
+                                        {t('rescanSelectFields')}
+                                    </p>
 
                                     <div className="grid gap-1 md:grid-cols-2">
                                         {SELECTABLE_FIELDS.filter((entry) =>
@@ -312,10 +327,18 @@ const RescanPreviewDialog: React.FC<RescanPreviewDialogProps> = ({
                                     </div>
 
                                     <div className="mt-3 flex flex-wrap items-center gap-2">
-                                        <Button variant="outline" size="sm" onClick={selectAllFields}>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={selectAllFields}
+                                        >
                                             {t('selectAll')}
                                         </Button>
-                                        <Button variant="outline" size="sm" onClick={deselectAllFields}>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={deselectAllFields}
+                                        >
                                             {t('deselectAll')}
                                         </Button>
                                         <span aria-hidden="true" className="h-5 w-px bg-border" />

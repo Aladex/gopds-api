@@ -123,9 +123,7 @@ describe('ThemeContext', () => {
 
         act(() => toggle());
 
-        await waitFor(() =>
-            expect(mockedPost).toHaveBeenCalledWith('dark'),
-        );
+        await waitFor(() => expect(mockedPost).toHaveBeenCalledWith('dark'));
         expect(screen.getByTestId('mode')).toHaveTextContent('dark');
     });
 

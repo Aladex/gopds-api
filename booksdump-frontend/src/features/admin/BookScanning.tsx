@@ -17,21 +17,8 @@ import {
 } from '@/shared/ui/dialog';
 import { Field } from '@/shared/ui/field';
 import { Progress } from '@/shared/ui/progress';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/shared/ui/select';
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from '@/shared/ui/table';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/tabs';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import { cn } from '@/shared/lib/utils';
@@ -317,7 +304,10 @@ const BookScanning: React.FC = () => {
         setStatusMessage(null);
         setScanError(null);
         try {
-            const started = await adminApi.startScan<{ started_at?: string; session_id?: string }>();
+            const started = await adminApi.startScan<{
+                started_at?: string;
+                session_id?: string;
+            }>();
             const startedAt = started?.started_at;
             setStatus((prev) => ({
                 is_running: true,
@@ -891,14 +881,17 @@ const BookScanning: React.FC = () => {
                                     })}
                                 </p>
                                 <p className="text-sm tabular-nums">
-                                    {t('fixScanBooksUpdated', { count: fixScanStatus.books_updated })}
+                                    {t('fixScanBooksUpdated', {
+                                        count: fixScanStatus.books_updated,
+                                    })}
                                 </p>
                                 <p className="text-sm tabular-nums">
                                     {t('fixScanErrors', { count: fixScanStatus.error_count })}
                                 </p>
                                 {fixScanStatus.current_archive && (
                                     <p className="text-sm break-words">
-                                        {t('bookScanCurrentArchive')}: {fixScanStatus.current_archive}
+                                        {t('bookScanCurrentArchive')}:{' '}
+                                        {fixScanStatus.current_archive}
                                     </p>
                                 )}
                                 <ProgressRow
@@ -940,7 +933,9 @@ const BookScanning: React.FC = () => {
                                 className="max-w-80"
                             >
                                 <Select
-                                    value={selectedErrorIndex >= 0 ? String(selectedErrorIndex) : ''}
+                                    value={
+                                        selectedErrorIndex >= 0 ? String(selectedErrorIndex) : ''
+                                    }
                                     onValueChange={(value) => setSelectedErrorIndex(Number(value))}
                                 >
                                     <SelectTrigger id="scan-error-select" className="w-full">
@@ -1009,7 +1004,9 @@ const BookScanning: React.FC = () => {
                         <TabsContent value="unscanned" className="flex flex-col gap-3">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                                 <span className="text-sm text-muted-foreground tabular-nums">
-                                    {t('bookScanTotalArchives', { count: unscannedArchives.length })}
+                                    {t('bookScanTotalArchives', {
+                                        count: unscannedArchives.length,
+                                    })}
                                 </span>
                                 <Button
                                     variant="outline"
@@ -1308,7 +1305,9 @@ const BookScanning: React.FC = () => {
                             </div>
                         ) : (
                             <div role="status" className="flex flex-col gap-2">
-                                <p className="text-sm text-muted-foreground">{t('rescanStarting')}</p>
+                                <p className="text-sm text-muted-foreground">
+                                    {t('rescanStarting')}
+                                </p>
                                 <Progress aria-label={t('rescanStarting')} />
                             </div>
                         ))}

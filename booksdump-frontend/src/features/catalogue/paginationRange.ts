@@ -31,10 +31,7 @@ export function paginationRange(
     const page = Math.min(Math.max(currentPage, 1), totalPages);
 
     const startPages = range(1, Math.min(boundaryCount, totalPages));
-    const endPages = range(
-        Math.max(totalPages - boundaryCount + 1, boundaryCount + 1),
-        totalPages,
-    );
+    const endPages = range(Math.max(totalPages - boundaryCount + 1, boundaryCount + 1), totalPages);
 
     // The sibling window is pulled back from the ends so it never overlaps the
     // boundary pages or leaves a gap of exactly one page — a lone ellipsis

@@ -1,14 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import {
-    BookOpen,
-    Library,
-    Rss,
-    ShieldUser,
-    User,
-    type LucideIcon,
-} from 'lucide-react';
+import { BookOpen, Library, Rss, ShieldUser, User, type LucideIcon } from 'lucide-react';
 
 import { cn } from '@/shared/lib/utils';
 
@@ -39,7 +32,9 @@ const BottomNavigation: React.FC<BottomNavigationProps> = ({ isProfileOpen, onOp
 
     const navItems = useNavItems(Boolean(user?.is_superuser));
     // An open profile takes the highlight off whatever section is behind it.
-    const current = isProfileOpen ? null : (activeNavItem(navItems, location.pathname) ?? navItems[0]);
+    const current = isProfileOpen
+        ? null
+        : (activeNavItem(navItems, location.pathname) ?? navItems[0]);
 
     const itemClass = (active: boolean) =>
         cn(

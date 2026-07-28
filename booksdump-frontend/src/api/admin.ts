@@ -46,12 +46,14 @@ export const getRescanCoverPreview = (bookID: number) =>
     requestBlob(`/admin/books/${bookID}/rescan/preview-cover`);
 
 export const approveRescan = <TResult>(bookID: number, payload: unknown) =>
-    http.post<{ result?: TResult; error?: string }>(`/admin/books/${bookID}/rescan/approve`, payload);
+    http.post<{ result?: TResult; error?: string }>(
+        `/admin/books/${bookID}/rescan/approve`,
+        payload,
+    );
 
 // --- Invites -------------------------------------------------------------
 
-export const listInvites = <TInvite>() =>
-    http.get<{ result: TInvite[] }>('/admin/invites');
+export const listInvites = <TInvite>() => http.get<{ result: TInvite[] }>('/admin/invites');
 
 /** changeInvite performs create, update or delete depending on the action. */
 export const changeInvite = <TInvite>(action: 'create' | 'update' | 'delete', invite: TInvite) =>
@@ -88,11 +90,11 @@ export const generateGenreTitles = (payload?: unknown) =>
 
 // --- Duplicates ----------------------------------------------------------
 
-export const listDuplicates = <TGroup>(query?: Record<string, string | number | boolean | undefined>) =>
-    http.get<TGroup>('/admin/duplicates', { query });
+export const listDuplicates = <TGroup>(
+    query?: Record<string, string | number | boolean | undefined>,
+) => http.get<TGroup>('/admin/duplicates', { query });
 
-export const getActiveDuplicateScan = <TScan>() =>
-    http.get<TScan>('/admin/duplicates/scan/active');
+export const getActiveDuplicateScan = <TScan>() => http.get<TScan>('/admin/duplicates/scan/active');
 
 export const startDuplicateScan = <TScan>(payload?: unknown) =>
     http.post<TScan>('/admin/duplicates/scan', payload);
@@ -110,14 +112,17 @@ export const hideDuplicates = <TResult>(payload: unknown) =>
 
 export const getScanStatus = <TStatus>() => http.get<TStatus>('/admin/scan/status');
 
-export const listScannedArchives = <TArchives>(query?: Record<string, string | number | boolean | undefined>) =>
-    http.get<TArchives>('/admin/scan/scanned', { query });
+export const listScannedArchives = <TArchives>(
+    query?: Record<string, string | number | boolean | undefined>,
+) => http.get<TArchives>('/admin/scan/scanned', { query });
 
-export const listUnscannedArchives = <TArchives>(query?: Record<string, string | number | boolean | undefined>) =>
-    http.get<TArchives>('/admin/scan/unscanned', { query });
+export const listUnscannedArchives = <TArchives>(
+    query?: Record<string, string | number | boolean | undefined>,
+) => http.get<TArchives>('/admin/scan/unscanned', { query });
 
-export const listScanErrors = <TErrors>(query?: Record<string, string | number | boolean | undefined>) =>
-    http.get<TErrors>('/admin/scan/errors', { query });
+export const listScanErrors = <TErrors>(
+    query?: Record<string, string | number | boolean | undefined>,
+) => http.get<TErrors>('/admin/scan/errors', { query });
 
 /** getScanErrorFile downloads the offending file itself, so it is not JSON. */
 export const getScanErrorFile = (archive: string, file: string) =>

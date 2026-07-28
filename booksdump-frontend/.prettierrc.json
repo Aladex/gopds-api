@@ -1,25 +1,25 @@
 {
-    "printWidth": 100,
-    "tabWidth": 4,
-    "singleQuote": true,
-    "semi": true,
-    "trailingComma": "all",
-    "arrowParens": "always",
-    "overrides": [
-        {
-            "files": "src/shared/ui/**",
-            "options": {
-                "printWidth": 80,
-                "tabWidth": 2,
-                "singleQuote": false,
-                "semi": false
-            }
-        },
-        {
-            "files": ["*.json", "*.jsonc", "*.md", "*.yml", "*.yaml"],
-            "options": {
-                "tabWidth": 2
-            }
-        }
-    ]
+  "printWidth": 100,
+  "tabWidth": 4,
+  "singleQuote": true,
+  "semi": true,
+  "trailingComma": "all",
+  "arrowParens": "always",
+  "overrides": [
+    {
+      "files": "src/shared/ui/**",
+      "options": {
+        "printWidth": 80,
+        "tabWidth": 2,
+        "singleQuote": false,
+        "semi": false
+      }
+    },
+    {
+      "files": ["*.json", "*.jsonc", "*.md", "*.yml", "*.yaml"],
+      "options": {
+        "tabWidth": 2
+      }
+    }
+  ]
 }

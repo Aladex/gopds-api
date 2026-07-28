@@ -57,7 +57,10 @@ export function parseCsv(text: string): ParseResult {
     const items: ParsedItem[] = [];
     const errors: string[] = [];
 
-    const trimmed = text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').trim();
+    const trimmed = text
+        .replace(/^\uFEFF/, '')
+        .replace(/\r\n/g, '\n')
+        .trim();
     if (trimmed === '') {
         return { items, errors };
     }
@@ -128,7 +131,10 @@ export function parseTextarea(text: string): ParseResult {
     const items: ParsedItem[] = [];
     const errors: string[] = [];
 
-    const trimmed = text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').trim();
+    const trimmed = text
+        .replace(/^\uFEFF/, '')
+        .replace(/\r\n/g, '\n')
+        .trim();
     if (trimmed === '') {
         return { items, errors };
     }

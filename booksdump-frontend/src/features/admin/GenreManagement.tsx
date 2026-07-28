@@ -16,14 +16,7 @@ import {
 import { Field } from '@/shared/ui/field';
 import { Input } from '@/shared/ui/input';
 import { Progress } from '@/shared/ui/progress';
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from '@/shared/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/ui/table';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import * as adminApi from '@/api/admin';
 import { WS_URL } from '@/api/config';

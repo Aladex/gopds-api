@@ -162,7 +162,9 @@ const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
                         <DrawerTitle className="px-4 pb-1 text-base font-medium">
                             {t('booksLanguage')}
                         </DrawerTitle>
-                        <DrawerDescription className="sr-only">{t('booksLanguage')}</DrawerDescription>
+                        <DrawerDescription className="sr-only">
+                            {t('booksLanguage')}
+                        </DrawerDescription>
                         <div className="overflow-y-auto pb-6">{list}</div>
                     </DrawerContent>
                 </Drawer>
@@ -170,7 +172,9 @@ const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
                 <Dialog open={open} onOpenChange={setOpen}>
                     <DialogContent closeLabel={t('close')} className="sm:max-w-sm">
                         <DialogTitle>{t('booksLanguage')}</DialogTitle>
-                        <DialogDescription className="sr-only">{t('booksLanguage')}</DialogDescription>
+                        <DialogDescription className="sr-only">
+                            {t('booksLanguage')}
+                        </DialogDescription>
                         {/* Forty-odd languages scroll inside the dialog rather
                             than growing it past the screen. */}
                         <div className="scrollbar-thin max-h-[60vh] overflow-y-auto">{list}</div>

@@ -23,12 +23,4 @@ const AppContent = (
     </Router>
 );
 
-root.render(
-    import.meta.env.DEV ? (
-        <React.StrictMode>
-            {AppContent}
-        </React.StrictMode>
-    ) : (
-        AppContent
-    )
-);
+root.render(import.meta.env.DEV ? <React.StrictMode>{AppContent}</React.StrictMode> : AppContent);

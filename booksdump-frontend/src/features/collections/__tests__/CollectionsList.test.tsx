@@ -12,7 +12,9 @@ const sampleRows = [
 ];
 
 vi.mock('@/api/collections', () => ({
-    listPublicCollections: vi.fn().mockResolvedValue({ rows: [], total: 0, page: 1, page_size: 12 }),
+    listPublicCollections: vi
+        .fn()
+        .mockResolvedValue({ rows: [], total: 0, page: 1, page_size: 12 }),
 }));
 const samplePage = { rows: sampleRows, total: sampleRows.length, page: 1, page_size: 12 };
 

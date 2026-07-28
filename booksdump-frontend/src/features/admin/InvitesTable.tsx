@@ -13,14 +13,7 @@ import {
     DialogTitle,
 } from '@/shared/ui/dialog';
 import { Input } from '@/shared/ui/input';
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from '@/shared/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/ui/table';
 
 interface Invite {
     id?: string;
@@ -184,7 +177,10 @@ const InvitesTable: React.FC = () => {
                         ))}
                         {invites.length === 0 && (
                             <TableRow>
-                                <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">
+                                <TableCell
+                                    colSpan={4}
+                                    className="py-6 text-center text-muted-foreground"
+                                >
                                     {t('noInvites', 'No invites yet')}
                                 </TableCell>
                             </TableRow>

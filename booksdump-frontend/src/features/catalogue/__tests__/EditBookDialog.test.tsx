@@ -110,7 +110,9 @@ describe('EditBookDialog', () => {
         });
 
         // The endpoint answers either bare or wrapped in { result }.
-        expect(onBookUpdated).toHaveBeenCalledWith(expect.objectContaining({ title: 'Ночной Дозор' }));
+        expect(onBookUpdated).toHaveBeenCalledWith(
+            expect.objectContaining({ title: 'Ночной Дозор' }),
+        );
         await waitFor(() => expect(onClose).toHaveBeenCalled(), { timeout: 3000 });
     });
 
@@ -122,7 +124,9 @@ describe('EditBookDialog', () => {
         await user.click(screen.getByRole('button', { name: 'save' }));
 
         await waitFor(() =>
-            expect(onBookUpdated).toHaveBeenCalledWith(expect.objectContaining({ title: 'Голое тело' })),
+            expect(onBookUpdated).toHaveBeenCalledWith(
+                expect.objectContaining({ title: 'Голое тело' }),
+            ),
         );
     });
 
@@ -208,7 +212,10 @@ describe('EditBookDialog', () => {
         const user = userEvent.setup();
         setup();
 
-        await user.type(screen.getByRole('combobox', { name: 'authors' }), 'Некто Безымянный{Enter}');
+        await user.type(
+            screen.getByRole('combobox', { name: 'authors' }),
+            'Некто Безымянный{Enter}',
+        );
 
         await user.click(screen.getByRole('button', { name: 'save' }));
         await waitFor(() => expect(saveBook).toHaveBeenCalled());

@@ -31,21 +31,8 @@ import {
 } from '@/shared/ui/dialog';
 import { Field } from '@/shared/ui/field';
 import { Input } from '@/shared/ui/input';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/shared/ui/select';
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from '@/shared/ui/table';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/ui/table';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import { formatDate } from '@/shared/lib/formatDate';
 import * as adminApi from '@/api/admin';
@@ -346,7 +333,11 @@ const UsersTable: React.FC = () => {
                     {/* A card list has no column headings to click, so sorting
                         needs controls of its own. */}
                     <div className="flex flex-wrap items-end gap-2">
-                        <Field id="users-sort-column" label={t('sortBy')} className="min-w-50 flex-1">
+                        <Field
+                            id="users-sort-column"
+                            label={t('sortBy')}
+                            className="min-w-50 flex-1"
+                        >
                             <Select
                                 value={sortColumn}
                                 onValueChange={(value) => setSortColumn(value as SortColumn)}
@@ -502,7 +493,10 @@ const UsersTable: React.FC = () => {
                 </div>
             )}
 
-            <Dialog open={pendingDelete !== null} onOpenChange={(next) => !next && setPendingDelete(null)}>
+            <Dialog
+                open={pendingDelete !== null}
+                onOpenChange={(next) => !next && setPendingDelete(null)}
+            >
                 <DialogContent closeLabel={t('close')} className="sm:max-w-md">
                     <DialogHeader>
                         <DialogTitle>{t('deleteUser')}</DialogTitle>

@@ -61,7 +61,7 @@ const AuthorSearch: React.FC = () => {
         };
 
         if (author) {
-            fetchAuthors().then(r => r);
+            fetchAuthors().then((r) => r);
         }
     }, [author, location.search, page]);
 
@@ -91,7 +91,9 @@ const AuthorSearch: React.FC = () => {
                         </div>
                     ) : (
                         <div className="rounded border border-border bg-card p-4">
-                            <h2 className="mb-2 text-center text-2xl font-medium">{t('authorsSearch')}</h2>
+                            <h2 className="mb-2 text-center text-2xl font-medium">
+                                {t('authorsSearch')}
+                            </h2>
                             {/* Tailwind runs without preflight, so a bare <ul> keeps
                                 both its markers and the browser's 40px inline start
                                 padding, which would indent every author. */}
@@ -100,7 +102,9 @@ const AuthorSearch: React.FC = () => {
                                     <li key={author.id}>
                                         <button
                                             type="button"
-                                            onClick={() => handleAuthorClick(author.id, author.full_name)}
+                                            onClick={() =>
+                                                handleAuthorClick(author.id, author.full_name)
+                                            }
                                             className="w-full rounded px-3 py-2 text-left hover:bg-accent hover:text-accent-foreground"
                                         >
                                             {author.full_name}

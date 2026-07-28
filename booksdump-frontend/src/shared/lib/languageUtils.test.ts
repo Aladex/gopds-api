@@ -5,7 +5,7 @@ import {
     isLanguageSupported,
     filterSupportedLanguages,
     getLanguageDisplaySafe,
-    languageMapping
+    languageMapping,
 } from '@/shared/lib/languageUtils';
 
 describe('languageUtils', () => {
@@ -15,7 +15,7 @@ describe('languageUtils', () => {
             expect(result).toEqual({
                 code: 'ru',
                 name: 'Русский',
-                flag: '🇷🇺'
+                flag: '🇷🇺',
             });
         });
 
@@ -24,7 +24,7 @@ describe('languageUtils', () => {
             expect(result).toEqual({
                 code: 'en',
                 name: 'English',
-                flag: '🇬🇧'
+                flag: '🇬🇧',
             });
         });
 
@@ -33,7 +33,7 @@ describe('languageUtils', () => {
             expect(result).toEqual({
                 code: 'ru',
                 name: 'Русский',
-                flag: '🇷🇺'
+                flag: '🇷🇺',
             });
         });
 
@@ -42,7 +42,7 @@ describe('languageUtils', () => {
             expect(result).toEqual({
                 code: 'ru',
                 name: 'Русский',
-                flag: '🇷🇺'
+                flag: '🇷🇺',
             });
         });
 
@@ -51,7 +51,7 @@ describe('languageUtils', () => {
             expect(result).toEqual({
                 code: 'xyz',
                 name: 'XYZ',
-                flag: '🏳️'
+                flag: '🏳️',
             });
         });
 
@@ -60,24 +60,24 @@ describe('languageUtils', () => {
             expect(result).toEqual({
                 code: 'unknown',
                 name: 'UNKNOWN',
-                flag: '🏳️'
+                flag: '🏳️',
             });
         });
 
         it('should handle null and undefined', () => {
             const resultNull = getLanguageInfo(null as any);
             const resultUndefined = getLanguageInfo(undefined as any);
-            
+
             expect(resultNull).toEqual({
                 code: 'unknown',
                 name: 'UNKNOWN',
-                flag: '🏳️'
+                flag: '🏳️',
             });
-            
+
             expect(resultUndefined).toEqual({
                 code: 'unknown',
                 name: 'UNKNOWN',
-                flag: '🏳️'
+                flag: '🏳️',
             });
         });
     });
@@ -179,9 +179,9 @@ describe('languageUtils', () => {
             const result = getAllLanguagesInfo();
             expect(Array.isArray(result)).toBe(true);
             expect(result.length).toBeGreaterThan(0);
-            
+
             // Check that each item has required properties
-            result.forEach(lang => {
+            result.forEach((lang) => {
                 expect(lang).toHaveProperty('code');
                 expect(lang).toHaveProperty('name');
                 expect(lang).toHaveProperty('flag');
@@ -193,8 +193,8 @@ describe('languageUtils', () => {
 
         it('should include common languages', () => {
             const result = getAllLanguagesInfo();
-            const codes = result.map(lang => lang.code);
-            
+            const codes = result.map((lang) => lang.code);
+
             expect(codes).toContain('ru');
             expect(codes).toContain('en');
             expect(codes).toContain('de');
@@ -211,7 +211,7 @@ describe('languageUtils', () => {
         });
 
         it('should have all required properties for each language', () => {
-            Object.values(languageMapping).forEach(lang => {
+            Object.values(languageMapping).forEach((lang) => {
                 expect(lang).toHaveProperty('code');
                 expect(lang).toHaveProperty('name');
                 expect(lang).toHaveProperty('flag');
@@ -234,8 +234,8 @@ describe('languageUtils', () => {
     describe('Real world scenarios', () => {
         it('should handle typical library language codes', () => {
             const libraryLanguages = ['ru', 'en', 'de', 'fr', 'es', 'it', 'pl', 'uk'];
-            
-            libraryLanguages.forEach(lang => {
+
+            libraryLanguages.forEach((lang) => {
                 expect(isLanguageSupported(lang)).toBe(true);
                 const info = getLanguageInfo(lang);
                 expect(info.code).toBe(lang);
@@ -255,29 +255,20 @@ describe('languageUtils', () => {
         it('should provide safe display for UI components', () => {
             const supportedLang = getLanguageDisplaySafe('ru');
             const unsupportedLang = getLanguageDisplaySafe('xyz');
-            
+
             expect(supportedLang).toBeTruthy();
             expect(supportedLang).toContain('🇷🇺');
             expect(supportedLang).toContain('Русский');
-            
+
             expect(unsupportedLang).toBe(null);
         });
     });
 
     describe('Edge cases', () => {
         it('should handle various input types gracefully', () => {
-            const inputs = [
-                '',
-                ' ',
-                'RU',
-                'ru',
-                '  RU  ',
-                'unknown_language',
-                '123',
-                'test-lang'
-            ];
+            const inputs = ['', ' ', 'RU', 'ru', '  RU  ', 'unknown_language', '123', 'test-lang'];
 
-            inputs.forEach(input => {
+            inputs.forEach((input) => {
                 expect(() => getLanguageInfo(input)).not.toThrow();
                 expect(() => getLanguageDisplay(input)).not.toThrow();
                 expect(() => isLanguageSupported(input)).not.toThrow();
@@ -287,8 +278,8 @@ describe('languageUtils', () => {
 
         it('should normalize language codes consistently', () => {
             const variations = ['ru', 'RU', 'Ru', 'rU', '  ru  ', '  RU  '];
-            
-            variations.forEach(variation => {
+
+            variations.forEach((variation) => {
                 const info = getLanguageInfo(variation);
                 expect(info.code).toBe('ru');
                 expect(info.name).toBe('Русский');

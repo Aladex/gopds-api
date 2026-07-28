@@ -184,14 +184,16 @@ const BookCard: React.FC<BookCardProps> = ({
                 </div>
 
                 <div className="col-span-2 row-start-2 flex min-w-0 flex-col gap-1.5 sm:col-span-1 sm:col-start-2">
-
                     {authors.length > 0 && (
                         <div className="flex flex-wrap items-baseline gap-1.5 text-sm">
                             <span className="text-xs uppercase tracking-wide text-muted-foreground">
                                 {t('authors')}
                             </span>
                             {shownAuthors.map((author, index) => (
-                                <span key={author.id} className="inline-flex items-baseline gap-1.5">
+                                <span
+                                    key={author.id}
+                                    className="inline-flex items-baseline gap-1.5"
+                                >
                                     {index > 0 && <span className="text-muted-foreground">·</span>}
                                     <button
                                         type="button"
@@ -209,7 +211,9 @@ const BookCard: React.FC<BookCardProps> = ({
                                 </span>
                             ))}
                             {hiddenAuthors > 0 && (
-                                <span className="text-muted-foreground">· {t('andMore', { count: hiddenAuthors })}</span>
+                                <span className="text-muted-foreground">
+                                    · {t('andMore', { count: hiddenAuthors })}
+                                </span>
                             )}
                         </div>
                     )}
@@ -258,14 +262,17 @@ const BookCard: React.FC<BookCardProps> = ({
                     )}
 
                     {book.annotation ? (
-                        <Expandable open={open} peekLines={2} className="text-sm text-muted-foreground">
+                        <Expandable
+                            open={open}
+                            peekLines={2}
+                            className="text-sm text-muted-foreground"
+                        >
                             {book.annotation}
                         </Expandable>
                     ) : (
                         <p className="text-sm italic text-muted-foreground">{t('noAnnotation')}</p>
                     )}
                 </div>
-
             </div>
 
             <div className="mt-2 flex items-center justify-end gap-0.5 border-t border-border pt-2.5">
@@ -296,7 +303,9 @@ const BookCard: React.FC<BookCardProps> = ({
                             aria-label={book.approved ? t('bookApproved') : t('bookNotApproved')}
                             aria-pressed={book.approved}
                             onClick={() => onToggleApproved(book)}
-                            className={book.approved ? 'text-green-600 dark:text-green-400' : undefined}
+                            className={
+                                book.approved ? 'text-green-600 dark:text-green-400' : undefined
+                            }
                         >
                             <Check className="size-4" />
                         </Button>

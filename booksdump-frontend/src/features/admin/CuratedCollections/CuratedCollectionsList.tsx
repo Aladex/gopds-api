@@ -7,14 +7,7 @@ import { Alert, AlertDescription } from '@/shared/ui/alert';
 import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
 import { Card, CardContent } from '@/shared/ui/card';
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from '@/shared/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/ui/table';
 
 import BookPagination from '@/features/catalogue/BookPagination';
 import {
@@ -53,7 +46,8 @@ const CuratedCollectionsList: React.FC = () => {
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
     const onDelete = async (id: number) => {
-        if (!window.confirm(t('curatedCollections.confirmDelete', 'Delete this collection?'))) return;
+        if (!window.confirm(t('curatedCollections.confirmDelete', 'Delete this collection?')))
+            return;
         await deleteCuratedCollection(id);
         await refresh();
     };
@@ -128,7 +122,9 @@ const CuratedCollectionsList: React.FC = () => {
                                     </TableCell>
                                     <TableCell>
                                         {row.is_public ? (
-                                            <Badge>{t('curatedCollections.public', 'Public')}</Badge>
+                                            <Badge>
+                                                {t('curatedCollections.public', 'Public')}
+                                            </Badge>
                                         ) : (
                                             <Badge variant="secondary">
                                                 {t('curatedCollections.draft', 'Draft')}
@@ -150,8 +146,14 @@ const CuratedCollectionsList: React.FC = () => {
                             ))}
                             {rows.length === 0 && (
                                 <TableRow>
-                                    <TableCell colSpan={7} className="py-6 text-center text-muted-foreground">
-                                        {t('curatedCollections.empty', 'No curated collections yet')}
+                                    <TableCell
+                                        colSpan={7}
+                                        className="py-6 text-center text-muted-foreground"
+                                    >
+                                        {t(
+                                            'curatedCollections.empty',
+                                            'No curated collections yet',
+                                        )}
                                     </TableCell>
                                 </TableRow>
                             )}

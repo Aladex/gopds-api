@@ -33,7 +33,7 @@ function TabsList({
         // flex, not inline-flex: an inline box is sized by its content, so the
         // list would grow past its container rather than scroll inside it.
         "scrollbar-thin flex w-full min-w-0 items-center justify-start gap-1 overflow-x-auto rounded-md bg-muted p-1 text-muted-foreground",
-        className
+        className,
       )}
       {...props}
     />
@@ -53,7 +53,7 @@ function TabsTrigger({
         "disabled:pointer-events-none disabled:opacity-50",
         "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-xs",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-        className
+        className,
       )}
       {...props}
     />

@@ -15,24 +15,24 @@ import { cn } from "@/shared/lib/utils"
  * this is hidden from assistive technology. A reader who asked for less motion
  * gets the three dots standing still.
  */
-const DELAYS = ['0ms', '160ms', '320ms']
+const DELAYS = ["0ms", "160ms", "320ms"]
 
 /**
  * The hop is the dot's own diameter, so the movement scales with the size and
  * only the dots themselves need naming here.
  */
 const SIZES = {
-  sm: { gap: 'gap-1', dot: 'size-1.5' },
-  md: { gap: 'gap-1.5', dot: 'size-2' },
-  lg: { gap: 'gap-2', dot: 'size-2.5' },
+  sm: { gap: "gap-1", dot: "size-1.5" },
+  md: { gap: "gap-1.5", dot: "size-2" },
+  lg: { gap: "gap-2", dot: "size-2.5" },
 } as const
 
 function BouncingDots({
   className,
   dotClassName,
-  size = 'sm',
+  size = "sm",
   ...props
-}: React.ComponentProps<'span'> & {
+}: React.ComponentProps<"span"> & {
   dotClassName?: string
   size?: keyof typeof SIZES
 }) {
@@ -42,7 +42,7 @@ function BouncingDots({
     <span
       aria-hidden="true"
       data-slot="bouncing-dots"
-      className={cn('inline-flex items-end', scale.gap, className)}
+      className={cn("inline-flex items-end", scale.gap, className)}
       {...props}
     >
       {DELAYS.map((delay) => (
@@ -50,9 +50,9 @@ function BouncingDots({
           key={delay}
           style={{ animationDelay: delay }}
           className={cn(
-            'animate-dot-hop rounded-full bg-current',
+            "animate-dot-hop rounded-full bg-current",
             scale.dot,
-            'motion-reduce:animate-none motion-reduce:opacity-60',
+            "motion-reduce:animate-none motion-reduce:opacity-60",
             dotClassName,
           )}
         />

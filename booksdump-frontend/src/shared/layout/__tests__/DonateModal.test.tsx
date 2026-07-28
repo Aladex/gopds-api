@@ -41,7 +41,13 @@ const getDonateMethods = vi.mocked(systemApi.getDonateMethods);
 
 const bitcoin = { id: 'bitcoin', label: 'Bitcoin', kind: 'address', value: 'bc1qtest', qr: true };
 const card = { id: 'card', label: 'Card', kind: 'card', value: '5536913994186852', qr: false };
-const boosty = { id: 'boosty', label: 'Boosty', kind: 'link', value: 'https://example.test/b', qr: false };
+const boosty = {
+    id: 'boosty',
+    label: 'Boosty',
+    kind: 'link',
+    value: 'https://example.test/b',
+    qr: false,
+};
 
 const openWith = async (methods: unknown[]) => {
     getDonateMethods.mockResolvedValue(methods as never);

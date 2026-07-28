@@ -85,7 +85,9 @@ beforeEach(() => {
     approveRescan.mockReset();
     getRescanCoverPreview.mockReset();
     rescanBook.mockResolvedValue({ result: makePreview() });
-    approveRescan.mockResolvedValue({ result: { success: true, message: 'ok', book_id: 12, action: 'approve' } });
+    approveRescan.mockResolvedValue({
+        result: { success: true, message: 'ok', book_id: 12, action: 'approve' },
+    });
     getRescanCoverPreview.mockResolvedValue(new Blob(['jpeg'], { type: 'image/jpeg' }));
     // jsdom has no object URLs, and the cover preview lives on one.
     URL.createObjectURL = vi.fn(() => 'blob:cover');
@@ -113,7 +115,11 @@ describe('RescanPreviewDialog', () => {
 
     it('waits with a spinner rather than an empty box', async () => {
         let release: (value: { result?: RescanPreview }) => void = () => {};
-        rescanBook.mockReturnValue(new Promise((resolve) => { release = resolve; }));
+        rescanBook.mockReturnValue(
+            new Promise((resolve) => {
+                release = resolve;
+            }),
+        );
         setup();
 
         expect(screen.getByRole('status')).toBeInTheDocument();
@@ -165,7 +171,11 @@ describe('RescanPreviewDialog', () => {
         await user.click(screen.getByRole('button', { name: 'rescanApprove' }));
 
         await waitFor(() => expect(approveRescan).toHaveBeenCalled());
-        expect(approvalBody()).toMatchObject({ update_title: false, update_lang: true, update_cover: true });
+        expect(approvalBody()).toMatchObject({
+            update_title: false,
+            update_lang: true,
+            update_cover: true,
+        });
     });
 
     it('offers a tick box only for the fields that differ', async () => {
@@ -232,7 +242,11 @@ describe('RescanPreviewDialog', () => {
     it('asks for no cover the rescan did not find', async () => {
         const preview = makePreview();
         rescanBook.mockResolvedValue({
-            result: { ...preview, new: { ...preview.new, has_cover: false }, diff: ['title', 'lang'] },
+            result: {
+                ...preview,
+                new: { ...preview.new, has_cover: false },
+                diff: ['title', 'lang'],
+            },
         });
         setup();
         await screen.findByText('Ночной Дозор');

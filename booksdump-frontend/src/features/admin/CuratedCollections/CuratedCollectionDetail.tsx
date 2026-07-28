@@ -10,14 +10,7 @@ import { Button } from '@/shared/ui/button';
 import { Card, CardContent } from '@/shared/ui/card';
 import { Input } from '@/shared/ui/input';
 import { Progress } from '@/shared/ui/progress';
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from '@/shared/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/tabs';
 
 import SearchAndResolveDialog from '@/features/admin/CuratedCollections/SearchAndResolveDialog';
@@ -55,7 +48,9 @@ function readCandidates(extra: unknown): CandidateInfo[] {
     return candidates
         .filter(
             (c): c is { book_id: number; score?: unknown } =>
-                !!c && typeof c === 'object' && typeof (c as { book_id?: unknown }).book_id === 'number',
+                !!c &&
+                typeof c === 'object' &&
+                typeof (c as { book_id?: unknown }).book_id === 'number',
         )
         .map((c) => ({ book_id: c.book_id, score: typeof c.score === 'number' ? c.score : 0 }));
 }
@@ -188,7 +183,10 @@ const ItemsTable: React.FC<{
                                             </div>
                                         ) : (
                                             <span className="text-xs text-muted-foreground">
-                                                {t('curatedCollections.noCandidates', 'no candidates')}
+                                                {t(
+                                                    'curatedCollections.noCandidates',
+                                                    'no candidates',
+                                                )}
                                             </span>
                                         )}
                                     </TableCell>
@@ -243,7 +241,10 @@ const ItemsTable: React.FC<{
                                                 size="icon-sm"
                                                 onClick={() => ignore(it.id)}
                                                 disabled={!!busy[it.id]}
-                                                title={t('curatedCollections.ignoreAction', 'Ignore')}
+                                                title={t(
+                                                    'curatedCollections.ignoreAction',
+                                                    'Ignore',
+                                                )}
                                                 aria-label={`${t('curatedCollections.ignoreAction', 'Ignore')}: ${it.external_title}`}
                                             >
                                                 <Trash2 className="size-4" />
@@ -377,7 +378,8 @@ const CuratedCollectionDetail: React.FC = () => {
 
     const onDelete = async () => {
         if (!coll) return;
-        if (!window.confirm(t('curatedCollections.confirmDelete', 'Delete this collection?'))) return;
+        if (!window.confirm(t('curatedCollections.confirmDelete', 'Delete this collection?')))
+            return;
         await deleteCuratedCollection(coll.id);
         navigate('/admin/collections');
     };
@@ -581,8 +583,8 @@ const CuratedCollectionDetail: React.FC = () => {
                     {importing && total > 0 && (
                         <div className="flex flex-col gap-1">
                             <p className="text-sm text-muted-foreground tabular-nums">
-                                {t('curatedCollections.progress', 'Progress')}: {processed} / {total}{' '}
-                                ({progressPct}%)
+                                {t('curatedCollections.progress', 'Progress')}: {processed} /{' '}
+                                {total} ({progressPct}%)
                             </p>
                             <Progress
                                 value={progressPct}
@@ -632,7 +634,10 @@ const CuratedCollectionDetail: React.FC = () => {
                                         100,
                                         Math.round((aiProgress.processed / aiProgress.total) * 100),
                                     )}
-                                    aria-label={t('curatedCollections.aiBoxRunning', 'AI resolving…')}
+                                    aria-label={t(
+                                        'curatedCollections.aiBoxRunning',
+                                        'AI resolving…',
+                                    )}
                                 />
                             )}
 

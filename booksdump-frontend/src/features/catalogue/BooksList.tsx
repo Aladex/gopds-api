@@ -40,7 +40,9 @@ const BooksList: React.FC = () => {
     const [bookToEdit, setBookToEdit] = useState<Book | null>(null);
     const [rescanDialogOpen, setRescanDialogOpen] = useState(false);
     const [bookToRescan, setBookToRescan] = useState<number | null>(null);
-    const [downloadError, setDownloadError] = useState<{ title: string; message: string } | null>(null);
+    const [downloadError, setDownloadError] = useState<{ title: string; message: string } | null>(
+        null,
+    );
 
     // With a language filter on, every book in the list is in it and saying so
     // on each card is noise. Reading the whole library is when it starts to
@@ -182,7 +184,10 @@ const BooksList: React.FC = () => {
                 onRescanCompleted={handleRescanCompleted}
             />
 
-            <Dialog open={downloadError !== null} onOpenChange={(open) => !open && setDownloadError(null)}>
+            <Dialog
+                open={downloadError !== null}
+                onOpenChange={(open) => !open && setDownloadError(null)}
+            >
                 <DialogContent className="sm:max-w-sm" closeLabel={t('close')}>
                     <DialogHeader>
                         <DialogTitle>{downloadError?.title ?? t('downloadErrorTitle')}</DialogTitle>

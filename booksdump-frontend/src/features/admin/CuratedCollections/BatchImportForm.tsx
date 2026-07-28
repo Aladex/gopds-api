@@ -7,14 +7,7 @@ import { Badge } from '@/shared/ui/badge';
 import { Button, buttonVariants } from '@/shared/ui/button';
 import { Card, CardContent } from '@/shared/ui/card';
 import { Progress } from '@/shared/ui/progress';
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from '@/shared/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/ui/table';
 import { cn } from '@/shared/lib/utils';
 
 import { importCuratedCollection } from '@/features/admin/CuratedCollections/api';
@@ -31,7 +24,11 @@ interface FileEntry {
     statusMsg?: string;
 }
 
-const stripCsvExt = (name: string) => name.replace(/\.csv$/i, '').replace(/[_-]+/g, ' ').trim();
+const stripCsvExt = (name: string) =>
+    name
+        .replace(/\.csv$/i, '')
+        .replace(/[_-]+/g, ' ')
+        .trim();
 
 /** The badge says which of the four states a file is in, by colour and word. */
 const STATUS_VARIANT: Record<Status, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -143,7 +140,12 @@ const BatchImportForm: React.FC<{ onCreated: () => void }> = ({ onCreated }) => 
                     <p className="text-sm text-muted-foreground">
                         {t('curatedCollections.dropHere', 'Drop CSV files here')}
                     </p>
-                    <label className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'cursor-pointer')}>
+                    <label
+                        className={cn(
+                            buttonVariants({ variant: 'outline', size: 'sm' }),
+                            'cursor-pointer',
+                        )}
+                    >
                         <Upload className="size-4" />
                         {t('curatedCollections.selectFiles', 'Select files')}
                         <input
@@ -173,7 +175,9 @@ const BatchImportForm: React.FC<{ onCreated: () => void }> = ({ onCreated }) => 
                                     <TableHead className="text-right">
                                         {t('curatedCollections.batchErrors', 'Parse errors')}
                                     </TableHead>
-                                    <TableHead>{t('curatedCollections.status', 'Status')}</TableHead>
+                                    <TableHead>
+                                        {t('curatedCollections.status', 'Status')}
+                                    </TableHead>
                                     <TableHead>
                                         <span className="sr-only">
                                             {t('curatedCollections.delete', 'Delete')}
@@ -229,7 +233,9 @@ const BatchImportForm: React.FC<{ onCreated: () => void }> = ({ onCreated }) => 
 
                 {/* No value: the files import one after another and the bar says
                     only that something is happening. */}
-                {running && <Progress aria-label={t('curatedCollections.batchImporting', 'Importing…')} />}
+                {running && (
+                    <Progress aria-label={t('curatedCollections.batchImporting', 'Importing…')} />
+                )}
 
                 {entries.some((e) => e.errors.length > 0) && (
                     <Alert>

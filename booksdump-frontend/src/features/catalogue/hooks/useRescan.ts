@@ -117,9 +117,9 @@ export const useRescan = () => {
     };
 
     const toggleField = useCallback((field: keyof FieldSelection) => {
-        setFieldSelection(prev => ({
+        setFieldSelection((prev) => ({
             ...prev,
-            [field]: !prev[field]
+            [field]: !prev[field],
         }));
     }, []);
 
@@ -140,35 +140,38 @@ export const useRescan = () => {
         });
     }, []);
 
-    const getSelectedFieldsCount = useCallback((diff: string[]): { selected: number; total: number } => {
-        const fieldMap: Record<string, keyof FieldSelection> = {
-            'title': 'updateTitle',
-            'annotation': 'updateAnnotation',
-            'lang': 'updateLang',
-            'docdate': 'updateDocDate',
-            'authors': 'updateAuthors',
-            'series': 'updateSeries',
-            'cover': 'updateCover',
-            'tags': 'updateTags',
-        };
+    const getSelectedFieldsCount = useCallback(
+        (diff: string[]): { selected: number; total: number } => {
+            const fieldMap: Record<string, keyof FieldSelection> = {
+                title: 'updateTitle',
+                annotation: 'updateAnnotation',
+                lang: 'updateLang',
+                docdate: 'updateDocDate',
+                authors: 'updateAuthors',
+                series: 'updateSeries',
+                cover: 'updateCover',
+                tags: 'updateTags',
+            };
 
-        let selected = 0;
-        const changedFields = diff.filter(d => fieldMap[d]);
+            let selected = 0;
+            const changedFields = diff.filter((d) => fieldMap[d]);
 
-        changedFields.forEach(field => {
-            const selectionKey = fieldMap[field];
-            if (selectionKey && fieldSelection[selectionKey]) {
-                selected++;
-            }
-        });
+            changedFields.forEach((field) => {
+                const selectionKey = fieldMap[field];
+                if (selectionKey && fieldSelection[selectionKey]) {
+                    selected++;
+                }
+            });
 
-        return { selected, total: changedFields.length };
-    }, [fieldSelection]);
+            return { selected, total: changedFields.length };
+        },
+        [fieldSelection],
+    );
 
     const approveRescan = async (
         bookId: number,
         action: 'approve' | 'reject',
-        selectedFields?: FieldSelection
+        selectedFields?: FieldSelection,
     ): Promise<boolean> => {
         setLoading(true);
         setError(null);

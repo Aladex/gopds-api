@@ -1,63 +1,69 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <link rel="icon" href="/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
-    <meta
-      name="description"
-      content="Booksdump is a platform where you can download books for free."
-    />
-    <link rel="apple-touch-icon" href="/logo.png" />
-    <!--
+    <head>
+        <meta charset="utf-8" />
+        <link rel="icon" href="/favicon.ico" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="theme-color" content="#000000" />
+        <meta
+            name="description"
+            content="Booksdump is a platform where you can download books for free."
+        />
+        <link rel="apple-touch-icon" href="/logo.png" />
+        <!--
       manifest.json provides metadata used when your web app is installed on a
       user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
     -->
-    <link rel="manifest" href="/manifest.json" />
-    <title>Booksdump</title>
+        <link rel="manifest" href="/manifest.json" />
+        <title>Booksdump</title>
 
-    <script>
-      // Preload CSRF token to reduce request overhead
-      fetch('/api/csrf-token', { credentials: 'include' })
-        .then(function (response) { return response.json(); })
-        .then(function (data) { window.__CSRF_TOKEN__ = data.csrf_token; })
-        .catch(function (error) { console.error('Failed to preload CSRF:', error); });
-    </script>
+        <script>
+            // Preload CSRF token to reduce request overhead
+            fetch('/api/csrf-token', { credentials: 'include' })
+                .then(function (response) {
+                    return response.json();
+                })
+                .then(function (data) {
+                    window.__CSRF_TOKEN__ = data.csrf_token;
+                })
+                .catch(function (error) {
+                    console.error('Failed to preload CSRF:', error);
+                });
+        </script>
 
-    <!-- Скрипт для предотвращения FOUC -->
-    <script>
-      document.documentElement.className = 'no-js';
-      window.addEventListener('DOMContentLoaded', function() {
-        document.documentElement.className = 'js loaded';
-      });
-    </script>
+        <!-- Скрипт для предотвращения FOUC -->
+        <script>
+            document.documentElement.className = 'no-js';
+            window.addEventListener('DOMContentLoaded', function () {
+                document.documentElement.className = 'js loaded';
+            });
+        </script>
 
-    <style>
-      /* Критический CSS для предотвращения мигания */
-      html.no-js {
-        visibility: hidden;
-      }
-      html.loaded {
-        visibility: visible;
-      }
-      .app-loading {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        height: 100vh;
-        background-color: #b3b3b3;
-      }
-    </style>
-  </head>
-  <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div id="root">
-      <!-- Fallback loading на случай медленной загрузки React -->
-      <div class="app-loading">
-        <div>Loading...</div>
-      </div>
-    </div>
-    <script type="module" src="/src/index.tsx"></script>
-  </body>
+        <style>
+            /* Критический CSS для предотвращения мигания */
+            html.no-js {
+                visibility: hidden;
+            }
+            html.loaded {
+                visibility: visible;
+            }
+            .app-loading {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+                background-color: #b3b3b3;
+            }
+        </style>
+    </head>
+    <body>
+        <noscript>You need to enable JavaScript to run this app.</noscript>
+        <div id="root">
+            <!-- Fallback loading на случай медленной загрузки React -->
+            <div class="app-loading">
+                <div>Loading...</div>
+            </div>
+        </div>
+        <script type="module" src="/src/index.tsx"></script>
+    </body>
 </html>

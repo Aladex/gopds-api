@@ -1,12 +1,12 @@
 import React, { memo, useMemo } from 'react';
 import { AuthorProvider } from '@/context/AuthorContext';
 import { BookConversionProvider } from '@/context/BookConversionContext';
-import { FavProvider } from "@/context/FavContext";
+import { FavProvider } from '@/context/FavContext';
 import { SearchBarProvider } from '@/context/SearchBarContext';
 import publicRoutes from '@/app/routes/publicRoutes';
 import privateRoutes from '@/app/routes/privateRoutes';
-import adminRoutes from "@/app/routes/adminRoutes";
-import notFoundRoutes from "@/app/routes/notFoundRoutes";
+import adminRoutes from '@/app/routes/adminRoutes';
+import notFoundRoutes from '@/app/routes/notFoundRoutes';
 import { InterfaceLanguageProvider } from '@/context/InterfaceLanguageContext';
 import { useAuth } from '@/context/AuthContext';
 import { Routes, Route, Navigate } from 'react-router-dom';
@@ -16,7 +16,7 @@ import { Toaster } from '@/shared/ui/sonner';
 
 const App: React.FC<{ isAuthenticated: boolean }> = memo(({ isAuthenticated }) => {
     // Using WebSocket inside BookConversionProvider
-    useAuthWebSocket("/api/ws", isAuthenticated);
+    useAuthWebSocket('/api/ws', isAuthenticated);
 
     return (
         <Routes>
@@ -35,17 +35,20 @@ const AppWrapper: React.FC = () => {
     const { isLoaded, isAuthenticated } = useAuth();
 
     // Мемоизируем провайдеры чтобы избежать ненужных перерендеров
-    const providers = useMemo(() => (
-        <FavProvider>
-            <AuthorProvider>
-                <SearchBarProvider>
-                    <BookConversionProvider>
-                        <App isAuthenticated={isAuthenticated} />
-                    </BookConversionProvider>
-                </SearchBarProvider>
-            </AuthorProvider>
-        </FavProvider>
-    ), [isAuthenticated]);
+    const providers = useMemo(
+        () => (
+            <FavProvider>
+                <AuthorProvider>
+                    <SearchBarProvider>
+                        <BookConversionProvider>
+                            <App isAuthenticated={isAuthenticated} />
+                        </BookConversionProvider>
+                    </SearchBarProvider>
+                </AuthorProvider>
+            </FavProvider>
+        ),
+        [isAuthenticated],
+    );
 
     return (
         <>

@@ -32,7 +32,11 @@ const reducer = (state: State, action: Action): State => {
             return {
                 ...state,
                 convertingBooks: state.convertingBooks.filter(
-                    (book) => !(book.bookID === action.payload.bookID && book.format === action.payload.format)
+                    (book) =>
+                        !(
+                            book.bookID === action.payload.bookID &&
+                            book.format === action.payload.format
+                        ),
                 ),
             };
         case 'ADD_CONVERSION_ERROR':
@@ -44,7 +48,11 @@ const reducer = (state: State, action: Action): State => {
             return {
                 ...state,
                 conversionErrors: state.conversionErrors.filter(
-                    (err) => !(err.bookID === action.payload.bookID && err.format === action.payload.format)
+                    (err) =>
+                        !(
+                            err.bookID === action.payload.bookID &&
+                            err.format === action.payload.format
+                        ),
                 ),
             };
         default:
@@ -62,7 +70,7 @@ const BookConversionContext = createContext<BookConversionContextType | undefine
 export const useBookConversion = () => {
     const context = useContext(BookConversionContext);
     if (!context) {
-        throw new Error("useBookConversion must be used within a BookConversionProvider");
+        throw new Error('useBookConversion must be used within a BookConversionProvider');
     }
     return context;
 };

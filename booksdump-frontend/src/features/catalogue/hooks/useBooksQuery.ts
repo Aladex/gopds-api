@@ -144,7 +144,10 @@ export function useBooksQuery() {
         try {
             window.scrollTo(0, 0);
             const data = await booksApi.listBooks(getParams());
-            dispatch({ type: 'FETCH_SUCCESS', payload: { books: data.books, totalPages: data.length } });
+            dispatch({
+                type: 'FETCH_SUCCESS',
+                payload: { books: data.books, totalPages: data.length },
+            });
         } catch (error) {
             console.error('Error fetching books', error);
             dispatch({ type: 'FETCH_ERROR' });

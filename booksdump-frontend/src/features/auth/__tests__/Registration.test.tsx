@@ -75,12 +75,14 @@ describe('Registration form wiring', () => {
 
         await userEvent.type(screen.getByLabelText('usernameRegistration'), '{Enter}');
 
-        await waitFor(() => expect(register).toHaveBeenCalledWith({
-            username: 'reader',
-            email: 'reader@example.com',
-            password: 'secret',
-            invite: 'invite',
-        }));
+        await waitFor(() =>
+            expect(register).toHaveBeenCalledWith({
+                username: 'reader',
+                email: 'reader@example.com',
+                password: 'secret',
+                invite: 'invite',
+            }),
+        );
     });
 
     it('will not submit a half-filled form', async () => {

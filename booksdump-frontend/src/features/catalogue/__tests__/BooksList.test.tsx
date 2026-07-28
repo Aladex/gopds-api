@@ -27,7 +27,13 @@ vi.mock('@/api/auth', () => ({ getCurrentUser: vi.fn() }));
 vi.mock('@/api/admin', () => ({ updateBook: vi.fn() }));
 
 const authState = {
-    user: { username: 'reader', first_name: '', last_name: '', is_superuser: false, books_lang: 'ru' },
+    user: {
+        username: 'reader',
+        first_name: '',
+        last_name: '',
+        is_superuser: false,
+        books_lang: 'ru',
+    },
 };
 vi.mock('@/context/AuthContext', () => ({ useAuth: () => authState }));
 
@@ -158,7 +164,10 @@ describe('BooksList query building', () => {
     });
 
     it('decodes the title from the url', async () => {
-        renderAt(`/books/find/title/${encodeURIComponent('дюна')}/1`, '/books/find/title/:title/:page');
+        renderAt(
+            `/books/find/title/${encodeURIComponent('дюна')}/1`,
+            '/books/find/title/:title/:page',
+        );
 
         await waitFor(() => expect(listBooks).toHaveBeenCalled());
         expect(listBooks).toHaveBeenCalledWith(expect.objectContaining({ title: 'дюна' }));
@@ -193,8 +202,9 @@ describe('BooksList rendering', () => {
         // ZIP is the archived FB2; the label is short so the four sit in an even
         // block under the cover.
         for (const format of ['ZIP', 'FB2', 'EPUB', 'MOBI']) {
-            expect(screen.getByRole('button', { name: new RegExp(`^\\W*${format}$`) }))
-                .toBeInTheDocument();
+            expect(
+                screen.getByRole('button', { name: new RegExp(`^\\W*${format}$`) }),
+            ).toBeInTheDocument();
         }
     });
 

@@ -1,6 +1,6 @@
 export async function downloadViaIframe(
     url: string,
-    onError?: (status: number) => void
+    onError?: (status: number) => void,
 ): Promise<void> {
     try {
         const response = await fetch(url, {

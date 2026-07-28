@@ -163,10 +163,14 @@ export async function request<T = unknown>(path: string, options: RequestOptions
             parsed && typeof parsed === 'object'
                 ? ((parsed as Record<string, unknown>).code as string | undefined)
                 : undefined;
-        throw new ApiError(messageFromBody(parsed, response.statusText || `HTTP ${response.status}`), response.status, {
-            code,
-            body: parsed,
-        });
+        throw new ApiError(
+            messageFromBody(parsed, response.statusText || `HTTP ${response.status}`),
+            response.status,
+            {
+                code,
+                body: parsed,
+            },
+        );
     }
 
     return parsed as T;
@@ -216,12 +220,14 @@ export async function requestBlob(path: string, options: RequestOptions = {}): P
 }
 
 export const http = {
-    get: <T>(path: string, options?: RequestOptions) => request<T>(path, { ...options, method: 'GET' }),
+    get: <T>(path: string, options?: RequestOptions) =>
+        request<T>(path, { ...options, method: 'GET' }),
     post: <T>(path: string, body?: unknown, options?: RequestOptions) =>
         request<T>(path, { ...options, method: 'POST', body }),
     put: <T>(path: string, body?: unknown, options?: RequestOptions) =>
         request<T>(path, { ...options, method: 'PUT', body }),
     patch: <T>(path: string, body?: unknown, options?: RequestOptions) =>
         request<T>(path, { ...options, method: 'PATCH', body }),
-    delete: <T>(path: string, options?: RequestOptions) => request<T>(path, { ...options, method: 'DELETE' }),
+    delete: <T>(path: string, options?: RequestOptions) =>
+        request<T>(path, { ...options, method: 'DELETE' }),
 };

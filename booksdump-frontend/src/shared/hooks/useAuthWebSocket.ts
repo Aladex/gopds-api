@@ -41,11 +41,15 @@ function useAuthWebSocket(endpoint: string, isAuthenticated: boolean) {
                 const raw = typeof data === 'string' ? data : String(data);
                 const parsed = JSON.parse(raw);
                 if (parsed && typeof parsed.bookID === 'number' && parsed.status) {
-                    dispatch({ type: 'REMOVE_CONVERTING_BOOK', payload: { bookID: parsed.bookID, format: parsed.format || 'mobi' } });
+                    dispatch({
+                        type: 'REMOVE_CONVERTING_BOOK',
+                        payload: { bookID: parsed.bookID, format: parsed.format || 'mobi' },
+                    });
                     if (parsed.status === 'ready') {
-                        const downloadUrl = parsed.format === 'epub'
-                            ? `${API_URL}/api/files/books/conversion/epub/${parsed.bookID}`
-                            : `${API_URL}/api/files/books/conversion/${parsed.bookID}`;
+                        const downloadUrl =
+                            parsed.format === 'epub'
+                                ? `${API_URL}/api/files/books/conversion/epub/${parsed.bookID}`
+                                : `${API_URL}/api/files/books/conversion/${parsed.bookID}`;
                         const iframe = document.createElement('iframe');
                         iframe.style.display = 'none';
                         iframe.src = downloadUrl;
@@ -83,12 +87,12 @@ function useAuthWebSocket(endpoint: string, isAuthenticated: boolean) {
                     document.body.removeChild(iframe);
                 };
             } else {
-                console.error("Error parsing WebSocket message:", data);
+                console.error('Error parsing WebSocket message:', data);
             }
         };
 
         ws.onerror = (error) => {
-            console.error("WebSocket encountered an error:", error);
+            console.error('WebSocket encountered an error:', error);
         };
 
         ws.onclose = () => {
@@ -119,9 +123,12 @@ function useAuthWebSocket(endpoint: string, isAuthenticated: boolean) {
 
     useEffect(() => {
         if (!isConnected && isAuthenticated && reconnectAttempt > 0) {
-            reconnectIntervalRef.current = setTimeout(() => {
-                setupWebSocket();
-            }, Math.min(reconnectAttempt * 1000, 10000)); // Maximum 10 seconds
+            reconnectIntervalRef.current = setTimeout(
+                () => {
+                    setupWebSocket();
+                },
+                Math.min(reconnectAttempt * 1000, 10000),
+            ); // Maximum 10 seconds
         }
 
         return () => {
@@ -135,7 +142,9 @@ function useAuthWebSocket(endpoint: string, isAuthenticated: boolean) {
         if (isConnected && wsRef.current) {
             const lastBook = state.convertingBooks[state.convertingBooks.length - 1];
             if (lastBook) {
-                wsRef.current.send(JSON.stringify({ bookID: lastBook.bookID, format: lastBook.format }));
+                wsRef.current.send(
+                    JSON.stringify({ bookID: lastBook.bookID, format: lastBook.format }),
+                );
             }
         }
     }, [state.convertingBooks, isConnected]);

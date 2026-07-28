@@ -20,7 +20,23 @@ describe('paginationRange', () => {
     it('centres the window on the current page', () => {
         const items = paginationRange(500, 47377);
 
-        expect(items).toEqual([1, 2, 3, 'ellipsis', 497, 498, 499, 500, 501, 502, 503, 'ellipsis', 47375, 47376, 47377]);
+        expect(items).toEqual([
+            1,
+            2,
+            3,
+            'ellipsis',
+            497,
+            498,
+            499,
+            500,
+            501,
+            502,
+            503,
+            'ellipsis',
+            47375,
+            47376,
+            47377,
+        ]);
     });
 
     it('never elides a single page — it prints the number instead', () => {
