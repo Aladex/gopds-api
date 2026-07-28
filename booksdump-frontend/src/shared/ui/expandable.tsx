@@ -5,6 +5,11 @@ import { cn } from '@/shared/lib/utils';
 /**
  * Expandable animates between a fixed-height peek and the full content.
  *
+ * It animates only what the reader changes. Arriving already open, or already
+ * collapsed, is not a transition — the collapsed height is CSS, in the
+ * element's own line heights, so the first paint is correct without measuring
+ * anything.
+ *
  * The obvious approaches do not animate at all: `display` and
  * `-webkit-line-clamp` are not interpolatable properties, and `height: auto`
  * has no numeric target to transition towards. So the height is measured and
@@ -42,8 +47,21 @@ function prefersReducedMotion(): boolean {
 export const Expandable = React.forwardRef<HTMLDivElement, ExpandableProps>(
     ({ open, peekLines = 2, fade = true, className, children, ...rest }, forwardedRef) => {
         const innerRef = React.useRef<HTMLDivElement | null>(null);
+
+        /**
+         * The collapsed height, in the element's own line heights.
+         *
+         * Expressed in CSS rather than measured, so it is already right on the
+         * first paint. Measuring means rendering once unclamped and correcting
+         * afterwards, which is a frame of full-height content followed by a
+         * collapse the reader never asked for.
+         */
+        const collapsedHeight = `${peekLines}lh`;
+
         const [phase, setPhase] = React.useState<Phase>(open ? 'open' : 'collapsed');
-        const [maxHeight, setMaxHeight] = React.useState<string | undefined>(undefined);
+        const [maxHeight, setMaxHeight] = React.useState<string | undefined>(
+            open ? undefined : collapsedHeight,
+        );
 
         const setRefs = React.useCallback(
             (node: HTMLDivElement | null) => {
@@ -57,22 +75,27 @@ export const Expandable = React.forwardRef<HTMLDivElement, ExpandableProps>(
             [forwardedRef],
         );
 
-        /** peekHeight is the collapsed height, derived from the real line height. */
-        const peekHeight = React.useCallback(() => {
-            const node = innerRef.current;
-            if (!node) return 0;
-            const lineHeight = parseFloat(getComputedStyle(node).lineHeight);
-            const line = Number.isFinite(lineHeight) ? lineHeight : 21;
-            return line * peekLines;
-        }, [peekLines]);
+        /**
+         * Whether `open` has actually changed since mounting.
+         *
+         * A panel arrives in the state it was asked for, and animating into it
+         * would mean showing the reader the other one first — every card in a
+         * freshly loaded list unfolding and folding itself back up.
+         */
+        const settled = React.useRef(false);
 
         React.useEffect(() => {
             const node = innerRef.current;
             if (!node) return;
 
+            if (!settled.current) {
+                settled.current = true;
+                return;
+            }
+
             if (prefersReducedMotion()) {
                 setPhase(open ? 'open' : 'collapsed');
-                setMaxHeight(open ? undefined : `${peekHeight()}px`);
+                setMaxHeight(open ? undefined : collapsedHeight);
                 return;
             }
 
@@ -91,16 +114,8 @@ export const Expandable = React.forwardRef<HTMLDivElement, ExpandableProps>(
             void node.offsetHeight;
 
             setPhase('closing');
-            setMaxHeight(`${peekHeight()}px`);
-        }, [open, peekHeight]);
-
-        // First paint: collapse without animating from nothing.
-        React.useEffect(() => {
-            if (!open && maxHeight === undefined && innerRef.current) {
-                setMaxHeight(`${peekHeight()}px`);
-            }
-            // eslint-disable-next-line react-hooks/exhaustive-deps
-        }, []);
+            setMaxHeight(collapsedHeight);
+        }, [open, collapsedHeight]);
 
         const handleTransitionEnd = (event: React.TransitionEvent<HTMLDivElement>) => {
             if (event.propertyName !== 'max-height') return;

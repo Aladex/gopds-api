@@ -24,6 +24,29 @@ function setReducedMotion(reduce: boolean) {
     })) as unknown as typeof window.matchMedia;
 }
 
+/**
+ * recordMaxHeights collects every max-height the element is given, in order.
+ *
+ * The pin that makes the closing transition possible is written and then
+ * superseded within the same tick, so it cannot be read off the final style —
+ * but it is what the browser lays out against, and its absence is exactly the
+ * bug where the panel snapped shut. The sequence is the only place it shows.
+ */
+function recordMaxHeights(el: HTMLElement): string[] {
+    const maxHeightOf = (style: string | null) =>
+        /max-height:\s*([^;]+)/.exec(style ?? '')?.[1].trim() ?? '';
+
+    const seen: string[] = [];
+    const observer = new MutationObserver((records) => {
+        // Records arrive in a batch, by which time the element already holds
+        // the last value — so the history comes from the records themselves.
+        for (const record of records) seen.push(maxHeightOf(record.oldValue));
+        seen.push(el.style.maxHeight);
+    });
+    observer.observe(el, { attributes: true, attributeFilter: ['style'], attributeOldValue: true });
+    return seen;
+}
+
 /** endTransition fires the event the component waits for. */
 function endTransition(el: HTMLElement) {
     act(() => {
@@ -58,12 +81,38 @@ describe('Expandable', () => {
 
     it('clips to a peek height while collapsed', () => {
         render(
-            <Expandable open={false} data-testid="box">
+            <Expandable open={false} peekLines={2} data-testid="box">
                 {LONG}
             </Expandable>,
         );
 
-        expect(screen.getByTestId('box').style.maxHeight).toMatch(/px$/);
+        // In the element's own line heights, so the very first paint is right
+        // without measuring — measuring costs a frame of unclamped content.
+        expect(screen.getByTestId('box').style.maxHeight).toBe('2lh');
+    });
+
+    it('arrives in the state it was asked for without animating into it', () => {
+        // Every card in a freshly loaded list used to unfold and fold itself
+        // back up, because the collapse was applied after the first paint.
+        const { unmount } = render(
+            <Expandable open={false} peekLines={2} data-testid="box">
+                {LONG}
+            </Expandable>,
+        );
+
+        const box = screen.getByTestId('box');
+        expect(box.style.maxHeight).toBe('2lh');
+        expect(box).toHaveAttribute('data-state', 'collapsed');
+        unmount();
+
+        render(
+            <Expandable open peekLines={2} data-testid="open-box">
+                {LONG}
+            </Expandable>,
+        );
+
+        // Open on arrival means no clamp at all, not a clamp released later.
+        expect(screen.getByTestId('open-box').style.maxHeight).toBe('');
     });
 
     it('animates towards an explicit height, not towards auto', () => {
@@ -100,23 +149,30 @@ describe('Expandable', () => {
         expect(screen.getByTestId('box').style.maxHeight).toBe('');
     });
 
-    it('pins the height again before closing', () => {
+    it('pins the height again before closing', async () => {
         const { rerender } = render(
-            <Expandable open data-testid="box">
+            <Expandable open peekLines={2} data-testid="box">
                 {LONG}
             </Expandable>,
         );
         endTransition(screen.getByTestId('box'));
         expect(screen.getByTestId('box').style.maxHeight).toBe('');
 
+        const seen = recordMaxHeights(screen.getByTestId('box'));
+
         rerender(
-            <Expandable open={false} data-testid="box">
+            <Expandable open={false} peekLines={2} data-testid="box">
                 {LONG}
             </Expandable>,
         );
+        // The observer delivers on a microtask; let it.
+        await act(async () => {});
 
-        // Without a pixel value here the element would jump from none to the peek.
-        expect(screen.getByTestId('box').style.maxHeight).toMatch(/px$/);
+        // A measured height first, the peek second. Going straight to the peek
+        // gives the browser one value to compute and no transition to run.
+        const pin = seen.findIndex((value) => /px$/.test(value));
+        expect(pin, `expected a measured pin in ${JSON.stringify(seen)}`).toBeGreaterThanOrEqual(0);
+        expect(seen.indexOf('2lh')).toBeGreaterThan(pin);
     });
 
     it('keeps the content mounted while collapsed, so it stays searchable', () => {
