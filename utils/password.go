@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"hash"
 	"math/big"
-	"math/rand"
 	"strconv"
 	"strings"
 	"time"
@@ -24,26 +23,7 @@ import (
 const (
 	allowedChars     = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	allowedCharsSize = len(allowedChars)
-	maxInt           = 1<<63 - 1
 )
-
-type source struct{}
-
-func (s *source) Int63() int64 {
-	return int64(s.Uint64() & ^uint64(1<<63))
-}
-
-func (s *source) Uint64() uint64 {
-	i, err := crand.Int(crand.Reader, big.NewInt(maxInt))
-
-	if err != nil {
-		panic(err)
-	}
-
-	return i.Uint64()
-}
-
-func (s *source) Seed(int64) {}
 
 // Token struct for token creation and checking
 type Token struct {
@@ -55,13 +35,24 @@ type Token struct {
 }
 
 // GetRandomString returns a securely generated random string.
+//
+// It draws straight from crypto/rand. It used to reach the same entropy the
+// long way round, through a math/rand.Rand whose Source was backed by
+// crypto/rand — sound, but it read as the weak generator to anyone scanning the
+// file, gosec included, and the indirection bought nothing.
+//
+// A failure of the system entropy source is not something a caller can act on
+// and not something to paper over with a predictable string, so it panics.
 func GetRandomString(length int) string {
 	b := make([]byte, length)
-	rnd := rand.New(&source{})
+	limit := big.NewInt(int64(allowedCharsSize))
 
 	for i := range b {
-		c := rnd.Intn(allowedCharsSize)
-		b[i] = allowedChars[c]
+		n, err := crand.Int(crand.Reader, limit)
+		if err != nil {
+			panic(fmt.Sprintf("crypto/rand is unavailable: %v", err))
+		}
+		b[i] = allowedChars[n.Int64()]
 	}
 
 	return string(b)

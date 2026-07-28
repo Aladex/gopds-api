@@ -160,7 +160,10 @@ staticcheck: ## Run staticcheck (pinned version)
 
 security: ## Run security checks (pinned version)
 	@echo "Running gosec $(GOSEC_VERSION)..."
-	go run github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION) ./...
+	go run github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION) \
+		-exclude-dir=booksdump-frontend \
+		-nosec-require-justification \
+		./...
 
 # Docker
 docker-build: ## Build Docker image
