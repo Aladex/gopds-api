@@ -1,9 +1,10 @@
 import type { Author, Book, Series } from '@/api/books';
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Loader2, X } from 'lucide-react';
+import { X } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/shared/ui/alert';
+import { BouncingDots } from '@/shared/ui/bouncing-dots';
 import { Badge } from '@/shared/ui/badge';
 import { Button, buttonVariants } from '@/shared/ui/button';
 import {
@@ -205,12 +206,7 @@ const TokenField: React.FC<{
                         className="h-7 min-w-32 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground md:text-sm"
                     />
 
-                    {loading && (
-                        <Loader2
-                            aria-hidden="true"
-                            className="size-4 animate-spin text-muted-foreground"
-                        />
-                    )}
+                    {loading && <BouncingDots className="text-muted-foreground" />}
                 </div>
 
                 {/*
@@ -826,7 +822,7 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
                                     onClick={handleCoverUpload}
                                 >
                                     {coverUploading && (
-                                        <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+                                        <BouncingDots />
                                     )}
                                     {coverUploading ? t('uploading') : t('uploadCover')}
                                 </Button>
@@ -851,7 +847,7 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
                         {t('cancel')}
                     </Button>
                     <Button onClick={handleSave} disabled={loading}>
-                        {loading && <Loader2 aria-hidden="true" className="size-4 animate-spin" />}
+                        {loading && <BouncingDots />}
                         {loading ? t('saving') : t('save')}
                     </Button>
                 </DialogFooter>

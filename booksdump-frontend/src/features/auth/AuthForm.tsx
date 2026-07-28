@@ -1,9 +1,10 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { AlertCircle, ArrowLeft, Loader2, type LucideIcon } from 'lucide-react';
+import { AlertCircle, ArrowLeft, type LucideIcon } from 'lucide-react';
 
 import { Button } from '@/shared/ui/button';
+import { BouncingDots } from '@/shared/ui/bouncing-dots';
 import { Input } from '@/shared/ui/input';
 
 /**
@@ -139,7 +140,7 @@ export const AuthForm: React.FC<AuthFormProps> = ({
             )}
 
             <Button type="submit" className="w-full" disabled={submitDisabled}>
-                {busy && <Loader2 aria-hidden="true" className="size-4 animate-spin" />}
+                {busy && <BouncingDots />}
                 {submitLabel}
             </Button>
             {secondaryAction && <div className="flex justify-center">{secondaryAction}</div>}

@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CheckCircle2, Loader2, XCircle } from 'lucide-react';
+import { CheckCircle2, XCircle } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/shared/ui/alert';
 import { BouncingDots } from '@/shared/ui/bouncing-dots';
@@ -210,7 +210,7 @@ const RescanPreviewDialog: React.FC<RescanPreviewDialogProps> = ({
 
                     {loading && !preview && (
                         <div role="status" className="flex items-center justify-center py-10">
-                            <Loader2 aria-hidden="true" className="size-8 animate-spin text-muted-foreground" />
+                            <BouncingDots size="lg" className="text-muted-foreground" />
                             <span className="sr-only">{t('loading')}</span>
                         </div>
                     )}
@@ -350,7 +350,7 @@ const RescanPreviewDialog: React.FC<RescanPreviewDialogProps> = ({
                         className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
                     >
                         {loading ? (
-                            <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+                            <BouncingDots />
                         ) : (
                             <XCircle aria-hidden="true" className="size-4" />
                         )}
@@ -359,7 +359,7 @@ const RescanPreviewDialog: React.FC<RescanPreviewDialogProps> = ({
                     {/* Approving is the affirmative act, so it is the solid button. */}
                     <Button onClick={handleApprove} disabled={loading || !preview}>
                         {loading ? (
-                            <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+                            <BouncingDots />
                         ) : (
                             <CheckCircle2 aria-hidden="true" className="size-4" />
                         )}

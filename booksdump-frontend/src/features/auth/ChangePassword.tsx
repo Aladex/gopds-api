@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { BouncingDots } from '@/shared/ui/bouncing-dots';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { Loader2, Lock } from 'lucide-react';
+import { Lock } from 'lucide-react';
 
 import * as authApi from '@/api/auth';
 import { isApiError } from '@/api/errors';
@@ -77,7 +78,7 @@ const ChangePassword: React.FC = () => {
             <CenteredBox>
                 <div className="flex flex-col items-center gap-4" role="status">
                     <p>{t('validatingToken')}</p>
-                    <Loader2 aria-hidden="true" className="size-6 animate-spin text-primary" />
+                    <BouncingDots size="md" className="text-primary" />
                 </div>
             </CenteredBox>
         );

@@ -1,8 +1,8 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Loader2 } from 'lucide-react';
 
 import { cn } from '@/shared/lib/utils';
+import { BouncingDots } from '@/shared/ui/bouncing-dots';
 
 interface LoadingSpinnerProps {
     /** A translation key, not a finished string. */
@@ -28,7 +28,7 @@ const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({ message, className }) =
                 className,
             )}
         >
-            <Loader2 aria-hidden="true" className="size-8 animate-spin text-muted-foreground" />
+            <BouncingDots size="lg" className="text-muted-foreground" />
             {message && <p className="text-sm text-muted-foreground">{t(message)}</p>}
         </div>
     );

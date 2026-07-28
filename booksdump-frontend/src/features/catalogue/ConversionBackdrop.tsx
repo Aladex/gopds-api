@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
+import { BouncingDots } from '@/shared/ui/bouncing-dots';
 import { useTranslation } from 'react-i18next';
-import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useBookConversion } from '@/context/BookConversionContext';
@@ -46,7 +46,7 @@ function ConversionBackdrop() {
             aria-live="polite"
             className="fixed inset-0 z-modal flex flex-col items-center justify-center gap-2 bg-black/50 px-4 text-center text-white"
         >
-            <Loader2 aria-hidden="true" className="size-10 animate-spin" />
+            <BouncingDots size="lg" />
             <p id="conversion-modal-title" className="text-lg font-medium">
                 {t('conversionInProgress')}
             </p>

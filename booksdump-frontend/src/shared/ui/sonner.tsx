@@ -3,12 +3,12 @@
 import {
   CircleCheckIcon,
   InfoIcon,
-  Loader2Icon,
   OctagonXIcon,
   TriangleAlertIcon,
 } from "lucide-react"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 
+import { BouncingDots } from "@/shared/ui/bouncing-dots"
 import { useTheme } from "@/context/ThemeContext"
 
 // shadcn ships this component wired to next-themes. This application has its own
@@ -26,7 +26,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
         info: <InfoIcon className="size-4" />,
         warning: <TriangleAlertIcon className="size-4" />,
         error: <OctagonXIcon className="size-4" />,
-        loading: <Loader2Icon className="size-4 animate-spin" />,
+        loading: <BouncingDots />,
       }}
       style={
         {

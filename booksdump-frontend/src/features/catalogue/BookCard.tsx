@@ -5,6 +5,7 @@ import { Check, Pencil, RefreshCw, Star } from 'lucide-react';
 
 import type { Book } from '@/api/books';
 import { Button } from '@/shared/ui/button';
+import { BouncingDots } from '@/shared/ui/bouncing-dots';
 import { Expandable } from '@/shared/ui/expandable';
 import BookCover from '@/features/catalogue/BookCover';
 import { cn } from '@/shared/lib/utils';
@@ -145,7 +146,7 @@ const BookCard: React.FC<BookCardProps> = ({
                                         'disabled:cursor-default disabled:text-muted-foreground disabled:no-underline disabled:hover:bg-transparent',
                                     )}
                                 >
-                                    {converting && <span className="mr-0.5 inline-block animate-spin">◌</span>}
+                                    {converting && <BouncingDots className="mr-1" />}
                                     {format.label}
                                 </button>
                             );

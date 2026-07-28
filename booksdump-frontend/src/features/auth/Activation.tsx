@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Loader2 } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/shared/ui/alert';
+import { BouncingDots } from '@/shared/ui/bouncing-dots';
 import * as authApi from '@/api/auth';
 import { isApiError } from '@/api/errors';
 import CenteredBox from '@/features/auth/CenteredBox';
@@ -84,7 +84,7 @@ const Activation: React.FC = () => {
                 {state === 'activating' && (
                     <div className="flex flex-col items-center gap-3" role="status">
                         <p>{t('activating')}</p>
-                        <Loader2 aria-hidden="true" className="size-6 animate-spin text-primary" />
+                        <BouncingDots size="md" className="text-primary" />
                     </div>
                 )}
 
