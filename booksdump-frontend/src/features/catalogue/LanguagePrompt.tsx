@@ -69,12 +69,19 @@ const LanguagePrompt: React.FC = () => {
         setSelectedLanguage(lang);
     };
 
-    if (!needsLanguage || !languagesLoaded || offered.length === 0 || answering) {
-        return null;
-    }
+    /*
+      Closed by its own flag rather than by vanishing.
+
+      This used to answer the question by returning null, which took the whole
+      dialog out of the tree while Radix still believed it open: the closing
+      sequence never ran, and tearing down the overlay and the scroll lock fell
+      to unmount cleanup instead. Driving `open` lets it close the way every
+      other dialog here does.
+    */
+    const asking = needsLanguage && languagesLoaded && offered.length > 0 && !answering;
 
     return (
-        <Dialog open>
+        <Dialog open={asking}>
             {/*
               There is no way past it but to answer: leaving it unanswered is
               the state being fixed, and a dismissed question would be asked
