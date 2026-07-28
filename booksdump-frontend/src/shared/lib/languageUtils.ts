@@ -281,6 +281,16 @@ export const isLanguageSupported = (code: string): boolean => {
 /**
  * Filter array of language codes to only include supported ones
  */
+/**
+ * The books language of a reader who wants the whole library.
+ *
+ * A stored value rather than an empty one, because empty already means a reader
+ * who has never been asked which language to show — clearing the field would
+ * put that question in front of them again on every visit. The backend knows
+ * the same constant and skips the filter when it sees it.
+ */
+export const ALL_LANGUAGES = 'all';
+
 export const filterSupportedLanguages = (languages: string[]): string[] => {
     return languages.filter(lang => isLanguageSupported(lang));
 };

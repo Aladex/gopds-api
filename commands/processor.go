@@ -126,7 +126,7 @@ func (cp *CommandProcessor) executeFindBookWithPagination(title string, userID i
 
 	if len(books) == 0 && offset == 0 {
 		languageMsg := ""
-		if user.BooksLang != "" {
+		if user.BooksLang != "" && user.BooksLang != database.AllLanguages {
 			languageMsg = fmt.Sprintf(" in %s language", user.BooksLang)
 		}
 		return &CommandResult{
@@ -262,7 +262,7 @@ func (cp *CommandProcessor) ExecuteFindAuthorBooksWithPagination(authorID int64,
 
 	if len(books) == 0 && offset == 0 {
 		languageMsg := ""
-		if user.BooksLang != "" {
+		if user.BooksLang != "" && user.BooksLang != database.AllLanguages {
 			languageMsg = fmt.Sprintf(" in %s language", user.BooksLang)
 		}
 		return &CommandResult{
@@ -426,7 +426,7 @@ func (cp *CommandProcessor) executeFindBookWithAuthorWithPagination(title, autho
 	// Step 4: Handle empty results
 	if len(filteredBooks) == 0 && offset == 0 {
 		languageMsg := ""
-		if err == nil && user.BooksLang != "" {
+		if err == nil && user.BooksLang != "" && user.BooksLang != database.AllLanguages {
 			languageMsg = fmt.Sprintf(" in %s language", user.BooksLang)
 		}
 

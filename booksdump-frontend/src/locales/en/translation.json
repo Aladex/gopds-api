@@ -26,6 +26,7 @@
   "routeTitles.forgotPassword": "Reset Password Page",
   "language": "Language",
   "booksLanguage": "Books language",
+  "allLanguages": "All languages",
   "interfaceLanguage": "Interface language",
   "chooseBooksLanguage": "Which language should books be in?",
   "chooseBooksLanguageHint": "This library holds books in many languages. Pick the one you read; you can change it any time from the top bar.",

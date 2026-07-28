@@ -13,9 +13,12 @@ import {
 } from '@/shared/ui/select';
 import { cn } from '@/shared/lib/utils';
 
+import { useAuth } from '@/context/AuthContext';
 import { useAuthor } from '@/context/AuthorContext';
 import { useFav } from '@/context/FavContext';
 import { useSearchBar } from '@/context/SearchBarContext';
+import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
+import LanguageSwitcher from '@/shared/layout/LanguageSwitcher';
 import useAuthorScope from '@/features/catalogue/hooks/useAuthorScope';
 import AutocompleteSearch from '@/features/catalogue/AutocompleteSearch';
 
@@ -34,9 +37,24 @@ interface SearchRecord {
  */
 const SearchBar: React.FC = () => {
     const { t } = useTranslation();
-    const { searchItem, setSearchItem, selectedSearch, setSelectedSearch } = useSearchBar();
+    const {
+        searchItem,
+        setSearchItem,
+        selectedSearch,
+        setSelectedSearch,
+        languages,
+        selectedLanguage,
+        setSelectedLanguage,
+    } = useSearchBar();
     const navigate = useNavigate();
     const { fav, favEnabled } = useFav();
+    const { updateLang } = useAuth();
+    const isMobile = useMediaQuery('(max-width: 600px)');
+
+    const chooseLanguage = (lang: string) => {
+        updateLang(lang);
+        setSelectedLanguage(lang);
+    };
     // Arriving in an author's list puts the panel in the mode the scope
     // belongs to. Without this a reader who got here by searching for a name
     // stays in "authors by name", where the scope cannot apply and so is not
@@ -102,8 +120,8 @@ const SearchBar: React.FC = () => {
                   and the favourites toggle on one row — the toggle is a small
                   square and a row of its own leaves it stranded.
                 */}
-                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3 md:grid-cols-[minmax(150px,max-content)_minmax(0,1fr)_auto_auto]">
-                    <div className="col-span-2 flex min-w-0 flex-col gap-1.5 md:col-span-1">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-end gap-3 md:grid-cols-[minmax(150px,max-content)_minmax(0,1fr)_auto_auto_auto]">
+                    <div className="col-span-3 flex min-w-0 flex-col gap-1.5 md:col-span-1">
                         <label
                             htmlFor="search-category"
                             className="text-xs text-muted-foreground"
@@ -128,7 +146,7 @@ const SearchBar: React.FC = () => {
                         </Select>
                     </div>
 
-                    <div className="col-span-2 flex min-w-0 flex-col gap-1.5 md:col-span-1">
+                    <div className="col-span-3 flex min-w-0 flex-col gap-1.5 md:col-span-1">
                         {/*
                           The scope rides the label's own row: it costs no
                           height there, and it leaves the field its full width —
@@ -200,6 +218,20 @@ const SearchBar: React.FC = () => {
                     >
                         {t('search')}
                     </Button>
+
+                    {/*
+                      The books language belongs beside the favourites toggle,
+                      not up in the bar: both narrow the catalogue, and one of
+                      them living in the chrome while the other lived here read
+                      as two unrelated things.
+                    */}
+                    <LanguageSwitcher
+                        languages={languages}
+                        selected={selectedLanguage}
+                        onSelect={chooseLanguage}
+                        isMobile={isMobile}
+                        disabled={fav}
+                    />
 
                     <Button
                         type="button"

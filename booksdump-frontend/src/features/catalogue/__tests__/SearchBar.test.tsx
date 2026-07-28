@@ -35,7 +35,13 @@ const authorState = {
 };
 vi.mock('@/context/AuthorContext', () => ({ useAuthor: () => authorState }));
 
+const authState = { updateLang: vi.fn() };
+vi.mock('@/context/AuthContext', () => ({ useAuth: () => authState }));
+
 const searchState = {
+    languages: ['ru', 'en'],
+    selectedLanguage: 'ru',
+    setSelectedLanguage: vi.fn(),
     searchItem: '',
     setSearchItem: vi.fn((v: string) => {
         searchState.searchItem = v;
@@ -175,5 +181,42 @@ describe('SearchBar in favourites mode', () => {
         renderBar();
 
         expect(screen.getByRole('button', { name: 'showFavourites' })).toBeDisabled();
+    });
+});
+
+// The books language moved here from the header, where it sat among the site
+// chrome while the favourites toggle — the other catalogue filter — was in this
+// panel. Both narrow the list, so both belong in the same place.
+describe('SearchBar books language', () => {
+    beforeEach(() => {
+        favState.fav = false;
+        favState.favEnabled = true;
+        searchState.selectedLanguage = 'ru';
+        vi.clearAllMocks();
+    });
+
+    it('offers the books language beside the favourites toggle', () => {
+        renderBar();
+
+        expect(screen.getByRole('button', { name: /^booksLanguage:/ })).toBeInTheDocument();
+    });
+
+    // Until this existed a filter, once set, could not be cleared: every row in
+    // the list narrowed the catalogue and none widened it.
+    it('can hand the catalogue back with no language filter at all', async () => {
+        renderBar();
+
+        await userEvent.click(screen.getByRole('button', { name: /^booksLanguage:/ }));
+        await userEvent.click(screen.getByRole('button', { name: 'allLanguages' }));
+
+        expect(authState.updateLang).toHaveBeenCalledWith('all');
+        expect(searchState.setSelectedLanguage).toHaveBeenCalledWith('all');
+    });
+
+    it('goes quiet with the rest of the panel while favourites are on', () => {
+        favState.fav = true;
+        renderBar();
+
+        expect(screen.getByRole('button', { name: /^booksLanguage:/ })).toBeDisabled();
     });
 });

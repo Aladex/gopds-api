@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Check } from 'lucide-react';
+import { Check, Globe } from 'lucide-react';
+
+import { Button } from '@/shared/ui/button';
 
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/shared/ui/dialog';
 import { Drawer, DrawerContent, DrawerDescription, DrawerTitle } from '@/shared/ui/drawer';
-import { getLanguageDisplaySafe, languageMapping } from '@/shared/lib/languageUtils';
+import { ALL_LANGUAGES, getLanguageDisplaySafe, languageMapping } from '@/shared/lib/languageUtils';
 import { cn } from '@/shared/lib/utils';
 
 /**
@@ -28,10 +30,9 @@ type LanguageSwitcherProps = {
     languages: string[];
     selected: string | null | undefined;
     onSelect: (lang: string) => void;
-    /** The bar is laid out by the header; this only follows its decision. */
+    /** Which shell the list opens in; the search card decides. */
     isMobile: boolean;
-    /** A bar this narrow has room for a flag and a code, but not a name. */
-    isVeryNarrow: boolean;
+    disabled?: boolean;
 };
 
 const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
@@ -39,7 +40,7 @@ const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
     selected,
     onSelect,
     isMobile,
-    isVeryNarrow,
+    disabled,
 }) => {
     const { t } = useTranslation();
     const [open, setOpen] = useState(false);
@@ -47,14 +48,34 @@ const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
     // Only languages the interface knows how to name are offered.
     const supported = languages.filter((lang) => getLanguageDisplaySafe(lang) !== null);
 
-    const fullLabel = (lang: string) => getLanguageDisplaySafe(lang) ?? lang.toUpperCase();
+    const fullLabel = (lang: string) =>
+        lang === ALL_LANGUAGES
+            ? t('allLanguages')
+            : (getLanguageDisplaySafe(lang) ?? lang.toUpperCase());
 
-    const triggerLabel = (lang: string) => {
-        if (!isVeryNarrow) {
-            return fullLabel(lang);
+    /*
+      In the card the control sits between the search button and the favourites
+      toggle, so a phone has room for a flag and a code but not for a name. The
+      whole library has no flag to stand for it, so it gets the globe.
+    */
+    const triggerContent = () => {
+        if (!selected || selected === ALL_LANGUAGES) {
+            return (
+                <>
+                    <Globe className="size-4 shrink-0" />
+                    <span className="hidden truncate sm:inline">{t('allLanguages')}</span>
+                </>
+            );
         }
-        const info = languageMapping[lang];
-        return info ? `${info.flag} ${lang.toUpperCase()}` : lang.toUpperCase();
+        const info = languageMapping[selected];
+        return (
+            <>
+                <span className="sm:hidden">
+                    {info ? `${info.flag} ${selected.toUpperCase()}` : selected.toUpperCase()}
+                </span>
+                <span className="hidden truncate sm:inline">{fullLabel(selected)}</span>
+            </>
+        );
     };
 
     const choose = (lang: string) => {
@@ -66,6 +87,29 @@ const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
     // is in force, does not depend on the size of the screen.
     const list = (
         <ul className="scrollbar-thin overflow-y-auto p-0">
+            {/*
+              First, and set apart: it is not one of the forty, it is the way
+              back out of them. Without it a filter, once set, could not be
+              cleared at all — every row here narrows the catalogue and none
+              widened it.
+            */}
+            <li className="mb-1 border-b border-border pb-1">
+                <button
+                    type="button"
+                    onClick={() => choose(ALL_LANGUAGES)}
+                    aria-current={selected === ALL_LANGUAGES ? 'true' : undefined}
+                    className={cn(
+                        'flex min-h-12 w-full items-center justify-between gap-3 rounded px-4 text-left text-base',
+                        'sm:min-h-10 sm:px-3 sm:text-sm',
+                        'hover:bg-accent',
+                        'outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+                        selected === ALL_LANGUAGES && 'font-medium',
+                    )}
+                >
+                    {t('allLanguages')}
+                    {selected === ALL_LANGUAGES && <Check className="size-4 flex-none" />}
+                </button>
+            </li>
             {supported.map((lang) => (
                 <li key={lang}>
                     <button
@@ -95,18 +139,22 @@ const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
 
     return (
         <>
-            <button
+            {/* It stands beside the favourites toggle now, so it is built like
+                it: the same outline button, not the header's bare text. */}
+            <Button
                 type="button"
-                aria-label={t('booksLanguage')}
+                variant="outline"
+                /* The label replaces the content rather than adding to it, so
+                   the language in force has to be named here or it is not
+                   announced at all. */
+                aria-label={`${t('booksLanguage')}: ${fullLabel(selected || ALL_LANGUAGES)}`}
+                title={t('booksLanguage')}
+                disabled={disabled}
                 onClick={() => setOpen(true)}
-                className={cn(
-                    'flex items-center justify-center truncate rounded px-2 font-medium uppercase text-neutral-400',
-                    'hover:bg-white/5 hover:text-white',
-                    isMobile ? 'h-8 min-w-[50px] text-[0.7rem]' : 'h-12 max-w-[120px] text-sm',
-                )}
+                className="max-w-[9rem] gap-1.5"
             >
-                {selected ? triggerLabel(selected) : t('language')}
-            </button>
+                {triggerContent()}
+            </Button>
 
             {isMobile ? (
                 <Drawer open={open} onOpenChange={setOpen}>

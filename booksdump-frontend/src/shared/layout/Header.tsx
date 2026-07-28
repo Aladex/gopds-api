@@ -8,8 +8,6 @@ import { cn } from '@/shared/lib/utils';
 
 import * as systemApi from '@/api/system';
 import { useAuth } from '@/context/AuthContext';
-import { useSearchBar } from '@/context/SearchBarContext';
-import LanguageSwitcher from '@/shared/layout/LanguageSwitcher';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import { activeNavItem, useNavItems } from '@/shared/layout/navItems';
 /*
@@ -33,18 +31,16 @@ type HeaderProps = {
  * scrolls down a long list.
  */
 const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
-    const { logout, user, updateLang } = useAuth();
+    const { logout, user } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
     const { t } = useTranslation();
-    const { languages, selectedLanguage, setSelectedLanguage } = useSearchBar();
     const [isDonateModalOpen, setIsDonateModalOpen] = useState(false);
     const [canDonate, setCanDonate] = useState(false);
     const [hiddenByScroll, setHiddenByScroll] = useState(false);
     const lastScrollYRef = useRef(0);
 
     const isMobile = useMediaQuery('(max-width: 600px)');
-    const isVeryNarrow = useMediaQuery('(max-width: 354px)');
 
     // Coming back to the narrow layout brings the bar back. Only the scroll
     // handler hides it, and it only runs while narrow, so a value left over from
@@ -58,11 +54,6 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
 
     const navItems = useNavItems(Boolean(user?.is_superuser));
     const current = activeNavItem(navItems, location.pathname);
-
-    const chooseLanguage = (lang: string) => {
-        updateLang(lang);
-        setSelectedLanguage(lang);
-    };
 
     const handleLogout = () => {
         logout();
@@ -122,16 +113,6 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
         </button>
     );
 
-    const languageMenu = (
-        <LanguageSwitcher
-            languages={languages}
-            selected={selectedLanguage}
-            onSelect={chooseLanguage}
-            isMobile={isMobile}
-            isVeryNarrow={isVeryNarrow}
-        />
-    );
-
     return (
         <header
             className={cn(
@@ -150,7 +131,6 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                         </Link>
                         <div className="flex items-center gap-0.5">
                             {donateButton}
-                            {languageMenu}
                             <ThemeToggle />
                         </div>
                     </div>
@@ -184,7 +164,6 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                         <div className="flex-1" />
 
                         <div className="flex items-center gap-1">
-                            {languageMenu}
                             <ThemeToggle />
                             <Button
                                 variant="ghost"

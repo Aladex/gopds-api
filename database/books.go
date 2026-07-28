@@ -13,6 +13,14 @@ import (
 	"github.com/go-pg/pg/v10/orm"
 )
 
+// AllLanguages is the books language of a reader who wants the whole library.
+//
+// It is a stored value rather than an empty one because empty already means
+// something else: a reader who has never been asked which language to show. If
+// wanting everything cleared the field, they would be asked again every visit.
+// No book carries it as a language, so it cannot collide with a real code.
+const AllLanguages = "all"
+
 func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, error) {
 	// Use the enhanced search logic for all searches
 	return GetBooksEnhanced(userID, filters)
@@ -297,7 +305,9 @@ func applyNonTitleFilters(query *orm.Query, filters models.BookFilters, userID i
 		}
 	}
 
-	if filters.Lang != "" {
+	// Both the web and the bot reach the catalogue through here, so honoring
+	// AllLanguages once covers both.
+	if filters.Lang != "" && filters.Lang != AllLanguages {
 		query = query.Where("book.lang = ?", filters.Lang)
 	}
 
@@ -452,6 +462,14 @@ func GetLanguages() models.Languages {
 func IsValidLanguage(lang string) bool {
 	if lang == "" {
 		return true // Empty language is valid (user can have no language preference)
+	}
+
+	// Asking for everything is a choice, and it has to be a stored one: an
+	// empty column is how a reader who has never been asked is recognized, so
+	// clearing the field back to empty would put them in front of that question
+	// again on every visit.
+	if lang == AllLanguages {
+		return true
 	}
 
 	count, err := db.Model(&models.Book{}).
