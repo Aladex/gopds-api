@@ -1,35 +1,32 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
+import { Pencil, Save, Sparkles, X } from 'lucide-react';
+
+import { Button } from '@/shared/ui/button';
+import { Card, CardContent } from '@/shared/ui/card';
 import {
-    Alert,
-    Box,
-    Button,
-    Card,
-    CardContent,
     Dialog,
-    DialogActions,
     DialogContent,
-    DialogContentText,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
     DialogTitle,
-    IconButton,
-    LinearProgress,
-    Snackbar,
+} from '@/shared/ui/dialog';
+import { Field } from '@/shared/ui/field';
+import { Input } from '@/shared/ui/input';
+import { Progress } from '@/shared/ui/progress';
+import {
     Table,
     TableBody,
     TableCell,
     TableHead,
+    TableHeader,
     TableRow,
-    TextField,
-    Typography,
-    useMediaQuery,
-    useTheme,
-} from '@mui/material';
-import EditIcon from '@mui/icons-material/Edit';
-import SaveIcon from '@mui/icons-material/Save';
-import CloseIcon from '@mui/icons-material/Close';
-import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
+} from '@/shared/ui/table';
+import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import * as adminApi from '@/api/admin';
 import { WS_URL } from '@/api/config';
-import { useTranslation } from 'react-i18next';
 
 interface GenreAdmin {
     id: number;
@@ -59,8 +56,10 @@ interface GenreTitleGenCompletedEvent {
 
 const GenreManagement: React.FC = () => {
     const { t } = useTranslation();
-    const theme = useTheme();
-    const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+    // Below this the three-column table stops fitting and each genre becomes a
+    // card of its own. It is the width MUI called `md`, kept so the layout does
+    // not shift underneath anyone mid-migration.
+    const isMobile = useMediaQuery('(max-width: 899px)');
 
     const [genres, setGenres] = useState<GenreAdmin[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
@@ -72,9 +71,6 @@ const GenreManagement: React.FC = () => {
     const [progressCurrent, setProgressCurrent] = useState('');
     const [progressProcessed, setProgressProcessed] = useState(0);
     const [progressTotal, setProgressTotal] = useState(0);
-    const [snackbarOpen, setSnackbarOpen] = useState(false);
-    const [snackbarMessage, setSnackbarMessage] = useState('');
-    const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error'>('success');
     const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
     const wsRef = useRef<WebSocket | null>(null);
 
@@ -125,9 +121,7 @@ const GenreManagement: React.FC = () => {
                         const payload = message.data as GenreTitleGenCompletedEvent;
                         setIsGenerating(false);
                         setProgressPercent(100);
-                        setSnackbarMessage(t('titlesGenerated', { count: payload.updated }));
-                        setSnackbarSeverity('success');
-                        setSnackbarOpen(true);
+                        toast.success(t('titlesGenerated', { count: payload.updated }));
                         fetchGenres();
                         break;
                     }
@@ -168,24 +162,16 @@ const GenreManagement: React.FC = () => {
     const handleSave = async (id: number) => {
         try {
             await adminApi.updateGenre(id, { title: editValue });
-            setGenres((prev) =>
-                prev.map((g) => (g.id === id ? { ...g, title: editValue } : g))
-            );
+            setGenres((prev) => prev.map((g) => (g.id === id ? { ...g, title: editValue } : g)));
             setEditingId(null);
             setEditValue('');
-            setSnackbarMessage(t('genreTitleUpdated'));
-            setSnackbarSeverity('success');
-            setSnackbarOpen(true);
+            toast.success(t('genreTitleUpdated'));
         } catch (error) {
             console.error('Failed to update genre title', error);
-            setSnackbarMessage(t('errorUpdatingBook'));
-            setSnackbarSeverity('error');
-            setSnackbarOpen(true);
+            // Not errorUpdatingBook: this screen has no books in it, and the
+            // old message told the admin a book had failed to save.
+            toast.error(t('genreTitleUpdateError', 'Could not update the genre title'));
         }
-    };
-
-    const handleGenerateClick = () => {
-        setConfirmDialogOpen(true);
     };
 
     const handleConfirmGenerate = async () => {
@@ -194,9 +180,7 @@ const GenreManagement: React.FC = () => {
             await adminApi.generateGenreTitles();
         } catch (error) {
             console.error('Failed to start genre title generation', error);
-            setSnackbarMessage(t('bookScanStartError'));
-            setSnackbarSeverity('error');
-            setSnackbarOpen(true);
+            toast.error(t('bookScanStartError'));
         }
     };
 
@@ -206,44 +190,62 @@ const GenreManagement: React.FC = () => {
         return g.genre.toLowerCase().includes(q) || g.title.toLowerCase().includes(q);
     });
 
+    /** The pair of buttons an open editor shows, shared by both layouts. */
+    const renderEditActions = (genre: GenreAdmin) => (
+        <>
+            <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => handleSave(genre.id)}
+                title={t('save')}
+                aria-label={`${t('save')}: ${genre.genre}`}
+            >
+                <Save className="size-4 text-primary" />
+            </Button>
+            <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={handleCancelEdit}
+                title={t('cancel')}
+                aria-label={`${t('cancel')}: ${genre.genre}`}
+            >
+                <X className="size-4" />
+            </Button>
+        </>
+    );
+
+    const renderEditInput = (genre: GenreAdmin) => (
+        <Input
+            autoFocus
+            value={editValue}
+            aria-label={`${t('genreTitle')}: ${genre.genre}`}
+            onChange={(event) => setEditValue(event.target.value)}
+            onKeyDown={(event) => {
+                if (event.key === 'Enter') handleSave(genre.id);
+                if (event.key === 'Escape') handleCancelEdit();
+            }}
+        />
+    );
+
     const renderGenreRow = (genre: GenreAdmin) => {
         const isEditing = editingId === genre.id;
         return (
             <TableRow key={genre.id}>
-                <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
-                    {genre.genre}
-                </TableCell>
-                <TableCell>
+                <TableCell className="font-mono text-[0.85rem]">{genre.genre}</TableCell>
+                <TableCell>{isEditing ? renderEditInput(genre) : genre.title}</TableCell>
+                <TableCell className="whitespace-nowrap text-right">
                     {isEditing ? (
-                        <TextField
-                            value={editValue}
-                            onChange={(e) => setEditValue(e.target.value)}
-                            size="small"
-                            fullWidth
-                            autoFocus
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleSave(genre.id);
-                                if (e.key === 'Escape') handleCancelEdit();
-                            }}
-                        />
+                        renderEditActions(genre)
                     ) : (
-                        genre.title
-                    )}
-                </TableCell>
-                <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
-                    {isEditing ? (
-                        <>
-                            <IconButton size="small" onClick={() => handleSave(genre.id)} color="primary">
-                                <SaveIcon fontSize="small" />
-                            </IconButton>
-                            <IconButton size="small" onClick={handleCancelEdit}>
-                                <CloseIcon fontSize="small" />
-                            </IconButton>
-                        </>
-                    ) : (
-                        <IconButton size="small" onClick={() => handleEdit(genre)}>
-                            <EditIcon fontSize="small" />
-                        </IconButton>
+                        <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => handleEdit(genre)}
+                            title={t('edit')}
+                            aria-label={`${t('edit')}: ${genre.genre}`}
+                        >
+                            <Pencil className="size-4" />
+                        </Button>
                     )}
                 </TableCell>
             </TableRow>
@@ -253,38 +255,27 @@ const GenreManagement: React.FC = () => {
     const renderGenreCard = (genre: GenreAdmin) => {
         const isEditing = editingId === genre.id;
         return (
-            <Card key={genre.id} sx={{ mb: 1 }}>
-                <CardContent sx={{ py: 1, '&:last-child': { pb: 1 } }}>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
-                        {genre.genre}
-                    </Typography>
+            <Card key={genre.id} className="gap-0 py-2">
+                <CardContent className="flex flex-col gap-1 px-3">
+                    <span className="font-mono text-xs text-muted-foreground">{genre.genre}</span>
                     {isEditing ? (
-                        <Box sx={{ display: 'flex', gap: 1, mt: 0.5 }}>
-                            <TextField
-                                value={editValue}
-                                onChange={(e) => setEditValue(e.target.value)}
-                                size="small"
-                                fullWidth
-                                autoFocus
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter') handleSave(genre.id);
-                                    if (e.key === 'Escape') handleCancelEdit();
-                                }}
-                            />
-                            <IconButton size="small" onClick={() => handleSave(genre.id)} color="primary">
-                                <SaveIcon fontSize="small" />
-                            </IconButton>
-                            <IconButton size="small" onClick={handleCancelEdit}>
-                                <CloseIcon fontSize="small" />
-                            </IconButton>
-                        </Box>
+                        <div className="flex items-center gap-1">
+                            {renderEditInput(genre)}
+                            {renderEditActions(genre)}
+                        </div>
                     ) : (
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <Typography variant="body2">{genre.title}</Typography>
-                            <IconButton size="small" onClick={() => handleEdit(genre)}>
-                                <EditIcon fontSize="small" />
-                            </IconButton>
-                        </Box>
+                        <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm">{genre.title}</span>
+                            <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                onClick={() => handleEdit(genre)}
+                                title={t('edit')}
+                                aria-label={`${t('edit')}: ${genre.genre}`}
+                            >
+                                <Pencil className="size-4" />
+                            </Button>
+                        </div>
                     )}
                 </CardContent>
             </Card>
@@ -292,80 +283,74 @@ const GenreManagement: React.FC = () => {
     };
 
     return (
-        <Box sx={{ mt: 2 }}>
-            <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-                <TextField
+        <div className="mt-4 flex flex-col gap-4">
+            <div className="flex flex-wrap items-end gap-4">
+                <Field
+                    id="genre-search"
                     label={t('searchGenres')}
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    size="small"
-                    sx={{ minWidth: 200, flexGrow: 1, maxWidth: 400 }}
-                />
-                <Button
-                    variant="contained"
-                    startIcon={<AutoFixHighIcon />}
-                    onClick={handleGenerateClick}
-                    disabled={isGenerating}
+                    className="min-w-[12.5rem] max-w-[25rem] flex-1"
                 >
+                    <Input
+                        id="genre-search"
+                        value={searchQuery}
+                        onChange={(event) => setSearchQuery(event.target.value)}
+                    />
+                </Field>
+                <Button onClick={() => setConfirmDialogOpen(true)} disabled={isGenerating}>
+                    <Sparkles className="size-4" />
                     {t('generateWithAI')}
                 </Button>
-            </Box>
+            </div>
 
             {isGenerating && (
-                <Box sx={{ mb: 2 }}>
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                        {t('generatingTitles')} {progressProcessed}/{progressTotal}
+                <div className="flex flex-col gap-1">
+                    <p className="text-sm text-muted-foreground">
+                        {t('generatingTitles')}{' '}
+                        <span className="tabular-nums">
+                            {progressProcessed}/{progressTotal}
+                        </span>
                         {progressCurrent && ` — ${progressCurrent}`}
-                    </Typography>
-                    <LinearProgress variant="determinate" value={progressPercent} />
-                </Box>
+                    </p>
+                    <Progress value={progressPercent} aria-label={t('generatingTitles')} />
+                </div>
             )}
 
             {isLoading ? (
-                <LinearProgress />
+                <Progress aria-label={t('loading')} />
+            ) : filteredGenres.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">{t('noGenres')}</p>
             ) : isMobile ? (
-                filteredGenres.map(renderGenreCard)
+                <div className="flex flex-col gap-2">{filteredGenres.map(renderGenreCard)}</div>
             ) : (
-                <Table size="small">
-                    <TableHead>
-                        <TableRow>
-                            <TableCell>{t('genreTag')}</TableCell>
-                            <TableCell>{t('genreTitle')}</TableCell>
-                            <TableCell align="right">{t('actions')}</TableCell>
-                        </TableRow>
-                    </TableHead>
-                    <TableBody>
-                        {filteredGenres.map(renderGenreRow)}
-                    </TableBody>
-                </Table>
+                <div className="rounded border border-border bg-card">
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>{t('genreTag')}</TableHead>
+                                <TableHead>{t('genreTitle')}</TableHead>
+                                <TableHead className="text-right">{t('actions')}</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>{filteredGenres.map(renderGenreRow)}</TableBody>
+                    </Table>
+                </div>
             )}
 
-            <Dialog open={confirmDialogOpen} onClose={() => setConfirmDialogOpen(false)}>
-                <DialogTitle>{t('generateWithAI')}</DialogTitle>
-                <DialogContent>
-                    <DialogContentText>{t('generateConfirm')}</DialogContentText>
+            <Dialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
+                <DialogContent closeLabel={t('close')}>
+                    <DialogHeader>
+                        <DialogTitle>{t('generateWithAI')}</DialogTitle>
+                        <DialogDescription>{t('generateConfirm')}</DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={() => setConfirmDialogOpen(false)}>
+                            {t('cancel')}
+                        </Button>
+                        <Button onClick={handleConfirmGenerate}>{t('generateWithAI')}</Button>
+                    </DialogFooter>
                 </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setConfirmDialogOpen(false)}>{t('cancel')}</Button>
-                    <Button onClick={handleConfirmGenerate} variant="contained">{t('generateWithAI')}</Button>
-                </DialogActions>
             </Dialog>
-
-            <Snackbar
-                open={snackbarOpen}
-                autoHideDuration={4000}
-                onClose={() => setSnackbarOpen(false)}
-                anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-            >
-                <Alert
-                    onClose={() => setSnackbarOpen(false)}
-                    severity={snackbarSeverity}
-                    variant="filled"
-                >
-                    {snackbarMessage}
-                </Alert>
-            </Snackbar>
-        </Box>
+        </div>
     );
 };
 

@@ -1,22 +1,25 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { AlertCircle, CheckCircle2, Info } from 'lucide-react';
+
+import { Alert, AlertDescription } from '@/shared/ui/alert';
+import { Button } from '@/shared/ui/button';
+import { Card, CardContent } from '@/shared/ui/card';
+import { Field } from '@/shared/ui/field';
+import { Input } from '@/shared/ui/input';
+import { Progress } from '@/shared/ui/progress';
 import {
-    Box,
-    Button,
-    Card,
-    CardContent,
-    LinearProgress,
-    TextField,
-    Stack,
     Table,
     TableBody,
     TableCell,
     TableHead,
+    TableHeader,
     TableRow,
-    Typography,
-} from '@mui/material';
+} from '@/shared/ui/table';
+import { cn } from '@/shared/lib/utils';
 import * as adminApi from '@/api/admin';
+import { isApiError } from '@/api/errors';
 import { WS_URL } from '@/api/config';
-import { useTranslation } from 'react-i18next';
 
 interface DuplicateGroup {
     md5_hash: string;
@@ -43,6 +46,18 @@ interface ScanProgress {
     duplicates_found: number;
     error?: string;
 }
+
+/**
+ * The palette has one destructive colour and no warning colour, so the two
+ * buttons MUI drew in amber borrow the shade the rescan dialog already uses for
+ * "this is reversible, but think first". They stay outlined rather than filled:
+ * an amber fill next to the red Force stop reads as two levels of danger where
+ * there is only one.
+ */
+const WARNING_BUTTON = 'border-amber-500/60 text-amber-600 dark:text-amber-400';
+
+/** Every action button is full width on a phone and content width above it. */
+const ACTION_BUTTON = 'w-full sm:w-auto sm:min-w-30';
 
 const Duplicates: React.FC = () => {
     const { t } = useTranslation();
@@ -81,26 +96,26 @@ const Duplicates: React.FC = () => {
 
     const fetchActiveScan = useCallback(async () => {
         try {
-            const response = { data: await adminApi.getActiveDuplicateScan<ActiveScan | { status: 'none' } | null>() };
-            if (response.data?.status === 'none' || !response.data) {
+            const data = await adminApi.getActiveDuplicateScan<
+                ActiveScan | { status: 'none' } | null
+            >();
+            if (!data || data.status === 'none') {
                 setIsScanning(false);
                 setScanProgress(null);
                 setStatusMessage(null);
                 return;
             }
-            if (response.data) {
-                const scan = response.data as ActiveScan;
-                setScanProgress({
-                    job_id: scan.id,
-                    status: scan.status,
-                    processed_books: scan.processed_books,
-                    total_books: scan.total_books,
-                    duplicates_found: scan.duplicates_found,
-                    error: scan.error,
-                });
-                setIsScanning(scan.status === 'running' || scan.status === 'pending');
-            }
-        } catch (error: any) {
+            const scan = data as ActiveScan;
+            setScanProgress({
+                job_id: scan.id,
+                status: scan.status,
+                processed_books: scan.processed_books,
+                total_books: scan.total_books,
+                duplicates_found: scan.duplicates_found,
+                error: scan.error,
+            });
+            setIsScanning(scan.status === 'running' || scan.status === 'pending');
+        } catch (error) {
             console.error(error);
         }
     }, []);
@@ -124,8 +139,12 @@ const Duplicates: React.FC = () => {
                 });
                 setIsScanning(true);
             }
-        } catch (error: any) {
-            if (error?.response?.status === 409) {
+        } catch (error) {
+            // The API layer rejects with ApiError, which carries the status
+            // directly. The old check read error.response.status — an axios
+            // shape this client stopped producing, so "a scan is already
+            // running" was silently reported as a generic failure.
+            if (isApiError(error) && error.status === 409) {
                 setStatusMessage(t('scanAlreadyRunning'));
                 await fetchActiveScan();
                 return;
@@ -142,12 +161,13 @@ const Duplicates: React.FC = () => {
             return;
         }
         try {
-            const result = await adminApi.hideDuplicates<{ hidden_count?: number; skipped_empty?: number }>(undefined);
+            const result = await adminApi.hideDuplicates<{
+                hidden_count?: number;
+                skipped_empty?: number;
+            }>(undefined);
             const hiddenCount = result?.hidden_count ?? 0;
             const skippedEmpty = result?.skipped_empty ?? 0;
-            setActionResult(
-                t('hideDuplicatesResult', { hidden: hiddenCount, skipped: skippedEmpty })
-            );
+            setActionResult(t('hideDuplicatesResult', { hidden: hiddenCount, skipped: skippedEmpty }));
             await fetchGroups();
         } catch (error) {
             console.error(error);
@@ -192,8 +212,8 @@ const Duplicates: React.FC = () => {
     }, [fetchActiveScan, scanProgress, t]);
 
     useEffect(() => {
-        fetchGroups().then(r => r);
-        fetchActiveScan().then(r => r);
+        fetchGroups();
+        fetchActiveScan();
     }, [fetchGroups, fetchActiveScan]);
 
     useEffect(() => {
@@ -210,7 +230,7 @@ const Duplicates: React.FC = () => {
                 setScanProgress(payload);
                 if (payload.status === 'completed' || payload.status === 'failed') {
                     setIsScanning(false);
-                    fetchGroups().then(r => r);
+                    fetchGroups();
                     if (payload.status === 'failed') {
                         setScanError(payload.error || t('scanError'));
                     }
@@ -239,202 +259,142 @@ const Duplicates: React.FC = () => {
     }, [fetchGroups, t]);
 
     return (
-        <Box>
-            <Typography variant="h6" align="center">{t('duplicates')}</Typography>
-            <Box sx={{ my: 2 }}>
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start" sx={{ mb: 2 }}>
-                    <Box>
-                        <TextField
-                            label={t('workers')}
-                            type="number"
-                            size="small"
-                            value={workerCount}
-                            onChange={(event) => {
-                                const next = Number(event.target.value);
-                                if (!Number.isNaN(next)) {
-                                    setWorkerCount(Math.max(1, Math.min(8, next)));
-                                }
-                            }}
-                            sx={{ minWidth: 120, mb: 0.5 }}
-                        />
-                        <Typography variant="caption" color="text.secondary" display="block">
-                            {t('workersHint')}
-                        </Typography>
-                    </Box>
-                </Stack>
+        <div className="flex flex-col gap-4">
+            <h2 className="text-center text-lg font-medium">{t('duplicates')}</h2>
 
-                <Box
-                    sx={{
-                        display: 'flex',
-                        flexDirection: { xs: 'column', sm: 'row' },
-                        flexWrap: 'wrap',
-                        gap: 1,
+            <Field
+                id="duplicates-workers"
+                label={t('workers')}
+                hint={t('workersHint')}
+                className="max-w-40"
+            >
+                <Input
+                    id="duplicates-workers"
+                    type="number"
+                    min={1}
+                    max={8}
+                    value={workerCount}
+                    onChange={(event) => {
+                        const next = Number(event.target.value);
+                        if (!Number.isNaN(next)) {
+                            setWorkerCount(Math.max(1, Math.min(8, next)));
+                        }
                     }}
-                >
-                    <Button
-                        variant="contained"
-                        onClick={handleStartScan}
-                        disabled={isScanning}
-                        sx={{
-                            width: { xs: '100%', sm: 'calc(50% - 4px)', md: 'calc(33.333% - 6px)', lg: 'auto' },
-                            minWidth: { lg: 120 },
-                            height: { xs: 42, sm: 'auto' },
-                            minHeight: 36,
-                            '&:disabled': { opacity: 0.6, cursor: 'not-allowed' }
-                        }}
-                    >
-                        {t('startScan')}
-                    </Button>
-                    <Button
-                        variant="contained"
-                        color="warning"
-                        onClick={handleStopScan}
-                        disabled={!isScanning}
-                        sx={{
-                            width: { xs: '100%', sm: 'calc(50% - 4px)', md: 'calc(33.333% - 6px)', lg: 'auto' },
-                            minWidth: { lg: 120 },
-                            height: { xs: 42, sm: 'auto' },
-                            minHeight: 36,
-                            '&:disabled': { opacity: 0.6, cursor: 'not-allowed' }
-                        }}
-                    >
-                        {t('stopScan')}
-                    </Button>
-                    <Button
-                        variant="contained"
-                        color="error"
-                        onClick={handleForceStopScan}
-                        disabled={!scanProgress}
-                        sx={{
-                            width: { xs: '100%', sm: 'calc(50% - 4px)', md: 'calc(33.333% - 6px)', lg: 'auto' },
-                            minWidth: { lg: 120 },
-                            height: { xs: 42, sm: 'auto' },
-                            minHeight: 36,
-                            '&:disabled': { opacity: 0.6, cursor: 'not-allowed' }
-                        }}
-                    >
-                        {t('forceStopScan')}
-                    </Button>
-                    <Button
-                        variant="outlined"
-                        sx={{
-                            width: { xs: '100%', sm: 'calc(50% - 4px)', md: 'calc(33.333% - 6px)', lg: 'auto' },
-                            minWidth: { lg: 120 },
-                            height: { xs: 42, sm: 'auto' },
-                            minHeight: 36,
-                            '&:disabled': { opacity: 0.6, cursor: 'not-allowed' }
-                        }}
-                        onClick={fetchActiveScan}
-                    >
-                        {t('getStatus')}
-                    </Button>
-                    <Button
-                        variant="outlined"
-                        sx={{
-                            width: { xs: '100%', sm: 'calc(50% - 4px)', md: 'calc(33.333% - 6px)', lg: 'auto' },
-                            minWidth: { lg: 120 },
-                            height: { xs: 42, sm: 'auto' },
-                            minHeight: 36,
-                            '&:disabled': { opacity: 0.6, cursor: 'not-allowed' }
-                        }}
-                        onClick={fetchGroups}
-                        disabled={isLoading}
-                    >
-                        {t('refresh')}
-                    </Button>
-                    <Button
-                        variant="contained"
-                        color="warning"
-                        onClick={handleHideDuplicates}
-                        disabled={isScanning}
-                        sx={{
-                            width: { xs: '100%', sm: 'calc(50% - 4px)', md: 'calc(33.333% - 6px)', lg: 'auto' },
-                            minWidth: { lg: 120 },
-                            height: { xs: 42, sm: 'auto' },
-                            minHeight: 36,
-                            '&:disabled': { opacity: 0.6, cursor: 'not-allowed' }
-                        }}
-                    >
-                        {t('hideDuplicates')}
-                    </Button>
-                </Box>
-            </Box>
+                />
+            </Field>
 
-            <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
-                <CardContent>
-                    <Typography variant="subtitle1" gutterBottom>
-                        {t('scanProgress')}
-                    </Typography>
+            <div className="flex flex-wrap gap-2">
+                <Button className={ACTION_BUTTON} onClick={handleStartScan} disabled={isScanning}>
+                    {t('startScan')}
+                </Button>
+                <Button
+                    variant="outline"
+                    className={cn(ACTION_BUTTON, WARNING_BUTTON)}
+                    onClick={handleStopScan}
+                    disabled={!isScanning}
+                >
+                    {t('stopScan')}
+                </Button>
+                <Button
+                    variant="destructive"
+                    className={ACTION_BUTTON}
+                    onClick={handleForceStopScan}
+                    disabled={!scanProgress}
+                >
+                    {t('forceStopScan')}
+                </Button>
+                <Button variant="outline" className={ACTION_BUTTON} onClick={fetchActiveScan}>
+                    {t('getStatus')}
+                </Button>
+                <Button
+                    variant="outline"
+                    className={ACTION_BUTTON}
+                    onClick={fetchGroups}
+                    disabled={isLoading}
+                >
+                    {t('refresh')}
+                </Button>
+                <Button
+                    variant="outline"
+                    className={cn(ACTION_BUTTON, WARNING_BUTTON)}
+                    onClick={handleHideDuplicates}
+                    disabled={isScanning}
+                >
+                    {t('hideDuplicates')}
+                </Button>
+            </div>
+
+            <Card>
+                <CardContent className="flex flex-col gap-2">
+                    <h3 className="text-base font-medium">{t('scanProgress')}</h3>
                     {scanProgress ? (
                         <>
-                            <Typography variant="body2">
+                            <p className="text-sm">
                                 {t('scanStatus')}: {scanProgress.status}
-                            </Typography>
-                            <Typography variant="body2">
+                            </p>
+                            <p className="text-sm tabular-nums">
                                 {t('processedBooks', {
                                     processed: scanProgress.processed_books,
                                     total: scanProgress.total_books,
                                 })}
-                            </Typography>
-                            <Typography variant="body2">
+                            </p>
+                            <p className="text-sm tabular-nums">
                                 {t('duplicatesFound', { count: scanProgress.duplicates_found })}
-                            </Typography>
-                            <Box sx={{ mt: 1 }}>
-                                <LinearProgress variant="determinate" value={progressPercent} />
-                            </Box>
+                            </p>
+                            <Progress value={progressPercent} aria-label={t('scanProgress')} />
                         </>
                     ) : (
-                        <Typography variant="body2" color="text.secondary">
-                            {t('scanNotStarted')}
-                        </Typography>
+                        <p className="text-sm text-muted-foreground">{t('scanNotStarted')}</p>
                     )}
+
                     {statusMessage && (
-                        <Typography variant="body2" color="info" sx={{ mt: 1, fontWeight: 500 }}>
-                            {statusMessage}
-                        </Typography>
+                        <Alert>
+                            <Info className="size-4" />
+                            <AlertDescription>{statusMessage}</AlertDescription>
+                        </Alert>
                     )}
                     {scanError && (
-                        <Typography variant="body2" color="error" sx={{ mt: 1 }}>
-                            {scanError}
-                        </Typography>
+                        <Alert variant="destructive">
+                            <AlertCircle className="size-4" />
+                            <AlertDescription>{scanError}</AlertDescription>
+                        </Alert>
                     )}
                     {actionResult && (
-                        <Typography variant="body2" color="success" sx={{ mt: 1, fontWeight: 500 }}>
-                            {actionResult}
-                        </Typography>
+                        <Alert>
+                            <CheckCircle2 className="size-4" />
+                            <AlertDescription>{actionResult}</AlertDescription>
+                        </Alert>
                     )}
                 </CardContent>
             </Card>
 
-            <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
-                <CardContent>
-                    <Typography variant="subtitle1" gutterBottom>
-                        {t('duplicateGroups')}
-                    </Typography>
+            <Card>
+                <CardContent className="flex flex-col gap-2">
+                    <h3 className="text-base font-medium">{t('duplicateGroups')}</h3>
                     {groups.length === 0 ? (
-                        <Typography variant="body2" color="text.secondary">
-                            {t('noDuplicateGroups')}
-                        </Typography>
+                        <p className="text-sm text-muted-foreground">{t('noDuplicateGroups')}</p>
                     ) : (
-                        <Table size="small">
-                            <TableHead>
+                        <Table>
+                            <TableHeader>
                                 <TableRow>
-                                    <TableCell>{t('hash')}</TableCell>
-                                    <TableCell>{t('count')}</TableCell>
-                                    <TableCell>{t('exampleTitles')}</TableCell>
+                                    <TableHead>{t('hash')}</TableHead>
+                                    <TableHead className="text-right">{t('count')}</TableHead>
+                                    <TableHead>{t('exampleTitles')}</TableHead>
                                 </TableRow>
-                            </TableHead>
+                            </TableHeader>
                             <TableBody>
                                 {groups.map((group) => (
                                     <TableRow key={group.md5_hash}>
-                                        <TableCell sx={{ fontFamily: 'monospace' }}>
+                                        <TableCell className="font-mono text-xs">
                                             {group.md5_hash}
                                         </TableCell>
-                                        <TableCell>{group.count}</TableCell>
+                                        <TableCell className="text-right tabular-nums">
+                                            {group.count}
+                                        </TableCell>
                                         <TableCell>
                                             {group.example_titles?.length
                                                 ? group.example_titles.join(', ')
-                                                : '-'}
+                                                : '—'}
                                         </TableCell>
                                     </TableRow>
                                 ))}
@@ -443,7 +403,7 @@ const Duplicates: React.FC = () => {
                     )}
                 </CardContent>
             </Card>
-        </Box>
+        </div>
     );
 };
 

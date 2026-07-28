@@ -444,5 +444,19 @@
   "searchWithinAuthor": "in books by {{name}}",
   "searchWithinThisAuthor": "in this author's books",
   "searchEverywhere": "Search the whole library",
-  "clearSearch": "Clear the search box"
+  "clearSearch": "Clear the search box",
+  "curatedCollections.searchDialog.title": "Find a book in the library",
+  "curatedCollections.searchDialog.description": "Search the library by title and pick the book this item should point at.",
+  "curatedCollections.searchDialog.queryLabel": "Title",
+  "curatedCollections.searchDialog.searchBtn": "Search",
+  "curatedCollections.searchDialog.loading": "Searching…",
+  "curatedCollections.searchDialog.empty": "No matches yet",
+  "genreTitleUpdateError": "Could not update the genre title",
+  "inactive": "Inactive",
+  "notSuperuser": "Not a superuser",
+  "curatedCollections.col.actions": "Actions",
+  "curatedCollections.invalidId": "Invalid collection id",
+  "curatedCollections.aiSkipped": "skipped",
+  "adminSections": "Admin sections",
+  "bookScanRescanResult": "Archive \"{{name}}\" processed: {{books}} books, {{errors}} errors"
 }

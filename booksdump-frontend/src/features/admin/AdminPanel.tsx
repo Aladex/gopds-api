@@ -1,6 +1,10 @@
 import React, { useEffect } from 'react';
-import { Route, Routes, Link, useLocation, useNavigate, Navigate } from 'react-router-dom';
-import { Box, Card, CardContent, Tabs, Tab, useMediaQuery, useTheme } from '@mui/material';
+import { Link as RouterLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+
+import { Card, CardContent } from '@/shared/ui/card';
+import { cn } from '@/shared/lib/utils';
+
 import UsersTable from '@/features/admin/UsersTable';
 import InvitesTable from '@/features/admin/InvitesTable';
 import Duplicates from '@/features/admin/Duplicates';
@@ -8,182 +12,97 @@ import BookScanning from '@/features/admin/BookScanning';
 import GenreManagement from '@/features/admin/GenreManagement';
 import CuratedCollectionsList from '@/features/admin/CuratedCollections/CuratedCollectionsList';
 import CuratedCollectionDetail from '@/features/admin/CuratedCollections/CuratedCollectionDetail';
-import { useTranslation } from 'react-i18next';
+
+/**
+ * The admin sections, in the order they are shown.
+ *
+ * `label` is resolved at render time rather than here: a module-level t() would
+ * be evaluated once, before the language is known, and never again when it
+ * changes.
+ */
+const SECTIONS: { path: string; labelKey: string; fallback?: string }[] = [
+    { path: '/admin/users', labelKey: 'users' },
+    { path: '/admin/invites', labelKey: 'invites' },
+    { path: '/admin/book-scanning', labelKey: 'bookScanning' },
+    { path: '/admin/duplicates', labelKey: 'duplicates' },
+    { path: '/admin/genres', labelKey: 'genreManagement' },
+    { path: '/admin/collections', labelKey: 'curatedCollections.tab', fallback: 'Collections' },
+];
 
 const AdminSpace: React.FC = () => {
     const location = useLocation();
     const navigate = useNavigate();
-    const [value, setValue] = React.useState(location.pathname);
     const { t } = useTranslation();
-    const theme = useTheme();
-    const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
     useEffect(() => {
         if (location.pathname === '/admin') {
-            navigate('/admin/users');
-        } else {
-            setValue(location.pathname);
+            navigate('/admin/users', { replace: true });
         }
     }, [location.pathname, navigate]);
 
-    const handleChange = (event: React.SyntheticEvent, newValue: string) => {
-        setValue(newValue);
-        navigate(newValue);
-    };
-
     return (
-        <Box p={2}>
-            <Box maxWidth={1400} mx="auto">
-                <Card sx={{ boxShadow: 2, p: 2, my: 2 }}>
-                    <CardContent>
-                                <Tabs
-                                    value={value}
-                                    onChange={handleChange}
-                                    aria-label="admin tabs"
-                                    textColor="inherit"
-                                    indicatorColor="primary"
-                                    variant={isMobile ? 'scrollable' : 'standard'}
-                                    scrollButtons="auto"
-                                    allowScrollButtonsMobile
-                                    slotProps={{
-                                        indicator: {
-                                            sx: {
-                                                backgroundColor: (theme) => theme.palette.text.primary,
-                                            },
-                                        },
-                                    }}
-                                    sx={{
-                                        '& .MuiTab-root': {
-                                            padding: {
-                                                xs: '12px 8px',
-                                                sm: '12px 12px',
-                                                md: '12px 16px',
-                                            },
-                                            minWidth: {
-                                                xs: 'auto',
-                                                md: 90,
-                                            },
-                                            fontSize: {
-                                                xs: '0.875rem',
-                                                md: '0.9375rem',
-                                            },
-                                        },
-                                        '& .MuiTabs-scrollButtons': {
-                                            '&.Mui-disabled': {
-                                                opacity: 0.3,
-                                            },
-                                        },
-                                    }}
-                                >
-                                    <Tab
-                                        label={t('users')}
-                                        value="/admin/users"
-                                        component={Link}
-                                        to="/admin/users"
-                                        sx={{
-                                            color: (theme) =>
-                                                value.startsWith('/admin/users')
-                                                    ? theme.palette.text.primary
-                                                    : theme.palette.text.secondary,
-                                            '&.Mui-selected': {
-                                                color: (theme) => theme.palette.text.primary,
-                                            },
-                                        }}
-                                    />
-                                    <Tab
-                                        label={t('invites')}
-                                        value="/admin/invites"
-                                        component={Link}
-                                        to="/admin/invites"
-                                        sx={{
-                                            color: (theme) =>
-                                                value.startsWith('/admin/invites')
-                                                    ? theme.palette.text.primary
-                                                    : theme.palette.text.secondary,
-                                            '&.Mui-selected': {
-                                                color: (theme) => theme.palette.text.primary,
-                                            },
-                                        }}
-                                    />
-                                    <Tab
-                                        label={t('bookScanning')}
-                                        value="/admin/book-scanning"
-                                        component={Link}
-                                        to="/admin/book-scanning"
-                                        sx={{
-                                            color: (theme) =>
-                                                value.startsWith('/admin/book-scanning')
-                                                    ? theme.palette.text.primary
-                                                    : theme.palette.text.secondary,
-                                            '&.Mui-selected': {
-                                                color: (theme) => theme.palette.text.primary,
-                                            },
-                                        }}
-                                    />
-                                    <Tab
-                                        label={t('duplicates')}
-                                        value="/admin/duplicates"
-                                        component={Link}
-                                        to="/admin/duplicates"
-                                        sx={{
-                                            color: (theme) =>
-                                                value.startsWith('/admin/duplicates')
-                                                    ? theme.palette.text.primary
-                                                    : theme.palette.text.secondary,
-                                            '&.Mui-selected': {
-                                                color: (theme) => theme.palette.text.primary,
-                                            },
-                                        }}
-                                    />
-                                    <Tab
-                                        label={t('genreManagement')}
-                                        value="/admin/genres"
-                                        component={Link}
-                                        to="/admin/genres"
-                                        sx={{
-                                            color: (theme) =>
-                                                value.startsWith('/admin/genres')
-                                                    ? theme.palette.text.primary
-                                                    : theme.palette.text.secondary,
-                                            '&.Mui-selected': {
-                                                color: (theme) => theme.palette.text.primary,
-                                            },
-                                        }}
-                                    />
-                                    <Tab
-                                        label={t('curatedCollections.tab', 'Collections')}
-                                        value="/admin/collections"
-                                        component={Link}
-                                        to="/admin/collections"
-                                        sx={{
-                                            color: (theme) =>
-                                                value.startsWith('/admin/collections')
-                                                    ? theme.palette.text.primary
-                                                    : theme.palette.text.secondary,
-                                            '&.Mui-selected': {
-                                                color: (theme) => theme.palette.text.primary,
-                                            },
-                                        }}
-                                    />
-                                </Tabs>
-                                <Box>
-                                    <Routes>
-                                        <Route path="users" element={<UsersTable />} />
-                                        <Route path="users/:page" element={<UsersTable />} />
-                                        <Route path="invites" element={<InvitesTable />} />
-                                        <Route path="book-scanning" element={<BookScanning />} />
-                                        <Route path="duplicates" element={<Duplicates />} />
-                                        <Route path="genres" element={<GenreManagement />} />
-                                        <Route path="collections" element={<CuratedCollectionsList />} />
-                                        <Route path="collections/page/:page" element={<CuratedCollectionsList />} />
-                                        <Route path="collections/:id" element={<CuratedCollectionDetail />} />
-                                        <Route path="*" element={<Navigate to="/admin/users" />} />
-                                    </Routes>
-                                </Box>
+        <div className="p-4">
+            <div className="mx-auto max-w-[1400px]">
+                <Card>
+                    <CardContent className="flex flex-col gap-4">
+                        {/*
+                          A row of links, not a tab widget: the panel below is
+                          rendered by the router, and each section has a URL of
+                          its own. Giving these Radix Tabs' roles would promise
+                          assistive technology a tabpanel this component does
+                          not own, and would break the middle-click and
+                          open-in-new-tab an <a> gives for free.
+
+                          The row scrolls rather than wraps — six labels do not
+                          fit a phone, and a second line would push the content
+                          below the fold.
+                        */}
+                        <nav
+                            aria-label={t('adminSections', 'Admin sections')}
+                            className="scrollbar-thin flex w-full min-w-0 items-center justify-start gap-1 overflow-x-auto rounded-md bg-muted p-1"
+                        >
+                            {SECTIONS.map((section) => {
+                                const active = location.pathname.startsWith(section.path);
+                                return (
+                                    <RouterLink
+                                        key={section.path}
+                                        to={section.path}
+                                        aria-current={active ? 'page' : undefined}
+                                        className={cn(
+                                            // no-underline and an explicit
+                                            // colour because Tailwind runs
+                                            // without preflight, so a bare <a>
+                                            // would arrive browser-blue and
+                                            // underlined.
+                                            'inline-flex h-9 flex-none items-center justify-center rounded-sm px-3 text-sm font-medium whitespace-nowrap no-underline transition-colors sm:h-7 sm:text-[13px]',
+                                            'outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+                                            active
+                                                ? 'bg-background text-foreground shadow-xs'
+                                                : 'text-muted-foreground hover:text-foreground',
+                                        )}
+                                    >
+                                        {t(section.labelKey, section.fallback ?? section.labelKey)}
+                                    </RouterLink>
+                                );
+                            })}
+                        </nav>
+
+                        <Routes>
+                            <Route path="users" element={<UsersTable />} />
+                            <Route path="users/:page" element={<UsersTable />} />
+                            <Route path="invites" element={<InvitesTable />} />
+                            <Route path="book-scanning" element={<BookScanning />} />
+                            <Route path="duplicates" element={<Duplicates />} />
+                            <Route path="genres" element={<GenreManagement />} />
+                            <Route path="collections" element={<CuratedCollectionsList />} />
+                            <Route path="collections/page/:page" element={<CuratedCollectionsList />} />
+                            <Route path="collections/:id" element={<CuratedCollectionDetail />} />
+                            <Route path="*" element={<Navigate to="/admin/users" />} />
+                        </Routes>
                     </CardContent>
                 </Card>
-            </Box>
-        </Box>
+            </div>
+        </div>
     );
 };
 

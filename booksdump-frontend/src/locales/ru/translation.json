@@ -447,5 +447,19 @@
   "searchWithinAuthor": "в книгах: {{name}}",
   "searchWithinThisAuthor": "в книгах этого автора",
   "searchEverywhere": "Искать по всей библиотеке",
-  "clearSearch": "Очистить поле поиска"
+  "clearSearch": "Очистить поле поиска",
+  "curatedCollections.searchDialog.title": "Найти книгу в библиотеке",
+  "curatedCollections.searchDialog.description": "Найдите книгу по названию и выберите ту, на которую должна ссылаться эта позиция.",
+  "curatedCollections.searchDialog.queryLabel": "Название",
+  "curatedCollections.searchDialog.searchBtn": "Искать",
+  "curatedCollections.searchDialog.loading": "Идёт поиск…",
+  "curatedCollections.searchDialog.empty": "Пока ничего не найдено",
+  "genreTitleUpdateError": "Не удалось обновить название жанра",
+  "inactive": "Неактивен",
+  "notSuperuser": "Не суперпользователь",
+  "curatedCollections.col.actions": "Действия",
+  "curatedCollections.invalidId": "Неверный идентификатор подборки",
+  "curatedCollections.aiSkipped": "пропущено",
+  "adminSections": "Разделы администрирования",
+  "bookScanRescanResult": "Архив «{{name}}» обработан: книг — {{books}}, ошибок — {{errors}}"
 }
