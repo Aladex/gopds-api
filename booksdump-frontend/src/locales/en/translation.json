@@ -448,5 +448,7 @@
   "curatedCollections.searchDialog.searchBtn": "Search",
   "curatedCollections.searchDialog.loading": "Searching…",
   "curatedCollections.searchDialog.empty": "No matches yet",
-  "genreTitleUpdateError": "Could not update the genre title"
+  "genreTitleUpdateError": "Could not update the genre title",
+  "inactive": "Inactive",
+  "notSuperuser": "Not a superuser"
 }

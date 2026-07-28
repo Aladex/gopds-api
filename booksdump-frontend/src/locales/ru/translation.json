@@ -451,5 +451,7 @@
   "curatedCollections.searchDialog.searchBtn": "Искать",
   "curatedCollections.searchDialog.loading": "Идёт поиск…",
   "curatedCollections.searchDialog.empty": "Пока ничего не найдено",
-  "genreTitleUpdateError": "Не удалось обновить название жанра"
+  "genreTitleUpdateError": "Не удалось обновить название жанра",
+  "inactive": "Неактивен",
+  "notSuperuser": "Не суперпользователь"
 }
