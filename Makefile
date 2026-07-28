@@ -1,7 +1,7 @@
 .PHONY: help verify bootstrap build build-bin build-frontend backend frontend frontend-placeholder swagger \
 	fmt-frontend fmt-frontend-check deps deps-frontend test test-backend test-integration test-frontend test-coverage clean lint lint-new lint-frontend lint-frontend-new fmt staticcheck security \
-	docker-build docker-run docker-compose-up docker-compose-down dev migrate-up migrate-down release pre-commit \
-	db-dump db-restore db-seed db-reset
+	docker-build docker-run docker-compose-up docker-compose-down dev migrate-up release pre-commit \
+	db-dump db-restore db-seed db-reset migrate-plan
 
 # These targets are ordered pipelines, not independent compile units: bootstrap
 # must finish before tests, and dependencies must be installed before the build
@@ -221,13 +221,16 @@ db-reset: db-restore db-seed ## Restore the catalog and seed users in one step
 	@echo "Local development database ready."
 
 # Database
-migrate-up: ## Run database migrations up
-	@echo "Running database migrations..."
-	# Add your migration command here
+# There is no migrate-down. Every file here is a forward change to a schema
+# holding a live catalog, and none of them was written with a reverse; an
+# undo that has never been tested is worse than none, because it invites use.
+# To go back, write a new migration.
+migrate-up: ## Apply pending database migrations
+	@echo "Applying database migrations..."
+	go run ./cmd/migrate
 
-migrate-down: ## Run database migrations down
-	@echo "Reverting database migrations..."
-	# Add your migration rollback command here
+migrate-plan: ## Show what migrate-up would do, changing nothing
+	go run ./cmd/migrate -dry-run
 
 # Release
 release: clean build test lint-new lint-frontend-new fmt-frontend-check security ## Prepare for release
