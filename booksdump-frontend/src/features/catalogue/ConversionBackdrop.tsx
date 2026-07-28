@@ -1,7 +1,9 @@
 import React, { useEffect } from 'react';
-import { BouncingDots } from '@/shared/ui/bouncing-dots';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
+
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/shared/ui/dialog';
+import { BouncingDots } from '@/shared/ui/bouncing-dots';
 
 import { useBookConversion } from '@/context/BookConversionContext';
 
@@ -11,6 +13,15 @@ import { useBookConversion } from '@/context/BookConversionContext';
  * The conversion rewrites the very file the reader just asked for, and a second
  * request for the same book while the first is in flight is wasted work on the
  * server, so the page is blocked rather than merely marked busy.
+ *
+ * Blocking it means a modal, not a fixed div over the top. A div only covers
+ * the picture: the page behind still scrolls under the wheel, and every button
+ * on it is still in the tab order — so the format that started the conversion
+ * could be pressed again from the keyboard, which is the one thing this exists
+ * to prevent.
+ *
+ * It cannot be dismissed. There is nothing for the reader to decide: it goes
+ * when the conversion does, or when it fails, and both arrive over the socket.
  */
 function ConversionBackdrop() {
     const { state, dispatch } = useBookConversion();
@@ -35,25 +46,31 @@ function ConversionBackdrop() {
         });
     }, [state.conversionErrors, dispatch]);
 
-    if (state.convertingBooks.length === 0) {
-        return null;
-    }
+    const converting = state.convertingBooks.length > 0;
 
     return (
-        // Always white on the dim: the backdrop is dark in either theme.
-        <div
-            role="status"
-            aria-live="polite"
-            className="fixed inset-0 z-modal flex flex-col items-center justify-center gap-2 bg-black/50 px-4 text-center text-white"
-        >
-            <BouncingDots size="lg" />
-            <p id="conversion-modal-title" className="text-lg font-medium">
-                {t('conversionInProgress')}
-            </p>
-            <p id="conversion-modal-description" className="text-sm">
-                {t('pleaseWait')}
-            </p>
-        </div>
+        <Dialog open={converting}>
+            <DialogContent
+                showCloseButton={false}
+                // Neither Escape nor a click outside ends a conversion, so
+                // neither should look as though it might.
+                onEscapeKeyDown={(event) => event.preventDefault()}
+                onInteractOutside={(event) => event.preventDefault()}
+                // The message sits on the dim itself rather than on a panel:
+                // there is nothing to read but two lines and nothing to do.
+                className="max-w-xs border-0 bg-transparent text-center text-white shadow-none"
+            >
+                <div className="flex flex-col items-center gap-2">
+                    <BouncingDots size="lg" />
+                    <DialogTitle className="text-lg font-medium">
+                        {t('conversionInProgress')}
+                    </DialogTitle>
+                    <DialogDescription className="text-sm text-white/80">
+                        {t('pleaseWait')}
+                    </DialogDescription>
+                </div>
+            </DialogContent>
+        </Dialog>
     );
 }
 
