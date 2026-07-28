@@ -462,5 +462,8 @@
   "curatedCollections.aiSkipped": "пропущено",
   "adminSections": "Разделы администрирования",
   "bookScanRescanResult": "Архив «{{name}}» обработан: книг — {{books}}, ошибок — {{errors}}",
-  "searchScopeRestore": "Искать только в книгах этого автора"
+  "searchScopeRestore": "Искать только в книгах этого автора",
+  "deleteUserConfirm": "Удалить {{username}}? Вместе с учётной записью уйдут избранное, голоса и собственные подборки. Отменить будет нельзя.",
+  "userDeleted": "{{username}} удалён",
+  "userDeleteFailed": "Не удалось удалить {{username}}"
 }

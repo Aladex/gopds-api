@@ -319,13 +319,77 @@ func updateUserDetails(userToChange, newUserDetails models.User) models.User {
 	return userToChange
 }
 
-// DeleteUser function for deleting user by ID
+// DeleteUser removes a user and everything that belongs only to them.
+//
+// Three tables reference auth_user without a delete rule — favorites, votes
+// and collections — so deleting a row on its own fails for anyone who has ever
+// used the service. It reported a raw constraint violation and the account
+// stayed.
+//
+// What goes with the user is what is theirs alone: their favorites, the votes
+// they cast, and their own collections along with the books in them and any
+// votes those collections received. Curated collections are library content
+// and are not owned by anyone — their user_id is already null — so nothing
+// public is touched. book_match_decisions and book_rescan_pending name the user
+// who acted rather than belonging to them, and their foreign keys already set
+// the reference to null.
+//
+// All of it in one transaction: a half-deleted user is worse than one that
+// would not delete.
 func DeleteUser(id string) error {
-	_, err := db.Model(&models.User{}).Where("id = ?", id).Delete()
+	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
-	return nil
+
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	// The user's own collections, named once and used three times below.
+	ownCollections := tx.Model((*models.BookCollection)(nil)).
+		Column("id").
+		Where("user_id = ?", id)
+
+	// Votes on those collections were cast by other people, but the collection
+	// is going, so they go with it.
+	if _, err = tx.Model((*models.CollectionVote)(nil)).
+		Where("collection_id IN (?)", ownCollections).
+		Delete(); err != nil {
+		return err
+	}
+
+	if _, err = tx.Exec(
+		`DELETE FROM book_collection_books WHERE book_collection_id IN (SELECT id FROM book_collections WHERE user_id = ?)`,
+		id,
+	); err != nil {
+		return err
+	}
+
+	if _, err = tx.Model((*models.BookCollection)(nil)).
+		Where("user_id = ?", id).
+		Delete(); err != nil {
+		return err
+	}
+
+	// Votes the user cast on anybody's collection.
+	if _, err = tx.Model((*models.CollectionVote)(nil)).
+		Where("user_id = ?", id).
+		Delete(); err != nil {
+		return err
+	}
+
+	if _, err = tx.Exec(`DELETE FROM favorite_books WHERE user_id = ?`, id); err != nil {
+		return err
+	}
+
+	if _, err = tx.Model(&models.User{}).Where("id = ?", id).Delete(); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 // UpdateBotToken updates bot token and webhook_uuid for user

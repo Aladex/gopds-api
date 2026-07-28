@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import {
     ArrowDown,
     ArrowUp,
@@ -275,12 +276,31 @@ const UsersTable: React.FC = () => {
         setSelectedUser(null);
     };
 
-    const handleDeleteClick = async (user: User) => {
+    /*
+      Deleting an account takes their favourites, their votes and their own
+      collections with it, and the row sits next to Edit in a table of dozens.
+      Asking first is the whole of the protection against a slipped click, so
+      the question names the account rather than saying "are you sure".
+    */
+    const [pendingDelete, setPendingDelete] = useState<User | null>(null);
+
+    const confirmDelete = async () => {
+        const user = pendingDelete;
+        if (!user) return;
+        setPendingDelete(null);
         try {
             await adminApi.deleteUser(user.id);
-            setUsers(users.filter((u) => u.id !== user.id));
+            setUsers((current) => current.filter((u) => u.id !== user.id));
+            toast.success(t('userDeleted', { username: user.username }));
         } catch (error) {
+            // It used to fail silently into the console: the row stayed and
+            // nothing on screen said why.
             console.error('Error deleting user:', error);
+            toast.error(
+                error instanceof Error && error.message
+                    ? error.message
+                    : t('userDeleteFailed', { username: user.username }),
+            );
         }
     };
 
@@ -375,7 +395,7 @@ const UsersTable: React.FC = () => {
                                     key={user.id}
                                     user={user}
                                     onEdit={handleEditClick}
-                                    onDelete={handleDeleteClick}
+                                    onDelete={setPendingDelete}
                                     t={t}
                                 />
                             ))}
@@ -458,7 +478,7 @@ const UsersTable: React.FC = () => {
                                             variant="ghost"
                                             size="icon-sm"
                                             className="text-destructive hover:text-destructive"
-                                            onClick={() => handleDeleteClick(user)}
+                                            onClick={() => setPendingDelete(user)}
                                             title={t('deleteUser')}
                                             aria-label={`${t('deleteUser')}: ${user.username}`}
                                         >
@@ -481,6 +501,25 @@ const UsersTable: React.FC = () => {
                     </Table>
                 </div>
             )}
+
+            <Dialog open={pendingDelete !== null} onOpenChange={(next) => !next && setPendingDelete(null)}>
+                <DialogContent closeLabel={t('close')} className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>{t('deleteUser')}</DialogTitle>
+                        <DialogDescription>
+                            {t('deleteUserConfirm', { username: pendingDelete?.username ?? '' })}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={() => setPendingDelete(null)}>
+                            {t('cancel')}
+                        </Button>
+                        <Button variant="destructive" onClick={confirmDelete}>
+                            {t('delete')}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <Dialog open={dialogOpen} onOpenChange={(next) => !next && handleDialogClose()}>
                 <DialogContent
