@@ -457,5 +457,6 @@
   "curatedCollections.col.actions": "Действия",
   "curatedCollections.invalidId": "Неверный идентификатор подборки",
   "curatedCollections.aiSkipped": "пропущено",
-  "adminSections": "Разделы администрирования"
+  "adminSections": "Разделы администрирования",
+  "bookScanRescanResult": "Архив «{{name}}» обработан: книг — {{books}}, ошибок — {{errors}}"
 }
