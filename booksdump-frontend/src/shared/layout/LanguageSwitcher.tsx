@@ -2,12 +2,7 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Check } from 'lucide-react';
 
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from '@/shared/ui/dropdown-menu';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/shared/ui/dialog';
 import { Drawer, DrawerContent, DrawerDescription, DrawerTitle } from '@/shared/ui/drawer';
 import { getLanguageDisplaySafe, languageMapping } from '@/shared/lib/languageUtils';
 import { cn } from '@/shared/lib/utils';
@@ -16,10 +11,10 @@ import { cn } from '@/shared/lib/utils';
  * LanguageSwitcher offers the languages this library actually holds books in.
  *
  * That is not a two-item choice: a well stocked instance has forty or more, so
- * on a phone the list is a sheet from the bottom edge — the same shape the
- * profile uses — rather than a dropdown. A menu anchored to a button in the top
- * bar would open a column of forty rows the width of the button, each of them
- * smaller than a fingertip, over a page that is still scrolling behind it.
+ * the list is a window of its own — a sheet from the bottom edge on a phone, a
+ * dialog on a desktop. It used to be a menu hanging off the button in the top
+ * bar, which opened a column of forty rows the width of that button, over a
+ * page still scrolling behind it.
  *
  * The order is the server's, which is by how many books are in each language,
  * so the ones worth choosing are the ones in reach.
@@ -58,81 +53,79 @@ const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
         return info ? `${info.flag} ${lang.toUpperCase()}` : lang.toUpperCase();
     };
 
-    // A function returning the element rather than a component, which would be
-    // a fresh type on every render and so remount the button each time.
-    const trigger = (props: React.ComponentProps<'button'> = {}) => (
-        <button
-            type="button"
-            aria-label={t('language')}
-            className={cn(
-                'flex items-center justify-center truncate rounded px-2 font-medium uppercase text-neutral-400',
-                'hover:bg-white/5 hover:text-white',
-                isMobile ? 'h-8 min-w-[50px] text-[0.7rem]' : 'h-12 max-w-[120px] text-sm',
-            )}
-            {...props}
-        >
-            {selected ? triggerLabel(selected) : t('language')}
-        </button>
-    );
-
     const choose = (lang: string) => {
         onSelect(lang);
         setOpen(false);
     };
 
-    if (isMobile) {
-        return (
-            <>
-                {trigger({ onClick: () => setOpen(true) })}
+    // The same list in both shells: which language is on offer, and which one
+    // is in force, does not depend on the size of the screen.
+    const list = (
+        <ul className="scrollbar-thin overflow-y-auto p-0">
+            {supported.map((lang) => (
+                <li key={lang}>
+                    <button
+                        type="button"
+                        onClick={() => choose(lang)}
+                        aria-current={selected === lang ? 'true' : undefined}
+                        className={cn(
+                            'flex min-h-12 w-full items-center justify-between gap-3 rounded px-4 text-left text-base',
+                            'sm:min-h-10 sm:px-3 sm:text-sm',
+                            'hover:bg-accent',
+                            // The dialog focuses its first row on opening, and
+                            // the browser's own ring is the one blue thing left
+                            // on the screen.
+                            'outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+                            // The tick marks the current one; text-primary here
+                            // would read as dimmer, not chosen.
+                            selected === lang && 'font-medium',
+                        )}
+                    >
+                        {fullLabel(lang)}
+                        {selected === lang && <Check className="size-4 flex-none" />}
+                    </button>
+                </li>
+            ))}
+        </ul>
+    );
+
+    return (
+        <>
+            <button
+                type="button"
+                aria-label={t('language')}
+                onClick={() => setOpen(true)}
+                className={cn(
+                    'flex items-center justify-center truncate rounded px-2 font-medium uppercase text-neutral-400',
+                    'hover:bg-white/5 hover:text-white',
+                    isMobile ? 'h-8 min-w-[50px] text-[0.7rem]' : 'h-12 max-w-[120px] text-sm',
+                )}
+            >
+                {selected ? triggerLabel(selected) : t('language')}
+            </button>
+
+            {isMobile ? (
                 <Drawer open={open} onOpenChange={setOpen}>
                     <DrawerContent className="max-h-[85vh]">
                         <DrawerTitle className="px-4 pb-1 text-base font-medium">
                             {t('language')}
                         </DrawerTitle>
                         <DrawerDescription className="sr-only">{t('language')}</DrawerDescription>
-                        <ul className="scrollbar-thin overflow-y-auto p-0 pb-6">
-                            {supported.map((lang) => (
-                                <li key={lang}>
-                                    <button
-                                        type="button"
-                                        onClick={() => choose(lang)}
-                                        aria-current={selected === lang ? 'true' : undefined}
-                                        className={cn(
-                                            'flex min-h-12 w-full items-center justify-between gap-3 px-4 text-left text-base',
-                                            'hover:bg-accent',
-                                            // The tick marks the current one;
-                                            // text-primary here would read as
-                                            // dimmer, not chosen.
-                                            selected === lang && 'font-medium',
-                                        )}
-                                    >
-                                        {fullLabel(lang)}
-                                        {selected === lang && <Check className="size-4 flex-none" />}
-                                    </button>
-                                </li>
-                            ))}
-                        </ul>
+                        <div className="overflow-y-auto pb-6">{list}</div>
                     </DrawerContent>
                 </Drawer>
-            </>
-        );
-    }
-
-    return (
-        <DropdownMenu>
-            <DropdownMenuTrigger asChild>{trigger()}</DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="scrollbar-thin max-h-[70vh] overflow-y-auto">
-                {supported.map((lang) => (
-                    <DropdownMenuItem
-                        key={lang}
-                        onSelect={() => onSelect(lang)}
-                        className={cn(selected === lang && 'bg-accent')}
-                    >
-                        {fullLabel(lang)}
-                    </DropdownMenuItem>
-                ))}
-            </DropdownMenuContent>
-        </DropdownMenu>
+            ) : (
+                <Dialog open={open} onOpenChange={setOpen}>
+                    <DialogContent closeLabel={t('close')} className="sm:max-w-sm">
+                        <DialogTitle>{t('language')}</DialogTitle>
+                        <DialogDescription className="sr-only">{t('language')}</DialogDescription>
+                        {/* Forty-odd languages scroll inside the dialog rather
+                            than growing it past the screen. */}
+                        <div className="scrollbar-thin max-h-[60vh] overflow-y-auto">{list}</div>
+                    </DialogContent>
+                </Dialog>
+            )}
+        </>
     );
 };
 
