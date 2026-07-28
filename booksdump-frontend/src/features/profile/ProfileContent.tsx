@@ -328,7 +328,20 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                 )}
             </Group>
 
-            <div className="mt-5 flex justify-end gap-2 border-t border-border pt-4">
+            {/*
+              Stuck to the bottom edge of whatever is scrolling this.
+              Everything above can be read at leisure, but the profile is a form
+              and these two are what one does with a form — on a phone they sat
+              below the fold, so the sheet opened showing no way to save.
+              The background is the surface's own, or the fields would show
+              through as they pass beneath.
+            */}
+            <div
+                className={cn(
+                    'sticky bottom-0 mt-5 flex justify-end gap-2 border-t border-border',
+                    'bg-background pt-4 pb-1',
+                )}
+            >
                 <Button variant="ghost" onClick={handleClose}>
                     {t('close')}
                 </Button>
