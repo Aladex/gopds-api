@@ -13,9 +13,11 @@ import { cn } from '@/shared/lib/utils';
  *   opening — from the peek height to the measured scrollHeight, then released
  *             to `none` once the transition ends, so later reflows (a font
  *             loading, the window narrowing) are not clipped;
- *   closing — pinned back to the measured height first, forced to lay out, then
- *             animated down to the peek height. Without that pin the element
- *             would jump straight from `none` to the peek height.
+ *   closing — pinned back to the measured height first and read back to force
+ *             the layout, then animated down to the peek height. Both halves
+ *             matter: without the pin, and without making the browser take it
+ *             before the peek height arrives, the panel jumps straight from
+ *             `none` to the peek height in a single frame.
  *
  * Readers who asked for less motion get the same states without the transition.
  */
@@ -80,14 +82,16 @@ export const Expandable = React.forwardRef<HTMLDivElement, ExpandableProps>(
                 return;
             }
 
-            // Pin the current height so there is something to animate down from,
-            // then let the next frame carry it to the peek height.
-            setMaxHeight(`${node.scrollHeight}px`);
+            // Pin the current height so there is something to animate down
+            // from. The pin is written to the node and read back, rather than
+            // set as state: React would commit it and the peek height in the
+            // same frame, the browser would only ever compute the second, and
+            // the panel would snap shut with no transition at all.
+            node.style.maxHeight = `${node.scrollHeight}px`;
+            void node.offsetHeight;
+
             setPhase('closing');
-            const frame = requestAnimationFrame(() => {
-                setMaxHeight(`${peekHeight()}px`);
-            });
-            return () => cancelAnimationFrame(frame);
+            setMaxHeight(`${peekHeight()}px`);
         }, [open, peekHeight]);
 
         // First paint: collapse without animating from nothing.
