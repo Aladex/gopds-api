@@ -171,8 +171,8 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
               horizontal scroll stays dormant and none of them slides out of
               reach.
             */}
-            <Tabs value={tab} onValueChange={setTab} className="mt-3">
-                <TabsList className="w-full">
+            <Tabs value={tab} onValueChange={setTab} className="mt-3 grid grid-cols-1">
+                <TabsList className="row-start-1 w-full">
                     {TABS.map((entry) => (
                         <TabsTrigger
                             key={entry.value}
@@ -189,7 +189,25 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                     ))}
                 </TabsList>
 
-                <TabsContent value="account">
+                <TabsContent
+                    value="account"
+                    forceMount
+                    inert={tab !== 'account'}
+                    className={cn(
+                        // All three share one grid cell, so the row is as tall
+                        // as the tallest of them and the sheet stops resizing
+                        // as tabs are switched. A fixed height could not do
+                        // this: the account tab is the tallest on a phone and
+                        // not on a desktop, where its two name fields sit in a
+                        // row rather than stacked.
+                        'col-start-1 row-start-2',
+                        // forceMount keeps them mounted, and Radix marks the
+                        // inactive ones hidden — which would take them out of
+                        // the layout again.
+                        '[&[hidden]]:block',
+                        tab !== 'account' && 'invisible',
+                    )}
+                >
                     <Group title={t('profileSection.personalData')} first>
                         <div className="flex flex-col gap-3 sm:flex-row">
                             <Field
@@ -214,7 +232,25 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                     </Group>
                 </TabsContent>
 
-                <TabsContent value="security">
+                <TabsContent
+                    value="security"
+                    forceMount
+                    inert={tab !== 'security'}
+                    className={cn(
+                        // All three share one grid cell, so the row is as tall
+                        // as the tallest of them and the sheet stops resizing
+                        // as tabs are switched. A fixed height could not do
+                        // this: the account tab is the tallest on a phone and
+                        // not on a desktop, where its two name fields sit in a
+                        // row rather than stacked.
+                        'col-start-1 row-start-2',
+                        // forceMount keeps them mounted, and Radix marks the
+                        // inactive ones hidden — which would take them out of
+                        // the layout again.
+                        '[&[hidden]]:block',
+                        tab !== 'security' && 'invisible',
+                    )}
+                >
 
                     {/*
                       Password and sessions are separate groups on purpose. Together,
@@ -295,7 +331,25 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                     </Group>
                 </TabsContent>
 
-                <TabsContent value="bot">
+                <TabsContent
+                    value="bot"
+                    forceMount
+                    inert={tab !== 'bot'}
+                    className={cn(
+                        // All three share one grid cell, so the row is as tall
+                        // as the tallest of them and the sheet stops resizing
+                        // as tabs are switched. A fixed height could not do
+                        // this: the account tab is the tallest on a phone and
+                        // not on a desktop, where its two name fields sit in a
+                        // row rather than stacked.
+                        'col-start-1 row-start-2',
+                        // forceMount keeps them mounted, and Radix marks the
+                        // inactive ones hidden — which would take them out of
+                        // the layout again.
+                        '[&[hidden]]:block',
+                        tab !== 'bot' && 'invisible',
+                    )}
+                >
                     <Group
                         first
                         title={
