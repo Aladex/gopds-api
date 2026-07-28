@@ -444,5 +444,11 @@
   "curatedCollections.preview": "Предпросмотр",
   "curatedCollections.previewTruncated": "Показаны первые {{shown}} из {{total}}",
   "curatedCollections.moreWarnings": "… ещё {{count}}",
-  "year": "Год"
+  "year": "Год",
+  "curatedCollections.searchDialog.title": "Найти книгу в библиотеке",
+  "curatedCollections.searchDialog.description": "Найдите книгу по названию и выберите ту, на которую должна ссылаться эта позиция.",
+  "curatedCollections.searchDialog.queryLabel": "Название",
+  "curatedCollections.searchDialog.searchBtn": "Искать",
+  "curatedCollections.searchDialog.loading": "Идёт поиск…",
+  "curatedCollections.searchDialog.empty": "Пока ничего не найдено"
 }

@@ -441,5 +441,11 @@
   "curatedCollections.preview": "Preview",
   "curatedCollections.previewTruncated": "Showing the first {{shown}} of {{total}}",
   "curatedCollections.moreWarnings": "… {{count}} more",
-  "year": "Year"
+  "year": "Year",
+  "curatedCollections.searchDialog.title": "Find a book in the library",
+  "curatedCollections.searchDialog.description": "Search the library by title and pick the book this item should point at.",
+  "curatedCollections.searchDialog.queryLabel": "Title",
+  "curatedCollections.searchDialog.searchBtn": "Search",
+  "curatedCollections.searchDialog.loading": "Searching…",
+  "curatedCollections.searchDialog.empty": "No matches yet"
 }
