@@ -6,12 +6,12 @@ import (
 	"crypto/md5"
 	"errors"
 	"fmt"
-	"io"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"gopds-api/internal/safeio"
 	"gopds-api/logging"
 	"gopds-api/models"
 
@@ -272,7 +272,9 @@ func computeBookMD5(zipPath string, filename string) (string, error) {
 	hash := md5.New()
 	buffer := make([]byte, hashBufferSize)
 
-	_, err = io.CopyBuffer(hash, rc, buffer)
+	// Bounded like every other read out of an archive: hashing a bomb costs
+	// time rather than disk, but it costs it on the scan worker.
+	_, err = safeio.CopyBuffer(hash, rc, buffer, safeio.MaxBookBytes)
 	if err != nil {
 		return "", err
 	}

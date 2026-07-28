@@ -21,11 +21,21 @@ type SendType struct {
 
 func MailConnection() (*smtp.Client, error) {
 	servername := viper.GetString("email.smtp_server")
-	host, _, _ := net.SplitHostPort(servername)
 
+	// The error was dropped here, which turned a misconfigured address into an
+	// empty host: the certificate would then be checked against nothing, and
+	// the SMTP AUTH would offer the password to whoever answered.
+	host, _, err := net.SplitHostPort(servername)
+	if err != nil {
+		return nil, fmt.Errorf("email.smtp_server must be host:port, got %q: %w", servername, err)
+	}
+
+	// Verification used to be off. Nothing needed it: the certificate this
+	// server presents names the host we dial. With it off, anything able to
+	// answer on that address was handed the mailbox password on the next line.
 	tlsconfig := &tls.Config{
-		InsecureSkipVerify: true,
-		ServerName:         host,
+		ServerName: host,
+		MinVersion: tls.VersionTLS12,
 	}
 	conn, err := tls.Dial("tcp", servername, tlsconfig)
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"gopds-api/internal/converter"
+	"gopds-api/internal/safeio"
 	"gopds-api/logging"
 
 	"github.com/google/uuid"
@@ -87,7 +88,9 @@ func (bp *BookProcessor) processFile(f *zip.File, format string, cmdArgs []strin
 	}
 	defer closeTmpFile(tmpFile)
 
-	if _, err = io.Copy(tmpFile, rc); err != nil {
+	// Bounded: the size a zip entry declares is written by whoever built the
+	// archive, so it cannot decide how much lands on disk here.
+	if _, err = safeio.Copy(tmpFile, rc, safeio.MaxBookBytes); err != nil {
 		return nil, err
 	}
 
@@ -233,7 +236,7 @@ func (bp *BookProcessor) Zip(df string) (io.ReadCloser, error) {
 			if err != nil {
 				return nil, err
 			}
-			_, err = io.Copy(zf, rc)
+			_, err = safeio.Copy(zf, rc, safeio.MaxBookBytes)
 			if err != nil {
 				return nil, err
 			}
