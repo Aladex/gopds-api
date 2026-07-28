@@ -1,5 +1,5 @@
--- Расширение book_collections для админских курируемых подборок.
--- user_id становится nullable: курируемые подборки не принадлежат конкретному юзеру.
+-- Extend book_collections with administrator-managed curated collections.
+-- user_id becomes nullable because curated collections do not belong to a specific user.
 ALTER TABLE public.book_collections
     ALTER COLUMN user_id DROP NOT NULL;
 
@@ -14,9 +14,9 @@ ALTER TABLE public.book_collections
 CREATE INDEX IF NOT EXISTS idx_book_collections_curated_public
     ON public.book_collections (is_curated, is_public);
 
--- Items подборки. book_id nullable: импорт хранит «не найдено» и «спорные» как
--- внешние title/author без привязки к локальной книге, ручной разрулинг
--- проставляет book_id и переводит match_status в `manual`.
+-- Collection items. book_id is nullable: imports keep unmatched and ambiguous
+-- entries as external title/author values without linking them to a local book.
+-- Manual resolution sets book_id and changes match_status to `manual`.
 CREATE TABLE IF NOT EXISTS public.book_collection_items (
     id BIGSERIAL PRIMARY KEY,
     collection_id INTEGER NOT NULL REFERENCES public.book_collections(id) ON DELETE CASCADE,
@@ -44,10 +44,10 @@ CREATE TRIGGER update_book_collection_items_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
--- Кэш ручных решений «нормализованный (автор, название) → book_id».
--- Переиспользуется между разными импортами подборок: если админ один раз
--- разрулил «Толстой / Война и мир» в пользу конкретного book_id, следующая
--- подборка с этой парой получит результат `manual` без ручного выбора.
+-- Cache manual decisions as normalized (author, title) -> book_id mappings.
+-- Decisions are reused across collection imports: after an administrator maps
+-- "Толстой / Война и мир" to a specific book_id, the same pair in a later
+-- collection receives a `manual` match without another manual selection.
 CREATE TABLE IF NOT EXISTS public.book_match_decisions (
     id BIGSERIAL PRIMARY KEY,
     author_norm TEXT NOT NULL,
@@ -58,13 +58,13 @@ CREATE TABLE IF NOT EXISTS public.book_match_decisions (
     UNIQUE (author_norm, title_norm)
 );
 
--- Trgm-индекс на title для матчинга по нормализованному названию
--- (на authors уже есть в миграции 09).
--- Используем DO-блок с проверкой содержимого индекса, а не имени, чтобы:
---   * на свежей установке индекс был создан,
---   * на проде, где уже есть аналогичный trgm-индекс под другим именем
---     (`idx_book_title_trgm` от Django-legacy), не делать дубликат с
---     блокирующим CREATE INDEX на самой большой таблице.
+-- Trigram index on title for matching normalized book titles.
+-- An equivalent author index was added by migration 09.
+-- Check the index definition rather than its name so that:
+--   * fresh installations create the index;
+--   * production databases with an equivalent legacy Django index named
+--     `idx_book_title_trgm` avoid a duplicate, blocking CREATE INDEX on the
+--     largest table.
 DO $$
 BEGIN
     IF NOT EXISTS (

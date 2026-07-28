@@ -10,7 +10,7 @@ import { ThemeProvider } from '@/context/ThemeContext';
 
 const root = ReactDOM.createRoot(document.getElementById('root') as HTMLElement);
 
-// Убираем StrictMode для production, оставляем только для development
+// Enable StrictMode in development only.
 const AppContent = (
     <Router>
         <AuthProvider>

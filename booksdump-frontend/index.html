@@ -31,7 +31,7 @@
                 });
         </script>
 
-        <!-- Скрипт для предотвращения FOUC -->
+        <!-- Prevent a flash of unstyled content -->
         <script>
             document.documentElement.className = 'no-js';
             window.addEventListener('DOMContentLoaded', function () {
@@ -40,7 +40,7 @@
         </script>
 
         <style>
-            /* Критический CSS для предотвращения мигания */
+            /* Critical CSS that prevents flicker during startup */
             html.no-js {
                 visibility: hidden;
             }
@@ -59,7 +59,7 @@
     <body>
         <noscript>You need to enable JavaScript to run this app.</noscript>
         <div id="root">
-            <!-- Fallback loading на случай медленной загрузки React -->
+            <!-- Loading fallback for a slow React startup -->
             <div class="app-loading">
                 <div>Loading...</div>
             </div>

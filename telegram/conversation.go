@@ -137,11 +137,15 @@ func (cm *ConversationManager) trimContext(context *ConversationContext) *Conver
 	return context
 }
 
+// metadataOverhead is what one stored message costs beyond its own text: the
+// role, the separators and the punctuation the prompt is assembled with.
+const metadataOverhead = 50
+
 // calculateContextLength calculates the total context length in characters
 func (cm *ConversationManager) calculateContextLength(context *ConversationContext) int {
 	totalLength := 0
 	for _, message := range context.Messages {
-		totalLength += len(message.Text) + len(message.Type) + 50 // +50 для метаданных
+		totalLength += len(message.Text) + len(message.Type) + metadataOverhead
 	}
 	return totalLength
 }

@@ -1,358 +1,231 @@
 <p align="center">
-<img src="https://raw.githubusercontent.com/Aladex/gopds-api/master/logo/logo.png" width="350">
+  <img src="https://raw.githubusercontent.com/Aladex/gopds-api/master/logo/logo.png" width="350" alt="GoPDS">
 </p>
 
-# gopds-api
+# GoPDS
 
-A comprehensive book management system and OPDS server built with Go, featuring a modern React frontend and extensive API capabilities for managing digital book libraries.
-
-## Technologies
-
-**Backend:**
-- **Go 1.26** - High-performance backend API
-- **Gin** - Fast HTTP web framework
-- **PostgreSQL** - Primary database with full-text search capabilities
-- **Redis** - Session storage and caching
-- **JWT** - Secure authentication
-- **Swagger/OpenAPI** - Automatic API documentation
-
-**Frontend:**
-- **React 19** with TypeScript
-- **Vite** - Build tool and dev server
-- **Tailwind CSS 4** - Styling, with shadcn-style components built on Radix
-- **i18next** - Internationalization support
-
-**Infrastructure:**
-- **Docker & Docker Compose** - Containerized deployment
-- **WebSocket** - Real-time communication
-- **CSRF Protection** - Security middleware
+GoPDS is a self-hosted ebook library with a Go API, a React interface, and
+OPDS feeds for e-readers. It manages FB2 books stored in ZIP archives and
+converts them to EPUB or MOBI on demand.
 
 ## Features
 
-### Core Functionality
-- **Digital Library Management** - Complete book catalog with metadata
-- **Multi-format Support** - FB2, EPUB, and MOBI file handling with built-in conversion
-- **Built-in EPUB Converter** - High-performance FB2 to EPUB conversion with no external dependencies
-- **Advanced Search** - Full-text search with PostgreSQL trigrams and fuzzy matching
-- **Author & Series Management** - Comprehensive author and series information with search
-- **Language Detection** - Automatic language detection and multi-language book categorization
-- **File Download** - Secure book file serving with signed URLs
-- **Duplicate Detection** - Identify and manage duplicate books across library
+- Catalogue browsing and search by book, author, series, genre, and language
+- Personal favorites and administrator-managed curated collections
+- Invite registration, email activation, password reset, and Redis sessions
+- Authenticated OPDS 1.x-style feeds with search and OpenSearch
+- ZIP/FB2 scanning, cover extraction, duplicate and language detection
+- Scan and conversion progress over WebSocket
+- In-process FB2-to-EPUB 3 conversion with EPUB 2 NCX compatibility
+- MOBI conversion through the bundled KindleGen executable
+- Administration for users, invites, genres, collections, covers, and scanning
+- Per-user Telegram bots with search, favorites, collections, and downloads
+- Optional OpenAI-assisted Telegram search and book language detection
+- Responsive English/Russian interface with light and dark themes
 
-### User Features
-- **User Authentication** - Registration, login, logout with JWT tokens
-- **Personal Libraries** - User-specific favorites and reading lists
-- **Profile Management** - User settings and preferences
-- **Password Reset** - Email-based password recovery
-- **Invite System** - User registration via admin-generated invites
+Search uses PostgreSQL substring matching and `pg_trgm` similarity, not
+PostgreSQL full-text search.
 
-### OPDS Server
-- **OPDS 1.2 Compliant** - Standard e-reader compatibility
-- **Authenticated Access** - Secure access to personal libraries
-- **Device Synchronization** - Access favorites across multiple devices
-- **Search Integration** - Find books directly from e-readers
-- **Download Support** - Direct book downloads via OPDS
-- **OpenSearch Support** - Search descriptor for OPDS clients
+## Stack
 
-### Advanced Features
-- **Built-in EPUB Conversion** - Native Go-based FB2 to EPUB converter with full support for:
-  - Hierarchical sections and chapters
-  - Inline formatting (bold, italic, code, superscript, subscript)
-  - Embedded images from FB2 binary elements
-  - Tables, poems, citations, and epigraphs
-  - Footnotes and endnotes with proper linking
-  - EPUB 3.0 standard compliance with EPUB 2.0 backward compatibility
-  - Optimized single-pass parsing for 30-40% faster conversion
-- **MOBI Conversion** - EPUB to MOBI conversion using kindlegen
-- **WebSocket Support** - Real-time updates for book scanning and conversion progress
-- **Book Covers** - Automatic cover extraction and CDN serving
-- **Content Approval** - Book moderation system for library quality control
-- **Session Management** - Redis-based session store with refresh tokens
-- **Email Integration** - Registration confirmation and password reset emails
-- **Admin Panel** - Administrative functions and user management
+- Go 1.26, Gin, go-pg, PostgreSQL 15, Redis
+- React 19, TypeScript, Vite 8, Tailwind CSS 4, Radix UI
+- JWT, CSRF protection, WebSocket, Swagger UI
+- Docker and Docker Compose
 
-### Book Scanning
-- **Automated Scanning** - Scan ZIP archives containing FB2 books
-- **Progress Tracking** - Real-time WebSocket updates during scanning
-- **Error Handling** - Detailed error logging and recovery
-- **Selective Scanning** - Scan specific archives on demand
-- **Duplicate Detection** - Skip duplicate books during scanning
-- **Book Rescan** - Re-extract metadata from existing books with preview
-- **Archive Management** - Track scanned and unscanned archives
+## Quick start
 
-### Modern Web Interface
-- **Responsive Design** - Mobile-friendly React frontend, laid out for a phone first
-- **Light and Dark Themes** - Chosen in the interface and stored per user
-- **Real-time Updates** - WebSocket integration for live status
-- **Internationalization** - Multi-language support
-- **Advanced Search UI** - Search books by title or find authors by name, and
-  confine a search to one author's books while browsing them
+Requirements: Docker Engine and the Compose plugin.
 
-### Telegram Bot
-- **Personal Bot Support** - Each user can connect their own Telegram bot via BotFather token
-- **Natural Language Search** - AI-powered book search with conversation context
-- **Multi-format Downloads** - Direct book downloads in FB2, EPUB, MOBI, or ZIP
-- **Advanced Search** - Search by title, author, or combined queries
-- **Interactive Navigation** - Pagination through results with inline keyboards
-- **Favorites Access** - Manage favorite books directly from Telegram
-- **Webhook-based** - Efficient real-time message processing
-
-Users create a bot through [@BotFather](https://t.me/BotFather), configure it in their account settings, and link it with `/start` command. The bot provides commands for searching (`/search`, `/b`, `/a`, `/ba`), managing favorites (`/favorites`), and conversation management (`/context`, `/clear`). Each bot is exclusively linked to one user account with secure Redis-based conversation storage.
-
-## Format Conversion
-
-### Built-in EPUB Converter
-
-The application includes a high-performance, native Go implementation for FB2 to EPUB conversion with no external dependencies. Key features:
-
-**Performance:**
-- Single-pass XML parsing for both metadata and content
-- Optimized memory usage with streaming operations
-- 30-40% faster than traditional two-pass approaches
-- No temporary file creation during conversion
-
-**Standards Compliance:**
-- Full EPUB 3.0 specification support
-- EPUB 2.0 backward compatibility (toc.ncx)
-- Valid ZIP structure with proper mimetype handling
-- Proper content.opf and container.xml generation
-
-**FB2 Elements Support:**
-- Hierarchical sections and chapters with unlimited nesting
-- Complete inline formatting: bold, italic, code, superscript, subscript
-- Links with proper href resolution
-- Embedded images from FB2 binary elements
-- Tables with header support
-- Poems with stanza breaks
-- Citations and epigraphs with text-author attribution
-- Footnotes and endnotes with bidirectional linking
-- Proper text normalization and sanitization
-
-**Technical Implementation:**
-- Event-based XML streaming parser for memory efficiency
-- Automatic charset detection and conversion
-- Robust error handling with graceful degradation
-- Comprehensive test coverage (66%+)
-
-### MOBI Conversion
-
-MOBI format support uses a two-stage conversion chain:
-1. FB2 to EPUB using built-in converter
-2. EPUB to MOBI using Amazon kindlegen
-
-This approach ensures:
-- High-quality MOBI output compatible with Kindle devices
-- Preservation of all formatting and structure from FB2
-- Reliable conversion using Amazon's official tool
-- Automatic cleanup of temporary files
-
-## API Documentation
-
-The API includes comprehensive Swagger documentation available at `/swagger/index.html` when running the server. Key endpoints include:
-
-- `/api/books/*` - Book management and search
-- `/api/auth/*` - Authentication and registration
-- `/api/authors/*` - Author information
-- `/api/admin/*` - Admin panel operations
-- `/opds/*` - OPDS server endpoints
-- `/api/telegram/*` - Telegram bot configuration
-
-## Deployment
-
-### Using Docker Compose (Recommended)
+Copy the example configuration:
 
 ```bash
-# Clone the repository
-git clone https://github.com/Aladex/gopds-api.git
-cd gopds-api
-
-# Copy and configure settings
 cp config.yaml.example config.yaml
-# Edit config.yaml with your settings
-
-# Start all services
-docker-compose up -d
 ```
 
-### Manual Installation
+For the supplied Compose file, update at least these fields in `config.yaml`:
 
-1. **Prerequisites:**
-   - Go 1.26+
-   - PostgreSQL 12+
-   - Redis 6+
-   - Node.js 24+ and Yarn 1.x (for frontend)
-   - kindlegen (optional, for MOBI conversion)
+```yaml
+project_domain: "127.0.0.1"
+project_url: "http://localhost:8085"
+secret_key: "replace-with-a-random-secret"
 
-2. **Database Setup:**
-   ```bash
-   # Run migrations
-   psql -d your_database -f database_migrations/01-initial.sql
-   # Run additional migrations in order...
-   ```
+server:
+  host: "0.0.0.0"
+  port: 8085
 
-3. **Build everything:**
-   ```bash
-   # Frontend production build, Swagger docs, then the Go binary
-   make build
-   ./bin/gopds
-   ```
+postgres:
+  dbuser: "gopds"
+  dbpass: "gopds_password"
+  dbname: "gopds"
+  dbhost: "postgres:5432"
 
-   The Go binary embeds the frontend from `booksdump-frontend/build/`, so that
-   directory must exist before the backend compiles. `make build` produces it.
-   For backend-only work `make bootstrap` installs a placeholder there instead,
-   which needs no Node toolchain.
+redis:
+  host: "redis"
+  port: 6379
 
-4. **Frontend only:**
-   ```bash
-   cd booksdump-frontend
-   yarn install --frozen-lockfile
-   yarn build
-   ```
+sessions:
+  key: "replace-with-a-random-session-key"
+  refresh: "replace-with-a-random-refresh-key"
 
-5. **MOBI Support (Optional):**
-   ```bash
-   # Download kindlegen and place it in kindlegen/ directory
-   mkdir kindlegen
-   # Download from Amazon or use your existing kindlegen binary
-   chmod +x kindlegen/kindlegen
-   ```
+app:
+  devel_mode: true
+  cdn: "http://localhost:8085"
+  files_path: "/gopds/books"
+  users_path: "/gopds/users"
+  book_cdn_key: "replace-with-a-random-book-key"
+  posters_path: "/gopds/covers"
+  file_book_cdn: "http://localhost:8085"
+  mobi_conversion_dir: "/gopds/mobi"
+```
+
+Keep the remaining example sections if you need scanning, SMTP, or donation
+settings. The mounted file is the source of truth for the current Compose
+setup.
+
+Start the dependencies first to avoid an application/database startup race:
+
+```bash
+docker compose up -d --wait postgres redis
+docker compose up -d --build gopds-api
+curl http://127.0.0.1:8085/api/status
+```
+
+Open <http://127.0.0.1:8085>. Stop the stack with:
+
+```bash
+docker compose down
+```
+
+PostgreSQL, Redis, books, and covers use named volumes. `/gopds/users` and
+`/gopds/mobi` are writable but are not persisted by the current Compose file.
+Do not use the example secrets or database password in a public deployment.
 
 ## Configuration
 
-Configure the application using `config.yaml`. Key settings include:
+GoPDS reads `config.yaml` from its working directory. Settings can also be
+provided as environment variables using the `GOPDS_` prefix and underscores
+for nested keys:
 
-- **Database connection** - PostgreSQL credentials and settings
-- **Redis connection** - Session store configuration
-- **File paths** - Book storage, archives, and conversion directories
-- **Email settings** - SMTP configuration for notifications
-- **Security keys** - JWT and session secrets
-- **CDN settings** - File serving configuration
-- **Telegram settings** - Base URL for webhook configuration
-- **Scanning settings** - Archive directories and duplicate handling
-- **Donate methods** - The ways of supporting the instance, if any. Omit the
-  section and the interface offers none, so a fork advertises nobody's wallet
+```bash
+export GOPDS_POSTGRES_DBHOST=127.0.0.1:5432
+export GOPDS_POSTGRES_DBUSER=gopds
+export GOPDS_POSTGRES_DBPASS=gopds_password
+export GOPDS_POSTGRES_DBNAME=gopds
+export GOPDS_REDIS_HOST=127.0.0.1
+export GOPDS_SESSIONS_KEY=replace-me
+export GOPDS_SESSIONS_REFRESH=replace-me
+export GOPDS_SECRET_KEY=replace-me
+```
 
-See `config.yaml.example` for all available options.
+See [`config.yaml.example`](config.yaml.example) for the configuration shape.
+
+- SMTP is required for activation and password-reset emails.
+- `OPENAI_API_KEY` enables OpenAI features; `OPENAI_MODEL` selects the model
+  and currently defaults to `gpt-4o-mini`.
+- Telegram webhooks require a publicly reachable HTTPS base URL.
+- `app.allowed_origins` adds browser origins accepted by CORS and WebSocket
+  origin checks.
 
 ## Development
 
-All tool versions are pinned in the `Makefile` and guarded by `versions_test.go`,
-so the commands below use the same versions as CI and the Docker build.
+Requirements: Go 1.26.5, Node.js 24, Yarn Classic, PostgreSQL, and Redis.
 
-### Backend Development
+Prepare generated Swagger files and the embedded frontend placeholder, then
+run the backend:
+
 ```bash
-# Prepare generated inputs: Swagger docs and the embedded frontend placeholder.
-# Required once on a fresh checkout, before the backend will compile.
 make bootstrap
-
-# Regenerate API documentation only (pinned swaggo/swag)
-make swagger
-
-# Run with hot reload (install air separately)
-air
+make dev
 ```
 
-### Frontend Development
+Run the Vite frontend in another terminal:
+
 ```bash
 cd booksdump-frontend
 yarn install --frozen-lockfile
-yarn start
+VITE_API_URL=http://127.0.0.1:8085 yarn start
 ```
 
-### Running Tests
+Open <http://127.0.0.1:3000> to match the default backend CORS origin.
+`VITE_API_URL` configures HTTP requests, but WebSocket connections use the
+page origin; live progress therefore needs a same-origin build or a
+development proxy.
+
+Build the frontend, Swagger package, and `bin/gopds`:
 
 ```bash
-# Everything: bootstrap, frontend deps, frontend tests, production frontend
-# build, then the Go build and test suite. Works on a fresh clone.
-make verify
-
-# Go tests that need no database and no Node toolchain
-make test-backend
-
-# Frontend tests only
-make test-frontend
+make build
 ```
 
-#### Integration tests
-
-The OPDS collection tests in `opds/collections_test.go` read the catalog from a
-real PostgreSQL. They skip themselves under `go test -short` and, when no
-database is configured, skip with an explanatory message rather than failing.
-`make test-backend` and `make verify` run in short mode, so they pass without
-any running service.
-
-To run them, prepare a local database and use the full suite:
+## Tests and quality
 
 ```bash
-docker-compose up -d postgres redis
-make db-dump      # pull the catalog out of production (needs kubectl access)
-make db-reset     # restore it locally and create test users
-make test-integration
+make test-backend       # Short Go suite; no database required
+make test-frontend      # Vitest suite
+make verify             # Frontend build, Go build, tests, and coverage
+make test-integration   # Full Go suite against PostgreSQL
+make lint-new           # Go lint for changes relative to the lint base
+make lint-frontend-new  # ESLint errors in changed frontend files
+make fmt-frontend-check # Prettier check
+make security           # gosec
 ```
 
-### Development dataset
+`make lint` and `make lint-frontend` inspect the whole repository and may
+report pre-existing backlog. CI uses the change-scoped lint targets.
 
-`make db-dump` copies a development dataset out of the production database. It
-takes **only the catalog** — books, authors, genres, series and collections —
-and deliberately leaves `auth_user`, `favorite_books` and `invites` behind,
-because those hold real email addresses, password hashes and live Telegram bot
-tokens that no test needs. The script fails if an excluded table appears in the
-output. Dumps land in `.dumps/`, which is git-ignored.
-
-`make db-seed` then creates synthetic accounts, hashed with the application's
-own `utils.CreatePasswordHash`, and repoints imported collections at them:
-
-| user | password | role |
-|--------|----------|------------|
-| admin | admin | superuser |
-| user1 | test123 | regular |
-| user2 | test123 | regular |
-
-`make db-reset` runs the restore and the seed together. Both refuse to touch
-anything but a local database.
-
-### Linting
+The optional development dataset helpers are:
 
 ```bash
-make lint          # golangci-lint, pinned
-make staticcheck   # staticcheck, pinned
-make security      # gosec, pinned
+make db-dump  # Reads the production catalogue; requires expected kubectl access
+make db-reset # Replaces the local Compose database and creates synthetic users
 ```
 
-`make lint` currently reports a large backlog of pre-existing findings. The
-lint configuration was migrated from the golangci-lint v1 format, having been
-unparseable — and therefore silently skipped — for a long time.
+Inspect their scripts and target configuration before running either command.
 
-## Roadmap
+## Database migrations
 
-### Completed Features
-- FB2, EPUB, and MOBI book management
-- Built-in high-performance FB2 to EPUB converter (no external dependencies)
-- MOBI conversion via EPUB to MOBI chain (using kindlegen)
-- Optimized single-pass parsing (30-40% faster conversion)
-- React frontend on Tailwind and Radix
-- User authentication and session management
-- Personal favorites and reading lists
-- OPDS 1.2 server with authentication
-- Full-text search with PostgreSQL trigrams
-- WebSocket real-time updates
-- Email notifications (registration, password reset)
-- Docker containerization
-- Telegram Bot with AI-powered search
-- Automated book scanning from ZIP archives
-- Book rescan with metadata preview
-- Duplicate detection and management
-- Language detection
-- Admin panel with comprehensive management tools
-- Curated collections, imported from CSV or a pasted list
+Files in `database_migrations/` run in filename order. Fresh Compose database
+volumes apply them through PostgreSQL initialization. For an existing database:
 
-### Planned Features
-- **Collection Voting** - Let readers vote on curated collections
-- **Enhanced OPDS** - OPDS 2.0 support with advanced features
-- **Reading Statistics** - Track reading progress and statistics
-- **Social Features** - Book reviews and recommendations sharing
-- **Enhanced Metadata** - Integration with external book databases (Goodreads, LibraryThing)
+```bash
+make migrate-plan # Preview pending files
+make migrate-up   # Apply pending files
+```
 
-## Contributing
+The runner records applied files in `schema_migrations` and executes each new
+file in its own transaction. A database created before the ledger is baselined
+on the first run instead of replaying its schema. Migrations are forward-only;
+to reverse a change, add and test a new migration.
 
-Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
+## API and OPDS
+
+- Status: <http://127.0.0.1:8085/api/status>
+- Swagger UI: <http://127.0.0.1:8085/swagger/index.html>
+- OPDS root: <http://127.0.0.1:8085/opds/>
+- OpenSearch: <http://127.0.0.1:8085/opds-opensearch.xml>
+
+OPDS uses HTTP Basic authentication. Swagger covers only annotated REST
+handlers; route registration under `cmd/gopds/` and the individual packages is
+the complete source of truth.
+
+## Repository layout
+
+```text
+cmd/gopds/              Application entry point and routes
+cmd/migrate/            Database migration command
+api/                    REST and WebSocket handlers
+opds/                   OPDS feeds
+services/               Application services
+database/               Database access
+database_migrations/    Ordered SQL migrations
+internal/converter/     FB2-to-EPUB converter
+internal/swaggerdocs/   Generated Swagger package
+telegram/               Telegram integration
+booksdump-frontend/     React application
+scripts/                Development database helpers
+```
+
+## License
+
+[MIT](LICENSE)

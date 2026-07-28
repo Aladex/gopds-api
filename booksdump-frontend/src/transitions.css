@@ -1,4 +1,4 @@
-/* Плавные переходы для предотвращения мигания */
+/* Smooth transitions that prevent flicker */
 .page-transition-enter {
     opacity: 0;
     transform: translateY(10px);
@@ -25,7 +25,7 @@
         transform 200ms ease-in;
 }
 
-/* Предотвращение мигания при загрузке */
+/* Prevent flicker while loading */
 .app-container {
     min-height: 100vh;
     transition: opacity 150ms ease-in-out;
@@ -35,13 +35,13 @@
     opacity: 0.7;
 }
 
-/* Оптимизация для более плавной отрисовки */
+/* Improve rendering smoothness */
 * {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
 
-/* Предотвращение FOUC (Flash of Unstyled Content) */
+/* Prevent a flash of unstyled content */
 html {
     visibility: hidden;
 }
@@ -50,7 +50,7 @@ html.loaded {
     visibility: visible;
 }
 
-/* Улучшение производительности рендеринга */
+/* Improve rendering performance */
 .performance-optimized {
     will-change: transform, opacity;
     backface-visibility: hidden;

@@ -25,7 +25,7 @@ interface AuthContextType {
     updateLang: (language: string) => void;
     refreshToken: () => Promise<boolean>;
     getCsrfToken: () => Promise<void>;
-    resetFavCallback?: () => void; // Добавляем колбэк для сброса избранного
+    resetFavCallback?: () => void; // Callback that resets favorites.
     setResetFavCallback: (callback: () => void) => void;
 }
 
@@ -45,7 +45,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     const isAuthenticated = !!user;
 
-    // Обертка для setUser с логированием
+    // Keep the setter identity stable for context consumers.
     const setUser = useCallback((newUser: User | null) => {
         setUserState(newUser);
     }, []);
@@ -103,7 +103,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }, [navigate, setUser]);
 
     const login = useCallback(() => {
-        // Предотвращаем множественные вызовы login
+        // Prevent concurrent login calls.
         if (isLoading) return;
 
         setIsLoading(true);
@@ -132,15 +132,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 try {
                     await authApi.updateCurrentUser({ books_lang: language });
 
-                    // Сбрасываем избранное перед сменой языка
+                    // Reset favorites before changing the catalogue language.
                     if (resetFavCallback) {
                         resetFavCallback();
                     }
 
-                    // Обновляем пользователя с новым языком
+                    // Update the user with the new catalogue language.
                     setUser({ ...user, books_lang: language });
 
-                    // При смене языка всегда перенаправляем на обычную страницу книг
+                    // Return to the main book list after changing language.
                     navigate('/books/page/1');
                 } catch (error) {
                     console.error('Error updating language', error);
@@ -159,11 +159,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         } catch (error) {
             console.error('Error logging out', error);
         } finally {
-            // Всегда сбрасываем пользователя и получаем новый CSRF токен
+            // Always clear the user and request a new CSRF token.
             setUser(null);
             setCsrfToken(null);
 
-            // Получаем новый CSRF токен после логаута
+            // Request a new CSRF token after logout.
             try {
                 await getCsrfToken();
             } catch (error) {
@@ -223,7 +223,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [getCsrfToken]); // setUser is stable and login removed to avoid extra requests
 
-    // Мемоизируем значение контекста для предотвращения ненужных перерендеров
+    // Memoize the context value to avoid unnecessary rerenders.
     const contextValue = useMemo(
         () => ({
             isAuthenticated,

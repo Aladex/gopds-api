@@ -34,7 +34,7 @@ App.displayName = 'App';
 const AppWrapper: React.FC = () => {
     const { isLoaded, isAuthenticated } = useAuth();
 
-    // Мемоизируем провайдеры чтобы избежать ненужных перерендеров
+    // Memoize providers to avoid unnecessary rerenders.
     const providers = useMemo(
         () => (
             <FavProvider>
