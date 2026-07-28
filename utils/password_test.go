@@ -141,3 +141,32 @@ func TestCheckPbkdf2RejectsMalformedRecords(t *testing.T) {
 		})
 	}
 }
+
+// A hash made elsewhere must still verify. The record below was produced by
+// Python's hashlib, not by this package, and is checked in as a fixture: it
+// pins the wire format and the algorithm against the day a dependency bump or
+// a refactor quietly changes either. Every password in the database is a
+// record of exactly this shape, and none of them can be recomputed.
+func TestCheckPbkdf2AcceptsAHashFromAnotherImplementation(t *testing.T) {
+	const (
+		password = "correct horse battery staple"
+		encoded  = "pbkdf2_sha256$100000$abcdefghijkl$Z6DNgbx+9YROcS+Dn1So9V0lPzUcNKW8ph0GPgUujHg="
+	)
+
+	ok, err := CheckPbkdf2(password, encoded, sha256.Size, sha256.New)
+	if err != nil {
+		t.Fatalf("checking a hash made by another implementation: %v", err)
+	}
+	if !ok {
+		t.Error("a hash produced outside this package no longer verifies: " +
+			"every stored password would be rejected")
+	}
+
+	ok, err = CheckPbkdf2("wrong password", encoded, sha256.Size, sha256.New)
+	if err != nil {
+		t.Fatalf("checking a wrong password against it: %v", err)
+	}
+	if ok {
+		t.Error("a wrong password matched the fixture")
+	}
+}
