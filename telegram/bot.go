@@ -761,38 +761,13 @@ func (bm *BotManager) SetWebhook(token string) error {
 	// remotely (Telegram's getWebhookInfo doesn't expose it), so always rewrite
 	// the webhook to ensure the secret is in sync with the bot's token.
 
-	// Step 1: Remove existing webhook
-	logging.Infof("Step 1: Removing existing webhook for user %d...", bot.userID)
-	ctx1, cancel1 := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel1()
-
-	type removeResult struct {
-		err error
-	}
-
-	removeResultChan := make(chan removeResult, 1)
-	go func() {
-		logging.Infof("Calling Telegram API to remove existing webhook...")
-		_, err := bot.bot.DeleteWebhook(ctx1, &tgbotapi.DeleteWebhookParams{})
-		if err != nil {
-			logging.Errorf("Telegram API returned error when removing webhook: %v", err)
-		} else {
-			logging.Infof("Successfully removed existing webhook for user %d", bot.userID)
-		}
-		removeResultChan <- removeResult{err: err}
-	}()
-
-	select {
-	case result := <-removeResultChan:
-		if result.err != nil {
-			logging.Warnf("Failed to remove existing webhook for user %d: %v (continuing anyway)", bot.userID, result.err)
-		}
-	case <-ctx1.Done():
-		logging.Warnf("Timeout removing existing webhook for user %d (continuing anyway)", bot.userID)
-	}
-
-	// Step 2: Set new webhook
-	logging.Infof("Step 2: Setting new webhook for user %d...", bot.userID)
+	// setWebhook replaces whatever is registered, so there is nothing to delete
+	// first. The delete used to be here and never worked: DeleteWebhookParams
+	// has one field, and it is omitempty, so a zero struct produces a multipart
+	// form with no parts at all. Telegram answers that with a 400 and an empty
+	// body, which is not JSON, and every startup logged a decode error while
+	// the webhook went on being set correctly by the call below.
+	logging.Infof("Setting webhook for user %d...", bot.userID)
 
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel2()
@@ -847,7 +822,12 @@ func (bm *BotManager) RemoveBot(token string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err := bot.bot.DeleteWebhook(ctx, &tgbotapi.DeleteWebhookParams{})
+	// DropPendingUpdates carries the request as much as it states the intent:
+	// every field of these params is omitempty, so leaving them all zero sends
+	// a multipart form with no parts, which Telegram rejects with an empty body
+	// that then fails to parse as JSON. Dropping what is queued is right here
+	// anyway — the bot is going away and nobody will read it.
+	_, err := bot.bot.DeleteWebhook(ctx, &tgbotapi.DeleteWebhookParams{DropPendingUpdates: true})
 	if err != nil {
 		logging.Errorf("Warning: failed to remove webhook for bot %s: %v", maskToken(token), err)
 	} else {
