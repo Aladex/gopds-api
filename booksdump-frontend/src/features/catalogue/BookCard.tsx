@@ -175,7 +175,7 @@ const BookCard: React.FC<BookCardProps> = ({
                                 {t('authors')}
                             </span>
                             {shownAuthors.map((author, index) => (
-                                <React.Fragment key={author.id}>
+                                <span key={author.id} className="inline-flex items-baseline gap-1.5">
                                     {index > 0 && <span className="text-muted-foreground">·</span>}
                                     <button
                                         type="button"
@@ -190,7 +190,7 @@ const BookCard: React.FC<BookCardProps> = ({
                                     >
                                         {author.full_name}
                                     </button>
-                                </React.Fragment>
+                                </span>
                             ))}
                             {hiddenAuthors > 0 && (
                                 <span className="text-muted-foreground">· {t('andMore', { count: hiddenAuthors })}</span>
@@ -204,7 +204,10 @@ const BookCard: React.FC<BookCardProps> = ({
                                 {t('categories')}
                             </span>
                             {book.series.map((series, index) => (
-                                <React.Fragment key={series.id ?? series.ser}>
+                                <span
+                                    key={series.id ?? series.ser}
+                                    className="inline-flex items-baseline gap-1.5"
+                                >
                                     {index > 0 && <span className="text-muted-foreground">·</span>}
                                     <button
                                         type="button"
@@ -213,7 +216,7 @@ const BookCard: React.FC<BookCardProps> = ({
                                     >
                                         {series.ser}
                                     </button>
-                                </React.Fragment>
+                                </span>
                             ))}
                         </div>
                     )}
@@ -224,7 +227,7 @@ const BookCard: React.FC<BookCardProps> = ({
                                 {t('genres')}
                             </span>
                             {book.genres.map((genre, index) => (
-                                <React.Fragment key={genre.id}>
+                                <span key={genre.id} className="inline-flex items-baseline gap-1.5">
                                     {index > 0 && <span className="text-muted-foreground">·</span>}
                                     <button
                                         type="button"
@@ -233,7 +236,7 @@ const BookCard: React.FC<BookCardProps> = ({
                                     >
                                         {t(genre.genre, genre.genre)}
                                     </button>
-                                </React.Fragment>
+                                </span>
                             ))}
                         </div>
                     )}
