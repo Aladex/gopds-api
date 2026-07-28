@@ -36,7 +36,9 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "devDependencies": {
     "@babel/core": "8.0.1",
@@ -54,6 +56,7 @@
     "eslint-plugin-react-refresh": "0.5.3",
     "globals": "17.8.0",
     "jsdom": "29.1.1",
+    "prettier": "3.9.6",
     "tailwindcss": "4.3.3",
     "typescript-eslint": "8.65.0",
     "vite": "8.1.5",
