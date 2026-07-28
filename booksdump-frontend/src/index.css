@@ -46,6 +46,26 @@
             transform: translateX(300%);
         }
     }
+
+    /* Three dots taking turns to hop, for a picture on its way. The dot is
+       down and dim for most of the cycle so the three read as a sequence
+       rather than a flicker. */
+    --animate-dot-hop: dot-hop 1.2s ease-in-out infinite;
+
+    @keyframes dot-hop {
+        0%,
+        60%,
+        100% {
+            transform: translateY(0);
+            opacity: 0.45;
+        }
+        30% {
+            /* A dot's own diameter. Less than that and the hop reads as a
+               wobble rather than a sequence. */
+            transform: translateY(-100%);
+            opacity: 1;
+        }
+    }
 }
 
 /*

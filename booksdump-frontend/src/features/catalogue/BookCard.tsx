@@ -6,6 +6,7 @@ import { Check, Pencil, RefreshCw, Star } from 'lucide-react';
 import type { Book } from '@/api/books';
 import { Button } from '@/shared/ui/button';
 import { Expandable } from '@/shared/ui/expandable';
+import BookCover from '@/features/catalogue/BookCover';
 import { cn } from '@/shared/lib/utils';
 
 import { API_URL } from '@/api/config';
@@ -115,11 +116,10 @@ const BookCard: React.FC<BookCardProps> = ({
             */}
             <div className="grid grid-cols-[104px_minmax(0,1fr)] gap-x-4 gap-y-3 sm:gap-y-1.5">
                 <div className="contents sm:row-span-2 sm:flex sm:flex-col sm:gap-2">
-                    <img
+                    <BookCover
                         src={cover}
                         alt={book.title}
-                        loading="lazy"
-                        className="col-start-1 row-start-1 h-[150px] w-[104px] flex-none rounded-sm bg-muted object-cover"
+                        className="col-start-1 row-start-1 h-[150px] w-[104px] flex-none rounded-sm"
                     />
                     {/* Two equal cells with the label centred in each, so the four
                         read as an even block rather than four links of differing

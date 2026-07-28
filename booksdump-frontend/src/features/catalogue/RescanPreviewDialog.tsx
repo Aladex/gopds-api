@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { CheckCircle2, Loader2, XCircle } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/shared/ui/alert';
+import { BouncingDots } from '@/shared/ui/bouncing-dots';
 import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
 import {
@@ -273,7 +274,7 @@ const RescanPreviewDialog: React.FC<RescanPreviewDialogProps> = ({
                                     )}
                                     {coverLoading && (
                                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                            <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+                                            <BouncingDots />
                                             {t('loading')}
                                         </div>
                                     )}
