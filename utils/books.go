@@ -46,6 +46,17 @@ func closeTmpFile(file *os.File) {
 	}
 }
 
+// removeTmpFile deletes a temporary file, saying so when it cannot.
+//
+// A failure here leaks a file into the working directory rather than breaking
+// the request, so it is not worth returning — but it is worth knowing about,
+// because it accumulates.
+func removeTmpFile(path string) {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		logging.Errorf("failed to delete tmp file %s: %v", path, err)
+	}
+}
+
 func deleteTmpFile(filename, format string) {
 	if err := os.Remove(filename + ".fb2"); err != nil {
 		logging.Errorf("failed to delete tmp file: %v", err)
@@ -171,17 +182,17 @@ func (bp *BookProcessor) Mobi() (io.ReadCloser, error) {
 
 	// Copy EPUB content to temp file
 	if _, err = io.Copy(epubFile, epubReader); err != nil {
-		epubFile.Close()
-		os.Remove(epubTmpFile)
+		closeTmpFile(epubFile)
+		removeTmpFile(epubTmpFile)
 		logging.Errorf("Failed to write EPUB to temp file for %s: %v", bp.filename, err)
 		return nil, fmt.Errorf("failed to write EPUB: %w", err)
 	}
-	epubFile.Close()
+	closeTmpFile(epubFile)
 
 	// Schedule cleanup of temp files
 	defer func() {
-		os.Remove(epubTmpFile)
-		os.Remove(mobiTmpFile)
+		removeTmpFile(epubTmpFile)
+		removeTmpFile(mobiTmpFile)
 	}()
 
 	// Step 3: Convert EPUB to MOBI using kindlegen
@@ -272,7 +283,7 @@ func (bp *BookProcessor) extractFB2() ([]byte, error) {
 			return nil, err
 		}
 		defer closeResource(rc)
-		return io.ReadAll(rc)
+		return safeio.ReadAll(rc, safeio.MaxBookBytes)
 	}
 	return nil, errors.New("book not found")
 }

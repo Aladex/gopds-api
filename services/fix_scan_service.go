@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -272,8 +271,10 @@ func (s *FixScanService) processBook(book models.Book, archivePath string, fileI
 		return
 	}
 
-	content, err := io.ReadAll(rc)
-	rc.Close()
+	content, err := safeio.ReadAll(rc, safeio.MaxBookBytes)
+	if closeErr := rc.Close(); closeErr != nil {
+		logging.Warnf("Failed to close %s in %s: %v", book.FileName, archivePath, closeErr)
+	}
 	if err != nil {
 		addError(FixScanError{
 			BookID:      book.ID,

@@ -95,6 +95,57 @@ func TestCopyBufferBehavesLikeCopy(t *testing.T) {
 	}
 }
 
+func TestReadAllReturnsWhatFits(t *testing.T) {
+	const payload = "a whole small book"
+
+	got, err := ReadAll(strings.NewReader(payload), 1024)
+	if err != nil {
+		t.Fatalf("reading %d bytes under a 1024 limit: %v", len(payload), err)
+	}
+	if string(got) != payload {
+		t.Errorf("read %q, want %q", got, payload)
+	}
+}
+
+func TestReadAllAcceptsExactlyTheLimit(t *testing.T) {
+	payload := strings.Repeat("x", 64)
+
+	got, err := ReadAll(strings.NewReader(payload), 64)
+	if err != nil {
+		t.Fatalf("a source exactly at the limit was refused: %v", err)
+	}
+	if len(got) != 64 {
+		t.Errorf("read %d bytes, want 64", len(got))
+	}
+}
+
+func TestReadAllRefusesMoreThanTheLimit(t *testing.T) {
+	_, err := ReadAll(strings.NewReader(strings.Repeat("x", 65)), 64)
+	if !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("a source over the limit produced %v, want ErrTooLarge", err)
+	}
+}
+
+// The point of the limit is the allocation: an endless source must not be
+// allowed to size the buffer.
+func TestReadAllStopsReadingAnEndlessSource(t *testing.T) {
+	const limit = 4096
+
+	endless := &countingReader{}
+	if _, err := ReadAll(endless, limit); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("an endless source produced %v, want ErrTooLarge", err)
+	}
+	if endless.read > limit+1 {
+		t.Errorf("read %d bytes from an endless source, limit was %d", endless.read, limit)
+	}
+}
+
+func TestReadAllRejectsANegativeLimit(t *testing.T) {
+	if _, err := ReadAll(strings.NewReader("x"), -1); err == nil {
+		t.Error("a negative limit was accepted")
+	}
+}
+
 // countingReader never runs out, and records how much was taken from it.
 type countingReader struct{ read int }
 

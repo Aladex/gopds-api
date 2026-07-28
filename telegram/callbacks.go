@@ -13,6 +13,7 @@ import (
 	"gopds-api/commands"
 	"gopds-api/database"
 	"gopds-api/internal/posters"
+	"gopds-api/internal/safeio"
 	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/utils"
@@ -462,7 +463,7 @@ func (h *CallbackHandler) sendBookFile(ctx context.Context, b *tgbotapi.Bot, cha
 	// reflect.Value.IsNil on InputFileUpload.Data, which panics when the
 	// concrete io.Reader is a struct value (e.g. io.NopCloser). Wrapping
 	// the bytes in *bytes.Reader (a pointer type) sidesteps that.
-	data, err := io.ReadAll(rc)
+	data, err := safeio.ReadAll(rc, safeio.MaxBookBytes)
 	if cerr := rc.Close(); cerr != nil {
 		logging.Errorf("Failed to close book reader: %v", cerr)
 	}

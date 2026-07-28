@@ -11,6 +11,7 @@ import (
 
 	"gopds-api/database"
 	"gopds-api/httputil"
+	"gopds-api/internal/safeio"
 	"gopds-api/logging"
 	"gopds-api/utils"
 
@@ -86,7 +87,7 @@ func ConvertBookToEpub(bookID int64) error {
 	}
 	defer rc.Close()
 
-	data, err := io.ReadAll(rc)
+	data, err := safeio.ReadAll(rc, safeio.MaxBookBytes)
 	if err != nil {
 		return err
 	}

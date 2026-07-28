@@ -103,7 +103,9 @@ func UnifiedWebSocketHandler(c *gin.Context) {
 			}
 		case <-quit:
 			logging.Infof("WebSocket closed for user %s", user)
-			conn.Close(websocket.StatusNormalClosure, "")
+			// The peer is already going away; a failure to say so
+			// politely changes nothing on this side.
+			_ = conn.Close(websocket.StatusNormalClosure, "")
 			return
 		}
 	}

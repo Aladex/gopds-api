@@ -62,3 +62,22 @@ func CopyBuffer(dst io.Writer, src io.Reader, buf []byte, limit int64) (int64, e
 	}
 	return written, nil
 }
+
+// ReadAll reads src entirely, provided it fits within limit.
+//
+// io.ReadAll grows a buffer to hold whatever arrives, so reading an archive
+// entry with it hands the size of the allocation to whoever built the archive.
+func ReadAll(src io.Reader, limit int64) ([]byte, error) {
+	if limit < 0 {
+		return nil, fmt.Errorf("limit must not be negative, got %d", limit)
+	}
+
+	data, err := io.ReadAll(io.LimitReader(src, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("%w of %d bytes", ErrTooLarge, limit)
+	}
+	return data, nil
+}

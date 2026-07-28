@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -251,7 +250,7 @@ func (s *RescanService) extractFB2FromArchive(archivePath, fileName string) ([]b
 				defer rc.Close()
 
 				// Read file content
-				content, err := io.ReadAll(rc)
+				content, err := safeio.ReadAll(rc, safeio.MaxBookBytes)
 				if err != nil {
 					return nil, err
 				}
