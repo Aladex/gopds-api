@@ -13,6 +13,7 @@ import (
 	"gopds-api/database"
 	"gopds-api/internal/parser"
 	"gopds-api/internal/posters"
+	"gopds-api/internal/safeio"
 	"gopds-api/logging"
 	"gopds-api/models"
 )
@@ -162,13 +163,13 @@ func (s *RescanService) ApproveRescan(bookID int64, selectedFields *models.Resca
 			if len(pending.CoverData) == 0 {
 				return nil, errors.New("pending rescan has no cover data")
 			}
-			if err := os.MkdirAll(filepath.Dir(coverFile), 0755); err != nil {
-				logging.Errorf("Failed to create cover directory: %v", err)
-				return nil, fmt.Errorf("failed to create cover directory: %w", err)
+			if mkErr := os.MkdirAll(filepath.Dir(coverFile), safeio.DirMode); mkErr != nil {
+				logging.Errorf("Failed to create cover directory: %v", mkErr)
+				return nil, fmt.Errorf("failed to create cover directory: %w", mkErr)
 			}
-			if err := os.WriteFile(coverFile, pending.CoverData, 0644); err != nil {
-				logging.Errorf("Failed to write cover file: %v", err)
-				return nil, fmt.Errorf("failed to write cover file: %w", err)
+			if writeErr := os.WriteFile(coverFile, pending.CoverData, safeio.FileMode); writeErr != nil {
+				logging.Errorf("Failed to write cover file: %v", writeErr)
+				return nil, fmt.Errorf("failed to write cover file: %w", writeErr)
 			}
 		} else {
 			if err := os.Remove(coverFile); err != nil && !os.IsNotExist(err) {

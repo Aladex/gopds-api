@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 
+	"gopds-api/internal/safeio"
 	"gopds-api/logging"
 
 	"github.com/spf13/viper"
@@ -294,7 +295,7 @@ func validateConfig(cfg *Config) error {
 // ensureDirectoryExists creates directory if it doesn't exist
 func ensureDirectoryExists(path string) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if err := os.MkdirAll(path, 0755); err != nil {
+		if err := os.MkdirAll(path, safeio.DirMode); err != nil {
 			return err
 		}
 		logging.Infof("Created directory: %s", path)

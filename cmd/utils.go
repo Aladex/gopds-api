@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 
+	"gopds-api/internal/safeio"
 	"gopds-api/logging"
 )
 
@@ -10,7 +11,7 @@ import (
 // It is used to ensure necessary directories are available at application start.
 func ensureUserPathExists(path string) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if err := os.MkdirAll(path, 0755); err != nil {
+		if err := os.MkdirAll(path, safeio.DirMode); err != nil {
 			logging.Errorf("Failed to create directory %s: %v", path, err)
 			panic(err)
 		}

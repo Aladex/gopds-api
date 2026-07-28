@@ -16,6 +16,7 @@ import (
 	"gopds-api/database"
 	"gopds-api/internal/parser"
 	"gopds-api/internal/posters"
+	"gopds-api/internal/safeio"
 	"gopds-api/llm"
 	"gopds-api/logging"
 	"gopds-api/models"
@@ -430,13 +431,13 @@ func (s *BookScanService) ProcessCover(book *models.Book, coverData []byte) erro
 	coverPath := posters.FilePath(s.coversDir, book.Path, book.FileName)
 
 	// Create parent directories if needed
-	err := os.MkdirAll(filepath.Dir(coverPath), 0755)
+	err := os.MkdirAll(filepath.Dir(coverPath), safeio.DirMode)
 	if err != nil {
 		return fmt.Errorf("failed to create cover directory: %w", err)
 	}
 
 	// Write cover image to file
-	err = os.WriteFile(coverPath, coverData, 0644)
+	err = os.WriteFile(coverPath, coverData, safeio.FileMode)
 	if err != nil {
 		return fmt.Errorf("failed to write cover file: %w", err)
 	}

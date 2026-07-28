@@ -421,10 +421,20 @@ func populateSeriesNumbers(books []models.Book) {
 		lookup[key{j.BookID, j.SeriesID}] = j.SerNo
 	}
 
-	for i, book := range books {
-		for j, series := range book.Series {
-			if serNo, ok := lookup[key{book.ID, series.ID}]; ok {
-				books[i].Series[j].SerNo = serNo
+	// Indexed rather than ranged over a copy: `for _, book := range books` hands
+	// out a whole Book per iteration only to write back through books[i]
+	// anyway, and it leaves the index and the slice being written looking
+	// unrelated.
+	// The inner slice is taken once and ranged over directly. Writing through
+	// books[i].Series[j] means neither a reader nor a checker can see in one
+	// place that j belongs to the slice being indexed; a local slice header
+	// shares the same backing array, so the assignment still lands on the book.
+	for i := range books {
+		bookID := books[i].ID
+		series := books[i].Series
+		for j := range series {
+			if serNo, ok := lookup[key{bookID, series[j].ID}]; ok {
+				series[j].SerNo = serNo
 			}
 		}
 	}

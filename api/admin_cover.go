@@ -17,6 +17,7 @@ import (
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/internal/posters"
+	"gopds-api/internal/safeio"
 	"gopds-api/models"
 
 	_ "image/gif"
@@ -90,13 +91,13 @@ func UploadBookCover(c *gin.Context) {
 	}
 
 	coverPath := posters.FilePath(coversDir, book.Path, book.FileName)
-	if err := os.MkdirAll(filepath.Dir(coverPath), 0755); err != nil {
-		httputil.NewError(c, http.StatusInternalServerError, fmt.Errorf("failed_to_create_cover_dir: %w", err))
+	if mkErr := os.MkdirAll(filepath.Dir(coverPath), safeio.DirMode); mkErr != nil {
+		httputil.NewError(c, http.StatusInternalServerError, fmt.Errorf("failed_to_create_cover_dir: %w", mkErr))
 		return
 	}
 
-	if err := os.WriteFile(coverPath, jpegData, 0644); err != nil {
-		httputil.NewError(c, http.StatusInternalServerError, fmt.Errorf("failed_to_write_cover: %w", err))
+	if writeErr := os.WriteFile(coverPath, jpegData, safeio.FileMode); writeErr != nil {
+		httputil.NewError(c, http.StatusInternalServerError, fmt.Errorf("failed_to_write_cover: %w", writeErr))
 		return
 	}
 
