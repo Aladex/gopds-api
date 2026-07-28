@@ -5,6 +5,7 @@ import { AlertCircle, CheckCircle2, ChevronDown, LogOut } from 'lucide-react';
 import { Button } from '@/shared/ui/button';
 import { Expandable } from '@/shared/ui/expandable';
 import { Input } from '@/shared/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/tabs';
 import { cn } from '@/shared/lib/utils';
 
 import { useProfileForm } from '@/features/profile/useProfileForm';
@@ -23,6 +24,16 @@ type ProfileContentProps = {
  * something they only opened to change their name.
  */
 export const PROFILE_FIRST_FIELD_ID = 'profile-first-name';
+
+/**
+ * The three faces of the profile, in the order they are asked for: who I am,
+ * how I get in, and what else is plugged into the account.
+ */
+const TABS = [
+    { value: 'account', labelKey: 'profileTab.account' },
+    { value: 'security', labelKey: 'profileTab.security' },
+    { value: 'bot', labelKey: 'profileTab.bot' },
+] as const;
 
 export function focusFirstProfileField(event: Event) {
     event.preventDefault();
@@ -92,6 +103,9 @@ const Field: React.FC<{
 const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
     const { t } = useTranslation();
     const [showInstruction, setShowInstruction] = useState(false);
+    // Switching tabs unmounts fields but not their values: the form state lives
+    // in useProfileForm, so a name typed here survives a look at the bot tab.
+    const [tab, setTab] = useState<string>(TABS[0].value);
 
     const {
         firstName,
@@ -147,186 +161,223 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                 )}
             </div>
 
-            <Group title={t('profileSection.personalData')} first>
-                <div className="flex flex-col gap-3 sm:flex-row">
-                    <Field
-                        id={PROFILE_FIRST_FIELD_ID}
-                        label={t('firstName')}
-                        value={firstName}
-                        onChange={setFirstName}
-                    />
-                    <Field
-                        id="profile-last-name"
-                        label={t('lastName')}
-                        value={lastName}
-                        onChange={setLastName}
-                    />
-                </div>
-            </Group>
-
-            <Group title={t('interfaceLanguage')}>
-                {/* It applies on click, like the books language does; the Save
-                    at the foot is for the fields above it. */}
-                <InterfaceLanguageToggle />
-            </Group>
-
             {/*
-              Password and sessions are separate groups on purpose. Together,
-              the two session buttons sat directly beneath the password fields
-              and read as the way to commit them — while the button that
-              actually does is the Save at the foot.
+              Three tabs rather than one column of five sections. Stacked, the
+              profile ran half again as tall as a phone screen, so it opened on
+              a form whose Save sat somewhere below the fold; split, the tallest
+              of the three fits with room to spare.
+
+              Three labels this short never overflow the row, so the primitive's
+              horizontal scroll stays dormant and none of them slides out of
+              reach.
             */}
-            <Group title={t('profileSection.password')}>
-                <button
-                    type="button"
-                    onClick={togglePasswordFields}
-                    aria-expanded={showPasswordFields}
-                    className="flex w-full items-center justify-between text-sm font-medium"
-                >
-                    {t('changePassword')}
-                    <ChevronDown
-                        aria-hidden="true"
-                        className={cn(
-                            'size-4 text-muted-foreground transition-transform duration-200',
-                            showPasswordFields && 'rotate-180',
-                        )}
-                    />
-                </button>
-
-                {/* fade off: this hides a form, not truncated prose. */}
-                <Expandable open={showPasswordFields} peekLines={0} fade={false}>
-                    <div className="flex flex-col gap-3 pt-3">
-                        <Field
-                            id="profile-old-password"
-                            label={t('oldPassword')}
-                            type="password"
-                            autoComplete="current-password"
-                            value={oldPassword}
-                            onChange={setOldPassword}
-                        />
-                        <Field
-                            id="profile-new-password"
-                            label={t('newPassword')}
-                            type="password"
-                            autoComplete="new-password"
-                            value={newPassword}
-                            onChange={setNewPassword}
-                        />
-                        <p className="text-xs text-muted-foreground">
-                            {t('passwordSavedWithProfile')}
-                        </p>
-                    </div>
-                </Expandable>
-            </Group>
-
-            {/*
-              Signing out and ending every session are the same act at two
-              scopes — this device, or all of them — so they sit together, the
-              wider one marked as the heavier.
-            */}
-            <Group title={t('profileSection.sessions')}>
-                <div className="flex flex-wrap gap-2">
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                            resetFields();
-                            handleLogout();
-                        }}
-                    >
-                        <LogOut className="size-4" />
-                        {t('logoutButton')}
-                    </Button>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleDropSessions}
-                        className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                    >
-                        {t('dropSessions')}
-                    </Button>
-                </div>
-            </Group>
-
-            <Group
-                title={
-                    <>
-                        {t('profileSection.telegramBot')}
-                        <span
-                            className={cn(
-                                'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] normal-case tracking-normal',
-                                botConnected
-                                    ? 'border-green-600/50 text-green-600 dark:border-green-400/50 dark:text-green-400'
-                                    : 'text-muted-foreground',
-                            )}
+            <Tabs value={tab} onValueChange={setTab} className="mt-3">
+                <TabsList className="w-full">
+                    {TABS.map((entry) => (
+                        <TabsTrigger
+                            key={entry.value}
+                            value={entry.value}
+                            /* Sized by their words rather than into equal
+                               thirds: a third of a 350px sheet is about eighty
+                               pixels, and "Безопасность" is wider than that.
+                               flex-auto still fills the row, so the three share
+                               it without any of them being cut. */
+                            className="min-w-0 flex-auto"
                         >
-                            {botConnected ? (
-                                <CheckCircle2 aria-hidden="true" className="size-3" />
-                            ) : (
-                                <AlertCircle aria-hidden="true" className="size-3" />
-                            )}
-                            {botConnected ? t('telegramBot.connected') : t('telegramBot.notConfigured')}
-                        </span>
-                    </>
-                }
-            >
-                {botConnected ? (
-                    <>
-                        <p className="mb-3 text-sm text-muted-foreground">{t('telegramBot.startHint')}</p>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={botLoading}
-                            onClick={handleRemoveBotToken}
-                            className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        >
-                            {t('telegramBot.removeToken')}
-                        </Button>
-                    </>
-                ) : (
-                    <>
-                        <p className="mb-2 text-xs text-muted-foreground">
-                            <Trans i18nKey="telegramBot.tokenHint" components={{ botfather: <BotFatherLink /> }} />{' '}
-                            <button
-                                type="button"
-                                onClick={() => setShowInstruction((value) => !value)}
-                                aria-expanded={showInstruction}
-                                className="text-primary underline"
-                            >
-                                {t('telegramBot.instructionToggle')}
-                            </button>
-                        </p>
+                            <span className="truncate">{t(entry.labelKey)}</span>
+                        </TabsTrigger>
+                    ))}
+                </TabsList>
 
-                        <Expandable open={showInstruction} peekLines={0} fade={false}>
-                            <ol className="mb-3 list-decimal pl-5 text-xs text-muted-foreground [&>li]:mb-1">
-                                <li>
-                                    <Trans i18nKey="telegramBot.step1" components={{ botfather: <BotFatherLink /> }} />
-                                </li>
-                                <li>{t('telegramBot.step2')}</li>
-                                <li>{t('telegramBot.step3')}</li>
-                                <li>{t('telegramBot.step4')}</li>
-                            </ol>
-                        </Expandable>
-
-                        <div className="mb-3">
+                <TabsContent value="account">
+                    <Group title={t('profileSection.personalData')} first>
+                        <div className="flex flex-col gap-3 sm:flex-row">
                             <Field
-                                id="profile-bot-token"
-                                placeholder={t('telegramBot.tokenPlaceholder')}
-                                value={botToken}
-                                disabled={botLoading}
-                                onChange={setBotToken}
+                                id={PROFILE_FIRST_FIELD_ID}
+                                label={t('firstName')}
+                                value={firstName}
+                                onChange={setFirstName}
+                            />
+                            <Field
+                                id="profile-last-name"
+                                label={t('lastName')}
+                                value={lastName}
+                                onChange={setLastName}
                             />
                         </div>
-                        <Button
-                            size="sm"
-                            disabled={botLoading || !botToken.trim()}
-                            onClick={handleSetBotToken}
+                    </Group>
+
+                    <Group title={t('interfaceLanguage')}>
+                        {/* It applies on click, like the books language does; the Save
+                            at the foot is for the fields above it. */}
+                        <InterfaceLanguageToggle />
+                    </Group>
+                </TabsContent>
+
+                <TabsContent value="security">
+
+                    {/*
+                      Password and sessions are separate groups on purpose. Together,
+                      the two session buttons sat directly beneath the password fields
+                      and read as the way to commit them — while the button that
+                      actually does is the Save at the foot.
+                    */}
+                    <Group title={t('profileSection.password')} first>
+                        <button
+                            type="button"
+                            onClick={togglePasswordFields}
+                            aria-expanded={showPasswordFields}
+                            className="flex w-full items-center justify-between text-sm font-medium"
                         >
-                            {botLoading ? t('telegramBot.connecting') : t('telegramBot.connectButton')}
-                        </Button>
-                    </>
-                )}
-            </Group>
+                            {t('changePassword')}
+                            <ChevronDown
+                                aria-hidden="true"
+                                className={cn(
+                                    'size-4 text-muted-foreground transition-transform duration-200',
+                                    showPasswordFields && 'rotate-180',
+                                )}
+                            />
+                        </button>
+
+                        {/* fade off: this hides a form, not truncated prose. */}
+                        <Expandable open={showPasswordFields} peekLines={0} fade={false}>
+                            <div className="flex flex-col gap-3 pt-3">
+                                <Field
+                                    id="profile-old-password"
+                                    label={t('oldPassword')}
+                                    type="password"
+                                    autoComplete="current-password"
+                                    value={oldPassword}
+                                    onChange={setOldPassword}
+                                />
+                                <Field
+                                    id="profile-new-password"
+                                    label={t('newPassword')}
+                                    type="password"
+                                    autoComplete="new-password"
+                                    value={newPassword}
+                                    onChange={setNewPassword}
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                    {t('passwordSavedWithProfile')}
+                                </p>
+                            </div>
+                        </Expandable>
+                    </Group>
+
+                    {/*
+                      Signing out and ending every session are the same act at two
+                      scopes — this device, or all of them — so they sit together, the
+                      wider one marked as the heavier.
+                    */}
+                    <Group title={t('profileSection.sessions')}>
+                        <div className="flex flex-wrap gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                    resetFields();
+                                    handleLogout();
+                                }}
+                            >
+                                <LogOut className="size-4" />
+                                {t('logoutButton')}
+                            </Button>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={handleDropSessions}
+                                className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            >
+                                {t('dropSessions')}
+                            </Button>
+                        </div>
+                    </Group>
+                </TabsContent>
+
+                <TabsContent value="bot">
+                    <Group
+                        first
+                        title={
+                            <>
+                                {t('profileSection.telegramBot')}
+                                <span
+                                    className={cn(
+                                        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] normal-case tracking-normal',
+                                        botConnected
+                                            ? 'border-green-600/50 text-green-600 dark:border-green-400/50 dark:text-green-400'
+                                            : 'text-muted-foreground',
+                                    )}
+                                >
+                                    {botConnected ? (
+                                        <CheckCircle2 aria-hidden="true" className="size-3" />
+                                    ) : (
+                                        <AlertCircle aria-hidden="true" className="size-3" />
+                                    )}
+                                    {botConnected ? t('telegramBot.connected') : t('telegramBot.notConfigured')}
+                                </span>
+                            </>
+                        }
+                    >
+                        {botConnected ? (
+                            <>
+                                <p className="mb-3 text-sm text-muted-foreground">{t('telegramBot.startHint')}</p>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={botLoading}
+                                    onClick={handleRemoveBotToken}
+                                    className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                >
+                                    {t('telegramBot.removeToken')}
+                                </Button>
+                            </>
+                        ) : (
+                            <>
+                                <p className="mb-2 text-xs text-muted-foreground">
+                                    <Trans i18nKey="telegramBot.tokenHint" components={{ botfather: <BotFatherLink /> }} />{' '}
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowInstruction((value) => !value)}
+                                        aria-expanded={showInstruction}
+                                        className="text-primary underline"
+                                    >
+                                        {t('telegramBot.instructionToggle')}
+                                    </button>
+                                </p>
+
+                                <Expandable open={showInstruction} peekLines={0} fade={false}>
+                                    <ol className="mb-3 list-decimal pl-5 text-xs text-muted-foreground [&>li]:mb-1">
+                                        <li>
+                                            <Trans i18nKey="telegramBot.step1" components={{ botfather: <BotFatherLink /> }} />
+                                        </li>
+                                        <li>{t('telegramBot.step2')}</li>
+                                        <li>{t('telegramBot.step3')}</li>
+                                        <li>{t('telegramBot.step4')}</li>
+                                    </ol>
+                                </Expandable>
+
+                                <div className="mb-3">
+                                    <Field
+                                        id="profile-bot-token"
+                                        placeholder={t('telegramBot.tokenPlaceholder')}
+                                        value={botToken}
+                                        disabled={botLoading}
+                                        onChange={setBotToken}
+                                    />
+                                </div>
+                                <Button
+                                    size="sm"
+                                    disabled={botLoading || !botToken.trim()}
+                                    onClick={handleSetBotToken}
+                                >
+                                    {botLoading ? t('telegramBot.connecting') : t('telegramBot.connectButton')}
+                                </Button>
+                            </>
+                        )}
+                    </Group>
+                </TabsContent>
+            </Tabs>
 
             {/*
               Stuck to the bottom edge of whatever is scrolling this.
@@ -345,7 +396,9 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                 <Button variant="ghost" onClick={handleClose}>
                     {t('close')}
                 </Button>
-                <Button onClick={handleSave}>{t('save')}</Button>
+                {/* The bot tab has nothing this button could save: connecting
+                    and disconnecting happen on their own buttons, at once. */}
+                {tab !== 'bot' && <Button onClick={handleSave}>{t('save')}</Button>}
             </div>
         </div>
     );
