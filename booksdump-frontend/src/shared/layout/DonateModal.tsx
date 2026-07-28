@@ -37,21 +37,86 @@ type DonateModalProps = {
 const formatCard = (value: string) => value.replace(/(.{4})/g, '$1 ').trim();
 
 /**
+ * copyText puts a string on the clipboard, by whichever means the page has.
+ *
+ * navigator.clipboard exists only in a secure context, and this application is
+ * self-hosted: a library served over plain http on somebody's network is an
+ * ordinary way to run it, and there the API is not merely refused — it is
+ * undefined, so reaching for it throws. The old selection dance still works
+ * there, and is the whole reason this is not a one-liner.
+ */
+async function copyText(value: string): Promise<boolean> {
+    if (navigator.clipboard?.writeText) {
+        try {
+            await navigator.clipboard.writeText(value);
+            return true;
+        } catch {
+            // Refused, or no permission. Fall through and try the other way.
+        }
+    }
+
+    try {
+        const active = document.activeElement as HTMLElement | null;
+
+        /*
+          Inside the dialog, not on the body. A dialog keeps focus within
+          itself, so a textarea appended outside one never takes the selection
+          — and execCommand then reports success having copied nothing, which
+          is worse than failing: the tick appears and the clipboard is
+          unchanged. Measured with the dialog open: a textarea on the body
+          selects 0 characters, one inside it selects all of them.
+        */
+        const host = active?.closest?.('[role="dialog"]') ?? document.body;
+
+        const area = document.createElement('textarea');
+        area.value = value;
+        area.setAttribute('readonly', '');
+        // Off-screen but focusable: a hidden element cannot be selected.
+        area.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+        host.appendChild(area);
+        area.select();
+        const copied = document.execCommand('copy');
+        area.remove();
+
+        // Selecting the textarea took the focus off whatever was clicked.
+        active?.focus?.();
+
+        return copied;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * useCopied copies, and says so for a moment — but only if it worked.
+ *
+ * The tick is the whole of the feedback, so it has to clear itself — and clean
+ * up, or closing the dialog mid-timeout leaves a timer running.
+ */
+function useCopied(): [boolean, (value: string) => void] {
+    const [copied, setCopied] = useState(false);
+
+    useEffect(() => {
+        if (!copied) return;
+        const timer = setTimeout(() => setCopied(false), 1500);
+        return () => clearTimeout(timer);
+    }, [copied]);
+
+    const copy = (value: string) => {
+        void copyText(value).then((done) => setCopied(done));
+    };
+
+    return [copied, copy];
+}
+
+/**
  * CopyButton is an icon rather than a labelled button: it sits inside the block
  * holding the value, where what it copies is unambiguous and the word for it
  * would cost more width than the address can spare.
  */
 const CopyButton: React.FC<{ value: string; label: string }> = ({ value, label }) => {
     const { t } = useTranslation();
-    const [copied, setCopied] = useState(false);
-
-    // The tick is the whole of the feedback, so it has to clear itself — and
-    // clean up, or closing the dialog mid-timeout leaves a timer running.
-    useEffect(() => {
-        if (!copied) return;
-        const timer = setTimeout(() => setCopied(false), 1500);
-        return () => clearTimeout(timer);
-    }, [copied]);
+    const [copied, copy] = useCopied();
 
     const name = `${copied ? t('copied') : t('copy')}: ${label}`;
 
@@ -63,10 +128,7 @@ const CopyButton: React.FC<{ value: string; label: string }> = ({ value, label }
             className="shrink-0 hover:bg-background/60"
             aria-label={name}
             title={name}
-            onClick={() => {
-                navigator.clipboard.writeText(value);
-                setCopied(true);
-            }}
+            onClick={() => copy(value)}
         >
             {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
         </Button>
@@ -107,19 +169,79 @@ const QrCode: React.FC<{ value: string }> = ({ value }) => {
     );
 };
 
-const Method: React.FC<{ method: DonateMethod }> = ({ method }) => {
+/**
+ * OpenLink goes to a page that takes the money.
+ *
+ * One appearance wherever it appears. It used to be an outlined button when a
+ * method was nothing but a link, and bare text beside a card number — the same
+ * word for the same act, dressed two ways, and the second dressed as something
+ * that could not be clicked at all: the link variant only underlines on hover,
+ * so at rest it was a line of centred text.
+ */
+const OpenLink: React.FC<{ href: string }> = ({ href }) => {
     const { t } = useTranslation();
-    const shown = method.kind === 'card' ? formatCard(method.value) : method.value;
 
+    return (
+        <Button asChild variant="outline" size="sm">
+            <a href={href} target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="size-4" />
+                {t('donateOpen')}
+            </a>
+        </Button>
+    );
+};
+
+/**
+ * PaymentCard shows a card number as the thing it is.
+ *
+ * A row of digits in a grey box is a string; a card is an object someone
+ * recognises before reading it, and recognises as the one they were told to
+ * expect. The proportions are a real card's, 85.6 by 54mm.
+ *
+ * The whole card copies, because that is the only thing anyone wants to do
+ * with it, and a target the size of a card is easier to hit than an icon.
+ */
+const PaymentCard: React.FC<{ value: string; label: string }> = ({ value, label }) => {
+    const { t } = useTranslation();
+    const [copied, copy] = useCopied();
+
+    const name = `${copied ? t('copied') : t('copy')}: ${label}`;
+
+    return (
+        <button
+            type="button"
+            onClick={() => copy(value)}
+            aria-label={name}
+            title={name}
+            className={cn(
+                'relative flex aspect-[1.586] w-full max-w-80 flex-col justify-between rounded-xl p-4 text-left',
+                'border border-border bg-gradient-to-br from-muted to-accent',
+                'outline-none transition-shadow hover:shadow-md focus-visible:ring-[3px] focus-visible:ring-ring/50',
+            )}
+        >
+            <span className="text-xs tracking-wide text-muted-foreground uppercase">{label}</span>
+
+            {/* The chip: enough of one to read as a card at a glance. */}
+            <span aria-hidden="true" className="h-6 w-9 rounded-[3px] bg-foreground/25" />
+
+            <span className="font-mono text-[15px] tracking-[0.18em] tabular-nums">
+                {formatCard(value)}
+            </span>
+
+            <span aria-hidden="true" className="absolute top-3 right-3 text-muted-foreground">
+                {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+            </span>
+        </button>
+    );
+};
+
+const Method: React.FC<{ method: DonateMethod }> = ({ method }) => {
     return (
         <div className="flex w-full flex-col items-center gap-2">
             {method.kind === 'link' ? (
-                <Button asChild variant="outline" size="sm">
-                    <a href={method.value} target="_blank" rel="noopener noreferrer">
-                        <ExternalLink className="size-4" />
-                        {t('donateOpen')}
-                    </a>
-                </Button>
+                <OpenLink href={method.value} />
+            ) : method.kind === 'card' ? (
+                <PaymentCard value={method.value} label={method.label} />
             ) : (
                 /*
                   The copy control lives inside the block it copies, as an icon.
@@ -128,25 +250,14 @@ const Method: React.FC<{ method: DonateMethod }> = ({ method }) => {
                   could have said in two.
                 */
                 <div className="flex w-full items-start gap-1 rounded bg-muted py-1.5 pr-1.5 pl-2">
-                    <code
-                        className={cn(
-                            'min-w-0 flex-1 self-center text-[13px] break-all',
-                            method.kind === 'card' && 'break-normal tracking-wider',
-                        )}
-                    >
-                        {shown}
+                    <code className="min-w-0 flex-1 self-center text-[13px] break-all">
+                        {method.value}
                     </code>
                     <CopyButton value={method.value} label={method.label} />
                 </div>
             )}
 
-            {method.link && method.kind !== 'link' && (
-                <Button asChild variant="link" size="sm" className="h-auto p-0 text-xs">
-                    <a href={method.link} target="_blank" rel="noopener noreferrer">
-                        {t('donateOpen')}
-                    </a>
-                </Button>
-            )}
+            {method.link && method.kind !== 'link' && <OpenLink href={method.link} />}
 
             {method.qr && <QrCode value={method.value} />}
         </div>
@@ -196,8 +307,10 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
      * get a dialog sized around a QR code nobody has.
      */
     const room = methods.some((method) => method.qr)
-        ? 'min-h-[17rem]' // address, an optional link, and a 200px code
-        : 'min-h-24';
+        ? 'min-h-[17rem]' // a value, an optional link, and a 200px code
+        : methods.some((method) => method.kind === 'card')
+          ? 'min-h-[15rem]' // a card at its own proportions, and a link
+          : 'min-h-24';
 
     const body =
         // One way of giving needs no choosing between ways — but it still needs
