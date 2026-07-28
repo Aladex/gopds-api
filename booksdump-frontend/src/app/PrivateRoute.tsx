@@ -11,6 +11,7 @@ import BottomNavigation from '@/shared/layout/BottomNavigation';
 import ProfileDrawer from '@/features/profile/ProfileDrawer';
 import ProfileDialog from '@/features/profile/ProfileDialog';
 import LoadingSpinner from '@/shared/components/LoadingSpinner';
+import LanguagePrompt from '@/features/catalogue/LanguagePrompt';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 
 const PrivateRoute: React.FC<{ children: React.ReactNode; requireSuperuser?: boolean }> = memo(
@@ -72,6 +73,10 @@ const PrivateRoute: React.FC<{ children: React.ReactNode; requireSuperuser?: boo
                 )}
                 <ProfileDrawer open={isProfileDrawerOpen} onClose={handleCloseProfile} />
                 <ProfileDialog open={isProfileDialogOpen} onClose={handleCloseProfile} />
+                {/* A new account has no books language, and no language means
+                    no filter — so it belongs here, where both the reader and
+                    the library's languages are known. */}
+                <LanguagePrompt />
             </>
         );
     },

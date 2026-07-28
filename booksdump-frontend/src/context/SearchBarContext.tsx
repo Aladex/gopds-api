@@ -7,6 +7,14 @@ interface SearchBarContextType {
     selectedSearch: string;
     searchItem: string;
     languages: string[];
+    /**
+     * Whether the language list has been answered for at all.
+     *
+     * An empty list means two different things — not fetched yet, and a
+     * library with no books in it — and anything deciding what to do about a
+     * reader with no language set has to tell them apart.
+     */
+    languagesLoaded: boolean;
     selectedLanguage: string;
     setLanguages: (languages: string[]) => void;
     setSearchItem: (searchValue: string) => void;
@@ -21,6 +29,7 @@ export const SearchBarProvider: React.FC<{ children: ReactNode }> = ({ children 
     const [searchItem, setSearchItem] = useState('');
     const [selectedSearch, setSelectedSearch] = useState('title'); // Initial state set to 'title'
     const [languages, setLanguages] = useState<string[]>([]);
+    const [languagesLoaded, setLanguagesLoaded] = useState(false);
     const [selectedLanguage, setSelectedLanguage] = useState<string>('');
     const { user, isAuthenticated } = useAuth();
 
@@ -43,6 +52,7 @@ export const SearchBarProvider: React.FC<{ children: ReactNode }> = ({ children 
                     const languageList = langs.map((item) => item.lang);
                     // Filter only supported languages
                     setLanguages(filterSupportedLanguages(languageList));
+                    setLanguagesLoaded(true);
                 } catch (error) {
                     console.error('Error fetching languages', error);
                 }
@@ -56,13 +66,14 @@ export const SearchBarProvider: React.FC<{ children: ReactNode }> = ({ children 
         searchItem,
         selectedSearch,
         languages,
+        languagesLoaded,
         selectedLanguage,
         setLanguages: memoizedSetLanguages,
         setSearchItem: memoizedSetSearchItem,
         setSelectedSearch: memoizedSetSelectedSearch,
         setSelectedLanguage: memoizedSetSelectedLanguage,
         clearSelectedSearch,
-    }), [searchItem, selectedSearch, languages, selectedLanguage, memoizedSetLanguages, memoizedSetSearchItem, memoizedSetSelectedSearch, memoizedSetSelectedLanguage, clearSelectedSearch]);
+    }), [searchItem, selectedSearch, languages, languagesLoaded, selectedLanguage, memoizedSetLanguages, memoizedSetSearchItem, memoizedSetSelectedSearch, memoizedSetSelectedLanguage, clearSelectedSearch]);
 
     return (
         <SearchBarContext.Provider value={contextValue}>
