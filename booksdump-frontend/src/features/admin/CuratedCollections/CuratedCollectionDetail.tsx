@@ -1,29 +1,26 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
+import { AlertCircle, Search, Trash2 } from 'lucide-react';
+
+import { Alert, AlertDescription } from '@/shared/ui/alert';
+import { Badge } from '@/shared/ui/badge';
+import { Button } from '@/shared/ui/button';
+import { Card, CardContent } from '@/shared/ui/card';
+import { Input } from '@/shared/ui/input';
+import { Progress } from '@/shared/ui/progress';
 import {
-    Alert,
-    Box,
-    Button,
-    Card,
-    CardContent,
-    Chip,
-    IconButton,
-    LinearProgress,
-    Stack,
-    Tab,
     Table,
     TableBody,
     TableCell,
     TableHead,
+    TableHeader,
     TableRow,
-    Tabs,
-    TextField,
-    Typography,
-} from '@mui/material';
-import DeleteIcon from '@mui/icons-material/Delete';
-import SearchIcon from '@mui/icons-material/Search';
+} from '@/shared/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/tabs';
+
 import SearchAndResolveDialog from '@/features/admin/CuratedCollections/SearchAndResolveDialog';
-import { useNavigate, useParams } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
 import {
     autoResolveCollection,
     CollectionItem,
@@ -51,16 +48,26 @@ interface CandidateInfo {
 
 // readCandidates safely extracts the candidate list saved by the backend in
 // external_extra.candidates during ambiguous matching.
-function readCandidates(extra: any): CandidateInfo[] {
-    if (!extra || !Array.isArray(extra.candidates)) return [];
-    return extra.candidates
-        .filter((c: any) => c && typeof c.book_id === 'number')
-        .map((c: any) => ({ book_id: c.book_id, score: typeof c.score === 'number' ? c.score : 0 }));
+function readCandidates(extra: unknown): CandidateInfo[] {
+    if (!extra || typeof extra !== 'object') return [];
+    const candidates = (extra as { candidates?: unknown }).candidates;
+    if (!Array.isArray(candidates)) return [];
+    return candidates
+        .filter(
+            (c): c is { book_id: number; score?: unknown } =>
+                !!c && typeof c === 'object' && typeof (c as { book_id?: unknown }).book_id === 'number',
+        )
+        .map((c) => ({ book_id: c.book_id, score: typeof c.score === 'number' ? c.score : 0 }));
 }
+
+/** describeBook is the "title — authors" line a chip carries, or a bare id. */
+const describeBook = (bookID: number, book: LookupBook | undefined): string =>
+    book
+        ? `${book.title} — ${(book.authors ?? []).map((a) => a.full_name).join(', ') || '?'}`
+        : `#${bookID}`;
 
 const ItemsTable: React.FC<{
     items: CollectionItem[];
-    statusKey: string;
     bookInfo: Map<number, LookupBook>;
     onResolve: (itemID: number, bookID: number) => Promise<void>;
     onIgnore: (itemID: number) => Promise<void>;
@@ -108,137 +115,167 @@ const ItemsTable: React.FC<{
     // Resolution controls are always available — admin can re-resolve a
     // previously matched item (typo, wrong edition picked) or rescue an
     // ignored one by submitting a fresh book_id.
-    const isResolvable = true;
 
     return (
-      <>
-        <Table size="small">
-            <TableHead>
-                <TableRow>
-                    <TableCell>#</TableCell>
-                    <TableCell>{t('curatedCollections.col.title', 'Title')}</TableCell>
-                    <TableCell>{t('curatedCollections.col.author', 'Author')}</TableCell>
-                    <TableCell>{t('curatedCollections.col.score', 'Score')}</TableCell>
-                    <TableCell>{t('curatedCollections.col.candidates', 'Candidates / Book')}</TableCell>
-                    <TableCell></TableCell>
-                </TableRow>
-            </TableHead>
-            <TableBody>
-                {items.map((it) => {
-                    const candidates = readCandidates(it.external_extra);
-                    return (
-                        <TableRow key={it.id} hover>
-                            <TableCell>{it.position + 1}</TableCell>
-                            <TableCell>{it.external_title}</TableCell>
-                            <TableCell>{it.external_author}</TableCell>
-                            <TableCell>{it.match_score?.toFixed?.(2) ?? '—'}</TableCell>
-                            <TableCell sx={{ minWidth: 360, maxWidth: 520 }}>
-                                {it.book_id ? (
-                                    (() => {
-                                        const b = bookInfo.get(it.book_id);
-                                        const label = b
-                                            ? `${b.title} — ${(b.authors ?? []).map((a) => a.full_name).join(', ') || '?'}`
-                                            : `#${it.book_id}`;
-                                        return (
-                                            <Chip
-                                                size="small"
-                                                color="success"
-                                                label={`#${it.book_id} · ${label}`}
-                                                sx={{ maxWidth: '100%', '& .MuiChip-label': { whiteSpace: 'normal' } }}
-                                            />
-                                        );
-                                    })()
-                                ) : candidates.length > 0 ? (
-                                    <Stack spacing={0.5}>
-                                        {candidates.map((c) => {
-                                            const b = bookInfo.get(c.book_id);
-                                            const main = b
-                                                ? `${b.title} — ${(b.authors ?? []).map((a) => a.full_name).join(', ') || '?'}`
-                                                : `#${c.book_id}`;
-                                            return (
-                                                <Chip
-                                                    key={c.book_id}
-                                                    size="small"
-                                                    clickable
-                                                    disabled={!!busy[it.id]}
-                                                    onClick={() => resolveTo(it.id, c.book_id)}
-                                                    label={`${c.score.toFixed(2)} · ${main}`}
-                                                    sx={{
-                                                        maxWidth: '100%',
-                                                        justifyContent: 'flex-start',
-                                                        '& .MuiChip-label': { whiteSpace: 'normal' },
-                                                    }}
-                                                />
-                                            );
-                                        })}
-                                    </Stack>
-                                ) : (
-                                    <Typography variant="caption" color="text.secondary">
-                                        {t('curatedCollections.noCandidates', 'no candidates')}
-                                    </Typography>
-                                )}
-                            </TableCell>
-                            <TableCell>
-                                {isResolvable && (
-                                    <Stack direction="row" spacing={1} alignItems="center">
-                                        <IconButton
-                                            size="small"
-                                            onClick={() => setSearchFor({ itemID: it.id, query: it.external_title })}
-                                            title={t('curatedCollections.searchInLibrary', 'Search by title in library')}
-                                        >
-                                            <SearchIcon fontSize="small" />
-                                        </IconButton>
-                                        <TextField
-                                            size="small"
-                                            placeholder={t('curatedCollections.bookIdPlaceholder', 'book_id')}
-                                            value={manualID[it.id] ?? ''}
-                                            onChange={(e) =>
-                                                setManualID((p) => ({ ...p, [it.id]: e.target.value }))
-                                            }
-                                            sx={{ width: 100 }}
-                                        />
-                                        <Button
-                                            size="small"
-                                            variant="outlined"
-                                            disabled={!!busy[it.id]}
-                                            onClick={() => submitManual(it.id)}
-                                        >
-                                            {t('curatedCollections.resolve', 'Resolve')}
-                                        </Button>
-                                        <IconButton
-                                            size="small"
-                                            onClick={() => ignore(it.id)}
-                                            title={t('curatedCollections.ignoreAction', 'Ignore')}
-                                            disabled={!!busy[it.id]}
-                                        >
-                                            <DeleteIcon fontSize="small" />
-                                        </IconButton>
-                                    </Stack>
-                                )}
-                            </TableCell>
+        <>
+            <div className="rounded border border-border">
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead className="text-right">#</TableHead>
+                            <TableHead>{t('curatedCollections.col.title', 'Title')}</TableHead>
+                            <TableHead>{t('curatedCollections.col.author', 'Author')}</TableHead>
+                            <TableHead className="text-right">
+                                {t('curatedCollections.col.score', 'Score')}
+                            </TableHead>
+                            <TableHead>
+                                {t('curatedCollections.col.candidates', 'Candidates / Book')}
+                            </TableHead>
+                            {/* The actions column still needs a name, or a
+                                screen reader announces the cell without saying
+                                which column it is in. */}
+                            <TableHead>
+                                <span className="sr-only">
+                                    {t('curatedCollections.col.actions', 'Actions')}
+                                </span>
+                            </TableHead>
                         </TableRow>
-                    );
-                })}
-                {items.length === 0 && (
-                    <TableRow>
-                        <TableCell colSpan={6}>
-                            <Typography variant="body2" color="text.secondary" align="center">
-                                {t('curatedCollections.tabEmpty', 'Empty')}
-                            </Typography>
-                        </TableCell>
-                    </TableRow>
-                )}
-            </TableBody>
-        </Table>
-        <SearchAndResolveDialog
-            open={!!searchFor}
-            initialQuery={searchFor?.query ?? ''}
-            onClose={() => setSearchFor(null)}
-            onPick={async (bookID) => {
-                if (searchFor) await onResolve(searchFor.itemID, bookID);
-            }}
-        />
-      </>
+                    </TableHeader>
+                    <TableBody>
+                        {items.map((it) => {
+                            const candidates = readCandidates(it.external_extra);
+                            return (
+                                <TableRow key={it.id}>
+                                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                                        {it.position + 1}
+                                    </TableCell>
+                                    <TableCell>{it.external_title}</TableCell>
+                                    <TableCell>{it.external_author}</TableCell>
+                                    <TableCell className="text-right tabular-nums">
+                                        {it.match_score?.toFixed?.(2) ?? '—'}
+                                    </TableCell>
+                                    <TableCell className="min-w-90 max-w-130">
+                                        {it.book_id ? (
+                                            <Badge className="h-auto whitespace-normal text-left">
+                                                #{it.book_id} ·{' '}
+                                                {describeBook(it.book_id, bookInfo.get(it.book_id))}
+                                            </Badge>
+                                        ) : candidates.length > 0 ? (
+                                            <div className="flex flex-col items-start gap-1">
+                                                {/* A candidate is a button, not
+                                                    a chip that happens to react
+                                                    to a click: pressing it
+                                                    resolves the item. */}
+                                                {candidates.map((c) => (
+                                                    <Button
+                                                        key={c.book_id}
+                                                        variant="outline"
+                                                        size="sm"
+                                                        disabled={!!busy[it.id]}
+                                                        onClick={() => resolveTo(it.id, c.book_id)}
+                                                        className="h-auto max-w-full justify-start py-1 text-left whitespace-normal"
+                                                    >
+                                                        <span className="tabular-nums">
+                                                            {c.score.toFixed(2)}
+                                                        </span>
+                                                        {' · '}
+                                                        {describeBook(
+                                                            c.book_id,
+                                                            bookInfo.get(c.book_id),
+                                                        )}
+                                                    </Button>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <span className="text-xs text-muted-foreground">
+                                                {t('curatedCollections.noCandidates', 'no candidates')}
+                                            </span>
+                                        )}
+                                    </TableCell>
+                                    <TableCell>
+                                        <div className="flex flex-wrap items-center gap-1">
+                                            <Button
+                                                variant="ghost"
+                                                size="icon-sm"
+                                                onClick={() =>
+                                                    setSearchFor({
+                                                        itemID: it.id,
+                                                        query: it.external_title,
+                                                    })
+                                                }
+                                                title={t(
+                                                    'curatedCollections.searchInLibrary',
+                                                    'Search by title in library',
+                                                )}
+                                                aria-label={`${t('curatedCollections.searchInLibrary', 'Search by title in library')}: ${it.external_title}`}
+                                            >
+                                                <Search className="size-4" />
+                                            </Button>
+                                            <Input
+                                                inputMode="numeric"
+                                                className="w-24"
+                                                placeholder={t(
+                                                    'curatedCollections.bookIdPlaceholder',
+                                                    'book_id',
+                                                )}
+                                                aria-label={`${t('curatedCollections.bookIdPlaceholder', 'book_id')}: ${it.external_title}`}
+                                                value={manualID[it.id] ?? ''}
+                                                onChange={(event) =>
+                                                    setManualID((p) => ({
+                                                        ...p,
+                                                        [it.id]: event.target.value,
+                                                    }))
+                                                }
+                                                onKeyDown={(event) => {
+                                                    if (event.key === 'Enter') submitManual(it.id);
+                                                }}
+                                            />
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                disabled={!!busy[it.id]}
+                                                onClick={() => submitManual(it.id)}
+                                            >
+                                                {t('curatedCollections.resolve', 'Resolve')}
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon-sm"
+                                                onClick={() => ignore(it.id)}
+                                                disabled={!!busy[it.id]}
+                                                title={t('curatedCollections.ignoreAction', 'Ignore')}
+                                                aria-label={`${t('curatedCollections.ignoreAction', 'Ignore')}: ${it.external_title}`}
+                                            >
+                                                <Trash2 className="size-4" />
+                                            </Button>
+                                        </div>
+                                    </TableCell>
+                                </TableRow>
+                            );
+                        })}
+                        {items.length === 0 && (
+                            <TableRow>
+                                <TableCell
+                                    colSpan={6}
+                                    className="py-6 text-center text-muted-foreground"
+                                >
+                                    {t('curatedCollections.tabEmpty', 'Empty')}
+                                </TableCell>
+                            </TableRow>
+                        )}
+                    </TableBody>
+                </Table>
+            </div>
+
+            <SearchAndResolveDialog
+                open={!!searchFor}
+                initialQuery={searchFor?.query ?? ''}
+                onClose={() => setSearchFor(null)}
+                onPick={async (bookID) => {
+                    if (searchFor) await onResolve(searchFor.itemID, bookID);
+                }}
+            />
+        </>
     );
 };
 
@@ -259,8 +296,8 @@ const CuratedCollectionDetail: React.FC = () => {
         try {
             const c = await getCuratedCollection(id);
             setColl(c);
-        } catch (err: any) {
-            setLoadErr(err?.message ?? 'load failed');
+        } catch (err) {
+            setLoadErr(err instanceof Error ? err.message : 'load failed');
         }
     }, [id]);
 
@@ -297,8 +334,8 @@ const CuratedCollectionDetail: React.FC = () => {
                         return next;
                     });
                 }
-            } catch (err: any) {
-                setLoadErr(err?.message ?? 'load items failed');
+            } catch (err) {
+                setLoadErr(err instanceof Error ? err.message : 'load items failed');
             }
         },
         [id],
@@ -364,11 +401,13 @@ const CuratedCollectionDetail: React.FC = () => {
         try {
             const { resolved } = await autoResolveCollection(id);
             await Promise.all([loadCollection(), loadItems(tabKey), loadStatus()]);
-            if (typeof window !== 'undefined') {
-                window.alert(
-                    t('curatedCollections.autoResolveDone', '{{count}} items resolved', { count: resolved }),
-                );
-            }
+            // A toast rather than window.alert: the alert froze the tab until
+            // it was dismissed, and the count is not worth a modal.
+            toast.success(
+                t('curatedCollections.autoResolveDone', '{{count}} items resolved', {
+                    count: resolved,
+                }),
+            );
         } finally {
             setAutoResolving(false);
         }
@@ -411,29 +450,51 @@ const CuratedCollectionDetail: React.FC = () => {
             const cur = await getImportStatus(id);
             if (cancelled) return;
             if (cur.stats?.ai_progress?.running) {
-                setTimeout(tick, 2500);
+                setTimeout(tick, POLLING_INTERVAL_MS);
             } else {
                 loadCollection();
                 loadItems(tabKey);
             }
         };
-        const t = setTimeout(tick, 2500);
+        const timer = setTimeout(tick, POLLING_INTERVAL_MS);
         return () => {
             cancelled = true;
-            clearTimeout(t);
+            clearTimeout(timer);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [status?.stats?.ai_progress?.running, id]);
 
-    if (!id) return <Alert severity="error">invalid id</Alert>;
-    if (loadErr) return <Alert severity="error">{loadErr}</Alert>;
-    if (!coll) return <Typography>Loading…</Typography>;
+    if (!id || loadErr) {
+        return (
+            <Alert variant="destructive">
+                <AlertCircle className="size-4" />
+                <AlertDescription>
+                    {loadErr ?? t('curatedCollections.invalidId', 'Invalid collection id')}
+                </AlertDescription>
+            </Alert>
+        );
+    }
+    if (!coll) {
+        return (
+            <div role="status" className="flex flex-col gap-2 py-6">
+                <p className="text-sm text-muted-foreground">{t('loading')}</p>
+                <Progress aria-label={t('loading')} />
+            </div>
+        );
+    }
 
-    const stats: any = status?.stats ?? coll.import_stats ?? {};
+    // The status endpoint knows about progress, the collection row only about
+    // the three outcome counts; one type covers both because every field on it
+    // is optional.
+    const stats: ImportStatusInfo['stats'] = status?.stats ?? coll.import_stats ?? {};
     const importing = (status?.status ?? coll.import_status) === 'importing';
-    const processed: number = stats.processed ?? 0;
-    const total: number = stats.total ?? 0;
+    const processed = stats.processed ?? 0;
+    const total = stats.total ?? 0;
     const progressPct = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+    const ambiguousCount = stats.ambiguous ?? 0;
+    const notFoundCount = stats.not_found ?? 0;
+    const aiProgress = status?.stats?.ai_progress;
+    const anyJobRunning = autoResolving || aiResolving || aiSearching || importing;
 
     const statusTabs = [
         { key: 'matched', label: t('curatedCollections.tab.autoMatched', 'Matched') },
@@ -442,162 +503,201 @@ const CuratedCollectionDetail: React.FC = () => {
         { key: 'ignored', label: t('curatedCollections.tab.ignored', 'Ignored') },
     ];
 
+    // The panel is identical under every tab — only the fetched items differ —
+    // but it lives inside a TabsContent so each tab is properly labelled as the
+    // panel's owner.
+    const panel = (
+        <div className="flex flex-col gap-4">
+            {tabKey === 'ambiguous' && (
+                <div className="flex flex-wrap gap-2">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={anyJobRunning || ambiguousCount === 0}
+                        onClick={onAutoResolve}
+                    >
+                        {autoResolving
+                            ? t('curatedCollections.autoResolving', 'Resolving…')
+                            : t('curatedCollections.autoResolveAll', 'Auto-resolve all ambiguous')}
+                    </Button>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={anyJobRunning || ambiguousCount === 0}
+                        onClick={onAIResolve}
+                    >
+                        {aiResolving
+                            ? t('curatedCollections.aiResolving', 'AI…')
+                            : t('curatedCollections.aiResolveAll', 'Resolve via AI')}
+                    </Button>
+                </div>
+            )}
+
+            {tabKey === 'not_found' && (
+                <div className="flex flex-wrap gap-2">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={anyJobRunning || notFoundCount === 0}
+                        onClick={onAISearchNotFound}
+                    >
+                        {aiSearching
+                            ? t('curatedCollections.aiSearching', 'AI searching…')
+                            : t('curatedCollections.aiSearchNotFound', 'Find via AI')}
+                    </Button>
+                </div>
+            )}
+
+            <ItemsTable
+                items={items}
+                bookInfo={bookInfo}
+                onResolve={onResolve}
+                onIgnore={onIgnore}
+            />
+        </div>
+    );
+
     return (
-        <Box>
-            <Stack direction="row" alignItems="center" spacing={2} mb={2}>
-                <Typography variant="h5">{coll.name}</Typography>
+        <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-xl font-medium">{coll.name}</h1>
                 {coll.is_public ? (
-                    <Chip size="small" label={t('curatedCollections.public', 'Public')} color="success" />
+                    <Badge>{t('curatedCollections.public', 'Public')}</Badge>
                 ) : (
-                    <Chip size="small" label={t('curatedCollections.draft', 'Draft')} />
+                    <Badge variant="secondary">{t('curatedCollections.draft', 'Draft')}</Badge>
                 )}
                 {importing && (
-                    <Chip
-                        size="small"
-                        label={t('curatedCollections.importingChip', 'importing…')}
-                        color="warning"
-                    />
+                    <Badge
+                        variant="outline"
+                        className="border-amber-500/60 text-amber-600 dark:text-amber-400"
+                    >
+                        {t('curatedCollections.importingChip', 'importing…')}
+                    </Badge>
                 )}
-            </Stack>
+            </div>
 
-            <Card sx={{ mb: 2 }}>
-                <CardContent>
+            <Card>
+                <CardContent className="flex flex-col gap-3">
                     {importing && total > 0 && (
-                        <Box mb={2}>
-                            <Typography variant="body2" color="text.secondary" gutterBottom>
-                                {t('curatedCollections.progress', 'Progress')}: {processed} / {total} ({progressPct}%)
-                            </Typography>
-                            <LinearProgress variant="determinate" value={progressPct} />
-                        </Box>
+                        <div className="flex flex-col gap-1">
+                            <p className="text-sm text-muted-foreground tabular-nums">
+                                {t('curatedCollections.progress', 'Progress')}: {processed} / {total}{' '}
+                                ({progressPct}%)
+                            </p>
+                            <Progress
+                                value={progressPct}
+                                aria-label={t('curatedCollections.progress', 'Progress')}
+                            />
+                        </div>
                     )}
-                    <Stack direction="row" spacing={2}>
-                        <Typography variant="body2">
+
+                    <div className="flex flex-wrap gap-4 text-sm tabular-nums">
+                        <span>
                             {t('curatedCollections.matched', 'Matched')}: {stats.matched ?? 0}
-                        </Typography>
-                        <Typography variant="body2">
-                            {t('curatedCollections.ambiguous', 'Ambiguous')}: {stats.ambiguous ?? 0}
-                        </Typography>
-                        <Typography variant="body2">
-                            {t('curatedCollections.notFound', 'Not found')}: {stats.not_found ?? 0}
-                        </Typography>
-                    </Stack>
+                        </span>
+                        <span>
+                            {t('curatedCollections.ambiguous', 'Ambiguous')}: {ambiguousCount}
+                        </span>
+                        <span>
+                            {t('curatedCollections.notFound', 'Not found')}: {notFoundCount}
+                        </span>
+                    </div>
+
                     {status?.import_error && (
-                        <Alert severity="error" sx={{ mt: 1 }}>
-                            {status.import_error}
+                        <Alert variant="destructive">
+                            <AlertCircle className="size-4" />
+                            <AlertDescription>{status.import_error}</AlertDescription>
                         </Alert>
                     )}
-                    {status?.stats?.ai_progress && (
-                        <Box mt={2} p={1.5} sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
-                            <Stack direction="row" spacing={2} alignItems="center" mb={1}>
-                                <Typography variant="body2">
-                                    {status.stats.ai_progress.running
+
+                    {aiProgress && (
+                        <div className="flex flex-col gap-2 rounded-md border border-border p-3">
+                            <div className="flex flex-wrap items-center gap-3 text-sm">
+                                <span>
+                                    {aiProgress.running
                                         ? t('curatedCollections.aiBoxRunning', 'AI resolving…')
                                         : t('curatedCollections.aiBoxIdle', 'AI last run')}
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                    {status.stats.ai_progress.processed} / {status.stats.ai_progress.total}
+                                </span>
+                                <span className="text-muted-foreground tabular-nums">
+                                    {aiProgress.processed} / {aiProgress.total}
                                     {' · '}
-                                    {t('curatedCollections.aiBoxResolved', 'resolved')}: {status.stats.ai_progress.resolved}
-                                </Typography>
-                            </Stack>
-                            {status.stats.ai_progress.total > 0 && (
-                                <LinearProgress
-                                    variant="determinate"
-                                    value={Math.min(100, Math.round((status.stats.ai_progress.processed / status.stats.ai_progress.total) * 100))}
-                                    sx={{ mb: 1 }}
+                                    {t('curatedCollections.aiBoxResolved', 'resolved')}:{' '}
+                                    {aiProgress.resolved}
+                                </span>
+                            </div>
+
+                            {aiProgress.total > 0 && (
+                                <Progress
+                                    value={Math.min(
+                                        100,
+                                        Math.round((aiProgress.processed / aiProgress.total) * 100),
+                                    )}
+                                    aria-label={t('curatedCollections.aiBoxRunning', 'AI resolving…')}
                                 />
                             )}
-                            {status.stats.ai_progress.recent && status.stats.ai_progress.recent.length > 0 && (
-                                <Box sx={{ fontSize: 13, fontFamily: 'monospace', color: 'text.secondary' }}>
-                                    {status.stats.ai_progress.recent
+
+                            {aiProgress.recent && aiProgress.recent.length > 0 && (
+                                // Newest first. p-0 and list-none because
+                                // Tailwind runs without preflight, so a bare
+                                // list keeps the browser's markers and indent.
+                                <ul className="m-0 list-none p-0 font-mono text-xs text-muted-foreground">
+                                    {aiProgress.recent
                                         .slice()
                                         .reverse()
                                         .map((d, i) => (
-                                            <Box key={i} sx={{ py: 0.25 }}>
+                                            <li key={i} className="py-0.5">
                                                 {d.action === 'resolved' ? '✓ ' : '· '}
-                                                <strong>{d.external_title}</strong>
+                                                <strong className="font-semibold text-foreground">
+                                                    {d.external_title}
+                                                </strong>
                                                 {d.action === 'resolved' && d.book_title
                                                     ? ` → #${d.book_id} ${d.book_title}`
-                                                    : ' — skipped'}
-                                            </Box>
+                                                    : ` — ${t('curatedCollections.aiSkipped', 'skipped')}`}
+                                            </li>
                                         ))}
-                                </Box>
+                                </ul>
                             )}
-                        </Box>
+                        </div>
                     )}
-                    <Stack direction="row" spacing={1} mt={2}>
-                        <Button variant="contained" size="small" onClick={togglePublish} disabled={importing}>
+
+                    <div className="flex flex-wrap gap-2">
+                        <Button size="sm" onClick={togglePublish} disabled={importing}>
                             {coll.is_public
                                 ? t('curatedCollections.unpublish', 'Unpublish')
                                 : t('curatedCollections.publish', 'Publish')}
                         </Button>
-                        <Button variant="outlined" color="error" size="small" onClick={onDelete}>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={onDelete}
+                        >
                             {t('curatedCollections.delete', 'Delete')}
                         </Button>
-                    </Stack>
+                    </div>
                 </CardContent>
             </Card>
 
             <Card>
                 <CardContent>
-                    <Tabs value={tabKey} onChange={(_, v) => setTabKey(v)}>
+                    <Tabs value={tabKey} onValueChange={setTabKey}>
+                        <TabsList className="w-auto self-start">
+                            {statusTabs.map((tab) => (
+                                <TabsTrigger key={tab.key} value={tab.key}>
+                                    {tab.label}
+                                </TabsTrigger>
+                            ))}
+                        </TabsList>
+
                         {statusTabs.map((tab) => (
-                            <Tab key={tab.key} value={tab.key} label={tab.label} />
+                            <TabsContent key={tab.key} value={tab.key}>
+                                {panel}
+                            </TabsContent>
                         ))}
                     </Tabs>
-
-                    {tabKey === 'ambiguous' && (
-                        <Stack direction="row" spacing={1} mt={2}>
-                            <Button
-                                size="small"
-                                variant="outlined"
-                                disabled={autoResolving || aiResolving || aiSearching || importing || (stats.ambiguous ?? 0) === 0}
-                                onClick={onAutoResolve}
-                            >
-                                {autoResolving
-                                    ? t('curatedCollections.autoResolving', 'Resolving…')
-                                    : t('curatedCollections.autoResolveAll', 'Auto-resolve all ambiguous')}
-                            </Button>
-                            <Button
-                                size="small"
-                                variant="outlined"
-                                disabled={autoResolving || aiResolving || aiSearching || importing || (stats.ambiguous ?? 0) === 0}
-                                onClick={onAIResolve}
-                            >
-                                {aiResolving
-                                    ? t('curatedCollections.aiResolving', 'AI…')
-                                    : t('curatedCollections.aiResolveAll', 'Resolve via AI')}
-                            </Button>
-                        </Stack>
-                    )}
-
-                    {tabKey === 'not_found' && (
-                        <Stack direction="row" spacing={1} mt={2}>
-                            <Button
-                                size="small"
-                                variant="outlined"
-                                disabled={autoResolving || aiResolving || aiSearching || importing || (stats.not_found ?? 0) === 0}
-                                onClick={onAISearchNotFound}
-                            >
-                                {aiSearching
-                                    ? t('curatedCollections.aiSearching', 'AI searching…')
-                                    : t('curatedCollections.aiSearchNotFound', 'Find via AI')}
-                            </Button>
-                        </Stack>
-                    )}
-
-                    <Box mt={2}>
-                        <ItemsTable
-                            items={items}
-                            statusKey={tabKey}
-                            bookInfo={bookInfo}
-                            onResolve={onResolve}
-                            onIgnore={onIgnore}
-                        />
-                    </Box>
                 </CardContent>
             </Card>
-        </Box>
+        </div>
     );
 };
 

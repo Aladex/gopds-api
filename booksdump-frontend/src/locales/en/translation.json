@@ -450,5 +450,8 @@
   "curatedCollections.searchDialog.empty": "No matches yet",
   "genreTitleUpdateError": "Could not update the genre title",
   "inactive": "Inactive",
-  "notSuperuser": "Not a superuser"
+  "notSuperuser": "Not a superuser",
+  "curatedCollections.col.actions": "Actions",
+  "curatedCollections.invalidId": "Invalid collection id",
+  "curatedCollections.aiSkipped": "skipped"
 }

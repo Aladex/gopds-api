@@ -453,5 +453,8 @@
   "curatedCollections.searchDialog.empty": "Пока ничего не найдено",
   "genreTitleUpdateError": "Не удалось обновить название жанра",
   "inactive": "Неактивен",
-  "notSuperuser": "Не суперпользователь"
+  "notSuperuser": "Не суперпользователь",
+  "curatedCollections.col.actions": "Действия",
+  "curatedCollections.invalidId": "Неверный идентификатор подборки",
+  "curatedCollections.aiSkipped": "пропущено"
 }
