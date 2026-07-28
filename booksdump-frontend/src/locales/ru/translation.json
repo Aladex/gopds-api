@@ -450,5 +450,6 @@
   "curatedCollections.searchDialog.queryLabel": "Название",
   "curatedCollections.searchDialog.searchBtn": "Искать",
   "curatedCollections.searchDialog.loading": "Идёт поиск…",
-  "curatedCollections.searchDialog.empty": "Пока ничего не найдено"
+  "curatedCollections.searchDialog.empty": "Пока ничего не найдено",
+  "genreTitleUpdateError": "Не удалось обновить название жанра"
 }
