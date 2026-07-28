@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import { toast } from 'sonner';
 
 import ForgotPassword from '@/features/auth/ForgotPassword';
@@ -18,8 +18,8 @@ vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 vi.mock('@/shared/layout/InterfaceLanguageToggle', () => ({ default: () => null }));
 
 const navigate = vi.fn();
-vi.mock('react-router-dom', async () => {
-    const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+vi.mock('react-router', async () => {
+    const actual = await vi.importActual<typeof import('react-router')>('react-router');
     return { ...actual, useNavigate: () => navigate };
 });
 

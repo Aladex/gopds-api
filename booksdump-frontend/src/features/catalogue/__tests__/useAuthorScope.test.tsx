@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, renderHook, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, useNavigate } from 'react-router-dom';
+import { MemoryRouter, useNavigate } from 'react-router';
 
 import useAuthorScope from '@/features/catalogue/hooks/useAuthorScope';
 import * as booksApi from '@/api/books';

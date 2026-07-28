@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BouncingDots } from '@/shared/ui/bouncing-dots';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Lock } from 'lucide-react';

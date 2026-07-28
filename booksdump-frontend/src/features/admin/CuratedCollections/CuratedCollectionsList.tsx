@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link as RouterLink, useParams } from 'react-router-dom';
+import { Link as RouterLink, useParams } from 'react-router';
 import { AlertCircle, Trash2 } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/shared/ui/alert';

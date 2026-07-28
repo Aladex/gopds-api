@@ -1,6 +1,6 @@
 // src/routes/adminRoutes.tsx
 import React from 'react';
-import { Route, Navigate } from 'react-router-dom';
+import { Route, Navigate } from 'react-router';
 import AdminSpace from '@/features/admin/AdminPanel';
 import PrivateRoute from '@/app/PrivateRoute';
 import TitleSetter from '@/app/TitleSetter';

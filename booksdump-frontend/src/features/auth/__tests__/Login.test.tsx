@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 
 import Login from '@/features/auth/Login';
 import * as authApi from '@/api/auth';
@@ -19,8 +19,8 @@ vi.mock('@/shared/layout/InterfaceLanguageToggle', () => ({ default: () => null 
 // The router is real — the card renders a Link — but where the screen sends the
 // reader is the assertion, so only useNavigate is stood in for.
 const navigate = vi.fn();
-vi.mock('react-router-dom', async () => {
-    const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+vi.mock('react-router', async () => {
+    const actual = await vi.importActual<typeof import('react-router')>('react-router');
     return { ...actual, useNavigate: () => navigate };
 });
 

@@ -9,7 +9,7 @@ import adminRoutes from '@/app/routes/adminRoutes';
 import notFoundRoutes from '@/app/routes/notFoundRoutes';
 import { InterfaceLanguageProvider } from '@/context/InterfaceLanguageContext';
 import { useAuth } from '@/context/AuthContext';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router';
 import useAuthWebSocket from '@/shared/hooks/useAuthWebSocket';
 import AppSkeleton from '@/shared/components/AppSkeleton';
 import { Toaster } from '@/shared/ui/sonner';

@@ -4,7 +4,7 @@ import '@/index.css';
 import AppWrapper from '@/app/App';
 import { I18nextProvider } from 'react-i18next';
 import i18n from '@/app/i18n'; // Adjust the path according to where your i18n configuration file is located
-import { BrowserRouter as Router } from 'react-router-dom';
+import { BrowserRouter as Router } from 'react-router';
 import { AuthProvider } from '@/context/AuthContext';
 import { ThemeProvider } from '@/context/ThemeContext';
 

@@ -1,6 +1,6 @@
 // src/components/PrivateRoute.tsx
 import React, { memo, useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate } from 'react-router';
 
 import { cn } from '@/shared/lib/utils';
 

@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, useLocation } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router';
 
 import SearchBar from '@/features/catalogue/SearchBar';
 
@@ -10,7 +10,7 @@ import SearchBar from '@/features/catalogue/SearchBar';
 // every list route; getting one wrong sends the reader to an empty page with no
 // error to explain it.
 
-// react-router-dom is deliberately not mocked: the panel's whole job is to
+// react-router is deliberately not mocked: the panel's whole job is to
 // produce a URL, so the assertion is on where a real router actually lands.
 let currentPath = '';
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router';
 
 import * as booksApi from '@/api/books';
 import { useAuthor } from '@/context/AuthorContext';

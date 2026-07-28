@@ -10,7 +10,7 @@ import React, {
 import * as authApi from '@/api/auth';
 import type { User } from '@/api/auth';
 import { isApiError } from '@/api/errors';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 
 interface AuthContextType {
     isAuthenticated: boolean;

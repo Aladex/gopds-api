@@ -1,5 +1,5 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 
 import Activation from '@/features/auth/Activation';
 import * as authApi from '@/api/auth';
@@ -20,8 +20,8 @@ vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 vi.mock('@/shared/layout/InterfaceLanguageToggle', () => ({ default: () => null }));
 
 const navigate = vi.fn();
-vi.mock('react-router-dom', async () => {
-    const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+vi.mock('react-router', async () => {
+    const actual = await vi.importActual<typeof import('react-router')>('react-router');
     return { ...actual, useNavigate: () => navigate, useParams: () => ({ token: 'mail-token' }) };
 });
 

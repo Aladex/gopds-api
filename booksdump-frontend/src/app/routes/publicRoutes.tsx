@@ -1,6 +1,6 @@
 // src/routes/publicRoutes.tsx
 import React from 'react';
-import { Route } from 'react-router-dom';
+import { Route } from 'react-router';
 import Login from '@/features/auth/Login';
 import Registration from '@/features/auth/Registration';
 import ForgotPassword from '@/features/auth/ForgotPassword';

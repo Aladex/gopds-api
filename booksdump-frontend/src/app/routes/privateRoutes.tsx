@@ -1,5 +1,5 @@
 import React from 'react';
-import { Route } from 'react-router-dom';
+import { Route } from 'react-router';
 import PrivateRoute from '@/app/PrivateRoute';
 import BooksList from '@/features/catalogue/BooksList';
 import TitleSetter from '@/app/TitleSetter';
