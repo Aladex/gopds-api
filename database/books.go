@@ -305,7 +305,7 @@ func applyNonTitleFilters(query *orm.Query, filters models.BookFilters, userID i
 		}
 	}
 
-	// Both the web and the bot reach the catalogue through here, so honoring
+	// Both the web and the bot reach the catalog through here, so honoring
 	// AllLanguages once covers both.
 	if filters.Lang != "" && filters.Lang != AllLanguages {
 		query = query.Where("book.lang = ?", filters.Lang)

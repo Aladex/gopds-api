@@ -480,7 +480,7 @@ func ChangeUser(c *gin.Context) {
 
 	// The interface speaks two languages; an empty value is a user who has not
 	// been asked yet, and is left alone rather than rejected.
-	if len(userNewData.InterfaceLang) > 0 &&
+	if userNewData.InterfaceLang != "" &&
 		userNewData.InterfaceLang != "ru" && userNewData.InterfaceLang != "en" {
 		httputil.NewError(c, http.StatusBadRequest, errors.New("invalid_interface_language"))
 		return
