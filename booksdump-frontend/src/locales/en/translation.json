@@ -453,5 +453,6 @@
   "notSuperuser": "Not a superuser",
   "curatedCollections.col.actions": "Actions",
   "curatedCollections.invalidId": "Invalid collection id",
-  "curatedCollections.aiSkipped": "skipped"
+  "curatedCollections.aiSkipped": "skipped",
+  "adminSections": "Admin sections"
 }

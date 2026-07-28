@@ -456,5 +456,6 @@
   "notSuperuser": "Не суперпользователь",
   "curatedCollections.col.actions": "Действия",
   "curatedCollections.invalidId": "Неверный идентификатор подборки",
-  "curatedCollections.aiSkipped": "пропущено"
+  "curatedCollections.aiSkipped": "пропущено",
+  "adminSections": "Разделы администрирования"
 }
