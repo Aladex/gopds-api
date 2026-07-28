@@ -1,3 +1,6 @@
+// name the table; staticcheck sees a field nobody mentions.
+//
+//lint:file-ignore U1000 tableName is read by go-pg through reflection to
 package models
 
 import (
@@ -223,7 +226,7 @@ type Series struct {
 	ID        int64    `pg:"id" json:"id"`
 	SerNo     int64    `json:"ser_no" pg:"-"`
 	Ser       string   `pg:"ser,use_zero" json:"ser"`
-	LangCode  int      `pg:"lang_code,use_zero" json:"lang_code,default:0"`
+	LangCode  int      `pg:"lang_code,use_zero" json:"lang_code"`
 }
 
 // OrderToSeries struct for many-to-many relation between orders and series

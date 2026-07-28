@@ -303,7 +303,7 @@ func (s *FixScanService) processBook(book models.Book, archivePath string, fileI
 	// cover=false + cover in FB2 -> extract, save, set cover=true
 	// cover=true + cover in FB2 -> re-extract and overwrite
 	// cover=false + no cover in FB2 -> no change
-	hasCoverInFB2 := parsed.Cover != nil && len(parsed.Cover) > 0
+	hasCoverInFB2 := len(parsed.Cover) > 0
 	newCoverFlag := book.Cover // start with current value
 
 	if hasCoverInFB2 {

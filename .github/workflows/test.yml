@@ -1,10 +1,14 @@
 name: Test and Quality Check
 
+# The working branch is master. These used to name main and develop, neither of
+# which exists here, so this workflow had never run: every gate below was
+# decorative while the build workflow — triggered by tags — was the only thing
+# that fired.
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ master ]
   pull_request:
-    branches: [ main ]
+    branches: [ master ]
 
 jobs:
   test:
@@ -88,12 +92,17 @@ jobs:
       with:
         go-version: '1.26'
 
-    # Installed directly instead of through securecodewarrior/github-action-gosec,
-    # which only ever published a moving @master ref.
+    # gosec type-checks the packages, so the generated inputs have to exist
+    # first: assets.go embeds the frontend build directory, and without it
+    # nothing compiles.
+    - name: Prepare generated inputs
+      run: make bootstrap
+
+    # Through make so the flags cannot drift from what runs locally: the
+    # frontend's node_modules carries a Go file of its own, and suppressions
+    # are required to carry a justification.
     - name: Run Gosec Security Scanner
-      run: |
-        go install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
-        gosec ./...
+      run: make security
 
     - name: Run Trivy vulnerability scanner
       uses: aquasecurity/trivy-action@v0.36.0

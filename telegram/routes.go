@@ -245,6 +245,10 @@ func (r *Routes) HandleWebhook(c *gin.Context) {
 }
 
 // isValidToken checks the format of the Telegram bot token
+// minAuthTokenLength is the shortest second half a Telegram bot token has:
+// the part after the colon, which BotFather issues as a fixed-width secret.
+const minAuthTokenLength = 20
+
 func isValidToken(token string) bool {
 	// Telegram bot token format: number:string_of_letters_digits_dashes_underscores
 	// For example: 5106077210:AAEtczjlz4LAnpb5ANSvFe26lm-bxmdQeeo
@@ -264,11 +268,6 @@ func isValidToken(token string) bool {
 		}
 	}
 
-	// Second part must contain at least 20 characters
 	authToken := parts[1]
-	if len(authToken) < 20 {
-		return false
-	}
-
-	return true
+	return len(authToken) >= minAuthTokenLength
 }

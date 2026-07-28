@@ -1,3 +1,6 @@
+// name the table; staticcheck sees a field nobody mentions.
+//
+//lint:file-ignore U1000 tableName is read by go-pg through reflection to
 package models
 
 import (

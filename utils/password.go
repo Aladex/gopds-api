@@ -73,16 +73,16 @@ func CreatePasswordHash(password string) string {
 func CheckPbkdf2(password, encoded string, keyLen int, h func() hash.Hash) (bool, error) {
 	parts := strings.SplitN(encoded, "$", 4)
 	if len(parts) != 4 {
-		return false, errors.New("Hash must consist of 4 segments")
+		return false, errors.New("hash must consist of 4 segments")
 	}
 	iter, err := strconv.Atoi(parts[1])
 	if err != nil {
-		return false, fmt.Errorf("Wrong number of iterations: %v", err)
+		return false, fmt.Errorf("wrong number of iterations: %w", err)
 	}
 	salt := []byte(parts[2])
 	k, err := base64.StdEncoding.DecodeString(parts[3])
 	if err != nil {
-		return false, fmt.Errorf("Wrong hash encoding: %v", err)
+		return false, fmt.Errorf("wrong hash encoding: %w", err)
 	}
 	dk := pbkdf2.Key([]byte(password), salt, iter, keyLen, h)
 	return bytes.Equal(k, dk), nil

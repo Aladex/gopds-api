@@ -18,10 +18,7 @@ import (
 
 func hasNextPage(limit, currentPage, totalCount int) bool {
 	totalPages := totalCount / limit
-	if currentPage < totalPages {
-		return true
-	}
-	return false
+	return currentPage < totalPages
 }
 
 func GetNewBooks(c *gin.Context) {
@@ -178,5 +175,4 @@ func GetNewBooks(c *gin.Context) {
 	}
 
 	c.Data(200, "application/atom+xml;charset=utf-8", []byte(atom))
-	return
 }
