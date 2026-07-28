@@ -41,6 +41,14 @@ const VISIBLE_AUTHORS = 2;
 export interface BookCardProps {
     book: Book;
     /**
+     * How many lines of the annotation show while the card is shut.
+     *
+     * A phone fits about a third of the words per line that a desktop does, so
+     * the same count leaves it with a sentence fragment — and with almost no
+     * card left to press that is not an author or a genre.
+     */
+    annotationPeekLines: number;
+    /**
      * Whether the book's own language is worth saying.
      *
      * While the catalogue is filtered to one language every card would carry
@@ -65,6 +73,7 @@ const coverPath = (value: string) => value.replaceAll('.', '-').replace(/^\/+/, 
 
 const BookCard: React.FC<BookCardProps> = ({
     book,
+    annotationPeekLines,
     showLanguage,
     isSuperuser,
     formatDate,
@@ -264,7 +273,7 @@ const BookCard: React.FC<BookCardProps> = ({
                     {book.annotation ? (
                         <Expandable
                             open={open}
-                            peekLines={2}
+                            peekLines={annotationPeekLines}
                             className="text-sm text-muted-foreground"
                         >
                             {book.annotation}
