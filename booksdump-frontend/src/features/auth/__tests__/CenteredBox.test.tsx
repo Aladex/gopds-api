@@ -9,6 +9,12 @@ const translate = (key: string) => key;
 const translation = { t: translate };
 vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 
+// Stood in for rather than mocked away: this box is where the toggle lives, so
+// the test that it is here belongs here, while what it does belongs to its own.
+vi.mock('@/shared/layout/InterfaceLanguageToggle', () => ({
+    default: () => <div data-testid="interface-language-toggle" />,
+}));
+
 function renderBox(children: React.ReactNode = <p>content</p>) {
     return render(
         <MemoryRouter>
@@ -36,6 +42,14 @@ describe('CenteredBox', () => {
         const card = container.querySelector('[data-slot="card"]') as HTMLElement;
         expect(card).not.toBeNull();
         expect(card.className).toMatch(/max-w-/);
+    });
+
+    it('offers the interface language before anyone has signed in', () => {
+        renderBox();
+
+        // The header only exists behind authentication, so without this there
+        // is no way to change the interface language on the way in.
+        expect(screen.getByTestId('interface-language-toggle')).toBeInTheDocument();
     });
 
     it('keeps the registration shortcut reachable', () => {

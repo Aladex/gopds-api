@@ -10,6 +10,10 @@ import { cn } from '@/shared/lib/utils';
 /**
  * LanguageSwitcher offers the languages this library actually holds books in.
  *
+ * It sets the catalogue filter and nothing else. It used to set the interface
+ * locale too, so choosing Ukrainian books turned the interface English — the
+ * two now live apart, and the interface has its own control.
+ *
  * That is not a two-item choice: a well stocked instance has forty or more, so
  * the list is a window of its own — a sheet from the bottom edge on a phone, a
  * dialog on a desktop. It used to be a menu hanging off the button in the top
@@ -93,7 +97,7 @@ const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
         <>
             <button
                 type="button"
-                aria-label={t('language')}
+                aria-label={t('booksLanguage')}
                 onClick={() => setOpen(true)}
                 className={cn(
                     'flex items-center justify-center truncate rounded px-2 font-medium uppercase text-neutral-400',
@@ -108,17 +112,17 @@ const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
                 <Drawer open={open} onOpenChange={setOpen}>
                     <DrawerContent className="max-h-[85vh]">
                         <DrawerTitle className="px-4 pb-1 text-base font-medium">
-                            {t('language')}
+                            {t('booksLanguage')}
                         </DrawerTitle>
-                        <DrawerDescription className="sr-only">{t('language')}</DrawerDescription>
+                        <DrawerDescription className="sr-only">{t('booksLanguage')}</DrawerDescription>
                         <div className="overflow-y-auto pb-6">{list}</div>
                     </DrawerContent>
                 </Drawer>
             ) : (
                 <Dialog open={open} onOpenChange={setOpen}>
                     <DialogContent closeLabel={t('close')} className="sm:max-w-sm">
-                        <DialogTitle>{t('language')}</DialogTitle>
-                        <DialogDescription className="sr-only">{t('language')}</DialogDescription>
+                        <DialogTitle>{t('booksLanguage')}</DialogTitle>
+                        <DialogDescription className="sr-only">{t('booksLanguage')}</DialogDescription>
                         {/* Forty-odd languages scroll inside the dialog rather
                             than growing it past the screen. */}
                         <div className="scrollbar-thin max-h-[60vh] overflow-y-auto">{list}</div>

@@ -8,6 +8,7 @@ import { Input } from '@/shared/ui/input';
 import { cn } from '@/shared/lib/utils';
 
 import { useProfileForm } from '@/features/profile/useProfileForm';
+import InterfaceLanguageToggle from '@/shared/layout/InterfaceLanguageToggle';
 
 type ProfileContentProps = {
     open: boolean;
@@ -161,6 +162,12 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                         onChange={setLastName}
                     />
                 </div>
+            </Group>
+
+            <Group title={t('interfaceLanguage')}>
+                {/* It applies on click, like the books language does; the Save
+                    at the foot is for the fields above it. */}
+                <InterfaceLanguageToggle />
             </Group>
 
             {/*

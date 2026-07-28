@@ -13,6 +13,10 @@ const translate = (key: string) => key;
 const translation = { t: translate };
 vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 
+// The corner language toggle reaches for the account context and is not what
+// these screens are under test for; it has tests of its own.
+vi.mock('@/shared/layout/InterfaceLanguageToggle', () => ({ default: () => null }));
+
 const navigate = vi.fn();
 vi.mock('react-router-dom', async () => {
     const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');

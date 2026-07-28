@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { Card } from '@/shared/ui/card';
+import InterfaceLanguageToggle from '@/shared/layout/InterfaceLanguageToggle';
 
 /**
  * CenteredBox is the frame every authentication screen sits in: one card in the
@@ -18,6 +19,13 @@ const CenteredBox: React.FC<React.PropsWithChildren> = ({ children }) => {
 
     return (
         <div className="relative flex min-h-screen items-center justify-center p-4">
+            {/*
+              Until this existed there was no way to change the interface
+              language before signing in: the header lives behind
+              authentication, so an English browser meant an English login
+              screen and nothing to be done about it.
+            */}
+            <InterfaceLanguageToggle className="fixed top-3 right-3 z-10" />
             {/*
               The decoration comes first in the markup on purpose. Both it and
               the card are positioned, so painting order follows the document

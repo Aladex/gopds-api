@@ -12,6 +12,10 @@ const translate = (key: string) => key;
 const translation = { t: translate };
 vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 
+// The corner language toggle reaches for the account context and is not what
+// these screens are under test for; it has tests of its own.
+vi.mock('@/shared/layout/InterfaceLanguageToggle', () => ({ default: () => null }));
+
 // The router is real — the card renders a Link — but where the screen sends the
 // reader is the assertion, so only useNavigate is stood in for.
 const navigate = vi.fn();
