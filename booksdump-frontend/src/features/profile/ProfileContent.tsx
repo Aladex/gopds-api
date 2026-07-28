@@ -66,8 +66,10 @@ const Field: React.FC<{
     value: string;
     placeholder?: string;
     disabled?: boolean;
+    /** What a password manager should make of this field. */
+    autoComplete?: string;
     onChange: (value: string) => void;
-}> = ({ label, id, type = 'text', value, placeholder, disabled, onChange }) => (
+}> = ({ label, id, type = 'text', value, placeholder, disabled, autoComplete, onChange }) => (
     <div className="min-w-0 flex-1">
         {label && (
             <label htmlFor={id} className="mb-1 block text-xs text-muted-foreground">
@@ -80,6 +82,7 @@ const Field: React.FC<{
             value={value}
             placeholder={placeholder}
             disabled={disabled}
+            autoComplete={autoComplete}
             onChange={(event) => onChange(event.target.value)}
         />
     </div>
@@ -190,6 +193,7 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                             id="profile-old-password"
                             label={t('oldPassword')}
                             type="password"
+                            autoComplete="current-password"
                             value={oldPassword}
                             onChange={setOldPassword}
                         />
@@ -197,6 +201,7 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                             id="profile-new-password"
                             label={t('newPassword')}
                             type="password"
+                            autoComplete="new-password"
                             value={newPassword}
                             onChange={setNewPassword}
                         />
