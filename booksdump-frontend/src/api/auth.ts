@@ -19,6 +19,8 @@ export interface User {
     last_name: string;
     is_superuser: boolean;
     books_lang?: string;
+    /** The locale the interface speaks; unrelated to which books are shown. */
+    interface_lang?: string;
     have_favs?: boolean;
     has_bot_token?: boolean;
     date_joined?: string;
