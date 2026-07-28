@@ -145,6 +145,8 @@ func (bp *BookProcessor) Mobi() (io.ReadCloser, error) {
 	epubTmpFile := tmpFilename + ".epub"
 	mobiTmpFile := tmpFilename + ".mobi"
 
+	// #nosec G304 -- a scratch file named after a freshly generated UUID,
+	// in the working directory. Nothing outside chooses the name.
 	epubFile, err := os.Create(epubTmpFile)
 	if err != nil {
 		logging.Errorf("Failed to create temp EPUB file for %s: %v", bp.filename, err)
@@ -174,6 +176,9 @@ func (bp *BookProcessor) Mobi() (io.ReadCloser, error) {
 		return nil, fmt.Errorf("kindlegen binary not found")
 	}
 
+	// #nosec G204 -- kindlegenPath comes from findKindlegen, which only
+	// ever returns one of a fixed list of locations or a PATH lookup. The
+	// arguments are generated temporary filenames.
 	cmd := exec.Command(kindlegenPath, epubTmpFile, "-o", tmpFilename+".mobi")
 	if err := cmd.Run(); err != nil {
 		// kindlegen returns exit code 1 even on successful conversion with warnings
@@ -187,6 +192,8 @@ func (bp *BookProcessor) Mobi() (io.ReadCloser, error) {
 	}
 
 	// Step 4: Read the generated MOBI file
+	// #nosec G304 -- the file kindlegen was just told to write, named
+	// after the same generated UUID.
 	mobiFile, err := os.Open(mobiTmpFile)
 	if err != nil {
 		logging.Errorf("Failed to open generated MOBI file for %s: %v", bp.filename, err)

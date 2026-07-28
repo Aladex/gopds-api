@@ -13,6 +13,7 @@ import (
 	"gopds-api/internal/parser"
 	"gopds-api/internal/posters"
 	"gopds-api/internal/safeio"
+	"gopds-api/internal/safepath"
 	"gopds-api/logging"
 	"gopds-api/models"
 )
@@ -48,9 +49,19 @@ func (s *RescanService) RescanBookPreview(bookID int64, userID int64) (*models.R
 	}
 
 	// 2. Build file path: archivesDir/Path/FileName
-	archivePath := filepath.Join(s.archivesDir, book.Path)
-	if !strings.HasSuffix(book.Path, ".zip") {
-		archivePath = filepath.Join(s.archivesDir, book.Path+".zip")
+	//
+	// book.Path comes from the database, written there by the scanner from
+	// what it found on disk. Resolving it rather than joining it means a row
+	// that has since been edited by hand cannot address anything outside the
+	// archive directory.
+	archiveName := book.Path
+	if !strings.HasSuffix(archiveName, ".zip") {
+		archiveName += ".zip"
+	}
+	archivePath, err := safepath.Resolve(s.archivesDir, archiveName)
+	if err != nil {
+		logging.Errorf("Refused an archive path outside %s: %v", s.archivesDir, err)
+		return nil, fmt.Errorf("invalid archive path for book %d", bookID)
 	}
 
 	// 3. Open archive and extract FB2 file
@@ -263,6 +274,8 @@ func (s *RescanService) extractFB2FromArchive(archivePath, fileName string) ([]b
 
 	// If not a valid ZIP, try to read as direct FB2 file
 	// This handles cases where the path points directly to an FB2 file
+	// #nosec G304 -- archivePath came from safepath.Resolve, so it is
+	// inside the configured archive directory whatever the database holds.
 	content, err := os.ReadFile(archivePath)
 	if err == nil {
 		return content, nil

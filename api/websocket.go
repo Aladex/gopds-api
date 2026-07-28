@@ -51,6 +51,9 @@ func ConvertBookToMobi(bookID int64) error {
 
 	filePath := filepath.Join(mobiConversionDir, fmt.Sprintf("%d.mobi", bookID))
 	logging.Info("Creating mobi file:", filePath)
+	// #nosec G304 -- filePath is the configured conversion directory
+	// joined with a book id, an integer from the database. No part of it
+	// is text from a request.
 	file, err := os.Create(filePath)
 	if err != nil {
 		return err

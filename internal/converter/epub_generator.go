@@ -3,6 +3,9 @@ package converter
 import (
 	"archive/zip"
 	"bytes"
+	// #nosec G505 -- SHA-1 here builds the "urn:sha1:" identifier the EPUB
+	// format specifies. The algorithm is fixed by the spec and names a
+	// resource rather than protecting one.
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
@@ -1034,6 +1037,7 @@ func buildIdentifier(bookFile *parser.BookFile) string {
 		}
 		source = strings.Join(parts, "|")
 	}
+	// #nosec G401 -- the EPUB spec names SHA-1 for this identifier.
 	hash := sha1.Sum([]byte(source))
 	return "urn:sha1:" + hex.EncodeToString(hash[:])
 }

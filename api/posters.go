@@ -66,6 +66,8 @@ func Posters(c *gin.Context) {
 	}
 
 	if _, err := os.Stat(fullPath); err == nil {
+		// #nosec G304 -- fullPath comes from safepath.Resolve above, which
+		// refuses anything outside the configured posters directory.
 		fileContent, err := os.ReadFile(fullPath)
 		if err != nil {
 			logging.Error("Error reading file:", err)

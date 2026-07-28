@@ -3,6 +3,8 @@ package services
 import (
 	"archive/zip"
 	"bytes"
+	// #nosec G501 -- MD5 identifies identical files during a scan. It is a
+	// fingerprint, not a security control.
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
@@ -332,6 +334,7 @@ func (s *BookScanService) ProcessBook(zipFile *zip.File, archiveName string) (in
 	}
 
 	// Compute MD5 hash for duplicate detection
+	// #nosec G401 -- a fingerprint for duplicate detection, see the import.
 	hash := md5.Sum(fb2Content)
 	book.MD5 = hex.EncodeToString(hash[:])
 
@@ -404,6 +407,7 @@ func (s *BookScanService) checkDuplicate(content []byte, title string, authors [
 	_ = authors // Reserved for future use
 
 	// Check by MD5 hash first (exact duplicate)
+	// #nosec G401 -- a fingerprint for duplicate detection, see the import.
 	hash := md5.Sum(content)
 	md5Hash := hex.EncodeToString(hash[:])
 

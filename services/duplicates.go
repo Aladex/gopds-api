@@ -3,6 +3,9 @@ package services
 import (
 	"archive/zip"
 	"context"
+	// #nosec G501 -- MD5 is used below as a content fingerprint for finding
+	// duplicate books, never to protect anything. Collision resistance is
+	// not a property this depends on.
 	"crypto/md5"
 	"errors"
 	"fmt"
@@ -269,6 +272,7 @@ func computeBookMD5(zipPath string, filename string) (string, error) {
 		}
 	}()
 
+	// #nosec G401 -- a fingerprint for duplicate detection, see the import.
 	hash := md5.New()
 	buffer := make([]byte, hashBufferSize)
 
