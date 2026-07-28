@@ -18,9 +18,9 @@ A comprehensive book management system and OPDS server built with Go, featuring 
 
 **Frontend:**
 - **React 19** with TypeScript
-- **Material-UI (MUI)** - Modern component library
+- **Vite** - Build tool and dev server
+- **Tailwind CSS 4** - Styling, with shadcn-style components built on Radix
 - **i18next** - Internationalization support
-- **Axios** - HTTP client
 
 **Infrastructure:**
 - **Docker & Docker Compose** - Containerized deployment
@@ -81,12 +81,12 @@ A comprehensive book management system and OPDS server built with Go, featuring 
 - **Archive Management** - Track scanned and unscanned archives
 
 ### Modern Web Interface
-- **Responsive Design** - Mobile-friendly React frontend
-- **Material Design** - Clean, modern UI with MUI components
+- **Responsive Design** - Mobile-friendly React frontend, laid out for a phone first
+- **Light and Dark Themes** - Chosen in the interface and stored per user
 - **Real-time Updates** - WebSocket integration for live status
 - **Internationalization** - Multi-language support
-- **Advanced Search UI** - Intuitive search and filtering
-- **Language Rotor** - Visual language switcher for book browsing
+- **Advanced Search UI** - Search books by title or find authors by name, and
+  confine a search to one author's books while browsing them
 
 ### Telegram Bot
 - **Personal Bot Support** - Each user can connect their own Telegram bot via BotFather token
@@ -229,6 +229,8 @@ Configure the application using `config.yaml`. Key settings include:
 - **CDN settings** - File serving configuration
 - **Telegram settings** - Base URL for webhook configuration
 - **Scanning settings** - Archive directories and duplicate handling
+- **Donate methods** - The ways of supporting the instance, if any. Omit the
+  section and the interface offers none, so a fork advertises nobody's wallet
 
 See `config.yaml.example` for all available options.
 
@@ -328,7 +330,7 @@ unparseable — and therefore silently skipped — for a long time.
 - Built-in high-performance FB2 to EPUB converter (no external dependencies)
 - MOBI conversion via EPUB to MOBI chain (using kindlegen)
 - Optimized single-pass parsing (30-40% faster conversion)
-- React frontend with Material-UI
+- React frontend on Tailwind and Radix
 - User authentication and session management
 - Personal favorites and reading lists
 - OPDS 1.2 server with authentication
@@ -342,9 +344,10 @@ unparseable — and therefore silently skipped — for a long time.
 - Duplicate detection and management
 - Language detection
 - Admin panel with comprehensive management tools
+- Curated collections, imported from CSV or a pasted list
 
 ### Planned Features
-- **Book Collections** - Create and manage custom book collections with voting
+- **Collection Voting** - Let readers vote on curated collections
 - **Enhanced OPDS** - OPDS 2.0 support with advanced features
 - **Reading Statistics** - Track reading progress and statistics
 - **Social Features** - Book reviews and recommendations sharing

@@ -62,3 +62,34 @@ email:
       message: "Click the button to reset your password. If you did not request a password reset, please ignore this email."
       button: "Reset Password"
       thanks: "Best regards, Example"
+
+# Ways of supporting this instance, shown in the "Donate" dialog.
+#
+# The interface knows nothing about any particular one: each entry says how it
+# wants to be shown, so adding a method is an edit here rather than to the
+# frontend. Leave the list out entirely and no donate button appears at all —
+# which is what anyone running their own copy should get until they say
+# otherwise.
+#
+#   kind: address — something to copy, shown in full
+#         card    — a payment card, drawn as one, digits grouped
+#         link    — somewhere to go, shown as a button
+#   link:         — an optional page to open alongside a value worth showing,
+#                   such as a bank's transfer form beside a card number
+#   qr:           — draw a scannable code for the value; worth it for a wallet
+#                   address or a URL, not for a card number
+donate:
+  - id: bitcoin
+    label: Bitcoin
+    kind: address
+    value: "bc1qexampleaddress"
+    qr: true
+  - id: card
+    label: Card
+    kind: card
+    value: "0000000000000000"
+    link: "https://example.com/transfer"
+  - id: boosty
+    label: Boosty
+    kind: link
+    value: "https://example.com/boosty"

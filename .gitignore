@@ -31,3 +31,8 @@ AGENTS.md
 
 # Incremental build state written by `tsc -b`
 *.tsbuildinfo
+
+# Working plans belong to whoever is doing the work, not to the repository.
+# One was committed alongside the migration it described and outlived it.
+/PLAN_*.md
+/plans/
