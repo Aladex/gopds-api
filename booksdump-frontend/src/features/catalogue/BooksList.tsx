@@ -26,6 +26,7 @@ import { useBooksQuery } from '@/features/catalogue/hooks/useBooksQuery';
 import { useFavouriteToggle } from '@/features/catalogue/hooks/useFavouriteToggle';
 import { useBookDownloads } from '@/features/catalogue/hooks/useBookDownloads';
 import BookCard from '@/features/catalogue/BookCard';
+import { ALL_LANGUAGES } from '@/shared/lib/languageUtils';
 
 const SKELETON_COUNT = 10;
 
@@ -40,6 +41,11 @@ const BooksList: React.FC = () => {
     const [rescanDialogOpen, setRescanDialogOpen] = useState(false);
     const [bookToRescan, setBookToRescan] = useState<number | null>(null);
     const [downloadError, setDownloadError] = useState<{ title: string; message: string } | null>(null);
+
+    // With a language filter on, every book in the list is in it and saying so
+    // on each card is noise. Reading the whole library is when it starts to
+    // matter which book is in which language.
+    const mixedLanguages = !user?.books_lang || user.books_lang === ALL_LANGUAGES;
 
     const showDownloadError = (status: number, fallbackMessage?: string) => {
         const byStatus: Record<number, string> = {
@@ -139,6 +145,7 @@ const BooksList: React.FC = () => {
                         <div key={book.id} className="mx-auto w-full max-w-[1200px] py-1.5">
                             <BookCard
                                 book={book}
+                                showLanguage={mixedLanguages}
                                 isSuperuser={Boolean(user?.is_superuser)}
                                 formatDate={formatDate}
                                 isBookConverting={isBookConverting}

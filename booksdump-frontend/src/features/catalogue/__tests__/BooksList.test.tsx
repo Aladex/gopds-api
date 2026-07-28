@@ -265,3 +265,35 @@ describe('BooksList favourite toggle', () => {
         expect(screen.getByText('Заклятые в любви')).toBeInTheDocument();
     });
 });
+
+// A book's own language is only worth saying when the list is not already
+// filtered to one. Reading the whole library is exactly when it is.
+describe('BooksList book language', () => {
+    afterEach(() => {
+        authState.user.books_lang = 'ru';
+    });
+
+    it('stays quiet while the catalogue is filtered to one language', async () => {
+        authState.user.books_lang = 'ru';
+        renderAt('/books/page/1');
+        await screen.findByText('Заклятые в любви');
+
+        expect(screen.queryByText(/Русский/)).toBeNull();
+    });
+
+    it('names the language of each book once the whole library is on show', async () => {
+        authState.user.books_lang = 'all';
+        renderAt('/books/page/1');
+        await screen.findByText('Заклятые в любви');
+
+        expect(screen.getByText(/Русский/)).toBeInTheDocument();
+    });
+
+    it('treats a reader who was never asked as reading everything', async () => {
+        authState.user.books_lang = '';
+        renderAt('/books/page/1');
+        await screen.findByText('Заклятые в любви');
+
+        expect(screen.getByText(/Русский/)).toBeInTheDocument();
+    });
+});

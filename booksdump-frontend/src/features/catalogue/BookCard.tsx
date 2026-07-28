@@ -9,6 +9,7 @@ import { BouncingDots } from '@/shared/ui/bouncing-dots';
 import { Expandable } from '@/shared/ui/expandable';
 import BookCover from '@/features/catalogue/BookCover';
 import { cn } from '@/shared/lib/utils';
+import { getLanguageDisplaySafe } from '@/shared/lib/languageUtils';
 
 import { API_URL } from '@/api/config';
 import { useAuthor } from '@/context/AuthorContext';
@@ -39,6 +40,14 @@ const VISIBLE_AUTHORS = 2;
 
 export interface BookCardProps {
     book: Book;
+    /**
+     * Whether the book's own language is worth saying.
+     *
+     * While the catalogue is filtered to one language every card would carry
+     * the same word, which is not information. It becomes information the
+     * moment the reader asks for the whole library.
+     */
+    showLanguage: boolean;
     isSuperuser: boolean;
     formatDate: (value: string) => string;
     isBookConverting: (bookID: number, format: string) => boolean;
@@ -56,6 +65,7 @@ const coverPath = (value: string) => value.replaceAll('.', '-').replace(/^\/+/, 
 
 const BookCard: React.FC<BookCardProps> = ({
     book,
+    showLanguage,
     isSuperuser,
     formatDate,
     isBookConverting,
@@ -80,6 +90,9 @@ const BookCard: React.FC<BookCardProps> = ({
         navigate(path);
     };
 
+    // A code the interface cannot name is not shown at all: "zxx" tells a
+    // reader less than the empty space where it would have gone.
+    const bookLanguage = getLanguageDisplaySafe(book.lang);
     const authors = book.authors ?? [];
     const shownAuthors = open ? authors : authors.slice(0, VISIBLE_AUTHORS);
     const hiddenAuthors = authors.length - shownAuthors.length;
@@ -164,6 +177,9 @@ const BookCard: React.FC<BookCardProps> = ({
                         <span>
                             {t('bookPublished')} {formatDate(book.docdate)}
                         </span>
+                        {/* Last, and only when the list is mixed: it answers
+                            "can I read this one?", which the dates do not. */}
+                        {showLanguage && bookLanguage && <span>{bookLanguage}</span>}
                     </div>
                 </div>
 
