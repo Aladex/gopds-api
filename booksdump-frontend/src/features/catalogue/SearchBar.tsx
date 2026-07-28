@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { Heart, X } from 'lucide-react';
+import { Heart, Plus, X } from 'lucide-react';
 
 import { Button } from '@/shared/ui/button';
 import {
@@ -37,7 +37,11 @@ const SearchBar: React.FC = () => {
     const { searchItem, setSearchItem, selectedSearch, setSelectedSearch } = useSearchBar();
     const navigate = useNavigate();
     const { fav, favEnabled } = useFav();
-    const scope = useAuthorScope();
+    // Arriving in an author's list puts the panel in the mode the scope
+    // belongs to. Without this a reader who got here by searching for a name
+    // stays in "authors by name", where the scope cannot apply and so is not
+    // even shown — they had to know to switch modes themselves.
+    const scope = useAuthorScope(() => setSelectedSearch('title'));
     const { setAuthorBook, clearAuthorId, clearAuthorBook } = useAuthor();
 
     const searchOptions = [
@@ -52,7 +56,12 @@ const SearchBar: React.FC = () => {
 
     // Looking for authors by name is a search of the whole library by
     // definition, so the scope only applies to a search for books.
-    const scoped = scope.active && selectedSearch === 'title';
+    const scopeApplies = scope.available && selectedSearch === 'title';
+    const scoped = scopeApplies && scope.active;
+
+    const scopeLabel = scope.name
+        ? t('searchWithinAuthor', { name: scope.name })
+        : t('searchWithinThisAuthor');
 
     const navigateToSearchResults = () => {
         // Check that the search field is not empty and contains at least one character
@@ -129,26 +138,47 @@ const SearchBar: React.FC = () => {
                             <span className="shrink-0 text-xs text-muted-foreground">
                                 {t('searchQuery')}
                             </span>
-                            {scoped && (
-                                <span className="inline-flex min-w-0 items-center gap-0.5 rounded-full bg-accent py-0.5 pr-0.5 pl-2 text-xs text-accent-foreground">
-                                    {/* A long name is cut on a narrow screen,
-                                        so the whole of it stays reachable. */}
-                                    <span className="truncate" title={scope.name || undefined}>
-                                        {scope.name
-                                            ? t('searchWithinAuthor', { name: scope.name })
-                                            : t('searchWithinThisAuthor')}
+                            {/*
+                              While the reader is in an author's list the scope
+                              stays on screen either way — on, with a cross to
+                              drop it, or off and offering itself back. It used
+                              to vanish once released, leaving no way to confine
+                              the search again short of navigating out and in.
+                            */}
+                            {scopeApplies &&
+                                (scope.active ? (
+                                    <span className="inline-flex min-w-0 items-center gap-0.5 rounded-full bg-accent py-0.5 pr-0.5 pl-2 text-xs text-accent-foreground">
+                                        {/* A long name is cut on a narrow
+                                            screen, so the whole of it stays
+                                            reachable. */}
+                                        <span className="truncate" title={scope.name || undefined}>
+                                            {scopeLabel}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={scope.release}
+                                            aria-label={t('searchEverywhere')}
+                                            title={t('searchEverywhere')}
+                                            className="flex size-4 shrink-0 items-center justify-center rounded-full hover:bg-foreground/15"
+                                        >
+                                            <X className="size-3" />
+                                        </button>
                                     </span>
+                                ) : (
                                     <button
                                         type="button"
-                                        onClick={scope.release}
-                                        aria-label={t('searchEverywhere')}
-                                        title={t('searchEverywhere')}
-                                        className="flex size-4 shrink-0 items-center justify-center rounded-full hover:bg-foreground/15"
+                                        onClick={scope.reclaim}
+                                        aria-label={t('searchScopeRestore')}
+                                        title={t('searchScopeRestore')}
+                                        className={cn(
+                                            'inline-flex min-w-0 items-center gap-1 rounded-full border border-dashed border-border py-0.5 pr-2 pl-1.5 text-xs text-muted-foreground',
+                                            'hover:border-solid hover:bg-accent hover:text-accent-foreground',
+                                        )}
                                     >
-                                        <X className="size-3" />
+                                        <Plus className="size-3 shrink-0" />
+                                        <span className="truncate">{scopeLabel}</span>
                                     </button>
-                                </span>
-                            )}
+                                ))}
                         </div>
 
                         <AutocompleteSearch

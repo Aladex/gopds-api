@@ -57,6 +57,49 @@ describe('useAuthorScope', () => {
         expect(result.current.id).toBe('42');
     });
 
+    it("puts the panel in the mode the scope belongs to on arrival", () => {
+        // A reader who got here by searching for a name is still in "authors by
+        // name", where a scope means nothing and is not even shown. They had to
+        // know to switch modes themselves to search the books in front of them.
+        authorState.authorId = '42';
+        const onEnter = vi.fn();
+
+        renderHook(() => useAuthorScope(onEnter), {
+            wrapper: ({ children }: { children: React.ReactNode }) => (
+                <MemoryRouter initialEntries={['/books/find/author/42/1']}>{children}</MemoryRouter>
+            ),
+        });
+
+        expect(onEnter).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not announce an arrival that did not happen', () => {
+        const onEnter = vi.fn();
+
+        renderHook(() => useAuthorScope(onEnter), {
+            wrapper: ({ children }: { children: React.ReactNode }) => (
+                <MemoryRouter initialEntries={['/books/page/1']}>{children}</MemoryRouter>
+            ),
+        });
+
+        expect(onEnter).not.toHaveBeenCalled();
+    });
+
+    it('can be taken back after being released', async () => {
+        // Releasing it used to be one-way: the chip vanished and the only route
+        // back to a confined search was out of the author's list and in again.
+        authorState.authorId = '42';
+        const { result } = renderAt('/books/find/author/42/1');
+
+        result.current.release();
+        await waitFor(() => expect(result.current.active).toBe(false));
+
+        result.current.reclaim();
+
+        await waitFor(() => expect(result.current.active).toBe(true));
+        expect(result.current.id).toBe('42');
+    });
+
     it('stays off once released', async () => {
         authorState.authorId = '42';
         const { result } = renderAt('/books/find/author/42/1');

@@ -11,6 +11,8 @@ export interface AuthorScope {
     available: boolean;
     /** Whether the next search will be confined to that author. */
     active: boolean;
+    /** Turns the scope back on after it was released. */
+    reclaim: () => void;
     /** The author's name, once known; empty while it is being looked up. */
     name: string;
     /** The author's id, for the request that does the confining. */
@@ -18,6 +20,17 @@ export interface AuthorScope {
     /** Turns the scope off — the reader asking to search the whole library. */
     release: () => void;
 }
+
+/**
+ * Called on arriving in an author's list, so the panel can put itself in the
+ * mode the scope belongs to.
+ *
+ * A reader who got here by searching for a name is still in "authors by name",
+ * and a scope over that means nothing — an author inside one author. Their next
+ * search is almost certainly among the books in front of them, so the panel
+ * switches to titles and lets the scope apply.
+ */
+type OnEnter = () => void;
 
 /**
  * useAuthorScope reports whether a search is confined to one author's books.
@@ -34,7 +47,7 @@ export interface AuthorScope {
  * reader may release it, and that decision stands until they cross a boundary
  * again.
  */
-const useAuthorScope = (): AuthorScope => {
+const useAuthorScope = (onEnter?: OnEnter): AuthorScope => {
     const location = useLocation();
     const { authorId, authorName, setAuthorName } = useAuthor();
 
@@ -45,12 +58,20 @@ const useAuthorScope = (): AuthorScope => {
     // a crossing, and the scope comes on for a reader who opened the page cold.
     const wasAvailable = useRef(false);
 
+    // onEnter is read through a ref so a caller passing a fresh closure on
+    // every render does not re-fire the crossing.
+    const enter = useRef(onEnter);
+    enter.current = onEnter;
+
     useEffect(() => {
         if (wasAvailable.current === available) {
             return;
         }
         wasAvailable.current = available;
         setReleased(false);
+        if (available) {
+            enter.current?.();
+        }
     }, [available]);
 
     // The name is only fetched when nobody put it in the context on the way
@@ -79,6 +100,7 @@ const useAuthorScope = (): AuthorScope => {
         name: authorName,
         id: authorId,
         release: () => setReleased(true),
+        reclaim: () => setReleased(false),
     };
 };
 

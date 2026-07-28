@@ -458,5 +458,6 @@
   "curatedCollections.invalidId": "Invalid collection id",
   "curatedCollections.aiSkipped": "skipped",
   "adminSections": "Admin sections",
-  "bookScanRescanResult": "Archive \"{{name}}\" processed: {{books}} books, {{errors}} errors"
+  "bookScanRescanResult": "Archive \"{{name}}\" processed: {{books}} books, {{errors}} errors",
+  "searchScopeRestore": "Search only in this author's books"
 }
