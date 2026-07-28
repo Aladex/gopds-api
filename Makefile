@@ -1,5 +1,5 @@
 .PHONY: help verify bootstrap build build-bin build-frontend backend frontend frontend-placeholder swagger \
-	deps deps-frontend test test-backend test-integration test-frontend test-coverage clean lint lint-new lint-frontend lint-frontend-new fmt staticcheck security \
+	fmt-frontend fmt-frontend-check deps deps-frontend test test-backend test-integration test-frontend test-coverage clean lint lint-new lint-frontend lint-frontend-new fmt staticcheck security \
 	docker-build docker-run docker-compose-up docker-compose-down dev migrate-up migrate-down release pre-commit \
 	db-dump db-restore db-seed db-reset
 
@@ -139,9 +139,20 @@ lint-frontend-new: ## Fail on ESLint errors in frontend files changed since $(LI
 		cd $(FRONTEND_DIR) && npx eslint --no-warn-ignored --quiet $$files; \
 	fi
 
-fmt: ## Apply formatters (gofmt, goimports)
+fmt: fmt-frontend ## Apply formatters (gofmt, goimports, prettier)
 	@echo "Applying formatters..."
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION) fmt
+
+fmt-frontend: ## Apply prettier to the frontend
+	@echo "Applying prettier to the frontend..."
+	cd $(FRONTEND_DIR) && yarn --silent format
+
+# Prettier is pinned in the frontend's package.json. Never run it through a bare
+# npx: with no config resolved it falls back to its own defaults, which are not
+# this project's, and rewrites whole files.
+fmt-frontend-check: ## Fail if any frontend file is unformatted
+	@echo "Checking frontend formatting..."
+	cd $(FRONTEND_DIR) && yarn --silent format:check
 
 staticcheck: ## Run staticcheck (pinned version)
 	@echo "Running staticcheck $(STATICCHECK_VERSION)..."
@@ -216,9 +227,9 @@ migrate-down: ## Run database migrations down
 	# Add your migration rollback command here
 
 # Release
-release: clean build test lint-new lint-frontend-new security ## Prepare for release
+release: clean build test lint-new lint-frontend-new fmt-frontend-check security ## Prepare for release
 	@echo "Release preparation complete!"
 
 # Quick checks before commit
-pre-commit: lint-new lint-frontend-new test ## Run pre-commit checks
+pre-commit: lint-new lint-frontend-new fmt-frontend-check test ## Run pre-commit checks
 	@echo "Pre-commit checks passed!"

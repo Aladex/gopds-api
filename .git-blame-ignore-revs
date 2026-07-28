@@ -1,0 +1,8 @@
+# Commits that only moved whitespace about, so that `git blame` walks past
+# them to whoever last changed the code itself.
+#
+# Enable once per clone:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# style(frontend): format the codebase with prettier
+a0dca9df9d4248ce41ca7a0f076d0d6044feab8d
