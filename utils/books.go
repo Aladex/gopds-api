@@ -57,16 +57,15 @@ func removeTmpFile(path string) {
 	}
 }
 
-func deleteTmpFile(filename, format string) {
-	if err := os.Remove(filename + ".fb2"); err != nil {
-		logging.Errorf("failed to delete tmp file: %v", err)
-	}
-	if err := os.Remove(filename + format); err != nil {
-		logging.Errorf("failed to delete converted file: %v", err)
-	}
-}
-
-func (bp *BookProcessor) process(format string, cmdArgs []string, convert bool) (io.ReadCloser, error) {
+// process finds the book inside its archive and hands back its bytes.
+//
+// It used to carry a second mode that wrote the entry to a temporary file and
+// ran an external converter over it. Nothing reached it: the only caller is
+// FB2, which asks for no conversion, while Epub and Mobi go through
+// extractFB2 and convert in-process. Had anything reached it, the command it
+// assembled began with the book's own filename — it would have tried to
+// execute the book.
+func (bp *BookProcessor) process() (io.ReadCloser, error) {
 	r, err := zip.OpenReader(bp.path)
 	if err != nil {
 		return nil, err
@@ -74,51 +73,23 @@ func (bp *BookProcessor) process(format string, cmdArgs []string, convert bool) 
 	defer closeResource(r)
 
 	for _, f := range r.File {
-		if f.Name == bp.filename {
-			return bp.processFile(f, format, cmdArgs, convert)
+		if f.Name != bp.filename {
+			continue
 		}
+
+		rc, err := f.Open()
+		if err != nil {
+			return nil, err
+		}
+
+		// Closed here rather than deferred: a defer inside the loop would
+		// only run when the whole function returns, and the entry is read in
+		// full before that happens anyway.
+		content, err := bp.readWithoutConversion(rc)
+		closeResource(rc)
+		return content, err
 	}
 	return nil, errors.New("book not found")
-}
-
-func (bp *BookProcessor) processFile(f *zip.File, format string, cmdArgs []string, convert bool) (io.ReadCloser, error) {
-	rc, err := f.Open()
-	if err != nil {
-		return nil, err
-	}
-	defer closeResource(rc)
-
-	if !convert {
-		return bp.readWithoutConversion(rc)
-	}
-
-	tmpFilename := uuid.New().String()
-	tmpFile, err := os.Create(tmpFilename + ".fb2")
-	if err != nil {
-		return nil, err
-	}
-	defer closeTmpFile(tmpFile)
-
-	// Bounded: the size a zip entry declares is written by whoever built the
-	// archive, so it cannot decide how much lands on disk here.
-	if _, err = safeio.Copy(tmpFile, rc, safeio.MaxBookBytes); err != nil {
-		return nil, err
-	}
-
-	defer deleteTmpFile(tmpFilename, format)
-
-	cmdArgs = append(cmdArgs, tmpFilename+".fb2", ".")
-	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
-	if err := cmd.Run(); err != nil {
-		return nil, err
-	}
-
-	convertedBook, err := os.Open(tmpFilename + format)
-	if err != nil {
-		return nil, err
-	}
-
-	return convertedBook, nil
 }
 
 func (bp *BookProcessor) readWithoutConversion(rc io.ReadCloser) (io.ReadCloser, error) {
@@ -227,7 +198,7 @@ func (bp *BookProcessor) Mobi() (io.ReadCloser, error) {
 }
 
 func (bp *BookProcessor) FB2() (io.ReadCloser, error) {
-	return bp.process("", nil, false)
+	return bp.process()
 }
 
 func (bp *BookProcessor) Zip(df string) (io.ReadCloser, error) {
