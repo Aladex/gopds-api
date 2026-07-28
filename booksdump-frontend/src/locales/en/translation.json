@@ -25,11 +25,10 @@
   "routeTitles.registration": "Registration Page",
   "routeTitles.forgotPassword": "Reset Password Page",
   "language": "Language",
-  "categorySearch": "Category search",
   "searchItem": "Search",
   "search": "Search",
-  "byTitle": "Search book by title",
-  "byAuthor": "Search author by name",
+  "byTitle": "Books by title",
+  "byAuthor": "Authors by name",
   "booksTab": "Books",
   "collectionsTab": "Collections",
   "opdsTab": "OPDS",
@@ -40,7 +39,6 @@
   "routeByAuthorName.books": "Search by author name",
   "routeByAuthor.books": "Search by author",
   "noAuthor": "No author",
-  "authorsBookSearch": "Search books by author",
   "loginOrPasswordIncorrect": "Login or password is incorrect",
   "BackButton": "Back",
   "usernameAndPasswordRequired": "Username and password are required",
@@ -441,5 +439,10 @@
   "curatedCollections.preview": "Preview",
   "curatedCollections.previewTruncated": "Showing the first {{shown}} of {{total}}",
   "curatedCollections.moreWarnings": "… {{count}} more",
-  "year": "Year"
+  "year": "Year",
+  "searchWhat": "What to search",
+  "searchWithinAuthor": "in books by {{name}}",
+  "searchWithinThisAuthor": "in this author's books",
+  "searchEverywhere": "Search the whole library",
+  "clearSearch": "Clear the search box"
 }

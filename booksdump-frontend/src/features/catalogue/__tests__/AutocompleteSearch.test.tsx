@@ -104,14 +104,26 @@ describe('AutocompleteSearch', () => {
         );
     });
 
-    it('scopes the query to the author when searching inside their books', async () => {
+    // Where to search is a prop of its own rather than a value of searchType:
+    // what is being looked for and where it is being looked for are separate
+    // questions, and the panel now asks the second one on screen.
+    it('confines suggestions to the author the search is scoped to', async () => {
         const user = userEvent.setup();
-        authorState.authorId = '42';
-        const { input } = setup({ searchType: 'authorsBookSearch' });
+        const { input } = setup({ searchType: 'title', authorScope: '42' });
 
         await user.type(input, 'Старый');
         await waitFor(() =>
             expect(getSuggestions).toHaveBeenCalledWith('Старый', 'title', '42', 'ru'),
+        );
+    });
+
+    it('asks the whole library when no scope is given', async () => {
+        const user = userEvent.setup();
+        const { input } = setup({ searchType: 'title' });
+
+        await user.type(input, 'Старый');
+        await waitFor(() =>
+            expect(getSuggestions).toHaveBeenCalledWith('Старый', 'title', undefined, 'ru'),
         );
     });
 

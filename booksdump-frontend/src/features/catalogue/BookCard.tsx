@@ -68,7 +68,7 @@ const BookCard: React.FC<BookCardProps> = ({
     const { t } = useTranslation();
     const navigate = useNavigate();
     const { setSearchItem } = useSearchBar();
-    const { clearAuthorBook } = useAuthor();
+    const { clearAuthorBook, setAuthorName } = useAuthor();
     const [open, setOpen] = React.useState(false);
 
     /** goTo leaves the search box empty so the filter, not a stale query, applies. */
@@ -178,7 +178,13 @@ const BookCard: React.FC<BookCardProps> = ({
                                     {index > 0 && <span className="text-muted-foreground">·</span>}
                                     <button
                                         type="button"
-                                        onClick={() => goTo(`/books/find/author/${author.id}/1`)}
+                                        onClick={() => {
+                                            // The name is on screen already, so
+                                            // the search panel need not fetch it
+                                            // to say whose books it is scoped to.
+                                            setAuthorName(author.full_name);
+                                            goTo(`/books/find/author/${author.id}/1`);
+                                        }}
                                         className="border-b border-border hover:border-current"
                                     >
                                         {author.full_name}

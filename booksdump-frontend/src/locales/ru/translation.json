@@ -24,11 +24,10 @@
   "routeTitles.registration": "Страница регистрации",
   "routeTitles.forgotPassword": "Страница сброса пароля",
   "language": "Язык",
-  "categorySearch": "Поиск по категориям",
   "searchItem": "Поиск",
   "search": "Поиск",
-  "byTitle": "По названию",
-  "byAuthor": "По автору",
+  "byTitle": "Книги по названию",
+  "byAuthor": "Авторов по имени",
   "booksTab": "Книги",
   "collectionsTab": "Подборки",
   "opdsTab": "OPDS",
@@ -38,7 +37,6 @@
   "routeByBookName.books": "Поиск по названию книги",
   "routeByAuthorName.books": "Поиск по имени автора",
   "noAuthor": "Нет автора",
-  "authorsBookSearch": "Поиск книг по автору",
   "loginOrPasswordIncorrect": "Логин или пароль неверны",
   "BackButton": "Назад",
   "usernameAndPasswordRequired": "Имя пользователя и пароль обязательны",
@@ -444,5 +442,10 @@
   "curatedCollections.preview": "Предпросмотр",
   "curatedCollections.previewTruncated": "Показаны первые {{shown}} из {{total}}",
   "curatedCollections.moreWarnings": "… ещё {{count}}",
-  "year": "Год"
+  "year": "Год",
+  "searchWhat": "Что ищем",
+  "searchWithinAuthor": "в книгах: {{name}}",
+  "searchWithinThisAuthor": "в книгах этого автора",
+  "searchEverywhere": "Искать по всей библиотеке",
+  "clearSearch": "Очистить поле поиска"
 }

@@ -33,7 +33,7 @@ const AuthorSearch: React.FC = () => {
     const baseUrl = window.location.pathname.replace(/\/\d+$/, '');
     const navigate = useNavigate();
     const { setSearchItem } = useSearchBar();
-    const { clearAuthorBook } = useAuthor();
+    const { clearAuthorBook, setAuthorName } = useAuthor();
 
     useEffect(() => {
         const fetchAuthors = async () => {
@@ -66,9 +66,12 @@ const AuthorSearch: React.FC = () => {
     }, [author, location.search, page]);
 
     /** Clicking through leaves the search box empty so the filter, not a stale query, applies. */
-    const handleAuthorClick = (authorId: number) => {
+    const handleAuthorClick = (authorId: number, fullName: string) => {
         setSearchItem('');
         clearAuthorBook();
+        // Carried over so the scope beside the search box can name the author
+        // without asking the server for what was just on screen.
+        setAuthorName(fullName);
         navigate(`/books/find/author/${authorId}/1`);
     };
 
@@ -97,7 +100,7 @@ const AuthorSearch: React.FC = () => {
                                     <li key={author.id}>
                                         <button
                                             type="button"
-                                            onClick={() => handleAuthorClick(author.id)}
+                                            onClick={() => handleAuthorClick(author.id, author.full_name)}
                                             className="w-full rounded px-3 py-2 text-left hover:bg-accent hover:text-accent-foreground"
                                         >
                                             {author.full_name}

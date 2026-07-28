@@ -83,6 +83,14 @@ export const listBooks = (query: BooksQuery) =>
 export const listAuthors = (query: { author?: string; limit?: number; offset?: number }) =>
     http.get<{ authors: Author[]; length: number }>('/books/authors', { query });
 
+/**
+ * getAuthor names a single author, which the search panel needs when a reader
+ * arrives on an author's list by URL rather than by following a link — there is
+ * no name in `/books/find/author/42/1` to put on screen.
+ */
+export const getAuthor = (id: number | string) =>
+    http.post<Author>('/books/author', { author_id: Number(id) });
+
 export const listLanguages = () => http.get<{ langs: Language[] }>('/books/langs');
 
 /** toggleFavourite adds or removes a book from the caller's favourites. */

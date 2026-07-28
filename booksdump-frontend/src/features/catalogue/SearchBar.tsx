@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { Heart } from 'lucide-react';
+import { Heart, X } from 'lucide-react';
 
 import { Button } from '@/shared/ui/button';
 import {
@@ -16,7 +16,7 @@ import { cn } from '@/shared/lib/utils';
 import { useAuthor } from '@/context/AuthorContext';
 import { useFav } from '@/context/FavContext';
 import { useSearchBar } from '@/context/SearchBarContext';
-import useSearchOptions from '@/features/catalogue/hooks/useSearchOptions';
+import useAuthorScope from '@/features/catalogue/hooks/useAuthorScope';
 import AutocompleteSearch from '@/features/catalogue/AutocompleteSearch';
 
 interface SearchRecord {
@@ -37,14 +37,22 @@ const SearchBar: React.FC = () => {
     const { searchItem, setSearchItem, selectedSearch, setSelectedSearch } = useSearchBar();
     const navigate = useNavigate();
     const { fav, favEnabled } = useFav();
-    const searchOptions = useSearchOptions(setSelectedSearch);
-    const { authorId, setAuthorBook, clearAuthorId, clearAuthorBook } = useAuthor();
+    const scope = useAuthorScope();
+    const { setAuthorBook, clearAuthorId, clearAuthorBook } = useAuthor();
+
+    const searchOptions = [
+        { value: 'title', label: t('byTitle') },
+        { value: 'author', label: t('byAuthor') },
+    ];
 
     const records: SearchRecord[] = [
-        { option: 'authorsBookSearch', path: `/books/find/author/` },
         { option: 'title', path: `/books/find/title/${encodeURIComponent(searchItem)}/1` },
         { option: 'author', path: `/authors/${encodeURIComponent(searchItem)}/1` },
     ];
+
+    // Looking for authors by name is a search of the whole library by
+    // definition, so the scope only applies to a search for books.
+    const scoped = scope.active && selectedSearch === 'title';
 
     const navigateToSearchResults = () => {
         // Check that the search field is not empty and contains at least one character
@@ -52,21 +60,22 @@ const SearchBar: React.FC = () => {
             return;
         }
 
+        // Confined to one author: stay on their list and filter it, which is
+        // what the list route does with a title alongside an author.
+        if (scoped && scope.id) {
+            setAuthorBook(searchItem);
+            navigate(`/books/find/author/${scope.id}/1`);
+            return;
+        }
+
         const record = records.find((item) => item.option === selectedSearch);
-        setAuthorBook(searchItem);
         if (!record) {
             return;
         }
 
-        // Searching an author's own books keeps the author id; anything else
-        // starts from a clean slate.
-        if (record.option !== 'authorsBookSearch') {
-            clearAuthorId();
-            clearAuthorBook();
-            navigate(record.path);
-        } else {
-            navigate(record.path + authorId + '/1');
-        }
+        clearAuthorId();
+        clearAuthorBook();
+        navigate(record.path);
     };
 
     const toggleFavourites = () => {
@@ -84,13 +93,13 @@ const SearchBar: React.FC = () => {
                   and the favourites toggle on one row — the toggle is a small
                   square and a row of its own leaves it stranded.
                 */}
-                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3 md:grid-cols-[minmax(170px,1fr)_minmax(0,2.6fr)_auto_auto]">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3 md:grid-cols-[minmax(150px,max-content)_minmax(0,1fr)_auto_auto]">
                     <div className="col-span-2 flex min-w-0 flex-col gap-1.5 md:col-span-1">
                         <label
                             htmlFor="search-category"
                             className="text-xs text-muted-foreground"
                         >
-                            {t('categorySearch')}
+                            {t('searchWhat')}
                         </label>
                         <Select
                             value={selectedSearch}
@@ -98,7 +107,7 @@ const SearchBar: React.FC = () => {
                             disabled={fav}
                         >
                             <SelectTrigger id="search-category" className="w-full">
-                                <SelectValue placeholder={t('categorySearch')} />
+                                <SelectValue placeholder={t('searchWhat')} />
                             </SelectTrigger>
                             <SelectContent>
                                 {searchOptions.map((option) => (
@@ -111,11 +120,42 @@ const SearchBar: React.FC = () => {
                     </div>
 
                     <div className="col-span-2 flex min-w-0 flex-col gap-1.5 md:col-span-1">
-                        <span className="text-xs text-muted-foreground">{t('searchQuery')}</span>
+                        {/*
+                          The scope rides the label's own row: it costs no
+                          height there, and it leaves the field its full width —
+                          inside the box it took nearly half of a phone's.
+                        */}
+                        <div className="flex min-w-0 items-center justify-between gap-2">
+                            <span className="shrink-0 text-xs text-muted-foreground">
+                                {t('searchQuery')}
+                            </span>
+                            {scoped && (
+                                <span className="inline-flex min-w-0 items-center gap-0.5 rounded-full bg-accent py-0.5 pr-0.5 pl-2 text-xs text-accent-foreground">
+                                    {/* A long name is cut on a narrow screen,
+                                        so the whole of it stays reachable. */}
+                                    <span className="truncate" title={scope.name || undefined}>
+                                        {scope.name
+                                            ? t('searchWithinAuthor', { name: scope.name })
+                                            : t('searchWithinThisAuthor')}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={scope.release}
+                                        aria-label={t('searchEverywhere')}
+                                        title={t('searchEverywhere')}
+                                        className="flex size-4 shrink-0 items-center justify-center rounded-full hover:bg-foreground/15"
+                                    >
+                                        <X className="size-3" />
+                                    </button>
+                                </span>
+                            )}
+                        </div>
+
                         <AutocompleteSearch
                             value={searchItem}
                             onChange={setSearchItem}
                             searchType={selectedSearch}
+                            authorScope={scoped ? scope.id : undefined}
                             disabled={fav}
                             onEnterPressed={navigateToSearchResults}
                             placeholder={t('searchItem')}
