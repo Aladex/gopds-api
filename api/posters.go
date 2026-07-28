@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	assets "gopds-api"
+	"gopds-api/internal/safepath"
 	"gopds-api/logging"
 
 	"github.com/gin-gonic/gin"
@@ -38,17 +39,18 @@ func Posters(c *gin.Context) {
 	postersPath := viper.GetString("app.posters_path") // Retrieve the base path for posters from the app's configuration.
 	relativePath := c.Param("filepath")                // Extract the relative path from the request's parameters.
 
-	// Clean the path to prevent directory traversal
-	safePath := filepath.Clean(relativePath)
-
-	// Join the base path and the safe relative path
-	fullPath := filepath.Join(postersPath, safePath)
-
-	// Ensure the full path is within the postersPath directory
-	if !strings.HasPrefix(fullPath, filepath.Clean(postersPath)) {
+	// The guard this replaced compared the joined path against the base with a
+	// string prefix, which lets a sibling directory through: "/srv/posters-old"
+	// starts with "/srv/posters". Nothing exploited it, because a router
+	// wildcard always arrives with a leading slash and Clean strips ".." from
+	// an absolute path — safe by accident rather than by the check.
+	fullPath, err := safepath.Resolve(postersPath, relativePath)
+	if err != nil {
+		logging.Warnf("Refused a poster path outside the base: %v", err)
 		c.JSON(http.StatusForbidden, gin.H{"error": "invalid file path"})
 		return
 	}
+	safePath := strings.TrimPrefix(filepath.Clean(relativePath), string(filepath.Separator))
 
 	// If path is /book-posters/cover-loading.png, serve the default cover-loading.png from assets
 	if safePath == "cover-loading.png" {
