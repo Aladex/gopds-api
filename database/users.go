@@ -201,6 +201,9 @@ func UpdateUserProfile(userID int64, updates models.SelfUserChangeRequest) (mode
 	if updates.BooksLang != "" {
 		user.BooksLang = updates.BooksLang
 	}
+	if updates.InterfaceLang != "" {
+		user.InterfaceLang = updates.InterfaceLang
+	}
 	if updates.NewPassword != "" {
 		logging.Info("Updating password for user ", user.Login)
 		hashedPassword := utils.CreatePasswordHash(updates.NewPassword)

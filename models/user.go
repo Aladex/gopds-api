@@ -36,6 +36,7 @@ type User struct {
 	FirstName       string              `pg:"first_name" json:"first_name" form:"first_name"`
 	LastName        string              `pg:"last_name" json:"last_name" form:"last_name"`
 	BooksLang       string              `pg:"books_lang" json:"books_lang" form:"books_lang"`
+	InterfaceLang   string              `pg:"interface_lang" json:"interface_lang" form:"interface_lang"`
 	Email           string              `pg:"email" json:"email"`
 	BotToken        string              `pg:"bot_token" json:"bot_token" form:"bot_token"`
 	WebhookUUID     string              `pg:"webhook_uuid" json:"-"`
@@ -48,16 +49,17 @@ type User struct {
 
 // LoggedInUser struct for user table with token
 type LoggedInUser struct {
-	User        string           `json:"username"`
-	FirstName   string           `json:"first_name"`
-	LastName    string           `json:"last_name"`
-	BooksLang   string           `json:"books_lang"`
-	HaveFavs    *bool            `json:"have_favs,omitempty"`
-	Token       *string          `json:"token,omitempty"`
-	Collections []BookCollection `json:"collections"`
-	IsSuperuser *bool            `json:"is_superuser,omitempty"`
-	HasBotToken *bool            `json:"has_bot_token,omitempty"`
-	DateJoined  *time.Time       `json:"date_joined,omitempty"`
+	User          string           `json:"username"`
+	FirstName     string           `json:"first_name"`
+	LastName      string           `json:"last_name"`
+	BooksLang     string           `json:"books_lang"`
+	InterfaceLang string           `json:"interface_lang"`
+	HaveFavs      *bool            `json:"have_favs,omitempty"`
+	Token         *string          `json:"token,omitempty"`
+	Collections   []BookCollection `json:"collections"`
+	IsSuperuser   *bool            `json:"is_superuser,omitempty"`
+	HasBotToken   *bool            `json:"has_bot_token,omitempty"`
+	DateJoined    *time.Time       `json:"date_joined,omitempty"`
 }
 
 // LoginRequest struct for login request
@@ -117,9 +119,10 @@ type AdminCommandToUser struct {
 
 // SelfUserChangeRequest structure
 type SelfUserChangeRequest struct {
-	FirstName   string `json:"first_name" form:"first_name"`
-	LastName    string `json:"last_name" form:"last_name"`
-	Password    string `json:"password" form:"password"`
-	NewPassword string `json:"new_password" form:"new_password"`
-	BooksLang   string `json:"books_lang" form:"books_lang"`
+	FirstName     string `json:"first_name" form:"first_name"`
+	LastName      string `json:"last_name" form:"last_name"`
+	Password      string `json:"password" form:"password"`
+	NewPassword   string `json:"new_password" form:"new_password"`
+	BooksLang     string `json:"books_lang" form:"books_lang"`
+	InterfaceLang string `json:"interface_lang" form:"interface_lang"`
 }

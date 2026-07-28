@@ -127,15 +127,16 @@ func AuthCheck(c *gin.Context) {
 
 	hasBotToken := dbUser.BotToken != ""
 	thisUser := models.LoggedInUser{
-		User:        dbUser.Login,
-		FirstName:   dbUser.FirstName,
-		LastName:    dbUser.LastName,
-		BooksLang:   dbUser.BooksLang,
-		Token:       &accessToken,
-		IsSuperuser: &dbUser.IsSuperUser,
-		HaveFavs:    &hf,
-		HasBotToken: &hasBotToken,
-		DateJoined:  &dbUser.DateJoined,
+		User:          dbUser.Login,
+		FirstName:     dbUser.FirstName,
+		LastName:      dbUser.LastName,
+		BooksLang:     dbUser.BooksLang,
+		InterfaceLang: dbUser.InterfaceLang,
+		Token:         &accessToken,
+		IsSuperuser:   &dbUser.IsSuperUser,
+		HaveFavs:      &hf,
+		HasBotToken:   &hasBotToken,
+		DateJoined:    &dbUser.DateJoined,
 	}
 
 	if err := sessions.SetSessionKey(ctx, thisUser); err != nil {
@@ -244,15 +245,16 @@ func SelfUser(c *gin.Context) {
 	} else {
 		hasBotToken := dbUser.BotToken != ""
 		c.JSON(http.StatusOK, models.LoggedInUser{
-			User:        dbUser.Login,
-			BooksLang:   dbUser.BooksLang,
-			IsSuperuser: &dbUser.IsSuperUser,
-			FirstName:   dbUser.FirstName,
-			LastName:    dbUser.LastName,
-			HaveFavs:    &hf,
-			Collections: dbUser.Collections,
-			HasBotToken: &hasBotToken,
-			DateJoined:  &dbUser.DateJoined,
+			User:          dbUser.Login,
+			BooksLang:     dbUser.BooksLang,
+			InterfaceLang: dbUser.InterfaceLang,
+			IsSuperuser:   &dbUser.IsSuperUser,
+			FirstName:     dbUser.FirstName,
+			LastName:      dbUser.LastName,
+			HaveFavs:      &hf,
+			Collections:   dbUser.Collections,
+			HasBotToken:   &hasBotToken,
+			DateJoined:    &dbUser.DateJoined,
 		})
 	}
 }
@@ -330,15 +332,16 @@ func InitSession(c *gin.Context) {
 							if hf, err := database.HaveFavs(dbUser.ID); err == nil {
 								hasBotToken := dbUser.BotToken != ""
 								response["user"] = models.LoggedInUser{
-									User:        dbUser.Login,
-									BooksLang:   dbUser.BooksLang,
-									IsSuperuser: &dbUser.IsSuperUser,
-									FirstName:   dbUser.FirstName,
-									LastName:    dbUser.LastName,
-									HaveFavs:    &hf,
-									Collections: dbUser.Collections,
-									HasBotToken: &hasBotToken,
-									DateJoined:  &dbUser.DateJoined,
+									User:          dbUser.Login,
+									BooksLang:     dbUser.BooksLang,
+									InterfaceLang: dbUser.InterfaceLang,
+									IsSuperuser:   &dbUser.IsSuperUser,
+									FirstName:     dbUser.FirstName,
+									LastName:      dbUser.LastName,
+									HaveFavs:      &hf,
+									Collections:   dbUser.Collections,
+									HasBotToken:   &hasBotToken,
+									DateJoined:    &dbUser.DateJoined,
 								}
 							}
 
@@ -381,15 +384,16 @@ func InitSession(c *gin.Context) {
 	if hf, err := database.HaveFavs(dbUser.ID); err == nil {
 		hasBotToken := dbUser.BotToken != ""
 		response["user"] = models.LoggedInUser{
-			User:        dbUser.Login,
-			BooksLang:   dbUser.BooksLang,
-			IsSuperuser: &dbUser.IsSuperUser,
-			FirstName:   dbUser.FirstName,
-			LastName:    dbUser.LastName,
-			HaveFavs:    &hf,
-			Collections: dbUser.Collections,
-			HasBotToken: &hasBotToken,
-			DateJoined:  &dbUser.DateJoined,
+			User:          dbUser.Login,
+			BooksLang:     dbUser.BooksLang,
+			InterfaceLang: dbUser.InterfaceLang,
+			IsSuperuser:   &dbUser.IsSuperUser,
+			FirstName:     dbUser.FirstName,
+			LastName:      dbUser.LastName,
+			HaveFavs:      &hf,
+			Collections:   dbUser.Collections,
+			HasBotToken:   &hasBotToken,
+			DateJoined:    &dbUser.DateJoined,
 		}
 	}
 
@@ -474,6 +478,14 @@ func ChangeUser(c *gin.Context) {
 		return
 	}
 
+	// The interface speaks two languages; an empty value is a user who has not
+	// been asked yet, and is left alone rather than rejected.
+	if len(userNewData.InterfaceLang) > 0 &&
+		userNewData.InterfaceLang != "ru" && userNewData.InterfaceLang != "en" {
+		httputil.NewError(c, http.StatusBadRequest, errors.New("invalid_interface_language"))
+		return
+	}
+
 	// Use secure function to update user profile
 	updatedUser, err := database.UpdateUserProfile(dbUser.ID, userNewData)
 	if err != nil {
@@ -487,14 +499,15 @@ func ChangeUser(c *gin.Context) {
 	} else {
 		hasBotToken := updatedUser.BotToken != ""
 		c.JSON(http.StatusOK, models.LoggedInUser{
-			User:        updatedUser.Login,
-			FirstName:   updatedUser.FirstName,
-			LastName:    updatedUser.LastName,
-			IsSuperuser: &updatedUser.IsSuperUser,
-			BooksLang:   updatedUser.BooksLang,
-			HaveFavs:    &hf,
-			HasBotToken: &hasBotToken,
-			DateJoined:  &updatedUser.DateJoined,
+			User:          updatedUser.Login,
+			FirstName:     updatedUser.FirstName,
+			LastName:      updatedUser.LastName,
+			IsSuperuser:   &updatedUser.IsSuperUser,
+			BooksLang:     updatedUser.BooksLang,
+			InterfaceLang: updatedUser.InterfaceLang,
+			HaveFavs:      &hf,
+			HasBotToken:   &hasBotToken,
+			DateJoined:    &updatedUser.DateJoined,
 		})
 	}
 }
