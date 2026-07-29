@@ -1035,8 +1035,11 @@ func GetAutocompleteSuggestions(query string, searchType string, authorID string
 					Column("id", "full_name").
 					Where("full_name IS NOT NULL").
 					Where("full_name != ''").
-					Where("full_name % ?", query).
-					OrderExpr("similarity(full_name, ?) DESC", query).
+					// Same expression as the trigram index, see
+					// authorNameExpr: written against the bare column this
+					// scanned every author on every keystroke.
+					Where(authorNameExpr+" % lower(?)", query).
+					OrderExpr("similarity("+authorNameExpr+", lower(?)) DESC", query).
 					Limit(20).
 					Select()
 
