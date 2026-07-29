@@ -3,8 +3,6 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
-@import './transitions.css';
-
 /*
  * Bind Tailwind's dark: variant to the theme this application is showing.
  * By default the variant follows prefers-color-scheme, but the theme here is
@@ -239,6 +237,15 @@
         display: flex;
         flex-direction: column;
         min-height: 100vh;
+
+        /*
+         * Inherited by everything below, which is why it is set here rather
+         * than on the universal selector it used to sit on. It is all that
+         * survived transitions.css: the rest of that file was either unused
+         * or a second, worse copy of what index.html already does.
+         */
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
     }
 
     #root {
