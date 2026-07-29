@@ -43,3 +43,16 @@ if (typeof window !== 'undefined' && !window.localStorage) {
         } satisfies Storage,
     });
 }
+
+// jsdom implements no layout, and so no ResizeObserver either. Anything that
+// measures itself to place something — the header's section underline — would
+// take the tree down under test while working in a browser. The stub accepts
+// observers and never reports, which is honest: nothing is ever resized here,
+// because nothing is ever laid out.
+if (typeof globalThis.ResizeObserver === 'undefined') {
+    globalThis.ResizeObserver = class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+    } as unknown as typeof ResizeObserver;
+}

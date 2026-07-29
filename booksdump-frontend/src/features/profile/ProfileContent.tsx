@@ -100,6 +100,32 @@ const Field: React.FC<{
     </div>
 );
 
+/**
+ * One tab panel's classes.
+ *
+ * All three share a single grid cell, so the sheet is as tall as the tallest of
+ * them and stops resizing as tabs are switched. A fixed height could not do
+ * this: the account tab is the tallest on a phone and not on a desktop, where
+ * its two name fields sit in a row rather than stacked.
+ *
+ * The fade keys off Radix's own data-state rather than a second copy of which
+ * tab is open, so the panel cannot disagree with the primitive about it for a
+ * frame. Switching used to be instant, and an instant swap of two forms sharing
+ * one box shows every seam in it; the incoming panel now rises into place while
+ * the outgoing one is already gone, which reads as one movement rather than a
+ * substitution. Anyone who has asked their system for less motion gets the
+ * plain swap.
+ */
+const PANEL_CLASSES = cn(
+    'col-start-1 row-start-2',
+    // forceMount keeps them mounted, and Radix marks the inactive ones hidden
+    // — which would take them out of the layout again.
+    '[&[hidden]]:block',
+    'transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none',
+    'data-[state=inactive]:invisible data-[state=inactive]:translate-y-1',
+    'data-[state=inactive]:opacity-0',
+);
+
 const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
     const { t } = useTranslation();
     const [showInstruction, setShowInstruction] = useState(false);
@@ -193,20 +219,7 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                     value="account"
                     forceMount
                     inert={tab !== 'account'}
-                    className={cn(
-                        // All three share one grid cell, so the row is as tall
-                        // as the tallest of them and the sheet stops resizing
-                        // as tabs are switched. A fixed height could not do
-                        // this: the account tab is the tallest on a phone and
-                        // not on a desktop, where its two name fields sit in a
-                        // row rather than stacked.
-                        'col-start-1 row-start-2',
-                        // forceMount keeps them mounted, and Radix marks the
-                        // inactive ones hidden — which would take them out of
-                        // the layout again.
-                        '[&[hidden]]:block',
-                        tab !== 'account' && 'invisible',
-                    )}
+                    className={PANEL_CLASSES}
                 >
                     <Group title={t('profileSection.personalData')} first>
                         <div className="flex flex-col gap-3 sm:flex-row">
@@ -236,20 +249,7 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                     value="security"
                     forceMount
                     inert={tab !== 'security'}
-                    className={cn(
-                        // All three share one grid cell, so the row is as tall
-                        // as the tallest of them and the sheet stops resizing
-                        // as tabs are switched. A fixed height could not do
-                        // this: the account tab is the tallest on a phone and
-                        // not on a desktop, where its two name fields sit in a
-                        // row rather than stacked.
-                        'col-start-1 row-start-2',
-                        // forceMount keeps them mounted, and Radix marks the
-                        // inactive ones hidden — which would take them out of
-                        // the layout again.
-                        '[&[hidden]]:block',
-                        tab !== 'security' && 'invisible',
-                    )}
+                    className={PANEL_CLASSES}
                 >
                     {/*
                       Password and sessions are separate groups on purpose. Together,
@@ -330,25 +330,7 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                     </Group>
                 </TabsContent>
 
-                <TabsContent
-                    value="bot"
-                    forceMount
-                    inert={tab !== 'bot'}
-                    className={cn(
-                        // All three share one grid cell, so the row is as tall
-                        // as the tallest of them and the sheet stops resizing
-                        // as tabs are switched. A fixed height could not do
-                        // this: the account tab is the tallest on a phone and
-                        // not on a desktop, where its two name fields sit in a
-                        // row rather than stacked.
-                        'col-start-1 row-start-2',
-                        // forceMount keeps them mounted, and Radix marks the
-                        // inactive ones hidden — which would take them out of
-                        // the layout again.
-                        '[&[hidden]]:block',
-                        tab !== 'bot' && 'invisible',
-                    )}
-                >
+                <TabsContent value="bot" forceMount inert={tab !== 'bot'} className={PANEL_CLASSES}>
                     <Group
                         first
                         title={
