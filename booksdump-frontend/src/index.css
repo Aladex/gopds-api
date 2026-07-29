@@ -123,16 +123,35 @@
     --secondary: rgba(0, 0, 0, 0.08);
     --secondary-foreground: #000000;
 
-    --muted: rgba(0, 0, 0, 0.08);
-    --muted-foreground: rgba(0, 0, 0, 0.6);
-    --accent: rgba(0, 0, 0, 0.04);
+    /*
+     * Secondary text sits on three surfaces, and the page is the worst of
+     * them: at 0.6 it read 4.36:1 on #b3b3b3, under the 4.5:1 that normal text
+     * is meant to clear, and much of it is set at 12px. 0.68 brings that to
+     * 5.5:1 and leaves it plainly lighter than the body text beside it.
+     */
+    --muted: rgba(0, 0, 0, 0.1);
+    --muted-foreground: rgba(0, 0, 0, 0.68);
+    --accent: rgba(0, 0, 0, 0.07);
     --accent-foreground: #000000;
 
     --destructive: #ff5252;
     --destructive-foreground: #ffffff;
 
-    --border: rgba(0, 0, 0, 0.12);
-    --input: rgba(0, 0, 0, 0.12);
+    /*
+     * Measured rather than eyeballed, as contrast ratios against the white a
+     * card is painted in.
+     *
+     * A divider at 0.12 renders #e0e0e0, which is 1.32:1 — a line you have to
+     * look for to find. 0.26 gives #bdbdbd at 1.88:1: still a hairline, now
+     * one that separates.
+     *
+     * The two are set apart because they are asked different things. A field's
+     * outline is a control boundary, which WCAG wants at 3:1, and at 0.12 it
+     * was less than half of that: an input was a rectangle of the same white as
+     * the card behind it. 0.42 renders #949494 at 3.03:1.
+     */
+    --border: rgba(0, 0, 0, 0.26);
+    --input: rgba(0, 0, 0, 0.42);
     --ring: #616161;
 
     --radius: 0.5rem;
