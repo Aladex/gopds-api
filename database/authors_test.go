@@ -74,12 +74,40 @@ func TestGetAuthorsOrdersByCloseness(t *testing.T) {
 	}
 }
 
+// A surname the reader typed in full has to find the author who carries it,
+// however many given names follow. Whole-string similarity scored Tolkien's own
+// full name at 0.292 — under the 0.3 the operator demands — so the most
+// complete form of the name was not a result at all.
+func TestGetAuthorsFindsNamesWithManyGivenNames(t *testing.T) {
+	requireDatabase(t)
+
+	authors, _, err := GetAuthors(models.AuthorFilters{Author: "Толкин", Limit: 50})
+	if err != nil {
+		t.Fatalf("searching for authors: %v", err)
+	}
+
+	var found bool
+	for _, a := range authors {
+		if strings.EqualFold(a.FullName, "Толкин Джон Рональд Руэл") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		names := make([]string, 0, len(authors))
+		for _, a := range authors {
+			names = append(names, a.FullName)
+		}
+		t.Errorf("the author's own full name is missing from %v", names)
+	}
+}
+
 // Among names the search cannot tell apart, the author holding more books is
 // the one a reader typing a famous surname almost always meant.
 func TestGetAuthorsPrefersTheLargerOfSimilarNames(t *testing.T) {
 	requireDatabase(t)
 
-	for _, name := range []string{"Достоевский", "Толстой"} {
+	for _, name := range []string{"Достоевский", "Толстой", "Толкин", "Пушкин"} {
 		t.Run(name, func(t *testing.T) {
 			authors, _, err := GetAuthors(models.AuthorFilters{
 				Author: name,
@@ -101,7 +129,7 @@ func TestGetAuthorsPrefersTheLargerOfSimilarNames(t *testing.T) {
 					largest, at = a.BooksCount, i
 				}
 			}
-			if at > 1 {
+			if at != 0 {
 				t.Errorf("the author holding %d books is %d rows down, under %+v",
 					largest, at, authors[:at])
 			}

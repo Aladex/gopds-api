@@ -41,32 +41,36 @@ const maxAuthorsPerPage = 100
 // trip, because pagination has to count what the page is drawn from — counting
 // matched names instead would page over rows this query does not return.
 //
-// Ordering runs closeness, then size, then id.
+// Candidates come from two operators because neither finds the other's names.
 //
-// Closeness alone put "Dostoyevsky F", who holds one book, above "Dostoyevsky
-// Fyodor", who holds 176, and left "Tolstoy Lev" and his 712 books fifth behind
-// four namesakes holding two apiece. Trigram distance measures how alike two
-// strings are, which is not the same question as which author a reader typing a
-// famous surname meant.
+// `%` compares whole strings, so a name is punished for everything the reader
+// did not type: "Tolkien John Ronald Reuel" scores 0.292 against "Tolkien",
+// under the 0.3 the operator demands, and the author's own full name was
+// therefore not a search result at all. `%>` asks the other question — how well
+// the query matches some run of words within the name — and finds it at 1.0,
+// while missing the loose fuzzy matches `%` is good at. Both reach the same GIN
+// index, so the union is a BitmapOr of two index scans and costs 4ms.
 //
-// So distance is banded before it is compared, and within a band the bigger
-// author comes first. Rounding rather than truncating makes the first band a
-// half width wide, which keeps an exact match on top of the near misses while
-// grouping everything merely close enough to be worth reordering: at a quarter,
-// the band runs from an eighth to three eighths, and the two spellings of
-// Dostoyevsky — identical in distance, 176 books against 6 — land in it
-// together along with the initials-only variants.
+// Ordering runs word distance, then size, then id.
+//
+// Whole-string distance ranks by length as much as by likeness: every "Tolkien
+// <given names>" sorts by how much followed the surname, which put a Tolkien
+// holding one book above the one holding 119, and buried Tolstoy and his 712
+// under four namesakes holding two apiece. Word distance ignores the words the
+// reader did not type, so all of them tie at zero and the question becomes
+// which of these people the reader meant — answered by how many books each
+// one holds. Names that merely resemble the query still sort behind, by how
+// far off they are.
 //
 // Ties break on id last. Rows tied under an ORDER BY may come back in any
 // order, and whole runs of names do tie, so the second page was repeating
 // authors from the first and skipping others entirely.
-const similarityBand = "0.25"
-
 const authorSearchSQL = `
 WITH matched AS (
 	SELECT a.id, a.full_name
 	FROM opds_catalog_author AS a
 	WHERE lower(a.full_name) % lower(?0)
+		OR lower(a.full_name) %> lower(?0)
 ), counted AS (
 	SELECT m.id, m.full_name, count(b.id) AS books_count
 	FROM matched AS m
@@ -79,7 +83,7 @@ WITH matched AS (
 )
 SELECT id, full_name, books_count, count(*) OVER () AS total
 FROM counted
-ORDER BY round(((lower(full_name) <-> lower(?0))::numeric / ` + similarityBand + `)) ASC,
+ORDER BY lower(?0) <<-> lower(full_name) ASC,
 	books_count DESC,
 	id ASC
 LIMIT ?1 OFFSET ?2`
