@@ -69,6 +69,9 @@ test('gives every configured method a tab, in the order configured', async () =>
     expect(tabs.map((tab) => tab.textContent)).toEqual(['Bitcoin', 'Card', 'Boosty']);
 });
 
+/** The tab panel holding a given value, whether or not it is the one on show. */
+const panelFor = (value: string | RegExp) => screen.getByText(value).closest('[role="tabpanel"]');
+
 test('opens on the first method and shows only that one', async () => {
     await openWith([bitcoin, card, boosty]);
 
@@ -77,9 +80,20 @@ test('opens on the first method and shows only that one', async () => {
         'true',
     );
     expect(screen.getByText('bc1qtest')).toBeInTheDocument();
-    // The other methods' values are not merely hidden — they are not mounted,
-    // which is what keeps their QR codes from being generated.
-    expect(screen.queryByText(/5536/)).not.toBeInTheDocument();
+    /*
+     * Every method is mounted now, so that switching between them can hand over
+     * rather than substitute — there is nothing to fade out otherwise. The cost
+     * is that each one's QR code is generated when the dialog opens rather than
+     * when its tab is first opened.
+     *
+     * So the others are present, and what keeps them out of the way is asserted
+     * rather than their absence. Which panel is *drawn* cannot be checked here:
+     * no stylesheet is loaded under test, so the class that hides one has no
+     * effect. That was measured in a browser; `inert` is the half jsdom can see,
+     * and it is the half that matters for anyone tabbing through.
+     */
+    expect(panelFor(/5536/)).toHaveAttribute('inert');
+    expect(panelFor('bc1qtest')).not.toHaveAttribute('inert');
 });
 
 test('shows the method whose tab was chosen', async () => {
@@ -89,7 +103,8 @@ test('shows the method whose tab was chosen', async () => {
 
     // Shown grouped the way it is printed on the card.
     expect(await screen.findByText('5536 9139 9418 6852')).toBeInTheDocument();
-    expect(screen.queryByText('bc1qtest')).not.toBeInTheDocument();
+    expect(panelFor(/5536/)).not.toHaveAttribute('inert');
+    expect(panelFor('bc1qtest')).toHaveAttribute('inert');
 });
 
 test('offers no choice when only one method is configured', async () => {

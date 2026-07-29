@@ -9,7 +9,8 @@ import { useTheme } from '@/context/ThemeContext';
 import { Button } from '@/shared/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/shared/ui/dialog';
 import { Drawer, DrawerContent, DrawerDescription, DrawerTitle } from '@/shared/ui/drawer';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from '@/shared/ui/tabs';
+import FadingTabPanel from '@/shared/components/FadingTabPanel';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import { cn } from '@/shared/lib/utils';
 
@@ -322,8 +323,12 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
             </section>
         ) : (
             methods.length > 1 && (
-                <Tabs value={active} onValueChange={setChosen}>
-                    <TabsList>
+                /* A grid of one column, so every panel shares the second row
+                   and the sheet is as tall as the tallest of them. They used to
+                   be mounted one at a time, which made switching an instant
+                   substitution with nothing to animate. */
+                <Tabs value={active} onValueChange={setChosen} className="grid grid-cols-1">
+                    <TabsList className="row-start-1">
                         {methods.map((method) => (
                             <TabsTrigger key={method.id} value={method.id}>
                                 {method.label}
@@ -331,13 +336,14 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
                         ))}
                     </TabsList>
                     {methods.map((method) => (
-                        <TabsContent
+                        <FadingTabPanel
                             key={method.id}
                             value={method.id}
+                            active={method.id === active}
                             className={cn('flex flex-col items-center justify-center', room)}
                         >
                             <Method method={method} />
-                        </TabsContent>
+                        </FadingTabPanel>
                     ))}
                 </Tabs>
             )
