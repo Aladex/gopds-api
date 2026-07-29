@@ -9,6 +9,7 @@ import { Field } from '@/shared/ui/field';
 import { Input } from '@/shared/ui/input';
 import { Progress } from '@/shared/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/ui/table';
+import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import { cn } from '@/shared/lib/utils';
 import * as adminApi from '@/api/admin';
 import { isApiError } from '@/api/errors';
@@ -54,6 +55,10 @@ const ACTION_BUTTON = 'w-full sm:w-auto sm:min-w-30';
 
 const Duplicates: React.FC = () => {
     const { t } = useTranslation();
+    // Below this the three columns stop fitting and each group becomes a
+    // card, the same width the other admin tables change at.
+    const isMobile = useMediaQuery('(max-width: 899px)');
+
     const [groups, setGroups] = useState<DuplicateGroup[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [isScanning, setIsScanning] = useState(false);
@@ -368,6 +373,45 @@ const Duplicates: React.FC = () => {
                     <h3 className="text-base font-medium">{t('duplicateGroups')}</h3>
                     {groups.length === 0 ? (
                         <p className="text-sm text-muted-foreground">{t('noDuplicateGroups')}</p>
+                    ) : isMobile ? (
+                        /* An MD5 is thirty-two characters and the titles run
+                           longer still; three columns of that on a phone is a
+                           sideways scroll, so each group becomes a card. */
+                        <div className="flex flex-col gap-3">
+                            {groups.map((group) => (
+                                <div
+                                    key={group.md5_hash}
+                                    className="flex flex-col gap-2 rounded border border-border p-3"
+                                >
+                                    <div className="flex items-baseline justify-between gap-2">
+                                        <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                                            {t('count')}
+                                        </span>
+                                        <span className="font-medium tabular-nums">
+                                            {group.count}
+                                        </span>
+                                    </div>
+                                    <div className="flex flex-col gap-1">
+                                        <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                                            {t('hash')}
+                                        </span>
+                                        <span className="font-mono text-xs break-all">
+                                            {group.md5_hash}
+                                        </span>
+                                    </div>
+                                    <div className="flex flex-col gap-1">
+                                        <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                                            {t('exampleTitles')}
+                                        </span>
+                                        <span className="text-sm">
+                                            {group.example_titles?.length
+                                                ? group.example_titles.join(', ')
+                                                : '—'}
+                                        </span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     ) : (
                         <Table>
                             <TableHeader>

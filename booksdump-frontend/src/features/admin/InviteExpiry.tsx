@@ -7,7 +7,6 @@ import { CalendarDays } from 'lucide-react';
 import { Button } from '@/shared/ui/button';
 import { Calendar } from '@/shared/ui/calendar';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/shared/ui/dialog';
-import { Drawer, DrawerContent, DrawerDescription, DrawerTitle } from '@/shared/ui/drawer';
 import { cn } from '@/shared/lib/utils';
 
 /** Midnight today, the earliest expiry worth offering. */
@@ -26,8 +25,6 @@ type InviteExpiryProps = {
     /** The expiry currently held in the field, as an ISO instant. */
     value: string;
     onChange: (iso: string) => void;
-    /** The shell the grid opens in; the page decides. */
-    isMobile: boolean;
     disabled?: boolean;
     label: string;
     className?: string;
@@ -44,9 +41,11 @@ type InviteExpiryProps = {
  * the current month whatever it holds, and will not offer a day in the past,
  * because an expiry behind us is not a value anybody means to choose.
  *
- * A window rather than a popover, matching the language switcher: a grid of
- * forty-odd targets hanging off a button in a table row is a small thing to aim
- * at, and on a phone it had nowhere to hang.
+ * A window rather than a popover: a grid of forty-odd targets hanging off a
+ * button in a table row is a small thing to aim at. It is centred on every
+ * width, including a phone — the confirmation that follows a delete on this
+ * same screen is centred, and a calendar sliding up from the edge while its
+ * neighbour appears in the middle reads as two different applications.
  *
  * The time of day is carried over from whatever was there. Only the day is
  * being chosen, and silently moving an invite's hour is not this control's
@@ -55,7 +54,6 @@ type InviteExpiryProps = {
 const InviteExpiry: React.FC<InviteExpiryProps> = ({
     value,
     onChange,
-    isMobile,
     disabled,
     label,
     className,
@@ -119,25 +117,13 @@ const InviteExpiry: React.FC<InviteExpiryProps> = ({
                 </span>
             </Button>
 
-            {isMobile ? (
-                <Drawer open={open} onOpenChange={setOpen}>
-                    <DrawerContent>
-                        <DrawerTitle className="px-4 pb-1 text-base font-medium">
-                            {heading}
-                        </DrawerTitle>
-                        <DrawerDescription className="sr-only">{label}</DrawerDescription>
-                        <div className="pb-6">{grid}</div>
-                    </DrawerContent>
-                </Drawer>
-            ) : (
-                <Dialog open={open} onOpenChange={setOpen}>
-                    <DialogContent closeLabel={t('close')} className="sm:max-w-fit">
-                        <DialogTitle>{heading}</DialogTitle>
-                        <DialogDescription className="sr-only">{label}</DialogDescription>
-                        {grid}
-                    </DialogContent>
-                </Dialog>
-            )}
+            <Dialog open={open} onOpenChange={setOpen}>
+                <DialogContent closeLabel={t('close')} className="w-fit max-w-[calc(100vw-2rem)]">
+                    <DialogTitle>{heading}</DialogTitle>
+                    <DialogDescription className="sr-only">{label}</DialogDescription>
+                    {grid}
+                </DialogContent>
+            </Dialog>
         </>
     );
 };

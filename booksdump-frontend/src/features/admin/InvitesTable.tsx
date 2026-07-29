@@ -220,7 +220,6 @@ const InvitesTable: React.FC = () => {
                                 <InviteExpiry
                                     value={draftFor(invite)}
                                     onChange={setDraft(invite)}
-                                    isMobile={isMobile}
                                     label={`${t('beforeDate')}: ${invite.invite}`}
                                     className="w-full"
                                 />
@@ -257,7 +256,6 @@ const InvitesTable: React.FC = () => {
                                             <InviteExpiry
                                                 value={draftFor(invite)}
                                                 onChange={setDraft(invite)}
-                                                isMobile={isMobile}
                                                 label={`${t('beforeDate')}: ${invite.invite}`}
                                                 className="min-w-[13rem]"
                                             />

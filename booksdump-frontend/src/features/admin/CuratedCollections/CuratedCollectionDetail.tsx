@@ -9,6 +9,7 @@ import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
 import { Card, CardContent } from '@/shared/ui/card';
 import { Input } from '@/shared/ui/input';
+import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import { Progress } from '@/shared/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/tabs';
@@ -72,6 +73,10 @@ const ItemsTable: React.FC<{
     const [busy, setBusy] = useState<Record<number, boolean>>({});
     const [searchFor, setSearchFor] = useState<{ itemID: number; query: string } | null>(null);
 
+    // Below this the six columns stop fitting and each item becomes a card, the
+    // same width the other admin tables change at.
+    const isMobile = useMediaQuery('(max-width: 899px)');
+
     const setItemBusy = (itemID: number, v: boolean) =>
         setBusy((prev) => ({ ...prev, [itemID]: v }));
 
@@ -111,35 +116,173 @@ const ItemsTable: React.FC<{
     // previously matched item (typo, wrong edition picked) or rescue an
     // ignored one by submitting a fresh book_id.
 
+    // The candidates cell and the row of actions are the whole of an item's
+    // interface, and both layouts need them intact. Written once here rather
+    // than twice below, where the two copies would drift.
+    const Candidates: React.FC<{ item: CollectionItem }> = ({ item }) => {
+        const candidates = readCandidates(item.external_extra);
+        if (item.book_id) {
+            return (
+                <Badge className="h-auto whitespace-normal text-left">
+                    #{item.book_id} · {describeBook(item.book_id, bookInfo.get(item.book_id))}
+                </Badge>
+            );
+        }
+        if (candidates.length === 0) {
+            return (
+                <span className="text-xs text-muted-foreground">
+                    {t('curatedCollections.noCandidates', 'no candidates')}
+                </span>
+            );
+        }
+        return (
+            <div className="flex flex-col items-start gap-1">
+                {/* A candidate is a button, not a chip that happens to react to
+                    a click: pressing it resolves the item. */}
+                {candidates.map((c) => (
+                    <Button
+                        key={c.book_id}
+                        variant="outline"
+                        size="sm"
+                        disabled={!!busy[item.id]}
+                        onClick={() => resolveTo(item.id, c.book_id)}
+                        className="h-auto max-w-full justify-start py-1 text-left whitespace-normal"
+                    >
+                        <span className="tabular-nums">{c.score.toFixed(2)}</span>
+                        {' · '}
+                        {describeBook(c.book_id, bookInfo.get(c.book_id))}
+                    </Button>
+                ))}
+            </div>
+        );
+    };
+
+    const Actions: React.FC<{ item: CollectionItem }> = ({ item }) => (
+        <div className="flex flex-wrap items-center gap-1">
+            <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => setSearchFor({ itemID: item.id, query: item.external_title })}
+                title={t('curatedCollections.searchInLibrary', 'Search by title in library')}
+                aria-label={`${t('curatedCollections.searchInLibrary', 'Search by title in library')}: ${item.external_title}`}
+            >
+                <Search className="size-4" />
+            </Button>
+            <Input
+                inputMode="numeric"
+                className="w-24"
+                placeholder={t('curatedCollections.bookIdPlaceholder', 'book_id')}
+                aria-label={`${t('curatedCollections.bookIdPlaceholder', 'book_id')}: ${item.external_title}`}
+                value={manualID[item.id] ?? ''}
+                onChange={(event) => setManualID((p) => ({ ...p, [item.id]: event.target.value }))}
+                onKeyDown={(event) => {
+                    if (event.key === 'Enter') submitManual(item.id);
+                }}
+            />
+            <Button
+                variant="outline"
+                size="sm"
+                disabled={!!busy[item.id]}
+                onClick={() => submitManual(item.id)}
+            >
+                {t('curatedCollections.resolve', 'Resolve')}
+            </Button>
+            <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => ignore(item.id)}
+                disabled={!!busy[item.id]}
+                title={t('curatedCollections.ignoreAction', 'Ignore')}
+                aria-label={`${t('curatedCollections.ignoreAction', 'Ignore')}: ${item.external_title}`}
+            >
+                <Trash2 className="size-4" />
+            </Button>
+        </div>
+    );
+
+    const empty = (
+        <p className="py-6 text-center text-muted-foreground">
+            {t('curatedCollections.tabEmpty', 'Empty')}
+        </p>
+    );
+
     return (
         <>
-            <div className="rounded border border-border">
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead className="text-right">#</TableHead>
-                            <TableHead>{t('curatedCollections.col.title', 'Title')}</TableHead>
-                            <TableHead>{t('curatedCollections.col.author', 'Author')}</TableHead>
-                            <TableHead className="text-right">
-                                {t('curatedCollections.col.score', 'Score')}
-                            </TableHead>
-                            <TableHead>
-                                {t('curatedCollections.col.candidates', 'Candidates / Book')}
-                            </TableHead>
-                            {/* The actions column still needs a name, or a
-                                screen reader announces the cell without saying
-                                which column it is in. */}
-                            <TableHead>
-                                <span className="sr-only">
-                                    {t('curatedCollections.col.actions', 'Actions')}
-                                </span>
-                            </TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {items.map((it) => {
-                            const candidates = readCandidates(it.external_extra);
-                            return (
+            {isMobile ? (
+                /* Six columns, one of them a stack of candidate buttons and
+                   another a whole form, do not fit a phone. Each item becomes a
+                   card carrying the same controls. */
+                <div className="flex flex-col gap-3">
+                    {items.length === 0
+                        ? empty
+                        : items.map((it) => (
+                              <div
+                                  key={it.id}
+                                  className="flex flex-col gap-3 rounded border border-border p-3"
+                              >
+                                  <div className="flex min-w-0 items-baseline gap-2">
+                                      <span className="tabular-nums text-muted-foreground">
+                                          {it.position + 1}
+                                      </span>
+                                      <div className="flex min-w-0 flex-col">
+                                          <span className="font-medium">{it.external_title}</span>
+                                          <span className="text-sm text-muted-foreground">
+                                              {it.external_author}
+                                          </span>
+                                      </div>
+                                  </div>
+
+                                  <div className="flex items-baseline gap-1 text-sm">
+                                      <span className="text-xs text-muted-foreground">
+                                          {t('curatedCollections.col.score', 'Score')}
+                                      </span>
+                                      <span className="tabular-nums">
+                                          {it.match_score?.toFixed?.(2) ?? '—'}
+                                      </span>
+                                  </div>
+
+                                  <div className="flex flex-col gap-1">
+                                      <span className="text-xs text-muted-foreground">
+                                          {t(
+                                              'curatedCollections.col.candidates',
+                                              'Candidates / Book',
+                                          )}
+                                      </span>
+                                      <Candidates item={it} />
+                                  </div>
+
+                                  <Actions item={it} />
+                              </div>
+                          ))}
+                </div>
+            ) : (
+                <div className="rounded border border-border">
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead className="text-right">#</TableHead>
+                                <TableHead>{t('curatedCollections.col.title', 'Title')}</TableHead>
+                                <TableHead>
+                                    {t('curatedCollections.col.author', 'Author')}
+                                </TableHead>
+                                <TableHead className="text-right">
+                                    {t('curatedCollections.col.score', 'Score')}
+                                </TableHead>
+                                <TableHead>
+                                    {t('curatedCollections.col.candidates', 'Candidates / Book')}
+                                </TableHead>
+                                {/* The actions column still needs a name, or a
+                                    screen reader announces the cell without
+                                    saying which column it is in. */}
+                                <TableHead>
+                                    <span className="sr-only">
+                                        {t('curatedCollections.col.actions', 'Actions')}
+                                    </span>
+                                </TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {items.map((it) => (
                                 <TableRow key={it.id}>
                                     <TableCell className="text-right tabular-nums text-muted-foreground">
                                         {it.position + 1}
@@ -150,123 +293,27 @@ const ItemsTable: React.FC<{
                                         {it.match_score?.toFixed?.(2) ?? '—'}
                                     </TableCell>
                                     <TableCell className="min-w-90 max-w-130">
-                                        {it.book_id ? (
-                                            <Badge className="h-auto whitespace-normal text-left">
-                                                #{it.book_id} ·{' '}
-                                                {describeBook(it.book_id, bookInfo.get(it.book_id))}
-                                            </Badge>
-                                        ) : candidates.length > 0 ? (
-                                            <div className="flex flex-col items-start gap-1">
-                                                {/* A candidate is a button, not
-                                                    a chip that happens to react
-                                                    to a click: pressing it
-                                                    resolves the item. */}
-                                                {candidates.map((c) => (
-                                                    <Button
-                                                        key={c.book_id}
-                                                        variant="outline"
-                                                        size="sm"
-                                                        disabled={!!busy[it.id]}
-                                                        onClick={() => resolveTo(it.id, c.book_id)}
-                                                        className="h-auto max-w-full justify-start py-1 text-left whitespace-normal"
-                                                    >
-                                                        <span className="tabular-nums">
-                                                            {c.score.toFixed(2)}
-                                                        </span>
-                                                        {' · '}
-                                                        {describeBook(
-                                                            c.book_id,
-                                                            bookInfo.get(c.book_id),
-                                                        )}
-                                                    </Button>
-                                                ))}
-                                            </div>
-                                        ) : (
-                                            <span className="text-xs text-muted-foreground">
-                                                {t(
-                                                    'curatedCollections.noCandidates',
-                                                    'no candidates',
-                                                )}
-                                            </span>
-                                        )}
+                                        <Candidates item={it} />
                                     </TableCell>
                                     <TableCell>
-                                        <div className="flex flex-wrap items-center gap-1">
-                                            <Button
-                                                variant="ghost"
-                                                size="icon-sm"
-                                                onClick={() =>
-                                                    setSearchFor({
-                                                        itemID: it.id,
-                                                        query: it.external_title,
-                                                    })
-                                                }
-                                                title={t(
-                                                    'curatedCollections.searchInLibrary',
-                                                    'Search by title in library',
-                                                )}
-                                                aria-label={`${t('curatedCollections.searchInLibrary', 'Search by title in library')}: ${it.external_title}`}
-                                            >
-                                                <Search className="size-4" />
-                                            </Button>
-                                            <Input
-                                                inputMode="numeric"
-                                                className="w-24"
-                                                placeholder={t(
-                                                    'curatedCollections.bookIdPlaceholder',
-                                                    'book_id',
-                                                )}
-                                                aria-label={`${t('curatedCollections.bookIdPlaceholder', 'book_id')}: ${it.external_title}`}
-                                                value={manualID[it.id] ?? ''}
-                                                onChange={(event) =>
-                                                    setManualID((p) => ({
-                                                        ...p,
-                                                        [it.id]: event.target.value,
-                                                    }))
-                                                }
-                                                onKeyDown={(event) => {
-                                                    if (event.key === 'Enter') submitManual(it.id);
-                                                }}
-                                            />
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                disabled={!!busy[it.id]}
-                                                onClick={() => submitManual(it.id)}
-                                            >
-                                                {t('curatedCollections.resolve', 'Resolve')}
-                                            </Button>
-                                            <Button
-                                                variant="ghost"
-                                                size="icon-sm"
-                                                onClick={() => ignore(it.id)}
-                                                disabled={!!busy[it.id]}
-                                                title={t(
-                                                    'curatedCollections.ignoreAction',
-                                                    'Ignore',
-                                                )}
-                                                aria-label={`${t('curatedCollections.ignoreAction', 'Ignore')}: ${it.external_title}`}
-                                            >
-                                                <Trash2 className="size-4" />
-                                            </Button>
-                                        </div>
+                                        <Actions item={it} />
                                     </TableCell>
                                 </TableRow>
-                            );
-                        })}
-                        {items.length === 0 && (
-                            <TableRow>
-                                <TableCell
-                                    colSpan={6}
-                                    className="py-6 text-center text-muted-foreground"
-                                >
-                                    {t('curatedCollections.tabEmpty', 'Empty')}
-                                </TableCell>
-                            </TableRow>
-                        )}
-                    </TableBody>
-                </Table>
-            </div>
+                            ))}
+                            {items.length === 0 && (
+                                <TableRow>
+                                    <TableCell
+                                        colSpan={6}
+                                        className="py-6 text-center text-muted-foreground"
+                                    >
+                                        {t('curatedCollections.tabEmpty', 'Empty')}
+                                    </TableCell>
+                                </TableRow>
+                            )}
+                        </TableBody>
+                    </Table>
+                </div>
+            )}
 
             <SearchAndResolveDialog
                 open={!!searchFor}
@@ -686,7 +733,10 @@ const CuratedCollectionDetail: React.FC = () => {
             <Card>
                 <CardContent>
                     <Tabs value={tabKey} onValueChange={setTabKey}>
-                        <TabsList className="w-auto self-start">
+                        {/* Wrapping rather than scrolling sideways: four
+                            labels do not fit a phone in one row, and a tab
+                            that has slid off the edge is one nobody finds. */}
+                        <TabsList className="h-auto w-full flex-wrap justify-start self-start sm:w-auto">
                             {statusTabs.map((tab) => (
                                 <TabsTrigger key={tab.key} value={tab.key}>
                                     {tab.label}
