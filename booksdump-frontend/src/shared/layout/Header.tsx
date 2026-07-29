@@ -1,4 +1,4 @@
-import React, { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { HeartHandshake, LogOut } from 'lucide-react';
@@ -10,6 +10,8 @@ import * as systemApi from '@/api/system';
 import { useAuth } from '@/context/AuthContext';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import { activeNavItem, useNavItems } from '@/shared/layout/navItems';
+import { useTravellingUnderline } from '@/shared/hooks/useTravellingUnderline';
+import NavUnderline from '@/shared/layout/NavUnderline';
 /*
  * Loaded on demand. The dialog pulls in a QR code generator worth about twenty
  * kilobytes, and most readers never open it — there is no reason for everyone
@@ -55,58 +57,18 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
     const navItems = useNavItems(Boolean(user?.is_superuser));
     const current = activeNavItem(navItems, location.pathname);
 
-    /*
-     * The underline is one bar that moves, not a border that appears under the
-     * link being opened and vanishes from the last one. Switching sections was
-     * an instant swap of two borders, which reads as a flicker between two
-     * places rather than as travel between them.
-     *
-     * It has to be measured: the links are sized by their words, and the words
-     * change with the interface language. A ResizeObserver on the row catches
-     * that, along with the browser settling on its fonts and the admin link
-     * appearing for a superuser.
-     */
-    const navRef = useRef<HTMLElement | null>(null);
-    const linkRefs = useRef(new Map<string, HTMLAnchorElement>());
-    const [underline, setUnderline] = useState<{ left: number; width: number } | null>(null);
-    // There is nothing to travel from on the first measurement, so the bar is
-    // placed rather than slid — otherwise it flies in from the left on load.
-    const [placed, setPlaced] = useState(false);
-
-    // useNavItems rebuilds the array every render by design, so the effect keys
-    // off what would actually move the bar rather than off the array's identity.
-    const navShape = navItems.map((item) => item.id + item.label).join('|');
-
-    const measureUnderline = useCallback(() => {
-        const nav = navRef.current;
-        const link = current ? linkRefs.current.get(current.id) : undefined;
-        if (!nav || !link) {
-            setUnderline(null);
-            return;
-        }
-        const navBox = nav.getBoundingClientRect();
-        const linkBox = link.getBoundingClientRect();
-        const next = { left: linkBox.left - navBox.left, width: linkBox.width };
-        // A fresh object every render would loop, since the effect below runs
-        // on values derived from this state.
-        setUnderline((prev) =>
-            prev && prev.left === next.left && prev.width === next.width ? prev : next,
-        );
-        setPlaced(true);
-    }, [current]);
-
-    useLayoutEffect(() => {
-        const nav = navRef.current;
-        if (!nav) {
-            return;
-        }
-        measureUnderline();
-        const observer = new ResizeObserver(measureUnderline);
-        observer.observe(nav);
-        return () => observer.disconnect();
-        // navShape stands in for the link list, which is a new array on every
-        // render; depending on the array itself would re-run this each time.
-    }, [measureUnderline, navShape, isMobile]);
+    // One bar that travels between the links; see the hook for why the row has
+    // to be measured rather than styled. The shape covers a language change and
+    // the admin link appearing for a superuser.
+    const {
+        containerRef: navRef,
+        setItemRef,
+        box: underline,
+        placed,
+    } = useTravellingUnderline<HTMLAnchorElement>(
+        current?.id,
+        navItems.map((item) => item.id + item.label).join('|') + String(isMobile),
+    );
 
     const handleLogout = () => {
         logout();
@@ -207,13 +169,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                                 <Link
                                     key={item.id}
                                     to={item.path}
-                                    ref={(node) => {
-                                        if (node) {
-                                            linkRefs.current.set(item.id, node);
-                                        } else {
-                                            linkRefs.current.delete(item.id);
-                                        }
-                                    }}
+                                    ref={setItemRef(item.id)}
                                     aria-current={current?.id === item.id ? 'page' : undefined}
                                     className={cn(
                                         // The transparent border stays on every
@@ -233,21 +189,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                                     {item.label}
                                 </Link>
                             ))}
-                            {/* Decorative: which link is current is already said
-                                by aria-current on the link itself. */}
-                            <span
-                                aria-hidden
-                                className={cn(
-                                    'pointer-events-none absolute bottom-0 h-0.5 bg-white',
-                                    placed &&
-                                        'transition-[left,width,opacity] duration-300 ease-out motion-reduce:transition-none',
-                                    underline ? 'opacity-100' : 'opacity-0',
-                                )}
-                                style={{
-                                    left: underline?.left ?? 0,
-                                    width: underline?.width ?? 0,
-                                }}
-                            />
+                            <NavUnderline box={underline} placed={placed} className="bg-white" />
                             <div className="ml-4 flex items-center">{donateButton}</div>
                         </nav>
 

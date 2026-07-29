@@ -108,23 +108,51 @@ const Field: React.FC<{
  * this: the account tab is the tallest on a phone and not on a desktop, where
  * its two name fields sit in a row rather than stacked.
  *
- * The fade keys off Radix's own data-state rather than a second copy of which
- * tab is open, so the panel cannot disagree with the primitive about it for a
- * frame. Switching used to be instant, and an instant swap of two forms sharing
- * one box shows every seam in it; the incoming panel now rises into place while
- * the outgoing one is already gone, which reads as one movement rather than a
- * substitution. Anyone who has asked their system for less motion gets the
- * plain swap.
+ * Sharing the cell is also why the two panels take turns rather than cross-fade:
+ * the outgoing one fades out first, and the incoming one waits for it before
+ * beginning, so a form is never drawn over another form. The delay on the
+ * incoming panel and the duration on the outgoing one are the same number for
+ * that reason — see PANEL_FADE.
+ *
+ * `visibility` is what makes the handover exact. Opacity alone would leave the
+ * faded-out panel still able to take a click, so it has to be hidden too, but
+ * hiding it the moment the tab changes would cut its fade off at the first
+ * frame. Transitioning it with a zero duration and the fade's delay flips it
+ * the instant the fade ends instead.
+ *
+ * The rise is animated as `translate`, not `transform`: that is the property
+ * Tailwind's translate-y-* utilities set, and naming the other one animates
+ * nothing at all — the panel simply appeared four pixels low and snapped up.
+ *
+ * It all keys off Radix's own data-state rather than a second copy of which tab
+ * is open, so the panel cannot disagree with the primitive about it for a frame.
+ * Anyone who has asked their system for less motion gets the plain swap.
  */
+const PANEL_FADE = 140;
+
 const PANEL_CLASSES = cn(
     'col-start-1 row-start-2',
     // forceMount keeps them mounted, and Radix marks the inactive ones hidden
     // — which would take them out of the layout again.
     '[&[hidden]]:block',
-    'transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none',
     'data-[state=inactive]:invisible data-[state=inactive]:translate-y-1',
     'data-[state=inactive]:opacity-0',
+    'motion-reduce:transition-none',
 );
+
+/**
+ * The two halves of the handover. They are inline styles rather than classes
+ * because each state needs its own delay, which is a per-state declaration
+ * Tailwind has no utility for.
+ */
+const panelStyle = (active: boolean): React.CSSProperties =>
+    active
+        ? {
+              transition: `opacity ${PANEL_FADE}ms ease-out ${PANEL_FADE}ms, translate ${PANEL_FADE}ms ease-out ${PANEL_FADE}ms`,
+          }
+        : {
+              transition: `opacity ${PANEL_FADE}ms ease-in, translate ${PANEL_FADE}ms ease-in, visibility 0s linear ${PANEL_FADE}ms`,
+          };
 
 const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
     const { t } = useTranslation();
@@ -220,6 +248,7 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                     forceMount
                     inert={tab !== 'account'}
                     className={PANEL_CLASSES}
+                    style={panelStyle(tab === 'account')}
                 >
                     <Group title={t('profileSection.personalData')} first>
                         <div className="flex flex-col gap-3 sm:flex-row">
@@ -250,6 +279,7 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                     forceMount
                     inert={tab !== 'security'}
                     className={PANEL_CLASSES}
+                    style={panelStyle(tab === 'security')}
                 >
                     {/*
                       Password and sessions are separate groups on purpose. Together,
@@ -330,7 +360,13 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                     </Group>
                 </TabsContent>
 
-                <TabsContent value="bot" forceMount inert={tab !== 'bot'} className={PANEL_CLASSES}>
+                <TabsContent
+                    value="bot"
+                    forceMount
+                    inert={tab !== 'bot'}
+                    className={PANEL_CLASSES}
+                    style={panelStyle(tab === 'bot')}
+                >
                     <Group
                         first
                         title={

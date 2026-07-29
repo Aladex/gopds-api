@@ -10,6 +10,8 @@ import {
 import { useTranslation } from 'react-i18next';
 
 import { cn } from '@/shared/lib/utils';
+import { useTravellingUnderline } from '@/shared/hooks/useTravellingUnderline';
+import NavUnderline from '@/shared/layout/NavUnderline';
 
 import UsersTable from '@/features/admin/UsersTable';
 import InvitesTable from '@/features/admin/InvitesTable';
@@ -46,6 +48,25 @@ const AdminSpace: React.FC = () => {
         }
     }, [location.pathname, navigate]);
 
+    const currentSection = SECTIONS.find((section) =>
+        location.pathname.startsWith(section.path),
+    )?.path;
+
+    // One bar that travels, as in the header. This row wraps onto a second
+    // line, so the bar carries a vertical position too and follows the active
+    // link down when the window narrows.
+    const {
+        containerRef: navRef,
+        setItemRef,
+        box: underline,
+        placed,
+    } = useTravellingUnderline<HTMLAnchorElement>(
+        currentSection,
+        SECTIONS.map((section) => t(section.labelKey, section.fallback ?? section.labelKey)).join(
+            '|',
+        ),
+    );
+
     return (
         /*
           The admin is a page, not a card. It used to be one, with every screen
@@ -65,31 +86,38 @@ const AdminSpace: React.FC = () => {
               nobody makes, while a second line costs one row of height once.
             */}
             <nav
+                ref={navRef}
                 aria-label={t('adminSections', 'Admin sections')}
-                className="flex flex-wrap items-center gap-x-1 gap-y-1"
+                className="relative flex flex-wrap items-center gap-x-1 gap-y-1"
             >
                 {SECTIONS.map((section) => {
-                    const active = location.pathname.startsWith(section.path);
+                    const active = section.path === currentSection;
                     return (
                         <RouterLink
                             key={section.path}
                             to={section.path}
+                            ref={setItemRef(section.path)}
                             aria-current={active ? 'page' : undefined}
                             className={cn(
                                 // no-underline and an explicit colour because
                                 // Tailwind runs without preflight, so a bare
                                 // <a> would arrive browser-blue and underlined.
-                                'inline-flex h-9 items-center border-b-2 px-2 text-sm font-medium whitespace-nowrap no-underline transition-colors sm:px-3 sm:text-[13px]',
+                                // The border stays transparent on every link so
+                                // the row keeps the height it had when the
+                                // border was the mark; the bar below draws it.
+                                'inline-flex h-9 items-center border-b-2 border-transparent px-2 text-sm font-medium whitespace-nowrap no-underline sm:px-3 sm:text-[13px]',
+                                'transition-colors motion-reduce:transition-none',
                                 'outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
                                 active
-                                    ? 'border-foreground text-foreground'
-                                    : 'border-transparent text-muted-foreground hover:text-foreground',
+                                    ? 'text-foreground'
+                                    : 'text-muted-foreground hover:text-foreground',
                             )}
                         >
                             {t(section.labelKey, section.fallback ?? section.labelKey)}
                         </RouterLink>
                     );
                 })}
+                <NavUnderline box={underline} placed={placed} className="bg-foreground" />
             </nav>
 
             <Routes>
