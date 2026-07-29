@@ -638,32 +638,44 @@ func UpdateBook(updateReq models.BookUpdateRequest) (models.Book, error) {
 	query := tx.Model(&bookToUpdate).Where("id = ?", updateReq.ID)
 
 	// Only update fields that are provided (not nil)
+	fields := 0
 	if updateReq.Title != nil {
 		query = query.Set("title = ?", *updateReq.Title)
+		fields++
 	}
 	if updateReq.Annotation != nil {
 		query = query.Set("annotation = ?", *updateReq.Annotation)
+		fields++
 	}
 	if updateReq.Lang != nil {
 		query = query.Set("lang = ?", *updateReq.Lang)
+		fields++
 	}
 	if updateReq.DocDate != nil {
 		query = query.Set("docdate = ?", *updateReq.DocDate)
+		fields++
 	}
 	if updateReq.Approved != nil {
 		query = query.Set("approved = ?", *updateReq.Approved)
+		fields++
 	}
 	if updateReq.DuplicateHidden != nil {
 		query = query.Set("duplicate_hidden = ?", *updateReq.DuplicateHidden)
+		fields++
 	}
 	if updateReq.DuplicateOfID != nil {
 		query = query.Set("duplicate_of_id = ?", *updateReq.DuplicateOfID)
+		fields++
 	}
 
-	// Execute the update
-	_, err = query.Update()
-	if err != nil {
-		return bookToUpdate, err
+	// Nothing named means nothing to write. Left to itself go-pg reads an
+	// absent Set as "update every column", so a request that changed no field
+	// rewrote the whole row from the struct in memory — which is how a book
+	// with nothing to update ended up failing a NOT NULL constraint.
+	if fields > 0 {
+		if _, err = query.Update(); err != nil {
+			return bookToUpdate, err
+		}
 	}
 
 	if updateReq.Authors != nil {

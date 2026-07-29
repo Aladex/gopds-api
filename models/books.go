@@ -131,21 +131,24 @@ type Catalog struct {
 
 // Book struct for books
 type Book struct {
-	tableName       struct{}  `pg:"opds_catalog_book,discard_unknown_columns" json:"-"`
-	ID              int64     `pg:"id" json:"id"`
-	Path            string    `pg:"path" json:"path"`
-	Format          string    `pg:"format" json:"format"`
-	FileName        string    `pg:"filename" json:"filename"`
-	RegisterDate    time.Time `pg:"registerdate" json:"registerdate"`
-	DocDate         string    `pg:"docdate,use_zero" json:"docdate"`
-	Lang            string    `pg:"lang,use_zero" json:"lang"`
-	Title           string    `pg:"title" json:"title"`
-	Cover           bool      `pg:"cover" json:"cover"`
-	Annotation      string    `pg:"annotation,use_zero" json:"annotation"`
-	Fav             bool      `pg:"-" json:"fav"`
-	Approved        bool      `pg:"approved" json:"approved"`
+	tableName    struct{}  `pg:"opds_catalog_book,discard_unknown_columns" json:"-"`
+	ID           int64     `pg:"id" json:"id"`
+	Path         string    `pg:"path" json:"path"`
+	Format       string    `pg:"format" json:"format"`
+	FileName     string    `pg:"filename" json:"filename"`
+	RegisterDate time.Time `pg:"registerdate" json:"registerdate"`
+	DocDate      string    `pg:"docdate,use_zero" json:"docdate"`
+	Lang         string    `pg:"lang,use_zero" json:"lang"`
+	Title        string    `pg:"title" json:"title"`
+	Cover        bool      `pg:"cover" json:"cover"`
+	Annotation   string    `pg:"annotation,use_zero" json:"annotation"`
+	Fav          bool      `pg:"-" json:"fav"`
+	// approved and duplicate_hidden are NOT NULL in the schema, and go-pg
+	// writes a zero value as NULL unless told otherwise — so a full-model
+	// update of an unapproved or unhidden book violated the constraint.
+	Approved        bool      `pg:"approved,use_zero" json:"approved"`
 	MD5             string    `pg:"md5" json:"md5"`
-	DuplicateHidden bool      `pg:"duplicate_hidden" json:"duplicate_hidden"`
+	DuplicateHidden bool      `pg:"duplicate_hidden,use_zero" json:"duplicate_hidden"`
 	DuplicateOfID   *int64    `pg:"duplicate_of_id" json:"duplicate_of_id,omitempty"`
 	Authors         []Author  `pg:"many2many:opds_catalog_bauthor,join_fk:author_id" json:"authors"`
 	Series          []*Series `pg:"many2many:opds_catalog_bseries,join_fk:ser_id" json:"series"`

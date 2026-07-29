@@ -145,10 +145,14 @@ func ApplySelectiveRescanChanges(bookID int64, selectedFields *models.RescanAppr
 		skippedFields = append(skippedFields, "cover")
 	}
 
-	_, err = updateQuery.Update()
-	if err != nil {
-		logging.Error(err)
-		return nil, nil, err
+	// Every field deselected means no column to write, and an Update with no
+	// Set rewrites all of them from the struct instead of none.
+	if len(updatedFields) > 0 {
+		_, err = updateQuery.Update()
+		if err != nil {
+			logging.Error(err)
+			return nil, nil, err
+		}
 	}
 
 	// Update authors
