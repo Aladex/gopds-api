@@ -5,6 +5,12 @@ import { http } from '@/api/http';
 export interface Author {
     id: number;
     full_name: string;
+    /**
+     * How many books the author holds under the filters being browsed with.
+     * Only the author search reports it — a book listing its own authors does
+     * not, so it is absent far more often than it is present.
+     */
+    books_count?: number;
 }
 
 export interface Genre {
@@ -82,8 +88,17 @@ export const listBooks = (query: BooksQuery) =>
         query: query as Record<string, string | number | boolean | undefined>,
     });
 
-export const listAuthors = (query: { author?: string; limit?: number; offset?: number }) =>
-    http.get<{ authors: Author[]; length: number }>('/books/authors', { query });
+export const listAuthors = (query: {
+    author?: string;
+    limit?: number;
+    offset?: number;
+    /**
+     * The reader's books language, which has to be the one the book list uses:
+     * the count each author is offered with is a count under this filter, and
+     * the two disagreeing would make it a promise the next page breaks.
+     */
+    lang?: string;
+}) => http.get<{ authors: Author[]; length: number }>('/books/authors', { query });
 
 /**
  * getAuthor names a single author, which the search panel needs when a reader

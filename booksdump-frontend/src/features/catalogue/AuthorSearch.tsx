@@ -3,24 +3,26 @@ import { useLocation, useNavigate, useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 
 import * as booksApi from '@/api/books';
+import type { Author } from '@/api/books';
+import { useAuth } from '@/context/AuthContext';
 import { useAuthor } from '@/context/AuthorContext';
 import { useSearchBar } from '@/context/SearchBarContext';
 import BookPagination from '@/features/catalogue/BookPagination';
 import SkeletonCard from '@/features/catalogue/SkeletonCard';
-
-interface Author {
-    id: number;
-    full_name: string;
-}
 
 const PAGE_SIZE = 10;
 
 /**
  * AuthorSearch lists the authors matching a name from the search panel.
  *
- * It is a stop on the way to a book list rather than a destination, so each row
- * carries nothing but the name and every row is a target: the reader is picking
- * which of several same-named authors they meant.
+ * It is a stop on the way to a book list rather than a destination, and the
+ * reader is picking which of several same-named authors they meant. A column of
+ * near-identical names gives them nothing to pick with, so each row also says
+ * how many books are behind it — which is usually the whole answer, one
+ * Dostoyevsky holding 184 books beside four holding one apiece.
+ *
+ * The count is taken under the reader's own books language, the same filter the
+ * list behind the row uses, so the number is what they will actually get.
  */
 const AuthorSearch: React.FC = () => {
     const { t } = useTranslation();
@@ -33,6 +35,7 @@ const AuthorSearch: React.FC = () => {
     const baseUrl = window.location.pathname.replace(/\/\d+$/, '');
     const navigate = useNavigate();
     const { setSearchItem } = useSearchBar();
+    const { user } = useAuth();
     const { clearAuthorBook, setAuthorName } = useAuthor();
 
     useEffect(() => {
@@ -46,6 +49,7 @@ const AuthorSearch: React.FC = () => {
                     limit: PAGE_SIZE,
                     offset: (currentPage - 1) * PAGE_SIZE,
                     author: decodeURIComponent(author || ''),
+                    lang: user?.books_lang || '',
                 });
 
                 if (responseData.authors && Array.isArray(responseData.authors)) {
@@ -63,7 +67,7 @@ const AuthorSearch: React.FC = () => {
         if (author) {
             fetchAuthors().then((r) => r);
         }
-    }, [author, location.search, page]);
+    }, [author, location.search, page, user?.books_lang]);
 
     /** Clicking through leaves the search box empty so the filter, not a stale query, applies. */
     const handleAuthorClick = (authorId: number, fullName: string) => {
@@ -105,9 +109,20 @@ const AuthorSearch: React.FC = () => {
                                             onClick={() =>
                                                 handleAuthorClick(author.id, author.full_name)
                                             }
-                                            className="w-full rounded px-3 py-2 text-left hover:bg-accent hover:text-accent-foreground"
+                                            className="flex w-full items-baseline justify-between gap-3 rounded px-3 py-2 text-left hover:bg-accent hover:text-accent-foreground"
                                         >
-                                            {author.full_name}
+                                            <span>{author.full_name}</span>
+                                            {author.books_count ? (
+                                                /* Kept off the name's baseline
+                                                   run so a long name wraps
+                                                   without pushing the number
+                                                   onto its own line. */
+                                                <span className="shrink-0 text-sm whitespace-nowrap text-muted-foreground">
+                                                    {t('bookCount', {
+                                                        count: author.books_count,
+                                                    })}
+                                                </span>
+                                            ) : null}
                                         </button>
                                     </li>
                                 ))}

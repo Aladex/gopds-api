@@ -168,6 +168,14 @@ type Author struct {
 	tableName struct{} `pg:"opds_catalog_author,discard_unknown_columns" json:"-"`
 	ID        int64    `json:"id" form:"id"`
 	FullName  string   `json:"full_name" form:"full_name"`
+
+	// BooksCount is how many books the author holds under the filters the
+	// reader is browsing with. Only the author search fills it in, hence
+	// `pg:"-"`: this same struct is what a book lists its authors as, and
+	// counting books for every author of every book in a list would be a
+	// great deal of work for a number nothing there shows. omitempty keeps
+	// it out of those payloads rather than reporting a zero it never counted.
+	BooksCount int `pg:"-" json:"books_count,omitempty"`
 }
 
 // OrderToAuthor struct for many-to-many relation between orders and authors

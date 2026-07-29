@@ -34,19 +34,39 @@ type AuthorAnswer struct {
 // @Router /api/books/authors [get]
 func GetAuthors(c *gin.Context) {
 	var filters models.AuthorFilters
-	if err := c.ShouldBindWith(&filters, binding.Query); err == nil {
-		authors, count, err := database.GetAuthors(filters)
-		if err != nil {
-			c.JSON(500, err)
-			return
-		}
-		lenght := (count / 10) + 1
-		c.JSON(200, AuthorAnswer{
-			Authors: authors,
-			Length:  lenght,
-		})
+	if err := c.ShouldBindWith(&filters, binding.Query); err != nil {
+		httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
+		return
 	}
+
+	authors, count, err := database.GetAuthors(filters)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, AuthorAnswer{
+		Authors: authors,
+		Length:  pageCount(count, filters.Limit),
+	})
 }
+
+// pageCount turns a number of authors into the number of pages the search page
+// draws its pager from.
+//
+// It rounds up, which the count/10+1 it replaced did not: a total that divided
+// evenly offered a further page with nothing on it, and no results at all still
+// offered page one.
+func pageCount(total, limit int) int {
+	if limit <= 0 {
+		limit = defaultAuthorsPerPage
+	}
+	return (total + limit - 1) / limit
+}
+
+// defaultAuthorsPerPage is the page size assumed for a request that names none,
+// matching what the search page asks for.
+const defaultAuthorsPerPage = 10
 
 // GetAuthor method for retrieving author information from the database
 // Auth godoc
