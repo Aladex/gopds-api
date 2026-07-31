@@ -72,32 +72,37 @@ func TokenValidation(c *gin.Context) {
 func ChangeRequest(c *gin.Context) {
 	var changeRequest passwordChangeRequest
 	if err := c.ShouldBindJSON(&changeRequest); err == nil {
+		// The same answer either way.
+		//
+		// An address nobody has registered used to be told so, in as many
+		// words, which made this endpoint a way of asking whether someone has
+		// an account here — one address at a time, from anywhere, without
+		// logging in. Whoever asks now learns only that they asked.
+		//
+		// The email is sent from a goroutine in both cases, so the two answers
+		// take the same time to arrive as well as saying the same thing.
 		dbUser, err := database.UserObject(changeRequest.Email)
 		if err != nil {
-			httputil.NewError(c, http.StatusBadRequest, errors.New("invalid_user"))
-			return
-		}
-		token := sessions.GenerateTokenPassword(dbUser.Login)
+			logging.Infof("Password reset requested for an address with no account")
+		} else {
+			token := sessions.GenerateTokenPassword(dbUser.Login)
 
-		registrationMessage := email.SendType{
-			Title: viper.GetString("email.messages.reset.title"),
-			Token: fmt.Sprintf("%s/change-password/%s",
-				viper.GetString("project_url"),
-				token,
-			),
-			Button:  viper.GetString("email.messages.reset.button"),
-			Message: viper.GetString("email.messages.reset.message"),
-			Email:   dbUser.Email,
-			Subject: viper.GetString("email.messages.reset.subject"),
-			Thanks:  viper.GetString("email.messages.reset.thanks"),
-		}
-
-		go func() {
-			err := email.SendPasswordResetEmail(registrationMessage)
-			if err != nil {
-				logging.Error(err)
+			resetMessage := email.SendType{
+				// The wording comes from the configured language; only
+				// the address and the link are this request's to know.
+				URL: fmt.Sprintf("%s/change-password/%s",
+					viper.GetString("project_url"),
+					token,
+				),
+				Email: dbUser.Email,
 			}
-		}()
+
+			go func() {
+				if err := email.SendPasswordResetEmail(resetMessage); err != nil {
+					logging.Error(err)
+				}
+			}()
+		}
 
 		c.JSON(200, changeAnswer{
 			"token_created",

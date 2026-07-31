@@ -49,19 +49,59 @@ email:
   user: "apikey"
   password: "randomApiKey12345"
   smtp_server: smtp.example.com:465
+
+  # Which of the two sets below is sent. Both are always carried, so this is a
+  # restart rather than a rewrite. Anything but ru or en is read as en.
+  language: en
+
+  # What this installation calls itself: the wordmark at the head of every
+  # email, and the name in its signature and footer.
+  product_name: "Example"
+
+  # Every wording the emails use, per language. All of it is optional — what is
+  # left out arrives in the wording the application ships with, in the language
+  # chosen above, so an installation that sets none of this still sends a
+  # complete email rather than one with an empty subject and a nameless button.
+  #
+  # Overriding one field leaves the rest alone: to change nothing but the
+  # signature, write nothing but thanks.
   messages:
-    registration:
-      subject: "Registration at Example"
-      title: "Registration at Example"
-      message: "Click the button to activate your account"
-      button: "Activate"
-      thanks: "Best regards, Example"
-    reset:
-      subject: "Password Reset at Example"
-      title: "Password Reset at Example"
-      message: "Click the button to reset your password. If you did not request a password reset, please ignore this email."
-      button: "Reset Password"
-      thanks: "Best regards, Example"
+    en:
+      registration:
+        subject: "Activate your account"
+        title: "Activate your account"
+        message: "Press the button to confirm your address and sign in."
+        button: "Activate"
+        thanks: "Best regards, the Example team"
+        link_fallback: "If the button doesn't work, copy this link into your browser:"
+        footer: "You received this email because you registered on Example."
+      reset:
+        subject: "Reset your password"
+        title: "Reset your password"
+        message: "Press the button to choose a new password. The link is good for 90 minutes."
+        button: "Choose a new password"
+        thanks: "Best regards, the Example team"
+        link_fallback: "If the button doesn't work, copy this link into your browser:"
+        warning: "If you didn't ask to change your password, simply don't open the link — your password stays as it is."
+        footer: "You received this email because a password reset was requested for your Example account."
+    ru:
+      registration:
+        subject: "Активация аккаунта"
+        title: "Активация аккаунта"
+        message: "Нажмите кнопку, чтобы подтвердить адрес и войти."
+        button: "Активировать"
+        thanks: "С уважением, команда Example"
+        link_fallback: "Если кнопка не работает, скопируйте эту ссылку в браузер:"
+        footer: "Вы получили это письмо, потому что зарегистрировались на Example."
+      reset:
+        subject: "Сброс пароля"
+        title: "Сброс пароля"
+        message: "Нажмите кнопку, чтобы задать новый пароль. Ссылка действует 90 минут."
+        button: "Задать новый пароль"
+        thanks: "С уважением, команда Example"
+        link_fallback: "Если кнопка не работает, скопируйте эту ссылку в браузер:"
+        warning: "Если вы не запрашивали смену пароля, просто не открывайте ссылку — пароль останется прежним."
+        footer: "Вы получили это письмо, потому что для вашего аккаунта на Example запросили смену пароля."
 
 # Ways of supporting this instance, shown in the "Donate" dialog.
 #

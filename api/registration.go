@@ -51,16 +51,13 @@ func Registration(c *gin.Context) {
 		token := sessions.GenerateTokenPassword(newUser.Login)
 
 		registrationMessage := email.SendType{
-			Title: viper.GetString("email.messages.registration.title"),
-			Token: fmt.Sprintf("%s/activate/%s",
+			// The wording comes from the configured language; only
+			// the address and the link are this request's to know.
+			URL: fmt.Sprintf("%s/activate/%s",
 				viper.GetString("project_url"),
 				token,
 			),
-			Button:  viper.GetString("email.messages.registration.button"),
-			Message: viper.GetString("email.messages.registration.message"),
-			Email:   newUser.Email,
-			Subject: viper.GetString("email.messages.registration.subject"),
-			Thanks:  viper.GetString("email.messages.registration.thanks"),
+			Email: newUser.Email,
 		}
 
 		go func() {

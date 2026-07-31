@@ -109,26 +109,59 @@ type ScanningConfig struct {
 
 // EmailConfig holds email configuration
 type EmailConfig struct {
-	From       string        `mapstructure:"from" yaml:"from"`
-	User       string        `mapstructure:"user" yaml:"user"`
-	Password   string        `mapstructure:"password" yaml:"password"`
-	SMTPServer string        `mapstructure:"smtp_server" yaml:"smtp_server"`
-	Messages   MessageConfig `mapstructure:"messages" yaml:"messages"`
+	From       string `mapstructure:"from" yaml:"from"`
+	User       string `mapstructure:"user" yaml:"user"`
+	Password   string `mapstructure:"password" yaml:"password"`
+	SMTPServer string `mapstructure:"smtp_server" yaml:"smtp_server"`
+
+	// Language picks which of the two sets below is sent. Both are always
+	// carried, so changing it is a restart rather than a rewrite.
+	Language string `mapstructure:"language" yaml:"language"`
+
+	// ProductName names this installation in the emails it sends. Anyone
+	// running their own copy should not have to send mail signed Booksdump.
+	ProductName string `mapstructure:"product_name" yaml:"product_name"`
+
+	Messages MessageConfig `mapstructure:"messages" yaml:"messages"`
 }
 
-// MessageConfig holds email message templates configuration
+// MessageConfig holds one set of wordings per language.
+//
+// Named fields rather than a map keyed by language: a map has no leaves for
+// bindEnvKeys to walk, so every string in it would be unreachable from the
+// environment — and the environment is where this deployment would rather keep
+// its configuration. Two languages is what the interface itself offers.
 type MessageConfig struct {
+	RU LanguageMessages `mapstructure:"ru" yaml:"ru"`
+	EN LanguageMessages `mapstructure:"en" yaml:"en"`
+}
+
+// LanguageMessages holds every email this application sends, in one language.
+type LanguageMessages struct {
 	Registration EmailTemplate `mapstructure:"registration" yaml:"registration"`
 	Reset        EmailTemplate `mapstructure:"reset" yaml:"reset"`
 }
 
-// EmailTemplate holds email template configuration
+// EmailTemplate holds email template configuration.
+//
+// The last three used to be written into the markup, in English, while
+// everything above them came from here in whatever language the operator chose
+// — which is how a Russian email came to explain itself in English halfway
+// through. Every field is optional: what is left empty falls back to the
+// wording built into the application for that language.
 type EmailTemplate struct {
 	Subject string `mapstructure:"subject" yaml:"subject"`
 	Title   string `mapstructure:"title" yaml:"title"`
 	Message string `mapstructure:"message" yaml:"message"`
 	Button  string `mapstructure:"button" yaml:"button"`
 	Thanks  string `mapstructure:"thanks" yaml:"thanks"`
+
+	// LinkFallback introduces the copyable address.
+	LinkFallback string `mapstructure:"link_fallback" yaml:"link_fallback"`
+	// Warning is the caution shown above the signature, where one is warranted.
+	Warning string `mapstructure:"warning" yaml:"warning"`
+	// Footer says why the email arrived at all.
+	Footer string `mapstructure:"footer" yaml:"footer"`
 }
 
 // Load initializes and loads the configuration

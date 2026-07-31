@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <meta name="supported-color-schemes" content="light dark">
+    <title>{{ .Title }}</title>
+    <!--
+      One template for every email this application sends.
+
+      There were three: two live ones differing by nineteen lines out of two
+      hundred and seventy, and a third so long dead it still wore the old blue
+      livery. What differs now arrives as a value, so the next kind of email is
+      a caller rather than another copy of this file.
+
+      The palette, the radii and the type are the interface's own, taken from
+      its tokens rather than guessed at:
+
+        page      #b3b3b3   --background        card      #ffffff  --card
+        chrome    #171717   the header bar      border    #bdbdbd  --border
+        primary   #616161   --primary           muted     #525252  --muted-foreground
+        radius    12px      --radius-xl         button    6px      --radius-md
+
+      They are written out flat because a mail client has no custom properties
+      and no Tailwind: rgba(0,0,0,0.26) over white is #bdbdbd, and that is what
+      goes on the wire. Layout is tables and inline styles for the same reason —
+      what the interface says with a class, an email has to say in the tag.
+    -->
+    <style>
+        /*
+          Everything below is either a progressive enhancement or a fix for one
+          client's quirk. A client that drops this head entirely still gets the
+          full design, because the design is inline.
+        */
+        body,
+        table,
+        td,
+        a {
+            -ms-text-size-adjust: 100%;
+            -webkit-text-size-adjust: 100%;
+        }
+
+        table,
+        td {
+            mso-table-rspace: 0pt;
+            mso-table-lspace: 0pt;
+        }
+
+        table {
+            border-collapse: collapse !important;
+        }
+
+        /* Stops iOS turning dates and addresses into links of its own colour. */
+        a[x-apple-data-detectors] {
+            font-family: inherit !important;
+            font-size: inherit !important;
+            font-weight: inherit !important;
+            line-height: inherit !important;
+            color: inherit !important;
+            text-decoration: none !important;
+        }
+
+        div[style*="margin: 16px 0;"] {
+            margin: 0 !important;
+        }
+
+        /*
+          The dark theme, for the clients that have one — Apple Mail, iOS, and
+          the current Outlooks. Gmail strips this block and keeps the light
+          design inline, which is why every element carries an explicit
+          background: an email that leaves surfaces unpainted is the one Gmail's
+          own inverter makes a mess of.
+
+          The values are the interface's dark tokens, flattened the same way.
+        */
+        @media (prefers-color-scheme: dark) {
+            .page { background-color: #121212 !important; }
+            .card { background-color: #1e1e1e !important; border-color: #393939 !important; }
+            .ink { color: #ffffff !important; }
+            .ink-muted { color: #bbbbbb !important; }
+            .ink-on-page { color: #b8b8b8 !important; }
+            .well { background-color: #303030 !important; border-color: #393939 !important; }
+            .note { background-color: #424242 !important; border-left-color: #ffffff !important; }
+            .cta { background-color: #9e9e9e !important; }
+            .cta a { color: #121212 !important; }
+        }
+    </style>
+</head>
+<body class="page" style="margin: 0; padding: 0; width: 100% !important; background-color: #b3b3b3;">
+
+<div style="display: none; max-width: 0; max-height: 0; overflow: hidden; font-size: 1px; line-height: 1px; color: #b3b3b3; opacity: 0;">
+    {{ .Title }}
+</div>
+
+<table class="page" role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"
+       style="background-color: #b3b3b3;">
+    <tr>
+        <td align="center" style="padding: 32px 12px;">
+
+            <!--[if (gte mso 9)|(IE)]>
+            <table role="presentation" align="center" border="0" cellpadding="0" cellspacing="0" width="600">
+                <tr><td align="center" valign="top" width="600">
+            <![endif]-->
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"
+                   style="max-width: 600px;">
+
+                <!--
+                  The bar the interface wears at the top of every page. It is
+                  the one piece of chrome a reader recognises before reading a
+                  word, and it costs no remote image: the wordmark is text.
+                -->
+                <tr>
+                    <td align="left"
+                        style="background-color: #171717; padding: 18px 24px; border-radius: 12px 12px 0 0;">
+                        <span style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; color: #ffffff;">
+                            {{ .ProductName }}
+                        </span>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td class="card"
+                        style="background-color: #ffffff; border: 1px solid #bdbdbd; border-top: 0; border-radius: 0 0 12px 12px; padding: 28px 24px;">
+
+                        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+
+                            <tr>
+                                <td class="ink" align="left"
+                                    style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 24px; line-height: 32px; font-weight: 600; letter-spacing: -0.02em; color: #000000; padding: 0 0 12px 0;">
+                                    {{ .Title }}
+                                </td>
+                            </tr>
+
+                            <tr>
+                                <td class="ink" align="left"
+                                    style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 24px; color: #000000; padding: 0 0 24px 0;">
+                                    {{ .Message }}
+                                </td>
+                            </tr>
+
+                            <!--
+                              Centred. Left-aligned it sat against the card's
+                              edge with the whole width of the message empty
+                              beside it, which read as something left over
+                              rather than the one thing to do here.
+                            -->
+                            <tr>
+                                <td align="center" style="padding: 4px 0 28px 0;">
+                                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" align="center">
+                                        <tr>
+                                            <td class="cta" align="center"
+                                                style="background-color: #616161; border-radius: 6px;">
+                                                <a href="{{ .URL }}" target="_blank" rel="noopener"
+                                                   style="display: inline-block; padding: 13px 28px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; font-weight: 500; line-height: 20px; color: #ffffff; text-decoration: none; border-radius: 6px;">{{ .Button }}</a>
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </td>
+                            </tr>
+                            <!-- end button -->
+
+                            <!--
+                              Set as secondary text rather than in the small
+                              caps the interface puts over a group of fields:
+                              those are single words, and a whole sentence in
+                              capitals shouts where this only explains.
+                            -->
+                            <tr>
+                                <td class="ink-muted" align="left"
+                                    style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 13px; line-height: 20px; color: #525252; padding: 0 0 8px 0;">
+                                    {{ .LinkFallback }}
+                                </td>
+                            </tr>
+
+                            <tr>
+                                <td class="well ink" align="left"
+                                    style="background-color: #ededed; border: 1px solid #bdbdbd; border-radius: 6px; padding: 12px 14px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace; font-size: 12px; line-height: 18px; color: #000000; word-break: break-all;">
+                                    {{ .URL }}
+                                </td>
+                            </tr>
+
+                            {{ if .Warning }}
+                            <!--
+                              Drawn in the interface's own greys rather than the
+                              yellow it used to wear. Nothing in this product is
+                              yellow, and a caution that belongs to no palette
+                              reads as a warning from somewhere else.
+                            -->
+                            <tr>
+                                <td style="padding: 24px 0 0 0;">
+                                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                                        <tr>
+                                            <td class="note ink" align="left"
+                                                style="background-color: #e6e6e6; border-left: 3px solid #000000; border-radius: 0 6px 6px 0; padding: 12px 14px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 13px; line-height: 20px; color: #000000;">
+                                                {{ .Warning }}
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </td>
+                            </tr>
+                            {{ end }}
+
+                            <tr>
+                                <td class="ink-muted" align="left"
+                                    style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; line-height: 22px; color: #525252; padding: 24px 0 0 0;">
+                                    {{ .Thanks }}
+                                </td>
+                            </tr>
+
+                        </table>
+
+                    </td>
+                </tr>
+
+                {{ if .Footer }}
+                <tr>
+                    <td class="ink-on-page" align="center"
+                        style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 12px; line-height: 18px; color: #393939; padding: 20px 24px 0;">
+                        {{ .Footer }}
+                    </td>
+                </tr>
+                {{ end }}
+
+            </table>
+            <!--[if (gte mso 9)|(IE)]>
+                </td></tr>
+            </table>
+            <![endif]-->
+
+        </td>
+    </tr>
+</table>
+
+</body>
+</html>
