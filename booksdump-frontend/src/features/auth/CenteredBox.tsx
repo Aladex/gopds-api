@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next';
 
 import { Card } from '@/shared/ui/card';
 import InterfaceLanguageToggle from '@/shared/layout/InterfaceLanguageToggle';
+import ClassicBackdrop from '@/features/auth/ClassicBackdrop';
+import type { Moment } from '@/features/auth/passages';
 
 /**
  * CenteredBox is the frame every authentication screen sits in: one card in the
@@ -13,8 +15,16 @@ import InterfaceLanguageToggle from '@/shared/layout/InterfaceLanguageToggle';
  * easter egg rather than a button, so the link carries the name and the image
  * itself is hidden from assistive technology — announcing it twice would be the
  * only thing that added.
+ *
+ * A passage of verse drifts behind all of it where one is given. It sits at the
+ * very bottom of the stack, under both the picture and the card, and takes no
+ * pointer — the corner of the screen it shares with the picture belongs to the
+ * picture.
  */
-const CenteredBox: React.FC<React.PropsWithChildren> = ({ children }) => {
+const CenteredBox: React.FC<React.PropsWithChildren<{ moment?: Moment }>> = ({
+    moment,
+    children,
+}) => {
     const { t } = useTranslation();
 
     return (
@@ -25,6 +35,8 @@ const CenteredBox: React.FC<React.PropsWithChildren> = ({ children }) => {
               authentication, so an English browser meant an English login
               screen and nothing to be done about it.
             */}
+            {moment && <ClassicBackdrop moment={moment} />}
+
             <InterfaceLanguageToggle className="fixed top-3 right-3 z-10" />
             {/*
               The decoration comes first in the markup on purpose. Both it and

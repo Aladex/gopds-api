@@ -79,7 +79,7 @@ const Login: React.FC = () => {
     };
 
     return (
-        <CenteredBox>
+        <CenteredBox moment="returning">
             <AuthForm
                 title={t('welcomeBack')}
                 subtitle={t('loginSubtitle')}

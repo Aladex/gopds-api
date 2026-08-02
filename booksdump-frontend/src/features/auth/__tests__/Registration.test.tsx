@@ -9,7 +9,9 @@ import { ApiError } from '@/api/errors';
 // t must keep a stable identity across renders: a mock that returns a fresh
 // function every call spins any component with an effect keyed on t.
 const translate = (key: string) => key;
-const translation = { t: translate };
+// i18n as well as t: the verse behind this screen picks its language
+// from it, so a stub with only a translator leaves it undefined.
+const translation = { t: translate, i18n: { language: 'ru' } };
 vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 
 // The corner language toggle reaches for the account context and is not what

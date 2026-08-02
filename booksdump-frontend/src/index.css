@@ -37,6 +37,31 @@
 }
 
 /*
+ * The hand the classics are written in, behind the sign-in screens.
+ *
+ * Caveat, by the Caveat Project Authors, under the SIL Open Font License — the
+ * licence sits beside the file. Shipped as a subset of the regular weight: the
+ * upstream variable font is 400 KB, and a background needs one weight, two
+ * alphabets and the punctuation verse uses, which is 65 KB.
+ *
+ * Both alphabets, because the verse is Pushkin for a Russian reader and
+ * Shakespeare for an English one. Cut to Cyrillic alone — as it was at first —
+ * every English line fell back to the interface's own sans, which is the one
+ * thing a handwriting backdrop must not do.
+ *
+ * The unicode-range still keeps it scoped: nothing outside these letters can
+ * pull the face in, so no interface text picks up handwriting by accident.
+ */
+@font-face {
+    font-family: 'Caveat';
+    src: url('./assets/fonts/Caveat-subset.woff2') format('woff2');
+    unicode-range:
+        U+0020-007E, U+00A0, U+00AB, U+00BB, U+0401, U+0410-044F, U+0451, U+2010, U+2013-2014,
+        U+2018-201D, U+2026;
+    font-display: swap;
+}
+
+/*
  * Every panel that scrolls — a suggestion list, a language menu — otherwise
  * shows the platform's own scrollbar, which is the widest piece of system
  * chrome left in the interface.
@@ -59,6 +84,8 @@
         'Twemoji Country Flags', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji',
         'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
 
+    --font-handwritten: 'Caveat', ui-sans-serif, system-ui, sans-serif;
+
     --z-index-chrome: 1100;
     --z-index-chrome-top: 1200;
     --z-index-modal: 1300;
@@ -73,6 +100,26 @@
         }
         100% {
             transform: translateX(300%);
+        }
+    }
+
+    /*
+     * The verse behind the sign-in screens, drifting upward.
+     *
+     * Two copies of the poem ride one after the other and the animation moves
+     * the pair by exactly one copy, so the end of the second lands where the
+     * start of the first was and the loop has no seam. Duration is set per
+     * passage — the speed is what stays the same, not the timing, which is why
+     * a longer poem simply takes longer.
+     */
+    --animate-verse-drift: verse-drift linear infinite;
+
+    @keyframes verse-drift {
+        from {
+            transform: translateY(0);
+        }
+        to {
+            transform: translateY(calc(var(--verse-height) * -1));
         }
     }
 
