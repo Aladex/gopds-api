@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router';
+import { Link } from 'react-router';
 import { Check, Pencil, RefreshCw, Star } from 'lucide-react';
 
 import type { Book } from '@/api/books';
@@ -47,8 +47,17 @@ const DOWNLOAD_FORMATS = [
  * so — and nothing has to measure the row, or re-measure it as the window
  * changes width.
  *
- * The values are atomic inline boxes, which is what keeps the cut between two
- * of them rather than through somebody's surname.
+ * The values break like ordinary text, so a first value longer than the line
+ * still shows as much of itself as fits. They were unbreakable boxes to begin
+ * with, on the reasoning that a cut should fall between two names rather than
+ * inside one — which is true right up to the book whose only series is longer
+ * than the row, where it left the label standing over an ellipsis and no
+ * content at all.
+ *
+ * That is also why the values are links rather than buttons. A button is an
+ * atomic inline box whatever its `display` says — measured: laid out as
+ * `inline` it still vanishes whole — and these are navigations anyway, so they
+ * gain the browser's own openings into a new tab on the way.
  *
  * The line is given more height than the text needs because each value carries
  * an underline, and a clamped line clips whatever leans out of it.
@@ -58,7 +67,7 @@ const MetaRow: React.FC<React.PropsWithChildren<{ label: string; open: boolean }
     open,
     children,
 }) => (
-    <div className={cn('text-sm leading-6', !open && 'line-clamp-1')}>
+    <div className={cn('text-sm leading-6 break-words', !open && 'line-clamp-1')}>
         <span className="mr-1.5 text-xs tracking-wide text-muted-foreground uppercase">
             {label}
         </span>
@@ -66,22 +75,16 @@ const MetaRow: React.FC<React.PropsWithChildren<{ label: string; open: boolean }
     </div>
 );
 
-/** MetaItem is one value in such a row, and goes somewhere when pressed. */
-const MetaItem: React.FC<React.PropsWithChildren<{ first: boolean; onClick: () => void }>> = ({
-    first,
-    onClick,
-    children,
-}) => (
-    <span className="mr-1.5 inline-flex items-baseline gap-1.5">
-        {!first && <span className="text-muted-foreground">·</span>}
-        <button
-            type="button"
-            onClick={onClick}
-            className="border-b border-border hover:border-current"
-        >
+/** MetaItem is one value in such a row: where it goes, and what to forget first. */
+const MetaItem: React.FC<
+    React.PropsWithChildren<{ first: boolean; to: string; onGo: () => void }>
+> = ({ first, to, onGo, children }) => (
+    <>
+        {!first && <span className="mx-1.5 text-muted-foreground">·</span>}
+        <Link to={to} onClick={onGo} className="border-b border-border hover:border-current">
             {children}
-        </button>
-    </span>
+        </Link>
+    </>
 );
 
 export interface BookCardProps {
@@ -133,16 +136,14 @@ const BookCard: React.FC<BookCardProps> = ({
     onEdit,
 }) => {
     const { t } = useTranslation();
-    const navigate = useNavigate();
     const { setSearchItem } = useSearchBar();
     const { clearAuthorBook, setAuthorName } = useAuthor();
     const [open, setOpen] = React.useState(false);
 
-    /** goTo leaves the search box empty so the filter, not a stale query, applies. */
-    const goTo = (path: string) => {
+    /** leaveScope empties the search box so the filter, not a stale query, applies. */
+    const leaveScope = () => {
         setSearchItem('');
         clearAuthorBook();
-        navigate(path);
     };
 
     // A code the interface cannot name is not shown at all: "zxx" tells a
@@ -243,12 +244,13 @@ const BookCard: React.FC<BookCardProps> = ({
                                 <MetaItem
                                     key={author.id}
                                     first={index === 0}
-                                    onClick={() => {
+                                    to={`/books/find/author/${author.id}/1`}
+                                    onGo={() => {
+                                        leaveScope();
                                         // The name is on screen already, so the
                                         // search panel need not fetch it to say
                                         // whose books it is scoped to.
                                         setAuthorName(author.full_name);
-                                        goTo(`/books/find/author/${author.id}/1`);
                                     }}
                                 >
                                     {author.full_name}
@@ -263,7 +265,8 @@ const BookCard: React.FC<BookCardProps> = ({
                                 <MetaItem
                                     key={series.id ?? series.ser}
                                     first={index === 0}
-                                    onClick={() => goTo(`/books/find/category/${series.id}/1`)}
+                                    to={`/books/find/category/${series.id}/1`}
+                                    onGo={leaveScope}
                                 >
                                     {series.ser}
                                 </MetaItem>
@@ -277,7 +280,8 @@ const BookCard: React.FC<BookCardProps> = ({
                                 <MetaItem
                                     key={genre.id}
                                     first={index === 0}
-                                    onClick={() => goTo(`/books/find/genre/${genre.id}/1`)}
+                                    to={`/books/find/genre/${genre.id}/1`}
+                                    onGo={leaveScope}
                                 >
                                     {t(genre.genre, genre.genre)}
                                 </MetaItem>

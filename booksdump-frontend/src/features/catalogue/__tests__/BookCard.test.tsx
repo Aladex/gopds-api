@@ -11,9 +11,11 @@ import type { Book } from '@/api/books';
  * each of them shows one line. What does the shortening is `-webkit-line-clamp`,
  * which jsdom does not implement and could not honour anyway without a
  * stylesheet or a layout. So how it looks was measured in a browser: five
- * authors in a 520px row cut after the third, with the ellipsis following a
- * whole name rather than falling inside one, and no ellipsis at all where
- * everything fitted.
+ * authors in a 520px row cut after the third with the ellipsis after a whole
+ * name, no ellipsis at all where everything fitted, and — the case that sent
+ * this back for a second try — a single series longer than a 190px row showing
+ * as much of itself as fits rather than disappearing and leaving the label over
+ * an ellipsis.
  *
  * What is held here is the half that survives without layout, and the half the
  * browser cannot check: that nothing is removed from the document to make it
@@ -25,12 +27,6 @@ import type { Book } from '@/api/books';
 const translate = (key: string, fallback?: string) => fallback ?? key;
 const translation = { t: translate, i18n: { language: 'ru' } };
 vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
-
-const navigate = vi.fn();
-vi.mock('react-router', async () => {
-    const actual = await vi.importActual<typeof import('react-router')>('react-router');
-    return { ...actual, useNavigate: () => navigate };
-});
 
 const setSearchItem = vi.fn();
 vi.mock('@/context/SearchBarContext', () => ({ useSearchBar: () => ({ setSearchItem }) }));
@@ -94,7 +90,7 @@ const renderCard = () =>
     );
 
 /** The row a given value sits in, whichever of the three lists that is. */
-const rowOf = (value: string) => screen.getByRole('button', { name: value }).closest('div');
+const rowOf = (value: string) => screen.getByRole('link', { name: value }).closest('div');
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -105,7 +101,7 @@ describe('a card that is shut', () => {
         // Including the ones the clamp will hide: the list is shortened by the
         // browser, so what a reader with a screen reader hears is all of it.
         for (const name of AUTHORS) {
-            expect(await screen.findByRole('button', { name })).toBeInTheDocument();
+            expect(await screen.findByRole('link', { name })).toBeInTheDocument();
         }
     });
 
@@ -140,22 +136,44 @@ describe('a card that has been opened', () => {
 });
 
 describe('the values in those lists', () => {
-    it('take the reader to the author, series or genre pressed', async () => {
+    /*
+     * Links rather than buttons, for two reasons that happen to agree. A button
+     * is an atomic inline box whatever its display, so one longer than the row
+     * vanished whole and left the label over an ellipsis. And these are
+     * navigations: as links they can be opened in a new tab, which a button
+     * dispatching navigate() can never be.
+     */
+    it('are links to where they go', () => {
         renderCard();
 
-        await userEvent.click(screen.getByRole('button', { name: 'Кир Булычёв' }));
-        // The name is handed over rather than fetched again: it is on screen.
-        expect(setAuthorName).toHaveBeenCalledWith('Кир Булычёв');
-        expect(navigate).toHaveBeenCalledWith('/books/find/author/3/1');
-
-        await userEvent.click(screen.getByRole('button', { name: 'Мир Полудня' }));
-        expect(navigate).toHaveBeenCalledWith('/books/find/category/7/1');
-
-        await userEvent.click(screen.getByRole('button', { name: 'Советская классика' }));
-        expect(navigate).toHaveBeenCalledWith('/books/find/genre/13/1');
+        expect(screen.getByRole('link', { name: 'Кир Булычёв' })).toHaveAttribute(
+            'href',
+            '/books/find/author/3/1',
+        );
+        expect(screen.getByRole('link', { name: 'Мир Полудня' })).toHaveAttribute(
+            'href',
+            '/books/find/category/7/1',
+        );
+        expect(screen.getByRole('link', { name: 'Советская классика' })).toHaveAttribute(
+            'href',
+            '/books/find/genre/13/1',
+        );
     });
 
-    // Pressing one of these navigates; it must not also toggle the card it sits
+    it('drop the scope the reader was browsing under on the way', async () => {
+        renderCard();
+
+        await userEvent.click(screen.getByRole('link', { name: 'Кир Булычёв' }));
+
+        // A stale query would otherwise survive the move and filter the author's
+        // own books. The name is handed over rather than fetched again: it is on
+        // screen already.
+        expect(setSearchItem).toHaveBeenCalledWith('');
+        expect(clearAuthorBook).toHaveBeenCalled();
+        expect(setAuthorName).toHaveBeenCalledWith('Кир Булычёв');
+    });
+
+    // Following one of these navigates; it must not also toggle the card it sits
     // in, which the card's own click handler would otherwise do on the way up.
     it('does not open the card on the way past', async () => {
         renderCard();
@@ -163,7 +181,7 @@ describe('the values in those lists', () => {
         const card = screen.getByTestId('book-card');
         expect(card).toHaveAttribute('data-state', 'collapsed');
 
-        await userEvent.click(screen.getByRole('button', { name: 'Кир Булычёв' }));
+        await userEvent.click(screen.getByRole('link', { name: 'Кир Булычёв' }));
         expect(card).toHaveAttribute('data-state', 'collapsed');
     });
 });
