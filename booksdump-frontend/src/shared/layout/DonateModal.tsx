@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import QRCode from 'qrcode';
 import { Check, Copy, ExternalLink } from 'lucide-react';
 
-import * as systemApi from '@/api/system';
 import type { DonateMethod } from '@/api/system';
 import { useTheme } from '@/context/ThemeContext';
 import { Button } from '@/shared/ui/button';
@@ -27,10 +26,17 @@ import { cn } from '@/shared/lib/utils';
  *
  * A tab also means only the method being looked at is mounted, so the QR codes
  * of the others are never drawn.
+ *
+ * The methods are handed in rather than fetched here. The header has to ask for
+ * them anyway — an installation offering none should not show the button at all
+ * — so fetching them again on open asked the server the same question twice and
+ * left the dialog showing a title over an empty space until the answer came
+ * back. Given the list, it renders whole in its first frame.
  */
 
 type DonateModalProps = {
     open: boolean;
+    methods: DonateMethod[];
     onClose: () => void;
 };
 
@@ -265,33 +271,15 @@ const Method: React.FC<{ method: DonateMethod }> = ({ method }) => {
     );
 };
 
-const DonateModal: React.FC<DonateModalProps> = ({ open, onClose }) => {
+const DonateModal: React.FC<DonateModalProps> = ({ open, methods, onClose }) => {
     const { t } = useTranslation();
-    const [methods, setMethods] = useState<DonateMethod[]>([]);
     const [chosen, setChosen] = useState<string>();
     // The same break the profile uses to choose between a sheet and a dialog.
     const isMobile = useMediaQuery('(max-width: 600px)');
 
-    useEffect(() => {
-        if (!open) {
-            return;
-        }
-        let cancelled = false;
-        systemApi
-            .getDonateMethods()
-            .then((list) => {
-                if (!cancelled) setMethods(list ?? []);
-            })
-            .catch((error) => console.error('Error fetching donate methods:', error));
-        return () => {
-            cancelled = true;
-        };
-    }, [open]);
-
-    // The methods arrive after the first render, so the open tab cannot simply
-    // be initial state. Deriving it — the chosen one while it is still on
-    // offer, the first otherwise — means no effect has to correct it when the
-    // list changes under a configuration the reader has never seen.
+    // Derived rather than held: the chosen method while it is still on offer,
+    // the first otherwise. So no effect has to correct it when the list changes
+    // under a configuration the reader has never seen.
     const active = methods.some((method) => method.id === chosen) ? chosen : methods[0]?.id;
 
     /**

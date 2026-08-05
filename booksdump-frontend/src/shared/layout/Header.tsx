@@ -38,7 +38,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
     const location = useLocation();
     const { t } = useTranslation();
     const [isDonateModalOpen, setIsDonateModalOpen] = useState(false);
-    const [canDonate, setCanDonate] = useState(false);
+    const [donateMethods, setDonateMethods] = useState<systemApi.DonateMethod[]>([]);
     const [hiddenByScroll, setHiddenByScroll] = useState(false);
     const lastScrollYRef = useRef(0);
 
@@ -75,15 +75,17 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
         navigate('/login');
     };
 
-    // Whether there is anything to offer at all. An installation that has
-    // configured no methods should not show the button, rather than open an
-    // empty dialog.
+    // Whether there is anything to offer at all — and, since the answer is the
+    // list itself, the list. It used to keep only whether the list was empty
+    // and let the dialog fetch it again when opened, which meant the dialog
+    // opened as a title with nothing under it and filled in when the second
+    // request landed.
     useEffect(() => {
         let cancelled = false;
         systemApi
             .getDonateMethods()
             .then((methods) => {
-                if (!cancelled) setCanDonate(methods.length > 0);
+                if (!cancelled) setDonateMethods(methods ?? []);
             })
             .catch(() => {
                 // Nothing to offer if we cannot find out.
@@ -113,20 +115,21 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
         return () => window.removeEventListener('scroll', handleScroll);
     }, [isMobile]);
 
-    const donateButton = !canDonate ? null : (
-        <button
-            type="button"
-            onClick={() => setIsDonateModalOpen(true)}
-            className={cn(
-                'flex items-center gap-1 rounded px-2 font-medium uppercase text-neutral-400',
-                'hover:bg-white/5 hover:text-white',
-                isMobile ? 'h-8 text-[0.7rem]' : 'h-12 text-sm',
-            )}
-        >
-            <HeartHandshake className={isMobile ? 'size-4' : 'size-5'} />
-            {t('donate', 'Донат')}
-        </button>
-    );
+    const donateButton =
+        donateMethods.length === 0 ? null : (
+            <button
+                type="button"
+                onClick={() => setIsDonateModalOpen(true)}
+                className={cn(
+                    'flex items-center gap-1 rounded px-2 font-medium uppercase text-neutral-400',
+                    'hover:bg-white/5 hover:text-white',
+                    isMobile ? 'h-8 text-[0.7rem]' : 'h-12 text-sm',
+                )}
+            >
+                <HeartHandshake className={isMobile ? 'size-4' : 'size-5'} />
+                {t('donate', 'Донат')}
+            </button>
+        );
 
     return (
         <header
@@ -221,7 +224,11 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
 
             {isDonateModalOpen && (
                 <Suspense fallback={null}>
-                    <DonateModal open onClose={() => setIsDonateModalOpen(false)} />
+                    <DonateModal
+                        open
+                        methods={donateMethods}
+                        onClose={() => setIsDonateModalOpen(false)}
+                    />
                 </Suspense>
             )}
         </header>

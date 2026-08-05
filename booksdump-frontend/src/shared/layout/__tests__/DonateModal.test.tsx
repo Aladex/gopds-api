@@ -1,16 +1,13 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import DonateModal from '@/shared/layout/DonateModal';
-import * as systemApi from '@/api/system';
 
 // The modal's whole point is that it knows nothing about any particular way of
-// giving: what it shows, and how many tabs it has, comes from the server. These
-// tests therefore hand it lists it has never seen rather than the operator's
-// real one.
-
-vi.mock('@/api/system', () => ({ getDonateMethods: vi.fn() }));
+// giving: what it shows, and how many tabs it has, comes from the server by way
+// of the header. These tests therefore hand it lists it has never seen rather
+// than the operator's real one.
 
 // A stable t: useTranslation must not hand back a fresh function each render,
 // or effects keyed on it loop forever.
@@ -37,8 +34,6 @@ vi.mock('qrcode', () => ({
     default: { toDataURL: vi.fn().mockResolvedValue('data:image/png;base64,qr') },
 }));
 
-const getDonateMethods = vi.mocked(systemApi.getDonateMethods);
-
 const bitcoin = { id: 'bitcoin', label: 'Bitcoin', kind: 'address', value: 'bc1qtest', qr: true };
 const card = { id: 'card', label: 'Card', kind: 'card', value: '5536913994186852', qr: false };
 const boosty = {
@@ -49,13 +44,8 @@ const boosty = {
     qr: false,
 };
 
-const openWith = async (methods: unknown[]) => {
-    getDonateMethods.mockResolvedValue(methods as never);
-    render(<DonateModal open onClose={() => {}} />);
-    if (methods.length > 0) {
-        await screen.findByText((methods[0] as { label: string }).label);
-    }
-};
+const openWith = async (methods: unknown[]) =>
+    render(<DonateModal open methods={methods as never} onClose={() => {}} />);
 
 beforeEach(() => {
     vi.clearAllMocks();
@@ -117,9 +107,24 @@ test('offers no choice when only one method is configured', async () => {
 test('shows nothing to give to when nothing is configured', async () => {
     await openWith([]);
 
-    await waitFor(() => expect(getDonateMethods).toHaveBeenCalled());
     expect(screen.queryByRole('tab')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /copy/i })).not.toBeInTheDocument();
+});
+
+/*
+ * The dialog used to fetch the methods for itself when opened, which the header
+ * had already done in order to decide whether to offer the button at all. So it
+ * appeared as a title over an empty space and filled in a moment later, the tab
+ * strip and the panel arriving together.
+ *
+ * Handed the list, it is complete in the frame it first renders — which is what
+ * this asserts by looking before yielding to anything.
+ */
+test('is whole in its first frame, with nothing left to arrive', () => {
+    render(<DonateModal open methods={[bitcoin, card, boosty] as never} onClose={() => {}} />);
+
+    expect(screen.getAllByRole('tab')).toHaveLength(3);
+    expect(screen.getByText('bc1qtest')).toBeInTheDocument();
 });
 
 test('on a phone the methods arrive in a sheet, tabs and all', async () => {
