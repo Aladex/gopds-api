@@ -7,6 +7,8 @@
   "description": "Описание",
   "readMore": "Читать далее",
   "showLess": "Показать меньше",
+  "bookMore": "Подробнее",
+  "bookLess": "Свернуть",
   "noBooksFound": "Книги не найдены",
   "username": "Имя пользователя или email",
   "password": "Пароль",

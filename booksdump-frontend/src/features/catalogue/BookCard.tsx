@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
-import { Check, Pencil, RefreshCw, Star } from 'lucide-react';
+import { Check, ChevronDown, Pencil, RefreshCw, Star } from 'lucide-react';
 
 import type { Book } from '@/api/books';
 import { Button } from '@/shared/ui/button';
@@ -98,6 +98,15 @@ export interface BookCardProps {
      */
     annotationPeekLines: number;
     /**
+     * Whether this is the narrow layout.
+     *
+     * Taken from the list rather than measured here, because the list already
+     * knows — it is the same query that decides how much annotation to show —
+     * and twenty cards asking the same question of the browser is twenty
+     * listeners where one will do.
+     */
+    isMobile: boolean;
+    /**
      * Whether the book's own language is worth saying.
      *
      * While the catalogue is filtered to one language every card would carry
@@ -123,6 +132,7 @@ const coverPath = (value: string) => value.replaceAll('.', '-').replace(/^\/+/, 
 const BookCard: React.FC<BookCardProps> = ({
     book,
     annotationPeekLines,
+    isMobile,
     showLanguage,
     isSuperuser,
     formatDate,
@@ -139,6 +149,9 @@ const BookCard: React.FC<BookCardProps> = ({
     const { setSearchItem } = useSearchBar();
     const { clearAuthorBook, setAuthorName } = useAuthor();
     const [open, setOpen] = React.useState(false);
+
+    /** Names the block the control opens, for anything reading the page aloud. */
+    const detailsID = `book-${book.id}-details`;
 
     /** leaveScope empties the search box so the filter, not a stale query, applies. */
     const leaveScope = () => {
@@ -159,16 +172,49 @@ const BookCard: React.FC<BookCardProps> = ({
         return onDownload(id, book.id);
     };
 
+    /*
+     * The four ways to take the book away. Two equal cells with the label
+     * centred in each, so they read as an even block rather than as four links
+     * of differing length.
+     *
+     * They sit under the cover on a wide screen, as quiet links. On a phone they
+     * go below the rule instead, among the other things one can do to a book,
+     * and become targets a finger can land on: beside an 88px cover each was 42
+     * by 22, half the size that needs to be. They used to close the grid above
+     * the rule, where the control that sits on it cut into their outlines.
+     */
+    const downloads = (
+        <div className={cn('grid grid-cols-2', isMobile ? 'w-full gap-2' : 'gap-1')}>
+            {DOWNLOAD_FORMATS.map((format) => {
+                const converting = isBookConverting(book.id, format.id);
+                return (
+                    <button
+                        key={format.id}
+                        type="button"
+                        disabled={converting}
+                        onClick={() => handleFormat(format.id)}
+                        className={cn(
+                            'flex items-center justify-center rounded text-center text-primary',
+                            'hover:bg-accent hover:underline',
+                            isMobile
+                                ? 'min-h-9 border border-border text-[13px]'
+                                : 'py-0.5 text-[12px]',
+                            'disabled:cursor-default disabled:text-muted-foreground disabled:no-underline disabled:hover:bg-transparent',
+                        )}
+                    >
+                        {converting && <BouncingDots className="mr-1" />}
+                        {format.label}
+                    </button>
+                );
+            })}
+        </div>
+    );
+
     return (
         <article
             data-testid="book-card"
             data-state={open ? 'open' : 'collapsed'}
-            onClick={(event) => {
-                // Buttons and links inside the card keep their own meaning.
-                if ((event.target as HTMLElement).closest('button, a')) return;
-                setOpen((value) => !value);
-            }}
-            className="cursor-pointer rounded border border-border bg-card p-4 transition-colors hover:border-muted-foreground"
+            className="rounded border border-border bg-card p-4 transition-colors hover:border-muted-foreground"
         >
             {/*
               One grid, two arrangements. A phone has no room for a cover beside
@@ -189,36 +235,7 @@ const BookCard: React.FC<BookCardProps> = ({
                         alt={book.title}
                         className="col-start-1 row-start-1 h-[150px] w-[104px] flex-none rounded-sm"
                     />
-                    {/* Two equal cells with the label centred in each, so the four
-                        read as an even block rather than four links of differing
-                        length. */}
-                    {/* At the foot of the card on a phone, two to a row and
-                        tall enough to hit: beside an 88px cover each of these
-                        was 42 by 22, half the size a finger reliably lands on.
-                        Beside the text on a wider screen they go back to being
-                        quiet links under the cover. */}
-                    <div className="col-span-2 row-start-3 grid grid-cols-2 gap-2 pt-1 sm:col-span-1 sm:gap-1 sm:pt-0">
-                        {DOWNLOAD_FORMATS.map((format) => {
-                            const converting = isBookConverting(book.id, format.id);
-                            return (
-                                <button
-                                    key={format.id}
-                                    type="button"
-                                    disabled={converting}
-                                    onClick={() => handleFormat(format.id)}
-                                    className={cn(
-                                        'flex min-h-9 items-center justify-center rounded border border-border text-center text-[13px] text-primary',
-                                        'hover:bg-accent hover:underline',
-                                        'sm:min-h-0 sm:border-0 sm:py-0.5 sm:text-[12px]',
-                                        'disabled:cursor-default disabled:text-muted-foreground disabled:no-underline disabled:hover:bg-transparent',
-                                    )}
-                                >
-                                    {converting && <BouncingDots className="mr-1" />}
-                                    {format.label}
-                                </button>
-                            );
-                        })}
-                    </div>
+                    {!isMobile && downloads}
                 </div>
 
                 <div className="col-start-2 row-start-1 flex min-w-0 flex-col gap-1.5">
@@ -237,7 +254,10 @@ const BookCard: React.FC<BookCardProps> = ({
                     </div>
                 </div>
 
-                <div className="col-span-2 row-start-2 flex min-w-0 flex-col gap-1.5 sm:col-span-1 sm:col-start-2">
+                <div
+                    id={detailsID}
+                    className="col-span-2 row-start-2 flex min-w-0 flex-col gap-1.5 sm:col-span-1 sm:col-start-2"
+                >
                     {authors.length > 0 && (
                         <MetaRow label={t('authors')} open={open}>
                             {authors.map((author, index) => (
@@ -303,53 +323,105 @@ const BookCard: React.FC<BookCardProps> = ({
                 </div>
             </div>
 
-            <div className="mt-2 flex items-center justify-end gap-0.5 border-t border-border pt-2.5">
-                {isSuperuser && (
-                    <>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            title={t('rescanBook')}
-                            aria-label={t('rescanBook')}
-                            onClick={() => onRescan(book.id)}
-                        >
-                            <RefreshCw className="size-4" />
-                        </Button>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            title={t('editBook')}
-                            aria-label={t('editBook')}
-                            onClick={() => onEdit(book)}
-                        >
-                            <Pencil className="size-4" />
-                        </Button>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            title={book.approved ? t('bookApproved') : t('bookNotApproved')}
-                            aria-label={book.approved ? t('bookApproved') : t('bookNotApproved')}
-                            aria-pressed={book.approved}
-                            onClick={() => onToggleApproved(book)}
-                            className={
-                                book.approved ? 'text-green-600 dark:text-green-400' : undefined
-                            }
-                        >
-                            <Check className="size-4" />
-                        </Button>
-                    </>
-                )}
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    title={book.fav ? t('bookFavRemove') : t('bookFavAdd')}
-                    aria-label={book.fav ? t('bookFavRemove') : t('bookFavAdd')}
-                    aria-pressed={book.fav}
-                    onClick={() => onToggleFavourite(book)}
-                    className={book.fav ? 'text-amber-500' : undefined}
+            {/*
+              The rule that separates the book from what can be done with it, with
+              the way in and out sitting on it. On the line rather than in the
+              flow because that is what it divides: everything above is the book
+              as the list shows it, everything below is the reader acting on it,
+              and opening the card is the move between the two.
+
+              The card used to open on a click anywhere on it, which was never
+              announced and could not be reached from a keyboard at all: it was an
+              <article> with an onClick. It could not simply be given a role
+              either — it holds links and buttons, and an interactive element
+              wrapping interactive elements is flattened by the software that
+              reads a page aloud. Selecting a line of the annotation with the
+              mouse also counted as a click on the card and shut it, taking the
+              text with it.
+            */}
+            {/* Roomier on a phone: the control sits astride the rule, and the
+                downloads are the first thing under it, so the two touch targets
+                would otherwise share an edge. */}
+            <div className="relative mt-5 border-t border-border pt-8 sm:mt-3 sm:pt-2.5">
+                <button
+                    type="button"
+                    onClick={() => setOpen((value) => !value)}
+                    aria-expanded={open}
+                    aria-controls={detailsID}
+                    className={cn(
+                        // Centred on the rule, painted in the card's own colour
+                        // so the line appears to break for it rather than to run
+                        // behind it. Taller where it is pressed with a finger
+                        // rather than pointed at, and the offset follows so it
+                        // still straddles the line.
+                        'absolute left-1/2 -translate-x-1/2',
+                        '-top-4 py-1.5 sm:-top-3 sm:py-0',
+                        'flex items-center gap-1 rounded bg-card px-3 text-[13px] text-primary sm:px-2',
+                        'hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none',
+                    )}
                 >
-                    <Star className={cn('size-4', book.fav && 'fill-current')} />
-                </Button>
+                    <ChevronDown
+                        aria-hidden="true"
+                        className={cn(
+                            'size-4 transition-transform duration-200 motion-reduce:transition-none',
+                            open && 'rotate-180',
+                        )}
+                    />
+                    {open ? t('bookLess') : t('bookMore')}
+                </button>
+
+                {isMobile && downloads}
+
+                <div className={cn('flex items-center justify-end gap-0.5', isMobile && 'pt-2')}>
+                    {isSuperuser && (
+                        <>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                title={t('rescanBook')}
+                                aria-label={t('rescanBook')}
+                                onClick={() => onRescan(book.id)}
+                            >
+                                <RefreshCw className="size-4" />
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                title={t('editBook')}
+                                aria-label={t('editBook')}
+                                onClick={() => onEdit(book)}
+                            >
+                                <Pencil className="size-4" />
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                title={book.approved ? t('bookApproved') : t('bookNotApproved')}
+                                aria-label={
+                                    book.approved ? t('bookApproved') : t('bookNotApproved')
+                                }
+                                aria-pressed={book.approved}
+                                onClick={() => onToggleApproved(book)}
+                                className={
+                                    book.approved ? 'text-green-600 dark:text-green-400' : undefined
+                                }
+                            >
+                                <Check className="size-4" />
+                            </Button>
+                        </>
+                    )}
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        title={book.fav ? t('bookFavRemove') : t('bookFavAdd')}
+                        aria-label={book.fav ? t('bookFavRemove') : t('bookFavAdd')}
+                        aria-pressed={book.fav}
+                        onClick={() => onToggleFavourite(book)}
+                        className={book.fav ? 'text-amber-500' : undefined}
+                    >
+                        <Star className={cn('size-4', book.fav && 'fill-current')} />
+                    </Button>
+                </div>
             </div>
         </article>
     );

@@ -68,12 +68,13 @@ const book: Book = {
     favorite_count: 0,
 };
 
-const renderCard = () =>
+const renderCard = ({ isMobile = false } = {}) =>
     render(
         <MemoryRouter>
             <BookCard
                 book={book}
                 annotationPeekLines={2}
+                isMobile={isMobile}
                 showLanguage={false}
                 isSuperuser={false}
                 formatDate={(value) => value}
@@ -91,6 +92,9 @@ const renderCard = () =>
 
 /** The row a given value sits in, whichever of the three lists that is. */
 const rowOf = (value: string) => screen.getByRole('link', { name: value }).closest('div');
+
+/** The one control that opens and shuts the card. */
+const disclosure = () => screen.getByRole('button', { name: /bookMore|bookLess/ });
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -127,11 +131,88 @@ describe('a card that has been opened', () => {
     it('lets all three lists wrap', async () => {
         renderCard();
 
-        await userEvent.click(screen.getByRole('heading', { name: book.title }));
+        await userEvent.click(disclosure());
 
         expect(rowOf('Аркадий Стругацкий')?.className).not.toMatch(/line-clamp-1/);
         expect(rowOf('Мир Полудня')?.className).not.toMatch(/line-clamp-1/);
         expect(rowOf('Научная фантастика')?.className).not.toMatch(/line-clamp-1/);
+    });
+});
+
+/*
+ * There is exactly one way to open a card, it is a real button, and it says
+ * which way it is about to go. The card used to open on a click anywhere on
+ * it — undiscoverable, unreachable from a keyboard, and prone to shutting
+ * itself the moment anyone selected a line of the annotation with the mouse.
+ */
+describe('opening and shutting a card', () => {
+    it('is done by one control that says what it does', async () => {
+        renderCard();
+
+        const control = disclosure();
+        expect(control).toHaveAccessibleName('bookMore');
+        expect(control).toHaveAttribute('aria-expanded', 'false');
+
+        await userEvent.click(control);
+        expect(disclosure()).toHaveAccessibleName('bookLess');
+        expect(disclosure()).toHaveAttribute('aria-expanded', 'true');
+
+        await userEvent.click(disclosure());
+        expect(disclosure()).toHaveAccessibleName('bookMore');
+    });
+
+    it('names the block it opens', () => {
+        const { container } = renderCard();
+
+        const controlled = disclosure().getAttribute('aria-controls');
+        expect(controlled).toBeTruthy();
+        expect(container.querySelector(`#${controlled}`)).toContainElement(
+            screen.getByRole('link', { name: 'Аркадий Стругацкий' }),
+        );
+    });
+
+    it('can be reached and worked from the keyboard', async () => {
+        renderCard();
+
+        disclosure().focus();
+        expect(disclosure()).toHaveFocus();
+
+        await userEvent.keyboard('{Enter}');
+        expect(screen.getByTestId('book-card')).toHaveAttribute('data-state', 'open');
+    });
+
+    /*
+     * The rule divides the book from what can be done with it, so on a phone the
+     * downloads belong under it with the rest of the doing. They used to close
+     * the block above it, where the control sitting on the rule cut into their
+     * outlines. On a wide screen there is room for them under the cover, and
+     * they stay there.
+     */
+    it('puts the downloads below the rule on a phone and above it otherwise', () => {
+        const wide = renderCard();
+        const ruleOf = (c: HTMLElement) => c.querySelector('.border-t');
+        expect(ruleOf(wide.container)).not.toContainElement(
+            screen.getByRole('button', { name: 'EPUB' }),
+        );
+        wide.unmount();
+
+        const narrow = renderCard({ isMobile: true });
+        expect(ruleOf(narrow.container)).toContainElement(
+            screen.getByRole('button', { name: 'EPUB' }),
+        );
+    });
+
+    // Nothing else on the card opens it, so selecting a line of the annotation
+    // or missing a link by a few pixels costs nothing.
+    it('is not opened by pressing the card itself', async () => {
+        renderCard();
+
+        const card = screen.getByTestId('book-card');
+        await userEvent.click(screen.getByRole('heading', { name: book.title }));
+        expect(card).toHaveAttribute('data-state', 'collapsed');
+
+        await userEvent.click(card);
+        expect(card).toHaveAttribute('data-state', 'collapsed');
     });
 });
 
@@ -171,17 +252,5 @@ describe('the values in those lists', () => {
         expect(setSearchItem).toHaveBeenCalledWith('');
         expect(clearAuthorBook).toHaveBeenCalled();
         expect(setAuthorName).toHaveBeenCalledWith('Кир Булычёв');
-    });
-
-    // Following one of these navigates; it must not also toggle the card it sits
-    // in, which the card's own click handler would otherwise do on the way up.
-    it('does not open the card on the way past', async () => {
-        renderCard();
-
-        const card = screen.getByTestId('book-card');
-        expect(card).toHaveAttribute('data-state', 'collapsed');
-
-        await userEvent.click(screen.getByRole('link', { name: 'Кир Булычёв' }));
-        expect(card).toHaveAttribute('data-state', 'collapsed');
     });
 });

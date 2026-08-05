@@ -153,6 +153,7 @@ const BooksList: React.FC = () => {
                             <BookCard
                                 book={book}
                                 annotationPeekLines={isMobile ? 5 : 2}
+                                isMobile={isMobile}
                                 showLanguage={mixedLanguages}
                                 isSuperuser={Boolean(user?.is_superuser)}
                                 formatDate={formatDate}
