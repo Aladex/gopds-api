@@ -19,8 +19,9 @@ import { useSearchBar } from '@/context/SearchBarContext';
  * BookCard renders one row of the catalogue.
  *
  * Clicking the card reveals everything it was holding back — the rest of the
- * annotation and the authors beyond the first two. A book with twelve authors
- * would otherwise stretch every row in the list to fit the longest one.
+ * annotation, and whatever of the authors, series and genres did not fit on a
+ * line. A book with twelve authors or nine genres would otherwise stretch every
+ * row in the list to fit the longest one.
  */
 
 /**
@@ -36,7 +37,52 @@ const DOWNLOAD_FORMATS = [
     { id: 'mobi', label: 'MOBI' },
 ] as const;
 
-const VISIBLE_AUTHORS = 2;
+/**
+ * MetaRow is one line of the card's metadata: what it is, then the values.
+ *
+ * Shut, it shows a single line and lets the browser mark the cut. That is the
+ * whole reason it is line-clamped rather than sliced in JavaScript:
+ * `-webkit-line-clamp` adds the ellipsis only where it actually truncated, so a
+ * book with one genre says nothing about hidden ones and a book with nine says
+ * so — and nothing has to measure the row, or re-measure it as the window
+ * changes width.
+ *
+ * The values are atomic inline boxes, which is what keeps the cut between two
+ * of them rather than through somebody's surname.
+ *
+ * The line is given more height than the text needs because each value carries
+ * an underline, and a clamped line clips whatever leans out of it.
+ */
+const MetaRow: React.FC<React.PropsWithChildren<{ label: string; open: boolean }>> = ({
+    label,
+    open,
+    children,
+}) => (
+    <div className={cn('text-sm leading-6', !open && 'line-clamp-1')}>
+        <span className="mr-1.5 text-xs tracking-wide text-muted-foreground uppercase">
+            {label}
+        </span>
+        {children}
+    </div>
+);
+
+/** MetaItem is one value in such a row, and goes somewhere when pressed. */
+const MetaItem: React.FC<React.PropsWithChildren<{ first: boolean; onClick: () => void }>> = ({
+    first,
+    onClick,
+    children,
+}) => (
+    <span className="mr-1.5 inline-flex items-baseline gap-1.5">
+        {!first && <span className="text-muted-foreground">·</span>}
+        <button
+            type="button"
+            onClick={onClick}
+            className="border-b border-border hover:border-current"
+        >
+            {children}
+        </button>
+    </span>
+);
 
 export interface BookCardProps {
     book: Book;
@@ -103,8 +149,6 @@ const BookCard: React.FC<BookCardProps> = ({
     // reader less than the empty space where it would have gone.
     const bookLanguage = getLanguageDisplaySafe(book.lang);
     const authors = book.authors ?? [];
-    const shownAuthors = open ? authors : authors.slice(0, VISIBLE_AUTHORS);
-    const hiddenAuthors = authors.length - shownAuthors.length;
 
     const cover = `${API_URL}/books-posters/${coverPath(book.path)}/${coverPath(book.filename)}.jpg`;
 
@@ -194,80 +238,51 @@ const BookCard: React.FC<BookCardProps> = ({
 
                 <div className="col-span-2 row-start-2 flex min-w-0 flex-col gap-1.5 sm:col-span-1 sm:col-start-2">
                     {authors.length > 0 && (
-                        <div className="flex flex-wrap items-baseline gap-1.5 text-sm">
-                            <span className="text-xs uppercase tracking-wide text-muted-foreground">
-                                {t('authors')}
-                            </span>
-                            {shownAuthors.map((author, index) => (
-                                <span
+                        <MetaRow label={t('authors')} open={open}>
+                            {authors.map((author, index) => (
+                                <MetaItem
                                     key={author.id}
-                                    className="inline-flex items-baseline gap-1.5"
+                                    first={index === 0}
+                                    onClick={() => {
+                                        // The name is on screen already, so the
+                                        // search panel need not fetch it to say
+                                        // whose books it is scoped to.
+                                        setAuthorName(author.full_name);
+                                        goTo(`/books/find/author/${author.id}/1`);
+                                    }}
                                 >
-                                    {index > 0 && <span className="text-muted-foreground">·</span>}
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            // The name is on screen already, so
-                                            // the search panel need not fetch it
-                                            // to say whose books it is scoped to.
-                                            setAuthorName(author.full_name);
-                                            goTo(`/books/find/author/${author.id}/1`);
-                                        }}
-                                        className="border-b border-border hover:border-current"
-                                    >
-                                        {author.full_name}
-                                    </button>
-                                </span>
+                                    {author.full_name}
+                                </MetaItem>
                             ))}
-                            {hiddenAuthors > 0 && (
-                                <span className="text-muted-foreground">
-                                    · {t('andMore', { count: hiddenAuthors })}
-                                </span>
-                            )}
-                        </div>
+                        </MetaRow>
                     )}
 
                     {book.series && book.series.length > 0 && (
-                        <div className="flex flex-wrap items-baseline gap-1.5 text-sm">
-                            <span className="text-xs uppercase tracking-wide text-muted-foreground">
-                                {t('categories')}
-                            </span>
+                        <MetaRow label={t('series')} open={open}>
                             {book.series.map((series, index) => (
-                                <span
+                                <MetaItem
                                     key={series.id ?? series.ser}
-                                    className="inline-flex items-baseline gap-1.5"
+                                    first={index === 0}
+                                    onClick={() => goTo(`/books/find/category/${series.id}/1`)}
                                 >
-                                    {index > 0 && <span className="text-muted-foreground">·</span>}
-                                    <button
-                                        type="button"
-                                        onClick={() => goTo(`/books/find/category/${series.id}/1`)}
-                                        className="border-b border-border hover:border-current"
-                                    >
-                                        {series.ser}
-                                    </button>
-                                </span>
+                                    {series.ser}
+                                </MetaItem>
                             ))}
-                        </div>
+                        </MetaRow>
                     )}
 
                     {book.genres && book.genres.length > 0 && (
-                        <div className="flex flex-wrap items-baseline gap-1.5 text-sm">
-                            <span className="text-xs uppercase tracking-wide text-muted-foreground">
-                                {t('genres')}
-                            </span>
+                        <MetaRow label={t('genres')} open={open}>
                             {book.genres.map((genre, index) => (
-                                <span key={genre.id} className="inline-flex items-baseline gap-1.5">
-                                    {index > 0 && <span className="text-muted-foreground">·</span>}
-                                    <button
-                                        type="button"
-                                        onClick={() => goTo(`/books/find/genre/${genre.id}/1`)}
-                                        className="border-b border-border hover:border-current"
-                                    >
-                                        {t(genre.genre, genre.genre)}
-                                    </button>
-                                </span>
+                                <MetaItem
+                                    key={genre.id}
+                                    first={index === 0}
+                                    onClick={() => goTo(`/books/find/genre/${genre.id}/1`)}
+                                >
+                                    {t(genre.genre, genre.genre)}
+                                </MetaItem>
                             ))}
-                        </div>
+                        </MetaRow>
                     )}
 
                     {book.annotation ? (
