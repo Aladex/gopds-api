@@ -23,10 +23,12 @@ const authState = {
 };
 vi.mock('@/context/AuthContext', () => ({ useAuth: () => authState }));
 
-// jsdom has no viewport; the wide layout is the one that carries the nav.
+// jsdom has no viewport; the wide layout is the one that carries the nav, and
+// narrow() switches to the other for the tests that are about it.
+const narrow = { current: false };
 vi.mock('@/shared/hooks/useMediaQuery', () => ({
-    useMediaQuery: () => false,
-    default: () => false,
+    useMediaQuery: () => narrow.current,
+    default: () => narrow.current,
 }));
 
 vi.mock('@/shared/layout/ThemeToggle', () => ({ default: () => null }));
@@ -43,6 +45,7 @@ const underline = (container: HTMLElement) => container.querySelectorAll('nav sp
 
 beforeEach(() => {
     vi.clearAllMocks();
+    narrow.current = false;
     authState.user = { username: 'reader', is_superuser: false };
 });
 
@@ -123,5 +126,44 @@ describe('Header navigation', () => {
             'aria-current',
             'page',
         );
+    });
+
+    /*
+     * The narrow header shows no section links at all, and the bar at the foot
+     * no longer carries the admin one. For a while that left no way to reach the
+     * admin panel from a phone except by typing the address — the section was
+     * not hidden, it was cut off. So the narrow header names it as an icon.
+     */
+    describe('on a phone', () => {
+        beforeEach(() => {
+            narrow.current = true;
+        });
+
+        it('offers a superuser the admin panel, since nothing else does', async () => {
+            authState.user = { username: 'root', is_superuser: true };
+            renderHeader('/books/page/1');
+
+            const link = await screen.findByRole('link', { name: /adminTab/ });
+            expect(link).toHaveAttribute('href', '/admin');
+        });
+
+        it('offers an ordinary reader nothing of the sort', async () => {
+            renderHeader('/books/page/1');
+
+            await waitFor(() =>
+                expect(screen.getByRole('link', { name: /booksTab/ })).toBeInTheDocument(),
+            );
+            expect(screen.queryByRole('link', { name: /adminTab/ })).not.toBeInTheDocument();
+        });
+
+        it('marks it while the reader is inside it', async () => {
+            authState.user = { username: 'root', is_superuser: true };
+            renderHeader('/admin/users');
+
+            expect(await screen.findByRole('link', { name: /adminTab/ })).toHaveAttribute(
+                'aria-current',
+                'page',
+            );
+        });
     });
 });

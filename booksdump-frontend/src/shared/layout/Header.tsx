@@ -1,7 +1,7 @@
 import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { HeartHandshake, LogOut } from 'lucide-react';
+import { HeartHandshake, LogOut, ShieldUser } from 'lucide-react';
 
 import { Button } from '@/shared/ui/button';
 import { cn } from '@/shared/lib/utils';
@@ -57,6 +57,8 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
     const allItems = useNavItems(Boolean(user?.is_superuser));
     const navItems = onSurface(allItems, 'header');
     const current = activeNavItem(allItems, location.pathname);
+    /** Shown as an icon on a phone, where the header has no room for the row. */
+    const adminItem = navItems.find((item) => item.id === 'admin');
 
     // One bar that travels between the links; see the hook for why the row has
     // to be measured rather than styled. The shape covers a language change and
@@ -169,6 +171,34 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                         </Link>
                         <div className="flex items-center gap-0.5">
                             {donateButton}
+                            {/*
+                              The narrow header carries no section links, so the
+                              one section that belongs to this surface and not to
+                              the bar at the foot needs saying here or it cannot
+                              be reached from a phone at all — which is how it
+                              stood between taking it out of the bar and this.
+
+                              Taken from the same list rather than gated on
+                              is_superuser again: it is in that list only for a
+                              superuser, so who sees it stays decided in one
+                              place.
+                            */}
+                            {adminItem && (
+                                <Link
+                                    to={adminItem.path}
+                                    aria-label={adminItem.label}
+                                    title={adminItem.label}
+                                    aria-current={current?.id === 'admin' ? 'page' : undefined}
+                                    className={cn(
+                                        'flex size-8 items-center justify-center rounded',
+                                        current?.id === 'admin'
+                                            ? 'text-white'
+                                            : 'text-neutral-400 hover:text-white',
+                                    )}
+                                >
+                                    <ShieldUser className="size-5" />
+                                </Link>
+                            )}
                             <ThemeToggle />
                         </div>
                     </div>
