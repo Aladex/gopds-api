@@ -118,3 +118,60 @@ func TestPercentile(t *testing.T) {
 		assert.Equal(t, []int64{3, 1, 2}, values)
 	})
 }
+
+func TestCompareAggregates(t *testing.T) {
+	base := aggregateReport{TotalQueries: 2, ScoredQueries: 2, RecallAtK: 0.5, MRR: 0.75, ZeroResultRate: 0.25}
+
+	tests := []struct {
+		name    string
+		current aggregateReport
+		verdict string
+	}{
+		{
+			name:    "equal aggregates pass",
+			current: aggregateReport{RecallAtK: 0.5, MRR: 0.75, ZeroResultRate: 0.25},
+			verdict: "pass",
+		},
+		{
+			name:    "improved aggregates pass",
+			current: aggregateReport{RecallAtK: 0.9, MRR: 1, ZeroResultRate: 0},
+			verdict: "pass",
+		},
+		{
+			name:    "a recall drop is a regression",
+			current: aggregateReport{RecallAtK: 0.4, MRR: 0.75, ZeroResultRate: 0.25},
+			verdict: "regression",
+		},
+		{
+			name:    "an MRR drop is a regression",
+			current: aggregateReport{RecallAtK: 0.5, MRR: 0.5, ZeroResultRate: 0.25},
+			verdict: "regression",
+		},
+		{
+			name:    "zero-result growth is a regression",
+			current: aggregateReport{RecallAtK: 0.5, MRR: 0.75, ZeroResultRate: 0.5},
+			verdict: "regression",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmp := compareAggregates(tt.current, base, nil, nil)
+			assert.Equal(t, tt.verdict, cmp.Verdict)
+			assert.InDelta(t, tt.current.RecallAtK-base.RecallAtK, cmp.RecallDelta, 1e-9)
+			assert.Empty(t, cmp.RegressedQueries)
+		})
+	}
+
+	t.Run("per-query recall drops are listed by name", func(t *testing.T) {
+		queries := []queryReport{
+			{evalQuery: evalQuery{Name: "kept"}, RecallAtK: 0.5},
+			{evalQuery: evalQuery{Name: "dropped"}, RecallAtK: 0.25},
+		}
+		baselineQueries := []queryReport{
+			{evalQuery: evalQuery{Name: "kept"}, RecallAtK: 0.5},
+			{evalQuery: evalQuery{Name: "dropped"}, RecallAtK: 0.5},
+		}
+		cmp := compareAggregates(base, base, queries, baselineQueries)
+		assert.Equal(t, []string{"dropped"}, cmp.RegressedQueries)
+	})
+}

@@ -306,9 +306,11 @@ type BookUpdateRequest struct {
 
 // AutocompleteSuggestion struct for autocomplete suggestions
 type AutocompleteSuggestion struct {
-	Value string `json:"value"`
-	Type  string `json:"type"` // "book" or "author"
-	ID    int64  `json:"id,omitempty"`
+	Value      string `json:"value"`
+	Secondary  string `json:"secondary,omitempty"`
+	Type       string `json:"type"` // "book" or "author"
+	ID         int64  `json:"id,omitempty"`
+	BooksCount int    `json:"books_count,omitempty"`
 }
 
 // Language struct for language information

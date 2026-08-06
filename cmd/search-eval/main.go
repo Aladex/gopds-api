@@ -2,8 +2,10 @@
 //
 // It runs a reviewed query set against the current search path (capture mode)
 // and reports Recall@k, MRR and the zero-result rate, so relevance changes are
-// measured rather than guessed. A later phase adds compare mode against the
-// new search repository; the metric functions below stay the judge.
+// measured rather than guessed. Compare mode re-runs the same set against the
+// new search repository (books go through PGSearchRepository, authors still
+// through the unchanged public path) and judges the aggregates against a
+// capture-mode baseline; the metric functions below stay the judge either way.
 package main
 
 import (
@@ -33,6 +35,8 @@ func main() {
 	switch os.Args[1] {
 	case "capture":
 		capture(os.Args[2:])
+	case "compare":
+		compare(os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -41,6 +45,7 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: search-eval capture -input <queries.json> -out <report.json> [db flags]")
+	fmt.Fprintln(os.Stderr, "       search-eval compare -input <queries.json> -baseline <baseline.json> -out <report.json> [db flags]")
 }
 
 // querySet is the reviewed input file: one entry per measured search request.
@@ -121,6 +126,20 @@ type evalReport struct {
 	Catalog    catalogFingerprint `json:"catalog"`
 	Queries    []queryReport      `json:"queries"`
 	Aggregate  aggregateReport    `json:"aggregate"`
+	Comparison *comparisonReport  `json:"comparison,omitempty"`
+}
+
+// comparisonReport records how a compare run scored against the capture-mode
+// baseline it was given.
+type comparisonReport struct {
+	BaselineRecallAtK float64  `json:"baseline_recall_at_k"`
+	BaselineMRR       float64  `json:"baseline_mrr"`
+	BaselineZeroRate  float64  `json:"baseline_zero_result_rate"`
+	RecallDelta       float64  `json:"recall_delta"`
+	MRRDelta          float64  `json:"mrr_delta"`
+	ZeroRateDelta     float64  `json:"zero_result_rate_delta"`
+	RegressedQueries  []string `json:"regressed_queries,omitempty"`
+	Verdict           string   `json:"verdict"` // "pass" or "regression"
 }
 
 func capture(args []string) {
@@ -146,7 +165,7 @@ func capture(args []string) {
 		fatal("loading query set: %v", err)
 	}
 
-	db := pg.Connect(&pg.Options{Addr: *addr, User: *user, Password: *pass, Database: *name})
+	db := pg.Connect(&pg.Options{Addr: *addr, User: *user, Password: *pass, Database: *name, OnConnect: database.DisableJIT})
 	defer func() { _ = db.Close() }()
 	if _, err := db.Exec("SELECT 1"); err != nil {
 		fatal("connecting to %s/%s: %v", *addr, *name, err)
@@ -182,6 +201,146 @@ func capture(args []string) {
 	fmt.Fprintf(os.Stderr, "wrote %s\n", *out)
 }
 
+// compare re-runs the query set against the new search repository and judges
+// the aggregates against a capture-mode baseline. Books queries go through
+// PGSearchRepository; author queries still use the unchanged public path —
+// the same code the baseline captured — so the aggregates stay comparable
+// until the author repository lands. A changed catalogue fingerprint means
+// the baseline no longer describes this data and the run refuses to compare.
+func compare(args []string) {
+	fs := flag.NewFlagSet("compare", flag.ExitOnError)
+	var (
+		input    = fs.String("input", "", "reviewed query set JSON (required)")
+		baseline = fs.String("baseline", "", "capture-mode baseline report JSON (required)")
+		out      = fs.String("out", "", "report output path (required)")
+		repeat   = fs.Int("repeat", 20, "measured runs per query, after one unrecorded warm-up")
+		addr     = fs.String("host", envOr("GOPDS_POSTGRES_DBHOST", "127.0.0.1:5432"), "database host:port")
+		user     = fs.String("user", envOr("GOPDS_POSTGRES_DBUSER", "gopds"), "database user")
+		pass     = fs.String("password", os.Getenv("GOPDS_POSTGRES_DBPASS"), "database password")
+		name     = fs.String("database", envOr("GOPDS_POSTGRES_DBNAME", "gopds"), "database name")
+	)
+	_ = fs.Parse(args)
+
+	if *input == "" || *baseline == "" || *out == "" || *repeat < 1 {
+		usage()
+		os.Exit(2)
+	}
+
+	set, err := loadQuerySet(*input)
+	if err != nil {
+		fatal("loading query set: %v", err)
+	}
+	base, err := loadBaseline(*baseline)
+	if err != nil {
+		fatal("loading baseline: %v", err)
+	}
+
+	db := pg.Connect(&pg.Options{Addr: *addr, User: *user, Password: *pass, Database: *name, OnConnect: database.DisableJIT})
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec("SELECT 1"); err != nil {
+		fatal("connecting to %s/%s: %v", *addr, *name, err)
+	}
+	database.SetDB(db)
+	repo := database.NewPGSearchRepository(db)
+
+	report := evalReport{
+		CapturedAt: time.Now().UTC(),
+		Mode:       "compare",
+		Database:   fmt.Sprintf("%s@%s/%s", *user, *addr, *name),
+		Catalog:    fingerprint(context.Background(), db),
+	}
+
+	if report.Catalog.Books != base.Catalog.Books ||
+		report.Catalog.Authors != base.Catalog.Authors ||
+		report.Catalog.MaxBookID != base.Catalog.MaxBookID {
+		fatal("catalog changed since the baseline: %+v vs baseline %+v — recapture the baseline instead of comparing",
+			report.Catalog, base.Catalog)
+	}
+
+	for _, q := range set.Queries {
+		var rep queryReport
+		var err error
+		if q.Kind == "books" {
+			rep, err = compareBookQuery(repo, db, q, *repeat)
+		} else {
+			rep, err = captureQuery(db, q, *repeat)
+		}
+		if err != nil {
+			fatal("query %q: %v", q.Name, err)
+		}
+		report.Queries = append(report.Queries, rep)
+		fmt.Fprintf(os.Stderr, "%-36s total=%-6d relevant=%-5d recall=%.3f rr=%.2f p50=%dms p95=%dms\n",
+			q.Name, rep.Total, len(rep.RelevantIDs), rep.RecallAtK, rep.ReciprocalRank, rep.P50Millis, rep.P95Millis)
+	}
+
+	report.Aggregate = aggregate(report.Queries)
+	cmp := compareAggregates(report.Aggregate, base.Aggregate, report.Queries, base.Queries)
+	report.Comparison = &cmp
+
+	data, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		fatal("encoding report: %v", err)
+	}
+	if err := os.WriteFile(*out, append(data, '\n'), 0o644); err != nil {
+		fatal("writing %s: %v", *out, err)
+	}
+	fmt.Fprintf(os.Stderr, "wrote %s\n", *out)
+	fmt.Fprintf(os.Stderr, "vs baseline: recall %.4f (%+.4f), mrr %.4f (%+.4f), zero %.4f (%+.4f) — %s\n",
+		report.Aggregate.RecallAtK, cmp.RecallDelta,
+		report.Aggregate.MRR, cmp.MRRDelta,
+		report.Aggregate.ZeroResultRate, cmp.ZeroRateDelta, cmp.Verdict)
+	if cmp.Verdict != "pass" {
+		fmt.Fprintf(os.Stderr, "regressed queries: %s\n", strings.Join(cmp.RegressedQueries, ", "))
+		os.Exit(1)
+	}
+}
+
+// loadBaseline reads a capture-mode report to compare against.
+func loadBaseline(path string) (evalReport, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return evalReport{}, err
+	}
+	var rep evalReport
+	if err := json.Unmarshal(data, &rep); err != nil {
+		return evalReport{}, err
+	}
+	if rep.Mode != "capture" {
+		return evalReport{}, fmt.Errorf("baseline must be a capture-mode report, got mode %q", rep.Mode)
+	}
+	return rep, nil
+}
+
+// compareAggregates judges the compare run against the baseline: recall and
+// MRR must not drop, the zero-result rate must not grow. Per-query recall
+// drops are listed by name. Floats compare with a small epsilon so
+// representation noise is not a regression.
+func compareAggregates(current, baseline aggregateReport, queries, baselineQueries []queryReport) comparisonReport {
+	const eps = 1e-9
+	cmp := comparisonReport{
+		BaselineRecallAtK: baseline.RecallAtK,
+		BaselineMRR:       baseline.MRR,
+		BaselineZeroRate:  baseline.ZeroResultRate,
+		RecallDelta:       current.RecallAtK - baseline.RecallAtK,
+		MRRDelta:          current.MRR - baseline.MRR,
+		ZeroRateDelta:     current.ZeroResultRate - baseline.ZeroResultRate,
+	}
+	baseByName := make(map[string]queryReport, len(baselineQueries))
+	for _, bq := range baselineQueries {
+		baseByName[bq.Name] = bq
+	}
+	for _, q := range queries {
+		if bq, ok := baseByName[q.Name]; ok && q.RecallAtK < bq.RecallAtK-eps {
+			cmp.RegressedQueries = append(cmp.RegressedQueries, q.Name)
+		}
+	}
+	cmp.Verdict = "pass"
+	if cmp.RecallDelta < -eps || cmp.MRRDelta < -eps || cmp.ZeroRateDelta > eps {
+		cmp.Verdict = "regression"
+	}
+	return cmp
+}
+
 func loadQuerySet(path string) (querySet, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -205,24 +364,24 @@ func loadQuerySet(path string) (querySet, error) {
 	return set, nil
 }
 
-// captureQuery runs one eval query through the current public search path:
-// one unrecorded warm-up, then repeat measured runs, and resolves its
-// relevance set on the same database. Results and Total are captured from the
-// first measured run; only measured runs contribute durations.
-func captureQuery(db *pg.DB, q evalQuery, repeat int) (queryReport, error) {
+// measureQuery runs one eval query through the given search path: one
+// unrecorded warm-up, then repeat measured runs, and resolves its relevance
+// set on the same database. Results and Total are captured from the first
+// measured run; only measured runs contribute durations.
+func measureQuery(db *pg.DB, q evalQuery, repeat int, execQuery func() ([]capturedResult, int, string, error)) (queryReport, error) {
 	rep := queryReport{evalQuery: q}
 
-	if _, _, _, err := runOnce(db, q); err != nil {
+	if _, _, _, err := execQuery(); err != nil {
 		return rep, err
 	}
-	for run := 0; run < repeat; run++ {
+	for n := 0; n < repeat; n++ {
 		start := time.Now()
-		results, total, note, err := runOnce(db, q)
+		results, total, note, err := execQuery()
 		if err != nil {
 			return rep, err
 		}
 		rep.DurationsMillis = append(rep.DurationsMillis, time.Since(start).Milliseconds())
-		if run == 0 {
+		if n == 0 {
 			rep.Results = results
 			rep.Total = total
 			rep.CaptureNote = note
@@ -256,6 +415,25 @@ func captureQuery(db *pg.DB, q evalQuery, repeat int) (queryReport, error) {
 	rep.ReciprocalRank = reciprocalRank(ids, want)
 	rep.ZeroResult = rep.Total == 0
 	return rep, nil
+}
+
+// captureQuery runs one eval query through the current public search path.
+func captureQuery(db *pg.DB, q evalQuery, repeat int) (queryReport, error) {
+	return measureQuery(db, q, repeat, func() ([]capturedResult, int, string, error) {
+		return runOnce(db, q)
+	})
+}
+
+// compareBookQuery runs one books query through the new search repository.
+func compareBookQuery(repo *database.PGSearchRepository, db *pg.DB, q evalQuery, repeat int) (queryReport, error) {
+	return measureQuery(db, q, repeat, func() ([]capturedResult, int, string, error) {
+		results, total, err := runNewBookSearch(repo, q)
+		note := ""
+		if q.Author != "" {
+			note = "new repository: combined title+author in one SQL request; the baseline used a 200-requested (effective 100) title window plus a Go-side author filter"
+		}
+		return results, total, note, err
+	})
 }
 
 // runOnce executes one eval query once through the current public search path.
@@ -292,6 +470,22 @@ func runBookSearch(q evalQuery) ([]capturedResult, int, error) {
 		return nil, 0, err
 	}
 	return bookResults(books), total, nil
+}
+
+// runNewBookSearch executes one books query against the Phase 3 repository:
+// title and author needles travel in one SQL request, so the baseline's
+// clamped window and Go-side author filter are gone.
+func runNewBookSearch(repo *database.PGSearchRepository, q evalQuery) ([]capturedResult, int, error) {
+	page, err := repo.SearchBooks(context.Background(), models.BookSearchRequest{
+		Query:       q.Query,
+		AuthorQuery: q.Author,
+		Language:    q.Language,
+		Limit:       q.TopK,
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	return bookResults(page.Books), page.Total, nil
 }
 
 // runCombinedSearch executes a close approximation of the current title+author

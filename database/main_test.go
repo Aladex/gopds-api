@@ -44,10 +44,11 @@ func connectFromEnv() (*pg.DB, error) {
 	}
 
 	conn := pg.Connect(&pg.Options{
-		Addr:     host,
-		User:     user,
-		Password: os.Getenv("GOPDS_POSTGRES_DBPASS"),
-		Database: name,
+		Addr:      host,
+		User:      user,
+		Password:  os.Getenv("GOPDS_POSTGRES_DBPASS"),
+		Database:  name,
+		OnConnect: DisableJIT,
 	})
 	if _, err := conn.Exec("SELECT 1"); err != nil {
 		_ = conn.Close()

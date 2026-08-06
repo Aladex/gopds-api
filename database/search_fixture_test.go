@@ -192,12 +192,17 @@ func (f *searchFixture) User(key, username string) int64 {
 
 // Book seeds one book row plus its author, series and genre junctions, and
 // remembers the book under key.
+//
+// The default language is the synthetic code "fx", which no real catalogue
+// row can carry: the integration database is the restored production dump, so
+// a search scoped to Language "fx" sees fixture rows and nothing else. Seed
+// rows with another Lang (like the "en" row) to exercise the filter itself.
 func (f *searchFixture) Book(key string, b fixtureBook) int64 {
 	f.t.Helper()
 	id := f.id()
 	lang := b.Lang
 	if lang == "" {
-		lang = "ru"
+		lang = "fx"
 	}
 	f.exec(`INSERT INTO opds_catalog_book
 		(id, filename, path, format, registerdate, docdate, lang, title, annotation,
@@ -290,11 +295,12 @@ func seedSearchCatalog(f *searchFixture) {
 	f.Book("dupA", fixtureBook{Title: "Сто лет одиночества", Approved: true, Authors: []int64{tolstoy}})
 	f.Book("dupB", fixtureBook{Title: "Сто лет одиночества", Approved: true, Authors: []int64{bulgakov}})
 
-	// Invisible rows: hidden duplicate, unapproved, and a language the default
-	// reader does not browse.
+	// Invisible rows: hidden duplicate, unapproved, and a second synthetic
+	// language ("fy") the default reader does not browse. A real code like
+	// "en" would leak production-dump rows into language-filter assertions.
 	f.Book("hidden", fixtureBook{Title: "Война и мир", Approved: true, Hidden: true, Authors: []int64{tolstoy}})
 	f.Book("unapproved", fixtureBook{Title: "Война и мир", Approved: false, Authors: []int64{tolstoy}})
-	f.Book("english", fixtureBook{Title: "Война и мир", Lang: "en", Approved: true, Authors: []int64{tolstoy}})
+	f.Book("english", fixtureBook{Title: "Война и мир", Lang: "fy", Approved: true, Authors: []int64{tolstoy}})
 
 	// One- and two-character titles.
 	f.Book("oneChar", fixtureBook{Title: "Я", Approved: true, Authors: []int64{other}})

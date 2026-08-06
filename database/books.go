@@ -391,6 +391,13 @@ func abs(x int) int {
 // populateSeriesNumbers loads ser_no from the junction table into already-loaded Series.
 // go-pg many-to-many doesn't carry over junction table columns, so we do it manually.
 func populateSeriesNumbers(books []models.Book) {
+	populateSeriesNumbersWithDB(db, books)
+}
+
+// populateSeriesNumbersWithDB is populateSeriesNumbers against an explicit
+// handle: the package-global pool for legacy lists, the repository
+// connection or rollback transaction for the new search.
+func populateSeriesNumbersWithDB(dbh pg.DBI, books []models.Book) {
 	if len(books) == 0 {
 		return
 	}
@@ -406,7 +413,7 @@ func populateSeriesNumbers(books []models.Book) {
 	}
 
 	var junctions []models.OrderToSeries
-	err := db.Model(&junctions).
+	err := dbh.Model(&junctions).
 		Where("book_id IN (?)", pg.In(bookIDs)).
 		Select()
 	if err != nil {
