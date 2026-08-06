@@ -123,6 +123,21 @@ func withSearchFixture(t *testing.T, fn func(*searchFixture)) {
 	require.NoError(t, err, "beginning the fixture transaction")
 	t.Cleanup(func() {
 		_ = tx.Rollback()
+		// Code under test committing the fixture transaction turns this
+		// rollback into a no-op and settles fixture rows into the real
+		// catalogue — go-pg v10 (*Tx).RunInTransaction did exactly that.
+		// Check the leak directly instead of trusting the rollback.
+		for _, table := range []string{
+			"opds_catalog_book",
+			"opds_catalog_author",
+			"auth_user",
+		} {
+			var leaked int
+			_, err := db.QueryOne(pg.Scan(&leaked),
+				`SELECT count(*) FROM `+table+` WHERE id >= ?`, searchFixtureIDBase)
+			require.NoError(t, err, table)
+			assert.Zero(t, leaked, "fixture rows leaked past the rollback into "+table)
+		}
 	})
 
 	f := &searchFixture{
@@ -281,6 +296,10 @@ func seedSearchCatalog(f *searchFixture) {
 	f.Book("allWords", fixtureBook{Title: "Мир и война", Approved: true, Authors: []int64{other}})
 	f.Book("substring", fixtureBook{Title: "Читаем Война и мир вместе", Approved: true, Authors: []int64{other}})
 	f.Book("typo", fixtureBook{Title: "Вайна и мир", Approved: true, Authors: []int64{other}})
+	// Adjacent-letter transposition of this one-word title scores 0.333
+	// against it: inside the old 0.3 trigram floor, outside the book-search
+	// floor of 0.5.
+	f.Book("transposition", fixtureBook{Title: "Океан", Approved: true, Authors: []int64{other}})
 
 	// Normalization: е/ё, dashes, quotes, decomposed Unicode, numero sign and
 	// repeated whitespace.

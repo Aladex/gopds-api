@@ -87,6 +87,13 @@
       "query": "qzxwvfkj",
       "top_k": 10,
       "expected_normalized_title": "qzxwvfkj"
+    },
+    {
+      "name": "typo-transposition-one-word-okean",
+      "kind": "books",
+      "query": "окена",
+      "top_k": 10,
+      "expected_normalized_title": "океан"
     }
   ]
 }

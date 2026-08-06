@@ -85,6 +85,10 @@ TEST_DB_USER ?= gopds
 TEST_DB_PASS ?= gopds_password
 TEST_DB_NAME ?= gopds
 
+# Baseline report the search-eval compare target judges against. Override for
+# expanded query sets, e.g. SEARCH_EVAL_BASELINE=plans/reports/lexical-search-baseline-13q.json.
+SEARCH_EVAL_BASELINE ?= plans/reports/lexical-search-baseline.json
+
 test-integration: bootstrap ## Run the full Go suite, including tests that require PostgreSQL
 	@echo "Running backend tests including integration tests against $(TEST_DB_HOST)/$(TEST_DB_NAME)..."
 	GOPDS_POSTGRES_DBHOST=$(TEST_DB_HOST) \
@@ -127,7 +131,7 @@ search-eval-compare: ## Compare the new search repository against the baseline i
 	GOPDS_POSTGRES_DBPASS=$(TEST_DB_PASS) \
 	GOPDS_POSTGRES_DBNAME=$(TEST_DB_NAME) \
 	go run ./cmd/search-eval compare -input database/testdata/search_catalog_queries.json \
-		-baseline plans/reports/lexical-search-baseline.json -out $(SEARCH_EVAL_OUT)
+		-baseline $(SEARCH_EVAL_BASELINE) -out $(SEARCH_EVAL_OUT)
 
 lint: ## Run linters over the whole tree (reports the pre-existing backlog too)
 	@echo "Running golangci-lint $(GOLANGCI_VERSION)..."

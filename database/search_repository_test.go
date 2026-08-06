@@ -181,6 +181,17 @@ func TestPGSearchRepositoryCandidateLanes(t *testing.T) {
 			assert.NotEmpty(t, page.QueryHash)
 		})
 	})
+
+	t.Run("a single-word transposition stays below the book-search floor", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			// Transposing the last two letters of "Океан" scores 0.333 against
+			// the title: the old 0.3 trigram floor rescued it, the book-search
+			// floor of 0.5 must not. Nothing else in the fixture comes close.
+			page := search(f, "окена")
+			assert.NotContains(t, ids(page), f.BookIDs["transposition"])
+			assert.Equal(t, 0, page.Total)
+		})
+	})
 }
 
 // TestPGSearchRepositoryVisibilityAndScopes pins fail-closed visibility and

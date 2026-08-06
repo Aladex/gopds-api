@@ -299,19 +299,48 @@ func (r *PGSearchRepository) SearchBooks(ctx context.Context, req models.BookSea
 	page := models.BookSearchPage{Limit: req.Limit, Offset: req.Offset}
 
 	var rows []searchBookRow
-	_, err := r.db.QueryContext(ctx, &rows, bookSearchSQL,
-		req.Query, req.Query, req.AuthorQuery, req.Query, req.Query, req.ExactBookID,
-		req.Unapproved, req.IncludeHidden,
-		req.Language, req.Language, req.Language,
-		req.Favorites, req.UserID,
-		req.AuthorID, req.AuthorID,
-		req.SeriesID, req.SeriesID,
-		req.GenreID, req.GenreID,
-		req.CollectionID, req.CollectionID,
-		req.CuratedCollectionID, req.CuratedCollectionID,
-		req.Limit, req.Offset)
-	if err != nil {
-		return page, preferContextError(ctx, err)
+	query := func(q pg.DBI) error {
+		_, err := q.QueryContext(ctx, &rows, bookSearchSQL,
+			req.Query, req.Query, req.AuthorQuery, req.Query, req.Query, req.ExactBookID,
+			req.Unapproved, req.IncludeHidden,
+			req.Language, req.Language, req.Language,
+			req.Favorites, req.UserID,
+			req.AuthorID, req.AuthorID,
+			req.SeriesID, req.SeriesID,
+			req.GenreID, req.GenreID,
+			req.CollectionID, req.CollectionID,
+			req.CuratedCollectionID, req.CuratedCollectionID,
+			req.Limit, req.Offset)
+		return err
+	}
+
+	// The book-search trigram lane runs at 0.5, not the pg_trgm default 0.3:
+	// at 0.3 the lossy GIN bitmap pulls tens of thousands of heap rows for a
+	// common word. SET LOCAL keeps the raise inside this statement's
+	// transaction — the same pooled connections serve the author search,
+	// whose % lane must stay at 0.3 to keep abbreviated names reachable.
+	if tx, ok := r.db.(*pg.Tx); ok {
+		// Already inside a transaction (the test fixture hands one out), so
+		// SET LOCAL applies to it directly. Wrapping here would be wrong:
+		// go-pg v10 has no savepoints, and (*Tx).RunInTransaction ends with
+		// COMMIT on the outer transaction — that once committed fixture rows
+		// into the real catalogue.
+		if _, err := tx.ExecContext(ctx, "SET LOCAL pg_trgm.similarity_threshold = 0.5"); err != nil {
+			return page, preferContextError(ctx, err)
+		}
+		if err := query(tx); err != nil {
+			return page, preferContextError(ctx, err)
+		}
+	} else {
+		err := r.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+			if _, err := tx.ExecContext(ctx, "SET LOCAL pg_trgm.similarity_threshold = 0.5"); err != nil {
+				return err
+			}
+			return query(tx)
+		})
+		if err != nil {
+			return page, preferContextError(ctx, err)
+		}
 	}
 
 	ids := make([]int64, 0, len(rows))
