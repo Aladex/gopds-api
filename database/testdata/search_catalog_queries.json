@@ -1,0 +1,92 @@
+{
+  "description": "Reviewed catalogue query set for lexical search relevance measurement. Relevance rules are normalized the same way as the catalog text they match: NFC, lowercased, 'ё' folded to 'е', punctuation collapsed to single spaces. A book is relevant when its normalized title contains expected_normalized_title; when expected_normalized_author is also set, the book must additionally have an author whose normalized full name contains it. An author is relevant when the normalized full name contains expected_normalized_author. Only visible rows count: approved, not duplicate_hidden, and matching language when language is set.",
+  "queries": [
+    {
+      "name": "exact-title-voyna-i-mir",
+      "kind": "books",
+      "query": "война и мир",
+      "top_k": 10,
+      "expected_normalized_title": "война и мир"
+    },
+    {
+      "name": "exact-title-master-i-margarita",
+      "kind": "books",
+      "query": "мастер и маргарита",
+      "top_k": 10,
+      "expected_normalized_title": "мастер и маргарита"
+    },
+    {
+      "name": "partial-title-harry-potter",
+      "kind": "books",
+      "query": "гарри поттер",
+      "top_k": 10,
+      "expected_normalized_title": "гарри поттер"
+    },
+    {
+      "name": "typo-title-harry-potter",
+      "kind": "books",
+      "query": "гарри потер",
+      "top_k": 10,
+      "expected_normalized_title": "гарри поттер"
+    },
+    {
+      "name": "yo-folding-title-ezhik",
+      "kind": "books",
+      "query": "ежик в тумане",
+      "top_k": 10,
+      "expected_normalized_title": "ежик в тумане"
+    },
+    {
+      "name": "punctuation-dash-title",
+      "kind": "books",
+      "query": "алиса—в–зазеркалье",
+      "top_k": 10,
+      "expected_normalized_title": "алиса в зазеркалье"
+    },
+    {
+      "name": "high-frequency-title-rasskazy",
+      "kind": "books",
+      "query": "рассказы",
+      "top_k": 10,
+      "expected_normalized_title": "рассказы"
+    },
+    {
+      "name": "author-surname-tolstoy",
+      "kind": "authors",
+      "query": "толстой",
+      "top_k": 10,
+      "expected_normalized_author": "толстой"
+    },
+    {
+      "name": "author-multiword-lev-tolstoy",
+      "kind": "authors",
+      "query": "лев толстой",
+      "top_k": 10,
+      "expected_normalized_author": "толстой лев"
+    },
+    {
+      "name": "title-author-voyna-tolstoy",
+      "kind": "books",
+      "query": "война и мир",
+      "author_query": "толстой",
+      "top_k": 10,
+      "expected_normalized_title": "война и мир",
+      "expected_normalized_author": "толстой лев"
+    },
+    {
+      "name": "language-restricted-harry-potter-en",
+      "kind": "books",
+      "query": "harry potter",
+      "language": "en",
+      "top_k": 10,
+      "expected_normalized_title": "harry potter"
+    },
+    {
+      "name": "zero-result-nonsense",
+      "kind": "books",
+      "query": "qzxwvfkj",
+      "top_k": 10,
+      "expected_normalized_title": "qzxwvfkj"
+    }
+  ]
+}

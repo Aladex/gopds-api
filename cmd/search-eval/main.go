@@ -1,0 +1,557 @@
+// Command search-eval measures catalogue search relevance on a local dump.
+//
+// It runs a reviewed query set against the current search path (capture mode)
+// and reports Recall@k, MRR and the zero-result rate, so relevance changes are
+// measured rather than guessed. A later phase adds compare mode against the
+// new search repository; the metric functions below stay the judge.
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"math"
+	"os"
+	"os/exec"
+	"sort"
+	"strings"
+	"time"
+
+	"gopds-api/database"
+	"gopds-api/models"
+
+	"github.com/go-pg/pg/v10"
+)
+
+func main() {
+	if len(os.Args) < 2 {
+		usage()
+		os.Exit(2)
+	}
+
+	switch os.Args[1] {
+	case "capture":
+		capture(os.Args[2:])
+	default:
+		usage()
+		os.Exit(2)
+	}
+}
+
+func usage() {
+	fmt.Fprintln(os.Stderr, "usage: search-eval capture -input <queries.json> -out <report.json> [db flags]")
+}
+
+// querySet is the reviewed input file: one entry per measured search request.
+type querySet struct {
+	Description string      `json:"description"`
+	Queries     []evalQuery `json:"queries"`
+}
+
+// evalQuery describes one search request and the textual rule deciding which
+// catalogue rows are relevant for it. Rules are matched against the same
+// normalized form the future search index uses, so a rule written before the
+// normalization function exists still means the same thing after it lands.
+type evalQuery struct {
+	Name     string `json:"name"`
+	Kind     string `json:"kind"` // "books" or "authors"
+	Query    string `json:"query"`
+	Author   string `json:"author_query,omitempty"`
+	Language string `json:"language,omitempty"`
+	TopK     int    `json:"top_k"`
+
+	ExpectedTitle  string `json:"expected_normalized_title,omitempty"`
+	ExpectedAuthor string `json:"expected_normalized_author,omitempty"`
+}
+
+// capturedResult is one returned item as a user would see it.
+type capturedResult struct {
+	ID         int64    `json:"id"`
+	Title      string   `json:"title,omitempty"`
+	Authors    []string `json:"authors,omitempty"`
+	FullName   string   `json:"full_name,omitempty"`
+	BooksCount int      `json:"books_count,omitempty"`
+}
+
+// queryReport records what the current search returned for one eval query,
+// which IDs were relevant, and how that scored. Results/Total come from the
+// first measured run; durations come from measured runs only, so the
+// percentiles describe a warm engine rather than a cold outlier.
+type queryReport struct {
+	evalQuery
+
+	Results         []capturedResult `json:"results"`
+	Total           int              `json:"total"`
+	DurationsMillis []int64          `json:"durations_ms"`
+	P50Millis       int64            `json:"p50_ms"`
+	P95Millis       int64            `json:"p95_ms"`
+	CaptureNote     string           `json:"capture_note,omitempty"`
+
+	RelevantIDs    []int64 `json:"relevant_ids"`
+	RecallAtK      float64 `json:"recall_at_k"`
+	ReciprocalRank float64 `json:"reciprocal_rank"`
+	ZeroResult     bool    `json:"zero_result"`
+}
+
+// catalogFingerprint pins the data the baseline was measured on, so a later
+// metric shift can be told apart from a changed dump.
+type catalogFingerprint struct {
+	Books     int64  `json:"books"`
+	Authors   int64  `json:"authors"`
+	MaxBookID int64  `json:"max_book_id"`
+	GitCommit string `json:"git_commit"`
+}
+
+// aggregateReport summarizes the whole run. Recall and MRR average only over
+// scoreable queries (non-empty relevance set); the zero-result rate covers all.
+type aggregateReport struct {
+	TotalQueries   int     `json:"total_queries"`
+	ScoredQueries  int     `json:"scored_queries"`
+	RecallAtK      float64 `json:"recall_at_k"`
+	MRR            float64 `json:"mrr"`
+	ZeroResultRate float64 `json:"zero_result_rate"`
+}
+
+// evalReport is the written artifact of a capture run.
+type evalReport struct {
+	CapturedAt time.Time          `json:"captured_at"`
+	Mode       string             `json:"mode"`
+	Database   string             `json:"database"`
+	Catalog    catalogFingerprint `json:"catalog"`
+	Queries    []queryReport      `json:"queries"`
+	Aggregate  aggregateReport    `json:"aggregate"`
+}
+
+func capture(args []string) {
+	fs := flag.NewFlagSet("capture", flag.ExitOnError)
+	var (
+		input  = fs.String("input", "", "reviewed query set JSON (required)")
+		out    = fs.String("out", "", "report output path (required)")
+		repeat = fs.Int("repeat", 20, "measured runs per query, after one unrecorded warm-up")
+		addr   = fs.String("host", envOr("GOPDS_POSTGRES_DBHOST", "127.0.0.1:5432"), "database host:port")
+		user   = fs.String("user", envOr("GOPDS_POSTGRES_DBUSER", "gopds"), "database user")
+		pass   = fs.String("password", os.Getenv("GOPDS_POSTGRES_DBPASS"), "database password")
+		name   = fs.String("database", envOr("GOPDS_POSTGRES_DBNAME", "gopds"), "database name")
+	)
+	_ = fs.Parse(args)
+
+	if *input == "" || *out == "" || *repeat < 1 {
+		usage()
+		os.Exit(2)
+	}
+
+	set, err := loadQuerySet(*input)
+	if err != nil {
+		fatal("loading query set: %v", err)
+	}
+
+	db := pg.Connect(&pg.Options{Addr: *addr, User: *user, Password: *pass, Database: *name})
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec("SELECT 1"); err != nil {
+		fatal("connecting to %s/%s: %v", *addr, *name, err)
+	}
+	database.SetDB(db)
+
+	report := evalReport{
+		CapturedAt: time.Now().UTC(),
+		Mode:       "capture",
+		Database:   fmt.Sprintf("%s@%s/%s", *user, *addr, *name),
+		Catalog:    fingerprint(context.Background(), db),
+	}
+
+	for _, q := range set.Queries {
+		rep, err := captureQuery(db, q, *repeat)
+		if err != nil {
+			fatal("query %q: %v", q.Name, err)
+		}
+		report.Queries = append(report.Queries, rep)
+		fmt.Fprintf(os.Stderr, "%-36s total=%-6d relevant=%-5d recall=%.3f rr=%.2f p50=%dms p95=%dms\n",
+			q.Name, rep.Total, len(rep.RelevantIDs), rep.RecallAtK, rep.ReciprocalRank, rep.P50Millis, rep.P95Millis)
+	}
+
+	report.Aggregate = aggregate(report.Queries)
+
+	data, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		fatal("encoding report: %v", err)
+	}
+	if err := os.WriteFile(*out, append(data, '\n'), 0o644); err != nil {
+		fatal("writing %s: %v", *out, err)
+	}
+	fmt.Fprintf(os.Stderr, "wrote %s\n", *out)
+}
+
+func loadQuerySet(path string) (querySet, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return querySet{}, err
+	}
+	var set querySet
+	if err := json.Unmarshal(data, &set); err != nil {
+		return querySet{}, err
+	}
+	for i, q := range set.Queries {
+		if q.Name == "" || q.Query == "" || (q.Kind != "books" && q.Kind != "authors") {
+			return querySet{}, fmt.Errorf("entry %d: need name, query and kind books|authors", i)
+		}
+		if q.TopK <= 0 {
+			return querySet{}, fmt.Errorf("entry %d (%s): top_k must be positive", i, q.Name)
+		}
+		if q.ExpectedTitle == "" && q.ExpectedAuthor == "" {
+			return querySet{}, fmt.Errorf("entry %d (%s): a relevance rule is required", i, q.Name)
+		}
+	}
+	return set, nil
+}
+
+// captureQuery runs one eval query through the current public search path:
+// one unrecorded warm-up, then repeat measured runs, and resolves its
+// relevance set on the same database. Results and Total are captured from the
+// first measured run; only measured runs contribute durations.
+func captureQuery(db *pg.DB, q evalQuery, repeat int) (queryReport, error) {
+	rep := queryReport{evalQuery: q}
+
+	if _, _, _, err := runOnce(db, q); err != nil {
+		return rep, err
+	}
+	for run := 0; run < repeat; run++ {
+		start := time.Now()
+		results, total, note, err := runOnce(db, q)
+		if err != nil {
+			return rep, err
+		}
+		rep.DurationsMillis = append(rep.DurationsMillis, time.Since(start).Milliseconds())
+		if run == 0 {
+			rep.Results = results
+			rep.Total = total
+			rep.CaptureNote = note
+		}
+	}
+	rep.P50Millis = percentile(rep.DurationsMillis, 0.5)
+	rep.P95Millis = percentile(rep.DurationsMillis, 0.95)
+
+	var ids []int64
+	for _, r := range rep.Results {
+		ids = append(ids, r.ID)
+	}
+	if rep.Results == nil {
+		rep.Results = []capturedResult{}
+	}
+
+	relevant, err := resolveRelevant(context.Background(), db, q)
+	if err != nil {
+		return rep, fmt.Errorf("resolving relevance: %w", err)
+	}
+	if relevant == nil {
+		relevant = []int64{}
+	}
+	rep.RelevantIDs = relevant
+
+	want := make(map[int64]struct{}, len(relevant))
+	for _, id := range relevant {
+		want[id] = struct{}{}
+	}
+	rep.RecallAtK = recallAt(ids, want, q.TopK)
+	rep.ReciprocalRank = reciprocalRank(ids, want)
+	rep.ZeroResult = rep.Total == 0
+	return rep, nil
+}
+
+// runOnce executes one eval query once through the current public search path.
+func runOnce(db *pg.DB, q evalQuery) ([]capturedResult, int, string, error) {
+	switch q.Kind {
+	case "books":
+		if q.Author == "" {
+			results, total, err := runBookSearch(q)
+			return results, total, "", err
+		}
+		// The current combined path asks the public search for a wide title
+		// window and drops non-matching authors outside SQL. The window is
+		// requested as 200, but GetBooksEnhanced clamps any limit above 100,
+		// so the effective maximum is 100 rows (database/books.go:40).
+		const requestedWindow = 200
+		results, shown, err := runCombinedSearch(db, q, requestedWindow)
+		note := fmt.Sprintf("combined baseline: requested a %d-row title window (effective max 100 after the GetBooksEnhanced clamp), filtered by author outside SQL; the author filter is a normalized-substring approximation of the smarter production commands.authorsMatch, equivalent for the reviewed query set", requestedWindow)
+		return results, shown, note, err
+	case "authors":
+		results, total, err := runAuthorSearch(q)
+		return results, total, "", err
+	}
+	return nil, 0, "", fmt.Errorf("unknown kind %q", q.Kind)
+}
+
+// runBookSearch executes the current public book search, as REST and web do.
+func runBookSearch(q evalQuery) ([]capturedResult, int, error) {
+	books, total, err := database.GetBooks(0, models.BookFilters{
+		Title: q.Query,
+		Lang:  q.Language,
+		Limit: q.TopK,
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	return bookResults(books), total, nil
+}
+
+// runCombinedSearch executes a close approximation of the current title+author
+// path: a wide title window from the public search (clamped to 100 rows by
+// GetBooksEnhanced), then an author filter applied outside SQL.
+//
+// The author filter here is a normalized substring rule. Production's real
+// matcher (commands/processor.go authorsMatch) is smarter — it strips filler
+// words and does prefix/common-substring matching. For the reviewed query set
+// ("толстой") both agree, so the baseline stands; queries whose author text
+// exercises the smarter rules would need that matcher revisited.
+// It returns the visible page and how many window rows survived the filter.
+func runCombinedSearch(db *pg.DB, q evalQuery, window int) ([]capturedResult, int, error) {
+	books, _, err := database.GetBooks(0, models.BookFilters{
+		Title: q.Query,
+		Lang:  q.Language,
+		Limit: window,
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+
+	candidateIDs := make([]int64, 0, len(books))
+	for _, b := range books {
+		candidateIDs = append(candidateIDs, b.ID)
+	}
+	matching, err := filterByAuthor(context.Background(), db, candidateIDs, q.Author)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	results := make([]capturedResult, 0, len(books))
+	shown := 0
+	for i, b := range books {
+		if _, ok := matching[b.ID]; !ok {
+			continue
+		}
+		shown++
+		if len(results) < q.TopK {
+			results = append(results, bookResults(books[i:i+1])...)
+		}
+	}
+	return results, shown, nil
+}
+
+// runAuthorSearch executes the current public author search.
+func runAuthorSearch(q evalQuery) ([]capturedResult, int, error) {
+	lang := q.Language
+	if lang == "" {
+		lang = database.AllLanguages
+	}
+	authors, total, err := database.GetAuthors(models.AuthorFilters{
+		Author: q.Query,
+		Lang:   lang,
+		Limit:  q.TopK,
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	results := make([]capturedResult, 0, len(authors))
+	for _, a := range authors {
+		results = append(results, capturedResult{ID: a.ID, FullName: a.FullName, BooksCount: a.BooksCount})
+	}
+	return results, total, nil
+}
+
+func bookResults(books []models.Book) []capturedResult {
+	results := make([]capturedResult, 0, len(books))
+	for _, b := range books {
+		names := make([]string, 0, len(b.Authors))
+		for _, a := range b.Authors {
+			names = append(names, a.FullName)
+		}
+		results = append(results, capturedResult{ID: b.ID, Title: b.Title, Authors: names})
+	}
+	return results
+}
+
+// normalizedExpr is the Phase 1 spelling of the canonical normalization,
+// inlined because migration 20 has not landed yet. It must stay byte-identical
+// to the function body in database_migrations/20-search-normalization.sql.
+const normalizedExpr = `trim(regexp_replace(regexp_replace(replace(lower(normalize(%s, NFC)), 'ё', 'е'), '[^[:alnum:]]+', ' ', 'g'), '[[:space:]]+', ' ', 'g'))`
+
+// resolveRelevant returns every visible catalogue ID satisfying the query's
+// relevance rule: normalized title contains the rule, and when an author rule
+// is present the book must have an author whose normalized name contains it.
+func resolveRelevant(ctx context.Context, db *pg.DB, q evalQuery) ([]int64, error) {
+	titleExpr := fmt.Sprintf(normalizedExpr, "b.title")
+	authorExpr := fmt.Sprintf(normalizedExpr, "a.full_name")
+
+	var ids []int64
+	switch q.Kind {
+	case "books":
+		_, err := db.WithContext(ctx).Query(&ids, fmt.Sprintf(`
+			SELECT b.id FROM opds_catalog_book b
+			WHERE b.approved AND NOT b.duplicate_hidden
+				AND (? = '' OR b.lang = ?)
+				AND strpos(%s, ?) > 0
+				AND (? = '' OR EXISTS (
+					SELECT 1 FROM opds_catalog_bauthor ba
+					JOIN opds_catalog_author a ON a.id = ba.author_id
+					WHERE ba.book_id = b.id AND strpos(%s, ?) > 0))
+			ORDER BY b.id`, titleExpr, authorExpr),
+			q.Language, q.Language, q.ExpectedTitle, q.ExpectedAuthor, q.ExpectedAuthor)
+		return ids, err
+	case "authors":
+		_, err := db.WithContext(ctx).Query(&ids, fmt.Sprintf(`
+			SELECT a.id FROM opds_catalog_author a
+			WHERE strpos(%s, ?) > 0
+				AND EXISTS (
+					SELECT 1 FROM opds_catalog_bauthor ba
+					JOIN opds_catalog_book b ON b.id = ba.book_id
+					WHERE ba.author_id = a.id AND b.approved AND NOT b.duplicate_hidden
+						AND (? = '' OR b.lang = ?))
+			ORDER BY a.id`, authorExpr),
+			q.ExpectedAuthor, q.Language, q.Language)
+		return ids, err
+	}
+	return nil, fmt.Errorf("unknown kind %q", q.Kind)
+}
+
+// filterByAuthor returns the subset of candidateIDs having an author whose
+// normalized name contains needle. It approximates the production author
+// filter; see the caveat on runCombinedSearch.
+func filterByAuthor(ctx context.Context, db *pg.DB, candidateIDs []int64, needle string) (map[int64]struct{}, error) {
+	out := make(map[int64]struct{})
+	if len(candidateIDs) == 0 {
+		return out, nil
+	}
+	var ids []int64
+	_, err := db.WithContext(ctx).Query(&ids, fmt.Sprintf(`
+		SELECT DISTINCT b.id FROM opds_catalog_book b
+		WHERE b.id IN (?)
+			AND EXISTS (
+				SELECT 1 FROM opds_catalog_bauthor ba
+				JOIN opds_catalog_author a ON a.id = ba.author_id
+				WHERE ba.book_id = b.id AND strpos(%s, ?) > 0)`,
+		fmt.Sprintf(normalizedExpr, "a.full_name")),
+		pg.In(candidateIDs), needle)
+	for _, id := range ids {
+		out[id] = struct{}{}
+	}
+	return out, err
+}
+
+// aggregate averages per-query metrics into the run summary.
+func aggregate(reports []queryReport) aggregateReport {
+	agg := aggregateReport{TotalQueries: len(reports)}
+	var recallSum, rrSum float64
+	totals := make([]int, 0, len(reports))
+	for _, r := range reports {
+		totals = append(totals, r.Total)
+		if len(r.RelevantIDs) == 0 {
+			continue
+		}
+		agg.ScoredQueries++
+		recallSum += r.RecallAtK
+		rrSum += r.ReciprocalRank
+	}
+	if agg.ScoredQueries > 0 {
+		agg.RecallAtK = recallSum / float64(agg.ScoredQueries)
+		agg.MRR = rrSum / float64(agg.ScoredQueries)
+	}
+	agg.ZeroResultRate = zeroResultRate(totals)
+	return agg
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// fingerprint captures the identity of the catalogue being measured: row
+// counts, the highest book ID, and the working tree's commit.
+func fingerprint(ctx context.Context, db *pg.DB) catalogFingerprint {
+	var fp catalogFingerprint
+	if _, err := db.WithContext(ctx).QueryOne(pg.Scan(&fp.Books),
+		`SELECT count(*) FROM opds_catalog_book`); err != nil {
+		fatal("fingerprint: counting books: %v", err)
+	}
+	if _, err := db.WithContext(ctx).QueryOne(pg.Scan(&fp.Authors),
+		`SELECT count(*) FROM opds_catalog_author`); err != nil {
+		fatal("fingerprint: counting authors: %v", err)
+	}
+	if _, err := db.WithContext(ctx).QueryOne(pg.Scan(&fp.MaxBookID),
+		`SELECT max(id) FROM opds_catalog_book`); err != nil {
+		fatal("fingerprint: max book id: %v", err)
+	}
+	if out, err := exec.Command("git", "rev-parse", "HEAD").Output(); err == nil {
+		fp.GitCommit = strings.TrimSpace(string(out))
+	}
+	return fp
+}
+
+// percentile returns the nearest-rank percentile of values without mutating
+// the caller's slice. Empty input yields 0.
+func percentile(values []int64, p float64) int64 {
+	if len(values) == 0 {
+		return 0
+	}
+	sorted := make([]int64, len(values))
+	copy(sorted, values)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	rank := int(math.Ceil(p * float64(len(sorted))))
+	if rank < 1 {
+		rank = 1
+	}
+	return sorted[rank-1]
+}
+
+func fatal(format string, args ...interface{}) {
+	fmt.Fprintf(os.Stderr, "search-eval: "+format+"\n", args...)
+	os.Exit(1)
+}
+
+// recallAt reports which fraction of the relevant IDs appears in the first k
+// results. An empty relevance set yields 0: such a query is not scoreable and
+// the caller is expected to exclude it from aggregates.
+func recallAt(got []int64, want map[int64]struct{}, k int) float64 {
+	if len(want) == 0 || k <= 0 {
+		return 0
+	}
+	if k > len(got) {
+		k = len(got)
+	}
+	hits := 0
+	for _, id := range got[:k] {
+		if _, ok := want[id]; ok {
+			hits++
+		}
+	}
+	return float64(hits) / float64(len(want))
+}
+
+// reciprocalRank scores the position of the first relevant result: 1 for rank
+// 1, 1/2 for rank 2, and 0 when no relevant ID appears at all.
+func reciprocalRank(got []int64, want map[int64]struct{}) float64 {
+	if len(want) == 0 {
+		return 0
+	}
+	for i, id := range got {
+		if _, ok := want[id]; ok {
+			return 1 / float64(i+1)
+		}
+	}
+	return 0
+}
+
+// zeroResultRate reports which fraction of the queries returned no results.
+func zeroResultRate(totals []int) float64 {
+	if len(totals) == 0 {
+		return 0
+	}
+	zeros := 0
+	for _, total := range totals {
+		if total == 0 {
+			zeros++
+		}
+	}
+	return float64(zeros) / float64(len(totals))
+}
