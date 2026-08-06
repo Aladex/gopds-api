@@ -238,7 +238,24 @@ func record(ctx context.Context, db *pg.DB, name string) error {
 // apply runs one file and records it, both or neither.
 func apply(ctx context.Context, db *pg.DB, name, statements string) error {
 	return db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		// 01-initial.sql is a pg_dump: it empties the session search_path and
+		// never puts it back. Left alone, that poisons the pooled connection:
+		// the ledger insert below fails right here, and every later migration
+		// naming extension objects without a schema (gin_trgm_ops lives in
+		// public) fails the same way. Remember the path this transaction
+		// started with and restore it after the file ran — on commit the
+		// session is back to exactly its prior state, on rollback the SET
+		// vanishes with everything else.
+		var searchPath string
+		if _, err := tx.QueryOneContext(ctx, pg.Scan(&searchPath),
+			`SELECT current_setting('search_path')`); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, statements); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`SELECT set_config('search_path', ?, false)`, searchPath); err != nil {
 			return err
 		}
 		_, err := tx.ExecContext(ctx,
