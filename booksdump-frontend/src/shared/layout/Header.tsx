@@ -122,9 +122,24 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                 type="button"
                 onClick={() => setIsDonateModalOpen(true)}
                 className={cn(
-                    'flex items-center gap-1 rounded px-2 font-medium uppercase text-neutral-400',
-                    'hover:bg-white/5 hover:text-white',
-                    isMobile ? 'h-8 text-[0.7rem]' : 'h-12 text-sm',
+                    /*
+                      Filled rather than lettered, and a pill rather than a bar.
+                      It sat in the same grey as the section links, at the same
+                      height, immediately after them — so it read as a fourth
+                      section while behaving like none of them: it opens a dialog
+                      rather than going anywhere. The shape says which of the two
+                      it is before the colour does.
+
+                      No dark: variant, because the header has no light one. It
+                      is neutral-900 under both themes — a dark band across a
+                      light page or a dark one — so this is the same button
+                      either way.
+                    */
+                    'flex items-center gap-1.5 rounded-full font-medium uppercase',
+                    'bg-green-400 text-green-950 hover:bg-green-300',
+                    'focus-visible:ring-2 focus-visible:ring-green-300 focus-visible:ring-offset-2',
+                    'focus-visible:ring-offset-neutral-900 focus-visible:outline-none',
+                    isMobile ? 'h-8 px-2.5 text-[0.7rem]' : 'h-9 px-3 text-sm',
                 )}
             >
                 <HeartHandshake className={isMobile ? 'size-4' : 'size-5'} />
