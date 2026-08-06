@@ -51,14 +51,19 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 // On a database that already carries the schema but no ledger — production,
 // every developer machine set up before this existed — running the files would
 // mean running the first one again over live tables. Such a database is
-// baselined instead: every file present at that moment is recorded as applied
-// without being executed. established decides which case this is.
+// baselined instead: the files it is known to hold are recorded as applied
+// without being executed, and everything after base.Through is applied
+// normally in the same run.
+//
+// Baselining the whole directory instead — which this did until the boundary
+// was named — silently swallows any migration the database has never seen: it
+// is recorded as applied, never runs, and the ledger then swears it did.
 func Run(
 	ctx context.Context,
 	db *pg.DB,
 	files fs.FS,
 	dir string,
-	established func(context.Context, *pg.DB) (bool, error),
+	base Baseline,
 ) (Result, error) {
 	var result Result
 
@@ -76,18 +81,23 @@ func Run(
 	}
 
 	if !ledgerExisted {
-		old, checkErr := established(ctx, db)
+		old, checkErr := base.Established(ctx, db)
 		if checkErr != nil {
 			return result, fmt.Errorf("deciding whether the database predates the ledger: %w", checkErr)
 		}
 		if old {
-			for _, name := range names {
+			held, boundErr := upTo(names, base.Through)
+			if boundErr != nil {
+				return result, boundErr
+			}
+			for _, name := range held {
 				if recordErr := record(ctx, db, name); recordErr != nil {
 					return result, fmt.Errorf("baselining %s: %w", name, recordErr)
 				}
 				result.Baselined = append(result.Baselined, name)
 			}
-			return result, nil
+			// Deliberately no early return: whatever came after the boundary
+			// is new to this database and has to run.
 		}
 	}
 
@@ -115,6 +125,38 @@ func Run(
 	return result, nil
 }
 
+// PreLedgerBoundary is the last migration a ledgerless database is taken to
+// hold already.
+//
+// It has to be stated rather than inferred. "The schema is here, so everything
+// has been applied" was true exactly once — the day the ledger was introduced,
+// when this was the newest file. Every migration added afterwards makes it a
+// wider claim than the evidence supports: a database built before that
+// migration existed still answers yes to PredatesLedger, and recording the new
+// file as applied would skip it for good, leaving a ledger that says it ran.
+//
+// So the pair means: such a database holds everything up to and including this
+// file, and nothing after it. Adding a migration must not move this line.
+const PreLedgerBoundary = "19-add-interface-lang.sql"
+
+// Baseline says what a database that predates the ledger already contains.
+//
+// The two halves are useless apart — whether the schema is there, and how much
+// of it — which is why they travel together and why a caller cannot supply one
+// and forget the other.
+type Baseline struct {
+	// Established reports whether the schema is already in place.
+	Established func(context.Context, *pg.DB) (bool, error)
+	// Through names the last migration such a database is known to hold.
+	// Anything after it is applied rather than recorded.
+	Through string
+}
+
+// AppBaseline is this application's own answer to both questions.
+func AppBaseline() Baseline {
+	return Baseline{Established: PredatesLedger, Through: PreLedgerBoundary}
+}
+
 // PredatesLedger reports whether the database already holds the application's
 // schema. auth_user is the table the very first migration creates, so its
 // presence means the files have been run before, by hand or by initdb.
@@ -124,6 +166,25 @@ func PredatesLedger(ctx context.Context, db *pg.DB) (bool, error) {
 		`SELECT EXISTS (SELECT 1 FROM information_schema.tables
 		                WHERE table_schema = current_schema() AND table_name = 'auth_user')`)
 	return exists, err
+}
+
+// upTo returns the files a baselined database is taken to hold: everything up
+// to and including boundary.
+//
+// A boundary that names no file is refused rather than guessed at. Both ways of
+// guessing are wrong in a way nobody would notice: treating it as "none" reruns
+// the first migration over live tables, and treating it as "all" is the very
+// swallowing this exists to stop.
+func upTo(names []string, boundary string) ([]string, error) {
+	if boundary == "" {
+		return nil, errors.New("no baseline boundary given: refusing to guess how much of the schema is already there")
+	}
+	for i, name := range names {
+		if name == boundary {
+			return names[:i+1], nil
+		}
+	}
+	return nil, fmt.Errorf("baseline boundary %q is not among the migrations: it was renamed or removed, and no database can be baselined until it is put back", boundary)
 }
 
 func sqlFiles(files fs.FS, dir string) ([]string, error) {
@@ -188,44 +249,50 @@ func apply(ctx context.Context, db *pg.DB, name, statements string) error {
 
 // Pending reports what a run would do, changing nothing.
 //
-// The second return says the database predates the ledger, in which case the
-// names would be recorded rather than executed.
+// Two lists rather than one and a flag: a ledgerless database that has fallen
+// behind the boundary gets both at once — the old files recorded, the newer
+// ones executed — and an operator about to touch production should see which
+// is which before it happens.
 func Pending(
 	ctx context.Context,
 	db *pg.DB,
 	files fs.FS,
 	dir string,
-	established func(context.Context, *pg.DB) (bool, error),
-) (pending []string, baseline bool, err error) {
+	base Baseline,
+) (toRecord, toApply []string, err error) {
 	names, err := sqlFiles(files, dir)
 	if err != nil {
-		return nil, false, err
+		return nil, nil, err
 	}
 
 	ledgerExisted, err := ledgerExists(ctx, db)
 	if err != nil {
-		return nil, false, fmt.Errorf("looking for the migration ledger: %w", err)
+		return nil, nil, fmt.Errorf("looking for the migration ledger: %w", err)
 	}
 	if !ledgerExisted {
-		old, checkErr := established(ctx, db)
+		old, checkErr := base.Established(ctx, db)
 		if checkErr != nil {
-			return nil, false, fmt.Errorf("deciding whether the database predates the ledger: %w", checkErr)
+			return nil, nil, fmt.Errorf("deciding whether the database predates the ledger: %w", checkErr)
 		}
-		if old {
-			return names, true, nil
+		if !old {
+			return nil, names, nil
 		}
-		return names, false, nil
+		held, boundErr := upTo(names, base.Through)
+		if boundErr != nil {
+			return nil, nil, boundErr
+		}
+		return held, names[len(held):], nil
 	}
 
 	done, err := alreadyApplied(ctx, db)
 	if err != nil {
-		return nil, false, fmt.Errorf("reading the migration ledger: %w", err)
+		return nil, nil, fmt.Errorf("reading the migration ledger: %w", err)
 	}
 
 	for _, name := range names {
 		if _, seen := done[name]; !seen {
-			pending = append(pending, name)
+			toApply = append(toApply, name)
 		}
 	}
-	return pending, false, nil
+	return nil, toApply, nil
 }
