@@ -10,6 +10,7 @@ import FadingTabPanel from '@/shared/components/FadingTabPanel';
 import { cn } from '@/shared/lib/utils';
 
 import { useProfileForm } from '@/features/profile/useProfileForm';
+import { OpdsConnection } from '@/features/opds/OpdsInfo';
 import InterfaceLanguageToggle from '@/shared/layout/InterfaceLanguageToggle';
 
 type ProfileContentProps = {
@@ -33,7 +34,12 @@ export const PROFILE_FIRST_FIELD_ID = 'profile-first-name';
 const TABS = [
     { value: 'account', labelKey: 'profileTab.account' },
     { value: 'security', labelKey: 'profileTab.security' },
-    { value: 'bot', labelKey: 'profileTab.bot' },
+    // Both ways of getting the books out of here and into something of the
+    // reader's own — a bot in their messenger, an application on their reader.
+    // The OPDS instructions used to be a section of the site's navigation,
+    // which gave a page read once during setup the same standing as the
+    // catalogue itself.
+    { value: 'connections', labelKey: 'profileTab.connections' },
 ] as const;
 
 export function focusFirstProfileField(event: Event) {
@@ -295,7 +301,7 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                     </Group>
                 </FadingTabPanel>
 
-                <FadingTabPanel value="bot" active={tab === 'bot'}>
+                <FadingTabPanel value="connections" active={tab === 'connections'}>
                     <Group
                         first
                         title={
@@ -388,6 +394,10 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                             </>
                         )}
                     </Group>
+
+                    <Group title={t('profileSection.opdsReader')}>
+                        <OpdsConnection />
+                    </Group>
                 </FadingTabPanel>
             </Tabs>
 
@@ -408,9 +418,10 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                 <Button variant="ghost" onClick={handleClose}>
                     {t('close')}
                 </Button>
-                {/* The bot tab has nothing this button could save: connecting
-                    and disconnecting happen on their own buttons, at once. */}
-                {tab !== 'bot' && <Button onClick={handleSave}>{t('save')}</Button>}
+                {/* Connections have nothing this button could save: the bot is
+                    connected and disconnected on its own buttons, at once, and
+                    the OPDS section is instructions. */}
+                {tab !== 'connections' && <Button onClick={handleSave}>{t('save')}</Button>}
             </div>
         </div>
     );

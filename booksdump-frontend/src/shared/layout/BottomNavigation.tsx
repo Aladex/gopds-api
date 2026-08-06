@@ -1,12 +1,12 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { BookOpen, Library, Rss, ShieldUser, User, type LucideIcon } from 'lucide-react';
+import { BookOpen, Library, ShieldUser, User, type LucideIcon } from 'lucide-react';
 
 import { cn } from '@/shared/lib/utils';
 
 import { useAuth } from '@/context/AuthContext';
-import { activeNavItem, useNavItems, type NavItem } from '@/shared/layout/navItems';
+import { activeNavItem, onSurface, useNavItems, type NavItem } from '@/shared/layout/navItems';
 
 type BottomNavigationProps = {
     isProfileOpen: boolean;
@@ -16,7 +16,6 @@ type BottomNavigationProps = {
 const ICONS: Record<NavItem['id'], LucideIcon> = {
     books: BookOpen,
     collections: Library,
-    opds: Rss,
     admin: ShieldUser,
 };
 
@@ -30,11 +29,25 @@ const BottomNavigation: React.FC<BottomNavigationProps> = ({ isProfileOpen, onOp
     const { t } = useTranslation();
     const { user } = useAuth();
 
-    const navItems = useNavItems(Boolean(user?.is_superuser));
+    const allItems = useNavItems(Boolean(user?.is_superuser));
+    const navItems = onSurface(allItems, 'bottom');
+
+    /*
+     * Matched against every section, drawn from this surface's own.
+     *
+     * The two differ, and the match has to be the wider of them: on a route
+     * belonging to a section this bar does not carry, the answer is that none of
+     * its own is current — not the first one. Matching only against what is
+     * drawn would fall through to the fallback below and light up Books while
+     * the reader is in the admin panel.
+     *
+     * The fallback itself stays for routes belonging to no section at all — a
+     * search result, an author's page — where the reader did come from the
+     * catalogue and the bar should say so.
+     */
+    const active = activeNavItem(allItems, location.pathname);
     // An open profile takes the highlight off whatever section is behind it.
-    const current = isProfileOpen
-        ? null
-        : (activeNavItem(navItems, location.pathname) ?? navItems[0]);
+    const current = isProfileOpen ? null : (active ?? navItems[0]);
 
     const itemClass = (active: boolean) =>
         cn(

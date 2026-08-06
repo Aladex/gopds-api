@@ -1,4 +1,4 @@
-import { activeNavItem, type NavItem } from '@/shared/layout/navItems';
+import { activeNavItem, onSurface, type NavItem } from '@/shared/layout/navItems';
 
 // The header and the bottom bar both highlight the current section from this
 // function. Getting it wrong means the interface tells the reader they are
@@ -7,8 +7,7 @@ import { activeNavItem, type NavItem } from '@/shared/layout/navItems';
 const items: NavItem[] = [
     { id: 'books', label: 'Книги', path: '/books/page/1', regex: /^\/books\/page\/\d+/ },
     { id: 'collections', label: 'Подборки', path: '/collections', regex: /^\/collections/ },
-    { id: 'opds', label: 'OPDS', path: '/catalog', regex: /^\/catalog/ },
-    { id: 'admin', label: 'Админ', path: '/admin', regex: /^\/admin/ },
+    { id: 'admin', label: 'Админ', path: '/admin', regex: /^\/admin/, surfaces: ['header'] },
 ];
 
 describe('activeNavItem', () => {
@@ -32,5 +31,37 @@ describe('activeNavItem', () => {
     it('does not confuse a section with one whose name starts the same', () => {
         expect(activeNavItem(items, '/collections-archive')?.id).toBe('collections');
         expect(activeNavItem(items, '/bookshelf')).toBeNull();
+    });
+
+    /*
+     * The two surfaces show different subsets, but both must go on recognising
+     * every route. Matching against a surface's own subset instead would answer
+     * "none of these" in the admin panel, and the bottom bar would then fall
+     * back to lighting up Books while the reader is somewhere else entirely.
+     */
+    it('goes on matching a section the surface does not offer', () => {
+        expect(onSurface(items, 'bottom').map((item) => item.id)).not.toContain('admin');
+        expect(activeNavItem(items, '/admin/users')?.id).toBe('admin');
+    });
+});
+
+describe('onSurface', () => {
+    it('keeps a section that names no surface on both', () => {
+        for (const surface of ['header', 'bottom'] as const) {
+            expect(onSurface(items, surface).map((item) => item.id)).toContain('books');
+        }
+    });
+
+    it('gives a section that names one only to that one', () => {
+        expect(onSurface(items, 'header').map((item) => item.id)).toContain('admin');
+        expect(onSurface(items, 'bottom').map((item) => item.id)).not.toContain('admin');
+    });
+
+    it('leaves the order alone', () => {
+        expect(onSurface(items, 'header').map((item) => item.id)).toEqual([
+            'books',
+            'collections',
+            'admin',
+        ]);
     });
 });

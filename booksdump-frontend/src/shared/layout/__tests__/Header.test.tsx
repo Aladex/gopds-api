@@ -69,9 +69,11 @@ describe('Header navigation', () => {
     // The border used to be the mark, switching from transparent to white on
     // whichever link was current. Left in place it would fight the bar.
     it('no longer marks the current link with its own border', async () => {
-        renderHeader('/catalog');
+        renderHeader('/collections');
 
-        const current = await screen.findByRole('link', { name: /opdsTab/ });
+        // This one is asked for with a fallback, which the stub above returns
+        // in preference to the key.
+        const current = await screen.findByRole('link', { name: /Подборки/ });
         expect(current).toHaveAttribute('aria-current', 'page');
         expect(current.className).not.toMatch(/border-white/);
         expect(current.className).toMatch(/transition-colors/);
@@ -91,6 +93,21 @@ describe('Header navigation', () => {
 
         await waitFor(() => expect(screen.getByRole('navigation')).toBeInTheDocument());
         expect(screen.queryByRole('link', { current: 'page' })).not.toBeInTheDocument();
+        expect(underline(container)[0].className).toMatch(/opacity-0/);
+    });
+
+    /*
+     * The OPDS instructions are a page read once while setting up a reading
+     * application, not a section of the library, and they now live in the
+     * profile beside the Telegram bot. The route stays — it was in the
+     * navigation for years and will be bookmarked — so the header has to go on
+     * marking nothing rather than marking whichever link comes first.
+     */
+    it('offers no OPDS section, and marks nothing on its old route', async () => {
+        const { container } = renderHeader('/catalog');
+
+        await waitFor(() => expect(screen.getByRole('navigation')).toBeInTheDocument());
+        expect(screen.queryByRole('link', { name: /opds/i })).not.toBeInTheDocument();
         expect(underline(container)[0].className).toMatch(/opacity-0/);
     });
 

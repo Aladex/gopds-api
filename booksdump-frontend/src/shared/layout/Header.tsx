@@ -9,7 +9,7 @@ import { cn } from '@/shared/lib/utils';
 import * as systemApi from '@/api/system';
 import { useAuth } from '@/context/AuthContext';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
-import { activeNavItem, useNavItems } from '@/shared/layout/navItems';
+import { activeNavItem, onSurface, useNavItems } from '@/shared/layout/navItems';
 import { useTravellingUnderline } from '@/shared/hooks/useTravellingUnderline';
 import NavUnderline from '@/shared/layout/NavUnderline';
 /*
@@ -54,8 +54,9 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
         setHiddenByScroll(false);
     }
 
-    const navItems = useNavItems(Boolean(user?.is_superuser));
-    const current = activeNavItem(navItems, location.pathname);
+    const allItems = useNavItems(Boolean(user?.is_superuser));
+    const navItems = onSurface(allItems, 'header');
+    const current = activeNavItem(allItems, location.pathname);
 
     // One bar that travels between the links; see the hook for why the row has
     // to be measured rather than styled. The shape covers a language change and
