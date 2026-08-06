@@ -63,47 +63,55 @@ func main() {
 		return
 	}
 
-	result, err := migrate.Run(ctx, db, os.DirFS("."), *dir, migrate.PredatesLedger)
+	result, err := migrate.Run(ctx, db, os.DirFS("."), *dir, migrate.AppBaseline())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "migration failed: %v\n", err)
 		cancel()
 		fail(db)
 	}
 
-	switch {
-	case len(result.Baselined) > 0:
+	// Both halves can happen in one run, on a database that carried the schema
+	// but had fallen behind the boundary, so neither is an else of the other.
+	if len(result.Baselined) > 0 {
 		fmt.Printf("Recorded %d existing migrations without running them:\n", len(result.Baselined))
 		for _, name := range result.Baselined {
 			fmt.Printf("  = %s\n", name)
 		}
-		fmt.Println("\nThis database already carried the schema. Nothing was changed.")
-	case len(result.Applied) == 0:
-		fmt.Println("Already up to date.")
-	default:
+		fmt.Println()
+	}
+	if len(result.Applied) > 0 {
 		fmt.Printf("Applied %d migrations:\n", len(result.Applied))
 		for _, name := range result.Applied {
 			fmt.Printf("  + %s\n", name)
 		}
 	}
+	if len(result.Baselined) == 0 && len(result.Applied) == 0 {
+		fmt.Println("Already up to date.")
+	}
 }
 
 // report prints what a run would do, touching nothing.
 func report(ctx context.Context, db *pg.DB, dir string) error {
-	pending, baseline, err := migrate.Pending(ctx, db, os.DirFS("."), dir, migrate.PredatesLedger)
+	toRecord, toApply, err := migrate.Pending(ctx, db, os.DirFS("."), dir, migrate.AppBaseline())
 	if err != nil {
 		return err
 	}
 
-	if baseline {
-		fmt.Printf("This database predates the ledger: %d migrations would be recorded as already applied.\n", len(pending))
-	} else if len(pending) == 0 {
-		fmt.Println("Already up to date.")
-		return nil
-	} else {
-		fmt.Printf("%d migrations would run:\n", len(pending))
+	if len(toRecord) > 0 {
+		fmt.Printf("This database predates the ledger: %d migrations would be recorded as already applied.\n", len(toRecord))
+		for _, name := range toRecord {
+			fmt.Printf("  = %s\n", name)
+		}
+		fmt.Println()
 	}
-	for _, name := range pending {
-		fmt.Printf("  %s\n", name)
+	if len(toApply) > 0 {
+		fmt.Printf("%d migrations would run:\n", len(toApply))
+		for _, name := range toApply {
+			fmt.Printf("  + %s\n", name)
+		}
+	}
+	if len(toRecord) == 0 && len(toApply) == 0 {
+		fmt.Println("Already up to date.")
 	}
 	return nil
 }
