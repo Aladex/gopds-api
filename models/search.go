@@ -17,8 +17,14 @@ type BookSearchRequest struct {
 	Favorites           bool
 	Unapproved          bool
 	IncludeHidden       bool
-	Limit               int
-	Offset              int
+	// Moderator is the caller's declaration of who is asking, taken from its
+	// own notion of identity (REST: is_superuser; OPDS and Telegram: never).
+	// The service — not the caller — decides what a non-moderator may see:
+	// without this declaration both widening flags above are cleared before
+	// the request reaches the repository.
+	Moderator bool
+	Limit     int
+	Offset    int
 }
 
 // BookSearchPage is one ranked page plus the uncapped exact total computed

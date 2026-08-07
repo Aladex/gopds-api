@@ -92,6 +92,14 @@ func (s *SearchService) SearchBooks(ctx context.Context, req models.BookSearchRe
 		logCompletion("books", req.Query, req.Language, bookScope(req), 0, 0, "", err, start)
 		return models.BookSearchPage{}, err
 	}
+	// Visibility is decided here, on the one path every client shares: only a
+	// request that declared a moderator may widen what it sees. Callers report
+	// identity; they never get the last word on these two flags, and a client
+	// that forgets the rule cannot silently show more.
+	if !req.Moderator {
+		req.Unapproved = false
+		req.IncludeHidden = false
+	}
 	page, err := s.repo.SearchBooks(ctx, req)
 	logCompletion("books", req.Query, req.Language, bookScope(req), len(page.Books), page.Total, page.QueryHash, err, start)
 	return page, err

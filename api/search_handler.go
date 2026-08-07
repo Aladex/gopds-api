@@ -16,8 +16,9 @@ import (
 )
 
 // SearchHandler is the REST adapter of the search service. It binds query
-// strings, enforces the visibility gate and translates outcomes into HTTP;
-// ranking, filtering and validation all live below this boundary.
+// strings, reports the caller's identity and translates outcomes into HTTP;
+// ranking, filtering, validation and the visibility rule all live below this
+// boundary.
 type SearchHandler struct {
 	Search services.PublicSearch
 }
@@ -59,18 +60,15 @@ func (h *SearchHandler) Books(c *gin.Context) {
 		httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
 		return
 	}
-	// Both of these widen what the request may see, so both belong to whoever
-	// moderates rather than to whoever asks. They are cleared before the branch
-	// below, so the search and the ordinary list cannot disagree about who sees
-	// what.
-	//
-	// include_hidden was gated from the first version; unapproved was not, and
-	// any signed-in reader could ask for the moderation queue by hand. No screen
-	// has ever offered it — which is why it went unnoticed, not why it was safe.
-	if !c.GetBool("is_superuser") {
-		q.IncludeHidden = false
-		q.UnApproved = false
-	}
+	// Both of these flags widen what the request may see, so both belong to
+	// whoever moderates rather than to whoever asks. The search branch no
+	// longer clears them here: it forwards them raw together with the
+	// caller's identity, and the service — the one path every client shares —
+	// decides. include_hidden was gated from the first version; unapproved was
+	// not, and any signed-in reader could ask for the moderation queue by
+	// hand. No screen has ever offered it — which is why it went unnoticed,
+	// not why it was safe.
+	moderator := c.GetBool("is_superuser")
 	userID := c.GetInt64("user_id")
 
 	if strings.TrimSpace(q.Title) != "" || q.BookID > 0 {
@@ -87,6 +85,7 @@ func (h *SearchHandler) Books(c *gin.Context) {
 			Favorites:           q.Fav,
 			Unapproved:          q.UnApproved,
 			IncludeHidden:       q.IncludeHidden,
+			Moderator:           moderator,
 			Limit:               q.Limit,
 			Offset:              q.Offset,
 		})
@@ -98,6 +97,13 @@ func (h *SearchHandler) Books(c *gin.Context) {
 		return
 	}
 
+	// The ordinary list runs below the service, so the gate is repeated here
+	// rather than inherited from it: the two branches must not disagree about
+	// who sees what.
+	if !moderator {
+		q.IncludeHidden = false
+		q.UnApproved = false
+	}
 	// No search target: the ordinary list keeps its existing path and semantics
 	// (favorites ordering, collection ordering, users-favorites mode).
 	books, count, err := database.GetBooks(userID, q.BookFilters)

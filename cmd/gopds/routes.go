@@ -23,7 +23,7 @@ func setupRoutes(route *gin.Engine, donate []config.DonateMethod, search service
 	setupFileRoutes(route.Group("/files", middlewares.AuthMiddleware()))
 	setupFileRoutes(route.Group("/api/files", middlewares.AuthMiddleware()))
 	setupDefaultRoutes(route, donate)
-	setupOpdsRoutes(route.Group("/opds", middlewares.BasicAuth()))
+	setupOpdsRoutes(route.Group("/opds", middlewares.BasicAuth()), search)
 	// Add public auth routes (no auth middleware)
 	setupPublicAuthRoutes(route.Group("/api"))
 	// WebSocket: Origin check BEFORE auth, so evil origins get 403 not 401
@@ -109,8 +109,8 @@ func setupDefaultRoutes(route *gin.Engine, donate []config.DonateMethod) {
 }
 
 // setupOpdsRoutes configures routes for OPDS feed interactions.
-func setupOpdsRoutes(group *gin.RouterGroup) {
-	opds.SetupOpdsRoutes(group)
+func setupOpdsRoutes(group *gin.RouterGroup, search services.PublicSearch) {
+	opds.SetupOpdsRoutes(group, search)
 }
 
 func setupLogoutRoutes(group *gin.RouterGroup) {

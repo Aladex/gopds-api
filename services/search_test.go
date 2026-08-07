@@ -185,6 +185,58 @@ func TestSearchServiceBookValidation(t *testing.T) {
 	}
 }
 
+// TestSearchServiceBookVisibilityGate pins the rule every client shares: the
+// two flags that widen what a request may see belong to whoever moderates, not
+// to whoever asks. Adapters only report identity; the service does the
+// clearing, so a caller that forgets the check cannot silently show more.
+func TestSearchServiceBookVisibilityGate(t *testing.T) {
+	cases := []struct {
+		name           string
+		req            models.BookSearchRequest
+		wantUnapproved bool
+		wantHidden     bool
+	}{
+		{
+			name: "a non-moderator never reaches the repository with widened visibility",
+			req: models.BookSearchRequest{
+				Query: "война", Limit: 10, Unapproved: true, IncludeHidden: true,
+			},
+			wantUnapproved: false,
+			wantHidden:     false,
+		},
+		{
+			name: "a declared moderator keeps both flags",
+			req: models.BookSearchRequest{
+				Query: "война", Limit: 10, Moderator: true, Unapproved: true, IncludeHidden: true,
+			},
+			wantUnapproved: true,
+			wantHidden:     true,
+		},
+		{
+			name: "an unflagged request stays plain even for a moderator",
+			req: models.BookSearchRequest{
+				Query: "война", Limit: 10, Moderator: true,
+			},
+			wantUnapproved: false,
+			wantHidden:     false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeSearchRepository{}
+			svc := NewSearchService(repo)
+
+			_, err := svc.SearchBooks(context.Background(), tc.req)
+			require.NoError(t, err)
+
+			require.Equal(t, 1, repo.bookCalls)
+			assert.Equal(t, tc.wantUnapproved, repo.bookReq.Unapproved)
+			assert.Equal(t, tc.wantHidden, repo.bookReq.IncludeHidden)
+		})
+	}
+}
+
 // A Cyrillic query is counted in runes, never bytes: len("ёж") is 4 bytes but
 // 2 runes, and any byte-based gate would misread it.
 func TestSearchServiceCountsCyrillicInRunes(t *testing.T) {

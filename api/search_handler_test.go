@@ -144,10 +144,12 @@ func TestSearchHandler_Books_SearchMapsEveryScope(t *testing.T) {
 	assert.Equal(t, int64(9), req.CollectionID)
 	assert.Equal(t, int64(11), req.CuratedCollectionID)
 	assert.True(t, req.Favorites)
-	assert.False(t, req.Unapproved,
-		"a non-superuser must never reach the repository with Unapproved set")
-	assert.False(t, req.IncludeHidden,
-		"a non-superuser must never reach the repository with IncludeHidden set")
+	// The adapter no longer clears the widening flags: it forwards them raw
+	// and reports identity. The clearing itself is the service's rule, pinned
+	// in services/search_test.go.
+	assert.True(t, req.Unapproved, "the raw flag travels; the service decides")
+	assert.True(t, req.IncludeHidden, "the raw flag travels; the service decides")
+	assert.False(t, req.Moderator, "a non-superuser is reported as a non-moderator")
 	assert.Equal(t, 10, req.Limit)
 	assert.Equal(t, 20, req.Offset)
 
@@ -167,6 +169,7 @@ func TestSearchHandler_Books_SuperuserKeepsIncludeHidden(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
 	require.Len(t, fake.booksReqs, 1)
 	assert.True(t, fake.booksReqs[0].IncludeHidden)
+	assert.True(t, fake.booksReqs[0].Moderator, "a superuser is reported as a moderator")
 }
 
 /*
@@ -176,8 +179,10 @@ func TestSearchHandler_Books_SuperuserKeepsIncludeHidden(t *testing.T) {
  * queue by hand — no screen offers it, which is why it went unnoticed rather
  * than why it was safe.
  *
- * The gate sits before the branch, so it covers the ordinary list as well as
- * the search: the two must not disagree about who sees what.
+ * Since the gate moved into the service, this adapter's contract is about what
+ * it reports: raw flags plus the caller's identity. The clearing itself is
+ * pinned at the service boundary, and the ordinary list — which runs below the
+ * service — has its own behavior test further down.
  */
 func TestSearchHandler_Books_UnapprovedIsForModeratorsOnly(t *testing.T) {
 	t.Run("a superuser still reaches the moderation queue", func(t *testing.T) {
@@ -189,6 +194,7 @@ func TestSearchHandler_Books_UnapprovedIsForModeratorsOnly(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
 		require.Len(t, fake.booksReqs, 1)
 		assert.True(t, fake.booksReqs[0].Unapproved)
+		assert.True(t, fake.booksReqs[0].Moderator)
 	})
 
 	// Asking without the flag is the ordinary case and must stay untouched.
@@ -201,6 +207,50 @@ func TestSearchHandler_Books_UnapprovedIsForModeratorsOnly(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
 		require.Len(t, fake.booksReqs, 1)
 		assert.False(t, fake.booksReqs[0].Unapproved)
+	})
+}
+
+/*
+ * The ordinary list calls database.GetBooks directly, so the service gate does
+ * not cover it and no fake can stand in here. This asserts the behavior
+ * instead of the wiring: a non-moderator who asks for the queue by hand still
+ * gets approved books only, while a moderator reaches the queue. The catalogue
+ * carries unapproved books, so both sides have visible answers.
+ */
+func TestSearchHandler_Books_OrdinaryListUnapprovedGate(t *testing.T) {
+	requireSearchTestDB(t)
+
+	t.Run("a non-moderator asking by hand gets approved books only", func(t *testing.T) {
+		fake := &fakeSearch{}
+		r := newSearchTestRouter(fake, 1, false)
+
+		rec := doJSON(t, r, http.MethodGet, "/api/books/list?limit=100&unapproved=true", nil)
+
+		require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
+		assert.Empty(t, fake.booksReqs, "the search service must not see list requests")
+
+		var got ExportAnswer
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		require.NotEmpty(t, got.Books)
+		for _, b := range got.Books {
+			assert.True(t, b.Approved, "book %d must be approved", b.ID)
+		}
+	})
+
+	t.Run("a moderator reaches the queue", func(t *testing.T) {
+		fake := &fakeSearch{}
+		r := newSearchTestRouter(fake, 1, true)
+
+		rec := doJSON(t, r, http.MethodGet, "/api/books/list?limit=100&unapproved=true", nil)
+
+		require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
+
+		var got ExportAnswer
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		require.NotEmpty(t, got.Books, "the queue must not be empty for this test to prove anything")
+		for _, b := range got.Books {
+			assert.False(t, b.Approved, "book %d must be unapproved in the queue", b.ID)
+		}
 	})
 }
 
