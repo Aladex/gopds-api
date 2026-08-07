@@ -113,6 +113,22 @@ visible AS NOT MATERIALIZED (
                     OR (char_length((SELECT q.author_needle FROM q)) >= 3
                         AND public.search_normalize(a.full_name) %> (SELECT q.author_needle FROM q)))))
 ),
+anchor AS (
+    -- The longest needle word, used as the word-coverage lane's index qual.
+    --
+    -- The lane used to anchor on the first word, and Russian titles start with
+    -- prepositions constantly: for "в тумане" the prefilter became
+    -- LIKE '%в%', which matches nearly every book, so the planner dropped to a
+    -- sequential scan over 266 640 rows and ran the anti-join per row —
+    -- 3.9 seconds end to end, against 0.26 for the worst query in the reviewed
+    -- corpus, which contains no such needle. Coverage requires every needle
+    -- word to prefix some title word, so any word may serve as the qual and
+    -- the most selective one should. Ties break on the word itself, so the
+    -- choice is deterministic.
+    SELECT w FROM unnest(string_to_array((SELECT q.needle FROM q), ' ')) AS t(w)
+    ORDER BY char_length(w) DESC, w
+    LIMIT 1
+),
 clean AS (
     -- The three substring-family lanes share one WHERE, so the planner
     -- collapses the OR into a single BitmapOr and touches the heap once
@@ -179,9 +195,11 @@ lane_hits AS (
     -- coverage would swallow the substring tier — a title containing the
     -- needle contiguously covers its words by construction.
     --
-    -- The LIKE prefilter stays: coverage means the first query word prefixes
-    -- some title word, so it is implied, and it gives the GIN index an entry
-    -- qual instead of a per-row anti-join over the whole catalog.
+    -- The LIKE prefilter stays: coverage means every query word prefixes some
+    -- title word, so it is implied whichever word is used, and it gives the
+    -- GIN index an entry qual instead of a per-row anti-join over the whole
+    -- catalog. Which word is used decides whether that actually happens — see
+    -- the anchor CTE.
     SELECT v.id, v.norm_title,
         CASE WHEN NOT EXISTS (
             SELECT 1 FROM unnest(string_to_array(v.norm_title, ' ')) AS tw(word)
@@ -199,7 +217,10 @@ lane_hits AS (
         -- prefix match, ranked higher still. The lane would add no row and no
         -- tier, only an anti-join over every "рассказы"-class candidate.
         AND strpos((SELECT q.needle FROM q), ' ') > 0
-        AND v.norm_title LIKE '%' || split_part((SELECT q.needle FROM q), ' ', 1) || '%'
+        -- Under three characters no trigram index can serve the qual, and the
+        -- lane would seq-scan again; the fuzzy lanes still cover such needles.
+        AND char_length((SELECT w FROM anchor)) >= 3
+        AND v.norm_title LIKE '%' || (SELECT w FROM anchor) || '%'
         AND NOT EXISTS (
             SELECT 1 FROM unnest(string_to_array((SELECT q.needle FROM q), ' ')) AS nw(word)
             WHERE NOT EXISTS (

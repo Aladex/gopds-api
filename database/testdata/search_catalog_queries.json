@@ -94,6 +94,13 @@
       "query": "окена",
       "top_k": 10,
       "expected_normalized_title": "океан"
+    },
+    {
+      "name": "preposition-leading-v-tumane",
+      "kind": "books",
+      "query": "в тумане",
+      "top_k": 10,
+      "expected_normalized_title": "тумане"
     }
   ]
 }
