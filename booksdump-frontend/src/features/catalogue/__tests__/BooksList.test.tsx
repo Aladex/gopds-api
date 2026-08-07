@@ -56,6 +56,8 @@ const searchBarState = {
     languages: ['ru'],
     selectedLanguage: 'ru',
     setSelectedLanguage: vi.fn(),
+    scopeName: '',
+    setScopeName: vi.fn(),
 };
 vi.mock('@/context/SearchBarContext', () => ({ useSearchBar: () => searchBarState }));
 

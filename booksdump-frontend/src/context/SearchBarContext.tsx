@@ -29,6 +29,14 @@ interface SearchBarContextType {
     setSelectedSearch: (selectedSearch: string) => void;
     setSelectedLanguage: (language: string) => void;
     clearSelectedSearch: () => void;
+    /**
+     * What the list the reader is standing in is called — a genre, a series,
+     * a collection. The name is not in the route, which carries only an id,
+     * and no public endpoint resolves one; the books on the page carry it, so
+     * the list publishes it here and the search panel reads it.
+     */
+    scopeName: string;
+    setScopeName: (name: string) => void;
 }
 
 const SearchBarContext = createContext<SearchBarContextType | undefined>(undefined);
@@ -39,6 +47,7 @@ export const SearchBarProvider: React.FC<{ children: ReactNode }> = ({ children 
     const [languages, setLanguages] = useState<string[]>([]);
     const [languagesLoaded, setLanguagesLoaded] = useState(false);
     const [selectedLanguage, setSelectedLanguage] = useState<string>('');
+    const [scopeName, setScopeName] = useState('');
     const { user, isAuthenticated } = useAuth();
 
     const clearSelectedSearch = useCallback(() => setSelectedSearch('title'), []);
@@ -56,6 +65,7 @@ export const SearchBarProvider: React.FC<{ children: ReactNode }> = ({ children 
         (language: string) => setSelectedLanguage(language),
         [],
     );
+    const memoizedSetScopeName = useCallback((name: string) => setScopeName(name), []);
 
     useEffect(() => {
         setSelectedLanguage(user?.books_lang ?? '');
@@ -91,6 +101,8 @@ export const SearchBarProvider: React.FC<{ children: ReactNode }> = ({ children 
             setSelectedSearch: memoizedSetSelectedSearch,
             setSelectedLanguage: memoizedSetSelectedLanguage,
             clearSelectedSearch,
+            scopeName,
+            setScopeName: memoizedSetScopeName,
         }),
         [
             searchItem,
@@ -103,6 +115,8 @@ export const SearchBarProvider: React.FC<{ children: ReactNode }> = ({ children 
             memoizedSetSelectedSearch,
             memoizedSetSelectedLanguage,
             clearSelectedSearch,
+            scopeName,
+            memoizedSetScopeName,
         ],
     );
 

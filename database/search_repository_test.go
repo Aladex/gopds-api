@@ -1047,7 +1047,7 @@ func TestPGSearchRepositorySuggestions(t *testing.T) {
 		})
 	})
 
-	t.Run("identical titles by different authors stay distinct, with the author as secondary", func(t *testing.T) {
+	t.Run("identical titles by different authors are one row, counted", func(t *testing.T) {
 		withSearchFixture(t, func(f *searchFixture) {
 			repo := NewPGSearchRepository(f.tx)
 
@@ -1055,16 +1055,17 @@ func TestPGSearchRepositorySuggestions(t *testing.T) {
 				Query: "сто лет одиночества", Kind: models.SuggestionBook, Language: "fx",
 			})
 
+			// Two writers, one title. The picker chooses words rather than a
+			// copy — every row leads to the same search — so offering the
+			// title twice offered a choice that does not exist. What is worth
+			// saying is how many books the reader is about to be shown.
 			require.NoError(t, err)
-			require.Len(t, result.Suggestions, 2)
-			byID := map[int64]models.AutocompleteSuggestion{}
-			for _, s := range result.Suggestions {
-				assert.Equal(t, "book", s.Type)
-				assert.Equal(t, "Сто лет одиночества", s.Value)
-				byID[s.ID] = s
-			}
-			assert.Equal(t, "Толстой Лев", byID[f.BookIDs["dupA"]].Secondary)
-			assert.Equal(t, "Булгаков Михаил", byID[f.BookIDs["dupB"]].Secondary)
+			require.Len(t, result.Suggestions, 1)
+			assert.Equal(t, "book", result.Suggestions[0].Type)
+			assert.Equal(t, "Сто лет одиночества", result.Suggestions[0].Value)
+			assert.Equal(t, 2, result.Suggestions[0].BooksCount)
+			assert.Empty(t, result.Suggestions[0].Secondary,
+				"naming one of the two authors would say the row leads to that one")
 		})
 	})
 
@@ -1081,7 +1082,8 @@ func TestPGSearchRepositorySuggestions(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, result.Suggestions, 1)
 			assert.Equal(t, "Рассказы", result.Suggestions[0].Value)
-			assert.Equal(t, "Другой Автор", result.Suggestions[0].Secondary)
+			assert.Equal(t, 510, result.Suggestions[0].BooksCount,
+				"the row says how many books share the title")
 		})
 	})
 
@@ -1266,7 +1268,7 @@ func TestPGSearchRepositorySuggestions(t *testing.T) {
 			assert.Equal(t, f.BookIDs["exact"], lead.ID,
 				"exact matches tie on every signal, so the lowest id represents the group")
 			assert.Equal(t, "Война и мир", lead.Value)
-			assert.Equal(t, "Толстой Лев", lead.Secondary)
+			assert.Positive(t, lead.BooksCount, "the row counts the books behind the title")
 		})
 	})
 

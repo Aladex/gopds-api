@@ -3,7 +3,10 @@ import { render, renderHook, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useNavigate } from 'react-router';
 
-import useSearchScope, { searchTitleFromLocation } from '@/features/catalogue/hooks/useSearchScope';
+import useSearchScope, {
+    searchTitleFromLocation,
+    unsearchedPathFrom,
+} from '@/features/catalogue/hooks/useSearchScope';
 import * as booksApi from '@/api/books';
 
 // A scoped search used to exist only inside one author's list, and its state
@@ -22,10 +25,21 @@ const authorState = {
 };
 vi.mock('@/context/AuthorContext', () => ({ useAuthor: () => authorState }));
 
+// The hook reads the name the list publishes for the scopes that have no
+// context of their own. Tests set it where the name is what is being checked.
+const searchBarState = { scopeName: '' };
+vi.mock('@/context/SearchBarContext', () => ({ useSearchBar: () => searchBarState }));
+
 // A stable t() matters as much as a faithful one: a fresh function per render
 // would re-run the effects that depend on it. Interpolation options come back
 // as the key — the assertions below only care which key was chosen.
-const translate = (key: string, options?: unknown) => (typeof options === 'string' ? options : key);
+// The last interpolation a label asked for, so a test can check that the name
+// actually reached the phrase rather than only that the right key was chosen.
+let named: unknown = null;
+const translate = (key: string, options?: unknown) => {
+    if (options && typeof options === 'object') named = options;
+    return typeof options === 'string' ? options : key;
+};
 const translation = { t: translate };
 vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 
@@ -227,6 +241,31 @@ describe('useSearchScope', () => {
     });
 });
 
+describe('the chip names the list it confines the search to', () => {
+    // "in this genre" says the search is confined; it does not say to what,
+    // and a reader two clicks deep no longer remembers. The author chip has
+    // always named its author, and these carry that the rest of the way.
+    it('names the genre once the list has published it', () => {
+        searchBarState.scopeName = 'Фантастика';
+        const { result } = renderAt('/books/find/genre/7/1');
+        expect(result.current.label).toBe('searchWithinGenre');
+        expect(named).toEqual({ name: 'Фантастика' });
+    });
+
+    it('names the series the same way', () => {
+        searchBarState.scopeName = 'Основание';
+        const { result } = renderAt('/books/find/category/3/1');
+        expect(result.current.label).toBe('searchWithinSeries');
+        expect(named).toEqual({ name: 'Основание' });
+    });
+
+    it('says "this genre" until the name is known, never the wrong one', () => {
+        searchBarState.scopeName = '';
+        const { result } = renderAt('/books/find/genre/7/1');
+        expect(result.current.label).toBe('searchWithinThisGenre');
+    });
+});
+
 describe('searchTitleFromLocation', () => {
     it('reads the query out of a title route', () => {
         expect(
@@ -253,5 +292,37 @@ describe('searchTitleFromLocation', () => {
         expect(
             searchTitleFromLocation('/books/find/title/%D0%BC%D0%B8%D1%80/1', '?title=other'),
         ).toBe('мир');
+    });
+});
+
+describe('unsearchedPathFrom', () => {
+    // A search used to be a one-way door: the words live in the route, so the
+    // list stayed filtered and nothing on screen took the filter back off.
+    it('sends a global title search back to the catalogue', () => {
+        // /books/1 is not a route — the catalogue is /books/page/1, which is
+        // where the header's own link goes.
+        expect(unsearchedPathFrom('/books/find/title/%D0%B2%D0%BE%D0%B9%D0%BD%D0%B0/2', '')).toBe(
+            '/books/page/1',
+        );
+    });
+
+    it('keeps a scoped search on its own list, without the query', () => {
+        // The reader asked for this genre and then searched inside it.
+        // Clearing the search must leave them in the genre, not in the
+        // catalogue — they never asked to leave.
+        expect(unsearchedPathFrom('/books/find/genre/12/3', '?title=x')).toBe(
+            '/books/find/genre/12/1',
+        );
+        expect(unsearchedPathFrom('/books/find/author/42/2', '?title=x')).toBe(
+            '/books/find/author/42/1',
+        );
+        expect(unsearchedPathFrom('/books/favorite/2', '?title=x')).toBe('/books/favorite/1');
+    });
+
+    it('offers nothing when nothing is being searched', () => {
+        expect(unsearchedPathFrom('/books/page/1', '')).toBe('');
+        expect(unsearchedPathFrom('/books/find/genre/12/1', '')).toBe('');
+        // A pinned book is navigation, not a search: there is no query to drop.
+        expect(unsearchedPathFrom('/books/find/genre/12/1', '?book_id=5')).toBe('');
     });
 });

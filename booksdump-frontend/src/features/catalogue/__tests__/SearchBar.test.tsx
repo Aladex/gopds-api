@@ -70,6 +70,7 @@ vi.mock('@/features/catalogue/AutocompleteSearch', () => ({
         onChange,
         onEnterPressed,
         onSuggestionSelected,
+        onClear,
         disabled,
         placeholder,
     }: {
@@ -81,10 +82,22 @@ vi.mock('@/features/catalogue/AutocompleteSearch', () => ({
             type: 'book' | 'author';
             id?: number;
         }) => void;
+        onClear?: () => void;
         disabled?: boolean;
         placeholder?: string;
     }) => (
         <div>
+            {/* The real field's cross carries the reset when it is given one,
+                and says so; without one it only empties the box. */}
+            {value.length > 0 && (
+                <button
+                    aria-label={onClear ? 'resetSearch' : 'clearSearch'}
+                    onClick={() => {
+                        onChange('');
+                        onClear?.();
+                    }}
+                />
+            )}
             <input
                 aria-label="searchItem"
                 placeholder={placeholder}
@@ -373,26 +386,53 @@ describe('SearchBar suggestion picks', () => {
         expect(currentPath).toBe('/books/find/author/42/1');
     });
 
-    it('pins a picked book by id and keeps its title in the field', async () => {
+    it('clearing the box on a filtered page goes back to the list', async () => {
+        // A search lives in the URL, so the box holds the words the page is
+        // filtered by. The cross used to empty the field and leave the reader
+        // looking at the same filtered page, with nothing on screen offering
+        // the way back. One gesture now does both — and costs no width beside
+        // the scope chip, which a second control had squeezed to its cross on
+        // a phone.
+        // The panel seeds the box from the address; the fake context does not
+        // re-render on that, so the seeded state is set up here directly.
+        searchState.searchItem = 'война';
+        renderBar('/books/find/author/42/1?title=%D0%B2%D0%BE%D0%B9%D0%BD%D0%B0');
+
+        await userEvent.click(screen.getByRole('button', { name: 'resetSearch' }));
+
+        expect(currentPath).toBe('/books/find/author/42/1');
+        expect(searchState.searchItem).toBe('');
+    });
+
+    it('clearing the box on an unfiltered page only empties the box', async () => {
+        // Words typed but not yet searched for: the cross is what it always
+        // was, because there is no filtered page to come back from.
+        searchState.searchItem = 'полов';
+        renderBar('/books/page/1');
+
+        expect(screen.getByRole('button', { name: 'clearSearch' })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'resetSearch' })).not.toBeInTheDocument();
+    });
+
+    it('searches for a picked title rather than opening the one copy', async () => {
         renderBar('/books/page/1');
 
         await userEvent.click(screen.getByRole('button', { name: 'pickBook' }));
 
-        // The field shows the words, the URL pins the exact book — typing the
-        // same title later must not silently resurrect the pin.
+        // The picker used to pin the suggestion's own id, which answered with
+        // exactly one book. A reader picking "Властелин колец" out of the list
+        // wants every edition of it, not whichever one came first.
         expect(searchState.searchItem).toBe('Война и мир');
-        expect(currentPath).toBe(
-            `/books/find/title/${encodeURIComponent('Война и мир')}/1?book_id=555`,
-        );
+        expect(currentPath).toBe(`/books/find/title/${encodeURIComponent('Война и мир')}/1`);
     });
 
-    it('pins a picked book inside the current scope', async () => {
+    it('searches for a picked title inside the current scope', async () => {
         renderBar('/books/find/genre/9/2');
 
         await userEvent.click(screen.getByRole('button', { name: 'pickBook' }));
 
         expect(currentPath).toBe(
-            `/books/find/genre/9/1?title=${encodeURIComponent('Война и мир')}&book_id=555`,
+            `/books/find/genre/9/1?title=${encodeURIComponent('Война и мир')}`,
         );
     });
 });

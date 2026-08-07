@@ -613,13 +613,14 @@ const (
 // book threshold does not touch.
 //
 // Same-title reimports collapse before the limit, not after: books dedupe by
-// (normalized title, lowest author id, language), so five hundred copies of
-// one title fill one slot while the same title by two authors stays two
-// choices, and the surviving copy's secondary line — that author's name — is
-// what tells them apart. Language is part of the key because two editions of
-// one title in two languages are genuinely two choices, not copies. Books
-// with no author share the zero key, so a title printed without attribution
-// still dedupes to one row per language. Authors with no visible book
+// (normalized title, language), so five hundred copies of one title fill one
+// slot — and so do fifteen different writers who each called a book "Война".
+// The author was once part of the key, which made those fifteen fifteen rows;
+// they looked like a choice and were not, because picking any of them runs the
+// same search for the same words. The row carries how many books share the
+// title instead, which is what the reader is about to see. Language stays in
+// the key: two editions of one title in two languages are genuinely two
+// choices. Authors with no visible book
 // under the reader's language drop out through the inner join, because a
 // suggestion that opens an empty list is a dead end offered as a choice.
 //
@@ -694,24 +695,26 @@ book_ranked AS (
         OR s.trigram_score >= 0.50
 ),
 book_deduped AS (
+    -- One row per title per language, whoever wrote it.
+    --
+    -- The author used to be part of the key, so fifteen writers with a book
+    -- called "Война" filled the picker with fifteen identical-looking rows.
+    -- Picking any of them runs the same search — the picker chooses words, not
+    -- a copy — so the repetition offered a choice that did not exist. What
+    -- distinguishes the row now is how many books carry the title, which is
+    -- what the reader is about to be shown.
     SELECT r.id, r.norm_title, r.pos,
-        COALESCE(fa.author_id, 0) AS author_key,
+        count(*) OVER (PARTITION BY r.norm_title, r.lang) AS copies,
         row_number() OVER (
-            PARTITION BY r.norm_title, COALESCE(fa.author_id, 0), r.lang
+            PARTITION BY r.norm_title, r.lang
             ORDER BY r.pos
         ) AS copy_pos
     FROM book_ranked AS r
-    LEFT JOIN LATERAL (
-        SELECT min(ba.author_id) AS author_id
-        FROM opds_catalog_bauthor AS ba
-        WHERE ba.book_id = r.id
-    ) AS fa ON true
 ),
 books_page AS (
-    SELECT d.id, b.title, a.full_name AS secondary, d.pos
+    SELECT d.id, b.title, NULL::text AS secondary, d.copies, d.pos
     FROM book_deduped AS d
     JOIN opds_catalog_book AS b ON b.id = d.id
-    LEFT JOIN opds_catalog_author AS a ON a.id = d.author_key
     WHERE d.copy_pos = 1
     ORDER BY d.pos
     LIMIT ?
@@ -747,7 +750,7 @@ authors_page AS (
     LIMIT ?
 ),
 combined AS (
-    SELECT 1 AS lane, bp.pos, bp.id, bp.title AS value, bp.secondary, 0 AS books_count
+    SELECT 1 AS lane, bp.pos, bp.id, bp.title AS value, bp.secondary, bp.copies AS books_count
     FROM books_page AS bp
     UNION ALL
     SELECT 2 AS lane, ap.pos, ap.id, ap.full_name, NULL::text, ap.books_count

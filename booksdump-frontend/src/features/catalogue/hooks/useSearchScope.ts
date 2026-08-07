@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import * as booksApi from '@/api/books';
 import { useAuthor } from '@/context/AuthorContext';
+import { useSearchBar } from '@/context/SearchBarContext';
 
 export type SearchScopeKind = 'author' | 'series' | 'genre' | 'collection' | 'favorites';
 
@@ -65,7 +66,7 @@ const SCOPED_ROUTES: Array<{ match: RegExp; build: (id: string) => RouteScope }>
     },
 ];
 
-const routeScopeFrom = (pathname: string): RouteScope | null => {
+export const routeScopeFrom = (pathname: string): RouteScope | null => {
     for (const { match, build } of SCOPED_ROUTES) {
         const found = pathname.match(match);
         if (found) {
@@ -100,6 +101,34 @@ export const searchTitleFromLocation = (pathname: string, search: string): strin
 };
 
 /**
+ * unsearchedPathFrom says where "clear the search" lands: the same list the
+ * reader is looking at, without the query.
+ *
+ * A search leaves the reader somewhere they cannot leave. The global one puts
+ * the words in the path — /books/find/title/война/1 — and there is no version
+ * of that route without them, so the way back is the plain catalogue. A scoped
+ * one keeps its list and hangs the query off it, so dropping the query is
+ * enough and the reader stays where they were. Searching for an author by name
+ * is its own route and returns to the catalogue too.
+ *
+ * Returns an empty string when nothing is being searched, which is how the
+ * caller knows not to offer the control at all.
+ */
+/** Where the plain catalogue lives — the same address the header links to. */
+export const CATALOGUE_PATH = '/books/page/1';
+
+export const unsearchedPathFrom = (pathname: string, search: string): string => {
+    if (!searchTitleFromLocation(pathname, search)) {
+        return '';
+    }
+    const route = routeScopeFrom(pathname);
+    if (route) {
+        return route.firstPagePath;
+    }
+    return CATALOGUE_PATH;
+};
+
+/**
  * useSearchScope reports which list a search is confined to.
  *
  * This used to be author-only and ephemeral: the confinement lived in React
@@ -117,6 +146,10 @@ const useSearchScope = (onEnter?: OnEnter): SearchScope => {
     const { t } = useTranslation();
     const location = useLocation();
     const { authorId, authorName, setAuthorName } = useAuthor();
+    // Genres, series and collections have no context caching their name; the
+    // list publishes it from the books it loaded. Until it does the chip says
+    // "this genre", which is true, rather than naming the wrong one.
+    const { scopeName } = useSearchBar();
 
     const route = routeScopeFrom(location.pathname);
     const kind = route?.kind ?? null;
@@ -179,9 +212,13 @@ const useSearchScope = (onEnter?: OnEnter): SearchScope => {
             case 'author':
                 return name ? t('searchWithinAuthor', { name }) : t('searchWithinThisAuthor');
             case 'series':
-                return t('searchWithinThisSeries');
+                return scopeName
+                    ? t('searchWithinSeries', { name: scopeName })
+                    : t('searchWithinThisSeries');
             case 'genre':
-                return t('searchWithinThisGenre');
+                return scopeName
+                    ? t('searchWithinGenre', { name: scopeName })
+                    : t('searchWithinThisGenre');
             case 'collection':
                 return t('searchWithinThisCollection');
             case 'favorites':

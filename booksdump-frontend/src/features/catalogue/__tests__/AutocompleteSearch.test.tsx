@@ -94,6 +94,36 @@ describe('AutocompleteSearch', () => {
         );
     });
 
+    it('stays shut over a page it was seeded onto', async () => {
+        // Landing on /books/find/title/война/1 seeds the field from the route.
+        // The picker used to spring open across the results underneath it.
+        const { input } = setup({ value: 'война' });
+
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+
+        // Reaching for the field is asking for it, and it opens.
+        await userEvent.setup().click(input);
+        await userEvent.setup().type(input, 'х');
+        await waitFor(() => expect(screen.getByRole('listbox')).toBeInTheDocument());
+    });
+
+    it('stays shut when the panel seeds it after mount, as navigation does', async () => {
+        // The search panel writes the query into the box from an effect, so
+        // the value arrives a beat after mount rather than with it. Rendering
+        // empty and then filling in is what a real navigation looks like.
+        const props = {
+            searchType: 'title',
+            placeholder: 'Поиск',
+            onChange: vi.fn(),
+        } as const;
+        const { rerender } = render(<AutocompleteSearch {...props} value="" />);
+        rerender(<AutocompleteSearch {...props} value="война" />);
+
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    });
+
     it('counts code points, so two astral characters are not three', async () => {
         const user = userEvent.setup();
         const { input } = setup();

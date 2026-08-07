@@ -58,6 +58,12 @@ interface AutocompleteSearchProps {
      * navigation to what was picked is the parent's call, not this box's.
      */
     onSuggestionSelected?: (suggestion: AutocompleteSuggestion) => void;
+    /**
+     * What clearing the box means when the box holds the query the page is
+     * filtered by: undo the search, not just the text. Absent while nothing is
+     * being searched, and then the cross only empties the field.
+     */
+    onClear?: () => void;
     placeholder?: string;
 }
 
@@ -90,6 +96,7 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
     disabled = false,
     onEnterPressed,
     onSuggestionSelected,
+    onClear,
     placeholder,
 }) => {
     const { t } = useTranslation();
@@ -97,7 +104,13 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
 
     const [answer, setAnswer] = useState<Answer>(NO_ANSWER);
     const [loading, setLoading] = useState(false);
-    const [dismissed, setDismissed] = useState(false);
+    // Text the reader did not type is text the picker should stay shut over.
+    // The query lives in the URL, so landing on a filtered page puts words in
+    // the box — at mount, and again on every navigation, which the panel does
+    // from an effect rather than at render. Both used to spring the picker
+    // open across the results underneath it. Focusing or typing opens it.
+    const [dismissed, setDismissed] = useState(() => value.length > 0);
+    const typed = useRef(value);
     const [highlighted, setHighlighted] = useState(-1);
 
     const abortControllerRef = useRef<AbortController | null>(null);
@@ -186,7 +199,16 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
         return () => document.removeEventListener('mousedown', onPointerDown);
     }, [dismissed]);
 
+    useEffect(() => {
+        if (value === typed.current) {
+            return;
+        }
+        typed.current = value;
+        setDismissed(true);
+    }, [value]);
+
     const handleInput = (next: string) => {
+        typed.current = next;
         setDismissed(false);
         setHighlighted(-1);
         onChange(next);
@@ -196,11 +218,22 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
      * Emptying the box puts the caret back in it: clearing is almost always the
      * start of typing something else, and a reader who had to click the field
      * again would have paid twice for one intention.
+     *
+     * When the words in the box are the ones filtering the page — a search
+     * lives in the URL, so they usually are — clearing them is also the way
+     * back to the unfiltered list, and onClear is what carries that. Handing
+     * it to this button rather than to a second control beside the field keeps
+     * one gesture for one intention, and costs no width on a phone, where a
+     * second chip squeezed the scope down to its cross.
      */
     const clear = () => {
         onChange('');
         setDismissed(true);
         setHighlighted(-1);
+        if (onClear) {
+            onClear();
+            return;
+        }
         inputRef.current?.focus();
     };
 
@@ -303,8 +336,8 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
                     <button
                         type="button"
                         tabIndex={-1}
-                        aria-label={t('clearSearch')}
-                        title={t('clearSearch')}
+                        aria-label={onClear ? t('resetSearch') : t('clearSearch')}
+                        title={onClear ? t('resetSearch') : t('clearSearch')}
                         onClick={clear}
                         className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
                     >
@@ -375,12 +408,20 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
                                             </span>
                                         )}
                                     </span>
+                                    {/*
+                                      Both kinds say how much is behind the
+                                      row. A title used to say only "Книга",
+                                      once per writer who had used it, so the
+                                      same words filled the picker as if they
+                                      were different choices.
+                                    */}
                                     <span className="shrink-0 text-xs text-muted-foreground">
-                                        {suggestion.type === 'author'
-                                            ? suggestion.books_count !== undefined
-                                                ? t('bookCount', { count: suggestion.books_count })
-                                                : t('author')
-                                            : t('book')}
+                                        {suggestion.books_count !== undefined &&
+                                        suggestion.books_count > 0
+                                            ? t('bookCount', { count: suggestion.books_count })
+                                            : suggestion.type === 'author'
+                                              ? t('author')
+                                              : t('book')}
                                     </span>
                                 </button>
                             </li>

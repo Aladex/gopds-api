@@ -13,7 +13,10 @@ import { useFav } from '@/context/FavContext';
 import { useSearchBar } from '@/context/SearchBarContext';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import LanguageSwitcher from '@/shared/layout/LanguageSwitcher';
-import useSearchScope, { searchTitleFromLocation } from '@/features/catalogue/hooks/useSearchScope';
+import useSearchScope, {
+    searchTitleFromLocation,
+    unsearchedPathFrom,
+} from '@/features/catalogue/hooks/useSearchScope';
 import type { AutocompleteSuggestion } from '@/api/autocomplete';
 import AutocompleteSearch from '@/features/catalogue/AutocompleteSearch';
 
@@ -99,6 +102,16 @@ const SearchBar: React.FC = () => {
         navigate(`/books/find/title/${encoded}/1`);
     };
 
+    // Where the reader is standing is what decides whether there is anything
+    // to clear — the box can hold words that were never searched for.
+    const unsearchedPath = unsearchedPathFrom(location.pathname, location.search);
+
+    const resetSearch = () => {
+        setSearchItem('');
+        clearAuthorId();
+        navigate(unsearchedPath);
+    };
+
     const releaseScope = () => {
         scope.release();
         // With words in the box, "search everywhere" is a search: same text,
@@ -123,16 +136,17 @@ const SearchBar: React.FC = () => {
             navigate(`/books/find/author/${suggestion.id}/1`);
             return;
         }
-        // A picked book: the field keeps the words while the URL pins the
-        // exact book, so the list can show the one match without making the
-        // reader spell the whole title.
+        // A picked book is a title, not a copy of it. Pinning the suggestion's
+        // own id used to answer with exactly one book, which is wrong for the
+        // reason readers pick from the list at all: someone choosing "Властелин
+        // колец" wants every edition of it, not whichever one the picker
+        // happened to put first. The words go in and the search runs.
         setSearchItem(suggestion.value);
         const encoded = encodeURIComponent(suggestion.value);
-        const pin = suggestion.id == null ? '' : `&book_id=${suggestion.id}`;
         if (scoped) {
-            navigate(`${scope.firstPagePath}?title=${encoded}${pin}`);
+            navigate(`${scope.firstPagePath}?title=${encoded}`);
         } else {
-            navigate(`/books/find/title/${encoded}/1${pin ? `?book_id=${suggestion.id}` : ''}`);
+            navigate(`/books/find/title/${encoded}/1`);
         }
     };
 
@@ -187,9 +201,17 @@ const SearchBar: React.FC = () => {
                           inside the box it took nearly half of a phone's.
                         */}
                         <div className="flex min-w-0 items-center justify-between gap-2">
-                            <span className="shrink-0 text-xs text-muted-foreground">
-                                {t('searchQuery')}
-                            </span>
+                            {/*
+                              On a phone the row has no width to spare: the
+                              label repeats what the field's own placeholder
+                              already says, and keeping it squeezed the scope
+                              chip down to its cross.
+                            */}
+                            {!isMobile && (
+                                <span className="shrink-0 text-xs text-muted-foreground">
+                                    {t('searchQuery')}
+                                </span>
+                            )}
                             {/*
                               While the reader is on a scoped list the scope
                               stays on screen either way — on, with a cross to
@@ -240,6 +262,7 @@ const SearchBar: React.FC = () => {
                             authorScope={scoped && scope.kind === 'author' ? scope.id : undefined}
                             onEnterPressed={navigateToSearchResults}
                             onSuggestionSelected={pickSuggestion}
+                            onClear={unsearchedPath ? resetSearch : undefined}
                             placeholder={t('searchItem')}
                         />
                     </div>

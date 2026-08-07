@@ -484,5 +484,9 @@
   "searchScopeRestore": "Search only within this list",
   "deleteUserConfirm": "Delete {{username}}? Their favourites, votes and own collections go with the account. This cannot be undone.",
   "userDeleted": "{{username}} deleted",
-  "userDeleteFailed": "Could not delete {{username}}"
+  "userDeleteFailed": "Could not delete {{username}}",
+  "searchWithinGenre": "in genre: {{name}}",
+  "searchWithinSeries": "in series: {{name}}",
+  "resetSearch": "Clear the search and go back to the list",
+  "resetSearchShort": "Clear search"
 }

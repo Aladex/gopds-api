@@ -24,6 +24,7 @@ import EditBookDialog from '@/features/catalogue/EditBookDialog';
 import RescanPreviewDialog from '@/features/catalogue/RescanPreviewDialog';
 import SkeletonCard from '@/features/catalogue/SkeletonCard';
 import { useBooksQuery } from '@/features/catalogue/hooks/useBooksQuery';
+import useScopeName from '@/features/catalogue/hooks/useScopeName';
 import { useFavouriteToggle } from '@/features/catalogue/hooks/useFavouriteToggle';
 import { useBookDownloads } from '@/features/catalogue/hooks/useBookDownloads';
 import BookCard from '@/features/catalogue/BookCard';
@@ -37,6 +38,9 @@ const BooksList: React.FC = () => {
     const { t } = useTranslation();
     const location = useLocation();
     const { state, dispatch, loadBooks } = useBooksQuery();
+    // The search panel needs to say which genre or series it is confined to,
+    // and only the loaded page knows the name.
+    useScopeName(state.books);
     const [editDialogOpen, setEditDialogOpen] = useState(false);
     const [bookToEdit, setBookToEdit] = useState<Book | null>(null);
     const [rescanDialogOpen, setRescanDialogOpen] = useState(false);

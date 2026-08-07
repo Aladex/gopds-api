@@ -488,5 +488,9 @@
   "searchScopeRestore": "Искать только в этом списке",
   "deleteUserConfirm": "Удалить {{username}}? Вместе с учётной записью уйдут избранное, голоса и собственные подборки. Отменить будет нельзя.",
   "userDeleted": "{{username}} удалён",
-  "userDeleteFailed": "Не удалось удалить {{username}}"
+  "userDeleteFailed": "Не удалось удалить {{username}}",
+  "searchWithinGenre": "в жанре: {{name}}",
+  "searchWithinSeries": "в серии: {{name}}",
+  "resetSearch": "Сбросить поиск и вернуться к списку",
+  "resetSearchShort": "Сбросить поиск"
 }
