@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"gopds-api/logging"
@@ -55,7 +56,10 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, err
 		Relation("Genres").
 		ColumnExpr("book.*, (SELECT COUNT(*) FROM favorite_books WHERE book_id = book.id) AS favorite_count")
 
-	query = applyListFilters(query, filters, userID)
+	query, err = applyListFilters(query, filters, userID)
+	if err != nil {
+		return nil, 0, err
+	}
 
 	// Ordering follows the scope that was asked for.
 	if filters.Fav {
@@ -124,8 +128,14 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, err
 // applyListFilters narrows the list to the requested scope, language and
 // visibility.
 //
+// A scope that resolves to no book matches nothing; a scope that could not be
+// resolved at all is an error and travels up. The two used to look the same
+// from outside — a database timeout rendered as "this author has no books",
+// which is a lie the reader cannot tell from the truth and the metrics cannot
+// tell from a quiet catalog.
+//
 //nolint:gocritic // reads one filter set; the list path passes it by value throughout
-func applyListFilters(query *orm.Query, filters models.BookFilters, userID int64) *orm.Query {
+func applyListFilters(query *orm.Query, filters models.BookFilters, userID int64) (*orm.Query, error) {
 	if filters.Fav {
 		var booksIds []int64
 		err := db.Model(&models.UserToBook{}).
@@ -134,16 +144,56 @@ func applyListFilters(query *orm.Query, filters models.BookFilters, userID int64
 			Order("id ASC").
 			Select(&booksIds)
 		if err != nil {
-			logging.Warnf("Failed to load favorites for user %d: %v", userID, err)
-			return query.Where("1 = 0")
+			return nil, fmt.Errorf("loading favorites for user %d: %w", userID, err)
 		}
 		if len(booksIds) > 0 {
 			query = query.WhereIn("book.id IN (?)", booksIds)
 		} else {
-			return query.Where("1 = 0")
+			return query.Where("1 = 0"), nil
 		}
 	}
 
+	query = applyVisibility(query, filters)
+
+	for _, scope := range []struct {
+		junction interface{}
+		column   string
+		value    int64
+		order    string
+	}{
+		{&models.OrderToAuthor{}, "author_id", int64(filters.Author), ""},
+		{&models.OrderToSeries{}, "ser_id", int64(filters.Series), ""},
+		{&models.BookCollectionBook{}, "book_collection_id", filters.Collection, "position ASC"},
+		{&models.OrderToGenre{}, "genre_id", int64(filters.Genre), ""},
+	} {
+		var err error
+		query, err = narrowByJunction(query, scope.junction, scope.column, scope.value, scope.order)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if filters.CuratedCollection != 0 {
+		booksIds, err := collectionBookIDsOrdered(filters.CuratedCollection)
+		if err != nil {
+			return nil, fmt.Errorf("resolving curated collection %d: %w", filters.CuratedCollection, err)
+		}
+		if len(booksIds) == 0 {
+			// Empty or non-public collection: no books should match.
+			return query.Where("FALSE"), nil
+		}
+		query = query.WhereIn("book.id IN (?)", booksIds)
+	}
+
+	return query, nil
+}
+
+// applyVisibility narrows the list to what the caller may see: their books
+// language, the moderation queue or the approved catalog, and hidden
+// duplicates only when asked for.
+//
+//nolint:gocritic // reads one filter set; the list path passes it by value throughout
+func applyVisibility(query *orm.Query, filters models.BookFilters) *orm.Query {
 	// Both the web and the bot reach the catalog through here, so honoring
 	// AllLanguages once covers both.
 	if filters.Lang != "" && filters.Lang != AllLanguages {
@@ -157,36 +207,20 @@ func applyListFilters(query *orm.Query, filters models.BookFilters, userID int64
 	}
 
 	if !filters.IncludeHidden {
-		// Hide duplicate books from all results
 		query = query.Where("book.duplicate_hidden = ?", false)
 	}
-
-	query = narrowByJunction(query, &models.OrderToAuthor{}, "author_id", int64(filters.Author), "")
-	query = narrowByJunction(query, &models.OrderToSeries{}, "ser_id", int64(filters.Series), "")
-	query = narrowByJunction(query, &models.BookCollectionBook{}, "book_collection_id", filters.Collection, "position ASC")
-	query = narrowByJunction(query, &models.OrderToGenre{}, "genre_id", int64(filters.Genre), "")
-
-	if filters.CuratedCollection != 0 {
-		booksIds, err := collectionBookIDsOrdered(filters.CuratedCollection)
-		if err == nil && len(booksIds) > 0 {
-			query = query.WhereIn("book.id IN (?)", booksIds)
-		} else {
-			// Empty / non-public collection: no books should match.
-			query = query.Where("FALSE")
-		}
-	}
-
 	return query
 }
 
 // narrowByJunction restricts the list to the books a junction table links to
 // one entity — an author, a series, a genre, a collection. A scope that is not
 // asked for changes nothing; a scope that resolves to no book matches nothing,
-// which is the only safe reading: widening back to the whole catalog would
-// answer "this author's books" with everyone's.
-func narrowByJunction(query *orm.Query, junction interface{}, column string, value int64, order string) *orm.Query {
+// because widening back to the whole catalog would answer "this author's
+// books" with everyone's. A scope that could not be read is neither: it is an
+// error, and saying "no books" instead would hide an outage as an empty shelf.
+func narrowByJunction(query *orm.Query, junction interface{}, column string, value int64, order string) (*orm.Query, error) {
 	if value == 0 {
-		return query
+		return query, nil
 	}
 
 	var bookIDs []int64
@@ -195,13 +229,12 @@ func narrowByJunction(query *orm.Query, junction interface{}, column string, val
 		q = q.Order(order)
 	}
 	if err := q.Select(&bookIDs); err != nil {
-		logging.Warnf("Failed to resolve %s = %d: %v", column, value, err)
-		return query.Where("1 = 0")
+		return nil, fmt.Errorf("resolving %s = %d: %w", column, value, err)
 	}
 	if len(bookIDs) == 0 {
-		return query.Where("1 = 0")
+		return query.Where("1 = 0"), nil
 	}
-	return query.WhereIn("book.id IN (?)", bookIDs)
+	return query.WhereIn("book.id IN (?)", bookIDs), nil
 }
 
 // populateSeriesNumbers loads ser_no from the junction table into already-loaded Series.

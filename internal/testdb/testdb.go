@@ -17,8 +17,18 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/go-pg/pg/v10"
+)
+
+// The environment variables every integration suite reads.
+const (
+	envHost = "GOPDS_POSTGRES_DBHOST"
+	envUser = "GOPDS_POSTGRES_DBUSER"
+	// #nosec G101 -- the name of an environment variable, not a credential
+	envPassword = "GOPDS_POSTGRES_DBPASS"
+	envName     = "GOPDS_POSTGRES_DBNAME"
 )
 
 // Config is the connection the environment asks for.
@@ -33,30 +43,56 @@ type Config struct {
 func (c Config) Address() string { return c.Host + "/" + c.Name }
 
 // Configured reports whether the environment names a database, and returns it.
-// A partially named one — host without user, say — counts as not configured:
-// it cannot be connected to either way, and treating it as a request would turn
-// a typo in one variable into a failing suite everywhere.
+//
+// Any of the three required variables counts as intent. A partially named
+// database used to read as "not configured", which meant a CI job or a command
+// with one variable misspelled skipped its integration tests and reported
+// success — the same fail-open this package exists to remove, one level up. A
+// typo should be loud; a developer who set nothing is unaffected either way.
 func Configured() (Config, bool) {
 	cfg := Config{
-		Host:     os.Getenv("GOPDS_POSTGRES_DBHOST"),
-		User:     os.Getenv("GOPDS_POSTGRES_DBUSER"),
-		Password: os.Getenv("GOPDS_POSTGRES_DBPASS"),
-		Name:     os.Getenv("GOPDS_POSTGRES_DBNAME"),
+		Host:     os.Getenv(envHost),
+		User:     os.Getenv(envUser),
+		Password: os.Getenv(envPassword),
+		Name:     os.Getenv(envName),
 	}
-	if cfg.Host == "" || cfg.User == "" || cfg.Name == "" {
+	if cfg.Host == "" && cfg.User == "" && cfg.Name == "" {
 		return Config{}, false
 	}
 	return cfg, true
 }
 
+// Incomplete names the required variables the environment left empty, so a
+// partial configuration fails with the reason rather than with a refused
+// connection.
+func (c Config) Incomplete() []string {
+	var missing []string
+	for _, v := range []struct {
+		name  string
+		value string
+	}{
+		{envHost, c.Host},
+		{envUser, c.User},
+		{envName, c.Name},
+	} {
+		if v.value == "" {
+			missing = append(missing, v.name)
+		}
+	}
+	return missing
+}
+
 // SkipReason is what a suite says when no database was asked for.
-const SkipReason = "no database configured: set GOPDS_POSTGRES_DBHOST/DBUSER/DBNAME " +
+const SkipReason = "no database configured: set " + envHost + "/DBUSER/DBNAME " +
 	"(see `make db-reset`), or run with -short to skip integration tests"
 
 // Connect opens the configured connection and verifies it answers. onConnect
 // is passed through to pg.Options so callers can apply their own session
 // settings; it may be nil.
 func Connect(cfg Config, onConnect func(context.Context, *pg.Conn) error) (*pg.DB, error) {
+	if missing := cfg.Incomplete(); len(missing) > 0 {
+		return nil, fmt.Errorf("database is half configured, missing %s", strings.Join(missing, ", "))
+	}
 	db := pg.Connect(&pg.Options{
 		Addr:      cfg.Host,
 		User:      cfg.User,

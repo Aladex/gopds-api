@@ -32,17 +32,18 @@ func TestConfiguredNeedsEveryRequiredVariable(t *testing.T) {
 			}, true,
 		},
 		{
-			// Half a request is not a request. Failing here would turn one
-			// mistyped variable into a red suite on every developer machine.
+			// Half a request is still a request. Reading it as "no database
+			// configured" is how one mistyped variable turns into a suite that
+			// skips its integration tests and reports success.
 			"host only", map[string]string{
 				"GOPDS_POSTGRES_DBHOST": "127.0.0.1:5432",
-			}, false,
+			}, true,
 		},
 		{
 			"name missing", map[string]string{
 				"GOPDS_POSTGRES_DBHOST": "127.0.0.1:5432",
 				"GOPDS_POSTGRES_DBUSER": "gopds",
-			}, false,
+			}, true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -64,6 +65,16 @@ func TestConfiguredNeedsEveryRequiredVariable(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A half-configured database fails with the variable it is missing, not with
+// a confusing connection error.
+func TestConnectRejectsAHalfConfiguredDatabase(t *testing.T) {
+	_, err := Connect(Config{Host: "127.0.0.1:5432"}, nil)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "GOPDS_POSTGRES_DBUSER")
+	assert.Contains(t, err.Error(), "GOPDS_POSTGRES_DBNAME")
 }
 
 // A configured database that does not answer must be reported, not swallowed.
