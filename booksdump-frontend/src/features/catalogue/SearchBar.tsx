@@ -209,14 +209,27 @@ const SearchBar: React.FC = () => {
                           height there, and it leaves the field its full width —
                           inside the box it took nearly half of a phone's.
                         */}
-                        <div className="flex min-w-0 items-center justify-between gap-2">
+                        {/*
+                          The row is always here and always holds exactly one
+                          thing on a phone: the label, or — once the reader is
+                          inside a list — the chip that replaces it and takes
+                          the full width. A conditional row is what made the
+                          card grow by thirty pixels the moment a reader
+                          stepped into a genre, and shrink again on the way
+                          out. The height is pinned to the chip's own 24px,
+                          because a label is only eighteen and the difference
+                          would still show as a smaller jump — on the desktop
+                          too, where the label was never conditional.
+                        */}
+                        <div className="flex min-h-6 min-w-0 items-center justify-between gap-2">
                             {/*
-                              On a phone the row has no width to spare: the
+                              On a phone the row has no width for both: the
                               label repeats what the field's own placeholder
                               already says, and keeping it squeezed the scope
-                              chip down to its cross.
+                              chip down to its cross. It yields, rather than
+                              disappearing — the row it occupied stays.
                             */}
-                            {!isMobile && (
+                            {(!isMobile || !scopeApplies) && (
                                 <span className="shrink-0 text-xs text-muted-foreground">
                                     {t('searchQuery')}
                                 </span>

@@ -64,6 +64,14 @@ vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 // The autocomplete talks to the network; the panel's own behaviour is what is
 // under test, so stand in with a plain input that reports typing and Enter,
 // plus buttons standing in for picking a suggestion.
+// The row's content depends on the width, so the tests drive it rather than
+// leaving it to whatever jsdom reports.
+const viewport = { mobile: false };
+vi.mock('@/shared/hooks/useMediaQuery', () => ({
+    useMediaQuery: () => viewport.mobile,
+    default: () => viewport.mobile,
+}));
+
 vi.mock('@/features/catalogue/AutocompleteSearch', () => ({
     default: ({
         value,
@@ -143,6 +151,7 @@ function renderBar(path = '/books/page/1') {
 beforeEach(() => {
     vi.clearAllMocks();
     currentPath = '/books/page/1';
+    viewport.mobile = false;
     favState.fav = false;
     favState.favEnabled = true;
     searchState.searchItem = '';
@@ -389,6 +398,38 @@ describe('SearchBar suggestion picks', () => {
         await userEvent.click(screen.getByRole('button', { name: 'pickAuthor' }));
 
         expect(currentPath).toBe('/books/find/author/42/1');
+    });
+
+    it('gives the row to the chip on a phone, and keeps the row', () => {
+        // The chip needs the whole width on 360px, so the label yields — but
+        // the row it stood in stays, which is what keeps the card from
+        // growing thirty pixels under the reader.
+        viewport.mobile = true;
+
+        renderBar('/books/page/1');
+        const plain = screen.getByText('searchQuery');
+        const row = plain.parentElement as HTMLElement;
+        expect(row).toBeInTheDocument();
+
+        cleanup();
+        renderBar('/books/find/genre/9/1');
+        expect(screen.queryByText('searchQuery')).not.toBeInTheDocument();
+        const chip = screen.getByText('searchWithinThisGenre');
+        // Same row, now holding the chip instead of the label.
+        expect(chip.closest('div')?.className).toContain('min-h-6');
+    });
+
+    it('keeps the label row whether or not a scope is showing', () => {
+        // A conditional row is what made the card grow the moment a reader
+        // stepped into a genre. The row stays; only its content changes.
+        renderBar('/books/page/1');
+        expect(screen.getByText('searchQuery')).toBeInTheDocument();
+
+        cleanup();
+        renderBar('/books/find/genre/9/1');
+        // Desktop has width for both; the test environment is not mobile.
+        expect(screen.getByText('searchQuery')).toBeInTheDocument();
+        expect(screen.getByText('searchWithinThisGenre')).toBeInTheDocument();
     });
 
     it('tells the picker which list the reader is in', async () => {
