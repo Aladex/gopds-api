@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"gopds-api/internal/testdb"
+
 	"github.com/go-pg/pg/v10"
 )
 
@@ -19,10 +21,7 @@ import (
 // resolve when the runner re-establishes a usable path for each transaction.
 func TestRunRealMigrationsOnFreshDatabase(t *testing.T) {
 	admin := testDB(t)
-
-	host := os.Getenv("GOPDS_POSTGRES_DBHOST")
-	user := os.Getenv("GOPDS_POSTGRES_DBUSER")
-	pass := os.Getenv("GOPDS_POSTGRES_DBPASS")
+	cfg, _ := testdb.Configured()
 
 	scratch := fmt.Sprintf("migrate_fresh_test_%d", time.Now().UnixNano())
 	if _, err := admin.Exec("CREATE DATABASE " + scratch); err != nil {
@@ -34,7 +33,7 @@ func TestRunRealMigrationsOnFreshDatabase(t *testing.T) {
 		}
 	})
 
-	db := pg.Connect(&pg.Options{Addr: host, User: user, Password: pass, Database: scratch})
+	db := pg.Connect(&pg.Options{Addr: cfg.Host, User: cfg.User, Password: cfg.Password, Database: scratch})
 	t.Cleanup(func() { _ = db.Close() })
 
 	ctx := context.Background()

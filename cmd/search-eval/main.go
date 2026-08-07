@@ -140,6 +140,11 @@ type catalogFingerprint struct {
 	Authors   int64  `json:"authors"`
 	MaxBookID int64  `json:"max_book_id"`
 	GitCommit string `json:"git_commit"`
+	// GitDirty records that the tree carried uncommitted changes when the run
+	// was measured, so the commit alone does not describe the code. The Phase
+	// 8 artifact named 2bffb91 while measuring the uncommitted Phase 8 work;
+	// nothing in the file said so.
+	GitDirty bool `json:"git_dirty"`
 }
 
 // aggregateReport summarizes the whole run. Recall and MRR average only over
@@ -165,14 +170,28 @@ type evalReport struct {
 
 // comparisonReport records how a compare run scored against the capture-mode
 // baseline it was given.
+//
+// Every aggregate here is computed over the queries the two runs share, never
+// over each run's own set. Comparing whole-run aggregates across different
+// corpora subtracts averages with different denominators: when the set grew
+// from 12 queries to 13, the published "+0.0665 recall" partly measured the
+// query that had been added. Shared-subset deltas mean what they say, and the
+// names that differ are reported instead of being averaged away.
 type comparisonReport struct {
+	SharedQueries     int      `json:"shared_queries"`
+	AddedQueries      []string `json:"added_queries,omitempty"`
+	MissingQueries    []string `json:"missing_queries,omitempty"`
 	BaselineRecallAtK float64  `json:"baseline_recall_at_k"`
 	BaselineMRR       float64  `json:"baseline_mrr"`
 	BaselineZeroRate  float64  `json:"baseline_zero_result_rate"`
+	CurrentRecallAtK  float64  `json:"current_recall_at_k"`
+	CurrentMRR        float64  `json:"current_mrr"`
+	CurrentZeroRate   float64  `json:"current_zero_result_rate"`
 	RecallDelta       float64  `json:"recall_delta"`
 	MRRDelta          float64  `json:"mrr_delta"`
 	ZeroRateDelta     float64  `json:"zero_result_rate_delta"`
 	RegressedQueries  []string `json:"regressed_queries,omitempty"`
+	LostQueries       []string `json:"lost_queries,omitempty"`
 	Verdict           string   `json:"verdict"` // "pass" or "regression"
 }
 
@@ -306,19 +325,40 @@ func compare(args []string) int {
 
 	report.Queries = runSet(database.NewPGSearchRepository(db), db, set, *repeat)
 	report.Aggregate = aggregate(report.Queries)
-	cmp := compareAggregates(report.Aggregate, base.Aggregate, report.Queries, base.Queries)
+	cmp := compareAggregates(report.Queries, base.Queries)
 	report.Comparison = &cmp
 	writeReport(*out, &report)
 
-	fmt.Fprintf(os.Stderr, "vs baseline: recall %.4f (%+.4f), mrr %.4f (%+.4f), zero %.4f (%+.4f) — %s\n",
-		report.Aggregate.RecallAtK, cmp.RecallDelta,
-		report.Aggregate.MRR, cmp.MRRDelta,
-		report.Aggregate.ZeroResultRate, cmp.ZeroRateDelta, cmp.Verdict)
+	printComparison(&cmp)
 	if cmp.Verdict != verdictPass {
-		fmt.Fprintf(os.Stderr, "regressed queries: %s\n", strings.Join(cmp.RegressedQueries, ", "))
 		return 1
 	}
 	return 0
+}
+
+// printComparison narrates the verdict: the shared-subset deltas, then every
+// name that did not overlap or stopped behaving, each said out loud rather
+// than folded into an average.
+func printComparison(cmp *comparisonReport) {
+	fmt.Fprintf(os.Stderr,
+		"vs baseline over %d shared queries: recall %.4f (%+.4f), mrr %.4f (%+.4f), zero %.4f (%+.4f) — %s\n",
+		cmp.SharedQueries,
+		cmp.CurrentRecallAtK, cmp.RecallDelta,
+		cmp.CurrentMRR, cmp.MRRDelta,
+		cmp.CurrentZeroRate, cmp.ZeroRateDelta, cmp.Verdict)
+	for _, line := range []struct {
+		label string
+		names []string
+	}{
+		{"not in the baseline, excluded from the deltas", cmp.AddedQueries},
+		{"in the baseline but not measured here", cmp.MissingQueries},
+		{"lower recall than the baseline", cmp.RegressedQueries},
+		{"stopped finding what they used to find", cmp.LostQueries},
+	} {
+		if len(line.names) > 0 {
+			fmt.Fprintf(os.Stderr, "%s: %s\n", line.label, strings.Join(line.names, ", "))
+		}
+	}
 }
 
 // loadBaseline reads a capture-mode report to compare against.
@@ -338,32 +378,84 @@ func loadBaseline(path string) (evalReport, error) {
 	return rep, nil
 }
 
-// compareAggregates judges the compare run against the baseline: recall and
-// MRR must not drop, the zero-result rate must not grow. Per-query recall
-// drops are listed by name. Floats compare with a small epsilon so
-// representation noise is not a regression.
-func compareAggregates(current, baseline aggregateReport, queries, baselineQueries []queryReport) comparisonReport {
+// pairQueries walks this run against the baseline by name, collecting the
+// overlapping pairs and noting, on the way, which queries are new, which lost
+// recall and which stopped finding what they used to find.
+func pairQueries(cmp *comparisonReport, queries []queryReport, baseByName map[string]*queryReport) (shared, baseShared []queryReport) {
 	const eps = 1e-9
-	cmp := comparisonReport{
-		BaselineRecallAtK: baseline.RecallAtK,
-		BaselineMRR:       baseline.MRR,
-		BaselineZeroRate:  baseline.ZeroResultRate,
-		RecallDelta:       current.RecallAtK - baseline.RecallAtK,
-		MRRDelta:          current.MRR - baseline.MRR,
-		ZeroRateDelta:     current.ZeroResultRate - baseline.ZeroResultRate,
-	}
-	baseByName := make(map[string]float64, len(baselineQueries))
-	for i := range baselineQueries {
-		baseByName[baselineQueries[i].Name] = baselineQueries[i].RecallAtK
-	}
 	for i := range queries {
 		q := &queries[i]
-		if recall, ok := baseByName[q.Name]; ok && q.RecallAtK < recall-eps {
+		base, ok := baseByName[q.Name]
+		if !ok {
+			cmp.AddedQueries = append(cmp.AddedQueries, q.Name)
+			continue
+		}
+		shared = append(shared, *q)
+		baseShared = append(baseShared, *base)
+
+		if q.RecallAtK < base.RecallAtK-eps {
 			cmp.RegressedQueries = append(cmp.RegressedQueries, q.Name)
 		}
+		// The accepted item was found before and is not found now.
+		if base.ReciprocalRank > eps && q.ReciprocalRank <= eps {
+			cmp.LostQueries = append(cmp.LostQueries, q.Name)
+		}
+		// The query answered before and answers with nothing now.
+		if !base.ZeroResult && q.ZeroResult {
+			cmp.LostQueries = append(cmp.LostQueries, q.Name)
+		}
 	}
+	return shared, baseShared
+}
+
+// compareAggregates judges this run against the baseline over the queries the
+// two share, and reports what did not overlap.
+//
+// Three ways to fail, not one. Aggregates that fall is the obvious one. A
+// baseline query this run does not measure is the second: a gate that averages
+// only what is still present can be turned green by deleting the inconvenient
+// query, so a missing name fails outright. A query whose accepted item stopped
+// appearing at all is the third — the plan's "no critical golden query missing
+// its accepted item" — because a large enough win elsewhere hides it in the
+// average. A recall drop that keeps the accepted item is reported by name but
+// does not fail: ranking changes trade recall between queries by design.
+//
+// Floats compare with a small epsilon so representation noise is not a
+// regression.
+func compareAggregates(queries, baselineQueries []queryReport) comparisonReport {
+	const eps = 1e-9
+
+	baseByName := make(map[string]*queryReport, len(baselineQueries))
+	for i := range baselineQueries {
+		baseByName[baselineQueries[i].Name] = &baselineQueries[i]
+	}
+	currentByName := make(map[string]*queryReport, len(queries))
+	for i := range queries {
+		currentByName[queries[i].Name] = &queries[i]
+	}
+
+	var cmp comparisonReport
+	shared, baseShared := pairQueries(&cmp, queries, baseByName)
+	for i := range baselineQueries {
+		if _, ok := currentByName[baselineQueries[i].Name]; !ok {
+			cmp.MissingQueries = append(cmp.MissingQueries, baselineQueries[i].Name)
+		}
+	}
+
+	current := aggregate(shared)
+	baseline := aggregate(baseShared)
+	cmp.SharedQueries = len(shared)
+	cmp.BaselineRecallAtK, cmp.BaselineMRR, cmp.BaselineZeroRate = baseline.RecallAtK, baseline.MRR, baseline.ZeroResultRate
+	cmp.CurrentRecallAtK, cmp.CurrentMRR, cmp.CurrentZeroRate = current.RecallAtK, current.MRR, current.ZeroResultRate
+	cmp.RecallDelta = current.RecallAtK - baseline.RecallAtK
+	cmp.MRRDelta = current.MRR - baseline.MRR
+	cmp.ZeroRateDelta = current.ZeroResultRate - baseline.ZeroResultRate
+
 	cmp.Verdict = verdictPass
-	if cmp.RecallDelta < -eps || cmp.MRRDelta < -eps || cmp.ZeroRateDelta > eps {
+	switch {
+	case len(cmp.MissingQueries) > 0, len(cmp.LostQueries) > 0:
+		cmp.Verdict = verdictRegression
+	case cmp.RecallDelta < -eps, cmp.MRRDelta < -eps, cmp.ZeroRateDelta > eps:
 		cmp.Verdict = verdictRegression
 	}
 	return cmp
@@ -600,6 +692,9 @@ func fingerprint(ctx context.Context, db *pg.DB) catalogFingerprint {
 	}
 	if out, err := exec.CommandContext(ctx, "git", "rev-parse", "HEAD").Output(); err == nil {
 		fp.GitCommit = strings.TrimSpace(string(out))
+	}
+	if out, err := exec.CommandContext(ctx, "git", "status", "--porcelain").Output(); err == nil {
+		fp.GitDirty = strings.TrimSpace(string(out)) != ""
 	}
 	return fp
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 	"gopds-api/database"
 	"gopds-api/httputil"
+	"gopds-api/internal/testdb"
 	"gopds-api/models"
 	"gopds-api/services"
 
@@ -27,7 +29,14 @@ import (
 var searchTestDB *pg.DB
 
 func TestMain(m *testing.M) {
-	if conn := connectSearchTestDB(); conn != nil {
+	// Configured but unreachable fails the run rather than quietly skipping
+	// the one case that exercises the ordinary list path against real rows.
+	if cfg, ok := testdb.Configured(); ok {
+		conn, err := testdb.Connect(cfg, database.DisableJIT)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "api: %v\n", err)
+			os.Exit(1)
+		}
 		searchTestDB = conn
 		database.SetDB(conn)
 	}
@@ -41,34 +50,13 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func connectSearchTestDB() *pg.DB {
-	host := os.Getenv("GOPDS_POSTGRES_DBHOST")
-	user := os.Getenv("GOPDS_POSTGRES_DBUSER")
-	name := os.Getenv("GOPDS_POSTGRES_DBNAME")
-	if host == "" || user == "" || name == "" {
-		return nil
-	}
-	conn := pg.Connect(&pg.Options{
-		Addr:      host,
-		User:      user,
-		Password:  os.Getenv("GOPDS_POSTGRES_DBPASS"),
-		Database:  name,
-		OnConnect: database.DisableJIT,
-	})
-	if _, err := conn.Exec("SELECT 1"); err != nil {
-		_ = conn.Close()
-		return nil
-	}
-	return conn
-}
-
 func requireSearchTestDB(t *testing.T) {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
 	if searchTestDB == nil {
-		t.Skip("no database configured: set GOPDS_POSTGRES_DBHOST/DBUSER/DBNAME")
+		t.Skip(testdb.SkipReason)
 	}
 }
 

@@ -120,58 +120,113 @@ func TestPercentile(t *testing.T) {
 }
 
 func TestCompareAggregates(t *testing.T) {
-	base := aggregateReport{TotalQueries: 2, ScoredQueries: 2, RecallAtK: 0.5, MRR: 0.75, ZeroResultRate: 0.25}
+	// One shared query per case, so the aggregate is the query's own number
+	// and the verdict is about the rule rather than the arithmetic.
+	base := []queryReport{{
+		evalQuery: evalQuery{Name: "shared"}, RecallAtK: 0.5,
+		ReciprocalRank: 0.5, RelevantIDs: []int64{1}, Total: 3,
+	}}
 
-	tests := []struct {
+	current := func(recall, rr float64, total int) []queryReport {
+		return []queryReport{{
+			evalQuery: evalQuery{Name: "shared"}, RecallAtK: recall,
+			ReciprocalRank: rr, RelevantIDs: []int64{1},
+			Total: total, ZeroResult: total == 0,
+		}}
+	}
+
+	for _, tt := range []struct {
 		name    string
-		current aggregateReport
+		queries []queryReport
 		verdict string
 	}{
-		{
-			name:    "equal aggregates pass",
-			current: aggregateReport{RecallAtK: 0.5, MRR: 0.75, ZeroResultRate: 0.25},
-			verdict: "pass",
-		},
-		{
-			name:    "improved aggregates pass",
-			current: aggregateReport{RecallAtK: 0.9, MRR: 1, ZeroResultRate: 0},
-			verdict: "pass",
-		},
-		{
-			name:    "a recall drop is a regression",
-			current: aggregateReport{RecallAtK: 0.4, MRR: 0.75, ZeroResultRate: 0.25},
-			verdict: "regression",
-		},
-		{
-			name:    "an MRR drop is a regression",
-			current: aggregateReport{RecallAtK: 0.5, MRR: 0.5, ZeroResultRate: 0.25},
-			verdict: "regression",
-		},
-		{
-			name:    "zero-result growth is a regression",
-			current: aggregateReport{RecallAtK: 0.5, MRR: 0.75, ZeroResultRate: 0.5},
-			verdict: "regression",
-		},
-	}
-	for _, tt := range tests {
+		{"equal aggregates pass", current(0.5, 0.5, 3), verdictPass},
+		{"improved aggregates pass", current(0.9, 1, 3), verdictPass},
+		{"a recall drop is a regression", current(0.4, 0.5, 3), verdictRegression},
+		{"an MRR drop is a regression", current(0.5, 0.25, 3), verdictRegression},
+		{"zero results where there were some is a regression", current(0.5, 0.5, 0), verdictRegression},
+	} {
 		t.Run(tt.name, func(t *testing.T) {
-			cmp := compareAggregates(tt.current, base, nil, nil)
+			cmp := compareAggregates(tt.queries, base)
 			assert.Equal(t, tt.verdict, cmp.Verdict)
-			assert.InDelta(t, tt.current.RecallAtK-base.RecallAtK, cmp.RecallDelta, 1e-9)
-			assert.Empty(t, cmp.RegressedQueries)
+			assert.Equal(t, 1, cmp.SharedQueries)
+			assert.Empty(t, cmp.MissingQueries)
+			assert.Empty(t, cmp.AddedQueries)
 		})
 	}
 
-	t.Run("per-query recall drops are listed by name", func(t *testing.T) {
+	t.Run("per-query recall drops are listed but do not fail on their own", func(t *testing.T) {
+		baseline := []queryReport{
+			{evalQuery: evalQuery{Name: "kept"}, RecallAtK: 0.5, ReciprocalRank: 1, RelevantIDs: []int64{1}, Total: 3},
+			{evalQuery: evalQuery{Name: "traded"}, RecallAtK: 0.5, ReciprocalRank: 1, RelevantIDs: []int64{1}, Total: 3},
+		}
 		queries := []queryReport{
-			{evalQuery: evalQuery{Name: "kept"}, RecallAtK: 0.5},
-			{evalQuery: evalQuery{Name: "dropped"}, RecallAtK: 0.25},
+			// One query gives up recall, the other more than makes it up:
+			// a ranking change, not a regression.
+			{evalQuery: evalQuery{Name: "kept"}, RecallAtK: 0.9, ReciprocalRank: 1, RelevantIDs: []int64{1}, Total: 3},
+			{evalQuery: evalQuery{Name: "traded"}, RecallAtK: 0.25, ReciprocalRank: 1, RelevantIDs: []int64{1}, Total: 3},
 		}
-		baselineQueries := []queryReport{
-			{evalQuery: evalQuery{Name: "kept"}, RecallAtK: 0.5},
-			{evalQuery: evalQuery{Name: "dropped"}, RecallAtK: 0.5},
+
+		cmp := compareAggregates(queries, baseline)
+
+		assert.Equal(t, []string{"traded"}, cmp.RegressedQueries)
+		assert.Equal(t, verdictPass, cmp.Verdict, "an aggregate win covers a per-query trade")
+	})
+
+	// The hole this closes: an inconvenient query can be deleted from the set
+	// and the remaining average will happily read as an improvement.
+	t.Run("a baseline query this run does not measure fails", func(t *testing.T) {
+		baseline := []queryReport{
+			{evalQuery: evalQuery{Name: "kept"}, RecallAtK: 0.5, ReciprocalRank: 1, RelevantIDs: []int64{1}, Total: 3},
+			{evalQuery: evalQuery{Name: "deleted"}, RecallAtK: 0.1, ReciprocalRank: 1, RelevantIDs: []int64{1}, Total: 3},
 		}
-		cmp := compareAggregates(base, base, queries, baselineQueries)
-		assert.Equal(t, []string{"dropped"}, cmp.RegressedQueries)
+		queries := []queryReport{
+			{evalQuery: evalQuery{Name: "kept"}, RecallAtK: 0.9, ReciprocalRank: 1, RelevantIDs: []int64{1}, Total: 3},
+		}
+
+		cmp := compareAggregates(queries, baseline)
+
+		assert.Equal(t, []string{"deleted"}, cmp.MissingQueries)
+		assert.Equal(t, verdictRegression, cmp.Verdict, "dropping a golden query must not read as a win")
+		assert.Positive(t, cmp.RecallDelta, "and the surviving average must still look like an improvement")
+	})
+
+	// The corpus grew between Phase 1 and Phase 8, and the published deltas
+	// silently mixed the denominators. A new query is measured and reported,
+	// but it cannot move a delta against a baseline that never saw it.
+	t.Run("a query the baseline never had is excluded from the deltas", func(t *testing.T) {
+		baseline := []queryReport{
+			{evalQuery: evalQuery{Name: "shared"}, RecallAtK: 0.5, ReciprocalRank: 1, RelevantIDs: []int64{1}, Total: 3},
+		}
+		queries := []queryReport{
+			{evalQuery: evalQuery{Name: "shared"}, RecallAtK: 0.5, ReciprocalRank: 1, RelevantIDs: []int64{1}, Total: 3},
+			{evalQuery: evalQuery{Name: "added"}, RecallAtK: 0.01, ReciprocalRank: 1, RelevantIDs: []int64{1}, Total: 3},
+		}
+
+		cmp := compareAggregates(queries, baseline)
+
+		assert.Equal(t, []string{"added"}, cmp.AddedQueries)
+		assert.Equal(t, 1, cmp.SharedQueries)
+		assert.InDelta(t, 0, cmp.RecallDelta, 1e-9, "the added query must not drag the delta")
+		assert.Equal(t, verdictPass, cmp.Verdict)
+	})
+
+	// An aggregate win must not bury a golden query that stopped finding its
+	// accepted item.
+	t.Run("losing the accepted item fails even when the average improves", func(t *testing.T) {
+		baseline := []queryReport{
+			{evalQuery: evalQuery{Name: "critical"}, RecallAtK: 0.2, ReciprocalRank: 1, RelevantIDs: []int64{1}, Total: 3},
+			{evalQuery: evalQuery{Name: "other"}, RecallAtK: 0.2, ReciprocalRank: 1, RelevantIDs: []int64{1}, Total: 3},
+		}
+		queries := []queryReport{
+			{evalQuery: evalQuery{Name: "critical"}, RecallAtK: 0.2, ReciprocalRank: 0, RelevantIDs: []int64{1}, Total: 3},
+			{evalQuery: evalQuery{Name: "other"}, RecallAtK: 0.9, ReciprocalRank: 1, RelevantIDs: []int64{1}, Total: 3},
+		}
+
+		cmp := compareAggregates(queries, baseline)
+
+		assert.Equal(t, []string{"critical"}, cmp.LostQueries)
+		assert.Equal(t, verdictRegression, cmp.Verdict)
+		assert.Positive(t, cmp.RecallDelta, "the average did improve, which is the point")
 	})
 }

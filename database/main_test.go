@@ -5,6 +5,8 @@ import (
 	"os"
 	"testing"
 
+	"gopds-api/internal/testdb"
+
 	"github.com/go-pg/pg/v10"
 )
 
@@ -14,15 +16,22 @@ import (
 // cleanly when there is none — `make db-reset` prepares a suitable local one,
 // and `make test-integration` points the suite at it.
 
-const skipReason = "no database configured: set GOPDS_POSTGRES_DBHOST/DBUSER/DBNAME " +
-	"(see `make db-reset`), or run with -short to skip integration tests"
-
 func TestMain(m *testing.M) {
-	conn, err := connectFromEnv()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "database: integration tests will skip: %v\n", err)
-	} else {
+	// A configured database that does not answer fails the run here rather
+	// than skipping every test below: the suite was asked for integration
+	// coverage, and reporting success without it is how a green gate comes to
+	// mean nothing.
+	var conn *pg.DB
+	if cfg, ok := testdb.Configured(); ok {
+		opened, err := testdb.Connect(cfg, DisableJIT)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "database: %v\n", err)
+			os.Exit(1)
+		}
+		conn = opened
 		SetDB(conn)
+	} else {
+		fmt.Fprintf(os.Stderr, "database: %s\n", testdb.SkipReason)
 	}
 
 	code := m.Run()
@@ -35,28 +44,6 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func connectFromEnv() (*pg.DB, error) {
-	host := os.Getenv("GOPDS_POSTGRES_DBHOST")
-	user := os.Getenv("GOPDS_POSTGRES_DBUSER")
-	name := os.Getenv("GOPDS_POSTGRES_DBNAME")
-	if host == "" || user == "" || name == "" {
-		return nil, fmt.Errorf("GOPDS_POSTGRES_DBHOST, DBUSER and DBNAME must all be set")
-	}
-
-	conn := pg.Connect(&pg.Options{
-		Addr:      host,
-		User:      user,
-		Password:  os.Getenv("GOPDS_POSTGRES_DBPASS"),
-		Database:  name,
-		OnConnect: DisableJIT,
-	})
-	if _, err := conn.Exec("SELECT 1"); err != nil {
-		_ = conn.Close()
-		return nil, fmt.Errorf("connecting to %s/%s: %w", host, name, err)
-	}
-	return conn, nil
-}
-
 // requireDatabase skips the calling test unless a database is reachable.
 func requireDatabase(t *testing.T) {
 	t.Helper()
@@ -64,6 +51,6 @@ func requireDatabase(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 	if db == nil {
-		t.Skip(skipReason)
+		t.Skip(testdb.SkipReason)
 	}
 }
