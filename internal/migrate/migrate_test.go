@@ -8,6 +8,8 @@ import (
 	"testing/fstest"
 	"time"
 
+	"gopds-api/internal/testdb"
+
 	"github.com/go-pg/pg/v10"
 )
 
@@ -22,22 +24,16 @@ func testDB(t *testing.T) *pg.DB {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	host := os.Getenv("GOPDS_POSTGRES_DBHOST")
-	user := os.Getenv("GOPDS_POSTGRES_DBUSER")
-	name := os.Getenv("GOPDS_POSTGRES_DBNAME")
-	if host == "" || user == "" || name == "" {
-		t.Skip("no database configured: set GOPDS_POSTGRES_DBHOST/DBUSER/DBNAME")
+	cfg, ok := testdb.Configured()
+	if !ok {
+		t.Skip(testdb.SkipReason)
 	}
 
-	db := pg.Connect(&pg.Options{
-		Addr:     host,
-		User:     user,
-		Password: os.Getenv("GOPDS_POSTGRES_DBPASS"),
-		Database: name,
-	})
-	if _, err := db.Exec("SELECT 1"); err != nil {
-		_ = db.Close()
-		t.Skipf("connecting to %s/%s: %v", host, name, err)
+	// Configured but unreachable is a failure, not a skip: this run asked for
+	// the migrations to be replayed and did not get it.
+	db, err := testdb.Connect(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	return db

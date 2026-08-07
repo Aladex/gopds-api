@@ -1,7 +1,7 @@
 .PHONY: help verify bootstrap build build-bin build-frontend backend frontend frontend-placeholder swagger \
 	fmt-frontend fmt-frontend-check deps deps-frontend test test-backend test-integration test-frontend test-coverage clean lint lint-new lint-frontend lint-frontend-new fmt staticcheck security \
 	docker-build docker-run docker-compose-up docker-compose-down dev migrate-up release pre-commit \
-	db-dump db-restore db-seed db-reset migrate-plan
+	db-dump db-restore db-seed db-reset migrate-plan search-eval-baseline search-eval-compare
 
 # These targets are ordered pipelines, not independent compile units: bootstrap
 # must finish before tests, and dependencies must be installed before the build
@@ -85,6 +85,10 @@ TEST_DB_USER ?= gopds
 TEST_DB_PASS ?= gopds_password
 TEST_DB_NAME ?= gopds
 
+# Baseline report the search-eval compare target judges against. Override for
+# expanded query sets, e.g. SEARCH_EVAL_BASELINE=plans/reports/lexical-search-baseline-13q.json.
+SEARCH_EVAL_BASELINE ?= plans/reports/lexical-search-baseline.json
+
 test-integration: bootstrap ## Run the full Go suite, including tests that require PostgreSQL
 	@echo "Running backend tests including integration tests against $(TEST_DB_HOST)/$(TEST_DB_NAME)..."
 	GOPDS_POSTGRES_DBHOST=$(TEST_DB_HOST) \
@@ -109,6 +113,25 @@ test-coverage: test ## Run tests with coverage report
 	@echo "Generating coverage report..."
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated: coverage.html"
+
+search-eval-baseline: ## Capture the lexical-search relevance baseline into $(SEARCH_EVAL_OUT)
+	@test -n "$(SEARCH_EVAL_OUT)" || { echo "SEARCH_EVAL_OUT is required, e.g. SEARCH_EVAL_OUT=plans/reports/lexical-search-baseline.json"; exit 1; }
+	@mkdir -p $(dir $(SEARCH_EVAL_OUT))
+	GOPDS_POSTGRES_DBHOST=$(TEST_DB_HOST) \
+	GOPDS_POSTGRES_DBUSER=$(TEST_DB_USER) \
+	GOPDS_POSTGRES_DBPASS=$(TEST_DB_PASS) \
+	GOPDS_POSTGRES_DBNAME=$(TEST_DB_NAME) \
+	go run ./cmd/search-eval capture -input database/testdata/search_catalog_queries.json -out $(SEARCH_EVAL_OUT)
+
+search-eval-compare: ## Compare the new search repository against the baseline into $(SEARCH_EVAL_OUT)
+	@test -n "$(SEARCH_EVAL_OUT)" || { echo "SEARCH_EVAL_OUT is required, e.g. SEARCH_EVAL_OUT=plans/reports/lexical-search-compare.json"; exit 1; }
+	@mkdir -p $(dir $(SEARCH_EVAL_OUT))
+	GOPDS_POSTGRES_DBHOST=$(TEST_DB_HOST) \
+	GOPDS_POSTGRES_DBUSER=$(TEST_DB_USER) \
+	GOPDS_POSTGRES_DBPASS=$(TEST_DB_PASS) \
+	GOPDS_POSTGRES_DBNAME=$(TEST_DB_NAME) \
+	go run ./cmd/search-eval compare -input database/testdata/search_catalog_queries.json \
+		-baseline $(SEARCH_EVAL_BASELINE) -out $(SEARCH_EVAL_OUT)
 
 lint: ## Run linters over the whole tree (reports the pre-existing backlog too)
 	@echo "Running golangci-lint $(GOLANGCI_VERSION)..."

@@ -147,17 +147,14 @@ const BookCard: React.FC<BookCardProps> = ({
 }) => {
     const { t } = useTranslation();
     const { setSearchItem } = useSearchBar();
-    const { clearAuthorBook, setAuthorName } = useAuthor();
+    const { setAuthorName } = useAuthor();
     const [open, setOpen] = React.useState(false);
 
     /** Names the block the control opens, for anything reading the page aloud. */
     const detailsID = `book-${book.id}-details`;
 
     /** leaveScope empties the search box so the filter, not a stale query, applies. */
-    const leaveScope = () => {
-        setSearchItem('');
-        clearAuthorBook();
-    };
+    const leaveScope = () => setSearchItem('');
 
     // A code the interface cannot name is not shown at all: "zxx" tells a
     // reader less than the empty space where it would have gone.

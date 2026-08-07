@@ -11,9 +11,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"gopds-api/commands"
 	"gopds-api/logging"
+	"gopds-api/services"
 
 	"gopds-api/database"
 
@@ -38,14 +40,36 @@ type BotManager struct {
 	mutex               sync.RWMutex
 	config              *Config
 	conversationManager *ConversationManager
+	// newProcessor builds command processors on the one shared search
+	// service; there is no global default service to fall back to.
+	newProcessor func() *commands.CommandProcessor
+}
+
+// The bot sees the reader's own words: a search phrase, a name, the running
+// conversation. None of it belongs in a log — what debugging needs is that the
+// path was taken and how much text it carried. These two functions are where
+// that decision lives, so it can be pinned by a test instead of restated at
+// every call site.
+
+// logSearchContext records that a search ran with conversation context, by size.
+func logSearchContext(telegramID int64, contextStr string) {
+	logging.Infof("Search with context for user %d: %d context runes",
+		telegramID, utf8.RuneCountInString(contextStr))
+}
+
+// logStatefulInput records that a pending state consumed an input, by size.
+func logStatefulInput(telegramID int64, state, text string) {
+	logging.Infof("User %d has state %q, processing %d input runes",
+		telegramID, state, utf8.RuneCountInString(text))
 }
 
 // Bot represents a bot linked to a system user
 type Bot struct {
-	token       string
-	bot         *tgbotapi.Bot
-	userID      int64  // ID of the user in our system who owns this bot
-	webhookUUID string // UUID used in webhook URL instead of token
+	token        string
+	bot          *tgbotapi.Bot
+	userID       int64  // ID of the user in our system who owns this bot
+	webhookUUID  string // UUID used in webhook URL instead of token
+	newProcessor func() *commands.CommandProcessor
 }
 
 // Config contains settings for bots
@@ -53,13 +77,17 @@ type Config struct {
 	BaseURL string // base URL for webhooks
 }
 
-// NewBotManager creates a new bot manager
-func NewBotManager(config *Config, redisClient *redis.Client) *BotManager {
+// NewBotManager creates a new bot manager whose bots build command
+// processors on the one shared search service created in main.
+func NewBotManager(config *Config, redisClient *redis.Client, search services.PublicSearch) *BotManager {
 	return &BotManager{
 		bots:                make(map[string]*Bot),
 		uuidToBots:          make(map[string]*Bot),
 		config:              config,
 		conversationManager: NewConversationManager(redisClient),
+		newProcessor: func() *commands.CommandProcessor {
+			return commands.NewCommandProcessor(search)
+		},
 	}
 }
 
@@ -165,9 +193,10 @@ func (bm *BotManager) createBotInstance(token string, userID int64) (*Bot, error
 	}
 
 	bot := &Bot{
-		token:  token,
-		bot:    teleBot,
-		userID: userID,
+		token:        token,
+		bot:          teleBot,
+		userID:       userID,
+		newProcessor: bm.newProcessor,
 	}
 
 	bot.setupHandlers(bm.conversationManager)
@@ -295,11 +324,11 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 		if err != nil {
 			logging.Errorf("Failed to get context string: %v", err)
 		} else if contextStr != "" {
-			logging.Infof("Search with context for user %d: %s", telegramID, contextStr)
+			logSearchContext(telegramID, contextStr)
 		}
 
-		processor := commands.NewCommandProcessor()
-		result, err := processor.ProcessMessage(query, contextStr, telegramID)
+		processor := b.newProcessor()
+		result, err := processor.ProcessMessage(ctx, query, contextStr, telegramID)
 		if err != nil {
 			b.handleCommandError(ctx, bot, conversationManager, telegramID, update.Message.Chat.ID, "/search with LLM", err)
 			return
@@ -322,8 +351,8 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 			return
 		}
 
-		processor := commands.NewCommandProcessor()
-		result, err := processor.ExecuteDirectBookSearch(query, telegramID)
+		processor := b.newProcessor()
+		result, err := processor.ExecuteDirectBookSearch(ctx, query, telegramID)
 		if err != nil {
 			b.handleCommandError(ctx, bot, conversationManager, telegramID, update.Message.Chat.ID, "direct book search", err)
 			return
@@ -346,8 +375,8 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 			return
 		}
 
-		processor := commands.NewCommandProcessor()
-		result, err := processor.ExecuteDirectAuthorSearch(query)
+		processor := b.newProcessor()
+		result, err := processor.ExecuteDirectAuthorSearch(ctx, query, telegramID)
 		if err != nil {
 			b.handleCommandError(ctx, bot, conversationManager, telegramID, update.Message.Chat.ID, "direct author search", err)
 			return
@@ -378,8 +407,8 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 			return
 		}
 
-		processor := commands.NewCommandProcessor()
-		result, err := processor.ExecuteDirectCombinedSearch(title, author, telegramID)
+		processor := b.newProcessor()
+		result, err := processor.ExecuteDirectCombinedSearch(ctx, title, author, telegramID)
 		if err != nil {
 			b.handleCommandError(ctx, bot, conversationManager, telegramID, update.Message.Chat.ID, "direct combined search", err)
 			return
@@ -394,7 +423,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 			return
 		}
 
-		processor := commands.NewCommandProcessor()
+		processor := b.newProcessor()
 		result, err := processor.ExecuteShowFavorites(telegramID, 0, 5)
 		if err != nil {
 			b.handleCommandError(ctx, bot, conversationManager, telegramID, update.Message.Chat.ID, "show favorites", err)
@@ -410,7 +439,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 			return
 		}
 
-		processor := commands.NewCommandProcessor()
+		processor := b.newProcessor()
 		result, err := processor.ExecuteShowCollections(0, 5)
 		if err != nil {
 			b.handleCommandError(ctx, bot, conversationManager, telegramID, update.Message.Chat.ID, "show collections", err)
@@ -456,20 +485,20 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 		}
 
 		if userState != "" {
-			logging.Infof("User %d has state '%s', processing input: %s", telegramID, userState, text)
+			logStatefulInput(telegramID, userState, text)
 
-			processor := commands.NewCommandProcessor()
+			processor := b.newProcessor()
 			var result *commands.CommandResult
 			var cmdErr error
 
 			switch userState {
 			case "waiting_for_search":
 				contextStr, _ := conversationManager.GetContextAsString(b.token, telegramID)
-				result, cmdErr = processor.ProcessMessage(text, contextStr, telegramID)
+				result, cmdErr = processor.ProcessMessage(ctx, text, contextStr, telegramID)
 			case "waiting_for_author":
-				result, cmdErr = processor.ExecuteDirectAuthorSearch(text)
+				result, cmdErr = processor.ExecuteDirectAuthorSearch(ctx, text, telegramID)
 			case "waiting_for_book":
-				result, cmdErr = processor.ExecuteDirectBookSearch(text, telegramID)
+				result, cmdErr = processor.ExecuteDirectBookSearch(ctx, text, telegramID)
 			default:
 				logging.Warnf("Unknown user state: %s", userState)
 			}
@@ -494,8 +523,8 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 			contextStr = ""
 		}
 
-		processor := commands.NewCommandProcessor()
-		result, err := processor.ProcessMessage(text, contextStr, telegramID)
+		processor := b.newProcessor()
+		result, err := processor.ProcessMessage(ctx, text, contextStr, telegramID)
 		if err != nil {
 			b.handleCommandError(ctx, bot, conversationManager, telegramID, update.Message.Chat.ID, "message with LLM", err)
 			return
@@ -1051,7 +1080,7 @@ func (b *Bot) handleKeyboardCommand(ctx context.Context, bot *tgbotapi.Bot, conv
 		b.sendMessage(ctx, bot, chatID, response, nil)
 
 	case "/favorites":
-		processor := commands.NewCommandProcessor()
+		processor := b.newProcessor()
 		result, err := processor.ExecuteShowFavorites(telegramID, 0, 5)
 		if err != nil {
 			b.handleCommandError(ctx, bot, conversationManager, telegramID, chatID, "show favorites", err)
@@ -1060,7 +1089,7 @@ func (b *Bot) handleKeyboardCommand(ctx context.Context, bot *tgbotapi.Bot, conv
 		b.processCommandResult(ctx, bot, conversationManager, result, telegramID, chatID)
 
 	case "/collections":
-		processor := commands.NewCommandProcessor()
+		processor := b.newProcessor()
 		result, err := processor.ExecuteShowCollections(0, 5)
 		if err != nil {
 			b.handleCommandError(ctx, bot, conversationManager, telegramID, chatID, "show collections", err)

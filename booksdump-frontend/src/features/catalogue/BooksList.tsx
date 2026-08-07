@@ -172,7 +172,7 @@ const BooksList: React.FC = () => {
                         <BookPagination
                             totalPages={state.totalPages}
                             currentPage={parseInt(page as string)}
-                            baseUrl={location.pathname}
+                            baseUrl={location.pathname + location.search}
                         />
                     </div>
                 </div>

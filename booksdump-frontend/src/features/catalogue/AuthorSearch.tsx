@@ -36,7 +36,7 @@ const AuthorSearch: React.FC = () => {
     const navigate = useNavigate();
     const { setSearchItem } = useSearchBar();
     const { user } = useAuth();
-    const { clearAuthorBook, setAuthorName } = useAuthor();
+    const { setAuthorName } = useAuthor();
 
     useEffect(() => {
         const fetchAuthors = async () => {
@@ -72,7 +72,6 @@ const AuthorSearch: React.FC = () => {
     /** Clicking through leaves the search box empty so the filter, not a stale query, applies. */
     const handleAuthorClick = (authorId: number, fullName: string) => {
         setSearchItem('');
-        clearAuthorBook();
         // Carried over so the scope beside the search box can name the author
         // without asking the server for what was just on screen.
         setAuthorName(fullName);

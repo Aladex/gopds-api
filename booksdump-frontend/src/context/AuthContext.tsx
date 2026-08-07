@@ -137,17 +137,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                         resetFavCallback();
                     }
 
-                    // Update the user with the new catalogue language.
+                    // Update the user with the new catalogue language. The
+                    // list itself resets a deep page in place — navigating
+                    // away from here would drop the scope and the search the
+                    // reader was looking at.
                     setUser({ ...user, books_lang: language });
-
-                    // Return to the main book list after changing language.
-                    navigate('/books/page/1');
                 } catch (error) {
                     console.error('Error updating language', error);
                 }
             }
         },
-        [user, navigate, setUser, resetFavCallback],
+        [user, setUser, resetFavCallback],
     );
 
     const logout = useCallback(async () => {

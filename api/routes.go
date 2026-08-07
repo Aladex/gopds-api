@@ -9,19 +9,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// SetupBookRoutes sets up routes for books
-func SetupBookRoutes(r *gin.RouterGroup) {
-	r.GET("/list", GetBooks)
+// SetupBookRoutes sets up routes for books. The search-backed endpoints are
+// methods of the injected handler; the rest stay on their package functions.
+func SetupBookRoutes(r *gin.RouterGroup, search *SearchHandler) {
+	r.GET("/list", search.Books)
 	r.GET("/get/:format/:id", GetBookFile)
 	r.HEAD("/get/:format/:id", HeadBookFile)
 	r.GET("/langs", GetLangs)
 	r.GET("/self-user", SelfUser)
 	r.GET("/theme", GetThemePreference)
 	r.GET("/getsigned/:format/:id", GetSignedBookUrl)
-	r.GET("/autocomplete", Autocomplete)
+	r.GET("/autocomplete", search.Autocomplete)
 	r.POST("/change-me", middlewares.CSRFMiddleware(), ChangeUser)
 	r.POST("/theme", middlewares.CSRFMiddleware(), SetThemePreference)
-	r.GET("/authors", GetAuthors)
+	r.GET("/authors", search.Authors)
 	r.POST("/author", GetAuthor)
 	r.POST("/file", GetBookFile)
 	r.POST("/fav", middlewares.CSRFMiddleware(), FavBook)

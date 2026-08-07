@@ -76,6 +76,26 @@ describe('BookPagination', () => {
         expect(currentPath).toBe('/books/find/author/42/4');
     });
 
+    it('keeps the search of a scoped list on every page address', () => {
+        render(
+            <MemoryRouter initialEntries={['/books/find/author/42/3?title=%D1%85&book_id=5']}>
+                <PathProbe />
+                <BookPagination
+                    totalPages={20}
+                    currentPage={3}
+                    baseUrl="/books/find/author/42/3?title=%D1%85&book_id=5"
+                />
+            </MemoryRouter>,
+        );
+
+        // A scoped search puts its query in the URL; page two without it is a
+        // different, wider list than the one the reader was paging through.
+        expect(screen.getByRole('link', { name: 'goToPage:4' })).toHaveAttribute(
+            'href',
+            '/books/find/author/42/4?title=%D1%85&book_id=5',
+        );
+    });
+
     it('offers no way back from the first page', () => {
         renderPager({ currentPage: 1, baseUrl: '/books/page/1' });
 

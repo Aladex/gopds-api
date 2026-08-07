@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import { Heart, Plus, X } from 'lucide-react';
 
 import { Button } from '@/shared/ui/button';
@@ -13,21 +13,17 @@ import { useFav } from '@/context/FavContext';
 import { useSearchBar } from '@/context/SearchBarContext';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import LanguageSwitcher from '@/shared/layout/LanguageSwitcher';
-import useAuthorScope from '@/features/catalogue/hooks/useAuthorScope';
+import useSearchScope, { searchTitleFromLocation } from '@/features/catalogue/hooks/useSearchScope';
+import type { AutocompleteSuggestion } from '@/api/autocomplete';
 import AutocompleteSearch from '@/features/catalogue/AutocompleteSearch';
-
-interface SearchRecord {
-    option: string;
-    path: string;
-}
 
 /**
  * SearchBar turns a query into a route. Nothing here fetches: the list route it
  * navigates to does the loading.
  *
- * While the favourites filter is on, every control is disabled — the backend
- * cannot search inside favourites, so an enabled box would promise something it
- * would not deliver.
+ * Every scoped list — an author's books, a series, a genre, a collection,
+ * favourites — confines the next title search to itself, and the query rides
+ * the URL so a reload or a shared link reproduces exactly what is on screen.
  */
 const SearchBar: React.FC = () => {
     const { t } = useTranslation();
@@ -41,39 +37,42 @@ const SearchBar: React.FC = () => {
         setSelectedLanguage,
     } = useSearchBar();
     const navigate = useNavigate();
+    const location = useLocation();
     const { fav, favEnabled } = useFav();
     const { updateLang } = useAuth();
     const isMobile = useMediaQuery('(max-width: 600px)');
+
+    // A reload or a pasted link lands on an already filtered list with an
+    // empty box, because the query lives in the URL rather than in state.
+    // Seed the field from the address so the reader can see — and edit —
+    // what is being searched.
+    useEffect(() => {
+        const title = searchTitleFromLocation(location.pathname, location.search);
+        if (title) {
+            setSearchItem(title);
+        }
+    }, [location.pathname, location.search, setSearchItem]);
 
     const chooseLanguage = (lang: string) => {
         updateLang(lang);
         setSelectedLanguage(lang);
     };
-    // Arriving in an author's list puts the panel in the mode the scope
-    // belongs to. Without this a reader who got here by searching for a name
-    // stays in "authors by name", where the scope cannot apply and so is not
-    // even shown — they had to know to switch modes themselves.
-    const scope = useAuthorScope(() => setSelectedSearch('title'));
-    const { setAuthorBook, clearAuthorId, clearAuthorBook } = useAuthor();
+    // Arriving in a scoped list puts the panel in the mode the scope belongs
+    // to. Without this a reader who got here by searching for a name stays in
+    // "authors by name", where the scope cannot apply and so is not even
+    // shown — they had to know to switch modes themselves.
+    const scope = useSearchScope(() => setSelectedSearch('title'));
+    const { setAuthorId, setAuthorName, clearAuthorId } = useAuthor();
 
     const searchOptions = [
         { value: 'title', label: t('byTitle') },
         { value: 'author', label: t('byAuthor') },
     ];
 
-    const records: SearchRecord[] = [
-        { option: 'title', path: `/books/find/title/${encodeURIComponent(searchItem)}/1` },
-        { option: 'author', path: `/authors/${encodeURIComponent(searchItem)}/1` },
-    ];
-
     // Looking for authors by name is a search of the whole library by
     // definition, so the scope only applies to a search for books.
-    const scopeApplies = scope.available && selectedSearch === 'title';
+    const scopeApplies = scope.kind !== null && selectedSearch === 'title';
     const scoped = scopeApplies && scope.active;
-
-    const scopeLabel = scope.name
-        ? t('searchWithinAuthor', { name: scope.name })
-        : t('searchWithinThisAuthor');
 
     const navigateToSearchResults = () => {
         // Check that the search field is not empty and contains at least one character
@@ -81,29 +80,77 @@ const SearchBar: React.FC = () => {
             return;
         }
 
-        // Confined to one author: stay on their list and filter it, which is
-        // what the list route does with a title alongside an author.
-        if (scoped && scope.id) {
-            setAuthorBook(searchItem);
-            navigate(`/books/find/author/${scope.id}/1`);
+        const encoded = encodeURIComponent(searchItem);
+
+        if (selectedSearch === 'author') {
+            clearAuthorId();
+            navigate(`/authors/${encoded}/1`);
             return;
         }
 
-        const record = records.find((item) => item.option === selectedSearch);
-        if (!record) {
+        // Confined to a list: stay on it and filter it, the query riding the
+        // URL so a reload or a shared link asks for exactly this.
+        if (scoped) {
+            navigate(`${scope.firstPagePath}?title=${encoded}`);
             return;
         }
 
         clearAuthorId();
-        clearAuthorBook();
-        navigate(record.path);
+        navigate(`/books/find/title/${encoded}/1`);
+    };
+
+    const releaseScope = () => {
+        scope.release();
+        // With words in the box, "search everywhere" is a search: same text,
+        // no scope. With an empty box the chip simply offers itself back.
+        const query = searchItem.trim();
+        if (query) {
+            navigate(`/books/find/title/${encodeURIComponent(query)}/1`);
+        }
+    };
+
+    const pickSuggestion = (suggestion: AutocompleteSuggestion) => {
+        if (suggestion.type === 'author') {
+            // A picked author is chosen, not searched: open their books with
+            // the scope already on, the name already in hand for the chip, and
+            // a clean field — the name is not a title to filter by.
+            if (suggestion.id == null) {
+                return;
+            }
+            setAuthorId(String(suggestion.id));
+            setAuthorName(suggestion.value);
+            setSearchItem('');
+            navigate(`/books/find/author/${suggestion.id}/1`);
+            return;
+        }
+        // A picked book: the field keeps the words while the URL pins the
+        // exact book, so the list can show the one match without making the
+        // reader spell the whole title.
+        setSearchItem(suggestion.value);
+        const encoded = encodeURIComponent(suggestion.value);
+        const pin = suggestion.id == null ? '' : `&book_id=${suggestion.id}`;
+        if (scoped) {
+            navigate(`${scope.firstPagePath}?title=${encoded}${pin}`);
+        } else {
+            navigate(`/books/find/title/${encoded}/1${pin ? `?book_id=${suggestion.id}` : ''}`);
+        }
     };
 
     const toggleFavourites = () => {
         if (!favEnabled) {
             return;
         }
-        navigate(fav ? '/books/page/1' : '/books/favorite/1');
+        const query = searchItem.trim();
+        const encoded = encodeURIComponent(query);
+        if (fav) {
+            // Back to the library: the words return to the broad search they
+            // would have been had favourites never narrowed it.
+            navigate(query ? `/books/find/title/${encoded}/1` : '/books/page/1');
+        } else {
+            // Into favourites, keeping the words: the filter changes, the
+            // search does not.
+            navigate(query ? `/books/favorite/1?title=${encoded}` : '/books/favorite/1');
+        }
     };
 
     return (
@@ -119,11 +166,7 @@ const SearchBar: React.FC = () => {
                         <label htmlFor="search-category" className="text-xs text-muted-foreground">
                             {t('searchWhat')}
                         </label>
-                        <Select
-                            value={selectedSearch}
-                            onValueChange={setSelectedSearch}
-                            disabled={fav}
-                        >
+                        <Select value={selectedSearch} onValueChange={setSelectedSearch}>
                             <SelectTrigger id="search-category" className="w-full">
                                 <SelectValue placeholder={t('searchWhat')} />
                             </SelectTrigger>
@@ -148,7 +191,7 @@ const SearchBar: React.FC = () => {
                                 {t('searchQuery')}
                             </span>
                             {/*
-                              While the reader is in an author's list the scope
+                              While the reader is on a scoped list the scope
                               stays on screen either way — on, with a cross to
                               drop it, or off and offering itself back. It used
                               to vanish once released, leaving no way to confine
@@ -157,15 +200,15 @@ const SearchBar: React.FC = () => {
                             {scopeApplies &&
                                 (scope.active ? (
                                     <span className="inline-flex min-w-0 items-center gap-0.5 rounded-full bg-accent py-0.5 pr-0.5 pl-2 text-xs text-accent-foreground">
-                                        {/* A long name is cut on a narrow
+                                        {/* A long label is cut on a narrow
                                             screen, so the whole of it stays
                                             reachable. */}
-                                        <span className="truncate" title={scope.name || undefined}>
-                                            {scopeLabel}
+                                        <span className="truncate" title={scope.label}>
+                                            {scope.label}
                                         </span>
                                         <button
                                             type="button"
-                                            onClick={scope.release}
+                                            onClick={releaseScope}
                                             aria-label={t('searchEverywhere')}
                                             title={t('searchEverywhere')}
                                             className="flex size-4 shrink-0 items-center justify-center rounded-full hover:bg-foreground/15"
@@ -185,7 +228,7 @@ const SearchBar: React.FC = () => {
                                         )}
                                     >
                                         <Plus className="size-3 shrink-0" />
-                                        <span className="truncate">{scopeLabel}</span>
+                                        <span className="truncate">{scope.label}</span>
                                     </button>
                                 ))}
                         </div>
@@ -194,9 +237,9 @@ const SearchBar: React.FC = () => {
                             value={searchItem}
                             onChange={setSearchItem}
                             searchType={selectedSearch}
-                            authorScope={scoped ? scope.id : undefined}
-                            disabled={fav}
+                            authorScope={scoped && scope.kind === 'author' ? scope.id : undefined}
                             onEnterPressed={navigateToSearchResults}
+                            onSuggestionSelected={pickSuggestion}
                             placeholder={t('searchItem')}
                         />
                     </div>
@@ -204,7 +247,6 @@ const SearchBar: React.FC = () => {
                     <Button
                         type="button"
                         onClick={navigateToSearchResults}
-                        disabled={fav}
                         className="px-6 uppercase tracking-wide"
                     >
                         {t('search')}
@@ -221,7 +263,6 @@ const SearchBar: React.FC = () => {
                         selected={selectedLanguage}
                         onSelect={chooseLanguage}
                         isMobile={isMobile}
-                        disabled={fav}
                     />
 
                     <Button

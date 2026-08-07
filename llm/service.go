@@ -187,8 +187,18 @@ func (s *LLMService) ProcessQuery(userQuery, context string) (*Command, error) {
 		return &Command{Command: "unknown"}, nil
 	}
 
-	logging.Infof("LLM processed query '%s' -> command: %s, title: %s, author: %s", userQuery, command.Command, command.Title, command.Author)
+	logProcessedQuery(userQuery, command)
 	return command, nil
+}
+
+// logProcessedQuery records what the model made of one query. The query and
+// the title and author it read out of it are the reader's own words, so the
+// log carries the shape of the outcome instead: which command was recognized,
+// how long the query was, and whether each field came back filled.
+func logProcessedQuery(userQuery string, command *Command) {
+	logging.Infof("LLM processed %d query runes -> command: %s, title: %t, author: %t",
+		utf8.RuneCountInString(userQuery), command.Command,
+		command.Title != "", command.Author != "")
 }
 
 // callOpenAI makes a request to OpenAI API
@@ -261,9 +271,22 @@ func (s *LLMService) parseResponse(response *OpenAIResponse) (*Command, error) {
 		}
 	}
 
-	// If JSON parsing fails, log the content and return unknown command
-	logging.Errorf("Failed to parse LLM response as JSON: %s", content)
+	logUnparsableResponse(content)
 	return &Command{Command: "unknown"}, nil
+}
+
+// logUnparsableResponse records that the model answered with something that is
+// not the command JSON.
+//
+// The content cannot go to the log: the model is answering a reader's query
+// and quotes it back, so a malformed reply is the reader's own words in an
+// error entry. What is left is what an operator can act on — how long the
+// reply was, and whether it contained anything brace-shaped, which separates
+// "the model refused in prose" from "the model emitted broken JSON".
+func logUnparsableResponse(content string) {
+	braces := strings.Contains(content, "{") && strings.Contains(content, "}")
+	logging.Errorf("Failed to parse LLM response as JSON: %d runes, brace-delimited: %t",
+		utf8.RuneCountInString(content), braces)
 }
 
 // validateCommand validates and normalizes the command

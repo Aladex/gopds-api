@@ -27,7 +27,7 @@ func setupTestRouter(t *testing.T) (*gin.Engine, *BotManager, func()) {
 	config := &Config{
 		BaseURL: "https://test.example.com",
 	}
-	botManager := NewBotManager(config, redisClient)
+	botManager := NewBotManager(config, redisClient, stubSearch{})
 
 	router := gin.New()
 
@@ -282,7 +282,7 @@ func TestTelegramService_SetupRoutes(t *testing.T) {
 	config := &Config{
 		BaseURL: "https://test.example.com",
 	}
-	botManager := NewBotManager(config, redisClient)
+	botManager := NewBotManager(config, redisClient, stubSearch{})
 
 	// Skip bot initialization by creating service without InitializeExistingBots
 	service := &TelegramService{
@@ -337,7 +337,7 @@ func TestTelegramService_Getters(t *testing.T) {
 	config := &Config{
 		BaseURL: "https://test.example.com",
 	}
-	botManager := NewBotManager(config, redisClient)
+	botManager := NewBotManager(config, redisClient, stubSearch{})
 	routes := NewRoutes(botManager)
 
 	service := &TelegramService{

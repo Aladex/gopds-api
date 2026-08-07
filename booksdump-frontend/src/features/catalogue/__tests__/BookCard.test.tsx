@@ -32,9 +32,8 @@ const setSearchItem = vi.fn();
 vi.mock('@/context/SearchBarContext', () => ({ useSearchBar: () => ({ setSearchItem }) }));
 
 const setAuthorName = vi.fn();
-const clearAuthorBook = vi.fn();
 vi.mock('@/context/AuthorContext', () => ({
-    useAuthor: () => ({ setAuthorName, clearAuthorBook }),
+    useAuthor: () => ({ setAuthorName }),
 }));
 
 const AUTHORS = [
@@ -250,7 +249,6 @@ describe('the values in those lists', () => {
         // own books. The name is handed over rather than fetched again: it is on
         // screen already.
         expect(setSearchItem).toHaveBeenCalledWith('');
-        expect(clearAuthorBook).toHaveBeenCalled();
         expect(setAuthorName).toHaveBeenCalledWith('Кир Булычёв');
     });
 });

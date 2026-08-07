@@ -12,11 +12,12 @@ import {
 import { cn } from '@/shared/lib/utils';
 
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
-import { pageBaseUrl, paginationRange } from '@/features/catalogue/paginationRange';
+import { pageHref, paginationRange } from '@/features/catalogue/paginationRange';
 
 interface PaginationProps {
     totalPages: number;
     currentPage: number;
+    /** Where the reader is, query string included — it carries the search. */
     baseUrl: string;
 }
 
@@ -29,7 +30,6 @@ interface PaginationProps {
 const BookPagination: React.FC<PaginationProps> = ({ totalPages, currentPage, baseUrl }) => {
     const navigate = useNavigate();
     const { t } = useTranslation();
-    const base = pageBaseUrl(baseUrl);
 
     // A narrow screen has no room for seven pages either side, so the window
     // shrinks rather than wrapping onto a second line.
@@ -43,7 +43,7 @@ const BookPagination: React.FC<PaginationProps> = ({ totalPages, currentPage, ba
         return null;
     }
 
-    const href = (page: number) => `${base}/${page}`;
+    const href = (page: number) => pageHref(baseUrl, page);
 
     const go = (event: React.MouseEvent, page: number) => {
         // Leave the modified clicks to the browser: they mean "somewhere else".

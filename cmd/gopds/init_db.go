@@ -4,16 +4,18 @@ import (
 	"github.com/go-pg/pg/v10"
 	"github.com/go-redis/redis"
 
+	"gopds-api/database"
 	"gopds-api/logging"
 	"gopds-api/sessions"
 )
 
 func initializeDatabase() *pg.DB {
 	options := &pg.Options{
-		User:     cfg.Postgres.DBUser,
-		Password: cfg.Postgres.DBPass,
-		Database: cfg.Postgres.DBName,
-		Addr:     cfg.Postgres.DBHost,
+		User:      cfg.Postgres.DBUser,
+		Password:  cfg.Postgres.DBPass,
+		Database:  cfg.Postgres.DBName,
+		Addr:      cfg.Postgres.DBHost,
+		OnConnect: database.DisableJIT,
 	}
 	db := pg.Connect(options)
 	if _, err := db.Exec("SELECT 1"); err != nil {
