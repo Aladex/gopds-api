@@ -14,6 +14,7 @@ import (
 	_ "gopds-api/internal/swaggerdocs" // Import to include documentation for Swagger UI
 	"gopds-api/logging"
 	"gopds-api/middlewares"
+	"gopds-api/services"
 	"gopds-api/sessions"
 	"gopds-api/tasks" // Import the tasks package for WatchDirectory
 	"gopds-api/telegram"
@@ -37,6 +38,10 @@ func main() {
 	db := initializeDatabase()
 	defer closeDatabaseConnection(db)
 	database.SetDB(db)
+
+	// One search service for every adapter, built on the same pool the
+	// package-global database helpers use.
+	searchService := services.NewSearchService(database.NewPGSearchRepository(db))
 
 	mainRedisClient, tokenRedisClient := initializeSessionManagement()
 	sessions.SetRedisConnections(mainRedisClient, tokenRedisClient)
@@ -84,7 +89,7 @@ func main() {
 
 	route := gin.New()
 	setupMiddleware(route)
-	setupRoutes(route, cfg.Donate)
+	setupRoutes(route, cfg.Donate, searchService)
 
 	server := &http.Server{
 		Addr:           cfg.GetServerAddress(),

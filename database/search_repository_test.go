@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -758,4 +759,246 @@ func TestOrderByIDsSurvivesRowsThatVanished(t *testing.T) {
 		require.Len(t, got, 1)
 		assert.Equal(t, int64(10), got[0].ID)
 	})
+}
+
+// TestPGSearchRepositorySearchAuthors ports the author search expectations
+// from GetAuthors onto the repository: word match, whole-name fuzzy at the
+// session floor, visibility-aware books counts, exact totals and stable
+// paging — now over search_normalize instead of lower().
+//
+// The fixture transaction sees the real catalogue, so realistic names
+// collide with dump rows (the dump has its own "Толстой Лев", id 8671) and
+// even synthetic surnames fuzzy-match a handful of real authors. Assertions
+// therefore pin fixture IDs, never bare positions or result counts — except
+// where the fixture author holds word distance zero, which always ranks
+// ahead of every fuzzy real match.
+func TestPGSearchRepositorySearchAuthors(t *testing.T) {
+	t.Run("a surname finds its author by word", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			repo := NewPGSearchRepository(f.tx)
+
+			page, err := repo.SearchAuthors(context.Background(), models.AuthorSearchRequest{
+				Query: "толстой", Limit: 10,
+			})
+
+			require.NoError(t, err)
+			assert.Contains(t, authorIDs(page.Authors), f.AuthorIDs["tolstoy"])
+			assert.NotEmpty(t, page.QueryHash)
+		})
+	})
+
+	t.Run("case does not change the results", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			repo := NewPGSearchRepository(f.tx)
+
+			upper, err := repo.SearchAuthors(context.Background(), models.AuthorSearchRequest{Query: "ТОЛСТОЙ", Limit: 10})
+			require.NoError(t, err)
+			lower, err := repo.SearchAuthors(context.Background(), models.AuthorSearchRequest{Query: "толстой", Limit: 10})
+			require.NoError(t, err)
+
+			require.Equal(t, len(upper.Authors), len(lower.Authors))
+			for i := range upper.Authors {
+				assert.Equal(t, upper.Authors[i].ID, lower.Authors[i].ID)
+			}
+			assert.Contains(t, authorIDs(upper.Authors), f.AuthorIDs["tolstoy"])
+		})
+	})
+
+	// The port replaces lower() with search_normalize, so ё and е are the
+	// same letter now — lower('Ёлкинтест') never matched 'елкинтест'.
+	t.Run("yo folds into e", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			yolkin := f.Author("yolkin", "Ёлкинтест Пётр")
+			f.Book("yolkin-book", fixtureBook{Title: "Ёлочка", Approved: true, Authors: []int64{yolkin}})
+			repo := NewPGSearchRepository(f.tx)
+
+			page, err := repo.SearchAuthors(context.Background(), models.AuthorSearchRequest{Query: "елкинтест", Limit: 10})
+
+			require.NoError(t, err)
+			require.NotEmpty(t, page.Authors)
+			assert.Equal(t, yolkin, page.Authors[0].ID, "the exact word match outranks fuzzy real authors")
+		})
+	})
+
+	// The author % lane runs at the pg_trgm session floor 0.3, not at the
+	// book lane's 0.5: similarity('талстой', 'толстой лев') = 0.333, which
+	// the higher floor would lose — and with it, abbreviated-name searches.
+	t.Run("a one-letter fuzzy miss still matches at the session floor", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			repo := NewPGSearchRepository(f.tx)
+
+			page, err := repo.SearchAuthors(context.Background(), models.AuthorSearchRequest{Query: "талстой", Limit: 50})
+
+			require.NoError(t, err)
+			assert.Contains(t, authorIDs(page.Authors), f.AuthorIDs["tolstoy"],
+				"the author lane must stay at the 0.3 session floor")
+		})
+	})
+
+	t.Run("the books count covers only visible books", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			sid := f.Author("counted", "Счётник Тест")
+			f.Book("counted-approved", fixtureBook{Title: "Видимая", Approved: true, Authors: []int64{sid}})
+			f.Book("counted-unapproved", fixtureBook{Title: "Непроверенная", Approved: false, Authors: []int64{sid}})
+			f.Book("counted-hidden", fixtureBook{Title: "Скрытая", Approved: true, Hidden: true, Authors: []int64{sid}})
+			repo := NewPGSearchRepository(f.tx)
+
+			page, err := repo.SearchAuthors(context.Background(), models.AuthorSearchRequest{Query: "счётник", Limit: 10})
+
+			require.NoError(t, err)
+			require.NotEmpty(t, page.Authors)
+			require.Equal(t, sid, page.Authors[0].ID)
+			assert.Equal(t, 1, page.Authors[0].BooksCount)
+		})
+	})
+
+	t.Run("a language narrows the count without dropping the author", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			lid := f.Author("lingual", "Языкарь Тест")
+			f.Book("lingual-ru", fixtureBook{Title: "Русская", Lang: "ru", Approved: true, Authors: []int64{lid}})
+			f.Book("lingual-en", fixtureBook{Title: "English", Lang: "en", Approved: true, Authors: []int64{lid}})
+			repo := NewPGSearchRepository(f.tx)
+
+			whole, err := repo.SearchAuthors(context.Background(), models.AuthorSearchRequest{Query: "языкарь", Limit: 10})
+			require.NoError(t, err)
+			scoped, err := repo.SearchAuthors(context.Background(), models.AuthorSearchRequest{Query: "языкарь", Limit: 10, Language: "ru"})
+			require.NoError(t, err)
+
+			require.NotEmpty(t, whole.Authors)
+			require.NotEmpty(t, scoped.Authors)
+			require.Equal(t, lid, whole.Authors[0].ID)
+			require.Equal(t, lid, scoped.Authors[0].ID)
+			assert.Equal(t, 2, whole.Authors[0].BooksCount)
+			assert.Equal(t, 1, scoped.Authors[0].BooksCount)
+		})
+	})
+
+	// A row that leads to an empty list is a dead end offered as a choice.
+	t.Run("authors with no visible books are omitted", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			zid := f.Author("zero", "Пустарин Тест")
+			f.Book("zero-book", fixtureBook{Title: "Непроверенная", Approved: false, Authors: []int64{zid}})
+			repo := NewPGSearchRepository(f.tx)
+
+			page, err := repo.SearchAuthors(context.Background(), models.AuthorSearchRequest{Query: "пустарин", Limit: 50})
+
+			require.NoError(t, err)
+			assert.NotContains(t, authorIDs(page.Authors), zid)
+		})
+	})
+
+	// Word distance ties on the surname, so the tiebreak decides: more books
+	// first, then the lower id — paging would otherwise repeat or skip rows.
+	t.Run("word-distance ties order by books count then id", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			first := f.Author("testerin-a", "Тестерин Борис")
+			second := f.Author("testerin-b", "Тестерин Иван")
+			f.Book("testerin-a-book", fixtureBook{Title: "Первая", Approved: true, Authors: []int64{first}})
+			f.Book("testerin-b-book-1", fixtureBook{Title: "Вторая", Approved: true, Authors: []int64{second}})
+			f.Book("testerin-b-book-2", fixtureBook{Title: "Третья", Approved: true, Authors: []int64{second}})
+			repo := NewPGSearchRepository(f.tx)
+
+			page, err := repo.SearchAuthors(context.Background(), models.AuthorSearchRequest{Query: "тестерин", Limit: 10})
+
+			require.NoError(t, err)
+			require.GreaterOrEqual(t, len(page.Authors), 2)
+			assert.Equal(t, second, page.Authors[0].ID, "the author with two books leads the tie")
+			assert.Equal(t, 2, page.Authors[0].BooksCount)
+			assert.Equal(t, first, page.Authors[1].ID)
+		})
+	})
+
+	t.Run("the page honours the limit and reports the exact total", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			for i := 0; i < 12; i++ {
+				pid := f.Author(fmt.Sprintf("stranitsyn-%d", i), fmt.Sprintf("Страницын %02d", i))
+				f.Book(fmt.Sprintf("stranitsyn-book-%d", i), fixtureBook{Title: fmt.Sprintf("Книга %d", i), Approved: true, Authors: []int64{pid}})
+			}
+			repo := NewPGSearchRepository(f.tx)
+
+			page, err := repo.SearchAuthors(context.Background(), models.AuthorSearchRequest{Query: "страницын", Limit: 5})
+
+			require.NoError(t, err)
+			assert.Len(t, page.Authors, 5)
+			assert.Equal(t, 5, page.Limit)
+
+			// The exact total equals the number of authors the unpaged query
+			// returns — walk every page and count, fuzzy real matches included.
+			unpaged := 0
+			for offset := 0; ; offset += 50 {
+				next, err := repo.SearchAuthors(context.Background(), models.AuthorSearchRequest{Query: "страницын", Limit: 50, Offset: offset})
+				require.NoError(t, err)
+				unpaged += len(next.Authors)
+				if len(next.Authors) < 50 {
+					break
+				}
+			}
+			assert.Equal(t, unpaged, page.Total)
+		})
+	})
+
+	t.Run("pages do not overlap and the total does not move", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			var fixtureIDs []int64
+			for i := 0; i < 12; i++ {
+				pid := f.Author(fmt.Sprintf("paginin-%d", i), fmt.Sprintf("Пагинин %02d", i))
+				fixtureIDs = append(fixtureIDs, pid)
+				f.Book(fmt.Sprintf("paginin-book-%d", i), fixtureBook{Title: fmt.Sprintf("Том %d", i), Approved: true, Authors: []int64{pid}})
+			}
+			repo := NewPGSearchRepository(f.tx)
+
+			first, err := repo.SearchAuthors(context.Background(), models.AuthorSearchRequest{Query: "пагинин", Limit: 5})
+			require.NoError(t, err)
+			second, err := repo.SearchAuthors(context.Background(), models.AuthorSearchRequest{Query: "пагинин", Limit: 5, Offset: 5})
+			require.NoError(t, err)
+			third, err := repo.SearchAuthors(context.Background(), models.AuthorSearchRequest{Query: "пагинин", Limit: 5, Offset: 10})
+			require.NoError(t, err)
+
+			assert.Equal(t, first.Total, second.Total)
+			assert.Equal(t, first.Total, third.Total)
+
+			// Distance zero ranks ahead of every fuzzy real match, so the
+			// first ten rows are the fixture authors in id order.
+			var head []int64
+			for _, a := range first.Authors {
+				head = append(head, a.ID)
+			}
+			for _, a := range second.Authors {
+				head = append(head, a.ID)
+			}
+			assert.Equal(t, fixtureIDs[:10], head)
+
+			seen := make(map[int64]bool, len(head))
+			for _, id := range head {
+				seen[id] = true
+			}
+			for _, a := range third.Authors {
+				assert.False(t, seen[a.ID], "%q on two pages", a.FullName)
+			}
+		})
+	})
+
+	// Logging needs the correlation hash even when nothing matched, so the
+	// query returns its metadata row through an empty page.
+	t.Run("zero results still return the metadata row", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			repo := NewPGSearchRepository(f.tx)
+
+			page, err := repo.SearchAuthors(context.Background(), models.AuthorSearchRequest{Query: "qqqzzzxxx", Limit: 10})
+
+			require.NoError(t, err)
+			assert.Empty(t, page.Authors)
+			assert.Zero(t, page.Total)
+			assert.NotEmpty(t, page.QueryHash)
+		})
+	})
+}
+
+// authorIDs projects a page of authors to their IDs for set assertions.
+func authorIDs(authors []models.Author) []int64 {
+	ids := make([]int64, len(authors))
+	for i, a := range authors {
+		ids[i] = a.ID
+	}
+	return ids
 }

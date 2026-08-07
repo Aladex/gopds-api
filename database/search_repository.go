@@ -410,3 +410,113 @@ func preferContextError(ctx context.Context, err error) error {
 	}
 	return err
 }
+
+// authorSearchRepositorySQL finds authors by name and counts the books each
+// one would actually open — the repository port of the GetAuthors query,
+// moved from lower(full_name) to search_normalize(full_name) so searches
+// inherit the canonical normalization (ё/е, punctuation, NFC) and reach
+// idx_author_full_name_search_norm_trgm.
+//
+// The count has to agree with the list behind it or it misleads: every
+// filter here is one the book list applies too — approved, not a hidden
+// duplicate, and the reader's books language. An author whose books are all
+// filtered away counts zero, and the inner join then drops them from the
+// results, because a row that leads to an empty list is a dead end offered
+// as a choice.
+//
+// Candidates come from two operators because neither finds the other's
+// names: % compares whole strings and punishes a surname-only query for the
+// given names it did not type, while %> asks how well the query matches some
+// run of words within the name and misses loose fuzzy matches. Both stay at
+// the pg_trgm session floor — unlike the book lane, which runs at 0.5 —
+// because abbreviated names ("Толкин Дж." at 0.360) live between the two
+// floors.
+//
+// Ordering runs normalized word distance, then size, then id. Whole-string
+// distance ranks by length as much as by likeness and buried the largest
+// Tolstoy under one-book namesakes; word distance ties on the surname, so
+// the question becomes which of these people the reader meant — answered by
+// how many books each one holds. Ties break on id last, or paging repeats
+// and skips rows.
+//
+// meta always produces a row, so an empty page still carries the exact total
+// and the correlation hash for logging.
+const authorSearchRepositorySQL = `
+WITH q AS (
+    SELECT public.search_normalize(?::text) AS needle,
+        md5(public.search_normalize(?::text)) AS query_hash
+),
+matched AS (
+    SELECT a.id, a.full_name
+    FROM opds_catalog_author AS a
+    WHERE public.search_normalize(a.full_name) % (SELECT q.needle FROM q)
+        OR public.search_normalize(a.full_name) %> (SELECT q.needle FROM q)
+),
+counted AS (
+    SELECT m.id, m.full_name, count(b.id) AS books_count
+    FROM matched AS m
+    JOIN opds_catalog_bauthor AS ba ON ba.author_id = m.id
+    JOIN opds_catalog_book AS b ON b.id = ba.book_id
+        AND b.approved
+        AND NOT b.duplicate_hidden
+        AND (? = '' OR b.lang = ?)
+    GROUP BY m.id, m.full_name
+),
+page AS (
+    SELECT c.id, c.full_name, c.books_count,
+        row_number() OVER (
+            ORDER BY (SELECT q.needle FROM q) <<-> public.search_normalize(c.full_name) ASC,
+                c.books_count DESC,
+                c.id ASC
+        ) AS pos
+    FROM counted c
+    ORDER BY pos
+    LIMIT ? OFFSET ?
+),
+meta AS (
+    SELECT
+        (SELECT count(*) FROM counted) AS total,
+        (SELECT q.query_hash FROM q) AS query_hash
+)
+SELECT p.id, p.full_name, p.books_count, m.total, m.query_hash
+FROM meta m
+LEFT JOIN page p ON true
+ORDER BY p.pos
+`
+
+// searchAuthorRow is one row of authorSearchRepositorySQL: a page entry, or
+// the metadata row with a NULL id when the page is empty.
+type searchAuthorRow struct {
+	ID         *int64 `pg:"id"`
+	FullName   string `pg:"full_name"`
+	BooksCount int    `pg:"books_count"`
+	Total      int    `pg:"total"`
+	QueryHash  string `pg:"query_hash"`
+}
+
+// SearchAuthors returns one page of authors ranked by name distance plus the
+// exact pre-pagination total.
+func (r *PGSearchRepository) SearchAuthors(ctx context.Context, req models.AuthorSearchRequest) (models.AuthorSearchPage, error) {
+	page := models.AuthorSearchPage{Limit: req.Limit, Offset: req.Offset}
+
+	var rows []searchAuthorRow
+	if _, err := r.db.QueryContext(ctx, &rows, authorSearchRepositorySQL,
+		req.Query, req.Query,
+		req.Language, req.Language,
+		req.Limit, req.Offset); err != nil {
+		return page, preferContextError(ctx, err)
+	}
+
+	for _, row := range rows {
+		page.Total = row.Total
+		page.QueryHash = row.QueryHash
+		if row.ID != nil {
+			page.Authors = append(page.Authors, models.Author{
+				ID:         *row.ID,
+				FullName:   row.FullName,
+				BooksCount: row.BooksCount,
+			})
+		}
+	}
+	return page, nil
+}

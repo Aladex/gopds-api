@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/binding"
 
 	"gopds-api/database"
 	"gopds-api/httputil"
@@ -16,39 +15,6 @@ import (
 type AuthorAnswer struct {
 	Authors []models.Author `json:"authors"`
 	Length  int             `json:"length"`
-}
-
-// GetAuthors method for retrieving the list of authors on the search page
-// Auth godoc
-// @Summary Retrieve authors list for the search page
-// @Description Get a list of authors available on the search page
-// @Param Authorization header string true "Token without 'Bearer' prefix"
-// @Param  limit query int true "Limit"
-// @Param  offset query int true "Offset"
-// @Param  author query string false "Author ID"
-// @Accept  json
-// @Produce  json
-// @Success 200 {object} ExportAnswer
-// @Failure 500 {object} httputil.HTTPError
-// @Failure 403 {object} httputil.HTTPError
-// @Router /api/books/authors [get]
-func GetAuthors(c *gin.Context) {
-	var filters models.AuthorFilters
-	if err := c.ShouldBindWith(&filters, binding.Query); err != nil {
-		httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
-		return
-	}
-
-	authors, count, err := database.GetAuthors(filters)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, err)
-		return
-	}
-
-	c.JSON(http.StatusOK, AuthorAnswer{
-		Authors: authors,
-		Length:  pageCount(count, filters.Limit),
-	})
 }
 
 // pageCount turns a number of authors into the number of pages the search page

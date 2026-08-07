@@ -12,7 +12,6 @@ import (
 	"gopds-api/utils"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/binding"
 	"github.com/spf13/viper"
 )
 
@@ -52,47 +51,6 @@ func GetLangs(c *gin.Context) {
 	langs := database.GetLanguages()
 	if langs != nil {
 		c.JSON(200, langsAnswer{Langs: langs})
-		return
-	}
-	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
-}
-
-// GetBooks method for retrieving books from the database and returning them in JSON format
-// Auth godoc
-// @Summary Retrieve books from the database
-// @Description Get the list of books from the database and return them in JSON format
-// @Param Authorization header string true "Token without 'Bearer' prefix"
-// @Param  limit query int true "Limit"
-// @Param  offset query int true "Offset"
-// @Param  title query string false "Title of the book"
-// @Param  author query int false "Author ID"
-// @Tags books
-// @Accept  json
-// @Produce  json
-// @Success 200 {object} ExportAnswer "List of books and length"
-// @Failure 500 {object} httputil.HTTPError "Internal server error"
-// @Failure 403 {object} httputil.HTTPError "Forbidden"
-// @Router /api/books/list [get]
-func GetBooks(c *gin.Context) {
-	var filters models.BookFilters
-	userID := c.GetInt64("user_id")
-	if err := c.ShouldBindWith(&filters, binding.Query); err == nil {
-		if filters.IncludeHidden && !c.GetBool("is_superuser") {
-			filters.IncludeHidden = false
-		}
-		books, count, err := database.GetBooks(userID, filters)
-		if err != nil {
-			c.JSON(500, err)
-			return
-		}
-		lenght := count / filters.Limit
-		if count-lenght*filters.Limit > 0 {
-			lenght++
-		}
-		c.JSON(200, ExportAnswer{
-			Books:  books,
-			Length: lenght,
-		})
 		return
 	}
 	httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
