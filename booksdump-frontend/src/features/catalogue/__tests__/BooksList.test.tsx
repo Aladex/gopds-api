@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 
 import BooksList from '@/features/catalogue/BooksList';
 import * as booksApi from '@/api/books';
@@ -42,9 +42,7 @@ vi.mock('@/context/FavContext', () => ({ useFav: () => favState }));
 
 const authorState = {
     authorId: '',
-    authorBook: '',
     setAuthorId: vi.fn(),
-    clearAuthorBook: vi.fn(),
 };
 vi.mock('@/context/AuthorContext', () => ({ useAuthor: () => authorState }));
 
@@ -178,6 +176,139 @@ describe('BooksList query building', () => {
 
         await waitFor(() => expect(listBooks).toHaveBeenCalled());
         expect(listBooks).toHaveBeenCalledWith(expect.objectContaining({ fav: true }));
+    });
+});
+
+// A scoped search keeps its query in the URL, so every one of these is also
+// the reload case: a cold render with no React context in hand must derive
+// the same API query.
+describe('BooksList scoped search', () => {
+    it('filters an author list by the query in the URL', async () => {
+        renderAt(
+            `/books/find/author/42/1?title=${encodeURIComponent('война')}`,
+            '/books/find/author/:id/:page',
+        );
+
+        await waitFor(() => expect(listBooks).toHaveBeenCalled());
+        expect(listBooks).toHaveBeenCalledWith(
+            expect.objectContaining({ author: '42', title: 'война' }),
+        );
+    });
+
+    it('filters a series list by the query in the URL', async () => {
+        renderAt(
+            `/books/find/category/9/1?title=${encodeURIComponent('война')}`,
+            '/books/find/category/:id/:page',
+        );
+
+        await waitFor(() => expect(listBooks).toHaveBeenCalled());
+        expect(listBooks).toHaveBeenCalledWith(
+            expect.objectContaining({ series: '9', title: 'война' }),
+        );
+    });
+
+    it('filters a genre list by the query in the URL', async () => {
+        renderAt(
+            `/books/find/genre/5/1?title=${encodeURIComponent('война')}`,
+            '/books/find/genre/:id/:page',
+        );
+
+        await waitFor(() => expect(listBooks).toHaveBeenCalled());
+        expect(listBooks).toHaveBeenCalledWith(
+            expect.objectContaining({ genre: '5', title: 'война' }),
+        );
+    });
+
+    it('filters a collection by the query in the URL', async () => {
+        renderAt(
+            `/collections/7/page/1?title=${encodeURIComponent('война')}`,
+            '/collections/:id/page/:page',
+        );
+
+        await waitFor(() => expect(listBooks).toHaveBeenCalled());
+        expect(listBooks).toHaveBeenCalledWith(
+            expect.objectContaining({ curated_collection: '7', title: 'война' }),
+        );
+    });
+
+    it('filters favourites by the query in the URL', async () => {
+        renderAt(`/books/favorite/1?title=${encodeURIComponent('война')}`, '/books/favorite/:page');
+
+        await waitFor(() => expect(listBooks).toHaveBeenCalled());
+        expect(listBooks).toHaveBeenCalledWith(
+            expect.objectContaining({ fav: true, title: 'война' }),
+        );
+    });
+
+    it('pins an exact book when the URL carries one', async () => {
+        renderAt(
+            `/books/find/author/42/1?title=${encodeURIComponent('х')}&book_id=555`,
+            '/books/find/author/:id/:page',
+        );
+
+        await waitFor(() => expect(listBooks).toHaveBeenCalled());
+        expect(listBooks).toHaveBeenCalledWith(
+            expect.objectContaining({ author: '42', title: 'х', book_id: '555' }),
+        );
+    });
+
+    it('pins an exact book on a broad title search without borrowing an author', async () => {
+        // The context may still hold the author whose list the reader came
+        // from; a broad title search is broad, and must not inherit it.
+        authorState.authorId = '42';
+        renderAt(
+            `/books/find/title/${encodeURIComponent('дюна')}/1?book_id=555`,
+            '/books/find/title/:title/:page',
+        );
+
+        await waitFor(() => expect(listBooks).toHaveBeenCalled());
+        const query = listBooks.mock.calls[0][0];
+        expect(query).toEqual(expect.objectContaining({ title: 'дюна', book_id: '555' }));
+        expect(query.author).toBeUndefined();
+    });
+});
+
+describe('BooksList language change', () => {
+    afterEach(() => {
+        authState.user.books_lang = 'ru';
+    });
+
+    it('resets a deep page to page one of the same list, keeping its search', async () => {
+        authState.user.books_lang = 'ru';
+        let currentUrl = '';
+        const UrlProbe: React.FC = () => {
+            const { pathname, search } = useLocation();
+            React.useEffect(() => {
+                currentUrl = pathname + search;
+            }, [pathname, search]);
+            return null;
+        };
+        const tree = () => (
+            <MemoryRouter
+                initialEntries={[`/books/find/author/42/7?title=${encodeURIComponent('х')}`]}
+            >
+                <Routes>
+                    <Route path="/books/find/author/:id/:page" element={<BooksList />} />
+                    <Route path="*" element={<BooksList />} />
+                </Routes>
+                <UrlProbe />
+            </MemoryRouter>
+        );
+        const view = render(tree());
+
+        await waitFor(() => expect(listBooks).toHaveBeenCalled());
+
+        // The reader switches the books language: in the real app that arrives
+        // as a context update, here as a mutation plus a render pass. A fresh
+        // element each pass — re-rendering the identical reference bails out.
+        authState.user.books_lang = 'en';
+        view.rerender(tree());
+
+        // Used to drop the reader onto the global first page, losing both the
+        // author and the query the deep page belonged to.
+        await waitFor(() =>
+            expect(currentUrl).toBe(`/books/find/author/42/1?title=${encodeURIComponent('х')}`),
+        );
     });
 });
 

@@ -19,7 +19,7 @@ func SetupBookRoutes(r *gin.RouterGroup, search *SearchHandler) {
 	r.GET("/self-user", SelfUser)
 	r.GET("/theme", GetThemePreference)
 	r.GET("/getsigned/:format/:id", GetSignedBookUrl)
-	r.GET("/autocomplete", Autocomplete)
+	r.GET("/autocomplete", search.Autocomplete)
 	r.POST("/change-me", middlewares.CSRFMiddleware(), ChangeUser)
 	r.POST("/theme", middlewares.CSRFMiddleware(), SetThemePreference)
 	r.GET("/authors", search.Authors)

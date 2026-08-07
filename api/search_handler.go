@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"gopds-api/database"
@@ -148,7 +149,9 @@ func (h *SearchHandler) Authors(c *gin.Context) {
 // the client nothing.
 func mapSearchError(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, services.ErrEmptyQuery), errors.Is(err, services.ErrInvalidPagination):
+	case errors.Is(err, services.ErrEmptyQuery),
+		errors.Is(err, services.ErrInvalidPagination),
+		errors.Is(err, services.ErrInvalidSuggestionKind):
 		httputil.NewError(c, http.StatusBadRequest, err)
 	default:
 		httputil.NewError(c, http.StatusInternalServerError, err)
@@ -164,4 +167,63 @@ func effectiveListLimit(limit int) int {
 		return maxListLimit
 	}
 	return limit
+}
+
+// AutocompleteResponse struct for autocomplete suggestions
+type AutocompleteResponse struct {
+	Suggestions []models.AutocompleteSuggestion `json:"suggestions"`
+}
+
+// Autocomplete method for getting search suggestions
+// Auth godoc
+// @Summary Get autocomplete suggestions for search
+// @Description Get autocomplete suggestions for books and authors based on query
+// @Tags books
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param query query string true "Search query"
+// @Param type query string false "Search type: 'title', 'author', or 'all' (default)"
+// @Param author query string false "Author ID for filtering results"
+// @Param lang query string false "Language for filtering results"
+// @Accept  json
+// @Produce  json
+// @Success 200 {object} AutocompleteResponse "List of suggestions"
+// @Failure 400 {object} httputil.HTTPError "Bad request"
+// @Router /api/books/autocomplete [get]
+func (h *SearchHandler) Autocomplete(c *gin.Context) {
+	query := c.Query("query")
+	if query == "" {
+		httputil.NewError(c, http.StatusBadRequest, errors.New("query parameter is required"))
+		return
+	}
+
+	// The kind travels raw: naming a lane that does not exist is the service's
+	// validation call, and this adapter does not second-guess it.
+	searchType := c.DefaultQuery("type", string(models.SuggestionAll))
+
+	var authorID int64
+	if raw := c.Query("author"); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			httputil.NewError(c, http.StatusBadRequest, errors.New("author must be a numeric id"))
+			return
+		}
+		authorID = parsed
+	}
+
+	result, err := h.Search.Suggestions(c.Request.Context(), models.SuggestionRequest{
+		Query:    query,
+		Kind:     models.SuggestionKind(searchType),
+		Language: c.Query("lang"),
+		AuthorID: authorID,
+	})
+	if err != nil {
+		mapSearchError(c, err)
+		return
+	}
+	// The picker is a list: it serializes as [], never null. The service
+	// already guarantees this; the adapter keeps the guarantee on its own edge.
+	if result.Suggestions == nil {
+		result.Suggestions = []models.AutocompleteSuggestion{}
+	}
+	c.JSON(http.StatusOK, AutocompleteResponse{Suggestions: result.Suggestions})
 }

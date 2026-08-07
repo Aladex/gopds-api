@@ -77,3 +77,16 @@ export function pageBaseUrl(pathname: string): string {
     }
     return segments.join('/');
 }
+
+/**
+ * pageHref builds the address of a sibling page from where the reader is:
+ * same list, same search, different page. The query string rides along
+ * untouched — it carries the search that filtered the list, and dropping it
+ * would silently widen the results on page two.
+ */
+export function pageHref(currentUrl: string, page: number): string {
+    const question = currentUrl.indexOf('?');
+    const pathname = question === -1 ? currentUrl : currentUrl.slice(0, question);
+    const search = question === -1 ? '' : currentUrl.slice(question);
+    return `${pageBaseUrl(pathname)}/${page}${search}`;
+}

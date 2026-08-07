@@ -313,34 +313,8 @@ func (r *PGSearchRepository) SearchBooks(ctx context.Context, req models.BookSea
 			req.Limit, req.Offset)
 		return err
 	}
-
-	// The book-search trigram lane runs at 0.5, not the pg_trgm default 0.3:
-	// at 0.3 the lossy GIN bitmap pulls tens of thousands of heap rows for a
-	// common word. SET LOCAL keeps the raise inside this statement's
-	// transaction — the same pooled connections serve the author search,
-	// whose % lane must stay at 0.3 to keep abbreviated names reachable.
-	if tx, ok := r.db.(*pg.Tx); ok {
-		// Already inside a transaction (the test fixture hands one out), so
-		// SET LOCAL applies to it directly. Wrapping here would be wrong:
-		// go-pg v10 has no savepoints, and (*Tx).RunInTransaction ends with
-		// COMMIT on the outer transaction — that once committed fixture rows
-		// into the real catalogue.
-		if _, err := tx.ExecContext(ctx, "SET LOCAL pg_trgm.similarity_threshold = 0.5"); err != nil {
-			return page, preferContextError(ctx, err)
-		}
-		if err := query(tx); err != nil {
-			return page, preferContextError(ctx, err)
-		}
-	} else {
-		err := r.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
-			if _, err := tx.ExecContext(ctx, "SET LOCAL pg_trgm.similarity_threshold = 0.5"); err != nil {
-				return err
-			}
-			return query(tx)
-		})
-		if err != nil {
-			return page, preferContextError(ctx, err)
-		}
+	if err := r.queryWithBookThreshold(ctx, query); err != nil {
+		return page, preferContextError(ctx, err)
 	}
 
 	ids := make([]int64, 0, len(rows))
@@ -371,6 +345,33 @@ func (r *PGSearchRepository) SearchBooks(ctx context.Context, req models.BookSea
 	}
 
 	return page, nil
+}
+
+// queryWithBookThreshold runs fn inside one transaction with the book-search
+// trigram floor raised to 0.5 for that transaction only. At the pg_trgm
+// default 0.3 the lossy GIN bitmap pulls tens of thousands of heap rows for a
+// common word; SET LOCAL keeps the raise inside this statement's transaction —
+// the same pooled connections serve the author search, whose % lane must stay
+// at 0.3 to keep abbreviated names reachable.
+//
+// When the repository already sits inside a transaction (the test fixture
+// hands one out) SET LOCAL applies to it directly. Wrapping that case in
+// RunInTransaction would be wrong: go-pg v10 has no savepoints, and
+// (*Tx).RunInTransaction ends with COMMIT on the outer transaction — that
+// once committed fixture rows into the real catalogue.
+func (r *PGSearchRepository) queryWithBookThreshold(ctx context.Context, fn func(q pg.DBI) error) error {
+	if tx, ok := r.db.(*pg.Tx); ok {
+		if _, err := tx.ExecContext(ctx, "SET LOCAL pg_trgm.similarity_threshold = 0.5"); err != nil {
+			return err
+		}
+		return fn(tx)
+	}
+	return r.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		if _, err := tx.ExecContext(ctx, "SET LOCAL pg_trgm.similarity_threshold = 0.5"); err != nil {
+			return err
+		}
+		return fn(tx)
+	})
 }
 
 // markCallerFavorites sets Fav on the page books the caller favorited. The
@@ -519,4 +520,263 @@ func (r *PGSearchRepository) SearchAuthors(ctx context.Context, req models.Autho
 		}
 	}
 	return page, nil
+}
+
+// Autocomplete geometry: a single kind answers up to defaultSuggestionLimit
+// rows, while the combined picker halves the same budget between a book shelf
+// and an author shelf so neither lane can shout the other down. The halves are
+// computed rather than named — a constant pair beside the budget is a second
+// source of truth, and it was already wrong for every budget but the default.
+const (
+	defaultSuggestionLimit = 15
+	suggestionLaneBook     = 1
+	suggestionLaneAuthor   = 2
+)
+
+// suggestionSQL drives the autocomplete picker: the same normalization,
+// visibility and language semantics as the search paths, but a compact list
+// meant to be chosen from, not browsed. Book lanes mirror SearchBooks —
+// exact/prefix/substring share one WHERE so the planner collapses the OR into
+// a single BitmapOr over the title indexes, while %> and % keep their own
+// UNION ALL legs — with every lane gated at three runes, because a shorter
+// prefix is the reader still typing, not a fuzzy query. The author lane is
+// substring LIKE plus %> only: the whole statement runs under the
+// book-search SET LOCAL floor of 0.5, and the % operator would inherit it,
+// silently dropping abbreviated names ("Толкин Дж." scores 0.360); word
+// similarity follows the separate word_similarity_threshold GUC, which the
+// book threshold does not touch.
+//
+// Same-title reimports collapse before the limit, not after: books dedupe by
+// (normalized title, lowest author id, language), so five hundred copies of
+// one title fill one slot while the same title by two authors stays two
+// choices, and the surviving copy's secondary line — that author's name — is
+// what tells them apart. Language is part of the key because two editions of
+// one title in two languages are genuinely two choices, not copies. Books
+// with no author share the zero key, so a title printed without attribution
+// still dedupes to one row per language. Authors with no visible book
+// under the reader's language drop out through the inner join, because a
+// suggestion that opens an empty list is a dead end offered as a choice.
+//
+// Both shelves rank strongest signal first with id as the final tiebreak, so
+// two runs of the same keystrokes produce the same picker. meta always
+// produces a row, so an empty picker still carries the correlation hash.
+const suggestionSQL = `
+WITH q AS (
+    SELECT public.search_normalize(?::text) AS needle,
+        char_length(public.search_normalize(?::text)) AS rune_count,
+        md5(public.search_normalize(?::text)) AS query_hash
+),
+visible_books AS NOT MATERIALIZED (
+    SELECT b.id, b.lang, public.search_normalize(b.title) AS norm_title
+    FROM opds_catalog_book AS b
+    WHERE b.approved
+        AND NOT b.duplicate_hidden
+        AND (?::text = '' OR ?::text = 'all' OR b.lang = ?::text)
+        AND (? = 0 OR EXISTS (
+            SELECT 1 FROM opds_catalog_bauthor AS ba
+            WHERE ba.book_id = b.id AND ba.author_id = ?
+        ))
+),
+book_hits AS (
+    SELECT v.id, v.lang, v.norm_title
+    FROM visible_books AS v
+    WHERE ? IN ('all', 'title')
+        AND (SELECT q.rune_count FROM q) >= 3
+        AND (v.norm_title = (SELECT q.needle FROM q)
+            OR v.norm_title LIKE (SELECT q.needle FROM q) || '%'
+            OR v.norm_title LIKE '%' || (SELECT q.needle FROM q) || '%')
+    UNION ALL
+    SELECT v.id, v.lang, v.norm_title
+    FROM visible_books AS v
+    WHERE ? IN ('all', 'title')
+        AND (SELECT q.rune_count FROM q) >= 3
+        AND v.norm_title %> (SELECT q.needle FROM q)
+    UNION ALL
+    SELECT v.id, v.lang, v.norm_title
+    FROM visible_books AS v
+    WHERE ? IN ('all', 'title')
+        AND (SELECT q.rune_count FROM q) >= 3
+        AND v.norm_title % (SELECT q.needle FROM q)
+),
+book_candidates AS (
+    SELECT h.id, h.lang, h.norm_title
+    FROM book_hits AS h
+    GROUP BY h.id, h.lang, h.norm_title
+),
+book_signaled AS (
+    SELECT c.id, c.lang, c.norm_title,
+        (c.norm_title = q.needle) AS exact_match,
+        (c.norm_title LIKE q.needle || '%') AS prefix_match,
+        NULLIF(strpos(c.norm_title, q.needle), 0) AS match_position,
+        word_similarity(q.needle, c.norm_title) AS word_score,
+        similarity(c.norm_title, q.needle) AS trigram_score
+    FROM book_candidates AS c
+    CROSS JOIN q
+),
+book_ranked AS (
+    SELECT s.id, s.lang, s.norm_title,
+        row_number() OVER (
+            ORDER BY s.exact_match DESC, s.prefix_match DESC,
+                s.match_position ASC NULLS LAST,
+                s.word_score DESC, s.trigram_score DESC, s.id ASC
+        ) AS pos
+    FROM book_signaled AS s
+    WHERE s.exact_match
+        OR s.prefix_match
+        OR s.match_position IS NOT NULL
+        OR s.word_score >= 0.60
+        OR s.trigram_score >= 0.50
+),
+book_deduped AS (
+    SELECT r.id, r.norm_title, r.pos,
+        COALESCE(fa.author_id, 0) AS author_key,
+        row_number() OVER (
+            PARTITION BY r.norm_title, COALESCE(fa.author_id, 0), r.lang
+            ORDER BY r.pos
+        ) AS copy_pos
+    FROM book_ranked AS r
+    LEFT JOIN LATERAL (
+        SELECT min(ba.author_id) AS author_id
+        FROM opds_catalog_bauthor AS ba
+        WHERE ba.book_id = r.id
+    ) AS fa ON true
+),
+books_page AS (
+    SELECT d.id, b.title, a.full_name AS secondary, d.pos
+    FROM book_deduped AS d
+    JOIN opds_catalog_book AS b ON b.id = d.id
+    LEFT JOIN opds_catalog_author AS a ON a.id = d.author_key
+    WHERE d.copy_pos = 1
+    ORDER BY d.pos
+    LIMIT ?
+),
+author_matched AS (
+    SELECT a.id, a.full_name, public.search_normalize(a.full_name) AS norm_name
+    FROM opds_catalog_author AS a
+    WHERE ? IN ('all', 'author')
+        AND (SELECT q.rune_count FROM q) >= 3
+        AND (public.search_normalize(a.full_name) LIKE '%' || (SELECT q.needle FROM q) || '%'
+            OR public.search_normalize(a.full_name) %> (SELECT q.needle FROM q))
+),
+author_counted AS (
+    SELECT m.id, m.full_name, m.norm_name, count(b.id) AS books_count
+    FROM author_matched AS m
+    JOIN opds_catalog_bauthor AS ba ON ba.author_id = m.id
+    JOIN opds_catalog_book AS b ON b.id = ba.book_id
+        AND b.approved
+        AND NOT b.duplicate_hidden
+        AND (?::text = '' OR ?::text = 'all' OR b.lang = ?::text)
+    GROUP BY m.id, m.full_name, m.norm_name
+),
+authors_page AS (
+    SELECT c.id, c.full_name, c.books_count,
+        row_number() OVER (
+            ORDER BY (c.norm_name = (SELECT q.needle FROM q)) DESC,
+                (c.norm_name LIKE (SELECT q.needle FROM q) || '%') DESC,
+                (SELECT q.needle FROM q) <<-> c.norm_name ASC,
+                c.books_count DESC, c.id ASC
+        ) AS pos
+    FROM author_counted AS c
+    ORDER BY pos
+    LIMIT ?
+),
+combined AS (
+    SELECT 1 AS lane, bp.pos, bp.id, bp.title AS value, bp.secondary, 0 AS books_count
+    FROM books_page AS bp
+    UNION ALL
+    SELECT 2 AS lane, ap.pos, ap.id, ap.full_name, NULL::text, ap.books_count
+    FROM authors_page AS ap
+),
+meta AS (
+    SELECT (SELECT q.query_hash FROM q) AS query_hash
+)
+SELECT c.lane, c.pos, c.id, c.value, c.secondary, c.books_count, m.query_hash
+FROM meta AS m
+LEFT JOIN combined AS c ON true
+ORDER BY c.lane, c.pos
+`
+
+// suggestionRow is one row of suggestionSQL: a picker entry, or the metadata
+// row with NULL entry fields when the picker is empty.
+type suggestionRow struct {
+	Lane       *int    `pg:"lane"`
+	Pos        *int64  `pg:"pos"`
+	ID         *int64  `pg:"id"`
+	Value      *string `pg:"value"`
+	Secondary  *string `pg:"secondary"`
+	BooksCount *int    `pg:"books_count"`
+	QueryHash  string  `pg:"query_hash"`
+}
+
+// suggestionLaneLimits splits the picker budget between the book and author
+// lanes. The combined kind ignores the caller's limit and takes the fixed
+// shelf sizes; a single kind answers up to its own limit.
+func suggestionLaneLimits(kind models.SuggestionKind, limit int) (books, authors int) {
+	if limit <= 0 {
+		limit = defaultSuggestionLimit
+	}
+	switch kind {
+	case models.SuggestionBook:
+		return limit, 0
+	case models.SuggestionAuthor:
+		return 0, limit
+	default:
+		// Split rather than fixed shelves: the two used to be constants that
+		// ignored the budget, so a picker asked for five suggestions answered
+		// with fifteen. Rounding up gives books the odd row, which is where the
+		// default fifteen gets its eight and seven — the geometry the picker
+		// was built around is the formula's own answer, not a second copy of it.
+		books = (limit + 1) / 2
+		return books, limit - books
+	}
+}
+
+// Suggestions returns the autocomplete picker for one prefix. The statement
+// runs inside the book-search threshold transaction so the % lane keeps its
+// 0.5 floor; the author lane deliberately avoids % and is unaffected.
+func (r *PGSearchRepository) Suggestions(ctx context.Context, req models.SuggestionRequest) (models.SuggestionResult, error) {
+	result := models.SuggestionResult{Suggestions: []models.AutocompleteSuggestion{}}
+	bookLimit, authorLimit := suggestionLaneLimits(req.Kind, req.Limit)
+	kind := string(req.Kind)
+
+	var rows []suggestionRow
+	query := func(q pg.DBI) error {
+		_, err := q.QueryContext(ctx, &rows, suggestionSQL,
+			req.Query, req.Query, req.Query,
+			req.Language, req.Language, req.Language,
+			req.AuthorID, req.AuthorID,
+			kind, kind, kind,
+			bookLimit,
+			kind,
+			req.Language, req.Language, req.Language,
+			authorLimit)
+		return err
+	}
+	if err := r.queryWithBookThreshold(ctx, query); err != nil {
+		return result, preferContextError(ctx, err)
+	}
+
+	for _, row := range rows {
+		result.QueryHash = row.QueryHash
+		if row.ID == nil || row.Lane == nil {
+			continue
+		}
+		suggestion := models.AutocompleteSuggestion{ID: *row.ID}
+		if row.Value != nil {
+			suggestion.Value = *row.Value
+		}
+		if row.Secondary != nil {
+			suggestion.Secondary = *row.Secondary
+		}
+		if row.BooksCount != nil {
+			suggestion.BooksCount = *row.BooksCount
+		}
+		if *row.Lane == suggestionLaneAuthor {
+			suggestion.Type = "author"
+		} else {
+			suggestion.Type = "book"
+		}
+		result.Suggestions = append(result.Suggestions, suggestion)
+	}
+	return result, nil
 }

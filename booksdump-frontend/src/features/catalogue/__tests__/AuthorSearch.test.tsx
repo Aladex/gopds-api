@@ -29,7 +29,6 @@ vi.mock('@/context/AuthContext', () => ({ useAuth: () => authState }));
 
 const authorState = {
     setAuthorName: vi.fn(),
-    clearAuthorBook: vi.fn(),
 };
 vi.mock('@/context/AuthorContext', () => ({ useAuthor: () => authorState }));
 

@@ -146,6 +146,38 @@ func TestSearchServiceLogsCompletion(t *testing.T) {
 			absentText:  "толстой",
 			wantEntries: 1,
 		},
+		{
+			name: "a suggestions call logs its mode and kind as scope",
+			call: func(svc PublicSearch) error {
+				_, err := svc.Suggestions(context.Background(), models.SuggestionRequest{Query: "война", Kind: models.SuggestionAll})
+				return err
+			},
+			wantFields: map[string]interface{}{
+				"mode":        "suggestions",
+				"query_runes": 5,
+				"query_hash":  "deadbeef",
+				"scope":       "all",
+				"returned":    1,
+				"error_class": "none",
+			},
+			absentText:  "война",
+			wantEntries: 1,
+		},
+		{
+			name: "a short suggestions query logs the gate without the repository",
+			call: func(svc PublicSearch) error {
+				_, err := svc.Suggestions(context.Background(), models.SuggestionRequest{Query: "ёж", Kind: models.SuggestionAll})
+				return err
+			},
+			wantFields: map[string]interface{}{
+				"mode":        "suggestions",
+				"query_runes": 2,
+				"query_hash":  "unavailable",
+				"returned":    0,
+				"error_class": "none",
+			},
+			wantEntries: 1,
+		},
 	}
 
 	for _, tc := range cases {
@@ -154,6 +186,10 @@ func TestSearchServiceLogsCompletion(t *testing.T) {
 				err:        tc.repoErr,
 				bookPage:   models.BookSearchPage{Books: []models.Book{{}, {}}, Total: 81, QueryHash: "deadbeef"},
 				authorPage: models.AuthorSearchPage{Authors: []models.Author{{}}, Total: 30, QueryHash: "deadbeef"},
+				suggResult: models.SuggestionResult{
+					Suggestions: []models.AutocompleteSuggestion{{}},
+					QueryHash:   "deadbeef",
+				},
 			}
 			svc := NewSearchService(repo)
 			hook := logrustest.NewLocal(logging.GetLogger())

@@ -17,11 +17,14 @@ import (
 type fakeSearchRepository struct {
 	bookReq   models.BookSearchRequest
 	authorReq models.AuthorSearchRequest
+	suggReq   models.SuggestionRequest
 	bookCalls int
 	authorCalls int
+	suggCalls int
 
 	bookPage   models.BookSearchPage
 	authorPage models.AuthorSearchPage
+	suggResult models.SuggestionResult
 	err        error
 
 	// blockOnCtx makes SearchBooks wait for the caller's context to end,
@@ -55,6 +58,15 @@ func (f *fakeSearchRepository) SearchAuthors(ctx context.Context, req models.Aut
 	page.Limit = req.Limit
 	page.Offset = req.Offset
 	return page, nil
+}
+
+func (f *fakeSearchRepository) Suggestions(_ context.Context, req models.SuggestionRequest) (models.SuggestionResult, error) {
+	f.suggCalls++
+	f.suggReq = req
+	if f.err != nil {
+		return models.SuggestionResult{}, f.err
+	}
+	return f.suggResult, nil
 }
 
 func TestSearchServiceBookValidation(t *testing.T) {
@@ -260,4 +272,110 @@ func TestSearchServicePropagatesCancellation(t *testing.T) {
 	err := <-done
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
+}
+
+// TestSearchServiceSuggestionsValidation pins the suggestions boundary: the
+// three-rune minimum never reaches the repository, kind and language are
+// normalized at the service, the compact limit is enforced, and repository
+// failures travel back untouched.
+func TestSearchServiceSuggestionsValidation(t *testing.T) {
+	cases := []struct {
+		name      string
+		req       models.SuggestionRequest
+		wantCalls int
+		check     func(t *testing.T, req models.SuggestionRequest)
+		wantErr   error
+	}{
+		{
+			name:      "two runes never reach the repository",
+			req:       models.SuggestionRequest{Query: "ёж", Kind: models.SuggestionAll},
+			wantCalls: 0,
+		},
+		{
+			name:      "three cyrillic runes reach the repository, trimmed",
+			req:       models.SuggestionRequest{Query: "  ёжи  ", Kind: models.SuggestionAll},
+			wantCalls: 1,
+			check: func(t *testing.T, req models.SuggestionRequest) {
+				assert.Equal(t, "ёжи", req.Query)
+			},
+		},
+		{
+			name:      "an empty kind means all",
+			req:       models.SuggestionRequest{Query: "война"},
+			wantCalls: 1,
+			check: func(t *testing.T, req models.SuggestionRequest) {
+				assert.Equal(t, models.SuggestionAll, req.Kind)
+			},
+		},
+		{
+			name:      "an unknown kind is rejected",
+			req:       models.SuggestionRequest{Query: "война", Kind: "titles"},
+			wantCalls: 0,
+			wantErr:   ErrInvalidSuggestionKind,
+		},
+		{
+			name:      "the all-languages code becomes no filter",
+			req:       models.SuggestionRequest{Query: "война", Kind: models.SuggestionAll, Language: "all"},
+			wantCalls: 1,
+			check: func(t *testing.T, req models.SuggestionRequest) {
+				assert.Equal(t, "", req.Language)
+			},
+		},
+		{
+			name:      "an unnamed limit becomes the compact default",
+			req:       models.SuggestionRequest{Query: "война", Kind: models.SuggestionAll},
+			wantCalls: 1,
+			check: func(t *testing.T, req models.SuggestionRequest) {
+				assert.Equal(t, 15, req.Limit)
+			},
+		},
+		{
+			name:      "an oversized limit clamps to the compact picker",
+			req:       models.SuggestionRequest{Query: "война", Kind: models.SuggestionAll, Limit: 100},
+			wantCalls: 1,
+			check: func(t *testing.T, req models.SuggestionRequest) {
+				assert.Equal(t, 15, req.Limit)
+			},
+		},
+		{
+			name:      "an explicit small limit survives",
+			req:       models.SuggestionRequest{Query: "война", Kind: models.SuggestionBook, Limit: 5},
+			wantCalls: 1,
+			check: func(t *testing.T, req models.SuggestionRequest) {
+				assert.Equal(t, 5, req.Limit)
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeSearchRepository{}
+			svc := NewSearchService(repo)
+
+			result, err := svc.Suggestions(context.Background(), tc.req)
+
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+				assert.NotNil(t, result.Suggestions, "an empty picker is [], never nil")
+			}
+			assert.Equal(t, tc.wantCalls, repo.suggCalls)
+			if tc.check != nil {
+				tc.check(t, repo.suggReq)
+			}
+		})
+	}
+
+	t.Run("a repository failure propagates", func(t *testing.T) {
+		boom := errors.New("repository exploded")
+		repo := &fakeSearchRepository{err: boom}
+		svc := NewSearchService(repo)
+
+		_, err := svc.Suggestions(context.Background(), models.SuggestionRequest{
+			Query: "война", Kind: models.SuggestionAll,
+		})
+
+		require.ErrorIs(t, err, boom)
+	})
 }

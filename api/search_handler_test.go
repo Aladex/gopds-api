@@ -79,9 +79,12 @@ type fakeSearch struct {
 	booksErr    error
 	authorsPage models.AuthorSearchPage
 	authorsErr  error
+	suggResult  models.SuggestionResult
+	suggErr     error
 
 	booksReqs  []models.BookSearchRequest
 	authorReqs []models.AuthorSearchRequest
+	suggReqs   []models.SuggestionRequest
 }
 
 func (f *fakeSearch) SearchBooks(_ context.Context, req models.BookSearchRequest) (models.BookSearchPage, error) {
@@ -92,6 +95,11 @@ func (f *fakeSearch) SearchBooks(_ context.Context, req models.BookSearchRequest
 func (f *fakeSearch) SearchAuthors(_ context.Context, req models.AuthorSearchRequest) (models.AuthorSearchPage, error) {
 	f.authorReqs = append(f.authorReqs, req)
 	return f.authorsPage, f.authorsErr
+}
+
+func (f *fakeSearch) Suggestions(_ context.Context, req models.SuggestionRequest) (models.SuggestionResult, error) {
+	f.suggReqs = append(f.suggReqs, req)
+	return f.suggResult, f.suggErr
 }
 
 var _ services.PublicSearch = (*fakeSearch)(nil)
@@ -319,4 +327,82 @@ func TestSearchHandler_Books_OrdinaryListFallback(t *testing.T) {
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 		assert.Greater(t, got.Length, 0)
 	})
+}
+
+func TestSearchHandler_Autocomplete_Success(t *testing.T) {
+	fake := &fakeSearch{suggResult: models.SuggestionResult{
+		Suggestions: []models.AutocompleteSuggestion{
+			{Value: "Война и мир", Secondary: "Толстой Лев", Type: "book", ID: 1},
+			{Value: "Толстой Лев", Type: "author", ID: 2, BooksCount: 10},
+		},
+	}}
+	r := newSearchTestRouter(fake, 77, false)
+
+	rec := doJSON(t, r, http.MethodGet,
+		"/api/books/autocomplete?query="+url.QueryEscape("война")+"&type=all&author=5&lang=ru", nil)
+
+	require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
+
+	require.Len(t, fake.suggReqs, 1)
+	req := fake.suggReqs[0]
+	assert.Equal(t, "война", req.Query)
+	assert.Equal(t, models.SuggestionAll, req.Kind)
+	assert.Equal(t, int64(5), req.AuthorID)
+	assert.Equal(t, "ru", req.Language)
+
+	var got AutocompleteResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Len(t, got.Suggestions, 2)
+	assert.Equal(t, "book", got.Suggestions[0].Type)
+	assert.Equal(t, "Толстой Лев", got.Suggestions[0].Secondary,
+		"the secondary author text tells identical titles apart")
+	assert.Equal(t, "author", got.Suggestions[1].Type)
+	assert.Equal(t, 10, got.Suggestions[1].BooksCount)
+}
+
+func TestSearchHandler_Autocomplete_Defaults(t *testing.T) {
+	fake := &fakeSearch{}
+	r := newSearchTestRouter(fake, 77, false)
+
+	rec := doJSON(t, r, http.MethodGet,
+		"/api/books/autocomplete?query="+url.QueryEscape("война"), nil)
+
+	require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
+
+	require.Len(t, fake.suggReqs, 1)
+	assert.Equal(t, models.SuggestionAll, fake.suggReqs[0].Kind, "an unnamed type means all")
+	assert.Zero(t, fake.suggReqs[0].AuthorID)
+
+	var got map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	assert.JSONEq(t, `[]`, string(got["suggestions"]),
+		"an empty picker serializes as [], not null")
+}
+
+func TestSearchHandler_Autocomplete_Validation(t *testing.T) {
+	boom := errors.New("repository exploded")
+	for _, tc := range []struct {
+		name     string
+		path     string
+		suggErr  error
+		wantCode int
+	}{
+		{"a missing query is a client error", "/api/books/autocomplete", nil, http.StatusBadRequest},
+		{"a non-numeric author is a client error", "/api/books/autocomplete?query=x&author=abc", nil, http.StatusBadRequest},
+		{"an unknown kind is a client error", "/api/books/autocomplete?query=x&type=titles", services.ErrInvalidSuggestionKind, http.StatusBadRequest},
+		{"a repository failure is a server error", "/api/books/autocomplete?query=x", boom, http.StatusInternalServerError},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeSearch{suggErr: tc.suggErr}
+			r := newSearchTestRouter(fake, 77, false)
+
+			rec := doJSON(t, r, http.MethodGet, tc.path, nil)
+
+			require.Equal(t, tc.wantCode, rec.Code, "body=%s", rec.Body.String())
+			var got httputil.HTTPError
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got),
+				"errors keep the httputil shape, never a raw Go error")
+			assert.Equal(t, tc.wantCode, got.Code)
+		})
+	}
 }

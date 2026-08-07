@@ -1002,3 +1002,313 @@ func authorIDs(authors []models.Author) []int64 {
 	}
 	return ids
 }
+
+// TestPGSearchRepositorySuggestions pins the autocomplete projection: the same
+// normalization, visibility and language semantics as the search paths, but a
+// compact picker list — three-rune minimum, SQL-side dedupe before the limit,
+// secondary text that tells identical titles apart, and real error propagation
+// where the legacy function swallowed every failure.
+//
+// The fixture transaction sees the real catalogue, so assertions either scope
+// to Language "fx" (fixture-only rows) or pin fixture IDs explicitly, exactly
+// as the author search tests do.
+func TestPGSearchRepositorySuggestions(t *testing.T) {
+	t.Run("two runes stay silent", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			repo := NewPGSearchRepository(f.tx)
+
+			result, err := repo.Suggestions(context.Background(), models.SuggestionRequest{
+				Query: "во", Kind: models.SuggestionAll, Language: "fx",
+			})
+
+			require.NoError(t, err)
+			assert.Empty(t, result.Suggestions)
+			assert.NotEmpty(t, result.QueryHash, "the meta row survives an empty picker")
+		})
+	})
+
+	t.Run("identical titles by different authors stay distinct, with the author as secondary", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			repo := NewPGSearchRepository(f.tx)
+
+			result, err := repo.Suggestions(context.Background(), models.SuggestionRequest{
+				Query: "сто лет одиночества", Kind: models.SuggestionBook, Language: "fx",
+			})
+
+			require.NoError(t, err)
+			require.Len(t, result.Suggestions, 2)
+			byID := map[int64]models.AutocompleteSuggestion{}
+			for _, s := range result.Suggestions {
+				assert.Equal(t, "book", s.Type)
+				assert.Equal(t, "Сто лет одиночества", s.Value)
+				byID[s.ID] = s
+			}
+			assert.Equal(t, "Толстой Лев", byID[f.BookIDs["dupA"]].Secondary)
+			assert.Equal(t, "Булгаков Михаил", byID[f.BookIDs["dupB"]].Secondary)
+		})
+	})
+
+	t.Run("same title and author collapses before the limit", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			repo := NewPGSearchRepository(f.tx)
+
+			// 510 visible books share this exact title and author. A limit
+			// applied before dedupe would fill the picker with copies of it.
+			result, err := repo.Suggestions(context.Background(), models.SuggestionRequest{
+				Query: "рассказы", Kind: models.SuggestionBook, Language: "fx", Limit: 8,
+			})
+
+			require.NoError(t, err)
+			require.Len(t, result.Suggestions, 1)
+			assert.Equal(t, "Рассказы", result.Suggestions[0].Value)
+			assert.Equal(t, "Другой Автор", result.Suggestions[0].Secondary)
+		})
+	})
+
+	t.Run("one book with two authors is one suggestion", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			joint := f.Book("joint", fixtureBook{
+				Title: "Совместная книга", Approved: true,
+				Authors: []int64{f.AuthorIDs["tolstoy"], f.AuthorIDs["bulgakov"]},
+			})
+			repo := NewPGSearchRepository(f.tx)
+
+			result, err := repo.Suggestions(context.Background(), models.SuggestionRequest{
+				Query: "совместная книга", Kind: models.SuggestionBook, Language: "fx",
+			})
+
+			require.NoError(t, err)
+			require.Len(t, result.Suggestions, 1)
+			assert.Equal(t, joint, result.Suggestions[0].ID)
+		})
+	})
+
+	t.Run("hidden and unapproved books never appear", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			repo := NewPGSearchRepository(f.tx)
+
+			result, err := repo.Suggestions(context.Background(), models.SuggestionRequest{
+				Query: "война и мир", Kind: models.SuggestionBook, Language: "fx",
+			})
+
+			require.NoError(t, err)
+			for _, s := range result.Suggestions {
+				assert.NotEqual(t, f.BookIDs["hidden"], s.ID)
+				assert.NotEqual(t, f.BookIDs["unapproved"], s.ID)
+			}
+		})
+	})
+
+	t.Run("lang all spans languages and a code narrows", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			repo := NewPGSearchRepository(f.tx)
+			req := models.SuggestionRequest{Query: "война и мир", Kind: models.SuggestionBook}
+
+			all, err := repo.Suggestions(context.Background(), req)
+			require.NoError(t, err)
+			assert.Contains(t, suggestionIDs(all.Suggestions), f.BookIDs["english"])
+
+			narrow, err := repo.Suggestions(context.Background(), models.SuggestionRequest{
+				Query: req.Query, Kind: req.Kind, Language: "fy",
+			})
+			require.NoError(t, err)
+			require.Len(t, narrow.Suggestions, 1)
+			assert.Equal(t, f.BookIDs["english"], narrow.Suggestions[0].ID)
+
+			fixtureOnly, err := repo.Suggestions(context.Background(), models.SuggestionRequest{
+				Query: req.Query, Kind: req.Kind, Language: "fx",
+			})
+			require.NoError(t, err)
+			assert.NotContains(t, suggestionIDs(fixtureOnly.Suggestions), f.BookIDs["english"])
+		})
+	})
+
+	t.Run("an author scope narrows book suggestions", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			repo := NewPGSearchRepository(f.tx)
+			req := models.SuggestionRequest{Query: "война и мир", Kind: models.SuggestionBook, Language: "fx"}
+
+			wide, err := repo.Suggestions(context.Background(), req)
+			require.NoError(t, err)
+			assert.Contains(t, suggestionIDs(wide.Suggestions), f.BookIDs["allWords"],
+				"the swapped-words book matches the query when unscoped")
+
+			req.AuthorID = f.AuthorIDs["tolstoy"]
+			scoped, err := repo.Suggestions(context.Background(), req)
+			require.NoError(t, err)
+			assert.NotContains(t, suggestionIDs(scoped.Suggestions), f.BookIDs["allWords"],
+				"another author's book must leave the scoped picker")
+		})
+	})
+
+	t.Run("authors come with a visible books count and zero-book rows are omitted", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			repo := NewPGSearchRepository(f.tx)
+
+			// The dump holds its own Tolstoys, but under Language "fx" their
+			// visible count is zero, so the fixture author stands alone.
+			result, err := repo.Suggestions(context.Background(), models.SuggestionRequest{
+				Query: "толстой", Kind: models.SuggestionAuthor, Language: "fx",
+			})
+
+			require.NoError(t, err)
+			require.Len(t, result.Suggestions, 1)
+			got := result.Suggestions[0]
+			assert.Equal(t, "author", got.Type)
+			assert.Equal(t, f.AuthorIDs["tolstoy"], got.ID)
+			assert.Equal(t, "Толстой Лев", got.Value)
+			assert.Equal(t, 10, got.BooksCount,
+				"ten visible fx books; hidden, unapproved and fy do not count")
+		})
+	})
+
+	t.Run("the author lane answers three-rune prefixes", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			repo := NewPGSearchRepository(f.tx)
+
+			result, err := repo.Suggestions(context.Background(), models.SuggestionRequest{
+				Query: "тол", Kind: models.SuggestionAuthor, Language: "fx",
+			})
+
+			require.NoError(t, err)
+			require.NotEmpty(t, result.Suggestions)
+			assert.Equal(t, f.AuthorIDs["tolstoy"], result.Suggestions[0].ID)
+		})
+	})
+
+	t.Run("the combined kind caps eight books and seven authors", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			repo := NewPGSearchRepository(f.tx)
+
+			books, err := repo.Suggestions(context.Background(), models.SuggestionRequest{
+				Query: "война", Kind: models.SuggestionAll,
+			})
+			require.NoError(t, err)
+			bookCount := 0
+			for _, s := range books.Suggestions {
+				if s.Type == "book" {
+					bookCount++
+				}
+			}
+			assert.Equal(t, 8, bookCount, "the catalogue holds far more matching books")
+
+			authors, err := repo.Suggestions(context.Background(), models.SuggestionRequest{
+				Query: "толстой", Kind: models.SuggestionAll,
+			})
+			require.NoError(t, err)
+			authorCount := 0
+			for _, s := range authors.Suggestions {
+				if s.Type == "author" {
+					authorCount++
+				}
+			}
+			assert.LessOrEqual(t, authorCount, 7)
+		})
+	})
+
+	t.Run("a single kind caps at fifteen", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			repo := NewPGSearchRepository(f.tx)
+
+			books, err := repo.Suggestions(context.Background(), models.SuggestionRequest{
+				Query: "война", Kind: models.SuggestionBook,
+			})
+			require.NoError(t, err)
+			assert.Len(t, books.Suggestions, 15)
+
+			authors, err := repo.Suggestions(context.Background(), models.SuggestionRequest{
+				Query: "ова", Kind: models.SuggestionAuthor,
+			})
+			require.NoError(t, err)
+			assert.Len(t, authors.Suggestions, 15)
+		})
+	})
+
+	t.Run("ordering is deterministic and exact leads", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			repo := NewPGSearchRepository(f.tx)
+			req := models.SuggestionRequest{Query: "война и мир", Kind: models.SuggestionAll, Language: "fx"}
+
+			first, err := repo.Suggestions(context.Background(), req)
+			require.NoError(t, err)
+			second, err := repo.Suggestions(context.Background(), req)
+			require.NoError(t, err)
+
+			require.Equal(t, len(first.Suggestions), len(second.Suggestions))
+			for i := range first.Suggestions {
+				assert.Equal(t, first.Suggestions[i].ID, second.Suggestions[i].ID)
+				assert.Equal(t, first.Suggestions[i].Type, second.Suggestions[i].Type)
+			}
+
+			require.NotEmpty(t, first.Suggestions)
+			lead := first.Suggestions[0]
+			assert.Equal(t, "book", lead.Type)
+			assert.Equal(t, f.BookIDs["exact"], lead.ID,
+				"exact matches tie on every signal, so the lowest id represents the group")
+			assert.Equal(t, "Война и мир", lead.Value)
+			assert.Equal(t, "Толстой Лев", lead.Secondary)
+		})
+	})
+
+	t.Run("a database error propagates instead of becoming an empty list", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			require.NoError(t, f.tx.Rollback())
+			repo := NewPGSearchRepository(f.tx)
+
+			_, err := repo.Suggestions(context.Background(), models.SuggestionRequest{
+				Query: "война", Kind: models.SuggestionAll,
+			})
+
+			require.Error(t, err)
+		})
+	})
+}
+
+// suggestionIDs flattens suggestions to their IDs for membership assertions.
+func suggestionIDs(suggestions []models.AutocompleteSuggestion) []int64 {
+	ids := make([]int64, len(suggestions))
+	for i, s := range suggestions {
+		ids[i] = s.ID
+	}
+	return ids
+}
+
+/*
+ * The combined picker used to hand out a fixed eight-and-seven whatever budget
+ * it was given, so asking for five suggestions of every kind answered with
+ * fifteen. Nothing asks for a smaller picker today — the autocomplete endpoint
+ * does not read a limit at all — which is why it went unnoticed rather than why
+ * it was harmless: the day a narrower picker is wanted, it would quietly be
+ * ignored.
+ *
+ * The split stays weighted towards books, and the default budget still lands on
+ * the eight and seven the picker was built around.
+ */
+func TestSuggestionLaneLimitsSpendExactlyTheBudget(t *testing.T) {
+	t.Run("the default budget keeps the shelves it was designed with", func(t *testing.T) {
+		books, authors := suggestionLaneLimits(models.SuggestionAll, 0)
+		assert.Equal(t, defaultSuggestionLimit, books+authors)
+		assert.Equal(t, 8, books)
+		assert.Equal(t, 7, authors)
+	})
+
+	t.Run("a smaller budget is split, not ignored", func(t *testing.T) {
+		for _, budget := range []int{1, 2, 5, 9} {
+			books, authors := suggestionLaneLimits(models.SuggestionAll, budget)
+			assert.Equal(t, budget, books+authors, "budget %d", budget)
+			assert.GreaterOrEqual(t, books, authors, "books lead the split at %d", budget)
+			assert.GreaterOrEqual(t, authors, 0, "budget %d", budget)
+		}
+	})
+
+	// A named kind owns the whole budget: there is no other lane to share with.
+	t.Run("a single kind takes it all", func(t *testing.T) {
+		books, authors := suggestionLaneLimits(models.SuggestionBook, 5)
+		assert.Equal(t, 5, books)
+		assert.Zero(t, authors)
+
+		books, authors = suggestionLaneLimits(models.SuggestionAuthor, 5)
+		assert.Zero(t, books)
+		assert.Equal(t, 5, authors)
+	})
+}

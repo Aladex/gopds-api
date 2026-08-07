@@ -6,10 +6,12 @@ import AutocompleteSearch from '@/features/catalogue/AutocompleteSearch';
 import { autocompleteService } from '@/api/autocomplete';
 
 // What matters here is not the markup but the request discipline. The suggestion
-// endpoint is hit on every keystroke a reader makes, so the four-character
+// endpoint is hit on every keystroke a reader makes, so the three-character
 // minimum, the debounce and the type mapping are the difference between a search
 // box and a load generator — and a mismapped type silently returns the wrong
-// kind of suggestion with no error to notice.
+// kind of suggestion with no error to notice. Two more rules keep the box
+// honest: a newer keystroke cancels the request in flight, and a failed request
+// says so instead of pretending there were no suggestions.
 
 vi.mock('@/api/autocomplete', () => ({
     autocompleteService: { getSuggestions: vi.fn() },
@@ -24,7 +26,8 @@ const searchBarState = { selectedLanguage: 'ru' };
 vi.mock('@/context/SearchBarContext', () => ({ useSearchBar: () => searchBarState }));
 
 // A stable t: an effect-keyed identity that changes every render would loop.
-const translate = (key: string, fallback?: string) => fallback ?? key;
+// Interpolated calls collapse to the key — the assertions read keys, not text.
+const translate = (key: string, options?: unknown) => (typeof options === 'string' ? options : key);
 const translation = { t: translate };
 vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 
@@ -70,15 +73,25 @@ beforeEach(() => {
 });
 
 describe('AutocompleteSearch', () => {
-    it('asks for nothing until there are four characters to ask about', async () => {
+    it('asks for nothing until there are three characters to ask about', async () => {
         const user = userEvent.setup();
         const { input } = setup();
 
-        await user.type(input, 'Зве');
+        await user.type(input, 'Зв');
 
         // Long enough for the debounce to have fired if it were going to.
         await new Promise((resolve) => setTimeout(resolve, 500));
         expect(getSuggestions).not.toHaveBeenCalled();
+
+        await user.type(input, 'е');
+        await waitFor(() => expect(getSuggestions).toHaveBeenCalledTimes(1));
+        expect(getSuggestions).toHaveBeenCalledWith(
+            'Зве',
+            'title',
+            undefined,
+            'ru',
+            expect.any(AbortSignal),
+        );
     });
 
     it('collapses a burst of typing into a single request', async () => {
@@ -90,7 +103,13 @@ describe('AutocompleteSearch', () => {
         await waitFor(() => expect(getSuggestions).toHaveBeenCalled());
         await new Promise((resolve) => setTimeout(resolve, 400));
         expect(getSuggestions).toHaveBeenCalledTimes(1);
-        expect(getSuggestions).toHaveBeenCalledWith('Звездная', 'title', undefined, 'ru');
+        expect(getSuggestions).toHaveBeenCalledWith(
+            'Звездная',
+            'title',
+            undefined,
+            'ru',
+            expect.any(AbortSignal),
+        );
     });
 
     it('searches an author by name but their own books by title', async () => {
@@ -100,7 +119,13 @@ describe('AutocompleteSearch', () => {
 
         await user.type(input, 'Пришвин');
         await waitFor(() =>
-            expect(getSuggestions).toHaveBeenCalledWith('Пришвин', 'author', undefined, 'ru'),
+            expect(getSuggestions).toHaveBeenCalledWith(
+                'Пришвин',
+                'author',
+                undefined,
+                'ru',
+                expect.any(AbortSignal),
+            ),
         );
     });
 
@@ -113,7 +138,13 @@ describe('AutocompleteSearch', () => {
 
         await user.type(input, 'Старый');
         await waitFor(() =>
-            expect(getSuggestions).toHaveBeenCalledWith('Старый', 'title', '42', 'ru'),
+            expect(getSuggestions).toHaveBeenCalledWith(
+                'Старый',
+                'title',
+                '42',
+                'ru',
+                expect.any(AbortSignal),
+            ),
         );
     });
 
@@ -123,8 +154,28 @@ describe('AutocompleteSearch', () => {
 
         await user.type(input, 'Старый');
         await waitFor(() =>
-            expect(getSuggestions).toHaveBeenCalledWith('Старый', 'title', undefined, 'ru'),
+            expect(getSuggestions).toHaveBeenCalledWith(
+                'Старый',
+                'title',
+                undefined,
+                'ru',
+                expect.any(AbortSignal),
+            ),
         );
+    });
+
+    it('aborts the request in flight when the query moves on', async () => {
+        const user = userEvent.setup();
+        const { input } = setup();
+
+        await user.type(input, 'Звездная');
+        await waitFor(() => expect(getSuggestions).toHaveBeenCalledTimes(1));
+        const firstSignal = getSuggestions.mock.calls[0][4] as AbortSignal;
+
+        await user.type(input, '!');
+        await waitFor(() => expect(getSuggestions).toHaveBeenCalledTimes(2));
+
+        expect(firstSignal.aborted).toBe(true);
     });
 
     it('shows what came back, labelled by kind', async () => {
@@ -136,6 +187,22 @@ describe('AutocompleteSearch', () => {
         await waitFor(() => expect(screen.getAllByRole('option')).toHaveLength(2));
         expect(screen.getByText('Звездная пыль')).toBeInTheDocument();
         expect(screen.getAllByText('book')).toHaveLength(2);
+    });
+
+    it('shows the author beside a titled book and the size of an author', async () => {
+        const user = userEvent.setup();
+        getSuggestions.mockResolvedValue([
+            { value: 'Сто лет одиночества', type: 'book' as const, id: 1, secondary: 'Толстой Лев' },
+            { value: 'Толстой Лев', type: 'author' as const, id: 2, books_count: 10 },
+        ]);
+        const { input } = setup();
+
+        await user.type(input, 'Сто лет');
+
+        await waitFor(() => expect(screen.getAllByRole('option')).toHaveLength(2));
+        // The secondary names the book's author; the author row names itself.
+        expect(screen.getAllByText('Толстой Лев')).toHaveLength(2);
+        expect(screen.getByText('bookCount')).toBeInTheDocument();
     });
 
     it('adopts a suggestion the reader picks and closes the list', async () => {
@@ -151,6 +218,20 @@ describe('AutocompleteSearch', () => {
         expect(screen.queryByRole('option')).not.toBeInTheDocument();
         // Picking is not submitting.
         expect(onEnterPressed).not.toHaveBeenCalled();
+    });
+
+    it('reports which suggestion was picked', async () => {
+        const user = userEvent.setup();
+        const onSuggestionSelected = vi.fn();
+        const { input } = setup({ onSuggestionSelected });
+
+        await user.type(input, 'Звездная');
+        await waitFor(() => expect(screen.getAllByRole('option')).toHaveLength(2));
+
+        await user.click(screen.getByText('Звездная тень'));
+
+        expect(onSuggestionSelected).toHaveBeenCalledTimes(1);
+        expect(onSuggestionSelected).toHaveBeenCalledWith(BOOKS[1]);
     });
 
     it('submits what was typed when no suggestion is highlighted', async () => {
@@ -186,6 +267,24 @@ describe('AutocompleteSearch', () => {
 
         // Stale suggestions under a changed query are worse than none.
         expect(screen.queryByText('Звездная пыль')).not.toBeInTheDocument();
+    });
+
+    it('shows a retryable error instead of "no options" when the request fails', async () => {
+        const user = userEvent.setup();
+        getSuggestions.mockRejectedValue(new Error('boom'));
+        const { input } = setup();
+
+        await user.type(input, 'Звездная');
+
+        await waitFor(() =>
+            expect(screen.getByText('searchSuggestionsError')).toBeInTheDocument(),
+        );
+        expect(screen.queryByText('noOptions')).not.toBeInTheDocument();
+
+        getSuggestions.mockResolvedValue(BOOKS);
+        await user.click(screen.getByRole('button', { name: 'retry' }));
+
+        await waitFor(() => expect(screen.getAllByRole('option')).toHaveLength(2));
     });
 
     it('offers no controls at all while the favourites filter is on', async () => {

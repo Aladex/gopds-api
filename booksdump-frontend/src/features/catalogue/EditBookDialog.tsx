@@ -30,7 +30,7 @@ type EditBookDialogProps = {
 };
 
 /** Nothing is asked of the server until there is this much to ask about. */
-const MIN_QUERY_LENGTH = 2;
+const MIN_QUERY_LENGTH = 3;
 const DEBOUNCE_MS = 250;
 
 const TITLE_FIELD_ID = 'edit-book-title';

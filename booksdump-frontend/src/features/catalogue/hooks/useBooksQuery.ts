@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 
 import * as booksApi from '@/api/books';
 import type { Book, BooksQuery } from '@/api/books';
 
 import { useAuth } from '@/context/AuthContext';
 import { useAuthor } from '@/context/AuthorContext';
+import { pageBaseUrl } from '@/features/catalogue/paginationRange';
 
 /**
  * useBooksQuery owns everything about *which* books are on screen: it derives
@@ -77,9 +78,10 @@ export function booksListReducer(state: BooksListState, action: BooksListAction)
 export function useBooksQuery() {
     const { user } = useAuth();
     const { page, id, title } = useParams<{ page: string; id?: string; title?: string }>();
-    const { authorId, authorBook, setAuthorId, clearAuthorBook } = useAuthor();
+    const { setAuthorId } = useAuthor();
     const location = useLocation();
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const prevLangRef = useRef(user?.books_lang);
     const [state, dispatch] = useReducer(booksListReducer, initialState);
 
@@ -92,50 +94,46 @@ export function useBooksQuery() {
         if (location.pathname.includes('/books/find/author/') && id) {
             params.author = id;
             setAuthorId(id);
-            if (authorBook) params.title = authorBook;
         } else if (location.pathname.includes('/books/find/category/') && id) {
             params.series = id;
-            clearAuthorBook();
         } else if (location.pathname.includes('/books/find/genre/') && id) {
             params.genre = id;
-            clearAuthorBook();
         } else if (location.pathname.includes('/books/find/title/') && title) {
             params.title = decodeURIComponent(title);
-            if (authorId) params.author = authorId;
-            clearAuthorBook();
         } else if (location.pathname.startsWith('/collections/') && id) {
             params.curated_collection = id;
-            clearAuthorBook();
         }
 
         if (location.pathname.includes('/books/favorite')) {
             params.fav = true;
-            clearAuthorBook();
         }
 
         if (location.pathname.includes('/books/users/favorites')) {
             params.users_favorites = true;
-            clearAuthorBook();
+        }
+
+        // A scoped search writes its query next to the route's own filters
+        // rather than into React state, so a reload asks for exactly what the
+        // reader last saw. The title route already carries its query in the
+        // path and wins there.
+        const scopedTitle = searchParams.get('title');
+        if (scopedTitle && !params.title) {
+            params.title = scopedTitle;
+        }
+        const bookId = searchParams.get('book_id');
+        if (bookId) {
+            params.book_id = bookId;
         }
 
         return params;
-    }, [
-        authorBook,
-        authorId,
-        clearAuthorBook,
-        id,
-        location.pathname,
-        page,
-        setAuthorId,
-        title,
-        user?.books_lang,
-    ]);
+    }, [id, location.pathname, page, searchParams, setAuthorId, title, user?.books_lang]);
 
     const loadBooks = useCallback(async () => {
         // Changing the reading language invalidates deep pages, so start over
-        // rather than showing page 40 of a shorter list.
+        // rather than showing page 40 of a shorter list. In place: the list
+        // and its search survive, only the page number goes.
         if (prevLangRef.current !== user?.books_lang && page !== '1') {
-            navigate('/books/page/1');
+            navigate(`${pageBaseUrl(location.pathname)}/1${location.search}`);
             return;
         }
 
@@ -155,7 +153,7 @@ export function useBooksQuery() {
 
         // Update language reference after successful fetch to prevent redirect loops
         prevLangRef.current = user?.books_lang;
-    }, [getParams, navigate, page, user?.books_lang]);
+    }, [getParams, location, navigate, page, user?.books_lang]);
 
     useEffect(() => {
         loadBooks();

@@ -74,6 +74,8 @@ export interface BooksQuery {
     collection?: number | string;
     curated_collection?: number | string;
     include_hidden?: boolean;
+    /** Pins the result to one exact book — the pick an autocomplete offered. */
+    book_id?: number | string;
 }
 
 export interface Language {

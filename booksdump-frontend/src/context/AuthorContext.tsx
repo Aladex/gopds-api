@@ -17,12 +17,9 @@ interface AuthorContextType {
      * when nobody did, which is what happens on a reload or a pasted URL.
      */
     authorName: string;
-    authorBook: string;
     setAuthorId: (authorId: string) => void;
     setAuthorName: (authorName: string) => void;
-    setAuthorBook: (authorBook: string) => void;
     clearAuthorId: () => void;
-    clearAuthorBook: () => void;
 }
 
 const AuthorContext = createContext<AuthorContextType | undefined>(undefined);
@@ -34,7 +31,6 @@ interface AuthorProviderProps {
 export const AuthorProvider: React.FC<AuthorProviderProps> = ({ children }) => {
     const [authorId, setAuthorId] = useState('');
     const [authorName, setAuthorName] = useState('');
-    const [authorBook, setAuthorBook] = useState('');
 
     // The id is set on every list load, usually to the value it already holds,
     // so the comparison is against a ref rather than a state updater — dropping
@@ -48,7 +44,6 @@ export const AuthorProvider: React.FC<AuthorProviderProps> = ({ children }) => {
         setAuthorId('');
         setAuthorName('');
     }, []);
-    const clearAuthorBook = useCallback(() => setAuthorBook(''), []);
 
     const memoizedSetAuthorId = useCallback((id: string) => {
         if (knownId.current !== id) {
@@ -58,29 +53,16 @@ export const AuthorProvider: React.FC<AuthorProviderProps> = ({ children }) => {
         setAuthorId(id);
     }, []);
     const memoizedSetAuthorName = useCallback((name: string) => setAuthorName(name), []);
-    const memoizedSetAuthorBook = useCallback((book: string) => setAuthorBook(book), []);
 
     const contextValue = useMemo(
         () => ({
             authorId,
             authorName,
-            authorBook,
             setAuthorId: memoizedSetAuthorId,
             setAuthorName: memoizedSetAuthorName,
-            setAuthorBook: memoizedSetAuthorBook,
             clearAuthorId,
-            clearAuthorBook,
         }),
-        [
-            authorId,
-            authorName,
-            authorBook,
-            memoizedSetAuthorId,
-            memoizedSetAuthorName,
-            memoizedSetAuthorBook,
-            clearAuthorId,
-            clearAuthorBook,
-        ],
+        [authorId, authorName, memoizedSetAuthorId, memoizedSetAuthorName, clearAuthorId],
     );
 
     return <AuthorContext.Provider value={contextValue}>{children}</AuthorContext.Provider>;

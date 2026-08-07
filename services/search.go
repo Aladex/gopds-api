@@ -19,6 +19,10 @@ var ErrEmptyQuery = errors.New("search query is empty")
 // ErrInvalidPagination is a negative offset: a client bug, not a filter.
 var ErrInvalidPagination = errors.New("invalid pagination")
 
+// ErrInvalidSuggestionKind is a suggestion request for a lane that does not
+// exist: a client bug, not a filter.
+var ErrInvalidSuggestionKind = errors.New("unknown suggestion kind")
+
 // Page sizing for search results. An unnamed or unusable limit falls back to
 // the default, which is also the ceiling — the same 100 the previous book and
 // author paths clamped to.
@@ -26,6 +30,18 @@ const (
 	defaultSearchLimit = 100
 	maxSearchLimit     = 100
 )
+
+// Suggestion picker sizing. The compact picker never answers more than this,
+// and an unnamed limit takes the same ceiling; the repository splits the
+// budget between the lanes. Keep in sync with the picker geometry in
+// database/search_repository.go — the service cannot import database, so the
+// value is repeated here.
+const maxSuggestionLimit = 15
+
+// minSuggestionRunes is the shortest prefix worth a fuzzy lookup. Shorter
+// input is the reader still typing; the service answers with an empty picker
+// without touching the repository.
+const minSuggestionRunes = 3
 
 // allLanguages is the language code meaning "the whole library". It must stay
 // in sync with database.AllLanguages, which the ordinary list path compares
@@ -36,6 +52,7 @@ const allLanguages = "all"
 type SearchRepository interface {
 	SearchBooks(ctx context.Context, req models.BookSearchRequest) (models.BookSearchPage, error)
 	SearchAuthors(ctx context.Context, req models.AuthorSearchRequest) (models.AuthorSearchPage, error)
+	Suggestions(ctx context.Context, req models.SuggestionRequest) (models.SuggestionResult, error)
 }
 
 // PublicSearch is the adapter-facing search surface: REST handlers, bots and
@@ -43,6 +60,7 @@ type SearchRepository interface {
 type PublicSearch interface {
 	SearchBooks(ctx context.Context, req models.BookSearchRequest) (models.BookSearchPage, error)
 	SearchAuthors(ctx context.Context, req models.AuthorSearchRequest) (models.AuthorSearchPage, error)
+	Suggestions(ctx context.Context, req models.SuggestionRequest) (models.SuggestionResult, error)
 }
 
 var _ PublicSearch = (*SearchService)(nil)
@@ -98,6 +116,53 @@ func (s *SearchService) SearchAuthors(ctx context.Context, req models.AuthorSear
 	page, err := s.repo.SearchAuthors(ctx, req)
 	logCompletion("authors", req.Query, req.Language, "none", len(page.Authors), page.Total, page.QueryHash, err, start)
 	return page, err
+}
+
+// Suggestions validates one autocomplete request and passes the normalized
+// request on. Two boundary rules differ from the search paths: an empty kind
+// means the combined picker, and a prefix shorter than three runes is the
+// reader still typing — answered with an empty picker, not an error, and
+// never worth a repository round trip. The picker is a list, so it is always
+// a non-nil slice, even when the repository handed back nothing.
+func (s *SearchService) Suggestions(ctx context.Context, req models.SuggestionRequest) (models.SuggestionResult, error) {
+	start := time.Now()
+	req.Query = strings.TrimSpace(req.Query)
+	req.Language = normalizeLanguage(req.Language)
+	if req.Kind == "" {
+		req.Kind = models.SuggestionAll
+	}
+	switch req.Kind {
+	case models.SuggestionAll, models.SuggestionBook, models.SuggestionAuthor:
+	default:
+		err := ErrInvalidSuggestionKind
+		logCompletion("suggestions", req.Query, req.Language, string(req.Kind), 0, 0, "", err, start)
+		return models.SuggestionResult{}, err
+	}
+	if runeLength(req.Query) < minSuggestionRunes {
+		empty := models.SuggestionResult{Suggestions: []models.AutocompleteSuggestion{}}
+		logCompletion("suggestions", req.Query, req.Language, string(req.Kind), 0, 0, "", nil, start)
+		return empty, nil
+	}
+	req.Limit = normalizeSuggestionLimit(req.Limit)
+	result, err := s.repo.Suggestions(ctx, req)
+	if err != nil {
+		logCompletion("suggestions", req.Query, req.Language, string(req.Kind), 0, 0, "", err, start)
+		return models.SuggestionResult{}, err
+	}
+	if result.Suggestions == nil {
+		result.Suggestions = []models.AutocompleteSuggestion{}
+	}
+	logCompletion("suggestions", req.Query, req.Language, string(req.Kind), len(result.Suggestions), 0, result.QueryHash, nil, start)
+	return result, nil
+}
+
+// normalizeSuggestionLimit clamps the picker to its compact size: an unnamed
+// or oversized limit becomes the picker ceiling.
+func normalizeSuggestionLimit(limit int) int {
+	if limit <= 0 || limit > maxSuggestionLimit {
+		return maxSuggestionLimit
+	}
+	return limit
 }
 
 // normalizePagination clamps the limit into the usable range and rejects a
@@ -186,7 +251,7 @@ func errorClass(err error) string {
 	switch {
 	case err == nil:
 		return "none"
-	case errors.Is(err, ErrEmptyQuery), errors.Is(err, ErrInvalidPagination):
+	case errors.Is(err, ErrEmptyQuery), errors.Is(err, ErrInvalidPagination), errors.Is(err, ErrInvalidSuggestionKind):
 		return "validation"
 	case errors.Is(err, context.Canceled):
 		return "canceled"

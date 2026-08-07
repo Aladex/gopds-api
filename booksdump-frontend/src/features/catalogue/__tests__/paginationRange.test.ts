@@ -1,4 +1,4 @@
-import { paginationRange, pageBaseUrl } from '@/features/catalogue/paginationRange';
+import { paginationRange, pageBaseUrl, pageHref } from '@/features/catalogue/paginationRange';
 
 // The pager is the only way to reach page 40000 of the catalogue, so its
 // arithmetic is worth pinning down: an off-by-one here either hides the last
@@ -87,5 +87,26 @@ describe('pageBaseUrl', () => {
     it('keeps an id that is not the page number', () => {
         // The author id is numeric too; only the final segment is a page.
         expect(pageBaseUrl('/books/find/author/42')).toBe('/books/find/author');
+    });
+});
+
+describe('pageHref', () => {
+    it('replaces only the page number', () => {
+        expect(pageHref('/books/page/5', 7)).toBe('/books/page/7');
+        expect(pageHref('/books/find/author/42/3', 4)).toBe('/books/find/author/42/4');
+    });
+
+    it('carries the search over to the sibling page', () => {
+        // The query string holds the search that filtered the list; dropping
+        // it on page 2 would silently widen the results.
+        expect(pageHref('/books/find/author/42/3?title=%D1%85&book_id=5', 2)).toBe(
+            '/books/find/author/42/2?title=%D1%85&book_id=5',
+        );
+    });
+
+    it('keeps the search on a scoped favourites list', () => {
+        expect(pageHref('/books/favorite/2?title=%D1%85', 1)).toBe(
+            '/books/favorite/1?title=%D1%85',
+        );
     });
 });
