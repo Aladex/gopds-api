@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"gopds-api/commands"
 	"gopds-api/logging"
@@ -42,6 +43,24 @@ type BotManager struct {
 	// newProcessor builds command processors on the one shared search
 	// service; there is no global default service to fall back to.
 	newProcessor func() *commands.CommandProcessor
+}
+
+// The bot sees the reader's own words: a search phrase, a name, the running
+// conversation. None of it belongs in a log — what debugging needs is that the
+// path was taken and how much text it carried. These two functions are where
+// that decision lives, so it can be pinned by a test instead of restated at
+// every call site.
+
+// logSearchContext records that a search ran with conversation context, by size.
+func logSearchContext(telegramID int64, contextStr string) {
+	logging.Infof("Search with context for user %d: %d context runes",
+		telegramID, utf8.RuneCountInString(contextStr))
+}
+
+// logStatefulInput records that a pending state consumed an input, by size.
+func logStatefulInput(telegramID int64, state, text string) {
+	logging.Infof("User %d has state %q, processing %d input runes",
+		telegramID, state, utf8.RuneCountInString(text))
 }
 
 // Bot represents a bot linked to a system user
@@ -305,7 +324,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 		if err != nil {
 			logging.Errorf("Failed to get context string: %v", err)
 		} else if contextStr != "" {
-			logging.Infof("Search with context for user %d: %s", telegramID, contextStr)
+			logSearchContext(telegramID, contextStr)
 		}
 
 		processor := b.newProcessor()
@@ -466,7 +485,7 @@ func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
 		}
 
 		if userState != "" {
-			logging.Infof("User %d has state '%s', processing input: %s", telegramID, userState, text)
+			logStatefulInput(telegramID, userState, text)
 
 			processor := b.newProcessor()
 			var result *commands.CommandResult

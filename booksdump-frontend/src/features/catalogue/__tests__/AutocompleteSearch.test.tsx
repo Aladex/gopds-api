@@ -94,6 +94,30 @@ describe('AutocompleteSearch', () => {
         );
     });
 
+    it('counts code points, so two astral characters are not three', async () => {
+        const user = userEvent.setup();
+        const { input } = setup();
+
+        // Two characters a reader sees, four UTF-16 code units. Counting units
+        // would send this to the backend, which counts runes and answers with
+        // an empty picker — the two ends of the same gate disagreeing.
+        await user.type(input, '😀🚀');
+
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        expect(getSuggestions).not.toHaveBeenCalled();
+
+        // A third code point opens the gate on both sides.
+        await user.type(input, '🎈');
+        await waitFor(() => expect(getSuggestions).toHaveBeenCalledTimes(1));
+        expect(getSuggestions).toHaveBeenCalledWith(
+            '😀🚀🎈',
+            'title',
+            undefined,
+            'ru',
+            expect.any(AbortSignal),
+        );
+    });
+
     it('collapses a burst of typing into a single request', async () => {
         const user = userEvent.setup();
         const { input } = setup();

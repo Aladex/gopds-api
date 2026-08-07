@@ -296,6 +296,15 @@ func seedSearchCatalog(f *searchFixture) {
 	f.Book("allWords", &fixtureBook{Title: "Мир и война", Approved: true, Authors: []int64{other}})
 	f.Book("substring", &fixtureBook{Title: "Читаем Война и мир вместе", Approved: true, Authors: []int64{other}})
 	f.Book("typo", &fixtureBook{Title: "Вайна и мир", Approved: true, Authors: []int64{other}})
+	// The all-words lane's own case: every query word is present, but the
+	// title says more around them, and the fuzzy lanes do not reach that far.
+	// "загадка башни" scores word_similarity 0.571 against the first title —
+	// under the 0.6 the %> operator demands — so only word coverage can find
+	// it. The second is the control: the fuzzy lanes do reach it (0.786) even
+	// though it has no word for "башни".
+	f.Book("allWordsScattered", &fixtureBook{Title: "Загадка старой заброшенной башни", Approved: true, Authors: []int64{other}})
+	f.Book("fuzzyOnlyNeighbour", &fixtureBook{Title: "Загадка башмака", Approved: true, Authors: []int64{other}})
+
 	// Adjacent-letter transposition of this one-word title scores 0.333
 	// against it: inside the old 0.3 trigram floor, outside the book-search
 	// floor of 0.5.

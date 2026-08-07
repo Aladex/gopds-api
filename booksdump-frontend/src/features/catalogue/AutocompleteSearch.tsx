@@ -29,6 +29,14 @@ import { useSearchBar } from '@/context/SearchBarContext';
  */
 
 const MIN_QUERY_LENGTH = 3;
+
+/**
+ * Counts Unicode code points, not UTF-16 code units, because that is what the
+ * backend counts. `'😀a'.length` is 3 — one astral character costs two units —
+ * so a two-character query would have passed this gate here and been answered
+ * with an empty picker there. Iterating a string yields code points.
+ */
+const runeLength = (value: string): number => [...value].length;
 const DEBOUNCE_MS = 300;
 
 interface AutocompleteSearchProps {
@@ -139,7 +147,7 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
     );
 
     useEffect(() => {
-        if (query.length < MIN_QUERY_LENGTH) {
+        if (runeLength(query) < MIN_QUERY_LENGTH) {
             abortControllerRef.current?.abort();
             abortControllerRef.current = null;
             return;
@@ -242,7 +250,7 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
         }
     };
 
-    const hint = query.length < MIN_QUERY_LENGTH ? t('typeToSearch') : t('noOptions');
+    const hint = runeLength(query) < MIN_QUERY_LENGTH ? t('typeToSearch') : t('noOptions');
     const showList = !dismissed && !disabled && query.length > 0;
     const clearable = value.length > 0 && !disabled;
 

@@ -127,6 +127,26 @@ func TestPGSearchRepositoryCandidateLanes(t *testing.T) {
 		})
 	})
 
+	t.Run("every query word present beats merely looking similar", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			// "Загадка старой заброшенной башни" carries both query words with
+			// two more between them. No exact, prefix or substring match
+			// exists, and word_similarity is 0.571 — under the 0.6 the fuzzy
+			// lane demands — so word coverage is the only thing that can find
+			// it at all.
+			//
+			// "Загадка башмака" is the opposite case: the fuzzy lane reaches it
+			// at 0.786 despite it having no word for "башни". Looking similar
+			// must not outrank containing everything the reader typed.
+			page := search(f, "загадка башни")
+
+			assert.Equal(t,
+				[]int64{f.BookIDs["allWordsScattered"], f.BookIDs["fuzzyOnlyNeighbour"]},
+				ids(page))
+			assert.Equal(t, 2, page.Total)
+		})
+	})
+
 	t.Run("a one-rune typo is found through the fuzzy lanes", func(t *testing.T) {
 		withSearchFixture(t, func(f *searchFixture) {
 			// Nothing matches exactly or by substring; only word/trigram

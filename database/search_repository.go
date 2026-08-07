@@ -27,12 +27,13 @@ func NewPGSearchRepository(db pg.DBI) *PGSearchRepository {
 //
 //  1. exact_match — the normalized title equals the needle;
 //  2. prefix_match — the normalized title starts with the needle;
-//  3. all_words_match — the title consists of the needle's words, in any
-//     order, each as a whole word or word prefix (both directions checked,
-//     so a longer title that merely contains the needle is not here);
+//  3. word_set_match — the title is the needle's words and nothing else, in
+//     any order, each as a whole word or word prefix;
 //  4. substring_match — the needle occurs inside the normalized title;
-//  5. word_score — word_similarity of the needle against the title;
-//  6. trigram_score — plain trigram similarity for typos.
+//  5. all_words_match — every needle word has a title word starting with it,
+//     the title saying more around them;
+//  6. word_score — word_similarity of the needle against the title;
+//  7. trigram_score — plain trigram similarity for typos.
 //
 // The fuzzy lanes (5 and 6) and the word-coverage lane fire only from three
 // runes up, so one- and two-rune manual queries stay exact/prefix/substring.
@@ -159,20 +160,50 @@ lane_hits AS (
         AND (SELECT q.rune_count FROM q) >= 3
         AND v.norm_title % (SELECT q.needle FROM q)
     UNION ALL
-    SELECT v.id, v.norm_title, 32
+    -- Word coverage, admitting on the weaker of the two readings and
+    -- reporting which one held.
+    --
+    -- Bit 32 is coverage: every word the reader typed has a title word
+    -- starting with it. Bit 64 adds the reverse — every title word is covered
+    -- too — which makes the title the reader's words and nothing else.
+    --
+    -- Admitting on set equality alone, as this lane first did, made it nearly
+    -- unreachable: "гарри поттер" is set-equal to none of the 224 Harry Potter
+    -- books, because each of them says something more. Titles that spread the
+    -- query's words out were then not admitted by anything at all — "Тайна
+    -- старого заброшенного маяка" scores word_similarity 0.500 for "тайна
+    -- маяка", under the 0.6 the fuzzy lane demands.
+    --
+    -- The two readings rank differently, so both are kept: set equality
+    -- outranks an interior substring, plain coverage sits below it. Otherwise
+    -- coverage would swallow the substring tier — a title containing the
+    -- needle contiguously covers its words by construction.
+    --
+    -- The LIKE prefilter stays: coverage means the first query word prefixes
+    -- some title word, so it is implied, and it gives the GIN index an entry
+    -- qual instead of a per-row anti-join over the whole catalog.
+    SELECT v.id, v.norm_title,
+        CASE WHEN NOT EXISTS (
+            SELECT 1 FROM unnest(string_to_array(v.norm_title, ' ')) AS tw(word)
+            WHERE NOT EXISTS (
+                SELECT 1 FROM unnest(string_to_array((SELECT q.needle FROM q), ' ')) AS nw(word)
+                WHERE tw.word LIKE nw.word || '%'))
+        THEN 96 ELSE 32 END
     FROM visible v
     WHERE (SELECT q.exact_id FROM q) = 0
         AND (SELECT q.rune_count FROM q) >= 3
+        -- Single-word needles skip the lane entirely. Coverage then means one
+        -- title word starts with the needle, which already makes the title
+        -- contain it, so the substring lane has the row; and set equality then
+        -- means every title word starts with it, which makes the title a
+        -- prefix match, ranked higher still. The lane would add no row and no
+        -- tier, only an anti-join over every "рассказы"-class candidate.
+        AND strpos((SELECT q.needle FROM q), ' ') > 0
         AND v.norm_title LIKE '%' || split_part((SELECT q.needle FROM q), ' ', 1) || '%'
         AND NOT EXISTS (
             SELECT 1 FROM unnest(string_to_array((SELECT q.needle FROM q), ' ')) AS nw(word)
             WHERE NOT EXISTS (
                 SELECT 1 FROM unnest(string_to_array(v.norm_title, ' ')) AS tw(word)
-                WHERE tw.word LIKE nw.word || '%'))
-        AND NOT EXISTS (
-            SELECT 1 FROM unnest(string_to_array(v.norm_title, ' ')) AS tw(word)
-            WHERE NOT EXISTS (
-                SELECT 1 FROM unnest(string_to_array((SELECT q.needle FROM q), ' ')) AS nw(word)
                 WHERE tw.word LIKE nw.word || '%'))
     UNION ALL
     -- A pinned exact ID bypasses the textual lanes: it is a navigation
@@ -191,8 +222,8 @@ candidates AS (
     GROUP BY l.id, l.norm_title
 ),
 signaled AS (
-    -- Only all_words_match comes from the lane bitmask; recomputing the
-    -- word-coverage anti-joins per candidate was the dominant cost here.
+    -- Only the two word-coverage signals come from the lane bitmask;
+    -- recomputing their anti-joins per candidate was the dominant cost here.
     -- Every other signal stays a pure function of the candidate row —
     -- including the raw similarity scores, because the %> / % lanes are
     -- strict while the admission floors below are inclusive, so a gated
@@ -201,8 +232,9 @@ signaled AS (
         c.id,
         (c.norm_title = q.needle) AS exact_match,
         (c.norm_title LIKE q.needle || '%') AS prefix_match,
-        (c.lanes & 32 <> 0) AS all_words_match,
+        (c.lanes & 64 <> 0) AS word_set_match,
         (strpos(c.norm_title, q.needle) > 0) AS substring_match,
+        (c.lanes & 32 <> 0) AS all_words_match,
         CASE WHEN q.rune_count >= 3 THEN word_similarity(q.needle, c.norm_title)
              ELSE 0::real END AS word_score,
         CASE WHEN q.rune_count >= 3 THEN similarity(c.norm_title, q.needle)
@@ -218,7 +250,8 @@ admitted AS (
     -- A pinned exact ID is admitted unconditionally; textual candidates must
     -- carry at least one signal or clear a score floor.
     WHERE q.exact_id > 0
-        OR s.exact_match OR s.prefix_match OR s.all_words_match OR s.substring_match
+        OR s.exact_match OR s.prefix_match
+        OR s.word_set_match OR s.substring_match OR s.all_words_match
         OR s.word_score >= 0.60
         OR s.trigram_score >= 0.30
 ),
@@ -228,8 +261,9 @@ ranked AS (
             ORDER BY
                 a.exact_match DESC,
                 a.prefix_match DESC,
-                a.all_words_match DESC,
+                a.word_set_match DESC,
                 a.substring_match DESC,
+                a.all_words_match DESC,
                 a.word_score DESC,
                 a.trigram_score DESC,
                 a.match_position ASC NULLS LAST,

@@ -187,8 +187,18 @@ func (s *LLMService) ProcessQuery(userQuery, context string) (*Command, error) {
 		return &Command{Command: "unknown"}, nil
 	}
 
-	logging.Infof("LLM processed query '%s' -> command: %s, title: %s, author: %s", userQuery, command.Command, command.Title, command.Author)
+	logProcessedQuery(userQuery, command)
 	return command, nil
+}
+
+// logProcessedQuery records what the model made of one query. The query and
+// the title and author it read out of it are the reader's own words, so the
+// log carries the shape of the outcome instead: which command was recognized,
+// how long the query was, and whether each field came back filled.
+func logProcessedQuery(userQuery string, command *Command) {
+	logging.Infof("LLM processed %d query runes -> command: %s, title: %t, author: %t",
+		utf8.RuneCountInString(userQuery), command.Command,
+		command.Title != "", command.Author != "")
 }
 
 // callOpenAI makes a request to OpenAI API
