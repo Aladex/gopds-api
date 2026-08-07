@@ -52,7 +52,7 @@ func main() {
 	telegramConfig := &telegram.Config{
 		BaseURL: cfg.GetTelegramWebhookBaseURL(),
 	}
-	telegramBotManager := telegram.NewBotManager(telegramConfig, mainRedisClient)
+	telegramBotManager := telegram.NewBotManager(telegramConfig, mainRedisClient, searchService)
 
 	// Initialize Telegram service
 	var err error

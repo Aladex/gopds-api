@@ -142,7 +142,7 @@ func (h *CallbackHandler) handlePagination(ctx context.Context, b *tgbotapi.Bot,
 	logging.Infof("Navigating from offset %d to %d for user %d",
 		convContext.SearchParams.Offset, newOffset, telegramID)
 
-	result, err := h.executeSearchWithPagination(convContext.SearchParams, telegramID, newOffset)
+	result, err := h.executeSearchWithPagination(ctx, convContext.SearchParams, telegramID, newOffset)
 	if err != nil {
 		logging.Errorf("Failed to execute paginated search: %v", err)
 		h.answerCallbackText(ctx, b, q, "Search error")
@@ -170,20 +170,21 @@ func (h *CallbackHandler) calculateNewOffset(params *commands.SearchParams, dire
 
 // executeSearchWithPagination executes search based on query type
 func (h *CallbackHandler) executeSearchWithPagination(
+	ctx context.Context,
 	params *commands.SearchParams,
 	telegramID int64,
 	newOffset int,
 ) (*commands.CommandResult, error) {
-	processor := commands.NewCommandProcessor()
+	processor := h.bot.newProcessor()
 
 	switch params.QueryType {
 	case "author":
-		return processor.ExecuteFindAuthorWithPagination(params.Query, telegramID, newOffset, params.Limit)
+		return processor.ExecuteFindAuthorWithPagination(ctx, params.Query, telegramID, newOffset, params.Limit)
 	case "author_books":
 		return processor.ExecuteFindAuthorBooksWithPagination(
 			params.RefID, params.Query, telegramID, newOffset, params.Limit)
 	case "combined":
-		return h.executeCombinedSearch(processor, params.Query, telegramID, newOffset, params.Limit)
+		return h.executeCombinedSearch(ctx, processor, params.Query, telegramID, newOffset, params.Limit)
 	case "favorites":
 		return processor.ExecuteShowFavorites(telegramID, newOffset, params.Limit)
 	case "collection_books":
@@ -191,12 +192,13 @@ func (h *CallbackHandler) executeSearchWithPagination(
 	case "collections":
 		return processor.ExecuteShowCollections(newOffset, params.Limit)
 	default:
-		return processor.ExecuteFindBookWithPagination(params.Query, telegramID, newOffset, params.Limit)
+		return processor.ExecuteFindBookWithPagination(ctx, params.Query, telegramID, newOffset, params.Limit)
 	}
 }
 
 // executeCombinedSearch handles combined title+author search
 func (h *CallbackHandler) executeCombinedSearch(
+	ctx context.Context,
 	processor *commands.CommandProcessor,
 	query string,
 	telegramID int64,
@@ -215,9 +217,9 @@ func (h *CallbackHandler) executeCombinedSearch(
 	}
 
 	if title != "" && author != "" {
-		return processor.ExecuteFindBookWithAuthorWithPagination(title, author, telegramID, offset, limit)
+		return processor.ExecuteFindBookWithAuthorWithPagination(ctx, title, author, telegramID, offset, limit)
 	}
-	return processor.ExecuteFindBookWithPagination(title, telegramID, offset, limit)
+	return processor.ExecuteFindBookWithPagination(ctx, title, telegramID, offset, limit)
 }
 
 // handleCollectionSelection handles collection:ID callbacks
@@ -236,7 +238,7 @@ func (h *CallbackHandler) handleCollectionSelection(ctx context.Context, b *tgbo
 
 	h.answerCallback(ctx, b, q)
 
-	processor := commands.NewCommandProcessor()
+	processor := h.bot.newProcessor()
 	result, err := processor.ExecuteCollectionBooks(collectionID, telegramID, 0, 5)
 	if err != nil {
 		logging.Errorf("Failed to get collection books for user %d: %v", telegramID, err)
@@ -283,7 +285,7 @@ func (h *CallbackHandler) handleAuthorSelection(ctx context.Context, b *tgbotapi
 
 	h.answerCallback(ctx, b, q)
 
-	processor := commands.NewCommandProcessor()
+	processor := h.bot.newProcessor()
 	result, err := processor.ExecuteFindAuthorBooksWithPagination(authorID, author.FullName, telegramID, 0, 5)
 	if err != nil {
 		logging.Errorf("Failed to get author books for user %d: %v", telegramID, err)

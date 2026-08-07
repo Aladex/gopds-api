@@ -1,13 +1,32 @@
 package telegram
 
 import (
+	"context"
 	"testing"
+
+	"gopds-api/models"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/go-redis/redis"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// stubSearch is a no-op services.PublicSearch for manager tests that never
+// reach a search flow.
+type stubSearch struct{}
+
+func (stubSearch) SearchBooks(context.Context, models.BookSearchRequest) (models.BookSearchPage, error) {
+	return models.BookSearchPage{}, nil
+}
+
+func (stubSearch) SearchAuthors(context.Context, models.AuthorSearchRequest) (models.AuthorSearchPage, error) {
+	return models.AuthorSearchPage{}, nil
+}
+
+func (stubSearch) Suggestions(context.Context, models.SuggestionRequest) (models.SuggestionResult, error) {
+	return models.SuggestionResult{}, nil
+}
 
 func TestNewBotManager(t *testing.T) {
 	mr, err := miniredis.Run()
@@ -23,7 +42,7 @@ func TestNewBotManager(t *testing.T) {
 		BaseURL: "https://example.com",
 	}
 
-	bm := NewBotManager(config, redisClient)
+	bm := NewBotManager(config, redisClient, stubSearch{})
 
 	assert.NotNil(t, bm)
 	assert.NotNil(t, bm.bots)
@@ -147,7 +166,7 @@ func TestGetBotCount(t *testing.T) {
 		BaseURL: "https://example.com",
 	}
 
-	bm := NewBotManager(config, redisClient)
+	bm := NewBotManager(config, redisClient, stubSearch{})
 
 	// Initially should be 0
 	assert.Equal(t, 0, bm.GetBotCount())
@@ -181,7 +200,7 @@ func TestListActiveBots(t *testing.T) {
 		BaseURL: "https://example.com",
 	}
 
-	bm := NewBotManager(config, redisClient)
+	bm := NewBotManager(config, redisClient, stubSearch{})
 
 	// Initially should be empty
 	tokens := bm.ListActiveBots()
@@ -217,7 +236,7 @@ func TestGetConversationManager(t *testing.T) {
 		BaseURL: "https://example.com",
 	}
 
-	bm := NewBotManager(config, redisClient)
+	bm := NewBotManager(config, redisClient, stubSearch{})
 
 	cm := bm.GetConversationManager()
 	assert.NotNil(t, cm)
@@ -238,7 +257,7 @@ func TestGetConversationContext(t *testing.T) {
 		BaseURL: "https://example.com",
 	}
 
-	bm := NewBotManager(config, redisClient)
+	bm := NewBotManager(config, redisClient, stubSearch{})
 
 	// Test getting context for a new user
 	ctx, err := bm.GetConversationContext("test-token", 12345)
@@ -261,7 +280,7 @@ func TestGetConversationContextAsString(t *testing.T) {
 		BaseURL: "https://example.com",
 	}
 
-	bm := NewBotManager(config, redisClient)
+	bm := NewBotManager(config, redisClient, stubSearch{})
 
 	// Add some messages first
 	err = bm.conversationManager.AddUserMessage("test-token", 12345, "Hello!")
@@ -287,7 +306,7 @@ func TestClearConversationContext(t *testing.T) {
 		BaseURL: "https://example.com",
 	}
 
-	bm := NewBotManager(config, redisClient)
+	bm := NewBotManager(config, redisClient, stubSearch{})
 
 	// Add some messages first
 	err = bm.conversationManager.AddUserMessage("test-token", 12345, "Hello!")
@@ -317,7 +336,7 @@ func TestCreateBotForUser_AlreadyExists(t *testing.T) {
 		BaseURL: "https://example.com",
 	}
 
-	bm := NewBotManager(config, redisClient)
+	bm := NewBotManager(config, redisClient, stubSearch{})
 
 	// Manually add a bot
 	bm.mutex.Lock()
@@ -344,7 +363,7 @@ func TestRemoveBot_NotFound(t *testing.T) {
 		BaseURL: "https://example.com",
 	}
 
-	bm := NewBotManager(config, redisClient)
+	bm := NewBotManager(config, redisClient, stubSearch{})
 
 	err = bm.RemoveBot("non-existent-token")
 	assert.Error(t, err)
@@ -365,7 +384,7 @@ func TestSetWebhook_BotNotFound(t *testing.T) {
 		BaseURL: "https://example.com",
 	}
 
-	bm := NewBotManager(config, redisClient)
+	bm := NewBotManager(config, redisClient, stubSearch{})
 
 	err = bm.SetWebhook("non-existent-token")
 	assert.Error(t, err)

@@ -9,13 +9,29 @@ import (
 	"gopds-api/llm"
 	"gopds-api/logging"
 	"gopds-api/models"
+	"gopds-api/services"
 
 	tgbot "github.com/go-telegram/bot/models"
 )
 
+// telegramUserLookup resolves a Telegram ID to the system user. It is a seam:
+// production uses database.GetUserByTelegramID, tests use a fake, so no
+// search test touches PostgreSQL.
+type telegramUserLookup func(int64) (models.User, error)
+
+// defaultSearchPageSize is the page size a bot search flow starts with when
+// the caller passes no explicit pagination.
+const defaultSearchPageSize = 5
+
+// noResultsOnPageMessage is shown when a search page beyond the first comes
+// back empty.
+const noResultsOnPageMessage = "No results on this page."
+
 // CommandProcessor handles execution of parsed commands
 type CommandProcessor struct {
 	llmService *llm.LLMService
+	search     services.PublicSearch
+	findUser   telegramUserLookup
 }
 
 // CommandResult represents the result of command execution
@@ -38,35 +54,45 @@ type SearchParams struct {
 	TotalCount int    `json:"total_count"`
 }
 
-// NewCommandProcessor creates a new command processor
-func NewCommandProcessor() *CommandProcessor {
-	return &CommandProcessor{
-		llmService: llm.NewLLMService(),
-	}
+// NewCommandProcessor creates a new command processor on the one search
+// service every adapter shares.
+func NewCommandProcessor(search services.PublicSearch) *CommandProcessor {
+	cp := newCommandProcessorWithDeps(search, database.GetUserByTelegramID)
+	cp.llmService = llm.NewLLMService()
+	return cp
+}
+
+// newCommandProcessorWithDeps builds a processor with explicit seams — the
+// shared search surface and the Telegram user lookup. It has no LLM: package
+// tests drive the search flows directly and never call ProcessMessage.
+func newCommandProcessorWithDeps(search services.PublicSearch, findUser telegramUserLookup) *CommandProcessor {
+	return &CommandProcessor{search: search, findUser: findUser}
 }
 
 // ProcessMessage processes a user message and returns a response
-func (cp *CommandProcessor) ProcessMessage(userMessage, context string, userID int64) (*CommandResult, error) {
+func (cp *CommandProcessor) ProcessMessage(
+	ctx context.Context, userMessage, conversationContext string, userID int64,
+) (*CommandResult, error) {
 	// Use LLM to parse the user message
-	command, err := cp.llmService.ProcessQuery(userMessage, context)
+	command, err := cp.llmService.ProcessQuery(userMessage, conversationContext)
 	if err != nil {
 		logging.Errorf("Failed to process query with LLM: %v", err)
 		return cp.createUnknownResponse(), nil
 	}
 
 	// Execute the command
-	return cp.executeCommand(command, userID)
+	return cp.executeCommand(ctx, command, userID)
 }
 
 // executeCommand executes a parsed command
-func (cp *CommandProcessor) executeCommand(command *llm.Command, userID int64) (*CommandResult, error) {
+func (cp *CommandProcessor) executeCommand(ctx context.Context, command *llm.Command, userID int64) (*CommandResult, error) {
 	switch command.Command {
 	case "find_book":
-		return cp.executeFindBook(command.Title, userID)
+		return cp.executeFindBook(ctx, command.Title, userID)
 	case "find_author":
-		return cp.executeFindAuthor(command.Author, userID)
+		return cp.executeFindAuthor(ctx, command.Author, userID)
 	case "find_book_with_author":
-		return cp.executeFindBookWithAuthor(command.Title, command.Author, userID)
+		return cp.executeFindBookWithAuthor(ctx, command.Title, command.Author, userID)
 	case "unknown":
 		return cp.createUnknownResponse(), nil
 	default:
@@ -76,17 +102,21 @@ func (cp *CommandProcessor) executeCommand(command *llm.Command, userID int64) (
 }
 
 // executeFindBook executes a book search command
-func (cp *CommandProcessor) executeFindBook(title string, userID int64) (*CommandResult, error) {
-	return cp.executeFindBookWithPagination(title, userID, 0, 5)
+func (cp *CommandProcessor) executeFindBook(ctx context.Context, title string, userID int64) (*CommandResult, error) {
+	return cp.executeFindBookWithPagination(ctx, title, userID, 0, defaultSearchPageSize)
 }
 
 // ExecuteFindBookWithPagination executes a book search command with pagination (exported for callback handlers)
-func (cp *CommandProcessor) ExecuteFindBookWithPagination(title string, userID int64, offset, limit int) (*CommandResult, error) {
-	return cp.executeFindBookWithPagination(title, userID, offset, limit)
+func (cp *CommandProcessor) ExecuteFindBookWithPagination(
+	ctx context.Context, title string, userID int64, offset, limit int,
+) (*CommandResult, error) {
+	return cp.executeFindBookWithPagination(ctx, title, userID, offset, limit)
 }
 
 // executeFindBookWithPagination executes a book search command with pagination
-func (cp *CommandProcessor) executeFindBookWithPagination(title string, userID int64, offset, limit int) (*CommandResult, error) {
+func (cp *CommandProcessor) executeFindBookWithPagination(
+	ctx context.Context, title string, userID int64, offset, limit int,
+) (*CommandResult, error) {
 	if title == "" {
 		return &CommandResult{
 			Message: "Please specify a book title to search for.",
@@ -94,7 +124,7 @@ func (cp *CommandProcessor) executeFindBookWithPagination(title string, userID i
 	}
 
 	// Get user's language preference and internal ID
-	user, err := database.GetUserByTelegramID(userID)
+	user, err := cp.findUser(userID)
 	if err != nil {
 		logging.Warnf("Failed to get user language preference for user %d: %v", userID, err)
 		return &CommandResult{
@@ -102,21 +132,15 @@ func (cp *CommandProcessor) executeFindBookWithPagination(title string, userID i
 		}, nil
 	}
 
-	// Create filters for book search with pagination and user's language preference
-	filters := models.BookFilters{
-		Title:  title,
-		Limit:  limit,
-		Offset: offset,
-	}
-
-	// Apply user's language preference if available
-	if err == nil && user.BooksLang != "" {
-		filters.Lang = user.BooksLang
-		logging.Infof("Applying language filter '%s' for user %d", user.BooksLang, userID)
-	}
-
-	// Search for books using the existing database function
-	books, totalCount, err := database.GetBooksEnhanced(user.ID, filters)
+	// One ranked page from the shared search service: the reader's book
+	// language, the internal user ID and the exact pre-pagination total.
+	page, err := cp.search.SearchBooks(ctx, models.BookSearchRequest{
+		Query:    title,
+		UserID:   user.ID,
+		Language: user.BooksLang,
+		Limit:    limit,
+		Offset:   offset,
+	})
 	if err != nil {
 		logging.Errorf("Failed to search books: %v", err)
 		return &CommandResult{
@@ -124,20 +148,10 @@ func (cp *CommandProcessor) executeFindBookWithPagination(title string, userID i
 		}, nil
 	}
 
-	if len(books) == 0 && offset == 0 {
-		languageMsg := ""
-		if user.BooksLang != "" && user.BooksLang != database.AllLanguages {
-			languageMsg = fmt.Sprintf(" in %s language", user.BooksLang)
-		}
-		return &CommandResult{
-			Message: fmt.Sprintf("📚 Books with title \"%s\"%s were not found.\n\nTry changing your search query or using other keywords.", title, languageMsg),
-		}, nil
-	}
+	books, totalCount := page.Books, page.Total
 
-	if len(books) == 0 && offset > 0 {
-		return &CommandResult{
-			Message: "No results on this page.",
-		}, nil
+	if len(books) == 0 {
+		return bookSearchNotFound(title, user.BooksLang, offset), nil
 	}
 
 	// Format the response message with pagination info
@@ -159,41 +173,72 @@ func (cp *CommandProcessor) executeFindBookWithPagination(title string, userID i
 	}, nil
 }
 
+// bookSearchNotFound renders the empty-result message for a book search: the
+// first page names the language scope, later pages just say they are empty.
+func bookSearchNotFound(title, lang string, offset int) *CommandResult {
+	if offset > 0 {
+		return &CommandResult{
+			Message: noResultsOnPageMessage,
+		}
+	}
+	languageMsg := ""
+	if lang != "" && lang != database.AllLanguages {
+		languageMsg = fmt.Sprintf(" in %s language", lang)
+	}
+	return &CommandResult{
+		Message: fmt.Sprintf(
+			"📚 Books with title %q%s were not found.\n\nTry changing your search query or using other keywords.",
+			title, languageMsg,
+		),
+	}
+}
+
 // executeFindAuthor executes an author search command
-func (cp *CommandProcessor) executeFindAuthor(author string, userID int64) (*CommandResult, error) {
-	_ = userID // Authors are global, not user-specific
-	return cp.executeFindAuthorWithPagination(author, 0, 5)
+func (cp *CommandProcessor) executeFindAuthor(ctx context.Context, author string, userID int64) (*CommandResult, error) {
+	return cp.executeFindAuthorWithPagination(ctx, author, userID, 0, defaultSearchPageSize)
 }
 
 // ExecuteFindAuthorWithPagination executes an author search command with pagination (exported for callback handlers)
-func (cp *CommandProcessor) ExecuteFindAuthorWithPagination(author string, userID int64, offset, limit int) (*CommandResult, error) {
-	_ = userID // Authors are global, not user-specific
-	return cp.executeFindAuthorWithPagination(author, offset, limit)
+func (cp *CommandProcessor) ExecuteFindAuthorWithPagination(
+	ctx context.Context, author string, userID int64, offset, limit int,
+) (*CommandResult, error) {
+	return cp.executeFindAuthorWithPagination(ctx, author, userID, offset, limit)
 }
 
 // executeFindAuthorWithPagination executes an author search command with pagination
-func (cp *CommandProcessor) executeFindAuthorWithPagination(author string, offset, limit int) (*CommandResult, error) {
+func (cp *CommandProcessor) executeFindAuthorWithPagination(
+	ctx context.Context, author string, userID int64, offset, limit int,
+) (*CommandResult, error) {
 	if author == "" {
 		return &CommandResult{
 			Message: "Please specify an author name to search for.",
 		}, nil
 	}
 
-	// Create filters for author search with pagination
-	filters := models.AuthorFilters{
-		Author: author,
-		Limit:  limit,
-		Offset: offset,
+	// The reader's book language scopes the author list the same way it
+	// scopes the book list an author opens into.
+	user, err := cp.findUser(userID)
+	if err != nil {
+		logging.Warnf("Failed to get user language preference for user %d: %v", userID, err)
+		return &CommandResult{
+			Message: "Не удалось найти пользователя. Перепривяжите Telegram в настройках.",
+		}, nil
 	}
 
-	// Search for authors using the existing database function
-	authors, totalCount, err := database.GetAuthors(filters)
+	page, err := cp.search.SearchAuthors(ctx, models.AuthorSearchRequest{
+		Query:    author,
+		Language: user.BooksLang,
+		Limit:    limit,
+		Offset:   offset,
+	})
 	if err != nil {
 		logging.Errorf("Failed to search authors: %v", err)
 		return &CommandResult{
 			Message: "An error occurred while searching for authors. Please try again later.",
 		}, nil
 	}
+
+	authors, totalCount := page.Authors, page.Total
 
 	if len(authors) == 0 && offset == 0 {
 		return &CommandResult{
@@ -203,7 +248,7 @@ func (cp *CommandProcessor) executeFindAuthorWithPagination(author string, offse
 
 	if len(authors) == 0 && offset > 0 {
 		return &CommandResult{
-			Message: "No results on this page.",
+			Message: noResultsOnPageMessage,
 		}, nil
 	}
 
@@ -230,7 +275,7 @@ func (cp *CommandProcessor) executeFindAuthorWithPagination(author string, offse
 // ExecuteFindAuthorBooksWithPagination executes a search for books by specific author ID with pagination
 func (cp *CommandProcessor) ExecuteFindAuthorBooksWithPagination(authorID int64, authorName string, userID int64, offset, limit int) (*CommandResult, error) {
 	// Get user's language preference and internal ID
-	user, err := database.GetUserByTelegramID(userID)
+	user, err := cp.findUser(userID)
 	if err != nil {
 		logging.Warnf("Failed to get user language preference for user %d: %v", userID, err)
 		return &CommandResult{
@@ -238,17 +283,19 @@ func (cp *CommandProcessor) ExecuteFindAuthorBooksWithPagination(authorID int64,
 		}, nil
 	}
 
-	// Create filters for author books search with pagination and user's language preference
+	// Listing an author's books is a scoped list, not a text search — the same
+	// ordinary-list path REST uses for /api/books?author=<id>. The search
+	// service has no scope-only mode by design.
 	filters := models.BookFilters{
 		Author: int(authorID),
 		Limit:  limit,
 		Offset: offset,
 	}
 
-	// Apply user's language preference if available
-	if err == nil && user.BooksLang != "" {
+	// Apply user's language preference if available — the same language the
+	// author search that led here used.
+	if user.BooksLang != "" {
 		filters.Lang = user.BooksLang
-		logging.Infof("Applying language filter '%s' for author books search, user %d", user.BooksLang, userID)
 	}
 
 	// Search for books using the existing database function
@@ -272,7 +319,7 @@ func (cp *CommandProcessor) ExecuteFindAuthorBooksWithPagination(authorID int64,
 
 	if len(books) == 0 && offset > 0 {
 		return &CommandResult{
-			Message: "No results on this page.",
+			Message: noResultsOnPageMessage,
 		}, nil
 	}
 
@@ -328,25 +375,34 @@ func (cp *CommandProcessor) ExecuteFindAuthorBooksWithPagination(authorID int64,
 }
 
 // executeFindBookWithAuthor executes a combined book and author search command
-func (cp *CommandProcessor) executeFindBookWithAuthor(title, author string, userID int64) (*CommandResult, error) {
-	return cp.executeFindBookWithAuthorWithPagination(title, author, userID, 0, 5)
+func (cp *CommandProcessor) executeFindBookWithAuthor(ctx context.Context, title, author string, userID int64) (*CommandResult, error) {
+	return cp.executeFindBookWithAuthorWithPagination(ctx, title, author, userID, 0, defaultSearchPageSize)
 }
 
 // ExecuteFindBookWithAuthorWithPagination executes a combined book and author search with pagination (exported for callback handlers)
-func (cp *CommandProcessor) ExecuteFindBookWithAuthorWithPagination(title, author string, userID int64, offset, limit int) (*CommandResult, error) {
-	return cp.executeFindBookWithAuthorWithPagination(title, author, userID, offset, limit)
+func (cp *CommandProcessor) ExecuteFindBookWithAuthorWithPagination(
+	ctx context.Context, title, author string, userID int64, offset, limit int,
+) (*CommandResult, error) {
+	return cp.executeFindBookWithAuthorWithPagination(ctx, title, author, userID, offset, limit)
 }
 
 // executeFindBookWithAuthorWithPagination executes a combined book and author search with pagination
-func (cp *CommandProcessor) executeFindBookWithAuthorWithPagination(title, author string, userID int64, offset, limit int) (*CommandResult, error) {
+func (cp *CommandProcessor) executeFindBookWithAuthorWithPagination(
+	ctx context.Context, title, author string, userID int64, offset, limit int,
+) (*CommandResult, error) {
 	if title == "" && author == "" {
 		return &CommandResult{
 			Message: "Please specify both book title and author name to search for.",
 		}, nil
 	}
 
+	// Without a title this is an author search.
+	if title == "" {
+		return cp.executeFindAuthorWithPagination(ctx, author, userID, offset, limit)
+	}
+
 	// Get user's language preference and internal ID
-	user, err := database.GetUserByTelegramID(userID)
+	user, err := cp.findUser(userID)
 	if err != nil {
 		logging.Warnf("Failed to get user language preference for user %d: %v", userID, err)
 		return &CommandResult{
@@ -354,111 +410,40 @@ func (cp *CommandProcessor) executeFindBookWithAuthorWithPagination(title, autho
 		}, nil
 	}
 
-	// Step 1: Search by title first to get candidate books
-	var candidateBooks []models.Book
-
-	if title != "" {
-		// Create filters for book search with higher limit to get more candidates
-		filters := models.BookFilters{
-			Title:  title,
-			Limit:  200, // Get more candidates for filtering
-			Offset: 0,   // Always start from beginning for filtering
-		}
-
-		// Apply user's language preference if available
-		if err == nil && user.BooksLang != "" {
-			filters.Lang = user.BooksLang
-			logging.Infof("Applying language filter '%s' for combined search, user %d", user.BooksLang, userID)
-		}
-
-		// Search for books using the existing database function
-		books, _, err := database.GetBooksEnhanced(user.ID, filters)
-		if err != nil {
-			logging.Errorf("Failed to search books for combined search: %v", err)
-			return &CommandResult{
-				Message: "An error occurred while searching for books. Please try again later.",
-			}, nil
-		}
-		candidateBooks = books
-	} else {
-		// If no title provided, search by author only
-		return cp.executeFindAuthor(author, userID)
-	}
-
-	// Step 2: Filter books by author if author name is provided
-	var filteredBooks []models.Book
-	if author != "" {
-		logging.Infof("Filtering %d candidate books by author '%s'", len(candidateBooks), author)
-
-		// Normalize author name for comparison (remove common words, convert to lowercase)
-		normalizedSearchAuthor := cp.normalizeAuthorName(author)
-
-		for _, book := range candidateBooks {
-			// Check if any of the book's authors match the search author
-			for _, bookAuthor := range book.Authors {
-				normalizedBookAuthor := cp.normalizeAuthorName(bookAuthor.FullName)
-
-				// Check for various types of matches
-				if cp.authorsMatch(normalizedSearchAuthor, normalizedBookAuthor) {
-					filteredBooks = append(filteredBooks, book)
-					logging.Infof("Book '%s' matches: search author '%s' ≈ book author '%s'",
-						book.Title, normalizedSearchAuthor, normalizedBookAuthor)
-					break // Only add the book once even if multiple authors match
-				}
-			}
-		}
-	} else {
-		filteredBooks = candidateBooks
-	}
-
-	totalCount := len(filteredBooks)
-
-	// Step 3: Apply pagination to filtered results
-	var paginatedBooks []models.Book
-	if offset < len(filteredBooks) {
-		end := offset + limit
-		if end > len(filteredBooks) {
-			end = len(filteredBooks)
-		}
-		paginatedBooks = filteredBooks[offset:end]
-	}
-
-	// Step 4: Handle empty results
-	if len(filteredBooks) == 0 && offset == 0 {
-		languageMsg := ""
-		if err == nil && user.BooksLang != "" && user.BooksLang != database.AllLanguages {
-			languageMsg = fmt.Sprintf(" in %s language", user.BooksLang)
-		}
-
-		// Since we've reached this point, title is always non-empty due to the logic above
-		// The only variable condition is whether author filtering was applied
-		if author != "" {
-			return &CommandResult{
-				Message: fmt.Sprintf("📚 Books with title \"%s\" by author \"%s\"%s were not found.\n\nTry using different keywords or check the spelling.", title, author, languageMsg),
-			}, nil
-		} else {
-			return &CommandResult{
-				Message: fmt.Sprintf("📚 Books with title \"%s\"%s were not found.\n\nTry using different keywords.", title, languageMsg),
-			}, nil
-		}
-	}
-
-	if len(paginatedBooks) == 0 && offset > 0 {
+	// Title and author narrow one database search: the repository keeps both
+	// predicates in SQL, so the total is exact instead of a count over a
+	// Go-filtered candidate window, and no match below the first page is lost.
+	page, err := cp.search.SearchBooks(ctx, models.BookSearchRequest{
+		Query:       title,
+		AuthorQuery: author,
+		UserID:      user.ID,
+		Language:    user.BooksLang,
+		Limit:       limit,
+		Offset:      offset,
+	})
+	if err != nil {
+		logging.Errorf("Failed to search books for combined search: %v", err)
 		return &CommandResult{
-			Message: "No results on this page.",
+			Message: "An error occurred while searching for books. Please try again later.",
 		}, nil
 	}
 
-	// Step 5: Format the response
+	books, totalCount := page.Books, page.Total
+
+	if len(books) == 0 {
+		return combinedSearchNotFound(title, author, user.BooksLang, offset), nil
+	}
+
+	// Format the response
 	queryDescription := cp.formatCombinedQuery(title, author)
-	message := cp.formatCombinedSearchResultsWithPagination(queryDescription, paginatedBooks, totalCount, offset, limit)
+	message := cp.formatCombinedSearchResultsWithPagination(queryDescription, books, totalCount, offset, limit)
 
 	// Create inline keyboard with number-based buttons and pagination
-	replyMarkup := cp.createBookButtonsWithPagination(paginatedBooks, offset, limit, totalCount)
+	replyMarkup := cp.createBookButtonsWithPagination(books, offset, limit, totalCount)
 
 	return &CommandResult{
 		Message:     message,
-		Books:       paginatedBooks,
+		Books:       books,
 		ReplyMarkup: replyMarkup,
 		SearchParams: &SearchParams{
 			Query:      fmt.Sprintf("%s by %s", title, author),
@@ -470,95 +455,30 @@ func (cp *CommandProcessor) executeFindBookWithAuthorWithPagination(title, autho
 	}, nil
 }
 
-// normalizeAuthorName normalizes author name for comparison
-func (cp *CommandProcessor) normalizeAuthorName(name string) string {
-	// Convert to lowercase and trim spaces
-	normalized := strings.ToLower(strings.TrimSpace(name))
-
-	// Remove common words that might interfere with matching
-	commonWords := []string{"и", "и.", "and", "де", "ван", "фон", "von", "van", "de", "la", "le", "du"}
-
-	words := strings.Fields(normalized)
-	var filteredWords []string
-
-	for _, word := range words {
-		isCommon := false
-		for _, common := range commonWords {
-			if word == common {
-				isCommon = true
-				break
-			}
-		}
-		if !isCommon && len(word) > 1 {
-			filteredWords = append(filteredWords, word)
+// combinedSearchNotFound renders the empty-result message for a combined
+// search: with an author both predicates are named, without one it falls back
+// to the title-only wording; later pages just say they are empty.
+func combinedSearchNotFound(title, author, lang string, offset int) *CommandResult {
+	if offset > 0 {
+		return &CommandResult{
+			Message: noResultsOnPageMessage,
 		}
 	}
-
-	return strings.Join(filteredWords, " ")
-}
-
-// authorsMatch checks if two normalized author names match
-func (cp *CommandProcessor) authorsMatch(searchAuthor, bookAuthor string) bool {
-	// Exact match
-	if searchAuthor == bookAuthor {
-		return true
+	languageMsg := ""
+	if lang != "" && lang != database.AllLanguages {
+		languageMsg = fmt.Sprintf(" in %s language", lang)
 	}
-
-	// Split into words for partial matching
-	searchWords := strings.Fields(searchAuthor)
-	bookWords := strings.Fields(bookAuthor)
-
-	if len(searchWords) == 0 || len(bookWords) == 0 {
-		return false
-	}
-
-	// Case 1: Search contains book author (e.g., search "толстой лев" contains book author "толстой")
-	if strings.Contains(searchAuthor, bookAuthor) {
-		return true
-	}
-
-	// Case 2: Book author contains search author (e.g., book author "лев толстой" contains search "толстой")
-	if strings.Contains(bookAuthor, searchAuthor) {
-		return true
-	}
-
-	// Case 3: Check if any search word matches any book word (for surname matching)
-	for _, searchWord := range searchWords {
-		if len(searchWord) < 3 { // Skip very short words
-			continue
-		}
-
-		for _, bookWord := range bookWords {
-			if len(bookWord) < 3 {
-				continue
-			}
-
-			// Exact word match
-			if searchWord == bookWord {
-				return true
-			}
-
-			// Partial match for longer words (to handle different forms)
-			if len(searchWord) >= 4 && len(bookWord) >= 4 {
-				// Check if one word starts with the other (for surname variations)
-				if strings.HasPrefix(searchWord, bookWord) || strings.HasPrefix(bookWord, searchWord) {
-					return true
-				}
-
-				// Check for common substring (at least 4 characters)
-				if len(searchWord) >= 5 && len(bookWord) >= 5 {
-					for i := 0; i <= len(searchWord)-4; i++ {
-						substr := searchWord[i : i+4]
-						if strings.Contains(bookWord, substr) {
-							return true
-						}
-					}
-				}
-			}
+	if author != "" {
+		return &CommandResult{
+			Message: fmt.Sprintf(
+				"📚 Books with title %q by author %q%s were not found.\n\nTry using different keywords or check the spelling.",
+				title, author, languageMsg,
+			),
 		}
 	}
-
-	return false
+	return &CommandResult{
+		Message: fmt.Sprintf("📚 Books with title %q%s were not found.\n\nTry using different keywords.", title, languageMsg),
+	}
 }
 
 // formatCombinedQuery formats the combined query description
@@ -754,8 +674,8 @@ func (cp *CommandProcessor) createAuthorButtonsWithPagination(authors []models.A
 }
 
 // ExecuteDirectBookSearch performs exact book search without LLM (for /b command)
-func (cp *CommandProcessor) ExecuteDirectBookSearch(title string, userID int64) (*CommandResult, error) {
-	result, err := cp.executeFindBookWithPagination(title, userID, 0, 5)
+func (cp *CommandProcessor) ExecuteDirectBookSearch(ctx context.Context, title string, userID int64) (*CommandResult, error) {
+	result, err := cp.executeFindBookWithPagination(ctx, title, userID, 0, defaultSearchPageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -767,8 +687,8 @@ func (cp *CommandProcessor) ExecuteDirectBookSearch(title string, userID int64) 
 }
 
 // ExecuteDirectAuthorSearch performs exact author search without LLM (for /a command)
-func (cp *CommandProcessor) ExecuteDirectAuthorSearch(author string) (*CommandResult, error) {
-	result, err := cp.executeFindAuthorWithPagination(author, 0, 5)
+func (cp *CommandProcessor) ExecuteDirectAuthorSearch(ctx context.Context, author string, userID int64) (*CommandResult, error) {
+	result, err := cp.executeFindAuthorWithPagination(ctx, author, userID, 0, defaultSearchPageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -777,8 +697,8 @@ func (cp *CommandProcessor) ExecuteDirectAuthorSearch(author string) (*CommandRe
 }
 
 // ExecuteDirectCombinedSearch performs exact combined search without LLM (for /ba command)
-func (cp *CommandProcessor) ExecuteDirectCombinedSearch(title, author string, userID int64) (*CommandResult, error) {
-	result, err := cp.executeFindBookWithAuthorWithPagination(title, author, userID, 0, 5)
+func (cp *CommandProcessor) ExecuteDirectCombinedSearch(ctx context.Context, title, author string, userID int64) (*CommandResult, error) {
+	result, err := cp.executeFindBookWithAuthorWithPagination(ctx, title, author, userID, 0, defaultSearchPageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -973,7 +893,7 @@ func (cp *CommandProcessor) createUnknownResponse() *CommandResult {
 
 // ExecuteShowFavorites shows user's favorite books with pagination
 func (cp *CommandProcessor) ExecuteShowFavorites(userID int64, offset, limit int) (*CommandResult, error) {
-	user, err := database.GetUserByTelegramID(userID)
+	user, err := cp.findUser(userID)
 	if err != nil {
 		logging.Warnf("Failed to get user for favorites %d: %v", userID, err)
 		return &CommandResult{
