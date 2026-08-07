@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -11,6 +12,7 @@ import (
 	"gopds-api/models"
 	"gopds-api/services"
 
+	"github.com/go-pg/pg/v10"
 	tgbot "github.com/go-telegram/bot/models"
 )
 
@@ -22,6 +24,30 @@ type telegramUserLookup func(int64) (models.User, error)
 // defaultSearchPageSize is the page size a bot search flow starts with when
 // the caller passes no explicit pagination.
 const defaultSearchPageSize = 5
+
+// userLookupFailure answers a reader whose account could not be resolved.
+//
+// The two causes deserve different answers and used to get the same one. A
+// missing row means the account really is unlinked and relinking is the fix. Any
+// other error — the database refusing connections, a timeout — is ours, and the
+// reader has nothing to repair: telling them to relink during an outage invites
+// them to tear down a working link, and every one of those has to be put back by
+// hand afterwards.
+//
+// Both answers are logged, so an outage is still visible to us even though it is
+// invisible to them.
+func userLookupFailure(userID int64, err error) *CommandResult {
+	if errors.Is(err, pg.ErrNoRows) {
+		logging.Warnf("No linked account for Telegram user %d", userID)
+		return &CommandResult{
+			Message: "Не удалось найти пользователя. Перепривяжите Telegram в настройках.",
+		}
+	}
+	logging.Errorf("Looking up Telegram user %d: %v", userID, err)
+	return &CommandResult{
+		Message: "Сервис временно недоступен. Попробуйте позже.",
+	}
+}
 
 // noResultsOnPageMessage is shown when a search page beyond the first comes
 // back empty.
@@ -126,10 +152,7 @@ func (cp *CommandProcessor) executeFindBookWithPagination(
 	// Get user's language preference and internal ID
 	user, err := cp.findUser(userID)
 	if err != nil {
-		logging.Warnf("Failed to get user language preference for user %d: %v", userID, err)
-		return &CommandResult{
-			Message: "Не удалось найти пользователя. Перепривяжите Telegram в настройках.",
-		}, nil
+		return userLookupFailure(userID, err), nil
 	}
 
 	// One ranked page from the shared search service: the reader's book
@@ -219,10 +242,7 @@ func (cp *CommandProcessor) executeFindAuthorWithPagination(
 	// scopes the book list an author opens into.
 	user, err := cp.findUser(userID)
 	if err != nil {
-		logging.Warnf("Failed to get user language preference for user %d: %v", userID, err)
-		return &CommandResult{
-			Message: "Не удалось найти пользователя. Перепривяжите Telegram в настройках.",
-		}, nil
+		return userLookupFailure(userID, err), nil
 	}
 
 	page, err := cp.search.SearchAuthors(ctx, models.AuthorSearchRequest{
@@ -277,10 +297,7 @@ func (cp *CommandProcessor) ExecuteFindAuthorBooksWithPagination(authorID int64,
 	// Get user's language preference and internal ID
 	user, err := cp.findUser(userID)
 	if err != nil {
-		logging.Warnf("Failed to get user language preference for user %d: %v", userID, err)
-		return &CommandResult{
-			Message: "Не удалось найти пользователя. Перепривяжите Telegram в настройках.",
-		}, nil
+		return userLookupFailure(userID, err), nil
 	}
 
 	// Listing an author's books is a scoped list, not a text search — the same
@@ -404,10 +421,7 @@ func (cp *CommandProcessor) executeFindBookWithAuthorWithPagination(
 	// Get user's language preference and internal ID
 	user, err := cp.findUser(userID)
 	if err != nil {
-		logging.Warnf("Failed to get user language preference for user %d: %v", userID, err)
-		return &CommandResult{
-			Message: "Не удалось найти пользователя. Перепривяжите Telegram в настройках.",
-		}, nil
+		return userLookupFailure(userID, err), nil
 	}
 
 	// Title and author narrow one database search: the repository keeps both
@@ -895,10 +909,7 @@ func (cp *CommandProcessor) createUnknownResponse() *CommandResult {
 func (cp *CommandProcessor) ExecuteShowFavorites(userID int64, offset, limit int) (*CommandResult, error) {
 	user, err := cp.findUser(userID)
 	if err != nil {
-		logging.Warnf("Failed to get user for favorites %d: %v", userID, err)
-		return &CommandResult{
-			Message: "Не удалось найти пользователя. Перепривяжите Telegram в настройках.",
-		}, nil
+		return userLookupFailure(userID, err), nil
 	}
 
 	// Get user's favorite books using the Fav filter

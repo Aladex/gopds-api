@@ -8,6 +8,7 @@ import (
 
 	"gopds-api/models"
 
+	"github.com/go-pg/pg/v10"
 	tgbot "github.com/go-telegram/bot/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -181,7 +182,7 @@ func TestAuthorPaginationMapsOffsetAndLimit(t *testing.T) {
 
 func TestAuthorSearchLookupFailureAsksForRelink(t *testing.T) {
 	search := &fakePublicSearch{}
-	cp := newCommandProcessorWithDeps(search, fakeUserLookup(&models.User{}, errors.New("no such user")))
+	cp := newCommandProcessorWithDeps(search, fakeUserLookup(&models.User{}, pg.ErrNoRows))
 
 	result, err := cp.ExecuteDirectAuthorSearch(context.Background(), "толстой", 777)
 	require.NoError(t, err)
@@ -260,7 +261,7 @@ func TestCombinedSearchValidatesEmptyInput(t *testing.T) {
 
 func TestAuthorBooksLookupFailureAsksForRelink(t *testing.T) {
 	search := &fakePublicSearch{}
-	cp := newCommandProcessorWithDeps(search, fakeUserLookup(&models.User{}, errors.New("no such user")))
+	cp := newCommandProcessorWithDeps(search, fakeUserLookup(&models.User{}, pg.ErrNoRows))
 
 	result, err := cp.ExecuteFindAuthorBooksWithPagination(501, "Толстой Лев", 777, 0, 5)
 	require.NoError(t, err)
@@ -280,4 +281,48 @@ func TestNextPageButtonFollowsTheExactTotal(t *testing.T) {
 	data := callbackDataOf(result.ReplyMarkup)
 	assert.Contains(t, data, "prev_page")
 	assert.NotContains(t, data, "next_page", "an exactly full final page must not promise another one")
+}
+
+/*
+ * A lookup failure has two causes and they deserve different answers.
+ *
+ * The reader whose account is genuinely unlinked has to relink it. The reader
+ * whose lookup failed because the database blinked has nothing to fix, and
+ * telling them to relink is worse than saying nothing: some will do it, and an
+ * outage turns into a queue of accounts that have to be reattached by hand.
+ *
+ * The advice used to be the same either way, which is safe only for as long as
+ * the database never fails.
+ */
+func TestUserLookupTellsTheReaderWhichFailureItWas(t *testing.T) {
+	flows := map[string]func(*CommandProcessor) (*CommandResult, error){
+		"title search": func(cp *CommandProcessor) (*CommandResult, error) {
+			return cp.ExecuteDirectBookSearch(context.Background(), "война", 777)
+		},
+		"author search": func(cp *CommandProcessor) (*CommandResult, error) {
+			return cp.ExecuteDirectAuthorSearch(context.Background(), "толстой", 777)
+		},
+	}
+
+	for name, run := range flows {
+		t.Run(name+": an unlinked account is told to relink", func(t *testing.T) {
+			cp := newCommandProcessorWithDeps(
+				&fakePublicSearch{}, fakeUserLookup(&models.User{}, pg.ErrNoRows))
+
+			result, err := run(cp)
+			require.NoError(t, err)
+			assert.Contains(t, result.Message, "ерепривяж")
+		})
+
+		t.Run(name+": a database that blinked is not blamed on the reader", func(t *testing.T) {
+			cp := newCommandProcessorWithDeps(
+				&fakePublicSearch{}, fakeUserLookup(&models.User{}, errors.New("dial tcp: connection refused")))
+
+			result, err := run(cp)
+			require.NoError(t, err)
+			// Nothing for the reader to fix, so nothing is asked of them.
+			assert.NotContains(t, result.Message, "ерепривяж")
+			assert.Contains(t, result.Message, "озже")
+		})
+	}
 }
