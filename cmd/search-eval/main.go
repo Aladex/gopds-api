@@ -38,8 +38,8 @@ const (
 	verdictPass       = "pass"
 	verdictRegression = "regression"
 
-	// defaultRepeat is how many measured runs one query gets after an
-	// unrecorded warm-up: enough for a stable p95 without a long run.
+	// defaultRepeat is how many measured rounds the whole set gets after an
+	// unrecorded warm-up round: enough for a stable p95 without a long run.
 	defaultRepeat = 20
 
 	// p50 and p95 are the reported percentiles.
@@ -115,14 +115,18 @@ type capturedResult struct {
 
 // queryReport records what the current search returned for one eval query,
 // which IDs were relevant, and how that scored. Results/Total come from the
-// first measured run; durations come from measured runs only, so the
-// percentiles describe a warm engine rather than a cold outlier.
+// first measured round; durations come from measured rounds only. Min is
+// reported beside the percentiles because it is the least-disturbed sample —
+// the one round where nothing else was competing for the machine — and on a
+// developer stand that is a steadier estimate of what the query costs than a
+// percentile over rounds of varying load.
 type queryReport struct {
 	evalQuery
 
 	Results         []capturedResult `json:"results"`
 	Total           int              `json:"total"`
 	DurationsMillis []int64          `json:"durations_ms"`
+	MinMillis       int64            `json:"min_ms"`
 	P50Millis       int64            `json:"p50_ms"`
 	P95Millis       int64            `json:"p95_ms"`
 	CaptureNote     string           `json:"capture_note,omitempty"`
@@ -205,20 +209,114 @@ func connectEval(addr, user, pass, name string) *pg.DB {
 	return db
 }
 
-// runSet measures every query of the set and prints one line each.
-func runSet(repo *database.PGSearchRepository, db *pg.DB, set querySet, repeat int) []queryReport {
-	reports := make([]queryReport, 0, len(set.Queries))
+// runSet measures every query of the set, interleaved, and prints one line
+// each.
+//
+// One round visits every query once; rounds repeat. The previous shape ran one
+// query twenty times before moving on, which measured a best case no reader
+// ever sees: consecutive runs of the same needle inherit everything the
+// previous run left in the buffer pool and the OS cache. Worse, a machine busy
+// for ten seconds landed entirely inside one query's twenty samples and left
+// the rest untouched, so a single report mixed numbers taken under different
+// conditions without saying so. Interleaving spreads each query's samples over
+// the whole session: neighbors evict each other the way a real workload does,
+// and a hiccup is shared rather than assigned to whichever query it happened
+// to hit.
+//
+// It does not make the comparison against the Phase 1 baseline sound. That
+// baseline is one frozen sample of code that no longer exists, taken under
+// conditions nothing here can reproduce, and no amount of repetition now can
+// fix its side of the subtraction.
+func runSet(repo *database.PGSearchRepository, db *pg.DB, set querySet, rounds int) []queryReport {
+	reports := make([]queryReport, len(set.Queries))
 	for i := range set.Queries {
-		q := &set.Queries[i]
-		rep, err := captureQuery(repo, db, q, repeat)
-		if err != nil {
-			fatalf("query %q: %v", q.Name, err)
+		reports[i] = queryReport{evalQuery: set.Queries[i]}
+	}
+
+	// Warm-up round, unrecorded: the first execution of each query pays for
+	// plan caching and first-touch page faults that no later round repeats.
+	for i := range set.Queries {
+		if _, _, _, err := runQuery(repo, &set.Queries[i]); err != nil {
+			fatalf("query %q: %v", set.Queries[i].Name, err)
 		}
-		reports = append(reports, rep)
-		fmt.Fprintf(os.Stderr, "%-36s total=%-6d relevant=%-5d recall=%.3f rr=%.2f p50=%dms p95=%dms\n",
-			q.Name, rep.Total, len(rep.RelevantIDs), rep.RecallAtK, rep.ReciprocalRank, rep.P50Millis, rep.P95Millis)
+	}
+
+	for round := 0; round < rounds; round++ {
+		for i := range set.Queries {
+			q := &set.Queries[i]
+			start := time.Now()
+			results, total, note, err := runQuery(repo, q)
+			if err != nil {
+				fatalf("query %q: %v", q.Name, err)
+			}
+			reports[i].DurationsMillis = append(reports[i].DurationsMillis, time.Since(start).Milliseconds())
+			if round == 0 {
+				reports[i].Results = results
+				reports[i].Total = total
+				reports[i].CaptureNote = note
+			}
+		}
+	}
+
+	for i := range reports {
+		if err := scoreQuery(db, &reports[i]); err != nil {
+			fatalf("query %q: %v", reports[i].Name, err)
+		}
+		rep := &reports[i]
+		fmt.Fprintf(os.Stderr,
+			"%-36s total=%-6d relevant=%-5d recall=%.3f rr=%.2f min=%dms p50=%dms p95=%dms\n",
+			rep.Name, rep.Total, len(rep.RelevantIDs), rep.RecallAtK, rep.ReciprocalRank,
+			rep.MinMillis, rep.P50Millis, rep.P95Millis)
 	}
 	return reports
+}
+
+// scoreQuery turns one query's collected rounds into its metrics and resolves
+// which catalog rows the reviewed rule calls relevant.
+func scoreQuery(db *pg.DB, rep *queryReport) error {
+	rep.MinMillis = minDuration(rep.DurationsMillis)
+	rep.P50Millis = percentile(rep.DurationsMillis, p50)
+	rep.P95Millis = percentile(rep.DurationsMillis, p95)
+
+	if rep.Results == nil {
+		rep.Results = []capturedResult{}
+	}
+	ids := make([]int64, 0, len(rep.Results))
+	for _, r := range rep.Results {
+		ids = append(ids, r.ID)
+	}
+
+	relevant, err := resolveRelevant(context.Background(), db, &rep.evalQuery)
+	if err != nil {
+		return fmt.Errorf("resolving relevance: %w", err)
+	}
+	if relevant == nil {
+		relevant = []int64{}
+	}
+	rep.RelevantIDs = relevant
+
+	want := make(map[int64]struct{}, len(relevant))
+	for _, id := range relevant {
+		want[id] = struct{}{}
+	}
+	rep.RecallAtK = recallAt(ids, want, rep.TopK)
+	rep.ReciprocalRank = reciprocalRank(ids, want)
+	rep.ZeroResult = rep.Total == 0
+	return nil
+}
+
+// minDuration is the fastest recorded round, or zero when nothing was measured.
+func minDuration(durations []int64) int64 {
+	if len(durations) == 0 {
+		return 0
+	}
+	least := durations[0]
+	for _, d := range durations[1:] {
+		if d < least {
+			least = d
+		}
+	}
+	return least
 }
 
 // writeReport persists one run's artifact.
@@ -238,7 +336,7 @@ func capture(args []string) {
 	var (
 		input  = fs.String("input", "", "reviewed query set JSON (required)")
 		out    = fs.String("out", "", "report output path (required)")
-		repeat = fs.Int("repeat", defaultRepeat, "measured runs per query, after one unrecorded warm-up")
+		repeat = fs.Int("repeat", defaultRepeat, "measured rounds over the whole set, after one unrecorded warm-up round")
 		addr   = fs.String("host", envOr("GOPDS_POSTGRES_DBHOST", "127.0.0.1:5432"), "database host:port")
 		user   = fs.String("user", envOr("GOPDS_POSTGRES_DBUSER", "gopds"), "database user")
 		pass   = fs.String("password", os.Getenv("GOPDS_POSTGRES_DBPASS"), "database password")
@@ -284,7 +382,7 @@ func compare(args []string) int {
 		input    = fs.String("input", "", "reviewed query set JSON (required)")
 		baseline = fs.String("baseline", "", "capture-mode baseline report JSON (required)")
 		out      = fs.String("out", "", "report output path (required)")
-		repeat   = fs.Int("repeat", defaultRepeat, "measured runs per query, after one unrecorded warm-up")
+		repeat   = fs.Int("repeat", defaultRepeat, "measured rounds over the whole set, after one unrecorded warm-up round")
 		addr     = fs.String("host", envOr("GOPDS_POSTGRES_DBHOST", "127.0.0.1:5432"), "database host:port")
 		user     = fs.String("user", envOr("GOPDS_POSTGRES_DBUSER", "gopds"), "database user")
 		pass     = fs.String("password", os.Getenv("GOPDS_POSTGRES_DBPASS"), "database password")
@@ -483,66 +581,6 @@ func loadQuerySet(path string) (querySet, error) {
 		}
 	}
 	return set, nil
-}
-
-// measureQuery runs one eval query through the given search path: one
-// unrecorded warm-up, then repeat measured runs, and resolves its relevance
-// set on the same database. Results and Total are captured from the first
-// measured run; only measured runs contribute durations.
-func measureQuery(db *pg.DB, q *evalQuery, repeat int, execQuery func() ([]capturedResult, int, string, error)) (queryReport, error) {
-	rep := queryReport{evalQuery: *q}
-
-	if _, _, _, err := execQuery(); err != nil {
-		return rep, err
-	}
-	for n := 0; n < repeat; n++ {
-		start := time.Now()
-		results, total, note, err := execQuery()
-		if err != nil {
-			return rep, err
-		}
-		rep.DurationsMillis = append(rep.DurationsMillis, time.Since(start).Milliseconds())
-		if n == 0 {
-			rep.Results = results
-			rep.Total = total
-			rep.CaptureNote = note
-		}
-	}
-	rep.P50Millis = percentile(rep.DurationsMillis, p50)
-	rep.P95Millis = percentile(rep.DurationsMillis, p95)
-
-	var ids []int64
-	for _, r := range rep.Results {
-		ids = append(ids, r.ID)
-	}
-	if rep.Results == nil {
-		rep.Results = []capturedResult{}
-	}
-
-	relevant, err := resolveRelevant(context.Background(), db, q)
-	if err != nil {
-		return rep, fmt.Errorf("resolving relevance: %w", err)
-	}
-	if relevant == nil {
-		relevant = []int64{}
-	}
-	rep.RelevantIDs = relevant
-
-	want := make(map[int64]struct{}, len(relevant))
-	for _, id := range relevant {
-		want[id] = struct{}{}
-	}
-	rep.RecallAtK = recallAt(ids, want, q.TopK)
-	rep.ReciprocalRank = reciprocalRank(ids, want)
-	rep.ZeroResult = rep.Total == 0
-	return rep, nil
-}
-
-// captureQuery runs one eval query through the current public search path.
-func captureQuery(repo *database.PGSearchRepository, db *pg.DB, q *evalQuery, repeat int) (queryReport, error) {
-	return measureQuery(db, q, repeat, func() ([]capturedResult, int, string, error) {
-		return runQuery(repo, q)
-	})
 }
 
 // runQuery executes one eval query through the current public search path:

@@ -230,3 +230,10 @@ func TestCompareAggregates(t *testing.T) {
 		assert.Positive(t, cmp.RecallDelta, "the average did improve, which is the point")
 	})
 }
+
+func TestMinDuration(t *testing.T) {
+	assert.Equal(t, int64(0), minDuration(nil), "nothing measured has no minimum")
+	assert.Equal(t, int64(7), minDuration([]int64{7}))
+	assert.Equal(t, int64(3), minDuration([]int64{40, 3, 12}), "the least-disturbed round")
+	assert.Equal(t, int64(5), minDuration([]int64{5, 5, 5}))
+}
