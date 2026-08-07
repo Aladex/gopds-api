@@ -49,9 +49,11 @@ var ErrInvalidPagination = errors.New("invalid pagination")
 // exist: a client bug, not a filter.
 var ErrInvalidSuggestionKind = errors.New("unknown suggestion kind")
 
-// Page sizing for search results. An unnamed or unusable limit falls back to
-// the default, which is also the ceiling — the same 100 the previous book and
-// author paths clamped to.
+// Page sizing for search results. An unnamed limit falls back to the default;
+// an oversized one is cut to the ceiling. Both are 100 today — the same 100
+// the previous book and author paths clamped to — but they answer different
+// questions and are kept apart so that changing one cannot quietly change the
+// other's behavior.
 const (
 	defaultSearchLimit = 100
 	maxSearchLimit     = 100
@@ -192,18 +194,14 @@ func (s *SearchService) Suggestions(ctx context.Context, req models.SuggestionRe
 	return result, nil
 }
 
-// normalizeSuggestionLimit clamps the picker to its compact size: an unnamed
-// or oversized limit becomes the picker ceiling.
+// normalizeSuggestionLimit clamps the picker to its compact size. Its fallback
+// is its ceiling on purpose: not naming a size means the full picker.
 func normalizeSuggestionLimit(limit int) int {
-	if limit <= 0 || limit > maxSuggestionLimit {
-		return maxSuggestionLimit
-	}
-	return limit
+	return clampLimit(limit, maxSuggestionLimit, maxSuggestionLimit)
 }
 
-// normalizePagination clamps the limit into the usable range and rejects a
-// negative offset. Zero and oversized limits both become the default page
-// size, which matches what the previous list paths did with them.
+// normalizePagination puts the limit into the usable range and rejects a
+// negative offset.
 func normalizePagination(limit, offset int) (newLimit, newOffset int, err error) {
 	if offset < 0 {
 		return 0, 0, ErrInvalidPagination
@@ -211,13 +209,25 @@ func normalizePagination(limit, offset int) (newLimit, newOffset int, err error)
 	return normalizeLimit(limit), offset, nil
 }
 
-// normalizeLimit maps an unusable limit to the default page size and clamps
-// the rest to the maximum.
+// normalizeLimit maps an unnamed limit to the default page size and cuts an
+// oversized one to the maximum.
 func normalizeLimit(limit int) int {
-	if limit <= 0 || limit > maxSearchLimit {
-		return defaultSearchLimit
+	return clampLimit(limit, defaultSearchLimit, maxSearchLimit)
+}
+
+// clampLimit answers the two questions separately: a limit that was not asked
+// for takes the fallback, and one asked for beyond the ceiling is cut to the
+// ceiling rather than thrown back to the fallback. Collapsing them was
+// harmless only while the two bounds were equal.
+func clampLimit(limit, fallback, ceiling int) int {
+	switch {
+	case limit <= 0:
+		return fallback
+	case limit > ceiling:
+		return ceiling
+	default:
+		return limit
 	}
-	return limit
 }
 
 // normalizeLanguage turns the whole-library code into no filter at all, the
