@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -180,6 +181,43 @@ type AutocompleteResponse struct {
 	Suggestions []models.AutocompleteSuggestion `json:"suggestions"`
 }
 
+// The query-string names of the lists a picker can be confined to.
+const (
+	paramTrue     = "true"
+	paramAuthor   = "author"
+	paramSeries   = "series"
+	paramGenre    = "genre"
+	paramShelf    = "collection"
+	paramCurated  = "curated_collection"
+	paramFavorite = "fav"
+)
+
+// suggestionScope reads the reader's current list off the query string.
+func suggestionScope(c *gin.Context) (models.SuggestionRequest, error) {
+	req := models.SuggestionRequest{Favorites: c.Query(paramFavorite) == paramTrue}
+	for _, field := range []struct {
+		param string
+		into  *int64
+	}{
+		{paramAuthor, &req.AuthorID},
+		{paramSeries, &req.SeriesID},
+		{paramGenre, &req.GenreID},
+		{paramShelf, &req.CollectionID},
+		{paramCurated, &req.CuratedCollectionID},
+	} {
+		raw := c.Query(field.param)
+		if raw == "" {
+			continue
+		}
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return models.SuggestionRequest{}, fmt.Errorf("%s must be a numeric id", field.param)
+		}
+		*field.into = parsed
+	}
+	return req, nil
+}
+
 // Autocomplete method for getting search suggestions
 // Auth godoc
 // @Summary Get autocomplete suggestions for search
@@ -188,7 +226,12 @@ type AutocompleteResponse struct {
 // @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Param query query string true "Search query"
 // @Param type query string false "Search type: 'title', 'author', or 'all' (default)"
-// @Param author query string false "Author ID for filtering results"
+// @Param author query string false "Author ID the reader is browsing"
+// @Param series query string false "Series ID the reader is browsing"
+// @Param genre query string false "Genre ID the reader is browsing"
+// @Param collection query string false "Collection ID the reader is browsing"
+// @Param curated_collection query string false "Curated collection ID the reader is browsing"
+// @Param fav query string false "Confine suggestions to the reader's favorites"
 // @Param lang query string false "Language for filtering results"
 // @Accept  json
 // @Produce  json
@@ -206,22 +249,20 @@ func (h *SearchHandler) Autocomplete(c *gin.Context) {
 	// validation call, and this adapter does not second-guess it.
 	searchType := c.DefaultQuery("type", string(models.SuggestionAll))
 
-	var authorID int64
-	if raw := c.Query("author"); raw != "" {
-		parsed, err := strconv.ParseInt(raw, 10, 64)
-		if err != nil {
-			httputil.NewError(c, http.StatusBadRequest, errors.New("author must be a numeric id"))
-			return
-		}
-		authorID = parsed
+	// The list the reader is standing in, so the picker offers titles they can
+	// actually reach from it. Each id is optional and each must be a number:
+	// a scope nobody can parse is a client bug, not a wider search.
+	scope, err := suggestionScope(c)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, err)
+		return
 	}
+	scope.Query = query
+	scope.Kind = models.SuggestionKind(searchType)
+	scope.Language = c.Query("lang")
+	scope.UserID = c.GetInt64("user_id")
 
-	result, err := h.Search.Suggestions(c.Request.Context(), models.SuggestionRequest{
-		Query:    query,
-		Kind:     models.SuggestionKind(searchType),
-		Language: c.Query("lang"),
-		AuthorID: authorID,
-	})
+	result, err := h.Search.Suggestions(c.Request.Context(), scope)
 	if err != nil {
 		mapSearchError(c, err)
 		return

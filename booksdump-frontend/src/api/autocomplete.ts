@@ -16,6 +16,39 @@ export interface AutocompleteResponse {
     suggestions: AutocompleteSuggestion[];
 }
 
+/**
+ * SuggestionScope is the list the reader is standing in, so the picker can
+ * offer titles they can reach from it. Naming the kind rather than passing a
+ * bare id keeps "what is being searched" and "where" apart — folding them
+ * together is what made the second question invisible when only authors had
+ * an answer.
+ */
+export interface SuggestionScope {
+    kind: 'author' | 'series' | 'genre' | 'collection' | 'curated' | 'favorites';
+    id: string;
+}
+
+const scopeParams = (scope?: SuggestionScope): Record<string, string> => {
+    if (!scope) {
+        return {};
+    }
+    switch (scope.kind) {
+        case 'author':
+            return { author: scope.id };
+        case 'series':
+            return { series: scope.id };
+        case 'genre':
+            return { genre: scope.id };
+        case 'collection':
+            return { collection: scope.id };
+        case 'curated':
+            return { curated_collection: scope.id };
+        case 'favorites':
+            // Favourites belong to the reader, not to an id.
+            return { fav: 'true' };
+    }
+};
+
 export const autocompleteService = {
     /**
      * getSuggestions is a thin transport: the server gates short prefixes,
@@ -27,7 +60,7 @@ export const autocompleteService = {
     getSuggestions: async (
         query: string,
         type: 'all' | 'title' | 'author' = 'all',
-        authorId?: string,
+        scope?: SuggestionScope,
         lang?: string,
         signal?: AbortSignal,
     ): Promise<AutocompleteSuggestion[]> => {
@@ -36,7 +69,7 @@ export const autocompleteService = {
         }
 
         const response = await http.get<AutocompleteResponse>('/books/autocomplete', {
-            query: { query, type, author: authorId, lang },
+            query: { query, type, lang, ...scopeParams(scope) },
             signal,
         });
 

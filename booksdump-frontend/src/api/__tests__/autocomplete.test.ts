@@ -39,12 +39,37 @@ describe('autocompleteService.getSuggestions', () => {
     it('passes type, author and the all-languages code through', async () => {
         fetchSpy.mockResolvedValue(jsonResponse({ suggestions: [] }));
 
-        await autocompleteService.getSuggestions('война', 'author', '42', 'all');
+        await autocompleteService.getSuggestions(
+            'война',
+            'author',
+            { kind: 'author', id: '42' },
+            'all',
+        );
 
         const url = fetchSpy.mock.calls[0][0] as string;
         expect(url).toContain('type=author');
         expect(url).toContain('author=42');
         expect(url).toContain('lang=all');
+    });
+
+    it('names each list the picker can be confined to', async () => {
+        // Favourites belong to the reader, so they travel as a flag rather
+        // than an id; every other list is one the backend already knows by id.
+        for (const [scope, expected] of [
+            [{ kind: 'author', id: '42' }, 'author=42'],
+            [{ kind: 'series', id: '7' }, 'series=7'],
+            [{ kind: 'genre', id: '9' }, 'genre=9'],
+            [{ kind: 'collection', id: '3' }, 'collection=3'],
+            [{ kind: 'curated', id: '5' }, 'curated_collection=5'],
+            [{ kind: 'favorites', id: '' }, 'fav=true'],
+        ] as const) {
+            fetchSpy.mockClear();
+            fetchSpy.mockResolvedValue(jsonResponse({ suggestions: [] }));
+
+            await autocompleteService.getSuggestions('война', 'title', scope, 'ru');
+
+            expect(fetchSpy.mock.calls[0][0] as string).toContain(expected);
+        }
     });
 
     it('forwards the abort signal to the transport', async () => {

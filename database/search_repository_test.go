@@ -1105,6 +1105,55 @@ func TestPGSearchRepositorySuggestions(t *testing.T) {
 		})
 	})
 
+	// The picker used to answer from the whole catalog while the reader was
+	// standing in one list. Offering "Остаток дня" from the catalog to
+	// someone looking at their favorites offers a book they cannot reach
+	// without leaving where they are — and every row here leads to a search
+	// that stays in the list, so the rows must come from it too.
+	t.Run("the picker is confined to the list the reader is in", func(t *testing.T) {
+		withSearchFixture(t, func(f *searchFixture) {
+			repo := NewPGSearchRepository(f.tx)
+			base := models.SuggestionRequest{
+				Query: "война и мир", Kind: models.SuggestionBook, Language: "fx",
+			}
+
+			for _, scope := range []struct {
+				name string
+				want string
+				with func(r *models.SuggestionRequest)
+			}{
+				{"favorites", "favBook", func(r *models.SuggestionRequest) {
+					r.Favorites = true
+					r.UserID = f.UserIDs["reader"]
+				}},
+				{"series", "seriesBook", func(r *models.SuggestionRequest) {
+					r.SeriesID = f.SeriesIDs["great"]
+				}},
+				{"genre", "genreBook", func(r *models.SuggestionRequest) {
+					r.GenreID = f.GenreIDs["roman"]
+				}},
+				{"collection", "collectionBook", func(r *models.SuggestionRequest) {
+					r.CollectionID = f.CollectionIDs["shelf"]
+				}},
+				{"curated collection", "curatedBook", func(r *models.SuggestionRequest) {
+					r.CuratedCollectionID = f.CollectionIDs["curated"]
+				}},
+			} {
+				t.Run(scope.name, func(t *testing.T) {
+					req := base
+					scope.with(&req)
+
+					result, err := repo.Suggestions(context.Background(), req)
+
+					require.NoError(t, err)
+					require.Len(t, result.Suggestions, 1,
+						"one title, and it is the one this list holds")
+					assert.Equal(t, f.BookIDs[scope.want], result.Suggestions[0].ID)
+				})
+			}
+		})
+	})
+
 	t.Run("hidden and unapproved books never appear", func(t *testing.T) {
 		withSearchFixture(t, func(f *searchFixture) {
 			repo := NewPGSearchRepository(f.tx)

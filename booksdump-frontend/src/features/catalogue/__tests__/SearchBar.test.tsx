@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router';
 
@@ -71,6 +71,7 @@ vi.mock('@/features/catalogue/AutocompleteSearch', () => ({
         onEnterPressed,
         onSuggestionSelected,
         onClear,
+        scope,
         disabled,
         placeholder,
     }: {
@@ -83,10 +84,14 @@ vi.mock('@/features/catalogue/AutocompleteSearch', () => ({
             id?: number;
         }) => void;
         onClear?: () => void;
+        scope?: { kind: string; id: string };
         disabled?: boolean;
         placeholder?: string;
     }) => (
         <div>
+            {/* The picker answers from the list the reader is in; the panel is
+                what tells it which list that is. */}
+            <span data-testid="picker-scope">{scope ? `${scope.kind}:${scope.id}` : 'none'}</span>
             {/* The real field's cross carries the reset when it is given one,
                 and says so; without one it only empties the box. */}
             {value.length > 0 && (
@@ -384,6 +389,27 @@ describe('SearchBar suggestion picks', () => {
         await userEvent.click(screen.getByRole('button', { name: 'pickAuthor' }));
 
         expect(currentPath).toBe('/books/find/author/42/1');
+    });
+
+    it('tells the picker which list the reader is in', async () => {
+        // Suggesting titles from the whole catalogue to someone standing in
+        // their favourites offers books that list cannot show.
+        renderBar('/books/favorite/1');
+        expect(screen.getByTestId('picker-scope')).toHaveTextContent('favorites:');
+
+        cleanup();
+        renderBar('/books/find/genre/9/1');
+        expect(screen.getByTestId('picker-scope')).toHaveTextContent('genre:9');
+    });
+
+    it('widens the picker when the scope is released', async () => {
+        renderBar('/books/find/genre/9/1');
+
+        // The cross beside the chip means "search everywhere", and the picker
+        // has to widen with the search rather than keep offering the genre.
+        await userEvent.click(screen.getByRole('button', { name: 'searchEverywhere' }));
+
+        expect(screen.getByTestId('picker-scope')).toHaveTextContent('none');
     });
 
     it('clearing the box on a filtered page goes back to the list', async () => {

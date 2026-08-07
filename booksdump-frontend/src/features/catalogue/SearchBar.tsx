@@ -1,5 +1,7 @@
 import React, { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+
+import type { SuggestionScope } from '@/api/autocomplete';
 import { useLocation, useNavigate } from 'react-router';
 import { Heart, Plus, X } from 'lucide-react';
 
@@ -105,6 +107,13 @@ const SearchBar: React.FC = () => {
     // Where the reader is standing is what decides whether there is anything
     // to clear — the box can hold words that were never searched for.
     const unsearchedPath = unsearchedPathFrom(location.pathname, location.search);
+
+    // The picker answers from the list the reader is in, the same list the
+    // search will stay in. Releasing the scope widens both together.
+    const suggestionScope: SuggestionScope | undefined =
+        scoped && scope.kind
+            ? { kind: scope.kind === 'collection' ? 'collection' : scope.kind, id: scope.id }
+            : undefined;
 
     const resetSearch = () => {
         setSearchItem('');
@@ -259,7 +268,7 @@ const SearchBar: React.FC = () => {
                             value={searchItem}
                             onChange={setSearchItem}
                             searchType={selectedSearch}
-                            authorScope={scoped && scope.kind === 'author' ? scope.id : undefined}
+                            scope={suggestionScope}
                             onEnterPressed={navigateToSearchResults}
                             onSuggestionSelected={pickSuggestion}
                             onClear={unsearchedPath ? resetSearch : undefined}

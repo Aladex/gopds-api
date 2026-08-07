@@ -68,8 +68,18 @@ type SuggestionRequest struct {
 	Query    string
 	Kind     SuggestionKind
 	Language string
-	AuthorID int64
 	Limit    int
+
+	// The list the reader is standing in. A picker that offers titles from
+	// the whole catalog while the reader is looking at their favorites
+	// offers books they cannot reach without leaving where they are.
+	UserID              int64
+	Favorites           bool
+	AuthorID            int64
+	SeriesID            int64
+	GenreID             int64
+	CollectionID        int64
+	CuratedCollectionID int64
 }
 
 // SuggestionResult is the compact autocomplete projection.

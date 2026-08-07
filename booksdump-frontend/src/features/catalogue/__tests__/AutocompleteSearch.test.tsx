@@ -186,16 +186,16 @@ describe('AutocompleteSearch', () => {
     // Where to search is a prop of its own rather than a value of searchType:
     // what is being looked for and where it is being looked for are separate
     // questions, and the panel now asks the second one on screen.
-    it('confines suggestions to the author the search is scoped to', async () => {
+    it('confines suggestions to the list the search is scoped to', async () => {
         const user = userEvent.setup();
-        const { input } = setup({ searchType: 'title', authorScope: '42' });
+        const { input } = setup({ searchType: 'title', scope: { kind: 'author', id: '42' } });
 
         await user.type(input, 'Старый');
         await waitFor(() =>
             expect(getSuggestions).toHaveBeenCalledWith(
                 'Старый',
                 'title',
-                '42',
+                { kind: 'author', id: '42' },
                 'ru',
                 expect.any(AbortSignal),
             ),

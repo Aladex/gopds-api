@@ -634,14 +634,43 @@ WITH q AS (
         md5(public.search_normalize(?::text)) AS query_hash
 ),
 visible_books AS NOT MATERIALIZED (
+    -- The same scopes the book search honors, for the same reason: a picker
+    -- offering titles from the whole catalog to a reader standing in their
+    -- favorites offers books that list cannot show. Every row here leads to
+    -- a search that stays in the list, so the rows come from it too. Written
+    -- as correlated EXISTS, like the search, so an unknown id matches nothing
+    -- rather than widening back to everything.
     SELECT b.id, b.lang, public.search_normalize(b.title) AS norm_title
     FROM opds_catalog_book AS b
     WHERE b.approved
         AND NOT b.duplicate_hidden
         AND (?::text = '' OR ?::text = 'all' OR b.lang = ?::text)
+        AND (NOT ?::bool OR EXISTS (
+            SELECT 1 FROM favorite_books AS fb
+            WHERE fb.book_id = b.id AND fb.user_id = ?
+        ))
         AND (? = 0 OR EXISTS (
             SELECT 1 FROM opds_catalog_bauthor AS ba
             WHERE ba.book_id = b.id AND ba.author_id = ?
+        ))
+        AND (? = 0 OR EXISTS (
+            SELECT 1 FROM opds_catalog_bseries AS bs
+            WHERE bs.book_id = b.id AND bs.ser_id = ?
+        ))
+        AND (? = 0 OR EXISTS (
+            SELECT 1 FROM opds_catalog_bgenre AS bg
+            WHERE bg.book_id = b.id AND bg.genre_id = ?
+        ))
+        AND (? = 0 OR EXISTS (
+            SELECT 1 FROM book_collection_books AS bcb
+            WHERE bcb.book_id = b.id AND bcb.book_collection_id = ?
+        ))
+        AND (? = 0 OR EXISTS (
+            SELECT 1 FROM book_collection_items AS ci
+            JOIN book_collections AS c ON c.id = ci.collection_id
+            WHERE ci.book_id = b.id AND ci.collection_id = ?
+                AND c.is_curated AND c.is_public
+                AND ci.match_status IN ('auto_matched', 'manual')
         ))
 ),
 book_hits AS (
@@ -817,7 +846,12 @@ func (r *PGSearchRepository) Suggestions(ctx context.Context, req models.Suggest
 		_, err := q.QueryContext(ctx, &rows, suggestionSQL,
 			req.Query, req.Query, req.Query,
 			req.Language, req.Language, req.Language,
+			req.Favorites, req.UserID,
 			req.AuthorID, req.AuthorID,
+			req.SeriesID, req.SeriesID,
+			req.GenreID, req.GenreID,
+			req.CollectionID, req.CollectionID,
+			req.CuratedCollectionID, req.CuratedCollectionID,
 			kind, kind, kind,
 			bookLimit,
 			kind,

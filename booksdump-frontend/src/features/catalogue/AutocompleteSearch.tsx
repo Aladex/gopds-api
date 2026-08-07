@@ -5,7 +5,7 @@ import { BookOpen, Loader2, User, X } from 'lucide-react';
 import { inputFocusRing, inputFrame } from '@/shared/ui/input';
 import { cn } from '@/shared/lib/utils';
 
-import { autocompleteService, AutocompleteSuggestion } from '@/api/autocomplete';
+import { autocompleteService, AutocompleteSuggestion, SuggestionScope } from '@/api/autocomplete';
 import { useSearchBar } from '@/context/SearchBarContext';
 
 /**
@@ -44,12 +44,12 @@ interface AutocompleteSearchProps {
     onChange: (value: string) => void;
     searchType: string;
     /**
-     * Confines suggestions to one author's books. Passed in rather than
-     * inferred from searchType: what is being searched for and where it is
-     * being searched are two separate questions, and folding them into one
-     * string was what made the second one invisible.
+     * Confines suggestions to the list the reader is standing in. Passed in
+     * rather than inferred from searchType: what is being searched for and
+     * where it is being searched are two separate questions, and folding them
+     * into one string was what made the second one invisible.
      */
-    authorScope?: string;
+    scope?: SuggestionScope;
     disabled?: boolean;
     onEnterPressed?: () => void;
     /**
@@ -92,7 +92,7 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
     value,
     onChange,
     searchType,
-    authorScope,
+    scope,
     disabled = false,
     onEnterPressed,
     onSuggestionSelected,
@@ -127,7 +127,7 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
         async (
             wanted: string,
             type: string,
-            scopeAuthorId: string | undefined,
+            currentScope: SuggestionScope | undefined,
             currentLanguage: string,
         ) => {
             abortControllerRef.current?.abort();
@@ -139,7 +139,7 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
                 const results = await autocompleteService.getSuggestions(
                     wanted,
                     apiTypeFor(type),
-                    scopeAuthorId || undefined,
+                    currentScope || undefined,
                     currentLanguage,
                     controller.signal,
                 );
@@ -170,7 +170,7 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
         }
 
         const timer = setTimeout(
-            () => fetchSuggestions(query, searchType, authorScope, selectedLanguage),
+            () => fetchSuggestions(query, searchType, scope, selectedLanguage),
             DEBOUNCE_MS,
         );
         timerRef.current = timer;
@@ -178,7 +178,7 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
         // answer.query is read but deliberately not a dependency: reacting to it
         // would schedule a fresh request the moment one arrives.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [query, searchType, authorScope, selectedLanguage, fetchSuggestions]);
+    }, [query, searchType, scope, selectedLanguage, fetchSuggestions]);
 
     useEffect(
         () => () => {
@@ -250,7 +250,7 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
      */
     const retry = () => {
         setDismissed(false);
-        void fetchSuggestions(query, searchType, authorScope, selectedLanguage);
+        void fetchSuggestions(query, searchType, scope, selectedLanguage);
     };
 
     const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
