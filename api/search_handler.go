@@ -58,8 +58,17 @@ func (h *SearchHandler) Books(c *gin.Context) {
 		httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
 		return
 	}
-	if q.IncludeHidden && !c.GetBool("is_superuser") {
+	// Both of these widen what the request may see, so both belong to whoever
+	// moderates rather than to whoever asks. They are cleared before the branch
+	// below, so the search and the ordinary list cannot disagree about who sees
+	// what.
+	//
+	// include_hidden was gated from the first version; unapproved was not, and
+	// any signed-in reader could ask for the moderation queue by hand. No screen
+	// has ever offered it — which is why it went unnoticed, not why it was safe.
+	if !c.GetBool("is_superuser") {
 		q.IncludeHidden = false
+		q.UnApproved = false
 	}
 	userID := c.GetInt64("user_id")
 

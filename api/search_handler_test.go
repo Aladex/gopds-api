@@ -136,7 +136,8 @@ func TestSearchHandler_Books_SearchMapsEveryScope(t *testing.T) {
 	assert.Equal(t, int64(9), req.CollectionID)
 	assert.Equal(t, int64(11), req.CuratedCollectionID)
 	assert.True(t, req.Favorites)
-	assert.True(t, req.Unapproved)
+	assert.False(t, req.Unapproved,
+		"a non-superuser must never reach the repository with Unapproved set")
 	assert.False(t, req.IncludeHidden,
 		"a non-superuser must never reach the repository with IncludeHidden set")
 	assert.Equal(t, 10, req.Limit)
@@ -158,6 +159,41 @@ func TestSearchHandler_Books_SuperuserKeepsIncludeHidden(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
 	require.Len(t, fake.booksReqs, 1)
 	assert.True(t, fake.booksReqs[0].IncludeHidden)
+}
+
+/*
+ * Both flags widen what a request may see, so both belong to whoever moderates
+ * rather than to whoever asks. include_hidden was gated from the start;
+ * unapproved was not, and any signed-in reader could ask for the moderation
+ * queue by hand — no screen offers it, which is why it went unnoticed rather
+ * than why it was safe.
+ *
+ * The gate sits before the branch, so it covers the ordinary list as well as
+ * the search: the two must not disagree about who sees what.
+ */
+func TestSearchHandler_Books_UnapprovedIsForModeratorsOnly(t *testing.T) {
+	t.Run("a superuser still reaches the moderation queue", func(t *testing.T) {
+		fake := &fakeSearch{booksPage: models.BookSearchPage{Limit: 10}}
+		r := newSearchTestRouter(fake, 77, true)
+
+		rec := doJSON(t, r, http.MethodGet, "/api/books/list?title=x&unapproved=true", nil)
+
+		require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
+		require.Len(t, fake.booksReqs, 1)
+		assert.True(t, fake.booksReqs[0].Unapproved)
+	})
+
+	// Asking without the flag is the ordinary case and must stay untouched.
+	t.Run("nobody who did not ask is given it", func(t *testing.T) {
+		fake := &fakeSearch{booksPage: models.BookSearchPage{Limit: 10}}
+		r := newSearchTestRouter(fake, 77, true)
+
+		rec := doJSON(t, r, http.MethodGet, "/api/books/list?title=x", nil)
+
+		require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
+		require.Len(t, fake.booksReqs, 1)
+		assert.False(t, fake.booksReqs[0].Unapproved)
+	})
 }
 
 func TestSearchHandler_Books_ExactBookID(t *testing.T) {
