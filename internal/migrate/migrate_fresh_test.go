@@ -61,25 +61,25 @@ func TestRunRealMigrationsOnFreshDatabase(t *testing.T) {
 	}
 
 	var fnExists bool
-	if _, err := db.QueryOne(pg.Scan(&fnExists), `
+	if _, queryErr := db.QueryOne(pg.Scan(&fnExists), `
 		SELECT EXISTS (
 			SELECT 1 FROM pg_proc p
 			JOIN pg_namespace n ON n.oid = p.pronamespace
-			WHERE n.nspname = 'public' AND p.proname = 'search_normalize')`); err != nil {
-		t.Fatalf("checking search_normalize: %v", err)
+			WHERE n.nspname = 'public' AND p.proname = 'search_normalize')`); queryErr != nil {
+		t.Fatalf("checking search_normalize: %v", queryErr)
 	}
 	if !fnExists {
 		t.Error("public.search_normalize missing after the full migration run")
 	}
 
 	var indexes int
-	if _, err := db.QueryOne(pg.Scan(&indexes), `
+	if _, queryErr := db.QueryOne(pg.Scan(&indexes), `
 		SELECT count(*) FROM pg_indexes
 		WHERE schemaname = 'public' AND indexname IN (
 			'idx_book_title_search_norm_trgm',
 			'idx_book_title_search_norm_pattern',
-			'idx_author_full_name_search_norm_trgm')`); err != nil {
-		t.Fatalf("checking search indexes: %v", err)
+			'idx_author_full_name_search_norm_trgm')`); queryErr != nil {
+		t.Fatalf("checking search indexes: %v", queryErr)
 	}
 	if indexes != 3 {
 		t.Errorf("found %d of 3 search expression indexes", indexes)

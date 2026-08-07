@@ -24,6 +24,7 @@ type fakePublicSearch struct {
 	err            error
 }
 
+//nolint:gocritic // the port takes the request by value; this implements it
 func (f *fakePublicSearch) SearchBooks(_ context.Context, req models.BookSearchRequest) (models.BookSearchPage, error) {
 	f.bookRequests = append(f.bookRequests, req)
 	if f.err != nil {

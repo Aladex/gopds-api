@@ -23,7 +23,7 @@ import (
 // searchTestDB holds the optional integration connection for the one case that
 // exercises the ordinary list path: what it proves is that a request without a
 // search target still reaches database.GetBooks untouched, and no fake can
-// stand in for the real catalogue there.
+// stand in for the real catalog there.
 var searchTestDB *pg.DB
 
 func TestMain(m *testing.M) {
@@ -87,6 +87,7 @@ type fakeSearch struct {
 	suggReqs   []models.SuggestionRequest
 }
 
+//nolint:gocritic // the port takes the request by value; this implements it
 func (f *fakeSearch) SearchBooks(_ context.Context, req models.BookSearchRequest) (models.BookSearchPage, error) {
 	f.booksReqs = append(f.booksReqs, req)
 	return f.booksPage, f.booksErr
@@ -214,7 +215,7 @@ func TestSearchHandler_Books_UnapprovedIsForModeratorsOnly(t *testing.T) {
  * The ordinary list calls database.GetBooks directly, so the service gate does
  * not cover it and no fake can stand in here. This asserts the behavior
  * instead of the wiring: a non-moderator who asks for the queue by hand still
- * gets approved books only, while a moderator reaches the queue. The catalogue
+ * gets approved books only, while a moderator reaches the queue. The catalog
  * carries unapproved books, so both sides have visible answers.
  */
 func TestSearchHandler_Books_OrdinaryListUnapprovedGate(t *testing.T) {
@@ -439,7 +440,10 @@ func TestSearchHandler_Autocomplete_Validation(t *testing.T) {
 	}{
 		{"a missing query is a client error", "/api/books/autocomplete", nil, http.StatusBadRequest},
 		{"a non-numeric author is a client error", "/api/books/autocomplete?query=x&author=abc", nil, http.StatusBadRequest},
-		{"an unknown kind is a client error", "/api/books/autocomplete?query=x&type=titles", services.ErrInvalidSuggestionKind, http.StatusBadRequest},
+		{
+			"an unknown kind is a client error", "/api/books/autocomplete?query=x&type=titles",
+			services.ErrInvalidSuggestionKind, http.StatusBadRequest,
+		},
 		{"a repository failure is a server error", "/api/books/autocomplete?query=x", boom, http.StatusInternalServerError},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -28,6 +28,23 @@ type SearchHandler struct {
 	Search services.PublicSearch
 }
 
+// Feed link rels, content types and hrefs. Named here so the search feeds
+// state them once; the older feeds in this package still spell them out.
+const (
+	relStart  = "start"
+	relSearch = "search"
+	relNext   = "next"
+
+	typeOpdsCatalog   = "application/atom+xml;profile=opds-catalog"
+	typeOpenSearchDsc = "application/opensearchdescription+xml"
+	typeAtom          = "application/atom+xml"
+
+	hrefRoot         = "/opds"
+	hrefOpenSearch   = "/opds-opensearch.xml"
+	hrefSearchTerms  = "/opds/search?searchTerms={searchTerms}"
+	titleSearchBooks = "Поиск книг"
+)
+
 // opdsPageSize is the feed page every OPDS list in this package serves.
 const opdsPageSize = 10
 
@@ -65,8 +82,8 @@ func nextSearchHref(path, param, needle string, page int) string {
 func nextSearchLink(links []opdsutils.Link, href string, prepend bool) []opdsutils.Link {
 	link := opdsutils.Link{
 		Href: href,
-		Rel:  "next",
-		Type: "application/atom+xml;profile=opds-catalog",
+		Rel:  relNext,
+		Type: typeOpdsCatalog,
 	}
 	if prepend {
 		return append([]opdsutils.Link{link}, links...)
@@ -79,19 +96,19 @@ func nextSearchLink(links []opdsutils.Link, href string, prepend bool) []opdsuti
 func globalSearchLinks() []opdsutils.Link {
 	return []opdsutils.Link{
 		{
-			Href: "/opds",
-			Rel:  "start",
-			Type: "application/atom+xml;profile=opds-catalog",
+			Href: hrefRoot,
+			Rel:  relStart,
+			Type: typeOpdsCatalog,
 		},
 		{
-			Href: "/opds-opensearch.xml",
-			Rel:  "search",
-			Type: "application/opensearchdescription+xml",
+			Href: hrefOpenSearch,
+			Rel:  relSearch,
+			Type: typeOpenSearchDsc,
 		},
 		{
-			Href: "/opds/search?searchTerms={searchTerms}",
-			Rel:  "search",
-			Type: "application/atom+xml",
+			Href: hrefSearchTerms,
+			Rel:  relSearch,
+			Type: typeAtom,
 		},
 	}
 }
@@ -143,7 +160,7 @@ func authorItems(authors []models.Author, browseHref func(id int64) string) []*o
 			Link: []opdsutils.Link{
 				{
 					Href: browseHref(a.ID),
-					Type: "application/atom+xml;profile=opds-catalog",
+					Type: typeOpdsCatalog,
 				},
 			},
 			Id:      fmt.Sprintf("tag:author:%d", a.ID),
@@ -185,7 +202,7 @@ func (h *SearchHandler) Books(c *gin.Context) {
 	}
 
 	renderFeed(c, &opdsutils.Feed{
-		Title:   "Поиск книг",
+		Title:   titleSearchBooks,
 		Id:      fmt.Sprintf("tag:search:books:%s:%d", url.QueryEscape(filters.Title), page),
 		Links:   links,
 		Updated: time.Now(),

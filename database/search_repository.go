@@ -70,7 +70,7 @@ WITH q AS (
 visible AS NOT MATERIALIZED (
     -- Visibility and scope filters, nothing textual. NOT MATERIALIZED so
     -- every reference inlines the filters into that leg's own index scan
-    -- instead of computing the normalized title for the whole catalogue.
+    -- instead of computing the normalized title for the whole catalog.
     SELECT b.id, public.search_normalize(b.title) AS norm_title
     FROM opds_catalog_book b
     WHERE b.approved = (NOT ?::bool)
@@ -271,7 +271,7 @@ type searchBookRow struct {
 // be reapplied here.
 //
 // It walks the ids rather than the rows because the two need not agree: the
-// loading query carries no visibility filter and the catalogue scanner deletes
+// loading query carries no visibility filter and the catalog scanner deletes
 // books, so a row asked for in the first query can be gone by the second.
 // Walking the ids skips what vanished; walking the rows and indexing by
 // position, as this did, wrote past the end of a slice sized by the smaller of
@@ -295,6 +295,8 @@ func orderByIDs(ids []int64, books []models.Book) []models.Book {
 }
 
 // SearchBooks returns one ranked page and the exact pre-pagination total.
+//
+//nolint:gocritic // the repository port takes the request by value; this implements it
 func (r *PGSearchRepository) SearchBooks(ctx context.Context, req models.BookSearchRequest) (models.BookSearchPage, error) {
 	page := models.BookSearchPage{Limit: req.Limit, Offset: req.Offset}
 
@@ -358,7 +360,7 @@ func (r *PGSearchRepository) SearchBooks(ctx context.Context, req models.BookSea
 // hands one out) SET LOCAL applies to it directly. Wrapping that case in
 // RunInTransaction would be wrong: go-pg v10 has no savepoints, and
 // (*Tx).RunInTransaction ends with COMMIT on the outer transaction — that
-// once committed fixture rows into the real catalogue.
+// once committed fixture rows into the real catalog.
 func (r *PGSearchRepository) queryWithBookThreshold(ctx context.Context, fn func(q pg.DBI) error) error {
 	if tx, ok := r.db.(*pg.Tx); ok {
 		if _, err := tx.ExecContext(ctx, "SET LOCAL pg_trgm.similarity_threshold = 0.5"); err != nil {
@@ -382,8 +384,8 @@ func (r *PGSearchRepository) markCallerFavorites(ctx context.Context, userID int
 		return nil
 	}
 	ids := make([]int64, len(books))
-	for i, b := range books {
-		ids[i] = b.ID
+	for i := range books {
+		ids[i] = books[i].ID
 	}
 	var favIDs []int64
 	if _, err := r.db.QueryContext(ctx, &favIDs,
@@ -531,6 +533,15 @@ const (
 	defaultSuggestionLimit = 15
 	suggestionLaneBook     = 1
 	suggestionLaneAuthor   = 2
+
+	// laneCount is how many shelves the combined budget is split between, and
+	// bookLaneRoundUp gives books the odd row.
+	laneCount       = 2
+	bookLaneRoundUp = 1
+
+	// The suggestion kinds as the picker labels them.
+	suggestionTypeAuthor = "author"
+	suggestionTypeBook   = "book"
 )
 
 // suggestionSQL drives the autocomplete picker: the same normalization,
@@ -711,6 +722,8 @@ type suggestionRow struct {
 // suggestionLaneLimits splits the picker budget between the book and author
 // lanes. The combined kind ignores the caller's limit and takes the fixed
 // shelf sizes; a single kind answers up to its own limit.
+//
+//nolint:gocritic // named results document which lane each number is
 func suggestionLaneLimits(kind models.SuggestionKind, limit int) (books, authors int) {
 	if limit <= 0 {
 		limit = defaultSuggestionLimit
@@ -720,13 +733,15 @@ func suggestionLaneLimits(kind models.SuggestionKind, limit int) (books, authors
 		return limit, 0
 	case models.SuggestionAuthor:
 		return 0, limit
-	default:
+	case models.SuggestionAll:
+		fallthrough
+	default: //nolint:gocritic // the explicit SuggestionAll case documents the exhaustive set
 		// Split rather than fixed shelves: the two used to be constants that
 		// ignored the budget, so a picker asked for five suggestions answered
 		// with fifteen. Rounding up gives books the odd row, which is where the
 		// default fifteen gets its eight and seven — the geometry the picker
 		// was built around is the formula's own answer, not a second copy of it.
-		books = (limit + 1) / 2
+		books = (limit + bookLaneRoundUp) / laneCount
 		return books, limit - books
 	}
 }
@@ -772,9 +787,9 @@ func (r *PGSearchRepository) Suggestions(ctx context.Context, req models.Suggest
 			suggestion.BooksCount = *row.BooksCount
 		}
 		if *row.Lane == suggestionLaneAuthor {
-			suggestion.Type = "author"
+			suggestion.Type = suggestionTypeAuthor
 		} else {
-			suggestion.Type = "book"
+			suggestion.Type = suggestionTypeBook
 		}
 		result.Suggestions = append(result.Suggestions, suggestion)
 	}

@@ -321,9 +321,7 @@ describe('SearchBar scoped search', () => {
 
         await userEvent.click(screen.getByRole('button', { name: 'search' }));
 
-        expect(currentPath).toBe(
-            `/books/find/author/42/1?title=${encodeURIComponent('война')}`,
-        );
+        expect(currentPath).toBe(`/books/find/author/42/1?title=${encodeURIComponent('война')}`);
     });
 
     it('searches within a genre list', async () => {

@@ -1,11 +1,12 @@
-// Command search-eval measures catalogue search relevance on a local dump.
+// Command search-eval measures catalog search relevance on a local dump.
 //
 // It runs a reviewed query set against the current search path (capture mode)
 // and reports Recall@k, MRR and the zero-result rate, so relevance changes are
-// measured rather than guessed. Compare mode re-runs the same set against the
-// new search repository (books go through PGSearchRepository, authors still
-// through the unchanged public path) and judges the aggregates against a
-// capture-mode baseline; the metric functions below stay the judge either way.
+// measured rather than guessed. Compare mode runs the same set the same way and
+// judges the aggregates against a capture-mode baseline; the metric functions
+// below stay the judge either way. Both modes reach the catalog through
+// PGSearchRepository, for books and authors alike — the pre-overhaul paths they
+// were first written against no longer exist.
 package main
 
 import (
@@ -26,20 +27,53 @@ import (
 	"github.com/go-pg/pg/v10"
 )
 
+// Command modes, query kinds and the verdicts a compare run reports.
+const (
+	modeCapture = "capture"
+	modeCompare = "compare"
+
+	kindBooks   = "books"
+	kindAuthors = "authors"
+
+	verdictPass       = "pass"
+	verdictRegression = "regression"
+
+	// defaultRepeat is how many measured runs one query gets after an
+	// unrecorded warm-up: enough for a stable p95 without a long run.
+	defaultRepeat = 20
+
+	// p50 and p95 are the reported percentiles.
+	p50 = 0.5
+	p95 = 0.95
+
+	// minArgs is the program name plus a mode; the mode's own flags follow it.
+	minArgs       = 2
+	argsAfterMode = 2
+
+	// exitUsage is the status a wrong invocation exits with.
+	exitUsage = 2
+
+	// reportPerm keeps the written report readable only by its owner; it can
+	// carry query text from the reviewed set.
+	reportPerm = 0o600
+)
+
 func main() {
-	if len(os.Args) < 2 {
+	if len(os.Args) < minArgs {
 		usage()
-		os.Exit(2)
+		os.Exit(exitUsage)
 	}
 
 	switch os.Args[1] {
-	case "capture":
-		capture(os.Args[2:])
-	case "compare":
-		compare(os.Args[2:])
+	case modeCapture:
+		capture(os.Args[argsAfterMode:])
+	case modeCompare:
+		// The exit code travels back rather than being taken inside compare,
+		// so the deferred database close still runs on a regression.
+		os.Exit(compare(os.Args[argsAfterMode:]))
 	default:
 		usage()
-		os.Exit(2)
+		os.Exit(exitUsage)
 	}
 }
 
@@ -55,7 +89,7 @@ type querySet struct {
 }
 
 // evalQuery describes one search request and the textual rule deciding which
-// catalogue rows are relevant for it. Rules are matched against the same
+// catalog rows are relevant for it. Rules are matched against the same
 // normalized form the future search index uses, so a rule written before the
 // normalization function exists still means the same thing after it lands.
 type evalQuery struct {
@@ -142,12 +176,50 @@ type comparisonReport struct {
 	Verdict           string   `json:"verdict"` // "pass" or "regression"
 }
 
+// connectEval opens the eval connection and makes it the package-global one.
+func connectEval(addr, user, pass, name string) *pg.DB {
+	db := pg.Connect(&pg.Options{Addr: addr, User: user, Password: pass, Database: name, OnConnect: database.DisableJIT})
+	if _, err := db.Exec("SELECT 1"); err != nil {
+		fatalf("connecting to %s/%s: %v", addr, name, err)
+	}
+	database.SetDB(db)
+	return db
+}
+
+// runSet measures every query of the set and prints one line each.
+func runSet(repo *database.PGSearchRepository, db *pg.DB, set querySet, repeat int) []queryReport {
+	reports := make([]queryReport, 0, len(set.Queries))
+	for i := range set.Queries {
+		q := &set.Queries[i]
+		rep, err := captureQuery(repo, db, q, repeat)
+		if err != nil {
+			fatalf("query %q: %v", q.Name, err)
+		}
+		reports = append(reports, rep)
+		fmt.Fprintf(os.Stderr, "%-36s total=%-6d relevant=%-5d recall=%.3f rr=%.2f p50=%dms p95=%dms\n",
+			q.Name, rep.Total, len(rep.RelevantIDs), rep.RecallAtK, rep.ReciprocalRank, rep.P50Millis, rep.P95Millis)
+	}
+	return reports
+}
+
+// writeReport persists one run's artifact.
+func writeReport(path string, report *evalReport) {
+	data, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		fatalf("encoding report: %v", err)
+	}
+	if err := os.WriteFile(path, append(data, '\n'), reportPerm); err != nil {
+		fatalf("writing %s: %v", path, err)
+	}
+	fmt.Fprintf(os.Stderr, "wrote %s\n", path)
+}
+
 func capture(args []string) {
 	fs := flag.NewFlagSet("capture", flag.ExitOnError)
 	var (
 		input  = fs.String("input", "", "reviewed query set JSON (required)")
 		out    = fs.String("out", "", "report output path (required)")
-		repeat = fs.Int("repeat", 20, "measured runs per query, after one unrecorded warm-up")
+		repeat = fs.Int("repeat", defaultRepeat, "measured runs per query, after one unrecorded warm-up")
 		addr   = fs.String("host", envOr("GOPDS_POSTGRES_DBHOST", "127.0.0.1:5432"), "database host:port")
 		user   = fs.String("user", envOr("GOPDS_POSTGRES_DBUSER", "gopds"), "database user")
 		pass   = fs.String("password", os.Getenv("GOPDS_POSTGRES_DBPASS"), "database password")
@@ -157,63 +229,43 @@ func capture(args []string) {
 
 	if *input == "" || *out == "" || *repeat < 1 {
 		usage()
-		os.Exit(2)
+		os.Exit(exitUsage)
 	}
 
 	set, err := loadQuerySet(*input)
 	if err != nil {
-		fatal("loading query set: %v", err)
+		fatalf("loading query set: %v", err)
 	}
 
-	db := pg.Connect(&pg.Options{Addr: *addr, User: *user, Password: *pass, Database: *name, OnConnect: database.DisableJIT})
+	db := connectEval(*addr, *user, *pass, *name)
 	defer func() { _ = db.Close() }()
-	if _, err := db.Exec("SELECT 1"); err != nil {
-		fatal("connecting to %s/%s: %v", *addr, *name, err)
-	}
-	database.SetDB(db)
 
 	report := evalReport{
 		CapturedAt: time.Now().UTC(),
-		Mode:       "capture",
+		Mode:       modeCapture,
 		Database:   fmt.Sprintf("%s@%s/%s", *user, *addr, *name),
 		Catalog:    fingerprint(context.Background(), db),
 	}
-
-	for _, q := range set.Queries {
-		rep, err := captureQuery(db, q, *repeat)
-		if err != nil {
-			fatal("query %q: %v", q.Name, err)
-		}
-		report.Queries = append(report.Queries, rep)
-		fmt.Fprintf(os.Stderr, "%-36s total=%-6d relevant=%-5d recall=%.3f rr=%.2f p50=%dms p95=%dms\n",
-			q.Name, rep.Total, len(rep.RelevantIDs), rep.RecallAtK, rep.ReciprocalRank, rep.P50Millis, rep.P95Millis)
-	}
-
+	report.Queries = runSet(database.NewPGSearchRepository(db), db, set, *repeat)
 	report.Aggregate = aggregate(report.Queries)
-
-	data, err := json.MarshalIndent(report, "", "  ")
-	if err != nil {
-		fatal("encoding report: %v", err)
-	}
-	if err := os.WriteFile(*out, append(data, '\n'), 0o644); err != nil {
-		fatal("writing %s: %v", *out, err)
-	}
-	fmt.Fprintf(os.Stderr, "wrote %s\n", *out)
+	writeReport(*out, &report)
 }
 
-// compare re-runs the query set against the new search repository and judges
-// the aggregates against a capture-mode baseline. Books queries go through
-// PGSearchRepository; author queries still use the unchanged public path —
-// the same code the baseline captured — so the aggregates stay comparable
-// until the author repository lands. A changed catalogue fingerprint means
-// the baseline no longer describes this data and the run refuses to compare.
-func compare(args []string) {
+// compare re-runs the query set against the current search path and judges the
+// aggregates against a capture-mode baseline. Books and authors both go through
+// PGSearchRepository: until Phase 8 the author lane still ran the pre-overhaul
+// code, so its numbers were carried over from the baseline unchanged and the
+// aggregates flattered nothing but also proved nothing about authors. A changed
+// catalog fingerprint means the baseline no longer describes this data and
+// the run refuses to compare.
+// compare returns the process exit status: zero when the gate passes.
+func compare(args []string) int {
 	fs := flag.NewFlagSet("compare", flag.ExitOnError)
 	var (
 		input    = fs.String("input", "", "reviewed query set JSON (required)")
 		baseline = fs.String("baseline", "", "capture-mode baseline report JSON (required)")
 		out      = fs.String("out", "", "report output path (required)")
-		repeat   = fs.Int("repeat", 20, "measured runs per query, after one unrecorded warm-up")
+		repeat   = fs.Int("repeat", defaultRepeat, "measured runs per query, after one unrecorded warm-up")
 		addr     = fs.String("host", envOr("GOPDS_POSTGRES_DBHOST", "127.0.0.1:5432"), "database host:port")
 		user     = fs.String("user", envOr("GOPDS_POSTGRES_DBUSER", "gopds"), "database user")
 		pass     = fs.String("password", os.Getenv("GOPDS_POSTGRES_DBPASS"), "database password")
@@ -223,29 +275,24 @@ func compare(args []string) {
 
 	if *input == "" || *baseline == "" || *out == "" || *repeat < 1 {
 		usage()
-		os.Exit(2)
+		os.Exit(exitUsage)
 	}
 
 	set, err := loadQuerySet(*input)
 	if err != nil {
-		fatal("loading query set: %v", err)
+		fatalf("loading query set: %v", err)
 	}
 	base, err := loadBaseline(*baseline)
 	if err != nil {
-		fatal("loading baseline: %v", err)
+		fatalf("loading baseline: %v", err)
 	}
 
-	db := pg.Connect(&pg.Options{Addr: *addr, User: *user, Password: *pass, Database: *name, OnConnect: database.DisableJIT})
+	db := connectEval(*addr, *user, *pass, *name)
 	defer func() { _ = db.Close() }()
-	if _, err := db.Exec("SELECT 1"); err != nil {
-		fatal("connecting to %s/%s: %v", *addr, *name, err)
-	}
-	database.SetDB(db)
-	repo := database.NewPGSearchRepository(db)
 
 	report := evalReport{
 		CapturedAt: time.Now().UTC(),
-		Mode:       "compare",
+		Mode:       modeCompare,
 		Database:   fmt.Sprintf("%s@%s/%s", *user, *addr, *name),
 		Catalog:    fingerprint(context.Background(), db),
 	}
@@ -253,50 +300,30 @@ func compare(args []string) {
 	if report.Catalog.Books != base.Catalog.Books ||
 		report.Catalog.Authors != base.Catalog.Authors ||
 		report.Catalog.MaxBookID != base.Catalog.MaxBookID {
-		fatal("catalog changed since the baseline: %+v vs baseline %+v — recapture the baseline instead of comparing",
+		fatalf("catalog changed since the baseline: %+v vs baseline %+v — recapture the baseline instead of comparing",
 			report.Catalog, base.Catalog)
 	}
 
-	for _, q := range set.Queries {
-		var rep queryReport
-		var err error
-		if q.Kind == "books" {
-			rep, err = compareBookQuery(repo, db, q, *repeat)
-		} else {
-			rep, err = captureQuery(db, q, *repeat)
-		}
-		if err != nil {
-			fatal("query %q: %v", q.Name, err)
-		}
-		report.Queries = append(report.Queries, rep)
-		fmt.Fprintf(os.Stderr, "%-36s total=%-6d relevant=%-5d recall=%.3f rr=%.2f p50=%dms p95=%dms\n",
-			q.Name, rep.Total, len(rep.RelevantIDs), rep.RecallAtK, rep.ReciprocalRank, rep.P50Millis, rep.P95Millis)
-	}
-
+	report.Queries = runSet(database.NewPGSearchRepository(db), db, set, *repeat)
 	report.Aggregate = aggregate(report.Queries)
 	cmp := compareAggregates(report.Aggregate, base.Aggregate, report.Queries, base.Queries)
 	report.Comparison = &cmp
+	writeReport(*out, &report)
 
-	data, err := json.MarshalIndent(report, "", "  ")
-	if err != nil {
-		fatal("encoding report: %v", err)
-	}
-	if err := os.WriteFile(*out, append(data, '\n'), 0o644); err != nil {
-		fatal("writing %s: %v", *out, err)
-	}
-	fmt.Fprintf(os.Stderr, "wrote %s\n", *out)
 	fmt.Fprintf(os.Stderr, "vs baseline: recall %.4f (%+.4f), mrr %.4f (%+.4f), zero %.4f (%+.4f) — %s\n",
 		report.Aggregate.RecallAtK, cmp.RecallDelta,
 		report.Aggregate.MRR, cmp.MRRDelta,
 		report.Aggregate.ZeroResultRate, cmp.ZeroRateDelta, cmp.Verdict)
-	if cmp.Verdict != "pass" {
+	if cmp.Verdict != verdictPass {
 		fmt.Fprintf(os.Stderr, "regressed queries: %s\n", strings.Join(cmp.RegressedQueries, ", "))
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 // loadBaseline reads a capture-mode report to compare against.
 func loadBaseline(path string) (evalReport, error) {
+	// #nosec G304 -- a developer tool reading the baseline the operator named on the command line
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return evalReport{}, err
@@ -325,23 +352,25 @@ func compareAggregates(current, baseline aggregateReport, queries, baselineQueri
 		MRRDelta:          current.MRR - baseline.MRR,
 		ZeroRateDelta:     current.ZeroResultRate - baseline.ZeroResultRate,
 	}
-	baseByName := make(map[string]queryReport, len(baselineQueries))
-	for _, bq := range baselineQueries {
-		baseByName[bq.Name] = bq
+	baseByName := make(map[string]float64, len(baselineQueries))
+	for i := range baselineQueries {
+		baseByName[baselineQueries[i].Name] = baselineQueries[i].RecallAtK
 	}
-	for _, q := range queries {
-		if bq, ok := baseByName[q.Name]; ok && q.RecallAtK < bq.RecallAtK-eps {
+	for i := range queries {
+		q := &queries[i]
+		if recall, ok := baseByName[q.Name]; ok && q.RecallAtK < recall-eps {
 			cmp.RegressedQueries = append(cmp.RegressedQueries, q.Name)
 		}
 	}
-	cmp.Verdict = "pass"
+	cmp.Verdict = verdictPass
 	if cmp.RecallDelta < -eps || cmp.MRRDelta < -eps || cmp.ZeroRateDelta > eps {
-		cmp.Verdict = "regression"
+		cmp.Verdict = verdictRegression
 	}
 	return cmp
 }
 
 func loadQuerySet(path string) (querySet, error) {
+	// #nosec G304 -- a developer tool reading the query set the operator named on the command line
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return querySet{}, err
@@ -351,7 +380,7 @@ func loadQuerySet(path string) (querySet, error) {
 		return querySet{}, err
 	}
 	for i, q := range set.Queries {
-		if q.Name == "" || q.Query == "" || (q.Kind != "books" && q.Kind != "authors") {
+		if q.Name == "" || q.Query == "" || (q.Kind != kindBooks && q.Kind != kindAuthors) {
 			return querySet{}, fmt.Errorf("entry %d: need name, query and kind books|authors", i)
 		}
 		if q.TopK <= 0 {
@@ -368,8 +397,8 @@ func loadQuerySet(path string) (querySet, error) {
 // unrecorded warm-up, then repeat measured runs, and resolves its relevance
 // set on the same database. Results and Total are captured from the first
 // measured run; only measured runs contribute durations.
-func measureQuery(db *pg.DB, q evalQuery, repeat int, execQuery func() ([]capturedResult, int, string, error)) (queryReport, error) {
-	rep := queryReport{evalQuery: q}
+func measureQuery(db *pg.DB, q *evalQuery, repeat int, execQuery func() ([]capturedResult, int, string, error)) (queryReport, error) {
+	rep := queryReport{evalQuery: *q}
 
 	if _, _, _, err := execQuery(); err != nil {
 		return rep, err
@@ -387,8 +416,8 @@ func measureQuery(db *pg.DB, q evalQuery, repeat int, execQuery func() ([]captur
 			rep.CaptureNote = note
 		}
 	}
-	rep.P50Millis = percentile(rep.DurationsMillis, 0.5)
-	rep.P95Millis = percentile(rep.DurationsMillis, 0.95)
+	rep.P50Millis = percentile(rep.DurationsMillis, p50)
+	rep.P95Millis = percentile(rep.DurationsMillis, p95)
 
 	var ids []int64
 	for _, r := range rep.Results {
@@ -418,143 +447,58 @@ func measureQuery(db *pg.DB, q evalQuery, repeat int, execQuery func() ([]captur
 }
 
 // captureQuery runs one eval query through the current public search path.
-func captureQuery(db *pg.DB, q evalQuery, repeat int) (queryReport, error) {
+func captureQuery(repo *database.PGSearchRepository, db *pg.DB, q *evalQuery, repeat int) (queryReport, error) {
 	return measureQuery(db, q, repeat, func() ([]capturedResult, int, string, error) {
-		return runOnce(db, q)
+		return runQuery(repo, q)
 	})
 }
 
-// compareBookQuery runs one books query through the new search repository.
-func compareBookQuery(repo *database.PGSearchRepository, db *pg.DB, q evalQuery, repeat int) (queryReport, error) {
-	return measureQuery(db, q, repeat, func() ([]capturedResult, int, string, error) {
-		results, total, err := runNewBookSearch(repo, q)
+// runQuery executes one eval query through the current public search path:
+// the search repository, for books and authors alike. Both modes use it, so a
+// capture and a compare on the same catalog measure the same code.
+func runQuery(repo *database.PGSearchRepository, q *evalQuery) (results []capturedResult, total int, note string, err error) {
+	switch q.Kind {
+	case kindBooks:
+		page, err := repo.SearchBooks(context.Background(), models.BookSearchRequest{
+			Query:       q.Query,
+			AuthorQuery: q.Author,
+			Language:    q.Language,
+			Limit:       q.TopK,
+		})
+		if err != nil {
+			return nil, 0, "", err
+		}
 		note := ""
 		if q.Author != "" {
-			note = "new repository: combined title+author in one SQL request; the baseline used a 200-requested (effective 100) title window plus a Go-side author filter"
+			note = "title and author travel in one SQL request; the Phase 1 baseline used a " +
+				"200-requested (effective 100) title window plus a Go-side author filter"
 		}
-		return results, total, note, err
-	})
-}
-
-// runOnce executes one eval query once through the current public search path.
-func runOnce(db *pg.DB, q evalQuery) ([]capturedResult, int, string, error) {
-	switch q.Kind {
-	case "books":
-		if q.Author == "" {
-			results, total, err := runBookSearch(q)
-			return results, total, "", err
+		return bookResults(page.Books), page.Total, note, nil
+	case kindAuthors:
+		// The repository reads an empty language as "every language" — the
+		// service's normalizeLanguage folds AllLanguages down to this before
+		// the call, and the eval talks to the repository directly.
+		page, err := repo.SearchAuthors(context.Background(), models.AuthorSearchRequest{
+			Query:    q.Query,
+			Language: q.Language,
+			Limit:    q.TopK,
+		})
+		if err != nil {
+			return nil, 0, "", err
 		}
-		// The current combined path asks the public search for a wide title
-		// window and drops non-matching authors outside SQL. The window is
-		// requested as 200, but GetBooksEnhanced clamps any limit above 100,
-		// so the effective maximum is 100 rows (database/books.go:40).
-		const requestedWindow = 200
-		results, shown, err := runCombinedSearch(db, q, requestedWindow)
-		note := fmt.Sprintf("combined baseline: requested a %d-row title window (effective max 100 after the GetBooksEnhanced clamp), filtered by author outside SQL; the author filter is a normalized-substring approximation of the smarter production commands.authorsMatch, equivalent for the reviewed query set", requestedWindow)
-		return results, shown, note, err
-	case "authors":
-		results, total, err := runAuthorSearch(q)
-		return results, total, "", err
+		results := make([]capturedResult, 0, len(page.Authors))
+		for _, a := range page.Authors {
+			results = append(results, capturedResult{ID: a.ID, FullName: a.FullName, BooksCount: a.BooksCount})
+		}
+		return results, page.Total, "", nil
 	}
 	return nil, 0, "", fmt.Errorf("unknown kind %q", q.Kind)
 }
 
-// runBookSearch executes the current public book search, as REST and web do.
-func runBookSearch(q evalQuery) ([]capturedResult, int, error) {
-	books, total, err := database.GetBooks(0, models.BookFilters{
-		Title: q.Query,
-		Lang:  q.Language,
-		Limit: q.TopK,
-	})
-	if err != nil {
-		return nil, 0, err
-	}
-	return bookResults(books), total, nil
-}
-
-// runNewBookSearch executes one books query against the Phase 3 repository:
-// title and author needles travel in one SQL request, so the baseline's
-// clamped window and Go-side author filter are gone.
-func runNewBookSearch(repo *database.PGSearchRepository, q evalQuery) ([]capturedResult, int, error) {
-	page, err := repo.SearchBooks(context.Background(), models.BookSearchRequest{
-		Query:       q.Query,
-		AuthorQuery: q.Author,
-		Language:    q.Language,
-		Limit:       q.TopK,
-	})
-	if err != nil {
-		return nil, 0, err
-	}
-	return bookResults(page.Books), page.Total, nil
-}
-
-// runCombinedSearch executes a close approximation of the current title+author
-// path: a wide title window from the public search (clamped to 100 rows by
-// GetBooksEnhanced), then an author filter applied outside SQL.
-//
-// The author filter here is a normalized substring rule. Production's real
-// matcher (commands/processor.go authorsMatch) is smarter — it strips filler
-// words and does prefix/common-substring matching. For the reviewed query set
-// ("толстой") both agree, so the baseline stands; queries whose author text
-// exercises the smarter rules would need that matcher revisited.
-// It returns the visible page and how many window rows survived the filter.
-func runCombinedSearch(db *pg.DB, q evalQuery, window int) ([]capturedResult, int, error) {
-	books, _, err := database.GetBooks(0, models.BookFilters{
-		Title: q.Query,
-		Lang:  q.Language,
-		Limit: window,
-	})
-	if err != nil {
-		return nil, 0, err
-	}
-
-	candidateIDs := make([]int64, 0, len(books))
-	for _, b := range books {
-		candidateIDs = append(candidateIDs, b.ID)
-	}
-	matching, err := filterByAuthor(context.Background(), db, candidateIDs, q.Author)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	results := make([]capturedResult, 0, len(books))
-	shown := 0
-	for i, b := range books {
-		if _, ok := matching[b.ID]; !ok {
-			continue
-		}
-		shown++
-		if len(results) < q.TopK {
-			results = append(results, bookResults(books[i:i+1])...)
-		}
-	}
-	return results, shown, nil
-}
-
-// runAuthorSearch executes the current public author search.
-func runAuthorSearch(q evalQuery) ([]capturedResult, int, error) {
-	lang := q.Language
-	if lang == "" {
-		lang = database.AllLanguages
-	}
-	authors, total, err := database.GetAuthors(models.AuthorFilters{
-		Author: q.Query,
-		Lang:   lang,
-		Limit:  q.TopK,
-	})
-	if err != nil {
-		return nil, 0, err
-	}
-	results := make([]capturedResult, 0, len(authors))
-	for _, a := range authors {
-		results = append(results, capturedResult{ID: a.ID, FullName: a.FullName, BooksCount: a.BooksCount})
-	}
-	return results, total, nil
-}
-
 func bookResults(books []models.Book) []capturedResult {
 	results := make([]capturedResult, 0, len(books))
-	for _, b := range books {
+	for i := range books {
+		b := &books[i]
 		names := make([]string, 0, len(b.Authors))
 		for _, a := range b.Authors {
 			names = append(names, a.FullName)
@@ -567,12 +511,13 @@ func bookResults(books []models.Book) []capturedResult {
 // normalizedExpr is the Phase 1 spelling of the canonical normalization,
 // inlined because migration 20 has not landed yet. It must stay byte-identical
 // to the function body in database_migrations/20-search-normalization.sql.
-const normalizedExpr = `trim(regexp_replace(regexp_replace(replace(lower(normalize(%s, NFC)), 'ё', 'е'), '[^[:alnum:]]+', ' ', 'g'), '[[:space:]]+', ' ', 'g'))`
+const normalizedExpr = `trim(regexp_replace(regexp_replace(` +
+	`replace(lower(normalize(%s, NFC)), 'ё', 'е'), '[^[:alnum:]]+', ' ', 'g'), '[[:space:]]+', ' ', 'g'))`
 
-// resolveRelevant returns every visible catalogue ID satisfying the query's
+// resolveRelevant returns every visible catalog ID satisfying the query's
 // relevance rule: normalized title contains the rule, and when an author rule
 // is present the book must have an author whose normalized name contains it.
-func resolveRelevant(ctx context.Context, db *pg.DB, q evalQuery) ([]int64, error) {
+func resolveRelevant(ctx context.Context, db *pg.DB, q *evalQuery) ([]int64, error) {
 	titleExpr := fmt.Sprintf(normalizedExpr, "b.title")
 	authorExpr := fmt.Sprintf(normalizedExpr, "a.full_name")
 
@@ -607,36 +552,13 @@ func resolveRelevant(ctx context.Context, db *pg.DB, q evalQuery) ([]int64, erro
 	return nil, fmt.Errorf("unknown kind %q", q.Kind)
 }
 
-// filterByAuthor returns the subset of candidateIDs having an author whose
-// normalized name contains needle. It approximates the production author
-// filter; see the caveat on runCombinedSearch.
-func filterByAuthor(ctx context.Context, db *pg.DB, candidateIDs []int64, needle string) (map[int64]struct{}, error) {
-	out := make(map[int64]struct{})
-	if len(candidateIDs) == 0 {
-		return out, nil
-	}
-	var ids []int64
-	_, err := db.WithContext(ctx).Query(&ids, fmt.Sprintf(`
-		SELECT DISTINCT b.id FROM opds_catalog_book b
-		WHERE b.id IN (?)
-			AND EXISTS (
-				SELECT 1 FROM opds_catalog_bauthor ba
-				JOIN opds_catalog_author a ON a.id = ba.author_id
-				WHERE ba.book_id = b.id AND strpos(%s, ?) > 0)`,
-		fmt.Sprintf(normalizedExpr, "a.full_name")),
-		pg.In(candidateIDs), needle)
-	for _, id := range ids {
-		out[id] = struct{}{}
-	}
-	return out, err
-}
-
 // aggregate averages per-query metrics into the run summary.
 func aggregate(reports []queryReport) aggregateReport {
 	agg := aggregateReport{TotalQueries: len(reports)}
 	var recallSum, rrSum float64
 	totals := make([]int, 0, len(reports))
-	for _, r := range reports {
+	for i := range reports {
+		r := &reports[i]
 		totals = append(totals, r.Total)
 		if len(r.RelevantIDs) == 0 {
 			continue
@@ -660,23 +582,23 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-// fingerprint captures the identity of the catalogue being measured: row
+// fingerprint captures the identity of the catalog being measured: row
 // counts, the highest book ID, and the working tree's commit.
 func fingerprint(ctx context.Context, db *pg.DB) catalogFingerprint {
 	var fp catalogFingerprint
 	if _, err := db.WithContext(ctx).QueryOne(pg.Scan(&fp.Books),
 		`SELECT count(*) FROM opds_catalog_book`); err != nil {
-		fatal("fingerprint: counting books: %v", err)
+		fatalf("fingerprint: counting books: %v", err)
 	}
 	if _, err := db.WithContext(ctx).QueryOne(pg.Scan(&fp.Authors),
 		`SELECT count(*) FROM opds_catalog_author`); err != nil {
-		fatal("fingerprint: counting authors: %v", err)
+		fatalf("fingerprint: counting authors: %v", err)
 	}
 	if _, err := db.WithContext(ctx).QueryOne(pg.Scan(&fp.MaxBookID),
 		`SELECT max(id) FROM opds_catalog_book`); err != nil {
-		fatal("fingerprint: max book id: %v", err)
+		fatalf("fingerprint: max book id: %v", err)
 	}
-	if out, err := exec.Command("git", "rev-parse", "HEAD").Output(); err == nil {
+	if out, err := exec.CommandContext(ctx, "git", "rev-parse", "HEAD").Output(); err == nil {
 		fp.GitCommit = strings.TrimSpace(string(out))
 	}
 	return fp
@@ -698,7 +620,7 @@ func percentile(values []int64, p float64) int64 {
 	return sorted[rank-1]
 }
 
-func fatal(format string, args ...interface{}) {
+func fatalf(format string, args ...interface{}) {
 	fmt.Fprintf(os.Stderr, "search-eval: "+format+"\n", args...)
 	os.Exit(1)
 }

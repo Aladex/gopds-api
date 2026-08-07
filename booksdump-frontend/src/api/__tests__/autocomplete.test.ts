@@ -51,7 +51,13 @@ describe('autocompleteService.getSuggestions', () => {
         fetchSpy.mockResolvedValue(jsonResponse({ suggestions: [] }));
         const controller = new AbortController();
 
-        await autocompleteService.getSuggestions('война', 'all', undefined, undefined, controller.signal);
+        await autocompleteService.getSuggestions(
+            'война',
+            'all',
+            undefined,
+            undefined,
+            controller.signal,
+        );
 
         const init = fetchSpy.mock.calls[0][1] as RequestInit;
         expect(init.signal).toBe(controller.signal);
@@ -62,7 +68,12 @@ describe('autocompleteService.getSuggestions', () => {
             jsonResponse({
                 suggestions: [
                     { value: 'Сто лет одиночества', type: 'book', id: 1, secondary: 'Толстой Лев' },
-                    { value: 'Сто лет одиночества', type: 'book', id: 2, secondary: 'Булгаков Михаил' },
+                    {
+                        value: 'Сто лет одиночества',
+                        type: 'book',
+                        id: 2,
+                        secondary: 'Булгаков Михаил',
+                    },
                 ],
             }),
         );

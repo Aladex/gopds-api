@@ -13,9 +13,7 @@ import { useFav } from '@/context/FavContext';
 import { useSearchBar } from '@/context/SearchBarContext';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import LanguageSwitcher from '@/shared/layout/LanguageSwitcher';
-import useSearchScope, {
-    searchTitleFromLocation,
-} from '@/features/catalogue/hooks/useSearchScope';
+import useSearchScope, { searchTitleFromLocation } from '@/features/catalogue/hooks/useSearchScope';
 import type { AutocompleteSuggestion } from '@/api/autocomplete';
 import AutocompleteSearch from '@/features/catalogue/AutocompleteSearch';
 
@@ -134,9 +132,7 @@ const SearchBar: React.FC = () => {
         if (scoped) {
             navigate(`${scope.firstPagePath}?title=${encoded}${pin}`);
         } else {
-            navigate(
-                `/books/find/title/${encoded}/1${pin ? `?book_id=${suggestion.id}` : ''}`,
-            );
+            navigate(`/books/find/title/${encoded}/1${pin ? `?book_id=${suggestion.id}` : ''}`);
         }
     };
 

@@ -77,11 +77,11 @@ func TestSearchFixture(t *testing.T) {
 }
 
 // searchFixtureIDBase starts the fixture-owned ID range: far above every real
-// catalogue ID, far below the int4 ceiling, and identical across runs because
+// catalog ID, far below the int4 ceiling, and identical across runs because
 // rollback always removes the previous batch.
 const searchFixtureIDBase int64 = 2_147_000_000
 
-// searchFixture seeds a small deterministic catalogue inside a transaction
+// searchFixture seeds a small deterministic catalog inside a transaction
 // that is rolled back when the test ends. Every row carries an ID from the
 // fixture range, so seeded data never collides with the restored dump and
 // never leaks between runs. Rows are written through the fixture's own
@@ -113,7 +113,7 @@ type fixtureBook struct {
 	Genres   []int64
 }
 
-// withSearchFixture seeds the standard search catalogue and runs fn with it.
+// withSearchFixture seeds the standard search catalog and runs fn with it.
 // The transaction rolls back when the calling test finishes.
 func withSearchFixture(t *testing.T, fn func(*searchFixture)) {
 	t.Helper()
@@ -125,7 +125,7 @@ func withSearchFixture(t *testing.T, fn func(*searchFixture)) {
 		_ = tx.Rollback()
 		// Code under test committing the fixture transaction turns this
 		// rollback into a no-op and settles fixture rows into the real
-		// catalogue — go-pg v10 (*Tx).RunInTransaction did exactly that.
+		// catalog — go-pg v10 (*Tx).RunInTransaction did exactly that.
 		// Check the leak directly instead of trusting the rollback.
 		for _, table := range []string{
 			"opds_catalog_book",
@@ -208,11 +208,11 @@ func (f *searchFixture) User(key, username string) int64 {
 // Book seeds one book row plus its author, series and genre junctions, and
 // remembers the book under key.
 //
-// The default language is the synthetic code "fx", which no real catalogue
+// The default language is the synthetic code "fx", which no real catalog
 // row can carry: the integration database is the restored production dump, so
 // a search scoped to Language "fx" sees fixture rows and nothing else. Seed
 // rows with another Lang (like the "en" row) to exercise the filter itself.
-func (f *searchFixture) Book(key string, b fixtureBook) int64 {
+func (f *searchFixture) Book(key string, b *fixtureBook) int64 {
 	f.t.Helper()
 	id := f.id()
 	lang := b.Lang
@@ -274,7 +274,7 @@ func (f *searchFixture) CuratedItem(collectionID int64, bookID *int64, externalT
 		f.id(), collectionID, bookID, externalTitle, status, position, f.now, f.now)
 }
 
-// seedSearchCatalog builds the catalogue every search test shares: one row
+// seedSearchCatalog builds the catalog every search test shares: one row
 // per ranking signal, normalization edge cases, duplicate titles across
 // authors, invisible rows, scoped rows, short titles, and a block of 510
 // equal-title books that used to overflow the old candidate cap.
@@ -291,60 +291,60 @@ func seedSearchCatalog(f *searchFixture) {
 
 	// Ranking lanes: exact, prefix, all-words, substring and typo forms of the
 	// same query.
-	f.Book("exact", fixtureBook{Title: "Война и мир", Approved: true, Authors: []int64{tolstoy}})
-	f.Book("prefix", fixtureBook{Title: "Война и мир: полное издание", Approved: true, Authors: []int64{tolstoy}})
-	f.Book("allWords", fixtureBook{Title: "Мир и война", Approved: true, Authors: []int64{other}})
-	f.Book("substring", fixtureBook{Title: "Читаем Война и мир вместе", Approved: true, Authors: []int64{other}})
-	f.Book("typo", fixtureBook{Title: "Вайна и мир", Approved: true, Authors: []int64{other}})
+	f.Book("exact", &fixtureBook{Title: "Война и мир", Approved: true, Authors: []int64{tolstoy}})
+	f.Book("prefix", &fixtureBook{Title: "Война и мир: полное издание", Approved: true, Authors: []int64{tolstoy}})
+	f.Book("allWords", &fixtureBook{Title: "Мир и война", Approved: true, Authors: []int64{other}})
+	f.Book("substring", &fixtureBook{Title: "Читаем Война и мир вместе", Approved: true, Authors: []int64{other}})
+	f.Book("typo", &fixtureBook{Title: "Вайна и мир", Approved: true, Authors: []int64{other}})
 	// Adjacent-letter transposition of this one-word title scores 0.333
 	// against it: inside the old 0.3 trigram floor, outside the book-search
 	// floor of 0.5.
-	f.Book("transposition", fixtureBook{Title: "Океан", Approved: true, Authors: []int64{other}})
+	f.Book("transposition", &fixtureBook{Title: "Океан", Approved: true, Authors: []int64{other}})
 
 	// Normalization: е/ё, dashes, quotes, decomposed Unicode, numero sign and
 	// repeated whitespace.
-	f.Book("yo", fixtureBook{Title: "Ёжик в тумане", Approved: true, Authors: []int64{kozlov}})
-	f.Book("dash", fixtureBook{Title: "Война—и–мир", Approved: true, Authors: []int64{tolstoy}})
-	f.Book("quotes", fixtureBook{Title: "«Мастер» 'и' Маргарита", Approved: true, Authors: []int64{bulgakov}})
-	f.Book("decomposed", fixtureBook{Title: "Café", Approved: true, Authors: []int64{other}})
-	f.Book("numero", fixtureBook{Title: "Книга № 2", Approved: true, Authors: []int64{other}})
-	f.Book("spaces", fixtureBook{Title: "  Ёжик   в тумане  ", Approved: true, Authors: []int64{kozlov}})
+	f.Book("yo", &fixtureBook{Title: "Ёжик в тумане", Approved: true, Authors: []int64{kozlov}})
+	f.Book("dash", &fixtureBook{Title: "Война—и–мир", Approved: true, Authors: []int64{tolstoy}})
+	f.Book("quotes", &fixtureBook{Title: "«Мастер» 'и' Маргарита", Approved: true, Authors: []int64{bulgakov}})
+	f.Book("decomposed", &fixtureBook{Title: "Café", Approved: true, Authors: []int64{other}})
+	f.Book("numero", &fixtureBook{Title: "Книга № 2", Approved: true, Authors: []int64{other}})
+	f.Book("spaces", &fixtureBook{Title: "  Ёжик   в тумане  ", Approved: true, Authors: []int64{kozlov}})
 
 	// The same visible title owned by two different authors must stay two books.
-	f.Book("dupA", fixtureBook{Title: "Сто лет одиночества", Approved: true, Authors: []int64{tolstoy}})
-	f.Book("dupB", fixtureBook{Title: "Сто лет одиночества", Approved: true, Authors: []int64{bulgakov}})
+	f.Book("dupA", &fixtureBook{Title: "Сто лет одиночества", Approved: true, Authors: []int64{tolstoy}})
+	f.Book("dupB", &fixtureBook{Title: "Сто лет одиночества", Approved: true, Authors: []int64{bulgakov}})
 
 	// Invisible rows: hidden duplicate, unapproved, and a second synthetic
 	// language ("fy") the default reader does not browse. A real code like
 	// "en" would leak production-dump rows into language-filter assertions.
-	f.Book("hidden", fixtureBook{Title: "Война и мир", Approved: true, Hidden: true, Authors: []int64{tolstoy}})
-	f.Book("unapproved", fixtureBook{Title: "Война и мир", Approved: false, Authors: []int64{tolstoy}})
-	f.Book("english", fixtureBook{Title: "Война и мир", Lang: "fy", Approved: true, Authors: []int64{tolstoy}})
+	f.Book("hidden", &fixtureBook{Title: "Война и мир", Approved: true, Hidden: true, Authors: []int64{tolstoy}})
+	f.Book("unapproved", &fixtureBook{Title: "Война и мир", Approved: false, Authors: []int64{tolstoy}})
+	f.Book("english", &fixtureBook{Title: "Война и мир", Lang: "fy", Approved: true, Authors: []int64{tolstoy}})
 
 	// One- and two-character titles.
-	f.Book("oneChar", fixtureBook{Title: "Я", Approved: true, Authors: []int64{other}})
-	f.Book("twoChar", fixtureBook{Title: "Он", Approved: true, Authors: []int64{other}})
+	f.Book("oneChar", &fixtureBook{Title: "Я", Approved: true, Authors: []int64{other}})
+	f.Book("twoChar", &fixtureBook{Title: "Он", Approved: true, Authors: []int64{other}})
 
 	// Scoped rows: an exact-titled book reachable through each scope kind.
-	f.Book("seriesBook", fixtureBook{Title: "Война и мир", Approved: true, Authors: []int64{tolstoy}, Series: []int64{greatSeries}})
-	f.Book("genreBook", fixtureBook{Title: "Война и мир", Approved: true, Authors: []int64{tolstoy}, Genres: []int64{roman}})
-	f.Book("collectionBook", fixtureBook{Title: "Война и мир", Approved: true, Authors: []int64{tolstoy}})
+	f.Book("seriesBook", &fixtureBook{Title: "Война и мир", Approved: true, Authors: []int64{tolstoy}, Series: []int64{greatSeries}})
+	f.Book("genreBook", &fixtureBook{Title: "Война и мир", Approved: true, Authors: []int64{tolstoy}, Genres: []int64{roman}})
+	f.Book("collectionBook", &fixtureBook{Title: "Война и мир", Approved: true, Authors: []int64{tolstoy}})
 	userShelf := f.Collection("shelf", &reader, "Полка читателя", true, false)
 	f.CollectionBook(userShelf, f.BookIDs["collectionBook"], 1)
-	f.Book("curatedBook", fixtureBook{Title: "Война и мир", Approved: true, Authors: []int64{tolstoy}})
+	f.Book("curatedBook", &fixtureBook{Title: "Война и мир", Approved: true, Authors: []int64{tolstoy}})
 	curated := f.Collection("curated", nil, "Кураторская подборка", true, true)
 	curatedBookID := f.BookIDs["curatedBook"]
 	f.CuratedItem(curated, &curatedBookID, "Война и мир", models.MatchStatusAutoMatched, 1)
-	f.Book("curatedIgnored", fixtureBook{Title: "Война и мир", Approved: true, Authors: []int64{tolstoy}})
+	f.Book("curatedIgnored", &fixtureBook{Title: "Война и мир", Approved: true, Authors: []int64{tolstoy}})
 	ignoredID := f.BookIDs["curatedIgnored"]
 	f.CuratedItem(curated, &ignoredID, "Война и мир", models.MatchStatusIgnored, 2)
-	f.Book("favBook", fixtureBook{Title: "Война и мир", Approved: true, Authors: []int64{tolstoy}})
+	f.Book("favBook", &fixtureBook{Title: "Война и мир", Approved: true, Authors: []int64{tolstoy}})
 	f.Favorite(reader, f.BookIDs["favBook"])
 
 	// The former candidate-cap regression: more than 500 visible books sharing
 	// one title, so a capped candidate window silently drops exact matches.
 	for i := 0; i < 510; i++ {
-		f.Book(fmt.Sprintf("rasskazy%03d", i), fixtureBook{
+		f.Book(fmt.Sprintf("rasskazy%03d", i), &fixtureBook{
 			Title:    "Рассказы",
 			Approved: true,
 			Authors:  []int64{other},

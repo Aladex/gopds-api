@@ -68,6 +68,11 @@ func Debugf(format string, args ...interface{}) {
 	logger.Debugf(format, args...)
 }
 
+// Fields is the structured-field map WithFields takes. It is an alias rather
+// than a new type so callers can name it without importing logrus, which the
+// lint config denies outside this package.
+type Fields = logrus.Fields
+
 // WithField creates an entry with a single field
 func WithField(key string, value interface{}) *logrus.Entry {
 	return logger.WithField(key, value)

@@ -192,7 +192,12 @@ describe('AutocompleteSearch', () => {
     it('shows the author beside a titled book and the size of an author', async () => {
         const user = userEvent.setup();
         getSuggestions.mockResolvedValue([
-            { value: 'Сто лет одиночества', type: 'book' as const, id: 1, secondary: 'Толстой Лев' },
+            {
+                value: 'Сто лет одиночества',
+                type: 'book' as const,
+                id: 1,
+                secondary: 'Толстой Лев',
+            },
             { value: 'Толстой Лев', type: 'author' as const, id: 2, books_count: 10 },
         ]);
         const { input } = setup();
@@ -276,9 +281,7 @@ describe('AutocompleteSearch', () => {
 
         await user.type(input, 'Звездная');
 
-        await waitFor(() =>
-            expect(screen.getByText('searchSuggestionsError')).toBeInTheDocument(),
-        );
+        await waitFor(() => expect(screen.getByText('searchSuggestionsError')).toBeInTheDocument());
         expect(screen.queryByText('noOptions')).not.toBeInTheDocument();
 
         getSuggestions.mockResolvedValue(BOOKS);

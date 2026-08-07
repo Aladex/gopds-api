@@ -8,6 +8,7 @@ import (
 	"gopds-api/logging"
 	"gopds-api/models"
 
+	//nolint:depguard // asserting on emitted log fields needs logrus' own test hook, and logging wraps logrus
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -117,7 +118,7 @@ func TestSearchServiceLogsCompletion(t *testing.T) {
 			wantEntries: 1,
 		},
 		{
-			name:    "a cancelled call logs the canceled class",
+			name:    "a canceled call logs the canceled class",
 			repoErr: context.Canceled,
 			call: func(svc PublicSearch) error {
 				_, err := svc.SearchBooks(context.Background(), models.BookSearchRequest{Query: "война", Limit: 10})

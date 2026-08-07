@@ -25,8 +25,7 @@ vi.mock('@/context/AuthorContext', () => ({ useAuthor: () => authorState }));
 // A stable t() matters as much as a faithful one: a fresh function per render
 // would re-run the effects that depend on it. Interpolation options come back
 // as the key — the assertions below only care which key was chosen.
-const translate = (key: string, options?: unknown) =>
-    typeof options === 'string' ? options : key;
+const translate = (key: string, options?: unknown) => (typeof options === 'string' ? options : key);
 const translation = { t: translate };
 vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 
@@ -230,9 +229,9 @@ describe('useSearchScope', () => {
 
 describe('searchTitleFromLocation', () => {
     it('reads the query out of a title route', () => {
-        expect(searchTitleFromLocation('/books/find/title/%D0%B2%D0%BE%D0%B9%D0%BD%D0%B0/3', '')).toBe(
-            'война',
-        );
+        expect(
+            searchTitleFromLocation('/books/find/title/%D0%B2%D0%BE%D0%B9%D0%BD%D0%B0/3', ''),
+        ).toBe('война');
     });
 
     it('reads the query out of the search params on a scoped route', () => {

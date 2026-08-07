@@ -15,12 +15,12 @@ import (
 // canned pages or errors. The service contract is about what reaches the
 // repository and what comes back, so the fake never ranks or filters.
 type fakeSearchRepository struct {
-	bookReq   models.BookSearchRequest
-	authorReq models.AuthorSearchRequest
-	suggReq   models.SuggestionRequest
-	bookCalls int
+	bookReq     models.BookSearchRequest
+	authorReq   models.AuthorSearchRequest
+	suggReq     models.SuggestionRequest
+	bookCalls   int
 	authorCalls int
-	suggCalls int
+	suggCalls   int
 
 	bookPage   models.BookSearchPage
 	authorPage models.AuthorSearchPage
@@ -28,10 +28,11 @@ type fakeSearchRepository struct {
 	err        error
 
 	// blockOnCtx makes SearchBooks wait for the caller's context to end,
-	// which is how a real repository spends a cancelled request.
+	// which is how a real repository spends a canceled request.
 	blockOnCtx bool
 }
 
+//nolint:gocritic // the port takes the request by value; this implements it
 func (f *fakeSearchRepository) SearchBooks(ctx context.Context, req models.BookSearchRequest) (models.BookSearchPage, error) {
 	f.bookCalls++
 	f.bookReq = req
@@ -307,7 +308,7 @@ func TestSearchServiceAuthorValidation(t *testing.T) {
 	}
 }
 
-// A cancelled caller must surface context.Canceled, not a generic failure:
+// A canceled caller must surface context.Canceled, not a generic failure:
 // adapters map the two to different outcomes.
 func TestSearchServicePropagatesCancellation(t *testing.T) {
 	repo := &fakeSearchRepository{blockOnCtx: true}

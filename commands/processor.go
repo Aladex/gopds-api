@@ -316,7 +316,7 @@ func (cp *CommandProcessor) ExecuteFindAuthorBooksWithPagination(authorID int64,
 	}
 
 	// Search for books using the existing database function
-	books, totalCount, err := database.GetBooksEnhanced(user.ID, filters)
+	books, totalCount, err := database.GetBooks(user.ID, filters)
 	if err != nil {
 		logging.Errorf("Failed to search books by author ID %d: %v", authorID, err)
 		return &CommandResult{
@@ -919,7 +919,7 @@ func (cp *CommandProcessor) ExecuteShowFavorites(userID int64, offset, limit int
 		Offset: offset,
 	}
 
-	books, totalCount, err := database.GetBooksEnhanced(user.ID, filters)
+	books, totalCount, err := database.GetBooks(user.ID, filters)
 	if err != nil {
 		logging.Errorf("Failed to get favorite books for user %d: %v", userID, err)
 		return &CommandResult{

@@ -84,7 +84,12 @@ const routeScopeFrom = (pathname: string): RouteScope | null => {
 export const searchTitleFromLocation = (pathname: string, search: string): string => {
     const segments = pathname.split('/');
     // ['', 'books', 'find', 'title', <query>, <page>]
-    if (segments[1] === 'books' && segments[2] === 'find' && segments[3] === 'title' && segments[4]) {
+    if (
+        segments[1] === 'books' &&
+        segments[2] === 'find' &&
+        segments[3] === 'title' &&
+        segments[4]
+    ) {
         try {
             return decodeURIComponent(segments[4]);
         } catch {

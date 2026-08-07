@@ -9,8 +9,34 @@ import (
 
 	"gopds-api/logging"
 	"gopds-api/models"
+)
 
-	"github.com/sirupsen/logrus"
+// Structured log field names, and the closed vocabularies two of them carry.
+// Named because dashboards query them: a typo in a literal is a field that
+// silently stops matching.
+const (
+	fieldMode       = "mode"
+	fieldQueryRunes = "query_runes"
+	fieldQueryHash  = "query_hash"
+	fieldLanguage   = "language"
+	fieldScope      = "scope"
+	fieldReturned   = "returned"
+	fieldTotal      = "total"
+	fieldDuration   = "duration_ms"
+	fieldErrorClass = "error_class"
+
+	modeBooks   = "books"
+	modeAuthors = "authors"
+	modeSuggest = "suggestions"
+
+	scopeNone   = "none"
+	scopeAuthor = "author"
+
+	classValidation = "validation"
+	classCanceled   = "canceled"
+	classRepository = "repository"
+
+	hashUnavailable = "unavailable"
 )
 
 // ErrEmptyQuery is a search request with no text and no navigation target.
@@ -78,18 +104,20 @@ func NewSearchService(repo SearchRepository) *SearchService {
 }
 
 // SearchBooks validates one book search and passes the normalized request on.
+//
+//nolint:gocritic // the port takes the request by value; this implements it
 func (s *SearchService) SearchBooks(ctx context.Context, req models.BookSearchRequest) (models.BookSearchPage, error) {
 	start := time.Now()
 	req.Query = strings.TrimSpace(req.Query)
 	req.Language = normalizeLanguage(req.Language)
 	if req.Query == "" && req.ExactBookID <= 0 {
 		err := ErrEmptyQuery
-		logCompletion("books", req.Query, req.Language, bookScope(req), 0, 0, "", err, start)
+		logCompletion(modeBooks, req.Query, req.Language, bookScope(req), 0, 0, "", err, start)
 		return models.BookSearchPage{}, err
 	}
 	var err error
 	if req.Limit, req.Offset, err = normalizePagination(req.Limit, req.Offset); err != nil {
-		logCompletion("books", req.Query, req.Language, bookScope(req), 0, 0, "", err, start)
+		logCompletion(modeBooks, req.Query, req.Language, bookScope(req), 0, 0, "", err, start)
 		return models.BookSearchPage{}, err
 	}
 	// Visibility is decided here, on the one path every client shares: only a
@@ -101,7 +129,7 @@ func (s *SearchService) SearchBooks(ctx context.Context, req models.BookSearchRe
 		req.IncludeHidden = false
 	}
 	page, err := s.repo.SearchBooks(ctx, req)
-	logCompletion("books", req.Query, req.Language, bookScope(req), len(page.Books), page.Total, page.QueryHash, err, start)
+	logCompletion(modeBooks, req.Query, req.Language, bookScope(req), len(page.Books), page.Total, page.QueryHash, err, start)
 	return page, err
 }
 
@@ -113,16 +141,16 @@ func (s *SearchService) SearchAuthors(ctx context.Context, req models.AuthorSear
 	req.Language = normalizeLanguage(req.Language)
 	if req.Query == "" {
 		err := ErrEmptyQuery
-		logCompletion("authors", req.Query, req.Language, "none", 0, 0, "", err, start)
+		logCompletion(modeAuthors, req.Query, req.Language, scopeNone, 0, 0, "", err, start)
 		return models.AuthorSearchPage{}, err
 	}
 	var err error
 	if req.Limit, req.Offset, err = normalizePagination(req.Limit, req.Offset); err != nil {
-		logCompletion("authors", req.Query, req.Language, "none", 0, 0, "", err, start)
+		logCompletion(modeAuthors, req.Query, req.Language, scopeNone, 0, 0, "", err, start)
 		return models.AuthorSearchPage{}, err
 	}
 	page, err := s.repo.SearchAuthors(ctx, req)
-	logCompletion("authors", req.Query, req.Language, "none", len(page.Authors), page.Total, page.QueryHash, err, start)
+	logCompletion(modeAuthors, req.Query, req.Language, scopeNone, len(page.Authors), page.Total, page.QueryHash, err, start)
 	return page, err
 }
 
@@ -143,24 +171,24 @@ func (s *SearchService) Suggestions(ctx context.Context, req models.SuggestionRe
 	case models.SuggestionAll, models.SuggestionBook, models.SuggestionAuthor:
 	default:
 		err := ErrInvalidSuggestionKind
-		logCompletion("suggestions", req.Query, req.Language, string(req.Kind), 0, 0, "", err, start)
+		logCompletion(modeSuggest, req.Query, req.Language, string(req.Kind), 0, 0, "", err, start)
 		return models.SuggestionResult{}, err
 	}
 	if runeLength(req.Query) < minSuggestionRunes {
 		empty := models.SuggestionResult{Suggestions: []models.AutocompleteSuggestion{}}
-		logCompletion("suggestions", req.Query, req.Language, string(req.Kind), 0, 0, "", nil, start)
+		logCompletion(modeSuggest, req.Query, req.Language, string(req.Kind), 0, 0, "", nil, start)
 		return empty, nil
 	}
 	req.Limit = normalizeSuggestionLimit(req.Limit)
 	result, err := s.repo.Suggestions(ctx, req)
 	if err != nil {
-		logCompletion("suggestions", req.Query, req.Language, string(req.Kind), 0, 0, "", err, start)
+		logCompletion(modeSuggest, req.Query, req.Language, string(req.Kind), 0, 0, "", err, start)
 		return models.SuggestionResult{}, err
 	}
 	if result.Suggestions == nil {
 		result.Suggestions = []models.AutocompleteSuggestion{}
 	}
-	logCompletion("suggestions", req.Query, req.Language, string(req.Kind), len(result.Suggestions), 0, result.QueryHash, nil, start)
+	logCompletion(modeSuggest, req.Query, req.Language, string(req.Kind), len(result.Suggestions), 0, result.QueryHash, nil, start)
 	return result, nil
 }
 
@@ -176,7 +204,7 @@ func normalizeSuggestionLimit(limit int) int {
 // normalizePagination clamps the limit into the usable range and rejects a
 // negative offset. Zero and oversized limits both become the default page
 // size, which matches what the previous list paths did with them.
-func normalizePagination(limit, offset int) (int, int, error) {
+func normalizePagination(limit, offset int) (newLimit, newOffset int, err error) {
 	if offset < 0 {
 		return 0, 0, ErrInvalidPagination
 	}
@@ -214,29 +242,31 @@ func runeLength(s string) int {
 // correlate with nothing.
 func logCompletion(mode, query, language, scope string, returned, total int, queryHash string, err error, start time.Time) {
 	if queryHash == "" {
-		queryHash = "unavailable"
+		queryHash = hashUnavailable
 	}
-	logging.WithFields(logrus.Fields{
-		"mode":        mode,
-		"query_runes": runeLength(query),
-		"query_hash":  queryHash,
-		"language":    language,
-		"scope":       scope,
-		"returned":    returned,
-		"total":       total,
-		"duration_ms": time.Since(start).Milliseconds(),
-		"error_class": errorClass(err),
+	logging.WithFields(logging.Fields{
+		fieldMode:       mode,
+		fieldQueryRunes: runeLength(query),
+		fieldQueryHash:  queryHash,
+		fieldLanguage:   language,
+		fieldScope:      scope,
+		fieldReturned:   returned,
+		fieldTotal:      total,
+		fieldDuration:   time.Since(start).Milliseconds(),
+		fieldErrorClass: errorClass(err),
 	}).Info("search completed")
 }
 
 // bookScope names the first active scope in a fixed precedence, keeping the
 // log field single-valued when a request combines several.
+//
+//nolint:gocritic // reads one request; copying it is cheaper than the pointer discipline it would force on callers
 func bookScope(req models.BookSearchRequest) string {
 	switch {
 	case req.ExactBookID > 0:
 		return "exact_book_id"
 	case req.AuthorID > 0:
-		return "author"
+		return scopeAuthor
 	case req.SeriesID > 0:
 		return "series"
 	case req.GenreID > 0:
@@ -248,7 +278,7 @@ func bookScope(req models.BookSearchRequest) string {
 	case req.Favorites:
 		return "favorites"
 	default:
-		return "none"
+		return scopeNone
 	}
 }
 
@@ -258,14 +288,14 @@ func bookScope(req models.BookSearchRequest) string {
 func errorClass(err error) string {
 	switch {
 	case err == nil:
-		return "none"
+		return scopeNone
 	case errors.Is(err, ErrEmptyQuery), errors.Is(err, ErrInvalidPagination), errors.Is(err, ErrInvalidSuggestionKind):
-		return "validation"
+		return classValidation
 	case errors.Is(err, context.Canceled):
-		return "canceled"
+		return classCanceled
 	case errors.Is(err, context.DeadlineExceeded):
 		return "deadline_exceeded"
 	default:
-		return "repository"
+		return classRepository
 	}
 }

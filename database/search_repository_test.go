@@ -198,7 +198,7 @@ func TestPGSearchRepositoryCandidateLanes(t *testing.T) {
 // TestPGSearchRepositoryVisibilityAndScopes pins fail-closed visibility and
 // every scope: each filter narrows the candidate set inside the same SQL
 // request, and an unknown scope ID yields an empty page, never a global
-// search. Expectations are fixture IDs on the shared catalogue.
+// search. Expectations are fixture IDs on the shared catalog.
 func TestPGSearchRepositoryVisibilityAndScopes(t *testing.T) {
 	search := func(f *searchFixture, req models.BookSearchRequest) models.BookSearchPage {
 		t.Helper()
@@ -412,7 +412,7 @@ func TestPGSearchRepositoryVisibilityAndScopes(t *testing.T) {
 // would fail instantly with the stale connection error, not with the
 // cancellation under test.
 func TestPGSearchRepositoryCancelledContext(t *testing.T) {
-	t.Run("an already-cancelled context stops the call", func(t *testing.T) {
+	t.Run("an already-canceled context stops the call", func(t *testing.T) {
 		withSearchFixture(t, func(f *searchFixture) {
 			repo := NewPGSearchRepository(f.tx)
 			req := models.BookSearchRequest{
@@ -427,7 +427,7 @@ func TestPGSearchRepositoryCancelledContext(t *testing.T) {
 		})
 	})
 
-	t.Run("cancelling a lock-waiting statement aborts it promptly", func(t *testing.T) {
+	t.Run("canceling a lock-waiting statement aborts it promptly", func(t *testing.T) {
 		requireDatabase(t)
 
 		// An EXCLUSIVE lock conflicts with the ACCESS SHARE the search takes on
@@ -722,7 +722,7 @@ func TestPGSearchRepositoryHydratesOnlyThePage(t *testing.T) {
 
 /*
  * A page is two queries: one ranks the ids, one loads the rows. Between them
- * the catalogue scanner can delete a book, and then the second query returns
+ * the catalog scanner can delete a book, and then the second query returns
  * fewer rows than the first asked for.
  *
  * The ordering step used to size its result by the number of rows loaded while
@@ -766,7 +766,7 @@ func TestOrderByIDsSurvivesRowsThatVanished(t *testing.T) {
 // session floor, visibility-aware books counts, exact totals and stable
 // paging — now over search_normalize instead of lower().
 //
-// The fixture transaction sees the real catalogue, so realistic names
+// The fixture transaction sees the real catalog, so realistic names
 // collide with dump rows (the dump has its own "Толстой Лев", id 8671) and
 // even synthetic surnames fuzzy-match a handful of real authors. Assertions
 // therefore pin fixture IDs, never bare positions or result counts — except
@@ -809,7 +809,7 @@ func TestPGSearchRepositorySearchAuthors(t *testing.T) {
 	t.Run("yo folds into e", func(t *testing.T) {
 		withSearchFixture(t, func(f *searchFixture) {
 			yolkin := f.Author("yolkin", "Ёлкинтест Пётр")
-			f.Book("yolkin-book", fixtureBook{Title: "Ёлочка", Approved: true, Authors: []int64{yolkin}})
+			f.Book("yolkin-book", &fixtureBook{Title: "Ёлочка", Approved: true, Authors: []int64{yolkin}})
 			repo := NewPGSearchRepository(f.tx)
 
 			page, err := repo.SearchAuthors(context.Background(), models.AuthorSearchRequest{Query: "елкинтест", Limit: 10})
@@ -838,9 +838,9 @@ func TestPGSearchRepositorySearchAuthors(t *testing.T) {
 	t.Run("the books count covers only visible books", func(t *testing.T) {
 		withSearchFixture(t, func(f *searchFixture) {
 			sid := f.Author("counted", "Счётник Тест")
-			f.Book("counted-approved", fixtureBook{Title: "Видимая", Approved: true, Authors: []int64{sid}})
-			f.Book("counted-unapproved", fixtureBook{Title: "Непроверенная", Approved: false, Authors: []int64{sid}})
-			f.Book("counted-hidden", fixtureBook{Title: "Скрытая", Approved: true, Hidden: true, Authors: []int64{sid}})
+			f.Book("counted-approved", &fixtureBook{Title: "Видимая", Approved: true, Authors: []int64{sid}})
+			f.Book("counted-unapproved", &fixtureBook{Title: "Непроверенная", Approved: false, Authors: []int64{sid}})
+			f.Book("counted-hidden", &fixtureBook{Title: "Скрытая", Approved: true, Hidden: true, Authors: []int64{sid}})
 			repo := NewPGSearchRepository(f.tx)
 
 			page, err := repo.SearchAuthors(context.Background(), models.AuthorSearchRequest{Query: "счётник", Limit: 10})
@@ -855,8 +855,8 @@ func TestPGSearchRepositorySearchAuthors(t *testing.T) {
 	t.Run("a language narrows the count without dropping the author", func(t *testing.T) {
 		withSearchFixture(t, func(f *searchFixture) {
 			lid := f.Author("lingual", "Языкарь Тест")
-			f.Book("lingual-ru", fixtureBook{Title: "Русская", Lang: "ru", Approved: true, Authors: []int64{lid}})
-			f.Book("lingual-en", fixtureBook{Title: "English", Lang: "en", Approved: true, Authors: []int64{lid}})
+			f.Book("lingual-ru", &fixtureBook{Title: "Русская", Lang: "ru", Approved: true, Authors: []int64{lid}})
+			f.Book("lingual-en", &fixtureBook{Title: "English", Lang: "en", Approved: true, Authors: []int64{lid}})
 			repo := NewPGSearchRepository(f.tx)
 
 			whole, err := repo.SearchAuthors(context.Background(), models.AuthorSearchRequest{Query: "языкарь", Limit: 10})
@@ -877,7 +877,7 @@ func TestPGSearchRepositorySearchAuthors(t *testing.T) {
 	t.Run("authors with no visible books are omitted", func(t *testing.T) {
 		withSearchFixture(t, func(f *searchFixture) {
 			zid := f.Author("zero", "Пустарин Тест")
-			f.Book("zero-book", fixtureBook{Title: "Непроверенная", Approved: false, Authors: []int64{zid}})
+			f.Book("zero-book", &fixtureBook{Title: "Непроверенная", Approved: false, Authors: []int64{zid}})
 			repo := NewPGSearchRepository(f.tx)
 
 			page, err := repo.SearchAuthors(context.Background(), models.AuthorSearchRequest{Query: "пустарин", Limit: 50})
@@ -893,9 +893,9 @@ func TestPGSearchRepositorySearchAuthors(t *testing.T) {
 		withSearchFixture(t, func(f *searchFixture) {
 			first := f.Author("testerin-a", "Тестерин Борис")
 			second := f.Author("testerin-b", "Тестерин Иван")
-			f.Book("testerin-a-book", fixtureBook{Title: "Первая", Approved: true, Authors: []int64{first}})
-			f.Book("testerin-b-book-1", fixtureBook{Title: "Вторая", Approved: true, Authors: []int64{second}})
-			f.Book("testerin-b-book-2", fixtureBook{Title: "Третья", Approved: true, Authors: []int64{second}})
+			f.Book("testerin-a-book", &fixtureBook{Title: "Первая", Approved: true, Authors: []int64{first}})
+			f.Book("testerin-b-book-1", &fixtureBook{Title: "Вторая", Approved: true, Authors: []int64{second}})
+			f.Book("testerin-b-book-2", &fixtureBook{Title: "Третья", Approved: true, Authors: []int64{second}})
 			repo := NewPGSearchRepository(f.tx)
 
 			page, err := repo.SearchAuthors(context.Background(), models.AuthorSearchRequest{Query: "тестерин", Limit: 10})
@@ -908,11 +908,11 @@ func TestPGSearchRepositorySearchAuthors(t *testing.T) {
 		})
 	})
 
-	t.Run("the page honours the limit and reports the exact total", func(t *testing.T) {
+	t.Run("the page honors the limit and reports the exact total", func(t *testing.T) {
 		withSearchFixture(t, func(f *searchFixture) {
 			for i := 0; i < 12; i++ {
 				pid := f.Author(fmt.Sprintf("stranitsyn-%d", i), fmt.Sprintf("Страницын %02d", i))
-				f.Book(fmt.Sprintf("stranitsyn-book-%d", i), fixtureBook{Title: fmt.Sprintf("Книга %d", i), Approved: true, Authors: []int64{pid}})
+				f.Book(fmt.Sprintf("stranitsyn-book-%d", i), &fixtureBook{Title: fmt.Sprintf("Книга %d", i), Approved: true, Authors: []int64{pid}})
 			}
 			repo := NewPGSearchRepository(f.tx)
 
@@ -943,7 +943,7 @@ func TestPGSearchRepositorySearchAuthors(t *testing.T) {
 			for i := 0; i < 12; i++ {
 				pid := f.Author(fmt.Sprintf("paginin-%d", i), fmt.Sprintf("Пагинин %02d", i))
 				fixtureIDs = append(fixtureIDs, pid)
-				f.Book(fmt.Sprintf("paginin-book-%d", i), fixtureBook{Title: fmt.Sprintf("Том %d", i), Approved: true, Authors: []int64{pid}})
+				f.Book(fmt.Sprintf("paginin-book-%d", i), &fixtureBook{Title: fmt.Sprintf("Том %d", i), Approved: true, Authors: []int64{pid}})
 			}
 			repo := NewPGSearchRepository(f.tx)
 
@@ -1009,7 +1009,7 @@ func authorIDs(authors []models.Author) []int64 {
 // secondary text that tells identical titles apart, and real error propagation
 // where the legacy function swallowed every failure.
 //
-// The fixture transaction sees the real catalogue, so assertions either scope
+// The fixture transaction sees the real catalog, so assertions either scope
 // to Language "fx" (fixture-only rows) or pin fixture IDs explicitly, exactly
 // as the author search tests do.
 func TestPGSearchRepositorySuggestions(t *testing.T) {
@@ -1067,7 +1067,7 @@ func TestPGSearchRepositorySuggestions(t *testing.T) {
 
 	t.Run("one book with two authors is one suggestion", func(t *testing.T) {
 		withSearchFixture(t, func(f *searchFixture) {
-			joint := f.Book("joint", fixtureBook{
+			joint := f.Book("joint", &fixtureBook{
 				Title: "Совместная книга", Approved: true,
 				Authors: []int64{f.AuthorIDs["tolstoy"], f.AuthorIDs["bulgakov"]},
 			})
@@ -1190,7 +1190,7 @@ func TestPGSearchRepositorySuggestions(t *testing.T) {
 					bookCount++
 				}
 			}
-			assert.Equal(t, 8, bookCount, "the catalogue holds far more matching books")
+			assert.Equal(t, 8, bookCount, "the catalog holds far more matching books")
 
 			authors, err := repo.Suggestions(context.Background(), models.SuggestionRequest{
 				Query: "толстой", Kind: models.SuggestionAll,

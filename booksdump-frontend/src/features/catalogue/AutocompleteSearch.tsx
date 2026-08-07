@@ -318,7 +318,9 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
                     {suggestions.length === 0 ? (
                         failed ? (
                             <li className="flex items-center justify-between gap-2 px-2 py-1.5 text-sm text-muted-foreground">
-                                <span className="min-w-0 truncate">{t('searchSuggestionsError')}</span>
+                                <span className="min-w-0 truncate">
+                                    {t('searchSuggestionsError')}
+                                </span>
                                 <button
                                     type="button"
                                     onClick={retry}
