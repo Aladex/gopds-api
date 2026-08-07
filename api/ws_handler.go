@@ -74,7 +74,11 @@ func UnifiedWebSocketHandler(c *gin.Context) {
 				handleConversionRequest(typed.BookID, typed.Format, notifyChan)
 
 			default:
-				logging.Infof("Unknown WebSocket message from %s: %s", user, string(data))
+				// The frame is whatever the client sent. Its size and the
+				// fields that were recognized are what debugging needs; the
+				// payload itself is not ours to write down.
+				logging.Infof("Unknown WebSocket message from %s: %d bytes, type=%q, format=%q",
+					user, len(data), typed.Type, typed.Format)
 			}
 		}
 	}()

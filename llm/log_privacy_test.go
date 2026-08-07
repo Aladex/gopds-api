@@ -65,3 +65,26 @@ func TestLogProcessedQueryReportsEmptyFieldsAsEmpty(t *testing.T) {
 	assert.Contains(t, out, "author: false")
 	assert.Contains(t, out, "6 query runes")
 }
+
+// The model answers a reader's query and quotes it back, so a reply it could
+// not parse is the reader's own words — in an error entry, which is where the
+// first audit did not look, because it filtered error lines out.
+func TestLogUnparsableResponseKeepsTheReplyOut(t *testing.T) {
+	hook := logrustest.NewLocal(logging.GetLogger())
+	t.Cleanup(hook.Reset)
+
+	const reply = `Извините, я не понял запрос «найди Толстого про войну». Уточните?`
+
+	logUnparsableResponse(reply)
+
+	out := loggedText(hook)
+	require.NotEmpty(t, out)
+	assert.NotContains(t, out, reply, "the model's reply reached the log verbatim")
+	for _, leaked := range []string{"Толстого", "войну", "запрос"} {
+		assert.NotContains(t, out, leaked, "%q reached the log", leaked)
+	}
+	assert.Contains(t, out, "brace-delimited: false", "prose is worth telling apart from broken JSON")
+
+	logUnparsableResponse(`{"command": broken}`)
+	assert.Contains(t, loggedText(hook), "brace-delimited: true")
+}
