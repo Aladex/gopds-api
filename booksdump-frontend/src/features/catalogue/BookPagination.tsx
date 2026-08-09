@@ -12,7 +12,42 @@ import {
 import { cn } from '@/shared/lib/utils';
 
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
-import { pageHref, paginationRange } from '@/features/catalogue/paginationRange';
+import {
+    fitSiblingCount,
+    pageHref,
+    paginationRange,
+    type PagerMetrics,
+} from '@/features/catalogue/paginationRange';
+
+/** How much clear space to leave between the numbers and each arrow. */
+const BREATHING = 8;
+/** Never open the window wider than this, however much room there is. */
+const MAX_SIBLINGS = 3;
+
+/**
+ * readMetrics measures a rendered pager.
+ *
+ * The row it has to fit inside is the nav, which spans the column; the ul only
+ * spans what it holds. Returns null when nothing has a width yet — under jsdom
+ * every box measures zero, and a pager fitted to a zero-width row would show
+ * one page number.
+ */
+function readMetrics(nav: HTMLElement, group: HTMLElement): PagerMetrics | null {
+    const row = nav.getBoundingClientRect().width;
+    const cell = group.querySelector('a')?.getBoundingClientRect().width ?? 0;
+    if (row <= 0 || cell <= 0) {
+        return null;
+    }
+    const arrow = nav.querySelector('a')?.getBoundingClientRect().width ?? cell;
+    // A window with no gap in it has no ellipsis to measure. Standing in the
+    // cell width overestimates, which only ever costs a sibling — never an
+    // overflow.
+    const ellipsis =
+        group.querySelector('[data-slot="pagination-ellipsis"]')?.getBoundingClientRect().width ??
+        cell;
+    const gap = parseFloat(getComputedStyle(group).columnGap) || 0;
+    return { row, arrow, cell, ellipsis, gap, breathing: BREATHING };
+}
 
 interface PaginationProps {
     totalPages: number;
@@ -54,27 +89,50 @@ const BookPagination: React.FC<PaginationProps> = ({ totalPages, currentPage, ba
     const navigate = useNavigate();
     const { t } = useTranslation();
 
-    // A narrow screen has no room for seven pages either side, so the window
-    // shrinks rather than wrapping onto a second line. Long page numbers make
-    // wide cells, so the window tightens for them too — thirteen five-digit
-    // cells would not fit a desktop row either.
+    // A narrow screen has no room for seven pages either side, and long page
+    // numbers make wide cells, so how many neighbours fit depends on both.
     const isNarrow = useMediaQuery('(max-width: 779px)');
     const digits = String(totalPages).length;
     const compact = digits >= 4;
-    // On a phone the neighbours go once the numbers reach four digits.
-    // Measured at 360px inside the 328px content column: with neighbours the
-    // row came to 368px at five digits and 329px at four, so the arrows hung
-    // off the screen in the first case and sat flush against the column edge
-    // in the second — and `main` clips rather than scrolls, which left the
-    // reader tapping the very edge, where the system back-gesture lives.
-    // Without them the row is 268px at five digits and 216px at four, and
-    // centring turns the slack back into margins. Three digits fit as they
-    // are, so they keep their neighbours.
-    const crowded = isNarrow && compact;
-    const items = paginationRange(currentPage, totalPages, {
-        boundaryCount: isNarrow ? 1 : compact ? 2 : 3,
-        siblingCount: crowded ? 0 : isNarrow ? 1 : compact ? 2 : 3,
-    });
+    const boundaryCount = isNarrow ? 1 : compact ? 2 : 3;
+    // The window used to be guessed from the digit count, and the guess was
+    // wrong three times running — arithmetic said 300px where the browser
+    // measured 329, and the arrows ended up off the screen. So the pager
+    // renders its narrowest window, measures itself, and opens up to whatever
+    // the row actually takes. The fallback below is only for a viewport that
+    // cannot be measured at all, jsdom among them.
+    const [fitted, setFitted] = React.useState<number | null>(null);
+    const navRef = React.useRef<HTMLElement | null>(null);
+    const groupRef = React.useRef<HTMLLIElement | null>(null);
+
+    React.useLayoutEffect(() => {
+        const nav = navRef.current;
+        const group = groupRef.current;
+        if (!nav || !group || typeof ResizeObserver === 'undefined') {
+            return;
+        }
+        const measure = () => {
+            const metrics = readMetrics(nav, group);
+            // Leave the fallback in place rather than fitting to a zero-width
+            // row: a hidden pager would come back showing one page number.
+            if (!metrics) {
+                return;
+            }
+            setFitted(
+                fitSiblingCount(currentPage, totalPages, metrics, {
+                    boundaryCount,
+                    maxSiblings: MAX_SIBLINGS,
+                }),
+            );
+        };
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(nav);
+        return () => observer.disconnect();
+    }, [boundaryCount, currentPage, totalPages]);
+
+    const siblingCount = fitted ?? (isNarrow ? (compact ? 0 : 1) : compact ? 2 : 3);
+    const items = paginationRange(currentPage, totalPages, { boundaryCount, siblingCount });
     const cellMinWidth = pageCellMinWidth(digits, isNarrow);
 
     if (totalPages <= 1) {
@@ -114,18 +172,34 @@ const BookPagination: React.FC<PaginationProps> = ({ totalPages, currentPage, ba
     };
 
     return (
-        <Pagination>
-            <PaginationContent className={cn(isNarrow && 'gap-0.5')}>
+        <Pagination ref={navRef}>
+            {/*
+             * On a phone the row spans the whole column and the arrows sit on
+             * its ends, level with the edges of the book cards above. The
+             * numbers stay together in the middle: justify-between centres
+             * them because both arrows are the same width.
+             */}
+            <PaginationContent className={cn(isNarrow && 'w-full justify-between gap-0.5')}>
                 {step(currentPage - 1, t('previousPage'), <span aria-hidden="true">‹</span>)}
 
-                {items.map((item, index) =>
-                    item === 'ellipsis' ? (
-                        <PaginationItem key={`gap-${index}`}>
-                            <PaginationEllipsis className={cn(isNarrow && 'size-7')} />
-                        </PaginationItem>
-                    ) : (
-                        <PaginationItem key={item}>
+                <PaginationItem
+                    ref={groupRef}
+                    className={cn('flex items-center gap-1', isNarrow && 'gap-0.5')}
+                >
+                    {items.map((item, index) =>
+                        item === 'ellipsis' ? (
+                            <PaginationEllipsis
+                                key={`gap-${index}`}
+                                // Nobody taps an ellipsis — it is an
+                                // aria-hidden span holding a 16px glyph. At a
+                                // button's 28px it costs a phone the very page
+                                // neighbours it stands for, so on a phone it
+                                // keeps the height and gives up the width.
+                                className={cn(isNarrow && 'h-7 w-5')}
+                            />
+                        ) : (
                             <PaginationLink
+                                key={item}
                                 href={href(item)}
                                 isActive={item === currentPage}
                                 aria-label={t('goToPage', { page: item })}
@@ -154,9 +228,9 @@ const BookPagination: React.FC<PaginationProps> = ({ totalPages, currentPage, ba
                             >
                                 {item}
                             </PaginationLink>
-                        </PaginationItem>
-                    ),
-                )}
+                        ),
+                    )}
+                </PaginationItem>
 
                 {step(currentPage + 1, t('nextPage'), <span aria-hidden="true">›</span>)}
             </PaginationContent>

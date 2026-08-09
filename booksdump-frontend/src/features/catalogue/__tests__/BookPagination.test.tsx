@@ -48,6 +48,43 @@ beforeEach(() => {
     viewport.narrow = false;
 });
 
+/**
+ * stubGeometry lends jsdom the widths it cannot compute.
+ *
+ * The pager fits its window to the row it measures, and jsdom reports every
+ * box as zero, so without this the tests can only reach the fallback. The
+ * numbers passed in are the ones Chrome reported on the stand.
+ */
+function stubGeometry(sizes: { row: number; cell: number; arrow: number; ellipsis: number }) {
+    const rect = Element.prototype.getBoundingClientRect;
+    const styles = window.getComputedStyle;
+
+    const widthOf = (el: Element): number => {
+        if (el.tagName === 'NAV') return sizes.row;
+        if (el.getAttribute('data-slot') === 'pagination-ellipsis') return sizes.ellipsis;
+        if (el.tagName === 'A') {
+            const label = el.getAttribute('aria-label') ?? '';
+            return label.startsWith('goToPage') ? sizes.cell : sizes.arrow;
+        }
+        return 0;
+    };
+
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+        return { ...new DOMRect(), width: widthOf(this) } as DOMRect;
+    };
+    window.getComputedStyle = ((el: Element, pseudo?: string | null) => {
+        const computed = styles.call(window, el, pseudo ?? undefined);
+        return new Proxy(computed, {
+            get: (target, key) => (key === 'columnGap' ? '2px' : Reflect.get(target, key, target)),
+        });
+    }) as typeof window.getComputedStyle;
+
+    return () => {
+        Element.prototype.getBoundingClientRect = rect;
+        window.getComputedStyle = styles;
+    };
+}
+
 describe('BookPagination', () => {
     it('gives every page a real address', () => {
         renderPager();
@@ -215,6 +252,80 @@ describe('BookPagination', () => {
 
         expect(screen.getByRole('link', { name: 'goToPage:219' })).toBeInTheDocument();
         expect(screen.getByRole('link', { name: 'goToPage:221' })).toBeInTheDocument();
+    });
+
+    it('spreads the row to the card edges on a phone', () => {
+        // Dropping the neighbours left a 268px row inside a 328px column, and
+        // the leftover slack read as the pager having shrunk. Full width puts
+        // the arrows level with the book cards above instead of floating.
+        viewport.narrow = true;
+        renderPager({ totalPages: 47377, currentPage: 22000, baseUrl: '/books/page/22000' });
+
+        expect(screen.getByRole('list')).toHaveClass('w-full', 'justify-between');
+    });
+
+    it('keeps the row content-width on a desktop', () => {
+        // A 1200px row with the arrows at its far ends would put them nowhere
+        // near the numbers; the wide pager stays centred and compact.
+        renderPager({ totalPages: 47377, currentPage: 22000, baseUrl: '/books/page/22000' });
+
+        expect(screen.getByRole('list')).not.toHaveClass('w-full');
+    });
+
+    it('keeps the numbers together between the arrows', () => {
+        // The numbers share one flex cell, so justify-between spaces the three
+        // children — arrow, numbers, arrow — instead of prising the digits
+        // apart across the whole width.
+        viewport.narrow = true;
+        renderPager({ totalPages: 47377, currentPage: 22000, baseUrl: '/books/page/22000' });
+
+        const first = screen.getByRole('link', { name: 'goToPage:1' });
+        const last = screen.getByRole('link', { name: 'goToPage:47377' });
+        expect(first.parentElement).toBe(last.parentElement);
+        expect(screen.getByRole('list').children).toHaveLength(3);
+    });
+
+    it('opens the window to what a measured row can take', () => {
+        // jsdom has no layout, so the geometry is fed in from what Chrome
+        // measured on the stand: a 328px column, 40px cells at the four-digit
+        // tier, 20px ellipses. The fallback would show no neighbours here, so
+        // seeing them proves the measurement is what decided.
+        viewport.narrow = true;
+        const restore = stubGeometry({ row: 328, cell: 40, arrow: 28, ellipsis: 20 });
+        try {
+            renderPager({ totalPages: 4737, currentPage: 2200, baseUrl: '/books/page/2200' });
+
+            expect(screen.getByRole('link', { name: 'goToPage:2199' })).toBeInTheDocument();
+            expect(screen.getByRole('link', { name: 'goToPage:2201' })).toBeInTheDocument();
+        } finally {
+            restore();
+        }
+    });
+
+    it('keeps it shut when the same row holds wider numbers', () => {
+        // Five-digit cells are 48px and their ellipses stay 28px wide, which
+        // is 36px more than the row has.
+        viewport.narrow = true;
+        const restore = stubGeometry({ row: 328, cell: 48, arrow: 28, ellipsis: 28 });
+        try {
+            renderPager({ totalPages: 47377, currentPage: 22000, baseUrl: '/books/page/22000' });
+
+            expect(screen.queryByRole('link', { name: 'goToPage:21999' })).not.toBeInTheDocument();
+        } finally {
+            restore();
+        }
+    });
+
+    it('shuts it again when the column narrows to 320px', () => {
+        viewport.narrow = true;
+        const restore = stubGeometry({ row: 288, cell: 40, arrow: 28, ellipsis: 20 });
+        try {
+            renderPager({ totalPages: 4737, currentPage: 2200, baseUrl: '/books/page/2200' });
+
+            expect(screen.queryByRole('link', { name: 'goToPage:2199' })).not.toBeInTheDocument();
+        } finally {
+            restore();
+        }
     });
 
     it('leaves a modified click to the browser', async () => {
