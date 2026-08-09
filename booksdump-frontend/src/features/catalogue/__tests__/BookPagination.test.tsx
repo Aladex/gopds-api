@@ -124,6 +124,52 @@ describe('BookPagination', () => {
         expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
     });
 
+    it('gives every page cell the width of the longest page number', () => {
+        // Five-digit totals made short numbers airy and long ones cramped: the
+        // air came from the min-width slack, not from a shared grid. All cells
+        // of one pager take the tier of the longest number instead.
+        renderPager({ totalPages: 47377, currentPage: 23000, baseUrl: '/books/page/23000' });
+
+        expect(screen.getByRole('link', { name: 'goToPage:23000' })).toHaveClass('min-w-14');
+        expect(screen.getByRole('link', { name: 'goToPage:1' })).toHaveClass('min-w-14');
+    });
+
+    it('sizes the cell tier by the last page', () => {
+        renderPager({ totalPages: 995, currentPage: 500, baseUrl: '/books/page/500' });
+        expect(screen.getByRole('link', { name: 'goToPage:500' })).toHaveClass('min-w-10');
+
+        renderPager({ totalPages: 8, currentPage: 4, baseUrl: '/books/page/4' });
+        expect(screen.getByRole('link', { name: 'goToPage:4' })).toHaveClass('min-w-9');
+    });
+
+    it('lets a long page number grow past the icon square', () => {
+        // size="icon" carries size-10/sm:size-8, which beats w-auto in the
+        // stylesheet and froze every cell at 36px — five digits overflowed the
+        // button and the active tile. Numbered cells must not carry it.
+        renderPager({ totalPages: 47377, currentPage: 23000, baseUrl: '/books/page/23000' });
+
+        const cell = screen.getByRole('link', { name: 'goToPage:23000' });
+        expect(cell.className).not.toMatch(/size-(10|8)/);
+        expect(cell).toHaveClass('w-auto');
+    });
+
+    it('shows fewer neighbours when page numbers run to four digits', () => {
+        // Thirteen wide cells overflow a desktop row, so the window tightens
+        // once numbers get long — just like it already does on narrow screens.
+        renderPager({ totalPages: 47377, currentPage: 23000, baseUrl: '/books/page/23000' });
+
+        expect(screen.queryByRole('link', { name: 'goToPage:3' })).not.toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'goToPage:22999' })).toBeInTheDocument();
+        expect(screen.queryByRole('link', { name: 'goToPage:22997' })).not.toBeInTheDocument();
+    });
+
+    it('keeps the wide window for short page numbers', () => {
+        renderPager({ totalPages: 100, currentPage: 50, baseUrl: '/books/page/50' });
+
+        expect(screen.getByRole('link', { name: 'goToPage:3' })).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'goToPage:47' })).toBeInTheDocument();
+    });
+
     it('leaves a modified click to the browser', async () => {
         const user = userEvent.setup();
         renderPager();

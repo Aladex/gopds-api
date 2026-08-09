@@ -22,6 +22,29 @@ interface PaginationProps {
 }
 
 /**
+ * pageCellMinWidth sizes every numbered cell of a pager by the digit count of
+ * its last page: the rhythm then stays even whether the reader is on page 7
+ * or 44557, and the active tile keeps one size. The tiers assume the widest
+ * digit mix — the UI falls back to the system sans, and tabular figures
+ * cannot be relied on across platforms (measured: 5 digits ≈ 39px at text-sm,
+ * ≈ 34px at text-xs, plus horizontal padding).
+ */
+function pageCellMinWidth(digits: number, narrow: boolean): string {
+    if (narrow) {
+        if (digits >= 6) return 'min-w-14';
+        if (digits === 5) return 'min-w-12';
+        if (digits === 4) return 'min-w-10';
+        if (digits === 3) return 'min-w-9';
+        return 'min-w-7';
+    }
+    if (digits >= 6) return 'min-w-16';
+    if (digits === 5) return 'min-w-14';
+    if (digits === 4) return 'min-w-12';
+    if (digits === 3) return 'min-w-10';
+    return 'min-w-9';
+}
+
+/**
  * BookPagination pages through a list route.
  *
  * Every page is a real link, so a reader can open one in a new tab or copy its
@@ -32,12 +55,17 @@ const BookPagination: React.FC<PaginationProps> = ({ totalPages, currentPage, ba
     const { t } = useTranslation();
 
     // A narrow screen has no room for seven pages either side, so the window
-    // shrinks rather than wrapping onto a second line.
+    // shrinks rather than wrapping onto a second line. Long page numbers make
+    // wide cells, so the window tightens for them too — thirteen five-digit
+    // cells would not fit a desktop row either.
     const isNarrow = useMediaQuery('(max-width: 779px)');
+    const digits = String(totalPages).length;
+    const compact = digits >= 4;
     const items = paginationRange(currentPage, totalPages, {
-        boundaryCount: isNarrow ? 1 : 3,
-        siblingCount: isNarrow ? 1 : 3,
+        boundaryCount: isNarrow ? 1 : compact ? 2 : 3,
+        siblingCount: isNarrow ? 1 : compact ? 2 : 3,
     });
+    const cellMinWidth = pageCellMinWidth(digits, isNarrow);
 
     if (totalPages <= 1) {
         return null;
@@ -92,14 +120,16 @@ const BookPagination: React.FC<PaginationProps> = ({ totalPages, currentPage, ba
                                 isActive={item === currentPage}
                                 aria-label={t('goToPage', { page: item })}
                                 onClick={(event) => go(event, item)}
+                                // size="icon" carries size-10/sm:size-8, which
+                                // beats w-auto in the stylesheet and froze every
+                                // cell at 36px — five digits overflowed the
+                                // button and the active tile. Null skips it; the
+                                // shared min-width tier below keeps the grid.
+                                size={null}
                                 className={cn(
-                                    // The icon size is a fixed square, which a
-                                    // five-digit page number overflows — and this
-                                    // catalogue runs to five digits. Keep the
-                                    // square as a minimum and let wide numbers
-                                    // grow instead of colliding.
-                                    'w-auto min-w-9 px-2 font-semibold',
-                                    isNarrow && 'h-7 min-w-7 px-1.5 text-xs',
+                                    'h-8 w-auto px-2 font-semibold',
+                                    cellMinWidth,
+                                    isNarrow && 'h-7 px-1.5 text-xs',
                                     // The active page uses shadcn's outline variant,
                                     // which carries a dark:bg-input/30 of its own.
                                     // tailwind-merge treats a variant class and a
