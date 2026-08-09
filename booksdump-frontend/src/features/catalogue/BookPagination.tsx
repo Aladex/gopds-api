@@ -61,9 +61,19 @@ const BookPagination: React.FC<PaginationProps> = ({ totalPages, currentPage, ba
     const isNarrow = useMediaQuery('(max-width: 779px)');
     const digits = String(totalPages).length;
     const compact = digits >= 4;
+    // On a phone the neighbours go once the numbers reach four digits.
+    // Measured at 360px inside the 328px content column: with neighbours the
+    // row came to 368px at five digits and 329px at four, so the arrows hung
+    // off the screen in the first case and sat flush against the column edge
+    // in the second — and `main` clips rather than scrolls, which left the
+    // reader tapping the very edge, where the system back-gesture lives.
+    // Without them the row is 268px at five digits and 216px at four, and
+    // centring turns the slack back into margins. Three digits fit as they
+    // are, so they keep their neighbours.
+    const crowded = isNarrow && compact;
     const items = paginationRange(currentPage, totalPages, {
         boundaryCount: isNarrow ? 1 : compact ? 2 : 3,
-        siblingCount: isNarrow ? 1 : compact ? 2 : 3,
+        siblingCount: crowded ? 0 : isNarrow ? 1 : compact ? 2 : 3,
     });
     const cellMinWidth = pageCellMinWidth(digits, isNarrow);
 

@@ -14,6 +14,14 @@ const translate = (key: string, options?: { page?: number }) =>
 const translation = { t: translate };
 vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 
+// The pager's shape depends on the width, so the tests drive it rather than
+// leaving it to whatever jsdom reports.
+const viewport = { narrow: false };
+vi.mock('@/shared/hooks/useMediaQuery', () => ({
+    useMediaQuery: () => viewport.narrow,
+    default: () => viewport.narrow,
+}));
+
 let currentPath = '';
 const PathProbe: React.FC = () => {
     const { pathname } = useLocation();
@@ -27,6 +35,7 @@ const PathProbe: React.FC = () => {
 
 function renderPager(props: Partial<React.ComponentProps<typeof BookPagination>> = {}) {
     currentPath = '';
+    viewport.narrow = props.totalPages === undefined ? viewport.narrow : viewport.narrow;
     return render(
         <MemoryRouter initialEntries={['/books/page/5']}>
             <PathProbe />
@@ -34,6 +43,10 @@ function renderPager(props: Partial<React.ComponentProps<typeof BookPagination>>
         </MemoryRouter>,
     );
 }
+
+beforeEach(() => {
+    viewport.narrow = false;
+});
 
 describe('BookPagination', () => {
     it('gives every page a real address', () => {
@@ -168,6 +181,40 @@ describe('BookPagination', () => {
 
         expect(screen.getByRole('link', { name: 'goToPage:3' })).toBeInTheDocument();
         expect(screen.getByRole('link', { name: 'goToPage:47' })).toBeInTheDocument();
+    });
+
+    it('drops the neighbours on a phone once numbers reach four digits', () => {
+        // Measured at 360px inside the 328px content column: with neighbours
+        // the row was 368px at five digits and 329px at four — the arrows hung
+        // off the screen in one case and sat flush against the edge in the
+        // other, and `main` clips rather than scrolls. Without them the row is
+        // 268px and 216px, and centring turns the slack back into margins.
+        viewport.narrow = true;
+        renderPager({ totalPages: 47377, currentPage: 22000, baseUrl: '/books/page/22000' });
+
+        expect(screen.getByRole('link', { name: 'goToPage:1' })).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'goToPage:22000' })).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'goToPage:47377' })).toBeInTheDocument();
+        expect(screen.queryByRole('link', { name: 'goToPage:21999' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('link', { name: 'goToPage:22001' })).not.toBeInTheDocument();
+    });
+
+    it('drops them at four digits too, where the row measured 329px', () => {
+        viewport.narrow = true;
+        renderPager({ totalPages: 4737, currentPage: 2200, baseUrl: '/books/page/2200' });
+
+        expect(screen.queryByRole('link', { name: 'goToPage:2199' })).not.toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'goToPage:2200' })).toBeInTheDocument();
+    });
+
+    it('keeps the neighbours on a phone while the numbers still fit', () => {
+        // Three digits are 36px cells and the full narrow window measures
+        // 280px. Shrinking it here would cost navigation for nothing.
+        viewport.narrow = true;
+        renderPager({ totalPages: 473, currentPage: 220, baseUrl: '/books/page/220' });
+
+        expect(screen.getByRole('link', { name: 'goToPage:219' })).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'goToPage:221' })).toBeInTheDocument();
     });
 
     it('leaves a modified click to the browser', async () => {
