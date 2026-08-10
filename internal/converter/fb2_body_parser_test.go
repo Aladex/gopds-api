@@ -501,48 +501,8 @@ func TestParseFB2Body_InvalidXML(t *testing.T) {
 	}
 }
 
-// TestSanitizeBrokenSelfClosingTags tests universal repairs for broken self-closing tags
-func TestSanitizeBrokenSelfClosingTags(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			// The closing tag is kept: only the missing bracket was damage.
-			// Swallowing </section> merged two sibling sections into a nested
-			// pair, which rewrote the book rather than repairing it.
-			name:     "Broken image tag with section closing",
-			input:    `<image xlink:href="#img1" /</section>`,
-			expected: `<image xlink:href="#img1" /></section>`,
-		},
-		{
-			name:     "Broken self-closing with space before tag",
-			input:    `<empty-line / <p>text</p>`,
-			expected: `<empty-line /><p>text</p>`,
-		},
-		{
-			name:     "Broken self-closing with newline",
-			input:    "<image href=\"#img1\" /\n<section>",
-			expected: `<image href="#img1" /><section>`,
-		},
-		{
-			name:     "Normal self-closing tags should not change",
-			input:    `<image href="#img1" /><br/>`,
-			expected: `<image href="#img1" /><br/>`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := sanitizeBrokenSelfClosingTags([]byte(tt.input))
-			resultStr := string(result)
-			if resultStr != tt.expected {
-				t.Errorf("Expected '%s', got '%s'", tt.expected, resultStr)
-			}
-		})
-	}
-}
+// The direct unit tests of the broken-self-closing repair live with its
+// single implementation in internal/fb2sanitize.
 
 // TestBalanceSectionTags tests section tag balancing
 func TestBalanceSectionTags(t *testing.T) {

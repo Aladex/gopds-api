@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 
+	"gopds-api/internal/fb2sanitize"
 	"gopds-api/internal/parser"
 )
 
@@ -34,15 +35,7 @@ func ParseFB2Complete(xmlContent []byte, readCover bool) (*FB2Document, *parser.
 	if err != nil {
 		return nil, nil, err
 	}
-	decoded = sanitizeControlChars(decoded)
-	decoded = sanitizeInvalidTagOpenings(decoded)
-	decoded = sanitizeInvalidProcessingInstructions(decoded)
-	decoded = sanitizeInvalidAmpersands(decoded)
-	decoded = sanitizeXMLVersion(decoded)
-	decoded = sanitizeBrokenSelfClosingTags(decoded)
-	decoded = sanitizeBrokenEndTags(decoded)
-	decoded = sanitizeBrokenLangTag(decoded)
-	decoded = sanitizeMissingXlinkPrefix(decoded)
+	decoded = fb2sanitize.Apply(decoded)
 	decoded = repairBrokenXML(decoded)
 
 	// Initialize both parsers

@@ -9,6 +9,7 @@ import (
 	"io"
 	"strings"
 
+	"gopds-api/internal/fb2sanitize"
 	"gopds-api/internal/parser"
 )
 
@@ -150,28 +151,18 @@ type FB2TableCell struct {
 //
 // Returns FB2Document with parsed structure or error if parsing fails.
 func ParseFB2Body(xmlContent []byte) (*FB2Document, error) {
-	// Step 1: Decode charset and basic cleaning
+	// Step 1: Decode charset and run the shared repair chain
 	decoded, err := parser.DecodeToUTF8(xmlContent)
 	if err != nil {
 		return nil, err
 	}
-	decoded = sanitizeControlChars(decoded)
-	decoded = sanitizeInvalidTagOpenings(decoded)
-	decoded = sanitizeInvalidProcessingInstructions(decoded)
-	decoded = sanitizeInvalidAmpersands(decoded)
-	decoded = sanitizeXMLVersion(decoded)
+	decoded = fb2sanitize.Apply(decoded)
 
-	// Step 2: Fix broken tags (universal repairs)
-	decoded = sanitizeBrokenSelfClosingTags(decoded) // Handles <image .../</section>
-	decoded = sanitizeBrokenEndTags(decoded)
-	decoded = sanitizeBrokenLangTag(decoded)
-	decoded = sanitizeMissingXlinkPrefix(decoded)
-
-	// Step 3: Balance critical FB2 structure tags
+	// Step 2: Balance critical FB2 structure tags
 	decoded = balanceSectionTags(decoded) // Balance <section> tags
 	decoded = balanceCommonTags(decoded)  // Balance <p>, <title>, <cite>, etc.
 
-	// Step 4: Final XML repair for any remaining issues
+	// Step 3: Final XML repair for any remaining issues
 	decoded = repairBrokenXML(decoded)
 
 	doc := &FB2Document{}
