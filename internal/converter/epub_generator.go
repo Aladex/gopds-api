@@ -1372,16 +1372,17 @@ func buildImages(doc *FB2Document) map[string]epubImage {
 }
 
 const (
-	extJPG   = ".jpg"
-	extPNG   = ".png"
-	extGIF   = ".gif"
-	extWEBP  = ".webp"
-	extSVG   = ".svg"
-	mimeJPEG = "image/jpeg"
-	mimePNG  = "image/png"
-	mimeGIF  = "image/gif"
-	mimeWEBP = "image/webp"
-	mimeSVG  = "image/svg+xml"
+	svgNamespace = "http://www.w3.org/2000/svg"
+	extJPG       = ".jpg"
+	extPNG       = ".png"
+	extGIF       = ".gif"
+	extWEBP      = ".webp"
+	extSVG       = ".svg"
+	mimeJPEG     = "image/jpeg"
+	mimePNG      = "image/png"
+	mimeGIF      = "image/gif"
+	mimeWEBP     = "image/webp"
+	mimeSVG      = "image/svg+xml"
 )
 
 // imageIDHints maps the extensions an FB2 image id may carry to the type they
@@ -1409,6 +1410,15 @@ func detectImageMimeType(data []byte, imageID, declared string) string {
 		return declared
 	}
 
+	// Ask the bytes before asking anyone else. Without this a real SVG that
+	// carries no declaration and no extension in its id fell through to the
+	// default and was written into the EPUB as a JPEG.
+	for _, candidate := range supportedImageMimes {
+		if mimeMatchesMagic(candidate, data) {
+			return candidate
+		}
+	}
+
 	// An extension in the FB2 image ID is a hint, and the ID comes from the
 	// book. It may not reinstate a type the payload has already contradicted:
 	// otherwise id="x.svg" resurrects the SVG the magic check just rejected.
@@ -1426,15 +1436,19 @@ func detectImageMimeType(data []byte, imageID, declared string) string {
 
 	// Fallback to content-based detection
 	detected := http.DetectContentType(data)
-
-	// Ensure it's an image MIME type
 	if strings.HasPrefix(detected, "image/") {
 		return detected
 	}
 
-	// Default to JPEG if detection failed
-	return mimeJPEG
+	// Nothing places this payload. Naming it JPEG anyway put HTML into the
+	// EPUB as image_001.jpg; an empty result leaves buildImages to store it as
+	// an opaque octet-stream, which is what it is.
+	return ""
 }
+
+// supportedImageMimes are the types this generator can emit, in the order the
+// magic check tries them.
+var supportedImageMimes = []string{mimePNG, mimeJPEG, mimeGIF, mimeWEBP, mimeSVG}
 
 // mimeMatchesMagic reports whether the payload's magic bytes agree with the
 // declared image type. Only types the EPUB generator can emit are confirmed
@@ -1465,6 +1479,10 @@ func mimeMatchesMagic(mime string, data []byte) bool {
 // scan has to reinvent name boundaries, CDATA, doctype subsets and the BOM, and
 // gets each of them slightly wrong.
 func hasSVGRoot(data []byte) bool {
+	// A byte-order mark is not content, and the decoder would report it as
+	// text sitting before the root.
+	data = bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})
+
 	decoder := xml.NewDecoder(bytes.NewReader(data))
 	decoder.Strict = false
 	decoder.CharsetReader = func(_ string, input io.Reader) (io.Reader, error) {
@@ -1475,8 +1493,18 @@ func hasSVGRoot(data []byte) bool {
 		if err != nil {
 			return false
 		}
-		if start, ok := token.(xml.StartElement); ok {
-			return strings.EqualFold(start.Name.Local, "svg")
+		switch t := token.(type) {
+		case xml.StartElement:
+			// XML is case-sensitive, so <SVG> is not <svg>; and the namespace
+			// has to be the SVG one, or <x:svg xmlns:x="urn:not-svg"> would
+			// qualify on its local name alone.
+			return t.Name.Local == "svg" && (t.Name.Space == "" || t.Name.Space == svgNamespace)
+		case xml.CharData:
+			// Text before the root means this is not a document whose first
+			// element is <svg>: "junk<svg/>" and a closed CDATA both land here.
+			if len(bytes.TrimSpace(t)) > 0 {
+				return false
+			}
 		}
 	}
 }

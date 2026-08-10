@@ -941,17 +941,16 @@ func isXMLSpace(b byte) bool {
 // the tag name and the slash, which marks a tag that was probably self-closing
 // before its bracket went missing.
 func hasAttributeBefore(content []byte, nameStart, slashPos int) bool {
+	// An attribute is whitespace, a name, then '='. Scanning for '=' straight
+	// after the whitespace never reaches it, because the name is in the way —
+	// which left this returning false for every ordinary name="value" and so
+	// repaired nothing outside the small tag whitelist.
 	for i := nameStart; i < slashPos; i++ {
-		if !isXMLSpace(content[i]) {
-			continue
+		if content[i] == '=' {
+			return true
 		}
-		for j := i; j < slashPos; j++ {
-			if content[j] == '=' {
-				return true
-			}
-			if !isXMLSpace(content[j]) {
-				break
-			}
+		if content[i] == '"' || content[i] == '\'' {
+			return false
 		}
 	}
 	return false

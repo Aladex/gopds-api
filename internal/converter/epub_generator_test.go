@@ -773,6 +773,11 @@ func TestMimeMatchesMagic_SVGNeedsItsRoot(t *testing.T) {
 		{"svg-like name is not svg", `<svgx/>`, false},
 		{"hyphenated name is not svg", `<svg-script/>`, false},
 		{"cdata opener before svg", `<![CDATA[><svg/>`, false},
+		{"closed cdata before svg", `<![CDATA[x]]><svg/>`, false},
+		{"junk text before svg", `junk<svg/>`, false},
+		{"uppercase root is not svg", `<SVG/>`, false},
+		{"foreign namespace is not svg", `<x:svg xmlns:x="urn:not-svg"/>`, false},
+		{"declared svg namespace", `<svg xmlns="http://www.w3.org/2000/svg"><g/></svg>`, true},
 		{"doctype with internal subset", `<!DOCTYPE svg [<!ENTITY a "b">]><svg/>`, true},
 		{"utf-8 bom then svg", "\ufeff<svg/>", true},
 		{"prolog then fictionbook", `<?xml version="1.0"?><FictionBook/>`, false},
@@ -812,6 +817,48 @@ func TestDetectImageMimeType_IDCannotOverrideThePayload(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := detectImageMimeType(tc.data, tc.imageID, tc.declared); got == tc.wantNot {
 				t.Errorf("id %q reinstated %q that the payload contradicts", tc.imageID, got)
+			}
+		})
+	}
+}
+
+// TestBuildImages_UnplaceablePayloadIsNotAnImage states the postcondition the
+// negative tests were missing: it is not enough that a payload stops being
+// called SVG, it must not be called any image type it is not. Defaulting to
+// JPEG wrote an HTML document into the EPUB as image_001.jpg, and the same
+// default kept a genuine SVG from ever being recognized.
+func TestBuildImages_UnplaceablePayloadIsNotAnImage(t *testing.T) {
+	png := append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'}, make([]byte, 16)...)
+	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`)
+
+	cases := []struct {
+		name         string
+		id           string
+		data         []byte
+		declared     string
+		wantMedia    string
+		wantFilename string
+	}{
+		{"html claiming to be svg", "x.svg", []byte(`<?xml version="1.0"?><html></html>`), mimeSVG,
+			"application/octet-stream", "image_001.bin"},
+		{"prose with no hints", "img1", []byte("just some prose, not an image"), "",
+			"application/octet-stream", "image_001.bin"},
+		{"real svg with no hints", "img1", svg, "", mimeSVG, "image_001.svg"},
+		{"real png with no hints", "img1", png, "", mimePNG, "image_001.png"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := &FB2Document{
+				Body:   &FB2BodySection{},
+				Binary: map[string]FB2Binary{tc.id: {Data: tc.data, MIME: tc.declared}},
+			}
+			img, ok := buildImages(doc)[tc.id]
+			if !ok {
+				t.Fatalf("the binary vanished from the built images")
+			}
+			if img.MediaType != tc.wantMedia || img.Filename != tc.wantFilename {
+				t.Errorf("got %s / %s, want %s / %s",
+					img.MediaType, img.Filename, tc.wantMedia, tc.wantFilename)
 			}
 		})
 	}
