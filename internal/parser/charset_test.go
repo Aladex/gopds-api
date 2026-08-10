@@ -6,7 +6,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 	"unicode/utf16"
 	"unicode/utf8"
 )
@@ -372,8 +371,9 @@ func TestDecodeToUTF8_RefusalToGuess(t *testing.T) {
 func TestDecodeToUTF8_UTF16RepairableDamage(t *testing.T) {
 	// A control character, a bare '<' and a bare '&' in the text are locally
 	// repairable by the downstream sanitizers. The charset stage must not
-	// reject the book before they run: its verification stops at the root
-	// element.
+	// reject the book before they run: it judges bytes only (BOM, UTF-8
+	// validity, the declaration) and never the content — the root verdict
+	// belongs to the parse stage.
 	doc := `<?xml version="1.0" encoding="utf-16"?>` +
 		`<FictionBook><body><section><p>Привет` + "\x01" + ` 2 < 3 & 4</p></section></body></FictionBook>`
 	in := utf16WithBOM(doc, true)
@@ -698,46 +698,10 @@ func TestDecodeToUTF8_DamagedPrologAcceptedOnAllPaths(t *testing.T) {
 	}
 }
 
-// TestDecodeToUTF8_DamagedPrologDecodeIsLinear keeps the eleventh-iteration
-// performance pin in its twelfth-iteration form. The root scan is gone; the
-// charset stage's work on hostile input is the whole-file UTF-8 validity
-// check, the corrupt-byte count and the replacement pass — one linear sweep
-// each, none of them nested. The input is declared UTF-8 with a single
-// corrupt byte at the end, so the repair path runs over the full body. The
-// assertion compares best-of-N runs at 256 KiB and 1 MiB: linear growth is
-// 4x, quadratic is 16x, and the threshold sits between them.
-func TestDecodeToUTF8_DamagedPrologDecodeIsLinear(t *testing.T) {
-	build := func(size int) []byte {
-		var b bytes.Buffer
-		b.WriteString(`<?xml version="1.0" encoding="utf-8"?>`)
-		for b.Len() < size {
-			b.WriteString("<!--")
-		}
-		b.WriteByte(0xFF) // one corrupt byte: the repair path, not the valid-UTF-8 fast path
-		return b.Bytes()
-	}
-	bestTime := func(in []byte) time.Duration {
-		best := time.Duration(1<<63 - 1)
-		for i := 0; i < 7; i++ {
-			start := time.Now()
-			if _, err := DecodeToUTF8(in); err != nil {
-				t.Fatalf("the charset stage must not judge content, got %v", err)
-			}
-			if d := time.Since(start); d < best {
-				best = d
-			}
-		}
-		return best
-	}
-	small := bestTime(build(256 << 10))
-	large := bestTime(build(1 << 20))
-	ratio := float64(large) / float64(small)
-	t.Logf("256 KiB: %v, 1 MiB: %v, ratio %.2f", small, large, ratio)
-	if ratio >= 8 {
-		t.Errorf("decode grows faster than linearly: 256 KiB took %v, 1 MiB took %v (%.1fx, quadratic would be 16x)",
-			small, large, ratio)
-	}
-}
+// The hostile-prolog performance pin lives in the converter package as
+// TestParseFB2Complete_DamagedPrologPipelineBudget: the guarantee the
+// thirteenth iteration needs covers the whole pipeline (charset stage, every
+// sanitizer, the decoder and the refusal), not this stage alone.
 
 // TestNormalizeEncodingDecl_ZeroCopyFastPaths pins the common-case cost: the
 // valid-UTF-8 majority of the catalog must not pay a whole-file copy (or a

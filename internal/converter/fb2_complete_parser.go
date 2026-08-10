@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io"
 
 	"gopds-api/internal/parser"
@@ -55,17 +56,23 @@ func ParseFB2Complete(xmlContent []byte, readCover bool) (*FB2Document, *parser.
 	decoder.Strict = false
 	decoder.AutoClose = xml.HTMLAutoClose
 
+	rootSeen := false
 	for {
 		token, err := decoder.Token()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
+			if !rootSeen {
+				// The sanitizers could not make the root reachable, so this
+				// is the same refusal the metadata scanner gives.
+				return nil, nil, fmt.Errorf("%w: %w", ErrNotFictionBook, err)
+			}
+			// The root is verified, so this is a book; whatever broke after
+			// it goes through the fallback, whose typed verdict ("too deep")
+			// still outranks the main decoder's raw syntax error.
 			docFallback, bookFallback, fallbackErr := parseFB2CompleteFallback(decoded, readCover)
 			if fallbackErr != nil {
-				// A typed fallback verdict classifies the input ("not a
-				// book", "too deep"); the main decoder's raw syntax error
-				// does not, so the typed one is what the caller gets.
 				if errors.Is(fallbackErr, ErrNotFictionBook) || errors.Is(fallbackErr, ErrDepthLimit) {
 					return nil, nil, fallbackErr
 				}
@@ -76,6 +83,14 @@ func ParseFB2Complete(xmlContent []byte, readCover bool) (*FB2Document, *parser.
 
 		switch t := token.(type) {
 		case xml.StartElement:
+			if !rootSeen {
+				rootSeen = true
+				// The same criterion the metadata scanner applies: the first
+				// element the decoder reaches decides whether this is a book.
+				if t.Name.Local != fictionBookRoot {
+					return nil, nil, fmt.Errorf("%w: root element is %q, not FictionBook", ErrNotFictionBook, t.Name.Local)
+				}
+			}
 			// Feed to both parsers
 			metadataParser.HandleStartElement(t)
 			bodyState.handleStart(doc, t)
@@ -96,8 +111,9 @@ func ParseFB2Complete(xmlContent []byte, readCover bool) (*FB2Document, *parser.
 	if bodyState.err != nil {
 		return nil, nil, bodyState.err
 	}
-	if !bodyState.sawRoot && !bodyState.sawBody {
-		return nil, nil, ErrNotFictionBook
+	// A document without a single element is garbage, not an empty book.
+	if !rootSeen {
+		return nil, nil, fmt.Errorf("%w: the document has no root element", ErrNotFictionBook)
 	}
 
 	// Extract metadata

@@ -683,3 +683,104 @@ func TestGenerateEPUB_ReuseDoesNotLeakNotes(t *testing.T) {
 		}
 	}
 }
+
+// TestDetectImageMimeType_DeclaredVerifiedByMagicBytes pins the
+// thirteenth-iteration use of the declared content-type: the parser keeps it
+// on FB2Binary, and the generator trusts it only when the payload's magic
+// bytes agree. A declaration the bytes contradict falls back to ID and
+// content detection.
+func TestDetectImageMimeType_DeclaredVerifiedByMagicBytes(t *testing.T) {
+	png := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0x00, 0x01}
+	jpeg := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 'J', 'F', 'I', 'F'}
+	gif := []byte("GIF89a\x01\x00\x01\x00")
+	webp := []byte("RIFF\x04\x00\x00\x00WEBPVP8 ")
+	svg := []byte("  <svg xmlns=\"http://www.w3.org/2000/svg\"></svg>")
+
+	cases := []struct {
+		name     string
+		data     []byte
+		imageID  string
+		declared string
+		want     string
+	}{
+		{"declared png confirmed by magic", png, "img1", "image/png", "image/png"},
+		{"declared jpeg confirmed by magic", jpeg, "img1", "image/jpeg", "image/jpeg"},
+		{"declared gif confirmed by magic", gif, "img1", "image/gif", "image/gif"},
+		{"declared webp confirmed by magic", webp, "img1", "image/webp", "image/webp"},
+		{"declared svg confirmed by markup", svg, "img1", "image/svg+xml", "image/svg+xml"},
+		{"declared type is case-insensitive", png, "img1", "IMAGE/PNG", "image/png"},
+		{"declared gif beats the jpg ID hint when magic agrees", gif, "img1.jpg", "image/gif", "image/gif"},
+		{"declared png contradicted by jpeg bytes", jpeg, "img1", "image/png", "image/jpeg"},
+		{"declared jpeg contradicted by png bytes", png, "img1", "image/jpeg", "image/png"},
+		{"declared svg contradicted by png bytes", png, "img1", "image/svg+xml", "image/png"},
+		{"unsupported declared type falls through", png, "img1", "image/tiff", "image/png"},
+		{"no declared type: ID hint wins", jpeg, "cover.jpg", "", "image/jpeg"},
+		{"no declared type and no hint: content sniff", png, "img1", "", "image/png"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := detectImageMimeType(tc.data, tc.imageID, tc.declared); got != tc.want {
+				t.Errorf("detectImageMimeType(%q, %q, %q) = %q, want %q",
+					tc.data[:4], tc.imageID, tc.declared, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestBuildImages_DeclaredMimeDecidesTheOutput drives the declaration through
+// the real path — FB2Binary, buildImages, EPUB — rather than calling the
+// detector directly. A unit test on the detector cannot tell whether the
+// generator actually consults the parsed MIME, and a mutation that dropped it
+// survived the package until this case existed: the payload is a GIF, the id
+// says .jpg, and only the declaration can settle it.
+func TestBuildImages_DeclaredMimeDecidesTheOutput(t *testing.T) {
+	gif := append([]byte("GIF89a"), make([]byte, 16)...)
+	doc := &FB2Document{
+		Body: &FB2BodySection{},
+		Binary: map[string]FB2Binary{
+			"img.jpg": {Data: gif, MIME: "image/gif"},
+		},
+	}
+
+	images := buildImages(doc)
+	if len(images) != 1 {
+		t.Fatalf("expected exactly one image, got %d", len(images))
+	}
+	img, ok := images["img.jpg"]
+	if !ok {
+		t.Fatalf("the binary is missing from the built images: %v", images)
+	}
+	if img.MediaType != "image/gif" {
+		t.Errorf("declared image/gif over GIF bytes became %q: the parsed MIME is not reaching the generator",
+			img.MediaType)
+	}
+}
+
+// TestMimeMatchesMagic_SVGNeedsItsRoot pins the difference between "this is
+// XML" and "this is an SVG". Every XML document opens with a prolog, so
+// accepting one as confirmation would let any XML — an HTML page, another FB2
+// — be declared an image and written into the EPUB as one.
+func TestMimeMatchesMagic_SVGNeedsItsRoot(t *testing.T) {
+	cases := []struct {
+		name string
+		data string
+		want bool
+	}{
+		{"bare svg root", `<svg xmlns="http://www.w3.org/2000/svg"/>`, true},
+		{"prolog then svg", `<?xml version="1.0"?><svg/>`, true},
+		{"comment then svg", `<!-- note --><svg/>`, true},
+		{"doctype then svg", `<!DOCTYPE svg><svg/>`, true},
+		{"prolog then html", `<?xml version="1.0"?><html></html>`, false},
+		{"prolog then fictionbook", `<?xml version="1.0"?><FictionBook/>`, false},
+		{"prolog alone", `<?xml version="1.0"?>`, false},
+		{"unterminated prolog", `<?xml version="1.0"`, false},
+		{"plain text", `not markup at all`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := mimeMatchesMagic("image/svg+xml", []byte(tc.data)); got != tc.want {
+				t.Errorf("mimeMatchesMagic(image/svg+xml, %q) = %v, want %v", tc.data, got, tc.want)
+			}
+		})
+	}
+}

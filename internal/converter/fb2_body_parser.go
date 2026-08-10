@@ -26,15 +26,21 @@ const (
 // Typed errors of the body-parsing pipeline, so callers can branch with
 // errors.Is instead of matching message text.
 var (
-	// ErrNotFictionBook marks input that showed neither a FictionBook root
-	// nor any body element: it is garbage, not an empty book, and returning
-	// an empty document would masquerade as one.
+	// ErrNotFictionBook marks input whose first element is not FictionBook —
+	// or that the decoder cannot reach any element of at all. A nested
+	// FictionBook, a bare <body> or a lexical "fictionbook" substring cannot
+	// tell a book from HTML, so they do not count. Returning an empty
+	// document here would masquerade as an empty book.
 	ErrNotFictionBook = errors.New("fb2: not a FictionBook document")
 	// ErrDepthLimit marks section or inline nesting beyond the bounds above:
 	// the EPUB renderer walks these trees recursively, so an unbounded file
 	// would turn a download into a stack overflow.
 	ErrDepthLimit = errors.New("fb2: nesting depth limit exceeded")
 )
+
+// fictionBookRoot is the only local name the first element of a real book may
+// have. A bare body cannot tell FB2 from HTML, so it does not qualify.
+const fictionBookRoot = "FictionBook"
 
 // Paragraph kinds represent different types of FB2 paragraphs
 const (
@@ -175,17 +181,33 @@ func ParseFB2Body(xmlContent []byte) (*FB2Document, error) {
 	decoder.AutoClose = xml.HTMLAutoClose
 
 	state := &fb2BodyState{}
+	rootSeen := false
 	for {
 		token, err := decoder.Token()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			return parseFB2BodyLoose(decoded)
+			if !rootSeen {
+				// The sanitizers could not make the root reachable, so this
+				// is the same refusal the metadata scanner gives.
+				return nil, fmt.Errorf("%w: %w", ErrNotFictionBook, err)
+			}
+			// The root is verified, so this is a book; whatever broke after
+			// it is salvaged lexically.
+			return parseFB2BodyLoose(decoded), nil
 		}
 
 		switch t := token.(type) {
 		case xml.StartElement:
+			if !rootSeen {
+				rootSeen = true
+				// The same criterion the metadata scanner applies: the first
+				// element the decoder reaches decides whether this is a book.
+				if t.Name.Local != fictionBookRoot {
+					return nil, fmt.Errorf("%w: root element is %q, not FictionBook", ErrNotFictionBook, t.Name.Local)
+				}
+			}
 			state.handleStart(doc, t)
 		case xml.EndElement:
 			state.handleEnd(doc, t)
@@ -200,10 +222,10 @@ func ParseFB2Body(xmlContent []byte) (*FB2Document, error) {
 	if state.err != nil {
 		return nil, state.err
 	}
-	// Neither a FictionBook root nor any body was seen: this is not a book at
-	// all, and returning an empty document would masquerade as an empty book.
-	if !state.sawRoot && !state.sawBody {
-		return nil, ErrNotFictionBook
+	// A document without a single element is garbage, not an empty book:
+	// returning an empty document would masquerade as one.
+	if !rootSeen {
+		return nil, fmt.Errorf("%w: the document has no root element", ErrNotFictionBook)
 	}
 	return doc, nil
 }
@@ -314,7 +336,11 @@ func isVoidTag(name string) bool {
 	}
 }
 
-func parseFB2BodyLoose(content []byte) (*FB2Document, error) {
+// parseFB2BodyLoose is the lexical last resort for a document whose
+// FictionBook root the XML decoder already verified before breaking. It never
+// decides whether the input is a book — the root check alone does that — so
+// no lexical marker scan lives here.
+func parseFB2BodyLoose(content []byte) *FB2Document {
 	segment := extractBodySegment(content)
 	section := &FB2BodySection{}
 	title := extractFirstTagText(segment, "title")
@@ -326,15 +352,10 @@ func parseFB2BodyLoose(content []byte) (*FB2Document, error) {
 		section.Content = append(section.Content, &FB2ContentItem{Paragraph: &FB2Paragraph{Text: text}})
 	}
 	if len(section.Content) == 0 && section.Title == "" {
-		// Nothing extractable: without any FB2 structure this is garbage,
-		// not an empty book.
-		lower := bytes.ToLower(content)
-		if !bytes.Contains(lower, []byte("<body")) && !bytes.Contains(lower, []byte("fictionbook")) {
-			return nil, ErrNotFictionBook
-		}
-		return &FB2Document{Body: &FB2BodySection{}}, nil
+		// A verified book whose body text could not be salvaged at all.
+		return &FB2Document{Body: &FB2BodySection{}}
 	}
-	return &FB2Document{Body: section}, nil
+	return &FB2Document{Body: section}
 }
 
 func extractBodySegment(content []byte) []byte {
@@ -434,8 +455,6 @@ type fb2BodyState struct {
 	bodyDepth         int
 	skipBody          bool
 	inNotes           bool
-	sawRoot           bool
-	sawBody           bool
 	err               error
 	sectionStack      []*FB2BodySection
 	inTitle           bool
@@ -464,10 +483,6 @@ func (s *fb2BodyState) handleStart(doc *FB2Document, elem xml.StartElement) {
 	local := normalizeName(elem.Name.Local)
 	attrs := normalizeAttrs(elem.Attr)
 
-	if local == "fictionbook" {
-		s.sawRoot = true
-	}
-
 	if local == "binary" {
 		s.inBinary = true
 		s.currentBinaryID = strings.ToLower(strings.TrimSpace(attrs["id"]))
@@ -477,7 +492,6 @@ func (s *fb2BodyState) handleStart(doc *FB2Document, elem xml.StartElement) {
 	}
 
 	if local == "body" {
-		s.sawBody = true
 		s.bodyDepth++
 		if s.inBody {
 			return

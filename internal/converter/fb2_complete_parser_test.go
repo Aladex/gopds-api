@@ -244,24 +244,17 @@ func TestParseFB2Complete_EmptyBody(t *testing.T) {
 	}
 }
 
-// TestParseFB2Complete_InvalidXML tests handling of completely invalid XML
+// TestParseFB2Complete_InvalidXML pins the thirteenth-iteration refusal for
+// input with no XML elements at all: a typed ErrNotFictionBook, never a
+// silently empty book.
 func TestParseFB2Complete_InvalidXML(t *testing.T) {
 	xmlContent := []byte(`This is not XML at all!`)
 
 	doc, bookFile, err := ParseFB2Complete(xmlContent, false)
-
-	// Should either return an error OR handle gracefully with minimal document
-	// This behavior is consistent with ParseFB2Body
-	if err != nil {
-		t.Logf("Got expected error for invalid XML: %v", err)
-		return
+	if !errors.Is(err, ErrNotFictionBook) {
+		t.Fatalf("expected a typed ErrNotFictionBook for non-XML input, got document %+v, book %+v, error %v",
+			doc, bookFile, err)
 	}
-
-	// If no error, should have minimal valid results
-	if doc == nil || bookFile == nil {
-		t.Error("Expected non-nil results for gracefully handled invalid XML")
-	}
-	t.Logf("Parser handled invalid XML gracefully")
 }
 
 // TestParseFB2Complete_SpecialElements tests parsing of special FB2 elements
@@ -314,16 +307,14 @@ func TestParseFB2Complete_SpecialElements(t *testing.T) {
 	}
 }
 
-// TestParseFB2Complete_FallbackKeepsTypedError pins the ninth-iteration fix:
-// when the main decoder fails and the fallback classifies the input with a
-// typed error, that verdict — not the raw syntax error — reaches the caller.
-// An unclosed CDATA section with no book markup is the reachable example:
-// ParseFB2Body calls it ErrNotFictionBook, and losing that to a bare syntax
-// error breaks every errors.Is branch downstream.
-func TestParseFB2Complete_FallbackKeepsTypedError(t *testing.T) {
+// TestParseFB2Complete_ForeignRootFailsBeforeSyntaxError pins the
+// thirteenth-iteration order of verdicts: the root check fires on the first
+// element the decoder produces, so a foreign root is refused with the typed
+// ErrNotFictionBook even when a syntax error waits further down the stream.
+func TestParseFB2Complete_ForeignRootFailsBeforeSyntaxError(t *testing.T) {
 	in := []byte(`<?xml version="1.0" encoding="utf-8"?><notabook><![CDATA[never closed`)
 	_, _, err := ParseFB2Complete(in, false)
 	if !errors.Is(err, ErrNotFictionBook) {
-		t.Errorf("expected a typed ErrNotFictionBook through the fallback, got %v", err)
+		t.Errorf("expected a typed ErrNotFictionBook from the root check, got %v", err)
 	}
 }

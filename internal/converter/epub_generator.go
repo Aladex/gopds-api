@@ -1352,7 +1352,7 @@ func buildImages(doc *FB2Document) map[string]epubImage {
 		if len(data) == 0 {
 			continue
 		}
-		mediaType := detectImageMimeType(data, key)
+		mediaType := detectImageMimeType(data, key, doc.Binary[key].MIME)
 		ext := extensionForMime(mediaType)
 		if ext == "" {
 			ext = ".bin"
@@ -1370,10 +1370,17 @@ func buildImages(doc *FB2Document) map[string]epubImage {
 	return images
 }
 
-// detectImageMimeType detects MIME type for image data.
-// First tries to detect by FB2 image ID (if it contains extension hint),
-// then falls back to content-based detection using http.DetectContentType.
-func detectImageMimeType(data []byte, imageID string) string {
+// detectImageMimeType detects MIME type for image data. The declared
+// content-type wins when the payload's magic bytes confirm it; a declaration
+// the bytes contradict is a lie, not a hint, and is ignored. Without a
+// trustworthy declaration, an extension hint in the FB2 image ID decides,
+// then content-based detection via http.DetectContentType.
+func detectImageMimeType(data []byte, imageID, declared string) string {
+	declared = strings.ToLower(strings.TrimSpace(declared))
+	if extensionForMime(declared) != "" && mimeMatchesMagic(declared, data) {
+		return declared
+	}
+
 	// Try to infer from ID/filename if it contains extension hint
 	lowerID := strings.ToLower(imageID)
 	if strings.Contains(lowerID, ".jpg") || strings.Contains(lowerID, ".jpeg") {
@@ -1402,6 +1409,63 @@ func detectImageMimeType(data []byte, imageID string) string {
 
 	// Default to JPEG if detection failed
 	return "image/jpeg"
+}
+
+// mimeMatchesMagic reports whether the payload's magic bytes agree with the
+// declared image type. Only types the EPUB generator can emit are confirmed
+// here; anything else falls through to the other detection steps.
+func mimeMatchesMagic(mime string, data []byte) bool {
+	switch mime {
+	case "image/jpeg":
+		return bytes.HasPrefix(data, []byte{0xFF, 0xD8, 0xFF})
+	case "image/png":
+		return bytes.HasPrefix(data, []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'})
+	case "image/gif":
+		return bytes.HasPrefix(data, []byte("GIF87a")) || bytes.HasPrefix(data, []byte("GIF89a"))
+	case "image/webp":
+		return len(data) >= 12 && bytes.HasPrefix(data, []byte("RIFF")) && bytes.Equal(data[8:12], []byte("WEBP"))
+	case "image/svg+xml":
+		// SVG is XML text and has no fixed magic, so the root element is the
+		// only real evidence. An XML prolog is not: every XML document has
+		// one, so accepting it would confirm `<?xml?><html>` as an image and
+		// put it in the EPUB as one. Skip the prolog, then require <svg.
+		return hasSVGRoot(data)
+	default:
+		return false
+	}
+}
+
+// hasSVGRoot reports whether the payload's first element is <svg>. Prologs,
+// comments and doctypes are stepped over because a real SVG file routinely
+// carries them; anything else before the root means this is not an SVG.
+func hasSVGRoot(data []byte) bool {
+	rest := bytes.TrimSpace(data)
+	for {
+		switch {
+		case bytes.HasPrefix(rest, []byte("<svg")):
+			return true
+		case bytes.HasPrefix(rest, []byte("<?")):
+			end := bytes.Index(rest, []byte("?>"))
+			if end < 0 {
+				return false
+			}
+			rest = bytes.TrimSpace(rest[end+2:])
+		case bytes.HasPrefix(rest, []byte("<!--")):
+			end := bytes.Index(rest, []byte("-->"))
+			if end < 0 {
+				return false
+			}
+			rest = bytes.TrimSpace(rest[end+3:])
+		case bytes.HasPrefix(rest, []byte("<!")):
+			end := bytes.IndexByte(rest, '>')
+			if end < 0 {
+				return false
+			}
+			rest = bytes.TrimSpace(rest[end+1:])
+		default:
+			return false
+		}
+	}
 }
 
 func extensionForMime(mime string) string {
@@ -1462,7 +1526,9 @@ func buildCover(bookFile *parser.BookFile, images map[string]epubImage) *epubCov
 			}
 		}
 
-		mediaType := detectImageMimeType(coverData, "cover")
+		// The cover arrives from the metadata parser as bare bytes; no
+		// declared content-type survives that path.
+		mediaType := detectImageMimeType(coverData, "cover", "")
 		ext := extensionForMime(mediaType)
 		if ext == "" {
 			ext = ".jpg"
