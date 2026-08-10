@@ -15,6 +15,7 @@ import (
 	"golang.org/x/text/encoding/charmap"
 	"golang.org/x/text/transform"
 
+	"gopds-api/internal/fb2image"
 	"gopds-api/internal/fb2sanitize"
 )
 
@@ -386,7 +387,19 @@ func (p *FB2Parser) extractCover() ([]byte, error) {
 	if encoded == "" {
 		return nil, nil
 	}
-	return base64.StdEncoding.DecodeString(encoded)
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, err
+	}
+	// These bytes are written to disk verbatim and later served to a browser
+	// by content sniffing, so what a reader can draw has to be decided once,
+	// here. A cover nothing can draw is dropped: the catalog then shows its
+	// placeholder instead of a broken image.
+	cover, mime := fb2image.Normalize(decoded)
+	if mime == "" {
+		return nil, nil
+	}
+	return cover, nil
 }
 
 func (p *FB2Parser) extractBodySample() string {

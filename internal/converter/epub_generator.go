@@ -8,15 +8,14 @@ import (
 	// resource rather than protecting one.
 	"crypto/sha1"
 	"encoding/hex"
-	"encoding/xml"
 	"fmt"
 	"html"
 	"io"
-	"net/http"
 	"path"
 	"sort"
 	"strings"
 
+	"gopds-api/internal/fb2image"
 	"gopds-api/internal/parser"
 )
 
@@ -1349,16 +1348,15 @@ func buildImages(doc *FB2Document) map[string]epubImage {
 
 	images := make(map[string]epubImage, len(keys))
 	for i, key := range keys {
-		data := doc.Binary[key].Data
-		if len(data) == 0 {
+		data, mediaType := fb2image.Normalize(doc.Binary[key].Data)
+		if mediaType == "" {
+			// Nothing here a reader can draw. Storing it anyway wrote an
+			// image_001.bin into the EPUB and listed it in the manifest; the
+			// <img> pointing at it rendered broken. Dropping the entry leaves
+			// the paragraph's [image] placeholder, which is honest.
 			continue
 		}
-		mediaType := detectImageMimeType(data, key, doc.Binary[key].MIME)
-		ext := extensionForMime(mediaType)
-		if ext == "" {
-			ext = ".bin"
-			mediaType = "application/octet-stream"
-		}
+		ext := fb2image.ExtensionFor(mediaType)
 		filename := fmt.Sprintf("image_%03d%s", i+1, ext)
 		itemID := fmt.Sprintf("img%03d", i+1)
 		images[key] = epubImage{
@@ -1369,127 +1367,6 @@ func buildImages(doc *FB2Document) map[string]epubImage {
 		}
 	}
 	return images
-}
-
-const (
-	svgNamespace = "http://www.w3.org/2000/svg"
-	extJPG       = ".jpg"
-	extPNG       = ".png"
-	extGIF       = ".gif"
-	extWEBP      = ".webp"
-	extSVG       = ".svg"
-	mimeJPEG     = "image/jpeg"
-	mimePNG      = "image/png"
-	mimeGIF      = "image/gif"
-	mimeWEBP     = "image/webp"
-	mimeSVG      = "image/svg+xml"
-)
-
-// detectImageMimeType names an image by its bytes. The declared content-type
-// and the extension in the FB2 image ID are both book-controlled text, and
-// both had to be confirmed by the magic bytes anyway, so neither can decide
-// anything the bytes have not already decided; they are no longer consulted.
-// Unrecognized payloads get no type at all rather than a plausible guess.
-func detectImageMimeType(data []byte, _, _ string) string {
-	// Ask the bytes before asking anyone else. Without this a real SVG that
-	// carries no declaration and no extension in its id fell through to the
-	// default and was written into the EPUB as a JPEG.
-	for _, candidate := range supportedImageMimes {
-		if mimeMatchesMagic(candidate, data) {
-			return candidate
-		}
-	}
-
-	// Fallback to content-based detection
-	detected := http.DetectContentType(data)
-	if strings.HasPrefix(detected, "image/") {
-		return detected
-	}
-
-	// Nothing places this payload. Naming it JPEG anyway put HTML into the
-	// EPUB as image_001.jpg; an empty result leaves buildImages to store it as
-	// an opaque octet-stream, which is what it is.
-	return ""
-}
-
-// supportedImageMimes are the types this generator can emit, in the order the
-// magic check tries them.
-var supportedImageMimes = []string{mimePNG, mimeJPEG, mimeGIF, mimeWEBP, mimeSVG}
-
-// mimeMatchesMagic reports whether the payload's magic bytes agree with the
-// declared image type. Only types the EPUB generator can emit are confirmed
-// here; anything else falls through to the other detection steps.
-func mimeMatchesMagic(mime string, data []byte) bool {
-	switch mime {
-	case mimeJPEG:
-		return bytes.HasPrefix(data, []byte{0xFF, 0xD8, 0xFF})
-	case mimePNG:
-		return bytes.HasPrefix(data, []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'})
-	case mimeGIF:
-		return bytes.HasPrefix(data, []byte("GIF87a")) || bytes.HasPrefix(data, []byte("GIF89a"))
-	case mimeWEBP:
-		return len(data) >= 12 && bytes.HasPrefix(data, []byte("RIFF")) && bytes.Equal(data[8:12], []byte("WEBP"))
-	case mimeSVG:
-		// SVG is XML text and has no fixed magic, so the root element is the
-		// only real evidence. An XML prolog is not: every XML document has
-		// one, so accepting it would confirm `<?xml?><html>` as an image and
-		// put it in the EPUB as one. Skip the prolog, then require <svg.
-		return hasSVGRoot(data)
-	default:
-		return false
-	}
-}
-
-// hasSVGRoot reports whether the payload's first element is <svg>. Reading it
-// with the XML decoder rather than scanning by hand is the point: a hand-rolled
-// scan has to reinvent name boundaries, CDATA, doctype subsets and the BOM, and
-// gets each of them slightly wrong.
-func hasSVGRoot(data []byte) bool {
-	// A byte-order mark is not content, and the decoder would report it as
-	// text sitting before the root.
-	data = bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})
-
-	decoder := xml.NewDecoder(bytes.NewReader(data))
-	decoder.Strict = false
-	decoder.CharsetReader = func(_ string, input io.Reader) (io.Reader, error) {
-		return input, nil
-	}
-	for {
-		token, err := decoder.Token()
-		if err != nil {
-			return false
-		}
-		switch t := token.(type) {
-		case xml.StartElement:
-			// XML is case-sensitive, so <SVG> is not <svg>; and the namespace
-			// has to be the SVG one, or <x:svg xmlns:x="urn:not-svg"> would
-			// qualify on its local name alone.
-			return t.Name.Local == "svg" && (t.Name.Space == "" || t.Name.Space == svgNamespace)
-		case xml.CharData:
-			// Text before the root means this is not a document whose first
-			// element is <svg>: "junk<svg/>" and a closed CDATA both land here.
-			if len(bytes.TrimSpace(t)) > 0 {
-				return false
-			}
-		}
-	}
-}
-
-func extensionForMime(mime string) string {
-	switch mime {
-	case mimeJPEG:
-		return extJPG
-	case mimePNG:
-		return extPNG
-	case mimeGIF:
-		return extGIF
-	case mimeWEBP:
-		return extWEBP
-	case mimeSVG:
-		return extSVG
-	default:
-		return ""
-	}
 }
 
 func (g *EPUBGenerator) renderImage(builder *strings.Builder, el *FB2InlineElement) {
@@ -1521,7 +1398,17 @@ func buildCover(bookFile *parser.BookFile, images map[string]epubImage) *epubCov
 		coverData = bookFile.Cover
 	}
 
-	if len(coverData) > 0 {
+	// The cover arrives from the metadata parser as bare bytes; no declared
+	// content-type survives that path. Normalising here rather than trusting
+	// those bytes is also what keeps the comparison below working: the body
+	// images went through the same function, so a cover that is one of them
+	// still matches and is not written into the EPUB a second time.
+	coverData, mediaType := fb2image.Normalize(coverData)
+
+	// An unusable cover is the same thing as no cover. Writing cover.bin and
+	// declaring it in the OPF gave the reader a cover page that renders empty;
+	// falling through here offers the first illustration instead.
+	if mediaType != "" {
 		for _, img := range images {
 			if bytes.Equal(img.Data, coverData) {
 				return &epubCover{
@@ -1533,23 +1420,12 @@ func buildCover(bookFile *parser.BookFile, images map[string]epubImage) *epubCov
 			}
 		}
 
-		// The cover arrives from the metadata parser as bare bytes; no
-		// declared content-type survives that path.
-		mediaType := detectImageMimeType(coverData, "cover", "")
-		ext := extensionForMime(mediaType)
-		if ext == "" {
-			// Same rule as the body images: a payload nothing can place is
-			// stored as what it is. Calling it a JPEG put HTML into the EPUB
-			// under cover.jpg.
-			ext = ".bin"
-			mediaType = "application/octet-stream"
-		}
 		return &epubCover{
 			ItemID:        "cover",
 			XHTMLFilename: "cover.xhtml",
 			Image: epubImage{
 				ItemID:    "cover-image",
-				Filename:  "cover" + ext,
+				Filename:  "cover" + fb2image.ExtensionFor(mediaType),
 				MediaType: mediaType,
 				Data:      coverData,
 			},

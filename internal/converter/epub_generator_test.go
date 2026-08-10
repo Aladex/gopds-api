@@ -684,25 +684,17 @@ func TestGenerateEPUB_ReuseDoesNotLeakNotes(t *testing.T) {
 	}
 }
 
-// TestDetectImageMimeType_DeclaredVerifiedByMagicBytes pins the
-// thirteenth-iteration use of the declared content-type: the parser keeps it
-// on FB2Binary, and the generator trusts it only when the payload's magic
-// bytes agree. A declaration the bytes contradict falls back to ID and
-// content detection.
-
-// TestBuildImages_PayloadOutranksTheID pins which of the two book-controlled
-// inputs wins. The id says .jpg and the bytes are a GIF, so a test that passed
-// on the declaration alone would prove nothing: the answer must come from the
-// payload. A unit test on the detector cannot tell whether the
-// generator actually consults the parsed MIME, and a mutation that dropped it
-// survived the package until this case existed: the payload is a GIF, the id
-// says .jpg, and only the declaration can settle it.
-func TestBuildImages_PayloadOutranksTheID(t *testing.T) {
+// TestBuildImages_HintsCannotOverrideThePayload pins that neither
+// book-controlled hint reaches the answer. The id says .jpg and the declared
+// type says svg, and the bytes are a GIF: a test that varied only one of them
+// would still pass if the other were consulted. A mutation that reinstated
+// either hint has to fail here.
+func TestBuildImages_HintsCannotOverrideThePayload(t *testing.T) {
 	gif := append([]byte("GIF89a"), make([]byte, 16)...)
 	doc := &FB2Document{
 		Body: &FB2BodySection{},
 		Binary: map[string]FB2Binary{
-			"img.jpg": {Data: gif, MIME: "image/gif"},
+			"img.jpg": {Data: gif, MIME: "image/svg+xml"},
 		},
 	}
 
@@ -714,109 +706,37 @@ func TestBuildImages_PayloadOutranksTheID(t *testing.T) {
 	if !ok {
 		t.Fatalf("the binary is missing from the built images: %v", images)
 	}
-	if img.MediaType != mimeGIF {
-		t.Errorf("GIF bytes under an id of img.jpg became %q: the id outranked the payload", img.MediaType)
+	if img.MediaType != "image/gif" || img.Filename != "image_001.gif" {
+		t.Errorf("GIF bytes under id img.jpg declared svg became %s / %s",
+			img.MediaType, img.Filename)
 	}
 }
 
-// TestMimeMatchesMagic_SVGNeedsItsRoot pins the difference between "this is
-// XML" and "this is an SVG". Every XML document opens with a prolog, so
-// accepting one as confirmation would let any XML — an HTML page, another FB2
-// — be declared an image and written into the EPUB as one.
-func TestMimeMatchesMagic_SVGNeedsItsRoot(t *testing.T) {
-	cases := []struct {
-		name string
-		data string
-		want bool
-	}{
-		{"bare svg root", `<svg xmlns="http://www.w3.org/2000/svg"/>`, true},
-		{"prolog then svg", `<?xml version="1.0"?><svg/>`, true},
-		{"comment then svg", `<!-- note --><svg/>`, true},
-		{"doctype then svg", `<!DOCTYPE svg><svg/>`, true},
-		{"prolog then html", `<?xml version="1.0"?><html></html>`, false},
-		{"svg-like name is not svg", `<svgx/>`, false},
-		{"hyphenated name is not svg", `<svg-script/>`, false},
-		{"cdata opener before svg", `<![CDATA[><svg/>`, false},
-		{"closed cdata before svg", `<![CDATA[x]]><svg/>`, false},
-		{"junk text before svg", `junk<svg/>`, false},
-		{"uppercase root is not svg", `<SVG/>`, false},
-		{"foreign namespace is not svg", `<x:svg xmlns:x="urn:not-svg"/>`, false},
-		{"declared svg namespace", `<svg xmlns="http://www.w3.org/2000/svg"><g/></svg>`, true},
-		{"doctype with internal subset", `<!DOCTYPE svg [<!ENTITY a "b">]><svg/>`, true},
-		{"utf-8 bom then svg", "\ufeff<svg/>", true},
-		{"prolog then fictionbook", `<?xml version="1.0"?><FictionBook/>`, false},
-		{"prolog alone", `<?xml version="1.0"?>`, false},
-		{"unterminated prolog", `<?xml version="1.0"`, false},
-		{"plain text", `not markup at all`, false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := mimeMatchesMagic("image/svg+xml", []byte(tc.data)); got != tc.want {
-				t.Errorf("mimeMatchesMagic(image/svg+xml, %q) = %v, want %v", tc.data, got, tc.want)
-			}
-		})
-	}
-}
-
-// TestDetectImageMimeType_IDCannotOverrideThePayload pins the one thing the
-// magic check cannot do alone: the extension in an FB2 image ID comes from the
-// book, so a rejected declaration must not come back through it. Testing the
-// magic helper with a neutral id hides this entirely.
-func TestDetectImageMimeType_IDCannotOverrideThePayload(t *testing.T) {
-	html := []byte(`<?xml version="1.0"?><html></html>`)
-	png := append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'}, make([]byte, 16)...)
-
-	cases := []struct {
-		name     string
-		data     []byte
-		imageID  string
-		declared string
-		wantNot  string
-	}{
-		{"svg id over non-svg payload", html, "x.svg", "image/svg+xml", "image/svg+xml"},
-		{"svg id without a declaration", html, "x.svg", "", "image/svg+xml"},
-		{"jpeg id over png payload", png, "cover.jpg", "image/jpeg", "image/jpeg"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := detectImageMimeType(tc.data, tc.imageID, tc.declared); got == tc.wantNot {
-				t.Errorf("id %q reinstated %q that the payload contradicts", tc.imageID, got)
-			}
-		})
-	}
-}
-
-// TestBuildImages_UnplaceablePayloadIsNotAnImage states the postcondition the
-// negative tests were missing: it is not enough that a payload stops being
-// called SVG, it must not be called any image type it is not. Defaulting to
-// JPEG wrote an HTML document into the EPUB as image_001.jpg, and the same
-// default kept a genuine SVG from ever being recognized.
-func TestBuildImages_UnplaceablePayloadIsNotAnImage(t *testing.T) {
+// TestBuildImages_RealPicturesKeepTheirOwnType states the other half of the
+// dropping rule: a payload that is a picture must not be re-encoded or
+// renamed. Defaulting to JPEG once wrote an HTML document into the EPUB as
+// image_001.jpg, and the same default kept a genuine SVG from being
+// recognized at all.
+func TestBuildImages_RealPicturesKeepTheirOwnType(t *testing.T) {
 	png := append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'}, make([]byte, 16)...)
 	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`)
 
 	cases := []struct {
 		name         string
-		id           string
 		data         []byte
-		declared     string
 		wantMedia    string
 		wantFilename string
 	}{
-		{"html claiming to be svg", "x.svg", []byte(`<?xml version="1.0"?><html></html>`), mimeSVG,
-			"application/octet-stream", "image_001.bin"},
-		{"prose with no hints", "img1", []byte("just some prose, not an image"), "",
-			"application/octet-stream", "image_001.bin"},
-		{"real svg with no hints", "img1", svg, "", mimeSVG, "image_001.svg"},
-		{"real png with no hints", "img1", png, "", mimePNG, "image_001.png"},
+		{"real svg with no hints", svg, "image/svg+xml", "image_001.svg"},
+		{"real png with no hints", png, "image/png", "image_001.png"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			doc := &FB2Document{
 				Body:   &FB2BodySection{},
-				Binary: map[string]FB2Binary{tc.id: {Data: tc.data, MIME: tc.declared}},
+				Binary: map[string]FB2Binary{"img1": {Data: tc.data}},
 			}
-			img, ok := buildImages(doc)[tc.id]
+			img, ok := buildImages(doc)["img1"]
 			if !ok {
 				t.Fatalf("the binary vanished from the built images")
 			}
@@ -824,23 +744,9 @@ func TestBuildImages_UnplaceablePayloadIsNotAnImage(t *testing.T) {
 				t.Errorf("got %s / %s, want %s / %s",
 					img.MediaType, img.Filename, tc.wantMedia, tc.wantFilename)
 			}
+			if !bytes.Equal(img.Data, tc.data) {
+				t.Errorf("a picture a reader can already draw was re-encoded")
+			}
 		})
-	}
-}
-
-// TestBuildCover_UnplaceablePayloadIsNotAJpeg covers the branch the body-image
-// test could not reach: the cover arrives from the metadata parser as bare
-// bytes and had its own fallback, so an HTML document went into the EPUB as
-// cover.jpg while buildImages had already stopped doing that.
-func TestBuildCover_UnplaceablePayloadIsNotAJpeg(t *testing.T) {
-	cover := buildCover(&parser.BookFile{
-		Cover: []byte(`<?xml version="1.0"?><html></html>`),
-	}, nil)
-	if cover == nil {
-		t.Fatal("the cover vanished")
-	}
-	if cover.Image.MediaType != "application/octet-stream" || cover.Image.Filename != "cover.bin" {
-		t.Errorf("got %s / %s, want application/octet-stream / cover.bin",
-			cover.Image.MediaType, cover.Image.Filename)
 	}
 }

@@ -1,6 +1,8 @@
 package parser
 
 import (
+	"bytes"
+	"encoding/base64"
 	"errors"
 	"os"
 	"strings"
@@ -131,16 +133,25 @@ func TestFB2ParserCoverExtraction(t *testing.T) {
       </coverpage>
     </title-info>
   </description>
-  <binary id="c1">YWJj</binary>
+  <binary id="c1">R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7</binary>
 </FictionBook>`
+
+	// A real one-pixel GIF rather than three letters of filler: the cover is
+	// now checked for being a picture, so filler would prove only that the
+	// check rejected it.
+	want, err := base64.StdEncoding.DecodeString(
+		"R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")
+	if err != nil {
+		t.Fatalf("fixture is not valid base64: %v", err)
+	}
 
 	parser := NewFB2Parser(true)
 	book, err := parser.Parse(strings.NewReader(xml))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if string(book.Cover) != "abc" {
-		t.Fatalf("unexpected cover data: %q", string(book.Cover))
+	if !bytes.Equal(book.Cover, want) {
+		t.Fatalf("unexpected cover data: %d bytes, want %d", len(book.Cover), len(want))
 	}
 }
 
