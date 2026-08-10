@@ -1371,6 +1371,33 @@ func buildImages(doc *FB2Document) map[string]epubImage {
 	return images
 }
 
+const (
+	extJPG   = ".jpg"
+	extPNG   = ".png"
+	extGIF   = ".gif"
+	extWEBP  = ".webp"
+	extSVG   = ".svg"
+	mimeJPEG = "image/jpeg"
+	mimePNG  = "image/png"
+	mimeGIF  = "image/gif"
+	mimeWEBP = "image/webp"
+	mimeSVG  = "image/svg+xml"
+)
+
+// imageIDHints maps the extensions an FB2 image id may carry to the type they
+// suggest. A hint may confirm a type the payload supports; it may not name one
+// on its own, because the id is book-controlled text.
+var imageIDHints = []struct {
+	suffixes []string
+	mime     string
+}{
+	{[]string{extJPG, ".jpeg"}, mimeJPEG},
+	{[]string{extPNG}, mimePNG},
+	{[]string{extGIF}, mimeGIF},
+	{[]string{extWEBP}, mimeWEBP},
+	{[]string{extSVG}, mimeSVG},
+}
+
 // detectImageMimeType detects MIME type for image data. The declared
 // content-type wins when the payload's magic bytes confirm it; a declaration
 // the bytes contradict is a lie, not a hint, and is ignored. Without a
@@ -1386,16 +1413,7 @@ func detectImageMimeType(data []byte, imageID, declared string) string {
 	// book. It may not reinstate a type the payload has already contradicted:
 	// otherwise id="x.svg" resurrects the SVG the magic check just rejected.
 	lowerID := strings.ToLower(imageID)
-	for _, hint := range []struct {
-		suffixes []string
-		mime     string
-	}{
-		{[]string{".jpg", ".jpeg"}, "image/jpeg"},
-		{[]string{".png"}, "image/png"},
-		{[]string{".gif"}, "image/gif"},
-		{[]string{".webp"}, "image/webp"},
-		{[]string{".svg"}, "image/svg+xml"},
-	} {
+	for _, hint := range imageIDHints {
 		for _, suffix := range hint.suffixes {
 			if strings.Contains(lowerID, suffix) {
 				if mimeMatchesMagic(hint.mime, data) {
@@ -1415,7 +1433,7 @@ func detectImageMimeType(data []byte, imageID, declared string) string {
 	}
 
 	// Default to JPEG if detection failed
-	return "image/jpeg"
+	return mimeJPEG
 }
 
 // mimeMatchesMagic reports whether the payload's magic bytes agree with the
@@ -1423,15 +1441,15 @@ func detectImageMimeType(data []byte, imageID, declared string) string {
 // here; anything else falls through to the other detection steps.
 func mimeMatchesMagic(mime string, data []byte) bool {
 	switch mime {
-	case "image/jpeg":
+	case mimeJPEG:
 		return bytes.HasPrefix(data, []byte{0xFF, 0xD8, 0xFF})
-	case "image/png":
+	case mimePNG:
 		return bytes.HasPrefix(data, []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'})
-	case "image/gif":
+	case mimeGIF:
 		return bytes.HasPrefix(data, []byte("GIF87a")) || bytes.HasPrefix(data, []byte("GIF89a"))
-	case "image/webp":
+	case mimeWEBP:
 		return len(data) >= 12 && bytes.HasPrefix(data, []byte("RIFF")) && bytes.Equal(data[8:12], []byte("WEBP"))
-	case "image/svg+xml":
+	case mimeSVG:
 		// SVG is XML text and has no fixed magic, so the root element is the
 		// only real evidence. An XML prolog is not: every XML document has
 		// one, so accepting it would confirm `<?xml?><html>` as an image and
@@ -1465,16 +1483,16 @@ func hasSVGRoot(data []byte) bool {
 
 func extensionForMime(mime string) string {
 	switch mime {
-	case "image/jpeg":
-		return ".jpg"
-	case "image/png":
-		return ".png"
-	case "image/gif":
-		return ".gif"
-	case "image/webp":
-		return ".webp"
-	case "image/svg+xml":
-		return ".svg"
+	case mimeJPEG:
+		return extJPG
+	case mimePNG:
+		return extPNG
+	case mimeGIF:
+		return extGIF
+	case mimeWEBP:
+		return extWEBP
+	case mimeSVG:
+		return extSVG
 	default:
 		return ""
 	}
@@ -1526,8 +1544,8 @@ func buildCover(bookFile *parser.BookFile, images map[string]epubImage) *epubCov
 		mediaType := detectImageMimeType(coverData, "cover", "")
 		ext := extensionForMime(mediaType)
 		if ext == "" {
-			ext = ".jpg"
-			mediaType = "image/jpeg"
+			ext = extJPG
+			mediaType = mimeJPEG
 		}
 		return &epubCover{
 			ItemID:        "cover",
