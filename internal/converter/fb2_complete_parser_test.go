@@ -2,6 +2,7 @@ package converter
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 
 	"gopds-api/internal/parser"
@@ -99,14 +100,14 @@ func TestParseFB2Complete_CompareWithSeparateParsing(t *testing.T) {
 						docCombined.Body.Title, docSeparate.Body.Title)
 				}
 
-				if len(docCombined.Body.Paragraphs) != len(docSeparate.Body.Paragraphs) {
+				if len(docCombined.Body.Paragraphs()) != len(docSeparate.Body.Paragraphs()) {
 					t.Errorf("Body paragraphs count mismatch: combined=%d, separate=%d",
-						len(docCombined.Body.Paragraphs), len(docSeparate.Body.Paragraphs))
+						len(docCombined.Body.Paragraphs()), len(docSeparate.Body.Paragraphs()))
 				}
 
-				if len(docCombined.Body.SubSections) != len(docSeparate.Body.SubSections) {
+				if len(docCombined.Body.SubSections()) != len(docSeparate.Body.SubSections()) {
 					t.Errorf("Body subsections count mismatch: combined=%d, separate=%d",
-						len(docCombined.Body.SubSections), len(docSeparate.Body.SubSections))
+						len(docCombined.Body.SubSections()), len(docSeparate.Body.SubSections()))
 				}
 			}
 
@@ -179,12 +180,13 @@ func TestParseFB2Complete_Cyrillic(t *testing.T) {
 	}
 
 	// Check body
-	if doc.Body == nil {
-		t.Fatal("Expected body to be parsed")
+	if doc.Body == nil || len(doc.Body.SubSections()) == 0 {
+		t.Fatal("Expected body with at least one section")
 	}
 
-	if doc.Body.Title != "Глава 1" {
-		t.Errorf("Expected cyrillic section title 'Глава 1', got '%s'", doc.Body.Title)
+	section := doc.Body.SubSections()[0]
+	if section.Title != "Глава 1" {
+		t.Errorf("Expected cyrillic section title 'Глава 1', got '%s'", section.Title)
 	}
 }
 
@@ -272,8 +274,12 @@ func TestParseFB2Complete_SpecialElements(t *testing.T) {
 	}
 
 	// Check body has special elements
-	if doc.Body == nil || len(doc.Body.Paragraphs) == 0 {
-		t.Fatal("Expected body with paragraphs")
+	if doc.Body == nil || len(doc.Body.SubSections()) == 0 {
+		t.Fatal("Expected body with at least one section")
+	}
+	section := doc.Body.SubSections()[0]
+	if len(section.Paragraphs()) == 0 {
+		t.Fatal("Expected section with paragraphs")
 	}
 
 	// Check for different paragraph kinds
@@ -281,7 +287,7 @@ func TestParseFB2Complete_SpecialElements(t *testing.T) {
 	foundCite := false
 	foundTable := false
 
-	for _, p := range doc.Body.Paragraphs {
+	for _, p := range section.Paragraphs() {
 		switch p.Kind {
 		case ParagraphKindPoem, ParagraphKindPoemLine:
 			foundPoem = true
@@ -305,5 +311,19 @@ func TestParseFB2Complete_SpecialElements(t *testing.T) {
 	// Metadata should also be present
 	if bookFile.Title == "" {
 		t.Error("Expected title in metadata")
+	}
+}
+
+// TestParseFB2Complete_FallbackKeepsTypedError pins the ninth-iteration fix:
+// when the main decoder fails and the fallback classifies the input with a
+// typed error, that verdict — not the raw syntax error — reaches the caller.
+// An unclosed CDATA section with no book markup is the reachable example:
+// ParseFB2Body calls it ErrNotFictionBook, and losing that to a bare syntax
+// error breaks every errors.Is branch downstream.
+func TestParseFB2Complete_FallbackKeepsTypedError(t *testing.T) {
+	in := []byte(`<?xml version="1.0" encoding="utf-8"?><notabook><![CDATA[never closed`)
+	_, _, err := ParseFB2Complete(in, false)
+	if !errors.Is(err, ErrNotFictionBook) {
+		t.Errorf("expected a typed ErrNotFictionBook through the fallback, got %v", err)
 	}
 }

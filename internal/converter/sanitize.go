@@ -5,10 +5,22 @@ import (
 	"io"
 	"strings"
 
-	"github.com/saintfish/chardet"
 	"golang.org/x/net/html/charset"
 	"golang.org/x/text/encoding/charmap"
 	"golang.org/x/text/transform"
+)
+
+// Charset labels used by makeCharsetReader, with their common aliases.
+const (
+	charsetUTF8        = "utf-8"
+	charsetUTF8Bare    = "utf8"
+	charsetLatin1      = "iso-8859-1"
+	charsetLatin1Alias = "latin1"
+	charsetLatin5      = "iso-8859-5"
+	charsetLatin5Alias = "latin5"
+	charsetCP1251      = "windows-1251"
+	charsetCP1251Alias = "cp1251"
+	charsetKOI8R       = "koi8-r"
 )
 
 func sanitizeInvalidTagOpenings(content []byte) []byte {
@@ -483,171 +495,18 @@ func sanitizeXMLVersion(content []byte) []byte {
 	return append([]byte(newDecl), content[declEnd:]...)
 }
 
-// tryDecodeCharset detects encoding from XML declaration and converts to UTF-8.
-// It also normalizes the XML declaration to encoding="utf-8" when conversion happens.
-func tryDecodeCharset(content []byte) []byte {
-	if isValidUTF8(content) {
-		return content
-	}
-
-	declEnd := bytes.Index(content, []byte("?>"))
-	if declEnd > 0 && declEnd < 200 {
-		decl := string(content[:declEnd])
-		encoding := extractEncoding(decl)
-		if encoding != "" {
-			decoded := convertEncoding(content, encoding)
-			if decoded != nil {
-				return normalizeEncodingDecl(decoded, "utf-8")
-			}
-		}
-	}
-
-	for _, enc := range []string{"iso-8859-5", "windows-1251", "cp1251", "iso-8859-1"} {
-		decoded := convertEncoding(content, enc)
-		if decoded != nil && isValidUTF8(decoded) {
-			return normalizeEncodingDecl(decoded, "utf-8")
-		}
-	}
-
-	if detected := detectCharset(content); detected != "" {
-		decoded := convertEncoding(content, detected)
-		if decoded != nil && isValidUTF8(decoded) {
-			return normalizeEncodingDecl(decoded, "utf-8")
-		}
-	}
-
-	return content
-}
-
-func isValidUTF8(data []byte) bool {
-	return utf8BytesValid(data)
-}
-
-func utf8BytesValid(data []byte) bool {
-	for i := 0; i < len(data); {
-		if data[i] < 0x80 {
-			i++
-			continue
-		}
-		if data[i]&0xE0 == 0xC0 {
-			if i+1 >= len(data) || data[i+1]&0xC0 != 0x80 {
-				return false
-			}
-			i += 2
-			continue
-		}
-		if data[i]&0xF0 == 0xE0 {
-			if i+2 >= len(data) || data[i+1]&0xC0 != 0x80 || data[i+2]&0xC0 != 0x80 {
-				return false
-			}
-			i += 3
-			continue
-		}
-		if data[i]&0xF8 == 0xF0 {
-			if i+3 >= len(data) || data[i+1]&0xC0 != 0x80 || data[i+2]&0xC0 != 0x80 || data[i+3]&0xC0 != 0x80 {
-				return false
-			}
-			i += 4
-			continue
-		}
-		return false
-	}
-	return true
-}
-
-func extractEncoding(decl string) string {
-	start := strings.Index(decl, "encoding=")
-	if start == -1 {
-		return ""
-	}
-	start += 9
-	if start >= len(decl) {
-		return ""
-	}
-
-	quote := decl[start]
-	if quote != '"' && quote != '\'' {
-		return ""
-	}
-
-	start++
-	end := strings.IndexByte(decl[start:], quote)
-	if end == -1 {
-		return ""
-	}
-
-	return strings.ToLower(decl[start : start+end])
-}
-
-func normalizeEncodingDecl(content []byte, encoding string) []byte {
-	declEnd := bytes.Index(content, []byte("?>"))
-	if declEnd == -1 || declEnd > 200 {
-		return content
-	}
-	decl := string(content[:declEnd])
-	start := strings.Index(decl, "encoding=")
-	if start == -1 {
-		return content
-	}
-	start += 9
-	if start >= len(decl) {
-		return content
-	}
-
-	quote := decl[start]
-	if quote != '"' && quote != '\'' {
-		return content
-	}
-
-	start++
-	end := strings.IndexByte(decl[start:], quote)
-	if end == -1 {
-		return content
-	}
-
-	newDecl := decl[:start] + encoding + decl[start+end:]
-	normalized := append([]byte(newDecl), content[declEnd:]...)
-	return normalized
-}
-
-func convertEncoding(content []byte, encoding string) []byte {
-	var dec transform.Transformer
-	switch strings.ToLower(encoding) {
-	case "iso-8859-1", "iso-8859-5", "latin1", "latin5":
-		dec = charmap.ISO8859_5.NewDecoder()
-	case "windows-1251", "cp1251":
-		dec = charmap.Windows1251.NewDecoder()
-	default:
-		reader, err := charset.NewReaderLabel(strings.ToLower(encoding), bytes.NewReader(content))
-		if err != nil {
-			return nil
-		}
-		decoded, err := io.ReadAll(reader)
-		if err != nil {
-			return nil
-		}
-		return decoded
-	}
-
-	result, _, err := transform.Bytes(dec, content)
-	if err != nil {
-		return nil
-	}
-	return result
-}
-
 func makeCharsetReader(charsetLabel string, input io.Reader) (io.Reader, error) {
 	charsetLabel = strings.ToLower(charsetLabel)
 	switch charsetLabel {
-	case "utf-8", "utf8":
+	case charsetUTF8, charsetUTF8Bare:
 		return input, nil
-	case "windows-1251", "cp1251", "cp-1251":
+	case charsetCP1251, charsetCP1251Alias, "cp-1251":
 		return transform.NewReader(input, charmap.Windows1251.NewDecoder()), nil
-	case "iso-8859-1", "latin1", "iso_8859-1":
+	case charsetLatin1, charsetLatin1Alias, "iso_8859-1":
 		return transform.NewReader(input, charmap.ISO8859_1.NewDecoder()), nil
-	case "iso-8859-5", "latin5", "iso_8859-5":
+	case charsetLatin5, charsetLatin5Alias, "iso_8859-5":
 		return transform.NewReader(input, charmap.ISO8859_5.NewDecoder()), nil
-	case "koi8-r", "koi8r":
+	case charsetKOI8R, "koi8r":
 		return transform.NewReader(input, charmap.KOI8R.NewDecoder()), nil
 	case "koi8-u", "koi8u":
 		return transform.NewReader(input, charmap.KOI8U.NewDecoder()), nil
@@ -658,15 +517,6 @@ func makeCharsetReader(charsetLabel string, input io.Reader) (io.Reader, error) 
 		}
 		return reader, nil
 	}
-}
-
-func detectCharset(content []byte) string {
-	detector := chardet.NewTextDetector()
-	result, err := detector.DetectBest(content)
-	if err != nil || result == nil {
-		return ""
-	}
-	return strings.ToLower(result.Charset)
 }
 
 // balanceSectionTags ensures all <section> tags are properly balanced.

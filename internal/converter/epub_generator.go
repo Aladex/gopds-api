@@ -25,6 +25,7 @@ type EPUBGenerator struct {
 	images         map[string]epubImage       // Images from FB2 binary elements
 	sectionAnchors map[*FB2BodySection]string // Section ID to anchor mapping
 	sectionFiles   map[*FB2BodySection]string // Section to filename mapping
+	idIndex        map[string]string          // FB2 section/paragraph id to chapter filename, for internal links
 	anchorSeq      int                        // Sequential anchor counter
 	notesAnchors   map[string]string          // Note ID to anchor mapping
 	notesFile      string                     // Filename for notes page
@@ -60,8 +61,8 @@ func (g *EPUBGenerator) GenerateEPUB(doc *FB2Document, bookFile *parser.BookFile
 	if doc.Body == nil {
 		doc.Body = &FB2BodySection{
 			Title: safeTitle(bookFile),
-			Paragraphs: []*FB2Paragraph{
-				{Text: "Unable to parse book content", Kind: ParagraphKindNormal},
+			Content: []*FB2ContentItem{
+				{Paragraph: &FB2Paragraph{Text: "Unable to parse book content", Kind: ParagraphKindNormal}},
 			},
 		}
 	}
@@ -69,14 +70,22 @@ func (g *EPUBGenerator) GenerateEPUB(doc *FB2Document, bookFile *parser.BookFile
 	g.images = buildImages(doc)
 	g.sectionAnchors = make(map[*FB2BodySection]string)
 	g.sectionFiles = make(map[*FB2BodySection]string)
+	g.idIndex = make(map[string]string)
 	g.anchorSeq = 0
+	// Notes state must not survive into the next document either: planNotes
+	// returns early for a noteless book, so without this reset a reused
+	// generator would emit the previous book's notes page and anchors.
+	g.notesAnchors = nil
+	g.notesFile = ""
 	cover := buildCover(bookFile, g.images)
 	titlePage := buildTitlePage(bookFile)
 	if titlePage != nil {
 		g.anchorSeq = 1
 	}
 	tocPage := buildTocPage()
-	notesPage := g.buildNotesPage(doc)
+	// Note anchors are assigned before any chapter renders: chapters link
+	// into the notes file, so its anchors must already exist.
+	g.planNotes(doc)
 
 	var buf bytes.Buffer
 	zipWriter := zip.NewWriter(&buf)
@@ -92,6 +101,10 @@ func (g *EPUBGenerator) GenerateEPUB(doc *FB2Document, bookFile *parser.BookFile
 	if len(chapters) == 0 {
 		chapters = append(chapters, &epubChapter{Title: safeTitle(bookFile), Filename: "index001.xhtml", Body: ""})
 	}
+
+	// Notes render after the chapters: the id index must already cover the
+	// main body, because notes link back into it.
+	notesPage := g.buildNotesPage(doc)
 
 	for i := range chapters {
 		if chapters[i].Filename == "" {
@@ -169,74 +182,126 @@ func (g *EPUBGenerator) GenerateEPUB(doc *FB2Document, bookFile *parser.BookFile
 }
 
 type epubChapter struct {
-	Title    string
-	Filename string
-	Body     string
-	Section  *FB2BodySection
-	Depth    int
+	Title      string
+	Filename   string
+	Body       string
+	Section    *FB2BodySection
+	Paragraphs []*FB2Paragraph
+	Depth      int
 }
 
 func (g *EPUBGenerator) buildSectionFiles(doc *FB2Document) []*epubChapter {
-	if doc == nil || doc.Body == nil {
-		return nil
-	}
-	var nodes []*sectionNode
-	topSections := doc.Body.SubSections
-	if len(topSections) == 0 {
-		topSections = []*FB2BodySection{doc.Body}
-	}
-	for _, section := range topSections {
-		g.collectSections(section, 1, &nodes)
+	var chapters []*epubChapter
+	if doc.Body != nil {
+		chapters = g.flattenBody(doc.Body, chapters)
 	}
 
-	chapters := make([]*epubChapter, 0, len(nodes))
-	for i, node := range nodes {
-		if node == nil || node.Section == nil {
-			continue
-		}
+	// Filenames and the id index are assigned for the whole document before
+	// any chapter renders: a link may point at a section rendered later.
+	for i, chapter := range chapters {
 		filename := fmt.Sprintf("index%03d.xhtml", i+1)
-		g.sectionFiles[node.Section] = filename
-		chapters = append(chapters, g.sectionToFile(node.Section, node.Depth, filename))
+		chapter.Filename = filename
+		if chapter.Section != nil {
+			g.sectionFiles[chapter.Section] = filename
+			if id := strings.TrimSpace(chapter.Section.ID); id != "" {
+				if _, taken := g.idIndex[id]; !taken {
+					g.idIndex[id] = filename
+				}
+			}
+		}
+		for _, p := range chapter.Paragraphs {
+			if p == nil {
+				continue
+			}
+			if id := strings.TrimSpace(p.ID); id != "" {
+				if _, taken := g.idIndex[id]; !taken {
+					g.idIndex[id] = filename
+				}
+			}
+		}
+	}
+	for _, chapter := range chapters {
+		var body strings.Builder
+		if chapter.Section != nil {
+			g.renderSectionHeader(&body, chapter.Section, chapter.Depth)
+			chapter.Title = chapter.Section.Title
+		}
+		g.renderParagraphs(&body, chapter.Paragraphs)
+		chapter.Body = body.String()
 	}
 	return chapters
 }
 
-type sectionNode struct {
-	Section *FB2BodySection
-	Depth   int
+// flattenBody turns the root container into chapters. The root is never a
+// chapter itself: its paragraphs become anonymous chapters, its sections
+// become real ones.
+func (g *EPUBGenerator) flattenBody(root *FB2BodySection, chapters []*epubChapter) []*epubChapter {
+	var run []*FB2Paragraph
+	flushRun := func() {
+		if len(run) == 0 {
+			return
+		}
+		chapters = append(chapters, &epubChapter{Paragraphs: run, Depth: 1})
+		run = nil
+	}
+	for _, item := range root.Content {
+		if item == nil {
+			continue
+		}
+		if item.Paragraph != nil {
+			run = append(run, item.Paragraph)
+			continue
+		}
+		flushRun()
+		chapters = g.flattenSection(item.Section, 1, chapters)
+	}
+	flushRun()
+	return chapters
 }
 
-func (g *EPUBGenerator) collectSections(section *FB2BodySection, depth int, out *[]*sectionNode) {
-	if section == nil || out == nil {
-		return
-	}
-	*out = append(*out, &sectionNode{Section: section, Depth: depth})
-	for _, sub := range section.SubSections {
-		g.collectSections(sub, depth+1, out)
-	}
-}
-
-func (g *EPUBGenerator) sectionToFile(section *FB2BodySection, depth int, filename string) *epubChapter {
+// flattenSection emits the section's own chapter (header plus the paragraphs
+// preceding its first subsection, or all of them when there are no
+// subsections), then recurses. Paragraph runs found after a subsection become
+// anonymous chapters placed right after that subsection's chapters.
+func (g *EPUBGenerator) flattenSection(section *FB2BodySection, depth int, chapters []*epubChapter) []*epubChapter {
 	if section == nil {
-		return &epubChapter{}
+		return chapters
 	}
-	var body strings.Builder
-	g.renderSectionShallow(&body, section, depth)
-	return &epubChapter{
-		Title:    section.Title,
-		Body:     body.String(),
-		Section:  section,
-		Depth:    depth,
-		Filename: filename,
+	var run []*FB2Paragraph
+	ownEmitted := false
+	emitOwn := func() {
+		chapters = append(chapters, &epubChapter{Section: section, Paragraphs: run, Depth: depth})
+		run = nil
+		ownEmitted = true
 	}
-}
-
-func (g *EPUBGenerator) renderSectionShallow(builder *strings.Builder, section *FB2BodySection, level int) {
-	if section == nil {
-		return
+	flushRun := func() {
+		if len(run) == 0 {
+			return
+		}
+		chapters = append(chapters, &epubChapter{Paragraphs: run, Depth: depth})
+		run = nil
 	}
-	g.renderSectionHeader(builder, section, level)
-	g.renderParagraphs(builder, section.Paragraphs)
+	for _, item := range section.Content {
+		if item == nil {
+			continue
+		}
+		if item.Paragraph != nil {
+			run = append(run, item.Paragraph)
+			continue
+		}
+		if !ownEmitted {
+			emitOwn()
+		} else {
+			flushRun()
+		}
+		chapters = g.flattenSection(item.Section, depth+1, chapters)
+	}
+	if !ownEmitted {
+		emitOwn()
+	} else {
+		flushRun()
+	}
+	return chapters
 }
 
 func (g *EPUBGenerator) renderSectionHeader(builder *strings.Builder, section *FB2BodySection, level int) {
@@ -247,6 +312,13 @@ func (g *EPUBGenerator) renderSectionHeader(builder *strings.Builder, section *F
 	if anchor != "" {
 		builder.WriteString("<a id=\"")
 		builder.WriteString(html.EscapeString(anchor))
+		builder.WriteString("\"></a>\n")
+	}
+	// The FB2 section id becomes an anchor of its own: internal links in the
+	// source point at these ids, not at our generated tocref anchors.
+	if id := strings.TrimSpace(section.ID); id != "" {
+		builder.WriteString("<a id=\"")
+		builder.WriteString(html.EscapeString(id))
 		builder.WriteString("\"></a>\n")
 	}
 	if section.Title == "" {
@@ -272,11 +344,27 @@ func (g *EPUBGenerator) renderParagraphs(builder *strings.Builder, paragraphs []
 			i = g.renderPoemBlock(builder, paragraphs, i)
 			continue
 		}
+		g.renderParagraphAnchor(builder, p)
 		paragraph := g.renderParagraph(p)
 		if paragraph != "" {
 			builder.WriteString(paragraph)
 		}
 		i++
+	}
+}
+
+// renderParagraphAnchor emits the paragraph's FB2 id as an anchor: internal
+// links in the source point at these ids. The anchor is written even when the
+// paragraph itself renders to nothing, so the id index never points into a
+// void.
+func (g *EPUBGenerator) renderParagraphAnchor(builder *strings.Builder, p *FB2Paragraph) {
+	if p == nil {
+		return
+	}
+	if id := strings.TrimSpace(p.ID); id != "" {
+		builder.WriteString("<a id=\"")
+		builder.WriteString(html.EscapeString(id))
+		builder.WriteString("\"></a>\n")
 	}
 }
 
@@ -352,6 +440,7 @@ func (g *EPUBGenerator) renderPoemBlock(builder *strings.Builder, paragraphs []*
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
+		g.renderParagraphAnchor(builder, p)
 		builder.WriteString("    <p>")
 		builder.WriteString(line)
 		builder.WriteString("</p>\n")
@@ -395,6 +484,7 @@ func (g *EPUBGenerator) renderInlineElements(builder *strings.Builder, elements 
 				href = strings.TrimSpace(el.Attrs["href"])
 			}
 			href = g.resolveNoteHref(href, el.Attrs)
+			href = g.resolveSectionHref(href)
 			if href == "" {
 				g.renderInlineElements(builder, el.Children)
 				break
@@ -436,6 +526,23 @@ func (g *EPUBGenerator) resolveNoteHref(href string, attrs map[string]string) st
 		return g.notesFile + "#" + anchor
 	}
 	return href
+}
+
+// resolveSectionHref rewrites a "#id" link to point at the chapter file that
+// holds the target section or paragraph. Links to unknown ids pass through.
+func (g *EPUBGenerator) resolveSectionHref(href string) string {
+	if g == nil || len(g.idIndex) == 0 {
+		return href
+	}
+	if !strings.HasPrefix(href, "#") {
+		return href
+	}
+	id := strings.TrimPrefix(href, "#")
+	file, ok := g.idIndex[id]
+	if !ok || file == "" {
+		return href
+	}
+	return file + "#" + id
 }
 
 func inlineTag(tag string) string {
@@ -538,13 +645,15 @@ type epubNotesPage struct {
 }
 
 func (g *EPUBGenerator) buildTOC(doc *FB2Document, chapters []*epubChapter, titlePage *epubTitlePage) []*tocNode {
-	if doc == nil || doc.Body == nil {
-		return nil
+	var topSections []*FB2BodySection
+	if doc != nil && doc.Body != nil {
+		// Only real sections enter the table of contents: the root container
+		// is not a chapter, and anonymous paragraph runs between sections
+		// would read as untitled noise.
+		topSections = doc.Body.SubSections()
 	}
-	topSections := doc.Body.SubSections
-	if len(topSections) == 0 {
-		topSections = []*FB2BodySection{doc.Body}
-	}
+	// No early exit for a sectionless book: the title page and the notes page
+	// still need their entries, or the navigation renders an empty list.
 	var nodes []*tocNode
 	if titlePage != nil {
 		nodes = append(nodes, &tocNode{
@@ -589,7 +698,7 @@ func (g *EPUBGenerator) buildTOCSection(section *FB2BodySection) *tocNode {
 		File:   filename,
 		Anchor: g.sectionAnchor(section),
 	}
-	for _, sub := range section.SubSections {
+	for _, sub := range section.SubSections() {
 		child := g.buildTOCSection(sub)
 		if child != nil {
 			node.Children = append(node.Children, child)
@@ -1136,11 +1245,29 @@ func buildTocPage() *epubTocPage {
 	}
 }
 
+// planNotes assigns note anchors and the notes filename without rendering
+// anything. It runs before chapter rendering, which rewrites note links to
+// point at these anchors.
+func (g *EPUBGenerator) planNotes(doc *FB2Document) {
+	if doc == nil || len(doc.Notes) == 0 {
+		return
+	}
+	g.notesAnchors = make(map[string]string, len(doc.Notes))
+	g.notesFile = "notes.xhtml"
+	for i, section := range doc.Notes {
+		if section == nil {
+			continue
+		}
+		if section.ID != "" {
+			g.notesAnchors[section.ID] = buildNoteAnchor(section, i)
+		}
+	}
+}
+
 func (g *EPUBGenerator) buildNotesPage(doc *FB2Document) *epubNotesPage {
 	if doc == nil || len(doc.Notes) == 0 {
 		return nil
 	}
-	anchors := make(map[string]string)
 	var body strings.Builder
 	body.WriteString("<div class=\"titleblock_nobreak\"><p class=\"title\">Примечания</p></div>\n")
 	for i, section := range doc.Notes {
@@ -1148,9 +1275,6 @@ func (g *EPUBGenerator) buildNotesPage(doc *FB2Document) *epubNotesPage {
 			continue
 		}
 		anchor := buildNoteAnchor(section, i)
-		if section.ID != "" {
-			anchors[section.ID] = anchor
-		}
 		body.WriteString("<div class=\"note\" id=\"")
 		body.WriteString(html.EscapeString(anchor))
 		body.WriteString("\">\n")
@@ -1163,7 +1287,7 @@ func (g *EPUBGenerator) buildNotesPage(doc *FB2Document) *epubNotesPage {
 			body.WriteString(html.EscapeString(title))
 			body.WriteString("</p>\n")
 		}
-		g.renderParagraphs(&body, section.Paragraphs)
+		g.renderParagraphs(&body, section.Paragraphs())
 		body.WriteString("</div>\n")
 	}
 
@@ -1179,16 +1303,13 @@ func (g *EPUBGenerator) buildNotesPage(doc *FB2Document) *epubNotesPage {
 </body>
 </html>`, indentLines(body.String(), "  "))
 
-	page := &epubNotesPage{
+	return &epubNotesPage{
 		ItemID:        "notes",
-		XHTMLFilename: "notes.xhtml",
+		XHTMLFilename: g.notesFile,
 		Title:         "Примечания",
 		Content:       content,
-		Anchors:       anchors,
+		Anchors:       g.notesAnchors,
 	}
-	g.notesAnchors = anchors
-	g.notesFile = page.XHTMLFilename
-	return page
 }
 
 func buildNoteAnchor(section *FB2BodySection, index int) string {
@@ -1227,7 +1348,7 @@ func buildImages(doc *FB2Document) map[string]epubImage {
 
 	images := make(map[string]epubImage, len(keys))
 	for i, key := range keys {
-		data := doc.Binary[key]
+		data := doc.Binary[key].Data
 		if len(data) == 0 {
 			continue
 		}

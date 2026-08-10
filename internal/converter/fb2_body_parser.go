@@ -4,8 +4,36 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/xml"
+	"errors"
+	"fmt"
 	"io"
 	"strings"
+
+	"gopds-api/internal/parser"
+)
+
+// Section and inline nesting accepted by the parser are bounded separately:
+// they are different trees with different growth reasons. A catalog probe of
+// 488 books from 100 archives found at most 6 nested sections and 4 nested
+// inline elements, so 32 leaves a wide margin; anything deeper is a
+// pathological file that would overflow the stack in the recursive renderers
+// downstream.
+const (
+	maxFB2SectionDepth = 32
+	maxFB2InlineDepth  = 32
+)
+
+// Typed errors of the body-parsing pipeline, so callers can branch with
+// errors.Is instead of matching message text.
+var (
+	// ErrNotFictionBook marks input that showed neither a FictionBook root
+	// nor any body element: it is garbage, not an empty book, and returning
+	// an empty document would masquerade as one.
+	ErrNotFictionBook = errors.New("fb2: not a FictionBook document")
+	// ErrDepthLimit marks section or inline nesting beyond the bounds above:
+	// the EPUB renderer walks these trees recursively, so an unbounded file
+	// would turn a download into a stack overflow.
+	ErrDepthLimit = errors.New("fb2: nesting depth limit exceeded")
 )
 
 // Paragraph kinds represent different types of FB2 paragraphs
@@ -36,22 +64,40 @@ const (
 	InlineTypeBreak    = "br"
 )
 
+// FB2Binary holds one decoded <binary> element. The declared content-type is
+// kept alongside the data because the parser is the only place it survives;
+// consumers decide how much to trust it.
+type FB2Binary struct {
+	Data []byte // Decoded base64 payload
+	MIME string // Declared content-type attribute, may be empty or wrong
+}
+
 // FB2Document holds a parsed FB2 body with full structure including sections,
 // paragraphs with inline formatting, binary images, and footnotes.
 type FB2Document struct {
-	Title  string            // Document title from description/title-info
-	Body   *FB2BodySection   // Main body with hierarchical sections
-	Binary map[string][]byte // Binary images (id -> decoded base64 data)
-	Notes  []*FB2BodySection // Footnotes/endnotes from notes body
+	Title  string               // Document title from description/title-info
+	Body   *FB2BodySection      // Root container of the main body; never a real chapter
+	Binary map[string]FB2Binary // Binary images (id -> decoded payload + declared type)
+	Notes  []*FB2BodySection    // Footnotes/endnotes from notes body
 }
 
 // FB2BodySection represents a section (chapter) with nested subsections.
-// Sections can contain paragraphs and recursively nested child sections.
+// The document root (FB2Document.Body) uses the same type as a container:
+// its Content holds the top-level chapters and any text placed directly
+// under <body>.
 type FB2BodySection struct {
-	ID          string            // Section ID attribute
-	Title       string            // Section title text
-	Paragraphs  []*FB2Paragraph   // Content paragraphs
-	SubSections []*FB2BodySection // Nested subsections
+	ID      string            // Section ID attribute
+	Title   string            // Section title text
+	Content []*FB2ContentItem // Paragraphs and subsections in document order
+}
+
+// FB2ContentItem is one child of a section, in the order it appears in the
+// source. Exactly one of the fields is non-nil. A single ordered sequence is
+// the only faithful representation: separate paragraph and section pools
+// cannot express text placed between two sections.
+type FB2ContentItem struct {
+	Paragraph *FB2Paragraph   // Set when the item is a content paragraph
+	Section   *FB2BodySection // Set when the item is a nested section
 }
 
 // FB2Paragraph holds paragraph content with inline formatting elements.
@@ -99,7 +145,10 @@ type FB2TableCell struct {
 // Returns FB2Document with parsed structure or error if parsing fails.
 func ParseFB2Body(xmlContent []byte) (*FB2Document, error) {
 	// Step 1: Decode charset and basic cleaning
-	decoded := tryDecodeCharset(xmlContent)
+	decoded, err := parser.DecodeToUTF8(xmlContent)
+	if err != nil {
+		return nil, err
+	}
 	decoded = sanitizeControlChars(decoded)
 	decoded = sanitizeInvalidTagOpenings(decoded)
 	decoded = sanitizeInvalidProcessingInstructions(decoded)
@@ -143,10 +192,18 @@ func ParseFB2Body(xmlContent []byte) (*FB2Document, error) {
 		case xml.CharData:
 			state.handleChar(t)
 		}
+		if state.err != nil {
+			return nil, state.err
+		}
 	}
 
-	if doc.Body == nil && len(state.sectionStack) > 0 {
-		doc.Body = state.sectionStack[0]
+	if state.err != nil {
+		return nil, state.err
+	}
+	// Neither a FictionBook root nor any body was seen: this is not a book at
+	// all, and returning an empty document would masquerade as an empty book.
+	if !state.sawRoot && !state.sawBody {
+		return nil, ErrNotFictionBook
 	}
 	return doc, nil
 }
@@ -266,9 +323,15 @@ func parseFB2BodyLoose(content []byte) (*FB2Document, error) {
 	}
 	paragraphs := extractParagraphs(segment)
 	for _, text := range paragraphs {
-		section.Paragraphs = append(section.Paragraphs, &FB2Paragraph{Text: text})
+		section.Content = append(section.Content, &FB2ContentItem{Paragraph: &FB2Paragraph{Text: text}})
 	}
-	if len(section.Paragraphs) == 0 && section.Title == "" {
+	if len(section.Content) == 0 && section.Title == "" {
+		// Nothing extractable: without any FB2 structure this is garbage,
+		// not an empty book.
+		lower := bytes.ToLower(content)
+		if !bytes.Contains(lower, []byte("<body")) && !bytes.Contains(lower, []byte("fictionbook")) {
+			return nil, ErrNotFictionBook
+		}
 		return &FB2Document{Body: &FB2BodySection{}}, nil
 	}
 	return &FB2Document{Body: section}, nil
@@ -367,44 +430,54 @@ func stripTags(content []byte) string {
 }
 
 type fb2BodyState struct {
-	inBody           bool
-	bodyDepth        int
-	skipBody         bool
-	inNotes          bool
-	sectionStack     []*FB2BodySection
-	inTitle          bool
-	inSubtitle       bool
-	inParagraph      bool
-	inTitleParagraph bool
-	inCite           bool
-	inEpigraph       bool
-	inTextAuthor     bool
-	inPoem           bool
-	inStanza         bool
-	inTable          bool
-	currentParagraph *FB2Paragraph
-	currentTag       string
-	inlineStack      []*FB2InlineElement
-	currentTable     *FB2Table
-	currentRow       []*FB2TableCell
-	currentCell      *FB2TableCell
-	inBinary         bool
-	currentBinaryID  string
-	binaryBuf        strings.Builder
+	inBody            bool
+	bodyDepth         int
+	skipBody          bool
+	inNotes           bool
+	sawRoot           bool
+	sawBody           bool
+	err               error
+	sectionStack      []*FB2BodySection
+	inTitle           bool
+	inSubtitle        bool
+	inParagraph       bool
+	inTitleParagraph  bool
+	inCite            bool
+	inEpigraph        bool
+	inTextAuthor      bool
+	inPoem            bool
+	inStanza          bool
+	inTable           bool
+	currentParagraph  *FB2Paragraph
+	currentTag        string
+	inlineStack       []*FB2InlineElement
+	currentTable      *FB2Table
+	currentRow        []*FB2TableCell
+	currentCell       *FB2TableCell
+	inBinary          bool
+	currentBinaryID   string
+	currentBinaryMIME string
+	binaryBuf         strings.Builder
 }
 
 func (s *fb2BodyState) handleStart(doc *FB2Document, elem xml.StartElement) {
 	local := normalizeName(elem.Name.Local)
 	attrs := normalizeAttrs(elem.Attr)
 
+	if local == "fictionbook" {
+		s.sawRoot = true
+	}
+
 	if local == "binary" {
 		s.inBinary = true
 		s.currentBinaryID = strings.ToLower(strings.TrimSpace(attrs["id"]))
+		s.currentBinaryMIME = strings.TrimSpace(attrs["content-type"])
 		s.binaryBuf.Reset()
 		return
 	}
 
 	if local == "body" {
+		s.sawBody = true
 		s.bodyDepth++
 		if s.inBody {
 			return
@@ -424,18 +497,24 @@ func (s *fb2BodyState) handleStart(doc *FB2Document, elem xml.StartElement) {
 
 	switch local {
 	case "section":
+		// Bounded by maxFB2SectionDepth: the EPUB renderer walks the tree
+		// recursively, so an unbounded file would turn a download into a
+		// stack overflow.
+		if len(s.sectionStack) >= maxFB2SectionDepth {
+			s.err = fmt.Errorf("%w: section nesting exceeds maximum depth %d", ErrDepthLimit, maxFB2SectionDepth)
+			return
+		}
 		section := &FB2BodySection{ID: attrs["id"]}
 		if len(s.sectionStack) == 0 {
 			if s.inNotes {
 				doc.Notes = append(doc.Notes, section)
-			} else if doc.Body == nil {
-				doc.Body = section
 			} else {
-				doc.Body.SubSections = append(doc.Body.SubSections, section)
+				root := ensureBodyRoot(doc)
+				root.Content = append(root.Content, &FB2ContentItem{Section: section})
 			}
 		} else {
 			parent := s.sectionStack[len(s.sectionStack)-1]
-			parent.SubSections = append(parent.SubSections, section)
+			parent.Content = append(parent.Content, &FB2ContentItem{Section: section})
 		}
 		s.sectionStack = append(s.sectionStack, section)
 	case "title":
@@ -506,6 +585,7 @@ func (s *fb2BodyState) handleEnd(doc *FB2Document, elem xml.EndElement) {
 		}
 		s.inBinary = false
 		s.currentBinaryID = ""
+		s.currentBinaryMIME = ""
 		s.binaryBuf.Reset()
 		return
 	}
@@ -606,6 +686,15 @@ func (s *fb2BodyState) appendParagraph(doc *FB2Document, paragraph *FB2Paragraph
 	s.appendParagraphRaw(doc, paragraph)
 }
 
+// ensureBodyRoot lazily creates the root container. It is a pure container:
+// real chapters are always its children, never the root itself.
+func ensureBodyRoot(doc *FB2Document) *FB2BodySection {
+	if doc.Body == nil {
+		doc.Body = &FB2BodySection{}
+	}
+	return doc.Body
+}
+
 func (s *fb2BodyState) appendParagraphRaw(doc *FB2Document, paragraph *FB2Paragraph) {
 	if paragraph == nil {
 		return
@@ -616,13 +705,10 @@ func (s *fb2BodyState) appendParagraphRaw(doc *FB2Document, paragraph *FB2Paragr
 			section = &FB2BodySection{}
 			doc.Notes = append(doc.Notes, section)
 		} else {
-			if doc.Body == nil {
-				doc.Body = &FB2BodySection{}
-			}
-			section = doc.Body
+			section = ensureBodyRoot(doc)
 		}
 	}
-	section.Paragraphs = append(section.Paragraphs, paragraph)
+	section.Content = append(section.Content, &FB2ContentItem{Paragraph: paragraph})
 }
 
 func (s *fb2BodyState) appendInline(el *FB2InlineElement) {
@@ -643,6 +729,11 @@ func (s *fb2BodyState) appendInline(el *FB2InlineElement) {
 
 func (s *fb2BodyState) pushInline(tag string, attrs map[string]string) {
 	if !s.inParagraph && s.currentCell == nil {
+		return
+	}
+	// Same depth bound as sections: inline elements render recursively too.
+	if len(s.inlineStack) >= maxFB2InlineDepth {
+		s.err = fmt.Errorf("%w: inline nesting exceeds maximum depth %d", ErrDepthLimit, maxFB2InlineDepth)
 		return
 	}
 	el := &FB2InlineElement{
@@ -765,10 +856,10 @@ func (s *fb2BodyState) storeBinary(doc *FB2Document) {
 		return
 	}
 	if doc.Binary == nil {
-		doc.Binary = make(map[string][]byte)
+		doc.Binary = make(map[string]FB2Binary)
 	}
 	if _, exists := doc.Binary[s.currentBinaryID]; !exists {
-		doc.Binary[s.currentBinaryID] = decoded
+		doc.Binary[s.currentBinaryID] = FB2Binary{Data: decoded, MIME: s.currentBinaryMIME}
 	}
 }
 

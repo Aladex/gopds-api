@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="koi8-r"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"><description><title-info><book-title>Encoding Test</book-title></title-info></description><body><section><title><p>Chapter</p></title><p>Съешь ещё этих мягких французских булок, да выпей чаю.</p><p>Съешь ещё этих мягких французских булок, да выпей чаю (повтор для надёжного определения кодировки).</p></section></body></FictionBook>

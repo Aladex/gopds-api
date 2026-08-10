@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -390,4 +391,89 @@ func TestParseFB21File(t *testing.T) {
 	}
 
 	t.Logf("Parsed FB2.1: %s", book.Title)
+}
+
+// TestFB2ParserRootCheckRejectsNonBooks pins the twelfth-iteration root
+// check: the verdict runs in the parse stage, on the sanitized text the XML
+// decoder actually reads, so a FictionBook marker only counts when it is the
+// real root element — and every charset path judges the same bytes the same
+// way. The errors pinned with errors.Is are the root check's own typed
+// verdict; the unterminated-construct attacks die earlier, on the decoder's
+// syntax error, which is the same refusal the valid-UTF-8 path always gave
+// them.
+func TestFB2ParserRootCheckRejectsNonBooks(t *testing.T) {
+	const htmlTail = `<html><body><p>Привет</p></body></html>`
+	typed := []struct {
+		name   string
+		prolog string
+		tail   string
+	}{
+		{"bang construct cannot smuggle a root", `<!BROKEN <FictionBook>>`, htmlTail},
+		{"plain html is not a book", ``, htmlTail},
+		{"look-alike root tag", ``, `<FictionBookish><body><p>Привет</p></body></FictionBookish>`},
+		{"lowercase root tag", ``, `<fictionbook><body><p>Привет</p></body></fictionbook>`},
+		{"marker inside a closed comment", `<!-- <FictionBook> -->`, htmlTail},
+		{"marker inside CDATA", ``, `<wrapper><![CDATA[<FictionBook>]]><p>Привет</p></wrapper>`},
+		{"fictionbook nested under a foreign root", ``, `<wrapper><FictionBook><body><p>Привет</p></body></FictionBook></wrapper>`},
+		{"no markup at all", ``, `plain text, no markup Привет`},
+	}
+	for _, tc := range typed {
+		t.Run(tc.name, func(t *testing.T) {
+			for path, err := range parseFourPaths(t, tc.prolog, tc.tail) {
+				if !errors.Is(err, ErrDamagedContent) {
+					t.Errorf("%s: expected ErrDamagedContent, got %v", path, err)
+				}
+			}
+		})
+	}
+
+	unterminated := []struct {
+		name   string
+		prolog string
+	}{
+		{"comment smuggle", `<!-- <FictionBook> ]> </foo> `},
+		{"cdata smuggle", `<![CDATA[ <FictionBook> ]> </foo> `},
+		{"doctype quote smuggle", `<!DOCTYPE FictionBook [ <!ENTITY x " <FictionBook> ]> </foo> `},
+		{"pi smuggle", `<?render <FictionBook> ]> </foo> `},
+	}
+	for _, tc := range unterminated {
+		t.Run(tc.name, func(t *testing.T) {
+			for path, err := range parseFourPaths(t, tc.prolog, htmlTail) {
+				if err == nil {
+					t.Errorf("%s: the false root must not make the document a book", path)
+				}
+			}
+		})
+	}
+}
+
+// TestFB2ParserRootCheckAcceptsBooks pins the other half of the twelfth-
+// iteration rule: a real FictionBook root behind prolog damage the sanitizers
+// repair is accepted on every charset path — the check sees the repaired
+// text, not the raw bytes, so the verdict no longer depends on the charset
+// the book happened to be saved in.
+func TestFB2ParserRootCheckAcceptsBooks(t *testing.T) {
+	const bookTail = `<FictionBook><body><section><p>Привет</p></section></body></FictionBook>`
+	cases := []struct {
+		name   string
+		prolog string
+		tail   string
+	}{
+		{"unterminated PI before the root", `<?render mode=[`, bookTail},
+		{"doctype with internal subset", `<!DOCTYPE FictionBook [ <!ENTITY badge "<i><b>NEW</b></i>"> <!ELEMENT FictionBook ANY> ]>`, bookTail},
+		{"processing instruction before the root", `<?xml-stylesheet href="style.css"?>`, bookTail},
+		{"long comment run before the root", `<!-- ` + strings.Repeat("generator banner ", 65536) + ` -->`, bookTail},
+		{"stray bracket in text", `2 < 3 and `, bookTail},
+		{"namespace-prefixed root", ``, `<fb:FictionBook xmlns:fb="http://www.gribuser.ru/xml/fictionbook/2.0">` +
+			`<fb:body><fb:section><fb:p>Привет</fb:p></fb:section></fb:body></fb:FictionBook>`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for path, err := range parseFourPaths(t, tc.prolog, tc.tail) {
+				if err != nil {
+					t.Errorf("%s: a real book must survive every charset path, got %v", path, err)
+				}
+			}
+		})
+	}
 }

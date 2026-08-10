@@ -3,6 +3,7 @@ package converter
 import (
 	"bytes"
 	"encoding/xml"
+	"errors"
 	"io"
 
 	"gopds-api/internal/parser"
@@ -28,7 +29,10 @@ import (
 // parser.Parse() and ParseFB2Body() separately.
 func ParseFB2Complete(xmlContent []byte, readCover bool) (*FB2Document, *parser.BookFile, error) {
 	// Apply all sanitization steps once
-	decoded := tryDecodeCharset(xmlContent)
+	decoded, err := parser.DecodeToUTF8(xmlContent)
+	if err != nil {
+		return nil, nil, err
+	}
 	decoded = sanitizeControlChars(decoded)
 	decoded = sanitizeInvalidTagOpenings(decoded)
 	decoded = sanitizeInvalidProcessingInstructions(decoded)
@@ -59,6 +63,12 @@ func ParseFB2Complete(xmlContent []byte, readCover bool) (*FB2Document, *parser.
 		if err != nil {
 			docFallback, bookFallback, fallbackErr := parseFB2CompleteFallback(decoded, readCover)
 			if fallbackErr != nil {
+				// A typed fallback verdict classifies the input ("not a
+				// book", "too deep"); the main decoder's raw syntax error
+				// does not, so the typed one is what the caller gets.
+				if errors.Is(fallbackErr, ErrNotFictionBook) || errors.Is(fallbackErr, ErrDepthLimit) {
+					return nil, nil, fallbackErr
+				}
 				return nil, nil, err
 			}
 			return docFallback, bookFallback, nil
@@ -78,11 +88,16 @@ func ParseFB2Complete(xmlContent []byte, readCover bool) (*FB2Document, *parser.
 			metadataParser.HandleCharData(t)
 			bodyState.handleChar(t)
 		}
+		if bodyState.err != nil {
+			return nil, nil, bodyState.err
+		}
 	}
 
-	// Finalize body parsing
-	if doc.Body == nil && len(bodyState.sectionStack) > 0 {
-		doc.Body = bodyState.sectionStack[0]
+	if bodyState.err != nil {
+		return nil, nil, bodyState.err
+	}
+	if !bodyState.sawRoot && !bodyState.sawBody {
+		return nil, nil, ErrNotFictionBook
 	}
 
 	// Extract metadata

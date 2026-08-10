@@ -17,14 +17,14 @@ func TestGenerateEPUB_Basic(t *testing.T) {
 		Title: "Test Book",
 		Body: &FB2BodySection{
 			Title: "Chapter 1",
-			Paragraphs: []*FB2Paragraph{
-				{
+			Content: []*FB2ContentItem{
+				{Paragraph: &FB2Paragraph{
 					Kind: ParagraphKindNormal,
 					Text: "This is a test paragraph.",
 					Content: []*FB2InlineElement{
 						{Type: InlineTypeText, Content: "This is a test paragraph."},
 					},
-				},
+				}},
 			},
 		},
 	}
@@ -65,8 +65,8 @@ func TestGenerateEPUB_ZipStructure(t *testing.T) {
 		Title: "Test Book",
 		Body: &FB2BodySection{
 			Title: "Chapter 1",
-			Paragraphs: []*FB2Paragraph{
-				{Kind: ParagraphKindNormal, Text: "Test content."},
+			Content: []*FB2ContentItem{
+				{Paragraph: &FB2Paragraph{Kind: ParagraphKindNormal, Text: "Test content."}},
 			},
 		},
 	}
@@ -366,19 +366,19 @@ func TestGenerateEPUB_WithImages(t *testing.T) {
 	doc := &FB2Document{
 		Title: "Test Book with Images",
 		Body: &FB2BodySection{
-			Paragraphs: []*FB2Paragraph{
-				{
+			Content: []*FB2ContentItem{
+				{Paragraph: &FB2Paragraph{
 					Kind: ParagraphKindNormal,
 					Content: []*FB2InlineElement{
 						{Type: InlineTypeText, Content: "Text before image "},
 						{Type: InlineTypeImage, Attrs: map[string]string{"href": "#img1"}},
 						{Type: InlineTypeText, Content: " text after image."},
 					},
-				},
+				}},
 			},
 		},
-		Binary: map[string][]byte{
-			"img1": pngData,
+		Binary: map[string]FB2Binary{
+			"img1": {Data: pngData, MIME: "image/png"},
 		},
 	}
 
@@ -444,8 +444,8 @@ func TestGenerateEPUB_WithNotes(t *testing.T) {
 	doc := &FB2Document{
 		Title: "Test Book with Notes",
 		Body: &FB2BodySection{
-			Paragraphs: []*FB2Paragraph{
-				{
+			Content: []*FB2ContentItem{
+				{Paragraph: &FB2Paragraph{
 					Kind: ParagraphKindNormal,
 					Content: []*FB2InlineElement{
 						{Type: InlineTypeText, Content: "Text with footnote"},
@@ -462,15 +462,15 @@ func TestGenerateEPUB_WithNotes(t *testing.T) {
 							},
 						},
 					},
-				},
+				}},
 			},
 		},
 		Notes: []*FB2BodySection{
 			{
 				ID:    "note1",
 				Title: "1",
-				Paragraphs: []*FB2Paragraph{
-					{Kind: ParagraphKindNormal, Text: "This is the footnote text."},
+				Content: []*FB2ContentItem{
+					{Paragraph: &FB2Paragraph{Kind: ParagraphKindNormal, Text: "This is the footnote text."}},
 				},
 			},
 		},
@@ -567,5 +567,119 @@ func TestGenerateEPUB_EmptyDocument(t *testing.T) {
 
 	if len(epubData) == 0 {
 		t.Error("Expected non-empty EPUB even for empty document")
+	}
+}
+
+// TestGenerateEPUB_ReuseDoesNotLeakNotes feeds one generator two books in a
+// row — the first with footnotes, the second without. planNotes returns
+// early for a noteless document, so unless GenerateEPUB resets the notes
+// state, the second EPUB would carry the first book's notes page, anchors,
+// and rewritten links.
+func TestGenerateEPUB_ReuseDoesNotLeakNotes(t *testing.T) {
+	withNotes := &FB2Document{
+		Title: "Book With Notes",
+		Body: &FB2BodySection{
+			Content: []*FB2ContentItem{
+				{Paragraph: &FB2Paragraph{
+					Kind: ParagraphKindNormal,
+					Content: []*FB2InlineElement{
+						{Type: InlineTypeText, Content: "Text with footnote"},
+						{
+							Type:  InlineTypeLink,
+							Attrs: map[string]string{"href": "#note1", "type": "note"},
+							Children: []*FB2InlineElement{
+								{Type: InlineTypeSup, Children: []*FB2InlineElement{
+									{Type: InlineTypeText, Content: "1"},
+								}},
+							},
+						},
+					},
+				}},
+			},
+		},
+		Notes: []*FB2BodySection{
+			{
+				ID:    "note1",
+				Title: "1",
+				Content: []*FB2ContentItem{
+					{Paragraph: &FB2Paragraph{Kind: ParagraphKindNormal, Text: "Footnote of the first book."}},
+				},
+			},
+		},
+	}
+	withoutNotes := &FB2Document{
+		Title: "Book Without Notes",
+		Body: &FB2BodySection{
+			Content: []*FB2ContentItem{
+				{Paragraph: &FB2Paragraph{Kind: ParagraphKindNormal, Text: "Plain text of the second book."}},
+				// A real section forces buildTOC to emit nodes — without it the
+				// TOC returns early and a leaked notes entry would stay hidden.
+				{Section: &FB2BodySection{
+					ID:    "s1",
+					Title: "Only chapter",
+					Content: []*FB2ContentItem{
+						{Paragraph: &FB2Paragraph{Kind: ParagraphKindNormal, Text: "Chapter text."}},
+					},
+				}},
+			},
+		},
+	}
+	bookFile := &parser.BookFile{Title: "Reused Generator", Language: "en"}
+
+	generator := NewEPUBGenerator()
+
+	generate := func(doc *FB2Document) map[string][]byte {
+		t.Helper()
+		reader, err := generator.GenerateEPUB(doc, bookFile)
+		if err != nil {
+			t.Fatalf("GenerateEPUB failed: %v", err)
+		}
+		defer reader.Close()
+		epubData, err := io.ReadAll(reader)
+		if err != nil {
+			t.Fatalf("Failed to read EPUB data: %v", err)
+		}
+		zipReader, err := zip.NewReader(bytes.NewReader(epubData), int64(len(epubData)))
+		if err != nil {
+			t.Fatalf("EPUB is not a valid ZIP: %v", err)
+		}
+		files := make(map[string][]byte, len(zipReader.File))
+		for _, f := range zipReader.File {
+			rc, err := f.Open()
+			if err != nil {
+				t.Fatalf("Failed to open %s: %v", f.Name, err)
+			}
+			content, err := io.ReadAll(rc)
+			rc.Close()
+			if err != nil {
+				t.Fatalf("Failed to read %s: %v", f.Name, err)
+			}
+			files[f.Name] = content
+		}
+		return files
+	}
+
+	first := generate(withNotes)
+	if _, ok := first["OEBPS/notes.xhtml"]; !ok {
+		t.Fatal("First book should have notes.xhtml")
+	}
+
+	second := generate(withoutNotes)
+	if _, ok := second["OEBPS/notes.xhtml"]; ok {
+		t.Error("Second book has no notes but the EPUB carries a notes.xhtml from the first book")
+	}
+	for name, content := range second {
+		if !strings.HasSuffix(name, ".xhtml") && !strings.HasSuffix(name, ".opf") && !strings.HasSuffix(name, ".ncx") {
+			continue
+		}
+		if bytes.Contains(content, []byte("notes.xhtml")) {
+			t.Errorf("%s of the second book references the first book's notes.xhtml", name)
+		}
+		if bytes.Contains(content, []byte("note-note1")) {
+			t.Errorf("%s of the second book contains the first book's note anchor", name)
+		}
+		if bytes.Contains(content, []byte("Footnote of the first book")) {
+			t.Errorf("%s of the second book contains the first book's footnote text", name)
+		}
 	}
 }
