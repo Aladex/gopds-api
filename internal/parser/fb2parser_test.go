@@ -504,12 +504,17 @@ func TestSanitizeBrokenSelfClosingTags_KeepsProse(t *testing.T) {
 			want: `<p>а/<emphasis>б</emphasis></p>`,
 		},
 		{
-			// The converter has repaired this shape in production for years by
-			// dropping the closing tag with the damage; the scanner now agrees
-			// with it rather than inventing a second answer.
+			// Only the missing bracket is the damage. The closing tag that
+			// follows is usually a real boundary, and swallowing it turned two
+			// sibling sections into a nested pair.
 			name: "a tag that lost its bracket is repaired",
 			in:   `<empty-line/</p>`,
-			want: `<empty-line/>`,
+			want: `<empty-line/></p>`,
+		},
+		{
+			name: "a section boundary survives the repair",
+			in:   `<section><image l:href="#i"/</section><section/>`,
+			want: `<section><image l:href="#i"/></section><section/>`,
 		},
 	}
 	for _, tc := range cases {

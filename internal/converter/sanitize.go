@@ -230,17 +230,11 @@ func sanitizeBrokenSelfClosingTags(content []byte) []byte {
 				out = append(out, '/', '>')
 				changed = true
 
-				// Check if this is a closing tag like </section> and skip it
-				if j+1 < len(content) && content[j+1] == '/' {
-					// Find the end of this closing tag
-					gtPos := bytes.IndexByte(content[j:], '>')
-					if gtPos != -1 {
-						// Skip the entire closing tag
-						i = j + gtPos
-						continue
-					}
-				}
-
+				// The closing tag that follows is kept. Dropping it used to
+				// look like part of the damage, but it is usually a real
+				// boundary: swallowing </section> turned two sibling sections
+				// into a nested pair, which rewrites the book's structure
+				// instead of repairing a missing bracket.
 				i = j - 1
 				continue
 			}

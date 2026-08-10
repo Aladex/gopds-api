@@ -509,9 +509,12 @@ func TestSanitizeBrokenSelfClosingTags(t *testing.T) {
 		expected string
 	}{
 		{
+			// The closing tag is kept: only the missing bracket was damage.
+			// Swallowing </section> merged two sibling sections into a nested
+			// pair, which rewrote the book rather than repairing it.
 			name:     "Broken image tag with section closing",
 			input:    `<image xlink:href="#img1" /</section>`,
-			expected: `<image xlink:href="#img1" />`,
+			expected: `<image xlink:href="#img1" /></section>`,
 		},
 		{
 			name:     "Broken self-closing with space before tag",
