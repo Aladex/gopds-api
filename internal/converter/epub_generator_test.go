@@ -728,8 +728,7 @@ func TestDetectImageMimeType_DeclaredVerifiedByMagicBytes(t *testing.T) {
 }
 
 // TestBuildImages_DeclaredMimeDecidesTheOutput drives the declaration through
-// the real path — FB2Binary, buildImages, EPUB — rather than calling the
-// detector directly. A unit test on the detector cannot tell whether the
+// FB2Binary and buildImages rather than calling the detector directly. A unit test on the detector cannot tell whether the
 // generator actually consults the parsed MIME, and a mutation that dropped it
 // survived the package until this case existed: the payload is a GIF, the id
 // says .jpg, and only the declaration can settle it.
@@ -771,6 +770,11 @@ func TestMimeMatchesMagic_SVGNeedsItsRoot(t *testing.T) {
 		{"comment then svg", `<!-- note --><svg/>`, true},
 		{"doctype then svg", `<!DOCTYPE svg><svg/>`, true},
 		{"prolog then html", `<?xml version="1.0"?><html></html>`, false},
+		{"svg-like name is not svg", `<svgx/>`, false},
+		{"hyphenated name is not svg", `<svg-script/>`, false},
+		{"cdata opener before svg", `<![CDATA[><svg/>`, false},
+		{"doctype with internal subset", `<!DOCTYPE svg [<!ENTITY a "b">]><svg/>`, true},
+		{"utf-8 bom then svg", "\ufeff<svg/>", true},
 		{"prolog then fictionbook", `<?xml version="1.0"?><FictionBook/>`, false},
 		{"prolog alone", `<?xml version="1.0"?>`, false},
 		{"unterminated prolog", `<?xml version="1.0"`, false},
@@ -780,6 +784,34 @@ func TestMimeMatchesMagic_SVGNeedsItsRoot(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := mimeMatchesMagic("image/svg+xml", []byte(tc.data)); got != tc.want {
 				t.Errorf("mimeMatchesMagic(image/svg+xml, %q) = %v, want %v", tc.data, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestDetectImageMimeType_IDCannotOverrideThePayload pins the one thing the
+// magic check cannot do alone: the extension in an FB2 image ID comes from the
+// book, so a rejected declaration must not come back through it. Testing the
+// magic helper with a neutral id hides this entirely.
+func TestDetectImageMimeType_IDCannotOverrideThePayload(t *testing.T) {
+	html := []byte(`<?xml version="1.0"?><html></html>`)
+	png := append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'}, make([]byte, 16)...)
+
+	cases := []struct {
+		name     string
+		data     []byte
+		imageID  string
+		declared string
+		wantNot  string
+	}{
+		{"svg id over non-svg payload", html, "x.svg", "image/svg+xml", "image/svg+xml"},
+		{"svg id without a declaration", html, "x.svg", "", "image/svg+xml"},
+		{"jpeg id over png payload", png, "cover.jpg", "image/jpeg", "image/jpeg"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := detectImageMimeType(tc.data, tc.imageID, tc.declared); got == tc.wantNot {
+				t.Errorf("id %q reinstated %q that the payload contradicts", tc.imageID, got)
 			}
 		})
 	}

@@ -8,6 +8,7 @@ import (
 	// resource rather than protecting one.
 	"crypto/sha1"
 	"encoding/hex"
+	"encoding/xml"
 	"fmt"
 	"html"
 	"io"
@@ -1381,22 +1382,28 @@ func detectImageMimeType(data []byte, imageID, declared string) string {
 		return declared
 	}
 
-	// Try to infer from ID/filename if it contains extension hint
+	// An extension in the FB2 image ID is a hint, and the ID comes from the
+	// book. It may not reinstate a type the payload has already contradicted:
+	// otherwise id="x.svg" resurrects the SVG the magic check just rejected.
 	lowerID := strings.ToLower(imageID)
-	if strings.Contains(lowerID, ".jpg") || strings.Contains(lowerID, ".jpeg") {
-		return "image/jpeg"
-	}
-	if strings.Contains(lowerID, ".png") {
-		return "image/png"
-	}
-	if strings.Contains(lowerID, ".gif") {
-		return "image/gif"
-	}
-	if strings.Contains(lowerID, ".webp") {
-		return "image/webp"
-	}
-	if strings.Contains(lowerID, ".svg") {
-		return "image/svg+xml"
+	for _, hint := range []struct {
+		suffixes []string
+		mime     string
+	}{
+		{[]string{".jpg", ".jpeg"}, "image/jpeg"},
+		{[]string{".png"}, "image/png"},
+		{[]string{".gif"}, "image/gif"},
+		{[]string{".webp"}, "image/webp"},
+		{[]string{".svg"}, "image/svg+xml"},
+	} {
+		for _, suffix := range hint.suffixes {
+			if strings.Contains(lowerID, suffix) {
+				if mimeMatchesMagic(hint.mime, data) {
+					return hint.mime
+				}
+				break
+			}
+		}
 	}
 
 	// Fallback to content-based detection
@@ -1435,35 +1442,23 @@ func mimeMatchesMagic(mime string, data []byte) bool {
 	}
 }
 
-// hasSVGRoot reports whether the payload's first element is <svg>. Prologs,
-// comments and doctypes are stepped over because a real SVG file routinely
-// carries them; anything else before the root means this is not an SVG.
+// hasSVGRoot reports whether the payload's first element is <svg>. Reading it
+// with the XML decoder rather than scanning by hand is the point: a hand-rolled
+// scan has to reinvent name boundaries, CDATA, doctype subsets and the BOM, and
+// gets each of them slightly wrong.
 func hasSVGRoot(data []byte) bool {
-	rest := bytes.TrimSpace(data)
+	decoder := xml.NewDecoder(bytes.NewReader(data))
+	decoder.Strict = false
+	decoder.CharsetReader = func(_ string, input io.Reader) (io.Reader, error) {
+		return input, nil
+	}
 	for {
-		switch {
-		case bytes.HasPrefix(rest, []byte("<svg")):
-			return true
-		case bytes.HasPrefix(rest, []byte("<?")):
-			end := bytes.Index(rest, []byte("?>"))
-			if end < 0 {
-				return false
-			}
-			rest = bytes.TrimSpace(rest[end+2:])
-		case bytes.HasPrefix(rest, []byte("<!--")):
-			end := bytes.Index(rest, []byte("-->"))
-			if end < 0 {
-				return false
-			}
-			rest = bytes.TrimSpace(rest[end+3:])
-		case bytes.HasPrefix(rest, []byte("<!")):
-			end := bytes.IndexByte(rest, '>')
-			if end < 0 {
-				return false
-			}
-			rest = bytes.TrimSpace(rest[end+1:])
-		default:
+		token, err := decoder.Token()
+		if err != nil {
 			return false
+		}
+		if start, ok := token.(xml.StartElement); ok {
+			return strings.EqualFold(start.Name.Local, "svg")
 		}
 	}
 }
