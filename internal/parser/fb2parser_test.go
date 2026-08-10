@@ -477,3 +477,47 @@ func TestFB2ParserRootCheckAcceptsBooks(t *testing.T) {
 		})
 	}
 }
+
+// TestSanitizeBrokenSelfClosingTags_KeepsProse pins the difference between a
+// tag that lost its bracket and a slash that is simply part of the text. The
+// scanner used to rewrite every "/ <" in the document, which put a literal
+// "/>" into annotations the catalog then showed to readers.
+func TestSanitizeBrokenSelfClosingTags_KeepsProse(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "slash before a tag is prose",
+			in:   `<p>Цена 100 руб. / <emphasis>скидка</emphasis> есть</p>`,
+			want: `<p>Цена 100 руб. / <emphasis>скидка</emphasis> есть</p>`,
+		},
+		{
+			name: "slash before a newline and a tag is prose",
+			in:   "<p>Первая строка /\n<emphasis>вторая</emphasis></p>",
+			want: "<p>Первая строка /\n<emphasis>вторая</emphasis></p>",
+		},
+		{
+			name: "slash glued to a tag is prose",
+			in:   `<p>а/<emphasis>б</emphasis></p>`,
+			want: `<p>а/<emphasis>б</emphasis></p>`,
+		},
+		{
+			// The converter has repaired this shape in production for years by
+			// dropping the closing tag with the damage; the scanner now agrees
+			// with it rather than inventing a second answer.
+			name: "a tag that lost its bracket is repaired",
+			in:   `<empty-line/</p>`,
+			want: `<empty-line/>`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := string(sanitizeBrokenSelfClosingTags([]byte(tc.in)))
+			if got != tc.want {
+				t.Errorf("sanitizeBrokenSelfClosingTags(%q)\n got %q\nwant %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}

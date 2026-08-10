@@ -833,18 +833,175 @@ func truncateSample(annotation string, body string) string {
 	return strings.TrimSpace(sample)
 }
 
+// sanitizeBrokenSelfClosingTags repairs a self-closing tag that lost its
+// closing bracket. It looks back to confirm the slash really belongs to a
+// tag: a slash in prose before markup -- "100 руб. / <emphasis>" -- is text,
+// and rewriting it blindly put a literal "/>" into annotations and turned
+// closing tags into opening ones.
 func sanitizeBrokenSelfClosingTags(content []byte) []byte {
-	if !bytes.Contains(content, []byte("/</")) {
-		if !bytes.Contains(content, []byte("/\n<")) && !bytes.Contains(content, []byte("/\r\n<")) && !bytes.Contains(content, []byte("/\t<")) && !bytes.Contains(content, []byte("/ <")) {
-			return content
+	changed := false
+	out := make([]byte, 0, len(content))
+
+	for i := 0; i < len(content); i++ {
+		if content[i] != '/' {
+			out = append(out, content[i])
+			continue
+		}
+
+		// Check if this is potentially a broken self-closing tag: "/" followed by whitespace or "<"
+		if i+1 >= len(content) {
+			out = append(out, content[i])
+			continue
+		}
+
+		next := content[i+1]
+
+		// Pattern: /</tag> or /</ or /< -> convert to />
+		if next == '<' {
+			// Look back to find the opening < of the current tag
+			if !isPartOfSelfClosingTag(content, i) {
+				out = append(out, content[i])
+				continue
+			}
+
+			// Skip whitespace between / and <
+			j := i + 1
+			for j < len(content) && (content[j] == ' ' || content[j] == '\t' || content[j] == '\n' || content[j] == '\r') {
+				j++
+			}
+
+			if j < len(content) && content[j] == '<' {
+				out = append(out, '/', '>')
+				changed = true
+
+				// Check if this is a closing tag like </section> and skip it
+				if j+1 < len(content) && content[j+1] == '/' {
+					// Find the end of this closing tag
+					gtPos := bytes.IndexByte(content[j:], '>')
+					if gtPos != -1 {
+						// Skip the entire closing tag
+						i = j + gtPos
+						continue
+					}
+				}
+
+				i = j - 1
+				continue
+			}
+		}
+
+		// Pattern: / followed by whitespace before < (e.g., "/ <" or "/ \n<")
+		if next == ' ' || next == '\t' || next == '\n' || next == '\r' {
+			if !isPartOfSelfClosingTag(content, i) {
+				out = append(out, content[i])
+				continue
+			}
+
+			// Look ahead for <
+			j := i + 1
+			for j < len(content) && (content[j] == ' ' || content[j] == '\t' || content[j] == '\n' || content[j] == '\r') {
+				j++
+			}
+
+			if j < len(content) && content[j] == '<' {
+				out = append(out, '/', '>')
+				changed = true
+				i = j - 1
+				continue
+			}
+		}
+
+		out = append(out, content[i])
+	}
+
+	if !changed {
+		return content
+	}
+	return out
+}
+
+// extractTagNameAt extracts the tag name starting at the given position
+func extractTagNameAt(content []byte, start int) string {
+	end := start
+	for end < len(content) && isNameChar(content[end]) {
+		end++
+	}
+	if end == start {
+		return ""
+	}
+	return string(content[start:end])
+}
+
+// isXMLSpace reports whether the byte is XML whitespace.
+func isXMLSpace(b byte) bool {
+	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
+}
+
+// hasAttributeBefore reports whether an attribute assignment appears between
+// the tag name and the slash, which marks a tag that was probably self-closing
+// before its bracket went missing.
+func hasAttributeBefore(content []byte, nameStart, slashPos int) bool {
+	for i := nameStart; i < slashPos; i++ {
+		if !isXMLSpace(content[i]) {
+			continue
+		}
+		for j := i; j < slashPos; j++ {
+			if content[j] == '=' {
+				return true
+			}
+			if !isXMLSpace(content[j]) {
+				break
+			}
 		}
 	}
-	out := bytes.ReplaceAll(content, []byte("/</"), []byte("/><"))
-	out = bytes.ReplaceAll(out, []byte("/\r\n<"), []byte("/><"))
-	out = bytes.ReplaceAll(out, []byte("/\n<"), []byte("/><"))
-	out = bytes.ReplaceAll(out, []byte("/\t<"), []byte("/><"))
-	out = bytes.ReplaceAll(out, []byte("/ <"), []byte("/><"))
-	return out
+	return false
+}
+
+// isPartOfSelfClosingTag checks if the "/" at position i is part of a self-closing tag
+func isPartOfSelfClosingTag(content []byte, slashPos int) bool {
+	// Look back to find the opening <
+	openPos := -1
+	for i := slashPos - 1; i >= 0 && i > slashPos-200; i-- {
+		if content[i] == '<' {
+			openPos = i
+			break
+		}
+		if content[i] == '>' {
+			// Found closing > before opening <, so this / is not part of a tag
+			return false
+		}
+	}
+
+	if openPos == -1 {
+		return false
+	}
+
+	// Extract tag name
+	nameStart := openPos + 1
+	for nameStart < slashPos && isXMLSpace(content[nameStart]) {
+		nameStart++
+	}
+
+	if nameStart >= slashPos {
+		return false
+	}
+
+	// Check if this looks like an opening tag (not </ or <! or <?)
+	if content[nameStart] == '/' || content[nameStart] == '!' || content[nameStart] == '?' {
+		return false
+	}
+
+	// Tags that are typically self-closing in FB2
+	tagName := extractTagNameAt(content, nameStart)
+	switch strings.ToLower(tagName) {
+	case "image", "empty-line", "br", "img":
+		return true
+	}
+
+	// A tag carrying attributes is likely a malformed self-closing one.
+	hasAttributes := hasAttributeBefore(content, nameStart, slashPos)
+
+	return hasAttributes
 }
 
 func sanitizeMissingXlinkPrefix(content []byte) []byte {
