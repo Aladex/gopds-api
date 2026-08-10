@@ -689,50 +689,15 @@ func TestGenerateEPUB_ReuseDoesNotLeakNotes(t *testing.T) {
 // on FB2Binary, and the generator trusts it only when the payload's magic
 // bytes agree. A declaration the bytes contradict falls back to ID and
 // content detection.
-func TestDetectImageMimeType_DeclaredVerifiedByMagicBytes(t *testing.T) {
-	png := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0x00, 0x01}
-	jpeg := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 'J', 'F', 'I', 'F'}
-	gif := []byte("GIF89a\x01\x00\x01\x00")
-	webp := []byte("RIFF\x04\x00\x00\x00WEBPVP8 ")
-	svg := []byte("  <svg xmlns=\"http://www.w3.org/2000/svg\"></svg>")
 
-	cases := []struct {
-		name     string
-		data     []byte
-		imageID  string
-		declared string
-		want     string
-	}{
-		{"declared png confirmed by magic", png, "img1", "image/png", "image/png"},
-		{"declared jpeg confirmed by magic", jpeg, "img1", "image/jpeg", "image/jpeg"},
-		{"declared gif confirmed by magic", gif, "img1", "image/gif", "image/gif"},
-		{"declared webp confirmed by magic", webp, "img1", "image/webp", "image/webp"},
-		{"declared svg confirmed by markup", svg, "img1", "image/svg+xml", "image/svg+xml"},
-		{"declared type is case-insensitive", png, "img1", "IMAGE/PNG", "image/png"},
-		{"declared gif beats the jpg ID hint when magic agrees", gif, "img1.jpg", "image/gif", "image/gif"},
-		{"declared png contradicted by jpeg bytes", jpeg, "img1", "image/png", "image/jpeg"},
-		{"declared jpeg contradicted by png bytes", png, "img1", "image/jpeg", "image/png"},
-		{"declared svg contradicted by png bytes", png, "img1", "image/svg+xml", "image/png"},
-		{"unsupported declared type falls through", png, "img1", "image/tiff", "image/png"},
-		{"no declared type: ID hint wins", jpeg, "cover.jpg", "", "image/jpeg"},
-		{"no declared type and no hint: content sniff", png, "img1", "", "image/png"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := detectImageMimeType(tc.data, tc.imageID, tc.declared); got != tc.want {
-				t.Errorf("detectImageMimeType(%q, %q, %q) = %q, want %q",
-					tc.data[:4], tc.imageID, tc.declared, got, tc.want)
-			}
-		})
-	}
-}
-
-// TestBuildImages_DeclaredMimeDecidesTheOutput drives the declaration through
-// FB2Binary and buildImages rather than calling the detector directly. A unit test on the detector cannot tell whether the
+// TestBuildImages_PayloadOutranksTheID pins which of the two book-controlled
+// inputs wins. The id says .jpg and the bytes are a GIF, so a test that passed
+// on the declaration alone would prove nothing: the answer must come from the
+// payload. A unit test on the detector cannot tell whether the
 // generator actually consults the parsed MIME, and a mutation that dropped it
 // survived the package until this case existed: the payload is a GIF, the id
 // says .jpg, and only the declaration can settle it.
-func TestBuildImages_DeclaredMimeDecidesTheOutput(t *testing.T) {
+func TestBuildImages_PayloadOutranksTheID(t *testing.T) {
 	gif := append([]byte("GIF89a"), make([]byte, 16)...)
 	doc := &FB2Document{
 		Body: &FB2BodySection{},
@@ -749,9 +714,8 @@ func TestBuildImages_DeclaredMimeDecidesTheOutput(t *testing.T) {
 	if !ok {
 		t.Fatalf("the binary is missing from the built images: %v", images)
 	}
-	if img.MediaType != "image/gif" {
-		t.Errorf("declared image/gif over GIF bytes became %q: the parsed MIME is not reaching the generator",
-			img.MediaType)
+	if img.MediaType != mimeGIF {
+		t.Errorf("GIF bytes under an id of img.jpg became %q: the id outranked the payload", img.MediaType)
 	}
 }
 
@@ -861,5 +825,22 @@ func TestBuildImages_UnplaceablePayloadIsNotAnImage(t *testing.T) {
 					img.MediaType, img.Filename, tc.wantMedia, tc.wantFilename)
 			}
 		})
+	}
+}
+
+// TestBuildCover_UnplaceablePayloadIsNotAJpeg covers the branch the body-image
+// test could not reach: the cover arrives from the metadata parser as bare
+// bytes and had its own fallback, so an HTML document went into the EPUB as
+// cover.jpg while buildImages had already stopped doing that.
+func TestBuildCover_UnplaceablePayloadIsNotAJpeg(t *testing.T) {
+	cover := buildCover(&parser.BookFile{
+		Cover: []byte(`<?xml version="1.0"?><html></html>`),
+	}, nil)
+	if cover == nil {
+		t.Fatal("the cover vanished")
+	}
+	if cover.Image.MediaType != "application/octet-stream" || cover.Image.Filename != "cover.bin" {
+		t.Errorf("got %s / %s, want application/octet-stream / cover.bin",
+			cover.Image.MediaType, cover.Image.Filename)
 	}
 }

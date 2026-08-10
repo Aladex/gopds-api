@@ -1385,52 +1385,18 @@ const (
 	mimeSVG      = "image/svg+xml"
 )
 
-// imageIDHints maps the extensions an FB2 image id may carry to the type they
-// suggest. A hint may confirm a type the payload supports; it may not name one
-// on its own, because the id is book-controlled text.
-var imageIDHints = []struct {
-	suffixes []string
-	mime     string
-}{
-	{[]string{extJPG, ".jpeg"}, mimeJPEG},
-	{[]string{extPNG}, mimePNG},
-	{[]string{extGIF}, mimeGIF},
-	{[]string{extWEBP}, mimeWEBP},
-	{[]string{extSVG}, mimeSVG},
-}
-
-// detectImageMimeType detects MIME type for image data. The declared
-// content-type wins when the payload's magic bytes confirm it; a declaration
-// the bytes contradict is a lie, not a hint, and is ignored. Without a
-// trustworthy declaration, an extension hint in the FB2 image ID decides,
-// then content-based detection via http.DetectContentType.
-func detectImageMimeType(data []byte, imageID, declared string) string {
-	declared = strings.ToLower(strings.TrimSpace(declared))
-	if extensionForMime(declared) != "" && mimeMatchesMagic(declared, data) {
-		return declared
-	}
-
+// detectImageMimeType names an image by its bytes. The declared content-type
+// and the extension in the FB2 image ID are both book-controlled text, and
+// both had to be confirmed by the magic bytes anyway, so neither can decide
+// anything the bytes have not already decided; they are no longer consulted.
+// Unrecognized payloads get no type at all rather than a plausible guess.
+func detectImageMimeType(data []byte, _, _ string) string {
 	// Ask the bytes before asking anyone else. Without this a real SVG that
 	// carries no declaration and no extension in its id fell through to the
 	// default and was written into the EPUB as a JPEG.
 	for _, candidate := range supportedImageMimes {
 		if mimeMatchesMagic(candidate, data) {
 			return candidate
-		}
-	}
-
-	// An extension in the FB2 image ID is a hint, and the ID comes from the
-	// book. It may not reinstate a type the payload has already contradicted:
-	// otherwise id="x.svg" resurrects the SVG the magic check just rejected.
-	lowerID := strings.ToLower(imageID)
-	for _, hint := range imageIDHints {
-		for _, suffix := range hint.suffixes {
-			if strings.Contains(lowerID, suffix) {
-				if mimeMatchesMagic(hint.mime, data) {
-					return hint.mime
-				}
-				break
-			}
 		}
 	}
 
@@ -1572,8 +1538,11 @@ func buildCover(bookFile *parser.BookFile, images map[string]epubImage) *epubCov
 		mediaType := detectImageMimeType(coverData, "cover", "")
 		ext := extensionForMime(mediaType)
 		if ext == "" {
-			ext = extJPG
-			mediaType = mimeJPEG
+			// Same rule as the body images: a payload nothing can place is
+			// stored as what it is. Calling it a JPEG put HTML into the EPUB
+			// under cover.jpg.
+			ext = ".bin"
+			mediaType = "application/octet-stream"
 		}
 		return &epubCover{
 			ItemID:        "cover",

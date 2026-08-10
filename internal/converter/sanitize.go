@@ -270,6 +270,53 @@ func sanitizeBrokenSelfClosingTags(content []byte) []byte {
 	return out
 }
 
+// isXMLSpace reports whether the byte is XML whitespace.
+func isXMLSpace(b byte) bool {
+	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
+}
+
+// hasAttributeBefore reports whether an attribute assignment appears between
+// the tag name and the slash, which marks a tag that was probably self-closing
+// before its bracket went missing. An attribute is whitespace, then a name,
+// then '='; requiring that shape keeps "<foo=bar" from counting, and looking
+// past the name is what the previous scan failed to do, so ordinary
+// name="value" never matched and the repair covered only a four-tag whitelist.
+func hasAttributeBefore(content []byte, nameStart, slashPos int) bool {
+	for i := nameStart; i < slashPos; i++ {
+		if !isXMLSpace(content[i]) {
+			continue
+		}
+		j := i
+		for j < slashPos && isXMLSpace(content[j]) {
+			j++
+		}
+		nameLen := 0
+		for j < slashPos && isXMLNameByte(content[j]) {
+			j++
+			nameLen++
+		}
+		for j < slashPos && isXMLSpace(content[j]) {
+			j++
+		}
+		if nameLen > 0 && j < slashPos && content[j] == '=' {
+			return true
+		}
+	}
+	return false
+}
+
+// isXMLNameByte reports whether the byte may appear in an attribute name.
+func isXMLNameByte(b byte) bool {
+	switch {
+	case b >= 'a' && b <= 'z', b >= 'A' && b <= 'Z', b >= '0' && b <= '9':
+		return true
+	case b == ':' || b == '-' || b == '_' || b == '.':
+		return true
+	default:
+		return false
+	}
+}
+
 // isPartOfSelfClosingTag checks if the "/" at position i is part of a self-closing tag
 func isPartOfSelfClosingTag(content []byte, slashPos int) bool {
 	// Look back to find the opening <
@@ -311,25 +358,8 @@ func isPartOfSelfClosingTag(content []byte, slashPos int) bool {
 		return true
 	}
 
-	// Also accept any tag that has attributes (likely malformed self-closing)
-	hasAttributes := false
-	for i := nameStart; i < slashPos; i++ {
-		if content[i] == ' ' || content[i] == '\t' || content[i] == '\n' || content[i] == '\r' {
-			// Check if there's a = sign after whitespace (indicates attribute)
-			for j := i; j < slashPos; j++ {
-				if content[j] == '=' {
-					hasAttributes = true
-					break
-				}
-				if content[j] != ' ' && content[j] != '\t' && content[j] != '\n' && content[j] != '\r' {
-					break
-				}
-			}
-			if hasAttributes {
-				break
-			}
-		}
-	}
+	// A tag carrying attributes is likely a malformed self-closing one.
+	hasAttributes := hasAttributeBefore(content, nameStart, slashPos)
 
 	return hasAttributes
 }
