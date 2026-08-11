@@ -5,10 +5,12 @@ package converter
 // traveling with their references, and defined outcomes for every orphan.
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 // docFromParas wraps paragraphs into a sectionless document body.
@@ -26,6 +28,7 @@ func docFromParas(paras ...*FB2Paragraph) *FB2Document {
 // binaries the index admits.
 func renderAllChunks(
 	t *testing.T,
+	ctx context.Context,
 	chunks []*PreviewChunk,
 	binaries map[string]FB2Binary,
 	chunkPolicy PreviewPolicy,
@@ -34,7 +37,7 @@ func renderAllChunks(
 	t.Helper()
 	out := make([]string, 0, len(chunks))
 	for _, chunk := range chunks {
-		out = append(out, renderPreview(t, chunk, binaries, chunkPolicy, imagePolicy))
+		out = append(out, renderPreview(t, ctx, chunk, binaries, chunkPolicy, imagePolicy))
 	}
 	return out
 }
@@ -58,7 +61,7 @@ func TestChunkPreview_SplitsOversizedSection(t *testing.T) {
 		Content: []*FB2ContentItem{{Section: section}},
 	}}
 
-	chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
+	chunks, err := ChunkPreview(context.Background(), doc, previewImagesFor(context.Background(), doc, imagePolicy), chunkPolicy)
 	if err != nil {
 		t.Fatalf("ChunkPreview: %v", err)
 	}
@@ -66,7 +69,7 @@ func TestChunkPreview_SplitsOversizedSection(t *testing.T) {
 		t.Fatalf("expected the oversized section to be cut into several chunks, got %d", len(chunks))
 	}
 
-	pieces := renderAllChunks(t, chunks, nil, chunkPolicy, imagePolicy)
+	pieces := renderAllChunks(t, context.Background(), chunks, nil, chunkPolicy, imagePolicy)
 	for i, piece := range pieces {
 		if piece == "" {
 			t.Errorf("chunk %d renders empty", i)
@@ -97,7 +100,7 @@ func TestChunkPreview_IndivisibleBlockTooLarge(t *testing.T) {
 	imagePolicy := testPreviewImagePolicy()
 	doc := docFromParas(textPara(strings.Repeat("очень длинный абзац ", 200)))
 
-	chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
+	chunks, err := ChunkPreview(context.Background(), doc, previewImagesFor(context.Background(), doc, imagePolicy), chunkPolicy)
 	if err == nil {
 		t.Fatalf("expected a typed error for a block larger than the ceiling, got %d chunks", len(chunks))
 	}
@@ -127,11 +130,11 @@ func TestChunkPreview_OversizedImageIsDropped(t *testing.T) {
 	doc := docFromParas(textPara("ТЕКСТ ДО КАРТИНКИ"), imagePara, textPara("ТЕКСТ ПОСЛЕ КАРТИНКИ"))
 	binaries := map[string]FB2Binary{"big1": {Data: jpegData, MIME: "image/jpeg"}}
 
-	chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
+	chunks, err := ChunkPreview(context.Background(), doc, previewImagesFor(context.Background(), doc, imagePolicy), chunkPolicy)
 	if err != nil {
 		t.Fatalf("an oversized image must not refuse the book: %v", err)
 	}
-	pieces := renderAllChunks(t, chunks, binaries, chunkPolicy, imagePolicy)
+	pieces := renderAllChunks(t, context.Background(), chunks, binaries, chunkPolicy, imagePolicy)
 	joined := strings.Join(pieces, "")
 	if strings.Contains(joined, "<img") {
 		t.Errorf("an image over the per-image cap was still addressed: %q", shorten(joined))
@@ -164,11 +167,11 @@ func TestChunkPreview_NoteStaysWithReference(t *testing.T) {
 	)
 	doc.Notes = []*FB2BodySection{noteSection("n1", "ТЕКСТ ПЕРВОЙ СНОСКИ "+strings.Repeat("подробно ", 8))}
 
-	chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
+	chunks, err := ChunkPreview(context.Background(), doc, previewImagesFor(context.Background(), doc, imagePolicy), chunkPolicy)
 	if err != nil {
 		t.Fatalf("ChunkPreview: %v", err)
 	}
-	pieces := renderAllChunks(t, chunks, nil, chunkPolicy, imagePolicy)
+	pieces := renderAllChunks(t, context.Background(), chunks, nil, chunkPolicy, imagePolicy)
 	for i, piece := range pieces {
 		if len(piece) > chunkPolicy.MaxChunkBytes {
 			t.Errorf("chunk %d is %d bytes of HTML, ceiling is %d — note bytes must count toward packing", i, len(piece), chunkPolicy.MaxChunkBytes)
@@ -199,11 +202,11 @@ func TestChunkPreview_NoteInTwoChunksUniqueIDs(t *testing.T) {
 	)
 	doc.Notes = []*FB2BodySection{noteSection("n1", "ОБЩИЙ ТЕКСТ СНОСКИ "+strings.Repeat("ещё подробнее ", 6))}
 
-	chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
+	chunks, err := ChunkPreview(context.Background(), doc, previewImagesFor(context.Background(), doc, imagePolicy), chunkPolicy)
 	if err != nil {
 		t.Fatalf("ChunkPreview: %v", err)
 	}
-	pieces := renderAllChunks(t, chunks, nil, chunkPolicy, imagePolicy)
+	pieces := renderAllChunks(t, context.Background(), chunks, nil, chunkPolicy, imagePolicy)
 
 	var withFirst, withSecond []string
 	for _, piece := range pieces {
@@ -244,11 +247,11 @@ func TestChunkPreview_OrphanNotesAndReferences(t *testing.T) {
 	t.Run("unreferenced note is dropped", func(t *testing.T) {
 		doc := docFromParas(textPara("ОБЫЧНЫЙ АБЗАЦ БЕЗ СНОСОК"))
 		doc.Notes = []*FB2BodySection{noteSection("n1", "СНОСКА БЕЗ ССЫЛОК НА НЕЁ")}
-		chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
+		chunks, err := ChunkPreview(context.Background(), doc, previewImagesFor(context.Background(), doc, imagePolicy), chunkPolicy)
 		if err != nil {
 			t.Fatalf("ChunkPreview: %v", err)
 		}
-		joined := strings.Join(renderAllChunks(t, chunks, nil, chunkPolicy, imagePolicy), "")
+		joined := strings.Join(renderAllChunks(t, context.Background(), chunks, nil, chunkPolicy, imagePolicy), "")
 		if strings.Contains(joined, "СНОСКА БЕЗ ССЫЛОК НА НЕЁ") {
 			t.Errorf("an unreferenced footnote rendered — it is unreachable dead weight")
 		}
@@ -259,11 +262,11 @@ func TestChunkPreview_OrphanNotesAndReferences(t *testing.T) {
 
 	t.Run("reference to a missing note unwraps", func(t *testing.T) {
 		doc := docFromParas(noteRefPara("ghost", "ССЫЛКА В НИКУДА"))
-		chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
+		chunks, err := ChunkPreview(context.Background(), doc, previewImagesFor(context.Background(), doc, imagePolicy), chunkPolicy)
 		if err != nil {
 			t.Fatalf("ChunkPreview: %v", err)
 		}
-		joined := strings.Join(renderAllChunks(t, chunks, nil, chunkPolicy, imagePolicy), "")
+		joined := strings.Join(renderAllChunks(t, context.Background(), chunks, nil, chunkPolicy, imagePolicy), "")
 		if !strings.Contains(joined, "ССЫЛКА В НИКУДА") {
 			t.Errorf("the link text vanished with its target")
 		}
@@ -287,14 +290,14 @@ func TestChunkPreview_CeilingCountsRenderedHTMLBytes(t *testing.T) {
 		textPara("0123456789"),
 		textPara("0123456789"),
 	)
-	chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
+	chunks, err := ChunkPreview(context.Background(), doc, previewImagesFor(context.Background(), doc, imagePolicy), chunkPolicy)
 	if err != nil {
 		t.Fatalf("ChunkPreview: %v", err)
 	}
 	if len(chunks) != 2 {
 		t.Fatalf("expected 2 chunks counting rendered HTML bytes, got %d", len(chunks))
 	}
-	pieces := renderAllChunks(t, chunks, nil, chunkPolicy, imagePolicy)
+	pieces := renderAllChunks(t, context.Background(), chunks, nil, chunkPolicy, imagePolicy)
 	for i, piece := range pieces {
 		if len(piece) > chunkPolicy.MaxChunkBytes {
 			t.Errorf("chunk %d is %d bytes of HTML, ceiling is %d", i, len(piece), chunkPolicy.MaxChunkBytes)
@@ -305,14 +308,14 @@ func TestChunkPreview_CeilingCountsRenderedHTMLBytes(t *testing.T) {
 // A book without content still portions — into a single empty chunk, not into
 // zero chunks (which downstream would read as a missing book).
 func TestChunkPreview_EmptyBookIsOneEmptyChunk(t *testing.T) {
-	chunks, err := ChunkPreview(&FB2Document{Body: &FB2BodySection{}}, PreviewImages{}, testPreviewPolicy())
+	chunks, err := ChunkPreview(context.Background(), &FB2Document{Body: &FB2BodySection{}}, PreviewImages{}, testPreviewPolicy())
 	if err != nil {
 		t.Fatalf("ChunkPreview: %v", err)
 	}
 	if len(chunks) != 1 {
 		t.Fatalf("expected exactly 1 chunk for an empty book, got %d", len(chunks))
 	}
-	pieces := renderAllChunks(t, chunks, nil, testPreviewPolicy(), testPreviewImagePolicy())
+	pieces := renderAllChunks(t, context.Background(), chunks, nil, testPreviewPolicy(), testPreviewImagePolicy())
 	if pieces[0] != "" {
 		t.Errorf("an empty book must render empty, got %q", pieces[0])
 	}
@@ -335,11 +338,11 @@ func TestChunkPreview_NoteReferencedFromTableCell(t *testing.T) {
 	}
 	doc := docFromParas(table)
 	doc.Notes = []*FB2BodySection{noteSection("n1", "СНОСКА ИЗ ТАБЛИЦЫ")}
-	chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
+	chunks, err := ChunkPreview(context.Background(), doc, previewImagesFor(context.Background(), doc, imagePolicy), chunkPolicy)
 	if err != nil {
 		t.Fatalf("ChunkPreview: %v", err)
 	}
-	joined := strings.Join(renderAllChunks(t, chunks, nil, chunkPolicy, imagePolicy), "")
+	joined := strings.Join(renderAllChunks(t, context.Background(), chunks, nil, chunkPolicy, imagePolicy), "")
 	if !strings.Contains(joined, "СНОСКА ИЗ ТАБЛИЦЫ") {
 		t.Errorf("a footnote referenced from a table cell never rendered")
 	}
@@ -361,11 +364,11 @@ func TestChunkPreview_DraftSizesNeverUndercount(t *testing.T) {
 	target.ID = "tgt"
 	doc := docFromParas(target, linkPara("#tgt", "0123456789"))
 
-	chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
+	chunks, err := ChunkPreview(context.Background(), doc, previewImagesFor(context.Background(), doc, imagePolicy), chunkPolicy)
 	if err != nil {
 		t.Fatalf("ChunkPreview: %v", err)
 	}
-	pieces := renderAllChunks(t, chunks, nil, chunkPolicy, imagePolicy)
+	pieces := renderAllChunks(t, context.Background(), chunks, nil, chunkPolicy, imagePolicy)
 	for i, piece := range pieces {
 		if len(piece) > chunkPolicy.MaxChunkBytes {
 			t.Errorf("chunk %d is %d bytes of HTML, ceiling is %d — the draft undercounted the link", i, len(piece), chunkPolicy.MaxChunkBytes)
@@ -386,11 +389,11 @@ func TestChunkPreview_NoteIDWithSpaceLandsInChunk(t *testing.T) {
 	doc := docFromParas(noteRefPara("a b", "ССЫЛКА-НА-СНОСКУ-С-ПРОБЕЛОМ"))
 	doc.Notes = []*FB2BodySection{noteSection("a b", "ТЕКСТ-СНОСКИ-С-ПРОБЕЛОМ-В-ИД")}
 
-	chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
+	chunks, err := ChunkPreview(context.Background(), doc, previewImagesFor(context.Background(), doc, imagePolicy), chunkPolicy)
 	if err != nil {
 		t.Fatalf("ChunkPreview: %v", err)
 	}
-	joined := strings.Join(renderAllChunks(t, chunks, nil, chunkPolicy, imagePolicy), "")
+	joined := strings.Join(renderAllChunks(t, context.Background(), chunks, nil, chunkPolicy, imagePolicy), "")
 	if !strings.Contains(joined, "ТЕКСТ-СНОСКИ-С-ПРОБЕЛОМ-В-ИД") {
 		t.Errorf("footnote text missing: a note whose id contains whitespace was dropped from the portion")
 	}
@@ -409,7 +412,7 @@ func TestChunkPreview_NoteIDWithSpaceNotDoubleCounted(t *testing.T) {
 	)
 	doc.Notes = []*FB2BodySection{noteSection("a b", "ТЕКСТ-СНОСКИ-С-ПРОБЕЛОМ-В-ИД")}
 
-	chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
+	chunks, err := ChunkPreview(context.Background(), doc, previewImagesFor(context.Background(), doc, imagePolicy), chunkPolicy)
 	if err != nil {
 		t.Fatalf("ChunkPreview: %v", err)
 	}
@@ -439,15 +442,129 @@ func TestChunkPreview_DuplicateNormalizedNoteIDFirstWins(t *testing.T) {
 		noteSection("a b", "ТЕКСТ-ВТОРОЙ-СНОСКИ"),
 	}
 
-	chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
+	chunks, err := ChunkPreview(context.Background(), doc, previewImagesFor(context.Background(), doc, imagePolicy), chunkPolicy)
 	if err != nil {
 		t.Fatalf("ChunkPreview: %v", err)
 	}
-	joined := strings.Join(renderAllChunks(t, chunks, nil, chunkPolicy, imagePolicy), "")
+	joined := strings.Join(renderAllChunks(t, context.Background(), chunks, nil, chunkPolicy, imagePolicy), "")
 	if !strings.Contains(joined, "ТЕКСТ-ПЕРВОЙ-СНОСКИ") {
 		t.Errorf("the first note lost the dedup race — first id must win, got neither")
 	}
 	if strings.Contains(joined, "ТЕКСТ-ВТОРОЙ-СНОСКИ") {
 		t.Errorf("the second note overwrote the first under the shared normalised key — first id must win")
+	}
+}
+
+// A context already canceled before the call must report the cancellation and
+// must not have started packing. The loop checks ctx at the top of each
+// iteration, before the block's draft render, so on a canceled ctx the first
+// iteration returns without having measured a single block. The proof is
+// observable: chunks is nil even though the document has blocks to pack.
+func TestChunkPreview_CanceledBeforeStartDoesNoWork(t *testing.T) {
+	chunkPolicy := PreviewPolicy{MaxChunkBytes: 512}
+	imagePolicy := testPreviewImagePolicy()
+	doc := docFromParas(
+		textPara("первый абзац"),
+		textPara("второй абзац"),
+		textPara("третий абзац"),
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	chunks, err := ChunkPreview(ctx, doc, previewImagesFor(context.Background(), doc, imagePolicy), chunkPolicy)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want a wrapping of context.Canceled", err)
+	}
+	if chunks != nil {
+		t.Errorf("a canceled ctx must not produce chunks, got %d", len(chunks))
+	}
+}
+
+// A cancel that arrives while the packer is running must stop before the end
+// of the document. There is no production hook to fire the cancel at an exact
+// block, so this is a timing test: enough blocks that the loop cannot finish
+// inside the cancel window. The assertion is shape (error wraps
+// context.Canceled and the packer did not produce its full output), not an
+// exact chunk count.
+func TestChunkPreview_CancelMidWorkStopsBeforeEnd(t *testing.T) {
+	chunkPolicy := PreviewPolicy{MaxChunkBytes: 256}
+	imagePolicy := testPreviewImagePolicy()
+	// The chunker is fast: each iteration is microseconds. To make the
+	// cancel land mid-loop without a production hook, give it enough work
+	// that the loop cannot finish inside the cancel window: many blocks,
+	// each carrying enough text that the draft render has something to do.
+	const blockCount = 20000
+	filler := strings.Repeat("текст ", 12) // ~70 bytes — small enough to fit a block under the ceiling
+	paras := make([]*FB2Paragraph, 0, blockCount)
+	for i := 0; i < blockCount; i++ {
+		paras = append(paras, textPara(fmt.Sprintf("%04d %s", i, filler)))
+	}
+	doc := docFromParas(paras...)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	images := previewImagesFor(context.Background(), doc, imagePolicy)
+	type result struct {
+		chunks []*PreviewChunk
+		err    error
+	}
+	done := make(chan result, 1)
+	go func() {
+		chunks, err := ChunkPreview(ctx, doc, images, chunkPolicy)
+		done <- result{chunks, err}
+	}()
+
+	// Let the packer chew through some blocks before the cancel reaches the
+	// next iteration's ctx check.
+	time.Sleep(5 * time.Millisecond)
+	cancel()
+
+	select {
+	case r := <-done:
+		if !errors.Is(r.err, context.Canceled) {
+			t.Fatalf("err = %v, want a wrapping of context.Canceled", r.err)
+		}
+		// On cancel the function returns nil chunks; the proof that it did
+		// not silently complete is the error itself, since the only path
+		// that returns a non-nil error is the ctx check.
+		if r.chunks != nil {
+			t.Errorf("a canceled ctx must not produce chunks, got %d", len(r.chunks))
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("ChunkPreview did not return within 10s of cancel")
+	}
+}
+
+// With a non-canceled context the chunker behaves exactly as it did before
+// ctx was added: it produces chunks that contain every block exactly once,
+// in reading order, none over the ceiling. This is the regression guard —
+// if a future change makes the ctx check misfire on a live context, this
+// test catches it.
+func TestChunkPreview_LiveContextMatchesNoContextBaseline(t *testing.T) {
+	chunkPolicy := PreviewPolicy{MaxChunkBytes: 512}
+	imagePolicy := testPreviewImagePolicy()
+	markers := []string{"ПЕРВЫЙ", "ВТОРОЙ", "ТРЕТИЙ"}
+	doc := docFromParas(
+		textPara(markers[0]),
+		textPara(markers[1]),
+		textPara(markers[2]),
+	)
+
+	chunks, err := ChunkPreview(context.Background(), doc, previewImagesFor(context.Background(), doc, imagePolicy), chunkPolicy)
+	if err != nil {
+		t.Fatalf("a live ctx must not produce an error: %v", err)
+	}
+	if len(chunks) == 0 {
+		t.Fatal("a live ctx produced zero chunks")
+	}
+	joined := strings.Join(renderAllChunks(t, context.Background(), chunks, nil, chunkPolicy, imagePolicy), "")
+	for _, m := range markers {
+		if n := countOccurrences(joined, m); n != 1 {
+			t.Errorf("marker %q appears %d times, expected exactly 1", m, n)
+		}
+	}
+	if err := markerOrder(joined, markers); err != nil {
+		t.Errorf("reading order broken: %v", err)
 	}
 }

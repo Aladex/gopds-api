@@ -2,12 +2,14 @@ package converter
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"image"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/image/bmp"
 )
@@ -273,7 +275,10 @@ func TestBuildPreviewImages_StableOrdinalsSkipRefused(t *testing.T) {
 		"c_bad":    {Data: []byte("не картинка")},
 	}
 
-	first := BuildPreviewImages(bins, "/preview/img", testPreviewImagePolicy())
+	first, err := BuildPreviewImages(context.Background(), bins, "/preview/img", testPreviewImagePolicy())
+	if err != nil {
+		t.Fatalf("BuildPreviewImages: %v", err)
+	}
 	if first.Index["a_first"] != 1 || first.Index["b_second"] != 2 {
 		t.Fatalf("ordinals follow sorted ids, got %v", first.Index)
 	}
@@ -290,9 +295,112 @@ func TestBuildPreviewImages_StableOrdinalsSkipRefused(t *testing.T) {
 	// Twenty rebuilds: map iteration order differs between them, the answer
 	// must not.
 	for i := 0; i < 20; i++ {
-		again := BuildPreviewImages(bins, "/preview/img", testPreviewImagePolicy())
+		again, err := BuildPreviewImages(context.Background(), bins, "/preview/img", testPreviewImagePolicy())
+		if err != nil {
+			t.Fatalf("run %d: %v", i, err)
+		}
 		if fmt.Sprint(again.Index) != fmt.Sprint(first.Index) {
 			t.Fatalf("run %d produced %v, first run produced %v", i, again.Index, first.Index)
 		}
+	}
+}
+
+// A context already canceled before the call must report the cancellation and
+// must not have run any of the per-binary work. The loop checks ctx at the
+// top of each iteration, before PreparePreviewImage, so on a canceled ctx
+// even the first iteration returns without having decoded or transcode one
+// picture. The proof is observable: the Index stays empty even though every
+// binary in the map is a valid PNG that would otherwise be admitted.
+func TestBuildPreviewImages_CanceledBeforeStartDoesNoWork(t *testing.T) {
+	png := uniformImage(t, "png", 8, 8)
+	bins := map[string]FB2Binary{
+		"a_first":  {Data: png},
+		"b_second": {Data: png},
+		"c_third":  {Data: png},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	out, err := BuildPreviewImages(ctx, bins, "/preview/img", testPreviewImagePolicy())
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want a wrapping of context.Canceled", err)
+	}
+	if len(out.Index) != 0 {
+		t.Errorf("a canceled ctx must not produce any ordinals, got %d: %v",
+			len(out.Index), out.Index)
+	}
+}
+
+// A cancel that arrives while the loop is running must stop before the end of
+// the map. There is no production hook to fire the cancel at an exact
+// iteration, so this is a timing test: enough binaries that the loop cannot
+// finish inside the cancel window, and a generous wait on the way back. The
+// assertion is shape (error wraps context.Canceled and not every binary was
+// admitted), not an exact count — the count depends on where the scheduler
+// was when the cancel landed.
+func TestBuildPreviewImages_CancelMidWorkStopsBeforeEnd(t *testing.T) {
+	png := uniformImage(t, "png", 8, 8)
+	const binCount = 2000
+	bins := make(map[string]FB2Binary, binCount)
+	for i := 0; i < binCount; i++ {
+		bins[fmt.Sprintf("img_%04d", i)] = FB2Binary{Data: png}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	type result struct {
+		out PreviewImages
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		out, err := BuildPreviewImages(ctx, bins, "/preview/img", testPreviewImagePolicy())
+		done <- result{out, err}
+	}()
+
+	// Let the loop process some binaries before the cancel reaches the next
+	// iteration's ctx check. Two milliseconds is far below the time the full
+	// run takes on any CI we run, and far above one iteration.
+	time.Sleep(2 * time.Millisecond)
+	cancel()
+
+	select {
+	case r := <-done:
+		if !errors.Is(r.err, context.Canceled) {
+			t.Fatalf("err = %v, want a wrapping of context.Canceled", r.err)
+		}
+		if len(r.out.Index) == binCount {
+			t.Fatalf("the cancel did not stop the loop — every binary was processed")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("BuildPreviewImages did not return within 5s of cancel")
+	}
+}
+
+// A non-canceled context is the same as no context at all: the loop runs to
+// the end and returns the same result the function did before ctx was added.
+// This is the regression guard — if a future change makes the ctx check
+// misfire on a live context, this test catches it.
+func TestBuildPreviewImages_LiveContextMatchesNoContextBaseline(t *testing.T) {
+	png := uniformImage(t, "png", 8, 8)
+	bins := map[string]FB2Binary{
+		"a_first":  {Data: png},
+		"b_second": {Data: png},
+		"c_bad":    {Data: []byte("не картинка")},
+	}
+
+	out, err := BuildPreviewImages(context.Background(), bins, "/preview/img", testPreviewImagePolicy())
+	if err != nil {
+		t.Fatalf("a live ctx must not produce an error: %v", err)
+	}
+	if out.Index["a_first"] != 1 || out.Index["b_second"] != 2 {
+		t.Fatalf("ordinals follow sorted ids, got %v", out.Index)
+	}
+	if _, ok := out.Index["c_bad"]; ok {
+		t.Fatal("a refused binary took an ordinal")
+	}
+	if got := out.URL("a_first"); got != "/preview/img/1" {
+		t.Fatalf("URL = %q", got)
 	}
 }

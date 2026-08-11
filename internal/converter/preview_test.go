@@ -5,6 +5,7 @@ package converter
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"image"
 	"image/color"
@@ -86,16 +87,22 @@ func paraChunk(index int, paras ...*FB2Paragraph) *PreviewChunk {
 // rendering a chunk also resolves image references against a freshly built
 // PreviewImages set: chunk policy bounds the HTML, image policy decides which
 // binaries the index admits. Folding them back into one argument would
-// pretend they are the same budget.
+// pretend they are the same budget. ctx flows through to BuildPreviewImages
+// so the test path mirrors production.
 func renderPreview(
 	t *testing.T,
+	ctx context.Context,
 	chunk *PreviewChunk,
 	binaries map[string]FB2Binary,
 	chunkPolicy PreviewPolicy,
 	imagePolicy PreviewImagePolicy,
 ) string {
 	t.Helper()
-	out, err := RenderChunkHTML(chunk, BuildPreviewImages(binaries, "/preview/img", imagePolicy), chunkPolicy)
+	images, err := BuildPreviewImages(ctx, binaries, "/preview/img", imagePolicy)
+	if err != nil {
+		t.Fatalf("BuildPreviewImages: %v", err)
+	}
+	out, err := RenderChunkHTML(chunk, images, chunkPolicy)
 	if err != nil {
 		t.Fatalf("RenderChunkHTML: %v", err)
 	}
@@ -326,10 +333,17 @@ func markerOrder(haystack string, markers []string) error {
 // so a test exercises the same path production will: the chunker sizes what
 // the renderer emits, from one map, under one policy. The earlier tests kept
 // two maps and the chunker never saw the images at all.
-func previewImagesFor(doc *FB2Document, policy PreviewImagePolicy) PreviewImages {
+func previewImagesFor(ctx context.Context, doc *FB2Document, policy PreviewImagePolicy) PreviewImages {
 	var bins map[string]FB2Binary
 	if doc != nil {
 		bins = doc.Binary
 	}
-	return BuildPreviewImages(bins, "/preview/img", policy)
+	out, err := BuildPreviewImages(ctx, bins, "/preview/img", policy)
+	if err != nil {
+		// Cancellation is the only error path; tests that need it call
+		// BuildPreviewImages directly. Everyone else gets a hard failure
+		// rather than an empty image set silently wired into the renderer.
+		panic(fmt.Sprintf("previewImagesFor: %v", err))
+	}
+	return out
 }

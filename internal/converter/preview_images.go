@@ -23,6 +23,7 @@ package converter
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"image"
@@ -65,7 +66,14 @@ func (p PreviewImages) URL(id string) string {
 // ids so the same book always yields the same addresses: the mapping is part
 // of the contract between the renderer that emits a URL and the handler that
 // answers it.
-func BuildPreviewImages(binaries map[string]FB2Binary, base string, policy PreviewImagePolicy) PreviewImages {
+//
+// The ctx is consulted between binaries, not just at entry, because each
+// binary drives a PreparePreviewImage call that may decode and transcode a
+// real picture — that is the work, and that is what cancellation has to stop.
+// A return with a non-nil error means the result is not authoritative: the
+// partial Index is whatever got built before the cancel, and callers must
+// check err first.
+func BuildPreviewImages(ctx context.Context, binaries map[string]FB2Binary, base string, policy PreviewImagePolicy) (PreviewImages, error) {
 	out := PreviewImages{Base: base, Index: make(map[string]int, len(binaries))}
 	ids := make([]string, 0, len(binaries))
 	for id := range binaries {
@@ -74,6 +82,13 @@ func BuildPreviewImages(binaries map[string]FB2Binary, base string, policy Previ
 	sort.Strings(ids)
 	n := 0
 	for _, id := range ids {
+		// One binary is one unit of work: PreparePreviewImage may decode
+		// and re-encode a real picture underneath. Check ctx between
+		// binaries, so a cancel that arrives during a transcode still
+		// stops the next one — rather than walking the rest of the map.
+		if err := ctx.Err(); err != nil {
+			return out, fmt.Errorf("fb2 preview: image build canceled: %w", err)
+		}
 		// An address is issued only when the same call has produced the
 		// bytes the handler will serve. That closes the defect where the
 		// gate accepted a picture the handler could never satisfy: a header
@@ -87,7 +102,7 @@ func BuildPreviewImages(binaries map[string]FB2Binary, base string, policy Previ
 		n++
 		out.Index[id] = n
 	}
-	return out
+	return out, nil
 }
 
 // PreparePreviewImage decides and prepares one preview picture in the same

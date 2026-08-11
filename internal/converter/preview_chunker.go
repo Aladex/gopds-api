@@ -13,13 +13,21 @@ package converter
 // (unresolving a link only removes the wrapper). A chunk packed under the
 // ceiling by draft sizes therefore stays under it after the final render.
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+)
 
 // ChunkPreview flattens the document and packs it into portions within the
 // policy ceiling. A book that cannot be portioned — one indivisible block
 // with its footnotes renders larger than a whole portion — is a typed
 // refusal, not a silently oversized chunk.
-func ChunkPreview(doc *FB2Document, images PreviewImages, policy PreviewPolicy) ([]*PreviewChunk, error) {
+//
+// The ctx is consulted between blocks, not just at entry: a reader who
+// closed the tab stops the work as soon as the current block is done, rather
+// than paying for the rest of the book. The cost of one block is the unit of
+// work here, so that is where the cancellation check sits.
+func ChunkPreview(ctx context.Context, doc *FB2Document, images PreviewImages, policy PreviewPolicy) ([]*PreviewChunk, error) {
 	if policy.MaxChunkBytes <= 0 {
 		return nil, fmt.Errorf("fb2 preview: chunk ceiling must be positive, got %d", policy.MaxChunkBytes)
 	}
@@ -29,26 +37,7 @@ func ChunkPreview(doc *FB2Document, images PreviewImages, policy PreviewPolicy) 
 	}
 
 	packer := &previewPacker{doc: doc, images: images, policy: policy, notesByID: make(map[string]*FB2BodySection)}
-	if doc != nil {
-		for _, note := range doc.Notes {
-			if note == nil {
-				continue
-			}
-			// The renderer resolves note refs through anchorKey, so the
-			// chunker's note map must be keyed the same way — a raw-id key
-			// like "a b" is invisible to a lookup that asks for "ab", and
-			// the note silently never travels with its reference.
-			key := anchorKey(note.ID)
-			if key == "" {
-				continue
-			}
-			if _, taken := packer.notesByID[key]; taken {
-				continue // first note with a duplicated id wins, as anchors do
-			}
-			packer.notesByID[key] = note
-			packer.allNotes = append(packer.allNotes, note)
-		}
-	}
+	loadPreviewNotes(packer, doc)
 
 	var chunks []*PreviewChunk
 	cur := &PreviewChunk{Index: 0}
@@ -56,6 +45,13 @@ func ChunkPreview(doc *FB2Document, images PreviewImages, policy PreviewPolicy) 
 	curNotes := make(map[string]bool)
 
 	for _, block := range blocks {
+		// Each iteration is one unit of work (draft render + packing
+		// decision). Checking ctx between units, not at function entry,
+		// means a cancel that arrives during work still stops the next
+		// block — without paying for the rest of the book.
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("fb2 preview: chunker canceled: %w", err)
+		}
 		cost, notes, err := packer.draftBlockCost(cur.Index, block, curNotes)
 		if err != nil {
 			return nil, err
@@ -83,6 +79,31 @@ func ChunkPreview(doc *FB2Document, images PreviewImages, policy PreviewPolicy) 
 	}
 	chunks = append(chunks, cur)
 	return chunks, nil
+}
+
+// loadPreviewNotes indexes a document's footnotes into the packer's note map,
+// keyed by the same normalised anchor the renderer resolves references with.
+// First note with a duplicated normalised id wins, matching the renderer's
+// anchor dedup; a raw-id key here would make a note like "a b" invisible to
+// the lookup and silently drop the footnote text from the portion.
+func loadPreviewNotes(packer *previewPacker, doc *FB2Document) {
+	if doc == nil {
+		return
+	}
+	for _, note := range doc.Notes {
+		if note == nil {
+			continue
+		}
+		key := anchorKey(note.ID)
+		if key == "" {
+			continue
+		}
+		if _, taken := packer.notesByID[key]; taken {
+			continue
+		}
+		packer.notesByID[key] = note
+		packer.allNotes = append(packer.allNotes, note)
+	}
 }
 
 // previewPacker carries the document-wide inputs of the packing loop, so the
