@@ -334,8 +334,8 @@ func TestBuildPreviewImages_CanceledBeforeStartDoesNoWork(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want a wrapping of context.Canceled", err)
 	}
-	if len(out.Images) != 0 {
-		t.Errorf("a canceled ctx must not produce any ordinals, got %d", len(out.Images))
+	if out.Len() != 0 {
+		t.Errorf("a canceled ctx must not produce any ordinals, got %d", out.Len())
 	}
 }
 
@@ -378,7 +378,7 @@ func TestBuildPreviewImages_CancelMidWorkStopsBeforeEnd(t *testing.T) {
 		if !errors.Is(r.err, context.Canceled) {
 			t.Fatalf("err = %v, want a wrapping of context.Canceled", r.err)
 		}
-		if len(r.out.Images) == binCount {
+		if r.out.Len() == binCount {
 			t.Fatalf("the cancel did not stop the loop — every binary was processed")
 		}
 	case <-time.After(5 * time.Second):
@@ -567,10 +567,10 @@ func TestBuildPreviewImages_RejectsZeroBase(t *testing.T) {
 	bins := map[string]FB2Binary{"a": {Data: uniformImage(t, "png", 4, 4)}}
 	out, err := BuildPreviewImages(context.Background(), bins, zero, testPreviewImagePolicy())
 	if err == nil {
-		t.Fatalf("a zero base must be rejected, got out with %d ordinals", len(out.Images))
+		t.Fatalf("a zero base must be rejected, got out with %d ordinals", out.Len())
 	}
-	if len(out.Images) != 0 {
-		t.Errorf("on rejection, no ordinals must be assigned, got %d", len(out.Images))
+	if out.Len() != 0 {
+		t.Errorf("on rejection, no ordinals must be assigned, got %d", out.Len())
 	}
 }
 
@@ -683,7 +683,7 @@ func TestBuildPreviewImages_KeepsPreparedBytes(t *testing.T) {
 		t.Fatalf("BuildPreviewImages: %v", err)
 	}
 	got := map[string]PreparedPreviewImage{}
-	for _, img := range set.Images {
+	for _, img := range set.Images() {
 		got[img.ID] = img
 	}
 	if len(got) != 2 {
@@ -724,11 +724,11 @@ func TestBuildPreviewImages_RefusedKeepsTypedReason(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildPreviewImages: %v", err)
 	}
-	if _, ok := set.Refused["ok"]; ok {
+	if _, ok := set.Refusals()["ok"]; ok {
 		t.Errorf("ok was admitted but also recorded as refused")
 	}
 	for _, id := range []string{"empty", "html", "svg"} {
-		reason, ok := set.Refused[id]
+		reason, ok := set.Refusals()[id]
 		if !ok {
 			t.Errorf("%q: refusal reason missing from Refused", id)
 			continue
@@ -737,7 +737,7 @@ func TestBuildPreviewImages_RefusedKeepsTypedReason(t *testing.T) {
 			t.Errorf("%q: reason = %v, want a wrapping of ErrPreviewImageUnsupported", id, reason)
 		}
 	}
-	reason, ok := set.Refused["oversize"]
+	reason, ok := set.Refusals()["oversize"]
 	if !ok {
 		t.Fatalf("oversize: refusal reason missing from Refused")
 	}
@@ -800,15 +800,15 @@ func TestBuildPreviewImages_ImagesAreInOrdinalOrderAcrossRebuilds(t *testing.T) 
 		t.Fatalf("BuildPreviewImages: %v", err)
 	}
 	// First sanity: ids appear in sorted order, ordinals in 1..N order.
-	for i, img := range first.Images {
+	for i, img := range first.Images() {
 		if img.Ordinal != i+1 {
 			t.Errorf("Images[%d].Ordinal = %d, want %d", i, img.Ordinal, i+1)
 		}
 	}
 	wantIDs := []string{"a", "b", "c", "d", "e"}
 	for i, want := range wantIDs {
-		if i >= len(first.Images) || first.Images[i].ID != want {
-			t.Fatalf("Images[%d].ID = %q, want %q (sorted-id order)", i, first.Images[i].ID, want)
+		if i >= first.Len() || first.Images()[i].ID != want {
+			t.Fatalf("Images[%d].ID = %q, want %q (sorted-id order)", i, first.Images()[i].ID, want)
 		}
 	}
 	// Twenty rebuilds: map iteration order differs, the slice must not.
@@ -817,13 +817,13 @@ func TestBuildPreviewImages_ImagesAreInOrdinalOrderAcrossRebuilds(t *testing.T) 
 		if err != nil {
 			t.Fatalf("run %d: %v", run, err)
 		}
-		if len(again.Images) != len(first.Images) {
-			t.Fatalf("run %d: %d images, want %d", run, len(again.Images), len(first.Images))
+		if again.Len() != first.Len() {
+			t.Fatalf("run %d: %d images, want %d", run, again.Len(), first.Len())
 		}
-		for i := range again.Images {
-			if again.Images[i].ID != first.Images[i].ID || again.Images[i].Ordinal != first.Images[i].Ordinal {
+		for i := range again.Images() {
+			if again.Images()[i].ID != first.Images()[i].ID || again.Images()[i].Ordinal != first.Images()[i].Ordinal {
 				t.Fatalf("run %d: Images[%d] drifted: got %+v, want %+v",
-					run, i, again.Images[i], first.Images[i])
+					run, i, again.Images()[i], first.Images()[i])
 			}
 		}
 	}

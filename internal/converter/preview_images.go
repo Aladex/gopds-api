@@ -238,7 +238,7 @@ func BuildPreviewImages(
 	set := PreviewImageSet{
 		base:    base,
 		byID:    make(map[string]int, len(binaries)),
-		Refused: make(map[string]error, len(binaries)),
+		refused: make(map[string]error, len(binaries)),
 	}
 	n := 0
 	for _, id := range ids {
@@ -256,15 +256,19 @@ func BuildPreviewImages(
 		// later — the work this function exists to do once.
 		payload, mime, err := preparePreviewImage(binaries[id].Data, policy)
 		if err != nil {
-			set.Refused[id] = err
+			set.refused[id] = err
 			continue
 		}
 		n++
-		set.byID[id] = len(set.Images)
-		set.Images = append(set.Images, PreparedPreviewImage{
+		set.byID[id] = len(set.images)
+		set.images = append(set.images, PreparedPreviewImage{
 			ID:      id,
 			Ordinal: n,
-			Payload: payload,
+			// Cloned, not referenced. Normalize hands back the caller's own
+			// slice for the formats it passes through, so without this the
+			// "final" bytes are the document's bytes: editing the parsed book
+			// afterwards silently edits what the reader would receive.
+			Payload: bytes.Clone(payload),
 			MIME:    mime,
 		})
 	}
@@ -293,11 +297,16 @@ type PreparedPreviewImage struct {
 // projection the renderer uses is exposed through Projection so the underlying
 // index stays private.
 type PreviewImageSet struct {
-	Images  []PreparedPreviewImage
-	Refused map[string]error
+	// Everything is private on purpose. The set is a snapshot: once built,
+	// what it holds is what the handler will serve, and a caller that could
+	// reach in and change a payload, a MIME or an ordinal would reopen the
+	// gap between deciding and using that this pipeline closed twice already
+	// — the readers hand out copies instead.
+	images  []PreparedPreviewImage
+	refused map[string]error
 
 	base PreviewImageBase
-	byID map[string]int // binary id -> index into Images
+	byID map[string]int // binary id -> index into images
 }
 
 // Projection returns the read-only view the renderer and chunker consume: a
@@ -306,18 +315,42 @@ type PreviewImageSet struct {
 // (URL, Ordinal, Len, Base) without exposing the prepared bytes to code that
 // has no business reading them.
 func (s PreviewImageSet) Projection() PreviewImages {
-	index := make(map[string]int, len(s.Images))
-	for _, img := range s.Images {
+	index := make(map[string]int, len(s.images))
+	for _, img := range s.images {
 		index[img.ID] = img.Ordinal
 	}
 	return PreviewImages{base: s.base, index: index}
+}
+
+// Images returns the prepared pictures in ordinal order. Each payload is a
+// copy: a caller that mutates what it gets cannot reach the snapshot.
+func (s PreviewImageSet) Images() []PreparedPreviewImage {
+	out := make([]PreparedPreviewImage, len(s.images))
+	for i, img := range s.images {
+		out[i] = img
+		out[i].Payload = bytes.Clone(img.Payload)
+	}
+	return out
+}
+
+// Len reports how many pictures were prepared.
+func (s PreviewImageSet) Len() int { return len(s.images) }
+
+// Refusals returns the typed reason for every binary that did not pass, keyed
+// by binary id. The map is a copy; the errors themselves are immutable values.
+func (s PreviewImageSet) Refusals() map[string]error {
+	out := make(map[string]error, len(s.refused))
+	for id, err := range s.refused {
+		out[id] = err
+	}
+	return out
 }
 
 // RefusalReason unwraps the recorded reason for one id, or nil if the id was
 // accepted. Callers that count by cause use errors.Is against the typed
 // refusals (ErrPreviewImageUnsupported, ErrPreviewImageDimensions, etc.).
 func (s PreviewImageSet) RefusalReason(id string) error {
-	return s.Refused[id]
+	return s.refused[id]
 }
 
 // PreparePreviewImage decides and prepares one preview picture in the same
