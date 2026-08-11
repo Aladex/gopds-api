@@ -89,12 +89,27 @@ type PreviewImagePolicy struct {
 	// reader across many frames. That trade-off is deliberate; the test
 	// TestPreparePreviewImage_AnimatedPayloadsAccepted pins it.
 	MaxPixels int
-	// MaxSide is the per-side cap, applied to width and height separately.
-	// It exists because fb2image.Normalize's own per-side cap (maxDimension)
-	// only fires on the transcode path (BMP/TIFF); without this field,
-	// pass-through formats (PNG/JPEG/GIF/WEBP) would slip a wider canvas
-	// through. Keep the value in sync with fb2image.maxDimension so that the
-	// same shape of picture is accepted or refused regardless of format.
+	// MaxSide is the per-side cap, applied to width and height separately
+	// in PreparePreviewImage on every format. There are two layers of
+	// dimension checks, and they do not pretend to be one:
+	//
+	//   - The preview policy (this field, MaxPixels, MaxBytes) runs in
+	//     PreparePreviewImage on the payload the reader receives, and it
+	//     applies to every format.
+	//   - fb2image.Normalize has its own, stricter caps (maxDimension =
+	//     4096, maxPixels = 4 MP) that only fire on the transcode path
+	//     (BMP/TIFF); pass-through formats (PNG/JPEG/GIF/WEBP) never see
+	//     them.
+	//
+	// The two layers serve different masters: the preview policy is the
+	// reader-facing budget, fb2image's caps protect the transcode allocator.
+	// They do not match — MaxPixels is 32 MP, fb2image's maxPixels is 4 MP —
+	// and that asymmetry is visible: a 3000x3000 BMP (9 MP) is refused by
+	// fb2image before preview policy sees it, while a PNG of the same
+	// dimensions passes. Setting MaxSide to the same 4096 keeps the per-side
+	// answer consistent across formats, but only the per-side; the pixel
+	// answer can still differ. That is the cost of Normalize owning the
+	// transcode path.
 	MaxSide int
 }
 

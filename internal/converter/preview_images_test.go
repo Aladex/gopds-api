@@ -9,6 +9,7 @@ import (
 	"image"
 	"image/color"
 	"image/gif"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -505,8 +506,9 @@ func TestNewPreviewImageBase_AddressMatchesRenderOutput(t *testing.T) {
 // MaxSide caps the longer side of the canvas for every format, not only the
 // transcode path. Without it, a PNG declaring 1048576x4 is admitted (4 MP is
 // under the pixel cap, and Normalize's own per-side cap never touches PNG)
-// while the same shape in BMP is refused by Normalize on transcode. Same
-// shape of picture, same answer, regardless of the container format.
+// while a BMP of the same shape is refused by Normalize on transcode.
+// The per-side answer is consistent across formats; the pixel answer is not
+// (see PreviewImagePolicy.MaxSide for the two-layer contract).
 func TestPreparePreviewImage_MaxSideAppliesToAllFormats(t *testing.T) {
 	// A PNG carrying 1048576x4 in its IHDR. forgePNGDimensions rewrites the
 	// header of a real 4x4 PNG, fixing CRC so DecodeConfig reads it.
@@ -863,59 +865,6 @@ func staticGIF(t *testing.T) []byte {
 	return buf.Bytes()
 }
 
-// buildPNGChunk assembles one PNG chunk: length + type + data + CRC. CRC is
-// computed over type+data, per the PNG spec. Used to splice an acTL chunk
-// into a real PNG to make an APNG fixture, rather than forging the whole
-// file by hand.
-func buildPNGChunk(chunkType string, data []byte) []byte {
-	var buf bytes.Buffer
-	var lenBytes [4]byte
-	binary.BigEndian.PutUint32(lenBytes[:], uint32(len(data)))
-	buf.Write(lenBytes[:])
-	buf.WriteString(chunkType)
-	buf.Write(data)
-	crc := crc32IEEE(append([]byte(chunkType), data...))
-	var crcBytes [4]byte
-	binary.BigEndian.PutUint32(crcBytes[:], crc)
-	buf.Write(crcBytes[:])
-	return buf.Bytes()
-}
-
-// apngFromPNG splices an acTL chunk in front of IDAT, turning a real PNG
-// into an APNG. The pixel data stays a valid PNG (so image.DecodeConfig
-// still reads the same dimensions); the acTL chunk announces frames.
-// num_plays=0 means "loop forever", matching what real APNG encoders emit.
-func apngFromPNG(t *testing.T, png []byte, frames int) []byte {
-	t.Helper()
-	const sig = "\x89PNG\r\n\x1a\n"
-	if len(png) < len(sig) || string(png[:len(sig)]) != sig {
-		t.Fatalf("apngFromPNG: not a PNG signature")
-	}
-	pos := len(sig)
-	var idatOffset int
-	for pos+8 <= len(png) {
-		length := binary.BigEndian.Uint32(png[pos : pos+4])
-		chunkType := string(png[pos+4 : pos+8])
-		if chunkType == "IDAT" {
-			idatOffset = pos
-			break
-		}
-		pos += 12 + int(length) // length(4) + type(4) + data(length) + crc(4)
-	}
-	if idatOffset == 0 {
-		t.Fatalf("apngFromPNG: IDAT not found")
-	}
-	actlData := make([]byte, 8)
-	binary.BigEndian.PutUint32(actlData[0:4], uint32(frames))
-	binary.BigEndian.PutUint32(actlData[4:8], 0)
-	actl := buildPNGChunk("acTL", actlData)
-	out := make([]byte, 0, len(png)+len(actl))
-	out = append(out, png[:idatOffset]...)
-	out = append(out, actl...)
-	out = append(out, png[idatOffset:]...)
-	return out
-}
-
 // Animated GIF, WebP and APNG are shown in the preview on the same terms as
 // their static counterparts. This is a deliberate decision (the reader is
 // better served by seeing the animation than by a placeholder), not a
@@ -925,40 +874,166 @@ func apngFromPNG(t *testing.T, png []byte, frames int) []byte {
 // trade-off is paid knowingly, and these tests pin the choice so a future
 // change cannot refuse animation by accident.
 //
-// WebP animation is not covered here: the project has no WebP encoder in
-// its dependencies (only a decoder), and forging an animated WebP by hand
-// would mean encoding VP8/VP8L frames, which is out of scope. Static WebP
-// is still exercised by the pass-through path. Add a WebP case when an
-// encoder becomes available.
+// The assertion is exact byte equality: PreparePreviewImage must hand back
+// the same bytes it received for pass-through formats, not a truncated or
+// re-encoded subset. "Leave only the first frame" is the mutation this
+// catches — the output would be a valid picture, but not what the book
+// carried.
+//
+// Fixtures in testdata/ are real, not forged:
+//
+//	animated.png  — a real APNG (acTL + 5 fcTL + 4 fdAT), built with:
+//	  ffmpeg -f lavfi -i testsrc=duration=0.5:size=16x16:rate=10 \
+//	    -plays 0 -f apng animated.png
+//
+//	animated.webp — a real animated WebP (VP8X + ANIM + 5 ANMF), built with:
+//	  ffmpeg -f lavfi -i testsrc=duration=0.5:size=16x16:rate=10 \
+//	    -loop 0 -c:v libwebp_anim animated.webp
+//
+// GIF is generated in-process through gif.EncodeAll (Go's standard encoder),
+// so no external file is needed.
 func TestPreparePreviewImage_AnimatedPayloadsAccepted(t *testing.T) {
 	policy := testPreviewImagePolicy()
-	png := uniformImage(t, "png", 4, 4)
-
+	apng, err := os.ReadFile("testdata/animated.png")
+	if err != nil {
+		t.Fatalf("read testdata/animated.png: %v", err)
+	}
+	webp, err := os.ReadFile("testdata/animated.webp")
+	if err != nil {
+		t.Fatalf("read testdata/animated.webp: %v", err)
+	}
 	cases := []struct {
 		name     string
 		data     []byte
 		wantMime string
 	}{
-		{"animated gif", animatedGIF(t, 3), "image/gif"},
+		{"animated gif (3 frames)", animatedGIF(t, 3), "image/gif"},
 		{"static gif (control)", staticGIF(t), "image/gif"},
-		{"apng (acTL before IDAT)", apngFromPNG(t, png, 2), "image/png"},
-		{"static png (control)", png, "image/png"},
+		{"animated png (apng)", apng, "image/png"},
+		{"static png (control)", uniformImage(t, "png", 4, 4), "image/png"},
+		{"animated webp", webp, "image/webp"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			payload, mime, err := PreparePreviewImage(tc.data, policy)
 			if err != nil {
 				t.Fatalf("PreparePreviewImage refused an animated payload: %v\n"+
-					"animation is served on the same terms as static pictures; see the\n"+
-					"package doc on ErrPreviewImageDimensions for what the pixel cap does\n"+
-					"and does not cover.", err)
+					"animation is served on the same terms as static pictures.", err)
 			}
 			if mime != tc.wantMime {
 				t.Errorf("mime = %q, want %q", mime, tc.wantMime)
 			}
-			if len(payload) == 0 {
-				t.Errorf("payload empty for an accepted %s", tc.name)
+			// Exact byte equality: the pipeline must not re-encode, truncate,
+			// or drop frames from a pass-through payload. A mutation that
+			// "leaves only the first frame" would produce a valid picture
+			// with fewer bytes — only an exact comparison catches that.
+			if !bytes.Equal(payload, tc.data) {
+				t.Errorf("payload (%d bytes) differs from input (%d bytes); "+
+					"animation must pass through byte-for-byte",
+					len(payload), len(tc.data))
 			}
 		})
+	}
+}
+
+// --- Snapshot immutability tests -------------------------------------------
+//
+// PreviewImageSet is a snapshot: once built, nothing the caller does to the
+// source map, to the slice returned by Images(), or to the map returned by
+// Refusals() can reach the stored data. Each test below pins one surface
+// and is killed by its own mutation — removing exactly one of the three
+// copy sites in the implementation.
+
+// Mutating the source FB2Binary.Data after BuildPreviewImages must not
+// change what Images() returns. Killed by removing bytes.Clone at the
+// build site (PreviewImageSet construction).
+func TestPreviewImageSet_SourceDataMutationDoesNotLeak(t *testing.T) {
+	png := uniformImage(t, "png", 4, 4)
+	bins := map[string]FB2Binary{"a": {Data: png}}
+	set, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy())
+	if err != nil {
+		t.Fatalf("BuildPreviewImages: %v", err)
+	}
+	want := set.Images()[0].Payload
+	// Corrupt the source — the set already holds its own copy.
+	bins["a"].Data[0] ^= 0xFF
+	got := set.Images()[0].Payload
+	if !bytes.Equal(got, want) {
+		t.Errorf("Images()[0].Payload changed after source mutation: got %x, want %x",
+			got[:min(len(got), 8)], want[:min(len(want), 8)])
+	}
+}
+
+// Mutating the Payload in a slice returned by Images() must not reach the
+// stored snapshot. Killed by removing bytes.Clone inside Images().
+func TestPreviewImageSet_PayloadMutationDoesNotLeak(t *testing.T) {
+	png := uniformImage(t, "png", 4, 4)
+	bins := map[string]FB2Binary{"a": {Data: png}}
+	set, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy())
+	if err != nil {
+		t.Fatalf("BuildPreviewImages: %v", err)
+	}
+	// Capture want as an independent copy before any mutation. If Images()
+	// returns a clone, the stored slice is separate; if it returns a
+	// reference, want itself would be an alias and the mutation would be
+	// invisible.
+	want := append([]byte(nil), set.Images()[0].Payload...)
+	copy1 := set.Images()
+	copy1[0].Payload[0] ^= 0xFF
+	got := set.Images()[0].Payload
+	if !bytes.Equal(got, want) {
+		t.Errorf("Images()[0].Payload changed after mutating a returned copy: got %x, want %x",
+			got[:min(len(got), 8)], want[:min(len(want), 8)])
+	}
+}
+
+// Mutating Ordinal, ID or MIME in a slice returned by Images() must not
+// reach the stored snapshot. These are value types copied by the struct
+// assignment in Images() — no bytes.Clone is needed, but the test pins the
+// invariant so a future change that returns pointers instead of values is
+// caught.
+func TestPreviewImageSet_FieldMutationDoesNotLeak(t *testing.T) {
+	png := uniformImage(t, "png", 4, 4)
+	bins := map[string]FB2Binary{"a": {Data: png}}
+	set, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy())
+	if err != nil {
+		t.Fatalf("BuildPreviewImages: %v", err)
+	}
+	copy1 := set.Images()
+	copy1[0].Ordinal = 999
+	copy1[0].ID = "tampered"
+	copy1[0].MIME = "text/plain"
+	again := set.Images()
+	if again[0].Ordinal != 1 || again[0].ID != "a" || again[0].MIME != "image/png" {
+		t.Errorf("Fields changed after mutating a returned copy: got Ordinal=%d ID=%q MIME=%q",
+			again[0].Ordinal, again[0].ID, again[0].MIME)
+	}
+}
+
+// Mutating the map returned by Refusals() must not reach the stored
+// snapshot. Killed by returning the internal map directly instead of
+// copying it.
+func TestPreviewImageSet_RefusalsMutationDoesNotLeak(t *testing.T) {
+	bins := map[string]FB2Binary{
+		"good": {Data: uniformImage(t, "png", 4, 4)},
+		"bad":  {Data: []byte("not an image")},
+	}
+	set, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy())
+	if err != nil {
+		t.Fatalf("BuildPreviewImages: %v", err)
+	}
+	original := set.Refusals()
+	if _, ok := original["bad"]; !ok {
+		t.Fatalf("precondition: 'bad' must be in Refusals")
+	}
+	// Tamper with the returned map.
+	original["injected"] = errors.New("fake")
+	delete(original, "bad")
+	again := set.Refusals()
+	if _, ok := again["bad"]; !ok {
+		t.Errorf("Refusals() lost 'bad' after caller mutated a returned map")
+	}
+	if _, ok := again["injected"]; ok {
+		t.Errorf("Refusals() gained 'injected' from caller mutation")
 	}
 }

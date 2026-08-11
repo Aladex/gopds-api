@@ -427,12 +427,12 @@ func PreparePreviewImage(data []byte, policy PreviewImagePolicy) (payload []byte
 		return nil, "", fmt.Errorf("%w: declared %dx%d, cap is %d pixels",
 			ErrPreviewImageDimensions, cfg.Width, cfg.Height, policy.MaxPixels)
 	}
-	// Per-side cap. fb2image.Normalize enforces the same limit on the
-	// transcode path (BMP/TIFF), but pass-through formats (PNG/JPEG/GIF/
-	// WEBP) skip it. Without this check the same shape of picture is
-	// admitted or refused depending on the container — accidental policy,
-	// not a deliberate one. The value mirrors fb2image.maxDimension so the
-	// two paths agree.
+	// Per-side cap, applied on every format here. fb2image.Normalize has
+	// its own per-side cap (maxDimension = 4096) that only fires on the
+	// transcode path (BMP/TIFF); without this check, pass-through formats
+	// (PNG/JPEG/GIF/WEBP) would slip a wider canvas through. The two caps
+	// happen to share the same value today, but they are separate layers
+	// — see PreviewImagePolicy.MaxSide for why they do not have to match.
 	if cfg.Width > policy.MaxSide || cfg.Height > policy.MaxSide {
 		return nil, "", fmt.Errorf("%w: declared %dx%d, per-side cap is %d",
 			ErrPreviewImageDimensions, cfg.Width, cfg.Height, policy.MaxSide)
