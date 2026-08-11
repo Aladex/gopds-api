@@ -63,13 +63,20 @@ type PreviewPolicy struct {
 }
 
 // PreviewImagePolicy carries what a single picture must fit to be shown:
-// bytes of the served payload and pixels of the decoded canvas. These are
-// properties of one image, not of one portion, so they live apart from
-// PreviewPolicy. The chunker and renderer never read them; only the image
-// preparation path does.
+// bytes of the served payload, pixels of the decoded canvas, and the longest
+// side the canvas may have. These are properties of one image, not of one
+// portion, so they live apart from PreviewPolicy. The chunker and renderer
+// never read them; only the image preparation path does.
 type PreviewImagePolicy struct {
 	MaxBytes  int // Per-image decoded payload cap
 	MaxPixels int // Per-image pixel cap, against decompression bombs
+	// MaxSide is the per-side cap, applied to width and height separately.
+	// It exists because fb2image.Normalize's own per-side cap (maxDimension)
+	// only fires on the transcode path (BMP/TIFF); without this field,
+	// pass-through formats (PNG/JPEG/GIF/WEBP) would slip a wider canvas
+	// through. Keep the value in sync with fb2image.maxDimension so that the
+	// same shape of picture is accepted or refused regardless of format.
+	MaxSide int
 }
 
 // chunkBlock is one indivisible block-level unit of the flattened document:

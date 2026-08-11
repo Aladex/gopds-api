@@ -29,9 +29,10 @@ func testPreviewPolicy() PreviewPolicy {
 
 // testPreviewImagePolicy returns generous image caps: only the HTML ceiling
 // or specific image tests bind. The values are the historical defaults,
-// carried across the type split unchanged so no test's outcome moves.
+// carried across the type split unchanged so no test's outcome moves. MaxSide
+// mirrors fb2image.maxDimension — see the field doc on PreviewImagePolicy.
 func testPreviewImagePolicy() PreviewImagePolicy {
-	return PreviewImagePolicy{MaxBytes: 1 << 20, MaxPixels: 32 << 20}
+	return PreviewImagePolicy{MaxBytes: 1 << 20, MaxPixels: 32 << 20, MaxSide: 4096}
 }
 
 // testPreviewImageBase returns a base for tests that just need any valid one.

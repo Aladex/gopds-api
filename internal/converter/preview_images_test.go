@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"golang.org/x/image/bmp"
+
+	"gopds-api/internal/fb2image"
 )
 
 // forgeBMP writes a BMP header that declares the given canvas without
@@ -495,5 +497,79 @@ func TestNewPreviewImageBase_AddressMatchesRenderOutput(t *testing.T) {
 	}
 	if !strings.Contains(out, `src="`+wantSrc+`"`) {
 		t.Errorf("rendered output does not carry the code-produced address %q: %s", wantSrc, shorten(out))
+	}
+}
+
+// MaxSide caps the longer side of the canvas for every format, not only the
+// transcode path. Without it, a PNG declaring 1048576x4 is admitted (4 MP is
+// under the pixel cap, and Normalize's own per-side cap never touches PNG)
+// while the same shape in BMP is refused by Normalize on transcode. Same
+// shape of picture, same answer, regardless of the container format.
+func TestPreparePreviewImage_MaxSideAppliesToAllFormats(t *testing.T) {
+	// A PNG carrying 1048576x4 in its IHDR. forgePNGDimensions rewrites the
+	// header of a real 4x4 PNG, fixing CRC so DecodeConfig reads it.
+	pngWide := forgePNGDimensions(t, uniformImage(t, "png", 4, 4), 1048576, 4)
+	bmpWide := forgeBMP(1048576, 4)
+	for _, tc := range []struct {
+		name string
+		data []byte
+	}{
+		{"png 1048576x4", pngWide},
+		{"bmp 1048576x4", bmpWide},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := PreparePreviewImage(tc.data, testPreviewImagePolicy())
+			if !errors.Is(err, ErrPreviewImageDimensions) {
+				t.Errorf("err = %v, want ErrPreviewImageDimensions", err)
+			}
+		})
+	}
+}
+
+// The fb2image refusal has to survive the wrapping in mapNormalizeError. The
+// comment there promises errors.Is finds it, but `%v` breaks the chain. The
+// outer reason (Dimensions) and the inner reason (fb2image.ErrTooLarge) must
+// both be visible to errors.Is on the same error value.
+func TestPreparePreviewImage_NormalizeErrorChainsThroughWrap(t *testing.T) {
+	_, _, err := PreparePreviewImage(forgeBMP(1048576, 4), testPreviewImagePolicy())
+	if err == nil {
+		t.Fatal("expected an error for a forged BMP")
+	}
+	if !errors.Is(err, ErrPreviewImageDimensions) {
+		t.Errorf("outer: err = %v, want ErrPreviewImageDimensions in the chain", err)
+	}
+	if !errors.Is(err, fb2image.ErrTooLarge) {
+		t.Errorf("inner: err = %v, want fb2image.ErrTooLarge in the chain", err)
+	}
+}
+
+// A non-positive book id has no business producing a base. Zero slips past
+// today (it formats as "0", which is a parseable path segment), and a
+// negative id is meaningless for a catalog row. Refuse both.
+func TestNewPreviewImageBase_RejectsNonPositiveBookID(t *testing.T) {
+	for _, bookID := range []int64{0, -1} {
+		if _, err := NewPreviewImageBase(bookID, "rev1"); !errors.Is(err, ErrPreviewImageBaseInvalid) {
+			t.Errorf("bookID=%d: err = %v, want ErrPreviewImageBaseInvalid", bookID, err)
+		}
+	}
+}
+
+// The zero value of PreviewImageBase must be unusable. A caller who forgot to
+// build a base through the constructor would otherwise get addresses of the
+// form "/N" out of URLFor — they look real, route somewhere, and lead
+// nowhere. BuildPreviewImages is the boundary where the empty base meets the
+// real pipeline, so it is where the refusal sits.
+func TestBuildPreviewImages_RejectsZeroBase(t *testing.T) {
+	var zero PreviewImageBase
+	if zero.String() != "" {
+		t.Fatalf("precondition: a zero base must have an empty path, got %q", zero.String())
+	}
+	bins := map[string]FB2Binary{"a": {Data: uniformImage(t, "png", 4, 4)}}
+	out, err := BuildPreviewImages(context.Background(), bins, zero, testPreviewImagePolicy())
+	if err == nil {
+		t.Fatalf("a zero base must be rejected, got out with %d ordinals", out.Len())
+	}
+	if out.Len() != 0 {
+		t.Errorf("on rejection, no ordinals must be assigned, got %d", out.Len())
 	}
 }

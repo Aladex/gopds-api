@@ -96,6 +96,13 @@ func (b PreviewImageBase) URLFor(ordinal int) string {
 // Putting it here, not in the test, means a test that needs to know the shape
 // of a src asks the code, not its own fixture.
 func NewPreviewImageBase(bookID int64, revision string) (PreviewImageBase, error) {
+	// A non-positive book id has no catalog row behind it: zero never
+	// identifies a book, and a negative id is meaningless. Refusing here is
+	// cheaper than discovering "/preview/0/rev1" in a handler log three
+	// weeks later, after a reader clicked a link that pointed nowhere.
+	if bookID <= 0 {
+		return PreviewImageBase{}, fmt.Errorf("%w: book id %d is not positive", ErrPreviewImageBaseInvalid, bookID)
+	}
 	// revision == "" is covered by revisionPattern below (the `+` requires
 	// at least one character); a separate empty check would be unreachable
 	// as its own refusal.
@@ -182,6 +189,13 @@ func BuildPreviewImages(
 	base PreviewImageBase,
 	policy PreviewImagePolicy,
 ) (PreviewImages, error) {
+	// The zero value of PreviewImageBase carries an empty path. URLFor
+	// would still produce "/N" out of it — real-looking addresses that
+	// route nowhere. Refuse before the loop touches a single binary, so
+	// the empty base cannot mint addresses even by accident.
+	if base.path == "" {
+		return PreviewImages{}, fmt.Errorf("%w: base was not built through NewPreviewImageBase", ErrPreviewImageBaseInvalid)
+	}
 	out := PreviewImages{base: base, index: make(map[string]int, len(binaries))}
 	ids := make([]string, 0, len(binaries))
 	for id := range binaries {
@@ -280,6 +294,16 @@ func PreparePreviewImage(data []byte, policy PreviewImagePolicy) (payload []byte
 		return nil, "", fmt.Errorf("%w: declared %dx%d, cap is %d pixels",
 			ErrPreviewImageDimensions, cfg.Width, cfg.Height, policy.MaxPixels)
 	}
+	// Per-side cap. fb2image.Normalize enforces the same limit on the
+	// transcode path (BMP/TIFF), but pass-through formats (PNG/JPEG/GIF/
+	// WEBP) skip it. Without this check the same shape of picture is
+	// admitted or refused depending on the container — accidental policy,
+	// not a deliberate one. The value mirrors fb2image.maxDimension so the
+	// two paths agree.
+	if cfg.Width > policy.MaxSide || cfg.Height > policy.MaxSide {
+		return nil, "", fmt.Errorf("%w: declared %dx%d, per-side cap is %d",
+			ErrPreviewImageDimensions, cfg.Width, cfg.Height, policy.MaxSide)
+	}
 
 	// Final size check on the bytes the reader will receive. Re-encoding a
 	// BMP as PNG can come out bigger than the source, so the input gate
@@ -297,25 +321,28 @@ func PreparePreviewImage(data []byte, policy PreviewImagePolicy) (payload []byte
 // it tells the catalog a picture was fine but too big for our preview budget,
 // distinct from corruption. Everything else from Normalize (undecodable,
 // encode failed, or an unrecognized format that slipped past Classify) is the
-// reader's "broken bytes" answer and goes to Corrupt. Wrap, never replace, so
-// errors.Is still finds the underlying cause if anyone debugs the message.
+// reader's "broken bytes" answer and goes to Corrupt.
+//
+// Both errors are wrapped with %w, not %v: callers may need either reason —
+// the outer one to count by category, the inner one to debug which step
+// refused — and errors.Is has to find them both in the same value.
 func mapNormalizeError(err error) error {
 	switch {
 	case errors.Is(err, fb2image.ErrTooLarge):
-		return fmt.Errorf("%w: fb2image.Normalize refused on size: %v",
+		return fmt.Errorf("%w: fb2image.Normalize refused on size: %w",
 			ErrPreviewImageDimensions, err)
 	case errors.Is(err, fb2image.ErrUnknownFormat):
 		// Classify already filtered the obvious cases, so reaching here is
 		// rare. Treat it as corrupt: Classify said yes, so the magic
 		// matched, and yet Normalize could not place it — the bytes are
 		// not what the magic promised.
-		return fmt.Errorf("%w: fb2image.Normalize could not place the format: %v",
+		return fmt.Errorf("%w: fb2image.Normalize could not place the format: %w",
 			ErrPreviewImageCorrupt, err)
 	default:
 		// ErrUndecodable, ErrEncodeFailed, and any future decode-side
 		// refusal all surface as corrupt: the reader's bytes would not
 		// come out, regardless of which step gave up.
-		return fmt.Errorf("%w: fb2image.Normalize refused: %v",
+		return fmt.Errorf("%w: fb2image.Normalize refused: %w",
 			ErrPreviewImageCorrupt, err)
 	}
 }

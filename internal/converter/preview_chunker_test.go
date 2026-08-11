@@ -119,7 +119,7 @@ func TestChunkPreview_IndivisibleBlockTooLarge(t *testing.T) {
 func TestChunkPreview_OversizedImageIsDropped(t *testing.T) {
 	jpegData := uniformImage(t, "jpeg", 64, 64)
 	chunkPolicy := PreviewPolicy{MaxChunkBytes: 4096}
-	imagePolicy := PreviewImagePolicy{MaxBytes: len(jpegData) - 1, MaxPixels: 32 << 20}
+	imagePolicy := PreviewImagePolicy{MaxBytes: len(jpegData) - 1, MaxPixels: 32 << 20, MaxSide: 4096}
 	imagePara := &FB2Paragraph{
 		Kind: ParagraphKindImage,
 		Content: []*FB2InlineElement{{
