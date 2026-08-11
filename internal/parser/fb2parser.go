@@ -395,8 +395,8 @@ func (p *FB2Parser) extractCover() ([]byte, error) {
 	// by content sniffing, so what a reader can draw has to be decided once,
 	// here. A cover nothing can draw is dropped: the catalog then shows its
 	// placeholder instead of a broken image.
-	cover, mime := fb2image.Normalize(decoded)
-	if mime == "" {
+	cover, _, err := fb2image.Normalize(decoded)
+	if err != nil {
 		return nil, nil
 	}
 	return cover, nil

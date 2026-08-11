@@ -1339,8 +1339,8 @@ func buildImages(doc *FB2Document) map[string]epubImage {
 
 	images := make(map[string]epubImage, len(keys))
 	for i, key := range keys {
-		data, mediaType := fb2image.Normalize(doc.Binary[key].Data)
-		if mediaType == "" {
+		data, mediaType, err := fb2image.Normalize(doc.Binary[key].Data)
+		if err != nil {
 			// Nothing here a reader can draw. Storing it anyway wrote an
 			// image_001.bin into the EPUB and listed it in the manifest; the
 			// <img> pointing at it rendered broken. Dropping the entry leaves
@@ -1394,12 +1394,12 @@ func buildCover(bookFile *parser.BookFile, images map[string]epubImage) *epubCov
 	// those bytes is also what keeps the comparison below working: the body
 	// images went through the same function, so a cover that is one of them
 	// still matches and is not written into the EPUB a second time.
-	coverData, mediaType := fb2image.Normalize(coverData)
+	coverData, mediaType, err := fb2image.Normalize(coverData)
 
 	// An unusable cover is the same thing as no cover. Writing cover.bin and
 	// declaring it in the OPF gave the reader a cover page that renders empty;
 	// falling through here offers the first illustration instead.
-	if mediaType != "" {
+	if err == nil {
 		for _, img := range images {
 			if bytes.Equal(img.Data, coverData) {
 				return &epubCover{

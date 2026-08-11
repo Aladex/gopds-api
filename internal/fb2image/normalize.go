@@ -11,6 +11,8 @@ package fb2image
 import (
 	"bytes"
 	"encoding/xml"
+	"errors"
+	"fmt"
 	"image"
 	"image/png"
 	"io"
@@ -18,6 +20,35 @@ import (
 	// Registered for image.Decode: the formats that have to be re-encoded.
 	_ "golang.org/x/image/bmp"
 	_ "golang.org/x/image/tiff"
+)
+
+// Refusals returned by Normalize. Each names a distinct reason so callers
+// can map them into their own policy categories — most importantly, "too
+// large for our internal cap" is not the same category as "the bytes are
+// corrupt", because one drives policy tuning and the other drives catalog
+// cleanup. They are returned wrapped (fmt.Errorf("%w: ...", Err...)) so
+// errors.Is tells them apart.
+var (
+	// ErrUnknownFormat: no registered decoder recognized the bytes. An
+	// empty payload also lands here — there is no magic to identify.
+	ErrUnknownFormat = errors.New("fb2image: image format is not recognized")
+
+	// ErrUndecodable: the magic matched a known format but the bytes would
+	// not decode (truncated stream, broken header, zero dimensions). The
+	// picture exists in name only.
+	ErrUndecodable = errors.New("fb2image: image payload is undecodable")
+
+	// ErrTooLarge: the decoded header declares more than our own cap
+	// allows — wider or taller than maxDimension, or more pixels than
+	// maxPixels. Distinct from "corrupt" because the picture is fine; our
+	// ceiling is the policy choice, and the catalog will want to count
+	// this separately.
+	ErrTooLarge = errors.New("fb2image: image dimensions exceed the internal cap")
+
+	// ErrEncodeFailed: re-encoding the decoded picture to PNG did not
+	// succeed. png.Encode practically never fails on a well-formed image,
+	// so reaching this branch is itself signal.
+	ErrEncodeFailed = errors.New("fb2image: re-encoding the payload failed")
 )
 
 const (
@@ -65,26 +96,38 @@ var renderable = []string{MimePNG, MimeJPEG, MimeGIF, MimeWEBP, MimeSVG}
 // Normalize names an image by its bytes and returns it in a form a reader can
 // draw. Formats outside the renderable set — BMP and TIFF, which EPUB does not
 // require a reader to support — are re-encoded as PNG. A payload that decodes
-// as no image at all, or that declares more pixels than will be decoded, gets
-// an empty type and no bytes; the caller is meant to drop it, because shipping
+// as no image at all, or that declares more pixels than will be decoded, is
+// returned as a typed error so callers can tell "wrong policy" from "broken
+// bytes" and count by cause; the caller is meant to drop it, because shipping
 // it anyway produced cover.bin files that nothing opened.
 //
 // The declared content-type and the extension inside the FB2 image id are both
 // book-controlled text, and both had to be confirmed against the magic bytes
 // anyway, so neither is consulted.
-func Normalize(data []byte) (payload []byte, mime string) {
+func Normalize(data []byte) (payload []byte, mime string, err error) {
 	if len(data) == 0 {
-		return nil, ""
+		return nil, "", ErrUnknownFormat
 	}
 
-	for _, mime := range renderable {
-		if matchesMagic(mime, data) {
-			return data, mime
+	for _, m := range renderable {
+		if matchesMagic(m, data) {
+			return data, m, nil
 		}
 	}
 
-	// Not a format readers draw. If Go can decode it we can hand over a PNG;
-	// if it cannot, there is no picture here to rescue.
+	// Reaching transcode with bytes no convertible format owns would turn
+	// every prose payload into an Undecodable BMP attempt, burying the real
+	// signal ("nothing here identifies this as a picture at all"). The
+	// isConvertible magic check is the boundary between "format question"
+	// and "decode question" — only payloads whose magic we recognize reach
+	// transcode, so its typed errors are about that format specifically.
+	if !isConvertible(data) {
+		return nil, "", ErrUnknownFormat
+	}
+
+	// Not a format readers draw. If Go can decode it we hand back a PNG;
+	// transcode carries its own typed refusals (too large, undecodable,
+	// encode-failed) so callers can distinguish policy from corruption.
 	return transcode(data)
 }
 
@@ -94,30 +137,46 @@ func Normalize(data []byte) (payload []byte, mime string) {
 // carry transparency, palettes and bilevel scans. Handing those to a JPEG
 // encoder turns clear areas black, and the population is small enough that
 // choosing a format per picture would be more policy than it is worth.
-func transcode(data []byte) (payload []byte, mime string) {
+//
+// Every refusal is typed: the caller counts by cause, and the difference
+// between "your cap is the policy choice" (ErrTooLarge) and "the bytes are
+// broken" (ErrUndecodable) is what makes those counts meaningful.
+func transcode(data []byte) (payload []byte, mime string, err error) {
 	// The header is book-controlled, and a decoder allocates from what it
 	// claims: seventy bytes declaring 20000x20000 bought a 1.5 GB allocation
 	// before failing on the missing pixels. Read the dimensions first and
 	// refuse the picture on those, so a forged header costs a header read.
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
-		return nil, ""
+		// Magic identified this as a convertible format (the caller only
+		// reaches transcode after the renderable loop refused it), so a
+		// header that does not even read is corruption, not "unknown".
+		return nil, "", fmt.Errorf("%w: DecodeConfig: %v", ErrUndecodable, err)
 	}
-	if cfg.Width <= 0 || cfg.Height <= 0 ||
-		cfg.Width > maxDimension || cfg.Height > maxDimension ||
-		cfg.Width*cfg.Height > maxPixels {
-		return nil, ""
+	if cfg.Width <= 0 || cfg.Height <= 0 {
+		return nil, "", fmt.Errorf("%w: non-positive dimensions %dx%d",
+			ErrUndecodable, cfg.Width, cfg.Height)
+	}
+	if cfg.Width > maxDimension || cfg.Height > maxDimension {
+		return nil, "", fmt.Errorf("%w: %dx%d over the %d-per-side cap",
+			ErrTooLarge, cfg.Width, cfg.Height, maxDimension)
+	}
+	if cfg.Width*cfg.Height > maxPixels {
+		return nil, "", fmt.Errorf("%w: %d pixels over the %d cap",
+			ErrTooLarge, cfg.Width*cfg.Height, maxPixels)
 	}
 
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
-		return nil, ""
+		// The header read but the picture did not — a truncated download
+		// or a corrupted archive. Same bucket as the header-failure above.
+		return nil, "", fmt.Errorf("%w: Decode: %v", ErrUndecodable, err)
 	}
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
-		return nil, ""
+		return nil, "", fmt.Errorf("%w: %v", ErrEncodeFailed, err)
 	}
-	return buf.Bytes(), MimePNG
+	return buf.Bytes(), MimePNG, nil
 }
 
 // ExtensionFor returns the file extension for a type Normalize can return, and

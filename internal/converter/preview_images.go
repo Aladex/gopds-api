@@ -23,6 +23,7 @@ package converter
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"image"
 	"sort"
@@ -129,11 +130,19 @@ func PreparePreviewImage(data []byte, policy PreviewPolicy) (payload []byte, mim
 	// refuses what it cannot decode or what its own dimension cap rejects
 	// (a forged BMP past maxDimension lands here). Whatever it returns is
 	// what the reader receives — this is the boundary at which decision and
-	// preparation become one call. A refusal comes back as a nil payload,
-	// which the DecodeConfig below then fails on as corrupt; the two cases
-	// are not separated here because the reader cannot tell them apart
-	// either.
-	payload, mime = fb2image.Normalize(data)
+	// preparation become one call.
+	//
+	// A refusal comes back as a typed error. We map its reason onto ours:
+	// "too large for our internal cap" is a policy outcome and goes to
+	// ErrPreviewImageDimensions, not into the corrupt bucket — those two
+	// drive different counters and different policy levers, and folding
+	// them together was the original defect (sizes were reported as
+	// corruption).
+	var nerr error
+	payload, mime, nerr = fb2image.Normalize(data)
+	if nerr != nil {
+		return nil, "", mapNormalizeError(nerr)
+	}
 
 	// The renderable-as-is formats (PNG/JPEG/GIF/WEBP) pass through
 	// Normalize unchanged, so the policy's own pixel ceiling has to be
@@ -158,4 +167,32 @@ func PreparePreviewImage(data []byte, policy PreviewPolicy) (payload []byte, mim
 	}
 
 	return payload, mime, nil
+}
+
+// mapNormalizeError translates a fb2image.Normalize refusal into the preview's
+// own typed reasons. ErrTooLarge is a policy outcome and goes to Dimensions —
+// it tells the catalog a picture was fine but too big for our preview budget,
+// distinct from corruption. Everything else from Normalize (undecodable,
+// encode failed, or an unrecognized format that slipped past Classify) is the
+// reader's "broken bytes" answer and goes to Corrupt. Wrap, never replace, so
+// errors.Is still finds the underlying cause if anyone debugs the message.
+func mapNormalizeError(err error) error {
+	switch {
+	case errors.Is(err, fb2image.ErrTooLarge):
+		return fmt.Errorf("%w: fb2image.Normalize refused on size: %v",
+			ErrPreviewImageDimensions, err)
+	case errors.Is(err, fb2image.ErrUnknownFormat):
+		// Classify already filtered the obvious cases, so reaching here is
+		// rare. Treat it as corrupt: Classify said yes, so the magic
+		// matched, and yet Normalize could not place it — the bytes are
+		// not what the magic promised.
+		return fmt.Errorf("%w: fb2image.Normalize could not place the format: %v",
+			ErrPreviewImageCorrupt, err)
+	default:
+		// ErrUndecodable, ErrEncodeFailed, and any future decode-side
+		// refusal all surface as corrupt: the reader's bytes would not
+		// come out, regardless of which step gave up.
+		return fmt.Errorf("%w: fb2image.Normalize refused: %v",
+			ErrPreviewImageCorrupt, err)
+	}
 }

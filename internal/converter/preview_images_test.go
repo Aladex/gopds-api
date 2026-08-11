@@ -144,31 +144,95 @@ func TestPreparePreviewImage_CapsBiteSeparately(t *testing.T) {
 // claiming 20000x20000 once bought 1.5 GB on the EPUB path; both
 // PreparePreviewImage and fb2image.Normalize read the dimensions before any
 // pixel allocation, so this stays a header read here too.
+//
+// fb2image.Normalize rejects this on its own dimension cap, and that refusal
+// surfaces here as ErrPreviewImageDimensions — a policy outcome, not
+// corruption. Folding it into Corrupt (the previous behavior) buried a
+// tunable signal under broken-bytes noise.
 func TestPreparePreviewImage_RefusesAForgedHeader(t *testing.T) {
 	_, _, err := PreparePreviewImage(forgeBMP(20000, 20000), testPreviewPolicy())
 	if err == nil {
 		t.Fatal("a header claiming 400 megapixels was accepted")
 	}
-	// fb2image.Normalize rejects this on its own dimension cap; the
-	// refusal reason is opaque to us, so the gate surfaces it as corrupt.
-	if !errors.Is(err, ErrPreviewImageCorrupt) {
-		t.Errorf("forged header: err = %v, want ErrPreviewImageCorrupt", err)
+	if !errors.Is(err, ErrPreviewImageDimensions) {
+		t.Errorf("forged header: err = %v, want ErrPreviewImageDimensions", err)
 	}
 }
 
 // The defect this function exists to close: a BMP header declaring 1048576x4
-// sits under the policy pixel cap (4 MP below 32) but is refused by
+// sits under the preview policy pixel cap (4 MP below 32) but is refused by
 // fb2image.Normalize on its own maxDimension. The previous gate let the bytes
 // through and issued an address the handler could never satisfy;
 // PreparePreviewImage must refuse too, because the same call decides and
-// prepares.
+// prepares. The refusal must arrive as Dimensions: it is a size outcome, not
+// corruption, and the catalog counts the two separately.
 func TestPreparePreviewImage_BMPWideRejectedByNormalize(t *testing.T) {
 	_, _, err := PreparePreviewImage(forgeBMP(1048576, 4), testPreviewPolicy())
 	if err == nil {
 		t.Fatal("a header that fb2image.Normalize refuses was accepted — decision and preparation have diverged")
 	}
+	if !errors.Is(err, ErrPreviewImageDimensions) {
+		t.Errorf("BMP 1048576x4: err = %v, want ErrPreviewImageDimensions", err)
+	}
+}
+
+// TestPreparePreviewImage_NormalizeOversizeMapsToDimensions pins the mapping
+// between fb2image's cap refusals and the preview's Dimensions reason across
+// the shapes that hit Normalize's three sub-caps. Each must come out as
+// Dimensions, never as Corrupt: they are size outcomes, and the catalog
+// counter that drives policy must not be split across two sentinels.
+func TestPreparePreviewImage_NormalizeOversizeMapsToDimensions(t *testing.T) {
+	cases := []struct {
+		name string
+		data []byte
+	}{
+		// Width past maxDimension — the original defect case. Pixel count
+		// (4 MP) is below the preview cap, but the per-side cap refuses it.
+		{"width past per-side cap", forgeBMP(1048576, 4)},
+		// Height past maxDimension — symmetric to the above; the per-side
+		// cap has to bite in both directions, not only width.
+		{"height past per-side cap", forgeBMP(4, 1048576)},
+		// Pixels past fb2image's maxPixels while each side stays under
+		// maxDimension: 4000x4000 = 16 MP, maxPixels = 4 MP. Exercises the
+		// separate pixel-count cap inside Normalize.
+		{"pixels past Normalize cap", forgeBMP(4000, 4000)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := PreparePreviewImage(tc.data, testPreviewPolicy())
+			if err == nil {
+				t.Fatal("accepted an oversized forged header")
+			}
+			if !errors.Is(err, ErrPreviewImageDimensions) {
+				t.Errorf("err = %v, want ErrPreviewImageDimensions", err)
+			}
+			// And explicitly not Corrupt: that is the regression this test
+			// exists to prevent.
+			if errors.Is(err, ErrPreviewImageCorrupt) {
+				t.Errorf("err = %v; a size refusal must not land in the corrupt bucket", err)
+			}
+		})
+	}
+}
+
+// TestPreparePreviewImage_TruncatedBMPMapsToCorrupt is the other half of the
+// mapping: a payload whose format is recognized but whose bytes do not
+// decode stays in Corrupt. Together with the dimensions test above it pins
+// that the two reasons travel through PreparePreviewImage as two reasons,
+// not one.
+func TestPreparePreviewImage_TruncatedBMPMapsToCorrupt(t *testing.T) {
+	// Real BMP, header only — magic is intact, so Classify passes it; the
+	// decode then fails inside fb2image.Normalize as Undecodable.
+	truncated := realBMP(t, 4, 4)[:54]
+	_, _, err := PreparePreviewImage(truncated, testPreviewPolicy())
+	if err == nil {
+		t.Fatal("accepted a truncated BMP")
+	}
 	if !errors.Is(err, ErrPreviewImageCorrupt) {
-		t.Errorf("BMP 1048576x4: err = %v, want ErrPreviewImageCorrupt", err)
+		t.Errorf("err = %v, want ErrPreviewImageCorrupt", err)
+	}
+	if errors.Is(err, ErrPreviewImageDimensions) {
+		t.Errorf("a corrupt payload must not be misreported as a size refusal")
 	}
 }
 

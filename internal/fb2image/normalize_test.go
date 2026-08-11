@@ -3,6 +3,7 @@ package fb2image_test
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"image"
 	"image/color"
 	"image/gif"
@@ -78,7 +79,10 @@ func encodeGIF(t *testing.T) []byte {
 // It has to arrive as a picture instead.
 func TestNormalize_BMPBecomesPNG(t *testing.T) {
 	in := encodeBMP(t)
-	out, mime := fb2image.Normalize(in)
+	out, mime, err := fb2image.Normalize(in)
+	if err != nil {
+		t.Fatalf("refused a valid BMP: %v", err)
+	}
 	if mime != "image/png" {
 		t.Fatalf("mime = %q, want image/png", mime)
 	}
@@ -92,7 +96,10 @@ func TestNormalize_BMPBecomesPNG(t *testing.T) {
 
 func TestNormalize_TIFFBecomesPNG(t *testing.T) {
 	in := encodeTIFF(t)
-	out, mime := fb2image.Normalize(in)
+	out, mime, err := fb2image.Normalize(in)
+	if err != nil {
+		t.Fatalf("refused a valid TIFF: %v", err)
+	}
 	if mime != "image/png" {
 		t.Fatalf("mime = %q, want image/png", mime)
 	}
@@ -101,10 +108,46 @@ func TestNormalize_TIFFBecomesPNG(t *testing.T) {
 	}
 }
 
+// TestNormalize_BMPAndTIFFAreStillTranscoded is the regression guard that
+// proves BMP and TIFF keep going through transcode, not the new error path.
+// Removing transcode — as a prior change did — lets every other test pass
+// except this one, because it asserts on both the bytes coming back and the
+// absence of an error. Bytes are checked through a real png.Decode, not just
+// non-empty: a stub returning a placeholder would slip past a length check.
+func TestNormalize_BMPAndTIFFAreStillTranscoded(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		data []byte
+	}{
+		{"bmp", encodeBMP(t)},
+		{"tiff", encodeTIFF(t)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, mime, err := fb2image.Normalize(tc.data)
+			if err != nil {
+				t.Fatalf("transcode was dropped: %v", err)
+			}
+			if mime != "image/png" {
+				t.Fatalf("mime = %q, want image/png", mime)
+			}
+			decoded, derr := png.Decode(bytes.NewReader(out))
+			if derr != nil {
+				t.Fatalf("output is not a real PNG: %v", derr)
+			}
+			if b := decoded.Bounds(); b.Dx() != 8 || b.Dy() != 8 {
+				t.Fatalf("picture lost on the way through: bounds = %v, want 8x8", b)
+			}
+		})
+	}
+}
+
 // The picture has to survive the trip, not merely become a valid PNG: an
 // encoder handed a blank image also produces something png.Decode accepts.
 func TestNormalize_BMPKeepsThePicture(t *testing.T) {
-	out, _ := fb2image.Normalize(encodeBMP(t))
+	out, _, err := fb2image.Normalize(encodeBMP(t))
+	if err != nil {
+		t.Fatalf("refused a valid BMP: %v", err)
+	}
 	got, err := png.Decode(bytes.NewReader(out))
 	if err != nil {
 		t.Fatalf("decode: %v", err)
@@ -143,7 +186,10 @@ func TestNormalize_KnownFormatsPassThroughByteForByte(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			out, mime := fb2image.Normalize(tc.data)
+			out, mime, err := fb2image.Normalize(tc.data)
+			if err != nil {
+				t.Fatalf("refused a known format: %v", err)
+			}
 			if mime != tc.mime {
 				t.Fatalf("mime = %q, want %q", mime, tc.mime)
 			}
@@ -154,18 +200,24 @@ func TestNormalize_KnownFormatsPassThroughByteForByte(t *testing.T) {
 	}
 }
 
-// A payload that is not a picture gets no type, so the caller drops it
-// instead of shipping bytes nothing can display.
-func TestNormalize_UnplaceablePayloadGetsNoType(t *testing.T) {
+// A payload that is not a picture is refused with ErrUnknownFormat, so the
+// caller drops it instead of shipping bytes nothing can display.
+//
+// A truncated BMP (magic present, header cut short) is a different category:
+// the format was recognized, the decode failed. It lands in Undecodable, and
+// is exercised in TestNormalize_RefusesTruncatedConvertible below.
+func TestNormalize_RefusesUnplaceablePayload(t *testing.T) {
 	cases := map[string][]byte{
-		"empty":     {},
-		"html":      []byte("<html><body>not an image</body></html>"),
-		"text":      []byte("just some text that happens to be here"),
-		"truncated": encodeBMP(t)[:10],
+		"empty": {},
+		"html":  []byte("<html><body>not an image</body></html>"),
+		"text":  []byte("just some text that happens to be here"),
 	}
 	for name, data := range cases {
 		t.Run(name, func(t *testing.T) {
-			out, mime := fb2image.Normalize(data)
+			out, mime, err := fb2image.Normalize(data)
+			if !errors.Is(err, fb2image.ErrUnknownFormat) {
+				t.Fatalf("err = %v, want ErrUnknownFormat", err)
+			}
 			if mime != "" {
 				t.Fatalf("mime = %q, want empty", mime)
 			}
@@ -181,8 +233,14 @@ func TestNormalize_UnplaceablePayloadGetsNoType(t *testing.T) {
 // only survives if the same input always yields the same output.
 func TestNormalize_IsDeterministic(t *testing.T) {
 	in := encodeBMP(t)
-	first, _ := fb2image.Normalize(in)
-	second, _ := fb2image.Normalize(in)
+	first, _, err := fb2image.Normalize(in)
+	if err != nil {
+		t.Fatalf("refused a valid BMP: %v", err)
+	}
+	second, _, err := fb2image.Normalize(in)
+	if err != nil {
+		t.Fatalf("refused a valid BMP: %v", err)
+	}
 	if !bytes.Equal(first, second) {
 		t.Fatal("two runs produced different bytes")
 	}
@@ -237,10 +295,24 @@ func TestNormalize_SVGNeedsItsRoot(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, mime := fb2image.Normalize([]byte(tc.data))
-			if got := mime == "image/svg+xml"; got != tc.want {
-				t.Errorf("Normalize(%q) gave %q; treated as svg = %v, want %v",
-					tc.data, mime, got, tc.want)
+			_, mime, err := fb2image.Normalize([]byte(tc.data))
+			if tc.want {
+				if err != nil {
+					t.Errorf("Normalize(%q) refused an SVG: %v", tc.data, err)
+				}
+				if mime != "image/svg+xml" {
+					t.Errorf("Normalize(%q) gave %q; want image/svg+xml", tc.data, mime)
+				}
+				return
+			}
+			// Non-SVG payloads are refused — for HTML and friends that is
+			// ErrUnknownFormat; for partial SVG-like text it may also be
+			// ErrUnknownFormat. Whatever the reason, an SVG must not pass.
+			if mime == "image/svg+xml" {
+				t.Errorf("Normalize(%q) was treated as svg; want refused", tc.data)
+			}
+			if err == nil {
+				t.Errorf("Normalize(%q) returned no error; want refused", tc.data)
 			}
 		})
 	}
@@ -264,20 +336,71 @@ func bombHeader(w, h int32) []byte {
 
 // The picture comes out of a book, so its header is attacker-controlled. A
 // claim of billions of pixels must cost a header read, not an allocation.
+// Each kind of oversize has to land in the same reason bucket — TooLarge —
+// because policy treats them together, and distinct from corrupt bytes.
+//
+// A negative width does not pass the bmp decoder far enough to reach our own
+// cap; the decoder refuses with "unsupported BMP image" first. That is still
+// Undecodable, not TooLarge — the picture is not "too large for our cap", it
+// is "no decoder accepts it at all".
 func TestNormalize_RefusesAnOversizedPicture(t *testing.T) {
-	cases := map[string][]byte{
+	tooLarge := map[string][]byte{
 		"enormous square": bombHeader(60000, 60000),
 		"enormous width":  bombHeader(1<<20, 4),
 		"enormous height": bombHeader(4, 1<<20),
-		"negative width":  bombHeader(-8, 8),
+		// Each side is under maxDimension (4000 < 4096), but the pixel
+		// product clears maxPixels (16 MP > 4 MP). This isolates the
+		// pixel-count branch: removing it would not be caught by the
+		// per-side cases above, since those refuse before pixels are
+		// even computed.
+		"pixels only": bombHeader(4000, 4000),
 	}
-	for name, data := range cases {
+	for name, data := range tooLarge {
 		t.Run(name, func(t *testing.T) {
-			out, mime := fb2image.Normalize(data)
+			out, mime, err := fb2image.Normalize(data)
+			if !errors.Is(err, fb2image.ErrTooLarge) {
+				t.Fatalf("err = %v, want ErrTooLarge", err)
+			}
 			if mime != "" || out != nil {
 				t.Fatalf("accepted an oversized picture: %q, %d bytes", mime, len(out))
 			}
 		})
+	}
+
+	t.Run("negative width", func(t *testing.T) {
+		out, mime, err := fb2image.Normalize(bombHeader(-8, 8))
+		if !errors.Is(err, fb2image.ErrUndecodable) {
+			t.Fatalf("err = %v, want ErrUndecodable (decoder rejects before our cap)", err)
+		}
+		if mime != "" || out != nil {
+			t.Fatalf("accepted a negative-width picture: %q, %d bytes", mime, len(out))
+		}
+	})
+}
+
+// The ceiling protects memory, but set too low it silently drops real covers.
+// The largest BMP or TIFF in the catalog is 1155x790, and the widest side
+// anywhere is 1328; a picture of that size has to still come through.
+func TestNormalize_AcceptsTheLargestPictureTheLibraryHolds(t *testing.T) {
+	for _, size := range []image.Point{{X: 1155, Y: 790}, {X: 1328, Y: 562}} {
+		var raw bytes.Buffer
+		if err := bmp.Encode(&raw, image.NewRGBA(image.Rectangle{Max: size})); err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+		out, mime, err := fb2image.Normalize(raw.Bytes())
+		if err != nil {
+			t.Fatalf("%dx%d was refused: %v", size.X, size.Y, err)
+		}
+		if mime != "image/png" {
+			t.Fatalf("%dx%d: mime = %q", size.X, size.Y, mime)
+		}
+		got, err := png.Decode(bytes.NewReader(out))
+		if err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if b := got.Bounds(); b.Dx() != size.X || b.Dy() != size.Y {
+			t.Fatalf("bounds = %v, want %v", b, size)
+		}
 	}
 }
 
@@ -297,7 +420,10 @@ func TestNormalize_KeepsTransparency(t *testing.T) {
 		t.Fatalf("encode tiff: %v", err)
 	}
 
-	out, mime := fb2image.Normalize(raw.Bytes())
+	out, mime, err := fb2image.Normalize(raw.Bytes())
+	if err != nil {
+		t.Fatalf("refused a valid TIFF: %v", err)
+	}
 	if mime != "image/png" {
 		t.Fatalf("mime = %q, want image/png", mime)
 	}
@@ -321,9 +447,12 @@ func TestNormalize_RefusesTheBombBeforeAllocating(t *testing.T) {
 	var before, after runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&before)
-	out, mime := fb2image.Normalize(data)
+	out, mime, err := fb2image.Normalize(data)
 	runtime.ReadMemStats(&after)
 
+	if !errors.Is(err, fb2image.ErrTooLarge) {
+		t.Fatalf("err = %v, want ErrTooLarge", err)
+	}
 	if mime != "" || out != nil {
 		t.Fatalf("accepted a forged header: %q", mime)
 	}
@@ -334,25 +463,42 @@ func TestNormalize_RefusesTheBombBeforeAllocating(t *testing.T) {
 	}
 }
 
-// The ceiling protects memory, but set too low it silently drops real covers.
-// The largest BMP or TIFF in the catalog is 1155x790, and the widest side
-// anywhere is 1328; a picture of that size has to still come through.
-func TestNormalize_AcceptsTheLargestPictureTheLibraryHolds(t *testing.T) {
-	for _, size := range []image.Point{{X: 1155, Y: 790}, {X: 1328, Y: 562}} {
-		var raw bytes.Buffer
-		if err := bmp.Encode(&raw, image.NewRGBA(image.Rectangle{Max: size})); err != nil {
-			t.Fatalf("encode: %v", err)
-		}
-		out, mime := fb2image.Normalize(raw.Bytes())
-		if mime != "image/png" {
-			t.Fatalf("%dx%d was refused: mime = %q", size.X, size.Y, mime)
-		}
-		got, err := png.Decode(bytes.NewReader(out))
-		if err != nil {
-			t.Fatalf("decode: %v", err)
-		}
-		if b := got.Bounds(); b.Dx() != size.X || b.Dy() != size.Y {
-			t.Fatalf("bounds = %v, want %v", b, size)
-		}
+// A BMP whose magic and header are well-formed but whose pixel stream is
+// missing is not "too large" and not "unknown format" — the format is
+// recognized and the dimensions are fine, the bytes are simply undecodable.
+// This is the third refusal reason, and the one most likely to surface on a
+// truncated download or a corrupted archive.
+func TestNormalize_RefusesTruncatedConvertible(t *testing.T) {
+	// Keep only the BMP header (54 bytes is the well-formed minimum); the
+	// decoder reads the dimensions from the header but cannot find pixels.
+	truncated := encodeBMP(t)[:54]
+	out, mime, err := fb2image.Normalize(truncated)
+	if !errors.Is(err, fb2image.ErrUndecodable) {
+		t.Fatalf("err = %v, want ErrUndecodable", err)
+	}
+	if mime != "" || out != nil {
+		t.Fatalf("accepted a truncated payload: %q, %d bytes", mime, len(out))
+	}
+}
+
+// TestNormalize_RefusesProseWithBMPMagicPrefix pins that a payload whose
+// leading bytes happen to match a convertible format's magic, but whose body
+// is not that format at all, lands in Undecodable rather than UnknownFormat.
+// This is the boundary between "the format question" and "the decode
+// question": magic identified, decode failed.
+func TestNormalize_RefusesProseWithBMPMagicPrefix(t *testing.T) {
+	// "BM" is BMP magic; the rest is prose. DecodeConfig will likely fail
+	// outright, which is itself Undecodable — not UnknownFormat, because a
+	// format was identified.
+	prose := append([]byte("BM"), []byte("this is not a real bitmap, just prose after the magic")...)
+	out, mime, err := fb2image.Normalize(prose)
+	if errors.Is(err, fb2image.ErrUnknownFormat) {
+		t.Fatalf("err = ErrUnknownFormat; want ErrUndecodable (magic matched, decode failed)")
+	}
+	if !errors.Is(err, fb2image.ErrUndecodable) {
+		t.Fatalf("err = %v, want ErrUndecodable", err)
+	}
+	if mime != "" || out != nil {
+		t.Fatalf("accepted: %q, %d bytes", mime, len(out))
 	}
 }
