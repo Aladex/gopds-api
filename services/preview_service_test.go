@@ -11,6 +11,7 @@ package services
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -48,14 +49,18 @@ func (l *fakeArchiveLoader) Load(_ context.Context, _, _ string) ([]byte, error)
 
 // mockPreviewCache is an in-memory PreviewCache for tests. It stores
 // manifests and chunks in maps, counts calls, and records the order of Put
-// operations so test 13 can assert "chunks before manifest".
+// operations so test 13 can assert "chunks before manifest". A mutex
+// guards every field because concurrent goroutines (singleflight tests)
+// call Get/Put simultaneously — without it, the race detector flags every
+// map access.
 type mockPreviewCache struct {
+	mu              sync.Mutex
 	pingErr         error
 	manifests       map[string][]byte
 	chunks          map[string]map[int][]byte
-	putOrder        []string // ordered PutChunk/PutManifest keys
-	getManifestKeys []string // keys probed by GetManifest
-	getChunkKeys    []string // keys probed by GetChunk
+	putOrder        []string
+	getManifestKeys []string
+	getChunkKeys    []string
 }
 
 func newMockCache() *mockPreviewCache {
@@ -65,9 +70,15 @@ func newMockCache() *mockPreviewCache {
 	}
 }
 
-func (c *mockPreviewCache) Ping(_ context.Context) error { return c.pingErr }
+func (c *mockPreviewCache) Ping(_ context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.pingErr
+}
 
 func (c *mockPreviewCache) GetManifest(_ context.Context, key string) ([]byte, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.getManifestKeys = append(c.getManifestKeys, key)
 	data, ok := c.manifests[key]
 	if !ok {
@@ -77,12 +88,16 @@ func (c *mockPreviewCache) GetManifest(_ context.Context, key string) ([]byte, e
 }
 
 func (c *mockPreviewCache) PutManifest(_ context.Context, key string, data []byte, _ time.Duration) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.putOrder = append(c.putOrder, "manifest:"+key)
 	c.manifests[key] = data
 	return nil
 }
 
 func (c *mockPreviewCache) GetChunk(_ context.Context, key string, index int) ([]byte, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.getChunkKeys = append(c.getChunkKeys, key)
 	chunks, ok := c.chunks[key]
 	if !ok {
@@ -96,6 +111,8 @@ func (c *mockPreviewCache) GetChunk(_ context.Context, key string, index int) ([
 }
 
 func (c *mockPreviewCache) PutChunk(_ context.Context, key string, index int, data []byte, _ time.Duration) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.putOrder = append(c.putOrder, "chunk:"+key)
 	if c.chunks[key] == nil {
 		c.chunks[key] = map[int][]byte{}
@@ -112,7 +129,7 @@ func TestPreviewService_HiddenBookDoesNotTouchArchive(t *testing.T) {
 		1: {ID: 1, Format: formatFB2, DuplicateHidden: true, Approved: true},
 	}}
 	loader := &fakeArchiveLoader{}
-	svc := NewPreviewService(repo, loader, newMockCache())
+	svc := NewPreviewService(repo, loader, newMockCache(), 4)
 
 	_, err := svc.Load(context.Background(), 1, false)
 	if !errors.Is(err, ErrBookNotVisible) {
@@ -134,7 +151,7 @@ func TestPreviewService_SuperUserOpensUnapprovedAndHidden(t *testing.T) {
 		1: {ID: 1, Format: formatFB2, Approved: false, DuplicateHidden: true, MD5: "abc123"},
 	}}
 	loader := &fakeArchiveLoader{data: []byte("<FictionBook/>")}
-	svc := NewPreviewService(repo, loader, newMockCache())
+	svc := NewPreviewService(repo, loader, newMockCache(), 4)
 
 	// Superuser: the gate passes, the loader fires.
 	if _, err := svc.Load(context.Background(), 1, true); err != nil {
@@ -164,7 +181,7 @@ func TestPreviewService_NonFB2IsRefusedWithoutLoading(t *testing.T) {
 		1: {ID: 1, Format: "epub", Approved: true, DuplicateHidden: false},
 	}}
 	loader := &fakeArchiveLoader{}
-	svc := NewPreviewService(repo, loader, newMockCache())
+	svc := NewPreviewService(repo, loader, newMockCache(), 4)
 
 	_, err := svc.Load(context.Background(), 1, false)
 	if !errors.Is(err, ErrUnsupportedFormat) {
@@ -183,7 +200,7 @@ func TestPreviewService_NonFB2IsRefusedWithoutLoading(t *testing.T) {
 func TestPreviewService_MissingBookIsRefused(t *testing.T) {
 	repo := &fakeBookRepo{books: map[int64]*models.Book{}}
 	loader := &fakeArchiveLoader{}
-	svc := NewPreviewService(repo, loader, newMockCache())
+	svc := NewPreviewService(repo, loader, newMockCache(), 4)
 
 	_, err := svc.Load(context.Background(), 999, false)
 	if !errors.Is(err, ErrBookNotFound) {
@@ -204,7 +221,7 @@ func TestPreviewService_UnapprovedButNotHiddenIsRefused(t *testing.T) {
 		1: {ID: 1, Format: formatFB2, Approved: false, DuplicateHidden: false},
 	}}
 	loader := &fakeArchiveLoader{}
-	svc := NewPreviewService(repo, loader, newMockCache())
+	svc := NewPreviewService(repo, loader, newMockCache(), 4)
 
 	_, err := svc.Load(context.Background(), 1, false)
 	if !errors.Is(err, ErrBookNotVisible) {
@@ -224,7 +241,7 @@ func TestPreviewService_DatabaseErrorIsPropagated(t *testing.T) {
 	dbErr := errors.New("connection refused")
 	repo := &fakeBookRepo{err: dbErr}
 	loader := &fakeArchiveLoader{}
-	svc := NewPreviewService(repo, loader, newMockCache())
+	svc := NewPreviewService(repo, loader, newMockCache(), 4)
 
 	_, err := svc.Load(context.Background(), 1, false)
 	if err == nil {
@@ -251,7 +268,7 @@ func TestPreviewService_ApprovedNotHiddenPassesVisibility(t *testing.T) {
 		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "def456"},
 	}}
 	loader := &fakeArchiveLoader{data: []byte("<FictionBook/>")}
-	svc := NewPreviewService(repo, loader, newMockCache())
+	svc := NewPreviewService(repo, loader, newMockCache(), 4)
 
 	if _, err := svc.Load(context.Background(), 1, false); err != nil {
 		t.Fatalf("an approved, non-hidden book must pass visibility: %v", err)
@@ -272,7 +289,7 @@ func TestPreviewService_CacheUnavailableRefusesWithoutLoading(t *testing.T) {
 	loader := &fakeArchiveLoader{data: []byte("<FB2/>")}
 	cache := newMockCache()
 	cache.pingErr = errors.New("redis is down")
-	svc := NewPreviewService(repo, loader, cache)
+	svc := NewPreviewService(repo, loader, cache, 4)
 
 	_, err := svc.Load(context.Background(), 1, false)
 	if !errors.Is(err, ErrCacheUnavailable) {
@@ -289,7 +306,7 @@ func TestPreviewService_SecondRequestDoesNotOpenArchive(t *testing.T) {
 		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc", Path: "/x", FileName: "y.fb2"},
 	}}
 	loader := &fakeArchiveLoader{data: []byte("<FB2/>")}
-	svc := NewPreviewService(repo, loader, newMockCache())
+	svc := NewPreviewService(repo, loader, newMockCache(), 4)
 
 	// First: cache miss, loader fires once.
 	if _, err := svc.Load(context.Background(), 1, false); err != nil {
@@ -317,7 +334,7 @@ func TestPreviewService_DifferentMD5ProducesDifferentKey(t *testing.T) {
 		2: {ID: 2, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "bbb", Path: "/x", FileName: "b.fb2"},
 	}}
 	loader := &fakeArchiveLoader{data: []byte("<FB2/>")}
-	svc := NewPreviewService(repo, loader, newMockCache())
+	svc := NewPreviewService(repo, loader, newMockCache(), 4)
 
 	if _, err := svc.Load(context.Background(), 1, false); err != nil {
 		t.Fatalf("book1: %v", err)
@@ -347,7 +364,7 @@ func TestPreviewService_EmptyMD5IsRefused(t *testing.T) {
 		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: ""},
 	}}
 	loader := &fakeArchiveLoader{}
-	svc := NewPreviewService(repo, loader, newMockCache())
+	svc := NewPreviewService(repo, loader, newMockCache(), 4)
 
 	_, err := svc.Load(context.Background(), 1, false)
 	if !errors.Is(err, ErrEmptyMD5) {
@@ -373,7 +390,7 @@ func TestPreviewService_ManifestWithoutChunkIsCacheMissAndChunksWrittenFirst(t *
 	key := buildCacheKey("abc", renderVersionPrefix)
 	cache.manifests[key] = []byte("stale-manifest")
 
-	svc := NewPreviewService(repo, loader, cache)
+	svc := NewPreviewService(repo, loader, cache, 4)
 	if _, err := svc.Load(context.Background(), 1, false); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -394,5 +411,214 @@ func TestPreviewService_ManifestWithoutChunkIsCacheMissAndChunksWrittenFirst(t *
 				cache.putOrder)
 			break
 		}
+	}
+}
+
+// --- Concurrency tests (plan 3.1 tests 6, 7, 8, 9, 10) --------------------
+
+// slowArchiveLoader is a loader that sleeps before returning, so concurrent
+// requests arrive while the first build is still in flight. Without the
+// delay, the first goroutine could finish before the others start, and
+// singleflight would never coalesce — the test would pass trivially.
+//
+// It also records the context it received, so test 10 can verify the build
+// context is detached from the request context.
+type slowArchiveLoader struct {
+	mu       sync.Mutex
+	calls    int
+	data     []byte
+	delay    time.Duration
+	buildCtx context.Context
+}
+
+func (l *slowArchiveLoader) Load(ctx context.Context, _, _ string) ([]byte, error) {
+	l.mu.Lock()
+	l.calls++
+	l.buildCtx = ctx
+	l.mu.Unlock()
+
+	// Respect the context: if it is canceled during the delay, abort
+	// immediately and return ctx.Err(). Without this, a canceled build
+	// context has no observable effect — the loader sleeps and returns
+	// data regardless, and every test that asserts "the build survived
+	// cancellation" passes trivially, whether the context was detached
+	// or not.
+	select {
+	case <-time.After(l.delay):
+		return l.data, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (l *slowArchiveLoader) getCalls() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.calls
+}
+
+// Test 6: N concurrent requests for the same cold book trigger exactly one
+// loader call (singleflight).
+func TestPreviewService_ConcurrentRequestsTriggerOneLoad(t *testing.T) {
+	repo := &fakeBookRepo{books: map[int64]*models.Book{
+		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc", Path: "/x", FileName: "y.fb2"},
+	}}
+	loader := &slowArchiveLoader{data: []byte("<FB2/>"), delay: 50 * time.Millisecond}
+	svc := NewPreviewService(repo, loader, newMockCache(), 4)
+
+	const N = 10
+	var wg sync.WaitGroup
+	errs := make([]error, N)
+	wg.Add(N)
+	for i := 0; i < N; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			_, errs[idx] = svc.Load(context.Background(), 1, false)
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("request %d: %v", i, err)
+		}
+	}
+	if got := loader.getCalls(); got != 1 {
+		t.Errorf("loader.calls = %d, want 1 — singleflight must coalesce %d concurrent requests into one archive open",
+			got, N)
+	}
+}
+
+// Test 7: when the build ceiling is full, a request for a different book
+// gets ErrTooManyBuilds, not a silent queue.
+func TestPreviewService_BuildCeilingRefusesWithErrTooManyBuilds(t *testing.T) {
+	repo := &fakeBookRepo{books: map[int64]*models.Book{
+		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "aaa", Path: "/x", FileName: "a.fb2"},
+		2: {ID: 2, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "bbb", Path: "/x", FileName: "b.fb2"},
+	}}
+	loader := &slowArchiveLoader{data: []byte("<FB2/>"), delay: 50 * time.Millisecond}
+	svc := NewPreviewService(repo, loader, newMockCache(), 1) // ceiling = 1
+
+	// Occupy the only slot with book 1.
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, _ = svc.Load(context.Background(), 1, false)
+	}()
+
+	// Wait for book 1's build to start.
+	time.Sleep(10 * time.Millisecond)
+
+	// Book 2 is a different key → different singleflight → semaphore full.
+	_, err := svc.Load(context.Background(), 2, false)
+	if !errors.Is(err, ErrTooManyBuilds) {
+		t.Fatalf("err = %v, want ErrTooManyBuilds", err)
+	}
+
+	wg.Wait()
+}
+
+// Test 8: canceling one waiter does not abort the build for the others.
+// Waiter A must be the singleflight leader (first to call DoChan) so
+// that its context is the one the build closure captures — if the build
+// were on A's context, canceling A would abort the work B is waiting on.
+func TestPreviewService_CancelOneWaiterOthersStillGetResult(t *testing.T) {
+	repo := &fakeBookRepo{books: map[int64]*models.Book{
+		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc", Path: "/x", FileName: "y.fb2"},
+	}}
+	loader := &slowArchiveLoader{data: []byte("<FB2/>"), delay: 50 * time.Millisecond}
+	svc := NewPreviewService(repo, loader, newMockCache(), 4)
+
+	ctxA, cancelA := context.WithCancel(context.Background())
+	ctxB := context.Background()
+
+	var wg sync.WaitGroup
+	var errA, errB error
+	var dataB []byte
+
+	// Start A first — it becomes the singleflight leader.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, errA = svc.Load(ctxA, 1, false)
+	}()
+
+	// Give A time to enter DoChan before B arrives.
+	time.Sleep(10 * time.Millisecond)
+
+	// Start B — it waits on A's flight.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		dataB, errB = svc.Load(ctxB, 1, false)
+	}()
+
+	// Cancel A while the build is still in flight.
+	time.Sleep(10 * time.Millisecond)
+	cancelA()
+	wg.Wait()
+
+	if !errors.Is(errA, context.Canceled) {
+		t.Errorf("waiter A: err = %v, want context.Canceled", errA)
+	}
+	if errB != nil {
+		t.Errorf("waiter B: err = %v, want nil — canceling A must not abort the build", errB)
+	}
+	if len(dataB) == 0 {
+		t.Error("waiter B: empty payload")
+	}
+}
+
+// Test 9: if all waiters cancel, the build still completes and writes to
+// the cache — the next request gets a warm hit.
+func TestPreviewService_AllWaitersCancelBuildStillCompletes(t *testing.T) {
+	repo := &fakeBookRepo{books: map[int64]*models.Book{
+		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc", Path: "/x", FileName: "y.fb2"},
+	}}
+	loader := &slowArchiveLoader{data: []byte("<FB2/>"), delay: 50 * time.Millisecond}
+	cache := newMockCache()
+	svc := NewPreviewService(repo, loader, cache, 4)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go func() { _, _ = svc.Load(ctx, 1, false) }()
+	cancel()
+
+	// Wait for the build to finish (delay + margin).
+	time.Sleep(100 * time.Millisecond)
+
+	key := buildCacheKey("abc", renderVersionPrefix)
+	if _, err := cache.GetManifest(context.Background(), key); err != nil {
+		t.Errorf("cache miss after all waiters canceled: %v — the build must complete and write to cache", err)
+	}
+}
+
+// Test 10: the build context is detached from the request context. The
+// loader receives a context whose cancellation is independent of the
+// caller's — otherwise canceling the request would abort the work.
+func TestPreviewService_BuildContextIsDetachedFromRequest(t *testing.T) {
+	repo := &fakeBookRepo{books: map[int64]*models.Book{
+		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc", Path: "/x", FileName: "y.fb2"},
+	}}
+	loader := &slowArchiveLoader{data: []byte("<FB2/>"), delay: 20 * time.Millisecond}
+	svc := NewPreviewService(repo, loader, newMockCache(), 4)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	_, _ = svc.Load(ctx, 1, false)
+	cancel()
+
+	loader.mu.Lock()
+	bctx := loader.buildCtx
+	loader.mu.Unlock()
+
+	if bctx == nil {
+		t.Fatal("buildCtx is nil — Load was not called")
+	}
+	if bctx == ctx {
+		t.Error("build context is the request context — it must be detached")
+	}
+	if bctx.Err() != nil {
+		t.Errorf("build context is canceled after request cancel: %v — it must survive request cancellation", bctx.Err())
 	}
 }

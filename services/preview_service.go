@@ -26,14 +26,17 @@ import (
 	"fmt"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	"gopds-api/models"
 )
 
 // formatFB2 is the only book format the preview pipeline reads today.
-// Named as a constant because it appears in a check here and in test
-// fixtures — a magic string repeated four times is exactly what goconst
-// flags, and a rename would otherwise touch each occurrence by hand.
 const formatFB2 = "fb2"
+
+// defaultMaxConcurrentBuilds is the ceiling on simultaneous cold builds.
+// Production reads this from config; tests override through the constructor.
+const defaultMaxConcurrentBuilds = 4
 
 // Typed refusals. They are distinct on purpose: the caller (an HTTP handler
 // in phase 4) maps each to a different status, and conflating "not found"
@@ -44,16 +47,17 @@ var (
 	ErrBookNotFound = errors.New("preview: book not found")
 
 	// ErrBookNotVisible: the book exists but the reader may not open it.
-	// A reader only sees approved, non-hidden books; a superuser bypasses
-	// both gates. Surfacing "not visible" instead of "not found" is a
-	// deliberate choice: the consumer is an authenticated handler, not the
-	// anonymous web — and even for the web, a 404 vs 403 distinction
-	// matters for the UI (open vs "ask admin").
 	ErrBookNotVisible = errors.New("preview: book is not visible to this reader")
 
 	// ErrUnsupportedFormat: the book is stored in a format the preview
 	// pipeline does not read. Today that is "anything but fb2".
 	ErrUnsupportedFormat = errors.New("preview: book format is not supported for preview")
+
+	// ErrTooManyBuilds: the number of simultaneous cold builds has reached
+	// the configured ceiling. The caller should retry shortly, not queue.
+	// Surfacing this as a distinct error lets the HTTP handler return 503
+	// with Retry-After instead of 500 or a hung connection.
+	ErrTooManyBuilds = errors.New("preview: too many concurrent builds, try again shortly")
 )
 
 // ArchiveLoader produces the raw FB2 bytes of one file from a zip archive on
@@ -63,56 +67,58 @@ type ArchiveLoader interface {
 	Load(ctx context.Context, archivePath, fileName string) ([]byte, error)
 }
 
-// BookRepo is the narrow slice of database operations preview needs. Keeping
-// it narrow means tests fake four lines, not the whole ORM; it also means
-// the service cannot accidentally grow dependencies on the database package
-// without first widening this interface.
+// BookRepo is the narrow slice of database operations preview needs.
 type BookRepo interface {
-	// GetBook returns the book with the given id, or (nil, nil) when no
-	// such book exists. A non-nil error means the lookup itself failed,
-	// which is a different outcome from "the book is not in the catalog".
 	GetBook(bookID int64) (*models.Book, error)
 }
 
 // PreviewService is the long-lived object that owns the preview pipeline.
-// Construction is cheap; the dependencies (a book repo, an archive loader
-// and a cache) are the things that take wiring, and they arrive through the
-// constructor so the service never reaches for globals.
 type PreviewService struct {
 	books  BookRepo
 	loader ArchiveLoader
 	cache  PreviewCache
 
-	// renderVersion is embedded in every cache key. Bump it when the
-	// rendering pipeline changes; old keys miss naturally through TTL.
 	renderVersion string
+	ttl           time.Duration
 
-	// ttl is the time-to-live for cache entries. Production reads this
-	// from config; tests override through the field if needed.
-	ttl time.Duration
+	// sf deduplicates cold builds: N requests for the same book at the same
+	// time trigger exactly one loader call. The rest wait on DoChan and
+	// receive the same result — without it, every concurrent reader would
+	// unpack the same archive independently.
+	sf singleflight.Group
+
+	// sem caps the number of cold builds running at once across all books.
+	// A buffered channel is the simplest non-blocking semaphore: send
+	// acquires, receive releases, and a full channel means "busy now".
+	sem chan struct{}
 }
 
-// NewPreviewService wires the service. The constructor takes interfaces on
-// purpose: production wires in a database-backed BookRepo, a zip-backed
-// ArchiveLoader and a Redis-backed PreviewCache; tests wire in doubles —
-// and neither has to know which.
-func NewPreviewService(books BookRepo, loader ArchiveLoader, cache PreviewCache) *PreviewService {
+// NewPreviewService wires the service. maxConcurrent sets the ceiling on
+// simultaneous cold builds; when that many builds are in flight, further
+// requests for new books get ErrTooManyBuilds instead of queuing.
+func NewPreviewService(books BookRepo, loader ArchiveLoader, cache PreviewCache, maxConcurrent int) *PreviewService {
+	if maxConcurrent <= 0 {
+		maxConcurrent = defaultMaxConcurrentBuilds
+	}
 	return &PreviewService{
 		books:         books,
 		loader:        loader,
 		cache:         cache,
 		renderVersion: renderVersionPrefix,
 		ttl:           cacheKeyTTL,
+		sem:           make(chan struct{}, maxConcurrent),
 	}
 }
 
-// Load is the single entry point of this step. It resolves the book, checks
-// that the reader may see it, refuses anything but fb2, verifies the cache
-// is reachable, and then either returns the cached preview or loads the FB2
-// from the archive and stores it. Every refusal is typed.
+// Load is the single entry point. It resolves the book, checks visibility
+// and format on the request's context, then either returns a cached entry
+// or kicks off a singleflighted cold build.
 //
-// The reader identity is a single boolean today. The plan adds authors and a
-// per-reader history in later steps, but visibility does not need them.
+// The build runs on its own context (context.Background), not on the
+// request's context. This is deliberate: if every waiter cancels, the
+// build still completes and writes to the cache — the next reader gets a
+// warm hit. The request context gates only the wait (through DoChan +
+// select), not the work.
 func (s *PreviewService) Load(ctx context.Context, bookID int64, isSuperUser bool) ([]byte, error) {
 	book, err := s.books.GetBook(bookID)
 	if err != nil {
@@ -131,37 +137,71 @@ func (s *PreviewService) Load(ctx context.Context, bookID int64, isSuperUser boo
 		return nil, fmt.Errorf("%w: book id %d", ErrEmptyMD5, bookID)
 	}
 
-	// The cache is mandatory. If it is unreachable, the request is refused
-	// rather than falling through to the archive — without a cache every
-	// page turn would re-unpack the book, which is exactly what the cache
-	// was introduced to prevent.
 	if perr := s.cache.Ping(ctx); perr != nil {
 		return nil, fmt.Errorf("%w: %v", ErrCacheUnavailable, perr)
 	}
 
 	key := buildCacheKey(book.MD5, s.renderVersion)
 
-	// Cache hit: manifest AND at least the first chunk. A manifest without
-	// chunks is a stale entry from a crash between PutChunk and PutManifest
-	// — treated as a miss, not as an empty book.
+	// Cache hit: manifest AND first chunk.
 	if manifest, gerr := s.cache.GetManifest(ctx, key); gerr == nil {
 		if _, cerr := s.cache.GetChunk(ctx, key, 0); cerr == nil {
 			return manifest, nil
 		}
 	}
 
-	// Cache miss — load from archive.
-	data, err := s.loader.Load(ctx, book.Path, book.FileName)
+	// Cache miss → singleflight. DoChan returns a channel so a waiter can
+	// abandon the wait without aborting the build.
+	//
+	// The build runs on context.Background(), NOT on the request's ctx.
+	// This is deliberate (plan tests 8, 9): if every waiter cancels, the
+	// build still completes and writes to the cache — the next reader gets
+	// a warm hit. Passing ctx here would tie the build's lifetime to the
+	// first caller's request, and a single cancel would abort the work
+	// every waiter is sharing.
+	ch := s.sf.DoChan(key, func() (interface{}, error) {
+		return s.buildAndCache(context.Background(), key, book)
+	})
+
+	select {
+	case res := <-ch:
+		if res.Err != nil {
+			return nil, res.Err
+		}
+		return res.Val.([]byte), nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// buildAndCache is the single-flight body: it acquires a build slot, loads
+// the archive, and writes the result to the cache. buildCtx is the context
+// the work runs under — the caller passes context.Background() so the build
+// survives request cancellation.
+func (s *PreviewService) buildAndCache(buildCtx context.Context, key string, book *models.Book) ([]byte, error) {
+	// Non-blocking semaphore: if the ceiling is reached, refuse rather
+	// than queue. Every waiter for this key gets ErrTooManyBuilds through
+	// singleflight — they do not wait.
+	select {
+	case s.sem <- struct{}{}:
+		defer func() { <-s.sem }()
+	default:
+		return nil, fmt.Errorf("%w: key %s", ErrTooManyBuilds, key)
+	}
+
+	// The build context is passed by the caller (context.Background()).
+	// If all waiters cancel, the build still completes and writes to cache.
+
+	data, err := s.loader.Load(buildCtx, book.Path, book.FileName)
 	if err != nil {
 		return nil, fmt.Errorf("preview: load archive: %w", err)
 	}
 
-	// Store chunks first, manifest last. If the process dies between the
-	// two, the next request finds a manifest without chunks and rebuilds.
-	if err := s.cache.PutChunk(ctx, key, 0, data, s.ttl); err != nil {
+	// Chunks first, manifest last — see the cache layer for why.
+	if err := s.cache.PutChunk(buildCtx, key, 0, data, s.ttl); err != nil {
 		return nil, fmt.Errorf("preview: cache chunk: %w", err)
 	}
-	if err := s.cache.PutManifest(ctx, key, data, s.ttl); err != nil {
+	if err := s.cache.PutManifest(buildCtx, key, data, s.ttl); err != nil {
 		return nil, fmt.Errorf("preview: cache manifest: %w", err)
 	}
 
@@ -169,9 +209,7 @@ func (s *PreviewService) Load(ctx context.Context, bookID int64, isSuperUser boo
 }
 
 // visibleTo reports whether a reader with the given superuser flag may open
-// the book. The catalog's visibility rule is "approved AND not hidden";
-// superuser bypasses both. Splitting this out keeps Load readable and gives
-// a stable place for the rule if the policy grows.
+// the book.
 func visibleTo(book *models.Book, isSuperUser bool) bool {
 	if isSuperUser {
 		return true
