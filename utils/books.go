@@ -3,6 +3,7 @@ package utils
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -110,8 +111,14 @@ func (bp *BookProcessor) Epub() (io.ReadCloser, error) {
 	}
 
 	// Parse FB2 in one pass (both metadata and body structure)
-	// This is ~30-40% faster than parsing metadata and body separately
-	doc, bookFile, err := converter.ParseFB2Complete(fb2Content, true)
+	// This is ~30-40% faster than parsing metadata and body separately.
+	//
+	// ctx is context.Background() because the EPUB-download handler does not
+	// flow a request context through BookProcessor yet. When the API grows a
+	// per-download cancellation knob, that ctx belongs here — until then the
+	// download is atomic, and a closed client pays only for the work done so
+	// far (the response is streamed after this returns).
+	doc, bookFile, err := converter.ParseFB2Complete(context.Background(), fb2Content, true)
 	if err != nil {
 		logging.Errorf("Failed to parse FB2 content for %s: %v", bp.filename, err)
 		return nil, fmt.Errorf("failed to parse FB2 content: %w", err)

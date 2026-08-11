@@ -2,6 +2,7 @@ package converter
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"testing"
 
@@ -12,7 +13,7 @@ import (
 func TestParseFB2Complete_Basic(t *testing.T) {
 	data := loadTestData(t, "simple.fb2")
 
-	doc, bookFile, err := ParseFB2Complete(data, true)
+	doc, bookFile, err := ParseFB2Complete(context.Background(), data, true)
 	if err != nil {
 		t.Fatalf("ParseFB2Complete failed: %v", err)
 	}
@@ -56,7 +57,7 @@ func TestParseFB2Complete_CompareWithSeparateParsing(t *testing.T) {
 			data := loadTestData(t, filename)
 
 			// Combined parsing
-			docCombined, bookFileCombined, err := ParseFB2Complete(data, true)
+			docCombined, bookFileCombined, err := ParseFB2Complete(context.Background(), data, true)
 			if err != nil {
 				t.Fatalf("ParseFB2Complete failed: %v", err)
 			}
@@ -68,7 +69,7 @@ func TestParseFB2Complete_CompareWithSeparateParsing(t *testing.T) {
 				t.Fatalf("Separate metadata parsing failed: %v", err)
 			}
 
-			docSeparate, err := ParseFB2Body(data)
+			docSeparate, err := ParseFB2Body(context.Background(), data)
 			if err != nil {
 				t.Fatalf("Separate body parsing failed: %v", err)
 			}
@@ -130,7 +131,7 @@ func TestParseFB2Complete_CompareWithSeparateParsing(t *testing.T) {
 func TestParseFB2Complete_WithCover(t *testing.T) {
 	data := loadTestData(t, "images_notes.fb2")
 
-	doc, bookFile, err := ParseFB2Complete(data, true)
+	doc, bookFile, err := ParseFB2Complete(context.Background(), data, true)
 	if err != nil {
 		t.Fatalf("ParseFB2Complete failed: %v", err)
 	}
@@ -149,7 +150,7 @@ func TestParseFB2Complete_WithCover(t *testing.T) {
 func TestParseFB2Complete_WithoutCover(t *testing.T) {
 	data := loadTestData(t, "images_notes.fb2")
 
-	doc, bookFile, err := ParseFB2Complete(data, false)
+	doc, bookFile, err := ParseFB2Complete(context.Background(), data, false)
 	if err != nil {
 		t.Fatalf("ParseFB2Complete failed: %v", err)
 	}
@@ -169,7 +170,7 @@ func TestParseFB2Complete_WithoutCover(t *testing.T) {
 func TestParseFB2Complete_Cyrillic(t *testing.T) {
 	data := loadTestData(t, "cyrillic.fb2")
 
-	doc, bookFile, err := ParseFB2Complete(data, true)
+	doc, bookFile, err := ParseFB2Complete(context.Background(), data, true)
 	if err != nil {
 		t.Fatalf("ParseFB2Complete failed: %v", err)
 	}
@@ -194,7 +195,7 @@ func TestParseFB2Complete_Cyrillic(t *testing.T) {
 func TestParseFB2Complete_MalformedXML(t *testing.T) {
 	data := loadTestData(t, "malformed.fb2")
 
-	doc, bookFile, err := ParseFB2Complete(data, true)
+	doc, bookFile, err := ParseFB2Complete(context.Background(), data, true)
 
 	// Should handle gracefully after sanitization
 	if err != nil {
@@ -223,7 +224,7 @@ func TestParseFB2Complete_EmptyBody(t *testing.T) {
   </description>
 </FictionBook>`)
 
-	doc, bookFile, err := ParseFB2Complete(xmlContent, false)
+	doc, bookFile, err := ParseFB2Complete(context.Background(), xmlContent, false)
 
 	// Should handle gracefully
 	if err != nil {
@@ -250,7 +251,7 @@ func TestParseFB2Complete_EmptyBody(t *testing.T) {
 func TestParseFB2Complete_InvalidXML(t *testing.T) {
 	xmlContent := []byte(`This is not XML at all!`)
 
-	doc, bookFile, err := ParseFB2Complete(xmlContent, false)
+	doc, bookFile, err := ParseFB2Complete(context.Background(), xmlContent, false)
 	if !errors.Is(err, ErrNotFictionBook) {
 		t.Fatalf("expected a typed ErrNotFictionBook for non-XML input, got document %+v, book %+v, error %v",
 			doc, bookFile, err)
@@ -261,7 +262,7 @@ func TestParseFB2Complete_InvalidXML(t *testing.T) {
 func TestParseFB2Complete_SpecialElements(t *testing.T) {
 	data := loadTestData(t, "special_elements.fb2")
 
-	doc, bookFile, err := ParseFB2Complete(data, true)
+	doc, bookFile, err := ParseFB2Complete(context.Background(), data, true)
 	if err != nil {
 		t.Fatalf("ParseFB2Complete failed: %v", err)
 	}
@@ -313,7 +314,7 @@ func TestParseFB2Complete_SpecialElements(t *testing.T) {
 // ErrNotFictionBook even when a syntax error waits further down the stream.
 func TestParseFB2Complete_ForeignRootFailsBeforeSyntaxError(t *testing.T) {
 	in := []byte(`<?xml version="1.0" encoding="utf-8"?><notabook><![CDATA[never closed`)
-	_, _, err := ParseFB2Complete(in, false)
+	_, _, err := ParseFB2Complete(context.Background(), in, false)
 	if !errors.Is(err, ErrNotFictionBook) {
 		t.Errorf("expected a typed ErrNotFictionBook from the root check, got %v", err)
 	}

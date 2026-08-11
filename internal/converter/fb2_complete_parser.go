@@ -2,6 +2,7 @@ package converter
 
 import (
 	"bytes"
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -19,6 +20,8 @@ import (
 // to collect both metadata and body content simultaneously.
 //
 // Parameters:
+//   - ctx: observed every ctxCheckInterval tokens; a canceled ctx stops the
+//     parse the same way ParseFB2Body does
 //   - xmlContent: Raw FB2 XML content as bytes
 //   - readCover: Whether to extract and decode cover image from binary elements
 //
@@ -29,7 +32,7 @@ import (
 //
 // Performance: This function is approximately 30-40% faster than calling
 // parser.Parse() and ParseFB2Body() separately.
-func ParseFB2Complete(xmlContent []byte, readCover bool) (*FB2Document, *parser.BookFile, error) {
+func ParseFB2Complete(ctx context.Context, xmlContent []byte, readCover bool) (*FB2Document, *parser.BookFile, error) {
 	// Apply all sanitization steps once
 	decoded, err := parser.DecodeToUTF8(xmlContent)
 	if err != nil {
@@ -44,10 +47,7 @@ func ParseFB2Complete(xmlContent []byte, readCover bool) (*FB2Document, *parser.
 	doc := &FB2Document{}
 
 	// Single XML decoder pass
-	decoder := xml.NewDecoder(bytes.NewReader(decoded))
-	decoder.CharsetReader = makeCharsetReader
-	decoder.Strict = false
-	decoder.AutoClose = xml.HTMLAutoClose
+	decoder := newFB2Decoder(decoded)
 
 	rootSeen := false
 	for {
@@ -64,7 +64,7 @@ func ParseFB2Complete(xmlContent []byte, readCover bool) (*FB2Document, *parser.
 			// The root is verified, so this is a book; whatever broke after
 			// it goes through the fallback, whose typed verdict ("too deep")
 			// still outranks the main decoder's raw syntax error.
-			docFallback, bookFallback, fallbackErr := parseFB2CompleteFallback(decoded, readCover)
+			docFallback, bookFallback, fallbackErr := parseFB2CompleteFallback(ctx, decoded, readCover)
 			if fallbackErr != nil {
 				if errors.Is(fallbackErr, ErrNotFictionBook) || errors.Is(fallbackErr, ErrDepthLimit) {
 					return nil, nil, fallbackErr
@@ -74,27 +74,8 @@ func ParseFB2Complete(xmlContent []byte, readCover bool) (*FB2Document, *parser.
 			return docFallback, bookFallback, nil
 		}
 
-		switch t := token.(type) {
-		case xml.StartElement:
-			if !rootSeen {
-				rootSeen = true
-				// The same criterion the metadata scanner applies: the first
-				// element the decoder reaches decides whether this is a book.
-				if t.Name.Local != fictionBookRoot {
-					return nil, nil, fmt.Errorf("%w: root element is %q, not FictionBook", ErrNotFictionBook, t.Name.Local)
-				}
-			}
-			// Feed to both parsers
-			metadataParser.HandleStartElement(t)
-			bodyState.handleStart(doc, t)
-
-		case xml.EndElement:
-			metadataParser.HandleEndElement(t)
-			bodyState.handleEnd(doc, t)
-
-		case xml.CharData:
-			metadataParser.HandleCharData(t)
-			bodyState.handleChar(t)
+		if rerr := applyFB2CompleteToken(token, &rootSeen, metadataParser, bodyState, doc); rerr != nil {
+			return nil, nil, rerr
 		}
 		if bodyState.err != nil {
 			return nil, nil, bodyState.err
@@ -118,8 +99,8 @@ func ParseFB2Complete(xmlContent []byte, readCover bool) (*FB2Document, *parser.
 	return doc, bookFile, nil
 }
 
-func parseFB2CompleteFallback(content []byte, readCover bool) (*FB2Document, *parser.BookFile, error) {
-	bodyDoc, bodyErr := ParseFB2Body(content)
+func parseFB2CompleteFallback(ctx context.Context, content []byte, readCover bool) (*FB2Document, *parser.BookFile, error) {
+	bodyDoc, bodyErr := ParseFB2Body(ctx, content)
 	if bodyErr != nil {
 		return nil, nil, bodyErr
 	}
@@ -129,4 +110,38 @@ func parseFB2CompleteFallback(content []byte, readCover bool) (*FB2Document, *pa
 		return bodyDoc, &parser.BookFile{}, nil
 	}
 	return bodyDoc, bookFile, nil
+}
+
+// applyFB2CompleteToken feeds one decoder token to both the metadata parser
+// and the body parser. The root criterion (first element must be FictionBook)
+// lives here too, so the main loop is a flat read-dispatch and stays under
+// the lint complexity ceiling.
+func applyFB2CompleteToken(
+	token xml.Token,
+	rootSeen *bool,
+	metadataParser *parser.FB2Parser,
+	bodyState *fb2BodyState,
+	doc *FB2Document,
+) error {
+	switch t := token.(type) {
+	case xml.StartElement:
+		if !*rootSeen {
+			*rootSeen = true
+			// The same criterion the metadata scanner applies: the first
+			// element the decoder reaches decides whether this is a book.
+			if t.Name.Local != fictionBookRoot {
+				return fmt.Errorf("%w: root element is %q, not FictionBook", ErrNotFictionBook, t.Name.Local)
+			}
+		}
+		// Feed to both parsers
+		metadataParser.HandleStartElement(t)
+		bodyState.handleStart(doc, t)
+	case xml.EndElement:
+		metadataParser.HandleEndElement(t)
+		bodyState.handleEnd(doc, t)
+	case xml.CharData:
+		metadataParser.HandleCharData(t)
+		bodyState.handleChar(t)
+	}
+	return nil
 }

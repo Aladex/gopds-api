@@ -2,6 +2,7 @@ package converter
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"strings"
@@ -78,8 +79,8 @@ func rcRunAllPaths(t *testing.T, prolog, tail string) map[string]rcVerdicts {
 	out := make(map[string]rcVerdicts, 4)
 	for path, doc := range rcBuildFourPaths(t, prolog, tail) {
 		_, metaErr := parser.NewFB2Parser(false).Parse(bytes.NewReader(doc))
-		_, _, completeErr := ParseFB2Complete(doc, false)
-		_, bodyErr := ParseFB2Body(doc)
+		_, _, completeErr := ParseFB2Complete(context.Background(), doc, false)
+		_, bodyErr := ParseFB2Body(context.Background(), doc)
 		out[path] = rcVerdicts{metaErr, completeErr, bodyErr}
 	}
 	return out
@@ -166,8 +167,8 @@ func TestRootCriterion_MetadataAndConverterAgree(t *testing.T) {
 
 		for path, doc := range docs {
 			_, metaErr := parser.NewFB2Parser(false).Parse(bytes.NewReader(doc))
-			_, _, completeErr := ParseFB2Complete(doc, false)
-			_, bodyErr := ParseFB2Body(doc)
+			_, _, completeErr := ParseFB2Complete(context.Background(), doc, false)
+			_, bodyErr := ParseFB2Body(context.Background(), doc)
 			if metaErr == nil || completeErr == nil || bodyErr == nil {
 				t.Errorf("%s: an unterminated declaration must refuse everywhere, got meta=%v complete=%v body=%v",
 					path, metaErr, completeErr, bodyErr)
@@ -185,7 +186,7 @@ func TestParseFB2Complete_RescueRequiresVerifiedRoot(t *testing.T) {
 	t.Run("damage after the verified root is salvaged", func(t *testing.T) {
 		in := []byte(`<?xml version="1.0" encoding="utf-8"?>` +
 			`<FictionBook><body><section><p>SALVAGE MARKER</p><![CDATA[never closed`)
-		doc, _, err := ParseFB2Complete(in, false)
+		doc, _, err := ParseFB2Complete(context.Background(), in, false)
 		if err != nil {
 			t.Fatalf("a verified book must be salvaged, got %v", err)
 		}
@@ -197,10 +198,10 @@ func TestParseFB2Complete_RescueRequiresVerifiedRoot(t *testing.T) {
 	t.Run("damage before the root is a refusal", func(t *testing.T) {
 		in := []byte(`<?xml version="1.0" encoding="utf-8"?>` +
 			`<!-- fictionbook <p>SALVAGE MARKER</p>`)
-		if _, _, err := ParseFB2Complete(in, false); !errors.Is(err, ErrNotFictionBook) {
+		if _, _, err := ParseFB2Complete(context.Background(), in, false); !errors.Is(err, ErrNotFictionBook) {
 			t.Errorf("expected ErrNotFictionBook when the root is unreachable, got %v", err)
 		}
-		if _, err := ParseFB2Body(in); !errors.Is(err, ErrNotFictionBook) {
+		if _, err := ParseFB2Body(context.Background(), in); !errors.Is(err, ErrNotFictionBook) {
 			t.Errorf("expected ErrNotFictionBook when the root is unreachable, got %v", err)
 		}
 	})
@@ -233,7 +234,7 @@ func TestParseFB2Complete_DamagedPrologPipelineBudget(t *testing.T) {
 		best := time.Duration(1<<63 - 1)
 		for i := 0; i < 7; i++ {
 			start := time.Now()
-			if _, _, err := ParseFB2Complete(in, false); !errors.Is(err, ErrNotFictionBook) {
+			if _, _, err := ParseFB2Complete(context.Background(), in, false); !errors.Is(err, ErrNotFictionBook) {
 				t.Fatalf("a hostile prolog must be refused, got %v", err)
 			}
 			if d := time.Since(start); d < best {

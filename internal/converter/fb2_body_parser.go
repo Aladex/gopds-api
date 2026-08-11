@@ -2,6 +2,7 @@ package converter
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/xml"
 	"errors"
@@ -12,6 +13,42 @@ import (
 	"gopds-api/internal/fb2sanitize"
 	"gopds-api/internal/parser"
 )
+
+// ctxCheckInterval is how often the body parser re-checks ctx.Err() inside
+// its token loop. One FB2 token is one element boundary or one text run —
+// microseconds of work — so a thousand tokens is roughly a millisecond of
+// parsing on a typical book. That bounds cancellation latency to about a
+// millisecond, which is well below what a reader perceives, while keeping
+// the per-token cost of the check below 0.1%. A power of two lets the
+// compiler turn the counter check into a bit mask; that is a side benefit,
+// not the reason for the choice.
+const ctxCheckInterval = 1024
+
+// checkCtx tracks tokens since the last ctx.Err() check and, when the
+// counter reaches ctxCheckInterval, returns ctx.Err() (nil if the ctx is
+// still alive). The two long token loops in this package (ParseFB2Body and
+// ParseFB2Complete) share the helper to keep cyclomatic complexity under
+// the lint ceiling without duplicating the interval logic.
+func checkCtx(ctx context.Context, counter *int) error {
+	*counter++
+	if *counter < ctxCheckInterval {
+		return nil
+	}
+	*counter = 0
+	return ctx.Err()
+}
+
+// newFB2Decoder is the shared front of the two token loops: it builds the
+// decoder with the same forgiving options both want, so the option list is
+// not duplicated across the parsers and does not inflate their function
+// length.
+func newFB2Decoder(decoded []byte) *xml.Decoder {
+	d := xml.NewDecoder(bytes.NewReader(decoded))
+	d.CharsetReader = makeCharsetReader
+	d.Strict = false
+	d.AutoClose = xml.HTMLAutoClose
+	return d
+}
 
 // Section and inline nesting accepted by the parser are bounded separately:
 // they are different trees with different growth reasons. A catalog probe of
@@ -150,7 +187,12 @@ type FB2TableCell struct {
 //   - Footnotes/endnotes
 //
 // Returns FB2Document with parsed structure or error if parsing fails.
-func ParseFB2Body(xmlContent []byte) (*FB2Document, error) {
+//
+// ctx is consulted every ctxCheckInterval tokens inside the main loop, not on
+// every token: the loop walks hundreds of thousands of them on a real book,
+// and a per-token check would cost more than it saves. A cancel that arrives
+// during work is observed within roughly a millisecond of parsing.
+func ParseFB2Body(ctx context.Context, xmlContent []byte) (*FB2Document, error) {
 	// Step 1: Decode charset and run the shared repair chain
 	decoded, err := parser.DecodeToUTF8(xmlContent)
 	if err != nil {
@@ -166,14 +208,15 @@ func ParseFB2Body(xmlContent []byte) (*FB2Document, error) {
 	decoded = repairBrokenXML(decoded)
 
 	doc := &FB2Document{}
-	decoder := xml.NewDecoder(bytes.NewReader(decoded))
-	decoder.CharsetReader = makeCharsetReader
-	decoder.Strict = false
-	decoder.AutoClose = xml.HTMLAutoClose
+	decoder := newFB2Decoder(decoded)
 
 	state := &fb2BodyState{}
 	rootSeen := false
+	tokensSinceCheck := 0
 	for {
+		if cerr := checkCtx(ctx, &tokensSinceCheck); cerr != nil {
+			return nil, fmt.Errorf("fb2: parse canceled: %w", cerr)
+		}
 		token, err := decoder.Token()
 		if err == io.EOF {
 			break

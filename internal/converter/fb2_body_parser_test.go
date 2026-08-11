@@ -2,11 +2,14 @@ package converter
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"gopds-api/internal/parser"
 )
@@ -26,7 +29,7 @@ func loadTestData(t *testing.T, filename string) []byte {
 func TestParseFB2Body_Simple(t *testing.T) {
 	data := loadTestData(t, "simple.fb2")
 
-	doc, err := ParseFB2Body(data)
+	doc, err := ParseFB2Body(context.Background(), data)
 	if err != nil {
 		t.Fatalf("ParseFB2Body failed: %v", err)
 	}
@@ -70,7 +73,7 @@ func TestParseFB2Body_Simple(t *testing.T) {
 func TestParseFB2Body_InlineFormatting(t *testing.T) {
 	data := loadTestData(t, "formatting.fb2")
 
-	doc, err := ParseFB2Body(data)
+	doc, err := ParseFB2Body(context.Background(), data)
 	if err != nil {
 		t.Fatalf("ParseFB2Body failed: %v", err)
 	}
@@ -179,7 +182,7 @@ func TestParseFB2Body_InlineFormatting(t *testing.T) {
 func TestParseFB2Body_NestedSections(t *testing.T) {
 	data := loadTestData(t, "nested_sections.fb2")
 
-	doc, err := ParseFB2Body(data)
+	doc, err := ParseFB2Body(context.Background(), data)
 	if err != nil {
 		t.Fatalf("ParseFB2Body failed: %v", err)
 	}
@@ -255,7 +258,7 @@ func TestParseFB2Body_NestedSections(t *testing.T) {
 func TestParseFB2Body_Cyrillic(t *testing.T) {
 	data := loadTestData(t, "cyrillic.fb2")
 
-	doc, err := ParseFB2Body(data)
+	doc, err := ParseFB2Body(context.Background(), data)
 	if err != nil {
 		t.Fatalf("ParseFB2Body failed: %v", err)
 	}
@@ -304,7 +307,7 @@ func TestParseFB2Body_Cyrillic(t *testing.T) {
 func TestParseFB2Body_SpecialElements(t *testing.T) {
 	data := loadTestData(t, "special_elements.fb2")
 
-	doc, err := ParseFB2Body(data)
+	doc, err := ParseFB2Body(context.Background(), data)
 	if err != nil {
 		t.Fatalf("ParseFB2Body failed: %v", err)
 	}
@@ -374,7 +377,7 @@ func TestParseFB2Body_SpecialElements(t *testing.T) {
 func TestParseFB2Body_ImagesAndNotes(t *testing.T) {
 	data := loadTestData(t, "images_notes.fb2")
 
-	doc, err := ParseFB2Body(data)
+	doc, err := ParseFB2Body(context.Background(), data)
 	if err != nil {
 		t.Fatalf("ParseFB2Body failed: %v", err)
 	}
@@ -441,7 +444,7 @@ func TestParseFB2Body_MalformedXML(t *testing.T) {
 	data := loadTestData(t, "malformed.fb2")
 
 	// Should not panic and should attempt to parse
-	doc, err := ParseFB2Body(data)
+	doc, err := ParseFB2Body(context.Background(), data)
 
 	// We expect sanitization to fix most issues, so parsing should succeed
 	// If it fails, the error should be graceful
@@ -471,7 +474,7 @@ func TestParseFB2Body_EmptyBody(t *testing.T) {
   </description>
 </FictionBook>`)
 
-	doc, err := ParseFB2Body(xmlContent)
+	doc, err := ParseFB2Body(context.Background(), xmlContent)
 
 	// Should handle gracefully
 	if err != nil {
@@ -492,7 +495,7 @@ func TestParseFB2Body_EmptyBody(t *testing.T) {
 func TestParseFB2Body_InvalidXML(t *testing.T) {
 	xmlContent := []byte(`This is not XML at all!`)
 
-	doc, err := ParseFB2Body(xmlContent)
+	doc, err := ParseFB2Body(context.Background(), xmlContent)
 
 	// Total garbage must be a typed error, not a silently empty book:
 	// the caller cannot tell "empty document" from "not a document" otherwise.
@@ -552,7 +555,7 @@ func TestBalanceSectionTags(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			doc, err := ParseFB2Body([]byte(tt.input))
+			doc, err := ParseFB2Body(context.Background(), []byte(tt.input))
 			if err != nil {
 				t.Fatalf("ParseFB2Body failed: %v", err)
 			}
@@ -604,7 +607,7 @@ func TestBalanceCommonTags(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			doc, err := ParseFB2Body([]byte(tt.input))
+			doc, err := ParseFB2Body(context.Background(), []byte(tt.input))
 			if err != nil {
 				t.Fatalf("ParseFB2Body failed: %v", err)
 			}
@@ -647,7 +650,7 @@ func TestUniversalRepairs(t *testing.T) {
 </body>
 </FictionBook>`
 
-	doc, err := ParseFB2Body([]byte(input))
+	doc, err := ParseFB2Body(context.Background(), []byte(input))
 	if err != nil {
 		t.Fatalf("ParseFB2Body failed: %v", err)
 	}
@@ -733,7 +736,7 @@ func TestParseFB2Body_BodyLevelText(t *testing.T) {
   </body>
 </FictionBook>`)
 
-	doc, err := ParseFB2Body(xmlContent)
+	doc, err := ParseFB2Body(context.Background(), xmlContent)
 	if err != nil {
 		t.Fatalf("ParseFB2Body failed: %v", err)
 	}
@@ -782,7 +785,7 @@ func TestParseFB2Body_BodyWithoutSections(t *testing.T) {
   </body>
 </FictionBook>`)
 
-	doc, err := ParseFB2Body(xmlContent)
+	doc, err := ParseFB2Body(context.Background(), xmlContent)
 	if err != nil {
 		t.Fatalf("ParseFB2Body failed: %v", err)
 	}
@@ -811,7 +814,7 @@ func TestParseFB2Body_SectionOrderPreserved(t *testing.T) {
   </body>
 </FictionBook>`)
 
-	doc, err := ParseFB2Body(xmlContent)
+	doc, err := ParseFB2Body(context.Background(), xmlContent)
 	if err != nil {
 		t.Fatalf("ParseFB2Body failed: %v", err)
 	}
@@ -858,7 +861,7 @@ func TestParseFB2Body_NotesBodySeparation(t *testing.T) {
   </body>
 </FictionBook>`)
 
-	doc, err := ParseFB2Body(xmlContent)
+	doc, err := ParseFB2Body(context.Background(), xmlContent)
 	if err != nil {
 		t.Fatalf("ParseFB2Body failed: %v", err)
 	}
@@ -894,7 +897,7 @@ func TestParseFB2Body_NotesBodySeparation(t *testing.T) {
 func TestParseFB2Body_BinaryMIME(t *testing.T) {
 	data := loadTestData(t, "images_notes.fb2")
 
-	doc, err := ParseFB2Body(data)
+	doc, err := ParseFB2Body(context.Background(), data)
 	if err != nil {
 		t.Fatalf("ParseFB2Body failed: %v", err)
 	}
@@ -945,7 +948,7 @@ func TestParseFB2Body_Encodings(t *testing.T) {
 
 	for _, tt := range decoded {
 		t.Run(tt.name, func(t *testing.T) {
-			doc, err := ParseFB2Body(loadTestData(t, tt.file))
+			doc, err := ParseFB2Body(context.Background(), loadTestData(t, tt.file))
 			if err != nil {
 				t.Fatalf("ParseFB2Body failed: %v", err)
 			}
@@ -972,7 +975,7 @@ func TestParseFB2Body_Encodings(t *testing.T) {
 
 	for _, tt := range refused {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := ParseFB2Body(loadTestData(t, tt.file))
+			_, err := ParseFB2Body(context.Background(), loadTestData(t, tt.file))
 			if !errors.Is(err, tt.want) {
 				t.Errorf("expected %v, got %v", tt.want, err)
 			}
@@ -995,7 +998,7 @@ func TestParseFB2Body_DeclaredUTF8LocalDamage(t *testing.T) {
 	}
 	xmlContent[tail] = 0xFF // never valid anywhere in UTF-8
 
-	doc, err := ParseFB2Body(xmlContent)
+	doc, err := ParseFB2Body(context.Background(), xmlContent)
 	if err != nil {
 		t.Fatalf("one corrupt byte must not refuse the book: %v", err)
 	}
@@ -1021,7 +1024,7 @@ func TestParseFB2Body_XML11VersionEndToEnd(t *testing.T) {
 	b.Write([]byte{0xcf, 0xf0, 0xe8, 0xe2, 0xe5, 0xf2})
 	b.WriteString(`</p></section></body></FictionBook>`)
 
-	doc, err := ParseFB2Body(b.Bytes())
+	doc, err := ParseFB2Body(context.Background(), b.Bytes())
 	if err != nil {
 		t.Fatalf("version 1.1 is prolog damage, not a refusal: %v", err)
 	}
@@ -1046,7 +1049,7 @@ func TestParseFB2Body_BrokenXMLOutcomes(t *testing.T) {
   </description>
 </FictionBook>`)
 
-		doc, err := ParseFB2Body(xmlContent)
+		doc, err := ParseFB2Body(context.Background(), xmlContent)
 		if err != nil {
 			t.Fatalf("Expected no error for a valid book without body, got: %v", err)
 		}
@@ -1067,7 +1070,7 @@ func TestParseFB2Body_BrokenXMLOutcomes(t *testing.T) {
 <p>PARTIAL MARKER ONE</p>
 <p>this paragraph is never closed`)
 
-		doc, err := ParseFB2Body(xmlContent)
+		doc, err := ParseFB2Body(context.Background(), xmlContent)
 		if err != nil {
 			t.Fatalf("Expected partial extraction without error, got: %v", err)
 		}
@@ -1097,7 +1100,7 @@ func TestParseFB2Body_DepthLimit(t *testing.T) {
 	}
 
 	t.Run("section nesting at the limit parses", func(t *testing.T) {
-		doc, err := ParseFB2Body(nested(maxFB2SectionDepth))
+		doc, err := ParseFB2Body(context.Background(), nested(maxFB2SectionDepth))
 		if err != nil {
 			t.Fatalf("ParseFB2Body failed at the exact limit %d: %v", maxFB2SectionDepth, err)
 		}
@@ -1107,7 +1110,7 @@ func TestParseFB2Body_DepthLimit(t *testing.T) {
 	})
 
 	t.Run("section nesting one past the limit is an error", func(t *testing.T) {
-		_, err := ParseFB2Body(nested(maxFB2SectionDepth + 1))
+		_, err := ParseFB2Body(context.Background(), nested(maxFB2SectionDepth+1))
 		if err == nil {
 			t.Fatalf("Expected a depth-limit error for %d nested sections", maxFB2SectionDepth+1)
 		}
@@ -1131,7 +1134,7 @@ func TestParseFB2Body_DepthLimit(t *testing.T) {
 	}
 
 	t.Run("inline nesting at the limit parses", func(t *testing.T) {
-		doc, err := ParseFB2Body(inlineNested(maxFB2InlineDepth))
+		doc, err := ParseFB2Body(context.Background(), inlineNested(maxFB2InlineDepth))
 		if err != nil {
 			t.Fatalf("ParseFB2Body failed at the exact limit %d: %v", maxFB2InlineDepth, err)
 		}
@@ -1141,7 +1144,7 @@ func TestParseFB2Body_DepthLimit(t *testing.T) {
 	})
 
 	t.Run("inline nesting one past the limit is an error", func(t *testing.T) {
-		_, err := ParseFB2Body(inlineNested(maxFB2InlineDepth + 1))
+		_, err := ParseFB2Body(context.Background(), inlineNested(maxFB2InlineDepth+1))
 		if err == nil {
 			t.Fatalf("Expected a depth-limit error for %d nested inline elements", maxFB2InlineDepth+1)
 		}
@@ -1149,4 +1152,92 @@ func TestParseFB2Body_DepthLimit(t *testing.T) {
 			t.Errorf("Expected a typed ErrDepthLimit, got: %v", err)
 		}
 	})
+}
+
+// bigFB2 builds a FictionBook document big enough that the parser's token
+// loop runs well past ctxCheckInterval: each <p>...</p> is several tokens,
+// and 4000 of them is over ten thousand. Used by the cancellation tests
+// below so the loop actually reaches the ctx.Err() check.
+func bigFB2(paragraphCount int) []byte {
+	var b bytes.Buffer
+	b.WriteString(`<?xml version="1.0"?><FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"><body><section>`)
+	for i := 0; i < paragraphCount; i++ {
+		fmt.Fprintf(&b, "<p>marker %d</p>", i)
+	}
+	b.WriteString(`</section></body></FictionBook>`)
+	return b.Bytes()
+}
+
+// A context already canceled before the call must surface as a cancel error,
+// not as a parsed document. The check fires at the top of the token loop
+// every ctxCheckInterval tokens, so the fixture has to be long enough for the
+// loop to reach the check at least once.
+func TestParseFB2Body_CanceledBeforeReturnsCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := ParseFB2Body(ctx, bigFB2(4000))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want a wrapping of context.Canceled", err)
+	}
+}
+
+// A cancel that arrives while the loop is running must stop before the end of
+// the document. There is no production hook to fire the cancel at an exact
+// token, so this is a timing test: enough tokens that the loop cannot finish
+// inside the cancel window. The assertion is the error wrapping
+// context.Canceled, not an exact count — the count depends on where the
+// scheduler was when the cancel landed.
+func TestParseFB2Body_CancelMidParseStopsBeforeEnd(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	type result struct {
+		doc *FB2Document
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		doc, err := ParseFB2Body(ctx, bigFB2(50000))
+		done <- result{doc, err}
+	}()
+
+	// Let the parser chew through some tokens before the cancel reaches the
+	// next ctx check. Five milliseconds is enough for many thousand tokens,
+	// and far below the time the full 50k-paragraph run takes.
+	time.Sleep(5 * time.Millisecond)
+	cancel()
+
+	select {
+	case r := <-done:
+		if !errors.Is(r.err, context.Canceled) {
+			t.Fatalf("err = %v, want a wrapping of context.Canceled", r.err)
+		}
+		if r.doc != nil {
+			t.Errorf("a canceled ctx must not produce a document, got %v", r.doc)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("ParseFB2Body did not return within 10s of cancel")
+	}
+}
+
+// A live context must produce the same document the parser produced before
+// ctx was added. This is the regression guard: if a future change makes the
+// ctx check misfire on a live context, or otherwise perturbs the parsing
+// path, the structural assertions the suite already makes catch it.
+func TestParseFB2Body_LiveContextMatchesBaseline(t *testing.T) {
+	data := loadTestData(t, "simple.fb2")
+	doc, err := ParseFB2Body(context.Background(), data)
+	if err != nil {
+		t.Fatalf("a live ctx must not produce an error: %v", err)
+	}
+	if doc == nil || doc.Body == nil {
+		t.Fatal("a live ctx must produce a non-nil document with a body")
+	}
+	if len(doc.Body.SubSections()) != 1 {
+		t.Fatalf("a live ctx produced %d top-level sections, expected 1", len(doc.Body.SubSections()))
+	}
+	if section := doc.Body.SubSections()[0]; section.Title != "Chapter 1" || len(section.Paragraphs()) != 2 {
+		t.Errorf("a live ctx changed the parsed shape: title=%q paragraphs=%d",
+			section.Title, len(section.Paragraphs()))
+	}
 }

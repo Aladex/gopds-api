@@ -2,6 +2,7 @@ package converter
 
 import (
 	"bytes"
+	"context"
 	"go/ast"
 	goparser "go/parser"
 	"go/token"
@@ -226,7 +227,7 @@ func TestSanitizerAgreementAcrossEntryPoints(t *testing.T) {
 	})
 
 	t.Run("ParseFB2Complete", func(t *testing.T) {
-		doc, book, err := ParseFB2Complete(content, false)
+		doc, book, err := ParseFB2Complete(context.Background(), content, false)
 		if err != nil {
 			t.Fatalf("ParseFB2Complete failed: %v", err)
 		}
@@ -235,7 +236,7 @@ func TestSanitizerAgreementAcrossEntryPoints(t *testing.T) {
 	})
 
 	t.Run("ParseFB2Body", func(t *testing.T) {
-		doc, err := ParseFB2Body(content)
+		doc, err := ParseFB2Body(context.Background(), content)
 		if err != nil {
 			t.Fatalf("ParseFB2Body failed: %v", err)
 		}
