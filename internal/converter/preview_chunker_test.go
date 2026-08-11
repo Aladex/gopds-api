@@ -358,3 +358,75 @@ func TestChunkPreview_DraftSizesNeverUndercount(t *testing.T) {
 		t.Errorf("expected both texts to survive, got %d occurrences", n)
 	}
 }
+
+// A footnote whose book id contains whitespace must reach the portion: the
+// chunker and the renderer have to key notes through the same normalised form,
+// or the lookup silently misses and the note text vanishes.
+func TestChunkPreview_NoteIDWithSpaceLandsInChunk(t *testing.T) {
+	policy := testPreviewPolicy()
+	doc := docFromParas(noteRefPara("a b", "ССЫЛКА-НА-СНОСКУ-С-ПРОБЕЛОМ"))
+	doc.Notes = []*FB2BodySection{noteSection("a b", "ТЕКСТ-СНОСКИ-С-ПРОБЕЛОМ-В-ИД")}
+
+	chunks, err := ChunkPreview(doc, previewImagesFor(doc, policy), policy)
+	if err != nil {
+		t.Fatalf("ChunkPreview: %v", err)
+	}
+	joined := strings.Join(renderAllChunks(t, chunks, nil, policy), "")
+	if !strings.Contains(joined, "ТЕКСТ-СНОСКИ-С-ПРОБЕЛОМ-В-ИД") {
+		t.Errorf("footnote text missing: a note whose id contains whitespace was dropped from the portion")
+	}
+}
+
+// Two references to one note pull it into the chunk exactly once. The chunker
+// dedups by the same key the renderer resolves refs with; keying the
+// per-chunk "already seen" set by the raw id lets the second ref pull the
+// note again and pay its cost twice.
+func TestChunkPreview_NoteIDWithSpaceNotDoubleCounted(t *testing.T) {
+	policy := testPreviewPolicy()
+	doc := docFromParas(
+		noteRefPara("a b", "ПЕРВАЯ-ССЫЛКА"),
+		noteRefPara("a b", "ВТОРАЯ-ССЫЛКА"),
+	)
+	doc.Notes = []*FB2BodySection{noteSection("a b", "ТЕКСТ-СНОСКИ-С-ПРОБЕЛОМ-В-ИД")}
+
+	chunks, err := ChunkPreview(doc, previewImagesFor(doc, policy), policy)
+	if err != nil {
+		t.Fatalf("ChunkPreview: %v", err)
+	}
+	var totalNotes int
+	for _, c := range chunks {
+		totalNotes += len(c.notes)
+	}
+	if totalNotes != 1 {
+		t.Errorf("footnote with whitespace id was pulled %d times, expected 1 — its cost must count once per chunk", totalNotes)
+	}
+}
+
+// Two notes whose raw ids collapse to the same anchor key resolve to one
+// winner, and the winner is the first in document order — the same "first id
+// wins" rule the renderer enforces for block anchors. Keying the dedup guard
+// by the raw id lets the second note overwrite the first under the shared
+// normalised key and silently flip the winner, so this test pins the guard,
+// not just the store.
+func TestChunkPreview_DuplicateNormalizedNoteIDFirstWins(t *testing.T) {
+	policy := testPreviewPolicy()
+	doc := docFromParas(noteRefPara("a b", "ССЫЛКА-НА-ДУБЛИКАТ-КЛЮЧА"))
+	// Order matters: the first note's raw id equals the normalised key, the
+	// second's reduces to it. Only a raw-keyed dedup guard would admit both.
+	doc.Notes = []*FB2BodySection{
+		noteSection("ab", "ТЕКСТ-ПЕРВОЙ-СНОСКИ"),
+		noteSection("a b", "ТЕКСТ-ВТОРОЙ-СНОСКИ"),
+	}
+
+	chunks, err := ChunkPreview(doc, previewImagesFor(doc, policy), policy)
+	if err != nil {
+		t.Fatalf("ChunkPreview: %v", err)
+	}
+	joined := strings.Join(renderAllChunks(t, chunks, nil, policy), "")
+	if !strings.Contains(joined, "ТЕКСТ-ПЕРВОЙ-СНОСКИ") {
+		t.Errorf("the first note lost the dedup race — first id must win, got neither")
+	}
+	if strings.Contains(joined, "ТЕКСТ-ВТОРОЙ-СНОСКИ") {
+		t.Errorf("the second note overwrote the first under the shared normalised key — first id must win")
+	}
+}

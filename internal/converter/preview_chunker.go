@@ -31,13 +31,21 @@ func ChunkPreview(doc *FB2Document, images PreviewImages, policy PreviewPolicy) 
 	packer := &previewPacker{doc: doc, images: images, policy: policy, notesByID: make(map[string]*FB2BodySection)}
 	if doc != nil {
 		for _, note := range doc.Notes {
-			if note == nil || sanitizeAnchorID(note.ID) == "" {
+			if note == nil {
 				continue
 			}
-			if _, taken := packer.notesByID[note.ID]; taken {
+			// The renderer resolves note refs through anchorKey, so the
+			// chunker's note map must be keyed the same way — a raw-id key
+			// like "a b" is invisible to a lookup that asks for "ab", and
+			// the note silently never travels with its reference.
+			key := anchorKey(note.ID)
+			if key == "" {
+				continue
+			}
+			if _, taken := packer.notesByID[key]; taken {
 				continue // first note with a duplicated id wins, as anchors do
 			}
-			packer.notesByID[note.ID] = note
+			packer.notesByID[key] = note
 			packer.allNotes = append(packer.allNotes, note)
 		}
 	}
@@ -66,7 +74,10 @@ func ChunkPreview(doc *FB2Document, images PreviewImages, policy PreviewPolicy) 
 		cur.blocks = append(cur.blocks, block)
 		for _, note := range notes {
 			cur.notes = append(cur.notes, note)
-			curNotes[note.ID] = true
+			// Same normalised key as the cost lookup above: a second ref to
+			// the same note in the same chunk must be a no-op, not a second
+			// pull that pays the note's cost twice.
+			curNotes[anchorKey(note.ID)] = true
 		}
 		curSize += cost
 	}
