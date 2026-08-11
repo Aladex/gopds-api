@@ -24,6 +24,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"gopds-api/models"
 )
@@ -74,30 +75,44 @@ type BookRepo interface {
 }
 
 // PreviewService is the long-lived object that owns the preview pipeline.
-// Construction is cheap; the dependencies (a book repo and an archive
-// loader) are the things that take wiring, and they arrive through the
+// Construction is cheap; the dependencies (a book repo, an archive loader
+// and a cache) are the things that take wiring, and they arrive through the
 // constructor so the service never reaches for globals.
 type PreviewService struct {
 	books  BookRepo
 	loader ArchiveLoader
+	cache  PreviewCache
+
+	// renderVersion is embedded in every cache key. Bump it when the
+	// rendering pipeline changes; old keys miss naturally through TTL.
+	renderVersion string
+
+	// ttl is the time-to-live for cache entries. Production reads this
+	// from config; tests override through the field if needed.
+	ttl time.Duration
 }
 
 // NewPreviewService wires the service. The constructor takes interfaces on
-// purpose: production wires in a database-backed BookRepo and a zip-backed
-// ArchiveLoader, tests wire in doubles — and neither has to know which.
-func NewPreviewService(books BookRepo, loader ArchiveLoader) *PreviewService {
-	return &PreviewService{books: books, loader: loader}
+// purpose: production wires in a database-backed BookRepo, a zip-backed
+// ArchiveLoader and a Redis-backed PreviewCache; tests wire in doubles —
+// and neither has to know which.
+func NewPreviewService(books BookRepo, loader ArchiveLoader, cache PreviewCache) *PreviewService {
+	return &PreviewService{
+		books:         books,
+		loader:        loader,
+		cache:         cache,
+		renderVersion: renderVersionPrefix,
+		ttl:           cacheKeyTTL,
+	}
 }
 
 // Load is the single entry point of this step. It resolves the book, checks
-// that the reader may see it, refuses anything but fb2, and only then asks
-// the loader for bytes. Every refusal is typed; every success returns the
-// FB2 bytes that the rest of the pipeline will parse.
+// that the reader may see it, refuses anything but fb2, verifies the cache
+// is reachable, and then either returns the cached preview or loads the FB2
+// from the archive and stores it. Every refusal is typed.
 //
 // The reader identity is a single boolean today. The plan adds authors and a
-// per-reader history in later steps, but visibility does not need them, and
-// pulling a full user object through this signature would promise more than
-// the gate uses.
+// per-reader history in later steps, but visibility does not need them.
 func (s *PreviewService) Load(ctx context.Context, bookID int64, isSuperUser bool) ([]byte, error) {
 	book, err := s.books.GetBook(bookID)
 	if err != nil {
@@ -112,7 +127,45 @@ func (s *PreviewService) Load(ctx context.Context, bookID int64, isSuperUser boo
 	if book.Format != formatFB2 {
 		return nil, fmt.Errorf("%w: format %q", ErrUnsupportedFormat, book.Format)
 	}
-	return s.loader.Load(ctx, book.Path, book.FileName)
+	if book.MD5 == "" {
+		return nil, fmt.Errorf("%w: book id %d", ErrEmptyMD5, bookID)
+	}
+
+	// The cache is mandatory. If it is unreachable, the request is refused
+	// rather than falling through to the archive — without a cache every
+	// page turn would re-unpack the book, which is exactly what the cache
+	// was introduced to prevent.
+	if perr := s.cache.Ping(ctx); perr != nil {
+		return nil, fmt.Errorf("%w: %v", ErrCacheUnavailable, perr)
+	}
+
+	key := buildCacheKey(book.MD5, s.renderVersion)
+
+	// Cache hit: manifest AND at least the first chunk. A manifest without
+	// chunks is a stale entry from a crash between PutChunk and PutManifest
+	// — treated as a miss, not as an empty book.
+	if manifest, gerr := s.cache.GetManifest(ctx, key); gerr == nil {
+		if _, cerr := s.cache.GetChunk(ctx, key, 0); cerr == nil {
+			return manifest, nil
+		}
+	}
+
+	// Cache miss — load from archive.
+	data, err := s.loader.Load(ctx, book.Path, book.FileName)
+	if err != nil {
+		return nil, fmt.Errorf("preview: load archive: %w", err)
+	}
+
+	// Store chunks first, manifest last. If the process dies between the
+	// two, the next request finds a manifest without chunks and rebuilds.
+	if err := s.cache.PutChunk(ctx, key, 0, data, s.ttl); err != nil {
+		return nil, fmt.Errorf("preview: cache chunk: %w", err)
+	}
+	if err := s.cache.PutManifest(ctx, key, data, s.ttl); err != nil {
+		return nil, fmt.Errorf("preview: cache manifest: %w", err)
+	}
+
+	return data, nil
 }
 
 // visibleTo reports whether a reader with the given superuser flag may open

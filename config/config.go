@@ -253,6 +253,11 @@ func bindEnvKeys(t reflect.Type, prefix string) error {
 	return nil
 }
 
+// previewRedisDB is the default database number for the preview cache. DBs
+// 0 and 1 are used by sessions (main and token), DB 2 by the rate limiter;
+// 3 is free.
+const previewRedisDB = 3
+
 // setDefaults sets default configuration values
 func setDefaults() {
 	// Server defaults
@@ -270,6 +275,15 @@ func setDefaults() {
 	viper.SetDefault("redis.host", "localhost")
 	viper.SetDefault("redis.port", 6379)
 	viper.SetDefault("redis.db", 0)
+
+	// Preview Redis defaults — separate keys from the main Redis so preview
+	// can be moved to its own instance (or its own DB) without touching
+	// sessions, rate limiter or other subsystems.
+	viper.SetDefault("preview.redis.host", "localhost")
+	viper.SetDefault("preview.redis.port", viper.GetInt("redis.port"))
+	viper.SetDefault("preview.redis.db", previewRedisDB)
+	viper.SetDefault("preview.redis.password", "")
+	viper.SetDefault("preview.cache_ttl", "24h")
 
 	// App defaults
 	viper.SetDefault("app.devel_mode", false)
