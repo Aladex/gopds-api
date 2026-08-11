@@ -15,8 +15,20 @@ import (
 	"testing"
 	"time"
 
+	"gopds-api/internal/converter"
+	"gopds-api/internal/parser"
 	"gopds-api/models"
 )
+
+// minimalFB2 is the smallest valid FictionBook document the parser accepts:
+// a root <FictionBook> element with one <body> containing one <section>. Used
+// by tests that need the build pipeline to succeed without caring about the
+// content — every test fixture that feeds the loader uses this instead of a
+// bare tag, because the gate-checking parse step rejects anything that is
+// not a real FB2.
+const minimalFB2 = `<?xml version="1.0"?>` +
+	`<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">` +
+	`<body><section><p>t</p></section></body></FictionBook>`
 
 // fakeBookRepo is an in-memory stand-in for BookRepo. It returns (nil, nil)
 // for a missing id, matching the contract: "not found" is nil without an
@@ -129,7 +141,7 @@ func TestPreviewService_HiddenBookDoesNotTouchArchive(t *testing.T) {
 		1: {ID: 1, Format: formatFB2, DuplicateHidden: true, Approved: true},
 	}}
 	loader := &fakeArchiveLoader{}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4)
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits())
 
 	_, err := svc.Load(context.Background(), 1, false)
 	if !errors.Is(err, ErrBookNotVisible) {
@@ -150,8 +162,8 @@ func TestPreviewService_SuperUserOpensUnapprovedAndHidden(t *testing.T) {
 	repo := &fakeBookRepo{books: map[int64]*models.Book{
 		1: {ID: 1, Format: formatFB2, Approved: false, DuplicateHidden: true, MD5: "abc123"},
 	}}
-	loader := &fakeArchiveLoader{data: []byte("<FictionBook/>")}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4)
+	loader := &fakeArchiveLoader{data: []byte(minimalFB2)}
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits())
 
 	// Superuser: the gate passes, the loader fires.
 	if _, err := svc.Load(context.Background(), 1, true); err != nil {
@@ -181,7 +193,7 @@ func TestPreviewService_NonFB2IsRefusedWithoutLoading(t *testing.T) {
 		1: {ID: 1, Format: "epub", Approved: true, DuplicateHidden: false},
 	}}
 	loader := &fakeArchiveLoader{}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4)
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits())
 
 	_, err := svc.Load(context.Background(), 1, false)
 	if !errors.Is(err, ErrUnsupportedFormat) {
@@ -200,7 +212,7 @@ func TestPreviewService_NonFB2IsRefusedWithoutLoading(t *testing.T) {
 func TestPreviewService_MissingBookIsRefused(t *testing.T) {
 	repo := &fakeBookRepo{books: map[int64]*models.Book{}}
 	loader := &fakeArchiveLoader{}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4)
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits())
 
 	_, err := svc.Load(context.Background(), 999, false)
 	if !errors.Is(err, ErrBookNotFound) {
@@ -221,7 +233,7 @@ func TestPreviewService_UnapprovedButNotHiddenIsRefused(t *testing.T) {
 		1: {ID: 1, Format: formatFB2, Approved: false, DuplicateHidden: false},
 	}}
 	loader := &fakeArchiveLoader{}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4)
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits())
 
 	_, err := svc.Load(context.Background(), 1, false)
 	if !errors.Is(err, ErrBookNotVisible) {
@@ -241,7 +253,7 @@ func TestPreviewService_DatabaseErrorIsPropagated(t *testing.T) {
 	dbErr := errors.New("connection refused")
 	repo := &fakeBookRepo{err: dbErr}
 	loader := &fakeArchiveLoader{}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4)
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits())
 
 	_, err := svc.Load(context.Background(), 1, false)
 	if err == nil {
@@ -267,8 +279,8 @@ func TestPreviewService_ApprovedNotHiddenPassesVisibility(t *testing.T) {
 	repo := &fakeBookRepo{books: map[int64]*models.Book{
 		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "def456"},
 	}}
-	loader := &fakeArchiveLoader{data: []byte("<FictionBook/>")}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4)
+	loader := &fakeArchiveLoader{data: []byte(minimalFB2)}
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits())
 
 	if _, err := svc.Load(context.Background(), 1, false); err != nil {
 		t.Fatalf("an approved, non-hidden book must pass visibility: %v", err)
@@ -286,10 +298,10 @@ func TestPreviewService_CacheUnavailableRefusesWithoutLoading(t *testing.T) {
 	repo := &fakeBookRepo{books: map[int64]*models.Book{
 		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc"},
 	}}
-	loader := &fakeArchiveLoader{data: []byte("<FB2/>")}
+	loader := &fakeArchiveLoader{data: []byte(minimalFB2)}
 	cache := newMockCache()
 	cache.pingErr = errors.New("redis is down")
-	svc := NewPreviewService(repo, loader, cache, 4)
+	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits())
 
 	_, err := svc.Load(context.Background(), 1, false)
 	if !errors.Is(err, ErrCacheUnavailable) {
@@ -305,8 +317,8 @@ func TestPreviewService_SecondRequestDoesNotOpenArchive(t *testing.T) {
 	repo := &fakeBookRepo{books: map[int64]*models.Book{
 		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc", Path: "/x", FileName: "y.fb2"},
 	}}
-	loader := &fakeArchiveLoader{data: []byte("<FB2/>")}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4)
+	loader := &fakeArchiveLoader{data: []byte(minimalFB2)}
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits())
 
 	// First: cache miss, loader fires once.
 	if _, err := svc.Load(context.Background(), 1, false); err != nil {
@@ -333,8 +345,8 @@ func TestPreviewService_DifferentMD5ProducesDifferentKey(t *testing.T) {
 		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "aaa", Path: "/x", FileName: "a.fb2"},
 		2: {ID: 2, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "bbb", Path: "/x", FileName: "b.fb2"},
 	}}
-	loader := &fakeArchiveLoader{data: []byte("<FB2/>")}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4)
+	loader := &fakeArchiveLoader{data: []byte(minimalFB2)}
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits())
 
 	if _, err := svc.Load(context.Background(), 1, false); err != nil {
 		t.Fatalf("book1: %v", err)
@@ -364,7 +376,7 @@ func TestPreviewService_EmptyMD5IsRefused(t *testing.T) {
 		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: ""},
 	}}
 	loader := &fakeArchiveLoader{}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4)
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits())
 
 	_, err := svc.Load(context.Background(), 1, false)
 	if !errors.Is(err, ErrEmptyMD5) {
@@ -381,7 +393,7 @@ func TestPreviewService_ManifestWithoutChunkIsCacheMissAndChunksWrittenFirst(t *
 	repo := &fakeBookRepo{books: map[int64]*models.Book{
 		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc", Path: "/x", FileName: "y.fb2"},
 	}}
-	loader := &fakeArchiveLoader{data: []byte("<FB2/>")}
+	loader := &fakeArchiveLoader{data: []byte(minimalFB2)}
 	cache := newMockCache()
 
 	// Simulate a stale state: manifest exists but no chunks. The mock
@@ -390,7 +402,7 @@ func TestPreviewService_ManifestWithoutChunkIsCacheMissAndChunksWrittenFirst(t *
 	key := buildCacheKey("abc", renderVersionPrefix)
 	cache.manifests[key] = []byte("stale-manifest")
 
-	svc := NewPreviewService(repo, loader, cache, 4)
+	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits())
 	if _, err := svc.Load(context.Background(), 1, false); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -463,8 +475,8 @@ func TestPreviewService_ConcurrentRequestsTriggerOneLoad(t *testing.T) {
 	repo := &fakeBookRepo{books: map[int64]*models.Book{
 		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc", Path: "/x", FileName: "y.fb2"},
 	}}
-	loader := &slowArchiveLoader{data: []byte("<FB2/>"), delay: 50 * time.Millisecond}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4)
+	loader := &slowArchiveLoader{data: []byte(minimalFB2), delay: 50 * time.Millisecond}
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits())
 
 	const N = 10
 	var wg sync.WaitGroup
@@ -496,8 +508,8 @@ func TestPreviewService_BuildCeilingRefusesWithErrTooManyBuilds(t *testing.T) {
 		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "aaa", Path: "/x", FileName: "a.fb2"},
 		2: {ID: 2, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "bbb", Path: "/x", FileName: "b.fb2"},
 	}}
-	loader := &slowArchiveLoader{data: []byte("<FB2/>"), delay: 50 * time.Millisecond}
-	svc := NewPreviewService(repo, loader, newMockCache(), 1) // ceiling = 1
+	loader := &slowArchiveLoader{data: []byte(minimalFB2), delay: 50 * time.Millisecond}
+	svc := NewPreviewService(repo, loader, newMockCache(), 1, defaultPreviewLimits()) // ceiling = 1
 
 	// Occupy the only slot with book 1.
 	var wg sync.WaitGroup
@@ -527,8 +539,8 @@ func TestPreviewService_CancelOneWaiterOthersStillGetResult(t *testing.T) {
 	repo := &fakeBookRepo{books: map[int64]*models.Book{
 		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc", Path: "/x", FileName: "y.fb2"},
 	}}
-	loader := &slowArchiveLoader{data: []byte("<FB2/>"), delay: 50 * time.Millisecond}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4)
+	loader := &slowArchiveLoader{data: []byte(minimalFB2), delay: 50 * time.Millisecond}
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits())
 
 	ctxA, cancelA := context.WithCancel(context.Background())
 	ctxB := context.Background()
@@ -576,9 +588,9 @@ func TestPreviewService_AllWaitersCancelBuildStillCompletes(t *testing.T) {
 	repo := &fakeBookRepo{books: map[int64]*models.Book{
 		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc", Path: "/x", FileName: "y.fb2"},
 	}}
-	loader := &slowArchiveLoader{data: []byte("<FB2/>"), delay: 50 * time.Millisecond}
+	loader := &slowArchiveLoader{data: []byte(minimalFB2), delay: 50 * time.Millisecond}
 	cache := newMockCache()
-	svc := NewPreviewService(repo, loader, cache, 4)
+	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits())
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -601,8 +613,8 @@ func TestPreviewService_BuildContextIsDetachedFromRequest(t *testing.T) {
 	repo := &fakeBookRepo{books: map[int64]*models.Book{
 		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc", Path: "/x", FileName: "y.fb2"},
 	}}
-	loader := &slowArchiveLoader{data: []byte("<FB2/>"), delay: 20 * time.Millisecond}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4)
+	loader := &slowArchiveLoader{data: []byte(minimalFB2), delay: 20 * time.Millisecond}
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	_, _ = svc.Load(ctx, 1, false)
@@ -620,5 +632,108 @@ func TestPreviewService_BuildContextIsDetachedFromRequest(t *testing.T) {
 	}
 	if bctx.Err() != nil {
 		t.Errorf("build context is canceled after request cancel: %v — it must survive request cancellation", bctx.Err())
+	}
+}
+
+// --- Input gates (plan 3.1 test 14 + phase-2 review gates) ----------------
+
+// fb2WithBinaries carries two <binary> elements, each 3 bytes when
+// base64-decoded ("AAAA" → 0x000000, "BBBB" → 0x041081). Used to test
+// the count and weight gates with known, small values.
+const fb2WithBinaries = `<?xml version="1.0"?><FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">` +
+	`<body><section><p>t</p></section></body>` +
+	`<binary id="b1" content-type="image/png">AAAA</binary>` +
+	`<binary id="b2" content-type="image/png">BBBB</binary>` +
+	`</FictionBook>`
+
+// Test 14: the archive opened, but the file the book row points to is
+// not inside it. This is a distinct failure from "book not found" (no
+// catalog row) and from "empty book" (the file exists but has no text).
+func TestPreviewService_MissingFileInArchiveIsRefused(t *testing.T) {
+	repo := &fakeBookRepo{books: map[int64]*models.Book{
+		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc", Path: "/x", FileName: "missing.fb2"},
+	}}
+	loader := &fakeArchiveLoader{err: ErrArchiveFileNotFound}
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits())
+
+	_, err := svc.Load(context.Background(), 1, false)
+	if !errors.Is(err, ErrArchiveFileNotFound) {
+		t.Fatalf("err = %v, want ErrArchiveFileNotFound", err)
+	}
+}
+
+// Gate 1: an FB2 over the size limit is refused before parsing. Proven by
+// a parse-call counter: the parseForGates hook must not fire.
+func TestPreviewService_OversizeFB2RefusesBeforeParsing(t *testing.T) {
+	repo := &fakeBookRepo{books: map[int64]*models.Book{
+		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc", Path: "/x", FileName: "big.fb2"},
+	}}
+	loader := &fakeArchiveLoader{data: make([]byte, 101)} // 101 bytes > 100 limit
+	tightLimits := PreviewLimits{MaxFB2Bytes: 100, MaxBinaries: 1000, MaxBinariesBytes: 32 << 20}
+
+	parseCalls := 0
+	prev := parseForGates
+	parseForGates = func(ctx context.Context, data []byte, readCover bool) (*converter.FB2Document, *parser.BookFile, error) {
+		parseCalls++
+		return prev(ctx, data, readCover)
+	}
+	defer func() { parseForGates = prev }()
+
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, tightLimits)
+	_, err := svc.Load(context.Background(), 1, false)
+	if !errors.Is(err, ErrFB2TooLarge) {
+		t.Fatalf("err = %v, want ErrFB2TooLarge", err)
+	}
+	if parseCalls != 0 {
+		t.Errorf("parse was called %d times, want 0 — the size gate must fire before parsing", parseCalls)
+	}
+}
+
+// Gate 2: more binaries than the limit allows.
+func TestPreviewService_TooManyBinariesIsRefused(t *testing.T) {
+	repo := &fakeBookRepo{books: map[int64]*models.Book{
+		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc", Path: "/x", FileName: "bins.fb2"},
+	}}
+	loader := &fakeArchiveLoader{data: []byte(fb2WithBinaries)} // 2 binaries
+	oneBinaryLimit := PreviewLimits{MaxFB2Bytes: 32 << 20, MaxBinaries: 1, MaxBinariesBytes: 32 << 20}
+
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, oneBinaryLimit)
+	_, err := svc.Load(context.Background(), 1, false)
+	if !errors.Is(err, ErrTooManyBinaries) {
+		t.Fatalf("err = %v, want ErrTooManyBinaries", err)
+	}
+}
+
+// Gate 3: total decoded weight of binaries exceeds the limit.
+func TestPreviewService_BinariesTooHeavyIsRefused(t *testing.T) {
+	repo := &fakeBookRepo{books: map[int64]*models.Book{
+		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc", Path: "/x", FileName: "heavy.fb2"},
+	}}
+	loader := &fakeArchiveLoader{data: []byte(fb2WithBinaries)} // 6 decoded bytes total
+	tinyWeightLimit := PreviewLimits{MaxFB2Bytes: 32 << 20, MaxBinaries: 1000, MaxBinariesBytes: 4}
+
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, tinyWeightLimit)
+	_, err := svc.Load(context.Background(), 1, false)
+	if !errors.Is(err, ErrBinariesTooLarge) {
+		t.Fatalf("err = %v, want ErrBinariesTooLarge", err)
+	}
+}
+
+// Happy path: a book within all gates passes. Without this, the mutation
+// "reject everything" would go unnoticed — every other fixture expects a
+// refusal.
+func TestPreviewService_BookWithinAllGatesPasses(t *testing.T) {
+	repo := &fakeBookRepo{books: map[int64]*models.Book{
+		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc", Path: "/x", FileName: "ok.fb2"},
+	}}
+	loader := &fakeArchiveLoader{data: []byte(fb2WithBinaries)}
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits())
+
+	data, err := svc.Load(context.Background(), 1, false)
+	if err != nil {
+		t.Fatalf("a book within all gates must pass: %v", err)
+	}
+	if len(data) == 0 {
+		t.Error("empty payload for an accepted book")
 	}
 }

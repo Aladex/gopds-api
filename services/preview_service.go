@@ -28,6 +28,7 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
+	"gopds-api/internal/converter"
 	"gopds-api/models"
 )
 
@@ -54,11 +55,59 @@ var (
 	ErrUnsupportedFormat = errors.New("preview: book format is not supported for preview")
 
 	// ErrTooManyBuilds: the number of simultaneous cold builds has reached
-	// the configured ceiling. The caller should retry shortly, not queue.
-	// Surfacing this as a distinct error lets the HTTP handler return 503
-	// with Retry-After instead of 500 or a hung connection.
+	// the configured ceiling.
 	ErrTooManyBuilds = errors.New("preview: too many concurrent builds, try again shortly")
+
+	// ErrArchiveFileNotFound: the archive opened, but the FB2 file the book
+	// row points to is not inside it. Distinct from "book not found" (no
+	// catalog row) and from "empty book" (the file exists but has no text).
+	ErrArchiveFileNotFound = errors.New("preview: file not found in archive")
+
+	// ErrFB2TooLarge: the FB2 payload exceeds the size gate. Checked before
+	// parsing, so a 500 MB file never reaches the parser.
+	ErrFB2TooLarge = errors.New("preview: FB2 payload exceeds the size gate")
+
+	// ErrTooManyBinaries: the book carries more binary images than the gate
+	// allows. Checked after parsing, because only the parser knows the count.
+	ErrTooManyBinaries = errors.New("preview: too many image binaries")
+
+	// ErrBinariesTooLarge: the total decoded weight of all binaries exceeds
+	// the gate. Checked after parsing, for the same reason.
+	ErrBinariesTooLarge = errors.New("preview: image binaries exceed the total weight gate")
 )
+
+// PreviewLimits are the input gates that protect the pipeline from books that
+// would tie up memory or time. Values are read from config in production;
+// tests override through the constructor.
+type PreviewLimits struct {
+	// MaxFB2Bytes caps the raw FB2 payload. Checked before parsing.
+	MaxFB2Bytes int
+	// MaxBinaries caps the number of <binary> elements. Checked after
+	// parsing, because only the parser knows the count.
+	MaxBinaries int
+	// MaxBinariesBytes caps the total decoded weight of all binaries.
+	MaxBinariesBytes int
+}
+
+// defaultPreviewLimits returns the limits derived from the phase-0 catalog
+// measurement: max FB2 31 MB, max binaries 519, max binary weight 22 MB.
+const (
+	defaultMaxFB2Bytes      = 32 << 20 // 32 MB
+	defaultMaxBinaries      = 1000
+	defaultMaxBinariesBytes = 32 << 20 // 32 MB
+)
+
+func defaultPreviewLimits() PreviewLimits {
+	return PreviewLimits{
+		MaxFB2Bytes:      defaultMaxFB2Bytes,
+		MaxBinaries:      defaultMaxBinaries,
+		MaxBinariesBytes: defaultMaxBinariesBytes,
+	}
+}
+
+// parseForGates is the package-level indirection over converter.ParseFB2Complete
+// so tests can assert "parse was not called" for the size gate.
+var parseForGates = converter.ParseFB2Complete
 
 // ArchiveLoader produces the raw FB2 bytes of one file from a zip archive on
 // disk. The contract is one file per call; caching, singleflight and error
@@ -80,25 +129,21 @@ type PreviewService struct {
 
 	renderVersion string
 	ttl           time.Duration
+	limits        PreviewLimits
 
-	// sf deduplicates cold builds: N requests for the same book at the same
-	// time trigger exactly one loader call. The rest wait on DoChan and
-	// receive the same result — without it, every concurrent reader would
-	// unpack the same archive independently.
-	sf singleflight.Group
-
-	// sem caps the number of cold builds running at once across all books.
-	// A buffered channel is the simplest non-blocking semaphore: send
-	// acquires, receive releases, and a full channel means "busy now".
+	sf  singleflight.Group
 	sem chan struct{}
 }
 
 // NewPreviewService wires the service. maxConcurrent sets the ceiling on
-// simultaneous cold builds; when that many builds are in flight, further
-// requests for new books get ErrTooManyBuilds instead of queuing.
-func NewPreviewService(books BookRepo, loader ArchiveLoader, cache PreviewCache, maxConcurrent int) *PreviewService {
+// simultaneous cold builds; limits sets the input gates (FB2 size, binary
+// count and weight). Both fall back to safe defaults when zero.
+func NewPreviewService(books BookRepo, loader ArchiveLoader, cache PreviewCache, maxConcurrent int, limits PreviewLimits) *PreviewService {
 	if maxConcurrent <= 0 {
 		maxConcurrent = defaultMaxConcurrentBuilds
+	}
+	if limits.MaxFB2Bytes <= 0 {
+		limits = defaultPreviewLimits()
 	}
 	return &PreviewService{
 		books:         books,
@@ -106,6 +151,7 @@ func NewPreviewService(books BookRepo, loader ArchiveLoader, cache PreviewCache,
 		cache:         cache,
 		renderVersion: renderVersionPrefix,
 		ttl:           cacheKeyTTL,
+		limits:        limits,
 		sem:           make(chan struct{}, maxConcurrent),
 	}
 }
@@ -195,6 +241,36 @@ func (s *PreviewService) buildAndCache(buildCtx context.Context, key string, boo
 	data, err := s.loader.Load(buildCtx, book.Path, book.FileName)
 	if err != nil {
 		return nil, fmt.Errorf("preview: load archive: %w", err)
+	}
+
+	// Gate 1: FB2 size — checked before parsing, so an oversized file
+	// never reaches the parser.
+	if len(data) > s.limits.MaxFB2Bytes {
+		return nil, fmt.Errorf("%w: %d bytes, cap is %d",
+			ErrFB2TooLarge, len(data), s.limits.MaxFB2Bytes)
+	}
+
+	// Parse to check binary limits. readCover=false: the cover is not
+	// needed for the gate, and decoding it is wasted work.
+	doc, _, perr := parseForGates(buildCtx, data, false)
+	if perr != nil {
+		return nil, fmt.Errorf("preview: parse for gate check: %w", perr)
+	}
+
+	// Gate 2: binary count.
+	if len(doc.Binary) > s.limits.MaxBinaries {
+		return nil, fmt.Errorf("%w: %d, cap is %d",
+			ErrTooManyBinaries, len(doc.Binary), s.limits.MaxBinaries)
+	}
+
+	// Gate 3: total decoded weight of all binaries.
+	var binBytes int
+	for _, b := range doc.Binary {
+		binBytes += len(b.Data)
+	}
+	if binBytes > s.limits.MaxBinariesBytes {
+		return nil, fmt.Errorf("%w: %d bytes, cap is %d",
+			ErrBinariesTooLarge, binBytes, s.limits.MaxBinariesBytes)
 	}
 
 	// Chunks first, manifest last — see the cache layer for why.

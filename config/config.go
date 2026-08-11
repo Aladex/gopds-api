@@ -253,10 +253,17 @@ func bindEnvKeys(t reflect.Type, prefix string) error {
 	return nil
 }
 
-// previewRedisDB is the default database number for the preview cache. DBs
-// 0 and 1 are used by sessions (main and token), DB 2 by the rate limiter;
-// 3 is free.
+// previewRedisDB is the default database number for the preview cache.
 const previewRedisDB = 3
+
+// Input gate defaults, derived from the phase-0 measurement on 488 books:
+// max FB2 31 MB, max binaries 519, max binary weight 22 MB. Gates are set
+// at roughly the observed maximum.
+const (
+	previewMaxFB2Bytes      = 32 << 20 // 32 MB
+	previewMaxBinaries      = 1000
+	previewMaxBinariesBytes = 32 << 20 // 32 MB
+)
 
 // setDefaults sets default configuration values
 func setDefaults() {
@@ -284,6 +291,12 @@ func setDefaults() {
 	viper.SetDefault("preview.redis.db", previewRedisDB)
 	viper.SetDefault("preview.redis.password", "")
 	viper.SetDefault("preview.cache_ttl", "24h")
+
+	// Preview input gates — derived from the phase-0 catalog measurement.
+	// Each can be overridden in config without touching code.
+	viper.SetDefault("preview.max_fb2_bytes", previewMaxFB2Bytes)
+	viper.SetDefault("preview.max_binaries", previewMaxBinaries)
+	viper.SetDefault("preview.max_binaries_bytes", previewMaxBinariesBytes)
 
 	// App defaults
 	viper.SetDefault("app.devel_mode", false)
