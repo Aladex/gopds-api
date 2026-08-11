@@ -14,6 +14,43 @@ import "errors"
 // for such a book is a refusal, not a silent overflow.
 var ErrPreviewBlockTooLarge = errors.New("fb2 preview: indivisible block exceeds the chunk ceiling")
 
+// Refusals returned by PreparePreviewImage. Each names a distinct reason so
+// callers can count by cause and tune policy against what actually bites.
+//
+// They are returned wrapped (fmt.Errorf("%w: ...", Err...)), never plain, so
+// errors.Is tells the four apart. Every one means "no address is issued for
+// this binary": the reader sees the placeholder, the handler is never asked
+// for bytes it could not have produced.
+var (
+	// ErrPreviewImageUnsupported: the bytes carry no recognized image magic
+	// (prose, HTML, empty payload), or the only magic they carry is SVG.
+	// SVG is an XML document that can carry script and would run under the
+	// reader's origin, so it is refused by format alone.
+	ErrPreviewImageUnsupported = errors.New("fb2 preview: image format is not supported")
+
+	// ErrPreviewImageCorrupt: the bytes look like an image but do not decode,
+	// or fb2image.Normalize refused to produce a payload from them. Anything
+	// Normalize turns down — a forged BMP header past its dimension cap, a
+	// truncated stream — lands here, because Normalize is the authority and
+	// its refusal reason is opaque.
+	ErrPreviewImageCorrupt = errors.New("fb2 preview: image payload is corrupt or undecodable")
+
+	// ErrPreviewImageTooLarge: the input itself is over the per-image byte
+	// cap, checked before anything is decoded.
+	ErrPreviewImageTooLarge = errors.New("fb2 preview: image payload exceeds the byte cap")
+
+	// ErrPreviewImageDimensions: the decoded header declares more pixels than
+	// the per-image pixel cap allows. DecodeConfig reads the header only, so
+	// a forged 20000x20000 declaration costs a header read, not the
+	// allocation it asks for.
+	ErrPreviewImageDimensions = errors.New("fb2 preview: image dimensions exceed the pixel cap")
+
+	// ErrPreviewImageTooLargeResult: the bytes Normalize produced — the very
+	// bytes the reader would receive — are over the byte cap. Re-encoding a
+	// BMP as PNG can come out bigger than the source.
+	ErrPreviewImageTooLargeResult = errors.New("fb2 preview: image payload exceeds the byte cap after normalize")
+)
+
 // PreviewPolicy carries the budgets and limits of the preview output. All
 // sizes are counted in bytes of the final rendered HTML, never in model
 // units — the model is not what the reader's browser receives.

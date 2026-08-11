@@ -23,6 +23,7 @@ package converter
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"sort"
 	"strconv"
@@ -72,7 +73,14 @@ func BuildPreviewImages(binaries map[string]FB2Binary, base string, policy Previ
 	sort.Strings(ids)
 	n := 0
 	for _, id := range ids {
-		if !AcceptPreviewImage(binaries[id].Data, policy) {
+		// An address is issued only when the same call has produced the
+		// bytes the handler will serve. That closes the defect where the
+		// gate accepted a picture the handler could never satisfy: a header
+		// past fb2image.Normalize's own cap slipped through, the renderer
+		// emitted the URL, and the handler had nothing to send. The bytes
+		// themselves are discarded here — Build only assigns the address,
+		// the handler re-prepares on demand from the source binary.
+		if _, _, err := PreparePreviewImage(binaries[id].Data, policy); err != nil {
 			continue
 		}
 		n++
@@ -81,26 +89,73 @@ func BuildPreviewImages(binaries map[string]FB2Binary, base string, policy Previ
 	return out
 }
 
-// AcceptPreviewImage reports whether a payload may be served as a preview
-// picture. The declared content-type and the id are book-controlled text, so
-// only the bytes decide.
+// PreparePreviewImage decides and prepares one preview picture in the same
+// call. The bytes it returns are exactly what the handler later serves to the
+// reader; if it cannot produce them, no address is issued for the binary and
+// the reader sees the placeholder instead.
 //
-// SVG is refused outright: it is an XML document that can carry script, and
-// serving one under the reader's origin would hand the book a way to run
-// there. The dimensions are read from the header before any decoding, because
-// a decoder allocates from what the header claims — a 70-byte payload
-// declaring 20000x20000 bought 1.5 GB in the EPUB path once.
-func AcceptPreviewImage(data []byte, policy PreviewPolicy) bool {
-	if len(data) == 0 || len(data) > policy.MaxImageBytes {
-		return false
+// fb2image.Normalize is the single authority over the bytes: the gate accepts
+// a picture only when Normalize has produced a payload, never on the promise
+// of a header the decoder has not confirmed. The policy's own byte and pixel
+// caps are layered on top, because Normalize answers "could a reader draw
+// this" — a question wider than "does our preview policy allow it".
+func PreparePreviewImage(data []byte, policy PreviewPolicy) (payload []byte, mime string, err error) {
+	// The byte cap on the input is checked before any decode: a binary the
+	// size of a book must not reach a decoder that would allocate from the
+	// header it carries.
+	if len(data) > policy.MaxImageBytes {
+		return nil, "", fmt.Errorf("%w: payload is %d bytes, cap is %d",
+			ErrPreviewImageTooLarge, len(data), policy.MaxImageBytes)
 	}
-	kind := fb2image.Classify(data)
-	if kind == "" || kind == fb2image.MimeSVG {
-		return false
+	if len(data) == 0 {
+		// An empty payload carries no magic, so format is unsupported —
+		// corrupt would imply bytes failed to decode, and there are none.
+		return nil, "", fmt.Errorf("%w: empty payload", ErrPreviewImageUnsupported)
 	}
-	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+
+	// The format question is decided by the bytes alone. SVG is an XML
+	// document that can carry script and would run under the reader's
+	// origin, so it is refused by format; an unknown magic means no decoder
+	// in the library will name it and fb2image.Normalize will not produce
+	// bytes either.
+	switch kind := fb2image.Classify(data); kind {
+	case "":
+		return nil, "", fmt.Errorf("%w: no recognizable image magic", ErrPreviewImageUnsupported)
+	case fb2image.MimeSVG:
+		return nil, "", fmt.Errorf("%w: svg is unsafe to serve under the reader origin", ErrPreviewImageUnsupported)
+	}
+
+	// fb2image.Normalize IS the work: it re-encodes BMP/TIFF as PNG and
+	// refuses what it cannot decode or what its own dimension cap rejects
+	// (a forged BMP past maxDimension lands here). Whatever it returns is
+	// what the reader receives — this is the boundary at which decision and
+	// preparation become one call. A refusal comes back as a nil payload,
+	// which the DecodeConfig below then fails on as corrupt; the two cases
+	// are not separated here because the reader cannot tell them apart
+	// either.
+	payload, mime = fb2image.Normalize(data)
+
+	// The renderable-as-is formats (PNG/JPEG/GIF/WEBP) pass through
+	// Normalize unchanged, so the policy's own pixel ceiling has to be
+	// enforced here, on the bytes we will actually serve. DecodeConfig
+	// reads the header only — a forged 20000x20000 declaration costs a
+	// header read, not the allocation it asks for.
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(payload))
 	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
-		return false
+		return nil, "", fmt.Errorf("%w: header would not decode", ErrPreviewImageCorrupt)
 	}
-	return cfg.Width*cfg.Height <= policy.MaxImagePixels
+	if cfg.Width*cfg.Height > policy.MaxImagePixels {
+		return nil, "", fmt.Errorf("%w: declared %dx%d, cap is %d pixels",
+			ErrPreviewImageDimensions, cfg.Width, cfg.Height, policy.MaxImagePixels)
+	}
+
+	// Final size check on the bytes the reader will receive. Re-encoding a
+	// BMP as PNG can come out bigger than the source, so the input gate
+	// above does not see this size — only this gate does.
+	if len(payload) > policy.MaxImageBytes {
+		return nil, "", fmt.Errorf("%w: %d bytes after normalize, cap is %d",
+			ErrPreviewImageTooLargeResult, len(payload), policy.MaxImageBytes)
+	}
+
+	return payload, mime, nil
 }
