@@ -9,7 +9,6 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
-	"html"
 	"io"
 	"path"
 	"sort"
@@ -311,14 +310,14 @@ func (g *EPUBGenerator) renderSectionHeader(builder *strings.Builder, section *F
 	anchor := g.sectionAnchor(section)
 	if anchor != "" {
 		builder.WriteString("<a id=\"")
-		builder.WriteString(html.EscapeString(anchor))
+		builder.WriteString(escapeAttr(anchor))
 		builder.WriteString("\"></a>\n")
 	}
 	// The FB2 section id becomes an anchor of its own: internal links in the
 	// source point at these ids, not at our generated tocref anchors.
 	if id := strings.TrimSpace(section.ID); id != "" {
 		builder.WriteString("<a id=\"")
-		builder.WriteString(html.EscapeString(id))
+		builder.WriteString(escapeAttr(id))
 		builder.WriteString("\"></a>\n")
 	}
 	if section.Title == "" {
@@ -328,7 +327,7 @@ func (g *EPUBGenerator) renderSectionHeader(builder *strings.Builder, section *F
 	builder.WriteString("<")
 	builder.WriteString(heading)
 	builder.WriteString(">")
-	builder.WriteString(html.EscapeString(section.Title))
+	builder.WriteString(escapeText(section.Title))
 	builder.WriteString("</")
 	builder.WriteString(heading)
 	builder.WriteString(">\n")
@@ -363,7 +362,7 @@ func (g *EPUBGenerator) renderParagraphAnchor(builder *strings.Builder, p *FB2Pa
 	}
 	if id := strings.TrimSpace(p.ID); id != "" {
 		builder.WriteString("<a id=\"")
-		builder.WriteString(html.EscapeString(id))
+		builder.WriteString(escapeAttr(id))
 		builder.WriteString("\"></a>\n")
 	}
 }
@@ -386,7 +385,7 @@ func (g *EPUBGenerator) renderParagraph(p *FB2Paragraph) string {
 	if len(p.Content) > 0 {
 		g.renderInlineElements(&content, p.Content)
 	} else if strings.TrimSpace(p.Text) != "" {
-		content.WriteString(html.EscapeString(p.Text))
+		content.WriteString(escapeText(p.Text))
 	}
 	if strings.TrimSpace(content.String()) == "" {
 		return ""
@@ -454,7 +453,7 @@ func (g *EPUBGenerator) inlineContent(p *FB2Paragraph) string {
 		return ""
 	}
 	if len(p.Content) == 0 {
-		return html.EscapeString(p.Text)
+		return escapeText(p.Text)
 	}
 	var content strings.Builder
 	g.renderInlineElements(&content, p.Content)
@@ -468,7 +467,7 @@ func (g *EPUBGenerator) renderInlineElements(builder *strings.Builder, elements 
 		}
 		switch el.Type {
 		case "text":
-			builder.WriteString(html.EscapeString(el.Content))
+			builder.WriteString(escapeText(el.Content))
 		case "strong", "emphasis", "code", "sup", "sub":
 			tag := inlineTag(el.Type)
 			builder.WriteString("<")
@@ -490,7 +489,7 @@ func (g *EPUBGenerator) renderInlineElements(builder *strings.Builder, elements 
 				break
 			}
 			builder.WriteString("<a href=\"")
-			builder.WriteString(html.EscapeString(href))
+			builder.WriteString(escapeAttr(href))
 			builder.WriteString("\">")
 			g.renderInlineElements(builder, el.Children)
 			builder.WriteString("</a>")
@@ -545,15 +544,6 @@ func (g *EPUBGenerator) resolveSectionHref(href string) string {
 	return file + "#" + id
 }
 
-func inlineTag(tag string) string {
-	switch tag {
-	case "emphasis":
-		return "em"
-	default:
-		return tag
-	}
-}
-
 func (g *EPUBGenerator) renderTable(table *FB2Table) string {
 	if table == nil || len(table.Rows) == 0 {
 		return ""
@@ -581,7 +571,7 @@ func (g *EPUBGenerator) renderTable(table *FB2Table) string {
 				g.renderInlineElements(&cellContent, cell.Content)
 				out.WriteString(cellContent.String())
 			} else if strings.TrimSpace(cell.Text) != "" {
-				out.WriteString(html.EscapeString(cell.Text))
+				out.WriteString(escapeText(cell.Text))
 			}
 			out.WriteString("</")
 			out.WriteString(tag)
@@ -613,7 +603,7 @@ func buildChapterXHTML(chapter *epubChapter) string {
 <body>
 %s
 </body>
-</html>`, html.EscapeString(title), body)
+</html>`, escapeText(title), body)
 }
 
 type tocNode struct {
@@ -769,13 +759,13 @@ func buildNavList(nodes []*tocNode) string {
 			continue
 		}
 		out.WriteString("  <li><a href=\"")
-		out.WriteString(html.EscapeString(node.File))
+		out.WriteString(escapeAttr(node.File))
 		if node.Anchor != "" {
 			out.WriteString("#")
-			out.WriteString(html.EscapeString(node.Anchor))
+			out.WriteString(escapeAttr(node.Anchor))
 		}
 		out.WriteString("\">")
-		out.WriteString(html.EscapeString(node.Title))
+		out.WriteString(escapeText(node.Title))
 		out.WriteString("</a>")
 		if len(node.Children) > 0 {
 			out.WriteString("\n")
@@ -798,10 +788,10 @@ func buildTocNCX(bookFile *parser.BookFile, nodes []*tocNode, tocPage *epubTocPa
 		playOrder++
 		navMap.WriteString(fmt.Sprintf("<navPoint id=\"navPoint-%d\" playOrder=\"%d\">", playOrder, playOrder))
 		navMap.WriteString("<navLabel><text>")
-		navMap.WriteString(html.EscapeString(tocPage.Title))
+		navMap.WriteString(escapeText(tocPage.Title))
 		navMap.WriteString("</text></navLabel>")
 		navMap.WriteString("<content src=\"")
-		navMap.WriteString(html.EscapeString(tocPage.XHTMLFilename))
+		navMap.WriteString(escapeAttr(tocPage.XHTMLFilename))
 		navMap.WriteString("\"/>")
 		navMap.WriteString("</navPoint>\n")
 	}
@@ -817,7 +807,7 @@ func buildTocNCX(bookFile *parser.BookFile, nodes []*tocNode, tocPage *epubTocPa
   <docTitle><text>%s</text></docTitle>
   <navMap>
 %s  </navMap>
-</ncx>`, html.EscapeString(identifier), html.EscapeString(title), indentLines(navMap.String(), "    "))
+</ncx>`, escapeText(identifier), escapeText(title), indentLines(navMap.String(), "    "))
 }
 
 func buildNCXNavMap(nodes []*tocNode, playOrder *int, out *strings.Builder) {
@@ -831,13 +821,13 @@ func buildNCXNavMap(nodes []*tocNode, playOrder *int, out *strings.Builder) {
 		*playOrder++
 		out.WriteString(fmt.Sprintf("<navPoint id=\"navPoint-%d\" playOrder=\"%d\">", *playOrder, *playOrder))
 		out.WriteString("<navLabel><text>")
-		out.WriteString(html.EscapeString(node.Title))
+		out.WriteString(escapeText(node.Title))
 		out.WriteString("</text></navLabel>")
 		out.WriteString("<content src=\"")
-		out.WriteString(html.EscapeString(node.File))
+		out.WriteString(escapeAttr(node.File))
 		if node.Anchor != "" {
 			out.WriteString("#")
-			out.WriteString(html.EscapeString(node.Anchor))
+			out.WriteString(escapeAttr(node.Anchor))
 		}
 		out.WriteString("\"/>")
 		if len(node.Children) > 0 {
@@ -934,7 +924,8 @@ func buildContentOPF(bookFile *parser.BookFile, chapters []*epubChapter, images 
 %s  </manifest>
   <spine toc="ncx">
 %s  </spine>
-</package>`, html.EscapeString(identifier), html.EscapeString(title), creators, html.EscapeString(language), coverMeta, indentLines(manifest.String(), "    "), indentLines(spine.String(), "    "))
+</package>`, escapeText(identifier), escapeText(title), creators, escapeText(language), coverMeta,
+		indentLines(manifest.String(), "    "), indentLines(spine.String(), "    "))
 }
 
 func buildContainerXML() string {
@@ -1162,7 +1153,7 @@ func buildCreators(bookFile *parser.BookFile) string {
 			continue
 		}
 		out.WriteString("<dc:creator>")
-		out.WriteString(html.EscapeString(name))
+		out.WriteString(escapeText(name))
 		out.WriteString("</dc:creator>\n")
 	}
 	return indentLines(strings.TrimSuffix(out.String(), "\n"), "    ")
@@ -1211,10 +1202,10 @@ func buildTitlePage(bookFile *parser.BookFile) *epubTitlePage {
 	}
 	var lines []string
 	if authors != "" {
-		lines = append(lines, fmt.Sprintf("<p class=\"title\">%s</p>", html.EscapeString(authors)))
+		lines = append(lines, fmt.Sprintf("<p class=\"title\">%s</p>", escapeText(authors)))
 	}
 	if title != "" {
-		lines = append(lines, fmt.Sprintf("<p class=\"title\">%s</p>", html.EscapeString(title)))
+		lines = append(lines, fmt.Sprintf("<p class=\"title\">%s</p>", escapeText(title)))
 	}
 	content := fmt.Sprintf(`<?xml version="1.0" encoding="utf-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml">
@@ -1276,7 +1267,7 @@ func (g *EPUBGenerator) buildNotesPage(doc *FB2Document) *epubNotesPage {
 		}
 		anchor := buildNoteAnchor(section, i)
 		body.WriteString("<div class=\"note\" id=\"")
-		body.WriteString(html.EscapeString(anchor))
+		body.WriteString(escapeAttr(anchor))
 		body.WriteString("\">\n")
 		title := strings.TrimSpace(section.Title)
 		if title == "" {
@@ -1284,7 +1275,7 @@ func (g *EPUBGenerator) buildNotesPage(doc *FB2Document) *epubNotesPage {
 		}
 		if title != "" {
 			body.WriteString("<p class=\"notenum\">")
-			body.WriteString(html.EscapeString(title))
+			body.WriteString(escapeText(title))
 			body.WriteString("</p>\n")
 		}
 		g.renderParagraphs(&body, section.Paragraphs())
@@ -1379,16 +1370,16 @@ func (g *EPUBGenerator) renderImage(builder *strings.Builder, el *FB2InlineEleme
 	}
 	href = strings.TrimPrefix(href, "#")
 	if href == "" || g == nil || len(g.images) == 0 {
-		builder.WriteString("<span class=\"fb2-image\">[image]</span>")
+		builder.WriteString(imagePlaceholderHTML)
 		return
 	}
 	image, ok := g.images[strings.ToLower(href)]
 	if !ok {
-		builder.WriteString("<span class=\"fb2-image\">[image]</span>")
+		builder.WriteString(imagePlaceholderHTML)
 		return
 	}
 	builder.WriteString("<img src=\"images/")
-	builder.WriteString(html.EscapeString(image.Filename))
+	builder.WriteString(escapeAttr(image.Filename))
 	builder.WriteString("\" alt=\"\"/>")
 }
 
@@ -1467,7 +1458,7 @@ func buildCoverXHTML(cover *epubCover) string {
 <body>
   <div class="cover"><img src="images/%s" alt=""/></div>
 </body>
-</html>`, html.EscapeString(cover.Image.Filename))
+</html>`, escapeAttr(cover.Image.Filename))
 }
 
 func buildCoverMeta(cover *epubCover) string {

@@ -203,3 +203,30 @@ func hasSVGRoot(data []byte) bool {
 		}
 	}
 }
+
+// Classify names the type a payload would be served as, reading only its
+// leading bytes. Nothing is decoded and nothing is converted: this answers
+// "may this be shown, and as what", which is a question callers ask far more
+// often than they ask for the converted bytes.
+//
+// BMP and TIFF report the type they would become, because that is what a
+// reader would eventually receive; SVG reports itself so a caller can refuse
+// it; anything else reports nothing at all.
+func Classify(data []byte) string {
+	for _, mime := range renderable {
+		if matchesMagic(mime, data) {
+			return mime
+		}
+	}
+	if isConvertible(data) {
+		return MimePNG
+	}
+	return ""
+}
+
+// isConvertible reports the magic of the two formats transcode() accepts.
+func isConvertible(data []byte) bool {
+	return bytes.HasPrefix(data, []byte("BM")) ||
+		bytes.HasPrefix(data, []byte{0x49, 0x49, 0x2A, 0x00}) ||
+		bytes.HasPrefix(data, []byte{0x4D, 0x4D, 0x00, 0x2A})
+}
