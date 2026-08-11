@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
+	"image/gif"
 	"strings"
 	"testing"
 	"time"
@@ -826,5 +828,137 @@ func TestBuildPreviewImages_ImagesAreInOrdinalOrderAcrossRebuilds(t *testing.T) 
 					run, i, again.Images()[i], first.Images()[i])
 			}
 		}
+	}
+}
+
+// animatedGIF encodes a real multi-frame GIF through gif.EncodeAll, so the
+// fixture exercises the same code path production serves — not a forged
+// header that bypasses the decoder.
+func animatedGIF(t *testing.T, frames int) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	palette := color.Palette{color.Black, color.White}
+	imgs := make([]*image.Paletted, frames)
+	for i := range imgs {
+		imgs[i] = image.NewPaletted(image.Rect(0, 0, 4, 4), palette)
+	}
+	delays := make([]int, frames)
+	for i := range delays {
+		delays[i] = 10
+	}
+	if err := gif.EncodeAll(&buf, &gif.GIF{Image: imgs, Delay: delays, LoopCount: 0}); err != nil {
+		t.Fatalf("encode animated gif: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// staticGIF encodes a single-frame GIF through gif.Encode — the same path,
+// one frame.
+func staticGIF(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := gif.Encode(&buf, image.NewPaletted(image.Rect(0, 0, 4, 4), color.Palette{color.Black, color.White}), nil); err != nil {
+		t.Fatalf("encode static gif: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// buildPNGChunk assembles one PNG chunk: length + type + data + CRC. CRC is
+// computed over type+data, per the PNG spec. Used to splice an acTL chunk
+// into a real PNG to make an APNG fixture, rather than forging the whole
+// file by hand.
+func buildPNGChunk(chunkType string, data []byte) []byte {
+	var buf bytes.Buffer
+	var lenBytes [4]byte
+	binary.BigEndian.PutUint32(lenBytes[:], uint32(len(data)))
+	buf.Write(lenBytes[:])
+	buf.WriteString(chunkType)
+	buf.Write(data)
+	crc := crc32IEEE(append([]byte(chunkType), data...))
+	var crcBytes [4]byte
+	binary.BigEndian.PutUint32(crcBytes[:], crc)
+	buf.Write(crcBytes[:])
+	return buf.Bytes()
+}
+
+// apngFromPNG splices an acTL chunk in front of IDAT, turning a real PNG
+// into an APNG. The pixel data stays a valid PNG (so image.DecodeConfig
+// still reads the same dimensions); the acTL chunk announces frames.
+// num_plays=0 means "loop forever", matching what real APNG encoders emit.
+func apngFromPNG(t *testing.T, png []byte, frames int) []byte {
+	t.Helper()
+	const sig = "\x89PNG\r\n\x1a\n"
+	if len(png) < len(sig) || string(png[:len(sig)]) != sig {
+		t.Fatalf("apngFromPNG: not a PNG signature")
+	}
+	pos := len(sig)
+	var idatOffset int
+	for pos+8 <= len(png) {
+		length := binary.BigEndian.Uint32(png[pos : pos+4])
+		chunkType := string(png[pos+4 : pos+8])
+		if chunkType == "IDAT" {
+			idatOffset = pos
+			break
+		}
+		pos += 12 + int(length) // length(4) + type(4) + data(length) + crc(4)
+	}
+	if idatOffset == 0 {
+		t.Fatalf("apngFromPNG: IDAT not found")
+	}
+	actlData := make([]byte, 8)
+	binary.BigEndian.PutUint32(actlData[0:4], uint32(frames))
+	binary.BigEndian.PutUint32(actlData[4:8], 0)
+	actl := buildPNGChunk("acTL", actlData)
+	out := make([]byte, 0, len(png)+len(actl))
+	out = append(out, png[:idatOffset]...)
+	out = append(out, actl...)
+	out = append(out, png[idatOffset:]...)
+	return out
+}
+
+// Animated GIF, WebP and APNG are shown in the preview on the same terms as
+// their static counterparts. This is a deliberate decision (the reader is
+// better served by seeing the animation than by a placeholder), not a
+// side-effect of Normalize passing these formats through unchanged. The
+// price: the per-frame pixel cap bounds one canvas, not the sum of frames,
+// so a small-per-frame animation can still expand at the reader — that
+// trade-off is paid knowingly, and these tests pin the choice so a future
+// change cannot refuse animation by accident.
+//
+// WebP animation is not covered here: the project has no WebP encoder in
+// its dependencies (only a decoder), and forging an animated WebP by hand
+// would mean encoding VP8/VP8L frames, which is out of scope. Static WebP
+// is still exercised by the pass-through path. Add a WebP case when an
+// encoder becomes available.
+func TestPreparePreviewImage_AnimatedPayloadsAccepted(t *testing.T) {
+	policy := testPreviewImagePolicy()
+	png := uniformImage(t, "png", 4, 4)
+
+	cases := []struct {
+		name     string
+		data     []byte
+		wantMime string
+	}{
+		{"animated gif", animatedGIF(t, 3), "image/gif"},
+		{"static gif (control)", staticGIF(t), "image/gif"},
+		{"apng (acTL before IDAT)", apngFromPNG(t, png, 2), "image/png"},
+		{"static png (control)", png, "image/png"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			payload, mime, err := PreparePreviewImage(tc.data, policy)
+			if err != nil {
+				t.Fatalf("PreparePreviewImage refused an animated payload: %v\n"+
+					"animation is served on the same terms as static pictures; see the\n"+
+					"package doc on ErrPreviewImageDimensions for what the pixel cap does\n"+
+					"and does not cover.", err)
+			}
+			if mime != tc.wantMime {
+				t.Errorf("mime = %q, want %q", mime, tc.wantMime)
+			}
+			if len(payload) == 0 {
+				t.Errorf("payload empty for an accepted %s", tc.name)
+			}
+		})
 	}
 }

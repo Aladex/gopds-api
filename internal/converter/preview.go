@@ -39,10 +39,13 @@ var (
 	// cap, checked before anything is decoded.
 	ErrPreviewImageTooLarge = errors.New("fb2 preview: image payload exceeds the byte cap")
 
-	// ErrPreviewImageDimensions: the decoded header declares more pixels than
-	// the per-image pixel cap allows. DecodeConfig reads the header only, so
-	// a forged 20000x20000 declaration costs a header read, not the
-	// allocation it asks for.
+	// ErrPreviewImageDimensions: the decoded header declares more pixels
+	// than the per-image pixel cap allows for one canvas. DecodeConfig reads
+	// the header only, so a forged 20000x20000 declaration costs a header
+	// read, not the allocation it asks for. The cap does not sum frames:
+	// an animated payload with small-per-frame canvases is not refused
+	// here — animation is admitted on the same terms as static pictures,
+	// see PreviewImagePolicy.MaxPixels for the trade-off.
 	ErrPreviewImageDimensions = errors.New("fb2 preview: image dimensions exceed the pixel cap")
 
 	// ErrPreviewImageTooLargeResult: the bytes Normalize produced — the very
@@ -77,8 +80,15 @@ type PreviewPolicy struct {
 // portion, so they live apart from PreviewPolicy. The chunker and renderer
 // never read them; only the image preparation path does.
 type PreviewImagePolicy struct {
-	MaxBytes  int // Per-image decoded payload cap
-	MaxPixels int // Per-image pixel cap, against decompression bombs
+	MaxBytes int // Per-image decoded payload cap
+	// MaxPixels bounds one canvas, declared in the header. It catches a
+	// forged header that claims a huge frame, but it does not sum frames:
+	// an animated GIF/WebP/APNG with small-per-frame canvases is admitted
+	// (animation is shown on the same terms as static pictures), so the
+	// cap is not a complete defense against a payload that expands at the
+	// reader across many frames. That trade-off is deliberate; the test
+	// TestPreparePreviewImage_AnimatedPayloadsAccepted pins it.
+	MaxPixels int
 	// MaxSide is the per-side cap, applied to width and height separately.
 	// It exists because fb2image.Normalize's own per-side cap (maxDimension)
 	// only fires on the transcode path (BMP/TIFF); without this field,
