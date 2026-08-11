@@ -574,6 +574,87 @@ func TestBuildPreviewImages_RejectsZeroBase(t *testing.T) {
 	}
 }
 
+// BuildPreviewImages must reject an invalid policy even when the binary map
+// is empty. The validate() call inside the loop only fires on the first
+// iteration; with no binaries the loop never runs, and without an explicit
+// pre-loop check the function would return (empty set, nil) — looking like
+// "this book has no pictures", when in fact the policy was never configured.
+func TestBuildPreviewImages_RejectsInvalidPolicyWithEmptyBins(t *testing.T) {
+	var zeroPolicy PreviewImagePolicy
+	_, err := BuildPreviewImages(context.Background(), nil, testPreviewImageBase(), zeroPolicy)
+	if !errors.Is(err, ErrPreviewImagePolicyInvalid) {
+		t.Fatalf("err = %v, want ErrPreviewImagePolicyInvalid", err)
+	}
+}
+
+// A policy with any non-positive limit is a caller bug, not a property of
+// any one picture. The previous behavior — silently rejecting every image
+// when a field was left at zero — was indistinguishable from a book whose
+// every binary fails policy, and a misconfigured policy is very different
+// from a hostile book. Both functions must surface it as a typed policy
+// error, distinct from the per-image refusals.
+func TestPreviewImagePolicy_ZeroOrNegativeFieldIsRejected(t *testing.T) {
+	good := testPreviewImagePolicy()
+	cases := []struct {
+		name   string
+		policy PreviewImagePolicy
+	}{
+		{"MaxSide zero", PreviewImagePolicy{MaxBytes: good.MaxBytes, MaxPixels: good.MaxPixels, MaxSide: 0}},
+		{"MaxBytes zero", PreviewImagePolicy{MaxBytes: 0, MaxPixels: good.MaxPixels, MaxSide: good.MaxSide}},
+		{"MaxPixels zero", PreviewImagePolicy{MaxBytes: good.MaxBytes, MaxPixels: 0, MaxSide: good.MaxSide}},
+		{"all zero (the zero value)", PreviewImagePolicy{}},
+		{"MaxSide negative", PreviewImagePolicy{MaxBytes: good.MaxBytes, MaxPixels: good.MaxPixels, MaxSide: -1}},
+		{"MaxBytes negative", PreviewImagePolicy{MaxBytes: -1, MaxPixels: good.MaxPixels, MaxSide: good.MaxSide}},
+		{"MaxPixels negative", PreviewImagePolicy{MaxBytes: good.MaxBytes, MaxPixels: -1, MaxSide: good.MaxSide}},
+	}
+	png := uniformImage(t, "png", 4, 4)
+	for _, tc := range cases {
+		t.Run(tc.name+"/PreparePreviewImage", func(t *testing.T) {
+			_, _, err := PreparePreviewImage(png, tc.policy)
+			if !errors.Is(err, ErrPreviewImagePolicyInvalid) {
+				t.Fatalf("PreparePreviewImage: err = %v, want a wrapping of ErrPreviewImagePolicyInvalid", err)
+			}
+			// The error has to be distinguishable from any per-image
+			// refusal: even the most common one (Unsupported) must not
+			// match, otherwise a caller counting by cause lumps a
+			// misconfigured policy in with a hostile book.
+			if errors.Is(err, ErrPreviewImageUnsupported) ||
+				errors.Is(err, ErrPreviewImageCorrupt) ||
+				errors.Is(err, ErrPreviewImageDimensions) ||
+				errors.Is(err, ErrPreviewImageTooLarge) ||
+				errors.Is(err, ErrPreviewImageTooLargeResult) {
+				t.Errorf("policy error matched a per-image sentinel: %v", err)
+			}
+		})
+		t.Run(tc.name+"/BuildPreviewImages", func(t *testing.T) {
+			bins := map[string]FB2Binary{"a": {Data: png}}
+			_, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), tc.policy)
+			if !errors.Is(err, ErrPreviewImagePolicyInvalid) {
+				t.Fatalf("BuildPreviewImages: err = %v, want a wrapping of ErrPreviewImagePolicyInvalid", err)
+			}
+		})
+	}
+}
+
+// A properly configured policy still accepts a normal picture. This is the
+// regression guard for the guard: if a future change flips the validation
+// predicate and rejects every policy, the suite loses its image coverage
+// silently. The error bucket has to stay empty here.
+func TestPreviewImagePolicy_FullPolicyAcceptsAsBefore(t *testing.T) {
+	png := uniformImage(t, "png", 8, 8)
+	if _, _, err := PreparePreviewImage(png, testPreviewImagePolicy()); err != nil {
+		t.Fatalf("a full policy must accept a normal picture, got %v", err)
+	}
+	bins := map[string]FB2Binary{"a": {Data: png}}
+	set, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy())
+	if err != nil {
+		t.Fatalf("BuildPreviewImages: %v", err)
+	}
+	if set.RefusalReason("a") != nil {
+		t.Errorf("a full policy admitted 'a' but also recorded a refusal: %v", set.RefusalReason("a"))
+	}
+}
+
 // Every prepared byte must survive — the previous Build discarded them,
 // forcing the handler to redo the decode and transcode on demand. The set
 // now returns the exact payload PreparePreviewImage produced, so the

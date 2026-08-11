@@ -171,6 +171,25 @@ func (p PreviewImages) Base() PreviewImageBase {
 	return p.base
 }
 
+// validate reports whether every limit of the policy is positive. A zero
+// field means "no policy set", which the zero value of PreviewImagePolicy
+// produces wholesale: without this check that zero silently rejects every
+// picture (any dimension is > 0) and looks indistinguishable from a book
+// whose every binary was too big. Refuse here, with a sentinel that
+// separates caller bug from data property.
+func (p PreviewImagePolicy) validate() error {
+	if p.MaxBytes <= 0 {
+		return fmt.Errorf("%w: MaxBytes is %d, want > 0", ErrPreviewImagePolicyInvalid, p.MaxBytes)
+	}
+	if p.MaxPixels <= 0 {
+		return fmt.Errorf("%w: MaxPixels is %d, want > 0", ErrPreviewImagePolicyInvalid, p.MaxPixels)
+	}
+	if p.MaxSide <= 0 {
+		return fmt.Errorf("%w: MaxSide is %d, want > 0", ErrPreviewImagePolicyInvalid, p.MaxSide)
+	}
+	return nil
+}
+
 // BuildPreviewImages applies image policy to a book's binaries once and
 // returns what the renderer may reference, alongside the prepared bytes the
 // handler will serve and the typed refusal for every binary the pipeline
@@ -197,6 +216,12 @@ func BuildPreviewImages(
 	base PreviewImageBase,
 	policy PreviewImagePolicy,
 ) (PreviewImageSet, error) {
+	// A misconfigured policy is a caller bug. Surface it before the loop,
+	// not as a per-binary refusal the caller would have to disentangle from
+	// "this book has no pictures we accept".
+	if err := policy.validate(); err != nil {
+		return PreviewImageSet{}, err
+	}
 	// The zero value of PreviewImageBase carries an empty path. URLFor
 	// would still produce "/N" out of it — real-looking addresses that
 	// route nowhere. Refuse before the loop touches a single binary, so
@@ -306,6 +331,13 @@ func (s PreviewImageSet) RefusalReason(id string) error {
 // caps are layered on top, because Normalize answers "could a reader draw
 // this" — a question wider than "does our preview policy allow it".
 func PreparePreviewImage(data []byte, policy PreviewImagePolicy) (payload []byte, mime string, err error) {
+	// Reject the policy before anything else: a per-binary error from a
+	// misconfigured policy is the wrong diagnosis, and callers that count
+	// refusals by cause would lump "MaxSide was zero" into "every picture
+	// was too big".
+	if verr := policy.validate(); verr != nil {
+		return nil, "", verr
+	}
 	// The byte cap on the input is checked before any decode: a binary the
 	// size of a book must not reach a decoder that would allocate from the
 	// header it carries.

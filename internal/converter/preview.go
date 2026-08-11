@@ -49,6 +49,15 @@ var (
 	// bytes the reader would receive — are over the byte cap. Re-encoding a
 	// BMP as PNG can come out bigger than the source.
 	ErrPreviewImageTooLargeResult = errors.New("fb2 preview: image payload exceeds the byte cap after normalize")
+
+	// ErrPreviewImagePolicyInvalid: the policy itself is wrong — one of its
+	// limits is non-positive. Distinct from the per-image refusals on
+	// purpose: a misconfigured policy is a caller bug, and counting it
+	// alongside "this binary was too big" would mix a coding error with a
+	// property of the data. Both PreparePreviewImage and BuildPreviewImages
+	// surface it before touching a single binary, so an empty policy never
+	// masquerades as "every picture was refused".
+	ErrPreviewImagePolicyInvalid = errors.New("fb2 preview: image policy is not configured")
 )
 
 // PreviewPolicy carries the budget of one preview portion: the rendered
