@@ -27,8 +27,10 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 
 	// Registered for image.DecodeConfig: dimensions are read from the header
 	// of every format the library actually holds, before anything is decoded.
@@ -41,24 +43,125 @@ import (
 	"gopds-api/internal/fb2image"
 )
 
-// PreviewImages is the set of pictures a portion is allowed to reference: the
-// base address the server serves them from, and the ordinal of every binary
-// that passed policy. A binary missing from Index is one the reader will see
-// as a placeholder — an explicit marker, never a broken image.
+// ErrPreviewImageBaseInvalid is the typed refusal NewPreviewImageBase returns
+// for any input that would produce an address the renderer may not emit: an
+// empty revision, one carrying characters that do not belong in a URL path
+// segment, or a built path that slips a scheme, a host, or a traversal.
+// Callers gate the whole pipeline on this — an invalid base means no address
+// is built at all, never an address that downstream assumes is safe.
+var ErrPreviewImageBaseInvalid = errors.New("fb2 preview: image base is invalid")
+
+// revisionPattern is the set of characters a book revision may carry. It is
+// deliberately narrow: letters, digits, dot, dash and underscore — the
+// characters every URL path segment in RFC 3986's "unreserved" set accepts
+// without percent-encoding. Anything else (whitespace, slash, colon, query
+// separators) would either break the address at the handler's route match or
+// smuggle structure the base never agreed to.
+var revisionPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+// PreviewImageBase is the absolute, same-origin path prefix every preview
+// image address is served under. It exists as a type, not a string, so that
+// the only way to produce one is through NewPreviewImageBase — which refuses
+// inputs that would yield an address the renderer is not allowed to emit.
+//
+// The base carries the book id and the book revision: a handler that answers
+// /preview/{bookID}/{revision}/{ordinal} needs both to find the bytes, and
+// embedding them in the address makes the URL self-describing — the renderer
+// does not have to be told which book it is rendering for.
+type PreviewImageBase struct {
+	path string
+}
+
+// String returns the absolute path prefix the base was built with, for tests
+// that need to ask the code (rather than hard-code) what shape an address
+// takes. The output is same-origin by construction.
+func (b PreviewImageBase) String() string {
+	return b.path
+}
+
+// URLFor returns the address of one ordinal under this base. Ordinals come
+// from PreviewImages, never from the book; assembling the address here keeps
+// the format in one place.
+func (b PreviewImageBase) URLFor(ordinal int) string {
+	return b.path + "/" + strconv.Itoa(ordinal)
+}
+
+// NewPreviewImageBase builds a base from a book id and a revision string. The
+// revision is opaque to this package — it is whatever the caller uses to
+// version a book's binaries — but it has to be safe to embed in a URL path
+// segment, or the address the renderer emits would not match the route the
+// handler answers.
+//
+// The format is fixed in this constructor: /preview/{bookID}/{revision}.
+// Putting it here, not in the test, means a test that needs to know the shape
+// of a src asks the code, not its own fixture.
+func NewPreviewImageBase(bookID int64, revision string) (PreviewImageBase, error) {
+	// revision == "" is covered by revisionPattern below (the `+` requires
+	// at least one character); a separate empty check would be unreachable
+	// as its own refusal.
+	if !revisionPattern.MatchString(revision) {
+		return PreviewImageBase{}, fmt.Errorf(
+			"%w: revision %q has characters outside [A-Za-z0-9._-] or is empty",
+			ErrPreviewImageBaseInvalid, revision,
+		)
+	}
+	// `..` is two characters the per-character regex above admits; a path
+	// segment carrying it is still a traversal, even with no slash to chain
+	// it through. Refuse it explicitly — the regex cannot, because it
+	// describes one character at a time.
+	if strings.Contains(revision, "..") {
+		return PreviewImageBase{}, fmt.Errorf("%w: revision %q contains a path-traversal sequence", ErrPreviewImageBaseInvalid, revision)
+	}
+	// The format is fixed here: revision was validated above, bookID is an
+	// int64 the constructor formats itself, so the result is always a
+	// same-origin absolute path. There is no defense-in-depth re-check: a
+	// future change to the format has to bring its own tests, not lean on a
+	// string-contains guard that the current code never reaches.
+	return PreviewImageBase{path: "/preview/" + strconv.FormatInt(bookID, 10) + "/" + revision}, nil
+}
+
+// PreviewImages is the set of pictures a portion is allowed to reference,
+// built once from a base and a book's binaries. The index is private on
+// purpose: the set is meant to be immutable from the moment it is built, and
+// exporting the map would let any caller mint an address for a binary the
+// pipeline never prepared. Readers use Ordinal, URL and Len — none of which
+// can mutate the set.
 type PreviewImages struct {
-	Base  string         // Address prefix the server answers on
-	Index map[string]int // Binary id -> ordinal under Base
+	base  PreviewImageBase
+	index map[string]int // binary id -> ordinal under base
 }
 
 // URL returns the address of one accepted binary, or "" if it was not
 // accepted. The caller escapes it; nothing here comes from the book except
 // the id used to look it up.
 func (p PreviewImages) URL(id string) string {
-	n, ok := p.Index[id]
+	n, ok := p.index[id]
 	if !ok {
 		return ""
 	}
-	return p.Base + "/" + strconv.Itoa(n)
+	return p.base.URLFor(n)
+}
+
+// Ordinal returns the ordinal assigned to a binary id, plus whether the id is
+// in the set at all. It is the read-only replacement for the index map: tests
+// that used to do `set.Index["id"]` now do `set.Ordinal("id")`, and there is
+// no way to write through it.
+func (p PreviewImages) Ordinal(id string) (int, bool) {
+	n, ok := p.index[id]
+	return n, ok
+}
+
+// Len reports how many binaries passed policy and received an ordinal. Useful
+// for tests that need to assert "no work was done under a canceled ctx"
+// without writing through the index.
+func (p PreviewImages) Len() int {
+	return len(p.index)
+}
+
+// Base returns the address prefix the set was built under. Tests use it to
+// ask the code what shape an address takes, instead of hard-coding one.
+func (p PreviewImages) Base() PreviewImageBase {
+	return p.base
 }
 
 // BuildPreviewImages applies image policy to a book's binaries once and
@@ -71,10 +174,15 @@ func (p PreviewImages) URL(id string) string {
 // binary drives a PreparePreviewImage call that may decode and transcode a
 // real picture — that is the work, and that is what cancellation has to stop.
 // A return with a non-nil error means the result is not authoritative: the
-// partial Index is whatever got built before the cancel, and callers must
+// partial index is whatever got built before the cancel, and callers must
 // check err first.
-func BuildPreviewImages(ctx context.Context, binaries map[string]FB2Binary, base string, policy PreviewImagePolicy) (PreviewImages, error) {
-	out := PreviewImages{Base: base, Index: make(map[string]int, len(binaries))}
+func BuildPreviewImages(
+	ctx context.Context,
+	binaries map[string]FB2Binary,
+	base PreviewImageBase,
+	policy PreviewImagePolicy,
+) (PreviewImages, error) {
+	out := PreviewImages{base: base, index: make(map[string]int, len(binaries))}
 	ids := make([]string, 0, len(binaries))
 	for id := range binaries {
 		ids = append(ids, id)
@@ -100,7 +208,7 @@ func BuildPreviewImages(ctx context.Context, binaries map[string]FB2Binary, base
 			continue
 		}
 		n++
-		out.Index[id] = n
+		out.index[id] = n
 	}
 	return out, nil
 }

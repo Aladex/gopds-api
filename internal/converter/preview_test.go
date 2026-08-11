@@ -34,6 +34,18 @@ func testPreviewImagePolicy() PreviewImagePolicy {
 	return PreviewImagePolicy{MaxBytes: 1 << 20, MaxPixels: 32 << 20}
 }
 
+// testPreviewImageBase returns a base for tests that just need any valid one.
+// The book id and revision are arbitrary but stable: tests that compare a
+// rendered src against the code's notion of the address ask the base, they do
+// not re-hardcode "/preview/img".
+func testPreviewImageBase() PreviewImageBase {
+	base, err := NewPreviewImageBase(42, "rev1")
+	if err != nil {
+		panic(err)
+	}
+	return base
+}
+
 // textPara builds a plain paragraph carrying the text both as the inline tree
 // and as the plain fallback.
 func textPara(text string) *FB2Paragraph {
@@ -98,7 +110,7 @@ func renderPreview(
 	imagePolicy PreviewImagePolicy,
 ) string {
 	t.Helper()
-	images, err := BuildPreviewImages(ctx, binaries, "/preview/img", imagePolicy)
+	images, err := BuildPreviewImages(ctx, binaries, testPreviewImageBase(), imagePolicy)
 	if err != nil {
 		t.Fatalf("BuildPreviewImages: %v", err)
 	}
@@ -210,10 +222,13 @@ var previewAllowedAttrs = map[string]map[string]bool{
 var previewForbiddenAttrs = []string{"style", "srcset", "formaction", "target", "download"}
 
 // previewSrcPattern is the only shape a src may take: the base the test built
-// the picture set with, then a slash and an ordinal we assigned. It is a
-// stricter rule than the data: whitelist it replaces — a URL of this shape can
-// carry no payload at all, so there is nothing in it for a book to influence.
-var previewSrcPattern = regexp.MustCompile(`^/preview/img/[1-9]\d*$`)
+// the picture set with, then a slash and an ordinal we assigned. The base is
+// asked of the code (testPreviewImageBase), not hardcoded — the test follows
+// whatever shape NewPreviewImageBase produces, rather than pinning a fixture
+// the code could drift away from silently. The result is a stricter rule than
+// the data: whitelist it replaces — a URL of this shape can carry no payload
+// at all, so there is nothing in it for a book to influence.
+var previewSrcPattern = regexp.MustCompile(`^` + regexp.QuoteMeta(testPreviewImageBase().String()) + `/[1-9][0-9]*$`)
 
 // auditPreviewHTML parses the fragment and asserts the output invariant. It
 // returns the collected id set for tests that check anchors further.
@@ -338,7 +353,7 @@ func previewImagesFor(ctx context.Context, doc *FB2Document, policy PreviewImage
 	if doc != nil {
 		bins = doc.Binary
 	}
-	out, err := BuildPreviewImages(ctx, bins, "/preview/img", policy)
+	out, err := BuildPreviewImages(ctx, bins, testPreviewImageBase(), policy)
 	if err != nil {
 		// Cancellation is the only error path; tests that need it call
 		// BuildPreviewImages directly. Everyone else gets a hard failure

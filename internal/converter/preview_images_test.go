@@ -275,17 +275,20 @@ func TestBuildPreviewImages_StableOrdinalsSkipRefused(t *testing.T) {
 		"c_bad":    {Data: []byte("не картинка")},
 	}
 
-	first, err := BuildPreviewImages(context.Background(), bins, "/preview/img", testPreviewImagePolicy())
+	first, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy())
 	if err != nil {
 		t.Fatalf("BuildPreviewImages: %v", err)
 	}
-	if first.Index["a_first"] != 1 || first.Index["b_second"] != 2 {
-		t.Fatalf("ordinals follow sorted ids, got %v", first.Index)
+	if ord, ok := first.Ordinal("a_first"); !ok || ord != 1 {
+		t.Fatalf("a_first ordinal = (%d, %v), want (1, true)", ord, ok)
 	}
-	if _, ok := first.Index["c_bad"]; ok {
+	if ord, ok := first.Ordinal("b_second"); !ok || ord != 2 {
+		t.Fatalf("b_second ordinal = (%d, %v), want (2, true)", ord, ok)
+	}
+	if _, ok := first.Ordinal("c_bad"); ok {
 		t.Fatal("a refused binary took an ordinal")
 	}
-	if got := first.URL("a_first"); got != "/preview/img/1" {
+	if got := first.URL("a_first"); got != testPreviewImageBase().URLFor(1) {
 		t.Fatalf("URL = %q", got)
 	}
 	if got := first.URL("c_bad"); got != "" {
@@ -293,14 +296,18 @@ func TestBuildPreviewImages_StableOrdinalsSkipRefused(t *testing.T) {
 	}
 
 	// Twenty rebuilds: map iteration order differs between them, the answer
-	// must not.
+	// must not. The set has no public iterator, so compare through the
+	// read-only API the renderer uses — URL per id — across every id the
+	// fixture put in.
 	for i := 0; i < 20; i++ {
-		again, err := BuildPreviewImages(context.Background(), bins, "/preview/img", testPreviewImagePolicy())
+		again, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy())
 		if err != nil {
 			t.Fatalf("run %d: %v", i, err)
 		}
-		if fmt.Sprint(again.Index) != fmt.Sprint(first.Index) {
-			t.Fatalf("run %d produced %v, first run produced %v", i, again.Index, first.Index)
+		for id := range bins {
+			if again.URL(id) != first.URL(id) {
+				t.Fatalf("run %d: %q -> %q, first run -> %q", i, id, again.URL(id), first.URL(id))
+			}
 		}
 	}
 }
@@ -321,13 +328,12 @@ func TestBuildPreviewImages_CanceledBeforeStartDoesNoWork(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	out, err := BuildPreviewImages(ctx, bins, "/preview/img", testPreviewImagePolicy())
+	out, err := BuildPreviewImages(ctx, bins, testPreviewImageBase(), testPreviewImagePolicy())
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want a wrapping of context.Canceled", err)
 	}
-	if len(out.Index) != 0 {
-		t.Errorf("a canceled ctx must not produce any ordinals, got %d: %v",
-			len(out.Index), out.Index)
+	if out.Len() != 0 {
+		t.Errorf("a canceled ctx must not produce any ordinals, got %d", out.Len())
 	}
 }
 
@@ -355,7 +361,7 @@ func TestBuildPreviewImages_CancelMidWorkStopsBeforeEnd(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		out, err := BuildPreviewImages(ctx, bins, "/preview/img", testPreviewImagePolicy())
+		out, err := BuildPreviewImages(ctx, bins, testPreviewImageBase(), testPreviewImagePolicy())
 		done <- result{out, err}
 	}()
 
@@ -370,7 +376,7 @@ func TestBuildPreviewImages_CancelMidWorkStopsBeforeEnd(t *testing.T) {
 		if !errors.Is(r.err, context.Canceled) {
 			t.Fatalf("err = %v, want a wrapping of context.Canceled", r.err)
 		}
-		if len(r.out.Index) == binCount {
+		if r.out.Len() == binCount {
 			t.Fatalf("the cancel did not stop the loop — every binary was processed")
 		}
 	case <-time.After(5 * time.Second):
@@ -390,17 +396,104 @@ func TestBuildPreviewImages_LiveContextMatchesNoContextBaseline(t *testing.T) {
 		"c_bad":    {Data: []byte("не картинка")},
 	}
 
-	out, err := BuildPreviewImages(context.Background(), bins, "/preview/img", testPreviewImagePolicy())
+	out, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy())
 	if err != nil {
 		t.Fatalf("a live ctx must not produce an error: %v", err)
 	}
-	if out.Index["a_first"] != 1 || out.Index["b_second"] != 2 {
-		t.Fatalf("ordinals follow sorted ids, got %v", out.Index)
+	if ord, ok := out.Ordinal("a_first"); !ok || ord != 1 {
+		t.Fatalf("a_first ordinal = (%d, %v), want (1, true)", ord, ok)
 	}
-	if _, ok := out.Index["c_bad"]; ok {
+	if ord, ok := out.Ordinal("b_second"); !ok || ord != 2 {
+		t.Fatalf("b_second ordinal = (%d, %v), want (2, true)", ord, ok)
+	}
+	if _, ok := out.Ordinal("c_bad"); ok {
 		t.Fatal("a refused binary took an ordinal")
 	}
-	if got := out.URL("a_first"); got != "/preview/img/1" {
+	if got := out.URL("a_first"); got != testPreviewImageBase().URLFor(1) {
 		t.Fatalf("URL = %q", got)
+	}
+}
+
+// The address the renderer puts in src must be assembled from parts the code
+// itself produced, not from a string the test pinned. NewPreviewImageBase
+// refuses inputs that would yield an address the renderer is not allowed to
+// emit, and the table below pins each refusal: an empty revision, one with a
+// space, a slash, or characters that would let a caller smuggle a scheme, a
+// host, or a path traversal past the constructor.
+func TestNewPreviewImageBase_RejectsInvalidInputs(t *testing.T) {
+	cases := []struct {
+		name     string
+		bookID   int64
+		revision string
+	}{
+		{"empty revision", 1, ""},
+		{"revision with space", 1, "rev 1"},
+		{"revision with slash", 1, "rev/1"},
+		{"revision with dot-dot", 1, "rev..1"},
+		{"revision with colon (scheme attempt)", 1, "rev://host"},
+		{"revision with query separator", 1, "rev?x"},
+		{"revision with fragment separator", 1, "rev#x"},
+		{"revision with non-ascii", 1, "рев1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NewPreviewImageBase(tc.bookID, tc.revision)
+			if !errors.Is(err, ErrPreviewImageBaseInvalid) {
+				t.Fatalf("err = %v, want a wrapping of ErrPreviewImageBaseInvalid", err)
+			}
+		})
+	}
+}
+
+// The happy path produces a base that contains both the book id and the
+// revision, in that order, under /preview/. The exact form is the code's to
+// choose; the test pins the shape by asking the code, not by hard-coding a
+// string the renderer is then forced to match.
+func TestNewPreviewImageBase_AcceptsNormalCase(t *testing.T) {
+	const bookID int64 = 42
+	const revision = "rev1"
+	base, err := NewPreviewImageBase(bookID, revision)
+	if err != nil {
+		t.Fatalf("a normal input must produce no error: %v", err)
+	}
+	s := base.String()
+	if !strings.HasPrefix(s, "/preview/") {
+		t.Errorf("base %q does not start with /preview/", s)
+	}
+	if !strings.Contains(s, "42") {
+		t.Errorf("base %q does not carry the book id", s)
+	}
+	if !strings.Contains(s, revision) {
+		t.Errorf("base %q does not carry the revision", s)
+	}
+}
+
+// The address a renderer emits in src must equal the address the base
+// produces through its own URLFor. This is the regression that an
+// in-test-harcoded "wantSrc" cannot catch: a change in format that the test
+// would have rubber-stamped. Asking the code closes that gap.
+func TestNewPreviewImageBase_AddressMatchesRenderOutput(t *testing.T) {
+	const bookID int64 = 7
+	const revision = "v2"
+	base, err := NewPreviewImageBase(bookID, revision)
+	if err != nil {
+		t.Fatalf("NewPreviewImageBase: %v", err)
+	}
+	pngData := uniformImage(t, "png", 4, 4)
+	bins := map[string]FB2Binary{"cover": {Data: pngData}}
+	images, err := BuildPreviewImages(context.Background(), bins, base, testPreviewImagePolicy())
+	if err != nil {
+		t.Fatalf("BuildPreviewImages: %v", err)
+	}
+	out, err := RenderChunkHTML(paraChunk(0, imagePara("cover")), images, testPreviewPolicy())
+	if err != nil {
+		t.Fatalf("RenderChunkHTML: %v", err)
+	}
+	wantSrc := base.URLFor(1)
+	if got := images.URL("cover"); got != wantSrc {
+		t.Errorf("images.URL = %q, want the code-produced %q", got, wantSrc)
+	}
+	if !strings.Contains(out, `src="`+wantSrc+`"`) {
+		t.Errorf("rendered output does not carry the code-produced address %q: %s", wantSrc, shorten(out))
 	}
 }

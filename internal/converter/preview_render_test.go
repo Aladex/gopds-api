@@ -128,26 +128,30 @@ func TestRenderChunkHTML_Images(t *testing.T) {
 	pngData := uniformImage(t, "png", 8, 8)
 	jpegData := uniformImage(t, "jpeg", 8, 8)
 	svgData := []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`)
+	base := testPreviewImageBase()
 
 	cases := []struct {
 		name        string
 		id          string
 		binary      FB2Binary
-		wantSrc     string // expected address, empty means the placeholder
+		wantOrd     int // expected ordinal under base, 0 means the placeholder
 		wantNoImage bool
 	}{
-		{"declared png but bytes are jpeg", "img1", FB2Binary{Data: jpegData, MIME: "image/png"}, "/preview/img/1", false},
-		{"svg id with raster bytes", "x.svg", FB2Binary{Data: pngData, MIME: "image/svg+xml"}, "/preview/img/1", false},
-		{"png bytes declared as svg", "img3", FB2Binary{Data: pngData, MIME: "image/svg+xml"}, "/preview/img/1", false},
-		{"svg bytes declared as png", "img4", FB2Binary{Data: svgData, MIME: "image/png"}, "", true},
-		{"empty payload", "img5", FB2Binary{Data: nil, MIME: "image/png"}, "", true},
+		{"declared png but bytes are jpeg", "img1", FB2Binary{Data: jpegData, MIME: "image/png"}, 1, false},
+		{"svg id with raster bytes", "x.svg", FB2Binary{Data: pngData, MIME: "image/svg+xml"}, 1, false},
+		{"png bytes declared as svg", "img3", FB2Binary{Data: pngData, MIME: "image/svg+xml"}, 1, false},
+		{"svg bytes declared as png", "img4", FB2Binary{Data: svgData, MIME: "image/png"}, 0, true},
+		{"empty payload", "img5", FB2Binary{Data: nil, MIME: "image/png"}, 0, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			binaries := map[string]FB2Binary{tc.id: tc.binary}
 			out := renderPreview(t, context.Background(), paraChunk(0, imagePara(tc.id)), binaries, testPreviewPolicy(), testPreviewImagePolicy())
-			if tc.wantSrc != "" && !strings.Contains(out, `src="`+tc.wantSrc+`"`) {
-				t.Errorf("expected src %q in %q", tc.wantSrc, shorten(out))
+			if tc.wantOrd > 0 {
+				wantSrc := base.URLFor(tc.wantOrd)
+				if !strings.Contains(out, `src="`+wantSrc+`"`) {
+					t.Errorf("expected src %q in %q", wantSrc, shorten(out))
+				}
 			}
 			if tc.wantNoImage {
 				if strings.Contains(out, "<img") {
@@ -333,7 +337,7 @@ func TestRenderChunkHTML_OutputInvariant(t *testing.T) {
 			t.Errorf("content marker %q did not survive rendering", marker)
 		}
 	}
-	if !strings.Contains(out, `<img src="/preview/img/1" loading="lazy"`) {
+	if !strings.Contains(out, `<img src="`+testPreviewImageBase().URLFor(1)+`" loading="lazy"`) {
 		t.Errorf("the valid image did not render")
 	}
 }
@@ -418,7 +422,7 @@ func TestRenderChunkHTML_PropertyArbitraryInlineTrees(t *testing.T) {
 		if rng.Intn(3) == 0 {
 			para.ID = "p1"
 		}
-		images, imgErr := BuildPreviewImages(context.Background(), binaries, "/preview/img", imagePolicy)
+		images, imgErr := BuildPreviewImages(context.Background(), binaries, testPreviewImageBase(), imagePolicy)
 		if imgErr != nil {
 			t.Fatalf("iteration %d: BuildPreviewImages: %v", iteration, imgErr)
 		}
@@ -654,7 +658,7 @@ func TestRenderChunkHTML_OrdinaryBookRecognizable(t *testing.T) {
 	if !strings.Contains(joined, "<em>курсивом</em>") || !strings.Contains(joined, "<strong>жирным</strong>") {
 		t.Errorf("inline formatting did not survive")
 	}
-	if !strings.Contains(joined, `<img src="/preview/img/1" loading="lazy"`) {
+	if !strings.Contains(joined, `<img src="`+testPreviewImageBase().URLFor(1)+`" loading="lazy"`) {
 		t.Errorf("the illustration did not render")
 	}
 	if !strings.Contains(joined, `class="poem-line"`) {
