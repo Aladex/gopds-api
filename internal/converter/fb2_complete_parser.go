@@ -50,7 +50,17 @@ func ParseFB2Complete(ctx context.Context, xmlContent []byte, readCover bool) (*
 	decoder := newFB2Decoder(decoded)
 
 	rootSeen := false
+	tokensSinceCheck := 0
 	for {
+		// Same cadence as ParseFB2Body: the main loop is where the work is,
+		// and a ctx that is accepted but not consulted is worse than no ctx
+		// at all (the caller thinks cancellation works). The fallback only
+		// runs on a decoder error, so on a well-formed book it would never
+		// fire — without this check a cancel would be observed only after
+		// the whole file is parsed.
+		if cerr := checkCtx(ctx, &tokensSinceCheck); cerr != nil {
+			return nil, nil, fmt.Errorf("fb2: parse canceled: %w", cerr)
+		}
 		token, err := decoder.Token()
 		if err == io.EOF {
 			break

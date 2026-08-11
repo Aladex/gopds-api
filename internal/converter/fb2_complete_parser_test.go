@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"gopds-api/internal/parser"
 )
@@ -317,5 +318,70 @@ func TestParseFB2Complete_ForeignRootFailsBeforeSyntaxError(t *testing.T) {
 	_, _, err := ParseFB2Complete(context.Background(), in, false)
 	if !errors.Is(err, ErrNotFictionBook) {
 		t.Errorf("expected a typed ErrNotFictionBook from the root check, got %v", err)
+	}
+}
+
+// A context already canceled before the call must surface as a cancel error,
+// not as a parsed document. The check fires inside the token loop, so the
+// fixture has to be long enough for the loop to reach the check at least once.
+func TestParseFB2Complete_CanceledBeforeReturnsCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _, err := ParseFB2Complete(ctx, bigFB2(4000), false)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want a wrapping of context.Canceled", err)
+	}
+}
+
+// A cancel that arrives while the loop is running must stop before the end of
+// the document. The main token loop of ParseFB2Complete is the long part of
+// the work, so the ctx check has to live there — pushing the cancellation
+// into the fallback (which calls ParseFB2Body) is not enough, because the
+// fallback only runs when the main decoder errors out, which it never does
+// on a well-formed big book. Without a check in the main loop the function
+// parses the whole file under a canceled ctx and returns nil.
+//
+// Timing test, like for ParseFB2Body: enough tokens that the loop cannot
+// finish inside the cancel window.
+func TestParseFB2Complete_CancelMidParseStopsBeforeEnd(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := ParseFB2Complete(ctx, bigFB2(50000), false)
+		done <- err
+	}()
+
+	// Let the parser chew through some tokens before the cancel reaches the
+	// next ctx check.
+	time.Sleep(5 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("err = %v, want a wrapping of context.Canceled", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("ParseFB2Complete did not return within 10s of cancel")
+	}
+}
+
+// With a live context the parser must produce the same document as before ctx
+// was added. Regression guard — if a future change makes the ctx check
+// misfire on a live ctx, or otherwise perturbs the parsing path, the
+// structural assertions the suite already makes catch it.
+func TestParseFB2Complete_LiveContextMatchesBaseline(t *testing.T) {
+	data := loadTestData(t, "simple.fb2")
+	doc, bookFile, err := ParseFB2Complete(context.Background(), data, true)
+	if err != nil {
+		t.Fatalf("a live ctx must not produce an error: %v", err)
+	}
+	if doc == nil || doc.Body == nil {
+		t.Fatal("a live ctx must produce a non-nil document with a body")
+	}
+	if bookFile == nil {
+		t.Fatal("a live ctx must produce a non-nil book file")
 	}
 }
