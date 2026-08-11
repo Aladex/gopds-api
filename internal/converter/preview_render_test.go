@@ -426,7 +426,7 @@ func TestRenderChunkHTML_PropertyArbitraryInlineTrees(t *testing.T) {
 		if imgErr != nil {
 			t.Fatalf("iteration %d: BuildPreviewImages: %v", iteration, imgErr)
 		}
-		out, err := RenderChunkHTML(paraChunk(0, para), images, propertyPolicy)
+		out, err := RenderChunkHTML(paraChunk(0, para), images.Projection(), propertyPolicy)
 		if err != nil {
 			t.Fatalf("iteration %d: RenderChunkHTML: %v", iteration, err)
 		}

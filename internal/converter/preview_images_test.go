@@ -281,19 +281,19 @@ func TestBuildPreviewImages_StableOrdinalsSkipRefused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildPreviewImages: %v", err)
 	}
-	if ord, ok := first.Ordinal("a_first"); !ok || ord != 1 {
+	if ord, ok := first.Projection().Ordinal("a_first"); !ok || ord != 1 {
 		t.Fatalf("a_first ordinal = (%d, %v), want (1, true)", ord, ok)
 	}
-	if ord, ok := first.Ordinal("b_second"); !ok || ord != 2 {
+	if ord, ok := first.Projection().Ordinal("b_second"); !ok || ord != 2 {
 		t.Fatalf("b_second ordinal = (%d, %v), want (2, true)", ord, ok)
 	}
-	if _, ok := first.Ordinal("c_bad"); ok {
+	if _, ok := first.Projection().Ordinal("c_bad"); ok {
 		t.Fatal("a refused binary took an ordinal")
 	}
-	if got := first.URL("a_first"); got != testPreviewImageBase().URLFor(1) {
+	if got := first.Projection().URL("a_first"); got != testPreviewImageBase().URLFor(1) {
 		t.Fatalf("URL = %q", got)
 	}
-	if got := first.URL("c_bad"); got != "" {
+	if got := first.Projection().URL("c_bad"); got != "" {
 		t.Fatalf("a refused binary got the address %q", got)
 	}
 
@@ -307,8 +307,8 @@ func TestBuildPreviewImages_StableOrdinalsSkipRefused(t *testing.T) {
 			t.Fatalf("run %d: %v", i, err)
 		}
 		for id := range bins {
-			if again.URL(id) != first.URL(id) {
-				t.Fatalf("run %d: %q -> %q, first run -> %q", i, id, again.URL(id), first.URL(id))
+			if again.Projection().URL(id) != first.Projection().URL(id) {
+				t.Fatalf("run %d: %q -> %q, first run -> %q", i, id, again.Projection().URL(id), first.Projection().URL(id))
 			}
 		}
 	}
@@ -334,8 +334,8 @@ func TestBuildPreviewImages_CanceledBeforeStartDoesNoWork(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want a wrapping of context.Canceled", err)
 	}
-	if out.Len() != 0 {
-		t.Errorf("a canceled ctx must not produce any ordinals, got %d", out.Len())
+	if len(out.Images) != 0 {
+		t.Errorf("a canceled ctx must not produce any ordinals, got %d", len(out.Images))
 	}
 }
 
@@ -358,7 +358,7 @@ func TestBuildPreviewImages_CancelMidWorkStopsBeforeEnd(t *testing.T) {
 	defer cancel()
 
 	type result struct {
-		out PreviewImages
+		out PreviewImageSet
 		err error
 	}
 	done := make(chan result, 1)
@@ -378,7 +378,7 @@ func TestBuildPreviewImages_CancelMidWorkStopsBeforeEnd(t *testing.T) {
 		if !errors.Is(r.err, context.Canceled) {
 			t.Fatalf("err = %v, want a wrapping of context.Canceled", r.err)
 		}
-		if r.out.Len() == binCount {
+		if len(r.out.Images) == binCount {
 			t.Fatalf("the cancel did not stop the loop — every binary was processed")
 		}
 	case <-time.After(5 * time.Second):
@@ -402,16 +402,16 @@ func TestBuildPreviewImages_LiveContextMatchesNoContextBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a live ctx must not produce an error: %v", err)
 	}
-	if ord, ok := out.Ordinal("a_first"); !ok || ord != 1 {
+	if ord, ok := out.Projection().Ordinal("a_first"); !ok || ord != 1 {
 		t.Fatalf("a_first ordinal = (%d, %v), want (1, true)", ord, ok)
 	}
-	if ord, ok := out.Ordinal("b_second"); !ok || ord != 2 {
+	if ord, ok := out.Projection().Ordinal("b_second"); !ok || ord != 2 {
 		t.Fatalf("b_second ordinal = (%d, %v), want (2, true)", ord, ok)
 	}
-	if _, ok := out.Ordinal("c_bad"); ok {
+	if _, ok := out.Projection().Ordinal("c_bad"); ok {
 		t.Fatal("a refused binary took an ordinal")
 	}
-	if got := out.URL("a_first"); got != testPreviewImageBase().URLFor(1) {
+	if got := out.Projection().URL("a_first"); got != testPreviewImageBase().URLFor(1) {
 		t.Fatalf("URL = %q", got)
 	}
 }
@@ -487,12 +487,12 @@ func TestNewPreviewImageBase_AddressMatchesRenderOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildPreviewImages: %v", err)
 	}
-	out, err := RenderChunkHTML(paraChunk(0, imagePara("cover")), images, testPreviewPolicy())
+	out, err := RenderChunkHTML(paraChunk(0, imagePara("cover")), images.Projection(), testPreviewPolicy())
 	if err != nil {
 		t.Fatalf("RenderChunkHTML: %v", err)
 	}
 	wantSrc := base.URLFor(1)
-	if got := images.URL("cover"); got != wantSrc {
+	if got := images.Projection().URL("cover"); got != wantSrc {
 		t.Errorf("images.URL = %q, want the code-produced %q", got, wantSrc)
 	}
 	if !strings.Contains(out, `src="`+wantSrc+`"`) {
@@ -567,9 +567,183 @@ func TestBuildPreviewImages_RejectsZeroBase(t *testing.T) {
 	bins := map[string]FB2Binary{"a": {Data: uniformImage(t, "png", 4, 4)}}
 	out, err := BuildPreviewImages(context.Background(), bins, zero, testPreviewImagePolicy())
 	if err == nil {
-		t.Fatalf("a zero base must be rejected, got out with %d ordinals", out.Len())
+		t.Fatalf("a zero base must be rejected, got out with %d ordinals", len(out.Images))
 	}
-	if out.Len() != 0 {
-		t.Errorf("on rejection, no ordinals must be assigned, got %d", out.Len())
+	if len(out.Images) != 0 {
+		t.Errorf("on rejection, no ordinals must be assigned, got %d", len(out.Images))
+	}
+}
+
+// Every prepared byte must survive — the previous Build discarded them,
+// forcing the handler to redo the decode and transcode on demand. The set
+// now returns the exact payload PreparePreviewImage produced, so the
+// handler and the policy gate see the same bytes.
+func TestBuildPreviewImages_KeepsPreparedBytes(t *testing.T) {
+	policy := testPreviewImagePolicy()
+	// A real PNG and a real BMP: BMP exercises the transcode path inside
+	// PreparePreviewImage, PNG the pass-through.
+	pngData := uniformImage(t, "png", 8, 8)
+	bmpData := realBMP(t, 8, 8)
+	bins := map[string]FB2Binary{
+		"png_bin": {Data: pngData},
+		"bmp_bin": {Data: bmpData},
+	}
+	wantPNG, wantPNGMIME, err := PreparePreviewImage(pngData, policy)
+	if err != nil {
+		t.Fatalf("PreparePreviewImage(png): %v", err)
+	}
+	wantBMP, wantBMPMIME, err := PreparePreviewImage(bmpData, policy)
+	if err != nil {
+		t.Fatalf("PreparePreviewImage(bmp): %v", err)
+	}
+
+	set, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), policy)
+	if err != nil {
+		t.Fatalf("BuildPreviewImages: %v", err)
+	}
+	got := map[string]PreparedPreviewImage{}
+	for _, img := range set.Images {
+		got[img.ID] = img
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 prepared images, got %d: %+v", len(got), got)
+	}
+	// Compare bytes through the public API and through PreparePreviewImage
+	// directly — same value, no copy or re-encode in between.
+	if !bytes.Equal(got["png_bin"].Payload, wantPNG) {
+		t.Errorf("png payload drifted from PreparePreviewImage: got %d bytes, want %d",
+			len(got["png_bin"].Payload), len(wantPNG))
+	}
+	if got["png_bin"].MIME != wantPNGMIME {
+		t.Errorf("png MIME = %q, want %q", got["png_bin"].MIME, wantPNGMIME)
+	}
+	if !bytes.Equal(got["bmp_bin"].Payload, wantBMP) {
+		t.Errorf("bmp payload drifted from PreparePreviewImage: got %d bytes, want %d",
+			len(got["bmp_bin"].Payload), len(wantBMP))
+	}
+	if got["bmp_bin"].MIME != wantBMPMIME {
+		t.Errorf("bmp MIME = %q, want %q", got["bmp_bin"].MIME, wantBMPMIME)
+	}
+}
+
+// A refused binary must carry its typed reason into Refused, not vanish. The
+// previous Build threw the error away and the only signal downstream got was
+// "no ordinal" — indistinguishable from "binary was not in the input at
+// all". Keeping the error lets callers count refusals by cause.
+func TestBuildPreviewImages_RefusedKeepsTypedReason(t *testing.T) {
+	policy := testPreviewImagePolicy()
+	bins := map[string]FB2Binary{
+		"ok":       {Data: uniformImage(t, "png", 4, 4)},
+		"empty":    {Data: nil},                                                 // -> ErrPreviewImageUnsupported
+		"html":     {Data: []byte("<html></html>")},                             // -> ErrPreviewImageUnsupported
+		"svg":      {Data: []byte("<svg xmlns='http://www.w3.org/2000/svg'/>")}, // -> ErrPreviewImageUnsupported
+		"oversize": {Data: forgeBMP(1048576, 4)},                                // -> ErrPreviewImageDimensions (via Normalize)
+	}
+	set, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), policy)
+	if err != nil {
+		t.Fatalf("BuildPreviewImages: %v", err)
+	}
+	if _, ok := set.Refused["ok"]; ok {
+		t.Errorf("ok was admitted but also recorded as refused")
+	}
+	for _, id := range []string{"empty", "html", "svg"} {
+		reason, ok := set.Refused[id]
+		if !ok {
+			t.Errorf("%q: refusal reason missing from Refused", id)
+			continue
+		}
+		if !errors.Is(reason, ErrPreviewImageUnsupported) {
+			t.Errorf("%q: reason = %v, want a wrapping of ErrPreviewImageUnsupported", id, reason)
+		}
+	}
+	reason, ok := set.Refused["oversize"]
+	if !ok {
+		t.Fatalf("oversize: refusal reason missing from Refused")
+	}
+	if !errors.Is(reason, ErrPreviewImageDimensions) {
+		t.Errorf("oversize: reason = %v, want a wrapping of ErrPreviewImageDimensions", reason)
+	}
+}
+
+// The prepare call must run exactly once per binary — never twice, never
+// zero. The previous Build prepared once but threw the bytes away, forcing
+// a second prepare on the handler side; a future change that re-runs the
+// loop or caches naively could slip to two, and only a counter catches it.
+// We swap the package-level preparePreviewImage hook for one that counts,
+// and restore it on the way out.
+func TestBuildPreviewImages_PrepareCalledOncePerBinary(t *testing.T) {
+	policy := testPreviewImagePolicy()
+	bins := map[string]FB2Binary{
+		"png_a": {Data: uniformImage(t, "png", 4, 4)},
+		"png_b": {Data: uniformImage(t, "png", 4, 4)},
+		"png_c": {Data: uniformImage(t, "png", 4, 4)},
+		"bad":   {Data: []byte("not an image")},
+	}
+
+	calls := make(map[string]int)
+	prev := preparePreviewImage
+	preparePreviewImage = func(data []byte, p PreviewImagePolicy) ([]byte, string, error) {
+		// Identify which binary this is by matching the data pointer, since
+		// the hook does not see the id. The fixture uses unique payloads
+		// only by reference — same image bytes for the three PNGs, so we
+		// count total calls and reason about the total.
+		calls["*"]++
+		return PreparePreviewImage(data, p)
+	}
+	defer func() { preparePreviewImage = prev }()
+
+	if _, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), policy); err != nil {
+		t.Fatalf("BuildPreviewImages: %v", err)
+	}
+	if got, want := calls["*"], len(bins); got != want {
+		t.Errorf("prepare called %d times, want exactly %d (one per binary, including refusals)", got, want)
+	}
+}
+
+// Ordinals and Images ordering must be stable across rebuilds, independent
+// of map iteration. The previous test pinned this through Projection().URL;
+// this one pins it through the new public surface — the Images slice in
+// ordinal order — so a future change that builds Images in iteration order
+// by accident still fails here.
+func TestBuildPreviewImages_ImagesAreInOrdinalOrderAcrossRebuilds(t *testing.T) {
+	policy := testPreviewImagePolicy()
+	bins := map[string]FB2Binary{
+		"e": {Data: uniformImage(t, "png", 4, 4)},
+		"d": {Data: uniformImage(t, "png", 4, 4)},
+		"c": {Data: uniformImage(t, "png", 4, 4)},
+		"b": {Data: uniformImage(t, "png", 4, 4)},
+		"a": {Data: uniformImage(t, "png", 4, 4)},
+	}
+	first, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), policy)
+	if err != nil {
+		t.Fatalf("BuildPreviewImages: %v", err)
+	}
+	// First sanity: ids appear in sorted order, ordinals in 1..N order.
+	for i, img := range first.Images {
+		if img.Ordinal != i+1 {
+			t.Errorf("Images[%d].Ordinal = %d, want %d", i, img.Ordinal, i+1)
+		}
+	}
+	wantIDs := []string{"a", "b", "c", "d", "e"}
+	for i, want := range wantIDs {
+		if i >= len(first.Images) || first.Images[i].ID != want {
+			t.Fatalf("Images[%d].ID = %q, want %q (sorted-id order)", i, first.Images[i].ID, want)
+		}
+	}
+	// Twenty rebuilds: map iteration order differs, the slice must not.
+	for run := 0; run < 20; run++ {
+		again, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), policy)
+		if err != nil {
+			t.Fatalf("run %d: %v", run, err)
+		}
+		if len(again.Images) != len(first.Images) {
+			t.Fatalf("run %d: %d images, want %d", run, len(again.Images), len(first.Images))
+		}
+		for i := range again.Images {
+			if again.Images[i].ID != first.Images[i].ID || again.Images[i].Ordinal != first.Images[i].Ordinal {
+				t.Fatalf("run %d: Images[%d] drifted: got %+v, want %+v",
+					run, i, again.Images[i], first.Images[i])
+			}
+		}
 	}
 }

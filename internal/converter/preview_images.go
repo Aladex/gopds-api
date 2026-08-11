@@ -172,59 +172,127 @@ func (p PreviewImages) Base() PreviewImageBase {
 }
 
 // BuildPreviewImages applies image policy to a book's binaries once and
-// returns what the renderer may reference. Ordinals follow the sorted binary
-// ids so the same book always yields the same addresses: the mapping is part
-// of the contract between the renderer that emits a URL and the handler that
-// answers it.
+// returns what the renderer may reference, alongside the prepared bytes the
+// handler will serve and the typed refusal for every binary the pipeline
+// turned down. None of that used to survive this function: ordinals were
+// kept, but the bytes PreparePreviewImage had just produced were discarded
+// (forcing the handler to redo the decode and transcode on demand), and the
+// refusal reasons were collapsed into a silent skip (leaving no way to count
+// how many pictures were dropped, or why). Keeping both here closes that gap
+// at the boundary where the work happens.
+//
+// Ordinals follow the sorted binary ids so the same book always yields the
+// same addresses: the mapping is part of the contract between the renderer
+// that emits a URL and the handler that answers it. Only binaries that pass
+// policy consume an ordinal; refusals are recorded but never numbered.
 //
 // The ctx is consulted between binaries, not just at entry, because each
-// binary drives a PreparePreviewImage call that may decode and transcode a
-// real picture — that is the work, and that is what cancellation has to stop.
-// A return with a non-nil error means the result is not authoritative: the
-// partial index is whatever got built before the cancel, and callers must
+// binary drives a prepare call that may decode and transcode a real picture
+// — that is the work, and that is what cancellation has to stop. A return
+// with a non-nil error means the set is not authoritative: callers must
 // check err first.
 func BuildPreviewImages(
 	ctx context.Context,
 	binaries map[string]FB2Binary,
 	base PreviewImageBase,
 	policy PreviewImagePolicy,
-) (PreviewImages, error) {
+) (PreviewImageSet, error) {
 	// The zero value of PreviewImageBase carries an empty path. URLFor
 	// would still produce "/N" out of it — real-looking addresses that
 	// route nowhere. Refuse before the loop touches a single binary, so
 	// the empty base cannot mint addresses even by accident.
 	if base.path == "" {
-		return PreviewImages{}, fmt.Errorf("%w: base was not built through NewPreviewImageBase", ErrPreviewImageBaseInvalid)
+		return PreviewImageSet{}, fmt.Errorf("%w: base was not built through NewPreviewImageBase", ErrPreviewImageBaseInvalid)
 	}
-	out := PreviewImages{base: base, index: make(map[string]int, len(binaries))}
 	ids := make([]string, 0, len(binaries))
 	for id := range binaries {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
+
+	set := PreviewImageSet{
+		base:    base,
+		byID:    make(map[string]int, len(binaries)),
+		Refused: make(map[string]error, len(binaries)),
+	}
 	n := 0
 	for _, id := range ids {
-		// One binary is one unit of work: PreparePreviewImage may decode
-		// and re-encode a real picture underneath. Check ctx between
-		// binaries, so a cancel that arrives during a transcode still
-		// stops the next one — rather than walking the rest of the map.
+		// One binary is one unit of work: prepare may decode and re-encode
+		// a real picture underneath. Check ctx between binaries, so a
+		// cancel that arrives during a transcode still stops the next one
+		// — rather than walking the rest of the map.
 		if err := ctx.Err(); err != nil {
-			return out, fmt.Errorf("fb2 preview: image build canceled: %w", err)
+			return set, fmt.Errorf("fb2 preview: image build canceled: %w", err)
 		}
-		// An address is issued only when the same call has produced the
-		// bytes the handler will serve. That closes the defect where the
-		// gate accepted a picture the handler could never satisfy: a header
-		// past fb2image.Normalize's own cap slipped through, the renderer
-		// emitted the URL, and the handler had nothing to send. The bytes
-		// themselves are discarded here — Build only assigns the address,
-		// the handler re-prepares on demand from the source binary.
-		if _, _, err := PreparePreviewImage(binaries[id].Data, policy); err != nil {
+		// Decision and preparation are one call: an address is issued only
+		// when the same call has produced the bytes the handler will serve,
+		// and those bytes are kept on the result. Throwing them away would
+		// mean the handler re-decoding and re-transcoding the same picture
+		// later — the work this function exists to do once.
+		payload, mime, err := preparePreviewImage(binaries[id].Data, policy)
+		if err != nil {
+			set.Refused[id] = err
 			continue
 		}
 		n++
-		out.index[id] = n
+		set.byID[id] = len(set.Images)
+		set.Images = append(set.Images, PreparedPreviewImage{
+			ID:      id,
+			Ordinal: n,
+			Payload: payload,
+			MIME:    mime,
+		})
 	}
-	return out, nil
+	return set, nil
+}
+
+// preparePreviewImage is the package-level indirection over PreparePreviewImage
+// so tests can count how many times a given binary was prepared. Production
+// always uses PreparePreviewImage itself; the variable is never reassigned
+// outside tests. A test that swaps it must restore it on cleanup.
+var preparePreviewImage = PreparePreviewImage
+
+// PreparedPreviewImage is one binary that passed policy, with the exact bytes
+// the handler will serve to the reader. The Payload is what PreparePreviewImage
+// produced; nothing re-encodes it downstream.
+type PreparedPreviewImage struct {
+	ID      string // book-binary id, the same key the renderer looks up
+	Ordinal int    // 1-based position under base
+	Payload []byte // final bytes the handler serves
+	MIME    string // MIME type matching Payload
+}
+
+// PreviewImageSet is the result of BuildPreviewImages: the prepared pictures
+// ready to serve, and the typed refusal for every binary that did not pass.
+// Images is sorted by Ordinal; Refused is keyed by binary id; the read-only
+// projection the renderer uses is exposed through Projection so the underlying
+// index stays private.
+type PreviewImageSet struct {
+	Images  []PreparedPreviewImage
+	Refused map[string]error
+
+	base PreviewImageBase
+	byID map[string]int // binary id -> index into Images
+}
+
+// Projection returns the read-only view the renderer and chunker consume: a
+// PreviewImages carrying the same base and the same id-to-ordinal mapping.
+// Keeping it as a separate type preserves the existing renderer contract
+// (URL, Ordinal, Len, Base) without exposing the prepared bytes to code that
+// has no business reading them.
+func (s PreviewImageSet) Projection() PreviewImages {
+	index := make(map[string]int, len(s.Images))
+	for _, img := range s.Images {
+		index[img.ID] = img.Ordinal
+	}
+	return PreviewImages{base: s.base, index: index}
+}
+
+// RefusalReason unwraps the recorded reason for one id, or nil if the id was
+// accepted. Callers that count by cause use errors.Is against the typed
+// refusals (ErrPreviewImageUnsupported, ErrPreviewImageDimensions, etc.).
+func (s PreviewImageSet) RefusalReason(id string) error {
+	return s.Refused[id]
 }
 
 // PreparePreviewImage decides and prepares one preview picture in the same

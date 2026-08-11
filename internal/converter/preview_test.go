@@ -111,11 +111,11 @@ func renderPreview(
 	imagePolicy PreviewImagePolicy,
 ) string {
 	t.Helper()
-	images, err := BuildPreviewImages(ctx, binaries, testPreviewImageBase(), imagePolicy)
+	set, err := BuildPreviewImages(ctx, binaries, testPreviewImageBase(), imagePolicy)
 	if err != nil {
 		t.Fatalf("BuildPreviewImages: %v", err)
 	}
-	out, err := RenderChunkHTML(chunk, images, chunkPolicy)
+	out, err := RenderChunkHTML(chunk, set.Projection(), chunkPolicy)
 	if err != nil {
 		t.Fatalf("RenderChunkHTML: %v", err)
 	}
@@ -361,5 +361,5 @@ func previewImagesFor(ctx context.Context, doc *FB2Document, policy PreviewImage
 		// rather than an empty image set silently wired into the renderer.
 		panic(fmt.Sprintf("previewImagesFor: %v", err))
 	}
-	return out
+	return out.Projection()
 }
