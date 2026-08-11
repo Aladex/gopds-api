@@ -20,12 +20,21 @@ func docFromParas(paras ...*FB2Paragraph) *FB2Document {
 	return doc
 }
 
-// renderAllChunks renders every chunk and returns the HTML pieces.
-func renderAllChunks(t *testing.T, chunks []*PreviewChunk, binaries map[string]FB2Binary, policy PreviewPolicy) []string {
+// renderAllChunks renders every chunk and returns the HTML pieces. Both
+// policies are passed through because rendering a chunk also resolves image
+// references: chunk policy bounds the HTML, image policy decides which
+// binaries the index admits.
+func renderAllChunks(
+	t *testing.T,
+	chunks []*PreviewChunk,
+	binaries map[string]FB2Binary,
+	chunkPolicy PreviewPolicy,
+	imagePolicy PreviewImagePolicy,
+) []string {
 	t.Helper()
 	out := make([]string, 0, len(chunks))
 	for _, chunk := range chunks {
-		out = append(out, renderPreview(t, chunk, binaries, policy))
+		out = append(out, renderPreview(t, chunk, binaries, chunkPolicy, imagePolicy))
 	}
 	return out
 }
@@ -33,7 +42,8 @@ func renderAllChunks(t *testing.T, chunks []*PreviewChunk, binaries map[string]F
 // A section larger than the ceiling is cut between block nodes, and no
 // portion exceeds the ceiling measured in rendered HTML bytes.
 func TestChunkPreview_SplitsOversizedSection(t *testing.T) {
-	policy := PreviewPolicy{MaxChunkBytes: 512, MaxImageBytes: 1 << 20, MaxImagePixels: 32 << 20}
+	chunkPolicy := PreviewPolicy{MaxChunkBytes: 512}
+	imagePolicy := testPreviewImagePolicy()
 	const paraCount = 40
 	markers := make([]string, 0, paraCount)
 	section := &FB2BodySection{Title: "Очень длинная глава"}
@@ -48,7 +58,7 @@ func TestChunkPreview_SplitsOversizedSection(t *testing.T) {
 		Content: []*FB2ContentItem{{Section: section}},
 	}}
 
-	chunks, err := ChunkPreview(doc, previewImagesFor(doc, policy), policy)
+	chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
 	if err != nil {
 		t.Fatalf("ChunkPreview: %v", err)
 	}
@@ -56,13 +66,13 @@ func TestChunkPreview_SplitsOversizedSection(t *testing.T) {
 		t.Fatalf("expected the oversized section to be cut into several chunks, got %d", len(chunks))
 	}
 
-	pieces := renderAllChunks(t, chunks, nil, policy)
+	pieces := renderAllChunks(t, chunks, nil, chunkPolicy, imagePolicy)
 	for i, piece := range pieces {
 		if piece == "" {
 			t.Errorf("chunk %d renders empty", i)
 		}
-		if len(piece) > policy.MaxChunkBytes {
-			t.Errorf("chunk %d is %d bytes of HTML, ceiling is %d", i, len(piece), policy.MaxChunkBytes)
+		if len(piece) > chunkPolicy.MaxChunkBytes {
+			t.Errorf("chunk %d is %d bytes of HTML, ceiling is %d", i, len(piece), chunkPolicy.MaxChunkBytes)
 		}
 	}
 
@@ -83,10 +93,11 @@ func TestChunkPreview_SplitsOversizedSection(t *testing.T) {
 // One indivisible block larger than the ceiling is a typed refusal, not a
 // silently oversized portion.
 func TestChunkPreview_IndivisibleBlockTooLarge(t *testing.T) {
-	policy := PreviewPolicy{MaxChunkBytes: 512, MaxImageBytes: 1 << 20, MaxImagePixels: 32 << 20}
+	chunkPolicy := PreviewPolicy{MaxChunkBytes: 512}
+	imagePolicy := testPreviewImagePolicy()
 	doc := docFromParas(textPara(strings.Repeat("очень длинный абзац ", 200)))
 
-	chunks, err := ChunkPreview(doc, previewImagesFor(doc, policy), policy)
+	chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
 	if err == nil {
 		t.Fatalf("expected a typed error for a block larger than the ceiling, got %d chunks", len(chunks))
 	}
@@ -104,7 +115,8 @@ func TestChunkPreview_IndivisibleBlockTooLarge(t *testing.T) {
 // refuses it is the per-image cap, not the portion ceiling.
 func TestChunkPreview_OversizedImageIsDropped(t *testing.T) {
 	jpegData := uniformImage(t, "jpeg", 64, 64)
-	policy := PreviewPolicy{MaxChunkBytes: 4096, MaxImageBytes: len(jpegData) - 1, MaxImagePixels: 32 << 20}
+	chunkPolicy := PreviewPolicy{MaxChunkBytes: 4096}
+	imagePolicy := PreviewImagePolicy{MaxBytes: len(jpegData) - 1, MaxPixels: 32 << 20}
 	imagePara := &FB2Paragraph{
 		Kind: ParagraphKindImage,
 		Content: []*FB2InlineElement{{
@@ -115,11 +127,11 @@ func TestChunkPreview_OversizedImageIsDropped(t *testing.T) {
 	doc := docFromParas(textPara("ТЕКСТ ДО КАРТИНКИ"), imagePara, textPara("ТЕКСТ ПОСЛЕ КАРТИНКИ"))
 	binaries := map[string]FB2Binary{"big1": {Data: jpegData, MIME: "image/jpeg"}}
 
-	chunks, err := ChunkPreview(doc, previewImagesFor(doc, policy), policy)
+	chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
 	if err != nil {
 		t.Fatalf("an oversized image must not refuse the book: %v", err)
 	}
-	pieces := renderAllChunks(t, chunks, binaries, policy)
+	pieces := renderAllChunks(t, chunks, binaries, chunkPolicy, imagePolicy)
 	joined := strings.Join(pieces, "")
 	if strings.Contains(joined, "<img") {
 		t.Errorf("an image over the per-image cap was still addressed: %q", shorten(joined))
@@ -133,8 +145,8 @@ func TestChunkPreview_OversizedImageIsDropped(t *testing.T) {
 		}
 	}
 	for i, piece := range pieces {
-		if len(piece) > policy.MaxChunkBytes {
-			t.Errorf("chunk %d is %d bytes of HTML, ceiling is %d", i, len(piece), policy.MaxChunkBytes)
+		if len(piece) > chunkPolicy.MaxChunkBytes {
+			t.Errorf("chunk %d is %d bytes of HTML, ceiling is %d", i, len(piece), chunkPolicy.MaxChunkBytes)
 		}
 	}
 }
@@ -142,7 +154,8 @@ func TestChunkPreview_OversizedImageIsDropped(t *testing.T) {
 // A footnote lands in the same portion as the text referencing it, even when
 // packing would otherwise put the reference at the end of the previous chunk.
 func TestChunkPreview_NoteStaysWithReference(t *testing.T) {
-	policy := PreviewPolicy{MaxChunkBytes: 512, MaxImageBytes: 1 << 20, MaxImagePixels: 32 << 20}
+	chunkPolicy := PreviewPolicy{MaxChunkBytes: 512}
+	imagePolicy := testPreviewImagePolicy()
 	filler := strings.Repeat("абзац-заполнитель почти на весь чанк ", 5) // ~180 bytes rendered
 	doc := docFromParas(
 		textPara(filler),
@@ -151,14 +164,14 @@ func TestChunkPreview_NoteStaysWithReference(t *testing.T) {
 	)
 	doc.Notes = []*FB2BodySection{noteSection("n1", "ТЕКСТ ПЕРВОЙ СНОСКИ "+strings.Repeat("подробно ", 8))}
 
-	chunks, err := ChunkPreview(doc, previewImagesFor(doc, policy), policy)
+	chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
 	if err != nil {
 		t.Fatalf("ChunkPreview: %v", err)
 	}
-	pieces := renderAllChunks(t, chunks, nil, policy)
+	pieces := renderAllChunks(t, chunks, nil, chunkPolicy, imagePolicy)
 	for i, piece := range pieces {
-		if len(piece) > policy.MaxChunkBytes {
-			t.Errorf("chunk %d is %d bytes of HTML, ceiling is %d — note bytes must count toward packing", i, len(piece), policy.MaxChunkBytes)
+		if len(piece) > chunkPolicy.MaxChunkBytes {
+			t.Errorf("chunk %d is %d bytes of HTML, ceiling is %d — note bytes must count toward packing", i, len(piece), chunkPolicy.MaxChunkBytes)
 		}
 		if strings.Contains(piece, "ССЫЛКА-НА-СНОСКУ") && !strings.Contains(piece, "ТЕКСТ ПЕРВОЙ СНОСКИ") {
 			t.Errorf("chunk %d holds the reference but not the footnote — the reader cannot expand it", i)
@@ -175,7 +188,8 @@ func TestChunkPreview_NoteStaysWithReference(t *testing.T) {
 // A footnote referenced from two portions is inlined into both, with anchors
 // unique per portion so two chunks in one DOM never collide.
 func TestChunkPreview_NoteInTwoChunksUniqueIDs(t *testing.T) {
-	policy := PreviewPolicy{MaxChunkBytes: 512, MaxImageBytes: 1 << 20, MaxImagePixels: 32 << 20}
+	chunkPolicy := PreviewPolicy{MaxChunkBytes: 512}
+	imagePolicy := testPreviewImagePolicy()
 	filler := strings.Repeat("разделитель между ссылками на одну сноску ", 6)
 	doc := docFromParas(
 		noteRefPara("n1", "ПЕРВАЯ-ССЫЛКА"),
@@ -185,11 +199,11 @@ func TestChunkPreview_NoteInTwoChunksUniqueIDs(t *testing.T) {
 	)
 	doc.Notes = []*FB2BodySection{noteSection("n1", "ОБЩИЙ ТЕКСТ СНОСКИ "+strings.Repeat("ещё подробнее ", 6))}
 
-	chunks, err := ChunkPreview(doc, previewImagesFor(doc, policy), policy)
+	chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
 	if err != nil {
 		t.Fatalf("ChunkPreview: %v", err)
 	}
-	pieces := renderAllChunks(t, chunks, nil, policy)
+	pieces := renderAllChunks(t, chunks, nil, chunkPolicy, imagePolicy)
 
 	var withFirst, withSecond []string
 	for _, piece := range pieces {
@@ -224,16 +238,17 @@ func TestChunkPreview_NoteInTwoChunksUniqueIDs(t *testing.T) {
 // A footnote nothing references is never rendered; a reference to a missing
 // footnote degrades to plain text.
 func TestChunkPreview_OrphanNotesAndReferences(t *testing.T) {
-	policy := testPreviewPolicy()
+	chunkPolicy := testPreviewPolicy()
+	imagePolicy := testPreviewImagePolicy()
 
 	t.Run("unreferenced note is dropped", func(t *testing.T) {
 		doc := docFromParas(textPara("ОБЫЧНЫЙ АБЗАЦ БЕЗ СНОСОК"))
 		doc.Notes = []*FB2BodySection{noteSection("n1", "СНОСКА БЕЗ ССЫЛОК НА НЕЁ")}
-		chunks, err := ChunkPreview(doc, previewImagesFor(doc, policy), policy)
+		chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
 		if err != nil {
 			t.Fatalf("ChunkPreview: %v", err)
 		}
-		joined := strings.Join(renderAllChunks(t, chunks, nil, policy), "")
+		joined := strings.Join(renderAllChunks(t, chunks, nil, chunkPolicy, imagePolicy), "")
 		if strings.Contains(joined, "СНОСКА БЕЗ ССЫЛОК НА НЕЁ") {
 			t.Errorf("an unreferenced footnote rendered — it is unreachable dead weight")
 		}
@@ -244,11 +259,11 @@ func TestChunkPreview_OrphanNotesAndReferences(t *testing.T) {
 
 	t.Run("reference to a missing note unwraps", func(t *testing.T) {
 		doc := docFromParas(noteRefPara("ghost", "ССЫЛКА В НИКУДА"))
-		chunks, err := ChunkPreview(doc, previewImagesFor(doc, policy), policy)
+		chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
 		if err != nil {
 			t.Fatalf("ChunkPreview: %v", err)
 		}
-		joined := strings.Join(renderAllChunks(t, chunks, nil, policy), "")
+		joined := strings.Join(renderAllChunks(t, chunks, nil, chunkPolicy, imagePolicy), "")
 		if !strings.Contains(joined, "ССЫЛКА В НИКУДА") {
 			t.Errorf("the link text vanished with its target")
 		}
@@ -264,24 +279,25 @@ func TestChunkPreview_CeilingCountsRenderedHTMLBytes(t *testing.T) {
 	// A 10-byte text renders as "<p>0123456789</p>\n" — 18 bytes. A
 	// model-byte counter would pack four paragraphs under a 40-byte ceiling;
 	// the HTML-byte truth fits only two.
-	policy := PreviewPolicy{MaxChunkBytes: 40, MaxImageBytes: 1 << 20, MaxImagePixels: 32 << 20}
+	chunkPolicy := PreviewPolicy{MaxChunkBytes: 40}
+	imagePolicy := testPreviewImagePolicy()
 	doc := docFromParas(
 		textPara("0123456789"),
 		textPara("0123456789"),
 		textPara("0123456789"),
 		textPara("0123456789"),
 	)
-	chunks, err := ChunkPreview(doc, previewImagesFor(doc, policy), policy)
+	chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
 	if err != nil {
 		t.Fatalf("ChunkPreview: %v", err)
 	}
 	if len(chunks) != 2 {
 		t.Fatalf("expected 2 chunks counting rendered HTML bytes, got %d", len(chunks))
 	}
-	pieces := renderAllChunks(t, chunks, nil, policy)
+	pieces := renderAllChunks(t, chunks, nil, chunkPolicy, imagePolicy)
 	for i, piece := range pieces {
-		if len(piece) > policy.MaxChunkBytes {
-			t.Errorf("chunk %d is %d bytes of HTML, ceiling is %d", i, len(piece), policy.MaxChunkBytes)
+		if len(piece) > chunkPolicy.MaxChunkBytes {
+			t.Errorf("chunk %d is %d bytes of HTML, ceiling is %d", i, len(piece), chunkPolicy.MaxChunkBytes)
 		}
 	}
 }
@@ -296,7 +312,7 @@ func TestChunkPreview_EmptyBookIsOneEmptyChunk(t *testing.T) {
 	if len(chunks) != 1 {
 		t.Fatalf("expected exactly 1 chunk for an empty book, got %d", len(chunks))
 	}
-	pieces := renderAllChunks(t, chunks, nil, testPreviewPolicy())
+	pieces := renderAllChunks(t, chunks, nil, testPreviewPolicy(), testPreviewImagePolicy())
 	if pieces[0] != "" {
 		t.Errorf("an empty book must render empty, got %q", pieces[0])
 	}
@@ -305,7 +321,8 @@ func TestChunkPreview_EmptyBookIsOneEmptyChunk(t *testing.T) {
 // A reference inside a table cell pulls its footnote exactly like a reference
 // in flowing text: cells are text too.
 func TestChunkPreview_NoteReferencedFromTableCell(t *testing.T) {
-	policy := testPreviewPolicy()
+	chunkPolicy := testPreviewPolicy()
+	imagePolicy := testPreviewImagePolicy()
 	table := &FB2Paragraph{
 		Kind: ParagraphKindTable,
 		Table: &FB2Table{Rows: [][]*FB2TableCell{
@@ -318,11 +335,11 @@ func TestChunkPreview_NoteReferencedFromTableCell(t *testing.T) {
 	}
 	doc := docFromParas(table)
 	doc.Notes = []*FB2BodySection{noteSection("n1", "СНОСКА ИЗ ТАБЛИЦЫ")}
-	chunks, err := ChunkPreview(doc, previewImagesFor(doc, policy), policy)
+	chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
 	if err != nil {
 		t.Fatalf("ChunkPreview: %v", err)
 	}
-	joined := strings.Join(renderAllChunks(t, chunks, nil, policy), "")
+	joined := strings.Join(renderAllChunks(t, chunks, nil, chunkPolicy, imagePolicy), "")
 	if !strings.Contains(joined, "СНОСКА ИЗ ТАБЛИЦЫ") {
 		t.Errorf("a footnote referenced from a table cell never rendered")
 	}
@@ -338,19 +355,20 @@ func TestChunkPreview_DraftSizesNeverUndercount(t *testing.T) {
 	// The ceiling of 60 fits A+B only in the unwrapped form — so if the draft
 	// pretended links are free, both would land in one chunk and the final
 	// render (79 bytes) would overflow it.
-	policy := PreviewPolicy{MaxChunkBytes: 60, MaxImageBytes: 1 << 20, MaxImagePixels: 32 << 20}
+	chunkPolicy := PreviewPolicy{MaxChunkBytes: 60}
+	imagePolicy := testPreviewImagePolicy()
 	target := textPara("0123456789")
 	target.ID = "tgt"
 	doc := docFromParas(target, linkPara("#tgt", "0123456789"))
 
-	chunks, err := ChunkPreview(doc, previewImagesFor(doc, policy), policy)
+	chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
 	if err != nil {
 		t.Fatalf("ChunkPreview: %v", err)
 	}
-	pieces := renderAllChunks(t, chunks, nil, policy)
+	pieces := renderAllChunks(t, chunks, nil, chunkPolicy, imagePolicy)
 	for i, piece := range pieces {
-		if len(piece) > policy.MaxChunkBytes {
-			t.Errorf("chunk %d is %d bytes of HTML, ceiling is %d — the draft undercounted the link", i, len(piece), policy.MaxChunkBytes)
+		if len(piece) > chunkPolicy.MaxChunkBytes {
+			t.Errorf("chunk %d is %d bytes of HTML, ceiling is %d — the draft undercounted the link", i, len(piece), chunkPolicy.MaxChunkBytes)
 		}
 	}
 	joined := strings.Join(pieces, "")
@@ -363,15 +381,16 @@ func TestChunkPreview_DraftSizesNeverUndercount(t *testing.T) {
 // chunker and the renderer have to key notes through the same normalised form,
 // or the lookup silently misses and the note text vanishes.
 func TestChunkPreview_NoteIDWithSpaceLandsInChunk(t *testing.T) {
-	policy := testPreviewPolicy()
+	chunkPolicy := testPreviewPolicy()
+	imagePolicy := testPreviewImagePolicy()
 	doc := docFromParas(noteRefPara("a b", "ССЫЛКА-НА-СНОСКУ-С-ПРОБЕЛОМ"))
 	doc.Notes = []*FB2BodySection{noteSection("a b", "ТЕКСТ-СНОСКИ-С-ПРОБЕЛОМ-В-ИД")}
 
-	chunks, err := ChunkPreview(doc, previewImagesFor(doc, policy), policy)
+	chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
 	if err != nil {
 		t.Fatalf("ChunkPreview: %v", err)
 	}
-	joined := strings.Join(renderAllChunks(t, chunks, nil, policy), "")
+	joined := strings.Join(renderAllChunks(t, chunks, nil, chunkPolicy, imagePolicy), "")
 	if !strings.Contains(joined, "ТЕКСТ-СНОСКИ-С-ПРОБЕЛОМ-В-ИД") {
 		t.Errorf("footnote text missing: a note whose id contains whitespace was dropped from the portion")
 	}
@@ -382,14 +401,15 @@ func TestChunkPreview_NoteIDWithSpaceLandsInChunk(t *testing.T) {
 // per-chunk "already seen" set by the raw id lets the second ref pull the
 // note again and pay its cost twice.
 func TestChunkPreview_NoteIDWithSpaceNotDoubleCounted(t *testing.T) {
-	policy := testPreviewPolicy()
+	chunkPolicy := testPreviewPolicy()
+	imagePolicy := testPreviewImagePolicy()
 	doc := docFromParas(
 		noteRefPara("a b", "ПЕРВАЯ-ССЫЛКА"),
 		noteRefPara("a b", "ВТОРАЯ-ССЫЛКА"),
 	)
 	doc.Notes = []*FB2BodySection{noteSection("a b", "ТЕКСТ-СНОСКИ-С-ПРОБЕЛОМ-В-ИД")}
 
-	chunks, err := ChunkPreview(doc, previewImagesFor(doc, policy), policy)
+	chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
 	if err != nil {
 		t.Fatalf("ChunkPreview: %v", err)
 	}
@@ -409,7 +429,8 @@ func TestChunkPreview_NoteIDWithSpaceNotDoubleCounted(t *testing.T) {
 // normalised key and silently flip the winner, so this test pins the guard,
 // not just the store.
 func TestChunkPreview_DuplicateNormalizedNoteIDFirstWins(t *testing.T) {
-	policy := testPreviewPolicy()
+	chunkPolicy := testPreviewPolicy()
+	imagePolicy := testPreviewImagePolicy()
 	doc := docFromParas(noteRefPara("a b", "ССЫЛКА-НА-ДУБЛИКАТ-КЛЮЧА"))
 	// Order matters: the first note's raw id equals the normalised key, the
 	// second's reduces to it. Only a raw-keyed dedup guard would admit both.
@@ -418,11 +439,11 @@ func TestChunkPreview_DuplicateNormalizedNoteIDFirstWins(t *testing.T) {
 		noteSection("a b", "ТЕКСТ-ВТОРОЙ-СНОСКИ"),
 	}
 
-	chunks, err := ChunkPreview(doc, previewImagesFor(doc, policy), policy)
+	chunks, err := ChunkPreview(doc, previewImagesFor(doc, imagePolicy), chunkPolicy)
 	if err != nil {
 		t.Fatalf("ChunkPreview: %v", err)
 	}
-	joined := strings.Join(renderAllChunks(t, chunks, nil, policy), "")
+	joined := strings.Join(renderAllChunks(t, chunks, nil, chunkPolicy, imagePolicy), "")
 	if !strings.Contains(joined, "ТЕКСТ-ПЕРВОЙ-СНОСКИ") {
 		t.Errorf("the first note lost the dedup race — first id must win, got neither")
 	}

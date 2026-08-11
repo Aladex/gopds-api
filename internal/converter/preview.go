@@ -51,13 +51,25 @@ var (
 	ErrPreviewImageTooLargeResult = errors.New("fb2 preview: image payload exceeds the byte cap after normalize")
 )
 
-// PreviewPolicy carries the budgets and limits of the preview output. All
-// sizes are counted in bytes of the final rendered HTML, never in model
-// units — the model is not what the reader's browser receives.
+// PreviewPolicy carries the budget of one preview portion: the rendered
+// HTML ceiling. Image budgets lived here once, when a picture was inlined as
+// a data: URL and the portion byte count had to bound both text and picture
+// at once. A picture is now a resource of its own, addressed by a URL the
+// server builds, so its caps travel separately under PreviewImagePolicy.
+// Holding them here would make two budgets of two different things look like
+// one budget of one thing.
 type PreviewPolicy struct {
-	MaxChunkBytes  int // Hard ceiling on the rendered HTML of one portion
-	MaxImageBytes  int // Per-image decoded payload cap
-	MaxImagePixels int // Per-image pixel cap, against decompression bombs
+	MaxChunkBytes int // Hard ceiling on the rendered HTML of one portion
+}
+
+// PreviewImagePolicy carries what a single picture must fit to be shown:
+// bytes of the served payload and pixels of the decoded canvas. These are
+// properties of one image, not of one portion, so they live apart from
+// PreviewPolicy. The chunker and renderer never read them; only the image
+// preparation path does.
+type PreviewImagePolicy struct {
+	MaxBytes  int // Per-image decoded payload cap
+	MaxPixels int // Per-image pixel cap, against decompression bombs
 }
 
 // chunkBlock is one indivisible block-level unit of the flattened document:

@@ -65,7 +65,7 @@ func (p PreviewImages) URL(id string) string {
 // ids so the same book always yields the same addresses: the mapping is part
 // of the contract between the renderer that emits a URL and the handler that
 // answers it.
-func BuildPreviewImages(binaries map[string]FB2Binary, base string, policy PreviewPolicy) PreviewImages {
+func BuildPreviewImages(binaries map[string]FB2Binary, base string, policy PreviewImagePolicy) PreviewImages {
 	out := PreviewImages{Base: base, Index: make(map[string]int, len(binaries))}
 	ids := make([]string, 0, len(binaries))
 	for id := range binaries {
@@ -100,13 +100,13 @@ func BuildPreviewImages(binaries map[string]FB2Binary, base string, policy Previ
 // of a header the decoder has not confirmed. The policy's own byte and pixel
 // caps are layered on top, because Normalize answers "could a reader draw
 // this" — a question wider than "does our preview policy allow it".
-func PreparePreviewImage(data []byte, policy PreviewPolicy) (payload []byte, mime string, err error) {
+func PreparePreviewImage(data []byte, policy PreviewImagePolicy) (payload []byte, mime string, err error) {
 	// The byte cap on the input is checked before any decode: a binary the
 	// size of a book must not reach a decoder that would allocate from the
 	// header it carries.
-	if len(data) > policy.MaxImageBytes {
+	if len(data) > policy.MaxBytes {
 		return nil, "", fmt.Errorf("%w: payload is %d bytes, cap is %d",
-			ErrPreviewImageTooLarge, len(data), policy.MaxImageBytes)
+			ErrPreviewImageTooLarge, len(data), policy.MaxBytes)
 	}
 	if len(data) == 0 {
 		// An empty payload carries no magic, so format is unsupported —
@@ -153,17 +153,17 @@ func PreparePreviewImage(data []byte, policy PreviewPolicy) (payload []byte, mim
 	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
 		return nil, "", fmt.Errorf("%w: header would not decode", ErrPreviewImageCorrupt)
 	}
-	if cfg.Width*cfg.Height > policy.MaxImagePixels {
+	if cfg.Width*cfg.Height > policy.MaxPixels {
 		return nil, "", fmt.Errorf("%w: declared %dx%d, cap is %d pixels",
-			ErrPreviewImageDimensions, cfg.Width, cfg.Height, policy.MaxImagePixels)
+			ErrPreviewImageDimensions, cfg.Width, cfg.Height, policy.MaxPixels)
 	}
 
 	// Final size check on the bytes the reader will receive. Re-encoding a
 	// BMP as PNG can come out bigger than the source, so the input gate
 	// above does not see this size — only this gate does.
-	if len(payload) > policy.MaxImageBytes {
+	if len(payload) > policy.MaxBytes {
 		return nil, "", fmt.Errorf("%w: %d bytes after normalize, cap is %d",
-			ErrPreviewImageTooLargeResult, len(payload), policy.MaxImageBytes)
+			ErrPreviewImageTooLargeResult, len(payload), policy.MaxBytes)
 	}
 
 	return payload, mime, nil

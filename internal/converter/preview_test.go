@@ -19,10 +19,18 @@ import (
 	"golang.org/x/net/html/atom"
 )
 
-// testPreviewPolicy returns a generous policy: only the HTML ceiling binds in
-// most tests.
+// testPreviewPolicy returns a generous chunk policy: only the HTML ceiling
+// binds in most tests. Image caps live in testPreviewImagePolicy now — they
+// are a different budget of a different resource and travel separately.
 func testPreviewPolicy() PreviewPolicy {
-	return PreviewPolicy{MaxChunkBytes: 64 * 1024, MaxImageBytes: 1 << 20, MaxImagePixels: 32 << 20}
+	return PreviewPolicy{MaxChunkBytes: 64 * 1024}
+}
+
+// testPreviewImagePolicy returns generous image caps: only the HTML ceiling
+// or specific image tests bind. The values are the historical defaults,
+// carried across the type split unchanged so no test's outcome moves.
+func testPreviewImagePolicy() PreviewImagePolicy {
+	return PreviewImagePolicy{MaxBytes: 1 << 20, MaxPixels: 32 << 20}
 }
 
 // textPara builds a plain paragraph carrying the text both as the inline tree
@@ -74,10 +82,20 @@ func paraChunk(index int, paras ...*FB2Paragraph) *PreviewChunk {
 	return chunk
 }
 
-// renderPreview renders or fails the test.
-func renderPreview(t *testing.T, chunk *PreviewChunk, binaries map[string]FB2Binary, policy PreviewPolicy) string {
+// renderPreview renders or fails the test. Both policies are needed because
+// rendering a chunk also resolves image references against a freshly built
+// PreviewImages set: chunk policy bounds the HTML, image policy decides which
+// binaries the index admits. Folding them back into one argument would
+// pretend they are the same budget.
+func renderPreview(
+	t *testing.T,
+	chunk *PreviewChunk,
+	binaries map[string]FB2Binary,
+	chunkPolicy PreviewPolicy,
+	imagePolicy PreviewImagePolicy,
+) string {
 	t.Helper()
-	out, err := RenderChunkHTML(chunk, BuildPreviewImages(binaries, "/preview/img", policy), policy)
+	out, err := RenderChunkHTML(chunk, BuildPreviewImages(binaries, "/preview/img", imagePolicy), chunkPolicy)
 	if err != nil {
 		t.Fatalf("RenderChunkHTML: %v", err)
 	}
@@ -308,7 +326,7 @@ func markerOrder(haystack string, markers []string) error {
 // so a test exercises the same path production will: the chunker sizes what
 // the renderer emits, from one map, under one policy. The earlier tests kept
 // two maps and the chunker never saw the images at all.
-func previewImagesFor(doc *FB2Document, policy PreviewPolicy) PreviewImages {
+func previewImagesFor(doc *FB2Document, policy PreviewImagePolicy) PreviewImages {
 	var bins map[string]FB2Binary
 	if doc != nil {
 		bins = doc.Binary

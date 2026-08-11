@@ -51,7 +51,7 @@ func TestRenderChunkHTML_HrefSchemes(t *testing.T) {
 	}
 	for _, href := range hostile {
 		t.Run(fmt.Sprintf("stripped_%q", href), func(t *testing.T) {
-			out := renderPreview(t, paraChunk(0, linkPara(href, "ВИДИМЫЙ ТЕКСТ")), nil, testPreviewPolicy())
+			out := renderPreview(t, paraChunk(0, linkPara(href, "ВИДИМЫЙ ТЕКСТ")), nil, testPreviewPolicy(), testPreviewImagePolicy())
 			if !strings.Contains(out, "ВИДИМЫЙ ТЕКСТ") {
 				t.Errorf("the visible text went away with the attribute")
 			}
@@ -65,7 +65,7 @@ func TestRenderChunkHTML_HrefSchemes(t *testing.T) {
 		target := textPara("ЦЕЛЕВОЙ АБЗАЦ")
 		target.ID = "note1"
 		chunk := paraChunk(0, linkPara("#note1", "ССЫЛКА НА ЯКОРЬ"), target)
-		out := renderPreview(t, chunk, nil, testPreviewPolicy())
+		out := renderPreview(t, chunk, nil, testPreviewPolicy(), testPreviewImagePolicy())
 		if !strings.Contains(out, `href="#pv0-note1"`) {
 			t.Errorf("the fragment link did not survive: %q", shorten(out))
 		}
@@ -78,7 +78,7 @@ func TestRenderChunkHTML_HrefSchemes(t *testing.T) {
 		target := textPara("ЦЕЛЕВОЙ АБЗАЦ")
 		target.ID = "note1"
 		chunk := paraChunk(0, linkPara(" \t#note1\n", "ССЫЛКА С ПРОБЕЛАМИ"), target)
-		out := renderPreview(t, chunk, nil, testPreviewPolicy())
+		out := renderPreview(t, chunk, nil, testPreviewPolicy(), testPreviewImagePolicy())
 		if !strings.Contains(out, `href="#pv0-note1"`) {
 			t.Errorf("a padded fragment link did not survive: %q", shorten(out))
 		}
@@ -87,7 +87,13 @@ func TestRenderChunkHTML_HrefSchemes(t *testing.T) {
 	t.Run("fragment to another portion unwraps", func(t *testing.T) {
 		// #elsewhere exists in the book but not in this chunk: cross-portion
 		// navigation does not exist, so the link degrades to text.
-		out := renderPreview(t, paraChunk(0, linkPara("#elsewhere", "ССЫЛКА НА ДРУГУЮ ПОРЦИЮ")), nil, testPreviewPolicy())
+		out := renderPreview(
+			t,
+			paraChunk(0, linkPara("#elsewhere", "ССЫЛКА НА ДРУГУЮ ПОРЦИЮ")),
+			nil,
+			testPreviewPolicy(),
+			testPreviewImagePolicy(),
+		)
 		if !strings.Contains(out, "ССЫЛКА НА ДРУГУЮ ПОРЦИЮ") {
 			t.Errorf("the visible text went away with the attribute")
 		}
@@ -133,7 +139,7 @@ func TestRenderChunkHTML_Images(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			binaries := map[string]FB2Binary{tc.id: tc.binary}
-			out := renderPreview(t, paraChunk(0, imagePara(tc.id)), binaries, testPreviewPolicy())
+			out := renderPreview(t, paraChunk(0, imagePara(tc.id)), binaries, testPreviewPolicy(), testPreviewImagePolicy())
 			if tc.wantSrc != "" && !strings.Contains(out, `src="`+tc.wantSrc+`"`) {
 				t.Errorf("expected src %q in %q", tc.wantSrc, shorten(out))
 			}
@@ -149,7 +155,7 @@ func TestRenderChunkHTML_Images(t *testing.T) {
 	}
 
 	t.Run("reference to a missing id", func(t *testing.T) {
-		out := renderPreview(t, paraChunk(0, imagePara("nope")), nil, testPreviewPolicy())
+		out := renderPreview(t, paraChunk(0, imagePara("nope")), nil, testPreviewPolicy(), testPreviewImagePolicy())
 		if !strings.Contains(out, "[image]") {
 			t.Errorf("a missing image left no placeholder: %q", shorten(out))
 		}
@@ -159,7 +165,7 @@ func TestRenderChunkHTML_Images(t *testing.T) {
 	})
 
 	t.Run("empty href", func(t *testing.T) {
-		out := renderPreview(t, paraChunk(0, imagePara("")), nil, testPreviewPolicy())
+		out := renderPreview(t, paraChunk(0, imagePara("")), nil, testPreviewPolicy(), testPreviewImagePolicy())
 		if !strings.Contains(out, "[image]") || strings.Contains(out, "<img") {
 			t.Errorf("an image without a reference must be a placeholder, got %q", shorten(out))
 		}
@@ -167,17 +173,20 @@ func TestRenderChunkHTML_Images(t *testing.T) {
 
 	t.Run("one image referenced twice renders twice", func(t *testing.T) {
 		binaries := map[string]FB2Binary{"dup": {Data: pngData, MIME: "image/png"}}
-		out := renderPreview(t, paraChunk(0, imagePara("dup"), imagePara("dup")), binaries, testPreviewPolicy())
+		out := renderPreview(t, paraChunk(0, imagePara("dup"), imagePara("dup")), binaries, testPreviewPolicy(), testPreviewImagePolicy())
 		if n := countOccurrences(out, "<img"); n != 2 {
 			t.Errorf("expected 2 <img> tags for two references, got %d", n)
 		}
 	})
 
 	t.Run("over the byte limit", func(t *testing.T) {
-		policy := testPreviewPolicy()
-		policy.MaxImageBytes = 10 // the 8x8 PNG is larger
+		// The image budget is its own policy now: tightening the byte cap
+		// does not touch the HTML ceiling. The picture is dropped from the
+		// index, so the renderer emits the placeholder.
+		imagePolicy := testPreviewImagePolicy()
+		imagePolicy.MaxBytes = 10 // the 8x8 PNG is larger
 		binaries := map[string]FB2Binary{"big": {Data: pngData, MIME: "image/png"}}
-		out := renderPreview(t, paraChunk(0, imagePara("big")), binaries, policy)
+		out := renderPreview(t, paraChunk(0, imagePara("big")), binaries, testPreviewPolicy(), imagePolicy)
 		if strings.Contains(out, "data:image") {
 			t.Errorf("an image over the byte limit was inlined")
 		}
@@ -187,10 +196,10 @@ func TestRenderChunkHTML_Images(t *testing.T) {
 	})
 
 	t.Run("over the pixel limit at a small compressed size", func(t *testing.T) {
-		policy := testPreviewPolicy()
-		policy.MaxImagePixels = 100
+		imagePolicy := testPreviewImagePolicy()
+		imagePolicy.MaxPixels = 100
 		binaries := map[string]FB2Binary{"wide": {Data: uniformImage(t, "png", 16, 16), MIME: "image/png"}}
-		out := renderPreview(t, paraChunk(0, imagePara("wide")), binaries, policy)
+		out := renderPreview(t, paraChunk(0, imagePara("wide")), binaries, testPreviewPolicy(), imagePolicy)
 		if strings.Contains(out, "data:image") {
 			t.Errorf("a 256-pixel image passed a 100-pixel limit")
 		}
@@ -204,7 +213,7 @@ func TestRenderChunkHTML_Images(t *testing.T) {
 		// reached, the declared dimensions alone decide.
 		forged := forgePNGDimensions(t, uniformImage(t, "png", 1, 1), 10000, 10000)
 		binaries := map[string]FB2Binary{"bomb": {Data: forged, MIME: "image/png"}}
-		out := renderPreview(t, paraChunk(0, imagePara("bomb")), binaries, testPreviewPolicy())
+		out := renderPreview(t, paraChunk(0, imagePara("bomb")), binaries, testPreviewPolicy(), testPreviewImagePolicy())
 		if strings.Contains(out, "data:image") {
 			t.Errorf("a forged 100-megapixel header was inlined — the pixel cap was not consulted")
 		}
@@ -230,7 +239,7 @@ func TestRenderChunkHTML_Anchors(t *testing.T) {
 	link := linkPara("#dup", "ССЫЛКА НА ДУБЛЬ")
 
 	chunk := paraChunk(3, quoted, spaced, unicodeID, dup1, dup2, link)
-	out := renderPreview(t, chunk, nil, testPreviewPolicy())
+	out := renderPreview(t, chunk, nil, testPreviewPolicy(), testPreviewImagePolicy())
 	ids := auditPreviewHTML(t, out)
 
 	for _, want := range []string{`pv3-we"id`, "pv3-ab", "pv3-якорь", "pv3-dup"} {
@@ -300,7 +309,7 @@ func TestRenderChunkHTML_OutputInvariant(t *testing.T) {
 	chunk.notes = []*FB2BodySection{noteSection("n1", "ТЕКСТ СНОСКИ ИНВАРИАНТА")}
 	binaries := map[string]FB2Binary{"ok": {Data: uniformImage(t, "png", 4, 4), MIME: "image/png"}}
 
-	out := renderPreview(t, chunk, binaries, testPreviewPolicy())
+	out := renderPreview(t, chunk, binaries, testPreviewPolicy(), testPreviewImagePolicy())
 	auditPreviewHTML(t, out)
 
 	// The document must still be recognizable: safety is not emptiness.
@@ -388,9 +397,10 @@ func TestRenderChunkHTML_PropertyArbitraryInlineTrees(t *testing.T) {
 
 	binaries := map[string]FB2Binary{"note": {Data: uniformImage(t, "png", 2, 2), MIME: "image/png"}}
 	// The invariant is size-independent: give the render room for the biggest
-	// budgeted tree so the ceiling check never interferes.
-	propertyPolicy := testPreviewPolicy()
-	propertyPolicy.MaxChunkBytes = 8 << 20
+	// budgeted tree so the HTML ceiling check never interferes. The image
+	// policy stays at defaults — the binaries here are small real PNGs.
+	propertyPolicy := PreviewPolicy{MaxChunkBytes: 8 << 20}
+	imagePolicy := testPreviewImagePolicy()
 	renderedSomething := false
 	for iteration := 0; iteration < 300; iteration++ {
 		nodeBudget = 200
@@ -398,7 +408,7 @@ func TestRenderChunkHTML_PropertyArbitraryInlineTrees(t *testing.T) {
 		if rng.Intn(3) == 0 {
 			para.ID = "p1"
 		}
-		out, err := RenderChunkHTML(paraChunk(0, para), BuildPreviewImages(binaries, "/preview/img", propertyPolicy), propertyPolicy)
+		out, err := RenderChunkHTML(paraChunk(0, para), BuildPreviewImages(binaries, "/preview/img", imagePolicy), propertyPolicy)
 		if err != nil {
 			t.Fatalf("iteration %d: RenderChunkHTML: %v", iteration, err)
 		}
@@ -429,7 +439,7 @@ func TestRenderChunkHTML_TextRegressions(t *testing.T) {
 	t.Run("section title is an escaped heading", func(t *testing.T) {
 		section := &FB2BodySection{Title: `Заголовок <с "кавычками">`}
 		chunk := &PreviewChunk{Index: 0, blocks: []chunkBlock{{header: section, depth: 1}}}
-		out := renderPreview(t, chunk, nil, testPreviewPolicy())
+		out := renderPreview(t, chunk, nil, testPreviewPolicy(), testPreviewImagePolicy())
 		if !strings.Contains(out, `<h1>Заголовок &lt;с &#34;кавычками&#34;&gt;</h1>`) {
 			t.Errorf("section title misrendered: %q", shorten(out))
 		}
@@ -443,7 +453,7 @@ func TestRenderChunkHTML_TextRegressions(t *testing.T) {
 				{{Content: []*FB2InlineElement{{Type: InlineTypeText, Content: "ТЕЛО"}}}},
 			}},
 		}
-		out := renderPreview(t, paraChunk(0, table), nil, testPreviewPolicy())
+		out := renderPreview(t, paraChunk(0, table), nil, testPreviewPolicy(), testPreviewImagePolicy())
 		if !strings.Contains(out, "<th>ГОЛОВА &lt;1&gt;</th>") {
 			t.Errorf("header cell misrendered: %q", shorten(out))
 		}
@@ -457,7 +467,7 @@ func TestRenderChunkHTML_TextRegressions(t *testing.T) {
 		note.Title = "ЗАМЕТКА НА ПОЛЯХ"
 		chunk := paraChunk(0, noteRefPara("n1", "СМ"))
 		chunk.notes = []*FB2BodySection{note}
-		out := renderPreview(t, chunk, nil, testPreviewPolicy())
+		out := renderPreview(t, chunk, nil, testPreviewPolicy(), testPreviewImagePolicy())
 		if !strings.Contains(out, "ЗАМЕТКА НА ПОЛЯХ") {
 			t.Errorf("the note title did not render")
 		}
@@ -468,7 +478,7 @@ func TestRenderChunkHTML_TextRegressions(t *testing.T) {
 
 	t.Run("poem line keeps its wrapper", func(t *testing.T) {
 		line := &FB2Paragraph{Kind: ParagraphKindPoemLine, Content: []*FB2InlineElement{{Type: InlineTypeText, Content: "СТРОКА"}}}
-		out := renderPreview(t, paraChunk(0, line), nil, testPreviewPolicy())
+		out := renderPreview(t, paraChunk(0, line), nil, testPreviewPolicy(), testPreviewImagePolicy())
 		if !strings.Contains(out, `<p class="poem-line">СТРОКА</p>`) {
 			t.Errorf("poem line misrendered: %q", shorten(out))
 		}
@@ -479,7 +489,7 @@ func TestRenderChunkHTML_TextRegressions(t *testing.T) {
 		// switch would render nothing at all, and the stanza rhythm is lost.
 		poemBreak := &FB2Paragraph{Kind: ParagraphKindPoemBreak}
 		emptyLine := &FB2Paragraph{Kind: ParagraphKindEmptyLine}
-		out := renderPreview(t, paraChunk(0, poemBreak, emptyLine), nil, testPreviewPolicy())
+		out := renderPreview(t, paraChunk(0, poemBreak, emptyLine), nil, testPreviewPolicy(), testPreviewImagePolicy())
 		if !strings.Contains(out, `<div class="stanza"></div>`) {
 			t.Errorf("poem break rendered no stanza separator: %q", shorten(out))
 		}
@@ -500,7 +510,7 @@ func TestRenderChunkHTML_TextRegressions(t *testing.T) {
 				}},
 			}},
 		}}
-		out := renderPreview(t, paraChunk(0, deep), nil, testPreviewPolicy())
+		out := renderPreview(t, paraChunk(0, deep), nil, testPreviewPolicy(), testPreviewImagePolicy())
 		if !strings.Contains(out, "<strong><em><code><sup>ГЛУБИНА</sup></code></em></strong>") {
 			t.Errorf("nested formatting misrendered: %q", shorten(out))
 		}
@@ -512,7 +522,7 @@ func TestRenderChunkHTML_TextRegressions(t *testing.T) {
 				{Type: InlineTypeText, Content: "ТЕКСТ"},
 			}},
 		}}
-		out := renderPreview(t, paraChunk(0, para), nil, testPreviewPolicy())
+		out := renderPreview(t, paraChunk(0, para), nil, testPreviewPolicy(), testPreviewImagePolicy())
 		if !strings.Contains(out, "<em>ТЕКСТ</em>") {
 			t.Errorf("the emphasis itself did not render: %q", shorten(out))
 		}
@@ -523,7 +533,7 @@ func TestRenderChunkHTML_TextRegressions(t *testing.T) {
 
 	t.Run("text escaping is exact", func(t *testing.T) {
 		para := textPara(`a<b>&"'`)
-		out := renderPreview(t, paraChunk(0, para), nil, testPreviewPolicy())
+		out := renderPreview(t, paraChunk(0, para), nil, testPreviewPolicy(), testPreviewImagePolicy())
 		if !strings.Contains(out, `a&lt;b&gt;&amp;&#34;&#39;`) {
 			t.Errorf("text escaping mismatch: %q", shorten(out))
 		}
@@ -541,7 +551,7 @@ func TestRenderChunkHTML_TextRegressions(t *testing.T) {
 			bottom = &FB2InlineElement{Type: InlineTypeStrong, Children: []*FB2InlineElement{bottom}}
 		}
 		para := &FB2Paragraph{Kind: ParagraphKindNormal, Content: []*FB2InlineElement{bottom}}
-		out := renderPreview(t, paraChunk(0, para), nil, testPreviewPolicy())
+		out := renderPreview(t, paraChunk(0, para), nil, testPreviewPolicy(), testPreviewImagePolicy())
 		if strings.Contains(out, "САМОЕ ДНО") {
 			t.Errorf("content below the depth guard rendered — the guard did not cut")
 		}
@@ -557,7 +567,7 @@ func TestRenderChunkHTML_TextRegressions(t *testing.T) {
 			noteRefPara("n1", "ССЫЛКА ДВА"),
 		)
 		chunk.notes = []*FB2BodySection{noteSection("n1", "ТЕКСТ ЕДИНОЙ СНОСКИ")}
-		out := renderPreview(t, chunk, nil, testPreviewPolicy())
+		out := renderPreview(t, chunk, nil, testPreviewPolicy(), testPreviewImagePolicy())
 		auditPreviewHTML(t, out)
 		if n := countOccurrences(out, `class="preview-note"`); n != 1 {
 			t.Errorf("one note rendered %d times in one chunk — the id would duplicate", n)
@@ -603,11 +613,11 @@ func TestRenderChunkHTML_OrdinaryBookRecognizable(t *testing.T) {
 	binaries := map[string]FB2Binary{"ill1": {Data: pngData, MIME: "image/png"}}
 	doc.Binary = binaries
 
-	chunks, err := ChunkPreview(doc, previewImagesFor(doc, testPreviewPolicy()), testPreviewPolicy())
+	chunks, err := ChunkPreview(doc, previewImagesFor(doc, testPreviewImagePolicy()), testPreviewPolicy())
 	if err != nil {
 		t.Fatalf("ChunkPreview: %v", err)
 	}
-	pieces := renderAllChunks(t, chunks, binaries, testPreviewPolicy())
+	pieces := renderAllChunks(t, chunks, binaries, testPreviewPolicy(), testPreviewImagePolicy())
 	joined := strings.Join(pieces, "")
 	auditPreviewHTML(t, joined)
 
@@ -675,7 +685,7 @@ func TestRenderChunkHTML_AnchorCollisionAfterNormalising(t *testing.T) {
 				Children: []*FB2InlineElement{{Type: InlineTypeText, Content: "ССЫЛКА"}},
 			}},
 		}
-		out := renderPreview(t, paraChunk(0, only, link), nil, testPreviewPolicy())
+		out := renderPreview(t, paraChunk(0, only, link), nil, testPreviewPolicy(), testPreviewImagePolicy())
 		if got := countOccurrences(out, `id="pv0-ab"`); got != 1 {
 			t.Fatalf("expected the anchor pv0-ab, got %d: %s", got, out)
 		}
@@ -701,7 +711,7 @@ func assertOneAnchorSurvives(t *testing.T, firstID, secondID string) {
 		}},
 	}
 
-	out := renderPreview(t, paraChunk(0, first, second, link), nil, testPreviewPolicy())
+	out := renderPreview(t, paraChunk(0, first, second, link), nil, testPreviewPolicy(), testPreviewImagePolicy())
 
 	ids := regexp.MustCompile(`id="([^"]+)"`).FindAllStringSubmatch(out, -1)
 	seen := map[string]int{}

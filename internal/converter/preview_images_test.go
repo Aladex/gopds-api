@@ -82,7 +82,7 @@ func TestPreparePreviewImage(t *testing.T) {
 		// case above.
 		{"png magic without header", png[:16], ErrPreviewImageCorrupt, ""},
 	}
-	policy := testPreviewPolicy()
+	policy := testPreviewImagePolicy()
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			payload, mime, err := PreparePreviewImage(tc.data, policy)
@@ -121,21 +121,21 @@ func TestPreparePreviewImage(t *testing.T) {
 func TestPreparePreviewImage_CapsBiteSeparately(t *testing.T) {
 	png := uniformImage(t, "png", 32, 32)
 
-	tight := testPreviewPolicy()
-	tight.MaxImageBytes = len(png) - 1
+	tight := testPreviewImagePolicy()
+	tight.MaxBytes = len(png) - 1
 	_, _, err := PreparePreviewImage(png, tight)
 	if !errors.Is(err, ErrPreviewImageTooLarge) {
 		t.Errorf("byte-cap refusal: err = %v, want ErrPreviewImageTooLarge", err)
 	}
 
-	small := testPreviewPolicy()
-	small.MaxImagePixels = 32*32 - 1
+	small := testPreviewImagePolicy()
+	small.MaxPixels = 32*32 - 1
 	_, _, err = PreparePreviewImage(png, small)
 	if !errors.Is(err, ErrPreviewImageDimensions) {
 		t.Errorf("pixel-cap refusal: err = %v, want ErrPreviewImageDimensions", err)
 	}
 
-	if _, _, err := PreparePreviewImage(png, testPreviewPolicy()); err != nil {
+	if _, _, err := PreparePreviewImage(png, testPreviewImagePolicy()); err != nil {
 		t.Errorf("the same picture was refused under a policy that allows it: %v", err)
 	}
 }
@@ -150,7 +150,7 @@ func TestPreparePreviewImage_CapsBiteSeparately(t *testing.T) {
 // corruption. Folding it into Corrupt (the previous behavior) buried a
 // tunable signal under broken-bytes noise.
 func TestPreparePreviewImage_RefusesAForgedHeader(t *testing.T) {
-	_, _, err := PreparePreviewImage(forgeBMP(20000, 20000), testPreviewPolicy())
+	_, _, err := PreparePreviewImage(forgeBMP(20000, 20000), testPreviewImagePolicy())
 	if err == nil {
 		t.Fatal("a header claiming 400 megapixels was accepted")
 	}
@@ -167,7 +167,7 @@ func TestPreparePreviewImage_RefusesAForgedHeader(t *testing.T) {
 // prepares. The refusal must arrive as Dimensions: it is a size outcome, not
 // corruption, and the catalog counts the two separately.
 func TestPreparePreviewImage_BMPWideRejectedByNormalize(t *testing.T) {
-	_, _, err := PreparePreviewImage(forgeBMP(1048576, 4), testPreviewPolicy())
+	_, _, err := PreparePreviewImage(forgeBMP(1048576, 4), testPreviewImagePolicy())
 	if err == nil {
 		t.Fatal("a header that fb2image.Normalize refuses was accepted — decision and preparation have diverged")
 	}
@@ -199,7 +199,7 @@ func TestPreparePreviewImage_NormalizeOversizeMapsToDimensions(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, _, err := PreparePreviewImage(tc.data, testPreviewPolicy())
+			_, _, err := PreparePreviewImage(tc.data, testPreviewImagePolicy())
 			if err == nil {
 				t.Fatal("accepted an oversized forged header")
 			}
@@ -224,7 +224,7 @@ func TestPreparePreviewImage_TruncatedBMPMapsToCorrupt(t *testing.T) {
 	// Real BMP, header only — magic is intact, so Classify passes it; the
 	// decode then fails inside fb2image.Normalize as Undecodable.
 	truncated := realBMP(t, 4, 4)[:54]
-	_, _, err := PreparePreviewImage(truncated, testPreviewPolicy())
+	_, _, err := PreparePreviewImage(truncated, testPreviewImagePolicy())
 	if err == nil {
 		t.Fatal("accepted a truncated BMP")
 	}
@@ -246,13 +246,13 @@ func TestPreparePreviewImage_RefusesOversizedResult(t *testing.T) {
 	// result size, then set the byte cap above the source BMP but below the
 	// transcoded PNG. That window is the only one where the result-side
 	// gate alone can bite.
-	preview, _, err := PreparePreviewImage(src, testPreviewPolicy())
+	preview, _, err := PreparePreviewImage(src, testPreviewImagePolicy())
 	if err != nil {
 		t.Fatalf("baseline prepare: %v", err)
 	}
-	policy := testPreviewPolicy()
-	policy.MaxImageBytes = len(src)
-	if policy.MaxImageBytes >= len(preview) {
+	policy := testPreviewImagePolicy()
+	policy.MaxBytes = len(src)
+	if policy.MaxBytes >= len(preview) {
 		t.Skipf("transcoded PNG (%d bytes) is not larger than the source BMP (%d bytes); cannot isolate the result gate",
 			len(preview), len(src))
 	}
@@ -273,7 +273,7 @@ func TestBuildPreviewImages_StableOrdinalsSkipRefused(t *testing.T) {
 		"c_bad":    {Data: []byte("не картинка")},
 	}
 
-	first := BuildPreviewImages(bins, "/preview/img", testPreviewPolicy())
+	first := BuildPreviewImages(bins, "/preview/img", testPreviewImagePolicy())
 	if first.Index["a_first"] != 1 || first.Index["b_second"] != 2 {
 		t.Fatalf("ordinals follow sorted ids, got %v", first.Index)
 	}
@@ -290,7 +290,7 @@ func TestBuildPreviewImages_StableOrdinalsSkipRefused(t *testing.T) {
 	// Twenty rebuilds: map iteration order differs between them, the answer
 	// must not.
 	for i := 0; i < 20; i++ {
-		again := BuildPreviewImages(bins, "/preview/img", testPreviewPolicy())
+		again := BuildPreviewImages(bins, "/preview/img", testPreviewImagePolicy())
 		if fmt.Sprint(again.Index) != fmt.Sprint(first.Index) {
 			t.Fatalf("run %d produced %v, first run produced %v", i, again.Index, first.Index)
 		}
