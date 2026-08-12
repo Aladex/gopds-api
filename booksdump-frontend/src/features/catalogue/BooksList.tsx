@@ -23,6 +23,7 @@ import ConversionBackdrop from '@/features/catalogue/ConversionBackdrop';
 import BookPagination from '@/features/catalogue/BookPagination';
 import EditBookDialog from '@/features/catalogue/EditBookDialog';
 import RescanPreviewDialog from '@/features/catalogue/RescanPreviewDialog';
+import BookPreviewDialog from '@/features/catalogue/BookPreviewDialog';
 import SkeletonCard from '@/features/catalogue/SkeletonCard';
 import { useBooksQuery } from '@/features/catalogue/hooks/useBooksQuery';
 import useScopeName from '@/features/catalogue/hooks/useScopeName';
@@ -44,6 +45,10 @@ const BooksList: React.FC = () => {
     useScopeName(state.books);
     const [editDialogOpen, setEditDialogOpen] = useState(false);
     const [bookToEdit, setBookToEdit] = useState<Book | null>(null);
+    // The book being read, not a boolean: the dialog needs the id and the
+    // language together, and holding the book itself keeps them from drifting
+    // apart when the reader opens a second book without closing the first.
+    const [bookToRead, setBookToRead] = useState<Book | null>(null);
     const [rescanDialogOpen, setRescanDialogOpen] = useState(false);
     const [bookToRescan, setBookToRescan] = useState<number | null>(null);
     const [downloadError, setDownloadError] = useState<{ title: string; message: string } | null>(
@@ -165,6 +170,7 @@ const BooksList: React.FC = () => {
                                 formatDate={formatDate}
                                 isBookConverting={isBookConverting}
                                 onDownload={handleDownload}
+                                onPreview={setBookToRead}
                                 onEpubRequest={handleEpubDownloadClick}
                                 onMobiRequest={handleMobiDownloadClick}
                                 onToggleFavourite={handleFavBook}
@@ -189,6 +195,12 @@ const BooksList: React.FC = () => {
                 onClose={handleEditDialogClose}
                 book={bookToEdit}
                 onBookUpdated={handleBookUpdated}
+            />
+            <BookPreviewDialog
+                open={bookToRead !== null}
+                bookId={bookToRead?.id ?? null}
+                bookLang={bookToRead?.lang}
+                onClose={() => setBookToRead(null)}
             />
             <RescanPreviewDialog
                 open={rescanDialogOpen}

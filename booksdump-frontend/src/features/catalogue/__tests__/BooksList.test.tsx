@@ -7,6 +7,7 @@ import BooksList from '@/features/catalogue/BooksList';
 import * as booksApi from '@/api/books';
 import * as authApi from '@/api/auth';
 import type { Book } from '@/api/books';
+import * as previewApi from '@/api/preview';
 
 // Characterisation tests written before the list is rebuilt on shadcn. They
 // cover behaviour rather than markup: which query the route produces, what the
@@ -74,11 +75,23 @@ vi.mock('@/context/BookConversionContext', () => ({
 
 vi.mock('@/shared/lib/downloadViaIframe', () => ({ downloadViaIframe: vi.fn() }));
 
+// The preview client is mocked at the boundary the dialog uses, so the tests
+// below exercise the real dialog: whether the catalogue can reach it at all
+// is precisely what they are here to hold.
+vi.mock('@/api/preview', async () => {
+    const actual = await vi.importActual<typeof import('@/api/preview')>('@/api/preview');
+    return {
+        ...actual,
+        previewClient: { getPreview: vi.fn(), getChunk: vi.fn(), getImage: vi.fn() },
+    };
+});
+
 // The conversion backdrop is a full-screen MUI modal. It is a separate concern,
 // and leaving it in hides the card behind an overlay whenever a conversion is
 // in flight.
 vi.mock('@/features/catalogue/ConversionBackdrop', () => ({ default: () => null }));
 
+const getPreview = vi.mocked(previewApi.previewClient.getPreview);
 const listBooks = vi.mocked(booksApi.listBooks);
 const toggleFavourite = vi.mocked(booksApi.toggleFavourite);
 const getCurrentUser = vi.mocked(authApi.getCurrentUser);
@@ -438,5 +451,46 @@ describe('BooksList book language', () => {
         await screen.findByText('Заклятые в любви');
 
         expect(screen.getByText(/Русский/)).toBeInTheDocument();
+    });
+});
+
+/**
+ * The dialog and the card were built separately and each was green on its own
+ * while nothing in the application rendered the dialog at all — a reader had
+ * no way to open a book. These tests are about the join, not about either
+ * side: they click what a reader clicks and watch for the book's own text.
+ */
+describe('BooksList opens the reader', () => {
+    beforeEach(() => {
+        getPreview.mockResolvedValue({
+            revision: 'rev-1',
+            chunk_count: 1,
+            toc: [],
+            images: [],
+            first_chunk: '<p data-testid="opened-portion">Первые слова книги.</p>',
+        });
+    });
+
+    it('opens the book the reader asked for, in its own language', async () => {
+        renderAt('/books/page/1');
+        await screen.findByText('Заклятые в любви');
+
+        await userEvent.click(screen.getByRole('button', { name: 'bookRead' }));
+
+        expect(await screen.findByTestId('opened-portion')).toBeInTheDocument();
+        // The id comes from the book that was clicked, not from a default.
+        expect(getPreview).toHaveBeenCalledWith(1, expect.anything());
+        // And the column is marked with the book's language, which is what
+        // hyphenation and screen readers go by.
+        expect(screen.getByTestId('preview-text-column')).toHaveAttribute('lang', 'ru');
+    });
+
+    it('offers no reader for a format the server cannot read', async () => {
+        listBooks.mockResolvedValue({ books: [makeBook({ format: 'epub' })], length: 1 });
+        renderAt('/books/page/1');
+        await screen.findByText('Заклятые в любви');
+
+        expect(screen.queryByRole('button', { name: 'bookRead' })).toBeNull();
+        expect(getPreview).not.toHaveBeenCalled();
     });
 });

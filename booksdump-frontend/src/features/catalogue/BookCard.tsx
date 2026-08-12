@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
-import { Check, ChevronDown, Pencil, RefreshCw, Star } from 'lucide-react';
+import { BookOpen, Check, ChevronDown, Pencil, RefreshCw, Star } from 'lucide-react';
 
 import type { Book } from '@/api/books';
 import { Button } from '@/shared/ui/button';
@@ -30,6 +30,9 @@ import { useSearchBar } from '@/context/SearchBarContext';
  * cover. Next to FB2, EPUB and MOBI it reads as what it is: the same book, in an
  * archive.
  */
+/** The one format the preview pipeline reads; the server refuses the rest. */
+const PREVIEWABLE_FORMAT = 'fb2';
+
 const DOWNLOAD_FORMATS = [
     { id: 'zip', label: 'ZIP' },
     { id: 'fb2', label: 'FB2' },
@@ -111,6 +114,12 @@ export interface BookCardProps {
     formatDate: (value: string) => string;
     isBookConverting: (bookID: number, format: string) => boolean;
     onDownload: (format: string, bookID: number) => void;
+    /**
+     * Opens the in-place reader. Only FB2 is offered it: the preview pipeline
+     * reads nothing else, and a button that always answers "not for this
+     * format" teaches the reader to stop pressing it.
+     */
+    onPreview: (book: Book) => void;
     onEpubRequest: (bookID: number) => void;
     onMobiRequest: (bookID: number) => void;
     onToggleFavourite: (book: Book) => void;
@@ -130,6 +139,7 @@ const BookCard: React.FC<BookCardProps> = ({
     formatDate,
     isBookConverting,
     onDownload,
+    onPreview,
     onEpubRequest,
     onMobiRequest,
     onToggleFavourite,
@@ -361,6 +371,18 @@ const BookCard: React.FC<BookCardProps> = ({
                 {!isWide && downloads}
 
                 <div className={cn('flex items-center justify-end gap-0.5', 'pt-2', 'sm:pt-0')}>
+                    {book.format === PREVIEWABLE_FORMAT && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            title={t('bookRead')}
+                            onClick={() => onPreview(book)}
+                            className="gap-1.5"
+                        >
+                            <BookOpen className="size-4" />
+                            {t('bookRead')}
+                        </Button>
+                    )}
                     {isSuperuser && (
                         <>
                             <Button
