@@ -304,4 +304,21 @@
     main {
         flex: 1;
     }
+
+    /*
+     * A preview portion arrives from the server with every footnote inlined
+     * under the paragraph that cites it, and the dialog collapses them after
+     * the render commits. That leaves one painted frame in which a chapter
+     * with four hundred notes is drawn at full height and then snaps shut —
+     * on every "Next", not just the first. Hiding a note until the dialog
+     * has marked it as handled removes the frame entirely, and does it
+     * without depending on when an effect happens to run.
+     *
+     * After the mark, visibility belongs to the `hidden` attribute alone, so
+     * the reader's expanded note stays open and screen readers agree with
+     * what is on the screen.
+     */
+    .preview-note:not([data-preview-note-init]) {
+        display: none;
+    }
 }

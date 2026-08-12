@@ -1097,3 +1097,215 @@ describe('BookPreviewDialog — single layout boundary', () => {
         expect([...source.matchAll(/useMediaQuery\(/g)]).toHaveLength(1);
     });
 });
+
+describe('BookPreviewDialog — footnotes expand on click', () => {
+    // The server ships each footnote body as a sibling
+    // <div class="preview-note" id="pvN-note-KEY"> right after the paragraph
+    // that cites it, with an <a href="#pvN-note-KEY"> inside that paragraph.
+    // Four hundred notes running inline with the text would be unreadable, so
+    // the body is collapsed by default and the link toggles it. The HTML
+    // arrives via dangerouslySetInnerHTML — React does not own those nodes —
+    // so the handler is delegated on the text column and must keep working
+    // for portions that arrive later without re-attaching.
+
+    // A real portion's shape: a paragraph with the link inside, the body div
+    // as its sibling. The pv0 prefix is the portion index, so the second
+    // portion's notes use pv1, and the same id may legitimately recur under
+    // a different prefix in another portion.
+    const ONE_NOTE = `
+        <p data-testid="first-portion">Text with a note
+            <a href="#pv0-note-1" data-testid="note-link-1">1</a>
+        </p>
+        <div class="preview-note" id="pv0-note-1" data-testid="note-body-1">
+            <p class="preview-note-title">Note 1 title</p>
+            <p>Body of note 1</p>
+        </div>`;
+
+    const TWO_NOTES = `
+        <p data-testid="first-portion">Text
+            <a href="#pv0-note-1" data-testid="note-link-1">1</a>
+            more text
+            <a href="#pv0-note-2" data-testid="note-link-2">2</a>
+        </p>
+        <div class="preview-note" id="pv0-note-1" data-testid="note-body-1">
+            <p>Body of note 1</p>
+        </div>
+        <div class="preview-note" id="pv0-note-2" data-testid="note-body-2">
+            <p>Body of note 2</p>
+        </div>`;
+
+    // jsdom persists window.location.hash across tests, so anything we set
+    // here must be cleared before the next test reads it.
+    afterEach(() => {
+        if (window.location.hash) window.history.replaceState(null, '', window.location.pathname);
+    });
+
+    it('footnote body is hidden and the link is aria-expanded=false on first render', async () => {
+        getPreview.mockImplementation(signalAware(() => makePreview({ first_chunk: ONE_NOTE })));
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        const body = screen.getByTestId('note-body-1');
+        // Both assertions matter: toBeVisible is the reader's experience,
+        // the hidden attribute is the screen-reader contract. A CSS-only
+        // collapse would pass one but not the other under jsdom (jsdom does
+        // not compute stylesheet display), and the spec wants `hidden`.
+        expect(body).not.toBeVisible();
+        expect(body).toHaveAttribute('hidden');
+        expect(screen.getByTestId('note-link-1')).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('click on a note link reveals its own body and flips aria-expanded to true', async () => {
+        getPreview.mockImplementation(signalAware(() => makePreview({ first_chunk: ONE_NOTE })));
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        await userEvent.click(screen.getByTestId('note-link-1'));
+
+        expect(screen.getByTestId('note-body-1')).toBeVisible();
+        expect(screen.getByTestId('note-body-1')).not.toHaveAttribute('hidden');
+        expect(screen.getByTestId('note-link-1')).toHaveAttribute('aria-expanded', 'true');
+    });
+
+    it('second click on the same link collapses the body again', async () => {
+        getPreview.mockImplementation(signalAware(() => makePreview({ first_chunk: ONE_NOTE })));
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        const link = screen.getByTestId('note-link-1');
+        await userEvent.click(link);
+        await userEvent.click(link);
+
+        expect(screen.getByTestId('note-body-1')).not.toBeVisible();
+        expect(screen.getByTestId('note-body-1')).toHaveAttribute('hidden');
+        expect(link).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('click on a note link does not change location.hash', async () => {
+        getPreview.mockImplementation(signalAware(() => makePreview({ first_chunk: ONE_NOTE })));
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        const before = window.location.hash;
+        await userEvent.click(screen.getByTestId('note-link-1'));
+        expect(window.location.hash).toBe(before);
+    });
+
+    it('two notes open independently — opening one does not open or close the other', async () => {
+        getPreview.mockImplementation(signalAware(() => makePreview({ first_chunk: TWO_NOTES })));
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        expect(screen.getByTestId('note-body-1')).not.toBeVisible();
+        expect(screen.getByTestId('note-body-2')).not.toBeVisible();
+
+        // Open note 1 only.
+        await userEvent.click(screen.getByTestId('note-link-1'));
+        expect(screen.getByTestId('note-body-1')).toBeVisible();
+        // The mutation guard: opening one must not open or close any other.
+        expect(screen.getByTestId('note-body-2')).not.toBeVisible();
+        expect(screen.getByTestId('note-body-2')).toHaveAttribute('hidden');
+
+        // Open note 2 as well — both are now open independently.
+        await userEvent.click(screen.getByTestId('note-link-2'));
+        expect(screen.getByTestId('note-body-1')).toBeVisible();
+        expect(screen.getByTestId('note-body-2')).toBeVisible();
+
+        // Closing note 1 must not close note 2.
+        await userEvent.click(screen.getByTestId('note-link-1'));
+        expect(screen.getByTestId('note-body-1')).not.toBeVisible();
+        expect(screen.getByTestId('note-body-2')).toBeVisible();
+    });
+
+    it('a portion that arrives after "Next" ships its notes collapsed and the same handler opens them', async () => {
+        // The handler is attached once on the first render. When the reader
+        // presses "Next", the second portion's HTML lands in the same column,
+        // and clicks on its note links must be served by that same handler —
+        // re-attaching per portion is the defect this test catches, as is the
+        // handler that "forgets" to hide newly-arrived bodies.
+        getPreview.mockImplementation(
+            signalAware(() =>
+                makePreview({
+                    chunk_count: 2,
+                    first_chunk: '<p data-testid="first-portion">First portion</p>',
+                }),
+            ),
+        );
+        getChunk.mockImplementation(
+            signalAware(() => ({
+                chunk: `
+                    <p data-testid="second-portion">Second portion
+                        <a href="#pv1-note-1" data-testid="note-link-2nd">1</a>
+                    </p>
+                    <div class="preview-note" id="pv1-note-1" data-testid="note-body-2nd">
+                        <p>Body of the second portion's note</p>
+                    </div>`,
+            })),
+        );
+
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await screen.findByTestId('second-portion');
+
+        // The new portion's body arrived without `hidden` from the server;
+        // the component must have initialised it as collapsed.
+        const body = screen.getByTestId('note-body-2nd');
+        expect(body).not.toBeVisible();
+        expect(body).toHaveAttribute('hidden');
+
+        // And the handler that was attached on portion 0 must open it.
+        await userEvent.click(screen.getByTestId('note-link-2nd'));
+        expect(body).toBeVisible();
+        expect(screen.getByTestId('note-link-2nd')).toHaveAttribute('aria-expanded', 'true');
+    });
+
+    it('clicking a footnote does not move the reader off the current portion', async () => {
+        // Three chunks, two TOC entries: the position the reader is on is
+        // observable through (a) no extra getChunk call after the click and
+        // (b) the second "Next" still asking for chunk 2, not chunk 1 again.
+        // A handler that "conveniently" calls setCurrentIndex(0) on click
+        // passes everything except these two observations.
+        getPreview.mockImplementation(
+            signalAware(() =>
+                makePreview({
+                    chunk_count: 3,
+                    toc: [
+                        { title: 'Chapter 1', depth: 1, chunk: 0, anchor: 'c1' },
+                        { title: 'Chapter 2', depth: 1, chunk: 1, anchor: 'c2' },
+                    ],
+                    first_chunk: '<p data-testid="first-portion">First</p>',
+                }),
+            ),
+        );
+        getChunk.mockImplementation(
+            signalAware(() => ({
+                chunk: `
+                    <p data-testid="second-portion">Second
+                        <a href="#pv1-note-1" data-testid="note-link-2nd">1</a>
+                    </p>
+                    <div class="preview-note" id="pv1-note-1" data-testid="note-body-2nd">
+                        <p>Body</p>
+                    </div>`,
+            })),
+        );
+
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await screen.findByTestId('second-portion');
+        expect(getChunk).toHaveBeenCalledTimes(1);
+
+        await userEvent.click(screen.getByTestId('note-link-2nd'));
+
+        // No extra fetch was fired by the click.
+        expect(getChunk).toHaveBeenCalledTimes(1);
+
+        // The reader is still on chunk 1: the next "Next" asks for chunk 2.
+        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await waitFor(() => expect(getChunk).toHaveBeenCalledTimes(2));
+        expect(getChunk.mock.calls[1][1]).toBe(2);
+    });
+});

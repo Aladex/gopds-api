@@ -32,6 +32,14 @@ interface BookPreviewDialogProps {
     onClose: () => void;
 }
 
+/**
+ * The shape of a note's chunk-local anchor, as the server spells it in both
+ * the link's href and the note's id: pv<chunk>-note-<key>. Module scope, not
+ * the component body: a regex rebuilt every render is a new dependency every
+ * render for the effect that uses it.
+ */
+const NOTE_ANCHOR_PATTERN = /^pv\d+-note-/;
+
 const ERROR_KEY: Record<PreviewErrorKind, string> = {
     notFound: 'previewErrorNotFound',
     permanent: 'previewErrorPermanent',
@@ -142,6 +150,13 @@ export default function BookPreviewDialog({
     // and provides scrollIntoView as a spy-able noop, which is what the
     // panel's preservation and anchor tests rely on.
     const scrollAreaRef = useRef<HTMLDivElement>(null);
+
+    // The text column is also the delegation root for footnote links. The
+    // portion HTML arrives via dangerouslySetInnerHTML — React does not own
+    // those nodes, so the expansion state lives as attributes on the nodes
+    // themselves and one click handler on this stable parent serves every
+    // portion that arrives later, without re-attaching per portion.
+    const textColumnRef = useRef<HTMLDivElement>(null);
 
     // Fetch the preview (and the first chunk that comes with it) on open,
     // book change, or first-retry. Any of those transitions aborts the prior
@@ -320,6 +335,62 @@ export default function BookPreviewDialog({
         }
     }, [pendingAnchor, currentPortionReady, currentIndex]);
 
+    // Initialise every footnote the server ships: collapse the body and
+    // mark the link as expanded=false. The data attribute distinguishes
+    // "fresh from the server" from "explicitly opened by the reader", so a
+    // portion that arrives later does not re-hide a note the reader has
+    // already opened, and opening one note never touches another.
+    useEffect(() => {
+        const root = textColumnRef.current;
+        if (!root) return;
+        root.querySelectorAll<HTMLDivElement>(
+            '.preview-note:not([data-preview-note-init])',
+        ).forEach((note) => {
+            note.setAttribute('hidden', '');
+            note.setAttribute('data-preview-note-init', '');
+        });
+        root.querySelectorAll<HTMLAnchorElement>('a[href^="#pv"]').forEach((link) => {
+            if (link.hasAttribute('aria-expanded')) return;
+            const id = (link.getAttribute('href') ?? '').slice(1);
+            if (!NOTE_ANCHOR_PATTERN.test(id)) return;
+            link.setAttribute('aria-expanded', 'false');
+        });
+    }, [portions]);
+
+    // One delegated handler serves every portion that ever lands in the
+    // column, including the ones fetched later: the click on a note link
+    // bubbles out of the injected HTML to this element, which React owns.
+    //
+    // It is React's onClick and not an addEventListener in an effect, and
+    // that is the whole point. The effect version attached the listener to
+    // whatever node the ref held when it ran; the dialog's content is
+    // mounted through Radix's presence machinery, which re-creates that
+    // node, and the listener stayed behind on the detached one. Every note
+    // was collapsed correctly and no click ever opened one — the collapsing
+    // effect re-ran on each portion and saw the live node, while the
+    // listener's effect had no reason to run again.
+    const onTextColumnClick = (event: React.MouseEvent<HTMLDivElement>) => {
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        const link = target.closest('a');
+        if (!link) return;
+        const href = link.getAttribute('href') ?? '';
+        const id = href.startsWith('#') ? href.slice(1) : '';
+        if (!NOTE_ANCHOR_PATTERN.test(id)) return;
+        const note = event.currentTarget.querySelector(`[id="${CSS.escape(id)}"]`);
+        if (!note) return;
+        // Without this the browser hands the fragment to the SPA router: the
+        // address changes under the reader and the scroll jumps away.
+        event.preventDefault();
+        const expanding = note.hasAttribute('hidden');
+        if (expanding) {
+            note.removeAttribute('hidden');
+        } else {
+            note.setAttribute('hidden', '');
+        }
+        link.setAttribute('aria-expanded', String(expanding));
+    };
+
     return (
         <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
             <DialogContent
@@ -442,6 +513,8 @@ export default function BookPreviewDialog({
                         )}
 
                         <div
+                            ref={textColumnRef}
+                            onClick={onTextColumnClick}
                             data-testid="preview-text-column"
                             lang={bookLang}
                             className={TEXT_COLUMN_CLASS}
