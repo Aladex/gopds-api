@@ -73,26 +73,30 @@ describe('the card layout boundary', () => {
             }
             guarded.push(candidate);
 
-            const conditions = [...css.matchAll(/width\s*(>=|<=|>|<)\s*([\d.]+)rem/g)];
+            // Exactly one variant, asked of Tailwind's own parser rather than
+            // recognised from a list of spellings. dark:sm:, active:sm:,
+            // supports-[…]:sm: and sm:max-lg: are all the same defect — the
+            // layout answering to something besides the width — and listing
+            // them one by one only ever catches the ones already thought of.
+            const [parsed] = [...design.parseCandidate(candidate)];
+            expect(parsed, `${candidate} does not parse`).toBeDefined();
+            expect(parsed.variants, `${candidate} is conditional on more than a width`).toHaveLength(1);
 
-            // One condition, not two: `sm:max-lg:` applies over a band and
-            // leaves React wide past the top of it.
+            // A viewport width, not a container's. @min-[40rem]: carries the
+            // right number and answers to the size of an ancestor, which is
+            // not what matchMedia is watching.
+            expect(css, `${candidate} responds to a container, not the viewport`).not.toMatch(/@container/);
+            expect(css, `${candidate} is not a media query`).toMatch(/@media/);
+
+            const conditions = [...css.matchAll(/width\s*(>=|<=|>|<)\s*([\d.]+)rem/g)];
             expect(conditions, `${candidate} is guarded by ${conditions.length} width conditions`).toHaveLength(1);
 
-            // Above the boundary, not below: `max-sm:` is the other side of
-            // the same number, and pairing it with a min-width query puts CSS
-            // and React on opposite sides.
+            // Above the boundary, not below: max-sm: is the other side of the
+            // same number, and pairing it with a min-width query puts CSS and
+            // React on opposite sides.
             expect(conditions[0][1], `${candidate} applies below the boundary`).toBe('>=');
             expect(Number(conditions[0][2]), `${candidate} switches at another width`)
                 .toBe(CARD_WIDE_MIN_WIDTH_REM);
-
-            // And nothing else may narrow when it applies: `dark:sm:flex`
-            // carries the right width and still leaves the wide layout to one
-            // theme, so React and CSS would agree only for readers in the dark.
-            expect(css.match(/@(?:media|supports|container)[^{]*\{/g) ?? [],
-                `${candidate} is conditional on more than width`).toHaveLength(1);
-            expect(css, `${candidate} is conditional on a state as well as a width`)
-                .not.toMatch(/:hover|:focus|\.dark|\[data-|:where\(/);
         }
 
         expect(guarded, 'the card styles nothing by width, so nothing holds the boundary').not.toHaveLength(0);
