@@ -17,7 +17,8 @@ import { useCallback, useSyncExternalStore } from 'react';
 /**
  * matchMediaOrNull returns null where the environment has no matchMedia at all.
  * A missing optional API must not take a whole page down with it, so callers
- * fall back to the wide layout rather than throwing. jsdom is one such
+ * get false and fall back to whatever that means for their own query — for a
+ * min-width question that is the narrow layout. jsdom is one such
  * environment.
  */
 const matchMediaOrNull = (query: string): MediaQueryList | null =>
