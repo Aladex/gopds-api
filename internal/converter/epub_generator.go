@@ -139,7 +139,7 @@ func (g *EPUBGenerator) GenerateEPUB(doc *FB2Document, bookFile *parser.BookFile
 		return nil, err
 	}
 
-	for _, image := range g.images {
+	for _, image := range imagesInOrder(g.images) {
 		if err := writeFileBytes(zipWriter, path.Join("OEBPS", "images", image.Filename), image.Data); err != nil {
 			return nil, err
 		}
@@ -870,7 +870,7 @@ func buildContentOPF(bookFile *parser.BookFile, chapters []*epubChapter, images 
 		manifest.WriteString(fmt.Sprintf("<item id=\"%s\" href=\"%s\" media-type=\"application/xhtml+xml\"/>", cover.ItemID, cover.XHTMLFilename))
 		manifest.WriteString("\n")
 	}
-	for _, image := range images {
+	for _, image := range imagesInOrder(images) {
 		props := ""
 		if cover != nil && image.ItemID == cover.Image.ItemID {
 			props = " properties=\"cover-image\""
@@ -1327,6 +1327,25 @@ func buildAuthorsLine(bookFile *parser.BookFile) string {
 	return strings.Join(names, " ")
 }
 
+// imagesInOrder returns the images sorted by the binary id they came from, so
+// every walk over them — writing files, listing the manifest, hunting for a
+// cover — produces the same sequence. Go randomises map iteration on purpose,
+// and that randomness reached the output: the same book packed the same
+// pictures in a different order on every run, so two builds of one book were
+// never byte-identical and could not be compared by hash.
+func imagesInOrder(images map[string]epubImage) []epubImage {
+	keys := make([]string, 0, len(images))
+	for key := range images {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]epubImage, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, images[key])
+	}
+	return out
+}
+
 func buildImages(doc *FB2Document) map[string]epubImage {
 	if doc == nil || len(doc.Binary) == 0 {
 		return nil
@@ -1400,7 +1419,7 @@ func buildCover(bookFile *parser.BookFile, images map[string]epubImage) *epubCov
 	// declaring it in the OPF gave the reader a cover page that renders empty;
 	// falling through here offers the first illustration instead.
 	if err == nil {
-		for _, img := range images {
+		for _, img := range imagesInOrder(images) {
 			if bytes.Equal(img.Data, coverData) {
 				return &epubCover{
 					ItemID:        "cover",
