@@ -51,6 +51,15 @@ import (
 // is built at all, never an address that downstream assumes is safe.
 var ErrPreviewImageBaseInvalid = errors.New("fb2 preview: image base is invalid")
 
+// ErrPreviewImagesTotalTooLarge is the typed refusal BuildPreviewImages
+// returns when the running weight of prepared payloads crosses the caller's
+// total budget. The check runs between one prepare and the next, so the
+// refusal proves the work stopped early: everything after the crossing
+// binary was never decoded or transcoded. Checking the sum only after the
+// whole set was built would be a refusal by result, not a bound on work —
+// the memory would already have been spent.
+var ErrPreviewImagesTotalTooLarge = errors.New("fb2 preview: prepared images exceed the total byte budget")
+
 // revisionPattern is the set of characters a book revision may carry. It is
 // deliberately narrow: letters, digits, dot, dash and underscore — the
 // characters every URL path segment in RFC 3986's "unreserved" set accepts
@@ -190,6 +199,96 @@ func (p PreviewImagePolicy) validate() error {
 	return nil
 }
 
+// UsedBinaries filters a parsed book's binaries down to the ones the preview
+// can actually show: those an <image> reference points at from the body,
+// from a footnote, or from a table cell. Preparing the rest was measured
+// waste on the production catalog — one real book prepared 82 pictures its
+// HTML never referenced — and it is worse than waste: an unreferenced binary
+// still burns the decode and transcode, still occupies memory, cache space
+// and a manifest slot, and can push the build over the total budget although
+// no markup will ever point at it.
+//
+// The cover is excluded by the same rule, deliberately: nothing in the
+// preview markup references it (the renderer emits images only for
+// references found in the body and the notes), and the parse already runs
+// with readCover=false, so the pipeline never agreed to show it. If a cover
+// is wanted later, it needs its own addressed resource, not a stowaway in
+// the ordinal space.
+//
+// The id normalization (trim, strip the leading '#', lowercase) matches what
+// the renderer applies in renderImage before it asks the prepared set for a
+// URL — the two must agree, or a reference resolves at render time to a
+// binary that was never prepared.
+func UsedBinaries(doc *FB2Document) map[string]FB2Binary {
+	if doc == nil || len(doc.Binary) == 0 {
+		return nil
+	}
+	used := make(map[string]struct{})
+	collectSection := func(section *FB2BodySection, _ int) {
+		for _, item := range section.Content {
+			if item == nil || item.Paragraph == nil {
+				continue
+			}
+			collectParagraphImageIDs(item.Paragraph, used)
+		}
+	}
+	// doc.Body is the root container of the main body; doc.Notes holds the
+	// footnote bodies. Both render images, so both are walked — a footnote
+	// and a table cell are where a picture hides from a body-only scan.
+	if doc.Body != nil {
+		WalkSections([]*FB2BodySection{doc.Body}, 1, collectSection)
+	}
+	WalkSections(doc.Notes, 1, collectSection)
+
+	out := make(map[string]FB2Binary, len(used))
+	for id := range used {
+		if bin, ok := doc.Binary[id]; ok {
+			out[id] = bin
+		}
+	}
+	return out
+}
+
+// collectParagraphImageIDs gathers the binary ids one paragraph references,
+// descending into its table cells when it carries a table.
+func collectParagraphImageIDs(p *FB2Paragraph, used map[string]struct{}) {
+	collectInlineImageIDs(p.Content, used)
+	if p.Table != nil {
+		for _, row := range p.Table.Rows {
+			for _, cell := range row {
+				if cell != nil {
+					collectInlineImageIDs(cell.Content, used)
+				}
+			}
+		}
+	}
+}
+
+// collectInlineImageIDs gathers the binary ids referenced by a run of inline
+// elements, recursing into children: an image nested inside a link or an
+// emphasis is still a reference the renderer will resolve.
+func collectInlineImageIDs(els []*FB2InlineElement, used map[string]struct{}) {
+	for _, el := range els {
+		if el == nil {
+			continue
+		}
+		if el.Type == InlineTypeImage {
+			if id := imageReferenceID(el.Attrs["href"]); id != "" {
+				used[id] = struct{}{}
+			}
+		}
+		collectInlineImageIDs(el.Children, used)
+	}
+}
+
+// imageReferenceID normalizes an <image> href to a binary-map key. It must
+// stay in lockstep with the renderer's renderImage: trim whitespace, strip
+// the leading '#', lowercase — the parser stores binary ids under the same
+// normalization.
+func imageReferenceID(href string) string {
+	return strings.ToLower(strings.TrimPrefix(strings.TrimSpace(href), "#"))
+}
+
 // BuildPreviewImages applies image policy to a book's binaries once and
 // returns what the renderer may reference, alongside the prepared bytes the
 // handler will serve and the typed refusal for every binary the pipeline
@@ -210,11 +309,19 @@ func (p PreviewImagePolicy) validate() error {
 // — that is the work, and that is what cancellation has to stop. A return
 // with a non-nil error means the set is not authoritative: callers must
 // check err first.
+//
+// maxTotalBytes bounds the running sum of prepared payload sizes — the bytes
+// memory, the cache and the reader actually carry, which transcoding can
+// grow past the source size. The bound is enforced between one prepare and
+// the next: the first payload that crosses it stops the build with
+// ErrPreviewImagesTotalTooLarge, and no binary after it is prepared. A
+// non-positive value disables the bound.
 func BuildPreviewImages(
 	ctx context.Context,
 	binaries map[string]FB2Binary,
 	base PreviewImageBase,
 	policy PreviewImagePolicy,
+	maxTotalBytes int,
 ) (PreviewImageSet, error) {
 	// A misconfigured policy is a caller bug. Surface it before the loop,
 	// not as a per-binary refusal the caller would have to disentangle from
@@ -241,6 +348,7 @@ func BuildPreviewImages(
 		refused: make(map[string]error, len(binaries)),
 	}
 	n := 0
+	totalBytes := 0
 	for _, id := range ids {
 		// One binary is one unit of work: prepare may decode and re-encode
 		// a real picture underneath. Check ctx between binaries, so a
@@ -258,6 +366,18 @@ func BuildPreviewImages(
 		if err != nil {
 			set.refused[id] = err
 			continue
+		}
+		// The total budget is enforced here, on the payload just prepared,
+		// before the next binary is touched. The sum is of the prepared
+		// bytes — transcoding can grow a payload past its source size, and
+		// the prepared bytes are what the set, the cache and the reader
+		// carry. Stopping at the crossing is what makes the budget a bound
+		// on work: a check after the loop would hold the whole over-budget
+		// set in memory before refusing it.
+		totalBytes += len(payload)
+		if maxTotalBytes > 0 && totalBytes > maxTotalBytes {
+			return set, fmt.Errorf("%w: %d bytes prepared, cap is %d",
+				ErrPreviewImagesTotalTooLarge, totalBytes, maxTotalBytes)
 		}
 		n++
 		set.byID[id] = len(set.images)

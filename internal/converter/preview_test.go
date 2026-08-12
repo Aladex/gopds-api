@@ -111,7 +111,7 @@ func renderPreview(
 	imagePolicy PreviewImagePolicy,
 ) string {
 	t.Helper()
-	set, err := BuildPreviewImages(ctx, binaries, testPreviewImageBase(), imagePolicy)
+	set, err := BuildPreviewImages(ctx, binaries, testPreviewImageBase(), imagePolicy, 0)
 	if err != nil {
 		t.Fatalf("BuildPreviewImages: %v", err)
 	}
@@ -354,7 +354,7 @@ func previewImagesFor(ctx context.Context, doc *FB2Document, policy PreviewImage
 	if doc != nil {
 		bins = doc.Binary
 	}
-	out, err := BuildPreviewImages(ctx, bins, testPreviewImageBase(), policy)
+	out, err := BuildPreviewImages(ctx, bins, testPreviewImageBase(), policy, 0)
 	if err != nil {
 		// Cancellation is the only error path; tests that need it call
 		// BuildPreviewImages directly. Everyone else gets a hard failure

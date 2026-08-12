@@ -422,7 +422,7 @@ func TestRenderChunkHTML_PropertyArbitraryInlineTrees(t *testing.T) {
 		if rng.Intn(3) == 0 {
 			para.ID = "p1"
 		}
-		images, imgErr := BuildPreviewImages(context.Background(), binaries, testPreviewImageBase(), imagePolicy)
+		images, imgErr := BuildPreviewImages(context.Background(), binaries, testPreviewImageBase(), imagePolicy, 0)
 		if imgErr != nil {
 			t.Fatalf("iteration %d: BuildPreviewImages: %v", iteration, imgErr)
 		}

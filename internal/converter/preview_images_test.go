@@ -280,7 +280,7 @@ func TestBuildPreviewImages_StableOrdinalsSkipRefused(t *testing.T) {
 		"c_bad":    {Data: []byte("не картинка")},
 	}
 
-	first, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy())
+	first, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy(), 0)
 	if err != nil {
 		t.Fatalf("BuildPreviewImages: %v", err)
 	}
@@ -305,7 +305,7 @@ func TestBuildPreviewImages_StableOrdinalsSkipRefused(t *testing.T) {
 	// read-only API the renderer uses — URL per id — across every id the
 	// fixture put in.
 	for i := 0; i < 20; i++ {
-		again, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy())
+		again, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy(), 0)
 		if err != nil {
 			t.Fatalf("run %d: %v", i, err)
 		}
@@ -333,7 +333,7 @@ func TestBuildPreviewImages_CanceledBeforeStartDoesNoWork(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	out, err := BuildPreviewImages(ctx, bins, testPreviewImageBase(), testPreviewImagePolicy())
+	out, err := BuildPreviewImages(ctx, bins, testPreviewImageBase(), testPreviewImagePolicy(), 0)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want a wrapping of context.Canceled", err)
 	}
@@ -366,7 +366,7 @@ func TestBuildPreviewImages_CancelMidWorkStopsBeforeEnd(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		out, err := BuildPreviewImages(ctx, bins, testPreviewImageBase(), testPreviewImagePolicy())
+		out, err := BuildPreviewImages(ctx, bins, testPreviewImageBase(), testPreviewImagePolicy(), 0)
 		done <- result{out, err}
 	}()
 
@@ -401,7 +401,7 @@ func TestBuildPreviewImages_LiveContextMatchesNoContextBaseline(t *testing.T) {
 		"c_bad":    {Data: []byte("не картинка")},
 	}
 
-	out, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy())
+	out, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy(), 0)
 	if err != nil {
 		t.Fatalf("a live ctx must not produce an error: %v", err)
 	}
@@ -486,7 +486,7 @@ func TestNewPreviewImageBase_AddressMatchesRenderOutput(t *testing.T) {
 	}
 	pngData := uniformImage(t, "png", 4, 4)
 	bins := map[string]FB2Binary{"cover": {Data: pngData}}
-	images, err := BuildPreviewImages(context.Background(), bins, base, testPreviewImagePolicy())
+	images, err := BuildPreviewImages(context.Background(), bins, base, testPreviewImagePolicy(), 0)
 	if err != nil {
 		t.Fatalf("BuildPreviewImages: %v", err)
 	}
@@ -569,7 +569,7 @@ func TestBuildPreviewImages_RejectsZeroBase(t *testing.T) {
 		t.Fatalf("precondition: a zero base must have an empty path, got %q", zero.String())
 	}
 	bins := map[string]FB2Binary{"a": {Data: uniformImage(t, "png", 4, 4)}}
-	out, err := BuildPreviewImages(context.Background(), bins, zero, testPreviewImagePolicy())
+	out, err := BuildPreviewImages(context.Background(), bins, zero, testPreviewImagePolicy(), 0)
 	if err == nil {
 		t.Fatalf("a zero base must be rejected, got out with %d ordinals", out.Len())
 	}
@@ -585,7 +585,7 @@ func TestBuildPreviewImages_RejectsZeroBase(t *testing.T) {
 // "this book has no pictures", when in fact the policy was never configured.
 func TestBuildPreviewImages_RejectsInvalidPolicyWithEmptyBins(t *testing.T) {
 	var zeroPolicy PreviewImagePolicy
-	_, err := BuildPreviewImages(context.Background(), nil, testPreviewImageBase(), zeroPolicy)
+	_, err := BuildPreviewImages(context.Background(), nil, testPreviewImageBase(), zeroPolicy, 0)
 	if !errors.Is(err, ErrPreviewImagePolicyInvalid) {
 		t.Fatalf("err = %v, want ErrPreviewImagePolicyInvalid", err)
 	}
@@ -632,7 +632,7 @@ func TestPreviewImagePolicy_ZeroOrNegativeFieldIsRejected(t *testing.T) {
 		})
 		t.Run(tc.name+"/BuildPreviewImages", func(t *testing.T) {
 			bins := map[string]FB2Binary{"a": {Data: png}}
-			_, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), tc.policy)
+			_, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), tc.policy, 0)
 			if !errors.Is(err, ErrPreviewImagePolicyInvalid) {
 				t.Fatalf("BuildPreviewImages: err = %v, want a wrapping of ErrPreviewImagePolicyInvalid", err)
 			}
@@ -650,7 +650,7 @@ func TestPreviewImagePolicy_FullPolicyAcceptsAsBefore(t *testing.T) {
 		t.Fatalf("a full policy must accept a normal picture, got %v", err)
 	}
 	bins := map[string]FB2Binary{"a": {Data: png}}
-	set, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy())
+	set, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy(), 0)
 	if err != nil {
 		t.Fatalf("BuildPreviewImages: %v", err)
 	}
@@ -682,7 +682,7 @@ func TestBuildPreviewImages_KeepsPreparedBytes(t *testing.T) {
 		t.Fatalf("PreparePreviewImage(bmp): %v", err)
 	}
 
-	set, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), policy)
+	set, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), policy, 0)
 	if err != nil {
 		t.Fatalf("BuildPreviewImages: %v", err)
 	}
@@ -724,7 +724,7 @@ func TestBuildPreviewImages_RefusedKeepsTypedReason(t *testing.T) {
 		"svg":      {Data: []byte("<svg xmlns='http://www.w3.org/2000/svg'/>")}, // -> ErrPreviewImageUnsupported
 		"oversize": {Data: forgeBMP(1048576, 4)},                                // -> ErrPreviewImageDimensions (via Normalize)
 	}
-	set, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), policy)
+	set, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), policy, 0)
 	if err != nil {
 		t.Fatalf("BuildPreviewImages: %v", err)
 	}
@@ -777,7 +777,7 @@ func TestBuildPreviewImages_PrepareCalledOncePerBinary(t *testing.T) {
 	}
 	defer func() { preparePreviewImage = prev }()
 
-	if _, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), policy); err != nil {
+	if _, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), policy, 0); err != nil {
 		t.Fatalf("BuildPreviewImages: %v", err)
 	}
 	if got, want := calls["*"], len(bins); got != want {
@@ -799,7 +799,7 @@ func TestBuildPreviewImages_ImagesAreInOrdinalOrderAcrossRebuilds(t *testing.T) 
 		"b": {Data: uniformImage(t, "png", 4, 4)},
 		"a": {Data: uniformImage(t, "png", 4, 4)},
 	}
-	first, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), policy)
+	first, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), policy, 0)
 	if err != nil {
 		t.Fatalf("BuildPreviewImages: %v", err)
 	}
@@ -817,7 +817,7 @@ func TestBuildPreviewImages_ImagesAreInOrdinalOrderAcrossRebuilds(t *testing.T) 
 	}
 	// Twenty rebuilds: map iteration order differs, the slice must not.
 	for run := 0; run < 20; run++ {
-		again, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), policy)
+		again, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), policy, 0)
 		if err != nil {
 			t.Fatalf("run %d: %v", run, err)
 		}
@@ -950,7 +950,7 @@ func TestPreparePreviewImage_AnimatedPayloadsAccepted(t *testing.T) {
 func TestPreviewImageSet_SourceDataMutationDoesNotLeak(t *testing.T) {
 	png := uniformImage(t, "png", 4, 4)
 	bins := map[string]FB2Binary{"a": {Data: png}}
-	set, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy())
+	set, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy(), 0)
 	if err != nil {
 		t.Fatalf("BuildPreviewImages: %v", err)
 	}
@@ -969,7 +969,7 @@ func TestPreviewImageSet_SourceDataMutationDoesNotLeak(t *testing.T) {
 func TestPreviewImageSet_PayloadMutationDoesNotLeak(t *testing.T) {
 	png := uniformImage(t, "png", 4, 4)
 	bins := map[string]FB2Binary{"a": {Data: png}}
-	set, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy())
+	set, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy(), 0)
 	if err != nil {
 		t.Fatalf("BuildPreviewImages: %v", err)
 	}
@@ -995,7 +995,7 @@ func TestPreviewImageSet_PayloadMutationDoesNotLeak(t *testing.T) {
 func TestPreviewImageSet_FieldMutationDoesNotLeak(t *testing.T) {
 	png := uniformImage(t, "png", 4, 4)
 	bins := map[string]FB2Binary{"a": {Data: png}}
-	set, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy())
+	set, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy(), 0)
 	if err != nil {
 		t.Fatalf("BuildPreviewImages: %v", err)
 	}
@@ -1018,7 +1018,7 @@ func TestPreviewImageSet_RefusalsMutationDoesNotLeak(t *testing.T) {
 		"good": {Data: uniformImage(t, "png", 4, 4)},
 		"bad":  {Data: []byte("not an image")},
 	}
-	set, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy())
+	set, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy(), 0)
 	if err != nil {
 		t.Fatalf("BuildPreviewImages: %v", err)
 	}
@@ -1035,5 +1035,279 @@ func TestPreviewImageSet_RefusalsMutationDoesNotLeak(t *testing.T) {
 	}
 	if _, ok := again["injected"]; ok {
 		t.Errorf("Refusals() gained 'injected' from caller mutation")
+	}
+}
+
+// --- Total budget: a bound on the work, not on the answer -----------------
+
+// countingPrepare swaps the package-level preparePreviewImage hook for one
+// that counts calls and hands every binary the same fixed payload, so a test
+// controls the prepared size exactly and reads the work done from the
+// counter. The real PreparePreviewImage is bypassed on purpose: these tests
+// pin WHEN preparation stops, and that must not depend on what a codec does
+// to a particular fixture.
+func countingPrepare(t *testing.T, payloadSize int) *int {
+	t.Helper()
+	calls := new(int)
+	prev := preparePreviewImage
+	preparePreviewImage = func(data []byte, p PreviewImagePolicy) ([]byte, string, error) {
+		*calls++
+		return make([]byte, payloadSize), "image/png", nil
+	}
+	t.Cleanup(func() { preparePreviewImage = prev })
+	return calls
+}
+
+// The budget must stop the preparation, not refuse a finished set. Four
+// binaries of 600 prepared bytes under a 1000-byte budget: the first fits,
+// the second crosses (1200 > 1000), and the third and fourth must never be
+// prepared. A mutation that checks the sum after the loop returns the same
+// error — only the counter tells it apart (4 calls instead of 2).
+func TestBuildPreviewImages_BudgetStopsPreparation(t *testing.T) {
+	bins := map[string]FB2Binary{
+		"a": {Data: []byte("a")},
+		"b": {Data: []byte("b")},
+		"c": {Data: []byte("c")},
+		"d": {Data: []byte("d")},
+	}
+	calls := countingPrepare(t, 600)
+
+	// Ids sort a,b,c,d, so the crossing happens deterministically at b.
+	_, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy(), 1000)
+	if !errors.Is(err, ErrPreviewImagesTotalTooLarge) {
+		t.Fatalf("err = %v, want ErrPreviewImagesTotalTooLarge", err)
+	}
+	if *calls != 2 {
+		t.Errorf("prepare called %d times, want 2 — the budget must stop the work, not the answer", *calls)
+	}
+}
+
+// The budget counts the prepared payload, not the source binary: transcoding
+// can change the size either way, and the prepared bytes are what memory,
+// the cache and the reader carry. Here the source (2000 bytes) is bigger
+// than the payload (600): counting sources would stop after ONE prepare
+// (2000 > 1000), counting payloads admits one and stops at two.
+func TestBuildPreviewImages_BudgetCountsPreparedBytesNotSource(t *testing.T) {
+	bins := map[string]FB2Binary{
+		"a": {Data: make([]byte, 2000)},
+		"b": {Data: make([]byte, 2000)},
+	}
+	calls := countingPrepare(t, 600)
+
+	_, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy(), 1000)
+	if !errors.Is(err, ErrPreviewImagesTotalTooLarge) {
+		t.Fatalf("err = %v, want ErrPreviewImagesTotalTooLarge", err)
+	}
+	if *calls != 2 {
+		t.Errorf("prepare called %d times, want 2 — the budget is on prepared bytes, not on sources", *calls)
+	}
+}
+
+// Boundary: a prepared total of exactly the budget passes. Pins the
+// comparison as strict (> not >=), same contract the service-level gate
+// test pins end to end.
+func TestBuildPreviewImages_BudgetAtExactTotalPasses(t *testing.T) {
+	bins := map[string]FB2Binary{
+		"a": {Data: []byte("a")},
+		"b": {Data: []byte("b")},
+	}
+	calls := countingPrepare(t, 600)
+
+	set, err := BuildPreviewImages(context.Background(), bins, testPreviewImageBase(), testPreviewImagePolicy(), 1200)
+	if err != nil {
+		t.Fatalf("a prepared total of exactly the budget must pass: %v", err)
+	}
+	if *calls != 2 || set.Len() != 2 {
+		t.Errorf("calls = %d, prepared = %d, want 2 and 2", *calls, set.Len())
+	}
+}
+
+// --- Used binaries: only what the markup references reaches preparation ---
+
+// A repeated reference is still one binary: the used-set collapses the
+// duplicates, and the prepare counter — not the set size — proves the work
+// happened once.
+func TestUsedBinaries_DuplicateReferencePreparesOnce(t *testing.T) {
+	png := uniformImage(t, "png", 4, 4)
+	doc := &FB2Document{
+		Body: &FB2BodySection{Content: []*FB2ContentItem{
+			{Paragraph: &FB2Paragraph{Kind: ParagraphKindNormal, Content: []*FB2InlineElement{
+				{Type: InlineTypeImage, Attrs: map[string]string{"href": "#img1"}},
+			}}},
+			{Paragraph: &FB2Paragraph{Kind: ParagraphKindImage, Content: []*FB2InlineElement{
+				{Type: InlineTypeImage, Attrs: map[string]string{"href": "#img1"}},
+			}}},
+		}},
+		Binary: map[string]FB2Binary{"img1": {Data: png}},
+	}
+
+	used := UsedBinaries(doc)
+	if len(used) != 1 {
+		t.Fatalf("UsedBinaries returned %d ids, want 1 (two references to the same id)", len(used))
+	}
+
+	calls := 0
+	prev := preparePreviewImage
+	preparePreviewImage = func(data []byte, p PreviewImagePolicy) ([]byte, string, error) {
+		calls++
+		return PreparePreviewImage(data, p)
+	}
+	t.Cleanup(func() { preparePreviewImage = prev })
+
+	set, err := BuildPreviewImages(context.Background(), used, testPreviewImageBase(), testPreviewImagePolicy(), 0)
+	if err != nil {
+		t.Fatalf("BuildPreviewImages: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("prepare called %d times, want 1 — a repeated reference must not repeat the work", calls)
+	}
+	if set.Len() != 1 {
+		t.Errorf("prepared %d images, want 1", set.Len())
+	}
+}
+
+// A binary no markup references — the cover is the standing example — must
+// not reach preparation at all: measured on 23 production books, one
+// prepared 82 pictures its HTML never pointed at. The prepare counter must
+// see only the referenced one.
+func TestUsedBinaries_UnreferencedBinaryIsNeverPrepared(t *testing.T) {
+	png := uniformImage(t, "png", 4, 4)
+	doc := &FB2Document{
+		Body: &FB2BodySection{Content: []*FB2ContentItem{
+			{Paragraph: &FB2Paragraph{Kind: ParagraphKindImage, Content: []*FB2InlineElement{
+				{Type: InlineTypeImage, Attrs: map[string]string{"href": "#shown"}},
+			}}},
+		}},
+		Binary: map[string]FB2Binary{
+			"shown": {Data: png},
+			// The cover lives in description/coverpage, not in the body, so
+			// it is precisely an unreferenced binary: excluded here.
+			"cover": {Data: png},
+		},
+	}
+
+	used := UsedBinaries(doc)
+	if len(used) != 1 {
+		t.Fatalf("UsedBinaries returned %d ids, want 1 (the unreferenced binary must be filtered out)", len(used))
+	}
+	if _, ok := used["cover"]; ok {
+		t.Errorf("the unreferenced binary survived the filter")
+	}
+
+	calls := 0
+	prev := preparePreviewImage
+	preparePreviewImage = func(data []byte, p PreviewImagePolicy) ([]byte, string, error) {
+		calls++
+		return PreparePreviewImage(data, p)
+	}
+	t.Cleanup(func() { preparePreviewImage = prev })
+
+	if _, err := BuildPreviewImages(context.Background(), used, testPreviewImageBase(), testPreviewImagePolicy(), 0); err != nil {
+		t.Fatalf("BuildPreviewImages: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("prepare called %d times, want 1 — the unreferenced binary must never be prepared", calls)
+	}
+}
+
+// A picture referenced from a footnote is rendered with the portion that
+// cites the note, so it must be prepared. A mutation that scans only the
+// body forgets it — the reference would resolve to nothing at render time.
+func TestUsedBinaries_FootnoteImageIsIncluded(t *testing.T) {
+	png := uniformImage(t, "png", 4, 4)
+	doc := &FB2Document{
+		Body: &FB2BodySection{Content: []*FB2ContentItem{
+			{Paragraph: &FB2Paragraph{Kind: ParagraphKindNormal, Content: []*FB2InlineElement{
+				{Type: InlineTypeText, Content: "text"},
+			}}},
+		}},
+		Notes: []*FB2BodySection{
+			{ID: "n1", Content: []*FB2ContentItem{
+				{Paragraph: &FB2Paragraph{Kind: ParagraphKindNormal, Content: []*FB2InlineElement{
+					{Type: InlineTypeImage, Attrs: map[string]string{"href": "#note_pic"}},
+				}}},
+			}},
+		},
+		Binary: map[string]FB2Binary{"note_pic": {Data: png}},
+	}
+
+	used := UsedBinaries(doc)
+	if _, ok := used["note_pic"]; !ok {
+		t.Errorf("a picture referenced from a footnote was not collected — got %v", used)
+	}
+}
+
+// A picture inside a table cell is markup the renderer emits, so it must be
+// prepared. Cells hang off FB2Paragraph.Table, not off the inline content —
+// a scan that only walks Content misses them.
+func TestUsedBinaries_TableCellImageIsIncluded(t *testing.T) {
+	png := uniformImage(t, "png", 4, 4)
+	doc := &FB2Document{
+		Body: &FB2BodySection{Content: []*FB2ContentItem{
+			{Paragraph: &FB2Paragraph{
+				Kind: ParagraphKindTable,
+				Table: &FB2Table{Rows: [][]*FB2TableCell{
+					{{Content: []*FB2InlineElement{
+						{Type: InlineTypeImage, Attrs: map[string]string{"href": "#tbl_pic"}},
+					}}},
+				}},
+			}},
+		}},
+		Binary: map[string]FB2Binary{"tbl_pic": {Data: png}},
+	}
+
+	used := UsedBinaries(doc)
+	if _, ok := used["tbl_pic"]; !ok {
+		t.Errorf("a picture referenced from a table cell was not collected — got %v", used)
+	}
+}
+
+// The reference normalization must match what the renderer applies in
+// renderImage and what the parser stores: whitespace trimmed, the leading
+// '#' stripped, the id lowercased. An image nested inside another inline
+// element (a link, an emphasis) is still a reference.
+func TestUsedBinaries_NormalizesLikeTheRenderer(t *testing.T) {
+	png := uniformImage(t, "png", 4, 4)
+	doc := &FB2Document{
+		Body: &FB2BodySection{Content: []*FB2ContentItem{
+			{Paragraph: &FB2Paragraph{Kind: ParagraphKindNormal, Content: []*FB2InlineElement{
+				{Type: InlineTypeImage, Attrs: map[string]string{"href": "  #Pic1 "}},
+				{Type: InlineTypeLink, Attrs: map[string]string{"href": "#n1"}, Children: []*FB2InlineElement{
+					{Type: InlineTypeImage, Attrs: map[string]string{"href": "#PIC2"}},
+				}},
+			}}},
+		}},
+		Binary: map[string]FB2Binary{
+			"pic1": {Data: png},
+			"pic2": {Data: png},
+		},
+	}
+
+	used := UsedBinaries(doc)
+	if len(used) != 2 {
+		t.Fatalf("UsedBinaries returned %d ids, want 2 — got %v", len(used), used)
+	}
+	for _, id := range []string{"pic1", "pic2"} {
+		if _, ok := used[id]; !ok {
+			t.Errorf("id %q missing — normalization must match the renderer's", id)
+		}
+	}
+}
+
+// A reference to a binary the book does not carry collects nothing — the
+// renderer answers it with a placeholder, and preparation has no bytes to
+// work on.
+func TestUsedBinaries_DanglingReferenceCollectsNothing(t *testing.T) {
+	doc := &FB2Document{
+		Body: &FB2BodySection{Content: []*FB2ContentItem{
+			{Paragraph: &FB2Paragraph{Kind: ParagraphKindNormal, Content: []*FB2InlineElement{
+				{Type: InlineTypeImage, Attrs: map[string]string{"href": "#ghost"}},
+			}}},
+		}},
+		Binary: map[string]FB2Binary{"real": {Data: uniformImage(t, "png", 4, 4)}},
+	}
+
+	if used := UsedBinaries(doc); len(used) != 0 {
+		t.Errorf("UsedBinaries returned %v, want empty — the reference dangles and 'real' is unreferenced", used)
 	}
 }

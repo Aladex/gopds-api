@@ -87,9 +87,11 @@ var (
 	ErrTooManyNodes = errors.New("preview: too many element nodes")
 
 	// ErrPreparedImagesTooLarge: the total weight of prepared preview images
-	// exceeds the gate. Checked after BuildPreviewImages and before any cache
-	// write — the prepared bytes are what live in memory and in Redis, so the
-	// ceiling is on the result of transcoding, not on the source binaries.
+	// exceeds the gate. Enforced inside BuildPreviewImages, between one
+	// prepare and the next — the prepared bytes are what live in memory and
+	// in Redis, so the ceiling is on the result of transcoding, not on the
+	// source binaries, and the build stops at the first payload that crosses
+	// it instead of holding the whole over-budget set before refusing.
 	ErrPreparedImagesTooLarge = errors.New("preview: prepared images exceed the total weight gate")
 )
 
@@ -107,9 +109,11 @@ type PreviewLimits struct {
 	// the parser stops at the exceeding element.
 	MaxNodes int
 	// MaxPreparedImageBytes caps the total weight of prepared preview
-	// images (sum of len(Payload) across imageSet.Images()). Checked after
-	// BuildPreviewImages: transcoding changes the size, and the prepared
-	// bytes are what the cache and the reader's memory actually carry.
+	// images (sum of len(Payload) across the prepared set). Enforced by
+	// BuildPreviewImages during preparation: transcoding changes the size,
+	// and the prepared bytes are what the cache and the reader's memory
+	// actually carry, so the build stops at the first payload that crosses
+	// the cap rather than preparing the rest first.
 	MaxPreparedImageBytes int
 }
 
@@ -485,28 +489,24 @@ func (s *PreviewService) buildAndCache(buildCtx context.Context, key string, boo
 	if err != nil {
 		return nil, fmt.Errorf("preview: image base: %w", err)
 	}
-	imageSet, err := converter.BuildPreviewImages(buildCtx, doc.Binary, base, s.imagePolicy)
+	// Only the binaries the document actually references reach preparation.
+	// An unreferenced one — the cover among them, see converter.UsedBinaries —
+	// would burn the decode, occupy memory, cache and a manifest slot, and
+	// could push the build over the total budget although no markup points
+	// at it.
+	imageSet, err := converter.BuildPreviewImages(buildCtx, converter.UsedBinaries(doc), base, s.imagePolicy, s.limits.MaxPreparedImageBytes)
 	if err != nil {
+		// The total-weight gate fires inside the build, between one prepare
+		// and the next, so the refusal also proves the work stopped early.
+		if errors.Is(err, converter.ErrPreviewImagesTotalTooLarge) {
+			return nil, fmt.Errorf("%w: %w", ErrPreparedImagesTooLarge, err)
+		}
 		return nil, fmt.Errorf("preview: build images: %w", err)
 	}
 	// Refusals (imageSet.Refusals) are NOT build errors: a picture that
 	// cannot be shown stays a placeholder in the HTML and the book opens.
 	// Only a failed cache write below refuses the build.
 	prepared := imageSet.Images()
-
-	// Gate 3: total weight of prepared preview images — the bytes that
-	// will live in memory and in the cache. Measured AFTER preparation,
-	// because transcoding changes the size; the source binary weight is
-	// not what the pipeline carries. This gate fires before any cache
-	// write, so a refusal publishes nothing.
-	var preparedBytes int
-	for _, img := range prepared {
-		preparedBytes += len(img.Payload)
-	}
-	if preparedBytes > s.limits.MaxPreparedImageBytes {
-		return nil, fmt.Errorf("%w: %d bytes, cap is %d",
-			ErrPreparedImagesTooLarge, preparedBytes, s.limits.MaxPreparedImageBytes)
-	}
 
 	projection := imageSet.Projection()
 

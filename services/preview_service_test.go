@@ -967,6 +967,42 @@ func TestPreviewService_TooManyNodesIsRefused(t *testing.T) {
 	}
 }
 
+// A binary the markup never references must not be prepared: it would burn
+// the decode, take memory, cache space and a manifest slot, and could push
+// the build over the total budget although no HTML points at it. The fixture
+// carries two valid PNGs and references one; the manifest and the cache must
+// hold exactly that one. Kills the mutation "prepare every binary the book
+// carries" — under it the manifest would list both.
+func TestPreviewService_UnreferencedBinaryIsNotPrepared(t *testing.T) {
+	fb2 := `<?xml version="1.0"?>` +
+		`<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:xlink="http://www.w3.org/1999/xlink">` +
+		`<body><section>` +
+		`<p>ТЕКСТ</p>` +
+		`<image xlink:href="#used"/>` +
+		`</section></body>` +
+		`<binary id="used" content-type="image/png">` + base64.StdEncoding.EncodeToString(tinyPNG(t)) + `</binary>` +
+		`<binary id="stowaway" content-type="image/png">` + base64.StdEncoding.EncodeToString(tinyPNG(t)) + `</binary>` +
+		`</FictionBook>`
+
+	repo := buildBookRepo()
+	loader := &fakeArchiveLoader{data: []byte(fb2)}
+	cache := newMockCache()
+	svc := NewPreviewService(repo, loader, cache, 2, defaultPreviewLimits(), 0, 0)
+
+	manifest := loadManifest(t, svc)
+	if len(manifest.Images) != 1 {
+		t.Fatalf("manifest declares %d images, want 1 — the unreferenced binary must not be prepared", len(manifest.Images))
+	}
+
+	key := buildCacheKey(1, "abc", svc.revision(repo.books[1]))
+	if _, _, err := cache.GetImage(context.Background(), key, 1); err != nil {
+		t.Errorf("the referenced image is not cached under ordinal 1: %v", err)
+	}
+	if _, _, err := cache.GetImage(context.Background(), key, 2); !errors.Is(err, ErrCacheMiss) {
+		t.Errorf("ordinal 2: err = %v, want ErrCacheMiss — the unreferenced binary must not reach the cache", err)
+	}
+}
+
 // Gate 3: total weight of prepared preview images exceeds the limit. The
 // fixture carries one valid PNG and one corrupt binary ("not an image at
 // all"). Preparation refuses the corrupt one, so the prepared set is smaller
