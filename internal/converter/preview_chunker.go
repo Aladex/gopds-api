@@ -174,6 +174,7 @@ func (p *previewPacker) draftBlockCost(chunkIndex int, block chunkBlock, already
 // content. The root container contributes no header of its own.
 func flattenPreviewBlocks(doc *FB2Document) []chunkBlock {
 	var blocks []chunkBlock
+	sectionSeq := 0
 	var walk func(content []*FB2ContentItem, depth int)
 	walk = func(content []*FB2ContentItem, depth int) {
 		for _, item := range content {
@@ -184,7 +185,8 @@ func flattenPreviewBlocks(doc *FB2Document) []chunkBlock {
 				blocks = append(blocks, chunkBlock{para: item.Paragraph})
 			}
 			if item.Section != nil {
-				blocks = append(blocks, chunkBlock{header: item.Section, depth: depth})
+				blocks = append(blocks, chunkBlock{header: item.Section, depth: depth, sectionIndex: sectionSeq})
+				sectionSeq++
 				walk(item.Section.Content, depth+1)
 			}
 		}

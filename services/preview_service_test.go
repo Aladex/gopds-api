@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1347,5 +1348,60 @@ func TestPreviewService_CanceledRequestStartsNoBuild(t *testing.T) {
 	case <-loader.entered:
 		t.Error("a background build started for a request that was already canceled")
 	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// TestBuildPreviewTOC_AnonymousSectionsHaveAnchors verifies that the service-level
+// TOC carries non-empty anchors for sections without an id and that each anchor
+// exists in the rendered HTML of the chunk it points to.
+func TestBuildPreviewTOC_AnonymousSectionsHaveAnchors(t *testing.T) {
+	textPara := func(text string) *converter.FB2Paragraph {
+		return &converter.FB2Paragraph{
+			Kind:    converter.ParagraphKindNormal,
+			Text:    text,
+			Content: []*converter.FB2InlineElement{{Type: converter.InlineTypeText, Content: text}},
+		}
+	}
+	policy := converter.PreviewPolicy{MaxChunkBytes: 64 * 1024}
+	doc := &converter.FB2Document{Body: &converter.FB2BodySection{
+		Content: []*converter.FB2ContentItem{
+			{Section: &converter.FB2BodySection{
+				ID:      "part1",
+				Title:   "Part One",
+				Content: []*converter.FB2ContentItem{{Paragraph: textPara("text one")}},
+			}},
+			{Section: &converter.FB2BodySection{
+				Title:   "Anonymous story",
+				Content: []*converter.FB2ContentItem{{Paragraph: textPara("text two")}},
+			}},
+		},
+	}}
+
+	chunks, err := converter.ChunkPreview(context.Background(), doc, converter.PreviewImages{}, policy)
+	if err != nil {
+		t.Fatalf("ChunkPreview: %v", err)
+	}
+	toc := buildPreviewTOC(chunks)
+	if len(toc) != 2 {
+		t.Fatalf("expected 2 toc entries, got %d", len(toc))
+	}
+	if toc[0].Anchor != "pv0-part1" {
+		t.Errorf("first entry anchor = %q, want pv0-part1", toc[0].Anchor)
+	}
+	if toc[1].Anchor == "" {
+		t.Fatalf("anonymous section got an empty anchor")
+	}
+
+	for i, entry := range toc {
+		if entry.Chunk < 0 || entry.Chunk >= len(chunks) {
+			t.Fatalf("toc entry %d points to invalid chunk %d", i, entry.Chunk)
+		}
+		html, err := converter.RenderChunkHTML(chunks[entry.Chunk], converter.PreviewImages{}, policy)
+		if err != nil {
+			t.Fatalf("RenderChunkHTML chunk %d: %v", entry.Chunk, err)
+		}
+		if !strings.Contains(html, `id="`+entry.Anchor+`"`) {
+			t.Errorf("toc entry %d anchor %q not found in chunk %d HTML", i, entry.Anchor, entry.Chunk)
+		}
 	}
 }

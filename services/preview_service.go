@@ -274,13 +274,14 @@ type PreviewManifest struct {
 
 // PreviewTOCEntry is one row of the manifest's table of contents: the
 // section's visible title, its depth, the portion it opens in, and the
-// chunk-local anchor the renderer emitted for it (empty when the section
-// carries no id and therefore has no anchor to jump to).
+// chunk-local anchor the renderer emitted for it. The anchor is now always
+// present: sections without an id receive a synthetic anchor so the TOC can
+// still deep-link to them.
 type PreviewTOCEntry struct {
 	Title  string `json:"title"`
 	Depth  int    `json:"depth"`
 	Chunk  int    `json:"chunk"`
-	Anchor string `json:"anchor,omitempty"`
+	Anchor string `json:"anchor"`
 }
 
 // PreviewImageRef is the manifest's record of one prepared image: its ordinal

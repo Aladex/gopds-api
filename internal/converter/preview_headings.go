@@ -22,9 +22,9 @@ type PreviewHeading struct {
 
 // Headings returns the portion's section headings in document order. Sections
 // without a title are skipped, matching renderSectionHeader, which renders
-// nothing for them. The anchor lookup reuses newPreviewRender's anchor table,
-// so the "first id wins" dedup and the id normalization cannot drift apart
-// between the HTML and the TOC built on top of it.
+// nothing for them. The anchor comes from the same path the renderer uses, so
+// the TOC and the HTML cannot drift apart: both walk the blocks in document
+// order and ask blockAnchor for the id that would be emitted.
 func (c *PreviewChunk) Headings() []PreviewHeading {
 	r := newPreviewRender(c, PreviewImages{}, PreviewPolicy{}, false)
 	var out []PreviewHeading
@@ -39,7 +39,7 @@ func (c *PreviewChunk) Headings() []PreviewHeading {
 		out = append(out, PreviewHeading{
 			Title:  title,
 			Depth:  block.depth,
-			Anchor: r.anchors[anchorKey(block.header.ID)],
+			Anchor: r.blockAnchor(block),
 		})
 	}
 	return out

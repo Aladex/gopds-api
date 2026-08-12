@@ -34,6 +34,7 @@ type previewRender struct {
 	anchors      map[string]string          // raw section/paragraph id -> anchor id
 	emittedIDs   map[string]bool            // raw ids whose anchor is already out
 	emittedNotes map[string]bool            // raw note ids already inlined
+	usedAnchors  map[string]bool            // all anchor ids already reserved
 
 	// draft renders sizes, not output: every fragment link is assumed to
 	// resolve, so the draft is never smaller than the final render of the
@@ -73,6 +74,7 @@ func newPreviewRender(chunk *PreviewChunk, images PreviewImages, policy PreviewP
 		anchors:      make(map[string]string),
 		emittedIDs:   make(map[string]bool),
 		emittedNotes: make(map[string]bool),
+		usedAnchors:  make(map[string]bool),
 		draft:        draft,
 	}
 	for _, note := range chunk.notes {
@@ -85,6 +87,7 @@ func newPreviewRender(chunk *PreviewChunk, images PreviewImages, policy PreviewP
 			}
 			r.noteIDs[key] = fmt.Sprintf("pv%d-note-%s", chunk.Index, key)
 			r.noteByID[key] = note
+			r.usedAnchors[r.noteIDs[key]] = true
 		}
 	}
 	for _, block := range chunk.blocks {
@@ -96,6 +99,7 @@ func newPreviewRender(chunk *PreviewChunk, images PreviewImages, policy PreviewP
 			continue // first occurrence wins
 		}
 		r.anchors[key] = fmt.Sprintf("pv%d-%s", chunk.Index, key)
+		r.usedAnchors[r.anchors[key]] = true
 	}
 	return r
 }
@@ -135,6 +139,48 @@ func sanitizeAnchorID(raw string) string {
 	}, raw)
 }
 
+// syntheticAnchorPrefix is the namespace for anchors invented for sections
+// that carry no id. '!' is not allowed in a valid XML Name, so a well-formed
+// FB2 id can never collide with this prefix. The collision resolution in
+// blockAnchor still catches hostile or malformed input that somehow does.
+const syntheticAnchorPrefix = "!auto"
+
+// blockAnchor returns the anchor id that would be emitted for the block, or an
+// empty string if the block has no anchor. For section headers without an id it
+// produces a deterministic synthetic anchor based on the document-wide section
+// sequence. Repeated calls on the same renderer in document order yield the
+// same values as the final HTML render.
+func (r *previewRender) blockAnchor(block chunkBlock) string {
+	raw := blockRawID(block)
+	if raw == "" {
+		if block.header == nil {
+			return ""
+		}
+		// Hostile or malformed source may still match this prefix; resolve
+		// collisions deterministically by bumping the sequence index.
+		for attempt := 0; ; attempt++ {
+			idx := block.sectionIndex + attempt
+			candidate := fmt.Sprintf("pv%d-%s-%d", r.chunk.Index, syntheticAnchorPrefix, idx)
+			if !r.usedAnchors[candidate] {
+				return candidate
+			}
+		}
+	}
+	key := anchorKey(raw)
+	if key == "" {
+		return ""
+	}
+	anchor, ok := r.anchors[key]
+	if !ok && r.draft {
+		anchor = fmt.Sprintf("pv%d-%s", r.chunk.Index, key)
+		ok = true
+	}
+	if !ok {
+		return ""
+	}
+	return anchor
+}
+
 // renderBlock renders one block: its own anchor (if it is the first block in
 // the chunk carrying that id), then the block markup.
 func (r *previewRender) renderBlock(block chunkBlock) string {
@@ -148,25 +194,23 @@ func (r *previewRender) renderBlock(block chunkBlock) string {
 	return out.String()
 }
 
-// renderAnchor emits the chunk-local anchor for the block's book id, once.
-// In draft mode it always emits, because the draft must not undercount.
+// renderAnchor emits the chunk-local anchor for the block, once. In draft mode
+// it always emits, because the draft must not undercount.
 func (r *previewRender) renderAnchor(block chunkBlock) string {
-	key := anchorKey(blockRawID(block))
-	if key == "" {
+	anchor := r.blockAnchor(block)
+	if anchor == "" {
 		return ""
 	}
-	anchor, ok := r.anchors[key]
-	if !ok && r.draft {
-		anchor = fmt.Sprintf("pv%d-%s", r.chunk.Index, key)
-		ok = true
+	// Book-supplied ids are deduplicated: first occurrence wins. Synthetic
+	// anchors are unique by construction, so they do not need deduplication.
+	raw := blockRawID(block)
+	if raw != "" {
+		key := anchorKey(raw)
+		if r.emittedIDs[key] && !r.draft {
+			return ""
+		}
+		r.emittedIDs[key] = true
 	}
-	if !ok {
-		return ""
-	}
-	if r.emittedIDs[key] && !r.draft {
-		return ""
-	}
-	r.emittedIDs[key] = true
 	return `<a id="` + escapeAttr(anchor) + `"></a>` + "\n"
 }
 

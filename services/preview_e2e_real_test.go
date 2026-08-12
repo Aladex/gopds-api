@@ -127,8 +127,30 @@ func TestRealBooksEndToEnd(t *testing.T) {
 					}
 				}
 			}
-			t.Logf("portions=%d html=%.1f KiB images=%d refs=%d revision=%s",
-				m.ChunkCount, float64(htmlBytes)/1024, len(m.Images), totalRefs, m.Revision)
+			// Every table-of-contents entry must land somewhere: its anchor
+			// has to exist as an id in the very portion it names. An entry
+			// whose anchor is empty, or whose anchor lives in another
+			// portion, opens the portion but not the section the reader
+			// picked — and no handler can repair that after the render.
+			for _, entry := range m.TOC {
+				if entry.Anchor == "" {
+					t.Fatalf("TOC entry %q (chunk %d) carries no anchor", entry.Title, entry.Chunk)
+				}
+				if entry.Chunk < 0 || entry.Chunk >= m.ChunkCount {
+					t.Fatalf("TOC entry %q names chunk %d, out of %d", entry.Title, entry.Chunk, m.ChunkCount)
+				}
+				chunk, cerr := cache.GetChunk(context.Background(), key, entry.Chunk)
+				if cerr != nil {
+					t.Fatalf("TOC entry %q names missing chunk %d: %v", entry.Title, entry.Chunk, cerr)
+				}
+				if !strings.Contains(string(chunk), `id="`+entry.Anchor+`"`) {
+					t.Fatalf("TOC entry %q points at anchor %q, absent from chunk %d",
+						entry.Title, entry.Anchor, entry.Chunk)
+				}
+			}
+
+			t.Logf("portions=%d html=%.1f KiB images=%d refs=%d toc=%d revision=%s",
+				m.ChunkCount, float64(htmlBytes)/1024, len(m.Images), totalRefs, len(m.TOC), m.Revision)
 		})
 	}
 }

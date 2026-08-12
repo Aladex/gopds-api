@@ -120,6 +120,10 @@ type chunkBlock struct {
 	header *FB2BodySection // Set for a section header block
 	depth  int             // Section depth, 1 for top level
 	para   *FB2Paragraph   // Set for a paragraph block
+	// sectionIndex is the document-wide order of this section among all
+	// section headers. It is set only for header blocks and is the stable
+	// basis of synthetic anchors for sections that carry no id of their own.
+	sectionIndex int
 }
 
 // PreviewChunk is one portion of the book: an ordered run of blocks plus the
