@@ -3,11 +3,11 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"gopds-api/httputil"
 	"gopds-api/internal/converter"
@@ -21,8 +21,11 @@ import (
 
 // fakePreviewService is a test double for PreviewService.
 type fakePreviewService struct {
-	loadResult  []byte
-	loadErr     error
+	loadResult []byte
+	loadErr    error
+	// loadFunc, when set, replaces the canned answer: a test that needs to
+	// act while the handler is inside the service uses it to get there.
+	loadFunc    func(ctx context.Context) ([]byte, error)
 	chunkResult []byte
 	chunkErr    error
 	// revision and chunkCount let the double enforce the same two rules the
@@ -60,6 +63,9 @@ type chunkCall struct {
 
 func (f *fakePreviewService) Load(ctx context.Context, bookID int64, isSuperUser bool) ([]byte, error) {
 	f.loadCalls = append(f.loadCalls, loadCall{bookID: bookID, isSuperUser: isSuperUser})
+	if f.loadFunc != nil {
+		return f.loadFunc(ctx)
+	}
 	if f.hidden && !isSuperUser {
 		return nil, fmt.Errorf("%w: book id %d", services.ErrBookNotVisible, bookID)
 	}
@@ -74,6 +80,9 @@ func (f *fakePreviewService) Chunk(
 	})
 	if f.chunkErr != nil {
 		return nil, f.chunkErr
+	}
+	if f.hidden && !isSuperUser {
+		return nil, fmt.Errorf("%w: book id %d", services.ErrBookNotVisible, bookID)
 	}
 	// The double answers the way the service does, or the handler would be
 	// tested against a contract nothing implements: a revision that is not
@@ -242,6 +251,18 @@ func TestPreviewHandler_FBLimitExceeded_Returns413(t *testing.T) {
 		assert.Equal(t, http.StatusRequestEntityTooLarge, got.Code)
 	})
 
+	t.Run("one block will not fit a portion", func(t *testing.T) {
+		// A block that cannot be split under the portion ceiling refuses the
+		// book as surely as its size does. Left out of the table it became a
+		// 500, telling the client to retry something that will never work.
+		fake := &fakePreviewService{loadErr: converter.ErrPreviewBlockTooLarge}
+		r := newPreviewTestRouter(fake, false)
+
+		rec := doPreviewGET(t, r, "/api/books/preview/123")
+
+		require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+	})
+
 	t.Run("too many nodes, refused by the service", func(t *testing.T) {
 		fake := &fakePreviewService{loadErr: services.ErrTooManyNodes}
 		r := newPreviewTestRouter(fake, false)
@@ -277,7 +298,7 @@ func TestPreviewHandler_CacheUnavailable_Returns503(t *testing.T) {
 	var got httputil.HTTPError
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	assert.Equal(t, http.StatusServiceUnavailable, got.Code)
-	assert.Contains(t, rec.Header().Get("Retry-After"), "", "Retry-After header should be present for 503")
+	assert.Equal(t, "60", rec.Header().Get("Retry-After"), "an unavailable cache must say how long to wait")
 }
 
 func TestPreviewHandler_TooManyBuilds_Returns429(t *testing.T) {
@@ -290,7 +311,7 @@ func TestPreviewHandler_TooManyBuilds_Returns429(t *testing.T) {
 	var got httputil.HTTPError
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	assert.Equal(t, http.StatusTooManyRequests, got.Code)
-	assert.Contains(t, rec.Header().Get("Retry-After"), "", "Retry-After header should be present for 429")
+	assert.Equal(t, "10", rec.Header().Get("Retry-After"), "a busy server must say how long to wait")
 }
 
 func TestPreviewChunkHandler_ChunkOutOfRange_Returns404(t *testing.T) {
@@ -388,51 +409,90 @@ func TestPreviewChunkHandler_NoCachingHeaders(t *testing.T) {
 	assert.Empty(t, rec.Header().Get("Last-Modified"))
 }
 
-func TestPreviewHandler_ContextCancellation_StopsWork(t *testing.T) {
-	workStarted := make(chan struct{})
-	workFinished := make(chan struct{})
+// A reader who hangs up gets no answer written: the handler stops rather
+// than composing a status nobody will read. The service's own build is a
+// separate matter and deliberately survives — that is proven in the service
+// tests, not here.
+//
+// The previous version of this test observed nothing: it waited on a channel
+// nobody ever closed and signaled from an unrelated goroutine, so it passed
+// whatever the handler did.
+func TestPreviewHandler_CanceledRequestWritesNothing(t *testing.T) {
+	reached := make(chan struct{})
+	release := make(chan struct{})
 	fake := &fakePreviewService{
-		loadResult: []byte(`{"revision":"abc123","chunk_count":1,"toc":[],"images":[]}`),
-		loadCalls:  []loadCall{},
+		revision:   "abc123",
+		chunkCount: 1,
+		loadFunc: func(ctx context.Context) ([]byte, error) {
+			close(reached)
+			<-release
+			return nil, ctx.Err()
+		},
 	}
 	r := newPreviewTestRouter(fake, false)
 
-	// Create a request with cancelable context
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/api/books/preview/123", http.NoBody)
+	ctx, cancel := context.WithCancel(context.Background())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/api/books/preview/123", http.NoBody)
 	require.NoError(t, err)
-	ctx, cancel := context.WithCancel(req.Context())
-	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
 
-	w := httptest.NewRecorder()
-
-	// Start request in goroutine, cancel after it starts
+	done := make(chan struct{})
 	go func() {
-		<-workStarted
-		time.Sleep(10 * time.Millisecond)
-		cancel()
+		r.ServeHTTP(rec, req)
+		close(done)
 	}()
 
-	// Fake service should signal it started working
-	go func() {
-		time.Sleep(5 * time.Millisecond)
-		close(workStarted)
-	}()
+	<-reached // the handler is inside the service
+	cancel()  // the reader hangs up
+	close(release)
+	<-done
 
-	r.ServeHTTP(w, req)
+	assert.Empty(t, rec.Body.String(), "no body may be written for a reader who left")
+}
 
-	// Work should have been interrupted, not finished
-	select {
-	case <-workFinished:
-		t.Fatal("work finished despite context cancellation")
-	case <-time.After(100 * time.Millisecond):
-		// Expected: work was canceled
+// A build that ran out of the server's own time is not a reader who left:
+// the reader is still waiting and must be told to come back later.
+func TestPreviewHandler_BuildDeadline_Returns503(t *testing.T) {
+	fake := &fakePreviewService{loadErr: context.DeadlineExceeded}
+	r := newPreviewTestRouter(fake, false)
+
+	rec := doPreviewGET(t, r, "/api/books/preview/123")
+
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assert.Equal(t, "30", rec.Header().Get("Retry-After"))
+}
+
+// Absent and invisible must be indistinguishable in the answer, body
+// included: a difference in the sentence enumerates hidden books just as
+// well as a difference in the status.
+func TestPreviewHandler_MissingAndHiddenAnswerIdentically(t *testing.T) {
+	missing := doPreviewGET(t, newPreviewTestRouter(&fakePreviewService{
+		loadErr: services.ErrBookNotFound,
+	}, false), "/api/books/preview/123")
+
+	hidden := doPreviewGET(t, newPreviewTestRouter(&fakePreviewService{
+		revision: "abc123", hidden: true,
+		loadResult: []byte(`{"revision":"abc123","chunk_count":1,"toc":[],"images":[]}`),
+	}, false), "/api/books/preview/123")
+
+	require.Equal(t, missing.Code, hidden.Code)
+	assert.Equal(t, missing.Body.String(), hidden.Body.String(),
+		"the two answers differ, so a prober can tell a hidden book from an absent one")
+}
+
+// No internal detail reaches the reader: not a cache address, not a key, not
+// the book's fingerprint.
+func TestPreviewHandler_RefusalLeaksNoInternals(t *testing.T) {
+	internal := errors.New("preview cache: dial tcp 10.28.0.4:6379: connect: connection refused, key preview:v1:9f8e7d:42")
+	fake := &fakePreviewService{loadErr: fmt.Errorf("%w: %v", services.ErrCacheUnavailable, internal)}
+	r := newPreviewTestRouter(fake, false)
+
+	rec := doPreviewGET(t, r, "/api/books/preview/123")
+
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	for _, secret := range []string{"10.28.0.4", "6379", "9f8e7d", "preview:v1"} {
+		assert.NotContains(t, rec.Body.String(), secret, "the answer carries an internal detail")
 	}
-
-	// Response should indicate cancellation (likely 499 or similar)
-	// or we could verify the Load call count (it should be 0 or 1 with cancellation)
-	// Since Gin doesn't expose context cancellation easily in tests without a real server,
-	// we verify the service was called and then we'd need a more sophisticated fake
-	require.LessOrEqual(t, len(fake.loadCalls), 1)
 }
 
 func TestPreviewHandler_Success_ReturnsManifestWithFirstChunk(t *testing.T) {
@@ -496,6 +556,12 @@ func TestPreviewImageHandler_ServesExactTypeWithNosniff(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "image/png", rec.Header().Get("Content-Type"))
 	assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
+	// A picture belongs to a book someone may not be allowed to see, so it
+	// must not settle in a shared cache any more than the text does.
+	cacheControl := rec.Header().Get("Cache-Control")
+	for _, directive := range []string{"no-store", "private"} {
+		assert.Contains(t, cacheControl, directive, "Cache-Control must carry %q", directive)
+	}
 	assert.Equal(t, []byte{0x89, 'P', 'N', 'G', 0x0D}, rec.Body.Bytes())
 	require.Len(t, fake.imageCalls, 1)
 	assert.Equal(t, 2, fake.imageCalls[0].ordinal)

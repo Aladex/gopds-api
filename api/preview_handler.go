@@ -215,65 +215,103 @@ func setNoCacheHeaders(c *gin.Context) {
 }
 
 // mapPreviewError maps PreviewService errors to HTTP status codes.
-func mapPreviewError(c *gin.Context, err error) {
+// reasonBookNotFound is the one sentence both an absent book and a book this
+// reader may not see receive. It is a constant because the two must never
+// drift apart: any difference between them enumerates hidden books.
+const reasonBookNotFound = "book not found"
+
+// previewRefusal is one public answer: a status and the sentence a reader
+// gets. The sentence is fixed, never the error's own text — an internal
+// message carries cache addresses, key material and the book's fingerprint,
+// and "book not found" versus "book is not visible to this reader" tells a
+// prober which hidden books exist even when the status is the same.
+type previewRefusal struct {
+	status int
+	reason string
+	// retryAfter, when set, is the number of seconds after which the same
+	// address is worth trying again. Only temporary refusals carry one.
+	retryAfter string
+}
+
+// classifyPreviewError is the single place that decides what a refusal means
+// to the outside. The HTTP mapping and, later, the refusal metric both read
+// it, so a cause cannot be counted as one thing and answered as another.
+func classifyPreviewError(err error) previewRefusal {
 	switch {
-	// A book that is not there and a book this reader may not see answer
-	// alike on purpose: telling them apart would let anyone probe which
-	// hidden books exist by watching the status change.
+	// Absent and invisible answer identically, status and sentence both:
+	// any difference between them is a way to enumerate hidden books.
 	case errors.Is(err, services.ErrBookNotFound),
 		errors.Is(err, services.ErrBookNotVisible):
-		httputil.NewError(c, http.StatusNotFound, err)
+		return previewRefusal{status: http.StatusNotFound, reason: reasonBookNotFound}
 
-	// The book exists and is visible; the preview simply does not read this
-	// format. Nothing about the request or the moment will change that.
-	case errors.Is(err, services.ErrUnsupportedFormat),
-		errors.Is(err, services.ErrEmptyMD5):
-		httputil.NewError(c, http.StatusUnsupportedMediaType, err)
+	// The preview reads FB2 and nothing else. Permanent for this book.
+	case errors.Is(err, services.ErrUnsupportedFormat):
+		return previewRefusal{status: http.StatusUnsupportedMediaType, reason: "preview is not available for this format"}
 
-	// The book is beyond what the service will spend on one preview. Also
-	// permanent for this book, but distinct from "wrong format": the client
-	// can say why, and the catalog can be measured for how often it happens.
-	// Both spellings are listed on purpose: the service refuses with its own
-	// names when it checks a gate itself, and passes the parser's through
-	// when the parser stops first. A mapping that knew only one of the two
-	// would answer 500 for half the refusals it exists to describe.
+	// A catalog row without a fingerprint cannot be keyed, so no preview
+	// can be built for it. That is a defect in our data, not a property of
+	// the request, and it must not masquerade as a media type problem.
+	case errors.Is(err, services.ErrEmptyMD5):
+		return previewRefusal{status: http.StatusInternalServerError, reason: "preview is unavailable for this book"}
+
+	// Beyond what the service will spend on one preview: too big, too many
+	// pictures, too many nodes, too much prepared weight, or a single block
+	// that cannot be split under the portion ceiling. All permanent for the
+	// book, and distinct from "wrong format" so a client can say why.
 	case errors.Is(err, services.ErrFB2TooLarge),
 		errors.Is(err, services.ErrTooManyBinaries),
 		errors.Is(err, services.ErrTooManyNodes),
 		errors.Is(err, services.ErrPreparedImagesTooLarge),
 		errors.Is(err, converter.ErrFB2NodeLimit),
 		errors.Is(err, converter.ErrFB2BinaryLimit),
-		errors.Is(err, converter.ErrPreviewImagesTotalTooLarge):
-		httputil.NewError(c, http.StatusRequestEntityTooLarge, err)
+		errors.Is(err, converter.ErrPreviewImagesTotalTooLarge),
+		errors.Is(err, converter.ErrPreviewBlockTooLarge):
+		return previewRefusal{status: http.StatusRequestEntityTooLarge, reason: "this book is too large to preview"}
 
 	// The portion or picture is gone: past the end of this slicing, or the
-	// cached entry expired between the table of contents and this request.
+	// entry expired between the table of contents and this request.
 	case errors.Is(err, services.ErrChunkNotFound),
 		errors.Is(err, services.ErrImageNotFound):
-		httputil.NewError(c, http.StatusNotFound, err)
+		return previewRefusal{status: http.StatusNotFound, reason: "no such portion"}
 
 	// The reader holds a table of contents for a slicing that no longer
-	// exists. Not an error in the request and not a missing resource: the
-	// resource was there and is gone, which is what Gone says. The client
-	// opens the preview again rather than retrying this address.
+	// exists. The resource was there and is gone, so the client opens the
+	// preview again rather than retrying this address.
 	case errors.Is(err, services.ErrRevisionStale):
-		httputil.NewError(c, http.StatusGone, err)
+		return previewRefusal{status: http.StatusGone, reason: "the preview has been rebuilt, open it again"}
 
-	// Both of these are the server saying "not now". Retry-After is set
-	// before the body, because writing the body commits the header block.
 	case errors.Is(err, services.ErrCacheUnavailable):
-		c.Header("Retry-After", "60")
-		httputil.NewError(c, http.StatusServiceUnavailable, err)
-	case errors.Is(err, services.ErrTooManyBuilds):
-		c.Header("Retry-After", "10")
-		httputil.NewError(c, http.StatusTooManyRequests, err)
+		return previewRefusal{status: http.StatusServiceUnavailable, reason: "preview storage is unavailable", retryAfter: "60"}
 
-	// A reader who left takes the answer with them; no status reaches anyone.
-	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+	case errors.Is(err, services.ErrTooManyBuilds):
+		return previewRefusal{status: http.StatusTooManyRequests, reason: "too many previews are being built", retryAfter: "10"}
+
+	// A build that ran out of its own time. The reader is still there and
+	// deserves an answer: this is the server saying "not now", not a client
+	// that went away.
+	case errors.Is(err, context.DeadlineExceeded):
+		return previewRefusal{status: http.StatusServiceUnavailable, reason: "the preview took too long to build", retryAfter: "30"}
+	}
+	return previewRefusal{status: http.StatusInternalServerError, reason: "preview is unavailable"}
+}
+
+// mapPreviewError writes the public answer for a refusal.
+func mapPreviewError(c *gin.Context, err error) {
+	// A reader who hung up takes the answer with them. This is asked of the
+	// request's own context, not of the error: a build that exceeded the
+	// server's deadline raises the same context error while the reader is
+	// still waiting, and it must get a status rather than silence.
+	if c.Request.Context().Err() != nil {
 		_ = c.Error(err)
 		c.Abort()
-
-	default:
-		httputil.NewError(c, http.StatusInternalServerError, err)
+		return
 	}
+
+	refusal := classifyPreviewError(err)
+	if refusal.retryAfter != "" {
+		c.Header("Retry-After", refusal.retryAfter)
+	}
+	// The cause goes to the log, the sentence goes to the reader.
+	_ = c.Error(err)
+	httputil.NewError(c, refusal.status, errors.New(refusal.reason))
 }
