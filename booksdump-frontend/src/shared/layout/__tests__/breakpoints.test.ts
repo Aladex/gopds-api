@@ -9,21 +9,39 @@ import { CARD_WIDE_MIN_WIDTH_REM, CARD_WIDE_QUERY, CARD_WIDE_VARIANT } from '@/s
 const projectPath = (relative: string) => fileURLToPath(new URL(relative, import.meta.url));
 
 /**
- * The card's one JS layout decision has to switch at the same moment its
- * responsive classes do. When it did not, the two disagreed across a band of
- * widths and the layout broke there and nowhere else.
+ * A file's JS layout decision has to switch at the same moment its responsive
+ * classes do. When it did not, the two disagreed across a band of widths and
+ * the layout broke there and nowhere else.
  *
  * The width is neither restated here nor read out of a previous build. It is
  * compiled from the project's own stylesheet, so the answer belongs to the
  * source as it stands: a stale build directory cannot make this pass, and a
  * clean checkout does not need one. And it is compiled for the variant the
- * card actually writes, not for the smallest breakpoint in the application —
+ * file actually writes, not for the smallest breakpoint in the application —
  * changing the card to `md:` while React kept asking for 40rem is exactly the
  * defect this is here to catch, and the whole-application minimum would have
  * stayed 40rem and said nothing.
+ *
+ * The rule is the same for every such file, so the list below is what grows,
+ * not the check.
+ *
+ * `mustStyleByWidth` is what separates the two cases. The card genuinely
+ * styles itself at the boundary, and a card that suddenly styles nothing by
+ * width has lost the classes this is here to hold — so for the card, zero
+ * width-guarded classes is the failure. The dialog decides the same question
+ * once in React and hands the answer to a conditional render; its column
+ * carried a `sm:block` as well, which agreed with `isWide` only because both
+ * literals said 40rem, and moving either one alone opened a band of widths
+ * with no contents at all. Zero is the right answer there, and any class that
+ * reintroduces a second threshold has to pass the same test the card does.
  */
-describe('the card layout boundary', () => {
-    const cardSource = readFileSync(projectPath('../../../features/catalogue/BookCard.tsx'), 'utf8');
+const layoutFiles = [
+    { file: 'BookCard.tsx', mustStyleByWidth: true },
+    { file: 'BookPreviewDialog.tsx', mustStyleByWidth: false },
+];
+
+describe.each(layoutFiles)('the layout boundary in $file', ({ file, mustStyleByWidth }) => {
+    const source = readFileSync(projectPath(`../../../features/catalogue/${file}`), 'utf8');
 
     let cached: Awaited<ReturnType<typeof __unstable__loadDesignSystem>> | undefined;
 
@@ -50,7 +68,7 @@ describe('the card layout boundary', () => {
     };
 
     /**
-     * Every class the card writes, found the way Tailwind finds them.
+     * Every class the file writes, found the way Tailwind finds them.
      *
      * Earlier versions of this test picked candidates out of the source with
      * regexes of my own, and each missed a way of writing a class that still
@@ -59,17 +77,30 @@ describe('the card layout boundary', () => {
      * the one Tailwind uses to decide what a file asks for, so anything the
      * build compiles is something this test sees.
      */
-    const cardCandidates = () =>
-        new Scanner({}).scanFiles([{ content: cardSource, extension: 'tsx' }]);
+    const candidates = () =>
+        new Scanner({}).scanFiles([{ content: source, extension: 'tsx' }]);
 
-    it('styles the card at exactly the boundary React asks about', async () => {
+    it('styles nothing at a boundary other than the one React asks about', async () => {
         const design = await designSystem();
         const guarded: string[] = [];
 
-        for (const candidate of cardCandidates()) {
+        for (const candidate of candidates()) {
             const [css] = design.candidatesToCss([candidate]);
             if (!css || !/width\s*[<>]=?/.test(css)) {
                 continue; // not a width-dependent class at all
+            }
+
+            // A class with no variant applies at every width, so it decides
+            // no boundary — whatever widths appear inside its own rule. That
+            // distinction is not academic: the scanner reads prose as
+            // candidates, the word "container" appears in two comments in the
+            // dialog, and Tailwind's `container` utility compiles to a rule
+            // full of breakpoint max-widths. Judged by its CSS alone, an
+            // English sentence failed this test. What the boundary is made of
+            // is a variant, so that is what gets counted.
+            const [parsed] = [...design.parseCandidate(candidate)];
+            if (!parsed || parsed.variants.length === 0) {
+                continue;
             }
             guarded.push(candidate);
 
@@ -78,8 +109,6 @@ describe('the card layout boundary', () => {
             // supports-[…]:sm: and sm:max-lg: are all the same defect — the
             // layout answering to something besides the width — and listing
             // them one by one only ever catches the ones already thought of.
-            const [parsed] = [...design.parseCandidate(candidate)];
-            expect(parsed, `${candidate} does not parse`).toBeDefined();
             expect(parsed.variants, `${candidate} is conditional on more than a width`).toHaveLength(1);
 
             // And that one variant must be the named breakpoint itself. An
@@ -103,7 +132,9 @@ describe('the card layout boundary', () => {
                 .toBe(CARD_WIDE_MIN_WIDTH_REM);
         }
 
-        expect(guarded, 'the card styles nothing by width, so nothing holds the boundary').not.toHaveLength(0);
+        if (mustStyleByWidth) {
+            expect(guarded, `${file} styles nothing by width, so nothing holds the boundary`).not.toHaveLength(0);
+        }
     });
 
     it('is asked in the unit the stylesheet uses, not in pixels', () => {

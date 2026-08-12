@@ -13,6 +13,8 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/shared/ui/dialog';
+import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
+import { CARD_WIDE_QUERY } from '@/shared/layout/breakpoints';
 import { cn } from '@/shared/lib/utils';
 
 type FirstPhase = 'loading' | 'ready' | 'first-error';
@@ -100,6 +102,11 @@ export default function BookPreviewDialog({
     onClose,
 }: BookPreviewDialogProps) {
     const { t } = useTranslation();
+    // The one width question this file is allowed to ask. The card's column
+    // lives at this breakpoint; below it the same data drives a panel that
+    // overlays the work area instead, because a hundred-item list laid
+    // beside the text does not fit a phone.
+    const isWide = useMediaQuery(CARD_WIDE_QUERY);
 
     const [preview, setPreview] = useState<PreviewResponse | null>(null);
     const [portions, setPortions] = useState<Map<number, string>>(new Map());
@@ -115,12 +122,26 @@ export default function BookPreviewDialog({
     const [firstRetry, setFirstRetry] = useState(0);
     const [chunkRetry, setChunkRetry] = useState(0);
 
+    // The narrow TOC panel. Open state is local; closing it without a
+    // selection touches nothing else, which is exactly why the reader's
+    // place survives a glance at the contents. `pendingAnchor` is the
+    // anchor a TOC entry named; it stays pending across the chunk fetch
+    // and clears once the scroll has been aimed.
+    const [tocPanelOpen, setTocPanelOpen] = useState(false);
+    const [pendingAnchor, setPendingAnchor] = useState<string | null>(null);
+
     // Monotone stamps of the most recent request on each channel. A response
     // handler applies its payload only while its captured stamp still equals
     // the ref — anything older belongs to a request the reader has left:
     // a portion they navigated away from, or a book they switched away from.
     const previewGeneration = useRef(0);
     const chunkGeneration = useRef(0);
+
+    // The scroll container is needed by the anchor-scroll effect; jsdom does
+    // not implement layout, but it does keep scrollTop as a stored property
+    // and provides scrollIntoView as a spy-able noop, which is what the
+    // panel's preservation and anchor tests rely on.
+    const scrollAreaRef = useRef<HTMLDivElement>(null);
 
     // Fetch the preview (and the first chunk that comes with it) on open,
     // book change, or first-retry. Any of those transitions aborts the prior
@@ -138,6 +159,10 @@ export default function BookPreviewDialog({
         setCurrentIndex(0);
         setFirstErrorKind(null);
         setChunkFailure(null);
+        // A new book means the TOC below belongs to a different text: any
+        // open panel and any pending anchor are stale.
+        setTocPanelOpen(false);
+        setPendingAnchor(null);
 
         previewClient.getPreview(bookId, controller.signal).then(
             (p) => {
@@ -240,10 +265,76 @@ export default function BookPreviewDialog({
 
     const orderedPortions = [...portions.entries()].sort(([a], [b]) => a - b);
 
+    // The active TOC entry is the one whose chunk is on screen — not the
+    // last one the reader tapped. A reader who reaches chunk 1 through
+    // "Next" sees Chapter 2 active without ever clicking it.
+    const activeTocItem =
+        preview?.toc.find((item) => item.chunk === currentIndex) ?? null;
+
+    const selectTocItem = (item: { chunk: number; anchor: string }) => {
+        // Queue the anchor first: the scroll effect waits for the portion to
+        // arrive and clears the queue when it has aimed the scroll.
+        setPendingAnchor(item.anchor);
+        goToChunk(item.chunk);
+        setTocPanelOpen(false);
+    };
+
+    // Whether the current portion has settled in DOM. Anchoring runs only
+    // then: a portion still in flight has no DOM for an anchor to live in.
+    const currentPortionReady = portions.has(currentIndex);
+
+    useEffect(() => {
+        if (pendingAnchor == null) return;
+        if (!currentPortionReady) return;
+
+        const area = scrollAreaRef.current;
+        const anchor = pendingAnchor;
+        // The queue is state and not a ref on purpose, at the price of the
+        // setState-in-effect this file already carries twice. A ref would
+        // leave this effect depending on the portion alone, and a book with
+        // several chapters inside one chunk has entries that change the
+        // anchor without changing the portion: tapping one of those would
+        // queue a scroll nothing ever re-runs to perform.
+        // Clear before aiming: if something below throws, the queue is
+        // still empty next time, which is better than re-running forever.
+        setPendingAnchor(null);
+        if (!area) return;
+
+        // The anchor is searched only inside the current portion. An FB2
+        // chunk may legitimately share its id space with another chunk's
+        // (the server guarantees uniqueness within a chunk, not across
+        // them), so a global getElementById could match a portion the
+        // reader is not looking at.
+        const portionEl = area.querySelector(
+            `[data-testid="preview-portion-${currentIndex}"]`,
+        );
+        const anchorEl = document.getElementById(anchor);
+        if (anchorEl && portionEl && portionEl.contains(anchorEl)) {
+            anchorEl.scrollIntoView({ block: 'start' });
+        } else if (portionEl) {
+            // The anchor the server promised is missing from the chunk — a
+            // spec violation in the data, but not a reason to throw or to
+            // leave the reader looking at the wrong place. The portion's
+            // top is the closest honest fallback.
+            portionEl.scrollIntoView({ block: 'start' });
+        }
+    }, [pendingAnchor, currentPortionReady, currentIndex]);
+
     return (
         <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
             <DialogContent
                 closeLabel={t('previewClose')}
+                onEscapeKeyDown={(event) => {
+                    // Escape while the TOC panel is open returns the reader
+                    // to the text rather than dismissing the dialog. The X
+                    // button still closes unconditionally: it lives in the
+                    // header, which the panel never covers, and its click
+                    // routes through onOpenChange, not this keydown.
+                    if (tocPanelOpen) {
+                        event.preventDefault();
+                        setTocPanelOpen(false);
+                    }
+                }}
                 className={cn(
                     'flex max-h-[90vh] flex-col gap-0 p-0',
                     DIALOG_WIDTH_CLASS,
@@ -268,155 +359,258 @@ export default function BookPreviewDialog({
                     </p>
                 </DialogHeader>
 
-                <div
-                    data-testid="preview-scroll-area"
-                    className="flex min-h-0 flex-1 gap-6 overflow-y-auto px-6 py-4"
-                >
-                    {preview && preview.toc.length > 0 && (
-                        <nav
-                            data-testid="preview-toc"
-                            aria-label={t('previewTocLabel')}
-                            className="hidden w-56 shrink-0 sm:block"
+                {/*
+                 * The work area is wrapped in a relative container so the
+                 * narrow TOC panel can overlay exactly this region — the
+                 * scroll area plus the footer — without ever covering the
+                 * dialog's header or its close button.
+                 */}
+                <div className="relative flex min-h-0 flex-1 flex-col">
+                    {/*
+                     * The narrow TOC trigger sits at the top of the work
+                     * area as its own row. It opens a panel rather than a
+                     * dropdown because a book can carry hundreds of entries
+                     * and a list laid over the text is unreadable; the
+                     * panel takes the full work area and scrolls itself.
+                     */}
+                    {!isWide && preview && preview.toc.length > 0 && !tocPanelOpen && (
+                        <button
+                            type="button"
+                            data-testid="preview-toc-trigger"
+                            aria-label={t('previewOpenToc')}
+                            onClick={() => setTocPanelOpen(true)}
+                            className="flex items-center gap-2 border-b border-border px-4 py-2 text-left text-sm hover:bg-accent"
                         >
-                            <ul className="space-y-1">
-                                {preview.toc.map((item, i) => (
-                                    <li
-                                        key={`${item.chunk}-${item.anchor}-${i}`}
-                                        style={{
-                                            paddingLeft: `${(item.depth - 1) * 1}rem`,
-                                        }}
-                                        className="text-sm"
-                                    >
-                                        {/*
-                                         * The entry opens its portion; it does
-                                         * not scroll to the anchor — anchoring
-                                         * arrives with the TOC panel work.
-                                         */}
-                                        <button
-                                            type="button"
-                                            className="w-full text-left hover:underline"
-                                            onClick={() => goToChunk(item.chunk)}
-                                        >
-                                            {item.title}
-                                        </button>
-                                    </li>
-                                ))}
-                            </ul>
-                        </nav>
+                            <span className="text-xs text-muted-foreground">
+                                {t('previewContents')}
+                            </span>
+                            <span className="truncate">
+                                {activeTocItem?.title ?? t('previewContents')}
+                            </span>
+                        </button>
                     )}
 
                     <div
-                        data-testid="preview-text-column"
-                        lang={bookLang}
-                        className={TEXT_COLUMN_CLASS}
+                        ref={scrollAreaRef}
+                        data-testid="preview-scroll-area"
+                        className="flex min-h-0 flex-1 gap-6 overflow-y-auto px-6 py-4"
                     >
-                        {firstPhase === 'loading' && (
-                            <div role="status" aria-live="polite" className="space-y-3">
-                                <Skeleton className="h-4 w-full" />
-                                <Skeleton className="h-4 w-full" />
-                                <Skeleton className="h-4 w-3/4" />
-                                <span className="sr-only">{t('previewLoading')}</span>
-                            </div>
-                        )}
-
-                        {firstPhase === 'first-error' && firstErrorKind != null && (
-                            <div role="alert" className="text-sm text-destructive">
-                                <p>{t(ERROR_KEY[firstErrorKind])}</p>
-                                {firstErrorKind === 'retryable' && (
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="sm"
-                                        className="mt-3"
-                                        onClick={retryFirst}
-                                    >
-                                        {t('previewRetry')}
-                                    </Button>
-                                )}
-                            </div>
-                        )}
-
-                        {firstPhase === 'ready' && (
-                            <>
-                                {/*
-                                 * Phase 2 invariant: every byte of this HTML
-                                 * was built by our FB2 parser from a file a
-                                 * librarian uploaded. No reader input reaches
-                                 * this string — it is not a value the reader
-                                 * can influence — so dangerouslySetInnerHTML
-                                 * is the honest name for what is otherwise an
-                                 * innerHTML assignment. Sanitising it would
-                                 * imply there is something to filter, and
-                                 * there is not.
-                                 */}
-                                {orderedPortions.map(([index, html]) => (
-                                    <div
-                                        key={index}
-                                        data-testid={`preview-portion-${index}`}
-                                        className="portion"
-                                        dangerouslySetInnerHTML={{ __html: html }}
-                                    />
-                                ))}
-
-                                {chunkFailure && chunkFailure.index === currentIndex && (
-                                    <div
-                                        role="alert"
-                                        className="mt-4 text-sm text-destructive"
-                                    >
-                                        <p>{t(ERROR_KEY[chunkFailure.kind])}</p>
-                                        {chunkFailure.kind === 'retryable' && (
-                                            <Button
+                        {/*
+                         * Wide layout renders the TOC as a column beside the
+                         * text; the narrow layout renders the trigger above
+                         * and the panel over the work area, never the
+                         * column. Which shape appears is decided once, in
+                         * React, by CARD_WIDE_QUERY. The column carries no
+                         * responsive class of its own: a `sm:block` beside
+                         * this `isWide` is a second threshold that agrees
+                         * only while both literals happen to say 40rem, and
+                         * a band where the column and the panel are both
+                         * gone leaves the reader no contents at all.
+                         */}
+                        {isWide && preview && preview.toc.length > 0 && (
+                            <nav
+                                data-testid="preview-toc"
+                                aria-label={t('previewTocLabel')}
+                                className="w-56 shrink-0"
+                            >
+                                <ul className="space-y-1">
+                                    {preview.toc.map((item, i) => (
+                                        <li
+                                            key={`${item.chunk}-${item.anchor}-${i}`}
+                                            style={{
+                                                paddingLeft: `${(item.depth - 1) * 1}rem`,
+                                            }}
+                                            className="text-sm"
+                                        >
+                                            {/*
+                                             * The entry opens its portion; it
+                                             * does not scroll to the anchor —
+                                             * anchoring arrives with the TOC
+                                             * panel work.
+                                             */}
+                                            <button
                                                 type="button"
-                                                variant="outline"
-                                                size="sm"
-                                                className="mt-3"
-                                                onClick={retryChunk}
+                                                className="w-full text-left hover:underline"
+                                                onClick={() => goToChunk(item.chunk)}
                                             >
-                                                {t('previewRetry')}
-                                            </Button>
-                                        )}
-                                    </div>
-                                )}
-
-                                {awaitingChunk && (
-                                    <div
-                                        role="status"
-                                        aria-live="polite"
-                                        className="mt-4 space-y-2"
-                                    >
-                                        <Skeleton className="h-4 w-full" />
-                                        <Skeleton className="h-4 w-3/4" />
-                                        <span className="sr-only">
-                                            {t('previewLoading')}
-                                        </span>
-                                    </div>
-                                )}
-                            </>
+                                                {item.title}
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </nav>
                         )}
+
+                        <div
+                            data-testid="preview-text-column"
+                            lang={bookLang}
+                            className={TEXT_COLUMN_CLASS}
+                        >
+                            {firstPhase === 'loading' && (
+                                <div role="status" aria-live="polite" className="space-y-3">
+                                    <Skeleton className="h-4 w-full" />
+                                    <Skeleton className="h-4 w-full" />
+                                    <Skeleton className="h-4 w-3/4" />
+                                    <span className="sr-only">{t('previewLoading')}</span>
+                                </div>
+                            )}
+
+                            {firstPhase === 'first-error' && firstErrorKind != null && (
+                                <div role="alert" className="text-sm text-destructive">
+                                    <p>{t(ERROR_KEY[firstErrorKind])}</p>
+                                    {firstErrorKind === 'retryable' && (
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            className="mt-3"
+                                            onClick={retryFirst}
+                                        >
+                                            {t('previewRetry')}
+                                        </Button>
+                                    )}
+                                </div>
+                            )}
+
+                            {firstPhase === 'ready' && (
+                                <>
+                                    {/*
+                                     * Phase 2 invariant: every byte of this HTML
+                                     * was built by our FB2 parser from a file a
+                                     * librarian uploaded. No reader input reaches
+                                     * this string — it is not a value the reader
+                                     * can influence — so dangerouslySetInnerHTML
+                                     * is the honest name for what is otherwise an
+                                     * innerHTML assignment. Sanitising it would
+                                     * imply there is something to filter, and
+                                     * there is not.
+                                     */}
+                                    {orderedPortions.map(([index, html]) => (
+                                        <div
+                                            key={index}
+                                            data-testid={`preview-portion-${index}`}
+                                            className="portion"
+                                            dangerouslySetInnerHTML={{ __html: html }}
+                                        />
+                                    ))}
+
+                                    {chunkFailure && chunkFailure.index === currentIndex && (
+                                        <div
+                                            role="alert"
+                                            className="mt-4 text-sm text-destructive"
+                                        >
+                                            <p>{t(ERROR_KEY[chunkFailure.kind])}</p>
+                                            {chunkFailure.kind === 'retryable' && (
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="mt-3"
+                                                    onClick={retryChunk}
+                                                >
+                                                    {t('previewRetry')}
+                                                </Button>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {awaitingChunk && (
+                                        <div
+                                            role="status"
+                                            aria-live="polite"
+                                            className="mt-4 space-y-2"
+                                        >
+                                            <Skeleton className="h-4 w-full" />
+                                            <Skeleton className="h-4 w-3/4" />
+                                            <span className="sr-only">
+                                                {t('previewLoading')}
+                                            </span>
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                        </div>
                     </div>
-                </div>
 
-                {firstPhase === 'ready' && (
-                    <DialogFooter className="border-t border-border px-6 py-3">
-                        {isFirstChunkLast ? (
-                            <span
-                                data-testid="preview-end-of-book"
-                                className="text-sm text-muted-foreground"
+                    {firstPhase === 'ready' && (
+                        <DialogFooter className="border-t border-border px-6 py-3">
+                            {isFirstChunkLast ? (
+                                <span
+                                    data-testid="preview-end-of-book"
+                                    className="text-sm text-muted-foreground"
+                                >
+                                    {t('previewEndOfBook')}
+                                </span>
+                            ) : (
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={goNext}
+                                    disabled={awaitingChunk}
+                                >
+                                    {t('previewNext')}
+                                </Button>
+                            )}
+                        </DialogFooter>
+                    )}
+
+                    {/*
+                     * The narrow TOC panel overlays the work area only. Its
+                     * Back button returns to the text without changing
+                     * anything: the same portion stays mounted, the scroll
+                     * area is not touched, so the reader's place is exactly
+                     * where they left it.
+                     */}
+                    {!isWide && tocPanelOpen && preview && preview.toc.length > 0 && (
+                        <div
+                            data-testid="preview-toc-panel"
+                            className="absolute inset-0 z-10 flex flex-col bg-popover"
+                        >
+                            <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+                                <button
+                                    type="button"
+                                    aria-label={t('previewCloseToc')}
+                                    onClick={() => setTocPanelOpen(false)}
+                                    className="text-sm text-muted-foreground hover:underline"
+                                >
+                                    {t('previewCloseToc')}
+                                </button>
+                                <h2 className="text-sm font-medium">
+                                    {t('previewTocLabel')}
+                                </h2>
+                            </div>
+                            <nav
+                                aria-label={t('previewTocLabel')}
+                                className="flex-1 overflow-y-auto px-3 py-2"
                             >
-                                {t('previewEndOfBook')}
-                            </span>
-                        ) : (
-                            <Button
-                                type="button"
-                                variant="outline"
-                                onClick={goNext}
-                                disabled={awaitingChunk}
-                            >
-                                {t('previewNext')}
-                            </Button>
-                        )}
-                    </DialogFooter>
-                )}
+                                <ul className="space-y-1">
+                                    {preview.toc.map((item, i) => (
+                                        <li
+                                            key={`${item.chunk}-${item.anchor}-${i}`}
+                                            aria-level={item.depth}
+                                        >
+                                            <button
+                                                type="button"
+                                                aria-current={
+                                                    item.chunk === currentIndex
+                                                        ? 'page'
+                                                        : undefined
+                                                }
+                                                onClick={() => selectTocItem(item)}
+                                                style={{
+                                                    paddingLeft: `${(item.depth - 1) * 1}rem`,
+                                                }}
+                                                className="w-full text-left text-sm hover:underline"
+                                            >
+                                                {item.title}
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </nav>
+                        </div>
+                    )}
+                </div>
             </DialogContent>
         </Dialog>
     );

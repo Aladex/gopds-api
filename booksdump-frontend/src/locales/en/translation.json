@@ -502,5 +502,9 @@
   "previewErrorPermanent": "This book cannot be opened in the preview.",
   "previewErrorGone": "The preview has expired. Reopen the book.",
   "previewErrorRetryable": "Temporary error. Try again in a moment.",
-  "previewErrorUnknown": "Something went wrong opening the preview."
+  "previewErrorUnknown": "Something went wrong opening the preview.",
+  "previewContents": "Contents",
+  "previewOpenToc": "Open contents",
+  "previewCloseToc": "Back to the text",
+  "previewCurrentChapter": "Current chapter"
 }

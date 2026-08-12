@@ -1,6 +1,8 @@
 import React from 'react';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 import BookPreviewDialog from '@/features/catalogue/BookPreviewDialog';
 import * as previewApi from '@/api/preview';
@@ -31,6 +33,19 @@ vi.mock('@/api/preview', async () => {
 // renders, so the strings stay draft and the assertions stay honest.
 const translate = (key: string) => key;
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: translate }) }));
+
+// The dialog's TOC panel is the narrow-layout counterpart of the wide TOC
+// column, and the switch between them is the one width question this file is
+// allowed to ask — through CARD_WIDE_QUERY, like every other component. jsdom
+// has no viewport so useMediaQuery would always report false (narrow); the
+// existing 25 tests assume the wide column is rendered, so the default here
+// is wide. Narrow-panel tests flip `matches.current` to false in their own
+// beforeEach.
+const matches = { current: true };
+vi.mock('@/shared/hooks/useMediaQuery', () => ({
+    useMediaQuery: () => matches.current,
+    default: () => matches.current,
+}));
 
 const getPreview = vi.mocked(previewApi.previewClient.getPreview);
 const getChunk = vi.mocked(previewApi.previewClient.getChunk);
@@ -109,6 +124,7 @@ function renderDialog(props: Partial<React.ComponentProps<typeof BookPreviewDial
 beforeEach(() => {
     getPreview.mockReset();
     getChunk.mockReset();
+    matches.current = true;
 });
 
 describe('BookPreviewDialog — states', () => {
@@ -690,4 +706,394 @@ describe('BookPreviewDialog — request ordering', () => {
         expect(screen.getByTestId('wanted')).toBeInTheDocument();
     });
 
+});
+
+describe('BookPreviewDialog — narrow TOC panel', () => {
+    // The wide layout ships the TOC as a column beside the text. The narrow
+    // layout cannot — a hundred-item list laid over the text is unreadable —
+    // so the same data drives a panel that opens over the work area. Opening
+    // the panel must be cheap (the reader's place survives), Escape must
+    // dismiss the panel before the dialog, the active entry must track the
+    // portion on screen, and choosing an entry must scroll to its anchor.
+
+    beforeEach(() => {
+        // Top-level beforeEach sets wide; flip to narrow for this block.
+        matches.current = false;
+    });
+
+    it('renders the trigger instead of the column, and opens the panel on click', async () => {
+        getPreview.mockImplementation(signalAware(() => makePreview()));
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        // On narrow: no column, but a row that opens the panel.
+        expect(screen.queryByTestId('preview-toc')).not.toBeInTheDocument();
+        expect(screen.getByTestId('preview-toc-trigger')).toBeInTheDocument();
+        expect(screen.queryByTestId('preview-toc-panel')).not.toBeInTheDocument();
+
+        await userEvent.click(screen.getByTestId('preview-toc-trigger'));
+        expect(await screen.findByTestId('preview-toc-panel')).toBeInTheDocument();
+    });
+
+    it('mutation #1: closing the panel without a selection keeps the same portion and its scroll', async () => {
+        // The second chunk holds the place the reader must come back to, and
+        // a third exists so that "Next" from there still has somewhere to go:
+        // what Next asks the server for is one of the few things that tells
+        // the reader's position apart from a silent reset to zero.
+        getPreview.mockImplementation(
+            signalAware(() =>
+                makePreview({
+                    chunk_count: 3,
+                    toc: [
+                        { title: 'Chapter 1', depth: 1, chunk: 0, anchor: 'c1' },
+                        { title: 'Chapter 2', depth: 1, chunk: 1, anchor: 'c2' },
+                    ],
+                    first_chunk: '<p data-testid="first-portion">first content</p>',
+                }),
+            ),
+        );
+        getChunk.mockImplementation(
+            signalAware(() => ({ chunk: '<p data-testid="portion-1-html">second</p>' })),
+        );
+
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        expect(await screen.findByTestId('portion-1-html')).toBeInTheDocument();
+        // After the first chunk fetch, getChunk has been called once. Any
+        // further call would mean the dialog re-fetched on panel open —
+        // i.e. it dropped the portion it already had.
+        expect(getChunk).toHaveBeenCalledTimes(1);
+
+        // Pretend the reader scrolled within the work area. In jsdom
+        // scrollTop is a stored property — the only thing that can change it
+        // is the component itself re-mounting the node or assigning to it.
+        const scrollArea = screen.getByTestId('preview-scroll-area');
+        scrollArea.scrollTop = 200;
+
+        await userEvent.click(screen.getByTestId('preview-toc-trigger'));
+        expect(await screen.findByTestId('preview-toc-panel')).toBeInTheDocument();
+
+        // Close the panel via Back — no selection.
+        await userEvent.click(screen.getByRole('button', { name: 'previewCloseToc' }));
+        await waitFor(() =>
+            expect(screen.queryByTestId('preview-toc-panel')).not.toBeInTheDocument(),
+        );
+
+        // Nothing was dropped and nothing re-mounted. The scroll area is
+        // asked for again rather than reused from the variable above: a
+        // re-created node leaves the old one detached with its scrollTop
+        // intact, so `scrollArea.scrollTop` would still read 200 while the
+        // reader's actual work area had just been rebuilt at the top. Node
+        // identity is the assertion that catches that; the offset alone
+        // cannot, and did not — keying this div on the panel's open state
+        // passed the whole file.
+        const sameArea = screen.getByTestId('preview-scroll-area');
+        expect(sameArea).toBe(scrollArea);
+        expect(sameArea.scrollTop).toBe(200);
+        expect(screen.getByTestId('portion-1-html')).toBeInTheDocument();
+        expect(getChunk).toHaveBeenCalledTimes(1);
+
+        // The three assertions above are necessary and not sufficient, and
+        // the difference matters enough to spell out. Portions render
+        // stacked — the reader scrolls through one growing column — so
+        // chunk 1's node stays in the document no matter which portion the
+        // dialog thinks the reader is on. Adding `setCurrentIndex(0)` to
+        // this Back button passed all three: the node was there, the fetch
+        // count was one, and the scroll offset was untouched, while the
+        // reader had silently been sent back to the start of the book.
+        //
+        // Where the position is actually observable is where it is used. Two
+        // places, and deliberately not three: the entry marked current is
+        // read from the same value as the trigger's label, so asserting both
+        // would be one fact counted twice — and with the panel closed the
+        // list is not in the document to ask anyway (that assertion lives in
+        // the active-item test below, where the panel is open).
+        expect(screen.getByTestId('preview-toc-trigger')).toHaveTextContent('Chapter 2');
+
+        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await waitFor(() => expect(getChunk).toHaveBeenCalledTimes(2));
+        expect(getChunk.mock.calls[1][1]).toBe(2);
+    });
+
+    it('mutation #2: Escape dismisses the panel, not the dialog', async () => {
+        getPreview.mockImplementation(signalAware(() => makePreview()));
+
+        const { onClose } = renderDialog();
+        await screen.findByTestId('first-portion');
+
+        await userEvent.click(screen.getByTestId('preview-toc-trigger'));
+        await screen.findByTestId('preview-toc-panel');
+
+        // Escape on the panel must dismiss the panel only.
+        await userEvent.keyboard('{Escape}');
+
+        await waitFor(() =>
+            expect(screen.queryByTestId('preview-toc-panel')).not.toBeInTheDocument(),
+        );
+        expect(onClose).not.toHaveBeenCalled();
+        expect(screen.getByTestId('first-portion')).toBeInTheDocument();
+    });
+
+    it('mutation #3: the active item tracks the shown portion, not the last TOC click', async () => {
+        // Two TOC entries on different chunks. The reader reaches chunk 1
+        // through Next — never by clicking Chapter 2 in the TOC — and the
+        // panel re-opens with Chapter 2 marked active. Last-click tracking
+        // would leave Chapter 1 marked.
+        const chunkDeferred = deferred<{ chunk: string }>();
+        getPreview.mockImplementation(
+            signalAware(() =>
+                makePreview({
+                    chunk_count: 2,
+                    toc: [
+                        { title: 'Chapter 1', depth: 1, chunk: 0, anchor: 'c1' },
+                        { title: 'Chapter 2', depth: 1, chunk: 1, anchor: 'c2' },
+                    ],
+                    first_chunk: '<p data-testid="first-portion">first</p>',
+                }),
+            ),
+        );
+        getChunk.mockImplementation(() => chunkDeferred.promise);
+
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        await userEvent.click(screen.getByTestId('preview-toc-trigger'));
+        let panel = await screen.findByTestId('preview-toc-panel');
+        expect(within(panel).getByRole('button', { name: 'Chapter 1' }))
+            .toHaveAttribute('aria-current', 'page');
+        expect(within(panel).getByRole('button', { name: 'Chapter 2' }))
+            .not.toHaveAttribute('aria-current');
+
+        // Close the panel without ever clicking Chapter 2.
+        await userEvent.click(screen.getByRole('button', { name: 'previewCloseToc' }));
+        await waitFor(() => expect(screen.queryByTestId('preview-toc-panel')).not.toBeInTheDocument());
+
+        // Advance via Next only.
+        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        chunkDeferred.resolve({ chunk: '<p data-testid="portion-1-html">second</p>' });
+        await screen.findByTestId('portion-1-html');
+
+        // Re-open: Chapter 2 is now active, even though it was never clicked.
+        await userEvent.click(screen.getByTestId('preview-toc-trigger'));
+        panel = await screen.findByTestId('preview-toc-panel');
+        expect(within(panel).getByRole('button', { name: 'Chapter 2' }))
+            .toHaveAttribute('aria-current', 'page');
+        expect(within(panel).getByRole('button', { name: 'Chapter 1' }))
+            .not.toHaveAttribute('aria-current');
+    });
+
+    it('mutation #4: nested entries expose depth so a reader can see the hierarchy', async () => {
+        getPreview.mockImplementation(
+            signalAware(() =>
+                makePreview({
+                    toc: [
+                        { title: 'Part', depth: 1, chunk: 0, anchor: 'p' },
+                        { title: 'Subpart', depth: 2, chunk: 0, anchor: 's' },
+                    ],
+                }),
+            ),
+        );
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        await userEvent.click(screen.getByTestId('preview-toc-trigger'));
+        const panel = await screen.findByTestId('preview-toc-panel');
+
+        // aria-level is the cheapest stable signal jsdom can read; a class or
+        // padding would also do, but aria-level is the one screen readers use.
+        const partRow = within(panel).getByRole('button', { name: 'Part' }).closest('li')!;
+        const subpartRow = within(panel).getByRole('button', { name: 'Subpart' }).closest('li')!;
+        expect(partRow).toHaveAttribute('aria-level', '1');
+        expect(subpartRow).toHaveAttribute('aria-level', '2');
+    });
+
+    it('wide layout renders the column and renders no panel or trigger', async () => {
+        // The top-level beforeEach defaults to wide; override the narrow
+        // setting from this describe's own beforeEach.
+        matches.current = true;
+
+        getPreview.mockImplementation(signalAware(() => makePreview()));
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        expect(screen.getByTestId('preview-toc')).toBeInTheDocument();
+        expect(screen.queryByTestId('preview-toc-trigger')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('preview-toc-panel')).not.toBeInTheDocument();
+    });
+
+    it('selecting an entry closes the panel and scrolls the anchor into view', async () => {
+        // The anchor is an id on an element inside the rendered HTML. The
+        // server guarantees the anchor exists in the chunk the TOC names, so
+        // the honest test puts one there and observes scrollIntoView called
+        // on exactly that element.
+        getPreview.mockImplementation(
+            signalAware(() =>
+                makePreview({
+                    chunk_count: 2,
+                    toc: [
+                        { title: 'Chapter 1', depth: 1, chunk: 0, anchor: 'c1' },
+                        { title: 'Chapter 2', depth: 1, chunk: 1, anchor: 'c2' },
+                    ],
+                    first_chunk: '<p data-testid="first-portion">first</p>',
+                }),
+            ),
+        );
+        getChunk.mockImplementation(
+            signalAware(() => ({
+                chunk: '<p data-testid="portion-1-html"><span id="c2">chapter 2 start</span></p>',
+            })),
+        );
+
+        // jsdom does not implement scrollIntoView at all; install a stub on
+        // the prototype before the component mounts so the call is observable.
+        const scrollIntoView = vi.fn();
+        Element.prototype.scrollIntoView = scrollIntoView;
+
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        await userEvent.click(screen.getByTestId('preview-toc-trigger'));
+        await screen.findByTestId('preview-toc-panel');
+
+        await userEvent.click(screen.getByRole('button', { name: 'Chapter 2' }));
+
+        await screen.findByTestId('portion-1-html');
+        await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+
+        // The call landed on the anchor, and the panel closed.
+        const target = scrollIntoView.mock.instances[0] as HTMLElement;
+        expect(target.id).toBe('c2');
+        expect(screen.queryByTestId('preview-toc-panel')).not.toBeInTheDocument();
+
+        delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView;
+    });
+
+    it('selecting a second entry inside the portion already shown still scrolls', async () => {
+        // A chunk can hold more than one TOC entry — a part and its subparts
+        // land in the same portion — so an entry can move the reader without
+        // moving the portion. That case is what keeps the queued anchor in
+        // state rather than a ref: an effect watching only the portion has
+        // nothing to notice here, and the tap would do nothing at all.
+        getPreview.mockImplementation(
+            signalAware(() =>
+                makePreview({
+                    chunk_count: 1,
+                    toc: [
+                        { title: 'Part', depth: 1, chunk: 0, anchor: 'p1' },
+                        { title: 'Subpart', depth: 2, chunk: 0, anchor: 'p2' },
+                    ],
+                    first_chunk:
+                        '<div data-testid="first-portion">' +
+                        '<h2 id="p1">part</h2><h3 id="p2">subpart</h3></div>',
+                }),
+            ),
+        );
+
+        const scrollIntoView = vi.fn();
+        Element.prototype.scrollIntoView = scrollIntoView;
+
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        // First tap: Part. The portion is already the one on screen.
+        await userEvent.click(screen.getByTestId('preview-toc-trigger'));
+        await userEvent.click(
+            within(await screen.findByTestId('preview-toc-panel')).getByRole('button', {
+                name: 'Part',
+            }),
+        );
+        await waitFor(() => expect(scrollIntoView).toHaveBeenCalledTimes(1));
+        expect((scrollIntoView.mock.instances[0] as HTMLElement).id).toBe('p1');
+
+        // Second tap: Subpart. Same portion, same index, different anchor —
+        // the one the ref version would silently drop.
+        await userEvent.click(screen.getByTestId('preview-toc-trigger'));
+        await userEvent.click(
+            within(await screen.findByTestId('preview-toc-panel')).getByRole('button', {
+                name: 'Subpart',
+            }),
+        );
+        await waitFor(() => expect(scrollIntoView).toHaveBeenCalledTimes(2));
+        expect((scrollIntoView.mock.instances[1] as HTMLElement).id).toBe('p2');
+
+        delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView;
+    });
+
+    it('selecting an entry whose anchor is absent scrolls to the portion, with no error', async () => {
+        // The server guarantees the anchor; this test pins the spec's
+        // fallback: missing anchor scrolls to the portion's top, no throw.
+        getPreview.mockImplementation(
+            signalAware(() =>
+                makePreview({
+                    chunk_count: 2,
+                    toc: [
+                        { title: 'Chapter 1', depth: 1, chunk: 0, anchor: 'c1' },
+                        { title: 'Chapter 2', depth: 1, chunk: 1, anchor: 'missing' },
+                    ],
+                    first_chunk: '<p data-testid="first-portion">first</p>',
+                }),
+            ),
+        );
+        getChunk.mockImplementation(
+            signalAware(() => ({
+                chunk: '<p data-testid="portion-1-html">chapter 2 body, no anchor</p>',
+            })),
+        );
+
+        const scrollIntoView = vi.fn();
+        Element.prototype.scrollIntoView = scrollIntoView;
+
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        await userEvent.click(screen.getByTestId('preview-toc-trigger'));
+        await screen.findByTestId('preview-toc-panel');
+
+        await userEvent.click(screen.getByRole('button', { name: 'Chapter 2' }));
+
+        await screen.findByTestId('portion-1-html');
+        await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+
+        // Fallback target is the portion node — not nothing, and not the
+        // missing anchor.
+        const target = scrollIntoView.mock.instances[0] as HTMLElement;
+        expect(target).toHaveAttribute('data-testid', 'preview-portion-1');
+
+        delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView;
+    });
+});
+
+describe('BookPreviewDialog — single layout boundary', () => {
+    // The narrow panel is the only second JS layout branch this file has
+    // gained, and its width question must be the same one the card asks —
+    // CARD_WIDE_QUERY — or the two will disagree across the same band of
+    // widths that broke the card before. A second inline query, or a second
+    // useMediaQuery call, is the same defect under another name.
+
+    // `import.meta.dirname` rather than `new URL('../…', import.meta.url)`:
+    // Vite's transform rewrites the latter for asset URL handling, and under
+    // vitest the rewrite serves the file from the dev server (http://localhost)
+    // which fileURLToPath then refuses.
+    const source = readFileSync(
+        path.resolve(import.meta.dirname, '../BookPreviewDialog.tsx'),
+        'utf8',
+    );
+
+    it('asks its one width question through the shared query', () => {
+        expect(source).toContain('useMediaQuery(CARD_WIDE_QUERY)');
+    });
+
+    it('writes no inline width or height media query', () => {
+        // Any inline query is a second boundary, whatever the number — the
+        // named constant is the only allowed spelling.
+        expect(source.replace('CARD_WIDE_QUERY', '')).not.toMatch(
+            /\((?:min|max)-(?:width|height)\s*:/,
+        );
+    });
+
+    it('calls useMediaQuery exactly once', () => {
+        expect([...source.matchAll(/useMediaQuery\(/g)]).toHaveLength(1);
+    });
 });
