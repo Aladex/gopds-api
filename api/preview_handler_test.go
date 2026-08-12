@@ -541,3 +541,43 @@ func TestPreviewImageHandler_MissingRevision_Returns400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Empty(t, fake.imageCalls, "a request without a revision must not reach the service")
 }
+
+// The address printed into the HTML and the address the router serves were
+// spelled in two places, and they disagreed: every <img> in every preview
+// pointed at a path nothing handled. Both sides now come from
+// models.PreviewImageURL, and this is the test that would have caught it —
+// it takes a src out of rendered HTML and asks the registered router for
+// exactly that, with no rewriting in between.
+func TestPreviewImageHandler_AddressPrintedInHTMLIsServed(t *testing.T) {
+	const bookID, revision, ordinal = 42, "abc123", 3
+	src := models.PreviewImageURL(bookID, revision, ordinal)
+
+	fake := &fakePreviewService{
+		revision:    revision,
+		imageResult: []byte{0x89, 'P', 'N', 'G'},
+		imageMIME:   "image/png",
+	}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("is_superuser", false)
+		c.Next()
+	})
+	// Mounted the way production mounts it: the books group, then the
+	// preview routes. If either side of the address changes, this fails.
+	SetupPreviewRoutes(r.Group("/api/books"), fake)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, src, http.NoBody)
+	require.NoError(t, err)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code,
+		"the address the renderer prints (%s) is not served by the router", src)
+	assert.Equal(t, "image/png", rec.Header().Get("Content-Type"))
+	require.Len(t, fake.imageCalls, 1)
+	assert.Equal(t, int64(bookID), fake.imageCalls[0].bookID)
+	assert.Equal(t, ordinal, fake.imageCalls[0].ordinal)
+	assert.Equal(t, revision, fake.imageCalls[0].revision,
+		"the revision must survive the round trip through the address")
+}

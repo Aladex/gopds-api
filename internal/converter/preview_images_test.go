@@ -12,6 +12,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"gopds-api/models"
 	"time"
 
 	"golang.org/x/image/bmp"
@@ -462,8 +464,11 @@ func TestNewPreviewImageBase_AcceptsNormalCase(t *testing.T) {
 		t.Fatalf("a normal input must produce no error: %v", err)
 	}
 	s := base.String()
-	if !strings.HasPrefix(s, "/preview/") {
-		t.Errorf("base %q does not start with /preview/", s)
+	// The shape is not spelled here: models.PreviewImageURL owns it, and a
+	// second spelling in a test is the same defect as a second spelling in
+	// the router. What matters is that the base agrees with that function.
+	if want := models.PreviewImageURL(bookID, revision, 0); s != want {
+		t.Errorf("base %q, want %q — the base must agree with the one address builder", s, want)
 	}
 	if !strings.Contains(s, "42") {
 		t.Errorf("base %q does not carry the book id", s)
@@ -565,8 +570,8 @@ func TestNewPreviewImageBase_RejectsNonPositiveBookID(t *testing.T) {
 // real pipeline, so it is where the refusal sits.
 func TestBuildPreviewImages_RejectsZeroBase(t *testing.T) {
 	var zero PreviewImageBase
-	if zero.String() != "" {
-		t.Fatalf("precondition: a zero base must have an empty path, got %q", zero.String())
+	if zero.bookID != 0 {
+		t.Fatalf("precondition: a zero base must carry no book, got %d", zero.bookID)
 	}
 	bins := map[string]FB2Binary{"a": {Data: uniformImage(t, "png", 4, 4)}}
 	out, err := BuildPreviewImages(context.Background(), bins, zero, testPreviewImagePolicy(), 0)

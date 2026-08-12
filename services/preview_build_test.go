@@ -16,7 +16,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -315,13 +314,22 @@ func TestPreviewBuild_EveryReferencedImageIsCached(t *testing.T) {
 			found++
 			src := m[1]
 			// The address carries the build's own revision — the handler
-			// will route on it, so it must match what the manifest declares.
-			if !strings.Contains(src, "/"+manifest.Revision+"/") {
+			// routes on it, so it must match what the manifest declares.
+			// The shape itself is not spelled here: models.PreviewImageURL
+			// owns it, and comparing against that function is what keeps the
+			// printed address and the registered route from drifting apart.
+			if !strings.Contains(src, "revision="+manifest.Revision) {
 				t.Errorf("src %q does not carry the manifest revision %q", src, manifest.Revision)
 			}
 			ordinal := 0
-			if _, serr := fmt.Sscanf(src[strings.LastIndex(src, "/")+1:], "%d", &ordinal); serr != nil || ordinal <= 0 {
-				t.Errorf("src %q has no numeric ordinal", src)
+			for n := 1; n < 500; n++ {
+				if src == models.PreviewImageURL(repo.books[1].ID, manifest.Revision, n) {
+					ordinal = n
+					break
+				}
+			}
+			if ordinal <= 0 {
+				t.Errorf("src %q is not an address models.PreviewImageURL produces", src)
 				continue
 			}
 			payload, mime, gerr := cache.GetImage(context.Background(), key, ordinal)

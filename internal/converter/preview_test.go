@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 
+	"gopds-api/models"
+
 	xhtml "golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
 )
@@ -250,7 +252,9 @@ var previewForbiddenAttrs = []string{"style", "srcset", "formaction", "target", 
 // the code could drift away from silently. The result is a stricter rule than
 // the data: whitelist it replaces — a URL of this shape can carry no payload
 // at all, so there is nothing in it for a book to influence.
-var previewSrcPattern = regexp.MustCompile(`^` + regexp.QuoteMeta(testPreviewImageBase().String()) + `/[1-9][0-9]*$`)
+var previewSrcPattern = regexp.MustCompile(
+	`^` + regexp.QuoteMeta(models.PreviewImageURL(42, "rev1", 0)[:strings.Index(models.PreviewImageURL(42, "rev1", 0), "/image/")]) +
+		`/image/[1-9][0-9]*\?revision=rev1$`)
 
 // auditPreviewHTML parses the fragment and asserts the output invariant. It
 // returns the collected id set for tests that check anchors further.

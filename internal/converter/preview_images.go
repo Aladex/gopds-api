@@ -29,8 +29,9 @@ import (
 	"image"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
+
+	"gopds-api/models"
 	"sync/atomic"
 
 	// Registered for image.DecodeConfig: dimensions are read from the header
@@ -79,21 +80,22 @@ var revisionPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 // embedding them in the address makes the URL self-describing — the renderer
 // does not have to be told which book it is rendering for.
 type PreviewImageBase struct {
-	path string
+	bookID   int64
+	revision string
 }
 
 // String returns the absolute path prefix the base was built with, for tests
 // that need to ask the code (rather than hard-code) what shape an address
 // takes. The output is same-origin by construction.
 func (b PreviewImageBase) String() string {
-	return b.path
+	return models.PreviewImageURL(b.bookID, b.revision, 0)
 }
 
 // URLFor returns the address of one ordinal under this base. Ordinals come
 // from PreviewImages, never from the book; assembling the address here keeps
 // the format in one place.
 func (b PreviewImageBase) URLFor(ordinal int) string {
-	return b.path + "/" + strconv.Itoa(ordinal)
+	return models.PreviewImageURL(b.bookID, b.revision, ordinal)
 }
 
 // NewPreviewImageBase builds a base from a book id and a revision string. The
@@ -134,7 +136,11 @@ func NewPreviewImageBase(bookID int64, revision string) (PreviewImageBase, error
 	// same-origin absolute path. There is no defense-in-depth re-check: a
 	// future change to the format has to bring its own tests, not lean on a
 	// string-contains guard that the current code never reaches.
-	return PreviewImageBase{path: "/preview/" + strconv.FormatInt(bookID, 10) + "/" + revision}, nil
+	// The address itself is spelled by models.PreviewImageURL, the same
+	// function the router's pattern is registered from. Printing one shape
+	// here and registering another is exactly how every picture in every
+	// preview came to point at an address nothing served.
+	return PreviewImageBase{bookID: bookID, revision: revision}, nil
 }
 
 // PreviewImages is the set of pictures a portion is allowed to reference,
@@ -448,7 +454,7 @@ func BuildPreviewImages(
 	// would still produce "/N" out of it — real-looking addresses that
 	// route nowhere. Refuse before the loop touches a single binary, so
 	// the empty base cannot mint addresses even by accident.
-	if base.path == "" {
+	if base.bookID == 0 {
 		return PreviewImageSet{}, fmt.Errorf("%w: base was not built through NewPreviewImageBase", ErrPreviewImageBaseInvalid)
 	}
 	ids := make([]string, 0, len(binaries))

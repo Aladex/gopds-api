@@ -44,7 +44,7 @@ func SetupPreviewRoutes(r *gin.RouterGroup, preview PreviewService) {
 	h := NewPreviewHandler(preview)
 	r.GET("/preview/:id", h.GetPreview)
 	r.GET("/preview/:id/chunk/:n", h.GetPreviewChunk)
-	r.GET("/preview/:id/image/:n", h.GetPreviewImage)
+	r.GET(models.PreviewImageRoutePattern, h.GetPreviewImage)
 }
 
 // GetPreview returns the preview manifest with the first chunk inline.
