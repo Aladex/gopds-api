@@ -37,12 +37,20 @@ describe('the stylesheet hides a footnote until the dialog has handled it', () =
                     node.value.trim() === 'none',
             );
             if (!hidesIt) return;
-            // The selector has to name a note that has *not* been marked. A
-            // rule hiding `.preview-note` outright would pass a substring
-            // check and hide the reader's opened note forever.
+            // The selector has to be that note and nothing more. Two
+            // substring checks are not enough — they accept
+            // `.reader .preview-note:not([data-preview-note-init])`, which
+            // contains both fragments and matches no note the dialog ever
+            // renders, so the rule would be present and inert. The guard
+            // below removes the :not() and requires what is left to be
+            // exactly the class: no ancestor, no extra compound.
             for (const selector of rule.selectors) {
-                if (!selector.includes('.preview-note')) continue;
-                if (!selector.includes(':not([data-preview-note-init])')) continue;
+                const withoutGuard = selector.replace(
+                    /:not\(\s*\[data-preview-note-init\]\s*\)/,
+                    '',
+                );
+                if (withoutGuard === selector) continue; // no guard at all
+                if (withoutGuard.trim() !== '.preview-note') continue;
                 hiding.push(selector);
             }
         });

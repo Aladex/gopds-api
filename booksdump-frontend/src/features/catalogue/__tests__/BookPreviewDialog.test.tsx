@@ -952,6 +952,42 @@ describe('BookPreviewDialog — narrow TOC panel', () => {
         );
     });
 
+    it('tells two chapters of the same name apart', async () => {
+        // Books number their chapters and reuse the numeral: two parts, each
+        // opening with "I". Marking by title marks both, and the reader is
+        // told they are in two places at once. Position is the only thing
+        // that distinguishes them, which is why the active entry is an index.
+        getPreview.mockImplementation(
+            signalAware(() =>
+                makePreview({
+                    chunk_count: 2,
+                    toc: [
+                        { title: 'I', depth: 1, chunk: 0, anchor: 'p1-i' },
+                        { title: 'I', depth: 1, chunk: 1, anchor: 'p2-i' },
+                    ],
+                }),
+            ),
+        );
+        getChunk.mockImplementation(
+            signalAware(() => ({ chunk: '<p data-testid="portion-1-html">part two</p>' })),
+        );
+
+        renderDialog();
+        await screen.findByTestId('first-portion');
+        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await screen.findByTestId('portion-1-html');
+
+        await userEvent.click(screen.getByTestId('preview-toc-trigger'));
+        const panel = await screen.findByTestId('preview-toc-panel');
+        const entries = within(panel).getAllByRole('button', { name: 'I' });
+        expect(entries).toHaveLength(2);
+
+        const marked = entries.filter((e) => e.getAttribute('aria-current') === 'page');
+        expect(marked).toHaveLength(1);
+        // The second one: that is the chapter the reader has reached.
+        expect(marked[0]).toBe(entries[1]);
+    });
+
     it('marks exactly one entry when a portion holds several headings', async () => {
         // A portion can open more than one chapter — short chapters pack
         // together. Marking every entry whose chunk matches marked them all,
@@ -1111,6 +1147,47 @@ describe('BookPreviewDialog — narrow TOC panel', () => {
         const target = scrollIntoView.mock.instances[0] as HTMLElement;
         expect(target.id).toBe('c2');
         expect(screen.queryByTestId('preview-toc-panel')).not.toBeInTheDocument();
+
+        delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView;
+    });
+
+    it('scrolls to the anchor from the wide column too, not only the panel', async () => {
+        // The column and the panel are two faces of the same contents, and
+        // for a while only the panel had learned to scroll: the column
+        // carried a comment saying anchoring would arrive with the panel
+        // work, and then nobody came back to it. Nothing failed, because no
+        // wide test asked the column to do anything but exist.
+        matches.current = true;
+
+        getPreview.mockImplementation(
+            signalAware(() =>
+                makePreview({
+                    chunk_count: 2,
+                    toc: [
+                        { title: 'Chapter 1', depth: 1, chunk: 0, anchor: 'c1' },
+                        { title: 'Chapter 2', depth: 1, chunk: 1, anchor: 'c2' },
+                    ],
+                }),
+            ),
+        );
+        getChunk.mockImplementation(
+            signalAware(() => ({
+                chunk: '<p data-testid="portion-1-html"><span id="c2">chapter two</span></p>',
+            })),
+        );
+
+        const scrollIntoView = vi.fn();
+        Element.prototype.scrollIntoView = scrollIntoView;
+
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        const column = screen.getByTestId('preview-toc');
+        await userEvent.click(within(column).getByRole('button', { name: 'Chapter 2' }));
+
+        await screen.findByTestId('portion-1-html');
+        await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+        expect((scrollIntoView.mock.instances[0] as HTMLElement).id).toBe('c2');
 
         delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView;
     });
