@@ -252,9 +252,19 @@ var previewForbiddenAttrs = []string{"style", "srcset", "formaction", "target", 
 // the code could drift away from silently. The result is a stricter rule than
 // the data: whitelist it replaces — a URL of this shape can carry no payload
 // at all, so there is nothing in it for a book to influence.
+// previewImageURLPrefix is everything models.PreviewImageURL puts before the
+// ordinal, asked of that function rather than spelled again here.
+var previewImageURLPrefix = func() string {
+	sample := models.PreviewImageURL(42, "rev1", 0)
+	at := strings.Index(sample, "/image/")
+	if at == -1 {
+		panic("the image address no longer contains /image/: " + sample)
+	}
+	return sample[:at]
+}()
+
 var previewSrcPattern = regexp.MustCompile(
-	`^` + regexp.QuoteMeta(models.PreviewImageURL(42, "rev1", 0)[:strings.Index(models.PreviewImageURL(42, "rev1", 0), "/image/")]) +
-		`/image/[1-9][0-9]*\?revision=rev1$`)
+	`^` + regexp.QuoteMeta(previewImageURLPrefix) + `/image/[1-9][0-9]*\?revision=rev1$`)
 
 // auditPreviewHTML parses the fragment and asserts the output invariant. It
 // returns the collected id set for tests that check anchors further.

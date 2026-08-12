@@ -31,7 +31,6 @@ import (
 	"sort"
 	"strings"
 
-	"gopds-api/models"
 	"sync/atomic"
 
 	// Registered for image.DecodeConfig: dimensions are read from the header
@@ -39,6 +38,8 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+
+	"gopds-api/models"
 
 	_ "golang.org/x/image/webp"
 
