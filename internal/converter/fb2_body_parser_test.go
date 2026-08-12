@@ -1241,3 +1241,137 @@ func TestParseFB2Body_LiveContextMatchesBaseline(t *testing.T) {
 			section.Title, len(section.Paragraphs()))
 	}
 }
+
+// paragraphHasImage reports whether the paragraph's inline tree holds an
+// <image> with the given href, at any formatting depth.
+func paragraphHasImage(p *FB2Paragraph, href string) bool {
+	if p == nil {
+		return false
+	}
+	var walk func(elements []*FB2InlineElement) bool
+	walk = func(elements []*FB2InlineElement) bool {
+		for _, el := range elements {
+			if el == nil {
+				continue
+			}
+			if el.Type == InlineTypeImage && el.Attrs["href"] == href {
+				return true
+			}
+			if walk(el.Children) {
+				return true
+			}
+		}
+		return false
+	}
+	return walk(p.Content)
+}
+
+// TestParseFB2Body_ImageOnlyParagraphSurvives pins the production defect where
+// a paragraph holding nothing but an <image> was dropped together with the
+// image: the keep condition looked at the paragraph's text, and an image is
+// not text. Both real-world forms are covered — a bare <p><image/></p> and
+// the image wrapped in <emphasis> — and the paragraphs must come back at
+// their original positions, not pooled at the end of the section.
+func TestParseFB2Body_ImageOnlyParagraphSurvives(t *testing.T) {
+	xmlContent := []byte(`<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+  <body>
+    <section>
+      <p>TEXT BEFORE</p>
+      <p>
+        <image l:href="#img1"/>
+      </p>
+      <p>TEXT MIDDLE</p>
+      <p><emphasis><image l:href="#img2"/></emphasis></p>
+      <p>TEXT AFTER</p>
+    </section>
+  </body>
+</FictionBook>`)
+
+	doc, err := ParseFB2Body(context.Background(), xmlContent)
+	if err != nil {
+		t.Fatalf("ParseFB2Body failed: %v", err)
+	}
+	if doc == nil || doc.Body == nil || len(doc.Body.SubSections()) != 1 {
+		t.Fatal("Expected a document with exactly one section")
+	}
+	paragraphs := doc.Body.SubSections()[0].Paragraphs()
+	if len(paragraphs) != 5 {
+		t.Fatalf("Expected 5 paragraphs (image-only ones included), got %d", len(paragraphs))
+	}
+
+	// Document order: the image paragraphs stay at their source positions.
+	if paragraphs[0].Text != "TEXT BEFORE" || paragraphs[2].Text != "TEXT MIDDLE" || paragraphs[4].Text != "TEXT AFTER" {
+		t.Errorf("Text paragraphs moved: %q, %q, %q",
+			paragraphs[0].Text, paragraphs[2].Text, paragraphs[4].Text)
+	}
+	if !paragraphHasImage(paragraphs[1], "#img1") {
+		t.Errorf("The bare image paragraph lost its image: %+v", paragraphs[1])
+	}
+	if !paragraphHasImage(paragraphs[3], "#img2") {
+		t.Errorf("The emphasis-wrapped image paragraph lost its image: %+v", paragraphs[3])
+	}
+}
+
+// TestParseFB2Body_ContentlessParagraphBoundary pins what "worth keeping"
+// means for a paragraph without text: an element that renders on its own —
+// a line break or a link — keeps the paragraph, while a paragraph holding
+// nothing, only whitespace, or an empty formatting wrapper is still dropped
+// as layout noise.
+func TestParseFB2Body_ContentlessParagraphBoundary(t *testing.T) {
+	xmlContent := []byte(`<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+  <body>
+    <section id="ch1">
+      <p>TEXT BEFORE</p>
+      <p><br/></p>
+      <p><a l:href="#ch1"></a></p>
+      <p></p>
+      <p>   </p>
+      <p><emphasis></emphasis></p>
+      <p>TEXT AFTER</p>
+    </section>
+  </body>
+</FictionBook>`)
+
+	doc, err := ParseFB2Body(context.Background(), xmlContent)
+	if err != nil {
+		t.Fatalf("ParseFB2Body failed: %v", err)
+	}
+	if doc == nil || doc.Body == nil || len(doc.Body.SubSections()) != 1 {
+		t.Fatal("Expected a document with exactly one section")
+	}
+	paragraphs := doc.Body.SubSections()[0].Paragraphs()
+
+	// Exactly four survivors: the two text paragraphs, the break paragraph,
+	// and the textless link. The empty, whitespace-only, and empty-wrapper
+	// paragraphs render nothing and stay dropped.
+	if len(paragraphs) != 4 {
+		t.Fatalf("Expected 4 paragraphs (empty ones dropped), got %d", len(paragraphs))
+	}
+	if paragraphs[0].Text != "TEXT BEFORE" || paragraphs[3].Text != "TEXT AFTER" {
+		t.Errorf("Text paragraphs moved: %q, %q", paragraphs[0].Text, paragraphs[3].Text)
+	}
+
+	hasBreak := false
+	hasLink := false
+	for _, p := range paragraphs[1:3] {
+		for _, el := range p.Content {
+			if el == nil {
+				continue
+			}
+			switch el.Type {
+			case InlineTypeBreak:
+				hasBreak = true
+			case InlineTypeLink:
+				hasLink = true
+			}
+		}
+	}
+	if !hasBreak {
+		t.Error("The break-only paragraph was dropped, but a <br/> renders on its own")
+	}
+	if !hasLink {
+		t.Error("The textless-link paragraph was dropped, but a link renders as an anchor")
+	}
+}

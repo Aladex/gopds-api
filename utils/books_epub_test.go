@@ -642,3 +642,132 @@ func TestEpubConversion_BookWithoutSectionsHasTOC(t *testing.T) {
 	}
 	checkAllLinksResolve(t, files)
 }
+
+// TestEpubConversion_ImageOnlyParagraphsSurvive pins the shared-parser defect
+// on the download path: a paragraph holding nothing but an <image> was dropped
+// together with the image, so the EPUB embedded the picture bytes and no
+// chapter referenced them. Both source forms — a bare <p><image/></p> and an
+// emphasis-wrapped one — must reach the spine as <img> references at their
+// original positions, while a truly empty paragraph must not turn into an
+// empty <p>.
+func TestEpubConversion_ImageOnlyParagraphsSurvive(t *testing.T) {
+	fixture := `<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+  <description>
+    <title-info>
+      <genre>prose</genre>
+      <author>
+        <first-name>Regression</first-name>
+        <last-name>Author</last-name>
+      </author>
+      <book-title>Image Paragraphs Book</book-title>
+      <lang>ru</lang>
+    </title-info>
+  </description>
+  <body>
+    <section id="ch1">
+      <title><p>Глава с иллюстрациями</p></title>
+      <p>МАРКЕР ДО КАРТИНКИ</p>
+      <p>
+        <image l:href="#img1"/>
+      </p>
+      <p>МАРКЕР МЕЖДУ КАРТИНКАМИ</p>
+      <p><emphasis><image l:href="#img2"/></emphasis></p>
+      <p></p>
+      <p>МАРКЕР ПОСЛЕ КАРТИНОК</p>
+    </section>
+  </body>
+  <binary id="img1" content-type="image/png">` + fixtureImageB64 + `</binary>
+  <binary id="img2" content-type="image/png">` + fixtureImageB64 + `</binary>
+</FictionBook>`
+
+	zipPath := zipWithSingleFB2(t, []byte(fixture))
+	processor := NewBookProcessor("book.fb2", zipPath)
+
+	epubReader, err := processor.Epub()
+	if err != nil {
+		t.Fatalf("EPUB conversion failed: %v", err)
+	}
+	defer epubReader.Close()
+
+	epubData, err := io.ReadAll(epubReader)
+	if err != nil {
+		t.Fatalf("Failed to read EPUB: %v", err)
+	}
+	files := unzipToMap(t, epubData)
+
+	chapterNames := spineChapters(t, files)
+	var chapters strings.Builder
+	for _, name := range chapterNames {
+		chapters.Write(files["OEBPS/"+name])
+		chapters.WriteByte('\n')
+	}
+	chapterText := chapters.String()
+
+	// Both images are referenced from the spine, each exactly once. The ids
+	// sort to image_001/image_002, and the source order must survive: img1
+	// between the first two markers, img2 between the last two.
+	imgSrcRe := regexp.MustCompile(`<img src="(images/image_\d+\.png)"`)
+	var imgRefs []string
+	for _, match := range imgSrcRe.FindAllStringSubmatch(chapterText, -1) {
+		imgRefs = append(imgRefs, match[1])
+	}
+	if len(imgRefs) != 2 {
+		t.Fatalf("Chapters reference %d images, expected exactly 2 (both image-only paragraphs dropped?)", len(imgRefs))
+	}
+	if imgRefs[0] != "images/image_001.png" || imgRefs[1] != "images/image_002.png" {
+		t.Errorf("Image references out of source order: %v", imgRefs)
+	}
+
+	position := func(needle string) int {
+		idx := strings.Index(chapterText, needle)
+		if idx == -1 {
+			t.Fatalf("'%s' missing from chapters", needle)
+		}
+		return idx
+	}
+	before := position("МАРКЕР ДО КАРТИНКИ")
+	img1 := position(`<img src="images/image_001.png"`)
+	middle := position("МАРКЕР МЕЖДУ КАРТИНКАМИ")
+	img2 := position(`<img src="images/image_002.png"`)
+	after := position("МАРКЕР ПОСЛЕ КАРТИНОК")
+	if before >= img1 || img1 >= middle || middle >= img2 || img2 >= after {
+		t.Errorf("Reading order broken: before=%d img1=%d middle=%d img2=%d after=%d",
+			before, img1, middle, img2, after)
+	}
+
+	// Both pictures are embedded with their original bytes and declared in
+	// the manifest: a reference without the payload is a broken image.
+	expectedImage, err := base64.StdEncoding.DecodeString(fixtureImageB64)
+	if err != nil {
+		t.Fatalf("Fixture image base64 does not decode: %v", err)
+	}
+	pkg := parseOPF(t, files)
+	for _, ref := range imgRefs {
+		data, ok := files["OEBPS/"+ref]
+		if !ok {
+			t.Errorf("img src '%s' has no file in the archive", ref)
+			continue
+		}
+		if !bytes.Equal(data, expectedImage) {
+			t.Errorf("Embedded image '%s' bytes differ from the source", ref)
+		}
+		declared := false
+		for _, item := range pkg.Manifest.Items {
+			if item.Href == ref {
+				declared = true
+			}
+		}
+		if !declared {
+			t.Errorf("img src '%s' has no manifest entry", ref)
+		}
+	}
+
+	// The truly empty paragraph between the markers must not render as an
+	// empty <p>: keeping it would trade lost pictures for layout noise.
+	if strings.Contains(chapterText, "<p></p>") {
+		t.Error("An empty source paragraph rendered as an empty <p>")
+	}
+
+	checkAllLinksResolve(t, files)
+}

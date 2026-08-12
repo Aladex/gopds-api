@@ -830,7 +830,7 @@ func (s *fb2BodyState) finishTextBlock(doc *FB2Document, tag string) {
 		return
 	}
 	text := s.normalizeTextForKind(s.currentParagraph)
-	if text != "" {
+	if text != "" || hasRenderableInline(s.currentParagraph) {
 		if s.inTitleParagraph {
 			if section := s.currentSection(); section != nil && section.Title == "" {
 				section.Title = text
@@ -857,6 +857,37 @@ func (s *fb2BodyState) normalizeTextForKind(paragraph *FB2Paragraph) string {
 		return strings.TrimSpace(raw)
 	}
 	return normalizeWhitespace(raw)
+}
+
+// hasRenderableInline reports whether the paragraph's inline tree holds any
+// element that renders on its own — an image, a line break, or a link, the
+// last even without visible text, since it still produces an anchor. A
+// paragraph is worth keeping by what it will draw, not by whether it has
+// letters: the old text-only check dropped <p><image/></p> together with the
+// picture. Formatting wrappers (strong, emphasis, code, sup, sub) count only
+// through their descendants — an empty wrapper draws nothing.
+func hasRenderableInline(paragraph *FB2Paragraph) bool {
+	if paragraph == nil {
+		return false
+	}
+	return elementsRenderStandalone(paragraph.Content)
+}
+
+func elementsRenderStandalone(elements []*FB2InlineElement) bool {
+	for _, el := range elements {
+		if el == nil {
+			continue
+		}
+		switch el.Type {
+		case InlineTypeImage, InlineTypeBreak, InlineTypeLink:
+			return true
+		default:
+			if elementsRenderStandalone(el.Children) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (s *fb2BodyState) defaultParagraphKind() string {
