@@ -7,6 +7,7 @@ package converter
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -53,7 +54,7 @@ func TestPreviewChunk_Headings(t *testing.T) {
 
 	wantTitles := []string{"ГЛАВА ПЕРВАЯ", "ПОДРАЗДЕЛ", "ГЛАВА ВТОРАЯ"}
 	wantDepths := []int{1, 2, 1}
-	wantAnchors := []string{"pv0-ch1", "pv0-ch1a", "pv0-ch2"}
+	wantAnchors := []string{"pv-ch1", "pv-ch1a", "pv-ch2"}
 	for i, h := range headings {
 		if h.Title != wantTitles[i] {
 			t.Errorf("heading %d: title = %q, want %q", i, h.Title, wantTitles[i])
@@ -223,8 +224,8 @@ func TestPreviewChunk_HeadingsPreserveOriginalID(t *testing.T) {
 	if len(headings) != 1 {
 		t.Fatalf("expected 1 heading, got %d", len(headings))
 	}
-	if headings[0].Anchor != "pv0-ch1" {
-		t.Errorf("section with id ch1 got anchor %q, want pv0-ch1", headings[0].Anchor)
+	if headings[0].Anchor != "pv-ch1" {
+		t.Errorf("section with id ch1 got anchor %q, want pv-ch1", headings[0].Anchor)
 	}
 }
 
@@ -268,6 +269,70 @@ func TestPreviewChunk_HeadingsSyntheticAnchorAvoidsCollision(t *testing.T) {
 		if !strings.Contains(html, `id="`+h.Anchor+`"`) {
 			t.Errorf("anchor %q for %q is missing from the HTML", h.Anchor, h.Title)
 		}
+	}
+}
+
+// The anchor a TOC entry carries must lead to that entry's own heading, not
+// merely to an id that exists somewhere in the fragment. The fixture forces
+// the divergence this guards against: the first section's book-supplied id
+// occupies the synthetic slot the titleless middle section would take, so the
+// renderer's collision bump shifts every later synthetic anchor — and a TOC
+// that re-derives anchors while skipping the titleless section lands one slot
+// short, pointing the last entry at the middle section's anchor.
+func TestPreviewChunk_HeadingsAnchorLeadsToOwnHeading(t *testing.T) {
+	doc := &FB2Document{Body: &FB2BodySection{
+		Content: []*FB2ContentItem{
+			{Section: &FB2BodySection{
+				ID:      "!auto-1",
+				Title:   "Первая",
+				Content: []*FB2ContentItem{{Paragraph: textPara("текст один")}},
+			}},
+			{Section: &FB2BodySection{
+				Content: []*FB2ContentItem{{Paragraph: textPara("секция без заголовка")}},
+			}},
+			{Section: &FB2BodySection{
+				Title:   "Третья",
+				Content: []*FB2ContentItem{{Paragraph: textPara("текст три")}},
+			}},
+		},
+	}}
+
+	chunks, err := ChunkPreview(context.Background(), doc, PreviewImages{}, testPreviewPolicy())
+	if err != nil {
+		t.Fatalf("ChunkPreview: %v", err)
+	}
+	if len(chunks) != 1 {
+		t.Fatalf("expected the small document to fit one chunk, got %d", len(chunks))
+	}
+
+	headings := chunks[0].Headings()
+	if len(headings) != 2 {
+		t.Fatalf("expected 2 headings (the titleless section is skipped), got %d: %+v", len(headings), headings)
+	}
+
+	html, err := RenderChunkHTML(chunks[0], PreviewImages{}, testPreviewPolicy())
+	if err != nil {
+		t.Fatalf("RenderChunkHTML: %v", err)
+	}
+	auditPreviewHTML(t, html)
+
+	// The anchor's <a> must be immediately followed by the heading the TOC
+	// entry names. Existence alone is not enough: the wrong anchor is also a
+	// real, unique id — it just belongs to the previous section.
+	for _, h := range headings {
+		tag := fmt.Sprintf("h%d", clampHeading(h.Depth))
+		want := `<a id="` + h.Anchor + `"></a>` + "\n<" + tag + ">" + h.Title + "</" + tag + ">"
+		if !strings.Contains(html, want) {
+			t.Errorf("heading %q: anchor %q is not immediately followed by its own heading\nwant fragment: %s",
+				h.Title, h.Anchor, want)
+		}
+	}
+
+	// The titleless middle section still reserves its anchor in the HTML: the
+	// reservation is what the collision bump accounts for, and dropping it is
+	// the other half of the same drift.
+	if !strings.Contains(html, "</a>\n<p>секция без заголовка</p>") {
+		t.Errorf("the titleless section lost its anchor — the paragraph is not preceded by an <a> anchor")
 	}
 }
 

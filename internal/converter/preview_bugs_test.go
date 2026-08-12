@@ -86,16 +86,16 @@ func TestBlockAnchor_SyntheticAnchorReserved(t *testing.T) {
 	}
 
 	// Specifically verify the expected anchors exist
-	// First section has real id, should get pv0-!auto-1
+	// First section has real id, should get pv-!auto-1
 	foundFirst := false
 	foundSecond := false
 	foundThird := false
 	for id := range idCounts {
-		if id == "pv0-!auto-1" {
+		if id == "pv-!auto-1" {
 			foundFirst = true
 		}
-		if strings.HasPrefix(id, "pv0-!auto-") && id != "pv0-!auto-1" {
-			// Should be either pv0-!auto-0 or pv0-!auto-1 or pv0-!auto-2
+		if strings.HasPrefix(id, "pv-!auto-") && id != "pv-!auto-1" {
+			// Should be either pv-!auto-0 or pv-!auto-2
 			// depending on section index
 			if !foundSecond {
 				foundSecond = true

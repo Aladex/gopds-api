@@ -31,6 +31,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	// Registered for image.DecodeConfig: dimensions are read from the header
 	// of every format the library actually holds, before anything is decoded.
@@ -222,15 +223,43 @@ func (p PreviewImagePolicy) validate() error {
 //
 // Notes are only included if they are reachable from the body: a note that
 // is never referenced will never be rendered, so its images must never be
-// prepared. Reachability is determined by walking the body for note links
-// and collecting the normalized note ids.
+// prepared. Reachability is decided against one index of the notes — the
+// same normalized id the renderer resolves note links with, first occurrence
+// winning on duplicates, exactly as newPreviewRender's noteIDs — so a link
+// lookup is one map access, not a scan of every note, and two notes sharing
+// a normalized id contribute the images of the one note the renderer will
+// actually show. A reachable note is collected as its whole subtree, because
+// the renderer expands the whole note (noteParagraphs descends into nested
+// sections): filtering the note's nested sections by their own reachability
+// would drop images from markup the reader is shown.
 func UsedBinaries(doc *FB2Document) map[string]FB2Binary {
 	if doc == nil || len(doc.Binary) == 0 {
 		return nil
 	}
 	used := make(map[string]struct{})
 
-	// First pass: collect reachable note ids by walking the body
+	// One index over the notes: normalized id -> the note the renderer will
+	// render for that id. First occurrence wins, matching newPreviewRender —
+	// a second note with the same normalized id is never rendered, so its
+	// images must never be prepared either.
+	noteByKey := make(map[string]*FB2BodySection, len(doc.Notes))
+	for _, note := range doc.Notes {
+		if note == nil {
+			continue
+		}
+		key := noteIndexKey(note)
+		if key == "" {
+			continue
+		}
+		if _, taken := noteByKey[key]; taken {
+			continue
+		}
+		noteByKey[key] = note
+	}
+
+	// Walk the body for note links. A link reaches the note the index names
+	// for its target; the lookup is O(1), so a book with many links and many
+	// notes stays linear in their sum.
 	reachableNotes := make(map[string]bool)
 	var walkBodyForNotes func(content []*FB2ContentItem)
 	walkBodyForNotes = func(content []*FB2ContentItem) {
@@ -250,12 +279,8 @@ func UsedBinaries(doc *FB2Document) map[string]FB2Binary {
 							href := strings.TrimSpace(el.Attrs["href"])
 							if raw := strings.TrimPrefix(href, "#"); raw != href && raw != "" {
 								key := anchorKey(raw)
-								// Check if this is a note (notes are indexed by normalized id)
-								for _, note := range doc.Notes {
-									if note != nil && anchorKey(note.ID) == key {
-										reachableNotes[key] = true
-										break
-									}
+								if _, ok := noteByKey[key]; ok {
+									reachableNotes[key] = true
 								}
 							}
 						}
@@ -297,19 +322,23 @@ func UsedBinaries(doc *FB2Document) map[string]FB2Binary {
 		})
 	}
 
-	// Notes are only included if reachable from the body. An unreferenced note
-	// never renders, so its images must never be prepared.
-	WalkSections(doc.Notes, 1, func(section *FB2BodySection, _ int) {
-		if section.ID != "" && !reachableNotes[anchorKey(section.ID)] {
-			return
+	// Only notes the body references render at all, so only their images may
+	// be prepared. The selected root is walked as its whole subtree — nested
+	// sections of a note are part of the note's rendered text, and the
+	// renderer does not apply any per-section filter inside a note.
+	for key, note := range noteByKey {
+		if !reachableNotes[key] {
+			continue
 		}
-		for _, item := range section.Content {
-			if item == nil || item.Paragraph == nil {
-				continue
+		WalkSections([]*FB2BodySection{note}, 1, func(section *FB2BodySection, _ int) {
+			for _, item := range section.Content {
+				if item == nil || item.Paragraph == nil {
+					continue
+				}
+				collectParagraphImageIDs(item.Paragraph, used)
 			}
-			collectParagraphImageIDs(item.Paragraph, used)
-		}
-	})
+		})
+	}
 
 	out := make(map[string]FB2Binary, len(used))
 	for id := range used {
@@ -318,6 +347,21 @@ func UsedBinaries(doc *FB2Document) map[string]FB2Binary {
 		}
 	}
 	return out
+}
+
+// noteIndexNormalizations counts how many note ids UsedBinaries normalizes
+// while building its index. It is test instrumentation for a complexity
+// bound: the reachability lookup must be an index — one normalization per
+// note — not a scan of every note for every body link, which on a hostile
+// book (the parser admits on the order of 100k nodes) is hundreds of
+// millions of comparisons inside a function that has no ctx to interrupt.
+var noteIndexNormalizations atomic.Int64
+
+// noteIndexKey normalizes a note's id for the reachability index, counting
+// the call so tests can prove the index is built once.
+func noteIndexKey(note *FB2BodySection) string {
+	noteIndexNormalizations.Add(1)
+	return anchorKey(note.ID)
 }
 
 // collectParagraphImageIDs gathers the binary ids one paragraph references,

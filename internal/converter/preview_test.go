@@ -88,10 +88,14 @@ func noteSection(id, body string) *FB2BodySection {
 }
 
 // paraChunk builds a chunk by hand from paragraphs, for render tests.
+// paraChunk builds a portion out of bare paragraphs. The anchor comes from
+// bookAnchorFor — the same call the chunker makes — because anchors are
+// assigned once, before chunking: a helper that spelled them itself would be
+// a second assignment site, which is the defect this design removed.
 func paraChunk(index int, paras ...*FB2Paragraph) *PreviewChunk {
 	chunk := &PreviewChunk{Index: index}
 	for _, p := range paras {
-		chunk.blocks = append(chunk.blocks, chunkBlock{para: p})
+		chunk.blocks = append(chunk.blocks, chunkBlock{para: p, anchor: bookAnchorFor(p.ID)})
 	}
 	return chunk
 }

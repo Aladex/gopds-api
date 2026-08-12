@@ -71,10 +71,10 @@ func TestRenderChunkHTML_HrefSchemes(t *testing.T) {
 		target.ID = "note1"
 		chunk := paraChunk(0, linkPara("#note1", "ССЫЛКА НА ЯКОРЬ"), target)
 		out := renderPreview(t, context.Background(), chunk, nil, testPreviewPolicy(), testPreviewImagePolicy())
-		if !strings.Contains(out, `href="#pv0-note1"`) {
+		if !strings.Contains(out, `href="#pv-note1"`) {
 			t.Errorf("the fragment link did not survive: %q", shorten(out))
 		}
-		if !strings.Contains(out, `id="pv0-note1"`) {
+		if !strings.Contains(out, `id="pv-note1"`) {
 			t.Errorf("the target anchor is missing: %q", shorten(out))
 		}
 	})
@@ -84,7 +84,7 @@ func TestRenderChunkHTML_HrefSchemes(t *testing.T) {
 		target.ID = "note1"
 		chunk := paraChunk(0, linkPara(" \t#note1\n", "ССЫЛКА С ПРОБЕЛАМИ"), target)
 		out := renderPreview(t, context.Background(), chunk, nil, testPreviewPolicy(), testPreviewImagePolicy())
-		if !strings.Contains(out, `href="#pv0-note1"`) {
+		if !strings.Contains(out, `href="#pv-note1"`) {
 			t.Errorf("a padded fragment link did not survive: %q", shorten(out))
 		}
 	})
@@ -256,20 +256,20 @@ func TestRenderChunkHTML_Anchors(t *testing.T) {
 	out := renderPreview(t, context.Background(), chunk, nil, testPreviewPolicy(), testPreviewImagePolicy())
 	ids := auditPreviewHTML(t, out)
 
-	for _, want := range []string{`pv3-we"id`, "pv3-ab", "pv3-якорь", "pv3-dup"} {
+	for _, want := range []string{`pv-we"id`, "pv-ab", "pv-якорь", "pv-dup"} {
 		if !ids[want] {
 			t.Errorf("anchor %q missing from the fragment", want)
 		}
 	}
-	if n := countOccurrences(out, `id="pv3-dup"`); n != 1 {
+	if n := countOccurrences(out, `id="pv-dup"`); n != 1 {
 		t.Errorf("duplicate source ids produced %d anchors, expected exactly 1 (first wins)", n)
 	}
-	if !strings.Contains(out, `href="#pv3-dup"`) {
+	if !strings.Contains(out, `href="#pv-dup"`) {
 		t.Errorf("the link to a duplicated id did not resolve to its first anchor")
 	}
 	for id := range ids {
-		if !strings.HasPrefix(id, "pv3-") {
-			t.Errorf("anchor %q lacks the per-portion prefix — it can collide with the app shell", id)
+		if !strings.HasPrefix(id, "pv-") {
+			t.Errorf("anchor %q lacks the book-wide prefix — it can collide with the app shell", id)
 		}
 	}
 }
@@ -708,10 +708,10 @@ func TestRenderChunkHTML_AnchorCollisionAfterNormalising(t *testing.T) {
 			}},
 		}
 		out := renderPreview(t, context.Background(), paraChunk(0, only, link), nil, testPreviewPolicy(), testPreviewImagePolicy())
-		if got := countOccurrences(out, `id="pv0-ab"`); got != 1 {
-			t.Fatalf("expected the anchor pv0-ab, got %d: %s", got, out)
+		if got := countOccurrences(out, `id="pv-ab"`); got != 1 {
+			t.Fatalf("expected the anchor pv-ab, got %d: %s", got, out)
 		}
-		if got := countOccurrences(out, `href="#pv0-ab"`); got != 1 {
+		if got := countOccurrences(out, `href="#pv-ab"`); got != 1 {
 			t.Fatalf("expected the link to resolve, got %d: %s", got, out)
 		}
 	})
@@ -745,10 +745,10 @@ func assertOneAnchorSurvives(t *testing.T, firstID, secondID string) {
 			t.Fatalf("id %q appears %d times: %s", id, n, out)
 		}
 	}
-	if got := countOccurrences(out, `id="pv0-ab"`); got != 1 {
-		t.Fatalf("expected exactly one anchor pv0-ab, got %d: %s", got, out)
+	if got := countOccurrences(out, `id="pv-ab"`); got != 1 {
+		t.Fatalf("expected exactly one anchor pv-ab, got %d: %s", got, out)
 	}
-	if got := countOccurrences(out, `href="#pv0-ab"`); got != 1 {
+	if got := countOccurrences(out, `href="#pv-ab"`); got != 1 {
 		t.Fatalf("the link resolved %d times to the surviving anchor, want 1: %s", got, out)
 	}
 }

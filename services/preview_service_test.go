@@ -1385,8 +1385,8 @@ func TestBuildPreviewTOC_AnonymousSectionsHaveAnchors(t *testing.T) {
 	if len(toc) != 2 {
 		t.Fatalf("expected 2 toc entries, got %d", len(toc))
 	}
-	if toc[0].Anchor != "pv0-part1" {
-		t.Errorf("first entry anchor = %q, want pv0-part1", toc[0].Anchor)
+	if toc[0].Anchor != "pv-part1" {
+		t.Errorf("first entry anchor = %q, want pv-part1", toc[0].Anchor)
 	}
 	if toc[1].Anchor == "" {
 		t.Fatalf("anonymous section got an empty anchor")

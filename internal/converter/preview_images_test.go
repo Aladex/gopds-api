@@ -1396,3 +1396,108 @@ func TestUsedBinaries_UnreachableFootnoteImageIsExcluded(t *testing.T) {
 		t.Errorf("a picture in an unreferenced footnote was incorrectly collected — got %v", used)
 	}
 }
+
+// The renderer expands a footnote as its whole subtree (noteParagraphs
+// descends into nested sections), so a picture in a nested section of a
+// reachable note IS referenced markup: the <img> will be emitted, and the
+// resource must exist. Filtering the note's nested sections by their own
+// reachability — a rule the renderer never applies — prepares nothing for a
+// picture the reader is shown.
+func TestUsedBinaries_NestedNoteSectionImageIsIncluded(t *testing.T) {
+	png := uniformImage(t, "png", 4, 4)
+	doc := &FB2Document{
+		Body: &FB2BodySection{Content: []*FB2ContentItem{
+			{Paragraph: noteRefPara("n1", "сноска")},
+		}},
+		Notes: []*FB2BodySection{
+			{ID: "n1", Content: []*FB2ContentItem{
+				{Section: &FB2BodySection{
+					ID: "sub",
+					Content: []*FB2ContentItem{
+						{Paragraph: &FB2Paragraph{Kind: ParagraphKindNormal, Content: []*FB2InlineElement{
+							{Type: InlineTypeText, Content: "текст вложенной секции"},
+							{Type: InlineTypeImage, Attrs: map[string]string{"href": "#nested_note_pic"}},
+						}}},
+					},
+				}},
+			}},
+		},
+		Binary: map[string]FB2Binary{"nested_note_pic": {Data: png}},
+	}
+
+	used := UsedBinaries(doc)
+	if _, ok := used["nested_note_pic"]; !ok {
+		t.Errorf("a picture in a nested section of a reachable note was not collected — got %v", used)
+	}
+}
+
+// Two notes whose ids normalize to the same key are one note to the renderer:
+// the first occurrence wins (newPreviewRender's noteIDs dedup), the second is
+// never rendered. The image selection must follow the same rule, or it
+// prepares a picture no markup can reference.
+func TestUsedBinaries_DuplicateNoteIDsFirstWins(t *testing.T) {
+	png := uniformImage(t, "png", 4, 4)
+	doc := &FB2Document{
+		Body: &FB2BodySection{Content: []*FB2ContentItem{
+			{Paragraph: noteRefPara("n1", "сноска")},
+		}},
+		Notes: []*FB2BodySection{
+			{ID: "n1", Content: []*FB2ContentItem{
+				{Paragraph: &FB2Paragraph{Kind: ParagraphKindNormal, Content: []*FB2InlineElement{
+					{Type: InlineTypeImage, Attrs: map[string]string{"href": "#first_pic"}},
+				}}},
+			}},
+			// "n 1" normalizes to the same key as "n1" (whitespace is
+			// stripped); the renderer keeps the first note and drops this one.
+			{ID: "n 1", Content: []*FB2ContentItem{
+				{Paragraph: &FB2Paragraph{Kind: ParagraphKindNormal, Content: []*FB2InlineElement{
+					{Type: InlineTypeImage, Attrs: map[string]string{"href": "#second_pic"}},
+				}}},
+			}},
+		},
+		Binary: map[string]FB2Binary{
+			"first_pic":  {Data: png},
+			"second_pic": {Data: png},
+		},
+	}
+
+	used := UsedBinaries(doc)
+	if _, ok := used["first_pic"]; !ok {
+		t.Errorf("the winning note's picture was not collected — got %v", used)
+	}
+	if _, ok := used["second_pic"]; ok {
+		t.Errorf("the shadowed duplicate note's picture was collected, but the renderer never shows that note — got %v", used)
+	}
+}
+
+// The reachability lookup must be indexed, not a scan of every note for every
+// body link: with a hostile book carrying the parser's maximum of nodes, the
+// scan is hundreds of millions of comparisons inside a function that has no
+// ctx to interrupt. This is measured in note-id normalizations — the
+// operation the scan repeats per (link, note) pair — not in seconds.
+func TestUsedBinaries_NoteLookupIsIndexed(t *testing.T) {
+	const noteCount = 300
+
+	body := &FB2BodySection{}
+	for i := 0; i < noteCount; i++ {
+		body.Content = append(body.Content,
+			&FB2ContentItem{Paragraph: noteRefPara(fmt.Sprintf("n%d", i), "сноска")})
+	}
+	notes := make([]*FB2BodySection, 0, noteCount)
+	for i := 0; i < noteCount; i++ {
+		notes = append(notes, noteSection(fmt.Sprintf("n%d", i), "текст сноски"))
+	}
+	doc := &FB2Document{
+		Body:   body,
+		Notes:  notes,
+		Binary: map[string]FB2Binary{"b": {Data: uniformImage(t, "png", 4, 4)}},
+	}
+
+	noteIndexNormalizations.Store(0)
+	UsedBinaries(doc)
+	got := noteIndexNormalizations.Load()
+	if got > noteCount {
+		t.Errorf("note id normalizations = %d for %d notes and %d links — want at most one per note (an index), not one per (link, note) pair",
+			got, noteCount, noteCount)
+	}
+}

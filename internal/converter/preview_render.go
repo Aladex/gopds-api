@@ -29,12 +29,12 @@ type previewRender struct {
 	images PreviewImages
 	policy PreviewPolicy
 
-	noteIDs      map[string]string          // raw note id -> anchor id
-	noteByID     map[string]*FB2BodySection // raw note id -> note
-	anchors      map[string]string          // raw section/paragraph id -> anchor id
-	emittedIDs   map[string]bool            // raw ids whose anchor is already out
-	emittedNotes map[string]bool            // raw note ids already inlined
-	usedAnchors  map[string]bool            // all anchor ids already reserved
+	noteIDs        map[string]string          // raw note id -> anchor id
+	noteByID       map[string]*FB2BodySection // raw note id -> note
+	anchors        map[string]string          // raw section/paragraph id -> anchor id
+	emittedAnchors map[string]bool            // anchor ids already out (dedup, first occurrence wins)
+	emittedNotes   map[string]bool            // raw note ids already inlined
+	usedAnchors    map[string]bool            // anchor ids the draft bump must avoid
 
 	// draft renders sizes, not output: every fragment link is assumed to
 	// resolve, so the draft is never smaller than the final render of the
@@ -51,9 +51,10 @@ func RenderChunkHTML(chunk *PreviewChunk, images PreviewImages, policy PreviewPo
 	}
 	r := newPreviewRender(chunk, images, policy, false)
 
+	anchors := chunk.anchorTable().byBlock
 	var out strings.Builder
-	for _, block := range chunk.blocks {
-		out.WriteString(r.renderBlock(block))
+	for i, block := range chunk.blocks {
+		out.WriteString(r.renderBlock(block, anchors[i]))
 		out.WriteString(r.renderNotesAfter(block))
 	}
 	result := out.String()
@@ -66,16 +67,15 @@ func RenderChunkHTML(chunk *PreviewChunk, images PreviewImages, policy PreviewPo
 
 func newPreviewRender(chunk *PreviewChunk, images PreviewImages, policy PreviewPolicy, draft bool) *previewRender {
 	r := &previewRender{
-		chunk:        chunk,
-		images:       images,
-		policy:       policy,
-		noteIDs:      make(map[string]string),
-		noteByID:     make(map[string]*FB2BodySection),
-		anchors:      make(map[string]string),
-		emittedIDs:   make(map[string]bool),
-		emittedNotes: make(map[string]bool),
-		usedAnchors:  make(map[string]bool),
-		draft:        draft,
+		chunk:          chunk,
+		images:         images,
+		policy:         policy,
+		noteIDs:        make(map[string]string),
+		noteByID:       make(map[string]*FB2BodySection),
+		emittedAnchors: make(map[string]bool),
+		emittedNotes:   make(map[string]bool),
+		usedAnchors:    make(map[string]bool),
+		draft:          draft,
 	}
 	for _, note := range chunk.notes {
 		if note == nil {
@@ -85,23 +85,64 @@ func newPreviewRender(chunk *PreviewChunk, images PreviewImages, policy PreviewP
 			if _, taken := r.noteIDs[key]; taken {
 				continue // first occurrence wins, as for block anchors
 			}
-			r.noteIDs[key] = fmt.Sprintf("pv%d-note-%s", chunk.Index, key)
+			r.noteIDs[key] = noteAnchorID(chunk.Index, key)
 			r.noteByID[key] = note
 			r.usedAnchors[r.noteIDs[key]] = true
 		}
 	}
-	for _, block := range chunk.blocks {
-		key := anchorKey(blockRawID(block))
-		if key == "" {
+	// The block anchor map comes from the chunk's single assignment pass
+	// (aliased, never mutated here), so what a fragment link resolves to is
+	// the very id the render emits for the target block.
+	r.anchors = chunk.anchorTable().byID
+	return r
+}
+
+// anchorTable is the assigned anchor of every block in a portion, plus the
+// book-id lookup the fragment resolver uses. It is computed once per chunk.
+type anchorTable struct {
+	byBlock []string          // one entry per chunk block, "" where the block carries no anchor
+	byID    map[string]string // normalized book id -> anchor of the first block carrying it
+}
+
+// anchorTable returns the portion's anchor assignment, computing it on first
+// use. There is exactly one assignment pass per portion: the renderer emits
+// these ids and Headings reports them, and neither re-derives anything.
+func (c *PreviewChunk) anchorTable() *anchorTable {
+	c.anchorOnce.Do(func() {
+		c.anchorTab = collectBlockAnchors(c.blocks)
+	})
+	return c.anchorTab
+}
+
+// noteAnchorID is the chunk-local anchor of the note with the given
+// normalized id. The format lives in one place so the renderer, the anchor
+// assignment and the draft measurement cannot spell it differently.
+func noteAnchorID(chunkIndex int, key string) string {
+	return fmt.Sprintf("pv%d-note-%s", chunkIndex, key)
+}
+
+// collectBlockAnchors indexes the anchors the chunker already assigned. It
+// distributes nothing: anchors are decided once, in flattenPreviewBlocks, and
+// stored on the block. Anything here that invented an anchor would be a second
+// authority, which is the defect this arrangement exists to prevent.
+func collectBlockAnchors(blocks []chunkBlock) *anchorTable {
+	byID := make(map[string]string)
+	byBlock := make([]string, len(blocks))
+	for i, block := range blocks {
+		if block.anchor == "" {
 			continue
 		}
-		if _, taken := r.anchors[key]; taken {
-			continue // first occurrence wins
+		byBlock[i] = block.anchor
+		// Reserve book-supplied ids to avoid synthetic collisions.
+		key := anchorKey(blockRawID(block))
+		if key != "" {
+			if _, taken := byID[key]; taken {
+				continue
+			}
+			byID[key] = block.anchor
 		}
-		r.anchors[key] = fmt.Sprintf("pv%d-%s", chunk.Index, key)
-		r.usedAnchors[r.anchors[key]] = true
 	}
-	return r
+	return &anchorTable{byBlock: byBlock, byID: byID}
 }
 
 // blockRawID returns the book's own id of a block, if any.
@@ -142,51 +183,17 @@ func sanitizeAnchorID(raw string) string {
 // syntheticAnchorPrefix is the namespace for anchors invented for sections
 // that carry no id. '!' is not allowed in a valid XML Name, so a well-formed
 // FB2 id can never collide with this prefix. The collision resolution in
-// blockAnchor still catches hostile or malformed input that somehow does.
+// the chunker still catches hostile or malformed input that somehow
+// does.
 const syntheticAnchorPrefix = "!auto"
 
-// blockAnchor returns the anchor id that would be emitted for the block, or an
-// empty string if the block has no anchor. For section headers without an id it
-// produces a deterministic synthetic anchor based on the document-wide section
-// sequence. Repeated calls on the same renderer in document order yield the
-// same values as the final HTML render.
-func (r *previewRender) blockAnchor(block chunkBlock) string {
-	raw := blockRawID(block)
-	if raw == "" {
-		if block.header == nil {
-			return ""
-		}
-		// Hostile or malformed source may still match this prefix; resolve
-		// collisions deterministically by bumping the sequence index.
-		for attempt := 0; ; attempt++ {
-			idx := block.sectionIndex + attempt
-			candidate := fmt.Sprintf("pv%d-%s-%d", r.chunk.Index, syntheticAnchorPrefix, idx)
-			if !r.usedAnchors[candidate] {
-				r.usedAnchors[candidate] = true
-				return candidate
-			}
-		}
-	}
-	key := anchorKey(raw)
-	if key == "" {
-		return ""
-	}
-	anchor, ok := r.anchors[key]
-	if !ok && r.draft {
-		anchor = fmt.Sprintf("pv%d-%s", r.chunk.Index, key)
-		ok = true
-	}
-	if !ok {
-		return ""
-	}
-	return anchor
-}
-
-// renderBlock renders one block: its own anchor (if it is the first block in
-// the chunk carrying that id), then the block markup.
-func (r *previewRender) renderBlock(block chunkBlock) string {
+// renderBlock renders one block: its own anchor (if this is the first block
+// in the chunk carrying it), then the block markup. The anchor is decided by
+// the caller — the final render passes the assigned value from the chunk's
+// anchor table, the draft passes the block's pre-assigned anchor.
+func (r *previewRender) renderBlock(block chunkBlock, anchor string) string {
 	var out strings.Builder
-	out.WriteString(r.renderAnchor(block))
+	out.WriteString(r.renderAnchor(anchor))
 	if block.header != nil {
 		r.renderSectionHeader(&out, block.header, block.depth)
 	} else if block.para != nil {
@@ -195,23 +202,17 @@ func (r *previewRender) renderBlock(block chunkBlock) string {
 	return out.String()
 }
 
-// renderAnchor emits the chunk-local anchor for the block, once. In draft mode
-// it always emits, because the draft must not undercount.
-func (r *previewRender) renderAnchor(block chunkBlock) string {
-	anchor := r.blockAnchor(block)
+// renderAnchor emits the chunk-local anchor, once per value: two blocks
+// carrying the same book id produce one anchor, first occurrence wins. In
+// draft mode it always emits, because the draft must not undercount.
+func (r *previewRender) renderAnchor(anchor string) string {
 	if anchor == "" {
 		return ""
 	}
-	// Book-supplied ids are deduplicated: first occurrence wins. Synthetic
-	// anchors are unique by construction, so they do not need deduplication.
-	raw := blockRawID(block)
-	if raw != "" {
-		key := anchorKey(raw)
-		if r.emittedIDs[key] && !r.draft {
-			return ""
-		}
-		r.emittedIDs[key] = true
+	if r.emittedAnchors[anchor] && !r.draft {
+		return ""
 	}
+	r.emittedAnchors[anchor] = true
 	return `<a id="` + escapeAttr(anchor) + `"></a>` + "\n"
 }
 
@@ -346,7 +347,10 @@ func (r *previewRender) resolveFragmentHref(href string) string {
 	if r.draft && key != "" {
 		// Draft sizes must not undercount: assume the fragment resolves in
 		// its final form. The final render only ever shrinks it (to nothing).
-		return fmt.Sprintf("#pv%d-%s", r.chunk.Index, key)
+		// bookAnchorFor is the same spelling the chunker used when it
+		// assigned the anchor, so the draft measures the string the final
+		// render will emit rather than a look-alike.
+		return "#" + bookAnchorFor(key)
 	}
 	return ""
 }

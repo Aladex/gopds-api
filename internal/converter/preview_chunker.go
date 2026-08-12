@@ -16,6 +16,7 @@ package converter
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 // ChunkPreview flattens the document and packs it into portions within the
@@ -141,13 +142,8 @@ func (p *previewPacker) draftFor(chunkIndex int) *previewRender {
 // footnote the block would newly pull into the chunk. A block whose total
 // cost alone exceeds the ceiling is indivisible and refuses the book.
 func (p *previewPacker) draftBlockCost(chunkIndex int, block chunkBlock, alreadyInChunk map[string]bool) (int, []*FB2BodySection, error) {
-	// The draft context knows every note id: references resolve into their
-	// final href form, so sizes are exact for note links and upper bounds for
-	// everything else.
 	r := p.draftFor(chunkIndex)
-
-	cost := len(r.renderBlock(block))
-
+	cost := len(r.renderBlock(block, block.anchor))
 	var pulled []*FB2BodySection
 	if block.para != nil {
 		for _, raw := range noteRefsInParagraph(block.para, p.notesByID) {
@@ -169,12 +165,55 @@ func (p *previewPacker) draftBlockCost(chunkIndex int, block chunkBlock, already
 	return cost, pulled, nil
 }
 
+// bookAnchorFor turns an id the book supplied into the anchor that stands for
+// it, or "" when the book supplied nothing usable. One spelling, one place:
+// the collection pass and the assignment pass must produce identical strings
+// or the collision check compares two different alphabets.
+func bookAnchorFor(rawID string) string {
+	key := anchorKey(strings.TrimSpace(rawID))
+	if key == "" {
+		return ""
+	}
+	return fmt.Sprintf("pv-%s", key)
+}
+
 // flattenPreviewBlocks walks the document into an ordered stream of
 // indivisible block units: a section header block for every section, then its
 // content. The root container contributes no header of its own.
 func flattenPreviewBlocks(doc *FB2Document) []chunkBlock {
 	var blocks []chunkBlock
 	sectionSeq := 0
+	syntheticSeq := 0
+
+	// Every anchor the book itself supplies, collected before a single
+	// synthetic one is handed out. Assigning as we walk would only avoid the
+	// ids seen so far, so a synthetic anchor could still collide with a real
+	// id further down the document — and the renderer, which drops a repeated
+	// id, would then leave the later section unreachable.
+	taken := make(map[string]bool)
+	var collect func(content []*FB2ContentItem)
+	collect = func(content []*FB2ContentItem) {
+		for _, item := range content {
+			if item == nil {
+				continue
+			}
+			if item.Paragraph != nil {
+				if a := bookAnchorFor(item.Paragraph.ID); a != "" {
+					taken[a] = true
+				}
+			}
+			if item.Section != nil {
+				if a := bookAnchorFor(item.Section.ID); a != "" {
+					taken[a] = true
+				}
+				collect(item.Section.Content)
+			}
+		}
+	}
+	if doc != nil && doc.Body != nil {
+		collect(doc.Body.Content)
+	}
+
 	var walk func(content []*FB2ContentItem, depth int)
 	walk = func(content []*FB2ContentItem, depth int) {
 		for _, item := range content {
@@ -182,11 +221,32 @@ func flattenPreviewBlocks(doc *FB2Document) []chunkBlock {
 				continue
 			}
 			if item.Paragraph != nil {
-				blocks = append(blocks, chunkBlock{para: item.Paragraph})
+				blk := chunkBlock{para: item.Paragraph}
+				blk.anchor = bookAnchorFor(item.Paragraph.ID)
+				blocks = append(blocks, blk)
 			}
 			if item.Section != nil {
-				blocks = append(blocks, chunkBlock{header: item.Section, depth: depth, sectionIndex: sectionSeq})
+				blk := chunkBlock{header: item.Section, depth: depth, sectionIndex: sectionSeq}
 				sectionSeq++
+				if a := bookAnchorFor(item.Section.ID); a != "" {
+					blk.anchor = a
+				} else {
+					// A section the book gave no id: invent one, skipping any
+					// anchor the book already occupies. The comparison is
+					// between finished anchors, not between an anchor and a
+					// bare id: those live in different shapes, and comparing
+					// across them silently never matches.
+					for {
+						candidate := fmt.Sprintf("pv-%s-%d", syntheticAnchorPrefix, syntheticSeq)
+						syntheticSeq++
+						if !taken[candidate] {
+							blk.anchor = candidate
+							taken[candidate] = true
+							break
+						}
+					}
+				}
+				blocks = append(blocks, blk)
 				walk(item.Section.Content, depth+1)
 			}
 		}

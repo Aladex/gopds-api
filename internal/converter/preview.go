@@ -6,7 +6,10 @@ package converter
 // (which tags, which attributes, which links, which images) is made here and
 // verified against the rendered bytes, never assumed from the source.
 
-import "errors"
+import (
+	"errors"
+	"sync"
+)
 
 // ErrPreviewBlockTooLarge marks a book that cannot be portioned within the
 // ceiling: a single indivisible block (with the footnotes it drags in)
@@ -117,13 +120,11 @@ type PreviewImagePolicy struct {
 // either a section header (with its depth) or a content paragraph. Cutting
 // happens only between blocks.
 type chunkBlock struct {
-	header *FB2BodySection // Set for a section header block
-	depth  int             // Section depth, 1 for top level
-	para   *FB2Paragraph   // Set for a paragraph block
-	// sectionIndex is the document-wide order of this section among all
-	// section headers. It is set only for header blocks and is the stable
-	// basis of synthetic anchors for sections that carry no id of their own.
-	sectionIndex int
+	header       *FB2BodySection // Set for a section header block
+	depth        int             // Section depth, 1 for top level
+	para         *FB2Paragraph   // Set for a paragraph block
+	sectionIndex int             // Document-wide section order for synthetic anchors
+	anchor       string          // Assigned anchor, unique within the book
 }
 
 // PreviewChunk is one portion of the book: an ordered run of blocks plus the
@@ -133,4 +134,12 @@ type PreviewChunk struct {
 	Index  int
 	blocks []chunkBlock
 	notes  []*FB2BodySection
+
+	// anchorTab memoizes the one-pass anchor assignment for this portion (see
+	// flattenPreviewBlocks). The renderer and Headings both read it, so the
+	// anchors in the HTML and the anchors in the TOC are the same values by
+	// construction, not by two walks that happen to agree. Blocks must not be
+	// appended after the first read — nothing in the pipeline does that.
+	anchorTab  *anchorTable
+	anchorOnce sync.Once
 }
