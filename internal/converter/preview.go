@@ -120,11 +120,10 @@ type PreviewImagePolicy struct {
 // either a section header (with its depth) or a content paragraph. Cutting
 // happens only between blocks.
 type chunkBlock struct {
-	header       *FB2BodySection // Set for a section header block
-	depth        int             // Section depth, 1 for top level
-	para         *FB2Paragraph   // Set for a paragraph block
-	sectionIndex int             // Document-wide section order for synthetic anchors
-	anchor       string          // Assigned anchor, unique within the book
+	header *FB2BodySection // Set for a section header block
+	depth  int             // Section depth, 1 for top level
+	para   *FB2Paragraph   // Set for a paragraph block
+	anchor string          // Assigned anchor, unique within the book
 }
 
 // PreviewChunk is one portion of the book: an ordered run of blocks plus the

@@ -202,7 +202,7 @@ func (r *previewRender) renderBlock(block chunkBlock, anchor string) string {
 	return out.String()
 }
 
-// renderAnchor emits the chunk-local anchor, once per value: two blocks
+// renderAnchor emits the assigned anchor, once per value: two blocks
 // carrying the same book id produce one anchor, first occurrence wins. In
 // draft mode it always emits, because the draft must not undercount.
 func (r *previewRender) renderAnchor(anchor string) string {

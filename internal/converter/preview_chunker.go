@@ -125,7 +125,6 @@ type previewPacker struct {
 }
 
 // draftFor returns the draft context for one portion, building it once. The
-// portion index cannot be shared across portions because it spells the anchor
 // prefix, and a draft that measured "pv9-" for a chunk rendered as "pv10-"
 // would undercount by a byte per anchor.
 func (p *previewPacker) draftFor(chunkIndex int) *previewRender {
@@ -177,12 +176,43 @@ func bookAnchorFor(rawID string) string {
 	return fmt.Sprintf("pv-%s", key)
 }
 
+// nextSyntheticAnchor hands out the next anchor the book did not supply,
+// skipping anything already spoken for. One caller for a section the book
+// left unnamed, another for a block whose id repeats an earlier one — both
+// need an anchor nobody else holds, and both must get it the same way.
+func nextSyntheticAnchor(taken map[string]bool, seq *int) string {
+	for {
+		candidate := fmt.Sprintf("pv-%s-%d", syntheticAnchorPrefix, *seq)
+		*seq++
+		if !taken[candidate] {
+			taken[candidate] = true
+			return candidate
+		}
+	}
+}
+
+// anchorForBlock returns the anchor for a block the book gave an id, or "" if
+// it gave none. The first block carrying an id gets the anchor that spells it;
+// a later block repeating that id gets a synthetic one, because two blocks
+// cannot share an anchor and still both be reachable.
+func anchorForBlock(rawID string, used, taken map[string]bool, seq *int) string {
+	a := bookAnchorFor(rawID)
+	if a == "" {
+		return ""
+	}
+	if used[a] {
+		return nextSyntheticAnchor(taken, seq)
+	}
+	used[a] = true
+	taken[a] = true
+	return a
+}
+
 // flattenPreviewBlocks walks the document into an ordered stream of
 // indivisible block units: a section header block for every section, then its
 // content. The root container contributes no header of its own.
 func flattenPreviewBlocks(doc *FB2Document) []chunkBlock {
 	var blocks []chunkBlock
-	sectionSeq := 0
 	syntheticSeq := 0
 
 	// Every anchor the book itself supplies, collected before a single
@@ -191,6 +221,13 @@ func flattenPreviewBlocks(doc *FB2Document) []chunkBlock {
 	// id further down the document — and the renderer, which drops a repeated
 	// id, would then leave the later section unreachable.
 	taken := make(map[string]bool)
+	// Book ids already handed out. A repeated id — or two ids that normalise
+	// to the same anchor — must not produce the same anchor twice: the
+	// renderer emits a repeated id only once, so the second heading would
+	// have no anchor of its own and its table-of-contents entry would land
+	// on the first. Resolving an href by that id still goes to the first
+	// occurrence; that is a separate question, kept in the byID lookup.
+	used := make(map[string]bool)
 	var collect func(content []*FB2ContentItem)
 	collect = func(content []*FB2ContentItem) {
 		for _, item := range content {
@@ -222,29 +259,16 @@ func flattenPreviewBlocks(doc *FB2Document) []chunkBlock {
 			}
 			if item.Paragraph != nil {
 				blk := chunkBlock{para: item.Paragraph}
-				blk.anchor = bookAnchorFor(item.Paragraph.ID)
+				blk.anchor = anchorForBlock(item.Paragraph.ID, used, taken, &syntheticSeq)
 				blocks = append(blocks, blk)
 			}
 			if item.Section != nil {
-				blk := chunkBlock{header: item.Section, depth: depth, sectionIndex: sectionSeq}
-				sectionSeq++
-				if a := bookAnchorFor(item.Section.ID); a != "" {
-					blk.anchor = a
-				} else {
-					// A section the book gave no id: invent one, skipping any
-					// anchor the book already occupies. The comparison is
-					// between finished anchors, not between an anchor and a
-					// bare id: those live in different shapes, and comparing
-					// across them silently never matches.
-					for {
-						candidate := fmt.Sprintf("pv-%s-%d", syntheticAnchorPrefix, syntheticSeq)
-						syntheticSeq++
-						if !taken[candidate] {
-							blk.anchor = candidate
-							taken[candidate] = true
-							break
-						}
-					}
+				blk := chunkBlock{header: item.Section, depth: depth}
+				blk.anchor = anchorForBlock(item.Section.ID, used, taken, &syntheticSeq)
+				if blk.anchor == "" {
+					// A section the book left unnamed still needs somewhere
+					// for a table-of-contents entry to land.
+					blk.anchor = nextSyntheticAnchor(taken, &syntheticSeq)
 				}
 				blocks = append(blocks, blk)
 				walk(item.Section.Content, depth+1)

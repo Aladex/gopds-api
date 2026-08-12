@@ -12,7 +12,7 @@ package converter
 import "strings"
 
 // PreviewHeading is one section heading of a portion: the visible title, the
-// section depth (1 for top level), and the chunk-local anchor the renderer
+// section depth (1 for top level), and the book-wide anchor the renderer
 // emitted for it. A section without an id of its own carries the synthetic
 // anchor the assignment pass reserved for it, so every listed heading can be
 // deep-linked.

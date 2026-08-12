@@ -368,3 +368,62 @@ func TestPreviewChunk_HeadingsSkipUntitledSections(t *testing.T) {
 		t.Errorf("the surviving heading is %q, want %q", headings[0].Title, "НАЗВАННАЯ")
 	}
 }
+
+// Two blocks can carry the same id, or two ids can normalise to the same
+// anchor. They cannot share the anchor: the renderer emits a repeated id only
+// once, so the second heading would have none of its own and its
+// table-of-contents entry would land on the first. Resolving an href by that
+// id is the separate question, and it still goes to the first occurrence.
+func TestPreviewChunk_DuplicateSourceIDsGetOwnAnchors(t *testing.T) {
+	const src = `<?xml version="1.0"?><FictionBook><body>` +
+		`<section id="dup"><title><p>ПЕРВАЯ</p></title><p><a xlink:href="#dup">ССЫЛКА</a></p></section>` +
+		`<section id="dup"><title><p>ВТОРАЯ</p></title><p>текст</p></section>` +
+		`<section id="ab"><title><p>ТРЕТЬЯ</p></title><p>текст</p></section>` +
+		`<section id="a b"><title><p>ЧЕТВЁРТАЯ</p></title><p>текст</p></section>` +
+		`</body></FictionBook>`
+
+	doc, err := ParseFB2Body(context.Background(), []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	chunks, err := ChunkPreview(context.Background(), doc, PreviewImages{}, testPreviewPolicy())
+	if err != nil {
+		t.Fatalf("chunk: %v", err)
+	}
+
+	seen := map[string]string{}
+	var firstAnchor string
+	for _, chunk := range chunks {
+		html, rerr := RenderChunkHTML(chunk, PreviewImages{}, testPreviewPolicy())
+		if rerr != nil {
+			t.Fatalf("render: %v", rerr)
+		}
+		for _, h := range chunk.Headings() {
+			if prev, dup := seen[h.Anchor]; dup {
+				t.Errorf("anchor %q serves both %q and %q — the second heading is unreachable",
+					h.Anchor, prev, h.Title)
+			}
+			seen[h.Anchor] = h.Title
+			if firstAnchor == "" {
+				firstAnchor = h.Anchor
+			}
+			// The anchor must sit immediately before its own heading, not
+			// merely exist somewhere in the portion.
+			marker := `id="` + h.Anchor + `"></a>` + "\n" + `<h`
+			pos := strings.Index(html, marker)
+			if pos == -1 {
+				t.Errorf("heading %q: anchor %q does not stand before a heading", h.Title, h.Anchor)
+				continue
+			}
+			if idx := strings.Index(html[pos:], h.Title); idx == -1 || idx > 40 {
+				t.Errorf("heading %q: anchor %q stands before a different heading", h.Title, h.Anchor)
+			}
+		}
+		if strings.Contains(html, `href="#`) && !strings.Contains(html, `href="#`+firstAnchor+`"`) {
+			t.Errorf("a link by the duplicated id no longer resolves to the first occurrence: %s", shorten(html))
+		}
+	}
+	if len(seen) != 4 {
+		t.Errorf("got %d distinct anchors for 4 headings: %v", len(seen), seen)
+	}
+}
