@@ -18,6 +18,7 @@ import { Button } from '@/shared/ui/button';
 
 import { useAuth } from '@/context/AuthContext';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
+import { CARD_WIDE_QUERY } from '@/shared/layout/breakpoints';
 import ConversionBackdrop from '@/features/catalogue/ConversionBackdrop';
 import BookPagination from '@/features/catalogue/BookPagination';
 import EditBookDialog from '@/features/catalogue/EditBookDialog';
@@ -51,7 +52,9 @@ const BooksList: React.FC = () => {
 
     // Asked once for the whole list rather than once per card: ten cards would
     // otherwise each hold their own media query listener for the same answer.
-    const isMobile = useMediaQuery('(max-width: 600px)');
+    // One boundary for the card, shared with its `sm:` classes — see
+    // shared/layout/breakpoints for why this one decision stays in JS.
+    const isWideCard = useMediaQuery(CARD_WIDE_QUERY);
 
     // With a language filter on, every book in the list is in it and saying so
     // on each card is noise. Reading the whole library is when it starts to
@@ -156,8 +159,7 @@ const BooksList: React.FC = () => {
                         <div key={book.id} className="mx-auto w-full max-w-[1200px] py-1.5">
                             <BookCard
                                 book={book}
-                                annotationPeekLines={isMobile ? 5 : 2}
-                                isMobile={isMobile}
+                                isWide={isWideCard}
                                 showLanguage={mixedLanguages}
                                 isSuperuser={Boolean(user?.is_superuser)}
                                 formatDate={formatDate}

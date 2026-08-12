@@ -90,22 +90,15 @@ const MetaItem: React.FC<
 export interface BookCardProps {
     book: Book;
     /**
-     * How many lines of the annotation show while the card is shut.
+     * Whether the card has room for the wide layout.
      *
-     * A phone fits about a third of the words per line that a desktop does, so
-     * the same count leaves it with a sentence fragment — and with almost no
-     * card left to press that is not an author or a genre.
+     * Taken from the list rather than measured here, because twenty cards
+     * asking the same question of the browser is twenty listeners where one
+     * will do. The list asks it with CARD_WIDE_QUERY, the same number the
+     * `sm:` classes below use — see shared/layout/breakpoints for why exactly
+     * one layout decision is still made in JS.
      */
-    annotationPeekLines: number;
-    /**
-     * Whether this is the narrow layout.
-     *
-     * Taken from the list rather than measured here, because the list already
-     * knows — it is the same query that decides how much annotation to show —
-     * and twenty cards asking the same question of the browser is twenty
-     * listeners where one will do.
-     */
-    isMobile: boolean;
+    isWide: boolean;
     /**
      * Whether the book's own language is worth saying.
      *
@@ -131,8 +124,7 @@ const coverPath = (value: string) => value.replaceAll('.', '-').replace(/^\/+/, 
 
 const BookCard: React.FC<BookCardProps> = ({
     book,
-    annotationPeekLines,
-    isMobile,
+    isWide,
     showLanguage,
     isSuperuser,
     formatDate,
@@ -181,7 +173,7 @@ const BookCard: React.FC<BookCardProps> = ({
      * the rule, where the control that sits on it cut into their outlines.
      */
     const downloads = (
-        <div className={cn('grid grid-cols-2', isMobile ? 'w-full gap-2' : 'gap-1')}>
+        <div className={cn('grid grid-cols-2', 'w-full gap-2', 'sm:w-auto sm:gap-1')}>
             {DOWNLOAD_FORMATS.map((format) => {
                 const converting = isBookConverting(book.id, format.id);
                 return (
@@ -193,9 +185,8 @@ const BookCard: React.FC<BookCardProps> = ({
                         className={cn(
                             'flex items-center justify-center rounded text-center text-primary',
                             'hover:bg-accent hover:underline',
-                            isMobile
-                                ? 'min-h-9 border border-border text-[13px]'
-                                : 'py-0.5 text-[12px]',
+                            'min-h-9 border border-border text-[13px]',
+                            'sm:min-h-0 sm:border-0 sm:py-0.5 sm:text-[12px]',
                             'disabled:cursor-default disabled:text-muted-foreground disabled:no-underline disabled:hover:bg-transparent',
                         )}
                     >
@@ -232,7 +223,7 @@ const BookCard: React.FC<BookCardProps> = ({
                         alt={book.title}
                         className="col-start-1 row-start-1 h-[150px] w-[104px] flex-none rounded-sm"
                     />
-                    {!isMobile && downloads}
+                    {isWide && downloads}
                 </div>
 
                 <div className="col-start-2 row-start-1 flex min-w-0 flex-col gap-1.5">
@@ -309,7 +300,7 @@ const BookCard: React.FC<BookCardProps> = ({
                     {book.annotation ? (
                         <Expandable
                             open={open}
-                            peekLines={annotationPeekLines}
+                            peekLines={isWide ? 2 : 5}
                             className="text-sm text-muted-foreground"
                         >
                             {book.annotation}
@@ -367,9 +358,9 @@ const BookCard: React.FC<BookCardProps> = ({
                     {open ? t('bookLess') : t('bookMore')}
                 </button>
 
-                {isMobile && downloads}
+                {!isWide && downloads}
 
-                <div className={cn('flex items-center justify-end gap-0.5', isMobile && 'pt-2')}>
+                <div className={cn('flex items-center justify-end gap-0.5', 'pt-2', 'sm:pt-0')}>
                     {isSuperuser && (
                         <>
                             <Button

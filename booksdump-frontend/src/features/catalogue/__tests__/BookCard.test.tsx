@@ -67,13 +67,12 @@ const book: Book = {
     favorite_count: 0,
 };
 
-const renderCard = ({ isMobile = false } = {}) =>
+const renderCard = ({ isWide = true } = {}) =>
     render(
         <MemoryRouter>
             <BookCard
                 book={book}
-                annotationPeekLines={2}
-                isMobile={isMobile}
+                isWide={isWide}
                 showLanguage={false}
                 isSuperuser={false}
                 formatDate={(value) => value}
@@ -195,7 +194,7 @@ describe('opening and shutting a card', () => {
         );
         wide.unmount();
 
-        const narrow = renderCard({ isMobile: true });
+        const narrow = renderCard({ isWide: false });
         expect(ruleOf(narrow.container)).toContainElement(
             screen.getByRole('button', { name: 'EPUB' }),
         );
