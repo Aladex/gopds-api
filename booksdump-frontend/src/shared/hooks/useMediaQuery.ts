@@ -41,7 +41,10 @@ export function useMediaQuery(query: string): boolean {
 
     const getSnapshot = useCallback(() => matchMediaOrNull(query)?.matches ?? false, [query]);
 
-    // The server has no viewport; assume the wide layout, as the CSS does.
+    // The server has no viewport, so every query reports false. What that
+    // means is the caller's business: for a min-width question it is the
+    // narrow layout, which is also where CSS starts before a breakpoint
+    // applies.
     const getServerSnapshot = useCallback(() => false, []);
 
     return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);

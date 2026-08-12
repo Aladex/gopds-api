@@ -1,38 +1,64 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { __unstable__loadDesignSystem } from 'tailwindcss';
 
 import { CARD_WIDE_MIN_WIDTH_REM, CARD_WIDE_QUERY } from '@/shared/layout/breakpoints';
 
-const projectFile = (relative: string) => fileURLToPath(new URL(relative, import.meta.url));
+const projectPath = (relative: string) => fileURLToPath(new URL(relative, import.meta.url));
 
 /**
- * The card's one JS layout decision has to switch at the same moment its `sm:`
- * classes do. When it did not, the two disagreed across a band of widths and
- * the layout broke there and nowhere else — the hardest kind of bug to see.
+ * The card's one JS layout decision has to switch at the same moment its
+ * responsive classes do. When it did not, the two disagreed across a band of
+ * widths and the layout broke there and nowhere else.
  *
- * The number is not restated here. It is read out of the stylesheet the build
- * actually produces, because that is the artefact the browser obeys: writing
- * `40 × 16` in the test would only prove that the test and the constant were
- * typed by the same hand.
+ * The width is neither restated here nor read out of a previous build. It is
+ * compiled from the project's own stylesheet, so the answer belongs to the
+ * source as it stands: a stale build directory cannot make this pass, and a
+ * clean checkout does not need one. And it is compiled for the variant the
+ * card actually writes, not for the smallest breakpoint in the application —
+ * changing the card to `md:` while React kept asking for 40rem is exactly the
+ * defect this is here to catch, and the whole-application minimum would have
+ * stayed 40rem and said nothing.
  */
 describe('the card layout boundary', () => {
-    const builtStylesheet = () => {
-        const dir = projectFile('../../../../build/assets');
-        const css = readdirSync(dir).filter((name) => name.endsWith('.css'));
-        if (css.length === 0) {
-            throw new Error('no built stylesheet in build/assets — run the build first');
+    const cardSource = readFileSync(projectPath('../../../features/catalogue/BookCard.tsx'), 'utf8');
+
+    /** The responsive prefixes the card styles itself with. */
+    const variantsUsedByCard = () => {
+        const found = new Set<string>();
+        for (const [, prefix] of cardSource.matchAll(/\b(sm|md|lg|xl|2xl):/g)) {
+            found.add(prefix);
         }
-        return css.map((name) => readFileSync(`${dir}/${name}`, 'utf8')).join('\n');
+        return [...found];
     };
 
-    it('is the first width Tailwind switches at in the built stylesheet', () => {
-        const widths = [...builtStylesheet().matchAll(/width>=([\d.]+)rem/g)]
-            .map((match) => Number(match[1]))
-            .sort((a, b) => a - b);
+    const widthOfVariant = async (variant: string) => {
+        const design = await __unstable__loadDesignSystem(
+            readFileSync(projectPath('../../../index.css'), 'utf8'),
+            {
+                base: projectPath('../../../..'),
+                loadStylesheet: async (id: string, base: string) => {
+                    const path =
+                        id === 'tailwindcss'
+                            ? projectPath('../../../../node_modules/tailwindcss/index.css')
+                            : '';
+                    return { path, base, content: path ? readFileSync(path, 'utf8') : '' };
+                },
+            },
+        );
+        const [css] = design.candidatesToCss([`${variant}:block`]);
+        const match = /width\s*>=\s*([\d.]+)rem/.exec(css ?? '');
+        if (!match) {
+            throw new Error(`the ${variant}: variant compiled to no width query: ${css}`);
+        }
+        return Number(match[1]);
+    };
 
-        expect(widths.length).toBeGreaterThan(0);
-        expect(widths[0]).toBe(CARD_WIDE_MIN_WIDTH_REM);
+    it('is the width of the one responsive variant the card uses', async () => {
+        const variants = variantsUsedByCard();
+        expect(variants, 'the card should style itself at one boundary, not several').toHaveLength(1);
+        await expect(widthOfVariant(variants[0])).resolves.toBe(CARD_WIDE_MIN_WIDTH_REM);
     });
 
     it('is asked in the unit the stylesheet uses, not in pixels', () => {

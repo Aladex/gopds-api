@@ -17,6 +17,13 @@ vi.mock('react-i18next', () => ({
 vi.mock('@/context/SearchBarContext', () => ({ useSearchBar: () => ({ setSearchItem: vi.fn() }) }));
 vi.mock('@/context/AuthorContext', () => ({ useAuthor: () => ({ setAuthorName: vi.fn() }) }));
 
+// Dates are counted from now: a literal date drifts from the future into the
+// past as the calendar moves, and a test that branches on that starts failing
+// on a day nobody touched it.
+const day = 24 * 60 * 60 * 1000;
+const registeredOn = new Date(Date.now() - 30 * day).toISOString().slice(0, 10);
+const publishedOn = new Date(Date.now() - 365 * day).toISOString().slice(0, 10);
+
 const book: Book = {
     id: 1,
     title: 'Test Book',
@@ -26,8 +33,8 @@ const book: Book = {
     annotation: 'Test annotation.',
     filename: 'test',
     cover: false,
-    registerdate: '2020-01-01',
-    docdate: '2020-01-01',
+    registerdate: registeredOn,
+    docdate: publishedOn,
     lang: 'en',
     fav: false,
     approved: true,
