@@ -11,6 +11,7 @@ import (
 
 	"gopds-api/httputil"
 	"gopds-api/internal/converter"
+	"gopds-api/internal/parser"
 	"gopds-api/models"
 	"gopds-api/services"
 
@@ -646,4 +647,107 @@ func TestPreviewImageHandler_AddressPrintedInHTMLIsServed(t *testing.T) {
 	assert.Equal(t, ordinal, fake.imageCalls[0].ordinal)
 	assert.Equal(t, revision, fake.imageCalls[0].revision,
 		"the revision must survive the round trip through the address")
+}
+
+// The text of a hidden book must not be reachable by asking for a portion
+// directly. The manifest test stops a reader inside Load, so it says nothing
+// about this endpoint: a handler that passed isSuperUser=true here alone
+// would have served hidden text with every other test still green.
+func TestPreviewChunkHandler_HiddenBook_Returns404ForReader_OKForSuperuser(t *testing.T) {
+	newFake := func() *fakePreviewService {
+		return &fakePreviewService{
+			revision:    "abc123",
+			chunkCount:  5,
+			chunkResult: []byte(`<p>секретный текст</p>`),
+			hidden:      true,
+		}
+	}
+
+	reader := newFake()
+	rec := doPreviewGET(t, newPreviewTestRouter(reader, false),
+		"/api/books/preview/123/chunk/1?revision=abc123")
+	require.Equal(t, http.StatusNotFound, rec.Code)
+	assert.NotContains(t, rec.Body.String(), "секретный текст")
+	require.Len(t, reader.chunkCalls, 1)
+	assert.False(t, reader.chunkCalls[0].isSuperUser,
+		"the reader's flag must reach the service as false")
+
+	super := newFake()
+	rec2 := doPreviewGET(t, newPreviewTestRouter(super, true),
+		"/api/books/preview/123/chunk/1?revision=abc123")
+	require.Equal(t, http.StatusOK, rec2.Code)
+	require.Len(t, super.chunkCalls, 1)
+	assert.True(t, super.chunkCalls[0].isSuperUser)
+}
+
+// A cache operation cut short by the build's own deadline matches both
+// ErrCacheUnavailable and context.DeadlineExceeded. Whichever the classifier
+// asks about first decides the answer, so the composite chain is the form
+// that has to be tested — a bare DeadlineExceeded proves nothing about the
+// order.
+func TestPreviewHandler_DeadlineInsideCacheError_Returns503WithBuildRetry(t *testing.T) {
+	composite := fmt.Errorf("%w: %w", services.ErrCacheUnavailable, context.DeadlineExceeded)
+	fake := &fakePreviewService{loadErr: composite}
+	r := newPreviewTestRouter(fake, false)
+
+	rec := doPreviewGET(t, r, "/api/books/preview/123")
+
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assert.Equal(t, "30", rec.Header().Get("Retry-After"),
+		"our own deadline is the more specific cause and must win over the cache")
+}
+
+// A catalog row whose file is not in the archive is its own fact, distinct
+// from a book that does not exist and from an archive we cannot read.
+func TestPreviewHandler_ArchiveFileMissing_Returns404(t *testing.T) {
+	fake := &fakePreviewService{loadErr: services.ErrArchiveFileNotFound}
+	r := newPreviewTestRouter(fake, false)
+
+	rec := doPreviewGET(t, r, "/api/books/preview/123")
+
+	require.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// A book without a fingerprint cannot be keyed, so no preview exists for it.
+// That is a defect in our catalog, not a media type the client chose.
+func TestPreviewHandler_EmptyMD5_IsNotAMediaTypeProblem(t *testing.T) {
+	fake := &fakePreviewService{loadErr: services.ErrEmptyMD5}
+	r := newPreviewTestRouter(fake, false)
+
+	rec := doPreviewGET(t, r, "/api/books/preview/123")
+
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.NotEqual(t, http.StatusUnsupportedMediaType, rec.Code)
+}
+
+// Content we cannot read at all is permanent and belongs to the file, not to
+// us: a 500 invites the client to retry something that will never work.
+func TestPreviewHandler_UnreadableContent_Returns415(t *testing.T) {
+	for name, err := range map[string]error{
+		"not a FictionBook": converter.ErrNotFictionBook,
+		"damaged":           parser.ErrDamagedContent,
+		"nesting too deep":  converter.ErrDepthLimit,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := doPreviewGET(t, newPreviewTestRouter(&fakePreviewService{loadErr: err}, false),
+				"/api/books/preview/123")
+			assert.NotEqual(t, http.StatusInternalServerError, rec.Code,
+				"a permanent property of the file must not read as our fault")
+		})
+	}
+}
+
+// A manifest that will not parse is our problem, and the reader must learn
+// nothing about the shape of our cached bytes.
+func TestPreviewHandler_CorruptManifest_LeaksNothing(t *testing.T) {
+	fake := &fakePreviewService{loadResult: []byte(`{"revision": broken`)}
+	r := newPreviewTestRouter(fake, false)
+
+	rec := doPreviewGET(t, r, "/api/books/preview/123")
+
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
+	for _, leak := range []string{"unmarshal", "invalid character", "revision"} {
+		assert.NotContains(t, rec.Body.String(), leak,
+			"the answer describes our cached bytes")
+	}
 }

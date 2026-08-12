@@ -10,6 +10,7 @@ import (
 
 	"gopds-api/httputil"
 	"gopds-api/internal/converter"
+	"gopds-api/internal/parser"
 	"gopds-api/models"
 	"gopds-api/services"
 
@@ -69,7 +70,11 @@ func (h *PreviewHandler) GetPreview(c *gin.Context) {
 
 	var manifest services.PreviewManifest
 	if uerr := json.Unmarshal(manifestJSON, &manifest); uerr != nil {
-		httputil.NewError(c, http.StatusInternalServerError, fmt.Errorf("failed to unmarshal manifest: %w", uerr))
+		// Through the same exit as every other refusal: the cause to the log,
+		// a fixed sentence to the reader. Answering with the parse error told
+		// the reader what our cached bytes look like and left the cause
+		// nowhere.
+		mapPreviewError(c, fmt.Errorf("preview: cached manifest is unreadable: %w", uerr))
 		return
 	}
 
@@ -265,14 +270,31 @@ func classifyPreviewError(err error) previewRefusal {
 		errors.Is(err, converter.ErrFB2NodeLimit),
 		errors.Is(err, converter.ErrFB2BinaryLimit),
 		errors.Is(err, converter.ErrPreviewImagesTotalTooLarge),
-		errors.Is(err, converter.ErrPreviewBlockTooLarge):
+		errors.Is(err, converter.ErrPreviewBlockTooLarge),
+		errors.Is(err, converter.ErrDepthLimit):
 		return previewRefusal{status: http.StatusRequestEntityTooLarge, reason: "this book is too large to preview"}
+
+	// The catalog row exists but the file it names is not in the archive.
+	// A different fact from "no such book" and from "the archive is
+	// unreadable", and the loader raises it as its own error precisely so
+	// this layer can say so.
+	case errors.Is(err, services.ErrArchiveFileNotFound):
+		return previewRefusal{status: http.StatusNotFound, reason: "the book file is missing"}
 
 	// The portion or picture is gone: past the end of this slicing, or the
 	// entry expired between the table of contents and this request.
-	case errors.Is(err, services.ErrChunkNotFound),
-		errors.Is(err, services.ErrImageNotFound):
+	case errors.Is(err, services.ErrChunkNotFound):
 		return previewRefusal{status: http.StatusNotFound, reason: "no such portion"}
+	case errors.Is(err, services.ErrImageNotFound):
+		return previewRefusal{status: http.StatusNotFound, reason: "no such image"}
+
+	// The file is not a book we can read: not a FictionBook at all, or
+	// damaged past repair. Permanent, and a property of the content rather
+	// than a fault of ours — a bare 500 told the client to retry something
+	// that will never succeed.
+	case errors.Is(err, converter.ErrNotFictionBook),
+		errors.Is(err, parser.ErrDamagedContent):
+		return previewRefusal{status: http.StatusUnsupportedMediaType, reason: "this book cannot be read"}
 
 	// The reader holds a table of contents for a slicing that no longer
 	// exists. The resource was there and is gone, so the client opens the
@@ -280,17 +302,20 @@ func classifyPreviewError(err error) previewRefusal {
 	case errors.Is(err, services.ErrRevisionStale):
 		return previewRefusal{status: http.StatusGone, reason: "the preview has been rebuilt, open it again"}
 
+	// The deadline is tested before the cache, and the order is the whole
+	// point: a cache operation cut short by the build's own deadline matches
+	// BOTH sentinels, and whichever is asked first decides the answer. Our
+	// deadline is the more specific statement — we ran out of the time we
+	// gave ourselves — so it wins, and the reader is told to come back in
+	// thirty seconds rather than sixty.
+	case errors.Is(err, context.DeadlineExceeded):
+		return previewRefusal{status: http.StatusServiceUnavailable, reason: "the preview took too long to build", retryAfter: "30"}
+
 	case errors.Is(err, services.ErrCacheUnavailable):
 		return previewRefusal{status: http.StatusServiceUnavailable, reason: "preview storage is unavailable", retryAfter: "60"}
 
 	case errors.Is(err, services.ErrTooManyBuilds):
 		return previewRefusal{status: http.StatusTooManyRequests, reason: "too many previews are being built", retryAfter: "10"}
-
-	// A build that ran out of its own time. The reader is still there and
-	// deserves an answer: this is the server saying "not now", not a client
-	// that went away.
-	case errors.Is(err, context.DeadlineExceeded):
-		return previewRefusal{status: http.StatusServiceUnavailable, reason: "the preview took too long to build", retryAfter: "30"}
 	}
 	return previewRefusal{status: http.StatusInternalServerError, reason: "preview is unavailable"}
 }
