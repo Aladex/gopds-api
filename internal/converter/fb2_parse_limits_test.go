@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fb2DocWithParagraphs builds a valid book of n one-word paragraphs, which is
@@ -237,9 +238,7 @@ func TestLoosePathRespectsNodeLimit(t *testing.T) {
 // The salvage path must observe context cancellation. The main token loop
 // reaches the decoder error in fewer than ctxCheckInterval tokens, so a
 // pre-canceled ctx is not caught there — only the salvage path, where the
-// check must exist, can observe it. Targets parseFB2BodyCore directly because
-// completeDecodeFallback does not pass context errors through (only typed
-// parse refusals), which is correct for the EPUB path contract.
+// check must exist, can observe it.
 func TestLoosePathRespectsContext(t *testing.T) {
 	doc := fb2DocWithEarlyCDBreak(5000)
 
@@ -273,5 +272,36 @@ func TestLoosePathStillSalvagesSmallBrokenBook(t *testing.T) {
 	}
 	if paragraphs < 10 {
 		t.Errorf("salvage extracted %d paragraphs, want at least 10", paragraphs)
+	}
+}
+
+// A deadline that fires inside the salvage path must reach the caller as a
+// deadline. It did not: the fallback's error was replaced by the original XML
+// syntax error, so a preview build that ran out of its bounded time reported
+// a malformed book — a permanent 500 to the reader instead of "come back in
+// thirty seconds". The whole distinction the HTTP layer draws between our
+// fault and the file's rested on an error this function threw away.
+func TestParseFB2CompleteLimited_DeadlineSurvivesSalvage(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0"?><FictionBook><body><section>`)
+	b.WriteString(`<p><![CDATA[ unterminated tail </p>`)
+	for i := 0; i < 20000; i++ {
+		fmt.Fprintf(&b, `<p>paragraph %d</p>`, i)
+	}
+	b.WriteString(`</section></body></FictionBook>`)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	<-ctx.Done()
+
+	doc, book, stats, err := ParseFB2CompleteLimited(ctx, []byte(b.String()), false, FB2ParseLimits{MaxNodes: 100000})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v (%T), want a deadline — the salvage path swallowed it", err, err)
+	}
+	if doc != nil || book != nil {
+		t.Errorf("a refused parse handed back a document (%v) or metadata (%v)", doc != nil, book != nil)
+	}
+	if stats.Tokens == 0 {
+		t.Error("the refusal reports no work at all, so it cannot say where it stopped")
 	}
 }

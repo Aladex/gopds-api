@@ -153,8 +153,16 @@ func completeDecodeFallback(
 	}
 	docFallback, bookFallback, fbStats, fallbackErr := parseFB2CompleteFallback(ctx, decoded, readCover, limits)
 	if fallbackErr != nil {
+		// The salvage runs under the caller's context and budget, so its own
+		// refusals are the truth about what happened and must travel out
+		// unchanged. Cancellation and the deadline belong in that list: a
+		// preview build passes a bounded context here, and replacing a
+		// deadline with the original syntax error told the HTTP layer the
+		// book was malformed when in fact the server ran out of its own
+		// time — a permanent 500 in place of "come back in thirty seconds".
 		if errors.Is(fallbackErr, ErrNotFictionBook) || errors.Is(fallbackErr, ErrDepthLimit) ||
-			errors.Is(fallbackErr, ErrFB2NodeLimit) || errors.Is(fallbackErr, ErrFB2BinaryLimit) {
+			errors.Is(fallbackErr, ErrFB2NodeLimit) || errors.Is(fallbackErr, ErrFB2BinaryLimit) ||
+			errors.Is(fallbackErr, context.Canceled) || errors.Is(fallbackErr, context.DeadlineExceeded) {
 			return nil, nil, fbStats, fallbackErr
 		}
 		return nil, nil, fbStats, decErr

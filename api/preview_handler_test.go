@@ -698,26 +698,37 @@ func TestPreviewHandler_DeadlineInsideCacheError_Returns503WithBuildRetry(t *tes
 }
 
 // A manifest that will not parse is our problem, and the reader must learn
-// nothing about the shape of our cached bytes.
-func TestPreviewHandler_CorruptManifest_LeaksNothing(t *testing.T) {
+// nothing about the shape of our cached bytes. The phrase is pinned exactly,
+// not by a list of words that must not appear: swapping one safe-looking
+// sentence for another would pass an absence check while changing what every
+// client sees.
+func TestPreviewHandler_CorruptManifest_AnswersTheGenericPhrase(t *testing.T) {
 	fake := &fakePreviewService{loadResult: []byte(`{"revision": broken`)}
 	r := newPreviewTestRouter(fake, false)
 
 	rec := doPreviewGET(t, r, "/api/books/preview/123")
 
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
+	var got httputil.HTTPError
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	assert.Equal(t, "preview is unavailable", got.Message,
+		"a corrupt manifest must answer with the same generic sentence as any other internal fault")
 	for _, leak := range []string{"unmarshal", "invalid character", "revision"} {
-		assert.NotContains(t, rec.Body.String(), leak,
-			"the answer describes our cached bytes")
+		assert.NotContains(t, rec.Body.String(), leak, "the answer describes our cached bytes")
 	}
 }
 
-// Every typed outcome the preview can produce, with the exact answer it
-// gets. A table rather than a case each, because the property under test is
-// completeness: a sentinel absent from this table is a sentinel that becomes
-// a blanket 500 in production, and the last three rounds of review each
-// found one. Asserting "not 500" — which an earlier version of these tests
-// did — proves nothing about which answer a client actually receives.
+// The exact answer for every typed outcome known at the time of writing:
+// status, the sentence the reader receives, and Retry-After. A table rather
+// than a case each, because what these rows are worth is precision — an
+// earlier version asserted "not 500", which no client can rely on and no
+// mutation has to respect.
+//
+// What this table cannot do is prove completeness. A sentinel added in
+// another package will not fail anything here; it will quietly become a
+// blanket 500, which is how the last four rounds of review each found one.
+// Until the classifier reads from an authoritative registry, the guard
+// against that is review, not this test.
 func TestPreviewHandler_RefusalTable(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -750,6 +761,10 @@ func TestPreviewHandler_RefusalTable(t *testing.T) {
 		{"node limit in parser", converter.ErrFB2NodeLimit, http.StatusRequestEntityTooLarge, "this book is too large to preview", ""},
 		{"binary limit in parser", converter.ErrFB2BinaryLimit, http.StatusRequestEntityTooLarge, "this book is too large to preview", ""},
 		{"indivisible block", converter.ErrPreviewBlockTooLarge, http.StatusRequestEntityTooLarge, "this book is too large to preview", ""},
+		{
+			"prepared images over the budget", converter.ErrPreviewImagesTotalTooLarge,
+			http.StatusRequestEntityTooLarge, "this book is too large to preview", "",
+		},
 		{"nesting too deep", converter.ErrDepthLimit, http.StatusRequestEntityTooLarge, "this book is too large to preview", ""},
 		{"revision gone", services.ErrRevisionStale, http.StatusGone, "the preview has been rebuilt, open it again", ""},
 		{"build deadline", context.DeadlineExceeded, http.StatusServiceUnavailable, "the preview took too long to build", "30"},
