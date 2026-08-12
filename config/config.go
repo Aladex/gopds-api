@@ -135,6 +135,10 @@ type PreviewConfig struct {
 	// maximum was a quantile estimate, not the true maximum.
 	MaxFB2Bytes int `mapstructure:"max_fb2_bytes" yaml:"max_fb2_bytes"`
 	MaxBinaries int `mapstructure:"max_binaries" yaml:"max_binaries"`
+	// MaxNodes caps the element nodes one document may carry. Enforced
+	// during the parse — the parse stops at the exceeding element rather
+	// than building the whole tree and comparing afterwards.
+	MaxNodes int `mapstructure:"max_nodes" yaml:"max_nodes"`
 	// MaxPreparedImageBytes caps the total weight of prepared preview
 	// images — the sum of len(Payload) across imageSet.Images(), measured
 	// AFTER preparation, not on the source binaries. Transcoding changes
@@ -326,6 +330,7 @@ const previewMaxConcurrentBuilds = 2
 const (
 	PreviewMaxFB2Bytes           = 64 << 20 // 64 MiB
 	PreviewMaxBinaries           = 1500
+	PreviewMaxNodes              = 100_000
 	PreviewMaxPreparedImageBytes = 48 << 20 // 48 MiB
 )
 
@@ -373,6 +378,7 @@ func setDefaults() {
 	// Each can be overridden in config without touching code.
 	viper.SetDefault("preview.max_fb2_bytes", PreviewMaxFB2Bytes)
 	viper.SetDefault("preview.max_binaries", PreviewMaxBinaries)
+	viper.SetDefault("preview.max_nodes", PreviewMaxNodes)
 	viper.SetDefault("preview.max_prepared_image_bytes", PreviewMaxPreparedImageBytes)
 
 	// App defaults

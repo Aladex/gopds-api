@@ -47,6 +47,30 @@ func TestPreviewWiring_FB2SizeGateComesFromConfig(t *testing.T) {
 	}
 }
 
+// The configured node gate must be the one that fires: a book over the
+// configured cap is refused, while the same book under the default cap
+// builds — the second half proves the refusal comes from the gate, not from
+// a broken pipeline.
+func TestPreviewWiring_NodeGateComesFromConfig(t *testing.T) {
+	repo := &fakeBookRepo{books: map[int64]*models.Book{1: wiringBook(1, "abc")}}
+	// minimalFB2 holds exactly 4 element nodes; one more paragraph makes 5.
+	fiveNodes := `<?xml version="1.0"?>` +
+		`<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">` +
+		`<body><section><p>t</p><p>u</p></section></body></FictionBook>`
+
+	tight := config.PreviewConfig{MaxNodes: 4}
+	svc := NewPreviewServiceFromConfig(&tight, repo, &fakeArchiveLoader{data: []byte(fiveNodes)}, newMockCache())
+	_, err := svc.Load(context.Background(), 1, false)
+	if !errors.Is(err, ErrTooManyNodes) {
+		t.Fatalf("err = %v, want ErrTooManyNodes — the configured cap is 4, the book has 5 nodes", err)
+	}
+
+	svc = NewPreviewServiceFromConfig(&config.PreviewConfig{}, repo, &fakeArchiveLoader{data: []byte(fiveNodes)}, newMockCache())
+	if _, err := svc.Load(context.Background(), 1, false); err != nil {
+		t.Fatalf("default config refused the book: %v — the refusal above must come from the configured gate", err)
+	}
+}
+
 // The configured cold-build timeout must bound the build: a loader that only
 // answers to context cancellation is cut off after the configured 50 ms.
 func TestPreviewWiring_BuildTimeoutComesFromConfig(t *testing.T) {

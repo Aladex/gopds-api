@@ -55,7 +55,7 @@ type fakeArchiveLoader struct {
 	err   error
 }
 
-func (l *fakeArchiveLoader) Load(_ context.Context, _, _ string) ([]byte, error) {
+func (l *fakeArchiveLoader) Load(_ context.Context, _, _ string, _ int64) ([]byte, error) {
 	l.calls++
 	return l.data, l.err
 }
@@ -535,7 +535,7 @@ type barrierArchiveLoader struct {
 	buildCtx context.Context
 }
 
-func (l *barrierArchiveLoader) Load(ctx context.Context, _, _ string) ([]byte, error) {
+func (l *barrierArchiveLoader) Load(ctx context.Context, _, _ string, _ int64) ([]byte, error) {
 	l.mu.Lock()
 	l.calls++
 	l.buildCtx = ctx
@@ -906,9 +906,11 @@ func TestPreviewService_OversizeFB2RefusesBeforeParsing(t *testing.T) {
 
 	parseCalls := 0
 	prev := parseForGates
-	parseForGates = func(ctx context.Context, data []byte, readCover bool) (*converter.FB2Document, *parser.BookFile, error) {
+	parseForGates = func(
+		ctx context.Context, data []byte, readCover bool, limits converter.FB2ParseLimits,
+	) (*converter.FB2Document, *parser.BookFile, converter.FB2ParseStats, error) {
 		parseCalls++
-		return prev(ctx, data, readCover)
+		return prev(ctx, data, readCover, limits)
 	}
 	defer func() { parseForGates = prev }()
 
@@ -922,7 +924,8 @@ func TestPreviewService_OversizeFB2RefusesBeforeParsing(t *testing.T) {
 	}
 }
 
-// Gate 2: more binaries than the limit allows.
+// Gate 2: more binaries than the limit allows. The parser itself stops at
+// the exceeding <binary> element; the service maps its typed refusal.
 func TestPreviewService_TooManyBinariesIsRefused(t *testing.T) {
 	repo := &fakeBookRepo{books: map[int64]*models.Book{
 		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc", Path: "/x", FileName: "bins.fb2"},
@@ -934,6 +937,33 @@ func TestPreviewService_TooManyBinariesIsRefused(t *testing.T) {
 	_, err := svc.Load(context.Background(), 1, false)
 	if !errors.Is(err, ErrTooManyBinaries) {
 		t.Fatalf("err = %v, want ErrTooManyBinaries", err)
+	}
+}
+
+// Gate 4: more element nodes than the limit allows. The parser stops at the
+// exceeding element (the converter tests pin the stop); here the service must
+// map the typed refusal. The boundary half keeps the comparison strict: a
+// book of exactly the cap builds.
+func TestPreviewService_TooManyNodesIsRefused(t *testing.T) {
+	// minimalFB2 holds exactly 4 element nodes (FictionBook, body, section,
+	// p); one more paragraph pushes the document to 5.
+	fiveNodes := `<?xml version="1.0"?>` +
+		`<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">` +
+		`<body><section><p>t</p><p>u</p></section></body></FictionBook>`
+	repo := &fakeBookRepo{books: map[int64]*models.Book{
+		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc", Path: "/x", FileName: "nodes.fb2"},
+	}}
+	tightLimits := PreviewLimits{MaxFB2Bytes: 64 << 20, MaxBinaries: 1500, MaxNodes: 4, MaxPreparedImageBytes: 48 << 20}
+
+	svc := NewPreviewService(repo, &fakeArchiveLoader{data: []byte(fiveNodes)}, newMockCache(), 4, tightLimits, 0, 0)
+	_, err := svc.Load(context.Background(), 1, false)
+	if !errors.Is(err, ErrTooManyNodes) {
+		t.Fatalf("err = %v, want ErrTooManyNodes", err)
+	}
+
+	svc = NewPreviewService(repo, &fakeArchiveLoader{data: []byte(minimalFB2)}, newMockCache(), 4, tightLimits, 0, 0)
+	if _, err := svc.Load(context.Background(), 1, false); err != nil {
+		t.Fatalf("a book of exactly the node cap must pass: %v", err)
 	}
 }
 

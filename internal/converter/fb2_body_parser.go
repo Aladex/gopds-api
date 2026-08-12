@@ -80,6 +80,10 @@ var (
 // have. A bare body cannot tell FB2 from HTML, so it does not qualify.
 const fictionBookRoot = "FictionBook"
 
+// binaryElement is the local name of the FB2 binary payload element; both the
+// body state and the parse quota match on it.
+const binaryElement = "binary"
+
 // Paragraph kinds represent different types of FB2 paragraphs
 const (
 	ParagraphKindNormal     = "p"
@@ -192,11 +196,20 @@ type FB2TableCell struct {
 // every token: the loop walks hundreds of thousands of them on a real book,
 // and a per-token check would cost more than it saves. A cancel that arrives
 // during work is observed within roughly a millisecond of parsing.
+//
+// This is the unlimited entry; parseFB2BodyCore runs the same loop under a
+// work budget for the preview pipeline (through the salvage fallback of the
+// limited complete parse).
 func ParseFB2Body(ctx context.Context, xmlContent []byte) (*FB2Document, error) {
+	doc, _, err := parseFB2BodyCore(ctx, xmlContent, FB2ParseLimits{})
+	return doc, err
+}
+
+func parseFB2BodyCore(ctx context.Context, xmlContent []byte, limits FB2ParseLimits) (*FB2Document, FB2ParseStats, error) {
 	// Step 1: Decode charset and run the shared repair chain
 	decoded, err := parser.DecodeToUTF8(xmlContent)
 	if err != nil {
-		return nil, err
+		return nil, FB2ParseStats{}, err
 	}
 	decoded = fb2sanitize.Apply(decoded)
 
@@ -211,57 +224,76 @@ func ParseFB2Body(ctx context.Context, xmlContent []byte) (*FB2Document, error) 
 	decoder := newFB2Decoder(decoded)
 
 	state := &fb2BodyState{}
+	quota := parseQuota{limits: limits}
 	rootSeen := false
 	tokensSinceCheck := 0
 	for {
 		if cerr := checkCtx(ctx, &tokensSinceCheck); cerr != nil {
-			return nil, fmt.Errorf("fb2: parse canceled: %w", cerr)
+			return nil, quota.stats, fmt.Errorf("fb2: parse canceled: %w", cerr)
 		}
 		token, err := decoder.Token()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			if !rootSeen {
-				// The sanitizers could not make the root reachable, so this
-				// is the same refusal the metadata scanner gives.
-				return nil, fmt.Errorf("%w: %w", ErrNotFictionBook, err)
-			}
-			// The root is verified, so this is a book; whatever broke after
-			// it is salvaged lexically.
-			return parseFB2BodyLoose(decoded), nil
+			return bodyDecodeFallback(decoded, rootSeen, err, quota.stats)
 		}
 
-		switch t := token.(type) {
-		case xml.StartElement:
-			if !rootSeen {
-				rootSeen = true
-				// The same criterion the metadata scanner applies: the first
-				// element the decoder reaches decides whether this is a book.
-				if t.Name.Local != fictionBookRoot {
-					return nil, fmt.Errorf("%w: root element is %q, not FictionBook", ErrNotFictionBook, t.Name.Local)
-				}
-			}
-			state.handleStart(doc, t)
-		case xml.EndElement:
-			state.handleEnd(doc, t)
-		case xml.CharData:
-			state.handleChar(t)
+		if qerr := quota.countToken(token); qerr != nil {
+			return nil, quota.stats, qerr
+		}
+		if derr := dispatchBodyToken(state, doc, token, &rootSeen); derr != nil {
+			return nil, quota.stats, derr
 		}
 		if state.err != nil {
-			return nil, state.err
+			return nil, quota.stats, state.err
 		}
 	}
 
 	if state.err != nil {
-		return nil, state.err
+		return nil, quota.stats, state.err
 	}
 	// A document without a single element is garbage, not an empty book:
 	// returning an empty document would masquerade as one.
 	if !rootSeen {
-		return nil, fmt.Errorf("%w: the document has no root element", ErrNotFictionBook)
+		return nil, quota.stats, fmt.Errorf("%w: the document has no root element", ErrNotFictionBook)
 	}
-	return doc, nil
+	return doc, quota.stats, nil
+}
+
+// dispatchBodyToken feeds one token to the body parser state. The root
+// criterion (first element must be FictionBook) lives here too, so the main
+// loop is a flat read-dispatch and stays under the lint ceilings — the same
+// reason applyFB2CompleteToken exists for the complete parse.
+func dispatchBodyToken(state *fb2BodyState, doc *FB2Document, token xml.Token, rootSeen *bool) error {
+	switch t := token.(type) {
+	case xml.StartElement:
+		if !*rootSeen {
+			*rootSeen = true
+			// The same criterion the metadata scanner applies: the first
+			// element the decoder reaches decides whether this is a book.
+			if t.Name.Local != fictionBookRoot {
+				return fmt.Errorf("%w: root element is %q, not FictionBook", ErrNotFictionBook, t.Name.Local)
+			}
+		}
+		state.handleStart(doc, t)
+	case xml.EndElement:
+		state.handleEnd(doc, t)
+	case xml.CharData:
+		state.handleChar(t)
+	}
+	return nil
+}
+
+// bodyDecodeFallback decides the outcome of a broken token stream. No
+// verified root means the sanitizers could not make it reachable — the same
+// refusal the metadata scanner gives. A verified root means this is a book;
+// whatever broke after it is salvaged lexically.
+func bodyDecodeFallback(decoded []byte, rootSeen bool, decErr error, stats FB2ParseStats) (*FB2Document, FB2ParseStats, error) {
+	if !rootSeen {
+		return nil, stats, fmt.Errorf("%w: %w", ErrNotFictionBook, decErr)
+	}
+	return parseFB2BodyLoose(decoded), stats, nil
 }
 
 func repairBrokenXML(content []byte) []byte {
@@ -517,7 +549,7 @@ func (s *fb2BodyState) handleStart(doc *FB2Document, elem xml.StartElement) {
 	local := normalizeName(elem.Name.Local)
 	attrs := normalizeAttrs(elem.Attr)
 
-	if local == "binary" {
+	if local == binaryElement {
 		s.inBinary = true
 		s.currentBinaryID = strings.ToLower(strings.TrimSpace(attrs["id"]))
 		s.currentBinaryMIME = strings.TrimSpace(attrs["content-type"])
@@ -627,7 +659,7 @@ func (s *fb2BodyState) handleStart(doc *FB2Document, elem xml.StartElement) {
 func (s *fb2BodyState) handleEnd(doc *FB2Document, elem xml.EndElement) {
 	local := normalizeName(elem.Name.Local)
 
-	if local == "binary" {
+	if local == binaryElement {
 		if s.inBinary {
 			s.storeBinary(doc)
 		}

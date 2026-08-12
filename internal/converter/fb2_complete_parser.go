@@ -19,6 +19,10 @@ import (
 // FB2 file twice. It applies sanitization once and uses a single XML decoder
 // to collect both metadata and body content simultaneously.
 //
+// This is the unlimited entry: it parses without a work budget, exactly as it
+// always did, because the EPUB download path must not change behavior. The
+// preview pipeline calls ParseFB2CompleteLimited instead.
+//
 // Parameters:
 //   - ctx: observed every ctxCheckInterval tokens; a canceled ctx stops the
 //     parse the same way ParseFB2Body does
@@ -33,10 +37,30 @@ import (
 // Performance: This function is approximately 30-40% faster than calling
 // parser.Parse() and ParseFB2Body() separately.
 func ParseFB2Complete(ctx context.Context, xmlContent []byte, readCover bool) (*FB2Document, *parser.BookFile, error) {
+	doc, bookFile, _, err := parseFB2CompleteCore(ctx, xmlContent, readCover, FB2ParseLimits{})
+	return doc, bookFile, err
+}
+
+// ParseFB2CompleteLimited is the preview pipeline's entry: the same single-pass
+// parse as ParseFB2Complete, but the token loop runs under a work budget. The
+// first element that exceeds a budget stops the parse with a typed refusal
+// (ErrFB2NodeLimit / ErrFB2BinaryLimit) — the rest of the document is never
+// tokenized, which is the whole point: the gates protect the resources the
+// parse itself spends. The returned stats report how much work was done, so
+// callers and tests can tell "stopped early" from "walked everything".
+func ParseFB2CompleteLimited(
+	ctx context.Context, xmlContent []byte, readCover bool, limits FB2ParseLimits,
+) (*FB2Document, *parser.BookFile, FB2ParseStats, error) {
+	return parseFB2CompleteCore(ctx, xmlContent, readCover, limits)
+}
+
+func parseFB2CompleteCore(
+	ctx context.Context, xmlContent []byte, readCover bool, limits FB2ParseLimits,
+) (*FB2Document, *parser.BookFile, FB2ParseStats, error) {
 	// Apply all sanitization steps once
 	decoded, err := parser.DecodeToUTF8(xmlContent)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, FB2ParseStats{}, err
 	}
 	decoded = fb2sanitize.Apply(decoded)
 	decoded = repairBrokenXML(decoded)
@@ -45,6 +69,7 @@ func ParseFB2Complete(ctx context.Context, xmlContent []byte, readCover bool) (*
 	metadataParser := parser.NewFB2Parser(readCover)
 	bodyState := &fb2BodyState{}
 	doc := &FB2Document{}
+	quota := parseQuota{limits: limits}
 
 	// Single XML decoder pass
 	decoder := newFB2Decoder(decoded)
@@ -59,67 +84,82 @@ func ParseFB2Complete(ctx context.Context, xmlContent []byte, readCover bool) (*
 		// fire — without this check a cancel would be observed only after
 		// the whole file is parsed.
 		if cerr := checkCtx(ctx, &tokensSinceCheck); cerr != nil {
-			return nil, nil, fmt.Errorf("fb2: parse canceled: %w", cerr)
+			return nil, nil, quota.stats, fmt.Errorf("fb2: parse canceled: %w", cerr)
 		}
 		token, err := decoder.Token()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			if !rootSeen {
-				// The sanitizers could not make the root reachable, so this
-				// is the same refusal the metadata scanner gives.
-				return nil, nil, fmt.Errorf("%w: %w", ErrNotFictionBook, err)
-			}
-			// The root is verified, so this is a book; whatever broke after
-			// it goes through the fallback, whose typed verdict ("too deep")
-			// still outranks the main decoder's raw syntax error.
-			docFallback, bookFallback, fallbackErr := parseFB2CompleteFallback(ctx, decoded, readCover)
-			if fallbackErr != nil {
-				if errors.Is(fallbackErr, ErrNotFictionBook) || errors.Is(fallbackErr, ErrDepthLimit) {
-					return nil, nil, fallbackErr
-				}
-				return nil, nil, err
-			}
-			return docFallback, bookFallback, nil
+			return completeDecodeFallback(ctx, decoded, readCover, limits, rootSeen, err, quota.stats)
 		}
 
+		if qerr := quota.countToken(token); qerr != nil {
+			return nil, nil, quota.stats, qerr
+		}
 		if rerr := applyFB2CompleteToken(token, &rootSeen, metadataParser, bodyState, doc); rerr != nil {
-			return nil, nil, rerr
+			return nil, nil, quota.stats, rerr
 		}
 		if bodyState.err != nil {
-			return nil, nil, bodyState.err
+			return nil, nil, quota.stats, bodyState.err
 		}
 	}
 
 	if bodyState.err != nil {
-		return nil, nil, bodyState.err
+		return nil, nil, quota.stats, bodyState.err
 	}
 	// A document without a single element is garbage, not an empty book.
 	if !rootSeen {
-		return nil, nil, fmt.Errorf("%w: the document has no root element", ErrNotFictionBook)
+		return nil, nil, quota.stats, fmt.Errorf("%w: the document has no root element", ErrNotFictionBook)
 	}
 
 	// Extract metadata
 	bookFile, err := metadataParser.BuildBookFile(decoded)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, quota.stats, err
 	}
 
-	return doc, bookFile, nil
+	return doc, bookFile, quota.stats, nil
 }
 
-func parseFB2CompleteFallback(ctx context.Context, content []byte, readCover bool) (*FB2Document, *parser.BookFile, error) {
-	bodyDoc, bodyErr := ParseFB2Body(ctx, content)
+func parseFB2CompleteFallback(
+	ctx context.Context, content []byte, readCover bool, limits FB2ParseLimits,
+) (*FB2Document, *parser.BookFile, FB2ParseStats, error) {
+	bodyDoc, bodyStats, bodyErr := parseFB2BodyCore(ctx, content, limits)
 	if bodyErr != nil {
-		return nil, nil, bodyErr
+		return nil, nil, bodyStats, bodyErr
 	}
 	metaParser := parser.NewFB2Parser(readCover)
 	bookFile, metaErr := metaParser.Parse(bytes.NewReader(content))
 	if metaErr != nil {
-		return bodyDoc, &parser.BookFile{}, nil
+		return bodyDoc, &parser.BookFile{}, bodyStats, nil
 	}
-	return bodyDoc, bookFile, nil
+	return bodyDoc, bookFile, bodyStats, nil
+}
+
+// completeDecodeFallback decides the outcome of a broken token stream. No
+// verified root means the sanitizers could not make it reachable, so this is
+// the same refusal the metadata scanner gives. A verified root means this is
+// a book; whatever broke after it goes through the salvage fallback, whose
+// typed verdict ("too deep", a tripped work gate) still outranks the main
+// decoder's raw syntax error. The fallback re-parses from the start, so it
+// runs under the same budget.
+func completeDecodeFallback(
+	ctx context.Context, decoded []byte, readCover bool, limits FB2ParseLimits,
+	rootSeen bool, decErr error, stats FB2ParseStats,
+) (*FB2Document, *parser.BookFile, FB2ParseStats, error) {
+	if !rootSeen {
+		return nil, nil, stats, fmt.Errorf("%w: %w", ErrNotFictionBook, decErr)
+	}
+	docFallback, bookFallback, fbStats, fallbackErr := parseFB2CompleteFallback(ctx, decoded, readCover, limits)
+	if fallbackErr != nil {
+		if errors.Is(fallbackErr, ErrNotFictionBook) || errors.Is(fallbackErr, ErrDepthLimit) ||
+			errors.Is(fallbackErr, ErrFB2NodeLimit) || errors.Is(fallbackErr, ErrFB2BinaryLimit) {
+			return nil, nil, fbStats, fallbackErr
+		}
+		return nil, nil, fbStats, decErr
+	}
+	return docFallback, bookFallback, fbStats, nil
 }
 
 // applyFB2CompleteToken feeds one decoder token to both the metadata parser

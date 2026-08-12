@@ -36,6 +36,7 @@ redis:
 #   max_concurrent_builds: 2
 #   max_fb2_bytes: 67108864           # 64 MiB
 #   max_binaries: 1500
+#   max_nodes: 100000
 #   max_prepared_image_bytes: 50331648 # 48 MiB
 
 sessions:

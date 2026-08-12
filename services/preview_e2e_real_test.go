@@ -31,7 +31,7 @@ func (r realRepo) GetBook(int64) (*models.Book, error) { return r.book, nil }
 
 type fileLoader struct{ path string }
 
-func (l fileLoader) Load(_ context.Context, _, _ string) ([]byte, error) {
+func (l fileLoader) Load(_ context.Context, _, _ string, _ int64) ([]byte, error) {
 	return os.ReadFile(l.path)
 }
 

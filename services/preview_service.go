@@ -77,8 +77,14 @@ var (
 	ErrFB2TooLarge = errors.New("preview: FB2 payload exceeds the size gate")
 
 	// ErrTooManyBinaries: the book carries more binary images than the gate
-	// allows. Checked after parsing, because only the parser knows the count.
+	// allows. The parser stops at the exceeding <binary> element — the count
+	// is enforced during the parse, not after it.
 	ErrTooManyBinaries = errors.New("preview: too many image binaries")
+
+	// ErrTooManyNodes: the book carries more element nodes than the gate
+	// allows. The parser stops at the exceeding element — the count is
+	// enforced during the parse, not after it.
+	ErrTooManyNodes = errors.New("preview: too many element nodes")
 
 	// ErrPreparedImagesTooLarge: the total weight of prepared preview images
 	// exceeds the gate. Checked after BuildPreviewImages and before any cache
@@ -91,11 +97,15 @@ var (
 // would tie up memory or time. Values are read from config in production;
 // tests override through the constructor.
 type PreviewLimits struct {
-	// MaxFB2Bytes caps the raw FB2 payload. Checked before parsing.
+	// MaxFB2Bytes caps the raw FB2 payload. Enforced while reading the
+	// archive entry: the loader never pulls more than the cap plus one byte.
 	MaxFB2Bytes int
-	// MaxBinaries caps the number of <binary> elements. Checked after
-	// parsing, because only the parser knows the count.
+	// MaxBinaries caps the number of <binary> elements. Enforced during the
+	// parse: the parser stops at the exceeding element.
 	MaxBinaries int
+	// MaxNodes caps the number of element nodes. Enforced during the parse:
+	// the parser stops at the exceeding element.
+	MaxNodes int
 	// MaxPreparedImageBytes caps the total weight of prepared preview
 	// images (sum of len(Payload) across imageSet.Images()). Checked after
 	// BuildPreviewImages: transcoding changes the size, and the prepared
@@ -112,6 +122,7 @@ const (
 	// this one would pass every test.
 	defaultMaxFB2Bytes           = config.PreviewMaxFB2Bytes
 	defaultMaxBinaries           = config.PreviewMaxBinaries
+	defaultMaxNodes              = config.PreviewMaxNodes
 	defaultMaxPreparedImageBytes = config.PreviewMaxPreparedImageBytes
 )
 
@@ -119,19 +130,27 @@ func defaultPreviewLimits() PreviewLimits {
 	return PreviewLimits{
 		MaxFB2Bytes:           defaultMaxFB2Bytes,
 		MaxBinaries:           defaultMaxBinaries,
+		MaxNodes:              defaultMaxNodes,
 		MaxPreparedImageBytes: defaultMaxPreparedImageBytes,
 	}
 }
 
-// parseForGates is the package-level indirection over converter.ParseFB2Complete
-// so tests can assert "parse was not called" for the size gate.
-var parseForGates = converter.ParseFB2Complete
+// parseForGates is the package-level indirection over
+// converter.ParseFB2CompleteLimited so tests can assert "parse was not
+// called" for the size gate.
+var parseForGates = converter.ParseFB2CompleteLimited
 
 // ArchiveLoader produces the raw FB2 bytes of one file from a zip archive on
 // disk. The contract is one file per call; caching, singleflight and error
 // wrapping live above this interface, not inside it.
+//
+// maxBytes bounds the work, not just the result: an implementation must not
+// read more than maxBytes+1 bytes of the entry and must refuse anything
+// bigger with an error matching ErrFB2TooLarge, so an oversized book is
+// rejected without ever being unpacked whole into memory. A non-positive
+// maxBytes disables the bound.
 type ArchiveLoader interface {
-	Load(ctx context.Context, archivePath, fileName string) ([]byte, error)
+	Load(ctx context.Context, archivePath, fileName string, maxBytes int64) ([]byte, error)
 }
 
 // BookRepo is the narrow slice of database operations preview needs.
@@ -199,6 +218,9 @@ func NewPreviewService(
 	}
 	if limits.MaxBinaries <= 0 {
 		limits.MaxBinaries = defaultMaxBinaries
+	}
+	if limits.MaxNodes <= 0 {
+		limits.MaxNodes = defaultMaxNodes
 	}
 	if limits.MaxPreparedImageBytes <= 0 {
 		limits.MaxPreparedImageBytes = defaultMaxPreparedImageBytes
@@ -420,29 +442,39 @@ func (s *PreviewService) buildAndCache(buildCtx context.Context, key string, boo
 		return nil, fmt.Errorf("%w: key %s", ErrTooManyBuilds, key)
 	}
 
-	data, err := s.loader.Load(buildCtx, book.Path, book.FileName)
+	data, err := s.loader.Load(buildCtx, book.Path, book.FileName, int64(s.limits.MaxFB2Bytes))
 	if err != nil {
 		return nil, fmt.Errorf("preview: load archive: %w", err)
 	}
 
-	// Gate 1: FB2 size — checked before parsing, so an oversized file
-	// never reaches the parser.
+	// Gate 1: FB2 size. The loader enforces this bound while reading — a
+	// conforming loader never returns more than the cap — so this check is
+	// the backstop that keeps the gate honest for loaders that do not
+	// enforce it themselves (test fakes, future implementations). It costs
+	// nothing: the bytes are already here.
 	if len(data) > s.limits.MaxFB2Bytes {
 		return nil, fmt.Errorf("%w: %d bytes, cap is %d",
 			ErrFB2TooLarge, len(data), s.limits.MaxFB2Bytes)
 	}
 
-	// Parse to check binary limits. readCover=false: the cover is not
-	// needed for the gate, and decoding it is wasted work.
-	doc, _, perr := parseForGates(buildCtx, data, false)
+	// Parse under the work budget: the parser counts nodes and binaries as
+	// it goes and stops at the first element over a cap, so a hostile book
+	// is refused without its tree ever being built. readCover=false: the
+	// cover is not needed for the gate, and decoding it is wasted work.
+	doc, _, _, perr := parseForGates(buildCtx, data, false, converter.FB2ParseLimits{
+		MaxNodes:    s.limits.MaxNodes,
+		MaxBinaries: s.limits.MaxBinaries,
+	})
 	if perr != nil {
+		// The parse-time refusals map onto the gates' own typed errors;
+		// anything else is a broken book or a broken parser.
+		switch {
+		case errors.Is(perr, converter.ErrFB2BinaryLimit):
+			return nil, fmt.Errorf("%w: cap is %d", ErrTooManyBinaries, s.limits.MaxBinaries)
+		case errors.Is(perr, converter.ErrFB2NodeLimit):
+			return nil, fmt.Errorf("%w: cap is %d", ErrTooManyNodes, s.limits.MaxNodes)
+		}
 		return nil, fmt.Errorf("preview: parse for gate check: %w", perr)
-	}
-
-	// Gate 2: binary count.
-	if len(doc.Binary) > s.limits.MaxBinaries {
-		return nil, fmt.Errorf("%w: %d, cap is %d",
-			ErrTooManyBinaries, len(doc.Binary), s.limits.MaxBinaries)
 	}
 
 	// The cold-build pipeline: the revision ties everything below together,

@@ -28,6 +28,7 @@ preview:
   max_concurrent_builds: 9
   max_fb2_bytes: 1234567
   max_binaries: 42
+  max_nodes: 4242
   max_prepared_image_bytes: 7654321
 `)
 
@@ -50,6 +51,9 @@ preview:
 	}
 	if cfg.Preview.MaxBinaries != 42 {
 		t.Errorf("Preview.MaxBinaries = %d, want 42", cfg.Preview.MaxBinaries)
+	}
+	if cfg.Preview.MaxNodes != 4242 {
+		t.Errorf("Preview.MaxNodes = %d, want 4242", cfg.Preview.MaxNodes)
 	}
 	if cfg.Preview.MaxPreparedImageBytes != 7654321 {
 		t.Errorf("Preview.MaxPreparedImageBytes = %d, want 7654321", cfg.Preview.MaxPreparedImageBytes)
@@ -94,6 +98,9 @@ func TestLoadPreviewDefaults(t *testing.T) {
 	}
 	if cfg.Preview.MaxBinaries != 1500 {
 		t.Errorf("Preview.MaxBinaries = %d, want the default 1500", cfg.Preview.MaxBinaries)
+	}
+	if cfg.Preview.MaxNodes != 100000 {
+		t.Errorf("Preview.MaxNodes = %d, want the default 100 000", cfg.Preview.MaxNodes)
 	}
 	if cfg.Preview.MaxPreparedImageBytes != 48<<20 {
 		t.Errorf("Preview.MaxPreparedImageBytes = %d, want the default 48 MiB", cfg.Preview.MaxPreparedImageBytes)
