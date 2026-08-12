@@ -64,9 +64,14 @@ var ErrEmptyMD5 = errors.New("preview: book has no MD5, cannot build a cache key
 //     refuses the request. Treating an outage as a miss would turn a Redis
 //     failure into a full archive unpack per request.
 //
-// Methods accept a context for cancellation; the Redis v6 client this
-// project uses does not propagate context into its commands, but the
-// interface carries one so the contract does not change when the client is
+// Methods accept a context for cancellation; each operation goes through
+// client.WithContext(ctx), so a canceled build (cold-build timeout or
+// Shutdown) interrupts a hung Redis command rather than blocking until the
+// network stack gives up on its own.  In go-redis v6 WithContext stores
+// the context but does not check it in the command path (true context
+// propagation arrived in v7), so each method also checks ctx.Err()
+// explicitly before touching Redis — that check is what actually executes
+// cancellation today; WithContext carries it forward when the client is
 // upgraded.
 type PreviewCache interface {
 	// Ping checks that the cache backend is reachable. Called once per
@@ -168,15 +173,21 @@ func NewRedisPreviewCache(client *redis.Client) *RedisPreviewCache {
 	return &RedisPreviewCache{client: client}
 }
 
-func (c *RedisPreviewCache) Ping(_ context.Context) error {
-	if _, err := c.client.Ping().Result(); err != nil {
+func (c *RedisPreviewCache) Ping(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("%w: ping: %w", ErrCacheUnavailable, err)
+	}
+	if _, err := c.client.WithContext(ctx).Ping().Result(); err != nil {
 		return fmt.Errorf("%w: %v", ErrCacheUnavailable, err)
 	}
 	return nil
 }
 
-func (c *RedisPreviewCache) GetManifest(_ context.Context, key string) ([]byte, error) {
-	data, err := c.client.Get(manifestKey(key)).Bytes()
+func (c *RedisPreviewCache) GetManifest(ctx context.Context, key string) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("%w: get manifest: %w", ErrCacheUnavailable, err)
+	}
+	data, err := c.client.WithContext(ctx).Get(manifestKey(key)).Bytes()
 	if err == redis.Nil {
 		return nil, ErrCacheMiss
 	}
@@ -186,15 +197,21 @@ func (c *RedisPreviewCache) GetManifest(_ context.Context, key string) ([]byte, 
 	return data, nil
 }
 
-func (c *RedisPreviewCache) PutManifest(_ context.Context, key string, data []byte, ttl time.Duration) error {
-	if err := c.client.Set(manifestKey(key), data, ttl).Err(); err != nil {
+func (c *RedisPreviewCache) PutManifest(ctx context.Context, key string, data []byte, ttl time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("%w: put manifest: %w", ErrCacheUnavailable, err)
+	}
+	if err := c.client.WithContext(ctx).Set(manifestKey(key), data, ttl).Err(); err != nil {
 		return fmt.Errorf("%w: put manifest: %v", ErrCacheUnavailable, err)
 	}
 	return nil
 }
 
-func (c *RedisPreviewCache) GetChunk(_ context.Context, key string, index int) ([]byte, error) {
-	data, err := c.client.Get(chunkKey(key, index)).Bytes()
+func (c *RedisPreviewCache) GetChunk(ctx context.Context, key string, index int) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("%w: get chunk %d: %w", ErrCacheUnavailable, index, err)
+	}
+	data, err := c.client.WithContext(ctx).Get(chunkKey(key, index)).Bytes()
 	if err == redis.Nil {
 		return nil, ErrCacheMiss
 	}
@@ -204,8 +221,11 @@ func (c *RedisPreviewCache) GetChunk(_ context.Context, key string, index int) (
 	return data, nil
 }
 
-func (c *RedisPreviewCache) PutChunk(_ context.Context, key string, index int, data []byte, ttl time.Duration) error {
-	if err := c.client.Set(chunkKey(key, index), data, ttl).Err(); err != nil {
+func (c *RedisPreviewCache) PutChunk(ctx context.Context, key string, index int, data []byte, ttl time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("%w: put chunk %d: %w", ErrCacheUnavailable, index, err)
+	}
+	if err := c.client.WithContext(ctx).Set(chunkKey(key, index), data, ttl).Err(); err != nil {
 		return fmt.Errorf("%w: put chunk %d: %v", ErrCacheUnavailable, err, index)
 	}
 	return nil
@@ -215,19 +235,26 @@ func (c *RedisPreviewCache) PutChunk(_ context.Context, key string, index int, d
 // framed blob: the fields are written in one command, so a reader never sees
 // bytes without their type, and no framing byte has to be kept out of the
 // payload alphabet.
-func (c *RedisPreviewCache) PutImage(_ context.Context, key string, ordinal int, payload []byte, mime string, ttl time.Duration) error {
+func (c *RedisPreviewCache) PutImage(ctx context.Context, key string, ordinal int, payload []byte, mime string, ttl time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("%w: put image %d: %w", ErrCacheUnavailable, ordinal, err)
+	}
+	cl := c.client.WithContext(ctx)
 	k := imageKey(key, ordinal)
-	if err := c.client.HMSet(k, map[string]interface{}{"payload": payload, "mime": mime}).Err(); err != nil {
+	if err := cl.HMSet(k, map[string]interface{}{"payload": payload, "mime": mime}).Err(); err != nil {
 		return fmt.Errorf("%w: put image %d: %v", ErrCacheUnavailable, ordinal, err)
 	}
-	if err := c.client.Expire(k, ttl).Err(); err != nil {
+	if err := cl.Expire(k, ttl).Err(); err != nil {
 		return fmt.Errorf("%w: expire image %d: %v", ErrCacheUnavailable, ordinal, err)
 	}
 	return nil
 }
 
-func (c *RedisPreviewCache) GetImage(_ context.Context, key string, ordinal int) (payload []byte, mime string, err error) {
-	fields, err := c.client.HGetAll(imageKey(key, ordinal)).Result()
+func (c *RedisPreviewCache) GetImage(ctx context.Context, key string, ordinal int) (payload []byte, mime string, err error) {
+	if cerr := ctx.Err(); cerr != nil {
+		return nil, "", fmt.Errorf("%w: get image %d: %w", ErrCacheUnavailable, ordinal, cerr)
+	}
+	fields, err := c.client.WithContext(ctx).HGetAll(imageKey(key, ordinal)).Result()
 	if err != nil {
 		return nil, "", fmt.Errorf("%w: get image %d: %v", ErrCacheUnavailable, ordinal, err)
 	}

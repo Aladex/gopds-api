@@ -23,6 +23,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"gopds-api/internal/converter"
 	"gopds-api/models"
@@ -518,5 +519,75 @@ func TestPreviewBuild_SameMD5DifferentBooksDoNotShareCache(t *testing.T) {
 	}
 	if loader.calls != 2 {
 		t.Errorf("loader.calls = %d, want 2 — each catalog row needs its own build", loader.calls)
+	}
+}
+
+// --- Context execution: manifest not published after cancellation ------------
+
+// imageBlockCache wraps mockPreviewCache and blocks the first PutImage call
+// until release is closed. This gives the test a deterministic window between
+// "all chunks are cached" and "the manifest is about to be published" to
+// cancel the build context. The mock cache ignores context, so PutImage
+// succeeds after release regardless of the context state — which is exactly
+// what isolates the buildAndCache ctx check as the only gate left.
+type imageBlockCache struct {
+	*mockPreviewCache
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (c *imageBlockCache) PutImage(_ context.Context, key string, ordinal int, payload []byte, mime string, ttl time.Duration) error {
+	select {
+	case c.entered <- struct{}{}:
+	default:
+	}
+	<-c.release
+	return c.mockPreviewCache.PutImage(context.Background(), key, ordinal, payload, mime, ttl)
+}
+
+// A build whose context is canceled after all chunks and images are cached
+// must NOT publish the manifest. The assertion is on the cache (manifest
+// absent), not on the returned error: a mutation that removes the
+// pre-manifest ctx check would still return the manifest through PutManifest,
+// publishing a promise for work the timeout was supposed to stop.
+func TestPreviewBuild_CanceledBuildPublishesNoManifest(t *testing.T) {
+	repo := buildBookRepo()
+	loader := &fakeArchiveLoader{data: []byte(fb2WithImage(t))}
+	cache := &imageBlockCache{
+		mockPreviewCache: newMockCache(),
+		entered:          make(chan struct{}, 1),
+		release:          make(chan struct{}),
+	}
+	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0, 0)
+
+	done := make(chan loadResult, 1)
+	go func() {
+		data, err := svc.Load(context.Background(), 1, false)
+		done <- loadResult{data, err}
+	}()
+
+	// Barrier: the build has rendered, cached every chunk, and is now blocked
+	// inside PutImage — past every write except the manifest.
+	waitSignal(t, cache.entered, "the build to reach image writes")
+
+	// Cancel the service context: this cancels the build context (a child of
+	// svcCtx), so the pre-manifest ctx check must refuse before PutManifest.
+	svc.Shutdown()
+
+	// Release the blocked PutImage so the build goroutine can proceed to the
+	// manifest check and exit.
+	close(cache.release)
+
+	res := awaitLoadResult(t, done, "the canceled build to return")
+	if res.err == nil {
+		t.Fatal("the build succeeded despite cancellation")
+	}
+
+	// The manifest must NOT be in the cache. This is the assertion mutation 3
+	// ("remove pre-manifest ctx check") fails: without that check PutManifest
+	// runs, the manifest lands in the cache, and GetManifest returns it.
+	key := buildCacheKey(1, "abc", svc.revision(repo.books[1]))
+	if _, err := cache.GetManifest(context.Background(), key); !errors.Is(err, ErrCacheMiss) {
+		t.Errorf("manifest present after cancellation (err = %v) — the build published a promise for work the timeout was supposed to stop", err)
 	}
 }

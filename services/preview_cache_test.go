@@ -136,3 +136,49 @@ func TestRedisPreviewCache_RoundTrip(t *testing.T) {
 		t.Errorf("GetImage(99): err = %v, want ErrCacheMiss", err)
 	}
 }
+
+// TestRedisPreviewCache_CanceledContextRefuses proves that a canceled context
+// causes every cache operation to refuse — not succeed silently. go-redis v6's
+// WithContext stores the context but does not check it in the command path,
+// so the explicit ctx.Err() check in each method is what actually executes
+// the cancellation.  Skip if Redis is not reachable.
+func TestRedisPreviewCache_CanceledContextRefuses(t *testing.T) {
+	client := redis.NewClient(&redis.Options{
+		Addr: "127.0.0.1:6380",
+		DB:   0,
+	})
+	defer client.Close()
+
+	pingCtx := context.Background()
+	cache := NewRedisPreviewCache(client)
+	if err := cache.Ping(pingCtx); err != nil {
+		t.Skipf("Redis not reachable at 127.0.0.1:6380: %v", err)
+	}
+
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	key := buildCacheKey(999, "cancel-test-md5", renderVersionPrefix)
+	defer client.Del(manifestKey(key), chunkKey(key, 0), imageKey(key, 1))
+
+	// Every write must refuse on an already-canceled context.  The assertion
+	// is "err != nil", not the error text: a mutation that drops the ctx
+	// check would let the operation reach Redis and succeed.
+	if err := cache.PutChunk(canceledCtx, key, 0, []byte("chunk"), 30*time.Second); err == nil {
+		t.Error("PutChunk succeeded on a canceled context — the cache must refuse")
+	}
+	if err := cache.PutImage(canceledCtx, key, 1, []byte("img"), "image/png", 30*time.Second); err == nil {
+		t.Error("PutImage succeeded on a canceled context — the cache must refuse")
+	}
+	if err := cache.PutManifest(canceledCtx, key, []byte("{}"), 30*time.Second); err == nil {
+		t.Error("PutManifest succeeded on a canceled context — the cache must refuse")
+	}
+	// Reads must refuse too: a canceled context must not silently look like
+	// a cache miss — that would trigger a cold build on a dead request.
+	if _, err := cache.GetManifest(canceledCtx, key); err == nil {
+		t.Error("GetManifest succeeded on a canceled context — the cache must refuse")
+	}
+	if _, err := cache.GetChunk(canceledCtx, key, 0); err == nil {
+		t.Error("GetChunk succeeded on a canceled context — the cache must refuse")
+	}
+}

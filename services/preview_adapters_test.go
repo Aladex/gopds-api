@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/go-pg/pg/v10"
@@ -174,7 +175,7 @@ func TestReadBounded_RefusalReadsAtMostCapPlusOne(t *testing.T) {
 	const limit = 1024
 	src := &countingReader{src: strings.NewReader(strings.Repeat("x", 10*limit))}
 
-	_, err := readBounded(src, limit)
+	_, err := readBounded(context.Background(), src, limit)
 	if !errors.Is(err, ErrFB2TooLarge) {
 		t.Fatalf("err = %v, want ErrFB2TooLarge", err)
 	}
@@ -192,7 +193,7 @@ func TestReadBounded_ExactlyAtTheCapPasses(t *testing.T) {
 	payload := strings.Repeat("x", limit)
 	src := &countingReader{src: strings.NewReader(payload)}
 
-	data, err := readBounded(src, limit)
+	data, err := readBounded(context.Background(), src, limit)
 	if err != nil {
 		t.Fatalf("err = %v, want nil for a payload of exactly the cap", err)
 	}
@@ -322,11 +323,11 @@ func TestZipArchiveLoader_ReadsEntryThroughTheBoundedGate(t *testing.T) {
 	var pulled int64
 	var sawLimit int64
 	prev := boundedRead
-	boundedRead = func(rc io.Reader, max int64) ([]byte, error) {
+	boundedRead = func(ctx context.Context, rc io.Reader, max int64) ([]byte, error) {
 		called = true
 		sawLimit = max
 		cr := &countingReader{src: rc}
-		data, err := prev(cr, max)
+		data, err := prev(ctx, cr, max)
 		pulled = cr.n
 		return data, err
 	}
@@ -344,5 +345,89 @@ func TestZipArchiveLoader_ReadsEntryThroughTheBoundedGate(t *testing.T) {
 	}
 	if pulled > limit+1 {
 		t.Errorf("the entry reader gave up %d bytes under a %d-byte cap, want at most %d", pulled, limit, limit+1)
+	}
+}
+
+// --- Context execution (review blocker) --------------------------------------
+
+// cancelAfterReadReader cancels the context after the first successful Read,
+// simulating "the build timeout fired while the entry was being read." The
+// bounded read loop checks ctx between portions, so the cancellation must be
+// observed within one portion of additional I/O.
+type cancelAfterReadReader struct {
+	src    io.Reader
+	cancel context.CancelFunc
+	once   sync.Once
+}
+
+func (r *cancelAfterReadReader) Read(p []byte) (int, error) {
+	n, err := r.src.Read(p)
+	if n > 0 {
+		r.once.Do(r.cancel)
+	}
+	return n, err
+}
+
+// An already-canceled context must refuse before the archive is even opened.
+// The assertion is not the error text but a counter: boundedRead must not have
+// been called at all, proving ctx.Err() was checked before any I/O.
+func TestZipArchiveLoader_AlreadyCanceledCtxRefusesBeforeOpen(t *testing.T) {
+	root := t.TempDir()
+	writeZipArchive(t, filepath.Join(root, "archive.zip"), map[string]string{"book.fb2": minimalFB2})
+
+	readCalled := false
+	prev := boundedRead
+	boundedRead = func(ctx context.Context, rc io.Reader, max int64) ([]byte, error) {
+		readCalled = true
+		return prev(ctx, rc, max)
+	}
+	defer func() { boundedRead = prev }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	loader := NewZipArchiveLoader(root)
+	_, err := loader.Load(ctx, "archive.zip", "book.fb2", 1<<20)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if readCalled {
+		t.Error("boundedRead was called despite an already-canceled context — the loader must check ctx.Err() before opening the archive")
+	}
+}
+
+// Cancellation arriving mid-read must stop within one portion of I/O. The
+// assertion is on a byte counter, not on the error text: a loader that
+// ignores ctx and reads the whole entry through would produce the same
+// error (from the canceled reader) but would have consumed far more bytes.
+func TestZipArchiveLoader_CancelDuringReadStopsWithinOnePortion(t *testing.T) {
+	payload := strings.Repeat("x", 256*1024) // large enough for several portions
+	root := t.TempDir()
+	writeZipArchive(t, filepath.Join(root, "archive.zip"), map[string]string{"book.fb2": payload})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var pulled int64
+	prev := boundedRead
+	boundedRead = func(ctx context.Context, rc io.Reader, max int64) ([]byte, error) {
+		cr := &countingReader{src: rc}
+		canceler := &cancelAfterReadReader{src: cr, cancel: cancel}
+		data, err := prev(ctx, canceler, max)
+		pulled = cr.n
+		return data, err
+	}
+	defer func() { boundedRead = prev }()
+
+	loader := NewZipArchiveLoader(root)
+	_, err := loader.Load(ctx, "archive.zip", "book.fb2", int64(len(payload)))
+	if err == nil {
+		t.Fatal("Load succeeded despite mid-read cancellation")
+	}
+
+	maxExpected := int64(loadReadChunkSize) + int64(loadReadChunkSize)
+	if pulled > maxExpected {
+		t.Errorf("read %d bytes after cancellation, want at most %d (two portions) — "+
+			"the loader must stop within one portion of I/O once ctx is canceled", pulled, maxExpected)
 	}
 }

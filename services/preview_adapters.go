@@ -71,6 +71,32 @@ func NewZipArchiveLoader(filesPath string) *ZipArchiveLoader {
 	return &ZipArchiveLoader{filesPath: filesPath}
 }
 
+// loadReadChunkSize is the portion size for the bounded archive read. The
+// read checks ctx.Err() between portions, so a canceled build stops within
+// one portion of I/O — well under what a caller perceives.
+const loadReadChunkSize = 32 << 10 // 32 KB
+
+// loadCtxCheckInterval mirrors the checkCtx pattern from
+// internal/converter/fb2_body_parser.go: the bounded read re-checks
+// ctx.Err() every loadCtxCheckInterval portions. One read is up to
+// loadReadChunkSize of real I/O — already far heavier than the ctx.Err()
+// check — so the interval is 1: check after every portion. Same helper
+// shape as converter.checkCtx, tuned for the heavier per-iteration work.
+const loadCtxCheckInterval = 1
+
+// loadCheckCtx tracks reads since the last ctx.Err() check and, when the
+// counter reaches loadCtxCheckInterval, returns ctx.Err() (nil if the ctx
+// is still alive). Same pattern as converter.checkCtx, replicated here to
+// avoid a cross-package dependency for a two-line helper.
+func loadCheckCtx(ctx context.Context, counter *int) error {
+	*counter++
+	if *counter < loadCtxCheckInterval {
+		return nil
+	}
+	*counter = 0
+	return ctx.Err()
+}
+
 // Load returns the raw FB2 bytes of one archive entry, refusing with
 // ErrFB2TooLarge the moment the entry proves bigger than maxBytes. A
 // non-positive maxBytes disables the bound.
@@ -85,10 +111,14 @@ func NewZipArchiveLoader(filesPath string) *ZipArchiveLoader {
 //     cannot smuggle an oversized entry past the first check, and the
 //     decompressed payload never exists whole in memory when it is refused.
 //
-// The context is accepted to satisfy the contract but cannot interrupt the
-// blocking file read; what bounds the wait is the cold-build timeout around
-// the pipeline.
-func (l *ZipArchiveLoader) Load(_ context.Context, archivePath, fileName string, maxBytes int64) ([]byte, error) {
+// The context is executed, not merely accepted: ctx.Err() is checked before
+// the archive is opened and between read portions, so a canceled build (cold-
+// build timeout or Shutdown) stops the loader within one I/O portion rather
+// than blocking until the blocking read finishes on its own.
+func (l *ZipArchiveLoader) Load(ctx context.Context, archivePath, fileName string, maxBytes int64) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	r, err := zip.OpenReader(filepath.Join(l.filesPath, archivePath))
 	if err != nil {
 		return nil, err
@@ -111,7 +141,7 @@ func (l *ZipArchiveLoader) Load(_ context.Context, archivePath, fileName string,
 		if err != nil {
 			return nil, err
 		}
-		data, rerr := boundedRead(rc, maxBytes)
+		data, rerr := boundedRead(ctx, rc, maxBytes)
 		if cerr := rc.Close(); cerr != nil {
 			logging.Errorf("preview: failed to close book reader: %v", cerr)
 		}
@@ -137,18 +167,39 @@ var boundedRead = readBounded
 // limit disables the bound. The gate's whole point is that the refusal is
 // cheap: the oversized bytes are never pulled from the reader, so they are
 // never allocated.
-func readBounded(rc io.Reader, limit int64) ([]byte, error) {
-	if limit <= 0 {
-		return io.ReadAll(rc)
+//
+// The read proceeds in portions of loadReadChunkSize, checking ctx between
+// them via loadCheckCtx — the same pattern as converter.checkCtx in the
+// parser. A blocking read cannot be interrupted mid-syscall, but a canceled
+// build is observed within one portion of I/O rather than after the whole
+// entry has been consumed.
+func readBounded(ctx context.Context, rc io.Reader, limit int64) ([]byte, error) {
+	src := rc
+	if limit > 0 {
+		src = io.LimitReader(rc, limit+1)
 	}
-	data, err := io.ReadAll(io.LimitReader(rc, limit+1))
-	if err != nil {
-		return nil, err
+	var out []byte
+	buf := make([]byte, loadReadChunkSize)
+	sinceCheck := 0
+	for {
+		if cerr := loadCheckCtx(ctx, &sinceCheck); cerr != nil {
+			return nil, cerr
+		}
+		n, err := src.Read(buf)
+		if n > 0 {
+			out = append(out, buf[:n]...)
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
-	if int64(len(data)) > limit {
+	if limit > 0 && int64(len(out)) > limit {
 		return nil, fmt.Errorf("%w: payload exceeds %d bytes", ErrFB2TooLarge, limit)
 	}
-	return data, nil
+	return out, nil
 }
 
 // NewPreviewServiceFromConfig builds the service from the preview section of

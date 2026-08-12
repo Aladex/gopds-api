@@ -517,6 +517,12 @@ func (s *PreviewService) buildAndCache(buildCtx context.Context, key string, boo
 
 	rendered := make([][]byte, len(chunks))
 	for i, chunk := range chunks {
+		// Check between renders: a timeout that fired during the parse
+		// or an earlier render must not let the build keep rendering and
+		// eventually publish a manifest past its deadline.
+		if cerr := buildCtx.Err(); cerr != nil {
+			return nil, fmt.Errorf("preview: render canceled at chunk %d: %w", i, cerr)
+		}
 		html, rerr := converter.RenderChunkHTML(chunk, projection, s.chunkPolicy)
 		if rerr != nil {
 			return nil, fmt.Errorf("preview: render chunk %d: %w", chunk.Index, rerr)
@@ -531,12 +537,23 @@ func (s *PreviewService) buildAndCache(buildCtx context.Context, key string, boo
 	// promise covers would open a window where the server hands out a broken
 	// image on purpose. A failed write anywhere refuses the build — and with
 	// no manifest written, the next request simply rebuilds.
+	//
+	// Each write is gated on buildCtx.Err(): a canceled build must not
+	// publish partial work, and — critically — must not publish the
+	// manifest after the deadline, because a late manifest is a promise
+	// the build already broke.
 	for i, html := range rendered {
+		if cerr := buildCtx.Err(); cerr != nil {
+			return nil, fmt.Errorf("preview: cache canceled at chunk %d: %w", i, cerr)
+		}
 		if werr := s.cache.PutChunk(buildCtx, key, i, html, s.ttl); werr != nil {
 			return nil, fmt.Errorf("preview: cache chunk %d: %w", i, werr)
 		}
 	}
 	for _, img := range prepared {
+		if cerr := buildCtx.Err(); cerr != nil {
+			return nil, fmt.Errorf("preview: cache canceled at image %d: %w", img.Ordinal, cerr)
+		}
 		if werr := s.cache.PutImage(buildCtx, key, img.Ordinal, img.Payload, img.MIME, s.ttl); werr != nil {
 			return nil, fmt.Errorf("preview: cache image %d: %w", img.Ordinal, werr)
 		}
@@ -558,6 +575,14 @@ func (s *PreviewService) buildAndCache(buildCtx context.Context, key string, boo
 	manifestJSON, err := json.Marshal(manifest)
 	if err != nil {
 		return nil, fmt.Errorf("preview: marshal manifest: %w", err)
+	}
+	// The manifest is the build's final promise: every chunk and image is
+	// cached, and the build is still within its budget. A check here, right
+	// before the write, is what prevents a build that crossed its deadline
+	// during the last image write from publishing a manifest for work that
+	// the timeout was supposed to stop.
+	if cerr := buildCtx.Err(); cerr != nil {
+		return nil, fmt.Errorf("preview: manifest write canceled: %w", cerr)
 	}
 	if err := s.cache.PutManifest(buildCtx, key, manifestJSON, s.ttl); err != nil {
 		return nil, fmt.Errorf("preview: cache manifest: %w", err)
