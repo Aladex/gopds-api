@@ -293,7 +293,10 @@ func classifyPreviewError(err error) previewRefusal {
 	// than a fault of ours — a bare 500 told the client to retry something
 	// that will never succeed.
 	case errors.Is(err, converter.ErrNotFictionBook),
-		errors.Is(err, parser.ErrDamagedContent):
+		errors.Is(err, parser.ErrDamagedContent),
+		errors.Is(err, parser.ErrUnsupportedCharset),
+		errors.Is(err, parser.ErrUndeclaredCharset),
+		errors.Is(err, parser.ErrUnsupportedDeclaredCharset):
 		return previewRefusal{status: http.StatusUnsupportedMediaType, reason: "this book cannot be read"}
 
 	// The reader holds a table of contents for a slicing that no longer

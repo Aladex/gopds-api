@@ -697,46 +697,6 @@ func TestPreviewHandler_DeadlineInsideCacheError_Returns503WithBuildRetry(t *tes
 		"our own deadline is the more specific cause and must win over the cache")
 }
 
-// A catalog row whose file is not in the archive is its own fact, distinct
-// from a book that does not exist and from an archive we cannot read.
-func TestPreviewHandler_ArchiveFileMissing_Returns404(t *testing.T) {
-	fake := &fakePreviewService{loadErr: services.ErrArchiveFileNotFound}
-	r := newPreviewTestRouter(fake, false)
-
-	rec := doPreviewGET(t, r, "/api/books/preview/123")
-
-	require.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-// A book without a fingerprint cannot be keyed, so no preview exists for it.
-// That is a defect in our catalog, not a media type the client chose.
-func TestPreviewHandler_EmptyMD5_IsNotAMediaTypeProblem(t *testing.T) {
-	fake := &fakePreviewService{loadErr: services.ErrEmptyMD5}
-	r := newPreviewTestRouter(fake, false)
-
-	rec := doPreviewGET(t, r, "/api/books/preview/123")
-
-	require.Equal(t, http.StatusInternalServerError, rec.Code)
-	assert.NotEqual(t, http.StatusUnsupportedMediaType, rec.Code)
-}
-
-// Content we cannot read at all is permanent and belongs to the file, not to
-// us: a 500 invites the client to retry something that will never work.
-func TestPreviewHandler_UnreadableContent_Returns415(t *testing.T) {
-	for name, err := range map[string]error{
-		"not a FictionBook": converter.ErrNotFictionBook,
-		"damaged":           parser.ErrDamagedContent,
-		"nesting too deep":  converter.ErrDepthLimit,
-	} {
-		t.Run(name, func(t *testing.T) {
-			rec := doPreviewGET(t, newPreviewTestRouter(&fakePreviewService{loadErr: err}, false),
-				"/api/books/preview/123")
-			assert.NotEqual(t, http.StatusInternalServerError, rec.Code,
-				"a permanent property of the file must not read as our fault")
-		})
-	}
-}
-
 // A manifest that will not parse is our problem, and the reader must learn
 // nothing about the shape of our cached bytes.
 func TestPreviewHandler_CorruptManifest_LeaksNothing(t *testing.T) {
@@ -749,5 +709,66 @@ func TestPreviewHandler_CorruptManifest_LeaksNothing(t *testing.T) {
 	for _, leak := range []string{"unmarshal", "invalid character", "revision"} {
 		assert.NotContains(t, rec.Body.String(), leak,
 			"the answer describes our cached bytes")
+	}
+}
+
+// Every typed outcome the preview can produce, with the exact answer it
+// gets. A table rather than a case each, because the property under test is
+// completeness: a sentinel absent from this table is a sentinel that becomes
+// a blanket 500 in production, and the last three rounds of review each
+// found one. Asserting "not 500" — which an earlier version of these tests
+// did — proves nothing about which answer a client actually receives.
+func TestPreviewHandler_RefusalTable(t *testing.T) {
+	cases := []struct {
+		name       string
+		err        error
+		status     int
+		reason     string
+		retryAfter string
+	}{
+		{"book absent", services.ErrBookNotFound, http.StatusNotFound, "book not found", ""},
+		{"book hidden", services.ErrBookNotVisible, http.StatusNotFound, "book not found", ""},
+		{"file missing from archive", services.ErrArchiveFileNotFound, http.StatusNotFound, "the book file is missing", ""},
+		{"portion gone", services.ErrChunkNotFound, http.StatusNotFound, "no such portion", ""},
+		{"image gone", services.ErrImageNotFound, http.StatusNotFound, "no such image", ""},
+		{"wrong format", services.ErrUnsupportedFormat, http.StatusUnsupportedMediaType, "preview is not available for this format", ""},
+		{"not a FictionBook", converter.ErrNotFictionBook, http.StatusUnsupportedMediaType, "this book cannot be read", ""},
+		{"damaged content", parser.ErrDamagedContent, http.StatusUnsupportedMediaType, "this book cannot be read", ""},
+		{"unsupported charset", parser.ErrUnsupportedCharset, http.StatusUnsupportedMediaType, "this book cannot be read", ""},
+		{"undeclared charset", parser.ErrUndeclaredCharset, http.StatusUnsupportedMediaType, "this book cannot be read", ""},
+		{
+			"declared charset unsupported", parser.ErrUnsupportedDeclaredCharset,
+			http.StatusUnsupportedMediaType, "this book cannot be read", "",
+		},
+		{"file too large", services.ErrFB2TooLarge, http.StatusRequestEntityTooLarge, "this book is too large to preview", ""},
+		{"too many pictures", services.ErrTooManyBinaries, http.StatusRequestEntityTooLarge, "this book is too large to preview", ""},
+		{"too many nodes", services.ErrTooManyNodes, http.StatusRequestEntityTooLarge, "this book is too large to preview", ""},
+		{
+			"prepared images too heavy", services.ErrPreparedImagesTooLarge,
+			http.StatusRequestEntityTooLarge, "this book is too large to preview", "",
+		},
+		{"node limit in parser", converter.ErrFB2NodeLimit, http.StatusRequestEntityTooLarge, "this book is too large to preview", ""},
+		{"binary limit in parser", converter.ErrFB2BinaryLimit, http.StatusRequestEntityTooLarge, "this book is too large to preview", ""},
+		{"indivisible block", converter.ErrPreviewBlockTooLarge, http.StatusRequestEntityTooLarge, "this book is too large to preview", ""},
+		{"nesting too deep", converter.ErrDepthLimit, http.StatusRequestEntityTooLarge, "this book is too large to preview", ""},
+		{"revision gone", services.ErrRevisionStale, http.StatusGone, "the preview has been rebuilt, open it again", ""},
+		{"build deadline", context.DeadlineExceeded, http.StatusServiceUnavailable, "the preview took too long to build", "30"},
+		{"cache down", services.ErrCacheUnavailable, http.StatusServiceUnavailable, "preview storage is unavailable", "60"},
+		{"server busy", services.ErrTooManyBuilds, http.StatusTooManyRequests, "too many previews are being built", "10"},
+		{"no fingerprint", services.ErrEmptyMD5, http.StatusInternalServerError, "preview is unavailable for this book", ""},
+		{"anything else", errors.New("something we did not foresee"), http.StatusInternalServerError, "preview is unavailable", ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doPreviewGET(t, newPreviewTestRouter(&fakePreviewService{loadErr: tc.err}, false),
+				"/api/books/preview/123")
+
+			require.Equal(t, tc.status, rec.Code)
+			var got httputil.HTTPError
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+			assert.Equal(t, tc.reason, got.Message, "the sentence a reader receives")
+			assert.Equal(t, tc.retryAfter, rec.Header().Get("Retry-After"))
+		})
 	}
 }
