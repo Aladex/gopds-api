@@ -17,9 +17,9 @@ package services
 //
 //   - ArchiveLoader hides utils' zip extraction. Tests in this phase must
 //     assert that the archive was not touched for a hidden book, which is
-//     only possible against a loader that records its own calls. The real
-//     adapter moves to utils in a later step; the interface is the contract
-//     from day one so the rest of the pipeline programs against it.
+//     only possible against a loader that records its own calls. The
+//     production implementations of both interfaces live in
+//     preview_adapters.go, next to the contracts they satisfy.
 
 import (
 	"context"
@@ -173,20 +173,31 @@ func defaultPreviewImagePolicy() converter.PreviewImagePolicy {
 
 // NewPreviewService wires the service. maxConcurrent sets the ceiling on
 // simultaneous cold builds; limits sets the input gates (FB2 size, binary
-// count and weight); buildTimeout bounds one cold build. All three fall back
-// to safe defaults when zero.
+// count and weight); buildTimeout bounds one cold build; ttl is the lifetime
+// stamped on every published cache entry. Each falls back to its safe
+// default independently when zero — per field, so an operator overriding one
+// gate does not silently reset the others.
 func NewPreviewService(
 	books BookRepo, loader ArchiveLoader, cache PreviewCache,
-	maxConcurrent int, limits PreviewLimits, buildTimeout time.Duration,
+	maxConcurrent int, limits PreviewLimits, buildTimeout, ttl time.Duration,
 ) *PreviewService {
 	if maxConcurrent <= 0 {
 		maxConcurrent = defaultMaxConcurrentBuilds
 	}
 	if limits.MaxFB2Bytes <= 0 {
-		limits = defaultPreviewLimits()
+		limits.MaxFB2Bytes = defaultMaxFB2Bytes
+	}
+	if limits.MaxBinaries <= 0 {
+		limits.MaxBinaries = defaultMaxBinaries
+	}
+	if limits.MaxBinariesBytes <= 0 {
+		limits.MaxBinariesBytes = defaultMaxBinariesBytes
 	}
 	if buildTimeout <= 0 {
 		buildTimeout = defaultBuildTimeout
+	}
+	if ttl <= 0 {
+		ttl = cacheKeyTTL
 	}
 	svcCtx, shutdown := context.WithCancel(context.Background())
 	return &PreviewService{
@@ -194,7 +205,7 @@ func NewPreviewService(
 		loader:        loader,
 		cache:         cache,
 		renderVersion: renderVersionPrefix,
-		ttl:           cacheKeyTTL,
+		ttl:           ttl,
 		limits:        limits,
 		chunkPolicy:   defaultPreviewChunkPolicy(),
 		imagePolicy:   defaultPreviewImagePolicy(),

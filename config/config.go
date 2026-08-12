@@ -5,6 +5,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"time"
 
 	"gopds-api/internal/safeio"
 	"gopds-api/logging"
@@ -25,6 +26,7 @@ type Config struct {
 	App                AppConfig      `mapstructure:"app" yaml:"app"`
 	Scanning           ScanningConfig `mapstructure:"scanning" yaml:"scanning"`
 	Email              EmailConfig    `mapstructure:"email" yaml:"email"`
+	Preview            PreviewConfig  `mapstructure:"preview" yaml:"preview"`
 
 	// Donate is deliberately a list rather than a fixed set of fields: which
 	// ways of giving are offered is the operator's business, not this
@@ -105,6 +107,45 @@ type ScanningConfig struct {
 	OpenAILangDetectionTimeout string `mapstructure:"openai_lang_detection_timeout" yaml:"openai_lang_detection_timeout"`
 	MaxConcurrentFiles         int    `mapstructure:"max_concurrent_files" yaml:"max_concurrent_files"`
 	BatchSize                  int    `mapstructure:"batch_size" yaml:"batch_size"`
+}
+
+// PreviewConfig holds the book-preview pipeline settings. Every key carries
+// a default in setDefaults, so the section is usually absent from config
+// files; it exists so the gates and budgets can be re-tuned after a catalog
+// re-measurement without a code change.
+type PreviewConfig struct {
+	// Redis is the optional separate Redis for the preview cache. Any field
+	// left unset falls back to the main Redis connection (see
+	// GetPreviewRedisAddress): the preview runs on the shared instance — in
+	// its own database — until an operator moves it out.
+	Redis PreviewRedisConfig `mapstructure:"redis" yaml:"redis"`
+
+	// CacheTTL is the lifetime of one cached preview (manifest, chunks and
+	// prepared images share it).
+	CacheTTL time.Duration `mapstructure:"cache_ttl" yaml:"cache_ttl"`
+	// BuildTimeout bounds one cold build. The build context is detached from
+	// the reader's request, so without the bound a hung loader or a hung
+	// Redis would pin a build slot and its singleflight key forever.
+	BuildTimeout time.Duration `mapstructure:"build_timeout" yaml:"build_timeout"`
+	// MaxConcurrentBuilds is the ceiling on simultaneous cold builds.
+	MaxConcurrentBuilds int `mapstructure:"max_concurrent_builds" yaml:"max_concurrent_builds"`
+
+	// The input gates, derived from the phase-0 catalog measurement.
+	MaxFB2Bytes      int `mapstructure:"max_fb2_bytes" yaml:"max_fb2_bytes"`
+	MaxBinaries      int `mapstructure:"max_binaries" yaml:"max_binaries"`
+	MaxBinariesBytes int `mapstructure:"max_binaries_bytes" yaml:"max_binaries_bytes"`
+}
+
+// PreviewRedisConfig is the separate Redis destination for the preview
+// cache. Empty host/port/password mean "take the main Redis value" — see
+// GetPreviewRedisAddress and GetPreviewRedisPassword. DB is the exception:
+// it has its own default, because sharing the instance is the default while
+// sharing the keyspace never is.
+type PreviewRedisConfig struct {
+	Host     string `mapstructure:"host" yaml:"host"`
+	Port     int    `mapstructure:"port" yaml:"port"`
+	Password string `mapstructure:"password" yaml:"password"`
+	DB       int    `mapstructure:"db" yaml:"db"`
 }
 
 // EmailConfig holds email configuration
@@ -256,6 +297,11 @@ func bindEnvKeys(t reflect.Type, prefix string) error {
 // previewRedisDB is the default database number for the preview cache.
 const previewRedisDB = 3
 
+// previewMaxConcurrentBuilds is the default ceiling on simultaneous cold
+// builds — the same value the service falls back to when constructed with a
+// zero.
+const previewMaxConcurrentBuilds = 4
+
 // Input gate defaults, derived from the phase-0 measurement on 488 books:
 // max FB2 31 MB, max binaries 519, max binary weight 22 MB. Gates are set
 // at roughly the observed maximum.
@@ -285,9 +331,13 @@ func setDefaults() {
 
 	// Preview Redis defaults — separate keys from the main Redis so preview
 	// can be moved to its own instance (or its own DB) without touching
-	// sessions, rate limiter or other subsystems.
-	viper.SetDefault("preview.redis.host", "localhost")
-	viper.SetDefault("preview.redis.port", viper.GetInt("redis.port"))
+	// sessions, rate limiter or other subsystems. Host and port default to
+	// EMPTY on purpose: empty is the fallback marker — resolution
+	// (GetPreviewRedisAddress) then points at the main Redis, so a config
+	// that says nothing about preview.redis uses the shared instance and
+	// never a hardcoded localhost.
+	viper.SetDefault("preview.redis.host", "")
+	viper.SetDefault("preview.redis.port", 0)
 	viper.SetDefault("preview.redis.db", previewRedisDB)
 	viper.SetDefault("preview.redis.password", "")
 	viper.SetDefault("preview.cache_ttl", "24h")
@@ -297,6 +347,9 @@ func setDefaults() {
 	// the bound a hung loader or a hung Redis would pin a build slot and
 	// its singleflight key forever.
 	viper.SetDefault("preview.build_timeout", "2m")
+
+	// Ceiling on simultaneous cold builds.
+	viper.SetDefault("preview.max_concurrent_builds", previewMaxConcurrentBuilds)
 
 	// Preview input gates — derived from the phase-0 catalog measurement.
 	// Each can be overridden in config without touching code.
@@ -387,6 +440,31 @@ func (c *Config) GetPostgresConnectionString() string {
 // GetRedisAddress returns Redis address
 func (c *Config) GetRedisAddress() string {
 	return fmt.Sprintf("%s:%d", c.Redis.Host, c.Redis.Port)
+}
+
+// GetPreviewRedisAddress resolves where the preview cache lives. A preview
+// host or port left unset inherits the main Redis connection — the fallback
+// exists so the preview works out of the box on the shared instance while
+// remaining movable to its own instance through configuration alone.
+func (c *Config) GetPreviewRedisAddress() string {
+	host := c.Preview.Redis.Host
+	if host == "" {
+		host = c.Redis.Host
+	}
+	port := c.Preview.Redis.Port
+	if port == 0 {
+		port = c.Redis.Port
+	}
+	return fmt.Sprintf("%s:%d", host, port)
+}
+
+// GetPreviewRedisPassword mirrors GetPreviewRedisAddress for the password:
+// an unset preview password means "the main Redis password".
+func (c *Config) GetPreviewRedisPassword() string {
+	if c.Preview.Redis.Password != "" {
+		return c.Preview.Redis.Password
+	}
+	return c.Redis.Password
 }
 
 // IsDevelopment returns true if running in development mode

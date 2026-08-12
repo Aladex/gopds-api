@@ -32,6 +32,10 @@ import (
 // Global variable for the Telegram service
 var telegramService *telegram.TelegramService
 
+// previewService is the book-preview pipeline, assembled from configuration
+// alongside the other dependencies. The phase-4 HTTP handlers consume it.
+var previewService *services.PreviewService
+
 func main() {
 	loadConfiguration()
 
@@ -47,6 +51,12 @@ func main() {
 	sessions.SetRedisConnections(mainRedisClient, tokenRedisClient)
 	rateLimitRedis := sessions.RedisConnection(2, cfg)
 	middlewares.SetRateLimitRedis(rateLimitRedis)
+
+	// The preview pipeline is built where the rest of the dependencies are,
+	// from the same configuration; its Redis is the preview's own (or the
+	// shared instance's preview DB when preview.redis.* is unset).
+	previewService = initializePreviewService()
+	defer previewService.Shutdown()
 
 	// Initialize the Telegram bot manager
 	telegramConfig := &telegram.Config{

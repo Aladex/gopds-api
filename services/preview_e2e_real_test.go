@@ -5,8 +5,9 @@
 // it survives contact with books nobody wrote for it.
 //
 // Run: go test -tags e2ereal -run TestRealBooks ./services/ -v
-//   REAL_BOOKS_DIR — directory with .fb2 files
-//   PREVIEW_REDIS  — host:port of a scratch Redis (default 127.0.0.1:6380)
+//
+//	REAL_BOOKS_DIR — directory with .fb2 files
+//	PREVIEW_REDIS  — host:port of a scratch Redis (default 127.0.0.1:6380)
 package services
 
 import (
@@ -67,7 +68,7 @@ func TestRealBooksEndToEnd(t *testing.T) {
 				FileName: filepath.Base(path),
 				Approved: true,
 			}
-			svc := NewPreviewService(realRepo{book}, fileLoader{path}, cache, 2, PreviewLimits{}, 0)
+			svc := NewPreviewService(realRepo{book}, fileLoader{path}, cache, 2, PreviewLimits{}, 0, 0)
 
 			raw, err := svc.Load(context.Background(), book.ID, false)
 			if err != nil {

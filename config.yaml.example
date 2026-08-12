@@ -22,6 +22,22 @@ redis:
   password: ""
   db: 0
 
+# Book preview pipeline. Every key has a built-in default, so the whole
+# section may be omitted; set it to re-tune the gates after a catalog
+# re-measurement or to move the preview cache to its own Redis.
+# preview:
+#   redis:
+#     host: ""        # empty = same host as the main redis above
+#     port: 0         # 0 = same port as the main redis
+#     password: ""    # empty = same password as the main redis
+#     db: 3           # the preview's own DB number (never shared)
+#   cache_ttl: 24h
+#   build_timeout: 2m
+#   max_concurrent_builds: 4
+#   max_fb2_bytes: 33554432      # 32 MiB
+#   max_binaries: 1000
+#   max_binaries_bytes: 33554432 # 32 MiB
+
 sessions:
   key: randomSessionKey12345
   refresh: randomRefreshKey12345

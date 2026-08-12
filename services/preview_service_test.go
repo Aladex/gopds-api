@@ -69,12 +69,16 @@ func (l *fakeArchiveLoader) Load(_ context.Context, _, _ string) ([]byte, error)
 // (singleflight tests) call Get/Put simultaneously — without it, the race
 // detector flags every map access.
 type mockPreviewCache struct {
-	mu                sync.Mutex
-	pingErr           error
-	putImageErr       error
-	getManifestErr    error
-	getChunkErr       error
-	manifests         map[string][]byte
+	mu             sync.Mutex
+	pingErr        error
+	putImageErr    error
+	getManifestErr error
+	getChunkErr    error
+	manifests      map[string][]byte
+	// manifestTTL records the TTL passed to the last PutManifest: the wiring
+	// tests assert on the value that crossed the interface, not on a service
+	// field, so a TTL read from nowhere cannot fake it.
+	manifestTTL       time.Duration
 	chunks            map[string]map[int][]byte
 	images            map[string]map[int]mockImage
 	putOrder          []string
@@ -123,11 +127,12 @@ func (c *mockPreviewCache) GetManifest(_ context.Context, key string) ([]byte, e
 	return data, nil
 }
 
-func (c *mockPreviewCache) PutManifest(_ context.Context, key string, data []byte, _ time.Duration) error {
+func (c *mockPreviewCache) PutManifest(_ context.Context, key string, data []byte, ttl time.Duration) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.putOrder = append(c.putOrder, "manifest:"+key)
 	c.manifests[key] = data
+	c.manifestTTL = ttl
 	if c.manifestWritten != nil {
 		select {
 		case c.manifestWritten <- struct{}{}:
@@ -213,7 +218,7 @@ func TestPreviewService_HiddenBookDoesNotTouchArchive(t *testing.T) {
 		1: {ID: 1, Format: formatFB2, DuplicateHidden: true, Approved: true},
 	}}
 	loader := &fakeArchiveLoader{}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0)
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0, 0)
 
 	_, err := svc.Load(context.Background(), 1, false)
 	if !errors.Is(err, ErrBookNotVisible) {
@@ -235,7 +240,7 @@ func TestPreviewService_SuperUserOpensUnapprovedAndHidden(t *testing.T) {
 		1: {ID: 1, Format: formatFB2, Approved: false, DuplicateHidden: true, MD5: "abc123"},
 	}}
 	loader := &fakeArchiveLoader{data: []byte(minimalFB2)}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0)
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0, 0)
 
 	// Superuser: the gate passes, the loader fires.
 	if _, err := svc.Load(context.Background(), 1, true); err != nil {
@@ -265,7 +270,7 @@ func TestPreviewService_NonFB2IsRefusedWithoutLoading(t *testing.T) {
 		1: {ID: 1, Format: "epub", Approved: true, DuplicateHidden: false},
 	}}
 	loader := &fakeArchiveLoader{}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0)
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0, 0)
 
 	_, err := svc.Load(context.Background(), 1, false)
 	if !errors.Is(err, ErrUnsupportedFormat) {
@@ -284,7 +289,7 @@ func TestPreviewService_NonFB2IsRefusedWithoutLoading(t *testing.T) {
 func TestPreviewService_MissingBookIsRefused(t *testing.T) {
 	repo := &fakeBookRepo{books: map[int64]*models.Book{}}
 	loader := &fakeArchiveLoader{}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0)
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0, 0)
 
 	_, err := svc.Load(context.Background(), 999, false)
 	if !errors.Is(err, ErrBookNotFound) {
@@ -305,7 +310,7 @@ func TestPreviewService_UnapprovedButNotHiddenIsRefused(t *testing.T) {
 		1: {ID: 1, Format: formatFB2, Approved: false, DuplicateHidden: false},
 	}}
 	loader := &fakeArchiveLoader{}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0)
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0, 0)
 
 	_, err := svc.Load(context.Background(), 1, false)
 	if !errors.Is(err, ErrBookNotVisible) {
@@ -325,7 +330,7 @@ func TestPreviewService_DatabaseErrorIsPropagated(t *testing.T) {
 	dbErr := errors.New("connection refused")
 	repo := &fakeBookRepo{err: dbErr}
 	loader := &fakeArchiveLoader{}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0)
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0, 0)
 
 	_, err := svc.Load(context.Background(), 1, false)
 	if err == nil {
@@ -352,7 +357,7 @@ func TestPreviewService_ApprovedNotHiddenPassesVisibility(t *testing.T) {
 		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "def456"},
 	}}
 	loader := &fakeArchiveLoader{data: []byte(minimalFB2)}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0)
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0, 0)
 
 	if _, err := svc.Load(context.Background(), 1, false); err != nil {
 		t.Fatalf("an approved, non-hidden book must pass visibility: %v", err)
@@ -373,7 +378,7 @@ func TestPreviewService_CacheUnavailableRefusesWithoutLoading(t *testing.T) {
 	loader := &fakeArchiveLoader{data: []byte(minimalFB2)}
 	cache := newMockCache()
 	cache.pingErr = errors.New("redis is down")
-	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0)
+	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0, 0)
 
 	_, err := svc.Load(context.Background(), 1, false)
 	if !errors.Is(err, ErrCacheUnavailable) {
@@ -390,7 +395,7 @@ func TestPreviewService_SecondRequestDoesNotOpenArchive(t *testing.T) {
 		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc", Path: "/x", FileName: "y.fb2"},
 	}}
 	loader := &fakeArchiveLoader{data: []byte(minimalFB2)}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0)
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0, 0)
 
 	// First: cache miss, loader fires once.
 	if _, err := svc.Load(context.Background(), 1, false); err != nil {
@@ -418,7 +423,7 @@ func TestPreviewService_DifferentMD5ProducesDifferentKey(t *testing.T) {
 		2: {ID: 2, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "bbb", Path: "/x", FileName: "b.fb2"},
 	}}
 	loader := &fakeArchiveLoader{data: []byte(minimalFB2)}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0)
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0, 0)
 
 	if _, err := svc.Load(context.Background(), 1, false); err != nil {
 		t.Fatalf("book1: %v", err)
@@ -448,7 +453,7 @@ func TestPreviewService_EmptyMD5IsRefused(t *testing.T) {
 		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: ""},
 	}}
 	loader := &fakeArchiveLoader{}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0)
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0, 0)
 
 	_, err := svc.Load(context.Background(), 1, false)
 	if !errors.Is(err, ErrEmptyMD5) {
@@ -472,7 +477,7 @@ func TestPreviewService_ManifestWithoutChunkIsCacheMissAndChunksWrittenFirst(t *
 	// stores by the raw key (no manifest/chunk prefix) — the service
 	// passes buildCacheKey output to both GetManifest and GetChunk. The
 	// key is asked of the service, not re-derived in the test.
-	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0)
+	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0, 0)
 	key := buildCacheKey("abc", svc.revision(repo.books[1]))
 	cache.manifests[key] = []byte("stale-manifest")
 
@@ -648,7 +653,7 @@ func TestPreviewService_ConcurrentRequestsTriggerOneLoad(t *testing.T) {
 	const N = 10
 	release := make(chan struct{})
 	loader := &barrierArchiveLoader{data: []byte(minimalFB2), entered: make(chan struct{}, 2*N), release: release}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0)
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0, 0)
 
 	var wg sync.WaitGroup
 	results := make([]loadResult, N)
@@ -692,7 +697,7 @@ func TestPreviewService_BuildCeilingRefusesWithErrTooManyBuilds(t *testing.T) {
 	}}
 	release := make(chan struct{})
 	loader := &barrierArchiveLoader{data: []byte(minimalFB2), entered: make(chan struct{}, 2), release: release}
-	svc := NewPreviewService(repo, loader, newMockCache(), 1, defaultPreviewLimits(), 0) // ceiling = 1
+	svc := NewPreviewService(repo, loader, newMockCache(), 1, defaultPreviewLimits(), 0, 0) // ceiling = 1
 
 	book1Done := make(chan loadResult, 1)
 	go func() {
@@ -730,7 +735,7 @@ func TestPreviewService_CancelOneWaiterOthersStillGetResult(t *testing.T) {
 	release := make(chan struct{})
 	loader := &barrierArchiveLoader{data: []byte(minimalFB2), entered: make(chan struct{}, 2), release: release}
 	cache := newMockCache()
-	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0)
+	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0, 0)
 
 	ctxA, cancelA := context.WithCancel(context.Background())
 
@@ -782,7 +787,7 @@ func TestPreviewService_AllWaitersCancelBuildStillCompletes(t *testing.T) {
 	loader := &barrierArchiveLoader{data: []byte(minimalFB2), entered: make(chan struct{}, 1), release: release}
 	cache := newMockCache()
 	cache.manifestWritten = make(chan struct{}, 1)
-	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0)
+	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0, 0)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan loadResult, 1)
@@ -824,7 +829,7 @@ func TestPreviewService_BuildContextIsDetachedFromRequest(t *testing.T) {
 	loader := &barrierArchiveLoader{data: []byte(minimalFB2), entered: make(chan struct{}, 1), release: release}
 	cache := newMockCache()
 	cache.manifestWritten = make(chan struct{}, 1)
-	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0)
+	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0, 0)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan loadResult, 1)
@@ -881,7 +886,7 @@ func TestPreviewService_MissingFileInArchiveIsRefused(t *testing.T) {
 		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc", Path: "/x", FileName: "missing.fb2"},
 	}}
 	loader := &fakeArchiveLoader{err: ErrArchiveFileNotFound}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0)
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0, 0)
 
 	_, err := svc.Load(context.Background(), 1, false)
 	if !errors.Is(err, ErrArchiveFileNotFound) {
@@ -906,7 +911,7 @@ func TestPreviewService_OversizeFB2RefusesBeforeParsing(t *testing.T) {
 	}
 	defer func() { parseForGates = prev }()
 
-	svc := NewPreviewService(repo, loader, newMockCache(), 4, tightLimits, 0)
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, tightLimits, 0, 0)
 	_, err := svc.Load(context.Background(), 1, false)
 	if !errors.Is(err, ErrFB2TooLarge) {
 		t.Fatalf("err = %v, want ErrFB2TooLarge", err)
@@ -924,7 +929,7 @@ func TestPreviewService_TooManyBinariesIsRefused(t *testing.T) {
 	loader := &fakeArchiveLoader{data: []byte(fb2WithBinaries)} // 2 binaries
 	oneBinaryLimit := PreviewLimits{MaxFB2Bytes: 32 << 20, MaxBinaries: 1, MaxBinariesBytes: 32 << 20}
 
-	svc := NewPreviewService(repo, loader, newMockCache(), 4, oneBinaryLimit, 0)
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, oneBinaryLimit, 0, 0)
 	_, err := svc.Load(context.Background(), 1, false)
 	if !errors.Is(err, ErrTooManyBinaries) {
 		t.Fatalf("err = %v, want ErrTooManyBinaries", err)
@@ -939,7 +944,7 @@ func TestPreviewService_BinariesTooHeavyIsRefused(t *testing.T) {
 	loader := &fakeArchiveLoader{data: []byte(fb2WithBinaries)} // 6 decoded bytes total
 	tinyWeightLimit := PreviewLimits{MaxFB2Bytes: 32 << 20, MaxBinaries: 1000, MaxBinariesBytes: 4}
 
-	svc := NewPreviewService(repo, loader, newMockCache(), 4, tinyWeightLimit, 0)
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, tinyWeightLimit, 0, 0)
 	_, err := svc.Load(context.Background(), 1, false)
 	if !errors.Is(err, ErrBinariesTooLarge) {
 		t.Fatalf("err = %v, want ErrBinariesTooLarge", err)
@@ -954,7 +959,7 @@ func TestPreviewService_BookWithinAllGatesPasses(t *testing.T) {
 		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc", Path: "/x", FileName: "ok.fb2"},
 	}}
 	loader := &fakeArchiveLoader{data: []byte(fb2WithBinaries)}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0)
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0, 0)
 
 	data, err := svc.Load(context.Background(), 1, false)
 	if err != nil {
@@ -982,7 +987,7 @@ func TestPreviewService_ManifestReadFailureIsNotAMiss(t *testing.T) {
 	cache := newMockCache()
 	// A plain untyped error stands for a broken backend; it is NOT ErrCacheMiss.
 	cache.getManifestErr = errors.New("connection reset by peer")
-	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0)
+	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0, 0)
 
 	_, err := svc.Load(context.Background(), 1, false)
 	if loader.calls != 0 {
@@ -1003,7 +1008,7 @@ func TestPreviewService_ChunkReadFailureIsNotAMiss(t *testing.T) {
 	}}
 	loader := &fakeArchiveLoader{data: []byte(minimalFB2)}
 	cache := newMockCache()
-	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0)
+	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0, 0)
 
 	// The manifest is present; only the chunk read fails (not a miss).
 	key := buildCacheKey("abc", svc.revision(repo.books[1]))
@@ -1040,7 +1045,7 @@ func TestPreviewService_LeaderRechecksCacheBeforeRebuilding(t *testing.T) {
 	release := make(chan struct{})
 	loader := &barrierArchiveLoader{data: []byte(minimalFB2), entered: make(chan struct{}, 2), release: release}
 	cache := newStaleMissCache()
-	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0)
+	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0, 0)
 
 	// A builds the book from cold.
 	aDone := make(chan loadResult, 1)
@@ -1103,7 +1108,7 @@ func TestPreviewService_StuckLoaderBuildTimesOut(t *testing.T) {
 	loader := &barrierArchiveLoader{data: []byte(minimalFB2), entered: make(chan struct{}, 2), release: make(chan struct{})}
 	// Ceiling 1: if the timed-out build kept its slot, the second request
 	// below would see ErrTooManyBuilds instead of reaching the loader.
-	svc := NewPreviewService(repo, loader, newMockCache(), 1, defaultPreviewLimits(), 50*time.Millisecond)
+	svc := NewPreviewService(repo, loader, newMockCache(), 1, defaultPreviewLimits(), 50*time.Millisecond, 0)
 
 	first := make(chan loadResult, 1)
 	go func() {
@@ -1139,7 +1144,7 @@ func TestPreviewService_ShutdownAbortsInFlightBuild(t *testing.T) {
 		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc", Path: "/x", FileName: "y.fb2"},
 	}}
 	loader := &barrierArchiveLoader{data: []byte(minimalFB2), entered: make(chan struct{}, 1), release: make(chan struct{})}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0)
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0, 0)
 
 	done := make(chan loadResult, 1)
 	go func() {
@@ -1167,7 +1172,7 @@ func TestPreviewService_CanceledRequestStartsNoBuild(t *testing.T) {
 	release := make(chan struct{})
 	defer close(release) // unblock the loader if a mutant ever starts a build
 	loader := &barrierArchiveLoader{data: []byte(minimalFB2), entered: make(chan struct{}, 1), release: release}
-	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0)
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0, 0)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // the reader is already gone

@@ -23,6 +23,12 @@ type BookProcessor struct {
 	path     string
 }
 
+// ErrBookNotInArchive reports that the archive opened fine but holds no
+// entry with the requested name. Typed so callers that distinguish "no such
+// entry" from "archive unreadable" (the preview pipeline maps them to
+// different answers) can match on it instead of on a message string.
+var ErrBookNotInArchive = errors.New("book not found")
+
 func FileExists(path string) bool {
 	_, err := os.Stat(path)
 	return !os.IsNotExist(err)
@@ -90,7 +96,7 @@ func (bp *BookProcessor) process() (io.ReadCloser, error) {
 		closeResource(rc)
 		return content, err
 	}
-	return nil, errors.New("book not found")
+	return nil, ErrBookNotInArchive
 }
 
 func (bp *BookProcessor) readWithoutConversion(rc io.ReadCloser) (io.ReadCloser, error) {
