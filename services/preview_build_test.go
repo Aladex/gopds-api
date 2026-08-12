@@ -16,6 +16,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -597,5 +598,38 @@ func TestPreviewBuild_CanceledBuildPublishesNoManifest(t *testing.T) {
 	key := buildCacheKey(1, "abc", svc.revision(repo.books[1]))
 	if _, err := cache.GetManifest(context.Background(), key); !errors.Is(err, ErrCacheMiss) {
 		t.Errorf("manifest present after cancellation (err = %v) — the build published a promise for work the timeout was supposed to stop", err)
+	}
+}
+
+// The seam between the layers. The parser hands a deadline out of its salvage
+// path, and the HTTP layer answers a deadline with 503 and thirty seconds —
+// both proven elsewhere. Neither proves that the deadline survives the
+// service in between: dropping the %w on the parse error would keep those two
+// tests green while the real pipeline lost the type and answered 500.
+//
+// This runs the real parser through the real service, on a book whose XML
+// breaks early enough to reach the salvage path, with a context already past
+// its deadline.
+func TestPreviewService_DeadlineSurvivesTheParseWrapping(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0"?><FictionBook><description><title-info>` +
+		`<book-title>КНИГА</book-title></title-info></description><body><section>`)
+	b.WriteString(`<p><![CDATA[ unterminated tail </p>`)
+	for i := 0; i < 20000; i++ {
+		fmt.Fprintf(&b, `<p>paragraph %d</p>`, i)
+	}
+	b.WriteString(`</section></body></FictionBook>`)
+
+	repo := buildBookRepo()
+	loader := &fakeArchiveLoader{data: []byte(b.String())}
+	cache := newMockCache()
+
+	// The build runs on the service context, not the request's, so the
+	// deadline has to come from the service's own cold-build budget.
+	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), time.Millisecond, 0)
+
+	_, err := svc.Load(context.Background(), 1, false)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v (%T), want a deadline — the type was lost between the parser and here", err, err)
 	}
 }

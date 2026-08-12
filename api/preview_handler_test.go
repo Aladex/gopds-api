@@ -775,15 +775,25 @@ func TestPreviewHandler_RefusalTable(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			rec := doPreviewGET(t, newPreviewTestRouter(&fakePreviewService{loadErr: tc.err}, false),
-				"/api/books/preview/123")
+		// Both forms, because production almost never hands over a bare
+		// sentinel: the service wraps what it passes on. A classifier that
+		// compared with == instead of errors.Is would answer every wrapped
+		// refusal with a blanket 500 while the bare column stayed green.
+		forms := map[string]error{
+			"bare":    tc.err,
+			"wrapped": fmt.Errorf("preview: while doing something: %w", tc.err),
+		}
+		for form, err := range forms {
+			t.Run(tc.name+", "+form, func(t *testing.T) {
+				rec := doPreviewGET(t, newPreviewTestRouter(&fakePreviewService{loadErr: err}, false),
+					"/api/books/preview/123")
 
-			require.Equal(t, tc.status, rec.Code)
-			var got httputil.HTTPError
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-			assert.Equal(t, tc.reason, got.Message, "the sentence a reader receives")
-			assert.Equal(t, tc.retryAfter, rec.Header().Get("Retry-After"))
-		})
+				require.Equal(t, tc.status, rec.Code)
+				var got httputil.HTTPError
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+				assert.Equal(t, tc.reason, got.Message, "the sentence a reader receives")
+				assert.Equal(t, tc.retryAfter, rec.Header().Get("Retry-After"))
+			})
+		}
 	}
 }
