@@ -195,17 +195,17 @@ func nextSyntheticAnchor(taken map[string]bool, seq *int) string {
 // it gave none. The first block carrying an id gets the anchor that spells it;
 // a later block repeating that id gets a synthetic one, because two blocks
 // cannot share an anchor and still both be reachable.
-func anchorForBlock(rawID string, used, taken map[string]bool, seq *int) string {
+func anchorForBlock(rawID string, used, taken map[string]bool, seq *int) (string, bool) {
 	a := bookAnchorFor(rawID)
 	if a == "" {
-		return ""
+		return "", false
 	}
 	if used[a] {
-		return nextSyntheticAnchor(taken, seq)
+		return nextSyntheticAnchor(taken, seq), false
 	}
 	used[a] = true
 	taken[a] = true
-	return a
+	return a, true
 }
 
 // flattenPreviewBlocks walks the document into an ordered stream of
@@ -259,12 +259,12 @@ func flattenPreviewBlocks(doc *FB2Document) []chunkBlock {
 			}
 			if item.Paragraph != nil {
 				blk := chunkBlock{para: item.Paragraph}
-				blk.anchor = anchorForBlock(item.Paragraph.ID, used, taken, &syntheticSeq)
+				blk.anchor, blk.ownsID = anchorForBlock(item.Paragraph.ID, used, taken, &syntheticSeq)
 				blocks = append(blocks, blk)
 			}
 			if item.Section != nil {
 				blk := chunkBlock{header: item.Section, depth: depth}
-				blk.anchor = anchorForBlock(item.Section.ID, used, taken, &syntheticSeq)
+				blk.anchor, blk.ownsID = anchorForBlock(item.Section.ID, used, taken, &syntheticSeq)
 				if blk.anchor == "" {
 					// A section the book left unnamed still needs somewhere
 					// for a table-of-contents entry to land.

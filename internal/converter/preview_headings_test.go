@@ -427,3 +427,69 @@ func TestPreviewChunk_DuplicateSourceIDsGetOwnAnchors(t *testing.T) {
 		t.Errorf("got %d distinct anchors for 4 headings: %v", len(seen), seen)
 	}
 }
+
+// A repeated id may land in a different portion than the first occurrence.
+// The link must still mean the first one: deciding ownership from what
+// happens to be in the portion would make the repeat locally first and send
+// the reader to the wrong section. When the first occurrence is elsewhere,
+// the link unwraps, exactly as it does for any other cross-portion target.
+func TestPreviewChunk_FirstWinsSurvivesChunking(t *testing.T) {
+	filler := strings.Repeat("СЛОВО ", 150)
+	src := `<?xml version="1.0"?><FictionBook><body>` +
+		`<section id="dup"><title><p>ПЕРВАЯ</p></title><p>` + filler + `</p></section>` +
+		`<section id="dup"><title><p>ВТОРАЯ</p></title>` +
+		`<p><a xlink:href="#dup">ССЫЛКА РЯДОМ С ПОВТОРОМ</a></p></section>` +
+		`</body></FictionBook>`
+
+	doc, err := ParseFB2Body(context.Background(), []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	// Block costs, measured: header 42, filler 1658, second header 46, link
+	// 73. A ceiling of 1720 holds the first section (1700) and leaves less
+	// room than the second header needs, so the repeat and the link travel
+	// together into the next portion — away from the first occurrence, which
+	// is the only arrangement that tests what this is about.
+	policy := PreviewPolicy{MaxChunkBytes: 1720}
+	chunks, err := ChunkPreview(context.Background(), doc, PreviewImages{}, policy)
+	if err != nil {
+		t.Fatalf("chunk: %v", err)
+	}
+	if len(chunks) < 2 {
+		t.Fatalf("the fixture stayed in one portion (%d) — it cannot test what happens across them", len(chunks))
+	}
+
+	var secondAnchor, htmlWithLink string
+	for _, chunk := range chunks {
+		html, rerr := RenderChunkHTML(chunk, PreviewImages{}, policy)
+		if rerr != nil {
+			t.Fatalf("render: %v", rerr)
+		}
+		for _, h := range chunk.Headings() {
+			if h.Title == "ВТОРАЯ" {
+				secondAnchor = h.Anchor
+			}
+		}
+		if strings.Contains(html, "ССЫЛКА РЯДОМ С ПОВТОРОМ") {
+			htmlWithLink = html
+		}
+	}
+	if secondAnchor == "" {
+		t.Fatal("the repeated section reported no anchor of its own")
+	}
+	if secondAnchor == "pv-dup" {
+		t.Errorf("the repeated section took the anchor of the first: %q", secondAnchor)
+	}
+	if htmlWithLink == "" {
+		t.Fatal("no portion carried the link")
+	}
+	if strings.Contains(htmlWithLink, `href="#`+secondAnchor+`"`) {
+		t.Errorf("the link was redirected to the repeat's own anchor %q — first-wins did not survive chunking", secondAnchor)
+	}
+	if strings.Contains(htmlWithLink, `href="#`) {
+		t.Errorf("the link resolved inside a portion that does not hold the first occurrence: %s", shorten(htmlWithLink))
+	}
+	if !strings.Contains(htmlWithLink, "ССЫЛКА РЯДОМ С ПОВТОРОМ") {
+		t.Error("the visible text of the unwrapped link went away")
+	}
+}

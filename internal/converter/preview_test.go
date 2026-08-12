@@ -94,8 +94,18 @@ func noteSection(id, body string) *FB2BodySection {
 // a second assignment site, which is the defect this design removed.
 func paraChunk(index int, paras ...*FB2Paragraph) *PreviewChunk {
 	chunk := &PreviewChunk{Index: index}
+	claimed := map[string]bool{}
 	for _, p := range paras {
-		chunk.blocks = append(chunk.blocks, chunkBlock{para: p, anchor: bookAnchorFor(p.ID)})
+		blk := chunkBlock{para: p, anchor: bookAnchorFor(p.ID)}
+		// Ownership follows the same rule as the chunker: the first block
+		// carrying an id owns it. A helper that skipped this would build
+		// portions the chunker never produces and test a shape that does not
+		// exist.
+		if blk.anchor != "" && !claimed[blk.anchor] {
+			claimed[blk.anchor] = true
+			blk.ownsID = true
+		}
+		chunk.blocks = append(chunk.blocks, blk)
 	}
 	return chunk
 }

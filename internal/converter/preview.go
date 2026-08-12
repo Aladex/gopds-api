@@ -124,6 +124,11 @@ type chunkBlock struct {
 	depth  int             // Section depth, 1 for top level
 	para   *FB2Paragraph   // Set for a paragraph block
 	anchor string          // Assigned anchor, unique within the book
+	// ownsID marks the block the book's own id points at: the first one
+	// carrying it. A later block repeating that id gets its own anchor but no
+	// ownership, so a cross-reference keeps meaning the first occurrence even
+	// after chunking splits the two apart.
+	ownsID bool
 }
 
 // PreviewChunk is one portion of the book: an ordered run of blocks plus the

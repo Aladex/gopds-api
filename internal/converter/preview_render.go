@@ -133,12 +133,16 @@ func collectBlockAnchors(blocks []chunkBlock) *anchorTable {
 			continue
 		}
 		byBlock[i] = block.anchor
-		// Reserve book-supplied ids to avoid synthetic collisions.
-		key := anchorKey(blockRawID(block))
-		if key != "" {
-			if _, taken := byID[key]; taken {
-				continue
-			}
+		// Only the block that owns the book's id resolves references to it.
+		// Deciding ownership from what happens to be in this portion would
+		// make a repeated id the owner whenever chunking separated it from
+		// the first occurrence, and a cross-reference would quietly point at
+		// the wrong section instead of unwrapping as it does for any other
+		// target in another portion.
+		if !block.ownsID {
+			continue
+		}
+		if key := anchorKey(blockRawID(block)); key != "" {
 			byID[key] = block.anchor
 		}
 	}
