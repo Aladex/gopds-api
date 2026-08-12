@@ -178,11 +178,27 @@ export default function BookPreviewDialog({
 
     // The narrow TOC panel. Open state is local; closing it without a
     // selection touches nothing else, which is exactly why the reader's
-    // place survives a glance at the contents. `pendingAnchor` is the
-    // anchor a TOC entry named; it stays pending across the chunk fetch
-    // and clears once the scroll has been aimed.
+    // place survives a glance at the contents.
     const [tocPanelOpen, setTocPanelOpen] = useState(false);
-    const [pendingAnchor, setPendingAnchor] = useState<string | null>(null);
+
+    /**
+     * Where the reader asked to be taken, queued until the portion is in the
+     * document. `anchor` is the heading a contents entry named; without one
+     * the destination is the top of the portion itself, which is what "Next"
+     * asks for.
+     *
+     * Next used to queue nothing, and that made it look broken: the portion
+     * did arrive and was appended below, but the view stayed where it was —
+     * a reader taps Next, the text does not move, and the only honest
+     * conclusion is that the button does nothing. Reported from production
+     * within the hour, by the one reader who had it: "Дальше не работает,
+     * переключение через содержание работает" — the contents worked because
+     * that path had a scroll and this one did not.
+     */
+    const [pendingScroll, setPendingScroll] = useState<{
+        index: number;
+        anchor: string | null;
+    } | null>(null);
 
     // Monotone stamps of the most recent request on each channel. A response
     // handler applies its payload only while its captured stamp still equals
@@ -221,9 +237,9 @@ export default function BookPreviewDialog({
         setFirstErrorKind(null);
         setChunkFailure(null);
         // A new book means the TOC below belongs to a different text: any
-        // open panel and any pending anchor are stale.
+        // open panel and any queued destination are stale.
         setTocPanelOpen(false);
-        setPendingAnchor(null);
+        setPendingScroll(null);
 
         previewClient.getPreview(bookId, controller.signal).then(
             (p) => {
@@ -310,7 +326,13 @@ export default function BookPreviewDialog({
     const goNext = () => {
         if (awaitingChunk) return;
         setChunkFailure(null);
-        setCurrentIndex((i) => i + 1);
+        // Both from the rendered index rather than a functional update: a
+        // setState inside another setState's updater runs during render,
+        // which React refuses — it took the whole dialog down to an empty
+        // div, and every test in the file with it.
+        const nextIndex = currentIndex + 1;
+        setPendingScroll({index: nextIndex, anchor: null});
+        setCurrentIndex(nextIndex);
     };
 
     // A TOC entry opens the portion it names. A failure pinned to another
@@ -358,23 +380,24 @@ export default function BookPreviewDialog({
     const activeTocItem = activeTocIndex === -1 ? null : tocEntries[activeTocIndex];
 
     const selectTocItem = (item: { chunk: number; anchor: string }) => {
-        // Queue the anchor first: the scroll effect waits for the portion to
-        // arrive and clears the queue when it has aimed the scroll.
-        setPendingAnchor(item.anchor);
+        // Queue the destination first: the scroll effect waits for the
+        // portion to arrive and clears the queue when it has aimed the scroll.
+        setPendingScroll({index: item.chunk, anchor: item.anchor});
         goToChunk(item.chunk);
         setTocPanelOpen(false);
     };
 
-    // Whether the current portion has settled in DOM. Anchoring runs only
-    // then: a portion still in flight has no DOM for an anchor to live in.
-    const currentPortionReady = portions.has(currentIndex);
+    // Whether the portion the reader is waiting for has settled in DOM.
+    // Scrolling runs only then: a portion still in flight has nothing to
+    // scroll to.
+    const pendingPortionReady = pendingScroll != null && portions.has(pendingScroll.index);
 
     useEffect(() => {
-        if (pendingAnchor == null) return;
-        if (!currentPortionReady) return;
+        if (pendingScroll == null) return;
+        if (!pendingPortionReady) return;
 
         const area = scrollAreaRef.current;
-        const anchor = pendingAnchor;
+        const {index, anchor} = pendingScroll;
         // The queue is state and not a ref on purpose, at the price of the
         // setState-in-effect this file already carries twice. A ref would
         // leave this effect depending on the portion alone, and a book with
@@ -383,28 +406,29 @@ export default function BookPreviewDialog({
         // queue a scroll nothing ever re-runs to perform.
         // Clear before aiming: if something below throws, the queue is
         // still empty next time, which is better than re-running forever.
-        setPendingAnchor(null);
+        setPendingScroll(null);
         if (!area) return;
 
-        // The anchor is searched only inside the current portion. An FB2
-        // chunk may legitimately share its id space with another chunk's
+        // The anchor is searched only inside the portion that named it. An
+        // FB2 chunk may legitimately share its id space with another chunk's
         // (the server guarantees uniqueness within a chunk, not across
         // them), so a global getElementById could match a portion the
         // reader is not looking at.
         const portionEl = area.querySelector(
-            `[data-testid="preview-portion-${currentIndex}"]`,
+            `[data-testid="preview-portion-${index}"]`,
         );
-        const anchorEl = document.getElementById(anchor);
+        const anchorEl = anchor == null ? null : document.getElementById(anchor);
         if (anchorEl && portionEl && portionEl.contains(anchorEl)) {
             anchorEl.scrollIntoView({ block: 'start' });
         } else if (portionEl) {
-            // The anchor the server promised is missing from the chunk — a
-            // spec violation in the data, but not a reason to throw or to
-            // leave the reader looking at the wrong place. The portion's
-            // top is the closest honest fallback.
+            // Either no anchor was asked for — "Next" wants the top of what
+            // it just fetched — or the anchor the server promised is missing
+            // from the chunk. The second is a spec violation in the data, and
+            // neither is a reason to throw or to leave the reader looking at
+            // the page they were already on.
             portionEl.scrollIntoView({ block: 'start' });
         }
-    }, [pendingAnchor, currentPortionReady, currentIndex]);
+    }, [pendingScroll, pendingPortionReady]);
 
     // Initialise every footnote the server ships: collapse the body and
     // mark the link as expanded=false. The data attribute distinguishes

@@ -490,6 +490,46 @@ describe('BookPreviewDialog — request ordering', () => {
         expect(screen.getByTestId('first-portion')).toBeInTheDocument();
     });
 
+    it('takes the reader to the portion "Next" fetched', async () => {
+        // Reported from production the hour this shipped: "Дальше не
+        // работает, переключение через содержание работает". The button did
+        // work — the portion arrived and was appended below the one on
+        // screen — but nothing moved the view, so from the reader's chair the
+        // press did nothing. The contents path looked fine because it had a
+        // scroll and this one did not.
+        const previousScrollIntoView = Element.prototype.scrollIntoView;
+        const scrollIntoView = vi.fn();
+        Element.prototype.scrollIntoView = scrollIntoView;
+
+        getPreview.mockImplementation(
+            signalAware(() =>
+                makePreview({
+                    chunk_count: 2,
+                    toc: [],
+                    first_chunk: '<p data-testid="first-portion">first</p>',
+                }),
+            ),
+        );
+        getChunk.mockImplementation(
+            signalAware(() => ({ chunk: '<p data-testid="portion-1-html">second</p>' })),
+        );
+
+        renderDialog();
+        await screen.findByTestId('first-portion');
+        expect(scrollIntoView).not.toHaveBeenCalled();
+
+        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await screen.findByTestId('portion-1-html');
+
+        await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+        // The top of what was just fetched, not of the book and not of the
+        // portion the reader was already looking at.
+        const target = scrollIntoView.mock.instances[0] as HTMLElement;
+        expect(target.dataset.testid).toBe('preview-portion-1');
+
+        Element.prototype.scrollIntoView = previousScrollIntoView;
+    });
+
     it('race: a slower earlier answer never displaces the portion the reader moved to', async () => {
         const calls = renderThreeChapterDialog();
         await screen.findByTestId('first-portion');
@@ -1129,6 +1169,12 @@ describe('BookPreviewDialog — narrow TOC panel', () => {
 
         // jsdom does not implement scrollIntoView at all; install a stub on
         // the prototype before the component mounts so the call is observable.
+        // setupTests installs a no-op for the whole run, because jsdom has
+        // none; a test that wants to watch the calls puts its own spy over
+        // it and must put the no-op back, not delete it. Deleting left the
+        // rest of the file without the method, and the next test that
+        // scrolled took the dialog down with a TypeError.
+        const previousScrollIntoView = Element.prototype.scrollIntoView;
         const scrollIntoView = vi.fn();
         Element.prototype.scrollIntoView = scrollIntoView;
 
@@ -1148,7 +1194,7 @@ describe('BookPreviewDialog — narrow TOC panel', () => {
         expect(target.id).toBe('c2');
         expect(screen.queryByTestId('preview-toc-panel')).not.toBeInTheDocument();
 
-        delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView;
+        Element.prototype.scrollIntoView = previousScrollIntoView;
     });
 
     it('scrolls to the anchor from the wide column too, not only the panel', async () => {
@@ -1176,6 +1222,12 @@ describe('BookPreviewDialog — narrow TOC panel', () => {
             })),
         );
 
+        // setupTests installs a no-op for the whole run, because jsdom has
+        // none; a test that wants to watch the calls puts its own spy over
+        // it and must put the no-op back, not delete it. Deleting left the
+        // rest of the file without the method, and the next test that
+        // scrolled took the dialog down with a TypeError.
+        const previousScrollIntoView = Element.prototype.scrollIntoView;
         const scrollIntoView = vi.fn();
         Element.prototype.scrollIntoView = scrollIntoView;
 
@@ -1189,7 +1241,7 @@ describe('BookPreviewDialog — narrow TOC panel', () => {
         await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
         expect((scrollIntoView.mock.instances[0] as HTMLElement).id).toBe('c2');
 
-        delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView;
+        Element.prototype.scrollIntoView = previousScrollIntoView;
     });
 
     it('selecting a second entry inside the portion already shown still scrolls', async () => {
@@ -1213,6 +1265,12 @@ describe('BookPreviewDialog — narrow TOC panel', () => {
             ),
         );
 
+        // setupTests installs a no-op for the whole run, because jsdom has
+        // none; a test that wants to watch the calls puts its own spy over
+        // it and must put the no-op back, not delete it. Deleting left the
+        // rest of the file without the method, and the next test that
+        // scrolled took the dialog down with a TypeError.
+        const previousScrollIntoView = Element.prototype.scrollIntoView;
         const scrollIntoView = vi.fn();
         Element.prototype.scrollIntoView = scrollIntoView;
 
@@ -1240,7 +1298,7 @@ describe('BookPreviewDialog — narrow TOC panel', () => {
         await waitFor(() => expect(scrollIntoView).toHaveBeenCalledTimes(2));
         expect((scrollIntoView.mock.instances[1] as HTMLElement).id).toBe('p2');
 
-        delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView;
+        Element.prototype.scrollIntoView = previousScrollIntoView;
     });
 
     it('selecting an entry whose anchor is absent scrolls to the portion, with no error', async () => {
@@ -1264,6 +1322,12 @@ describe('BookPreviewDialog — narrow TOC panel', () => {
             })),
         );
 
+        // setupTests installs a no-op for the whole run, because jsdom has
+        // none; a test that wants to watch the calls puts its own spy over
+        // it and must put the no-op back, not delete it. Deleting left the
+        // rest of the file without the method, and the next test that
+        // scrolled took the dialog down with a TypeError.
+        const previousScrollIntoView = Element.prototype.scrollIntoView;
         const scrollIntoView = vi.fn();
         Element.prototype.scrollIntoView = scrollIntoView;
 
@@ -1283,7 +1347,7 @@ describe('BookPreviewDialog — narrow TOC panel', () => {
         const target = scrollIntoView.mock.instances[0] as HTMLElement;
         expect(target).toHaveAttribute('data-testid', 'preview-portion-1');
 
-        delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView;
+        Element.prototype.scrollIntoView = previousScrollIntoView;
     });
 });
 
