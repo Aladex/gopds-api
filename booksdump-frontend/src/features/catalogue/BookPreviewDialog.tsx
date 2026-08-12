@@ -58,7 +58,7 @@ const ERROR_KEY: Record<PreviewErrorKind, string> = {
  * no blank line between them, mirroring print. Justification is paired with
  * hyphenation so word spacing does not tear the right margin.
  */
-const TEXT_COLUMN_CLASS = cn(
+export const TEXT_COLUMN_CLASS = cn(
     'max-w-[62ch] flex-1 min-w-0',
     'text-[18px] leading-[1.4]',
     '[&_.portion_p]:indent-[1.5em] [&_.portion_p]:my-0',
