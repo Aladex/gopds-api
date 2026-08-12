@@ -25,33 +25,45 @@ describe('the card layout boundary', () => {
     const cardSource = readFileSync(projectPath('../../../features/catalogue/BookCard.tsx'), 'utf8');
 
     /**
-     * The responsive variants the card actually styles itself with.
+     * Every class the card writes that carries a responsive variant.
      *
-     * Comments are stripped first and only string literals are searched,
-     * because a prefix mentioned in prose is not a style: with the classes
-     * removed and the word left in a comment, an earlier version of this test
-     * happily reported that the card still switched at 40rem.
+     * Comments are stripped first and only string literals are searched: with
+     * the classes removed and the word left in prose, an earlier version of
+     * this test happily reported that the card still switched at 40rem. Both
+     * quote styles are collected — reading only single-quoted strings left
+     * every className="..." in the file unexamined, which is most of them.
      *
-     * The prefix is captured whole, `max-` included. `max-sm:` is not a
-     * spelling of `sm:` — it applies below the boundary rather than above it,
-     * so pairing it with a min-width query puts CSS and React on opposite
-     * sides of the same number.
+     * Whole classes are kept, not prefixes. A variant chain like
+     * `sm:max-lg:flex` starts with the right word and means something else
+     * entirely, and no amount of prefix-matching notices that. What the class
+     * means is decided by compiling it.
      */
-    const variantsUsedByCard = () => {
+    const responsiveClassesOfCard = () => {
         const withoutComments = cardSource
             .replace(/\/\*[\s\S]*?\*\//g, ' ')
             .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+        const responsive = /(?:^|:)(?:max-)?(?:sm|md|lg|xl|2xl):/;
         const found = new Set<string>();
-        for (const [, literal] of withoutComments.matchAll(/'([^'\n]*)'|"([^"\n]*)"/g)) {
-            for (const [, variant] of (literal ?? '').matchAll(/(?:^|\s)((?:max-)?(?:sm|md|lg|xl|2xl)):/g)) {
-                found.add(variant);
+        for (const match of withoutComments.matchAll(/'([^'\n]*)'|"([^"\n]*)"/g)) {
+            const literal = match[1] ?? match[2] ?? '';
+            for (const token of literal.split(/\s+/)) {
+                if (responsive.test(token)) {
+                    found.add(token);
+                }
             }
         }
         return [...found];
     };
 
-    const widthOfVariant = async (variant: string) => {
-        const design = await __unstable__loadDesignSystem(
+    let cached: Awaited<ReturnType<typeof __unstable__loadDesignSystem>> | undefined;
+
+    /**
+     * The project's own Tailwind, compiled in process from src/index.css.
+     * Reading a previous build instead would answer for whatever was built
+     * last, and there is nothing to build on a clean checkout.
+     */
+    const designSystem = async () => {
+        cached ??= await __unstable__loadDesignSystem(
             readFileSync(projectPath('../../../index.css'), 'utf8'),
             {
                 base: projectPath('../../../..'),
@@ -64,24 +76,40 @@ describe('the card layout boundary', () => {
                 },
             },
         );
-        const [css] = design.candidatesToCss([`${variant}:block`]);
-        const match = /width\s*>=\s*([\d.]+)rem/.exec(css ?? '');
-        if (!match) {
-            throw new Error(`the ${variant}: variant compiled to no width query: ${css}`);
-        }
-        return Number(match[1]);
+        return cached;
     };
 
-    it('is the width of the one responsive variant the card uses', async () => {
-        const variants = variantsUsedByCard();
-        expect(variants, 'the card styles nothing responsively, so nothing holds the boundary').not.toHaveLength(0);
-        expect(variants, 'the card should style itself at one boundary, not several').toHaveLength(1);
+    /** Every width condition the compiled class is guarded by. */
+    const widthConditionsOf = async (candidate: string) => {
+        const design = await designSystem();
+        const [css] = design.candidatesToCss([candidate]);
+        if (!css) {
+            throw new Error(`${candidate} compiled to nothing`);
+        }
+        return [...css.matchAll(/width\s*(>=|<=|>|<)\s*([\d.]+)rem/g)].map((match) => ({
+            operator: match[1],
+            rem: Number(match[2]),
+        }));
+    };
 
-        const [variant] = variants;
-        expect(variant, 'a max-width variant applies below the boundary while the query asks about above it')
-            .not.toMatch(/^max-/);
+    it('styles the card at exactly the boundary React asks about', async () => {
+        const classes = responsiveClassesOfCard();
+        expect(classes, 'the card styles nothing responsively, so nothing holds the boundary').not.toHaveLength(0);
 
-        await expect(widthOfVariant(variant)).resolves.toBe(CARD_WIDE_MIN_WIDTH_REM);
+        for (const candidate of classes) {
+            const conditions = await widthConditionsOf(candidate);
+
+            // One condition, not two: `sm:max-lg:` applies over a band and
+            // leaves React wide past the top of it.
+            expect(conditions, `${candidate} is guarded by ${conditions.length} width conditions`).toHaveLength(1);
+
+            // Above the boundary, not below it: a max- variant is the other
+            // side of the same number, and pairing it with a min-width query
+            // puts CSS and React on opposite sides.
+            expect(conditions[0].operator, `${candidate} applies below the boundary`).toBe('>=');
+
+            expect(conditions[0].rem, `${candidate} switches at a different width`).toBe(CARD_WIDE_MIN_WIDTH_REM);
+        }
     });
 
     it('is asked in the unit the stylesheet uses, not in pixels', () => {
