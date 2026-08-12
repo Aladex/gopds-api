@@ -169,6 +169,7 @@ export async function request<T = unknown>(path: string, options: RequestOptions
             {
                 code,
                 body: parsed,
+                responseHeaders: response.headers,
             },
         );
     }
@@ -213,7 +214,11 @@ export async function requestBlob(path: string, options: RequestOptions = {}): P
     }
 
     if (!response.ok) {
-        throw new ApiError(response.statusText || `HTTP ${response.status}`, response.status);
+        throw new ApiError(
+            response.statusText || `HTTP ${response.status}`,
+            response.status,
+            { responseHeaders: response.headers }
+        );
     }
 
     return response.blob();

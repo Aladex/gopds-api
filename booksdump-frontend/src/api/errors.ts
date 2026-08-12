@@ -8,13 +8,16 @@ export class ApiError extends Error {
     readonly code?: string;
     /** Parsed response body, when there was one. */
     readonly body?: unknown;
+    /** Response headers, when available. */
+    readonly responseHeaders?: Headers;
 
-    constructor(message: string, status: number, options: { code?: string; body?: unknown } = {}) {
+    constructor(message: string, status: number, options: { code?: string; body?: unknown; responseHeaders?: Headers } = {}) {
         super(message);
         this.name = 'ApiError';
         this.status = status;
         this.code = options.code;
         this.body = options.body;
+        this.responseHeaders = options.responseHeaders;
     }
 
     /** A request that never reached the server, or whose response was unreadable. */
