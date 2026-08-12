@@ -44,6 +44,7 @@ func SetupPreviewRoutes(r *gin.RouterGroup, preview PreviewService) {
 	h := NewPreviewHandler(preview)
 	r.GET("/preview/:id", h.GetPreview)
 	r.GET("/preview/:id/chunk/:n", h.GetPreviewChunk)
+	r.GET("/preview/:id/image/:n", h.GetPreviewImage)
 }
 
 // GetPreview returns the preview manifest with the first chunk inline.
@@ -162,6 +163,48 @@ func (h *PreviewHandler) GetPreviewChunk(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// GetPreviewImage serves one prepared picture. It is a resource of its own
+// because the HTML addresses pictures rather than carrying them: a portion
+// stays small and cacheable-by-the-client, and a picture nobody scrolls to is
+// never fetched.
+//
+// The same visibility check as the manifest applies — the address alone must
+// not open a hidden book's illustrations — and the same revision agreement:
+// an ordinal belongs to one slicing, and answering with the current picture
+// under an old ordinal would hand the reader someone else's illustration.
+func (h *PreviewHandler) GetPreviewImage(c *gin.Context) {
+	setNoCacheHeaders(c)
+
+	bookID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, fmt.Errorf("invalid book id: %w", err))
+		return
+	}
+	ordinal, err := strconv.Atoi(c.Param("n"))
+	if err != nil {
+		httputil.NewError(c, http.StatusBadRequest, fmt.Errorf("invalid image ordinal: %w", err))
+		return
+	}
+	revision := c.Query("revision")
+	if revision == "" {
+		httputil.NewError(c, http.StatusBadRequest, errors.New("revision parameter is required"))
+		return
+	}
+
+	payload, mime, err := h.preview.Image(c.Request.Context(), bookID, c.GetBool("is_superuser"), revision, ordinal)
+	if err != nil {
+		mapPreviewError(c, err)
+		return
+	}
+
+	// The type comes from the bytes the preparation produced, not from what
+	// the book claimed, and nosniff keeps a browser from improving on it:
+	// a payload that is not the picture it says it is must not be executed
+	// as whatever a sniffer decides it looks like.
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Data(http.StatusOK, mime, payload)
 }
 
 // setNoCacheHeaders sets headers that prevent caching of the response.

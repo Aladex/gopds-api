@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -32,14 +31,24 @@ type fakePreviewService struct {
 	chunkCount int
 	// hidden makes the double refuse the book to anyone but a superuser, so
 	// the flag the handler forwards is what decides the answer.
-	hidden     bool
-	loadCalls  []loadCall
-	chunkCalls []chunkCall
+	hidden      bool
+	imageResult []byte
+	imageMIME   string
+	loadCalls   []loadCall
+	chunkCalls  []chunkCall
+	imageCalls  []imageCall
 }
 
 type loadCall struct {
 	bookID      int64
 	isSuperUser bool
+}
+
+type imageCall struct {
+	bookID      int64
+	isSuperUser bool
+	revision    string
+	ordinal     int
 }
 
 type chunkCall struct {
@@ -81,7 +90,19 @@ func (f *fakePreviewService) Chunk(
 func (f *fakePreviewService) Image(
 	ctx context.Context, bookID int64, isSuperUser bool, revision string, ordinal int,
 ) (payload []byte, mime string, err error) {
-	return nil, "", errors.New("not implemented in this fake")
+	f.imageCalls = append(f.imageCalls, imageCall{
+		bookID: bookID, isSuperUser: isSuperUser, revision: revision, ordinal: ordinal,
+	})
+	if f.hidden && !isSuperUser {
+		return nil, "", fmt.Errorf("%w: book id %d", services.ErrBookNotVisible, bookID)
+	}
+	if f.revision != "" && revision != f.revision {
+		return nil, "", fmt.Errorf("%w: asked for %q", services.ErrRevisionStale, revision)
+	}
+	if f.imageResult == nil {
+		return nil, "", fmt.Errorf("%w: ordinal %d", services.ErrImageNotFound, ordinal)
+	}
+	return f.imageResult, f.imageMIME, nil
 }
 
 var _ PreviewService = (*fakePreviewService)(nil)
@@ -457,4 +478,66 @@ func TestPreviewChunkHandler_Success_ReturnsChunk(t *testing.T) {
 	var got models.PreviewChunkResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	assert.Equal(t, "<p>Chapter 2 content</p>", got.Chunk)
+}
+
+// The picture endpoint answers with the type the preparation decided on, and
+// tells the browser not to improve on it. A payload that is not the picture
+// it claims to be must not be executed as whatever a sniffer makes of it.
+func TestPreviewImageHandler_ServesExactTypeWithNosniff(t *testing.T) {
+	fake := &fakePreviewService{
+		revision:    "abc123",
+		imageResult: []byte{0x89, 'P', 'N', 'G', 0x0D},
+		imageMIME:   "image/png",
+	}
+	r := newPreviewTestRouter(fake, false)
+
+	rec := doPreviewGET(t, r, "/api/books/preview/123/image/2?revision=abc123")
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "image/png", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
+	assert.Equal(t, []byte{0x89, 'P', 'N', 'G', 0x0D}, rec.Body.Bytes())
+	require.Len(t, fake.imageCalls, 1)
+	assert.Equal(t, 2, fake.imageCalls[0].ordinal)
+	assert.Equal(t, "abc123", fake.imageCalls[0].revision)
+}
+
+// A picture is as hidden as the book that carries it: the address alone must
+// not open the illustrations of a book this reader may not see.
+func TestPreviewImageHandler_HiddenBook_Returns404ForReader(t *testing.T) {
+	fake := &fakePreviewService{
+		revision: "abc123", hidden: true,
+		imageResult: []byte{0x89, 'P', 'N', 'G'}, imageMIME: "image/png",
+	}
+
+	rec := doPreviewGET(t, newPreviewTestRouter(fake, false), "/api/books/preview/123/image/2?revision=abc123")
+	require.Equal(t, http.StatusNotFound, rec.Code)
+
+	rec2 := doPreviewGET(t, newPreviewTestRouter(fake, true), "/api/books/preview/123/image/2?revision=abc123")
+	require.Equal(t, http.StatusOK, rec2.Code)
+}
+
+// An ordinal belongs to one slicing. Serving the current picture under an old
+// ordinal would hand the reader an illustration from a different rendering.
+func TestPreviewImageHandler_StaleRevision_Returns410(t *testing.T) {
+	fake := &fakePreviewService{
+		revision:    "abc123",
+		imageResult: []byte{0x89, 'P', 'N', 'G'},
+		imageMIME:   "image/png",
+	}
+	r := newPreviewTestRouter(fake, false)
+
+	rec := doPreviewGET(t, r, "/api/books/preview/123/image/2?revision=oldrevision")
+
+	require.Equal(t, http.StatusGone, rec.Code)
+}
+
+func TestPreviewImageHandler_MissingRevision_Returns400(t *testing.T) {
+	fake := &fakePreviewService{revision: "abc123"}
+	r := newPreviewTestRouter(fake, false)
+
+	rec := doPreviewGET(t, r, "/api/books/preview/123/image/2")
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Empty(t, fake.imageCalls, "a request without a revision must not reach the service")
 }
