@@ -162,6 +162,7 @@ func (r *previewRender) blockAnchor(block chunkBlock) string {
 			idx := block.sectionIndex + attempt
 			candidate := fmt.Sprintf("pv%d-%s-%d", r.chunk.Index, syntheticAnchorPrefix, idx)
 			if !r.usedAnchors[candidate] {
+				r.usedAnchors[candidate] = true
 				return candidate
 			}
 		}

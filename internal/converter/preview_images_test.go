@@ -1213,17 +1213,17 @@ func TestUsedBinaries_UnreferencedBinaryIsNeverPrepared(t *testing.T) {
 // A picture referenced from a footnote is rendered with the portion that
 // cites the note, so it must be prepared. A mutation that scans only the
 // body forgets it — the reference would resolve to nothing at render time.
+// This test verifies that a reachable note's image is prepared.
 func TestUsedBinaries_FootnoteImageIsIncluded(t *testing.T) {
 	png := uniformImage(t, "png", 4, 4)
 	doc := &FB2Document{
 		Body: &FB2BodySection{Content: []*FB2ContentItem{
-			{Paragraph: &FB2Paragraph{Kind: ParagraphKindNormal, Content: []*FB2InlineElement{
-				{Type: InlineTypeText, Content: "text"},
-			}}},
+			{Paragraph: noteRefPara("n1", "сноска")},
 		}},
 		Notes: []*FB2BodySection{
 			{ID: "n1", Content: []*FB2ContentItem{
 				{Paragraph: &FB2Paragraph{Kind: ParagraphKindNormal, Content: []*FB2InlineElement{
+					{Type: InlineTypeText, Content: "текст сноски"},
 					{Type: InlineTypeImage, Attrs: map[string]string{"href": "#note_pic"}},
 				}}},
 			}},
@@ -1233,7 +1233,7 @@ func TestUsedBinaries_FootnoteImageIsIncluded(t *testing.T) {
 
 	used := UsedBinaries(doc)
 	if _, ok := used["note_pic"]; !ok {
-		t.Errorf("a picture referenced from a footnote was not collected — got %v", used)
+		t.Errorf("a picture referenced from a reachable footnote was not collected — got %v", used)
 	}
 }
 
@@ -1309,5 +1309,90 @@ func TestUsedBinaries_DanglingReferenceCollectsNothing(t *testing.T) {
 
 	if used := UsedBinaries(doc); len(used) != 0 {
 		t.Errorf("UsedBinaries returned %v, want empty — the reference dangles and 'real' is unreferenced", used)
+	}
+}
+
+// A picture in a body section that carries an id (for internal links) must
+// still be prepared: the id does not make it a footnote, and the body is
+// always rendered. This is the regression guard for the bug where a body
+// section with an id was incorrectly filtered as an unreachable note.
+func TestUsedBinaries_BodySectionWithIdIsIncluded(t *testing.T) {
+	png := uniformImage(t, "png", 4, 4)
+	doc := &FB2Document{
+		Body: &FB2BodySection{Content: []*FB2ContentItem{
+			{Section: &FB2BodySection{
+				ID: "chapter-1",
+				Content: []*FB2ContentItem{
+					{Paragraph: &FB2Paragraph{Kind: ParagraphKindNormal, Content: []*FB2InlineElement{
+						{Type: InlineTypeText, Content: "Chapter 1"},
+						{Type: InlineTypeImage, Attrs: map[string]string{"href": "#body_pic"}},
+					}}},
+				},
+			}},
+		}},
+		Binary: map[string]FB2Binary{"body_pic": {Data: png}},
+	}
+
+	used := UsedBinaries(doc)
+	if _, ok := used["body_pic"]; !ok {
+		t.Errorf("a picture in a body section with id was not collected — got %v", used)
+	}
+}
+
+// A picture in a nested body section (section inside section) that carries an
+// id must also be prepared. The walk is recursive, and the reachability check
+// only applies to notes, not to any body section regardless of nesting.
+func TestUsedBinaries_NestedBodySectionWithIdIsIncluded(t *testing.T) {
+	png := uniformImage(t, "png", 4, 4)
+	doc := &FB2Document{
+		Body: &FB2BodySection{Content: []*FB2ContentItem{
+			{Section: &FB2BodySection{
+				ID: "outer-section",
+				Content: []*FB2ContentItem{
+					{Section: &FB2BodySection{
+						ID: "inner-section",
+						Content: []*FB2ContentItem{
+							{Paragraph: &FB2Paragraph{Kind: ParagraphKindNormal, Content: []*FB2InlineElement{
+								{Type: InlineTypeText, Content: "Inner section"},
+								{Type: InlineTypeImage, Attrs: map[string]string{"href": "#nested_pic"}},
+							}}},
+						},
+					}},
+				},
+			}},
+		}},
+		Binary: map[string]FB2Binary{"nested_pic": {Data: png}},
+	}
+
+	used := UsedBinaries(doc)
+	if _, ok := used["nested_pic"]; !ok {
+		t.Errorf("a picture in a nested body section with id was not collected — got %v", used)
+	}
+}
+
+// A picture in an unreferenced footnote must not be prepared: the note
+// never renders, so its images are dead weight.
+func TestUsedBinaries_UnreachableFootnoteImageIsExcluded(t *testing.T) {
+	png := uniformImage(t, "png", 4, 4)
+	doc := &FB2Document{
+		Body: &FB2BodySection{Content: []*FB2ContentItem{
+			{Paragraph: &FB2Paragraph{Kind: ParagraphKindNormal, Content: []*FB2InlineElement{
+				{Type: InlineTypeText, Content: "No footnote reference"},
+			}}},
+		}},
+		Notes: []*FB2BodySection{
+			{ID: "unused-note", Content: []*FB2ContentItem{
+				{Paragraph: &FB2Paragraph{Kind: ParagraphKindNormal, Content: []*FB2InlineElement{
+					{Type: InlineTypeText, Content: "This note is never reached"},
+					{Type: InlineTypeImage, Attrs: map[string]string{"href": "#unreachable_pic"}},
+				}}},
+			}},
+		},
+		Binary: map[string]FB2Binary{"unreachable_pic": {Data: png}},
+	}
+
+	used := UsedBinaries(doc)
+	if _, ok := used["unreachable_pic"]; ok {
+		t.Errorf("a picture in an unreferenced footnote was incorrectly collected — got %v", used)
 	}
 }

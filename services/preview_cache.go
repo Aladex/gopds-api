@@ -27,6 +27,8 @@ import (
 	"time"
 
 	"github.com/go-redis/redis"
+
+	"gopds-api/logging"
 )
 
 // ErrCacheMiss is returned by Get when the key is not in the cache. It is
@@ -64,15 +66,23 @@ var ErrEmptyMD5 = errors.New("preview: book has no MD5, cannot build a cache key
 //     refuses the request. Treating an outage as a miss would turn a Redis
 //     failure into a full archive unpack per request.
 //
-// Methods accept a context for cancellation; each operation goes through
-// client.WithContext(ctx), so a canceled build (cold-build timeout or
-// Shutdown) interrupts a hung Redis command rather than blocking until the
-// network stack gives up on its own.  In go-redis v6 WithContext stores
-// the context but does not check it in the command path (true context
-// propagation arrived in v7), so each method also checks ctx.Err()
-// explicitly before touching Redis — that check is what actually executes
-// cancellation today; WithContext carries it forward when the client is
-// upgraded.
+// Methods accept a context for cancellation. In go-redis v6 WithContext
+// stores the context but does not check it in the command path (true context
+// propagation arrived in v7), so cancellation is executed here, in two
+// layers:
+//
+//   - each method checks ctx.Err() before touching Redis, so an operation
+//     never starts after the deadline;
+//   - the command itself runs through awaitCmd, which frees the caller the
+//     moment the context is done — even mid-command — instead of letting a
+//     hung operation run to the client's own read timeout. A command that
+//     outlived its caller is bounded by that read timeout and its late
+//     outcome is drained and logged; a manifest SET that crossed the build
+//     deadline is additionally retracted (see PutManifest), because a
+//     manifest published past the deadline breaks the phase-3 invariant.
+//
+// WithContext is still passed along: it carries the context into the client
+// for the day the dependency is upgraded to a version that honors it.
 type PreviewCache interface {
 	// Ping checks that the cache backend is reachable. Called once per
 	// request, before any Get; a non-nil error means the whole request
@@ -173,12 +183,50 @@ func NewRedisPreviewCache(client *redis.Client) *RedisPreviewCache {
 	return &RedisPreviewCache{client: client}
 }
 
+// awaitCmd runs op on its own goroutine and returns whichever happens first:
+// the operation's result, or the context's cancellation.
+//
+// go-redis v6 stores the context (WithContext) but never checks it in the
+// command path, so without this a command that started before the build
+// deadline would run past it, and its caller would wait for the client's own
+// read timeout (3 s by default) — for a cold build that means publishing
+// after the deadline. Here the caller is freed exactly at the deadline, and
+// the client's read timeout stays as the backstop that bounds the abandoned
+// goroutine instead.
+//
+// Abandonment is neither a goroutine leak nor a silent hole: the operation
+// is still bounded by the client's read/write timeout, and its late result
+// is drained — a late FAILURE is logged, because a backend error arriving
+// after the caller left must not become invisible. A late SUCCESS is
+// harmless for chunks and images: bytes without a manifest are a stale
+// entry, which cachedEntry treats as a miss. It is NOT harmless for the
+// manifest, so PutManifest retracts a write that crossed the deadline.
+func awaitCmd(ctx context.Context, op func() error) error {
+	done := make(chan error, 1) // buffered: the abandoned op never blocks on send
+	go func() { done <- op() }()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		ctxErr := ctx.Err()
+		go func() {
+			if late := <-done; late != nil && late != redis.Nil {
+				logging.Errorf("preview cache: command abandoned on %v completed late: %v", ctxErr, late)
+			}
+		}()
+		return ctxErr
+	}
+}
+
 func (c *RedisPreviewCache) Ping(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("%w: ping: %w", ErrCacheUnavailable, err)
 	}
-	if _, err := c.client.WithContext(ctx).Ping().Result(); err != nil {
-		return fmt.Errorf("%w: %v", ErrCacheUnavailable, err)
+	if err := awaitCmd(ctx, func() error {
+		_, perr := c.client.WithContext(ctx).Ping().Result()
+		return perr
+	}); err != nil {
+		return fmt.Errorf("%w: %w", ErrCacheUnavailable, err)
 	}
 	return nil
 }
@@ -187,22 +235,65 @@ func (c *RedisPreviewCache) GetManifest(ctx context.Context, key string) ([]byte
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("%w: get manifest: %w", ErrCacheUnavailable, err)
 	}
-	data, err := c.client.WithContext(ctx).Get(manifestKey(key)).Bytes()
+	var data []byte
+	err := awaitCmd(ctx, func() error {
+		var gerr error
+		data, gerr = c.client.WithContext(ctx).Get(manifestKey(key)).Bytes()
+		return gerr
+	})
 	if err == redis.Nil {
 		return nil, ErrCacheMiss
 	}
 	if err != nil {
-		return nil, fmt.Errorf("%w: get manifest: %v", ErrCacheUnavailable, err)
+		return nil, fmt.Errorf("%w: get manifest: %w", ErrCacheUnavailable, err)
 	}
 	return data, nil
+}
+
+// retractScript deletes the manifest only if the stored value is still the
+// one the late build wrote. The comparison is what makes the retraction safe
+// against a subsequent rebuild of the same key: if another build already
+// replaced the entry, the retract must not delete its work. (A rebuild of
+// the same book under the same revision writes byte-identical JSON, so the
+// comparison cannot tell it apart from the late write — in that case the
+// fresh manifest is deleted too, which costs one extra cold build, never a
+// broken promise.)
+var retractScript = `if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end`
+
+// retractLateManifest removes a manifest whose SET completed after the
+// caller's context died. It runs detached (context.Background): the caller's
+// context is exactly why we are here, and the operation is bounded by the
+// client's own read/write timeout. A failure is logged, not returned — the
+// caller was already freed; there is nobody left to return it to.
+func (c *RedisPreviewCache) retractLateManifest(key string, data []byte) {
+	err := c.client.WithContext(context.Background()).Eval(retractScript, []string{key}, data).Err()
+	if err != nil {
+		logging.Errorf("preview cache: failed to retract the late manifest %s: %v", key, err)
+	}
 }
 
 func (c *RedisPreviewCache) PutManifest(ctx context.Context, key string, data []byte, ttl time.Duration) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("%w: put manifest: %w", ErrCacheUnavailable, err)
 	}
-	if err := c.client.WithContext(ctx).Set(manifestKey(key), data, ttl).Err(); err != nil {
-		return fmt.Errorf("%w: put manifest: %v", ErrCacheUnavailable, err)
+	mk := manifestKey(key)
+	err := awaitCmd(ctx, func() error {
+		if serr := c.client.WithContext(ctx).Set(mk, data, ttl).Err(); serr != nil {
+			return serr
+		}
+		// The SET may have completed after the deadline fired mid-command:
+		// go-redis v6 does not interrupt a command in flight, and awaitCmd
+		// may already have freed the caller. A manifest published past the
+		// deadline is the phase-3 promise ("every referenced byte exists,
+		// published within the build budget") broken on purpose, so a write
+		// that crossed it is retracted rather than left in the cache.
+		if ctx.Err() != nil {
+			c.retractLateManifest(mk, data)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("%w: put manifest: %w", ErrCacheUnavailable, err)
 	}
 	return nil
 }
@@ -211,12 +302,17 @@ func (c *RedisPreviewCache) GetChunk(ctx context.Context, key string, index int)
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("%w: get chunk %d: %w", ErrCacheUnavailable, index, err)
 	}
-	data, err := c.client.WithContext(ctx).Get(chunkKey(key, index)).Bytes()
+	var data []byte
+	err := awaitCmd(ctx, func() error {
+		var gerr error
+		data, gerr = c.client.WithContext(ctx).Get(chunkKey(key, index)).Bytes()
+		return gerr
+	})
 	if err == redis.Nil {
 		return nil, ErrCacheMiss
 	}
 	if err != nil {
-		return nil, fmt.Errorf("%w: get chunk %d: %v", ErrCacheUnavailable, err, index)
+		return nil, fmt.Errorf("%w: get chunk %d: %w", ErrCacheUnavailable, index, err)
 	}
 	return data, nil
 }
@@ -225,8 +321,10 @@ func (c *RedisPreviewCache) PutChunk(ctx context.Context, key string, index int,
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("%w: put chunk %d: %w", ErrCacheUnavailable, index, err)
 	}
-	if err := c.client.WithContext(ctx).Set(chunkKey(key, index), data, ttl).Err(); err != nil {
-		return fmt.Errorf("%w: put chunk %d: %v", ErrCacheUnavailable, err, index)
+	if err := awaitCmd(ctx, func() error {
+		return c.client.WithContext(ctx).Set(chunkKey(key, index), data, ttl).Err()
+	}); err != nil {
+		return fmt.Errorf("%w: put chunk %d: %w", ErrCacheUnavailable, index, err)
 	}
 	return nil
 }
@@ -239,13 +337,18 @@ func (c *RedisPreviewCache) PutImage(ctx context.Context, key string, ordinal in
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("%w: put image %d: %w", ErrCacheUnavailable, ordinal, err)
 	}
-	cl := c.client.WithContext(ctx)
-	k := imageKey(key, ordinal)
-	if err := cl.HMSet(k, map[string]interface{}{"payload": payload, "mime": mime}).Err(); err != nil {
-		return fmt.Errorf("%w: put image %d: %v", ErrCacheUnavailable, ordinal, err)
-	}
-	if err := cl.Expire(k, ttl).Err(); err != nil {
-		return fmt.Errorf("%w: expire image %d: %v", ErrCacheUnavailable, ordinal, err)
+	// HMSet and Expire travel in one op: if the deadline fires between them,
+	// the caller is still freed at the deadline — not after the second
+	// command's own timeout.
+	if err := awaitCmd(ctx, func() error {
+		cl := c.client.WithContext(ctx)
+		k := imageKey(key, ordinal)
+		if herr := cl.HMSet(k, map[string]interface{}{"payload": payload, "mime": mime}).Err(); herr != nil {
+			return herr
+		}
+		return cl.Expire(k, ttl).Err()
+	}); err != nil {
+		return fmt.Errorf("%w: put image %d: %w", ErrCacheUnavailable, ordinal, err)
 	}
 	return nil
 }
@@ -254,9 +357,14 @@ func (c *RedisPreviewCache) GetImage(ctx context.Context, key string, ordinal in
 	if cerr := ctx.Err(); cerr != nil {
 		return nil, "", fmt.Errorf("%w: get image %d: %w", ErrCacheUnavailable, ordinal, cerr)
 	}
-	fields, err := c.client.WithContext(ctx).HGetAll(imageKey(key, ordinal)).Result()
+	var fields map[string]string
+	err = awaitCmd(ctx, func() error {
+		var gerr error
+		fields, gerr = c.client.WithContext(ctx).HGetAll(imageKey(key, ordinal)).Result()
+		return gerr
+	})
 	if err != nil {
-		return nil, "", fmt.Errorf("%w: get image %d: %v", ErrCacheUnavailable, ordinal, err)
+		return nil, "", fmt.Errorf("%w: get image %d: %w", ErrCacheUnavailable, ordinal, err)
 	}
 	data, ok := fields["payload"]
 	if !ok {

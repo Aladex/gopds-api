@@ -219,26 +219,97 @@ func (p PreviewImagePolicy) validate() error {
 // the renderer applies in renderImage before it asks the prepared set for a
 // URL — the two must agree, or a reference resolves at render time to a
 // binary that was never prepared.
+//
+// Notes are only included if they are reachable from the body: a note that
+// is never referenced will never be rendered, so its images must never be
+// prepared. Reachability is determined by walking the body for note links
+// and collecting the normalized note ids.
 func UsedBinaries(doc *FB2Document) map[string]FB2Binary {
 	if doc == nil || len(doc.Binary) == 0 {
 		return nil
 	}
 	used := make(map[string]struct{})
-	collectSection := func(section *FB2BodySection, _ int) {
+
+	// First pass: collect reachable note ids by walking the body
+	reachableNotes := make(map[string]bool)
+	var walkBodyForNotes func(content []*FB2ContentItem)
+	walkBodyForNotes = func(content []*FB2ContentItem) {
+		for _, item := range content {
+			if item == nil {
+				continue
+			}
+			if item.Paragraph != nil {
+				// Walk through inline elements looking for note links
+				var walkInline func(elements []*FB2InlineElement)
+				walkInline = func(elements []*FB2InlineElement) {
+					for _, el := range elements {
+						if el == nil {
+							continue
+						}
+						if el.Type == InlineTypeLink && el.Attrs != nil {
+							href := strings.TrimSpace(el.Attrs["href"])
+							if raw := strings.TrimPrefix(href, "#"); raw != href && raw != "" {
+								key := anchorKey(raw)
+								// Check if this is a note (notes are indexed by normalized id)
+								for _, note := range doc.Notes {
+									if note != nil && anchorKey(note.ID) == key {
+										reachableNotes[key] = true
+										break
+									}
+								}
+							}
+						}
+						walkInline(el.Children)
+					}
+				}
+				walkInline(item.Paragraph.Content)
+				// Also walk table cells
+				if item.Paragraph.Table != nil {
+					for _, row := range item.Paragraph.Table.Rows {
+						for _, cell := range row {
+							if cell != nil {
+								walkInline(cell.Content)
+							}
+						}
+					}
+				}
+			}
+			if item.Section != nil {
+				walkBodyForNotes(item.Section.Content)
+			}
+		}
+	}
+	if doc.Body != nil {
+		walkBodyForNotes(doc.Body.Content)
+	}
+
+	// Body is walked unconditionally: a body section may carry an id (for
+	// internal links) and is still part of the main text, never a footnote.
+	// Only notes are filtered by reachability.
+	if doc.Body != nil {
+		WalkSections([]*FB2BodySection{doc.Body}, 1, func(section *FB2BodySection, _ int) {
+			for _, item := range section.Content {
+				if item == nil || item.Paragraph == nil {
+					continue
+				}
+				collectParagraphImageIDs(item.Paragraph, used)
+			}
+		})
+	}
+
+	// Notes are only included if reachable from the body. An unreferenced note
+	// never renders, so its images must never be prepared.
+	WalkSections(doc.Notes, 1, func(section *FB2BodySection, _ int) {
+		if section.ID != "" && !reachableNotes[anchorKey(section.ID)] {
+			return
+		}
 		for _, item := range section.Content {
 			if item == nil || item.Paragraph == nil {
 				continue
 			}
 			collectParagraphImageIDs(item.Paragraph, used)
 		}
-	}
-	// doc.Body is the root container of the main body; doc.Notes holds the
-	// footnote bodies. Both render images, so both are walked — a footnote
-	// and a table cell are where a picture hides from a body-only scan.
-	if doc.Body != nil {
-		WalkSections([]*FB2BodySection{doc.Body}, 1, collectSection)
-	}
-	WalkSections(doc.Notes, 1, collectSection)
+	})
 
 	out := make(map[string]FB2Binary, len(used))
 	for id := range used {
