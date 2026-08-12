@@ -197,3 +197,81 @@ func TestParseFB2CompleteFallback_EnforcesBinaryLimit(t *testing.T) {
 		t.Errorf("the fallback processed %d binaries before refusing, want exactly 2", stats.Binaries)
 	}
 }
+
+// fb2DocWithEarlyCDBreak builds a book whose root is valid but an early
+// unclosed <![CDATA[ forces the main decoder into the lexical salvage path
+// (parseFB2BodyLoose), followed by n plain paragraphs. The salvage path is
+// where the node cap was missing: without the gate it walks every paragraph.
+func fb2DocWithEarlyCDBreak(n int) []byte {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0"?><FictionBook><body><section>`)
+	b.WriteString(`<p><![CDATA[ сломанный хвост </p>`)
+	for i := 0; i < n; i++ {
+		fmt.Fprintf(&b, `<p>абзац %d</p>`, i)
+	}
+	b.WriteString(`</section></body></FictionBook>`)
+	return []byte(b.String())
+}
+
+// The lexical salvage path (parseFB2BodyLoose) must carry the same node cap
+// as the main token loop. The cap is enforced at the exceeding element, not
+// measured after the fact: the node counter must land near the limit, not at
+// the full paragraph count. A mutation that counts but keeps walking produces
+// the same typed error, so only the counter distinguishes "stopped" from
+// "walked everything then refused" — the assertion is on stats.Nodes.
+func TestLoosePathRespectsNodeLimit(t *testing.T) {
+	const limit = 50
+	doc := fb2DocWithEarlyCDBreak(5000)
+
+	_, _, stats, err := ParseFB2CompleteLimited(context.Background(), doc, false, FB2ParseLimits{MaxNodes: limit})
+	if !errors.Is(err, ErrFB2NodeLimit) {
+		t.Fatalf("err = %v, want ErrFB2NodeLimit — the loose path bypassed the node cap", err)
+	}
+	if stats.Nodes > 2*limit {
+		t.Errorf("loose path processed %d nodes before stopping, want at most ~%d — "+
+			"the cap was counted but not enforced (refusal by result, not by work)",
+			stats.Nodes, 2*limit)
+	}
+}
+
+// The salvage path must observe context cancellation. The main token loop
+// reaches the decoder error in fewer than ctxCheckInterval tokens, so a
+// pre-canceled ctx is not caught there — only the salvage path, where the
+// check must exist, can observe it. Targets parseFB2BodyCore directly because
+// completeDecodeFallback does not pass context errors through (only typed
+// parse refusals), which is correct for the EPUB path contract.
+func TestLoosePathRespectsContext(t *testing.T) {
+	doc := fb2DocWithEarlyCDBreak(5000)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, _, err := parseFB2BodyCore(ctx, doc, FB2ParseLimits{})
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want context.Canceled — the loose path did not observe ctx", err)
+	}
+}
+
+// A small broken book within the cap must still be salvaged. The salvage path
+// exists because broken XML is common in the catalog; the node cap bounds the
+// work, it does not refuse recoverable books.
+func TestLoosePathStillSalvagesSmallBrokenBook(t *testing.T) {
+	doc := fb2DocWithEarlyCDBreak(10)
+
+	parsed, _, _, err := ParseFB2CompleteLimited(context.Background(), doc, false, FB2ParseLimits{MaxNodes: 100})
+	if err != nil {
+		t.Fatalf("salvage of a small broken book within the cap failed: %v", err)
+	}
+	if parsed == nil || parsed.Body == nil {
+		t.Fatalf("salvage returned no document")
+	}
+	paragraphs := 0
+	for _, item := range parsed.Body.Content {
+		if item.Paragraph != nil {
+			paragraphs++
+		}
+	}
+	if paragraphs < 10 {
+		t.Errorf("salvage extracted %d paragraphs, want at least 10", paragraphs)
+	}
+}

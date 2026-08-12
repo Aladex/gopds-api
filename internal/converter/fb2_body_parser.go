@@ -236,7 +236,7 @@ func parseFB2BodyCore(ctx context.Context, xmlContent []byte, limits FB2ParseLim
 			break
 		}
 		if err != nil {
-			return bodyDecodeFallback(decoded, rootSeen, err, quota.stats)
+			return bodyDecodeFallback(ctx, decoded, rootSeen, err, &quota)
 		}
 
 		if qerr := quota.countToken(token); qerr != nil {
@@ -288,12 +288,16 @@ func dispatchBodyToken(state *fb2BodyState, doc *FB2Document, token xml.Token, r
 // bodyDecodeFallback decides the outcome of a broken token stream. No
 // verified root means the sanitizers could not make it reachable — the same
 // refusal the metadata scanner gives. A verified root means this is a book;
-// whatever broke after it is salvaged lexically.
-func bodyDecodeFallback(decoded []byte, rootSeen bool, decErr error, stats FB2ParseStats) (*FB2Document, FB2ParseStats, error) {
+// whatever broke after it is salvaged lexically, under the same ctx and quota
+// as the main loop — the salvage path must not bypass the work gates.
+func bodyDecodeFallback(
+	ctx context.Context, decoded []byte, rootSeen bool, decErr error, quota *parseQuota,
+) (*FB2Document, FB2ParseStats, error) {
 	if !rootSeen {
-		return nil, stats, fmt.Errorf("%w: %w", ErrNotFictionBook, decErr)
+		return nil, quota.stats, fmt.Errorf("%w: %w", ErrNotFictionBook, decErr)
 	}
-	return parseFB2BodyLoose(decoded), stats, nil
+	doc, err := parseFB2BodyLoose(ctx, decoded, quota)
+	return doc, quota.stats, err
 }
 
 func repairBrokenXML(content []byte) []byte {
@@ -405,23 +409,28 @@ func isVoidTag(name string) bool {
 // parseFB2BodyLoose is the lexical last resort for a document whose
 // FictionBook root the XML decoder already verified before breaking. It never
 // decides whether the input is a book — the root check alone does that — so
-// no lexical marker scan lives here.
-func parseFB2BodyLoose(content []byte) *FB2Document {
+// no lexical marker scan lives here. The work gates (ctx, quota) are the same
+// ones the main token loop already enforces: the salvage path must not become
+// a side door around the parse budget.
+func parseFB2BodyLoose(ctx context.Context, content []byte, quota *parseQuota) (*FB2Document, error) {
 	segment := extractBodySegment(content)
 	section := &FB2BodySection{}
 	title := extractFirstTagText(segment, "title")
 	if title != "" {
 		section.Title = normalizeWhitespace(title)
 	}
-	paragraphs := extractParagraphs(segment)
+	paragraphs, err := extractParagraphs(ctx, segment, quota)
+	if err != nil {
+		return nil, err
+	}
 	for _, text := range paragraphs {
 		section.Content = append(section.Content, &FB2ContentItem{Paragraph: &FB2Paragraph{Text: text}})
 	}
 	if len(section.Content) == 0 && section.Title == "" {
 		// A verified book whose body text could not be salvaged at all.
-		return &FB2Document{Body: &FB2BodySection{}}
+		return &FB2Document{Body: &FB2BodySection{}}, nil
 	}
-	return &FB2Document{Body: section}
+	return &FB2Document{Body: section}, nil
 }
 
 func extractBodySegment(content []byte) []byte {
@@ -463,11 +472,20 @@ func extractFirstTagText(content []byte, tag string) string {
 	return stripTags(content[start : start+closeIdx])
 }
 
-func extractParagraphs(content []byte) []string {
+// extractParagraphs carries the same work gates as the main token loop:
+// checkCtx bounds cancellation latency, and quota.countToken stops the scan at
+// the first <p> over the node cap. The gate runs before the text work, the
+// same order as the main loop (count, then dispatch) — a paragraph over the
+// cap is never turned into a ContentItem.
+func extractParagraphs(ctx context.Context, content []byte, quota *parseQuota) ([]string, error) {
 	var paragraphs []string
 	lower := bytes.ToLower(content)
 	i := 0
+	tokensSinceCheck := 0
 	for {
+		if cerr := checkCtx(ctx, &tokensSinceCheck); cerr != nil {
+			return nil, fmt.Errorf("fb2: parse canceled: %w", cerr)
+		}
 		openIdx := bytes.Index(lower[i:], []byte("<p"))
 		if openIdx == -1 {
 			break
@@ -478,6 +496,11 @@ func extractParagraphs(content []byte) []string {
 			break
 		}
 		start := openIdx + gt + 1
+		// Count this <p> start element against the budget before extracting
+		// its text — same gate, same order, as the main token loop.
+		if qerr := quota.countToken(xml.StartElement{Name: xml.Name{Local: "p"}}); qerr != nil {
+			return nil, qerr
+		}
 		end := len(content)
 		closeIdx := bytes.Index(lower[start:], []byte("</p>"))
 		nextOpen := bytes.Index(lower[start:], []byte("<p"))
@@ -493,7 +516,7 @@ func extractParagraphs(content []byte) []string {
 		}
 		i = end
 	}
-	return paragraphs
+	return paragraphs, nil
 }
 
 func stripTags(content []byte) string {
