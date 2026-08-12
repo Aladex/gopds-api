@@ -472,25 +472,70 @@ describe('BooksList opens the reader', () => {
     });
 
     it('opens the book the reader asked for, in its own language', async () => {
+        // Two books, and the second one is the one clicked. With a single
+        // book on the page, wiring that always opens the first — or passes a
+        // hardcoded id and language — is indistinguishable from wiring that
+        // works.
+        listBooks.mockResolvedValue({
+            books: [
+                makeBook(),
+                makeBook({ id: 42, title: 'The Other Book', lang: 'en' }),
+            ],
+            length: 2,
+        });
+        renderAt('/books/page/1');
+        await screen.findByText('The Other Book');
+
+        const [, second] = screen.getAllByRole('button', { name: 'bookRead' });
+        await userEvent.click(second);
+
+        expect(await screen.findByTestId('opened-portion')).toBeInTheDocument();
+        expect(getPreview).toHaveBeenCalledWith(42, expect.anything());
+        // And the column is marked with that book's language, which is what
+        // hyphenation and screen readers go by.
+        expect(screen.getByTestId('preview-text-column')).toHaveAttribute('lang', 'en');
+    });
+
+    it('closes the book, and can open it again', async () => {
+        // Every other test here only opens the dialog, so the whole closing
+        // path was unobserved: replacing onOpenChange with a no-op left the
+        // suite green while the book could not be put down.
         renderAt('/books/page/1');
         await screen.findByText('Заклятые в любви');
 
         await userEvent.click(screen.getByRole('button', { name: 'bookRead' }));
+        await screen.findByTestId('opened-portion');
 
+        await userEvent.click(screen.getByRole('button', { name: 'previewClose' }));
+        await waitFor(() => expect(screen.queryByTestId('opened-portion')).toBeNull());
+
+        // And the catalogue still works afterwards: a dialog that closes but
+        // leaves its book behind would open the next reader on the wrong one.
+        await userEvent.click(screen.getByRole('button', { name: 'bookRead' }));
         expect(await screen.findByTestId('opened-portion')).toBeInTheDocument();
-        // The id comes from the book that was clicked, not from a default.
-        expect(getPreview).toHaveBeenCalledWith(1, expect.anything());
-        // And the column is marked with the book's language, which is what
-        // hyphenation and screen readers go by.
-        expect(screen.getByTestId('preview-text-column')).toHaveAttribute('lang', 'ru');
+        expect(getPreview).toHaveBeenCalledTimes(2);
     });
 
-    it('offers no reader for a format the server cannot read', async () => {
-        listBooks.mockResolvedValue({ books: [makeBook({ format: 'epub' })], length: 1 });
+    it('offers the reader only where the pipeline can read the book', async () => {
+        // A mixed page, so the rule is observed as "exactly the FB2 one" and
+        // not as "not EPUB": a condition like format !== 'epub' would pass a
+        // page of EPUBs and fail here on the MOBI.
+        listBooks.mockResolvedValue({
+            books: [
+                makeBook({ id: 1, title: 'An EPUB', format: 'epub' }),
+                makeBook({ id: 2, title: 'An FB2', format: 'fb2' }),
+                makeBook({ id: 3, title: 'A MOBI', format: 'mobi' }),
+            ],
+            length: 3,
+        });
         renderAt('/books/page/1');
-        await screen.findByText('Заклятые в любви');
+        await screen.findByText('A MOBI');
 
-        expect(screen.queryByRole('button', { name: 'bookRead' })).toBeNull();
-        expect(getPreview).not.toHaveBeenCalled();
+        const offered = screen.getAllByRole('button', { name: 'bookRead' });
+        expect(offered).toHaveLength(1);
+
+        await userEvent.click(offered[0]);
+        await screen.findByTestId('opened-portion');
+        expect(getPreview).toHaveBeenCalledWith(2, expect.anything());
     });
 });

@@ -56,3 +56,13 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
         disconnect() {}
     } as unknown as typeof ResizeObserver;
 }
+
+// Same gap, same shape: jsdom has no layout, so no element can be scrolled
+// into view and the method is simply absent. Code that scrolls to an anchor
+// would take the tree down here while working in every browser. Tests that
+// care about the scrolling install their own spy over this and assert on it;
+// this stub is only so that the others do not have to know the reader can
+// scroll at all.
+if (typeof Element.prototype.scrollIntoView !== 'function') {
+    Element.prototype.scrollIntoView = function scrollIntoView() {};
+}

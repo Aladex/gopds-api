@@ -817,6 +817,72 @@ describe('BookPreviewDialog — narrow TOC panel', () => {
         expect(getChunk.mock.calls[1][1]).toBe(2);
     });
 
+    it('keeps two links to one note telling the same story', async () => {
+        // The renderer emits a note once and links it from every place that
+        // cites it — pinned server-side in preview_render_test.go. With the
+        // state written only to the pressed link, the other one announced
+        // "collapsed" over an open note, and pressing it did nothing a
+        // screen-reader user could predict.
+        getPreview.mockImplementation(
+            signalAware(() =>
+                makePreview({
+                    first_chunk:
+                        '<p data-testid="first-portion">one ' +
+                        '<a href="#pv0-note-1" data-testid="ref-a">1</a> and again ' +
+                        '<a href="#pv0-note-1" data-testid="ref-b">1</a></p>' +
+                        '<div class="preview-note" id="pv0-note-1" data-testid="note-body">' +
+                        '<p>note text</p></div>',
+                }),
+            ),
+        );
+
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        await userEvent.click(screen.getByTestId('ref-a'));
+        expect(screen.getByTestId('note-body')).toBeVisible();
+        expect(screen.getByTestId('ref-a')).toHaveAttribute('aria-expanded', 'true');
+        expect(screen.getByTestId('ref-b')).toHaveAttribute('aria-expanded', 'true');
+
+        // Closing through the other link closes it for both.
+        await userEvent.click(screen.getByTestId('ref-b'));
+        expect(screen.getByTestId('note-body')).not.toBeVisible();
+        expect(screen.getByTestId('ref-a')).toHaveAttribute('aria-expanded', 'false');
+        expect(screen.getByTestId('ref-b')).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('keeps an opened note open across an unrelated re-render', async () => {
+        // The portion's HTML is injected, so its DOM is the only place the
+        // reader's expansion lives. If any state change elsewhere in the
+        // dialog re-sets that HTML, every note the reader opened closes
+        // under them — and nothing else in this file would notice.
+        getPreview.mockImplementation(
+            signalAware(() =>
+                makePreview({
+                    first_chunk:
+                        '<p data-testid="first-portion">x ' +
+                        '<a href="#pv0-note-1" data-testid="note-link">1</a></p>' +
+                        '<div class="preview-note" id="pv0-note-1" data-testid="note-body">' +
+                        '<p>note text</p></div>',
+                }),
+            ),
+        );
+
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        await userEvent.click(screen.getByTestId('note-link'));
+        expect(screen.getByTestId('note-body')).toBeVisible();
+
+        // Something unrelated happens: the reader glances at the contents.
+        await userEvent.click(screen.getByTestId('preview-toc-trigger'));
+        await screen.findByTestId('preview-toc-panel');
+        await userEvent.click(screen.getByRole('button', { name: 'previewCloseToc' }));
+
+        expect(screen.getByTestId('note-body')).toBeVisible();
+        expect(screen.getByTestId('note-link')).toHaveAttribute('aria-expanded', 'true');
+    });
+
     it('mutation #2: Escape dismisses the panel, not the dialog', async () => {
         getPreview.mockImplementation(signalAware(() => makePreview()));
 
@@ -834,6 +900,85 @@ describe('BookPreviewDialog — narrow TOC panel', () => {
         );
         expect(onClose).not.toHaveBeenCalled();
         expect(screen.getByTestId('first-portion')).toBeInTheDocument();
+    });
+
+    it('names the chapter the reader is inside when the portion opens none', async () => {
+        // The server cuts a long chapter across portions and lists only real
+        // headings, so portions after the first carry no entry of their own.
+        // Matching on the portion index alone left the trigger reading
+        // "Contents" and nothing marked, in the middle of a chapter the
+        // reader was plainly inside.
+        getPreview.mockImplementation(
+            signalAware(() =>
+                makePreview({
+                    chunk_count: 3,
+                    toc: [
+                        { title: 'Chapter 1', depth: 1, chunk: 0, anchor: 'c1' },
+                        { title: 'Chapter 2', depth: 1, chunk: 1, anchor: 'c2' },
+                        // Nothing for chunk 2: chapter 2 runs on into it. Two
+                        // chapters before that portion, not one, so "the last
+                        // heading before here" and "the first" are different
+                        // answers and only one of them is right.
+                    ],
+                }),
+            ),
+        );
+        getChunk.mockImplementation(
+            signalAware(() => ({ chunk: '<p data-testid="portion-1-html">more of it</p>' })),
+        );
+
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await screen.findByTestId('portion-1-html');
+        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await waitFor(() => expect(getChunk).toHaveBeenCalledTimes(2));
+        await waitFor(() =>
+            expect(screen.getByTestId('preview-portion-2')).toBeInTheDocument(),
+        );
+
+        expect(screen.getByTestId('preview-toc-trigger')).toHaveTextContent('Chapter 2');
+
+        await userEvent.click(screen.getByTestId('preview-toc-trigger'));
+        const panel = await screen.findByTestId('preview-toc-panel');
+        expect(within(panel).getByRole('button', { name: 'Chapter 2' })).toHaveAttribute(
+            'aria-current',
+            'page',
+        );
+        // And only that one: the chapter the reader has already left is not it.
+        expect(within(panel).getByRole('button', { name: 'Chapter 1' })).not.toHaveAttribute(
+            'aria-current',
+        );
+    });
+
+    it('marks exactly one entry when a portion holds several headings', async () => {
+        // A portion can open more than one chapter — short chapters pack
+        // together. Marking every entry whose chunk matches marked them all,
+        // which tells the reader nothing about where they are.
+        getPreview.mockImplementation(
+            signalAware(() =>
+                makePreview({
+                    chunk_count: 1,
+                    toc: [
+                        { title: 'First', depth: 1, chunk: 0, anchor: 'a1' },
+                        { title: 'Second', depth: 1, chunk: 0, anchor: 'a2' },
+                    ],
+                }),
+            ),
+        );
+
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        await userEvent.click(screen.getByTestId('preview-toc-trigger'));
+        const panel = await screen.findByTestId('preview-toc-panel');
+        const marked = within(panel)
+            .getAllByRole('button')
+            .filter((button) => button.getAttribute('aria-current') === 'page');
+        expect(marked).toHaveLength(1);
+        // The one that opens the portion: the reader arrives at its top.
+        expect(marked[0]).toHaveTextContent('First');
     });
 
     it('mutation #3: the active item tracks the shown portion, not the last TOC click', async () => {

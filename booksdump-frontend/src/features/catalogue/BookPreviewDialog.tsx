@@ -77,6 +77,34 @@ const DIALOG_WIDTH_CLASS = cn(
 );
 
 /**
+ * One portion of the book, injected as HTML.
+ *
+ * The DOM inside a portion is the only place the reader's own state lives —
+ * which footnotes they opened, where they scrolled — because React does not
+ * own those nodes. Written inline in the parent, this element had its HTML
+ * re-written on unrelated re-renders, and re-writing identical HTML still
+ * destroys the children and builds new ones: a glance at the table of
+ * contents closed every note the reader had opened, and the anchor queue's
+ * extra render tore a portion out from under a test that had just found it.
+ *
+ * Measured, not assumed: putting the element in its own component is what
+ * stops the rewrite — moving it back inline fails three tests, while
+ * dropping the memo below fails none today. The memo stays because it is the
+ * part that *guarantees* the property rather than inheriting it from how
+ * React currently reconciles: with props unchanged there is no render at
+ * all, so there is nothing to reason about.
+ */
+const Portion = React.memo(function Portion({ index, html }: { index: number; html: string }) {
+    return (
+        <div
+            data-testid={`preview-portion-${index}`}
+            className="portion"
+            dangerouslySetInnerHTML={{ __html: html }}
+        />
+    );
+});
+
+/**
  * The book preview fetches one chunk at a time, and the chunks a reader has
  * already seen must stay on screen when the next one fails — losing them
  * means losing the reader's place, which is the one thing this dialog must
@@ -280,11 +308,36 @@ export default function BookPreviewDialog({
 
     const orderedPortions = [...portions.entries()].sort(([a], [b]) => a - b);
 
-    // The active TOC entry is the one whose chunk is on screen — not the
-    // last one the reader tapped. A reader who reaches chunk 1 through
-    // "Next" sees Chapter 2 active without ever clicking it.
-    const activeTocItem =
-        preview?.toc.find((item) => item.chunk === currentIndex) ?? null;
+    /**
+     * The TOC entry the reader is currently under — not the last one they
+     * tapped. Reaching chunk 1 through "Next" makes Chapter 2 active without
+     * a click.
+     *
+     * A portion does not always open a chapter, and that is the case this
+     * has to get right. The server cuts a long chapter across several
+     * portions and lists only real headings, so portions 1..n of one chapter
+     * name nothing at all: matching on the portion index alone left the
+     * trigger reading "Contents" and no entry marked, in the middle of a
+     * chapter the reader was plainly inside. The answer there is the heading
+     * that opened the chapter, which is the last one before this portion.
+     *
+     * The other direction is a portion holding several headings. Then the
+     * one that opens it is the honest answer on arrival: the reader is at
+     * the top of the portion, and we do not track where they scrolled to.
+     * It is an index and not the entry itself because titles repeat — two
+     * chapters called "I" are two entries, and only the index tells them
+     * apart when one of them has to be marked.
+     */
+    const tocEntries = preview?.toc ?? [];
+    const opensThisPortion = tocEntries.findIndex((item) => item.chunk === currentIndex);
+    const activeTocIndex =
+        opensThisPortion !== -1
+            ? opensThisPortion
+            : tocEntries.reduce(
+                  (found, item, i) => (item.chunk < currentIndex ? i : found),
+                  -1,
+              );
+    const activeTocItem = activeTocIndex === -1 ? null : tocEntries[activeTocIndex];
 
     const selectTocItem = (item: { chunk: number; anchor: string }) => {
         // Queue the anchor first: the scroll effect waits for the portion to
@@ -388,7 +441,16 @@ export default function BookPreviewDialog({
         } else {
             note.setAttribute('hidden', '');
         }
-        link.setAttribute('aria-expanded', String(expanding));
+        // Every link that points at this note, not only the one pressed. A
+        // note cited twice in a portion is rendered once and linked twice by
+        // design, so setting the state on the pressed link alone left the
+        // other one announcing the opposite of what was on the screen.
+        event.currentTarget
+            .querySelectorAll<HTMLAnchorElement>('a[href^="#pv"]')
+            .forEach((candidate) => {
+                if ((candidate.getAttribute('href') ?? '').slice(1) !== id) return;
+                candidate.setAttribute('aria-expanded', String(expanding));
+            });
     };
 
     return (
@@ -493,16 +555,13 @@ export default function BookPreviewDialog({
                                             }}
                                             className="text-sm"
                                         >
-                                            {/*
-                                             * The entry opens its portion; it
-                                             * does not scroll to the anchor —
-                                             * anchoring arrives with the TOC
-                                             * panel work.
-                                             */}
                                             <button
                                                 type="button"
+                                                aria-current={
+                                                    i === activeTocIndex ? 'page' : undefined
+                                                }
                                                 className="w-full text-left hover:underline"
-                                                onClick={() => goToChunk(item.chunk)}
+                                                onClick={() => selectTocItem(item)}
                                             >
                                                 {item.title}
                                             </button>
@@ -559,12 +618,7 @@ export default function BookPreviewDialog({
                                      * there is not.
                                      */}
                                     {orderedPortions.map(([index, html]) => (
-                                        <div
-                                            key={index}
-                                            data-testid={`preview-portion-${index}`}
-                                            className="portion"
-                                            dangerouslySetInnerHTML={{ __html: html }}
-                                        />
+                                        <Portion key={index} index={index} html={html} />
                                     ))}
 
                                     {chunkFailure && chunkFailure.index === currentIndex && (
@@ -665,9 +719,7 @@ export default function BookPreviewDialog({
                                             <button
                                                 type="button"
                                                 aria-current={
-                                                    item.chunk === currentIndex
-                                                        ? 'page'
-                                                        : undefined
+                                                    i === activeTocIndex ? 'page' : undefined
                                                 }
                                                 onClick={() => selectTocItem(item)}
                                                 style={{

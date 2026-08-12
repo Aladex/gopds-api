@@ -45,3 +45,35 @@ export const compileClasses = async (classes: string) => {
     const design = await designSystem();
     return design.candidatesToCss(classes.split(/\s+/).filter(Boolean)).filter(Boolean).join('\n');
 };
+
+export interface CompiledRule {
+    candidate: string;
+    /** Everything before the first `{` — the selector the rule applies to. */
+    selector: string;
+    /** The declarations, as written. */
+    body: string;
+}
+
+/**
+ * The class list compiled one candidate at a time, so a caller can ask not
+ * only *whether* a declaration exists but *what it applies to*. Compiling the
+ * whole list into one string cannot answer the second question, and that is
+ * the difference between "the column is 62 characters wide" and "something in
+ * here is 62 characters wide".
+ */
+export const compileRules = async (classes: string): Promise<CompiledRule[]> => {
+    const design = await designSystem();
+    const rules: CompiledRule[] = [];
+    for (const candidate of classes.split(/\s+/).filter(Boolean)) {
+        const [css] = design.candidatesToCss([candidate]);
+        if (!css) continue;
+        const brace = css.indexOf('{');
+        if (brace === -1) continue;
+        rules.push({
+            candidate,
+            selector: css.slice(0, brace).trim(),
+            body: css.slice(brace + 1, css.lastIndexOf('}')).trim(),
+        });
+    }
+    return rules;
+};
