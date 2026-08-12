@@ -121,6 +121,10 @@ func setupLogoutRoutes(group *gin.RouterGroup) {
 func setupApiRoutes(group *gin.RouterGroup, search services.PublicSearch) {
 	booksGroup := group.Group("/books")
 	api.SetupBookRoutes(booksGroup, &api.SearchHandler{Search: search})
+	// Preview routes are registered separately: they need the service, and
+	// widening SetupBookRoutes to carry it would make every caller — tests
+	// included — supply a dependency none of the other routes use.
+	api.SetupPreviewRoutes(booksGroup, previewService)
 
 	publicCollections := &api.PublicCollectionsHandler{
 		Svc: services.NewPublicCuratedCollectionsService(),

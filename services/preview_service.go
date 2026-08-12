@@ -67,6 +67,24 @@ var (
 	// the configured ceiling.
 	ErrTooManyBuilds = errors.New("preview: too many concurrent builds, try again shortly")
 
+	// ErrRevisionStale says the caller holds a revision the book no longer
+	// has: it was rescanned, or the pipeline changed under it. The portion it
+	// asks for belongs to a slicing that no longer exists, and answering with
+	// the current one would hand the reader a silent mixture of two versions.
+	// The reader opens the preview again; the table of contents comes back
+	// with the new revision.
+	ErrRevisionStale = errors.New("preview: the revision is no longer current")
+
+	// ErrChunkNotFound says the portion is not there: either the index is
+	// past the end of this slicing, or the cached entry expired between the
+	// table of contents and this request. Both mean the same thing to a
+	// reader — open the preview again — and neither is worth distinguishing
+	// in the answer.
+	ErrChunkNotFound = errors.New("preview: no such portion")
+
+	// ErrImageNotFound is the same for a prepared picture.
+	ErrImageNotFound = errors.New("preview: no such image")
+
 	// ErrArchiveFileNotFound: the archive opened, but the FB2 file the book
 	// row points to is not inside it. Distinct from "book not found" (no
 	// catalog row) and from "empty book" (the file exists but has no text).
@@ -331,7 +349,13 @@ func (s *PreviewService) revision(book *models.Book) string {
 // Shutdown cancels everything in flight — without those, a stuck build would
 // pin its slot and its flight key forever, silently stopping all preview
 // builds once the slots run out.
-func (s *PreviewService) Load(ctx context.Context, bookID int64, isSuperUser bool) ([]byte, error) {
+// resolve answers the questions that must be settled before the archive is
+// touched: does the book exist, may this reader see it, is it a format the
+// preview reads, does it carry a fingerprint. Every entry point asks them in
+// this order, so a reader who may not see a book gets the same answer whether
+// they ask for its table of contents, one of its portions or one of its
+// pictures.
+func (s *PreviewService) resolve(bookID int64, isSuperUser bool) (*models.Book, error) {
 	book, err := s.books.GetBook(bookID)
 	if err != nil {
 		return nil, fmt.Errorf("preview: lookup book %d: %w", bookID, err)
@@ -347,6 +371,78 @@ func (s *PreviewService) Load(ctx context.Context, bookID int64, isSuperUser boo
 	}
 	if book.MD5 == "" {
 		return nil, fmt.Errorf("%w: book id %d", ErrEmptyMD5, bookID)
+	}
+	return book, nil
+}
+
+// Chunk returns one portion of a book's preview, or a typed refusal. The
+// caller states the revision it holds; a revision that is no longer current
+// means the book was rescanned or the pipeline changed, and the portion it
+// asks for belongs to a slicing that no longer exists — answering with the
+// current one would hand the reader a silent mixture of two versions.
+//
+// A portion missing from the cache is not rebuilt here: the entry expired or
+// was evicted, and rebuilding on a portion request would let a stale table of
+// contents resurrect a book piecemeal. The reader opens the preview again.
+func (s *PreviewService) Chunk(ctx context.Context, bookID int64, isSuperUser bool, revision string, index int) ([]byte, error) {
+	book, err := s.resolve(bookID, isSuperUser)
+	if err != nil {
+		return nil, err
+	}
+	if index < 0 {
+		return nil, fmt.Errorf("%w: index %d", ErrChunkNotFound, index)
+	}
+	current := s.revision(book)
+	if revision != current {
+		return nil, fmt.Errorf("%w: asked for %q, current is %q", ErrRevisionStale, revision, current)
+	}
+	if perr := s.cache.Ping(ctx); perr != nil {
+		return nil, fmt.Errorf("%w: %v", ErrCacheUnavailable, perr)
+	}
+	data, cerr := s.cache.GetChunk(ctx, buildCacheKey(book.ID, book.MD5, current), index)
+	if errors.Is(cerr, ErrCacheMiss) {
+		return nil, fmt.Errorf("%w: index %d", ErrChunkNotFound, index)
+	}
+	if cerr != nil {
+		return nil, cerr
+	}
+	return data, nil
+}
+
+// Image returns one prepared picture of a book's preview, under the same
+// rules as Chunk: same visibility, same revision agreement. The MIME travels
+// with the bytes because the handler must state the type it actually has.
+func (s *PreviewService) Image(
+	ctx context.Context, bookID int64, isSuperUser bool, revision string, ordinal int,
+) (payload []byte, mime string, err error) {
+	book, err := s.resolve(bookID, isSuperUser)
+	if err != nil {
+		return nil, "", err
+	}
+	if ordinal < 0 {
+		return nil, "", fmt.Errorf("%w: ordinal %d", ErrImageNotFound, ordinal)
+	}
+	current := s.revision(book)
+	if revision != current {
+		return nil, "", fmt.Errorf("%w: asked for %q, current is %q", ErrRevisionStale, revision, current)
+	}
+	if perr := s.cache.Ping(ctx); perr != nil {
+		return nil, "", fmt.Errorf("%w: %v", ErrCacheUnavailable, perr)
+	}
+	data, contentType, cerr := s.cache.GetImage(ctx, buildCacheKey(book.ID, book.MD5, current), ordinal)
+	if errors.Is(cerr, ErrCacheMiss) {
+		return nil, "", fmt.Errorf("%w: ordinal %d", ErrImageNotFound, ordinal)
+	}
+	if cerr != nil {
+		return nil, "", cerr
+	}
+	return data, contentType, nil
+}
+
+func (s *PreviewService) Load(ctx context.Context, bookID int64, isSuperUser bool) ([]byte, error) {
+	book, err := s.resolve(bookID, isSuperUser)
+	if err != nil {
+		return nil, err
 	}
 
 	if perr := s.cache.Ping(ctx); perr != nil {
