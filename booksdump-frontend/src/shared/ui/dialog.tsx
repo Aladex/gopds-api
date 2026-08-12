@@ -80,10 +80,17 @@ function DialogContent({
         {...props}
       >
         {children}
+        {/*
+         * The close control is a 44px square with the icon centred, not the
+         * bare 16px icon it used to be. Measured in Chrome at 360px: the
+         * target was 16 by 16, well under the 24 CSS pixels WCAG asks for and
+         * far under what a thumb hits reliably. The offsets keep the glyph
+         * where it was optically while the box grows around it.
+         */}
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
-            className="absolute top-4 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+            className="absolute top-1.5 right-1.5 flex size-11 items-center justify-center rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
           >
             <XIcon />
             <span className="sr-only">{closeLabel}</span>

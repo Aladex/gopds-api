@@ -14,7 +14,7 @@ import {
     DialogTitle,
 } from '@/shared/ui/dialog';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
-import { CARD_WIDE_QUERY } from '@/shared/layout/breakpoints';
+import { READER_TOC_QUERY } from '@/shared/layout/breakpoints';
 import { cn } from '@/shared/lib/utils';
 
 type FirstPhase = 'loading' | 'ready' | 'first-error';
@@ -154,11 +154,13 @@ export default function BookPreviewDialog({
     onClose,
 }: BookPreviewDialogProps) {
     const { t } = useTranslation();
-    // The one width question this file is allowed to ask. The card's column
-    // lives at this breakpoint; below it the same data drives a panel that
-    // overlays the work area instead, because a hundred-item list laid
-    // beside the text does not fit a phone.
-    const isWide = useMediaQuery(CARD_WIDE_QUERY);
+    // The one width question this file asks, and it is the reader's own, not
+    // the card's. Above it the contents sit in a column beside the text;
+    // below, the same data drives a panel over the work area — because a
+    // hundred-item list does not fit a phone, and because the column takes
+    // its width out of the text's measure. See READER_TOC_QUERY for what
+    // was measured.
+    const isWide = useMediaQuery(READER_TOC_QUERY);
 
     const [preview, setPreview] = useState<PreviewResponse | null>(null);
     const [portions, setPortions] = useState<Map<number, string>>(new Map());
@@ -549,7 +551,7 @@ export default function BookPreviewDialog({
                          * text; the narrow layout renders the trigger above
                          * and the panel over the work area, never the
                          * column. Which shape appears is decided once, in
-                         * React, by CARD_WIDE_QUERY. The column carries no
+                         * React, by READER_TOC_QUERY. The column carries no
                          * responsive class of its own: a `sm:block` beside
                          * this `isWide` is a second threshold that agrees
                          * only while both literals happen to say 40rem, and
@@ -714,7 +716,7 @@ export default function BookPreviewDialog({
                                     type="button"
                                     aria-label={t('previewCloseToc')}
                                     onClick={() => setTocPanelOpen(false)}
-                                    className="text-sm text-muted-foreground hover:underline"
+                                    className="flex min-h-11 items-center text-sm text-muted-foreground hover:underline"
                                 >
                                     {t('previewCloseToc')}
                                 </button>
@@ -741,7 +743,14 @@ export default function BookPreviewDialog({
                                                 style={{
                                                     paddingLeft: `${(item.depth - 1) * 1}rem`,
                                                 }}
-                                                className="w-full text-left text-sm hover:underline"
+                                                // A finger's target, not a
+                                                // mouse's: measured at 20px
+                                                // tall on a phone, under the
+                                                // 24 CSS pixels WCAG asks
+                                                // for, and these rows are
+                                                // the control a reader uses
+                                                // most in the panel.
+                                                className="flex min-h-11 w-full items-center text-left text-sm hover:underline"
                                             >
                                                 {item.title}
                                             </button>

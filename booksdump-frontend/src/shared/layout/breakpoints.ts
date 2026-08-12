@@ -37,3 +37,23 @@ export const CARD_WIDE_VARIANT = 'sm';
 
 /** The media query the card's layout decision is made with. */
 export const CARD_WIDE_QUERY = `(min-width: ${CARD_WIDE_MIN_WIDTH_REM}rem)`;
+
+/**
+ * Where the reader can afford a contents column beside the text.
+ *
+ * This is a different question from the card's, and answering it with the
+ * card's number made the reading worse across a whole band of widths. The
+ * contents column takes a fixed 14rem plus its gap out of the work area, so
+ * below this width the text is what pays: measured in Chrome at 640px the
+ * line ran to 25 characters and at 768px to 38, while the same widths with
+ * the panel instead gave 50 and 62. A reader is better served by a full
+ * measure and a panel a tap away.
+ *
+ * The number is where the text still reaches its 62-character measure with
+ * the column present — measured, not derived: 61 characters at 1000px, the
+ * full 62 at 1024. It is Tailwind's own `lg`, so the stylesheet can express
+ * the same boundary by name if it ever needs to.
+ */
+export const READER_TOC_MIN_WIDTH_REM = 64;
+export const READER_TOC_VARIANT = 'lg';
+export const READER_TOC_QUERY = `(min-width: ${READER_TOC_MIN_WIDTH_REM}rem)`;

@@ -1288,11 +1288,13 @@ describe('BookPreviewDialog — narrow TOC panel', () => {
 });
 
 describe('BookPreviewDialog — single layout boundary', () => {
-    // The narrow panel is the only second JS layout branch this file has
-    // gained, and its width question must be the same one the card asks —
-    // CARD_WIDE_QUERY — or the two will disagree across the same band of
-    // widths that broke the card before. A second inline query, or a second
-    // useMediaQuery call, is the same defect under another name.
+    // The dialog asks exactly one width question, and it asks it through a
+    // named constant. The constant is the reader's own — READER_TOC_QUERY —
+    // and not the card's: measured in Chrome, answering with the card's
+    // number put the contents column beside the text at widths where the
+    // line fell to 25 characters, against 50 for the same width with the
+    // panel. What must not come back is a *second* boundary: an inline
+    // query, or another useMediaQuery call, is the old defect renamed.
 
     // `import.meta.dirname` rather than `new URL('../…', import.meta.url)`:
     // Vite's transform rewrites the latter for asset URL handling, and under
@@ -1303,14 +1305,14 @@ describe('BookPreviewDialog — single layout boundary', () => {
         'utf8',
     );
 
-    it('asks its one width question through the shared query', () => {
-        expect(source).toContain('useMediaQuery(CARD_WIDE_QUERY)');
+    it('asks its one width question through the named constant', () => {
+        expect(source).toContain('useMediaQuery(READER_TOC_QUERY)');
     });
 
     it('writes no inline width or height media query', () => {
         // Any inline query is a second boundary, whatever the number — the
         // named constant is the only allowed spelling.
-        expect(source.replace('CARD_WIDE_QUERY', '')).not.toMatch(
+        expect(source.replace('READER_TOC_QUERY', '')).not.toMatch(
             /\((?:min|max)-(?:width|height)\s*:/,
         );
     });

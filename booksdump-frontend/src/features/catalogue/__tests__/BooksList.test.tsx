@@ -516,6 +516,26 @@ describe('BooksList opens the reader', () => {
         expect(getPreview).toHaveBeenCalledTimes(2);
     });
 
+    it('hands the keyboard back to the control that opened the book', async () => {
+        // Measured in Chrome before this was written: closing the dialog left
+        // focus on <body>, which drops a keyboard reader at the top of the
+        // catalogue. The dialog library is supposed to restore it and did
+        // not, so the page does it itself — which is also why this is
+        // testable here at all.
+        renderAt('/books/page/1');
+        await screen.findByText('Заклятые в любви');
+
+        const trigger = screen.getByRole('button', { name: 'bookRead' });
+        trigger.focus();
+        await userEvent.click(trigger);
+        await screen.findByTestId('opened-portion');
+
+        await userEvent.click(screen.getByRole('button', { name: 'previewClose' }));
+        await waitFor(() => expect(screen.queryByTestId('opened-portion')).toBeNull());
+
+        expect(trigger).toHaveFocus();
+    });
+
     it('offers the reader only where the pipeline can read the book', async () => {
         // A mixed page, so the rule is observed as "exactly the FB2 one" and
         // not as "not EPUB": a condition like format !== 'epub' would pass a

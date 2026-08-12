@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useParams } from 'react-router';
 import { format } from 'date-fns';
@@ -49,6 +49,38 @@ const BooksList: React.FC = () => {
     // language together, and holding the book itself keeps them from drifting
     // apart when the reader opens a second book without closing the first.
     const [bookToRead, setBookToRead] = useState<Book | null>(null);
+
+    /**
+     * The control that opened the book, so the keyboard can be handed back to
+     * it. Measured in Chrome: closing the dialog left focus on <body>, which
+     * puts a keyboard reader at the top of the catalogue, several dozen tabs
+     * from the book they were just reading. The dialog library restores focus
+     * to whatever held it when the content mounted, and here that restore did
+     * not happen — rather than work out why someone else's effect declines,
+     * the page remembers its own opener and gives the focus back itself.
+     */
+    const readerOpener = useRef<HTMLElement | null>(null);
+
+    const openBook = (book: Book) => {
+        readerOpener.current = document.activeElement as HTMLElement | null;
+        setBookToRead(book);
+    };
+
+    const closeBook = () => setBookToRead(null);
+
+    // Focus is handed back after the commit, not inside the close handler.
+    // The dialog's own focus machinery runs while unmounting its content and
+    // lands on <body>; a focus() called before that is simply overwritten,
+    // which is what the first version of this did — the test failed exactly
+    // as it had before the fix.
+    useEffect(() => {
+        if (bookToRead !== null) return;
+        const opener = readerOpener.current;
+        readerOpener.current = null;
+        // Only if it is still on the page: a list that re-rendered under the
+        // dialog may have replaced the card entirely.
+        if (opener && document.contains(opener)) opener.focus();
+    }, [bookToRead]);
     const [rescanDialogOpen, setRescanDialogOpen] = useState(false);
     const [bookToRescan, setBookToRescan] = useState<number | null>(null);
     const [downloadError, setDownloadError] = useState<{ title: string; message: string } | null>(
@@ -170,7 +202,7 @@ const BooksList: React.FC = () => {
                                 formatDate={formatDate}
                                 isBookConverting={isBookConverting}
                                 onDownload={handleDownload}
-                                onPreview={setBookToRead}
+                                onPreview={openBook}
                                 onEpubRequest={handleEpubDownloadClick}
                                 onMobiRequest={handleMobiDownloadClick}
                                 onToggleFavourite={handleFavBook}
@@ -200,7 +232,7 @@ const BooksList: React.FC = () => {
                 open={bookToRead !== null}
                 bookId={bookToRead?.id ?? null}
                 bookLang={bookToRead?.lang}
-                onClose={() => setBookToRead(null)}
+                onClose={closeBook}
             />
             <RescanPreviewDialog
                 open={rescanDialogOpen}
