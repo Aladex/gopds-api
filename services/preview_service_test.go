@@ -60,25 +60,36 @@ func (l *fakeArchiveLoader) Load(_ context.Context, _, _ string) ([]byte, error)
 }
 
 // mockPreviewCache is an in-memory PreviewCache for tests. It stores
-// manifests and chunks in maps, counts calls, and records the order of Put
-// operations so test 13 can assert "chunks before manifest". A mutex
-// guards every field because concurrent goroutines (singleflight tests)
-// call Get/Put simultaneously — without it, the race detector flags every
-// map access.
+// manifests, chunks and images in maps, counts calls, and records the order
+// of Put operations so test 13 can assert "chunks before manifest" and the
+// build tests can assert "manifest last". putImageErr simulates a backend
+// write failure on images. A mutex guards every field because concurrent
+// goroutines (singleflight tests) call Get/Put simultaneously — without it,
+// the race detector flags every map access.
 type mockPreviewCache struct {
 	mu              sync.Mutex
 	pingErr         error
+	putImageErr     error
 	manifests       map[string][]byte
 	chunks          map[string]map[int][]byte
+	images          map[string]map[int]mockImage
 	putOrder        []string
 	getManifestKeys []string
 	getChunkKeys    []string
+}
+
+// mockImage is one stored prepared image: payload and the MIME kept next to
+// it, mirroring the hash layout of the Redis implementation.
+type mockImage struct {
+	payload []byte
+	mime    string
 }
 
 func newMockCache() *mockPreviewCache {
 	return &mockPreviewCache{
 		manifests: map[string][]byte{},
 		chunks:    map[string]map[int][]byte{},
+		images:    map[string]map[int]mockImage{},
 	}
 }
 
@@ -130,6 +141,34 @@ func (c *mockPreviewCache) PutChunk(_ context.Context, key string, index int, da
 		c.chunks[key] = map[int][]byte{}
 	}
 	c.chunks[key][index] = data
+	return nil
+}
+
+func (c *mockPreviewCache) GetImage(_ context.Context, key string, ordinal int) (payload []byte, mime string, err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	images, ok := c.images[key]
+	if !ok {
+		return nil, "", ErrCacheMiss
+	}
+	img, ok := images[ordinal]
+	if !ok {
+		return nil, "", ErrCacheMiss
+	}
+	return img.payload, img.mime, nil
+}
+
+func (c *mockPreviewCache) PutImage(_ context.Context, key string, ordinal int, payload []byte, mime string, _ time.Duration) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.putOrder = append(c.putOrder, "image:"+key)
+	if c.putImageErr != nil {
+		return c.putImageErr
+	}
+	if c.images[key] == nil {
+		c.images[key] = map[int]mockImage{}
+	}
+	c.images[key][ordinal] = mockImage{payload: payload, mime: mime}
 	return nil
 }
 
@@ -398,11 +437,12 @@ func TestPreviewService_ManifestWithoutChunkIsCacheMissAndChunksWrittenFirst(t *
 
 	// Simulate a stale state: manifest exists but no chunks. The mock
 	// stores by the raw key (no manifest/chunk prefix) — the service
-	// passes buildCacheKey output to both GetManifest and GetChunk.
-	key := buildCacheKey("abc", renderVersionPrefix)
+	// passes buildCacheKey output to both GetManifest and GetChunk. The
+	// key is asked of the service, not re-derived in the test.
+	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits())
+	key := buildCacheKey("abc", svc.revision(repo.books[1]))
 	cache.manifests[key] = []byte("stale-manifest")
 
-	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits())
 	if _, err := svc.Load(context.Background(), 1, false); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -600,7 +640,9 @@ func TestPreviewService_AllWaitersCancelBuildStillCompletes(t *testing.T) {
 	// Wait for the build to finish (delay + margin).
 	time.Sleep(100 * time.Millisecond)
 
-	key := buildCacheKey("abc", renderVersionPrefix)
+	// The key is asked of the service (its revision covers the MD5, the
+	// render version and the image policy), not re-derived in the test.
+	key := buildCacheKey("abc", svc.revision(repo.books[1]))
 	if _, err := cache.GetManifest(context.Background(), key); err != nil {
 		t.Errorf("cache miss after all waiters canceled: %v — the build must complete and write to cache", err)
 	}

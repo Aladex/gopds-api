@@ -10,12 +10,15 @@ package services
 // Ping is a typed refusal, distinct from "book not found" or "format
 // unsupported".
 //
-// The cache stores two things per book: a manifest (the table of contents
-// the reader sees first) and the rendered chunks (the portions the reader
-// pages through). They are stored under separate keys so a reader can fetch
-// one chunk without pulling the whole book. Chunks are written before the
-// manifest: if the process dies between the two, a stale manifest without
-// any chunks is treated as a miss (rebuild), not as an empty book.
+// The cache stores three things per book: a manifest (the JSON index the
+// reader sees first), the rendered chunks (the portions the reader pages
+// through), and the prepared images (the resources the chunks' <img> tags
+// reference). They are stored under separate keys so a reader can fetch one
+// chunk or one image without pulling the whole book. Chunks and images are
+// written before the manifest: if the process dies in between, a stale
+// manifest without its bytes is treated as a miss (rebuild), not as an empty
+// book — and a manifest is never published after a failed write, because it
+// is the promise that every referenced byte exists.
 
 import (
 	"context"
@@ -46,9 +49,10 @@ var ErrCacheUnavailable = errors.New("preview cache: backend is unavailable")
 var ErrEmptyMD5 = errors.New("preview: book has no MD5, cannot build a cache key")
 
 // PreviewCache is the narrow surface the preview service consumes. It
-// stores and retrieves manifests and chunks by key; the service builds the
-// key from the book's MD5 and a render version, so a content change or a
-// policy bump invalidates the old entry without a manual flush.
+// stores and retrieves manifests, chunks and prepared images by key; the
+// service builds the key from the book's MD5 and a revision covering the
+// render version and the image policy, so a content change or a policy bump
+// invalidates the old entry without a manual flush.
 //
 // Methods accept a context for cancellation; the Redis v6 client this
 // project uses does not propagate context into its commands, but the
@@ -73,6 +77,17 @@ type PreviewCache interface {
 
 	// PutChunk writes one chunk. Must be called before PutManifest.
 	PutChunk(ctx context.Context, key string, index int, data []byte, ttl time.Duration) error
+
+	// GetImage returns one prepared image by ordinal, with the MIME stored
+	// next to it, or (nil, "", ErrCacheMiss). The MIME travels with the
+	// bytes because the handler must serve the exact type the preparation
+	// decided on; re-sniffing at serve time could disagree with it.
+	GetImage(ctx context.Context, key string, ordinal int) (payload []byte, mime string, err error)
+
+	// PutImage writes one prepared image with its MIME. Must be called
+	// before PutManifest: a manifest published before its images would
+	// promise resources the cache does not yet hold.
+	PutImage(ctx context.Context, key string, ordinal int, payload []byte, mime string, ttl time.Duration) error
 }
 
 // renderVersionPrefix is the version tag embedded in every cache key. Bump
@@ -87,16 +102,16 @@ const renderVersionPrefix = "v1"
 const cacheKeyTTL = 24 * time.Hour
 
 // buildCacheKey assembles the Redis key for one book's preview. The key
-// carries the render version and the book's content hash, so that:
+// carries the revision and the book's content hash, so that:
 //
 //   - a re-scan of the same book (new MD5) does not serve the old preview;
-//   - a bump of renderVersionPrefix does not serve chunks rendered under
-//     the old policy.
+//   - a bump of anything the revision covers (render version, image policy)
+//     does not serve chunks or images prepared under the old policy.
 //
-// The format is fixed: preview:{version}:{md5}. An empty MD5 is refused
+// The format is fixed: preview:{revision}:{md5}. An empty MD5 is refused
 // upstream (ErrEmptyMD5) and never reaches this function.
-func buildCacheKey(md5, renderVersion string) string {
-	return fmt.Sprintf("preview:%s:%s", renderVersion, md5)
+func buildCacheKey(md5, revision string) string {
+	return fmt.Sprintf("preview:%s:%s", revision, md5)
 }
 
 // chunkKey builds the Redis key for one chunk of one book. Manifest and
@@ -109,6 +124,13 @@ func chunkKey(baseKey string, index int) string {
 // manifestKey builds the Redis key for the manifest of one book.
 func manifestKey(baseKey string) string {
 	return baseKey + ":manifest"
+}
+
+// imageKey builds the Redis key for one prepared image of one book, on the
+// chunkKey pattern: the book's base prefix plus a distinguishing suffix, so
+// every resource of one cutting shares the enumeration prefix.
+func imageKey(baseKey string, ordinal int) string {
+	return fmt.Sprintf("%s:image:%d", baseKey, ordinal)
 }
 
 // RedisPreviewCache is the production implementation of PreviewCache. It
@@ -168,4 +190,31 @@ func (c *RedisPreviewCache) PutChunk(_ context.Context, key string, index int, d
 		return fmt.Errorf("%w: put chunk %d: %v", ErrCacheUnavailable, err, index)
 	}
 	return nil
+}
+
+// The image is stored as a two-field hash (payload, mime) rather than as a
+// framed blob: the fields are written in one command, so a reader never sees
+// bytes without their type, and no framing byte has to be kept out of the
+// payload alphabet.
+func (c *RedisPreviewCache) PutImage(_ context.Context, key string, ordinal int, payload []byte, mime string, ttl time.Duration) error {
+	k := imageKey(key, ordinal)
+	if err := c.client.HMSet(k, map[string]interface{}{"payload": payload, "mime": mime}).Err(); err != nil {
+		return fmt.Errorf("%w: put image %d: %v", ErrCacheUnavailable, ordinal, err)
+	}
+	if err := c.client.Expire(k, ttl).Err(); err != nil {
+		return fmt.Errorf("%w: expire image %d: %v", ErrCacheUnavailable, ordinal, err)
+	}
+	return nil
+}
+
+func (c *RedisPreviewCache) GetImage(_ context.Context, key string, ordinal int) (payload []byte, mime string, err error) {
+	fields, err := c.client.HGetAll(imageKey(key, ordinal)).Result()
+	if err != nil {
+		return nil, "", fmt.Errorf("%w: get image %d: %v", ErrCacheUnavailable, ordinal, err)
+	}
+	data, ok := fields["payload"]
+	if !ok {
+		return nil, "", ErrCacheMiss
+	}
+	return []byte(data), fields["mime"], nil
 }

@@ -38,6 +38,17 @@ func TestBuildCacheKey(t *testing.T) {
 	}
 }
 
+// TestImageKey pins the image key shape: it follows the chunk key pattern —
+// same base prefix, distinguishing suffix — so images can be enumerated
+// alongside chunks and the manifest of one book.
+func TestImageKey(t *testing.T) {
+	got := imageKey("preview:v1:abc", 3)
+	want := "preview:v1:abc:image:3"
+	if got != want {
+		t.Errorf("imageKey = %q, want %q", got, want)
+	}
+}
+
 // TestRedisPreviewCache_RoundTrip exercises the real Redis implementation
 // against a live instance. Skip if Redis is not reachable — a developer
 // without Redis on 6380 should see a skip, not a failure.
@@ -58,7 +69,7 @@ func TestRedisPreviewCache_RoundTrip(t *testing.T) {
 
 	// Use a unique key prefix to avoid colliding with other tests.
 	key := buildCacheKey("integration-test-md5", renderVersionPrefix)
-	defer client.Del(chunkKey(key, 0), manifestKey(key))
+	defer client.Del(chunkKey(key, 0), manifestKey(key), imageKey(key, 1))
 
 	// Chunk round-trip.
 	chunkData := []byte("<FictionBook>hello</FictionBook>")
@@ -94,5 +105,27 @@ func TestRedisPreviewCache_RoundTrip(t *testing.T) {
 	// Chunk miss for a non-existent index.
 	if _, err := cache.GetChunk(ctx, key, 99); !errors.Is(err, ErrCacheMiss) {
 		t.Errorf("GetChunk(99): err = %v, want ErrCacheMiss", err)
+	}
+
+	// Image round-trip: the MIME travels next to the bytes, so the handler
+	// serves the exact type without re-sniffing the payload.
+	imageData := []byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}
+	if err := cache.PutImage(ctx, key, 1, imageData, "image/png", 30*time.Second); err != nil {
+		t.Fatalf("PutImage: %v", err)
+	}
+	gotPayload, gotMIME, ierr := cache.GetImage(ctx, key, 1)
+	if ierr != nil {
+		t.Fatalf("GetImage: %v", ierr)
+	}
+	if !bytes.Equal(gotPayload, imageData) {
+		t.Errorf("image roundtrip: got %v, want %v", gotPayload, imageData)
+	}
+	if gotMIME != "image/png" {
+		t.Errorf("image MIME roundtrip: got %q, want %q", gotMIME, "image/png")
+	}
+
+	// Image miss for a non-existent ordinal.
+	if _, _, err := cache.GetImage(ctx, key, 99); !errors.Is(err, ErrCacheMiss) {
+		t.Errorf("GetImage(99): err = %v, want ErrCacheMiss", err)
 	}
 }
