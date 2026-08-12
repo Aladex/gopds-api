@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { previewClient, classifyPreviewError } from '@/api/preview';
@@ -78,6 +78,20 @@ const DIALOG_WIDTH_CLASS = cn(
  * both; the fetch handlers refuse to write state after an abort, so a
  * slow rejection that lands after close cannot reseed the dialog with a
  * book the reader already left.
+ *
+ * Cancellation alone cannot say "this answer belongs to a request the
+ * reader still wants", because a server is free to answer a request whose
+ * client has already walked away. So every request is also stamped with a
+ * generation number, and an answer is applied only while its stamp is the
+ * latest one. The portion index cannot play that role: leaving chunk 3
+ * and coming back to it makes a dead request's index match again, while
+ * its generation stays behind.
+ *
+ * The preview channel and the chunk channel carry a counter each: on a
+ * book switch the chunk effect fires once more against the not-yet-reset
+ * state (a pre-existing extra request, aborted a render later), and a
+ * shared counter would let that stray run invalidate the new book's
+ * in-flight preview.
  */
 export default function BookPreviewDialog({
     open,
@@ -101,12 +115,22 @@ export default function BookPreviewDialog({
     const [firstRetry, setFirstRetry] = useState(0);
     const [chunkRetry, setChunkRetry] = useState(0);
 
+    // Monotone stamps of the most recent request on each channel. A response
+    // handler applies its payload only while its captured stamp still equals
+    // the ref — anything older belongs to a request the reader has left:
+    // a portion they navigated away from, or a book they switched away from.
+    const previewGeneration = useRef(0);
+    const chunkGeneration = useRef(0);
+
     // Fetch the preview (and the first chunk that comes with it) on open,
     // book change, or first-retry. Any of those transitions aborts the prior
     // request — a stale revision's chunks must never land in the dialog.
     useEffect(() => {
         if (!open || bookId == null) return;
         const controller = new AbortController();
+        // Stamping the request makes its answer recognizable as ours even if
+        // the server responds to a request we already cancelled.
+        const generation = ++previewGeneration.current;
 
         setFirstPhase('loading');
         setPreview(null);
@@ -117,6 +141,7 @@ export default function BookPreviewDialog({
 
         previewClient.getPreview(bookId, controller.signal).then(
             (p) => {
+                if (generation !== previewGeneration.current) return;
                 if (controller.signal.aborted) return;
                 setPreview(p);
                 setPortions(new Map([[0, p.first_chunk]]));
@@ -125,6 +150,7 @@ export default function BookPreviewDialog({
             (err) => {
                 // AbortError is an intentional cancel: closing the dialog or
                 // switching the book landed here. It is not a failure to show.
+                if (generation !== previewGeneration.current) return;
                 if (controller.signal.aborted) return;
                 if (err instanceof DOMException && err.name === 'AbortError') return;
                 setFirstErrorKind(classifyPreviewError(err).kind);
@@ -154,6 +180,10 @@ export default function BookPreviewDialog({
         if (!needsChunkFetch || bookId == null || preview == null) return;
 
         const controller = new AbortController();
+        // Same stamp discipline as the preview request: the reader may jump
+        // to another portion — and back to this one — before the answer
+        // arrives, and only the latest request for an index may write it.
+        const generation = ++chunkGeneration.current;
         // Clearing the prior chunk failure here is safe: it was about an
         // earlier index, and the reader is moving forward. We never clear
         // `portions` — see the contract above.
@@ -163,6 +193,7 @@ export default function BookPreviewDialog({
             .getChunk(bookId, currentIndex, preview.revision, controller.signal)
             .then(
                 (res) => {
+                    if (generation !== chunkGeneration.current) return;
                     if (controller.signal.aborted) return;
                     setPortions((prev) => {
                         const next = new Map(prev);
@@ -171,6 +202,7 @@ export default function BookPreviewDialog({
                     });
                 },
                 (err) => {
+                    if (generation !== chunkGeneration.current) return;
                     if (controller.signal.aborted) return;
                     if (err instanceof DOMException && err.name === 'AbortError') return;
                     setChunkFailure({ index: currentIndex, kind: classifyPreviewError(err).kind });
@@ -193,6 +225,14 @@ export default function BookPreviewDialog({
         if (awaitingChunk) return;
         setChunkFailure(null);
         setCurrentIndex((i) => i + 1);
+    };
+
+    // A TOC entry opens the portion it names. A failure pinned to another
+    // index is left behind; one pinned to this index stays, so the reader
+    // still sees why the portion is missing and can retry it.
+    const goToChunk = (index: number) => {
+        setChunkFailure((prev) => (prev != null && prev.index !== index ? null : prev));
+        setCurrentIndex(index);
     };
 
     const retryFirst = () => setFirstRetry((n) => n + 1);
@@ -247,7 +287,18 @@ export default function BookPreviewDialog({
                                         }}
                                         className="text-sm"
                                     >
-                                        {item.title}
+                                        {/*
+                                         * The entry opens its portion; it does
+                                         * not scroll to the anchor — anchoring
+                                         * arrives with the TOC panel work.
+                                         */}
+                                        <button
+                                            type="button"
+                                            className="w-full text-left hover:underline"
+                                            onClick={() => goToChunk(item.chunk)}
+                                        >
+                                            {item.title}
+                                        </button>
                                     </li>
                                 ))}
                             </ul>

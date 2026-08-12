@@ -1,11 +1,11 @@
 import React from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import BookPreviewDialog from '@/features/catalogue/BookPreviewDialog';
 import * as previewApi from '@/api/preview';
 import { ApiError } from '@/api/errors';
-import type { PreviewResponse } from '@/api/preview';
+import type { ChunkResponse, PreviewResponse } from '@/api/preview';
 
 // The dialog's job is to ferry a reader through a book one chunk at a time
 // without losing their place when something fails: the first request may
@@ -389,4 +389,305 @@ describe('BookPreviewDialog — mutation guards', () => {
         expect(await screen.findByText('previewErrorPermanent')).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'previewRetry' })).not.toBeInTheDocument();
     });
+});
+
+describe('BookPreviewDialog — request ordering', () => {
+    // Three chapters on chunks 0, 1, 2 give the reader somewhere to jump to.
+    const TOC3 = [
+        { title: 'Chapter 1', depth: 1, chunk: 0, anchor: 'c1' },
+        { title: 'Chapter 2', depth: 1, chunk: 1, anchor: 'c2' },
+        { title: 'Chapter 3', depth: 1, chunk: 2, anchor: 'c3' },
+    ];
+
+    interface CapturedChunk {
+        index: number;
+        revision: string;
+        signal: AbortSignal;
+        d: {
+            promise: Promise<ChunkResponse>;
+            resolve: (value: ChunkResponse) => void;
+            reject: (error: unknown) => void;
+        };
+    }
+
+    interface CapturedPreview {
+        bookId: number;
+        signal: AbortSignal;
+        d: {
+            promise: Promise<PreviewResponse>;
+            resolve: (value: PreviewResponse) => void;
+            reject: (error: unknown) => void;
+        };
+    }
+
+    // Every chunk request is held open until the test resolves it by hand,
+    // so the order in which answers arrive is chosen here, not by the
+    // scheduler. That is what makes the race assertions deterministic.
+    function captureChunkCalls(): CapturedChunk[] {
+        const calls: CapturedChunk[] = [];
+        getChunk.mockImplementation((_id, index, revision, signal) => {
+            const d = deferred<ChunkResponse>();
+            calls.push({ index, revision, signal: signal as AbortSignal, d });
+            return d.promise;
+        });
+        return calls;
+    }
+
+    function capturePreviewCalls(): CapturedPreview[] {
+        const calls: CapturedPreview[] = [];
+        getPreview.mockImplementation((id, signal) => {
+            const d = deferred<PreviewResponse>();
+            calls.push({ bookId: id, signal: signal as AbortSignal, d });
+            return d.promise;
+        });
+        return calls;
+    }
+
+    // Flush the promise the test just settled plus the state update it may
+    // have triggered, so a following absence assertion is not a race against
+    // the microtask queue.
+    const flush = () => act(async () => {});
+
+    function renderThreeChapterDialog(chunkCalls?: CapturedChunk[]) {
+        getPreview.mockImplementation(
+            signalAware(() => makePreview({ chunk_count: 3, toc: TOC3 })),
+        );
+        const calls = chunkCalls ?? captureChunkCalls();
+        renderDialog();
+        return calls;
+    }
+
+    it('opens the portion named by a TOC entry', async () => {
+        const calls = renderThreeChapterDialog();
+        await screen.findByTestId('first-portion');
+
+        await userEvent.click(screen.getByRole('button', { name: 'Chapter 3' }));
+
+        await waitFor(() => expect(calls.length).toBe(1));
+        expect(calls[0].index).toBe(2);
+        expect(calls[0].revision).toBe('rev-1');
+
+        calls[0].d.resolve({ chunk: '<p data-testid="portion-of-ch3">chapter three text</p>' });
+
+        expect(await screen.findByTestId('portion-of-ch3')).toBeInTheDocument();
+        // The portion the reader came from is not torn down.
+        expect(screen.getByTestId('first-portion')).toBeInTheDocument();
+    });
+
+    it('race: a slower earlier answer never displaces the portion the reader moved to', async () => {
+        const calls = renderThreeChapterDialog();
+        await screen.findByTestId('first-portion');
+
+        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await waitFor(() => expect(calls.length).toBe(1)); // request A, chunk 1
+
+        await userEvent.click(screen.getByRole('button', { name: 'Chapter 3' }));
+        await waitFor(() => expect(calls.length).toBe(2)); // request B, chunk 2
+
+        // B answers first: the reader sees the portion they asked for last.
+        calls[1].d.resolve({ chunk: '<p data-testid="portion-b">portion two</p>' });
+        expect(await screen.findByTestId('portion-b')).toBeInTheDocument();
+
+        // A answers late. It must not appear — the reader left chunk 1 behind.
+        calls[0].d.resolve({ chunk: '<p data-testid="portion-a">stale one</p>' });
+        await flush();
+        expect(screen.queryByTestId('portion-a')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('preview-portion-1')).not.toBeInTheDocument();
+        expect(screen.getByTestId('portion-b')).toBeInTheDocument();
+    });
+
+    it('a superseded request stays stale even when the reader returns to the same portion', async () => {
+        const calls = renderThreeChapterDialog();
+        await screen.findByTestId('first-portion');
+
+        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await waitFor(() => expect(calls.length).toBe(1)); // A, chunk 1
+
+        await userEvent.click(screen.getByRole('button', { name: 'Chapter 3' }));
+        await waitFor(() => expect(calls.length).toBe(2)); // B, chunk 2
+
+        await userEvent.click(screen.getByRole('button', { name: 'Chapter 2' }));
+        await waitFor(() => expect(calls.length).toBe(3)); // C, chunk 1 again
+
+        // A answers late. Its index matches the current one again — but it is
+        // not the request that is currently open for chunk 1, so its content
+        // must not land.
+        calls[0].d.resolve({ chunk: '<p data-testid="portion-a">stale one</p>' });
+        await flush();
+        expect(screen.queryByTestId('portion-a')).not.toBeInTheDocument();
+
+        // C is the live request for chunk 1; only its answer may appear.
+        calls[2].d.resolve({ chunk: '<p data-testid="portion-c">fresh one</p>' });
+        expect(await screen.findByTestId('portion-c')).toBeInTheDocument();
+        expect(screen.queryByTestId('portion-a')).not.toBeInTheDocument();
+    });
+
+    it('superseding a request aborts it for real — the late answer dies on the signal, not on luck', async () => {
+        const calls = renderThreeChapterDialog();
+        await screen.findByTestId('first-portion');
+
+        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await waitFor(() => expect(calls.length).toBe(1));
+
+        await userEvent.click(screen.getByRole('button', { name: 'Chapter 3' }));
+        await waitFor(() => expect(calls.length).toBe(2));
+
+        // The cancellation is real: the superseded request's signal fired.
+        expect(calls[0].signal.aborted).toBe(true);
+        expect(calls[1].signal.aborted).toBe(false);
+
+        // Even if the server had already sent the bytes, nothing is applied.
+        calls[0].d.resolve({ chunk: '<p data-testid="portion-a">stale one</p>' });
+        await flush();
+        expect(screen.queryByTestId('portion-a')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('preview-portion-1')).not.toBeInTheDocument();
+    });
+
+    it('a late rejection from a superseded request surfaces no error and keeps the shown portion', async () => {
+        const calls = renderThreeChapterDialog();
+        await screen.findByTestId('first-portion');
+
+        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await waitFor(() => expect(calls.length).toBe(1));
+
+        await userEvent.click(screen.getByRole('button', { name: 'Chapter 3' }));
+        await waitFor(() => expect(calls.length).toBe(2));
+
+        calls[1].d.resolve({ chunk: '<p data-testid="portion-b">portion two</p>' });
+        await screen.findByTestId('portion-b');
+
+        // The superseded request fails late. No error may be shown for a
+        // portion the reader is no longer looking at.
+        calls[0].d.reject(new ApiError('boom', 0));
+        await flush();
+        expect(screen.queryByText('previewErrorRetryable')).not.toBeInTheDocument();
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        expect(screen.getByTestId('portion-b')).toBeInTheDocument();
+    });
+
+    it('a book switch starts from a clean slate and the previous book\'s late answers never land', async () => {
+        const previews = capturePreviewCalls();
+        const calls = captureChunkCalls();
+
+        const view = renderDialog({ bookId: 12 });
+        previews[0].d.resolve(
+            makePreview({
+                revision: 'rev-12',
+                chunk_count: 3,
+                toc: TOC3,
+                first_chunk: '<p data-testid="book-twelve">twelve</p>',
+            }),
+        );
+        await screen.findByTestId('book-twelve');
+
+        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await waitFor(() => expect(calls.length).toBe(1)); // chunk request, book 12
+
+        view.rerender(
+            <BookPreviewDialog open bookId={13} bookLang="ru" onClose={vi.fn()} />,
+        );
+
+        // Clean slate: the old portion disappears at once and the new book's
+        // preview is requested. Both of book 12's requests are aborted.
+        await waitFor(() => {
+            expect(previews.length).toBe(2);
+            expect(screen.queryByTestId('book-twelve')).not.toBeInTheDocument();
+        });
+        expect(previews[0].signal.aborted).toBe(true);
+        expect(calls[0].signal.aborted).toBe(true);
+
+        // Book 12's chunk answers late: it belongs to a book the reader left.
+        calls[0].d.resolve({ chunk: '<p data-testid="twelve-late">late chunk</p>' });
+        await flush();
+        expect(screen.queryByTestId('twelve-late')).not.toBeInTheDocument();
+
+        previews[1].d.resolve(
+            makePreview({
+                revision: 'rev-13',
+                chunk_count: 1,
+                toc: [{ title: 'New Chapter', depth: 1, chunk: 0, anchor: 'n1' }],
+                first_chunk: '<p data-testid="book-thirteen">thirteen</p>',
+            }),
+        );
+        expect(await screen.findByTestId('book-thirteen')).toBeInTheDocument();
+        expect(screen.queryByTestId('book-twelve')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('twelve-late')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('preview-portion-1')).not.toBeInTheDocument();
+    });
+
+    it('a late preview response from the previous book never lands in the new one', async () => {
+        const previews = capturePreviewCalls();
+
+        const view = renderDialog({ bookId: 12 });
+        await waitFor(() => expect(previews.length).toBe(1));
+
+        view.rerender(
+            <BookPreviewDialog open bookId={13} bookLang="ru" onClose={vi.fn()} />,
+        );
+        await waitFor(() => expect(previews.length).toBe(2));
+        expect(previews[0].signal.aborted).toBe(true);
+
+        // The old book's preview resolves only after the switch.
+        previews[0].d.resolve(
+            makePreview({ first_chunk: '<p data-testid="book-twelve">twelve</p>' }),
+        );
+        await flush();
+        expect(screen.queryByTestId('book-twelve')).not.toBeInTheDocument();
+
+        previews[1].d.resolve(
+            makePreview({ first_chunk: '<p data-testid="book-thirteen">thirteen</p>' }),
+        );
+        expect(await screen.findByTestId('book-thirteen')).toBeInTheDocument();
+        expect(screen.queryByTestId('book-twelve')).not.toBeInTheDocument();
+    });
+
+
+    // Aborting does not un-queue an answer that has already arrived: in a
+    // browser a response can land in the microtask queue with the abort right
+    // behind it. Every other race test here uses a double that rejects the
+    // moment the signal fires, so none of them exercises that.
+    //
+    // This one resolves the superseded request successfully and asserts what
+    // the reader sees. It passes with the generation stamp removed, and that
+    // is worth saying plainly rather than dressing it up: the safety is
+    // structural, not guarded. Portions are stored by their own index and the
+    // view reads the index the reader is on, so a late answer lands in a slot
+    // nobody is looking at. The stamp is a second line, and the test that
+    // fails without it is the one about returning to the same portion.
+    it('a superseded request that resolves anyway never displaces the shown portion', async () => {
+        const first = deferred<{ chunk: string }>();
+        const second = deferred<{ chunk: string }>();
+
+        getPreview.mockImplementation(
+            signalAware(() =>
+                makePreview({
+                    chunk_count: 3,
+                    first_chunk: '<p>start</p>',
+                    toc: [
+                        { title: 'Chapter 1', depth: 1, chunk: 0, anchor: 'c1' },
+                        { title: 'Chapter 3', depth: 1, chunk: 2, anchor: 'c3' },
+                    ],
+                }),
+            ),
+        );
+        // Deliberately blind to the signal: the answer arrives regardless.
+        getChunk.mockImplementationOnce(() => first.promise)
+            .mockImplementationOnce(() => second.promise);
+
+        renderDialog();
+        await screen.findByText('start');
+
+        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await userEvent.click(screen.getByRole('button', { name: 'Chapter 3' }));
+
+        // The reader is waiting on the second request; the first now answers.
+        second.resolve({ chunk: '<p data-testid="wanted">third</p>' });
+        await screen.findByTestId('wanted');
+        first.resolve({ chunk: '<p data-testid="stale">second</p>' });
+        await Promise.resolve();
+
+        expect(screen.queryByTestId('stale')).toBeNull();
+        expect(screen.getByTestId('wanted')).toBeInTheDocument();
+    });
+
 });
