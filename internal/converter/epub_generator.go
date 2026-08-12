@@ -1329,7 +1329,7 @@ func buildAuthorsLine(bookFile *parser.BookFile) string {
 
 // imagesInOrder returns the images sorted by the binary id they came from, so
 // every walk over them — writing files, listing the manifest, hunting for a
-// cover — produces the same sequence. Go randomises map iteration on purpose,
+// cover — produces the same sequence. Go randomizes map iteration on purpose,
 // and that randomness reached the output: the same book packed the same
 // pictures in a different order on every run, so two builds of one book were
 // never byte-identical and could not be compared by hash.
