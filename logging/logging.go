@@ -87,7 +87,7 @@ func GinrusLogger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 		c.Next()
-		logger.WithFields(logrus.Fields{
+		fields := logrus.Fields{
 			"status":     c.Writer.Status(),
 			"method":     c.Request.Method,
 			"path":       c.Request.URL.Path,
@@ -95,6 +95,16 @@ func GinrusLogger() gin.HandlerFunc {
 			"latency":    time.Since(start),
 			"user-agent": c.Request.UserAgent(),
 			"time":       time.Now().Format(time.RFC1123),
-		}).Info("HTTP Request")
+		}
+		// Handlers attach the cause of a refusal with c.Error and answer the
+		// reader with a fixed public sentence. Without this the cause was
+		// collected and dropped: the log showed a 503 with no way to tell a
+		// dead cache from a build that ran out of time from a server already
+		// building its fill, which are three different operational problems
+		// wearing one status.
+		if errs := c.Errors.Errors(); len(errs) > 0 {
+			fields["errors"] = errs
+		}
+		logger.WithFields(fields).Info("HTTP Request")
 	}
 }
