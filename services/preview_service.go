@@ -32,6 +32,7 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
+	"gopds-api/config"
 	"gopds-api/internal/converter"
 	"gopds-api/models"
 )
@@ -41,7 +42,7 @@ const formatFB2 = "fb2"
 
 // defaultMaxConcurrentBuilds is the ceiling on simultaneous cold builds.
 // Production reads this from config; tests override through the constructor.
-const defaultMaxConcurrentBuilds = 4
+const defaultMaxConcurrentBuilds = 2
 
 // defaultBuildTimeout bounds one cold build. Production reads this from
 // config (preview.build_timeout); tests override through the constructor.
@@ -79,9 +80,11 @@ var (
 	// allows. Checked after parsing, because only the parser knows the count.
 	ErrTooManyBinaries = errors.New("preview: too many image binaries")
 
-	// ErrBinariesTooLarge: the total decoded weight of all binaries exceeds
-	// the gate. Checked after parsing, for the same reason.
-	ErrBinariesTooLarge = errors.New("preview: image binaries exceed the total weight gate")
+	// ErrPreparedImagesTooLarge: the total weight of prepared preview images
+	// exceeds the gate. Checked after BuildPreviewImages and before any cache
+	// write — the prepared bytes are what live in memory and in Redis, so the
+	// ceiling is on the result of transcoding, not on the source binaries.
+	ErrPreparedImagesTooLarge = errors.New("preview: prepared images exceed the total weight gate")
 )
 
 // PreviewLimits are the input gates that protect the pipeline from books that
@@ -93,23 +96,30 @@ type PreviewLimits struct {
 	// MaxBinaries caps the number of <binary> elements. Checked after
 	// parsing, because only the parser knows the count.
 	MaxBinaries int
-	// MaxBinariesBytes caps the total decoded weight of all binaries.
-	MaxBinariesBytes int
+	// MaxPreparedImageBytes caps the total weight of prepared preview
+	// images (sum of len(Payload) across imageSet.Images()). Checked after
+	// BuildPreviewImages: transcoding changes the size, and the prepared
+	// bytes are what the cache and the reader's memory actually carry.
+	MaxPreparedImageBytes int
 }
 
-// defaultPreviewLimits returns the limits derived from the phase-0 catalog
-// measurement: max FB2 31 MB, max binaries 519, max binary weight 22 MB.
+// defaultPreviewLimits returns the limits re-derived from the full-catalog
+// census (537 628 books). The phase-0 sample of 488 systematically
+// under-reported.
 const (
-	defaultMaxFB2Bytes      = 32 << 20 // 32 MB
-	defaultMaxBinaries      = 1000
-	defaultMaxBinariesBytes = 32 << 20 // 32 MB
+	// The numbers live in config: keeping a second copy here would let the
+	// production default and the fallback drift apart, and a mutation of
+	// this one would pass every test.
+	defaultMaxFB2Bytes           = config.PreviewMaxFB2Bytes
+	defaultMaxBinaries           = config.PreviewMaxBinaries
+	defaultMaxPreparedImageBytes = config.PreviewMaxPreparedImageBytes
 )
 
 func defaultPreviewLimits() PreviewLimits {
 	return PreviewLimits{
-		MaxFB2Bytes:      defaultMaxFB2Bytes,
-		MaxBinaries:      defaultMaxBinaries,
-		MaxBinariesBytes: defaultMaxBinariesBytes,
+		MaxFB2Bytes:           defaultMaxFB2Bytes,
+		MaxBinaries:           defaultMaxBinaries,
+		MaxPreparedImageBytes: defaultMaxPreparedImageBytes,
 	}
 }
 
@@ -190,8 +200,8 @@ func NewPreviewService(
 	if limits.MaxBinaries <= 0 {
 		limits.MaxBinaries = defaultMaxBinaries
 	}
-	if limits.MaxBinariesBytes <= 0 {
-		limits.MaxBinariesBytes = defaultMaxBinariesBytes
+	if limits.MaxPreparedImageBytes <= 0 {
+		limits.MaxPreparedImageBytes = defaultMaxPreparedImageBytes
 	}
 	if buildTimeout <= 0 {
 		buildTimeout = defaultBuildTimeout
@@ -435,16 +445,6 @@ func (s *PreviewService) buildAndCache(buildCtx context.Context, key string, boo
 			ErrTooManyBinaries, len(doc.Binary), s.limits.MaxBinaries)
 	}
 
-	// Gate 3: total decoded weight of all binaries.
-	var binBytes int
-	for _, b := range doc.Binary {
-		binBytes += len(b.Data)
-	}
-	if binBytes > s.limits.MaxBinariesBytes {
-		return nil, fmt.Errorf("%w: %d bytes, cap is %d",
-			ErrBinariesTooLarge, binBytes, s.limits.MaxBinariesBytes)
-	}
-
 	// The cold-build pipeline: the revision ties everything below together,
 	// so it is computed once and shared by the image base, the manifest, and
 	// (through the caller) the cache key.
@@ -460,6 +460,22 @@ func (s *PreviewService) buildAndCache(buildCtx context.Context, key string, boo
 	// Refusals (imageSet.Refusals) are NOT build errors: a picture that
 	// cannot be shown stays a placeholder in the HTML and the book opens.
 	// Only a failed cache write below refuses the build.
+	prepared := imageSet.Images()
+
+	// Gate 3: total weight of prepared preview images — the bytes that
+	// will live in memory and in the cache. Measured AFTER preparation,
+	// because transcoding changes the size; the source binary weight is
+	// not what the pipeline carries. This gate fires before any cache
+	// write, so a refusal publishes nothing.
+	var preparedBytes int
+	for _, img := range prepared {
+		preparedBytes += len(img.Payload)
+	}
+	if preparedBytes > s.limits.MaxPreparedImageBytes {
+		return nil, fmt.Errorf("%w: %d bytes, cap is %d",
+			ErrPreparedImagesTooLarge, preparedBytes, s.limits.MaxPreparedImageBytes)
+	}
+
 	projection := imageSet.Projection()
 
 	chunks, err := converter.ChunkPreview(buildCtx, doc, projection, s.chunkPolicy)
@@ -488,7 +504,6 @@ func (s *PreviewService) buildAndCache(buildCtx context.Context, key string, boo
 			return nil, fmt.Errorf("preview: cache chunk %d: %w", i, werr)
 		}
 	}
-	prepared := imageSet.Images()
 	for _, img := range prepared {
 		if werr := s.cache.PutImage(buildCtx, key, img.Ordinal, img.Payload, img.MIME, s.ttl); werr != nil {
 			return nil, fmt.Errorf("preview: cache image %d: %w", img.Ordinal, werr)

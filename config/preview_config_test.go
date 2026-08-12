@@ -28,7 +28,7 @@ preview:
   max_concurrent_builds: 9
   max_fb2_bytes: 1234567
   max_binaries: 42
-  max_binaries_bytes: 7654321
+  max_prepared_image_bytes: 7654321
 `)
 
 	cfg, err := Load()
@@ -51,8 +51,8 @@ preview:
 	if cfg.Preview.MaxBinaries != 42 {
 		t.Errorf("Preview.MaxBinaries = %d, want 42", cfg.Preview.MaxBinaries)
 	}
-	if cfg.Preview.MaxBinariesBytes != 7654321 {
-		t.Errorf("Preview.MaxBinariesBytes = %d, want 7654321", cfg.Preview.MaxBinariesBytes)
+	if cfg.Preview.MaxPreparedImageBytes != 7654321 {
+		t.Errorf("Preview.MaxPreparedImageBytes = %d, want 7654321", cfg.Preview.MaxPreparedImageBytes)
 	}
 	if cfg.Preview.Redis.Host != "preview-redis" {
 		t.Errorf("Preview.Redis.Host = %q, want %q", cfg.Preview.Redis.Host, "preview-redis")
@@ -68,7 +68,7 @@ preview:
 	}
 }
 
-// TestLoadPreviewDefaults guards the defaults the phase-0 measurement
+// TestLoadPreviewDefaults guards the defaults the full-catalog census
 // justified. They are pinned so a careless edit of setDefaults is caught
 // here, not in production.
 func TestLoadPreviewDefaults(t *testing.T) {
@@ -86,17 +86,17 @@ func TestLoadPreviewDefaults(t *testing.T) {
 	if cfg.Preview.BuildTimeout != 2*time.Minute {
 		t.Errorf("Preview.BuildTimeout = %v, want the default 2m", cfg.Preview.BuildTimeout)
 	}
-	if cfg.Preview.MaxConcurrentBuilds != 4 {
-		t.Errorf("Preview.MaxConcurrentBuilds = %d, want the default 4", cfg.Preview.MaxConcurrentBuilds)
+	if cfg.Preview.MaxConcurrentBuilds != 2 {
+		t.Errorf("Preview.MaxConcurrentBuilds = %d, want the default 2", cfg.Preview.MaxConcurrentBuilds)
 	}
-	if cfg.Preview.MaxFB2Bytes != 32<<20 {
-		t.Errorf("Preview.MaxFB2Bytes = %d, want the default 32 MiB", cfg.Preview.MaxFB2Bytes)
+	if cfg.Preview.MaxFB2Bytes != 64<<20 {
+		t.Errorf("Preview.MaxFB2Bytes = %d, want the default 64 MiB", cfg.Preview.MaxFB2Bytes)
 	}
-	if cfg.Preview.MaxBinaries != 1000 {
-		t.Errorf("Preview.MaxBinaries = %d, want the default 1000", cfg.Preview.MaxBinaries)
+	if cfg.Preview.MaxBinaries != 1500 {
+		t.Errorf("Preview.MaxBinaries = %d, want the default 1500", cfg.Preview.MaxBinaries)
 	}
-	if cfg.Preview.MaxBinariesBytes != 32<<20 {
-		t.Errorf("Preview.MaxBinariesBytes = %d, want the default 32 MiB", cfg.Preview.MaxBinariesBytes)
+	if cfg.Preview.MaxPreparedImageBytes != 48<<20 {
+		t.Errorf("Preview.MaxPreparedImageBytes = %d, want the default 48 MiB", cfg.Preview.MaxPreparedImageBytes)
 	}
 }
 

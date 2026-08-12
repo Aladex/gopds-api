@@ -33,10 +33,10 @@ redis:
 #     db: 3           # the preview's own DB number (never shared)
 #   cache_ttl: 24h
 #   build_timeout: 2m
-#   max_concurrent_builds: 4
-#   max_fb2_bytes: 33554432      # 32 MiB
-#   max_binaries: 1000
-#   max_binaries_bytes: 33554432 # 32 MiB
+#   max_concurrent_builds: 2
+#   max_fb2_bytes: 67108864           # 64 MiB
+#   max_binaries: 1500
+#   max_prepared_image_bytes: 50331648 # 48 MiB
 
 sessions:
   key: randomSessionKey12345

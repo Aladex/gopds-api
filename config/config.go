@@ -130,10 +130,21 @@ type PreviewConfig struct {
 	// MaxConcurrentBuilds is the ceiling on simultaneous cold builds.
 	MaxConcurrentBuilds int `mapstructure:"max_concurrent_builds" yaml:"max_concurrent_builds"`
 
-	// The input gates, derived from the phase-0 catalog measurement.
-	MaxFB2Bytes      int `mapstructure:"max_fb2_bytes" yaml:"max_fb2_bytes"`
-	MaxBinaries      int `mapstructure:"max_binaries" yaml:"max_binaries"`
-	MaxBinariesBytes int `mapstructure:"max_binaries_bytes" yaml:"max_binaries_bytes"`
+	// The input gates, re-derived from the full-catalog census (537 628
+	// books). The phase-0 sample of 488 systematically under-reported: its
+	// maximum was a quantile estimate, not the true maximum.
+	MaxFB2Bytes int `mapstructure:"max_fb2_bytes" yaml:"max_fb2_bytes"`
+	MaxBinaries int `mapstructure:"max_binaries" yaml:"max_binaries"`
+	// MaxPreparedImageBytes caps the total weight of prepared preview
+	// images — the sum of len(Payload) across imageSet.Images(), measured
+	// AFTER preparation, not on the source binaries. Transcoding changes
+	// the size, and the prepared bytes are what live in memory and in the
+	// cache. The old gate on raw binary weight was removed: base64 expands
+	// 3:4, so decoded binaries never exceed 3/4 of the FB2 file — under a
+	// 64 MiB file cap any weight gate at or above 48 MiB is unreachable,
+	// and one below discriminates against illustrated books at equal file
+	// size without added safety.
+	MaxPreparedImageBytes int `mapstructure:"max_prepared_image_bytes" yaml:"max_prepared_image_bytes"`
 }
 
 // PreviewRedisConfig is the separate Redis destination for the preview
@@ -300,15 +311,22 @@ const previewRedisDB = 3
 // previewMaxConcurrentBuilds is the default ceiling on simultaneous cold
 // builds — the same value the service falls back to when constructed with a
 // zero.
-const previewMaxConcurrentBuilds = 4
+const previewMaxConcurrentBuilds = 2
 
-// Input gate defaults, derived from the phase-0 measurement on 488 books:
-// max FB2 31 MB, max binaries 519, max binary weight 22 MB. Gates are set
-// at roughly the observed maximum.
+// Input gate defaults, re-derived from the full-catalog census (537 628
+// books). The previous phase-0 sample (488 books) systematically
+// under-reported: its maximum was a quantile estimate, not the true maximum.
+// 1500 binaries and 100 000 nodes are ceilings on the number of operations
+// and objects, NOT headroom above an observed maximum — the catalog tail is
+// shaped by file size, not by binary count, so a small book can in principle
+// carry more small binaries than any book in the measured set.
+// Exported because the service keeps its own fallback for a zero-valued
+// limits struct: a second copy of the number would let the two drift apart
+// silently, and only one of them would be pinned by a test.
 const (
-	previewMaxFB2Bytes      = 32 << 20 // 32 MB
-	previewMaxBinaries      = 1000
-	previewMaxBinariesBytes = 32 << 20 // 32 MB
+	PreviewMaxFB2Bytes           = 64 << 20 // 64 MiB
+	PreviewMaxBinaries           = 1500
+	PreviewMaxPreparedImageBytes = 48 << 20 // 48 MiB
 )
 
 // setDefaults sets default configuration values
@@ -353,9 +371,9 @@ func setDefaults() {
 
 	// Preview input gates — derived from the phase-0 catalog measurement.
 	// Each can be overridden in config without touching code.
-	viper.SetDefault("preview.max_fb2_bytes", previewMaxFB2Bytes)
-	viper.SetDefault("preview.max_binaries", previewMaxBinaries)
-	viper.SetDefault("preview.max_binaries_bytes", previewMaxBinariesBytes)
+	viper.SetDefault("preview.max_fb2_bytes", PreviewMaxFB2Bytes)
+	viper.SetDefault("preview.max_binaries", PreviewMaxBinaries)
+	viper.SetDefault("preview.max_prepared_image_bytes", PreviewMaxPreparedImageBytes)
 
 	// App defaults
 	viper.SetDefault("app.devel_mode", false)

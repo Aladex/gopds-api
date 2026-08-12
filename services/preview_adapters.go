@@ -106,9 +106,9 @@ func NewPreviewServiceFromConfig(
 		books, loader, cache,
 		cfg.MaxConcurrentBuilds,
 		PreviewLimits{
-			MaxFB2Bytes:      cfg.MaxFB2Bytes,
-			MaxBinaries:      cfg.MaxBinaries,
-			MaxBinariesBytes: cfg.MaxBinariesBytes,
+			MaxFB2Bytes:           cfg.MaxFB2Bytes,
+			MaxBinaries:           cfg.MaxBinaries,
+			MaxPreparedImageBytes: cfg.MaxPreparedImageBytes,
 		},
 		cfg.BuildTimeout,
 		cfg.CacheTTL,

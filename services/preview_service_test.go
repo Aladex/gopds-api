@@ -10,6 +10,7 @@ package services
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"sync"
 	"testing"
@@ -901,7 +902,7 @@ func TestPreviewService_OversizeFB2RefusesBeforeParsing(t *testing.T) {
 		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc", Path: "/x", FileName: "big.fb2"},
 	}}
 	loader := &fakeArchiveLoader{data: make([]byte, 101)} // 101 bytes > 100 limit
-	tightLimits := PreviewLimits{MaxFB2Bytes: 100, MaxBinaries: 1000, MaxBinariesBytes: 32 << 20}
+	tightLimits := PreviewLimits{MaxFB2Bytes: 100, MaxBinaries: 1500, MaxPreparedImageBytes: 48 << 20}
 
 	parseCalls := 0
 	prev := parseForGates
@@ -927,7 +928,7 @@ func TestPreviewService_TooManyBinariesIsRefused(t *testing.T) {
 		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc", Path: "/x", FileName: "bins.fb2"},
 	}}
 	loader := &fakeArchiveLoader{data: []byte(fb2WithBinaries)} // 2 binaries
-	oneBinaryLimit := PreviewLimits{MaxFB2Bytes: 32 << 20, MaxBinaries: 1, MaxBinariesBytes: 32 << 20}
+	oneBinaryLimit := PreviewLimits{MaxFB2Bytes: 64 << 20, MaxBinaries: 1, MaxPreparedImageBytes: 48 << 20}
 
 	svc := NewPreviewService(repo, loader, newMockCache(), 4, oneBinaryLimit, 0, 0)
 	_, err := svc.Load(context.Background(), 1, false)
@@ -936,18 +937,105 @@ func TestPreviewService_TooManyBinariesIsRefused(t *testing.T) {
 	}
 }
 
-// Gate 3: total decoded weight of binaries exceeds the limit.
-func TestPreviewService_BinariesTooHeavyIsRefused(t *testing.T) {
-	repo := &fakeBookRepo{books: map[int64]*models.Book{
-		1: {ID: 1, Format: formatFB2, Approved: true, DuplicateHidden: false, MD5: "abc", Path: "/x", FileName: "heavy.fb2"},
-	}}
-	loader := &fakeArchiveLoader{data: []byte(fb2WithBinaries)} // 6 decoded bytes total
-	tinyWeightLimit := PreviewLimits{MaxFB2Bytes: 32 << 20, MaxBinaries: 1000, MaxBinariesBytes: 4}
+// Gate 3: total weight of prepared preview images exceeds the limit. The
+// fixture carries one valid PNG and one corrupt binary ("not an image at
+// all"). Preparation refuses the corrupt one, so the prepared set is smaller
+// in both count and total bytes than the source binary set — that gap is what
+// catches a mutation that checks source binaries instead of prepared images.
+func TestPreviewService_PreparedImagesTooHeavyIsRefused(t *testing.T) {
+	fb2 := `<?xml version="1.0"?>` +
+		`<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:xlink="http://www.w3.org/1999/xlink">` +
+		`<body><section>` +
+		`<p>ТЕКСТ</p>` +
+		`<image xlink:href="#good"/>` +
+		`<image xlink:href="#junk"/>` +
+		`</section></body>` +
+		`<binary id="good" content-type="image/png">` + base64.StdEncoding.EncodeToString(tinyPNG(t)) + `</binary>` +
+		`<binary id="junk" content-type="image/png">` + base64.StdEncoding.EncodeToString([]byte("not an image at all")) + `</binary>` +
+		`</FictionBook>`
 
-	svc := NewPreviewService(repo, loader, newMockCache(), 4, tinyWeightLimit, 0, 0)
+	// Discover the prepared payload size with a permissive build.
+	probeSvc := NewPreviewService(buildBookRepo(), &fakeArchiveLoader{data: []byte(fb2)}, newMockCache(), 2, defaultPreviewLimits(), 0, 0)
+	probeManifest := loadManifest(t, probeSvc)
+	var preparedBytes int
+	for _, ref := range probeManifest.Images {
+		preparedBytes += ref.Bytes
+	}
+	if preparedBytes == 0 {
+		t.Fatal("probe build produced no prepared images — fixture is broken")
+	}
+
+	repo := buildBookRepo()
+	loader := &fakeArchiveLoader{data: []byte(fb2)}
+	cache := newMockCache()
+	tightLimits := PreviewLimits{
+		MaxFB2Bytes:           64 << 20,
+		MaxBinaries:           1500,
+		MaxPreparedImageBytes: preparedBytes - 1,
+	}
+	svc := NewPreviewService(repo, loader, cache, 2, tightLimits, 0, 0)
+
 	_, err := svc.Load(context.Background(), 1, false)
-	if !errors.Is(err, ErrBinariesTooLarge) {
-		t.Fatalf("err = %v, want ErrBinariesTooLarge", err)
+	if !errors.Is(err, ErrPreparedImagesTooLarge) {
+		t.Fatalf("err = %v, want ErrPreparedImagesTooLarge", err)
+	}
+
+	// Nothing was written: the gate fires before any cache write.
+	key := buildCacheKey("abc", svc.revision(repo.books[1]))
+	cache.mu.Lock()
+	manifestCount := len(cache.manifests)
+	chunkCount := len(cache.chunks)
+	imageCount := len(cache.images)
+	cache.mu.Unlock()
+	if manifestCount != 0 {
+		t.Errorf("manifest was written for key %s despite the prepared-image gate refusal", key)
+	}
+	if chunkCount != 0 {
+		t.Errorf("chunks were written despite the prepared-image gate refusal")
+	}
+	if imageCount != 0 {
+		t.Errorf("images were written despite the prepared-image gate refusal")
+	}
+}
+
+// Gate 3 boundary: a book whose prepared images total exactly the limit
+// passes. This pins the comparison as strict (> not >=): one byte over
+// refuses, exactly at the cap builds. The same fixture as above ensures
+// the source-binary total is larger than the prepared total — so a mutation
+// that checks source binaries instead fails here (the source total exceeds
+// the cap, the prepared total does not).
+func TestPreviewService_PreparedImagesAtLimitPasses(t *testing.T) {
+	fb2 := `<?xml version="1.0"?>` +
+		`<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:xlink="http://www.w3.org/1999/xlink">` +
+		`<body><section>` +
+		`<p>ТЕКСТ</p>` +
+		`<image xlink:href="#good"/>` +
+		`<image xlink:href="#junk"/>` +
+		`</section></body>` +
+		`<binary id="good" content-type="image/png">` + base64.StdEncoding.EncodeToString(tinyPNG(t)) + `</binary>` +
+		`<binary id="junk" content-type="image/png">` + base64.StdEncoding.EncodeToString([]byte("not an image at all")) + `</binary>` +
+		`</FictionBook>`
+
+	// Discover the prepared payload size.
+	probeSvc := NewPreviewService(buildBookRepo(), &fakeArchiveLoader{data: []byte(fb2)}, newMockCache(), 2, defaultPreviewLimits(), 0, 0)
+	probeManifest := loadManifest(t, probeSvc)
+	var preparedBytes int
+	for _, ref := range probeManifest.Images {
+		preparedBytes += ref.Bytes
+	}
+
+	repo := buildBookRepo()
+	loader := &fakeArchiveLoader{data: []byte(fb2)}
+	cache := newMockCache()
+	atLimit := PreviewLimits{
+		MaxFB2Bytes:           64 << 20,
+		MaxBinaries:           1500,
+		MaxPreparedImageBytes: preparedBytes,
+	}
+	svc := NewPreviewService(repo, loader, cache, 2, atLimit, 0, 0)
+
+	if _, err := svc.Load(context.Background(), 1, false); err != nil {
+		t.Fatalf("a book at exactly the prepared-image limit must pass: %v", err)
 	}
 }
 
