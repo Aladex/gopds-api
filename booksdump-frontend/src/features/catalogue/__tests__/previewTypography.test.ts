@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { TEXT_COLUMN_CLASS } from '@/features/catalogue/BookPreviewDialog';
+import { SCROLL_AREA_CLASS, TEXT_COLUMN_CLASS } from '@/features/catalogue/BookPreviewDialog';
 import { compileRules, type CompiledRule } from '@/shared/layout/tailwindProbe';
 
 /**
@@ -94,5 +94,25 @@ describe('the reading column carries the agreed typography', () => {
         expect(hyphens).toHaveLength(1);
         expect(hyphens[0].body).toMatch(/hyphens:\s*auto/);
         expect(hyphens[0].scope).toBe('.portion');
+    });
+
+    it('centres the column in the work area', async () => {
+        // `flex-1` fills the space; the auto margins are what put the leftover
+        // on both sides of the text instead of all of it on the right.
+        const auto = await declaring(/margin-inline:\s*auto/);
+        expect(auto).toHaveLength(1);
+        expect(auto[0].scope).toBe('');
+    });
+});
+
+describe('the work area reserves room for the scrollbar', () => {
+    it('keeps the gutter stable on both edges', async () => {
+        // Otherwise the bar takes its width from one side and the centred
+        // column stops being centred the moment a portion is long enough to
+        // scroll — 24px against 39px when this was measured on the mockup.
+        const rules = await compileRules(SCROLL_AREA_CLASS);
+        const gutter = rules.filter((rule) => /scrollbar-gutter:/.test(rule.body));
+        expect(gutter).toHaveLength(1);
+        expect(gutter[0].body).toMatch(/scrollbar-gutter:\s*stable both-edges/);
     });
 });

@@ -59,10 +59,26 @@ const ERROR_KEY: Record<PreviewErrorKind, string> = {
  * hyphenation so word spacing does not tear the right margin.
  */
 export const TEXT_COLUMN_CLASS = cn(
-    'max-w-[62ch] flex-1 min-w-0',
+    'max-w-[62ch] flex-1 min-w-0 mx-auto',
     'text-[18px] leading-[1.4]',
     '[&_.portion_p]:indent-[1.5em] [&_.portion_p]:my-0',
     '[&_.portion]:text-justify [&_.portion]:[hyphens:auto]',
+);
+
+/**
+ * The scrolling work area.
+ *
+ * The gutter is reserved on both edges rather than left to the scrollbar.
+ * Without it the bar takes its width from one side only, and a column that
+ * is centred in what remains is no longer centred on the page — measured on
+ * the mockup as 24px of margin on one side against 39 on the other. Reserving
+ * it on both edges costs the same few pixels whether the content scrolls or
+ * not, which is also what stops the text shifting sideways the moment a
+ * portion makes the page long enough to need the bar.
+ */
+export const SCROLL_AREA_CLASS = cn(
+    'flex min-h-0 flex-1 gap-6 overflow-y-auto px-6 py-4',
+    '[scrollbar-gutter:stable_both-edges]',
 );
 
 /**
@@ -526,7 +542,7 @@ export default function BookPreviewDialog({
                     <div
                         ref={scrollAreaRef}
                         data-testid="preview-scroll-area"
-                        className="flex min-h-0 flex-1 gap-6 overflow-y-auto px-6 py-4"
+                        className={SCROLL_AREA_CLASS}
                     >
                         {/*
                          * Wide layout renders the TOC as a column beside the
