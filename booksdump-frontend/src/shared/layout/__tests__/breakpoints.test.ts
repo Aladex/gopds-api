@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { __unstable__loadDesignSystem } from 'tailwindcss';
 import { Scanner } from '@tailwindcss/oxide';
 
-import { CARD_WIDE_MIN_WIDTH_REM, CARD_WIDE_QUERY } from '@/shared/layout/breakpoints';
+import { CARD_WIDE_MIN_WIDTH_REM, CARD_WIDE_QUERY, CARD_WIDE_VARIANT } from '@/shared/layout/breakpoints';
 
 const projectPath = (relative: string) => fileURLToPath(new URL(relative, import.meta.url));
 
@@ -82,11 +82,15 @@ describe('the card layout boundary', () => {
             expect(parsed, `${candidate} does not parse`).toBeDefined();
             expect(parsed.variants, `${candidate} is conditional on more than a width`).toHaveLength(1);
 
-            // A viewport width, not a container's. @min-[40rem]: carries the
-            // right number and answers to the size of an ancestor, which is
-            // not what matchMedia is watching.
-            expect(css, `${candidate} responds to a container, not the viewport`).not.toMatch(/@container/);
-            expect(css, `${candidate} is not a media query`).toMatch(/@media/);
+            // And that one variant must be the named breakpoint itself. An
+            // arbitrary variant can carry the right number and still add a
+            // second condition inside the same query — a theme, a container,
+            // a print rule — and none of the checks below would see it,
+            // because the parser counts one variant and the CSS holds one
+            // @media with one correct width. Requiring the name closes that
+            // by not admitting anything whose meaning has to be re-derived.
+            const [printed] = parsed.variants.map((variant) => design.printVariant(variant));
+            expect(printed, `${candidate} is not the named breakpoint`).toBe(CARD_WIDE_VARIANT);
 
             const conditions = [...css.matchAll(/width\s*(>=|<=|>|<)\s*([\d.]+)rem/g)];
             expect(conditions, `${candidate} is guarded by ${conditions.length} width conditions`).toHaveLength(1);

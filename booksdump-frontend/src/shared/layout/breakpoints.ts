@@ -25,5 +25,15 @@
  */
 export const CARD_WIDE_MIN_WIDTH_REM = 40;
 
+/**
+ * The Tailwind variant the card styles its wide layout with.
+ *
+ * Named on purpose. A class may carry the right width and still add a
+ * condition of its own inside the same query — a theme, a container, a print
+ * rule — and arrive at a layout React never agreed to. Requiring the name
+ * means nothing whose meaning has to be re-derived gets in.
+ */
+export const CARD_WIDE_VARIANT = 'sm';
+
 /** The media query the card's layout decision is made with. */
 export const CARD_WIDE_QUERY = `(min-width: ${CARD_WIDE_MIN_WIDTH_REM}rem)`;
