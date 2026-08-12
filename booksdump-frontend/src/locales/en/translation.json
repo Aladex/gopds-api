@@ -488,5 +488,19 @@
   "searchWithinGenre": "in genre: {{name}}",
   "searchWithinSeries": "in series: {{name}}",
   "resetSearch": "Clear the search and go back to the list",
-  "resetSearchShort": "Clear search"
+  "resetSearchShort": "Clear search",
+  "previewTitle": "Book preview",
+  "previewDescription": "Read an excerpt from the book directly in the catalogue.",
+  "previewClose": "Close preview",
+  "previewLoading": "Loading…",
+  "previewRetry": "Retry",
+  "previewNext": "Next",
+  "previewEndOfBook": "End of the book",
+  "previewTocLabel": "Table of contents",
+  "previewNoProgressSaved": "Your reading position is not saved in the preview.",
+  "previewErrorNotFound": "The book could not be found for preview.",
+  "previewErrorPermanent": "This book cannot be opened in the preview.",
+  "previewErrorGone": "The preview has expired. Reopen the book.",
+  "previewErrorRetryable": "Temporary error. Try again in a moment.",
+  "previewErrorUnknown": "Something went wrong opening the preview."
 }

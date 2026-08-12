@@ -492,5 +492,19 @@
   "searchWithinGenre": "в жанре: {{name}}",
   "searchWithinSeries": "в серии: {{name}}",
   "resetSearch": "Сбросить поиск и вернуться к списку",
-  "resetSearchShort": "Сбросить поиск"
+  "resetSearchShort": "Сбросить поиск",
+  "previewTitle": "Предпросмотр книги",
+  "previewDescription": "Читать фрагмент книги прямо в каталоге.",
+  "previewClose": "Закрыть предпросмотр",
+  "previewLoading": "Загрузка…",
+  "previewRetry": "Повторить",
+  "previewNext": "Дальше",
+  "previewEndOfBook": "Конец книги",
+  "previewTocLabel": "Содержание",
+  "previewNoProgressSaved": "Место чтения в предпросмотре не сохраняется.",
+  "previewErrorNotFound": "Книгу не удалось найти для предпросмотра.",
+  "previewErrorPermanent": "Эту книгу нельзя открыть для предпросмотра.",
+  "previewErrorGone": "Предпросмотр устарел. Откройте книгу заново.",
+  "previewErrorRetryable": "Временная ошибка. Попробуйте ещё раз.",
+  "previewErrorUnknown": "Не удалось открыть предпросмотр."
 }
