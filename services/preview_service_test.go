@@ -479,7 +479,7 @@ func TestPreviewService_ManifestWithoutChunkIsCacheMissAndChunksWrittenFirst(t *
 	// passes buildCacheKey output to both GetManifest and GetChunk. The
 	// key is asked of the service, not re-derived in the test.
 	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0, 0)
-	key := buildCacheKey("abc", svc.revision(repo.books[1]))
+	key := buildCacheKey(1, "abc", svc.revision(repo.books[1]))
 	cache.manifests[key] = []byte("stale-manifest")
 
 	if _, err := svc.Load(context.Background(), 1, false); err != nil {
@@ -812,7 +812,7 @@ func TestPreviewService_AllWaitersCancelBuildStillCompletes(t *testing.T) {
 
 	// The key is asked of the service (its revision covers the MD5, the
 	// render version and the image policy), not re-derived in the test.
-	key := buildCacheKey("abc", svc.revision(repo.books[1]))
+	key := buildCacheKey(1, "abc", svc.revision(repo.books[1]))
 	if _, err := cache.GetManifest(context.Background(), key); err != nil {
 		t.Errorf("cache miss after all waiters canceled: %v — the build must complete and write to cache", err)
 	}
@@ -1011,7 +1011,7 @@ func TestPreviewService_PreparedImagesTooHeavyIsRefused(t *testing.T) {
 	}
 
 	// Nothing was written: the gate fires before any cache write.
-	key := buildCacheKey("abc", svc.revision(repo.books[1]))
+	key := buildCacheKey(1, "abc", svc.revision(repo.books[1]))
 	cache.mu.Lock()
 	manifestCount := len(cache.manifests)
 	chunkCount := len(cache.chunks)
@@ -1129,7 +1129,7 @@ func TestPreviewService_ChunkReadFailureIsNotAMiss(t *testing.T) {
 	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0, 0)
 
 	// The manifest is present; only the chunk read fails (not a miss).
-	key := buildCacheKey("abc", svc.revision(repo.books[1]))
+	key := buildCacheKey(1, "abc", svc.revision(repo.books[1]))
 	cache.manifests[key] = []byte("present-manifest")
 	cache.getChunkErr = errors.New("connection reset by peer")
 

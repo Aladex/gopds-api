@@ -348,7 +348,7 @@ func (s *PreviewService) Load(ctx context.Context, bookID int64, isSuperUser boo
 		return nil, fmt.Errorf("%w: %v", ErrCacheUnavailable, perr)
 	}
 
-	key := buildCacheKey(book.MD5, s.revision(book))
+	key := buildCacheKey(book.ID, book.MD5, s.revision(book))
 
 	// Cache hit: manifest AND first chunk.
 	if manifest, hit, cerr := s.cachedEntry(ctx, key); cerr != nil {

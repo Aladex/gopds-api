@@ -83,7 +83,7 @@ func TestRealBooksEndToEnd(t *testing.T) {
 				t.Fatal("manifest declares no portions")
 			}
 
-			key := buildCacheKey(book.MD5, m.Revision)
+			key := buildCacheKey(book.ID, book.MD5, m.Revision)
 			ordinals := map[int]bool{}
 			for _, ref := range m.Images {
 				ordinals[ref.Ordinal] = true

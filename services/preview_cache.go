@@ -112,16 +112,25 @@ const renderVersionPrefix = "v1"
 const cacheKeyTTL = 24 * time.Hour
 
 // buildCacheKey assembles the Redis key for one book's preview. The key
-// carries the revision and the book's content hash, so that:
+// carries the catalog id, the revision and the book's content hash, so
+// that:
 //
 //   - a re-scan of the same book (new MD5) does not serve the old preview;
 //   - a bump of anything the revision covers (render version, image policy)
-//     does not serve chunks or images prepared under the old policy.
+//     does not serve chunks or images prepared under the old policy;
+//   - two catalog rows holding the same file do not share an entry.
 //
-// The format is fixed: preview:{revision}:{md5}. An empty MD5 is refused
-// upstream (ErrEmptyMD5) and never reaches this function.
-func buildCacheKey(md5, revision string) string {
-	return fmt.Sprintf("preview:%s:%s", revision, md5)
+// The id is not redundant with the hash. Identical files under different
+// ids are a named concept in this project — GetDuplicateGroups finds books
+// by matching MD5, and books carry duplicate_hidden — and the rendered HTML
+// addresses images as /preview/{bookID}/{revision}/{n}. Keyed by hash alone,
+// the second book would be served the first one's HTML, pointing every
+// picture at a foreign id.
+//
+// The format is fixed: preview:{revision}:{md5}:{bookID}. An empty MD5 is
+// refused upstream (ErrEmptyMD5) and never reaches this function.
+func buildCacheKey(bookID int64, md5, revision string) string {
+	return fmt.Sprintf("preview:%s:%s:%d", revision, md5, bookID)
 }
 
 // chunkKey builds the Redis key for one chunk of one book. Manifest and

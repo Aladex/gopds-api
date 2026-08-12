@@ -13,26 +13,33 @@ import (
 	"github.com/go-redis/redis"
 )
 
-// buildCacheKey must embed the render version and the MD5, in that order,
-// so that a change to either produces a different key. The format is part
-// of the contract: every consumer (service, handler, flush tool) reads the
-// same shape.
+// buildCacheKey must embed the render version, the MD5 and the catalog
+// id, in that order, so that a change to any of the three produces a
+// different key. The format is part of the contract: every consumer
+// (service, handler, flush tool) reads the same shape.
+//
+// The id case is the one that is easy to lose: two catalog rows can hold
+// the same file, and the HTML addresses images by book id, so an entry
+// shared by hash alone would hand the second book the first one's picture
+// URLs.
 func TestBuildCacheKey(t *testing.T) {
 	cases := []struct {
 		name    string
+		bookID  int64
 		md5     string
 		version string
 		want    string
 	}{
-		{"normal", "abc123", "v1", "preview:v1:abc123"},
-		{"different md5", "def456", "v1", "preview:v1:def456"},
-		{"different version", "abc123", "v2", "preview:v2:abc123"},
+		{"normal", 7, "abc123", "v1", "preview:v1:abc123:7"},
+		{"different md5", 7, "def456", "v1", "preview:v1:def456:7"},
+		{"different version", 7, "abc123", "v2", "preview:v2:abc123:7"},
+		{"same file, different catalog row", 8, "abc123", "v1", "preview:v1:abc123:8"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := buildCacheKey(tc.md5, tc.version)
+			got := buildCacheKey(tc.bookID, tc.md5, tc.version)
 			if got != tc.want {
-				t.Errorf("buildCacheKey(%q, %q) = %q, want %q", tc.md5, tc.version, got, tc.want)
+				t.Errorf("buildCacheKey(%d, %q, %q) = %q, want %q", tc.bookID, tc.md5, tc.version, got, tc.want)
 			}
 		})
 	}
@@ -68,7 +75,7 @@ func TestRedisPreviewCache_RoundTrip(t *testing.T) {
 	}
 
 	// Use a unique key prefix to avoid colliding with other tests.
-	key := buildCacheKey("integration-test-md5", renderVersionPrefix)
+	key := buildCacheKey(1, "integration-test-md5", renderVersionPrefix)
 	defer client.Del(chunkKey(key, 0), manifestKey(key), imageKey(key, 1))
 
 	// Chunk round-trip.

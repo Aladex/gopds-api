@@ -198,7 +198,7 @@ func TestPreviewBuild_CacheHoldsHTMLNotBook(t *testing.T) {
 	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0, 0)
 
 	manifest := loadManifest(t, svc)
-	key := buildCacheKey("abc", svc.revision(repo.books[1]))
+	key := buildCacheKey(1, "abc", svc.revision(repo.books[1]))
 
 	if manifest.ChunkCount < 1 {
 		t.Fatalf("manifest declares %d chunks", manifest.ChunkCount)
@@ -268,7 +268,7 @@ func TestPreviewBuild_StoredChunkCountMatchesManifest(t *testing.T) {
 	svc.chunkPolicy = converter.PreviewPolicy{MaxChunkBytes: 512}
 
 	manifest := loadManifest(t, svc)
-	key := buildCacheKey("abc", svc.revision(repo.books[1]))
+	key := buildCacheKey(1, "abc", svc.revision(repo.books[1]))
 
 	if manifest.ChunkCount < 2 {
 		t.Fatalf("the fixture must produce several chunks, manifest declares %d", manifest.ChunkCount)
@@ -297,7 +297,7 @@ func TestPreviewBuild_EveryReferencedImageIsCached(t *testing.T) {
 	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0, 0)
 
 	manifest := loadManifest(t, svc)
-	key := buildCacheKey("abc", svc.revision(repo.books[1]))
+	key := buildCacheKey(1, "abc", svc.revision(repo.books[1]))
 
 	if len(manifest.Images) != 1 {
 		t.Fatalf("manifest declares %d images, want 1 (the valid png)", len(manifest.Images))
@@ -366,7 +366,7 @@ func TestPreviewBuild_RefusedImageKeepsPlaceholder(t *testing.T) {
 	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0, 0)
 
 	manifest := loadManifest(t, svc)
-	key := buildCacheKey("abc", svc.revision(repo.books[1]))
+	key := buildCacheKey(1, "abc", svc.revision(repo.books[1]))
 
 	if len(manifest.Images) != 1 {
 		t.Errorf("manifest declares %d images, want exactly 1 (the junk binary must be refused, not fatal)", len(manifest.Images))
@@ -396,7 +396,7 @@ func TestPreviewBuild_ImageWriteFailurePublishesNoManifest(t *testing.T) {
 		t.Fatal("a failed image write must refuse the build")
 	}
 
-	key := buildCacheKey("abc", svc.revision(repo.books[1]))
+	key := buildCacheKey(1, "abc", svc.revision(repo.books[1]))
 	if _, gerr := cache.GetManifest(context.Background(), key); !errors.Is(gerr, ErrCacheMiss) {
 		t.Errorf("manifest present after a failed image write (err = %v) — the build published a promise it broke", gerr)
 	}
@@ -467,5 +467,56 @@ func TestPreviewBuild_ImagePolicyChangeInvalidatesCache(t *testing.T) {
 	}
 	if loader.calls != 2 {
 		t.Errorf("after the policy change: loader.calls = %d, want 2 — the new revision must miss the old entry", loader.calls)
+	}
+}
+
+// Two catalog rows can hold the same file: GetDuplicateGroups finds books
+// by matching MD5, and books carry duplicate_hidden. The rendered HTML
+// addresses images as /preview/{bookID}/{revision}/{n}, so an entry keyed by
+// the hash alone would hand the second book the first one's picture URLs —
+// every image pointing at a foreign id.
+//
+// The assertion is on the HTML each book gets, not on the keys: a key that
+// differs but a render that still carries the other id would pass a key
+// comparison and fail the reader.
+func TestPreviewBuild_SameMD5DifferentBooksDoNotShareCache(t *testing.T) {
+	repo := &fakeBookRepo{books: map[int64]*models.Book{
+		1: {ID: 1, Format: formatFB2, Approved: true, MD5: "same", Path: "/x", FileName: "book.fb2"},
+		2: {ID: 2, Format: formatFB2, Approved: true, MD5: "same", Path: "/x", FileName: "book.fb2"},
+	}}
+	loader := &fakeArchiveLoader{data: []byte(fb2WithImage(t))}
+	cache := newMockCache()
+	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0, 0)
+
+	htmlFor := func(bookID int64) string {
+		raw, err := svc.Load(context.Background(), bookID, false)
+		if err != nil {
+			t.Fatalf("Load(%d): %v", bookID, err)
+		}
+		var m PreviewManifest
+		if uerr := json.Unmarshal(raw, &m); uerr != nil {
+			t.Fatalf("manifest for %d: %v", bookID, uerr)
+		}
+		chunk, cerr := cache.GetChunk(context.Background(), buildCacheKey(bookID, "same", m.Revision), 0)
+		if cerr != nil {
+			t.Fatalf("chunk for %d: %v", bookID, cerr)
+		}
+		return string(chunk)
+	}
+
+	first := htmlFor(1)
+	second := htmlFor(2)
+
+	if !strings.Contains(first, "/preview/1/") {
+		t.Fatalf("book 1 renders no image URL of its own; got:\n%s", first)
+	}
+	if strings.Contains(second, "/preview/1/") {
+		t.Errorf("book 2 was served book 1's picture URLs — the cache is keyed by content alone")
+	}
+	if !strings.Contains(second, "/preview/2/") {
+		t.Errorf("book 2's HTML carries no /preview/2/ address; got:\n%s", second)
+	}
+	if loader.calls != 2 {
+		t.Errorf("loader.calls = %d, want 2 — each catalog row needs its own build", loader.calls)
 	}
 }
