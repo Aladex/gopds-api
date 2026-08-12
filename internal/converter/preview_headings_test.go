@@ -458,6 +458,39 @@ func TestPreviewChunk_FirstWinsSurvivesChunking(t *testing.T) {
 	if len(chunks) < 2 {
 		t.Fatalf("the fixture stayed in one portion (%d) — it cannot test what happens across them", len(chunks))
 	}
+	// The arrangement is the test: the first occurrence alone in its portion,
+	// the repeat and the link together in another. Asserting it here rather
+	// than trusting the ceiling means a future edit to the fixture fails
+	// loudly instead of quietly testing nothing — which is how this test
+	// first passed while proving nothing at all.
+	firstAt, repeatAt, linkAt := -1, -1, -1
+	for _, chunk := range chunks {
+		html, rerr := RenderChunkHTML(chunk, PreviewImages{}, policy)
+		if rerr != nil {
+			t.Fatalf("render: %v", rerr)
+		}
+		for _, h := range chunk.Headings() {
+			switch h.Title {
+			case "ПЕРВАЯ":
+				firstAt = chunk.Index
+			case "ВТОРАЯ":
+				repeatAt = chunk.Index
+			}
+		}
+		if strings.Contains(html, "ССЫЛКА РЯДОМ С ПОВТОРОМ") {
+			linkAt = chunk.Index
+		}
+	}
+	if firstAt == -1 || repeatAt == -1 || linkAt == -1 {
+		t.Fatalf("fixture lost a piece: first=%d repeat=%d link=%d", firstAt, repeatAt, linkAt)
+	}
+	if firstAt == repeatAt {
+		t.Fatalf("the repeat landed in portion %d beside the first occurrence — nothing to test", repeatAt)
+	}
+	if repeatAt != linkAt {
+		t.Fatalf("the link (portion %d) parted from the repeat (portion %d) — the link must sit where the repeat is",
+			linkAt, repeatAt)
+	}
 
 	var secondAnchor, htmlWithLink string
 	for _, chunk := range chunks {

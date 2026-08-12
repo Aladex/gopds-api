@@ -97,11 +97,18 @@ func paraChunk(index int, paras ...*FB2Paragraph) *PreviewChunk {
 	claimed := map[string]bool{}
 	for _, p := range paras {
 		blk := chunkBlock{para: p, anchor: bookAnchorFor(p.ID)}
-		// Ownership follows the same rule as the chunker: the first block
-		// carrying an id owns it. A helper that skipped this would build
-		// portions the chunker never produces and test a shape that does not
-		// exist.
-		if blk.anchor != "" && !claimed[blk.anchor] {
+		// The same rules the chunker follows: the first block carrying an id
+		// owns it and keeps the anchor that spells it, a later block
+		// repeating that id gets its own synthetic anchor. A helper that
+		// handed both blocks the same anchor would build a portion the
+		// chunker never produces, and tests would be describing a shape that
+		// cannot occur.
+		switch {
+		case blk.anchor == "":
+		case claimed[blk.anchor]:
+			blk.anchor = fmt.Sprintf("pv-%s-h%d", syntheticAnchorPrefix, len(claimed))
+			claimed[blk.anchor] = true
+		default:
 			claimed[blk.anchor] = true
 			blk.ownsID = true
 		}
