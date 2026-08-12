@@ -54,6 +54,16 @@ var ErrEmptyMD5 = errors.New("preview: book has no MD5, cannot build a cache key
 // render version and the image policy, so a content change or a policy bump
 // invalidates the old entry without a manual flush.
 //
+// Every Get distinguishes two failures, typed, because the service maps them
+// to opposite decisions:
+//
+//   - absent key: an error matching errors.Is(err, ErrCacheMiss) — the
+//     service rebuilds;
+//   - broken backend: anything else, wrapped by implementations into an
+//     error matching errors.Is(err, ErrCacheUnavailable) — the service
+//     refuses the request. Treating an outage as a miss would turn a Redis
+//     failure into a full archive unpack per request.
+//
 // Methods accept a context for cancellation; the Redis v6 client this
 // project uses does not propagate context into its commands, but the
 // interface carries one so the contract does not change when the client is

@@ -43,6 +43,10 @@ const formatFB2 = "fb2"
 // Production reads this from config; tests override through the constructor.
 const defaultMaxConcurrentBuilds = 4
 
+// defaultBuildTimeout bounds one cold build. Production reads this from
+// config (preview.build_timeout); tests override through the constructor.
+const defaultBuildTimeout = 2 * time.Minute
+
 // Typed refusals. They are distinct on purpose: the caller (an HTTP handler
 // in phase 4) maps each to a different status, and conflating "not found"
 // with "not visible" with "wrong format" would erase exactly the signal a
@@ -137,6 +141,10 @@ type PreviewService struct {
 	chunkPolicy   converter.PreviewPolicy
 	imagePolicy   converter.PreviewImagePolicy
 
+	buildTimeout time.Duration
+	svcCtx       context.Context
+	shutdown     context.CancelFunc
+
 	sf  singleflight.Group
 	sem chan struct{}
 }
@@ -165,14 +173,22 @@ func defaultPreviewImagePolicy() converter.PreviewImagePolicy {
 
 // NewPreviewService wires the service. maxConcurrent sets the ceiling on
 // simultaneous cold builds; limits sets the input gates (FB2 size, binary
-// count and weight). Both fall back to safe defaults when zero.
-func NewPreviewService(books BookRepo, loader ArchiveLoader, cache PreviewCache, maxConcurrent int, limits PreviewLimits) *PreviewService {
+// count and weight); buildTimeout bounds one cold build. All three fall back
+// to safe defaults when zero.
+func NewPreviewService(
+	books BookRepo, loader ArchiveLoader, cache PreviewCache,
+	maxConcurrent int, limits PreviewLimits, buildTimeout time.Duration,
+) *PreviewService {
 	if maxConcurrent <= 0 {
 		maxConcurrent = defaultMaxConcurrentBuilds
 	}
 	if limits.MaxFB2Bytes <= 0 {
 		limits = defaultPreviewLimits()
 	}
+	if buildTimeout <= 0 {
+		buildTimeout = defaultBuildTimeout
+	}
+	svcCtx, shutdown := context.WithCancel(context.Background())
 	return &PreviewService{
 		books:         books,
 		loader:        loader,
@@ -182,8 +198,19 @@ func NewPreviewService(books BookRepo, loader ArchiveLoader, cache PreviewCache,
 		limits:        limits,
 		chunkPolicy:   defaultPreviewChunkPolicy(),
 		imagePolicy:   defaultPreviewImagePolicy(),
+		buildTimeout:  buildTimeout,
+		svcCtx:        svcCtx,
+		shutdown:      shutdown,
 		sem:           make(chan struct{}, maxConcurrent),
 	}
+}
+
+// Shutdown stops the service: every in-flight cold build is canceled through
+// the service context, and builds that start afterwards fail immediately.
+// Without it, a build hung on a dependency would outlive the server stop,
+// pinning its build slot and its singleflight key.
+func (s *PreviewService) Shutdown() {
+	s.shutdown()
 }
 
 // PreviewManifest is the JSON document the cache holds as the book's entry
@@ -247,11 +274,15 @@ func (s *PreviewService) revision(book *models.Book) string {
 // and format on the request's context, then either returns a cached entry
 // or kicks off a singleflighted cold build.
 //
-// The build runs on its own context (context.Background), not on the
-// request's context. This is deliberate: if every waiter cancels, the
-// build still completes and writes to the cache — the next reader gets a
-// warm hit. The request context gates only the wait (through DoChan +
-// select), not the work.
+// The build runs on its own context — a child of the service context with
+// the cold-build timeout — not on the request's context. This is deliberate:
+// if every waiter cancels, the build still completes and writes to the
+// cache, so the next reader gets a warm hit. The request context gates only
+// the wait (through DoChan + select), not the work. But detached does not
+// mean unbounded: the timeout cuts off a hung loader or a hung Redis, and
+// Shutdown cancels everything in flight — without those, a stuck build would
+// pin its slot and its flight key forever, silently stopping all preview
+// builds once the slots run out.
 func (s *PreviewService) Load(ctx context.Context, bookID int64, isSuperUser bool) ([]byte, error) {
 	book, err := s.books.GetBook(bookID)
 	if err != nil {
@@ -277,23 +308,40 @@ func (s *PreviewService) Load(ctx context.Context, bookID int64, isSuperUser boo
 	key := buildCacheKey(book.MD5, s.revision(book))
 
 	// Cache hit: manifest AND first chunk.
-	if manifest, gerr := s.cache.GetManifest(ctx, key); gerr == nil {
-		if _, cerr := s.cache.GetChunk(ctx, key, 0); cerr == nil {
-			return manifest, nil
-		}
+	if manifest, hit, cerr := s.cachedEntry(ctx, key); cerr != nil {
+		return nil, cerr
+	} else if hit {
+		return manifest, nil
+	}
+
+	// A reader who already went away must not start a background build: the
+	// work would run detached with nobody waiting for the result. Once a
+	// build HAS started it completes regardless of cancellation (see the
+	// flight body below) — this gate is only for work that has not begun.
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	// Cache miss → singleflight. DoChan returns a channel so a waiter can
 	// abandon the wait without aborting the build.
-	//
-	// The build runs on context.Background(), NOT on the request's ctx.
-	// This is deliberate (plan tests 8, 9): if every waiter cancels, the
-	// build still completes and writes to the cache — the next reader gets
-	// a warm hit. Passing ctx here would tie the build's lifetime to the
-	// first caller's request, and a single cancel would abort the work
-	// every waiter is sharing.
 	ch := s.sf.DoChan(key, func() (interface{}, error) {
-		return s.buildAndCache(context.Background(), key, book)
+		// The build context descends from the service context, NOT from the
+		// request's: the build must survive every waiter going away, but it
+		// is still bounded by the cold-build timeout and by Shutdown.
+		buildCtx, cancel := context.WithTimeout(s.svcCtx, s.buildTimeout)
+		defer cancel()
+
+		// Re-check the cache inside the flight, before taking a build slot:
+		// between the miss above and this flight starting, a previous build
+		// may have completed and published. Without the re-check, a request
+		// that raced a finished build re-reads the archive for nothing.
+		if manifest, hit, cerr := s.cachedEntry(buildCtx, key); cerr != nil {
+			return nil, cerr
+		} else if hit {
+			return manifest, nil
+		}
+
+		return s.buildAndCache(buildCtx, key, book)
 	})
 
 	select {
@@ -307,10 +355,39 @@ func (s *PreviewService) Load(ctx context.Context, bookID int64, isSuperUser boo
 	}
 }
 
+// cachedEntry returns the manifest if the cache holds a complete entry — the
+// manifest AND the first chunk (a manifest without chunks is a stale remnant
+// of an interrupted build and counts as a miss).
+//
+// The three outcomes are distinct on purpose: hit, miss, broken. A miss
+// means "build it"; a broken backend means "refuse" — an infrastructure
+// outage must never fall through to a cold build, the most expensive
+// operation the service has, at the moment the system can least afford it.
+// The cache contract is typed: an absent key is reported with an error
+// matching ErrCacheMiss, and any other read error is treated here as backend
+// unavailability, whatever its concrete type.
+func (s *PreviewService) cachedEntry(ctx context.Context, key string) (manifest []byte, hit bool, err error) {
+	manifest, err = s.cache.GetManifest(ctx, key)
+	if err != nil {
+		if errors.Is(err, ErrCacheMiss) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("%w: read manifest: %w", ErrCacheUnavailable, err)
+	}
+	if _, cerr := s.cache.GetChunk(ctx, key, 0); cerr != nil {
+		if errors.Is(cerr, ErrCacheMiss) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("%w: read first chunk: %w", ErrCacheUnavailable, cerr)
+	}
+	return manifest, true, nil
+}
+
 // buildAndCache is the single-flight body: it acquires a build slot, loads
-// the archive, and writes the result to the cache. buildCtx is the context
-// the work runs under — the caller passes context.Background() so the build
-// survives request cancellation.
+// the archive, and writes the result to the cache. buildCtx bounds the work:
+// the caller passes a child of the service context carrying the cold-build
+// timeout, so the build survives request cancellation but not a hung
+// dependency or a service stop.
 func (s *PreviewService) buildAndCache(buildCtx context.Context, key string, book *models.Book) ([]byte, error) {
 	// Non-blocking semaphore: if the ceiling is reached, refuse rather
 	// than queue. Every waiter for this key gets ErrTooManyBuilds through
@@ -321,9 +398,6 @@ func (s *PreviewService) buildAndCache(buildCtx context.Context, key string, boo
 	default:
 		return nil, fmt.Errorf("%w: key %s", ErrTooManyBuilds, key)
 	}
-
-	// The build context is passed by the caller (context.Background()).
-	// If all waiters cancel, the build still completes and writes to cache.
 
 	data, err := s.loader.Load(buildCtx, book.Path, book.FileName)
 	if err != nil {

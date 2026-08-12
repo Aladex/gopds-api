@@ -195,7 +195,7 @@ func TestPreviewBuild_CacheHoldsHTMLNotBook(t *testing.T) {
 	repo := buildBookRepo()
 	loader := &fakeArchiveLoader{data: []byte(fb2WithImage(t))}
 	cache := newMockCache()
-	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits())
+	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0)
 
 	manifest := loadManifest(t, svc)
 	key := buildCacheKey("abc", svc.revision(repo.books[1]))
@@ -264,7 +264,7 @@ func TestPreviewBuild_StoredChunkCountMatchesManifest(t *testing.T) {
 	repo := buildBookRepo()
 	loader := &fakeArchiveLoader{data: []byte(fb2)}
 	cache := newMockCache()
-	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits())
+	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0)
 	svc.chunkPolicy = converter.PreviewPolicy{MaxChunkBytes: 512}
 
 	manifest := loadManifest(t, svc)
@@ -294,7 +294,7 @@ func TestPreviewBuild_EveryReferencedImageIsCached(t *testing.T) {
 	repo := buildBookRepo()
 	loader := &fakeArchiveLoader{data: []byte(fb2WithImage(t))}
 	cache := newMockCache()
-	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits())
+	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0)
 
 	manifest := loadManifest(t, svc)
 	key := buildCacheKey("abc", svc.revision(repo.books[1]))
@@ -363,7 +363,7 @@ func TestPreviewBuild_RefusedImageKeepsPlaceholder(t *testing.T) {
 	repo := buildBookRepo()
 	loader := &fakeArchiveLoader{data: []byte(fb2)}
 	cache := newMockCache()
-	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits())
+	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0)
 
 	manifest := loadManifest(t, svc)
 	key := buildCacheKey("abc", svc.revision(repo.books[1]))
@@ -389,7 +389,7 @@ func TestPreviewBuild_ImageWriteFailurePublishesNoManifest(t *testing.T) {
 	loader := &fakeArchiveLoader{data: []byte(fb2WithImage(t))}
 	cache := newMockCache()
 	cache.putImageErr = errors.New("redis write failed")
-	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits())
+	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0)
 
 	_, err := svc.Load(context.Background(), 1, false)
 	if err == nil {
@@ -409,7 +409,7 @@ func TestPreviewBuild_ManifestIsWrittenLast(t *testing.T) {
 	repo := buildBookRepo()
 	loader := &fakeArchiveLoader{data: []byte(fb2WithImage(t))}
 	cache := newMockCache()
-	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits())
+	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0)
 
 	manifest := loadManifest(t, svc)
 
@@ -452,13 +452,13 @@ func TestPreviewBuild_ImagePolicyChangeInvalidatesCache(t *testing.T) {
 	loader := &fakeArchiveLoader{data: []byte(fb2WithImage(t))}
 	cache := newMockCache()
 
-	svc1 := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits())
+	svc1 := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0)
 	manifest1 := loadManifest(t, svc1)
 	if loader.calls != 1 {
 		t.Fatalf("first build: loader.calls = %d, want 1", loader.calls)
 	}
 
-	svc2 := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits())
+	svc2 := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0)
 	svc2.imagePolicy.MaxSide = 2048
 	manifest2 := loadManifest(t, svc2)
 

@@ -292,6 +292,12 @@ func setDefaults() {
 	viper.SetDefault("preview.redis.password", "")
 	viper.SetDefault("preview.cache_ttl", "24h")
 
+	// Cold-build timeout: one preview build may not take longer than this.
+	// The build context is detached from the reader's request, so without
+	// the bound a hung loader or a hung Redis would pin a build slot and
+	// its singleflight key forever.
+	viper.SetDefault("preview.build_timeout", "2m")
+
 	// Preview input gates — derived from the phase-0 catalog measurement.
 	// Each can be overridden in config without touching code.
 	viper.SetDefault("preview.max_fb2_bytes", previewMaxFB2Bytes)
