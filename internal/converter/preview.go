@@ -11,10 +11,14 @@ import (
 	"sync"
 )
 
-// ErrPreviewBlockTooLarge marks a book that cannot be portioned within the
-// ceiling: a single indivisible block (with the footnotes it drags in)
-// renders larger than a whole portion is allowed to be. The honest outcome
-// for such a book is a refusal, not a silent overflow.
+// ErrPreviewBlockTooLarge marks a portion that came out over the ceiling
+// while holding more than one block.
+//
+// A lone indivisible block is allowed to overflow — a paragraph has no seam
+// to cut, and refusing meant a book like Kafka's "Замок" could not be read at
+// all. Several blocks over the ceiling is a different thing entirely: the
+// packing loop let something through that it should have moved on, and that
+// is a defect in this package rather than a fact about the book.
 var ErrPreviewBlockTooLarge = errors.New("fb2 preview: indivisible block exceeds the chunk ceiling")
 
 // Refusals returned by PreparePreviewImage. Each names a distinct reason so

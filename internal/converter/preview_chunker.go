@@ -57,6 +57,11 @@ func ChunkPreview(ctx context.Context, doc *FB2Document, images PreviewImages, p
 		if err != nil {
 			return nil, err
 		}
+		// A block that does not fit an empty portion still goes in: it is
+		// indivisible, and the portion it lands in is the overflow. Because
+		// the next block will not fit beside it, such a block ends up alone —
+		// which is what keeps the overflow to one block rather than turning
+		// the ceiling into a suggestion.
 		if curSize+cost > policy.MaxChunkBytes && len(cur.blocks) > 0 {
 			chunks = append(chunks, cur)
 			cur = &PreviewChunk{Index: cur.Index + 1}
@@ -157,10 +162,14 @@ func (p *previewPacker) draftBlockCost(chunkIndex int, block chunkBlock, already
 			pulled = append(pulled, note)
 		}
 	}
-	if cost > p.policy.MaxChunkBytes {
-		return 0, nil, fmt.Errorf("%w: one block with its footnotes renders %d bytes over the %d ceiling",
-			ErrPreviewBlockTooLarge, cost, p.policy.MaxChunkBytes)
-	}
+	// A block costing more than a whole portion is not refused. It cannot be
+	// divided — a paragraph has no seam — so the choice is between refusing
+	// the book and letting one portion be as large as its largest indivisible
+	// block. Kafka's "Замок" is the case that settled it: every input gate
+	// passed with room to spare and one paragraph rendered 67433 bytes
+	// against a 65536 ceiling, so the reader was told the book was too large
+	// when only that paragraph was. The packing loop puts such a block in a
+	// portion of its own; see ChunkPreview.
 	return cost, pulled, nil
 }
 

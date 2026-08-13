@@ -58,9 +58,13 @@ func RenderChunkHTML(chunk *PreviewChunk, images PreviewImages, policy PreviewPo
 		out.WriteString(r.renderNotesAfter(block))
 	}
 	result := out.String()
-	if len(result) > policy.MaxChunkBytes {
-		return "", fmt.Errorf("%w: %d rendered bytes over the %d ceiling",
-			ErrPreviewBlockTooLarge, len(result), policy.MaxChunkBytes)
+	// One indivisible block is allowed to overflow; a portion holding several
+	// is not. The distinction is the whole of the rule: without it the
+	// ceiling stops meaning anything, and with a refusal on both a book with
+	// one long paragraph cannot be read at all.
+	if len(result) > policy.MaxChunkBytes && len(chunk.blocks) > 1 {
+		return "", fmt.Errorf("%w: %d rendered bytes over the %d ceiling in a portion of %d blocks",
+			ErrPreviewBlockTooLarge, len(result), policy.MaxChunkBytes, len(chunk.blocks))
 	}
 	return result, nil
 }

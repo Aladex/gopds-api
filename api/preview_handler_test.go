@@ -760,7 +760,15 @@ func TestPreviewHandler_RefusalTable(t *testing.T) {
 		},
 		{"node limit in parser", converter.ErrFB2NodeLimit, http.StatusRequestEntityTooLarge, "this book is too large to preview", ""},
 		{"binary limit in parser", converter.ErrFB2BinaryLimit, http.StatusRequestEntityTooLarge, "this book is too large to preview", ""},
-		{"indivisible block", converter.ErrPreviewBlockTooLarge, http.StatusRequestEntityTooLarge, "this book is too large to preview", ""},
+		// Reaching this handler at all now means a packing defect: a lone
+		// oversized block is allowed through, and only a portion of several
+		// blocks over the ceiling raises it. 413 is still the honest answer to
+		// a reader — there is no portion to give them — but it is no longer a
+		// statement about the book.
+		{
+			"portion of several blocks over the ceiling", converter.ErrPreviewBlockTooLarge,
+			http.StatusRequestEntityTooLarge, "this book is too large to preview", "",
+		},
 		{
 			"prepared images over the budget", converter.ErrPreviewImagesTotalTooLarge,
 			http.StatusRequestEntityTooLarge, "this book is too large to preview", "",

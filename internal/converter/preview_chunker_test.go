@@ -93,22 +93,107 @@ func TestChunkPreview_SplitsOversizedSection(t *testing.T) {
 	}
 }
 
-// One indivisible block larger than the ceiling is a typed refusal, not a
-// silently oversized portion.
-func TestChunkPreview_IndivisibleBlockTooLarge(t *testing.T) {
+// A block too big to divide gets a portion to itself, and that portion is
+// allowed over the ceiling.
+//
+// Kafka is the case. "Замок" passes every input gate with room to spare —
+// 1.2 MiB of a 64 MiB allowance, 1564 nodes of 100 000 — and then fails to
+// portion at all: one of its paragraphs renders 67433 bytes against a 65536
+// ceiling. A paragraph cannot be cut in half, so the choice is to refuse the
+// book or to let one portion be as big as its largest indivisible block.
+// Refusing told the reader "this book is too large", which was untrue of the
+// book and true only of one paragraph in it.
+func TestChunkPreview_IndivisibleBlockGetsItsOwnPortion(t *testing.T) {
 	chunkPolicy := PreviewPolicy{MaxChunkBytes: 512}
 	imagePolicy := testPreviewImagePolicy()
-	doc := docFromParas(textPara(strings.Repeat("очень длинный абзац ", 200)))
+	huge := strings.Repeat("очень длинный абзац ", 200)
+	doc := docFromParas(textPara("короткий"), textPara(huge), textPara("тоже короткий"))
 
-	chunks, err := ChunkPreview(context.Background(), doc, previewImagesFor(context.Background(), doc, imagePolicy), chunkPolicy)
+	chunks, err := ChunkPreview(context.Background(), doc,
+		previewImagesFor(context.Background(), doc, imagePolicy), chunkPolicy)
+	if err != nil {
+		t.Fatalf("a book with one huge paragraph must still portion: %v", err)
+	}
+
+	// The oversized block is alone in its portion. That is what bounds the
+	// overflow: one block, never a portion packed past the ceiling and then
+	// topped up.
+	var oversized int
+	for _, chunk := range chunks {
+		rendered, rerr := RenderChunkHTML(chunk, previewImagesFor(context.Background(), doc, imagePolicy), chunkPolicy)
+		if rerr != nil {
+			t.Fatalf("render portion %d: %v", chunk.Index, rerr)
+		}
+		if len(rendered) <= chunkPolicy.MaxChunkBytes {
+			continue
+		}
+		oversized++
+		if got := len(chunk.blocks); got != 1 {
+			t.Errorf("portion %d is over the ceiling with %d blocks; only a lone indivisible block may overflow",
+				chunk.Index, got)
+		}
+	}
+	if oversized != 1 {
+		t.Errorf("expected exactly one oversized portion, got %d", oversized)
+	}
+
+	// And the short paragraphs around it are still there, in order.
+	var joined strings.Builder
+	for _, chunk := range chunks {
+		rendered, _ := RenderChunkHTML(chunk, previewImagesFor(context.Background(), doc, imagePolicy), chunkPolicy)
+		joined.WriteString(rendered)
+	}
+	text := joined.String()
+	for _, marker := range []string{"короткий", "тоже короткий"} {
+		if !strings.Contains(text, marker) {
+			t.Errorf("paragraph %q was lost around the oversized one", marker)
+		}
+	}
+}
+
+// A portion holding several blocks may not come out over the ceiling. The
+// packer never builds one — a block that does not fit is moved on — so this
+// hands the renderer a portion that only a defect could produce, and asks it
+// to say so rather than emit it.
+//
+// Without this, the guard is unfalsifiable: allowing every overflow passes
+// the whole package, because the one case a correct packer produces is the
+// case that is meant to be allowed.
+func TestRenderChunkHTML_RefusesAnOversizedPortionOfSeveralBlocks(t *testing.T) {
+	policy := PreviewPolicy{MaxChunkBytes: 256}
+	long := strings.Repeat("длинный текст ", 40)
+	chunk := &PreviewChunk{Index: 0, blocks: []chunkBlock{
+		{para: textPara(long)},
+		{para: textPara(long)},
+	}}
+
+	html, err := RenderChunkHTML(chunk, PreviewImages{}, policy)
 	if err == nil {
-		t.Fatalf("expected a typed error for a block larger than the ceiling, got %d chunks", len(chunks))
+		t.Fatalf("a %d-byte portion of 2 blocks passed a %d ceiling", len(html), policy.MaxChunkBytes)
 	}
 	if !errors.Is(err, ErrPreviewBlockTooLarge) {
 		t.Fatalf("expected ErrPreviewBlockTooLarge, got %v", err)
 	}
-	if chunks != nil {
-		t.Errorf("chunks must be nil on refusal, got %d", len(chunks))
+	if html != "" {
+		t.Errorf("refusal must yield no HTML, got %d bytes", len(html))
+	}
+}
+
+// The same portion with one block is allowed over, which is the rule this
+// package now keeps: indivisible means indivisible.
+func TestRenderChunkHTML_AllowsALoneBlockOverTheCeiling(t *testing.T) {
+	policy := PreviewPolicy{MaxChunkBytes: 256}
+	chunk := &PreviewChunk{Index: 0, blocks: []chunkBlock{
+		{para: textPara(strings.Repeat("длинный текст ", 40))},
+	}}
+
+	html, err := RenderChunkHTML(chunk, PreviewImages{}, policy)
+	if err != nil {
+		t.Fatalf("a lone indivisible block must render: %v", err)
+	}
+	if len(html) <= policy.MaxChunkBytes {
+		t.Fatalf("the fixture does not exercise the rule: %d bytes is under the %d ceiling",
+			len(html), policy.MaxChunkBytes)
 	}
 }
 
