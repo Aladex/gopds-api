@@ -84,14 +84,29 @@ func ChunkPreview(ctx context.Context, doc *FB2Document, images PreviewImages, p
 				return nil, err
 			}
 		}
-		// The running total is what bounds the build. Per-portion ceilings
-		// do not add up to one: the same footnote is re-embedded in every
+		// The running total is what bounds the build. Per-portion ceilings do
+		// not add up to one: the same footnote is re-embedded in every
 		// portion that cites it, so a book can stay under every ceiling for
 		// each portion and still render gigabytes.
+		//
+		// It is kept in draft bytes, which overcount — the draft assumes
+		// every fragment link resolves so that packing never underfills — so
+		// crossing the ceiling is a reason to measure, never a reason to
+		// refuse. Refusing on the estimate would tell a reader with a book
+		// full of dead links that their book is too large when the rendered
+		// book fits. Below, truth replaces the estimate and the count carries
+		// on from there.
 		total += cost
 		if total > policy.MaxTotalBytes {
-			return nil, fmt.Errorf("%w: %d rendered bytes over the %d total ceiling",
-				ErrPreviewBookTooLarge, total, policy.MaxTotalBytes)
+			measured, merr := renderedBytesSoFar(chunks, cur, block, notes, images, policy)
+			if merr != nil {
+				return nil, merr
+			}
+			if measured > policy.MaxTotalBytes {
+				return nil, fmt.Errorf("%w: %d rendered bytes over the %d total ceiling",
+					ErrPreviewBookTooLarge, measured, policy.MaxTotalBytes)
+			}
+			total = measured
 		}
 
 		cur.blocks = append(cur.blocks, block)
@@ -106,6 +121,47 @@ func ChunkPreview(ctx context.Context, doc *FB2Document, images PreviewImages, p
 	}
 	chunks = append(chunks, cur)
 	return chunks, nil
+}
+
+// renderedBytesSoFar is the exact size of everything packed up to and
+// including the block being placed. It exists to answer one question — has
+// the book really passed its total ceiling — and it is called only when the
+// running estimate says it might have.
+//
+// Cost is bounded in practice: the estimate only overcounts unresolved
+// fragment links, by roughly the length of an anchor each, and the parser's
+// node gate caps how many links a book may carry at all. A book has to be
+// within a couple of percent of the ceiling before the overcount can reach
+// it, so this runs once or twice for such a book and never for any other.
+func renderedBytesSoFar(
+	done []*PreviewChunk, cur *PreviewChunk, block chunkBlock, notes []*FB2BodySection,
+	images PreviewImages, policy PreviewPolicy,
+) (int, error) {
+	// Measuring, not enforcing: the per-portion ceilings have already been
+	// applied to each of these, and applying them again here would turn a
+	// question about the whole book into a refusal about one portion.
+	measuring := PreviewPolicy{MaxChunkBytes: policy.MaxChunkBytes}
+
+	total := 0
+	for _, chunk := range done {
+		html, err := RenderChunkHTML(chunk, images, measuring)
+		if err != nil {
+			return 0, err
+		}
+		total += len(html)
+	}
+
+	// The portion in hand, with the block that has not been appended yet.
+	pending := &PreviewChunk{
+		Index:  cur.Index,
+		blocks: append(append([]chunkBlock{}, cur.blocks...), block),
+		notes:  append(append([]*FB2BodySection{}, cur.notes...), notes...),
+	}
+	html, err := RenderChunkHTML(pending, images, measuring)
+	if err != nil {
+		return 0, err
+	}
+	return total + len(html), nil
 }
 
 // loadPreviewNotes indexes a document's footnotes into the packer's note map,

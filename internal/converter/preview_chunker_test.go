@@ -236,6 +236,130 @@ func TestChunkPreview_RefusesABookPastTheTotalCeiling(t *testing.T) {
 	}
 }
 
+// The total is counted in estimates, and estimates overcount: the draft
+// assumes every fragment link resolves so that packing never underfills. So
+// crossing the total ceiling has to be a reason to measure, not to refuse.
+//
+// The case needs several blocks. One block that crosses the portion ceiling
+// is measured exactly anyway, which is why the earlier test could not catch
+// this: the estimate never got to decide.
+func TestChunkPreview_MeasuresBeforeRefusingTheWholeBook(t *testing.T) {
+	imagePolicy := testPreviewImagePolicy()
+
+	// Paragraphs of dead links: small rendered, much larger as drafts.
+	deadLinks := func(n int) *FB2Paragraph {
+		refs := make([]*FB2InlineElement, 0, n)
+		for i := 0; i < n; i++ {
+			refs = append(refs, &FB2InlineElement{
+				Type:     InlineTypeLink,
+				Attrs:    map[string]string{"href": fmt.Sprintf("#missing%d", i), "type": "note"},
+				Children: []*FB2InlineElement{{Type: InlineTypeText, Content: "x"}},
+			})
+		}
+		return &FB2Paragraph{Text: "ссылки", Content: refs}
+	}
+	// Enough of them that the rendered book is several portions long: the
+	// ceiling under test has to sit above one portion and below the book.
+	paras := make([]*FB2Paragraph, 0, 40)
+	for i := 0; i < 40; i++ {
+		paras = append(paras, deadLinks(12))
+	}
+	doc := docFromParas(paras...)
+	images := previewImagesFor(context.Background(), doc, imagePolicy)
+
+	// First, what the book really renders to, with every ceiling out of the
+	// way. The fixture is only meaningful if the truth is under the ceiling
+	// the estimate will cross.
+	// Every ceiling wide enough that no block is measured exactly: each one
+	// has to keep its inflated estimate, or the sum under test is a sum of
+	// truths and the fixture proves nothing. That is what the first version
+	// of this test got wrong — with a 256-byte portion ceiling every one of
+	// these paragraphs crossed it, was rendered for real, and the estimate
+	// never got to decide anything.
+	loose := PreviewPolicy{MaxChunkBytes: 512, MaxPortionBytes: 4096, MaxTotalBytes: 1 << 20}
+	chunks, err := ChunkPreview(context.Background(), doc, images, loose)
+	if err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+	realTotal := 0
+	for _, chunk := range chunks {
+		html, rerr := RenderChunkHTML(chunk, images, PreviewPolicy{MaxChunkBytes: loose.MaxChunkBytes})
+		if rerr != nil {
+			t.Fatalf("baseline render: %v", rerr)
+		}
+		realTotal += len(html)
+	}
+
+	// A ceiling above the truth and below the estimate. If the packer refuses
+	// here it is refusing on an estimate.
+	tight := PreviewPolicy{MaxChunkBytes: 512, MaxPortionBytes: 512, MaxTotalBytes: realTotal + 64}
+	if _, err := ChunkPreview(context.Background(), doc, images, tight); err != nil {
+		t.Fatalf("a book that renders to %d bytes was refused under a %d ceiling: %v",
+			realTotal, tight.MaxTotalBytes, err)
+	}
+
+	// And a ceiling below the truth is still refused, so the test above is
+	// not passing because the ceiling stopped meaning anything.
+	below := PreviewPolicy{MaxChunkBytes: 512, MaxPortionBytes: 512, MaxTotalBytes: realTotal - 64}
+	if below.MaxTotalBytes < below.MaxPortionBytes {
+		t.Fatalf("fixture too small: %d is under the portion ceiling", below.MaxTotalBytes)
+	}
+	if _, err := ChunkPreview(context.Background(), doc, images, below); !errors.Is(err, ErrPreviewBookTooLarge) {
+		t.Fatalf("expected ErrPreviewBookTooLarge under a %d ceiling, got %v", below.MaxTotalBytes, err)
+	}
+}
+
+// The measurement has to include the portion in hand, not only the portions
+// already closed. The block being placed is the one that crossed the ceiling,
+// so leaving it out answers a question about the book without the part that
+// raised it.
+func TestChunkPreview_MeasuresThePortionInHandToo(t *testing.T) {
+	imagePolicy := testPreviewImagePolicy()
+	// Small blocks, then one whose rendered size is most of the book. It is
+	// the last one placed, so it is in hand rather than closed when the
+	// ceiling is crossed.
+	// Enough small ones that everything already closed is well past the
+	// portion ceiling: the total under test has to sit above it.
+	paras := make([]*FB2Paragraph, 0, 201)
+	for i := 0; i < 200; i++ {
+		paras = append(paras, textPara("маленький"))
+	}
+	paras = append(paras, textPara(strings.Repeat("длинный хвост ", 60)))
+	doc := docFromParas(paras...)
+	images := previewImagesFor(context.Background(), doc, imagePolicy)
+
+	loose := PreviewPolicy{MaxChunkBytes: 512, MaxPortionBytes: 4096, MaxTotalBytes: 1 << 20}
+	chunks, err := ChunkPreview(context.Background(), doc, images, loose)
+	if err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+	realTotal, withoutLast := 0, 0
+	for i, chunk := range chunks {
+		html, rerr := RenderChunkHTML(chunk, images, PreviewPolicy{MaxChunkBytes: loose.MaxChunkBytes})
+		if rerr != nil {
+			t.Fatalf("baseline render: %v", rerr)
+		}
+		realTotal += len(html)
+		if i < len(chunks)-1 {
+			withoutLast += len(html)
+		}
+	}
+
+	// A ceiling above everything but the last portion and below the book. A
+	// measurement that skips the portion in hand sees `withoutLast` and lets
+	// the book through.
+	ceiling := (withoutLast + realTotal) / 2
+	if ceiling <= withoutLast || ceiling >= realTotal {
+		t.Fatalf("fixture does not separate the cases: %d, %d", withoutLast, realTotal)
+	}
+	// The portion ceiling has to sit under the total, and the total is what
+	// is under test here.
+	policy := PreviewPolicy{MaxChunkBytes: 512, MaxPortionBytes: 4096, MaxTotalBytes: ceiling}
+	if _, err := ChunkPreview(context.Background(), doc, images, policy); !errors.Is(err, ErrPreviewBookTooLarge) {
+		t.Fatalf("a %d-byte book passed a %d ceiling: %v", realTotal, ceiling, err)
+	}
+}
+
 // The same book under a total ceiling that fits still portions, so the test
 // above is failing on the sum and not on the fixture being impossible.
 func TestChunkPreview_AllowsTheSameBookWhenTheTotalFits(t *testing.T) {
