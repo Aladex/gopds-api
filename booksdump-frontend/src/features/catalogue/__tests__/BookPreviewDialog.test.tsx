@@ -50,6 +50,110 @@ vi.mock('@/shared/hooks/useMediaQuery', () => ({
 const getPreview = vi.mocked(previewApi.previewClient.getPreview);
 const getChunk = vi.mocked(previewApi.previewClient.getChunk);
 
+/**
+ * A controllable IntersectionObserver.
+ *
+ * jsdom implements none, and the dialog now depends on one twice over: to
+ * fetch the next portion as the reader nears the end of the loaded text, and
+ * to know which chapter they have scrolled into. A no-op stub would leave
+ * both properties unobservable — the whole file would pass with the loading
+ * and the highlight ripped out — so this one records its targets and lets a
+ * test say what the reader did.
+ */
+interface FakeObserver {
+    targets: Element[];
+    fire(entries: Partial<IntersectionObserverEntry>[]): void;
+}
+
+const observers: FakeObserver[] = [];
+
+class FakeIntersectionObserver {
+    private readonly record: FakeObserver;
+
+    constructor(callback: IntersectionObserverCallback) {
+        this.record = {
+            targets: [],
+            fire: (entries) => callback(entries as IntersectionObserverEntry[], this as never),
+        };
+        observers.push(this.record);
+    }
+
+    observe(target: Element) {
+        this.record.targets.push(target);
+    }
+
+    unobserve() {}
+
+    disconnect() {
+        const at = observers.indexOf(this.record);
+        if (at !== -1) observers.splice(at, 1);
+    }
+
+    takeRecords() {
+        return [];
+    }
+}
+
+/** The observer watching the given element, whichever one that is. */
+function observerWatching(target: Element | null): FakeObserver | undefined {
+    if (!target) return undefined;
+    return observers.find((o) => o.targets.includes(target));
+}
+
+/** The reader reaches the foot of the loaded text. */
+async function reachBottom() {
+    const sentinel = screen.queryByTestId('preview-load-more');
+    const observer = observerWatching(sentinel);
+    if (!sentinel || !observer) {
+        throw new Error('nothing is asking for the next portion');
+    }
+    await act(async () => {
+        observer.fire([{ target: sentinel, isIntersecting: true }]);
+    });
+}
+
+/**
+ * Put the reader somewhere in the book.
+ *
+ * The dialog measures where the anchors are whenever the reading area
+ * scrolls, so this says where each one ended up and then scrolls. jsdom
+ * reports every rect as zero, which would make every anchor "at the edge" at
+ * once, so the fixture has to supply the positions — that is what makes the
+ * property observable here at all rather than a shape the stub invents.
+ *
+ * `above` lists the anchors the reader has gone past; everything else is
+ * placed below the fold.
+ */
+async function readerAt(...above: string[]) {
+    const area = screen.getByTestId('preview-scroll-area');
+    area.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+
+    for (const anchor of area.querySelectorAll<HTMLElement>('[id]')) {
+        const passed = above.includes(anchor.id);
+        // In reading order: later anchors sit further down, so "the last one
+        // passed" is a real question and not decided by document order alone.
+        const rank = above.indexOf(anchor.id);
+        anchor.getBoundingClientRect = () =>
+            ({ top: passed ? -1000 + rank * 100 : 500 }) as DOMRect;
+    }
+
+    await act(async () => {
+        area.dispatchEvent(new Event('scroll'));
+        // The dialog measures once per animation frame, so the assertion has
+        // to wait for one. Without this the state is whatever the mount-time
+        // measurement made of jsdom's all-zero rects, and an assertion can
+        // pass without the scroll having been read at all — which is how the
+        // first version of these tests went green.
+        await new Promise((resolve) => setTimeout(resolve, 24));
+    });
+}
+
+/** Open the narrow contents panel and hand it back. */
+async function openPanel() {
+    await userEvent.click(screen.getByTestId('preview-toc-trigger'));
+    return screen.findByTestId('preview-toc-panel');
+}
+
 function makePreview(over: Partial<PreviewResponse> = {}): PreviewResponse {
     return {
         revision: 'rev-1',
@@ -125,6 +229,9 @@ beforeEach(() => {
     getPreview.mockReset();
     getChunk.mockReset();
     matches.current = true;
+    observers.length = 0;
+    globalThis.IntersectionObserver =
+        FakeIntersectionObserver as unknown as typeof IntersectionObserver;
 });
 
 describe('BookPreviewDialog — states', () => {
@@ -207,7 +314,7 @@ describe('BookPreviewDialog — states', () => {
         renderDialog();
 
         await screen.findByTestId('first-portion');
-        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await reachBottom();
 
         // The critical assertion: the prior portion is still in the document
         // after the next one refused to load.
@@ -221,7 +328,7 @@ describe('BookPreviewDialog — states', () => {
         renderDialog();
 
         await screen.findByTestId('first-portion');
-        expect(screen.queryByRole('button', { name: 'previewNext' })).not.toBeInTheDocument();
+        expect(screen.queryByTestId('preview-load-more')).not.toBeInTheDocument();
         expect(screen.getByTestId('preview-end-of-book')).toBeInTheDocument();
     });
 
@@ -321,7 +428,7 @@ describe('BookPreviewDialog — cancellation', () => {
         const view = renderDialog();
         await screen.findByTestId('first-portion');
 
-        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await reachBottom();
         await waitFor(() => expect(captured).toBeDefined());
         expect(captured!.aborted).toBe(false);
 
@@ -353,7 +460,7 @@ describe('BookPreviewDialog — mutation guards', () => {
         renderDialog();
 
         await screen.findByTestId('first-portion');
-        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await reachBottom();
 
         expect(await screen.findByText('previewErrorRetryable')).toBeInTheDocument();
         // Direct, redundant re-assertion: the prior portion node is in the
@@ -486,17 +593,60 @@ describe('BookPreviewDialog — request ordering', () => {
         calls[0].d.resolve({ chunk: '<p data-testid="portion-of-ch3">chapter three text</p>' });
 
         expect(await screen.findByTestId('portion-of-ch3')).toBeInTheDocument();
-        // The portion the reader came from is not torn down.
-        expect(screen.getByTestId('first-portion')).toBeInTheDocument();
+
+        // And the text the reader jumped away from is gone, which is the
+        // point rather than a side effect. Portions render stacked in index
+        // order, so keeping chapter 1 on screen would splice it straight into
+        // chapter 3 with nothing to say that chapter 2 was never fetched.
+        // Reading resumes as one contiguous run from the chapter asked for.
+        expect(screen.queryByTestId('first-portion')).not.toBeInTheDocument();
     });
 
-    it('takes the reader to the portion "Next" fetched', async () => {
-        // Reported from production the hour this shipped: "Дальше не
-        // работает, переключение через содержание работает". The button did
-        // work — the portion arrived and was appended below the one on
-        // screen — but nothing moved the view, so from the reader's chair the
-        // press did nothing. The contents path looked fine because it had a
-        // scroll and this one did not.
+    it('asks for one portion at a time, never running ahead of what landed', async () => {
+        // The rule is structural: while a portion is in flight there is no
+        // sentinel in the document, so nothing can ask for the one after it.
+        // Without that, the observer is rebuilt on every frontier change and
+        // fires immediately for a target already in view — the frontier would
+        // run away down the book while the portions it skipped never arrive,
+        // and the reader would get chapter 1 followed by chapter 4.
+        const first = deferred<{ chunk: string }>();
+        getPreview.mockImplementation(
+            signalAware(() =>
+                makePreview({
+                    chunk_count: 4,
+                    toc: [],
+                    first_chunk: '<p data-testid="first-portion">first</p>',
+                }),
+            ),
+        );
+        getChunk.mockImplementation(() => first.promise);
+
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        await reachBottom();
+        await waitFor(() => expect(getChunk).toHaveBeenCalledTimes(1));
+        expect(getChunk.mock.calls[0][1]).toBe(1);
+
+        // Nothing to ask with until chunk 1 is on the page.
+        expect(screen.queryByTestId('preview-load-more')).not.toBeInTheDocument();
+
+        first.resolve({ chunk: '<p data-testid="portion-1-html">second</p>' });
+        await screen.findByTestId('portion-1-html');
+
+        // And now it is back, asking for chunk 2 — the next one, not the
+        // third.
+        await reachBottom();
+        await waitFor(() => expect(getChunk).toHaveBeenCalledTimes(2));
+        expect(getChunk.mock.calls[1][1]).toBe(2);
+    });
+
+    it('joins the next portion onto the text without moving the reader', async () => {
+        // The button this replaced fetched a portion and jumped to its start,
+        // which threw away whatever the reader had not finished — reported
+        // from production as "проскакиваю через главу". Reading is continuous
+        // now: the text is fetched as the foot comes into view and simply
+        // extends downward, and nothing scrolls on its own.
         const previousScrollIntoView = Element.prototype.scrollIntoView;
         const scrollIntoView = vi.fn();
         Element.prototype.scrollIntoView = scrollIntoView;
@@ -516,16 +666,13 @@ describe('BookPreviewDialog — request ordering', () => {
 
         renderDialog();
         await screen.findByTestId('first-portion');
-        expect(scrollIntoView).not.toHaveBeenCalled();
 
-        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await reachBottom();
         await screen.findByTestId('portion-1-html');
 
-        await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
-        // The top of what was just fetched, not of the book and not of the
-        // portion the reader was already looking at.
-        const target = scrollIntoView.mock.instances[0] as HTMLElement;
-        expect(target.dataset.testid).toBe('preview-portion-1');
+        // Both on screen, in order, and the view was never yanked anywhere.
+        expect(screen.getByTestId('first-portion')).toBeInTheDocument();
+        expect(scrollIntoView).not.toHaveBeenCalled();
 
         Element.prototype.scrollIntoView = previousScrollIntoView;
     });
@@ -534,7 +681,7 @@ describe('BookPreviewDialog — request ordering', () => {
         const calls = renderThreeChapterDialog();
         await screen.findByTestId('first-portion');
 
-        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await reachBottom();
         await waitFor(() => expect(calls.length).toBe(1)); // request A, chunk 1
 
         await userEvent.click(screen.getByRole('button', { name: 'Chapter 3' }));
@@ -556,7 +703,7 @@ describe('BookPreviewDialog — request ordering', () => {
         const calls = renderThreeChapterDialog();
         await screen.findByTestId('first-portion');
 
-        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await reachBottom();
         await waitFor(() => expect(calls.length).toBe(1)); // A, chunk 1
 
         await userEvent.click(screen.getByRole('button', { name: 'Chapter 3' }));
@@ -582,7 +729,7 @@ describe('BookPreviewDialog — request ordering', () => {
         const calls = renderThreeChapterDialog();
         await screen.findByTestId('first-portion');
 
-        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await reachBottom();
         await waitFor(() => expect(calls.length).toBe(1));
 
         await userEvent.click(screen.getByRole('button', { name: 'Chapter 3' }));
@@ -603,7 +750,7 @@ describe('BookPreviewDialog — request ordering', () => {
         const calls = renderThreeChapterDialog();
         await screen.findByTestId('first-portion');
 
-        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await reachBottom();
         await waitFor(() => expect(calls.length).toBe(1));
 
         await userEvent.click(screen.getByRole('button', { name: 'Chapter 3' }));
@@ -636,7 +783,7 @@ describe('BookPreviewDialog — request ordering', () => {
         );
         await screen.findByTestId('book-twelve');
 
-        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await reachBottom();
         await waitFor(() => expect(calls.length).toBe(1)); // chunk request, book 12
 
         view.rerender(
@@ -733,7 +880,7 @@ describe('BookPreviewDialog — request ordering', () => {
         renderDialog();
         await screen.findByText('start');
 
-        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await reachBottom();
         await userEvent.click(screen.getByRole('button', { name: 'Chapter 3' }));
 
         // The reader is waiting on the second request; the first now answers.
@@ -793,18 +940,24 @@ describe('BookPreviewDialog — narrow TOC panel', () => {
             ),
         );
         getChunk.mockImplementation(
-            signalAware(() => ({ chunk: '<p data-testid="portion-1-html">second</p>' })),
+            signalAware(() => ({
+                chunk: '<p data-testid="portion-1-html"><a id="c2"></a>second</p>',
+            })),
         );
 
         renderDialog();
         await screen.findByTestId('first-portion');
 
-        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await reachBottom();
         expect(await screen.findByTestId('portion-1-html')).toBeInTheDocument();
         // After the first chunk fetch, getChunk has been called once. Any
         // further call would mean the dialog re-fetched on panel open —
         // i.e. it dropped the portion it already had.
         expect(getChunk).toHaveBeenCalledTimes(1);
+
+        // The reader has read into chapter 2, which is what "their place"
+        // now means: the anchors they have passed, not an index.
+        await readerAt('c2');
 
         // Pretend the reader scrolled within the work area. In jsdom
         // scrollTop is a stored property — the only thing that can change it
@@ -838,21 +991,17 @@ describe('BookPreviewDialog — narrow TOC panel', () => {
         // The three assertions above are necessary and not sufficient, and
         // the difference matters enough to spell out. Portions render
         // stacked — the reader scrolls through one growing column — so
-        // chunk 1's node stays in the document no matter which portion the
-        // dialog thinks the reader is on. Adding `setCurrentIndex(0)` to
-        // this Back button passed all three: the node was there, the fetch
-        // count was one, and the scroll offset was untouched, while the
-        // reader had silently been sent back to the start of the book.
+        // chunk 1's node stays in the document whatever the dialog believes
+        // about where the reader is. A reset added to this Back button once
+        // passed all three: the node was there, the fetch count was one, and
+        // the scroll offset was untouched, while the reader had silently
+        // been sent back to the start of the book.
         //
-        // Where the position is actually observable is where it is used. Two
-        // places, and deliberately not three: the entry marked current is
-        // read from the same value as the trigger's label, so asserting both
-        // would be one fact counted twice — and with the panel closed the
-        // list is not in the document to ask anyway (that assertion lives in
-        // the active-item test below, where the panel is open).
+        // Where the position is actually observable is where it is used: the
+        // chapter the reader is in, and what reading on asks the server for.
         expect(screen.getByTestId('preview-toc-trigger')).toHaveTextContent('Chapter 2');
 
-        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await reachBottom();
         await waitFor(() => expect(getChunk).toHaveBeenCalledTimes(2));
         expect(getChunk.mock.calls[1][1]).toBe(2);
     });
@@ -942,90 +1091,120 @@ describe('BookPreviewDialog — narrow TOC panel', () => {
         expect(screen.getByTestId('first-portion')).toBeInTheDocument();
     });
 
-    it('names the chapter the reader is inside when the portion opens none', async () => {
-        // The server cuts a long chapter across portions and lists only real
-        // headings, so portions after the first carry no entry of their own.
-        // Matching on the portion index alone left the trigger reading
-        // "Contents" and nothing marked, in the middle of a chapter the
-        // reader was plainly inside.
+    it('marks the chapter the reader scrolled into, with nothing clicked', async () => {
+        // The property the whole scroll-spy exists for, and the one the old
+        // derivation could not hold: the highlight used to move only when
+        // "Next" was pressed or an entry was clicked, so a reader scrolling
+        // from chapter 1 into chapter 3 was still shown chapter 1 as current.
         getPreview.mockImplementation(
             signalAware(() =>
                 makePreview({
-                    chunk_count: 3,
+                    chunk_count: 1,
                     toc: [
                         { title: 'Chapter 1', depth: 1, chunk: 0, anchor: 'c1' },
-                        { title: 'Chapter 2', depth: 1, chunk: 1, anchor: 'c2' },
-                        // Nothing for chunk 2: chapter 2 runs on into it. Two
-                        // chapters before that portion, not one, so "the last
-                        // heading before here" and "the first" are different
-                        // answers and only one of them is right.
+                        { title: 'Chapter 2', depth: 1, chunk: 0, anchor: 'c2' },
+                        { title: 'Chapter 3', depth: 1, chunk: 0, anchor: 'c3' },
                     ],
+                    first_chunk:
+                        '<div data-testid="first-portion">' +
+                        '<a id="c1"></a><h2>one</h2>' +
+                        '<a id="c2"></a><h2>two</h2>' +
+                        '<a id="c3"></a><h2>three</h2></div>',
                 }),
             ),
-        );
-        getChunk.mockImplementation(
-            signalAware(() => ({ chunk: '<p data-testid="portion-1-html">more of it</p>' })),
         );
 
         renderDialog();
         await screen.findByTestId('first-portion');
 
-        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
-        await screen.findByTestId('portion-1-html');
-        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
-        await waitFor(() => expect(getChunk).toHaveBeenCalledTimes(2));
-        await waitFor(() =>
-            expect(screen.getByTestId('preview-portion-2')).toBeInTheDocument(),
-        );
+        // At the top of the book: nothing passed yet, so the answer is the
+        // chapter the loaded run opens with. Stated by placing the reader
+        // rather than by trusting the mount, because jsdom reports every rect
+        // as zero and an unplaced reader is at every heading at once.
+        await readerAt();
+        expect(screen.getByTestId('preview-toc-trigger')).toHaveTextContent('Chapter 1');
 
-        expect(screen.getByTestId('preview-toc-trigger')).toHaveTextContent('Chapter 2');
+        await readerAt('c1', 'c2', 'c3');
 
-        await userEvent.click(screen.getByTestId('preview-toc-trigger'));
-        const panel = await screen.findByTestId('preview-toc-panel');
-        expect(within(panel).getByRole('button', { name: 'Chapter 2' })).toHaveAttribute(
+        expect(screen.getByTestId('preview-toc-trigger')).toHaveTextContent('Chapter 3');
+        expect(getChunk).not.toHaveBeenCalled();
+
+        const panel = await openPanel();
+        expect(within(panel).getByRole('button', { name: 'Chapter 3' })).toHaveAttribute(
             'aria-current',
             'page',
         );
-        // And only that one: the chapter the reader has already left is not it.
         expect(within(panel).getByRole('button', { name: 'Chapter 1' })).not.toHaveAttribute(
             'aria-current',
         );
     });
 
-    it('tells two chapters of the same name apart', async () => {
-        // Books number their chapters and reuse the numeral: two parts, each
-        // opening with "I". Marking by title marks both, and the reader is
-        // told they are in two places at once. Position is the only thing
-        // that distinguishes them, which is why the active entry is an index.
+    it('follows the reader back up the book as well as down', async () => {
+        // Passing an anchor is not a one-way latch: scrolling back above a
+        // heading has to give the previous chapter back, or the highlight
+        // only ever tells the reader the furthest point they reached.
+        getPreview.mockImplementation(
+            signalAware(() =>
+                makePreview({
+                    chunk_count: 1,
+                    toc: [
+                        { title: 'Chapter 1', depth: 1, chunk: 0, anchor: 'c1' },
+                        { title: 'Chapter 2', depth: 1, chunk: 0, anchor: 'c2' },
+                    ],
+                    first_chunk:
+                        '<div data-testid="first-portion">' +
+                        '<a id="c1"></a><h2>one</h2><a id="c2"></a><h2>two</h2></div>',
+                }),
+            ),
+        );
+
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        await readerAt('c1', 'c2');
+        expect(screen.getByTestId('preview-toc-trigger')).toHaveTextContent('Chapter 2');
+
+        // Back up above chapter 2's heading — the case the observer version
+        // could not see, because a long drag crosses no edge on the way.
+        await readerAt('c1');
+        expect(screen.getByTestId('preview-toc-trigger')).toHaveTextContent('Chapter 1');
+    });
+
+    it('keeps the chapter marked while the reader is deep inside it', async () => {
+        // A long chapter is cut across portions and only real headings are
+        // listed, so portions after the first name nothing. The reader is
+        // still inside chapter 2, and the last anchor they passed says so
+        // without any special case for it.
         getPreview.mockImplementation(
             signalAware(() =>
                 makePreview({
                     chunk_count: 2,
                     toc: [
-                        { title: 'I', depth: 1, chunk: 0, anchor: 'p1-i' },
-                        { title: 'I', depth: 1, chunk: 1, anchor: 'p2-i' },
+                        { title: 'Chapter 1', depth: 1, chunk: 0, anchor: 'c1' },
+                        { title: 'Chapter 2', depth: 1, chunk: 0, anchor: 'c2' },
                     ],
+                    first_chunk:
+                        '<div data-testid="first-portion">' +
+                        '<a id="c1"></a><h2>one</h2><a id="c2"></a><h2>two</h2></div>',
                 }),
             ),
         );
         getChunk.mockImplementation(
-            signalAware(() => ({ chunk: '<p data-testid="portion-1-html">part two</p>' })),
+            signalAware(() => ({
+                chunk: '<p data-testid="portion-1-html">chapter two, continued</p>',
+            })),
         );
 
         renderDialog();
         await screen.findByTestId('first-portion');
-        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await readerAt('c1', 'c2');
+
+        await reachBottom();
         await screen.findByTestId('portion-1-html');
 
-        await userEvent.click(screen.getByTestId('preview-toc-trigger'));
-        const panel = await screen.findByTestId('preview-toc-panel');
-        const entries = within(panel).getAllByRole('button', { name: 'I' });
-        expect(entries).toHaveLength(2);
-
-        const marked = entries.filter((e) => e.getAttribute('aria-current') === 'page');
-        expect(marked).toHaveLength(1);
-        // The second one: that is the chapter the reader has reached.
-        expect(marked[0]).toBe(entries[1]);
+        // The new portion names no chapter of its own, and the answer is
+        // still chapter 2 rather than nothing.
+        expect(screen.getByTestId('preview-toc-trigger')).toHaveTextContent('Chapter 2');
     });
 
     it('marks exactly one entry when a portion holds several headings', async () => {
@@ -1057,11 +1236,10 @@ describe('BookPreviewDialog — narrow TOC panel', () => {
         expect(marked[0]).toHaveTextContent('First');
     });
 
-    it('mutation #3: the active item tracks the shown portion, not the last TOC click', async () => {
-        // Two TOC entries on different chunks. The reader reaches chunk 1
-        // through Next — never by clicking Chapter 2 in the TOC — and the
-        // panel re-opens with Chapter 2 marked active. Last-click tracking
-        // would leave Chapter 1 marked.
+    it('mutation #3: the active item tracks the reader, not the last TOC click', async () => {
+        // Chapter 2 opens the portion that arrives by reading on, and it is
+        // never clicked in the contents. Last-click tracking would leave
+        // Chapter 1 marked for the rest of the book.
         const chunkDeferred = deferred<{ chunk: string }>();
         getPreview.mockImplementation(
             signalAware(() =>
@@ -1091,10 +1269,13 @@ describe('BookPreviewDialog — narrow TOC panel', () => {
         await userEvent.click(screen.getByRole('button', { name: 'previewCloseToc' }));
         await waitFor(() => expect(screen.queryByTestId('preview-toc-panel')).not.toBeInTheDocument());
 
-        // Advance via Next only.
-        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
-        chunkDeferred.resolve({ chunk: '<p data-testid="portion-1-html">second</p>' });
+        // Read on, and scroll past chapter 2's heading in what arrives.
+        await reachBottom();
+        chunkDeferred.resolve({
+            chunk: '<p data-testid="portion-1-html"><a id="c2"></a>second</p>',
+        });
         await screen.findByTestId('portion-1-html');
+        await readerAt('c2');
 
         // Re-open: Chapter 2 is now active, even though it was never clicked.
         await userEvent.click(screen.getByTestId('preview-toc-trigger'));
@@ -1534,7 +1715,7 @@ describe('BookPreviewDialog — footnotes expand on click', () => {
         renderDialog();
         await screen.findByTestId('first-portion');
 
-        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await reachBottom();
         await screen.findByTestId('second-portion');
 
         // The new portion's body arrived without `hidden` from the server;
@@ -1582,7 +1763,7 @@ describe('BookPreviewDialog — footnotes expand on click', () => {
         renderDialog();
         await screen.findByTestId('first-portion');
 
-        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await reachBottom();
         await screen.findByTestId('second-portion');
         expect(getChunk).toHaveBeenCalledTimes(1);
 
@@ -1592,7 +1773,7 @@ describe('BookPreviewDialog — footnotes expand on click', () => {
         expect(getChunk).toHaveBeenCalledTimes(1);
 
         // The reader is still on chunk 1: the next "Next" asks for chunk 2.
-        await userEvent.click(screen.getByRole('button', { name: 'previewNext' }));
+        await reachBottom();
         await waitFor(() => expect(getChunk).toHaveBeenCalledTimes(2));
         expect(getChunk.mock.calls[1][1]).toBe(2);
     });

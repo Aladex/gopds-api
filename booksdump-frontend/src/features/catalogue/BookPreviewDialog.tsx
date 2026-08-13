@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { previewClient, classifyPreviewError } from '@/api/preview';
@@ -9,13 +9,13 @@ import {
     Dialog,
     DialogContent,
     DialogDescription,
-    DialogFooter,
     DialogHeader,
     DialogTitle,
 } from '@/shared/ui/dialog';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import { READER_TOC_QUERY } from '@/shared/layout/breakpoints';
 import { cn } from '@/shared/lib/utils';
+import { activeAnchorIndexFor, tocScrollTopFor } from '@/features/catalogue/tocScroll';
 
 type FirstPhase = 'loading' | 'ready' | 'first-error';
 
@@ -184,7 +184,31 @@ export default function BookPreviewDialog({
 
     const [preview, setPreview] = useState<PreviewResponse | null>(null);
     const [portions, setPortions] = useState<Map<number, string>>(new Map());
-    const [currentIndex, setCurrentIndex] = useState(0);
+    /**
+     * How far the book has been asked for, and where the loaded run begins.
+     *
+     * These used to be one number called `currentIndex`, which meant both
+     * "the portion the reader is on" and "the portion to fetch". Continuous
+     * scrolling separates them: the reader's place is now read off the
+     * scroll (see `measuredActive`), while `frontier` is only ever the
+     * highest portion requested.
+     *
+     * `runStart` exists because a contents entry can jump past portions
+     * nobody fetched. Portions render stacked in index order, so a jump from
+     * chapter 2 to chapter 6 used to leave 0, 1, 5 adjacent in one column —
+     * the reader saw chapter 2 run straight into chapter 6 with nothing
+     * saying three chapters were missing. A jump now starts a fresh run at
+     * the chapter asked for, and the run stays contiguous from there.
+     */
+    const [frontier, setFrontier] = useState(0);
+    const [runStart, setRunStart] = useState(0);
+
+    /**
+     * The contents entry the reader is under, measured from the text rather
+     * than inferred from the loader: scrolling into chapter 3 marks chapter 3
+     * without anything being clicked. -1 means above the first heading.
+     */
+    const [measuredActive, setMeasuredActive] = useState(-1);
     const [firstPhase, setFirstPhase] = useState<FirstPhase>('loading');
     const [firstErrorKind, setFirstErrorKind] = useState<PreviewErrorKind | null>(null);
     const [chunkFailure, setChunkFailure] = useState<ChunkFailure | null>(null);
@@ -240,6 +264,13 @@ export default function BookPreviewDialog({
     // portion that arrives later, without re-attaching per portion.
     const textColumnRef = useRef<HTMLDivElement>(null);
 
+    // The contents column, so the marked chapter can be kept in view inside
+    // its own scroll.
+    const tocColumnRef = useRef<HTMLElement>(null);
+
+    // The element that asks for the next portion by coming into view.
+    const loadMoreRef = useRef<HTMLDivElement>(null);
+
     // Fetch the preview (and the first chunk that comes with it) on open,
     // book change, or first-retry. Any of those transitions aborts the prior
     // request — a stale revision's chunks must never land in the dialog.
@@ -253,7 +284,9 @@ export default function BookPreviewDialog({
         setFirstPhase('loading');
         setPreview(null);
         setPortions(new Map());
-        setCurrentIndex(0);
+        setFrontier(0);
+        setRunStart(0);
+        setMeasuredActive(-1);
         setFirstErrorKind(null);
         setChunkFailure(null);
         // A new book means the TOC below belongs to a different text: any
@@ -291,8 +324,8 @@ export default function BookPreviewDialog({
         open &&
         firstPhase === 'ready' &&
         preview != null &&
-        currentIndex > 0 &&
-        !portions.has(currentIndex);
+        frontier > 0 &&
+        !portions.has(frontier);
 
     // Fetch subsequent chunks when navigation reaches them. The same abort
     // discipline applies: closing the dialog or moving past the chunk
@@ -312,14 +345,14 @@ export default function BookPreviewDialog({
         setChunkFailure(null);
 
         previewClient
-            .getChunk(bookId, currentIndex, preview.revision, controller.signal)
+            .getChunk(bookId, frontier, preview.revision, controller.signal)
             .then(
                 (res) => {
                     if (generation !== chunkGeneration.current) return;
                     if (controller.signal.aborted) return;
                     setPortions((prev) => {
                         const next = new Map(prev);
-                        next.set(currentIndex, res.chunk);
+                        next.set(frontier, res.chunk);
                         return next;
                     });
                 },
@@ -327,40 +360,41 @@ export default function BookPreviewDialog({
                     if (generation !== chunkGeneration.current) return;
                     if (controller.signal.aborted) return;
                     if (err instanceof DOMException && err.name === 'AbortError') return;
-                    setChunkFailure({ index: currentIndex, kind: classifyPreviewError(err).kind });
+                    setChunkFailure({ index: frontier, kind: classifyPreviewError(err).kind });
                 },
             );
 
         return () => controller.abort();
-    }, [needsChunkFetch, currentIndex, preview, bookId, chunkRetry]);
+    }, [needsChunkFetch, frontier, preview, bookId, chunkRetry]);
 
     const isFirstChunkLast =
-        preview != null && currentIndex >= preview.chunk_count - 1;
+        preview != null && frontier >= preview.chunk_count - 1;
     const awaitingChunk =
         firstPhase === 'ready' &&
         preview != null &&
-        currentIndex > 0 &&
-        !portions.has(currentIndex) &&
-        chunkFailure?.index !== currentIndex;
+        frontier > 0 &&
+        !portions.has(frontier) &&
+        chunkFailure?.index !== frontier;
 
-    const goNext = () => {
-        if (awaitingChunk) return;
-        setChunkFailure(null);
-        // Both from the rendered index rather than a functional update: a
-        // setState inside another setState's updater runs during render,
-        // which React refuses — it took the whole dialog down to an empty
-        // div, and every test in the file with it.
-        const nextIndex = currentIndex + 1;
-        setPendingScroll({index: nextIndex, anchor: null});
-        setCurrentIndex(nextIndex);
-    };
-
-    // A TOC entry opens the portion it names. A failure pinned to another
-    // index is left behind; one pinned to this index stays, so the reader
-    // still sees why the portion is missing and can retry it.
-    const goToChunk = (index: number) => {
-        setChunkFailure((prev) => (prev != null && prev.index !== index ? null : prev));
-        setCurrentIndex(index);
+    /**
+     * Open the chapter a contents entry names.
+     *
+     * Already loaded — the reader is moving inside the run they are reading —
+     * and nothing is refetched: the anchor scroll below does the work. Not
+     * loaded, and the run restarts at that chapter, because portions render
+     * stacked in index order and a jump would otherwise splice chapter 6
+     * onto the end of chapter 2 with nothing to say what is missing.
+     */
+    const selectTocItem = (item: { chunk: number; anchor: string }) => {
+        setPendingScroll({ index: item.chunk, anchor: item.anchor });
+        if (!portions.has(item.chunk)) {
+            setPortions(new Map());
+            setMeasuredActive(-1);
+            setRunStart(item.chunk);
+            setFrontier(item.chunk);
+            setChunkFailure(null);
+        }
+        setTocPanelOpen(false);
     };
 
     const retryFirst = () => setFirstRetry((n) => n + 1);
@@ -368,44 +402,155 @@ export default function BookPreviewDialog({
 
     const orderedPortions = [...portions.entries()].sort(([a], [b]) => a - b);
 
+    // Memoised because the anchor observer depends on it: `preview?.toc ?? []`
+    // is a new array on every render, which would tear the observer down and
+    // build it again each time anything at all changed.
+    const tocEntries = useMemo(() => preview?.toc ?? [], [preview]);
+
     /**
-     * The TOC entry the reader is currently under — not the last one they
-     * tapped. Reaching chunk 1 through "Next" makes Chapter 2 active without
-     * a click.
+     * The contents entry the reader is under, read off the scroll rather than
+     * off the loader.
      *
-     * A portion does not always open a chapter, and that is the case this
-     * has to get right. The server cuts a long chapter across several
-     * portions and lists only real headings, so portions 1..n of one chapter
-     * name nothing at all: matching on the portion index alone left the
-     * trigger reading "Contents" and no entry marked, in the middle of a
-     * chapter the reader was plainly inside. The answer there is the heading
-     * that opened the chapter, which is the last one before this portion.
+     * It used to be derived from the portion index, so it only ever moved
+     * when "Next" was pressed or an entry was clicked: a reader who simply
+     * scrolled into chapter 3 was still shown chapter 1 as current. Now it is
+     * the last anchor they have scrolled past, which is right in both of the
+     * awkward cases at once — a chapter cut across several portions keeps its
+     * own heading marked all the way through, and a portion holding several
+     * chapters marks whichever of them the reader has actually reached.
      *
-     * The other direction is a portion holding several headings. Then the
-     * one that opens it is the honest answer on arrival: the reader is at
-     * the top of the portion, and we do not track where they scrolled to.
+     * Before anything has been scrolled past, the answer is the first entry
+     * of the loaded run: at the top of the book that is chapter 1, and after
+     * a jump it is the chapter jumped to.
+     *
      * It is an index and not the entry itself because titles repeat — two
      * chapters called "I" are two entries, and only the index tells them
      * apart when one of them has to be marked.
      */
-    const tocEntries = preview?.toc ?? [];
-    const opensThisPortion = tocEntries.findIndex((item) => item.chunk === currentIndex);
     const activeTocIndex =
-        opensThisPortion !== -1
-            ? opensThisPortion
-            : tocEntries.reduce(
-                  (found, item, i) => (item.chunk < currentIndex ? i : found),
-                  -1,
-              );
+        measuredActive !== -1
+            ? measuredActive
+            : tocEntries.findIndex((item) => item.chunk >= runStart);
     const activeTocItem = activeTocIndex === -1 ? null : tocEntries[activeTocIndex];
 
-    const selectTocItem = (item: { chunk: number; anchor: string }) => {
-        // Queue the destination first: the scroll effect waits for the
-        // portion to arrive and clears the queue when it has aimed the scroll.
-        setPendingScroll({index: item.chunk, anchor: item.anchor});
-        goToChunk(item.chunk);
-        setTocPanelOpen(false);
-    };
+    /**
+     * Whether there is more book to fetch and nothing in the way of fetching
+     * it. The sentinel below is rendered only then, which is what keeps the
+     * loading rule structural: it cannot fire while a portion is in flight,
+     * because there is nothing to fire on.
+     */
+    const canLoadMore =
+        firstPhase === 'ready' &&
+        preview != null &&
+        frontier < preview.chunk_count - 1 &&
+        // The portion at the frontier is in hand: not still coming, and not
+        // failed. Both of those are the same condition — a fetch that has
+        // not landed leaves nothing in the map — and spelling them out
+        // separately as `!awaitingChunk && chunkFailure == null` added two
+        // clauses that could not fail on their own. Mutation testing found
+        // them: removing the failure clause changed no test, because it
+        // never decided anything.
+        portions.has(frontier);
+
+    // Reading is continuous: the next portion is fetched as the reader nears
+    // the end of the loaded text, and there is no button. The sentinel sits
+    // below the text and the margin fetches a screenful early, so the join
+    // arrives before the reader does.
+    useEffect(() => {
+        const area = scrollAreaRef.current;
+        const sentinel = loadMoreRef.current;
+        if (!area || !sentinel) return;
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (!entries.some((entry) => entry.isIntersecting)) return;
+                setFrontier((f) => f + 1);
+            },
+            { root: area, rootMargin: '0px 0px 800px 0px' },
+        );
+        observer.observe(sentinel);
+        return () => observer.disconnect();
+    }, [canLoadMore, frontier]);
+
+    /**
+     * Which chapter the reader is under, re-measured as they scroll.
+     *
+     * This was an IntersectionObserver over the anchors, and the browser threw
+     * it out: dragging the scrollbar from the end of the book to the start
+     * moves an anchor from above the viewport to below it without crossing
+     * any edge, so no event arrives and the highlight keeps a chapter the
+     * reader left thousands of pixels ago. Measured in Chrome, it sat on
+     * chapter 7 all the way back to the top. The jsdom test passed
+     * throughout — the crossings it fed the component were the ones the
+     * component expected, which is no test at all.
+     *
+     * Positions cannot drift that way. The anchors live in HTML the server
+     * rendered and React does not own, so they are looked up afresh on each
+     * measurement rather than held from a previous render.
+     */
+    useEffect(() => {
+        const area = scrollAreaRef.current;
+        if (!area || tocEntries.length === 0) return;
+
+        let queued = 0;
+        const measure = () => {
+            queued = 0;
+            const edge = area.getBoundingClientRect().top;
+            const tops = tocEntries.map((item) => {
+                const anchor = area.querySelector(`[id="${CSS.escape(item.anchor)}"]`);
+                // An anchor from a portion that is not loaded cannot have been
+                // passed; a number below the edge says exactly that.
+                return anchor ? anchor.getBoundingClientRect().top : Number.POSITIVE_INFINITY;
+            });
+            setMeasuredActive(activeAnchorIndexFor(tops, edge));
+        };
+
+        const onScroll = () => {
+            // One measurement per frame however fast the wheel turns.
+            if (queued) return;
+            queued = requestAnimationFrame(measure);
+        };
+
+        measure();
+        area.addEventListener('scroll', onScroll, { passive: true });
+        return () => {
+            area.removeEventListener('scroll', onScroll);
+            if (queued) cancelAnimationFrame(queued);
+        };
+    }, [tocEntries, portions]);
+
+    /**
+     * Keep the marked chapter visible inside the contents column.
+     *
+     * Where to scroll to is decided by `tocScrollTopFor`, which is a plain
+     * function so the arithmetic can be tested; this effect is only the
+     * wiring. `scrollIntoView` is deliberately not used: it scrolls every
+     * scrollable ancestor, and the nearest one here is the reading area — so
+     * bringing a contents entry into view would yank the book out from under
+     * the reader.
+     */
+    useEffect(() => {
+        const column = tocColumnRef.current;
+        if (!column) return;
+        const marked = column.querySelector<HTMLElement>('[aria-current="page"]');
+        if (!marked) return;
+
+        const top = tocScrollTopFor({
+            // Offsets inside the column, measured against the column. The
+            // first version subtracted `column.offsetTop` from this, which
+            // reads as a sensible "make it relative" until you notice that
+            // the column is sticky and therefore is itself the offset parent
+            // of everything in it — so the entry's offset was already
+            // relative and the subtraction took the column's own place in the
+            // book off it. Measured in Chrome at the last chapter: -38724,
+            // clamped to 0, and the column never moved.
+            top: marked.offsetTop,
+            height: marked.offsetHeight,
+            viewTop: column.scrollTop,
+            viewHeight: column.clientHeight,
+        });
+        if (top !== null) column.scrollTop = top;
+    }, [activeTocIndex]);
 
     // Whether the portion the reader is waiting for has settled in DOM.
     // Scrolling runs only then: a portion still in flight has nothing to
@@ -604,6 +749,7 @@ export default function BookPreviewDialog({
                          */}
                         {isWide && preview && preview.toc.length > 0 && (
                             <nav
+                                ref={tocColumnRef}
                                 data-testid="preview-toc"
                                 aria-label={t('previewTocLabel')}
                                 className={TOC_COLUMN_CLASS}
@@ -683,7 +829,7 @@ export default function BookPreviewDialog({
                                         <Portion key={index} index={index} html={html} />
                                     ))}
 
-                                    {chunkFailure && chunkFailure.index === currentIndex && (
+                                    {chunkFailure && chunkFailure.index === frontier && (
                                         <div
                                             role="alert"
                                             className="mt-4 text-sm text-destructive"
@@ -716,32 +862,38 @@ export default function BookPreviewDialog({
                                             </span>
                                         </div>
                                     )}
+
+                                    {/*
+                                     * The foot of the text says one of three
+                                     * things, and it has to say one of them.
+                                     * With no button left, a fetch that
+                                     * failed silently would read as the end
+                                     * of the book, and a book that ended
+                                     * would read as a fetch still coming.
+                                     * The failure and the spinner are above;
+                                     * this is the other two.
+                                     */}
+                                    {canLoadMore && (
+                                        <div
+                                            ref={loadMoreRef}
+                                            data-testid="preview-load-more"
+                                            aria-hidden="true"
+                                            className="h-px"
+                                        />
+                                    )}
+
+                                    {isFirstChunkLast && portions.has(frontier) && (
+                                        <p
+                                            data-testid="preview-end-of-book"
+                                            className="mt-8 border-t border-border pt-4 text-center text-sm text-muted-foreground"
+                                        >
+                                            {t('previewEndOfBook')}
+                                        </p>
+                                    )}
                                 </>
                             )}
                         </div>
                     </div>
-
-                    {firstPhase === 'ready' && (
-                        <DialogFooter className="border-t border-border px-6 py-3">
-                            {isFirstChunkLast ? (
-                                <span
-                                    data-testid="preview-end-of-book"
-                                    className="text-sm text-muted-foreground"
-                                >
-                                    {t('previewEndOfBook')}
-                                </span>
-                            ) : (
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    onClick={goNext}
-                                    disabled={awaitingChunk}
-                                >
-                                    {t('previewNext')}
-                                </Button>
-                            )}
-                        </DialogFooter>
-                    )}
 
                     {/*
                      * The narrow TOC panel overlays the work area only. Its
