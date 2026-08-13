@@ -321,4 +321,174 @@
     .preview-note:not([data-preview-note-init]) {
         display: none;
     }
+
+    /*
+     * The book's own typography.
+     *
+     * It lives here rather than in the dialog's class list because it styles
+     * HTML the server rendered — elements and its own class names, not ours —
+     * and a dozen element selectors written as Tailwind arbitrary variants
+     * would be unreadable.
+     *
+     * The reader who asked for this put it plainly: footnotes ran into the
+     * text, chapters were not marked, the page was a wall. Measured before
+     * writing any of it: a chapter heading computed to 18px at weight 400,
+     * exactly the body text, because the framework's reset flattens h1..h6
+     * and nothing put them back.
+     */
+    .portion {
+        text-align: justify;
+        hyphens: auto;
+    }
+
+    /* Chapter openings. The scale is small on purpose — this is one book in
+     * a dialog, not a landing page — but it has to be unmistakable. */
+    .portion :is(h1, h2, h3, h4, h5, h6) {
+        font-weight: 600;
+        line-height: 1.25;
+        text-align: left;
+        text-wrap: balance;
+        hyphens: none;
+        margin-block: 1.8em 0.8em;
+    }
+
+    .portion h1 { font-size: 1.35em; }
+    .portion h2 { font-size: 1.2em; }
+    .portion :is(h3, h4, h5, h6) { font-size: 1.05em; }
+
+    /* The first heading of a portion does not push the text down: the reader
+     * has just arrived there, and the space would read as a gap in the book. */
+    .portion > :is(h1, h2, h3, h4, h5, h6):first-child {
+        margin-block-start: 0;
+    }
+
+    /* Prose. The indent marks the paragraph, so there is no blank line as
+     * well — using both is the error this pins. */
+    .portion p {
+        margin-block: 0;
+        text-indent: 1.5em;
+    }
+
+    /* A paragraph that opens a section is not indented: there is nothing
+     * above it to be indented away from. */
+    .portion :is(h1, h2, h3, h4, h5, h6) + p,
+    .portion .subtitle + p {
+        text-indent: 0;
+    }
+
+    .portion .subtitle {
+        font-weight: 600;
+        text-align: center;
+        text-indent: 0;
+        margin-block: 1.4em 0.6em;
+    }
+
+    /* Verse is set as the poet broke it: no indent, no justification, and
+     * no hyphenation splitting a line that was measured to fit. */
+    .portion .poem-line {
+        text-indent: 0;
+        text-align: left;
+        hyphens: none;
+        margin-inline-start: 1.5em;
+    }
+
+    .portion .stanza {
+        height: 0.9em;
+    }
+
+    .portion .emptyline {
+        height: 1em;
+    }
+
+    /* Quoted matter, inset and lighter than the voice around it. */
+    .portion :is(.cite, .epigraph) {
+        margin-inline: 2em 0;
+        margin-block: 1em;
+        text-indent: 0;
+        color: var(--muted-foreground);
+    }
+
+    .portion .epigraph {
+        font-style: italic;
+    }
+
+    .portion .text-author {
+        text-align: right;
+        text-indent: 0;
+        font-style: italic;
+        color: var(--muted-foreground);
+        margin-block: 0.2em 1em;
+    }
+
+    .portion .image {
+        margin-block: 1.2em;
+        text-align: center;
+    }
+
+    .portion .image img {
+        max-width: 100%;
+        height: auto;
+    }
+
+    /*
+     * A footnote is the reader's aside, not the author's sentence. Opened in
+     * place it has to read as a different voice or it simply lengthens the
+     * paragraph it interrupts — which is what it did.
+     */
+    .portion .preview-note {
+        margin-block: 0.8em;
+        padding: 0.6em 0.9em;
+        border-inline-start: 3px solid var(--border);
+        background-color: var(--muted);
+        border-radius: 0.25rem;
+        font-size: 0.9em;
+        text-align: left;
+        hyphens: none;
+    }
+
+    .portion .preview-note p {
+        text-indent: 0;
+    }
+
+    .portion .preview-note-title {
+        font-weight: 600;
+        margin-block-end: 0.3em;
+    }
+
+    /*
+     * Superscripts and subscripts. The framework's reset flattens both to the
+     * baseline, so a formula or an ordinal in the book was set as ordinary
+     * text — measured: vertical-align computed to `baseline` on <sup>. The
+     * renderer emits these tags, so something had to put them back.
+     *
+     * line-height: 0 keeps a raised character from opening up the line it
+     * sits in, which is the usual price of vertical-align.
+     */
+    .portion :is(sup, sub) {
+        font-size: 0.75em;
+        line-height: 0;
+    }
+
+    .portion sup {
+        vertical-align: super;
+    }
+
+    .portion sub {
+        vertical-align: sub;
+    }
+
+    /* The reference in the text: raised and small, the way a printed book
+     * marks one, so it is findable without breaking the line. */
+    .portion a[href^="#pv"] {
+        font-size: 0.75em;
+        vertical-align: super;
+        line-height: 0;
+        padding-inline: 0.15em;
+        color: var(--primary);
+        text-decoration: none;
+    }
+
+    .portion a[href^="#pv"]:hover {
+        text-decoration: underline;
+    }
 }

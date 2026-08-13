@@ -66,35 +66,10 @@ describe('the reading column carries the agreed typography', () => {
         expect(line[0].scope).toBe('');
     });
 
-    it('indents the prose paragraphs, and only those', async () => {
-        const indent = await declaring(/text-indent:/);
-        expect(indent).toHaveLength(1);
-        expect(indent[0].body).toMatch(/text-indent:\s*1\.5em/);
-        // Paragraphs of the book, not headings and not the dialog's own text.
-        expect(indent[0].scope).toBe('.portion p');
-
-        // A red line and a blank line are two ways to mark a paragraph, and
-        // using both at once is the typographic error this pins.
-        const margin = await declaring(/margin(-block)?:/);
-        expect(margin).toHaveLength(1);
-        expect(margin[0].body).toMatch(/margin(-block)?:\s*0/);
-        expect(margin[0].scope).toBe('.portion p');
-    });
-
-    it('justifies the book text with hyphenation, and nothing else', async () => {
-        const align = await declaring(/text-align:/);
-        expect(align).toHaveLength(1);
-        expect(align[0].body).toMatch(/text-align:\s*justify/);
-        expect(align[0].scope).toBe('.portion');
-
-        // Justification without hyphenation is what produces rivers of white
-        // in a narrow column, so the two are asserted together on purpose —
-        // and on the same scope, or one of them is not doing its half.
-        const hyphens = await declaring(/hyphens:/);
-        expect(hyphens).toHaveLength(1);
-        expect(hyphens[0].body).toMatch(/hyphens:\s*auto/);
-        expect(hyphens[0].scope).toBe('.portion');
-    });
+    // How the book itself is set — the indent, the justification, the
+    // headings, the notes — moved to the stylesheet when it grew past two
+    // rules, and is held in previewBookTypography.test.ts. What stays here
+    // is what the dialog puts on the element it owns.
 
     it('centres the column in the work area', async () => {
         // `flex-1` fills the space; the auto margins are what put the leftover

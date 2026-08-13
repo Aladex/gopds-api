@@ -54,15 +54,16 @@ const ERROR_KEY: Record<PreviewErrorKind, string> = {
  * and ready render against the same contract — the dialog does not reflow
  * when text arrives, because the column was always this wide.
  *
- * Paragraphs inside an FB2 portion take a red shift (first-line indent) with
- * no blank line between them, mirroring print. Justification is paired with
- * hyphenation so word spacing does not tear the right margin.
+ * What the book itself looks like — headings, verse, quotations, footnotes —
+ * is not here but in the stylesheet, under `.portion`. That markup comes from
+ * the server, so it is styled by element and by its own class names; a dozen
+ * such selectors written as arbitrary variants in this string would be
+ * unreadable, and the first two written that way had already gone wrong
+ * (every <p> took a paragraph indent, including lines of verse).
  */
 export const TEXT_COLUMN_CLASS = cn(
     'max-w-[62ch] flex-1 min-w-0 mx-auto',
     'text-[18px] leading-[1.4]',
-    '[&_.portion_p]:indent-[1.5em] [&_.portion_p]:my-0',
-    '[&_.portion]:text-justify [&_.portion]:[hyphens:auto]',
 );
 
 /**
