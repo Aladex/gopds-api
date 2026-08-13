@@ -18,7 +18,11 @@ import (
 // — the hard ceiling is what bounds a portion, and forgetting it silently is
 // exactly how it went missing once already.
 func testChunkPolicy(maxChunk int) PreviewPolicy {
-	return PreviewPolicy{MaxChunkBytes: maxChunk, MaxPortionBytes: maxChunk * 16}
+	return PreviewPolicy{
+		MaxChunkBytes:   maxChunk,
+		MaxPortionBytes: maxChunk * 16,
+		MaxTotalBytes:   maxChunk * 4096,
+	}
 }
 
 // docFromParas wraps paragraphs into a sectionless document body.
@@ -165,7 +169,7 @@ func TestChunkPreview_IndivisibleBlockGetsItsOwnPortion(t *testing.T) {
 // hundreds of notes rendered a 40 MiB portion and an 80 MiB response, from a
 // book that passed every input gate. Measured by review, not imagined.
 func TestChunkPreview_RefusesABlockPastTheHardCeiling(t *testing.T) {
-	policy := PreviewPolicy{MaxChunkBytes: 512, MaxPortionBytes: 2048}
+	policy := PreviewPolicy{MaxChunkBytes: 512, MaxPortionBytes: 2048, MaxTotalBytes: 1 << 20}
 	imagePolicy := testPreviewImagePolicy()
 
 	// One paragraph, many notes. Each note is small; together they are what
@@ -195,6 +199,98 @@ func TestChunkPreview_RefusesABlockPastTheHardCeiling(t *testing.T) {
 	// This one *is* a fact about the book, unlike a packing overflow.
 	if errors.Is(err, ErrPreviewPortionOverflow) {
 		t.Errorf("an oversized book must not be reported as a packing defect")
+	}
+}
+
+// Per-portion ceilings do not add up to one. A footnote is re-embedded in
+// every portion that cites it, so a book can pass every per-portion check and
+// still render to something nobody can hold: measured by review, a source
+// under 1 MiB with four thousand references to a 512 KiB note produced about
+// 2 GiB of HTML, and the service keeps all of it while the build finishes.
+func TestChunkPreview_RefusesABookPastTheTotalCeiling(t *testing.T) {
+	// Every portion here is legal. Only their sum is not.
+	policy := PreviewPolicy{MaxChunkBytes: 512, MaxPortionBytes: 4096, MaxTotalBytes: 8192}
+	imagePolicy := testPreviewImagePolicy()
+
+	note := noteSection("n1", strings.Repeat("длинная сноска ", 40))
+	paras := make([]*FB2Paragraph, 0, 60)
+	for i := 0; i < 60; i++ {
+		paras = append(paras, noteRefPara("n1", fmt.Sprintf("ссылка %d", i)))
+	}
+	doc := docFromParas(paras...)
+	doc.Notes = []*FB2BodySection{note}
+
+	chunks, err := ChunkPreview(context.Background(), doc,
+		previewImagesFor(context.Background(), doc, imagePolicy), policy)
+	if err == nil {
+		t.Fatalf("a book past the total ceiling must be refused, got %d portions", len(chunks))
+	}
+	if !errors.Is(err, ErrPreviewBookTooLarge) {
+		t.Fatalf("expected ErrPreviewBookTooLarge, got %v", err)
+	}
+	// Not the per-portion refusal: every portion here is within its ceiling,
+	// and saying otherwise would send whoever reads the logs to the wrong
+	// place.
+	if errors.Is(err, ErrPreviewBlockTooLarge) {
+		t.Errorf("a book over the total budget must not be reported as one oversized block")
+	}
+}
+
+// The same book under a total ceiling that fits still portions, so the test
+// above is failing on the sum and not on the fixture being impossible.
+func TestChunkPreview_AllowsTheSameBookWhenTheTotalFits(t *testing.T) {
+	policy := PreviewPolicy{MaxChunkBytes: 512, MaxPortionBytes: 4096, MaxTotalBytes: 1 << 20}
+	imagePolicy := testPreviewImagePolicy()
+
+	note := noteSection("n1", strings.Repeat("длинная сноска ", 40))
+	paras := make([]*FB2Paragraph, 0, 60)
+	for i := 0; i < 60; i++ {
+		paras = append(paras, noteRefPara("n1", fmt.Sprintf("ссылка %d", i)))
+	}
+	doc := docFromParas(paras...)
+	doc.Notes = []*FB2BodySection{note}
+
+	chunks, err := ChunkPreview(context.Background(), doc,
+		previewImagesFor(context.Background(), doc, imagePolicy), policy)
+	if err != nil {
+		t.Fatalf("the same book must portion when the total fits: %v", err)
+	}
+	if len(chunks) < 2 {
+		t.Fatalf("the fixture does not exercise the sum: %d portion(s)", len(chunks))
+	}
+}
+
+// The estimate the packer uses assumes every fragment link resolves — that
+// keeps packing from underfilling — so it is the wrong thing to refuse a book
+// on. A paragraph full of links that go nowhere drafts far over the ceiling
+// and renders to almost nothing; telling that reader their book is too large
+// would be an answer about an estimate, not about what they would have got.
+func TestChunkPreview_JudgesTheHardCeilingOnRenderedBytes(t *testing.T) {
+	policy := PreviewPolicy{MaxChunkBytes: 512, MaxPortionBytes: 700, MaxTotalBytes: 1 << 20}
+	imagePolicy := testPreviewImagePolicy()
+
+	// Links to notes that do not exist: the draft counts each href as
+	// resolving, the render drops the anchor and keeps the text.
+	refs := make([]*FB2InlineElement, 0, 60)
+	for i := 0; i < 60; i++ {
+		refs = append(refs, &FB2InlineElement{
+			Type:     InlineTypeLink,
+			Attrs:    map[string]string{"href": fmt.Sprintf("#missing%d", i), "type": "note"},
+			Children: []*FB2InlineElement{{Type: InlineTypeText, Content: "x"}},
+		})
+	}
+	doc := docFromParas(&FB2Paragraph{Text: "ссылки в никуда", Content: refs})
+
+	chunks, err := ChunkPreview(context.Background(), doc,
+		previewImagesFor(context.Background(), doc, imagePolicy), policy)
+	if err != nil {
+		t.Fatalf("a paragraph of dead links renders small and must not be refused: %v", err)
+	}
+	rendered := renderAllChunks(t, context.Background(), chunks, nil, policy, imagePolicy)
+	for i, piece := range rendered {
+		if len(piece) > policy.MaxPortionBytes {
+			t.Errorf("portion %d is %d bytes, over the %d hard ceiling", i, len(piece), policy.MaxPortionBytes)
+		}
 	}
 }
 
@@ -251,7 +347,7 @@ func TestRenderChunkHTML_RefusesAnOversizedPortionOfSeveralBlocks(t *testing.T) 
 // never have built. Without it the guard is unfalsifiable — removing it
 // changes no test, because nothing legitimate ever arrives there.
 func TestRenderChunkHTML_RefusesALoneBlockPastTheHardCeiling(t *testing.T) {
-	policy := PreviewPolicy{MaxChunkBytes: 256, MaxPortionBytes: 512}
+	policy := PreviewPolicy{MaxChunkBytes: 256, MaxPortionBytes: 512, MaxTotalBytes: 1 << 20}
 	chunk := &PreviewChunk{Index: 0, blocks: []chunkBlock{
 		{para: textPara(strings.Repeat("длинный текст ", 80))},
 	}}

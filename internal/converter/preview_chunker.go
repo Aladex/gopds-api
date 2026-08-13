@@ -38,6 +38,10 @@ func ChunkPreview(ctx context.Context, doc *FB2Document, images PreviewImages, p
 		return nil, fmt.Errorf("fb2 preview: portion ceiling %d must be at least the chunk ceiling %d",
 			policy.MaxPortionBytes, policy.MaxChunkBytes)
 	}
+	if policy.MaxTotalBytes < policy.MaxPortionBytes {
+		return nil, fmt.Errorf("fb2 preview: total ceiling %d must be at least the portion ceiling %d",
+			policy.MaxTotalBytes, policy.MaxPortionBytes)
+	}
 	blocks := flattenPreviewBlocks(doc)
 	if len(blocks) == 0 {
 		return []*PreviewChunk{{Index: 0}}, nil
@@ -47,6 +51,7 @@ func ChunkPreview(ctx context.Context, doc *FB2Document, images PreviewImages, p
 	loadPreviewNotes(packer, doc)
 
 	var chunks []*PreviewChunk
+	total := 0
 	cur := &PreviewChunk{Index: 0}
 	curSize := 0
 	curNotes := make(map[string]bool)
@@ -79,6 +84,16 @@ func ChunkPreview(ctx context.Context, doc *FB2Document, images PreviewImages, p
 				return nil, err
 			}
 		}
+		// The running total is what bounds the build. Per-portion ceilings
+		// do not add up to one: the same footnote is re-embedded in every
+		// portion that cites it, so a book can stay under every ceiling for
+		// each portion and still render gigabytes.
+		total += cost
+		if total > policy.MaxTotalBytes {
+			return nil, fmt.Errorf("%w: %d rendered bytes over the %d total ceiling",
+				ErrPreviewBookTooLarge, total, policy.MaxTotalBytes)
+		}
+
 		cur.blocks = append(cur.blocks, block)
 		for _, note := range notes {
 			cur.notes = append(cur.notes, note)
@@ -181,8 +196,28 @@ func (p *previewPacker) draftBlockCost(chunkIndex int, block chunkBlock, already
 	// nothing by itself: one paragraph referencing five hundred notes cost
 	// 40 MiB, from a book that passed every input gate.
 	if cost > p.policy.MaxPortionBytes {
-		return 0, nil, fmt.Errorf("%w: one block with its footnotes renders %d bytes over the %d ceiling",
-			ErrPreviewBlockTooLarge, cost, p.policy.MaxPortionBytes)
+		// The draft deliberately overcounts — it assumes every fragment link
+		// resolves, so packing never underfills — which makes it the wrong
+		// witness for a refusal the reader is told about. A paragraph full of
+		// links that go nowhere would draft over the ceiling and render to
+		// almost nothing, and the reader would be told their book is too
+		// large on the strength of an estimate. So the estimate only decides
+		// to look: the refusal is made on the bytes the reader would actually
+		// have received.
+		final, rerr := RenderChunkHTML(&PreviewChunk{Index: chunkIndex, blocks: []chunkBlock{block}, notes: pulled},
+			p.images, PreviewPolicy{
+				MaxChunkBytes:   p.policy.MaxChunkBytes,
+				MaxPortionBytes: 0, // measuring, not enforcing
+				MaxTotalBytes:   p.policy.MaxTotalBytes,
+			})
+		if rerr != nil {
+			return 0, nil, rerr
+		}
+		if len(final) > p.policy.MaxPortionBytes {
+			return 0, nil, fmt.Errorf("%w: one block with its footnotes renders %d bytes over the %d ceiling",
+				ErrPreviewBlockTooLarge, len(final), p.policy.MaxPortionBytes)
+		}
+		return len(final), pulled, nil
 	}
 	return cost, pulled, nil
 }

@@ -238,6 +238,13 @@ type previewRefusal struct {
 	retryAfter string
 }
 
+// ReasonPreviewNotAssembled is what a reader is told when the preview failed
+// to come together on this side. Exported so the test that pins the mapping
+// can name it: the wording is not the contract here, the status is — a
+// packing defect must not reach a reader as 413, which would say their book
+// is at fault and tell the client never to ask again.
+const ReasonPreviewNotAssembled = "the preview could not be assembled"
+
 // classifyPreviewError is the single place that decides what a refusal means
 // to the outside. The HTTP mapping and, later, the refusal metric both read
 // it, so a cause cannot be counted as one thing and answered as another.
@@ -271,6 +278,7 @@ func classifyPreviewError(err error) previewRefusal {
 		errors.Is(err, converter.ErrFB2BinaryLimit),
 		errors.Is(err, converter.ErrPreviewImagesTotalTooLarge),
 		errors.Is(err, converter.ErrPreviewBlockTooLarge),
+		errors.Is(err, converter.ErrPreviewBookTooLarge),
 		errors.Is(err, converter.ErrDepthLimit):
 		return previewRefusal{status: http.StatusRequestEntityTooLarge, reason: "this book is too large to preview"}
 
@@ -282,7 +290,7 @@ func classifyPreviewError(err error) previewRefusal {
 	// pack, not the book being too large. Answering 413 would tell the reader
 	// their book is at fault, and tell the client never to ask again.
 	case errors.Is(err, converter.ErrPreviewPortionOverflow):
-		return previewRefusal{status: http.StatusInternalServerError, reason: "the preview could not be assembled"}
+		return previewRefusal{status: http.StatusInternalServerError, reason: ReasonPreviewNotAssembled}
 
 	case errors.Is(err, services.ErrArchiveFileNotFound):
 		return previewRefusal{status: http.StatusNotFound, reason: "the book file is missing"}

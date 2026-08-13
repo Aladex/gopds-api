@@ -44,7 +44,11 @@ type fakeBookRepo struct {
 // tests do: a chunk ceiling without a portion ceiling is refused, and
 // forgetting the second one silently is how the bound went missing once.
 func testChunkPolicy(maxChunk int) converter.PreviewPolicy {
-	return converter.PreviewPolicy{MaxChunkBytes: maxChunk, MaxPortionBytes: maxChunk * 16}
+	return converter.PreviewPolicy{
+		MaxChunkBytes:   maxChunk,
+		MaxPortionBytes: maxChunk * 16,
+		MaxTotalBytes:   maxChunk * 4096,
+	}
 }
 
 func (r *fakeBookRepo) GetBook(bookID int64) (*models.Book, error) {

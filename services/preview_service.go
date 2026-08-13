@@ -212,16 +212,26 @@ const (
 	// what one request can cost. Without it "a lone block may overflow" bounds
 	// nothing: notes ride along with the block that cites them, and one
 	// paragraph with five hundred of them rendered 40 MiB.
-	defaultMaxPortionBytes = 1 << 20  // 1 MiB
-	defaultImageMaxBytes   = 1 << 20  // 1 MB per prepared image
-	defaultImageMaxPixels  = 32 << 20 // 32 MP per canvas
-	defaultImageMaxSide    = 4096     // per-side cap, mirrors fb2image.maxDimension
+	defaultMaxPortionBytes = 1 << 20 // 1 MiB
+
+	// The rendered HTML of a whole book. Half again the 64 MiB input gate:
+	// markup mostly replaces markup, so a real book renders to roughly the
+	// order of its source, and the one thing that amplifies — a footnote
+	// re-embedded in every portion citing it — is what this is here to stop.
+	// Measured by review: without it a source under 1 MiB rendered about
+	// 2 GiB, all of it held at once while the build finished.
+	defaultMaxTotalBytes = 96 << 20 // 96 MiB
+
+	defaultImageMaxBytes  = 1 << 20  // 1 MB per prepared image
+	defaultImageMaxPixels = 32 << 20 // 32 MP per canvas
+	defaultImageMaxSide   = 4096     // per-side cap, mirrors fb2image.maxDimension
 )
 
 func defaultPreviewChunkPolicy() converter.PreviewPolicy {
 	return converter.PreviewPolicy{
 		MaxChunkBytes:   defaultMaxChunkBytes,
 		MaxPortionBytes: defaultMaxPortionBytes,
+		MaxTotalBytes:   defaultMaxTotalBytes,
 	}
 }
 

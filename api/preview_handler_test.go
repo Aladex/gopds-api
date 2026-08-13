@@ -766,8 +766,21 @@ func TestPreviewHandler_RefusalTable(t *testing.T) {
 		// a reader — there is no portion to give them — but it is no longer a
 		// statement about the book.
 		{
-			"portion of several blocks over the ceiling", converter.ErrPreviewBlockTooLarge,
+			"one indivisible block past the portion ceiling", converter.ErrPreviewBlockTooLarge,
 			http.StatusRequestEntityTooLarge, "this book is too large to preview", "",
+		},
+		{
+			"the whole rendered book past the total ceiling", converter.ErrPreviewBookTooLarge,
+			http.StatusRequestEntityTooLarge, "this book is too large to preview", "",
+		},
+		{
+			// Not 413, and the difference is the point: this is the packer
+			// failing, not the book being too large. A 413 would tell the
+			// reader their book is at fault and tell the client never to ask
+			// again. Without this row the special branch could be deleted and
+			// the default would keep answering 500 with other words.
+			"portion of several blocks over the ceiling", converter.ErrPreviewPortionOverflow,
+			http.StatusInternalServerError, ReasonPreviewNotAssembled, "",
 		},
 		{
 			"prepared images over the budget", converter.ErrPreviewImagesTotalTooLarge,

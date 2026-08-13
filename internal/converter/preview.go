@@ -11,23 +11,32 @@ import (
 	"sync"
 )
 
-// ErrPreviewBlockTooLarge marks a book carrying a single indivisible block
-// that renders past MaxPortionBytes.
-//
-// A lone block over MaxChunkBytes is allowed — a paragraph has no seam to
-// cut, and refusing meant a book like Kafka's "Замок" could not be read at
-// all. Past MaxPortionBytes there is no reading to protect: the portion has
-// stopped being a portion. This is a fact about the book, and the reader is
-// told so.
+// Refusals about size. Two of them are facts about the book and travel to
+// the reader as such; the third is this package failing and must not.
+var (
+	// ErrPreviewBlockTooLarge marks a book carrying a single indivisible
+	// block that renders past MaxPortionBytes.
+	//
+	// A lone block over MaxChunkBytes is allowed — a paragraph has no seam to
+	// cut, and refusing meant a book like Kafka's "Замок" could not be read
+	// at all. Past MaxPortionBytes there is no reading left to protect: the
+	// portion has stopped being a portion.
+	ErrPreviewBlockTooLarge = errors.New("fb2 preview: indivisible block exceeds the portion ceiling")
 
-// ErrPreviewPortionOverflow marks a portion of several blocks that came out
-// over the ceiling. That is not a fact about the book: the packing loop let
-// something through it should have moved on, so it is a defect in this
-// package and must not be reported to a reader as a property of what they
-// tried to read.
-var ErrPreviewBlockTooLarge = errors.New("fb2 preview: indivisible block exceeds the portion ceiling")
+	// ErrPreviewBookTooLarge is the same judgement about the whole book
+	// rather than one portion: every portion fits and their sum does not.
+	// A footnote is re-embedded in every portion that cites it, so a source
+	// under 1 MiB with four thousand references to a 512 KiB note renders
+	// about 2 GiB — measured by review — while passing every per-portion
+	// check.
+	ErrPreviewBookTooLarge = errors.New("fb2 preview: rendered book exceeds the total ceiling")
 
-var ErrPreviewPortionOverflow = errors.New("fb2 preview: portion of several blocks exceeds the chunk ceiling")
+	// ErrPreviewPortionOverflow marks a portion of several blocks that came
+	// out over the packing ceiling. The packing loop let something through it
+	// should have moved on: a defect here, not a property of the book, and
+	// reporting it to a reader as one would be a lie they cannot act on.
+	ErrPreviewPortionOverflow = errors.New("fb2 preview: portion of several blocks exceeds the chunk ceiling")
+)
 
 // Refusals returned by PreparePreviewImage. Each names a distinct reason so
 // callers can count by cause and tune policy against what actually bites.
@@ -102,6 +111,15 @@ type PreviewPolicy struct {
 	// large to preview, and that is a fact about the book worth telling the
 	// reader.
 	MaxPortionBytes int
+
+	// MaxTotalBytes bounds the rendered HTML of the whole book.
+	//
+	// Per-portion ceilings do not add up to one: a footnote is re-embedded in
+	// every portion that cites it, so a source under 1 MiB with four thousand
+	// references to a 512 KiB note produces four thousand perfectly legal
+	// portions and about 2 GiB of HTML, all of it held at once while the
+	// build finishes.
+	MaxTotalBytes int
 }
 
 // PreviewImagePolicy carries what a single picture must fit to be shown:
