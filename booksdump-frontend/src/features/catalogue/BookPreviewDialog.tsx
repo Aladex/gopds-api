@@ -66,6 +66,26 @@ export const TEXT_COLUMN_CLASS = cn(
 );
 
 /**
+ * The contents column beside the text on a wide layout.
+ *
+ * Sticky, and self-start with it: a flex child is stretched to the row's
+ * height by default, which leaves sticky nothing to do — the box already
+ * spans the whole scrolled length. Without this the column simply rides up
+ * with the text, which is what it did. It was not a long-book problem:
+ * scrolling the first chapter was enough to lose the contents entirely,
+ * whatever the book.
+ *
+ * It also gets a scroll of its own, for when the book has more chapters than
+ * the column is tall. `max-h-full` resolves against the work area's height,
+ * which is the box sticky holds it inside.
+ */
+export const TOC_COLUMN_CLASS = cn(
+    'w-56 shrink-0',
+    'sticky top-0 self-start',
+    'max-h-full overflow-y-auto',
+);
+
+/**
  * The scrolling work area.
  *
  * The gutter is reserved on both edges rather than left to the scrollbar.
@@ -586,7 +606,7 @@ export default function BookPreviewDialog({
                             <nav
                                 data-testid="preview-toc"
                                 aria-label={t('previewTocLabel')}
-                                className="w-56 shrink-0"
+                                className={TOC_COLUMN_CLASS}
                             >
                                 <ul className="space-y-1">
                                     {preview.toc.map((item, i) => (
