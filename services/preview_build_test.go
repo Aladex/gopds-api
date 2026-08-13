@@ -291,58 +291,57 @@ func TestPreviewBuild_StoredChunkCountMatchesManifest(t *testing.T) {
 // A book whose rendered HTML passes the total ceiling is refused by the
 // build, and never stored or served.
 //
-// The fixture is the awkward shape on purpose: paragraphs of links pointing
-// forward to a section placed just after them, so the links resolve only once
-// that section lands in the same portion — bytes that appear after the packer
-// has counted the paragraph. Which layer refuses is deliberately not asserted.
-// Two do: the chunker measures when its running estimate crosses, and the
-// build sums the real HTML as it renders. The second is defense in depth, and
-// honestly labeled as such: removing it leaves this test green, because the
-// chunker's measurement already catches every case I could construct.
+// The shape matters and took a review to get right. Ordinary paragraphs first,
+// enough of them to fill most of the budget. Then, once, a paragraph of links
+// pointing forward to a section placed immediately after it. Those links
+// resolve to nothing while the packer is measuring — the target has not been
+// placed — and resolve for real once it lands in the same portion, so the
+// anchors appear after the packer counted that paragraph. The packer's own
+// count stays under the ceiling; the rendered book does not.
+//
+// One such group, not several: a second one crosses the estimate again and
+// gives the packer another chance to measure and catch the book, which is
+// what made the first version of this test pass with the build's own check
+// removed.
 func TestPreviewBuild_RefusesWhenTheRenderedBookPassesTheTotal(t *testing.T) {
-	// Twenty small groups, each a paragraph of links pointing at a target
-	// that lands in the same portion just after it. Each portion stays well
-	// inside its own ceiling — nothing overflows — and each hides a little
-	// growth the packer's count never saw. The book is where they add up.
-	body := ""
-	for g := 0; g < 20; g++ {
-		links := ""
-		for i := 0; i < 5; i++ {
-			links += fmt.Sprintf(`<a l:href="#t%d">x</a>`, g)
-		}
-		body += `<p>` + links + `</p>` +
-			fmt.Sprintf(`<section id="t%d"><title><p>Ц%d</p></title><p>после</p></section>`, g, g)
+	filler := ""
+	for i := 0; i < 30; i++ {
+		filler += `<p>АБЗАЦ ` + strings.Repeat("ровный ", 8) + `</p>`
+	}
+	links := ""
+	for i := 0; i < 50; i++ {
+		links += `<a l:href="#target">x</a>`
 	}
 	fb2 := `<?xml version="1.0"?>` +
 		`<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" ` +
 		`xmlns:l="http://www.w3.org/1999/xlink">` +
-		`<body><section><title><p>ГЛАВА</p></title>` + body +
+		`<body><section><title><p>ГЛАВА</p></title>` + filler +
+		`<p>` + links + `</p>` +
+		`<section id="target"><title><p>ЦЕЛЬ</p></title><p>после цели</p></section>` +
 		`</section></body></FictionBook>`
 
 	repo := buildBookRepo()
 	loader := &fakeArchiveLoader{data: []byte(fb2)}
+	policy := converter.PreviewPolicy{
+		MaxChunkBytes:   2048,
+		MaxPortionBytes: 2048,
+		MaxTotalBytes:   4000,
+	}
 
-	// Wide ceilings first: what the book actually renders to.
+	// The packer accepts this book: its count never crosses the ceiling.
+	// Without that, the build's own sum would never be reached and this test
+	// would be about the packer instead.
+	doc, _, perr := converter.ParseFB2Complete(context.Background(), []byte(fb2), false)
+	if perr != nil {
+		t.Fatalf("parse: %v", perr)
+	}
+	if _, cerr := converter.ChunkPreview(context.Background(), doc, converter.PreviewImages{}, policy); cerr != nil {
+		t.Fatalf("the packer must accept this book, or the build's sum is not what is under test: %v", cerr)
+	}
+
+	// The build refuses it, because the HTML it actually renders is larger.
 	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0, 0)
-	svc.chunkPolicy = converter.PreviewPolicy{
-		MaxChunkBytes:   512,
-		MaxPortionBytes: 512,
-		MaxTotalBytes:   1 << 20,
-	}
-	manifest := loadManifest(t, svc)
-	if manifest.ChunkCount < 2 {
-		t.Fatalf("the fixture must produce several portions, got %d", manifest.ChunkCount)
-	}
-
-	// A ceiling the packer's count stays under and the rendered book does
-	// not. Without the sum taken over real HTML, this book is built, cached
-	// and served.
-	svc = NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0, 0)
-	svc.chunkPolicy = converter.PreviewPolicy{
-		MaxChunkBytes:   512,
-		MaxPortionBytes: 512,
-		MaxTotalBytes:   1200,
-	}
+	svc.chunkPolicy = policy
 	if _, err := svc.Load(context.Background(), 1, false); !errors.Is(err, converter.ErrPreviewBookTooLarge) {
 		t.Fatalf("expected ErrPreviewBookTooLarge, got %v", err)
 	}

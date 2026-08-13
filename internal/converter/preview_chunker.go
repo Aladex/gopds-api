@@ -106,6 +106,12 @@ func ChunkPreview(ctx context.Context, doc *FB2Document, images PreviewImages, p
 				return nil, fmt.Errorf("%w: %d rendered bytes over the %d total ceiling",
 					ErrPreviewBookTooLarge, measured, policy.MaxTotalBytes)
 			}
+			// Carry the measured figure, not the estimate: without it the
+			// next block crosses again immediately and the book is measured
+			// once per block. It is not the last word either — a link
+			// resolving retroactively adds bytes after its block was
+			// counted — which is why the build sums the real HTML as it
+			// renders.
 			total = measured
 		}
 

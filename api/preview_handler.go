@@ -282,16 +282,16 @@ func classifyPreviewError(err error) previewRefusal {
 		errors.Is(err, converter.ErrDepthLimit):
 		return previewRefusal{status: http.StatusRequestEntityTooLarge, reason: "this book is too large to preview"}
 
-	// The catalog row exists but the file it names is not in the archive.
-	// A different fact from "no such book" and from "the archive is
-	// unreadable", and the loader raises it as its own error precisely so
-	// this layer can say so.
 	// A portion of several blocks over the ceiling is this server failing to
 	// pack, not the book being too large. Answering 413 would tell the reader
 	// their book is at fault, and tell the client never to ask again.
 	case errors.Is(err, converter.ErrPreviewPortionOverflow):
 		return previewRefusal{status: http.StatusInternalServerError, reason: ReasonPreviewNotAssembled}
 
+	// The catalog row exists but the file it names is not in the archive.
+	// A different fact from "no such book" and from "the archive is
+	// unreadable", and the loader raises it as its own error precisely so
+	// this layer can say so.
 	case errors.Is(err, services.ErrArchiveFileNotFound):
 		return previewRefusal{status: http.StatusNotFound, reason: "the book file is missing"}
 
