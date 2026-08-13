@@ -61,9 +61,22 @@ export function tocScrollTopFor(item: {
  * there, the answer comes from where things are now.
  */
 export function activeAnchorIndexFor(tops: readonly number[], edge: number): number {
+    // A heading level with the top of the reading area is one the reader is
+    // under, not one they are approaching, and "level" survives no rounding:
+    // scrolling to a chapter leaves its anchor a fraction of a pixel below
+    // where it was aimed. Measured in Chrome after jumping to chapter 6 — the
+    // anchor at 149, the edge at 148, and the contents marking chapter 5.
+    const line = edge + ANCHOR_ROUNDING_SLACK;
     let found = -1;
     for (let i = 0; i < tops.length; i++) {
-        if (tops[i] <= edge) found = i;
+        if (tops[i] <= line) found = i;
     }
     return found;
 }
+
+/**
+ * How far below the top edge a heading may sit and still count as reached.
+ * Small on purpose: this is for rounding, not for guessing what the reader
+ * is looking at.
+ */
+export const ANCHOR_ROUNDING_SLACK = 4;

@@ -356,9 +356,17 @@
     .portion h2 { font-size: 1.2em; }
     .portion :is(h3, h4, h5, h6) { font-size: 1.05em; }
 
-    /* The first heading of a portion does not push the text down: the reader
-     * has just arrived there, and the space would read as a gap in the book. */
-    .portion > :is(h1, h2, h3, h4, h5, h6):first-child {
+    /*
+     * The first heading of a portion does not push the text down: the reader
+     * has just arrived there, and the space would read as a gap in the book.
+     *
+     * Both selectors are needed and the second is the one that works. The
+     * renderer emits an empty <a id="…"> before every heading it anchors, so
+     * the heading is almost never the portion's first child and the plain
+     * :first-child rule fired for nothing.
+     */
+    .portion > :is(h1, h2, h3, h4, h5, h6):first-child,
+    .portion > a:first-child + :is(h1, h2, h3, h4, h5, h6) {
         margin-block-start: 0;
     }
 
@@ -420,6 +428,31 @@
         margin-block: 0.2em 1em;
     }
 
+    /*
+     * Tables. The renderer emits them and nothing styled them, which on a
+     * phone means the reset's zero borders and a table wider than the
+     * column pushing the page sideways. The wrapper scrolls instead.
+     */
+    .portion .table {
+        display: block;
+        max-width: 100%;
+        overflow-x: auto;
+        margin-block: 1em;
+        font-size: 0.95em;
+        text-align: left;
+        hyphens: none;
+    }
+
+    .portion .table :is(td, th) {
+        border: 1px solid var(--border);
+        padding: 0.35em 0.6em;
+        text-indent: 0;
+    }
+
+    .portion .table th {
+        font-weight: 600;
+    }
+
     .portion .image {
         margin-block: 1.2em;
         text-align: center;
@@ -477,9 +510,16 @@
         vertical-align: sub;
     }
 
-    /* The reference in the text: raised and small, the way a printed book
-     * marks one, so it is findable without breaking the line. */
-    .portion a[href^="#pv"] {
+    /*
+     * The reference in the text: raised and small, the way a printed book
+     * marks one, so it is findable without breaking the line.
+     *
+     * Matched on `-note-` as well as the prefix. A note's anchor is
+     * `pv{chunk}-note-{key}` but an ordinary cross-reference inside the book
+     * is `pv-{key}`, and both begin `#pv` — so a plain "see chapter II" link
+     * was being set as a tiny superscript.
+     */
+    .portion a[href^="#pv"][href*="-note-"] {
         font-size: 0.75em;
         vertical-align: super;
         line-height: 0;
@@ -488,7 +528,7 @@
         text-decoration: none;
     }
 
-    .portion a[href^="#pv"]:hover {
+    .portion a[href^="#pv"][href*="-note-"]:hover {
         text-decoration: underline;
     }
 }

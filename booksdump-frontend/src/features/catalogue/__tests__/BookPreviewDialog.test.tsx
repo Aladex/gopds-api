@@ -53,12 +53,13 @@ const getChunk = vi.mocked(previewApi.previewClient.getChunk);
 /**
  * A controllable IntersectionObserver.
  *
- * jsdom implements none, and the dialog now depends on one twice over: to
- * fetch the next portion as the reader nears the end of the loaded text, and
- * to know which chapter they have scrolled into. A no-op stub would leave
- * both properties unobservable — the whole file would pass with the loading
- * and the highlight ripped out — so this one records its targets and lets a
- * test say what the reader did.
+ * jsdom implements none, and the dialog uses one to fetch the next portion as
+ * the reader nears the end of the loaded text. A no-op stub would leave that
+ * unobservable — the whole file would pass with the loading ripped out — so
+ * this one records its targets and lets a test say the reader got there.
+ *
+ * Which chapter the reader is under is *not* driven from here. It was, and
+ * the browser threw that out: see `readerAt`.
  */
 interface FakeObserver {
     targets: Element[];
@@ -639,6 +640,97 @@ describe('BookPreviewDialog — request ordering', () => {
         await reachBottom();
         await waitFor(() => expect(getChunk).toHaveBeenCalledTimes(2));
         expect(getChunk.mock.calls[1][1]).toBe(2);
+    });
+
+    it('asks again when the reader returns to a chapter whose fetch failed', async () => {
+        // A permanent failure offers no retry button on purpose, so choosing
+        // the chapter again in the contents is the only way back. Every input
+        // the fetch effect watches was unchanged by that choice — same
+        // frontier, same portions — so the error vanished, the skeleton
+        // appeared, and no request was ever made. The reader waits forever on
+        // a portion nobody asked for.
+        getPreview.mockImplementation(
+            signalAware(() =>
+                makePreview({
+                    chunk_count: 3,
+                    toc: [
+                        { title: 'Chapter 1', depth: 1, chunk: 0, anchor: 'c1' },
+                        { title: 'Chapter 3', depth: 1, chunk: 2, anchor: 'c3' },
+                    ],
+                    first_chunk: '<p data-testid="first-portion">the opening</p>',
+                }),
+            ),
+        );
+        getChunk.mockImplementation(
+            signalAware(() => Promise.reject(new ApiError('gone', 410))),
+        );
+
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        const column = () => screen.getByTestId('preview-toc');
+        await userEvent.click(within(column()).getByRole('button', { name: 'Chapter 3' }));
+
+        await screen.findByText('previewErrorGone');
+        expect(getChunk).toHaveBeenCalledTimes(1);
+
+        // The server recovers; the reader chooses the chapter again.
+        getChunk.mockImplementation(
+            signalAware(() => ({ chunk: '<p data-testid="portion-2-html">chapter three</p>' })),
+        );
+        await userEvent.click(within(column()).getByRole('button', { name: 'Chapter 3' }));
+
+        expect(await screen.findByTestId('portion-2-html')).toBeInTheDocument();
+        await waitFor(() => expect(getChunk).toHaveBeenCalledTimes(2));
+    });
+
+    it('can go back to the first chapter after jumping deep into the book', async () => {
+        // The first portion arrives inside the preview response and is never
+        // fetched. A jump to an unloaded chapter clears the run, so jumping
+        // back to chapter 1 asks for a portion the loader refuses to fetch —
+        // it only ever fetches above index 0 — and nobody puts the first one
+        // back. The reader is left with an empty book that never loads.
+        getPreview.mockImplementation(
+            signalAware(() =>
+                makePreview({
+                    chunk_count: 3,
+                    toc: [
+                        { title: 'Chapter 1', depth: 1, chunk: 0, anchor: 'c1' },
+                        { title: 'Chapter 3', depth: 1, chunk: 2, anchor: 'c3' },
+                    ],
+                    first_chunk: '<p data-testid="first-portion">the opening</p>',
+                }),
+            ),
+        );
+        getChunk.mockImplementation(
+            signalAware(() => ({ chunk: '<p data-testid="portion-2-html">chapter three</p>' })),
+        );
+
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        // Wide layout in this block: the contents are a column, not a panel.
+        const jumpTo = async (name: string) => {
+            const column = screen.getByTestId('preview-toc');
+            await userEvent.click(within(column).getByRole('button', { name }));
+        };
+
+        await jumpTo('Chapter 3');
+        await screen.findByTestId('portion-2-html');
+        expect(screen.queryByTestId('first-portion')).not.toBeInTheDocument();
+
+        await jumpTo('Chapter 1');
+
+        // Back at the opening, with text on the page.
+        expect(await screen.findByTestId('first-portion')).toBeInTheDocument();
+        // And it came from the preview that is already in hand, not from a
+        // second request for a chunk the server never serves separately.
+        expect(getChunk).not.toHaveBeenCalledWith(
+            expect.anything(),
+            0,
+            expect.anything(),
+            expect.anything(),
+        );
     });
 
     it('joins the next portion onto the text without moving the reader', async () => {

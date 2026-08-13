@@ -228,17 +228,10 @@ export default function BookPreviewDialog({
 
     /**
      * Where the reader asked to be taken, queued until the portion is in the
-     * document. `anchor` is the heading a contents entry named; without one
-     * the destination is the top of the portion itself, which is what "Next"
-     * asks for.
-     *
-     * Next used to queue nothing, and that made it look broken: the portion
-     * did arrive and was appended below, but the view stayed where it was —
-     * a reader taps Next, the text does not move, and the only honest
-     * conclusion is that the button does nothing. Reported from production
-     * within the hour, by the one reader who had it: "Дальше не работает,
-     * переключение через содержание работает" — the contents worked because
-     * that path had a scroll and this one did not.
+     * document. Only a contents entry queues anything now — reading on scrolls
+     * nowhere by design — and `anchor` is the heading that entry named. The
+     * portion's own top is the fallback for when the book does not contain
+     * the anchor it promised.
      */
     const [pendingScroll, setPendingScroll] = useState<{
         index: number;
@@ -368,7 +361,10 @@ export default function BookPreviewDialog({
         return () => controller.abort();
     }, [needsChunkFetch, frontier, preview, bookId, chunkRetry]);
 
-    const isFirstChunkLast =
+    // The frontier is the last portion of the book: there is nothing further
+    // to fetch. It was called `isFirstChunkLast` when the first chunk was the
+    // only one a fresh dialog had.
+    const frontierIsLast =
         preview != null && frontier >= preview.chunk_count - 1;
     const awaitingChunk =
         firstPhase === 'ready' &&
@@ -389,11 +385,26 @@ export default function BookPreviewDialog({
     const selectTocItem = (item: { chunk: number; anchor: string }) => {
         setPendingScroll({ index: item.chunk, anchor: item.anchor });
         if (!portions.has(item.chunk)) {
-            setPortions(new Map());
+            // The opening portion is never fetched — it arrives inside the
+            // preview — so a run that starts at 0 has to be seeded from what
+            // is already in hand. Without this, jumping deep into the book
+            // and then back to chapter 1 left the reader with an empty page
+            // that could never fill: the loader refuses index 0, and nothing
+            // else puts the first portion back.
+            const seeded = new Map<number, string>();
+            if (item.chunk === 0 && preview != null) {
+                seeded.set(0, preview.first_chunk);
+            }
+            setPortions(seeded);
             setMeasuredActive(-1);
             setRunStart(item.chunk);
             setFrontier(item.chunk);
             setChunkFailure(null);
+            // Ask again even when the frontier is unchanged. Returning to a
+            // chapter whose fetch had failed cleared the error and showed the
+            // skeleton, but no request followed: the effect's inputs were all
+            // exactly as they had been. This is the input that says "again".
+            setChunkRetry((n) => n + 1);
         }
         setTocPanelOpen(false);
     };
@@ -413,7 +424,7 @@ export default function BookPreviewDialog({
      * off the loader.
      *
      * It used to be derived from the portion index, so it only ever moved
-     * when "Next" was pressed or an entry was clicked: a reader who simply
+     * when a button was pressed or an entry was clicked: a reader who simply
      * scrolled into chapter 3 was still shown chapter 1 as current. Now it is
      * the last anchor they have scrolled past, which is right in both of the
      * awkward cases at once — a chapter cut across several portions keeps its
@@ -493,32 +504,45 @@ export default function BookPreviewDialog({
         const area = scrollAreaRef.current;
         if (!area || tocEntries.length === 0) return;
 
+        // Looked up once per set of portions, not once per frame. A book of
+        // several hundred chapters with a few portions loaded means most of
+        // these lookups find nothing, and repeating them on every scroll
+        // frame is hundreds of fruitless walks of the DOM per second.
+        const anchors = tocEntries.map((item) =>
+            area.querySelector(`[id="${CSS.escape(item.anchor)}"]`),
+        );
+
         let queued = 0;
         const measure = () => {
             queued = 0;
             const edge = area.getBoundingClientRect().top;
-            const tops = tocEntries.map((item) => {
-                const anchor = area.querySelector(`[id="${CSS.escape(item.anchor)}"]`);
-                // An anchor from a portion that is not loaded cannot have been
-                // passed; a number below the edge says exactly that.
-                return anchor ? anchor.getBoundingClientRect().top : Number.POSITIVE_INFINITY;
-            });
+            const tops = anchors.map((anchor) =>
+                // An anchor from a portion that is not loaded cannot have
+                // been passed; a number below the edge says exactly that.
+                anchor ? anchor.getBoundingClientRect().top : Number.POSITIVE_INFINITY,
+            );
             setMeasuredActive(activeAnchorIndexFor(tops, edge));
         };
 
-        const onScroll = () => {
+        const remeasure = () => {
             // One measurement per frame however fast the wheel turns.
             if (queued) return;
             queued = requestAnimationFrame(measure);
         };
 
         measure();
-        area.addEventListener('scroll', onScroll, { passive: true });
+        area.addEventListener('scroll', remeasure, { passive: true });
+        // Positions move without anyone scrolling: the window is resized, a
+        // picture finishes loading, the layout switches between the column
+        // and the panel. Measuring only on scroll leaves the highlight
+        // pointing at wherever the text used to be.
+        window.addEventListener('resize', remeasure);
         return () => {
-            area.removeEventListener('scroll', onScroll);
+            area.removeEventListener('scroll', remeasure);
+            window.removeEventListener('resize', remeasure);
             if (queued) cancelAnimationFrame(queued);
         };
-    }, [tocEntries, portions]);
+    }, [tocEntries, portions, isWide]);
 
     /**
      * Keep the marked chapter visible inside the contents column.
@@ -551,7 +575,11 @@ export default function BookPreviewDialog({
             viewHeight: column.clientHeight,
         });
         if (top !== null) column.scrollTop = top;
-    }, [activeTocIndex]);
+        // isWide as well as the marked entry: the column does not exist on a
+        // narrow layout, so it is mounted fresh — scrolled to the top — when
+        // the reader widens the window, and would sit there showing chapter 1
+        // until they happened to cross into another chapter.
+    }, [activeTocIndex, isWide]);
 
     // Whether the portion the reader is waiting for has settled in DOM.
     // Scrolling runs only then: a portion still in flight has nothing to
@@ -587,11 +615,9 @@ export default function BookPreviewDialog({
         if (anchorEl && portionEl && portionEl.contains(anchorEl)) {
             anchorEl.scrollIntoView({ block: 'start' });
         } else if (portionEl) {
-            // Either no anchor was asked for — "Next" wants the top of what
-            // it just fetched — or the anchor the server promised is missing
-            // from the chunk. The second is a spec violation in the data, and
-            // neither is a reason to throw or to leave the reader looking at
-            // the page they were already on.
+            // The anchor the server promised is missing from the chunk: a
+            // spec violation in the data, and not a reason to throw or to
+            // leave the reader looking at the page they were already on.
             portionEl.scrollIntoView({ block: 'start' });
         }
     }, [pendingScroll, pendingPortionReady]);
@@ -883,7 +909,7 @@ export default function BookPreviewDialog({
                                         />
                                     )}
 
-                                    {isFirstChunkLast && portions.has(frontier) && (
+                                    {frontierIsLast && portions.has(frontier) && (
                                         <p
                                             data-testid="preview-end-of-book"
                                             className="mt-8 border-t border-border pt-4 text-center text-sm text-muted-foreground"

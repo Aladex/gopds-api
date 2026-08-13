@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { activeAnchorIndexFor, tocScrollTopFor } from '@/features/catalogue/tocScroll';
+import {
+    ANCHOR_ROUNDING_SLACK,
+    activeAnchorIndexFor,
+    tocScrollTopFor,
+} from '@/features/catalogue/tocScroll';
 
 /**
  * The contents column scrolls by itself, so the marked chapter can sit
@@ -62,6 +66,20 @@ describe('which chapter the reader is under', () => {
         expect(activeAnchorIndexFor(atEnd, edge)).toBe(3);
         const backAtStart = [50, 3000, 6000, 9000];
         expect(activeAnchorIndexFor(backAtStart, edge)).toBe(0);
+    });
+
+    it('counts a heading level with the edge as reached', () => {
+        // Jumping to a chapter aims its anchor at the top of the reading
+        // area and lands a fraction of a pixel below. Measured in Chrome:
+        // anchor at 149, edge at 148, contents marking the chapter before.
+        expect(activeAnchorIndexFor([edge + 1], edge)).toBe(0);
+        expect(activeAnchorIndexFor([edge + ANCHOR_ROUNDING_SLACK], edge)).toBe(0);
+    });
+
+    it('does not count a heading the reader has not reached', () => {
+        // The slack is for rounding, not for guessing: a heading a screen
+        // below is not where the reader is.
+        expect(activeAnchorIndexFor([edge + ANCHOR_ROUNDING_SLACK + 1], edge)).toBe(-1);
     });
 
     it('takes the last of several headings sharing a screen', () => {

@@ -69,6 +69,54 @@ describe('the book is set like a book', () => {
         expect(after[0].value).toBe('0');
     });
 
+    it('reaches the first heading past the anchor the renderer puts before it', () => {
+        // The renderer emits an empty <a id="…"> ahead of every heading it
+        // anchors, so a heading is almost never its portion's first child and
+        // a plain :first-child rule fires for nothing. This was written that
+        // way and did nothing at all until it was pointed out.
+        const rules: string[] = [];
+        root.walkRules((rule: Rule) => {
+            const hasReset = rule.nodes?.some(
+                (node) =>
+                    node.type === 'decl' &&
+                    node.prop === 'margin-block-start' &&
+                    node.value.trim() === '0',
+            );
+            if (!hasReset) return;
+            rules.push(...rule.selectors);
+        });
+        expect(rules.some((one) => /a:first-child \+ :is\(h1/.test(one))).toBe(true);
+    });
+
+    it('raises only footnote references, not every link into the book', () => {
+        // A note's anchor is pv{chunk}-note-{key}; an ordinary cross-
+        // reference is pv-{key}, and both start with #pv. Matching the prefix
+        // alone set "see chapter II" as a tiny superscript.
+        const raised: string[] = [];
+        root.walkRules((rule: Rule) => {
+            const isRaised = rule.nodes?.some(
+                (node) =>
+                    node.type === 'decl' &&
+                    node.prop === 'vertical-align' &&
+                    node.value.trim() === 'super',
+            );
+            if (!isRaised) return;
+            raised.push(...rule.selectors.filter((one) => one.includes('a[href')));
+        });
+        expect(raised.length).toBeGreaterThan(0);
+        for (const selector of raised) {
+            expect(selector).toContain('-note-');
+        }
+    });
+
+    it('keeps a wide table inside the column instead of on the page', () => {
+        // Unstyled, a table wider than the reading column pushes the whole
+        // page sideways on a phone. It scrolls in its own box instead.
+        expect(declared('overflow-x', /\.portion \.table$/)[0]?.value).toBe('auto');
+        expect(declared('max-width', /\.portion \.table$/)[0]?.value).toBe('100%');
+        expect(declared('border', /\.portion \.table :is\(td, th\)/).length).toBeGreaterThan(0);
+    });
+
     it('sets verse as the poet broke it', () => {
         // No paragraph indent, no justification, no hyphenation: a line of
         // verse was measured to fit and must not be stretched or broken. The
