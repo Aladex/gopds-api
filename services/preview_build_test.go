@@ -288,6 +288,66 @@ func TestPreviewBuild_StoredChunkCountMatchesManifest(t *testing.T) {
 	}
 }
 
+// A book whose rendered HTML passes the total ceiling is refused by the
+// build, and never stored or served.
+//
+// The fixture is the awkward shape on purpose: paragraphs of links pointing
+// forward to a section placed just after them, so the links resolve only once
+// that section lands in the same portion — bytes that appear after the packer
+// has counted the paragraph. Which layer refuses is deliberately not asserted.
+// Two do: the chunker measures when its running estimate crosses, and the
+// build sums the real HTML as it renders. The second is defense in depth, and
+// honestly labeled as such: removing it leaves this test green, because the
+// chunker's measurement already catches every case I could construct.
+func TestPreviewBuild_RefusesWhenTheRenderedBookPassesTheTotal(t *testing.T) {
+	// Twenty small groups, each a paragraph of links pointing at a target
+	// that lands in the same portion just after it. Each portion stays well
+	// inside its own ceiling — nothing overflows — and each hides a little
+	// growth the packer's count never saw. The book is where they add up.
+	body := ""
+	for g := 0; g < 20; g++ {
+		links := ""
+		for i := 0; i < 5; i++ {
+			links += fmt.Sprintf(`<a l:href="#t%d">x</a>`, g)
+		}
+		body += `<p>` + links + `</p>` +
+			fmt.Sprintf(`<section id="t%d"><title><p>Ц%d</p></title><p>после</p></section>`, g, g)
+	}
+	fb2 := `<?xml version="1.0"?>` +
+		`<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" ` +
+		`xmlns:l="http://www.w3.org/1999/xlink">` +
+		`<body><section><title><p>ГЛАВА</p></title>` + body +
+		`</section></body></FictionBook>`
+
+	repo := buildBookRepo()
+	loader := &fakeArchiveLoader{data: []byte(fb2)}
+
+	// Wide ceilings first: what the book actually renders to.
+	svc := NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0, 0)
+	svc.chunkPolicy = converter.PreviewPolicy{
+		MaxChunkBytes:   512,
+		MaxPortionBytes: 512,
+		MaxTotalBytes:   1 << 20,
+	}
+	manifest := loadManifest(t, svc)
+	if manifest.ChunkCount < 2 {
+		t.Fatalf("the fixture must produce several portions, got %d", manifest.ChunkCount)
+	}
+
+	// A ceiling the packer's count stays under and the rendered book does
+	// not. Without the sum taken over real HTML, this book is built, cached
+	// and served.
+	svc = NewPreviewService(repo, loader, newMockCache(), 4, defaultPreviewLimits(), 0, 0)
+	svc.chunkPolicy = converter.PreviewPolicy{
+		MaxChunkBytes:   512,
+		MaxPortionBytes: 512,
+		MaxTotalBytes:   1200,
+	}
+	if _, err := svc.Load(context.Background(), 1, false); !errors.Is(err, converter.ErrPreviewBookTooLarge) {
+		t.Fatalf("expected ErrPreviewBookTooLarge, got %v", err)
+	}
+}
+
 // Every <img> the cached HTML references is a prepared image in the cache,
 // under the same revision the URL carries. This is the phase-3 invariant:
 // by the time the manifest exists, every src is answerable.

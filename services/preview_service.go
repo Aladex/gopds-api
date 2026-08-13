@@ -634,6 +634,7 @@ func (s *PreviewService) buildAndCache(buildCtx context.Context, key string, boo
 	}
 
 	rendered := make([][]byte, len(chunks))
+	renderedTotal := 0
 	for i, chunk := range chunks {
 		// Check between renders: a timeout that fired during the parse
 		// or an earlier render must not let the build keep rendering and
@@ -646,6 +647,21 @@ func (s *PreviewService) buildAndCache(buildCtx context.Context, key string, boo
 			return nil, fmt.Errorf("preview: render chunk %d: %w", chunk.Index, rerr)
 		}
 		rendered[i] = []byte(html)
+
+		// The authoritative total, counted where the bytes actually exist.
+		//
+		// The chunker keeps its own running total, but it cannot be the last
+		// word: it works from estimates, and a link pointing forward to a
+		// block not yet placed renders without its anchor when measured and
+		// with it once the target lands in the same portion. Those bytes
+		// appear after the block was counted, so a count taken during
+		// packing can be under the truth. Here nothing is estimated — this is
+		// the HTML that would be stored and served.
+		renderedTotal += len(html)
+		if renderedTotal > s.chunkPolicy.MaxTotalBytes {
+			return nil, fmt.Errorf("%w: %d rendered bytes over the %d total ceiling",
+				converter.ErrPreviewBookTooLarge, renderedTotal, s.chunkPolicy.MaxTotalBytes)
+		}
 	}
 
 	// The write order is the phase-3 invariant, not a style: every chunk,
