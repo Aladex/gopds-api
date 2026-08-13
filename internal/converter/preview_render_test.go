@@ -413,7 +413,7 @@ func TestRenderChunkHTML_PropertyArbitraryInlineTrees(t *testing.T) {
 	// The invariant is size-independent: give the render room for the biggest
 	// budgeted tree so the HTML ceiling check never interferes. The image
 	// policy stays at defaults — the binaries here are small real PNGs.
-	propertyPolicy := PreviewPolicy{MaxChunkBytes: 8 << 20}
+	propertyPolicy := testChunkPolicy(8 << 20)
 	imagePolicy := testPreviewImagePolicy()
 	renderedSomething := false
 	for iteration := 0; iteration < 300; iteration++ {

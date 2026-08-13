@@ -11,15 +11,23 @@ import (
 	"sync"
 )
 
-// ErrPreviewBlockTooLarge marks a portion that came out over the ceiling
-// while holding more than one block.
+// ErrPreviewBlockTooLarge marks a book carrying a single indivisible block
+// that renders past MaxPortionBytes.
 //
-// A lone indivisible block is allowed to overflow — a paragraph has no seam
-// to cut, and refusing meant a book like Kafka's "Замок" could not be read at
-// all. Several blocks over the ceiling is a different thing entirely: the
-// packing loop let something through that it should have moved on, and that
-// is a defect in this package rather than a fact about the book.
-var ErrPreviewBlockTooLarge = errors.New("fb2 preview: indivisible block exceeds the chunk ceiling")
+// A lone block over MaxChunkBytes is allowed — a paragraph has no seam to
+// cut, and refusing meant a book like Kafka's "Замок" could not be read at
+// all. Past MaxPortionBytes there is no reading to protect: the portion has
+// stopped being a portion. This is a fact about the book, and the reader is
+// told so.
+
+// ErrPreviewPortionOverflow marks a portion of several blocks that came out
+// over the ceiling. That is not a fact about the book: the packing loop let
+// something through it should have moved on, so it is a defect in this
+// package and must not be reported to a reader as a property of what they
+// tried to read.
+var ErrPreviewBlockTooLarge = errors.New("fb2 preview: indivisible block exceeds the portion ceiling")
+
+var ErrPreviewPortionOverflow = errors.New("fb2 preview: portion of several blocks exceeds the chunk ceiling")
 
 // Refusals returned by PreparePreviewImage. Each names a distinct reason so
 // callers can count by cause and tune policy against what actually bites.
@@ -78,7 +86,22 @@ var (
 // Holding them here would make two budgets of two different things look like
 // one budget of one thing.
 type PreviewPolicy struct {
-	MaxChunkBytes int // Hard ceiling on the rendered HTML of one portion
+	// MaxChunkBytes is where the packer stops adding blocks to a portion.
+	// It is not a hard ceiling: a block too large to divide is put in a
+	// portion of its own and that portion goes over. See MaxPortionBytes for
+	// the bound that does hold.
+	MaxChunkBytes int
+
+	// MaxPortionBytes is the size no portion may reach, whatever it holds.
+	//
+	// It exists because "a lone block may overflow" is not a bound at all on
+	// its own: footnotes are pulled into the portion that cites them and are
+	// not blocks, so one paragraph referencing five hundred notes rendered a
+	// 40 MiB portion and an 80 MiB response — measured, from an 8 MiB book
+	// that passed every input gate. Beyond this line the book really is too
+	// large to preview, and that is a fact about the book worth telling the
+	// reader.
+	MaxPortionBytes int
 }
 
 // PreviewImagePolicy carries what a single picture must fit to be shown:

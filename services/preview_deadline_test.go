@@ -33,8 +33,6 @@ import (
 	"time"
 
 	"github.com/go-redis/redis"
-
-	"gopds-api/internal/converter"
 )
 
 // fakeRedis is a test double for the Redis server: a TCP listener speaking
@@ -409,7 +407,7 @@ func TestPreviewBuild_CanceledAfterChunkWritesPublishesNoManifest(t *testing.T) 
 		release:          make(chan struct{}),
 	}
 	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0, 0)
-	svc.chunkPolicy = converter.PreviewPolicy{MaxChunkBytes: 512}
+	svc.chunkPolicy = testChunkPolicy(512)
 
 	done := make(chan loadResult, 1)
 	go func() {
@@ -491,7 +489,7 @@ func TestPreviewBuild_DeadlineDuringCacheWriteFreesBuildAndPublishesNoManifest(t
 	repo := buildBookRepo()
 	loader := &fakeArchiveLoader{data: []byte(fb2)}
 	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 300*time.Millisecond, 0)
-	svc.chunkPolicy = converter.PreviewPolicy{MaxChunkBytes: 512}
+	svc.chunkPolicy = testChunkPolicy(512)
 
 	done := make(chan loadResult, 1)
 	go func() {

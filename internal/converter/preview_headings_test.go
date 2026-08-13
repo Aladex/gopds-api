@@ -450,7 +450,7 @@ func TestPreviewChunk_FirstWinsSurvivesChunking(t *testing.T) {
 	// room than the second header needs, so the repeat and the link travel
 	// together into the next portion — away from the first occurrence, which
 	// is the only arrangement that tests what this is about.
-	policy := PreviewPolicy{MaxChunkBytes: 1720}
+	policy := testChunkPolicy(1720)
 	chunks, err := ChunkPreview(context.Background(), doc, PreviewImages{}, policy)
 	if err != nil {
 		t.Fatalf("chunk: %v", err)

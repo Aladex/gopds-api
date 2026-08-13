@@ -266,7 +266,7 @@ func TestPreviewBuild_StoredChunkCountMatchesManifest(t *testing.T) {
 	loader := &fakeArchiveLoader{data: []byte(fb2)}
 	cache := newMockCache()
 	svc := NewPreviewService(repo, loader, cache, 4, defaultPreviewLimits(), 0, 0)
-	svc.chunkPolicy = converter.PreviewPolicy{MaxChunkBytes: 512}
+	svc.chunkPolicy = testChunkPolicy(512)
 
 	manifest := loadManifest(t, svc)
 	key := buildCacheKey(1, "abc", svc.revision(repo.books[1]))

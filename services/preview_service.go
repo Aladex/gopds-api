@@ -204,14 +204,25 @@ type PreviewService struct {
 // ceilings are safe defaults to be tuned by the phase-6 measurement, and the
 // image values are the historical defaults the converter tests already pin.
 const (
-	defaultMaxChunkBytes  = 64 << 10 // 64 KB of rendered HTML per portion
-	defaultImageMaxBytes  = 1 << 20  // 1 MB per prepared image
-	defaultImageMaxPixels = 32 << 20 // 32 MP per canvas
-	defaultImageMaxSide   = 4096     // per-side cap, mirrors fb2image.maxDimension
+	defaultMaxChunkBytes = 64 << 10 // 64 KB of rendered HTML per portion
+
+	// The size no portion may reach, whatever it holds. Sixteen times the
+	// packing ceiling: generous enough that no prose reaches it — Kafka's
+	// longest paragraph renders 67 KB — and small enough that it still bounds
+	// what one request can cost. Without it "a lone block may overflow" bounds
+	// nothing: notes ride along with the block that cites them, and one
+	// paragraph with five hundred of them rendered 40 MiB.
+	defaultMaxPortionBytes = 1 << 20  // 1 MiB
+	defaultImageMaxBytes   = 1 << 20  // 1 MB per prepared image
+	defaultImageMaxPixels  = 32 << 20 // 32 MP per canvas
+	defaultImageMaxSide    = 4096     // per-side cap, mirrors fb2image.maxDimension
 )
 
 func defaultPreviewChunkPolicy() converter.PreviewPolicy {
-	return converter.PreviewPolicy{MaxChunkBytes: defaultMaxChunkBytes}
+	return converter.PreviewPolicy{
+		MaxChunkBytes:   defaultMaxChunkBytes,
+		MaxPortionBytes: defaultMaxPortionBytes,
+	}
 }
 
 func defaultPreviewImagePolicy() converter.PreviewImagePolicy {

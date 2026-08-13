@@ -43,8 +43,14 @@ type previewRender struct {
 }
 
 // RenderChunkHTML renders one portion to a self-contained HTML fragment.
-// The fragment's total size is bounded by the policy ceiling; exceeding it
-// is an error, never a silent overflow.
+//
+// The fragment is bounded by the policy's hard ceiling, MaxPortionBytes, and
+// never by MaxChunkBytes: a block too large to divide is given a portion of
+// its own and that portion goes over the packing ceiling on purpose. Past the
+// hard ceiling, or over the packing ceiling with more than one block, this
+// refuses rather than emitting silently — and it says which of the two
+// happened, because one is a fact about the book and the other is a bug
+// here.
 func RenderChunkHTML(chunk *PreviewChunk, images PreviewImages, policy PreviewPolicy) (string, error) {
 	if chunk == nil {
 		return "", fmt.Errorf("fb2 preview: chunk is nil")
@@ -58,13 +64,17 @@ func RenderChunkHTML(chunk *PreviewChunk, images PreviewImages, policy PreviewPo
 		out.WriteString(r.renderNotesAfter(block))
 	}
 	result := out.String()
-	// One indivisible block is allowed to overflow; a portion holding several
-	// is not. The distinction is the whole of the rule: without it the
-	// ceiling stops meaning anything, and with a refusal on both a book with
-	// one long paragraph cannot be read at all.
+	// Two different failures, told apart because they mean different things
+	// to whoever reads the error. A portion of several blocks over the
+	// packing ceiling is a defect here — the packer should have moved one on.
+	// Any portion past the hard ceiling is a fact about the book.
 	if len(result) > policy.MaxChunkBytes && len(chunk.blocks) > 1 {
 		return "", fmt.Errorf("%w: %d rendered bytes over the %d ceiling in a portion of %d blocks",
-			ErrPreviewBlockTooLarge, len(result), policy.MaxChunkBytes, len(chunk.blocks))
+			ErrPreviewPortionOverflow, len(result), policy.MaxChunkBytes, len(chunk.blocks))
+	}
+	if policy.MaxPortionBytes > 0 && len(result) > policy.MaxPortionBytes {
+		return "", fmt.Errorf("%w: %d rendered bytes over the %d portion ceiling",
+			ErrPreviewBlockTooLarge, len(result), policy.MaxPortionBytes)
 	}
 	return result, nil
 }

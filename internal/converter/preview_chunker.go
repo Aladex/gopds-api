@@ -32,6 +32,12 @@ func ChunkPreview(ctx context.Context, doc *FB2Document, images PreviewImages, p
 	if policy.MaxChunkBytes <= 0 {
 		return nil, fmt.Errorf("fb2 preview: chunk ceiling must be positive, got %d", policy.MaxChunkBytes)
 	}
+	// A zero hard ceiling would refuse every book, which is a caller bug and
+	// must not read as "every book is too large".
+	if policy.MaxPortionBytes < policy.MaxChunkBytes {
+		return nil, fmt.Errorf("fb2 preview: portion ceiling %d must be at least the chunk ceiling %d",
+			policy.MaxPortionBytes, policy.MaxChunkBytes)
+	}
 	blocks := flattenPreviewBlocks(doc)
 	if len(blocks) == 0 {
 		return []*PreviewChunk{{Index: 0}}, nil
@@ -162,14 +168,22 @@ func (p *previewPacker) draftBlockCost(chunkIndex int, block chunkBlock, already
 			pulled = append(pulled, note)
 		}
 	}
-	// A block costing more than a whole portion is not refused. It cannot be
-	// divided — a paragraph has no seam — so the choice is between refusing
-	// the book and letting one portion be as large as its largest indivisible
-	// block. Kafka's "Замок" is the case that settled it: every input gate
+	// A block costing more than a whole portion is not refused for that
+	// alone. It cannot be divided — a paragraph has no seam — so the choice
+	// is between refusing the book and letting one portion be as large as its
+	// largest indivisible block. Kafka's "Замок" settled it: every input gate
 	// passed with room to spare and one paragraph rendered 67433 bytes
 	// against a 65536 ceiling, so the reader was told the book was too large
-	// when only that paragraph was. The packing loop puts such a block in a
-	// portion of its own; see ChunkPreview.
+	// when only that paragraph was.
+	//
+	// The hard ceiling still applies. Footnotes are pulled into the portion
+	// that cites them and are not blocks of their own, so "one block" bounds
+	// nothing by itself: one paragraph referencing five hundred notes cost
+	// 40 MiB, from a book that passed every input gate.
+	if cost > p.policy.MaxPortionBytes {
+		return 0, nil, fmt.Errorf("%w: one block with its footnotes renders %d bytes over the %d ceiling",
+			ErrPreviewBlockTooLarge, cost, p.policy.MaxPortionBytes)
+	}
 	return cost, pulled, nil
 }
 

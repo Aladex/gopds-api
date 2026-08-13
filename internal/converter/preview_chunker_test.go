@@ -13,6 +13,14 @@ import (
 	"time"
 )
 
+// testChunkPolicy pairs the two ceilings so no test spells them separately.
+// A policy with a chunk ceiling and no portion ceiling is refused on purpose
+// — the hard ceiling is what bounds a portion, and forgetting it silently is
+// exactly how it went missing once already.
+func testChunkPolicy(maxChunk int) PreviewPolicy {
+	return PreviewPolicy{MaxChunkBytes: maxChunk, MaxPortionBytes: maxChunk * 16}
+}
+
 // docFromParas wraps paragraphs into a sectionless document body.
 func docFromParas(paras ...*FB2Paragraph) *FB2Document {
 	doc := &FB2Document{Body: &FB2BodySection{}}
@@ -45,7 +53,7 @@ func renderAllChunks(
 // A section larger than the ceiling is cut between block nodes, and no
 // portion exceeds the ceiling measured in rendered HTML bytes.
 func TestChunkPreview_SplitsOversizedSection(t *testing.T) {
-	chunkPolicy := PreviewPolicy{MaxChunkBytes: 512}
+	chunkPolicy := testChunkPolicy(512)
 	imagePolicy := testPreviewImagePolicy()
 	const paraCount = 40
 	markers := make([]string, 0, paraCount)
@@ -104,7 +112,7 @@ func TestChunkPreview_SplitsOversizedSection(t *testing.T) {
 // Refusing told the reader "this book is too large", which was untrue of the
 // book and true only of one paragraph in it.
 func TestChunkPreview_IndivisibleBlockGetsItsOwnPortion(t *testing.T) {
-	chunkPolicy := PreviewPolicy{MaxChunkBytes: 512}
+	chunkPolicy := testChunkPolicy(512)
 	imagePolicy := testPreviewImagePolicy()
 	huge := strings.Repeat("очень длинный абзац ", 200)
 	doc := docFromParas(textPara("короткий"), textPara(huge), textPara("тоже короткий"))
@@ -151,6 +159,59 @@ func TestChunkPreview_IndivisibleBlockGetsItsOwnPortion(t *testing.T) {
 	}
 }
 
+// One paragraph is allowed to overflow the packing ceiling — and not without
+// limit. Footnotes are pulled into the portion that cites them and are not
+// blocks, so "one block" bounds nothing on its own: a paragraph referencing
+// hundreds of notes rendered a 40 MiB portion and an 80 MiB response, from a
+// book that passed every input gate. Measured by review, not imagined.
+func TestChunkPreview_RefusesABlockPastTheHardCeiling(t *testing.T) {
+	policy := PreviewPolicy{MaxChunkBytes: 512, MaxPortionBytes: 2048}
+	imagePolicy := testPreviewImagePolicy()
+
+	// One paragraph, many notes. Each note is small; together they are what
+	// carries the portion past the hard ceiling.
+	refs := make([]*FB2InlineElement, 0, 40)
+	notes := make([]*FB2BodySection, 0, 40)
+	for i := 0; i < 40; i++ {
+		id := fmt.Sprintf("n%d", i)
+		refs = append(refs, &FB2InlineElement{
+			Type:     InlineTypeLink,
+			Attrs:    map[string]string{"href": "#" + id, "type": "note"},
+			Children: []*FB2InlineElement{{Type: InlineTypeText, Content: "*"}},
+		})
+		notes = append(notes, noteSection(id, "текст сноски "+strings.Repeat("подробно ", 6)))
+	}
+	doc := docFromParas(&FB2Paragraph{Text: "с ссылками", Content: refs})
+	doc.Notes = notes
+
+	chunks, err := ChunkPreview(context.Background(), doc,
+		previewImagesFor(context.Background(), doc, imagePolicy), policy)
+	if err == nil {
+		t.Fatalf("a portion past the hard ceiling must be refused, got %d chunks", len(chunks))
+	}
+	if !errors.Is(err, ErrPreviewBlockTooLarge) {
+		t.Fatalf("expected ErrPreviewBlockTooLarge, got %v", err)
+	}
+	// This one *is* a fact about the book, unlike a packing overflow.
+	if errors.Is(err, ErrPreviewPortionOverflow) {
+		t.Errorf("an oversized book must not be reported as a packing defect")
+	}
+}
+
+// A policy that names a packing ceiling and no hard ceiling is a caller
+// error, and must not read as "every book is too large".
+func TestChunkPreview_RefusesAPolicyWithoutAHardCeiling(t *testing.T) {
+	doc := docFromParas(textPara("короткий"))
+	_, err := ChunkPreview(context.Background(), doc, PreviewImages{},
+		PreviewPolicy{MaxChunkBytes: 512})
+	if err == nil {
+		t.Fatal("a policy with no portion ceiling must be refused")
+	}
+	if errors.Is(err, ErrPreviewBlockTooLarge) {
+		t.Errorf("a misconfigured policy must not be reported as an oversized book: %v", err)
+	}
+}
+
 // A portion holding several blocks may not come out over the ceiling. The
 // packer never builds one — a block that does not fit is moved on — so this
 // hands the renderer a portion that only a defect could produce, and asks it
@@ -160,7 +221,7 @@ func TestChunkPreview_IndivisibleBlockGetsItsOwnPortion(t *testing.T) {
 // the whole package, because the one case a correct packer produces is the
 // case that is meant to be allowed.
 func TestRenderChunkHTML_RefusesAnOversizedPortionOfSeveralBlocks(t *testing.T) {
-	policy := PreviewPolicy{MaxChunkBytes: 256}
+	policy := testChunkPolicy(256)
 	long := strings.Repeat("длинный текст ", 40)
 	chunk := &PreviewChunk{Index: 0, blocks: []chunkBlock{
 		{para: textPara(long)},
@@ -170,6 +231,34 @@ func TestRenderChunkHTML_RefusesAnOversizedPortionOfSeveralBlocks(t *testing.T) 
 	html, err := RenderChunkHTML(chunk, PreviewImages{}, policy)
 	if err == nil {
 		t.Fatalf("a %d-byte portion of 2 blocks passed a %d ceiling", len(html), policy.MaxChunkBytes)
+	}
+	// A packing defect, and it must not be confused with a book that is
+	// genuinely too large: the two travel to the reader as different answers.
+	if !errors.Is(err, ErrPreviewPortionOverflow) {
+		t.Fatalf("expected ErrPreviewPortionOverflow, got %v", err)
+	}
+	if errors.Is(err, ErrPreviewBlockTooLarge) {
+		t.Errorf("a packing defect must not be reported as an oversized book")
+	}
+	if html != "" {
+		t.Errorf("refusal must yield no HTML, got %d bytes", len(html))
+	}
+}
+
+// A lone block is allowed over the packing ceiling but not over the hard one.
+// The chunker refuses such a book first, so this reaches the renderer's own
+// guard the only way anything can: by handing it a portion the chunker would
+// never have built. Without it the guard is unfalsifiable — removing it
+// changes no test, because nothing legitimate ever arrives there.
+func TestRenderChunkHTML_RefusesALoneBlockPastTheHardCeiling(t *testing.T) {
+	policy := PreviewPolicy{MaxChunkBytes: 256, MaxPortionBytes: 512}
+	chunk := &PreviewChunk{Index: 0, blocks: []chunkBlock{
+		{para: textPara(strings.Repeat("длинный текст ", 80))},
+	}}
+
+	html, err := RenderChunkHTML(chunk, PreviewImages{}, policy)
+	if err == nil {
+		t.Fatalf("a %d-byte portion passed a %d hard ceiling", len(html), policy.MaxPortionBytes)
 	}
 	if !errors.Is(err, ErrPreviewBlockTooLarge) {
 		t.Fatalf("expected ErrPreviewBlockTooLarge, got %v", err)
@@ -182,7 +271,7 @@ func TestRenderChunkHTML_RefusesAnOversizedPortionOfSeveralBlocks(t *testing.T) 
 // The same portion with one block is allowed over, which is the rule this
 // package now keeps: indivisible means indivisible.
 func TestRenderChunkHTML_AllowsALoneBlockOverTheCeiling(t *testing.T) {
-	policy := PreviewPolicy{MaxChunkBytes: 256}
+	policy := testChunkPolicy(256)
 	chunk := &PreviewChunk{Index: 0, blocks: []chunkBlock{
 		{para: textPara(strings.Repeat("длинный текст ", 40))},
 	}}
@@ -203,7 +292,7 @@ func TestRenderChunkHTML_AllowsALoneBlockOverTheCeiling(t *testing.T) {
 // refuses it is the per-image cap, not the portion ceiling.
 func TestChunkPreview_OversizedImageIsDropped(t *testing.T) {
 	jpegData := uniformImage(t, "jpeg", 64, 64)
-	chunkPolicy := PreviewPolicy{MaxChunkBytes: 4096}
+	chunkPolicy := testChunkPolicy(4096)
 	imagePolicy := PreviewImagePolicy{MaxBytes: len(jpegData) - 1, MaxPixels: 32 << 20, MaxSide: 4096}
 	imagePara := &FB2Paragraph{
 		Kind: ParagraphKindImage,
@@ -242,7 +331,7 @@ func TestChunkPreview_OversizedImageIsDropped(t *testing.T) {
 // A footnote lands in the same portion as the text referencing it, even when
 // packing would otherwise put the reference at the end of the previous chunk.
 func TestChunkPreview_NoteStaysWithReference(t *testing.T) {
-	chunkPolicy := PreviewPolicy{MaxChunkBytes: 512}
+	chunkPolicy := testChunkPolicy(512)
 	imagePolicy := testPreviewImagePolicy()
 	filler := strings.Repeat("абзац-заполнитель почти на весь чанк ", 5) // ~180 bytes rendered
 	doc := docFromParas(
@@ -276,7 +365,7 @@ func TestChunkPreview_NoteStaysWithReference(t *testing.T) {
 // A footnote referenced from two portions is inlined into both, with anchors
 // unique per portion so two chunks in one DOM never collide.
 func TestChunkPreview_NoteInTwoChunksUniqueIDs(t *testing.T) {
-	chunkPolicy := PreviewPolicy{MaxChunkBytes: 512}
+	chunkPolicy := testChunkPolicy(512)
 	imagePolicy := testPreviewImagePolicy()
 	filler := strings.Repeat("разделитель между ссылками на одну сноску ", 6)
 	doc := docFromParas(
@@ -367,7 +456,7 @@ func TestChunkPreview_CeilingCountsRenderedHTMLBytes(t *testing.T) {
 	// A 10-byte text renders as "<p>0123456789</p>\n" — 18 bytes. A
 	// model-byte counter would pack four paragraphs under a 40-byte ceiling;
 	// the HTML-byte truth fits only two.
-	chunkPolicy := PreviewPolicy{MaxChunkBytes: 40}
+	chunkPolicy := testChunkPolicy(40)
 	imagePolicy := testPreviewImagePolicy()
 	doc := docFromParas(
 		textPara("0123456789"),
@@ -443,7 +532,7 @@ func TestChunkPreview_DraftSizesNeverUndercount(t *testing.T) {
 	// The ceiling of 60 fits A+B only in the unwrapped form — so if the draft
 	// pretended links are free, both would land in one chunk and the final
 	// render (79 bytes) would overflow it.
-	chunkPolicy := PreviewPolicy{MaxChunkBytes: 60}
+	chunkPolicy := testChunkPolicy(60)
 	imagePolicy := testPreviewImagePolicy()
 	target := textPara("0123456789")
 	target.ID = "tgt"
@@ -546,7 +635,7 @@ func TestChunkPreview_DuplicateNormalizedNoteIDFirstWins(t *testing.T) {
 // iteration returns without having measured a single block. The proof is
 // observable: chunks is nil even though the document has blocks to pack.
 func TestChunkPreview_CanceledBeforeStartDoesNoWork(t *testing.T) {
-	chunkPolicy := PreviewPolicy{MaxChunkBytes: 512}
+	chunkPolicy := testChunkPolicy(512)
 	imagePolicy := testPreviewImagePolicy()
 	doc := docFromParas(
 		textPara("первый абзац"),
@@ -572,7 +661,7 @@ func TestChunkPreview_CanceledBeforeStartDoesNoWork(t *testing.T) {
 // context.Canceled and the packer did not produce its full output), not an
 // exact chunk count.
 func TestChunkPreview_CancelMidWorkStopsBeforeEnd(t *testing.T) {
-	chunkPolicy := PreviewPolicy{MaxChunkBytes: 256}
+	chunkPolicy := testChunkPolicy(256)
 	imagePolicy := testPreviewImagePolicy()
 	// The chunker is fast: each iteration is microseconds. To make the
 	// cancel land mid-loop without a production hook, give it enough work
@@ -627,7 +716,7 @@ func TestChunkPreview_CancelMidWorkStopsBeforeEnd(t *testing.T) {
 // if a future change makes the ctx check misfire on a live context, this
 // test catches it.
 func TestChunkPreview_LiveContextMatchesNoContextBaseline(t *testing.T) {
-	chunkPolicy := PreviewPolicy{MaxChunkBytes: 512}
+	chunkPolicy := testChunkPolicy(512)
 	imagePolicy := testPreviewImagePolicy()
 	markers := []string{"ПЕРВЫЙ", "ВТОРОЙ", "ТРЕТИЙ"}
 	doc := docFromParas(

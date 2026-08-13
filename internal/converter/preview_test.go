@@ -26,7 +26,7 @@ import (
 // binds in most tests. Image caps live in testPreviewImagePolicy now — they
 // are a different budget of a different resource and travel separately.
 func testPreviewPolicy() PreviewPolicy {
-	return PreviewPolicy{MaxChunkBytes: 64 * 1024}
+	return testChunkPolicy(64 * 1024)
 }
 
 // testPreviewImagePolicy returns generous image caps: only the HTML ceiling

@@ -40,6 +40,13 @@ type fakeBookRepo struct {
 	err   error // if set, every GetBook call fails
 }
 
+// testChunkPolicy pairs the two portion ceilings, as the converter's own
+// tests do: a chunk ceiling without a portion ceiling is refused, and
+// forgetting the second one silently is how the bound went missing once.
+func testChunkPolicy(maxChunk int) converter.PreviewPolicy {
+	return converter.PreviewPolicy{MaxChunkBytes: maxChunk, MaxPortionBytes: maxChunk * 16}
+}
+
 func (r *fakeBookRepo) GetBook(bookID int64) (*models.Book, error) {
 	if r.err != nil {
 		return nil, r.err
@@ -1362,7 +1369,7 @@ func TestBuildPreviewTOC_AnonymousSectionsHaveAnchors(t *testing.T) {
 			Content: []*converter.FB2InlineElement{{Type: converter.InlineTypeText, Content: text}},
 		}
 	}
-	policy := converter.PreviewPolicy{MaxChunkBytes: 64 * 1024}
+	policy := testChunkPolicy(64 * 1024)
 	doc := &converter.FB2Document{Body: &converter.FB2BodySection{
 		Content: []*converter.FB2ContentItem{
 			{Section: &converter.FB2BodySection{
