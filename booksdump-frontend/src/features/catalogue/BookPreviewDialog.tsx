@@ -81,10 +81,21 @@ export const TEXT_COLUMN_CLASS = cn(
  * which is the box sticky holds it inside.
  */
 export const TOC_COLUMN_CLASS = cn(
-    'w-56 shrink-0',
-    'sticky top-0 self-start',
-    'max-h-full overflow-y-auto',
+    'w-56 shrink-0 py-4 pl-6',
+    // Its own scroll, and it works because the column is a sibling of the
+    // text's scroller rather than a passenger inside it. It was inside, held
+    // by `sticky` with `max-h-full`, and that max-height resolves against the
+    // containing block — which is as tall as the whole book. Measured on a
+    // 300-chapter book: a 7196px column inside a 682px work area, no scroll
+    // of its own, and every chapter past the first few unreachable.
+    'overflow-y-auto',
 );
+
+/**
+ * The row that holds the contents beside the text. It scrolls nothing itself
+ * — that is what gives both children a height to be bounded by.
+ */
+const WORK_ROW_CLASS = cn('flex min-h-0 flex-1 gap-6');
 
 /**
  * The scrolling work area.
@@ -98,7 +109,7 @@ export const TOC_COLUMN_CLASS = cn(
  * portion makes the page long enough to need the bar.
  */
 export const SCROLL_AREA_CLASS = cn(
-    'flex min-h-0 flex-1 gap-6 overflow-y-auto px-6 py-4',
+    'min-h-0 flex-1 overflow-y-auto px-6 py-4',
     '[scrollbar-gutter:stable_both-edges]',
 );
 
@@ -185,10 +196,16 @@ function TocList({
                         type="button"
                         aria-current={i === activeIndex ? 'page' : undefined}
                         onClick={() => onSelect(item)}
-                        style={{ paddingLeft: `${(item.depth - 1) * 1}rem` }}
+                        style={{ paddingInlineStart: `${(item.depth - 1) * 1 + 0.5}rem` }}
                         className={cn(
                             'w-full text-left hover:underline',
+                            // The rail is always there and usually invisible:
+                            // colouring a transparent border rather than adding
+                            // one keeps the text from shifting sideways as the
+                            // reader moves from chapter to chapter.
+                            'border-l-2 border-transparent',
                             touchRows && 'flex min-h-11 items-center',
+                            i === activeIndex && 'border-l-primary bg-accent font-medium',
                         )}
                     >
                         {item.title}
@@ -815,11 +832,7 @@ export default function BookPreviewDialog({
                         </button>
                     )}
 
-                    <div
-                        ref={scrollAreaRef}
-                        data-testid="preview-scroll-area"
-                        className={SCROLL_AREA_CLASS}
-                    >
+                    <div className={WORK_ROW_CLASS}>
                         {/*
                          * Wide layout renders the TOC as a column beside the
                          * text; the narrow layout renders the trigger above
@@ -847,13 +860,25 @@ export default function BookPreviewDialog({
                             </nav>
                         )}
 
+                        {/*
+                          * The text scrolls; the contents column beside it does
+                          * not ride along. The ref stays on this element, so
+                          * everything measured against "the scroll area" — the
+                          * anchors, the sentinel's root, the reader's place —
+                          * still means the text the reader is reading.
+                          */}
                         <div
-                            ref={textColumnRef}
-                            onClick={onTextColumnClick}
-                            data-testid="preview-text-column"
-                            lang={bookLang}
-                            className={TEXT_COLUMN_CLASS}
+                            ref={scrollAreaRef}
+                            data-testid="preview-scroll-area"
+                            className={SCROLL_AREA_CLASS}
                         >
+                            <div
+                                ref={textColumnRef}
+                                onClick={onTextColumnClick}
+                                data-testid="preview-text-column"
+                                lang={bookLang}
+                                className={TEXT_COLUMN_CLASS}
+                            >
                             {firstPhase === 'loading' && (
                                 <div role="status" aria-live="polite" className="space-y-3">
                                     <Skeleton className="h-4 w-full" />
@@ -960,6 +985,7 @@ export default function BookPreviewDialog({
                                     )}
                                 </>
                             )}
+                            </div>
                         </div>
                     </div>
 
