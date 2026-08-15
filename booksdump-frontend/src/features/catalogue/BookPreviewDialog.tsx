@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { previewClient, classifyPreviewError } from '@/api/preview';
-import type { PreviewErrorKind, PreviewResponse } from '@/api/preview';
+import type { PreviewErrorKind, PreviewResponse, TocItem } from '@/api/preview';
 import { Button } from '@/shared/ui/button';
 import { Skeleton } from '@/shared/ui/skeleton';
 import {
@@ -140,6 +140,64 @@ const Portion = React.memo(function Portion({ index, html }: { index: number; ht
         />
     );
 });
+
+/**
+ * The contents list itself — one component for the wide column and the
+ * narrow panel, which used to be two hand-copied lists until they drifted:
+ * the column had lost `aria-level` and carried its hierarchy by indentation
+ * alone, which a screen reader cannot see. Indentation is presentation;
+ * `aria-level` on the row is the meaning.
+ *
+ * `aria-current` is compared by list position, never by title: two chapters
+ * may both be called "I", and only the index tells them apart when one of
+ * them has to be marked.
+ *
+ * The one difference between the two homes is a parameter, not a branch.
+ * Panel rows take `touchRows` for a 44px finger target — the panel is the
+ * control a phone reader uses most, and its rows were measured at 20px
+ * tall, under the 24 CSS pixels WCAG asks for — while the mouse-driven
+ * column needs no such slack. Font size is shared rather than branched:
+ * `text-sm` sits on the row and the button inherits it, so the computed
+ * size is unchanged from when each list spelled the class out in its own
+ * place.
+ */
+function TocList({
+    entries,
+    activeIndex,
+    onSelect,
+    touchRows = false,
+}: {
+    entries: TocItem[];
+    activeIndex: number;
+    onSelect: (item: TocItem) => void;
+    /** Panel only: the row is a finger target, not a mouse target. */
+    touchRows?: boolean;
+}) {
+    return (
+        <ul className="space-y-1">
+            {entries.map((item, i) => (
+                <li
+                    key={`${item.chunk}-${item.anchor}-${i}`}
+                    aria-level={item.depth}
+                    className="text-sm"
+                >
+                    <button
+                        type="button"
+                        aria-current={i === activeIndex ? 'page' : undefined}
+                        onClick={() => onSelect(item)}
+                        style={{ paddingLeft: `${(item.depth - 1) * 1}rem` }}
+                        className={cn(
+                            'w-full text-left hover:underline',
+                            touchRows && 'flex min-h-11 items-center',
+                        )}
+                    >
+                        {item.title}
+                    </button>
+                </li>
+            ))}
+        </ul>
+    );
+}
 
 /**
  * The book preview fetches one chunk at a time, and the chunks a reader has
@@ -781,28 +839,11 @@ export default function BookPreviewDialog({
                                 aria-label={t('previewTocLabel')}
                                 className={TOC_COLUMN_CLASS}
                             >
-                                <ul className="space-y-1">
-                                    {preview.toc.map((item, i) => (
-                                        <li
-                                            key={`${item.chunk}-${item.anchor}-${i}`}
-                                            style={{
-                                                paddingLeft: `${(item.depth - 1) * 1}rem`,
-                                            }}
-                                            className="text-sm"
-                                        >
-                                            <button
-                                                type="button"
-                                                aria-current={
-                                                    i === activeTocIndex ? 'page' : undefined
-                                                }
-                                                className="w-full text-left hover:underline"
-                                                onClick={() => selectTocItem(item)}
-                                            >
-                                                {item.title}
-                                            </button>
-                                        </li>
-                                    ))}
-                                </ul>
+                                <TocList
+                                    entries={preview.toc}
+                                    activeIndex={activeTocIndex}
+                                    onSelect={selectTocItem}
+                                />
                             </nav>
                         )}
 
@@ -951,35 +992,12 @@ export default function BookPreviewDialog({
                                 aria-label={t('previewTocLabel')}
                                 className="flex-1 overflow-y-auto px-3 py-2"
                             >
-                                <ul className="space-y-1">
-                                    {preview.toc.map((item, i) => (
-                                        <li
-                                            key={`${item.chunk}-${item.anchor}-${i}`}
-                                            aria-level={item.depth}
-                                        >
-                                            <button
-                                                type="button"
-                                                aria-current={
-                                                    i === activeTocIndex ? 'page' : undefined
-                                                }
-                                                onClick={() => selectTocItem(item)}
-                                                style={{
-                                                    paddingLeft: `${(item.depth - 1) * 1}rem`,
-                                                }}
-                                                // A finger's target, not a
-                                                // mouse's: measured at 20px
-                                                // tall on a phone, under the
-                                                // 24 CSS pixels WCAG asks
-                                                // for, and these rows are
-                                                // the control a reader uses
-                                                // most in the panel.
-                                                className="flex min-h-11 w-full items-center text-left text-sm hover:underline"
-                                            >
-                                                {item.title}
-                                            </button>
-                                        </li>
-                                    ))}
-                                </ul>
+                                <TocList
+                                    entries={preview.toc}
+                                    activeIndex={activeTocIndex}
+                                    onSelect={selectTocItem}
+                                    touchRows
+                                />
                             </nav>
                         </div>
                     )}

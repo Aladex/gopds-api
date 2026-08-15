@@ -8,6 +8,7 @@ import BookPreviewDialog from '@/features/catalogue/BookPreviewDialog';
 import * as previewApi from '@/api/preview';
 import { ApiError } from '@/api/errors';
 import type { ChunkResponse, PreviewResponse } from '@/api/preview';
+import { compileRules } from '@/shared/layout/tailwindProbe';
 
 // The dialog's job is to ferry a reader through a book one chunk at a time
 // without losing their place when something fails: the first request may
@@ -103,13 +104,26 @@ function observerWatching(target: Element | null): FakeObserver | undefined {
 
 /** The reader reaches the foot of the loaded text. */
 async function reachBottom() {
-    const sentinel = screen.queryByTestId('preview-load-more');
-    const observer = observerWatching(sentinel);
-    if (!sentinel || !observer) {
+    // Wait for the sentinel *and* for the effect that observes it. They
+    // arrive in separate commits — the element renders, then the effect runs
+    // and creates the observer — so asking for both at once raced and threw
+    // "nothing is asking for the next portion" about twice in twenty runs,
+    // on a tree with no changes at all. Waiting is the fix; the throw below
+    // still fires if the reader really has nothing to reach.
+    const sentinel = await screen.findByTestId('preview-load-more');
+    let observer = observerWatching(sentinel);
+    if (!observer) {
+        await waitFor(() => {
+            observer = observerWatching(sentinel);
+            expect(observer).toBeDefined();
+        });
+    }
+    if (!observer) {
         throw new Error('nothing is asking for the next portion');
     }
+    const watching = observer;
     await act(async () => {
-        observer.fire([{ target: sentinel, isIntersecting: true }]);
+        watching.fire([{ target: sentinel, isIntersecting: true }]);
     });
 }
 
@@ -1328,6 +1342,50 @@ describe('BookPreviewDialog — narrow TOC panel', () => {
         expect(marked[0]).toHaveTextContent('First');
     });
 
+    it('marks the entry by position when two chapters share a title', async () => {
+        // Titles are not identity: a book can carry two chapters both
+        // called "I". Marking by title would light both up (or always the
+        // first), and the reader learns nothing about where they are —
+        // the list index is the only thing that tells the two apart.
+        getPreview.mockImplementation(
+            signalAware(() =>
+                makePreview({
+                    chunk_count: 1,
+                    toc: [
+                        { title: 'I', depth: 1, chunk: 0, anchor: 'r1' },
+                        { title: 'I', depth: 1, chunk: 0, anchor: 'r2' },
+                    ],
+                    first_chunk:
+                        '<div data-testid="first-portion">' +
+                        '<a id="r1"></a><h2>one</h2>' +
+                        '<a id="r2"></a><h2>two</h2></div>',
+                }),
+            ),
+        );
+
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        await readerAt('r1');
+        let panel = await openPanel();
+        let chapters = within(panel).getAllByRole('button', { name: 'I' });
+        expect(chapters).toHaveLength(2);
+        expect(chapters[0]).toHaveAttribute('aria-current', 'page');
+        expect(chapters[1]).not.toHaveAttribute('aria-current');
+
+        // Deep in the second "I": the mark moves to the second entry by
+        // position, not to the title's first match.
+        await userEvent.click(screen.getByRole('button', { name: 'previewCloseToc' }));
+        await waitFor(() =>
+            expect(screen.queryByTestId('preview-toc-panel')).not.toBeInTheDocument(),
+        );
+        await readerAt('r1', 'r2');
+        panel = await openPanel();
+        chapters = within(panel).getAllByRole('button', { name: 'I' });
+        expect(chapters[0]).not.toHaveAttribute('aria-current');
+        expect(chapters[1]).toHaveAttribute('aria-current', 'page');
+    });
+
     it('mutation #3: the active item tracks the reader, not the last TOC click', async () => {
         // Chapter 2 opens the portion that arrives by reading on, and it is
         // never clicked in the contents. Last-click tracking would leave
@@ -1401,6 +1459,53 @@ describe('BookPreviewDialog — narrow TOC panel', () => {
         const subpartRow = within(panel).getByRole('button', { name: 'Subpart' }).closest('li')!;
         expect(partRow).toHaveAttribute('aria-level', '1');
         expect(subpartRow).toHaveAttribute('aria-level', '2');
+    });
+
+    it('mutation #4 (column): the wide column exposes depth too, not only the panel', async () => {
+        // The depth test above looks only at the panel, and that gap is how
+        // the column lost its hierarchy the first time: on a wide layout the
+        // nesting was carried by padding alone, which a screen reader cannot
+        // see. Indentation is presentation; aria-level is the meaning.
+        matches.current = true;
+
+        getPreview.mockImplementation(
+            signalAware(() =>
+                makePreview({
+                    toc: [
+                        { title: 'Part', depth: 1, chunk: 0, anchor: 'p' },
+                        { title: 'Subpart', depth: 2, chunk: 0, anchor: 's' },
+                    ],
+                }),
+            ),
+        );
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        const column = screen.getByTestId('preview-toc');
+        const partRow = within(column).getByRole('button', { name: 'Part' }).closest('li')!;
+        const subpartRow = within(column).getByRole('button', { name: 'Subpart' }).closest('li')!;
+        expect(partRow).toHaveAttribute('aria-level', '1');
+        expect(subpartRow).toHaveAttribute('aria-level', '2');
+    });
+
+    it('keeps the panel rows at a 44px touch target', async () => {
+        // The panel is the control a phone reader uses most, and its rows
+        // were measured at 20px tall — under the 24px minimum WCAG asks
+        // for. The class list is compiled with the project's own Tailwind
+        // (jsdom has no stylesheet engine) so the assertion answers for
+        // the pixels, not for the spelling of a class name.
+        getPreview.mockImplementation(signalAware(() => makePreview()));
+        renderDialog();
+        await screen.findByTestId('first-portion');
+
+        const panel = await openPanel();
+        const row = within(panel).getByRole('button', { name: 'Chapter 1' });
+
+        const rules = await compileRules(row.className);
+        const minHeight = rules.filter((rule) => /min-height:/.test(rule.body));
+        expect(minHeight).toHaveLength(1);
+        // 11 on the spacing scale: 11 × 0.25rem = 2.75rem = 44px.
+        expect(minHeight[0].body).toMatch(/min-height:\s*calc\(var\(--spacing\)\s*\*\s*11\)/);
     });
 
     it('wide layout renders the column and renders no panel or trigger', async () => {
