@@ -59,6 +59,16 @@ export interface BooksPage {
     length: number;
 }
 
+/**
+ * What the server actually sends for a page: a nil Go slice marshals to JSON
+ * null, so a zero-hit answer carries "books": null. Kept separate from
+ * BooksPage so the wire stays honest while consumers are promised an array.
+ */
+interface BooksPageWire {
+    books: Book[] | null;
+    length: number;
+}
+
 /** BooksQuery mirrors models.BookFilters on the backend, field for field. */
 export interface BooksQuery {
     limit?: number;
@@ -85,10 +95,14 @@ export interface Language {
 
 export type ThemeMode = 'light' | 'dark';
 
-export const listBooks = (query: BooksQuery) =>
-    http.get<BooksPage>('/books/list', {
+export const listBooks = async (query: BooksQuery): Promise<BooksPage> => {
+    const data = await http.get<BooksPageWire>('/books/list', {
         query: query as Record<string, string | number | boolean | undefined>,
     });
+    // Normalise once at the boundary so every consumer gets an array even
+    // when the server answers a zero-hit search with "books": null.
+    return { ...data, books: data.books ?? [] };
+};
 
 export const listAuthors = (query: {
     author?: string;

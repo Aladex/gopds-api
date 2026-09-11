@@ -46,7 +46,11 @@ export function booksListReducer(state: BooksListState, action: BooksListAction)
         case 'FETCH_SUCCESS':
             return {
                 ...state,
-                books: action.payload.books,
+                // The wire does not honour the Book[] type: a nil Go slice
+                // marshals to JSON null, and a zero-hit search arrives as
+                // { books: null, length: 0 }. Normalise here so every
+                // consumer of state.books can trust it is an array.
+                books: action.payload.books ?? [],
                 totalPages: action.payload.totalPages,
                 loading: false,
             };

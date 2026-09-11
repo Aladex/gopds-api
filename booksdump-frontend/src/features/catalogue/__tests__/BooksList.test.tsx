@@ -6,7 +6,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import BooksList from '@/features/catalogue/BooksList';
 import * as booksApi from '@/api/books';
 import * as authApi from '@/api/auth';
-import type { Book } from '@/api/books';
+import type { Book, BooksPage } from '@/api/books';
 import * as previewApi from '@/api/preview';
 
 // Characterisation tests written before the list is rebuilt on shadcn. They
@@ -336,6 +336,17 @@ describe('BooksList rendering', () => {
 
     it('reports an empty result instead of an empty page', async () => {
         listBooks.mockResolvedValue({ books: [], length: 0 });
+        renderAt('/books/page/1');
+
+        expect(await screen.findByText('noBooksFound')).toBeInTheDocument();
+    });
+
+    it('renders the empty state when a zero-hit search answers with books: null', async () => {
+        // A nil Go slice marshals to JSON null, so an older backend answers a
+        // search that matched nothing with { books: null, length: 0 }. The
+        // cast bypasses the normalisation listBooks now does at the boundary;
+        // what is pinned here is the reducer's own guard against that wire.
+        listBooks.mockResolvedValue({ books: null, length: 0 } as unknown as BooksPage);
         renderAt('/books/page/1');
 
         expect(await screen.findByText('noBooksFound')).toBeInTheDocument();
