@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router';
 
 import AuthorSearch from '@/features/catalogue/AuthorSearch';
 import * as booksApi from '@/api/books';
@@ -34,6 +34,14 @@ vi.mock('@/context/AuthorContext', () => ({ useAuthor: () => authorState }));
 
 const searchBarState = { setSearchItem: vi.fn() };
 vi.mock('@/context/SearchBarContext', () => ({ useSearchBar: () => searchBarState }));
+
+// The pager is reduced to the number it was given, so a stale page count is
+// directly visible to an assertion.
+vi.mock('@/features/catalogue/BookPagination', () => ({
+    default: ({ totalPages }: { totalPages: number }) => (
+        <div data-testid="pager">{totalPages}</div>
+    ),
+}));
 
 const listAuthors = vi.mocked(booksApi.listAuthors);
 
@@ -127,5 +135,45 @@ describe('AuthorSearch', () => {
         renderPage();
 
         expect(await screen.findByText('noAuthorsFound')).toBeInTheDocument();
+    });
+});
+
+// A zero-hit search answers authors: null (a nil Go slice marshals to null).
+// Skipping the state update on that answer would leave the previous search's
+// authors — and its page count — on screen behind the new query.
+describe('AuthorSearch zero-hit search', () => {
+    const NextSearch: React.FC = () => {
+        const navigate = useNavigate();
+        return (
+            <button type="button" onClick={() => navigate('/books/find/authors/zzz/1')}>
+                search-again
+            </button>
+        );
+    };
+
+    it('clears the previous result and its page count instead of keeping them', async () => {
+        listAuthors.mockResolvedValue({
+            authors: [{ id: 1, full_name: 'Толстой Лев', books_count: 700 }],
+            length: 3,
+        });
+        render(
+            <MemoryRouter initialEntries={['/books/find/authors/%D0%A2%D0%BE%D0%BB/1']}>
+                <Routes>
+                    <Route path="/books/find/authors/:author/:page" element={<AuthorSearch />} />
+                </Routes>
+                <NextSearch />
+            </MemoryRouter>,
+        );
+        expect(await screen.findByText('Толстой Лев')).toBeInTheDocument();
+        expect(screen.getByTestId('pager')).toHaveTextContent('3');
+
+        listAuthors.mockResolvedValue({ authors: null, length: 0 } as unknown as Awaited<
+            ReturnType<typeof booksApi.listAuthors>
+        >);
+        await userEvent.click(screen.getByRole('button', { name: 'search-again' }));
+
+        expect(await screen.findByText('noAuthorsFound')).toBeInTheDocument();
+        await waitFor(() => expect(screen.queryByText('Толстой Лев')).toBeNull());
+        expect(screen.getByTestId('pager')).toHaveTextContent('0');
     });
 });

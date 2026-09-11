@@ -52,9 +52,16 @@ const AuthorSearch: React.FC = () => {
                     lang: user?.books_lang || '',
                 });
 
-                if (responseData.authors && Array.isArray(responseData.authors)) {
+                // A zero-hit search answers authors: null (a nil Go slice
+                // marshals to null). Anything that is not an array means "no
+                // results": skipping the update would leave the previous
+                // search's authors and page count on screen.
+                if (Array.isArray(responseData.authors)) {
                     setAuthors(responseData.authors);
                     setTotalPages(responseData.length);
+                } else {
+                    setAuthors([]);
+                    setTotalPages(0);
                 }
             } catch (error) {
                 console.error('Error fetching authors:', error);
