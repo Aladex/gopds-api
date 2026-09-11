@@ -263,6 +263,34 @@ func TestSearchHandler_Books_ExactBookID(t *testing.T) {
 	assert.Equal(t, 1, got.Length)
 }
 
+func TestSearchHandler_EmptyPageSerializesAsEmptyArray(t *testing.T) {
+	t.Run("a zero-hit book search answers books: []", func(t *testing.T) {
+		fake := &fakeSearch{booksPage: models.BookSearchPage{Books: nil, Total: 0, Limit: 10}}
+		r := newSearchTestRouter(fake, 77, false)
+
+		rec := doJSON(t, r, http.MethodGet, "/api/books/list?title=x", nil)
+
+		require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
+		var got map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		assert.JSONEq(t, `[]`, string(got["books"]),
+			"a nil slice marshals to null; the API owes its clients an array")
+	})
+
+	t.Run("a zero-hit author search answers authors: []", func(t *testing.T) {
+		fake := &fakeSearch{authorsPage: models.AuthorSearchPage{Authors: nil, Total: 0, Limit: 10}}
+		r := newSearchTestRouter(fake, 77, false)
+
+		rec := doJSON(t, r, http.MethodGet, "/api/books/authors?author=x", nil)
+
+		require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
+		var got map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		assert.JSONEq(t, `[]`, string(got["authors"]),
+			"a nil slice marshals to null; the API owes its clients an array")
+	})
+}
+
 func TestSearchHandler_Authors_Search(t *testing.T) {
 	fake := &fakeSearch{authorsPage: models.AuthorSearchPage{
 		Authors: []models.Author{{ID: 1, FullName: "Толстой Лев", BooksCount: 700}},

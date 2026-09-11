@@ -85,11 +85,17 @@ func (h *PublicCollectionsHandler) list(c *gin.Context) {
 
 	dtos := make([]publicCollectionDTO, 0, len(out))
 	for _, col := range out {
+		// A collection without cover rows still serializes as [], never
+		// null — the same rule the detail handler already keeps for books.
+		coverBooks := covers[col.ID]
+		if coverBooks == nil {
+			coverBooks = []database.CollectionCoverBook{}
+		}
 		dtos = append(dtos, publicCollectionDTO{
 			ID:         col.ID,
 			Name:       col.Name,
 			CreatedAt:  col.CreatedAt,
-			CoverBooks: covers[col.ID],
+			CoverBooks: coverBooks,
 		})
 	}
 	c.JSON(http.StatusOK, publicCollectionsListResponse{

@@ -94,6 +94,11 @@ func (h *SearchHandler) Books(c *gin.Context) {
 			mapSearchError(c, err)
 			return
 		}
+		// The picker rule applies to every list the API serves: an empty page
+		// serializes as [], never null — a nil slice marshals to null.
+		if page.Books == nil {
+			page.Books = []models.Book{}
+		}
 		c.JSON(http.StatusOK, ExportAnswer{Books: page.Books, Length: pageCount(page.Total, page.Limit)})
 		return
 	}
@@ -111,6 +116,9 @@ func (h *SearchHandler) Books(c *gin.Context) {
 	if err != nil {
 		httputil.NewError(c, http.StatusInternalServerError, err)
 		return
+	}
+	if books == nil {
+		books = []models.Book{}
 	}
 	c.JSON(http.StatusOK, ExportAnswer{Books: books, Length: pageCount(count, effectiveListLimit(q.Limit))})
 }
@@ -146,6 +154,9 @@ func (h *SearchHandler) Authors(c *gin.Context) {
 	if err != nil {
 		mapSearchError(c, err)
 		return
+	}
+	if page.Authors == nil {
+		page.Authors = []models.Author{}
 	}
 	c.JSON(http.StatusOK, AuthorAnswer{Authors: page.Authors, Length: pageCount(page.Total, page.Limit)})
 }
