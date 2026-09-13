@@ -4,6 +4,7 @@ import {
     pageHref,
     pagerRowWidth,
     paginationRange,
+    siblingCeiling,
     type PageItem,
 } from '@/features/catalogue/paginationRange';
 
@@ -152,6 +153,80 @@ describe('fitSiblingCount', () => {
         // `main` clips rather than scrolls, so an overflowing row hides the
         // arrows entirely — the failure this whole calculation exists to avoid.
         expect(fitSiblingCount(5, 100, { ...phone360, row: 40 })).toBe(0);
+    });
+});
+
+// Measured in Chrome on the stand with the pager bound to the card column:
+// 1200px of column at 1440px of viewport, 977px at 1024px. The numbered cell
+// is what five digits actually draw in tabular figures — 38px of text inside
+// 8px of padding either side — not the 56px tier the ladder used to hand out.
+const desktop1440 = {
+    row: 1200,
+    arrow: 36,
+    cell: 54,
+    ellipsis: 36,
+    gap: 4,
+    breathing: 8,
+};
+const desktop1024 = { ...desktop1440, row: 977 };
+
+describe('siblingCeiling', () => {
+    it('bounds the search by what the row could hold at best', () => {
+        // Each extra sibling adds two items, and no item is narrower than the
+        // slimmest of a cell and an ellipsis. 1200px of row less both arrows
+        // and their breathing holds at most 27 items of 36+4, and 27 items is
+        // 13 siblings — a loose bound on the search, not the answer.
+        expect(siblingCeiling(44500, desktop1440)).toBe(13);
+    });
+
+    it('never proposes more neighbours than the catalogue has pages', () => {
+        // A five-page list in a 5000px row: without this the loop would count
+        // down from a ceiling in the hundreds, rebuilding the range each step.
+        expect(siblingCeiling(5, { ...desktop1440, row: 5000 })).toBe(3);
+    });
+
+    it('proposes nothing for a row with no room at all', () => {
+        expect(siblingCeiling(44500, { ...desktop1440, row: 40 })).toBe(0);
+    });
+});
+
+describe('fitSiblingCount on a desktop column', () => {
+    it('opens the window past three when the column has the room', () => {
+        // The old cap stopped at three however much room there was, which left
+        // ~200px of air at either end of a 1200px column. Six siblings put
+        // 19 elements in the row and measure 1150px of the 1200 — the browser
+        // renders exactly those nineteen at 1440px.
+        expect(fitSiblingCount(22000, 44500, desktop1440, { boundaryCount: 2 })).toBeGreaterThan(3);
+    });
+
+    it('stops where the measurement stops it, not at a constant', () => {
+        const fitted = fitSiblingCount(22000, 44500, desktop1440, { boundaryCount: 2 });
+        const items = paginationRange(22000, 44500, { boundaryCount: 2, siblingCount: fitted });
+        const wider = paginationRange(22000, 44500, {
+            boundaryCount: 2,
+            siblingCount: fitted + 1,
+        });
+
+        expect(pagerRowWidth(items, desktop1440)).toBeLessThanOrEqual(desktop1440.row);
+        expect(pagerRowWidth(wider, desktop1440)).toBeGreaterThan(desktop1440.row);
+    });
+
+    it('takes a narrower column down with it', () => {
+        const wide = fitSiblingCount(22000, 44500, desktop1440, { boundaryCount: 2 });
+        const narrow = fitSiblingCount(22000, 44500, desktop1024, { boundaryCount: 2 });
+
+        expect(narrow).toBeLessThan(wide);
+        expect(
+            pagerRowWidth(
+                paginationRange(22000, 44500, { boundaryCount: 2, siblingCount: narrow }),
+                desktop1024,
+            ),
+        ).toBeLessThanOrEqual(desktop1024.row);
+    });
+
+    it('terminates on a short catalogue in an enormous row', () => {
+        // Nothing measured stops the window here, so only the page count can.
+        expect(fitSiblingCount(3, 5, { ...desktop1440, row: 5000 }, { boundaryCount: 2 })).toBe(3);
     });
 });
 

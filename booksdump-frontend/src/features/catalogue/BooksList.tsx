@@ -15,10 +15,11 @@ import {
     DialogTitle,
 } from '@/shared/ui/dialog';
 import { Button } from '@/shared/ui/button';
+import { cn } from '@/shared/lib/utils';
 
 import { useAuth } from '@/context/AuthContext';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
-import { CARD_WIDE_QUERY } from '@/shared/layout/breakpoints';
+import { CARD_WIDE_QUERY, CONTENT_COLUMN, listColumn } from '@/shared/layout/breakpoints';
 import ConversionBackdrop from '@/features/catalogue/ConversionBackdrop';
 import BookPagination from '@/features/catalogue/BookPagination';
 import EditBookDialog from '@/features/catalogue/EditBookDialog';
@@ -177,23 +178,30 @@ const BooksList: React.FC = () => {
     return (
         <div className="flex min-h-[calc(100vh-200px)] flex-col">
             {state.loading ? (
-                <div>
+                <div className={CONTENT_COLUMN}>
                     {Array.from({ length: SKELETON_COUNT }).map((_, index) => (
-                        <div key={index} className="mx-auto w-full max-w-[1200px] py-1.5">
+                        <div key={index} className="py-1.5">
                             <SkeletonCard />
                         </div>
                     ))}
                 </div>
             ) : state.books.length === 0 ? (
-                <div className="mx-auto w-full max-w-[1200px] py-1.5">
+                <div className={cn(CONTENT_COLUMN, 'py-1.5')}>
                     <div className="rounded border border-border bg-card p-8">
                         <p className="text-center text-lg">{t('noBooksFound')}</p>
                     </div>
                 </div>
             ) : (
-                <div className="flex flex-1 flex-col">
+                /*
+                  One column element, holding the cards and the pager together.
+                  The pager fills its parent and fits its window to what that
+                  row measures, so the two have to be inside the same box — a
+                  pager beside the column measures something wider than the
+                  cards and lines its arrows up with nothing.
+                */
+                <div className={cn(CONTENT_COLUMN, 'flex flex-1 flex-col')} {...listColumn}>
                     {state.books.map((book) => (
-                        <div key={book.id} className="mx-auto w-full max-w-[1200px] py-1.5">
+                        <div key={book.id} className="py-1.5">
                             <BookCard
                                 book={book}
                                 isWide={isWideCard}
@@ -212,7 +220,7 @@ const BooksList: React.FC = () => {
                             />
                         </div>
                     ))}
-                    <div className="mt-auto flex justify-center pt-4">
+                    <div className="mt-auto pt-4">
                         <BookPagination
                             totalPages={state.totalPages}
                             currentPage={parseInt(page as string)}

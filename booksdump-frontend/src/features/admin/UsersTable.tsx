@@ -36,6 +36,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import { formatDate } from '@/shared/lib/formatDate';
 import * as adminApi from '@/api/admin';
+import { listColumn } from '@/shared/layout/breakpoints';
 import BookPagination from '@/features/catalogue/BookPagination';
 
 // User interface
@@ -316,7 +317,12 @@ const UsersTable: React.FC = () => {
     };
 
     return (
-        <div className="flex min-h-[calc(100vh-240px)] flex-col gap-4">
+        /*
+          The admin panel gives this page a 1400px column, not the catalogue's
+          1200, and the table fills it. The pager fills the same box, which is
+          why the contract is "the column the list is in" rather than a width.
+        */
+        <div className="flex min-h-[calc(100vh-240px)] flex-col gap-4" {...listColumn}>
             <h2 className="text-center text-lg font-medium">{t('users')}</h2>
 
             <Field id="users-search" label={t('search')} className="max-w-80">
@@ -619,7 +625,7 @@ const UsersTable: React.FC = () => {
                 </DialogContent>
             </Dialog>
 
-            <div className="mt-auto flex justify-center pt-4">
+            <div className="mt-auto pt-4">
                 <BookPagination
                     totalPages={totalPages}
                     currentPage={parseInt(page ?? '1', 10) || 1}

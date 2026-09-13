@@ -57,3 +57,40 @@ export const CARD_WIDE_QUERY = `(min-width: ${CARD_WIDE_MIN_WIDTH_REM}rem)`;
 export const READER_TOC_MIN_WIDTH_REM = 64;
 export const READER_TOC_VARIANT = 'lg';
 export const READER_TOC_QUERY = `(min-width: ${READER_TOC_MIN_WIDTH_REM}rem)`;
+
+/**
+ * The 1200px column the reader-facing list routes draw inside.
+ *
+ * Named, not repeated: the book cards have always had it and the pager had
+ * not, so on a wide viewport the pager measured the whole content area and
+ * fitted its window to a row nobody could see the edges of — its arrows ended
+ * up a couple of hundred pixels inside the cards above with nothing but air on
+ * either side.
+ *
+ * It is a width, not the contract. The admin tables run to their own 1400px
+ * column and are no less correct for it; what every list page has to get right
+ * is LIST_COLUMN_ATTR below. Several routes that hold no pager still spell the
+ * literal — AuthorSearch's own SearchBar, OpdsInfo, AppSkeleton — and changing
+ * them is a tidying job of its own rather than part of this one.
+ */
+export const CONTENT_COLUMN = 'mx-auto w-full max-w-[1200px]';
+
+/**
+ * The attribute that marks a list page's column.
+ *
+ * BookPagination spreads its row to the whole of its parent and fits its window
+ * to what that row measures, which only tells the reader the truth when the
+ * parent is the box the list above it occupies. That is a contract between the
+ * pager and its caller, and it was already got wrong once: the author search
+ * put its rows in a centred 1200px column and its pager in the page's
+ * full-width root, so the pager measured the viewport.
+ *
+ * So the column is marked rather than assumed. Every list page puts this on the
+ * one element that holds both the list and its pager, whatever width that
+ * element happens to be — the admin tables run to 1400px and the catalogue to
+ * 1200. The pager checks for it in development and says so when it is missing.
+ */
+export const LIST_COLUMN_ATTR = 'data-list-column';
+export const LIST_COLUMN_SELECTOR = `[${LIST_COLUMN_ATTR}]`;
+/** Spread onto the element that establishes a list page's column. */
+export const listColumn = { [LIST_COLUMN_ATTR]: '' };

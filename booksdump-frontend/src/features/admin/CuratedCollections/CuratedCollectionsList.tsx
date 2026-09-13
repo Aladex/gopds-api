@@ -10,6 +10,7 @@ import { Card, CardContent } from '@/shared/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/ui/table';
 
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
+import { listColumn } from '@/shared/layout/breakpoints';
 import BookPagination from '@/features/catalogue/BookPagination';
 import {
     CuratedCollection,
@@ -74,7 +75,9 @@ const CuratedCollectionsList: React.FC = () => {
             )}
 
             <Card className="flex flex-1 flex-col">
-                <CardContent className="flex flex-1 flex-col">
+                {/* The table and the pager share this box, which is the column
+                    the pager fills and measures itself against. */}
+                <CardContent className="flex flex-1 flex-col" {...listColumn}>
                     {isMobile ? (
                         /* Seven columns, three of them counts, do not fit a
                            phone. Each collection becomes a card with the counts
@@ -259,7 +262,7 @@ const CuratedCollectionsList: React.FC = () => {
                     )}
 
                     {totalPages > 1 && (
-                        <div className="mt-auto flex justify-center pt-4">
+                        <div className="mt-auto pt-4">
                             <BookPagination
                                 totalPages={totalPages}
                                 currentPage={page}

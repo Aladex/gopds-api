@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 
+import { cn } from '@/shared/lib/utils';
+import { CONTENT_COLUMN, listColumn } from '@/shared/layout/breakpoints';
 import * as booksApi from '@/api/books';
 import type { Author } from '@/api/books';
 import { useAuth } from '@/context/AuthContext';
@@ -87,8 +89,15 @@ const AuthorSearch: React.FC = () => {
 
     return (
         <div className="flex min-h-[calc(100vh-200px)] flex-col">
-            <div className="flex-1">
-                <div className="mx-auto w-full max-w-[1200px] py-2">
+            {/*
+              One column element, holding the rows and the pager together. The
+              pager fills its parent and fits its window to what that row
+              measures; it used to sit outside this column, in the page's
+              full-width root, so on a wide viewport it measured the viewport
+              and put its arrows a couple of hundred pixels clear of the rows.
+            */}
+            <div className={cn(CONTENT_COLUMN, 'flex flex-1 flex-col')} {...listColumn}>
+                <div className="py-2">
                     {loading ? (
                         <div className="flex flex-col gap-1.5">
                             {Array.from({ length: PAGE_SIZE }).map((_, index) => (
@@ -136,13 +145,13 @@ const AuthorSearch: React.FC = () => {
                         </div>
                     )}
                 </div>
-            </div>
-            <div className="mt-auto flex justify-center pt-4">
-                <BookPagination
-                    totalPages={totalPages}
-                    currentPage={parseInt(page || '1', 10)}
-                    baseUrl={baseUrl}
-                />
+                <div className="mt-auto pt-4">
+                    <BookPagination
+                        totalPages={totalPages}
+                        currentPage={parseInt(page || '1', 10)}
+                        baseUrl={baseUrl}
+                    />
+                </div>
             </div>
         </div>
     );

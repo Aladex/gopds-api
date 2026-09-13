@@ -85,8 +85,8 @@ export interface PagerMetrics {
 /**
  * pagerRowWidth predicts what a window of items would measure.
  *
- * Numbers first, then the two arrows and the gaps that flank them. The cell
- * width is the shared min-width tier, so it does not move when the window
+ * Numbers first, then the two arrows and the gaps that flank them. Every
+ * numbered cell shares one measured width, so it does not move when the window
  * grows — which is what makes fitting a window a single calculation rather
  * than a render-and-remeasure loop.
  */
@@ -102,6 +102,36 @@ export function pagerRowWidth(items: PageItem[], metrics: PagerMetrics): number 
 }
 
 /**
+ * siblingCeiling says where fitSiblingCount's search has to start.
+ *
+ * The window used to be capped at three neighbours however wide the row was,
+ * which is what left several hundred pixels of air at either end of a desktop
+ * column. Nothing but the measurement should stop it — but the search still
+ * needs somewhere to start, because counting down from a catalogue's 44 500
+ * pages would rebuild a 44 500-entry range at every step.
+ *
+ * Two bounds, both cheap. Every item in the row is at least as wide as the
+ * slimmer of a cell and an ellipsis, so the row cannot hold more than that
+ * many items; and one extra sibling adds two items, so half the item count
+ * bounds the siblings. Past half the catalogue the window already covers every
+ * page and widening it changes nothing.
+ */
+export function siblingCeiling(totalPages: number, metrics: PagerMetrics): number {
+    const slot = Math.min(metrics.cell, metrics.ellipsis) + metrics.gap;
+    if (slot <= 0) {
+        return 0;
+    }
+    // The last item pays no gap, so it is added back before dividing.
+    const forItems = metrics.row - 2 * (metrics.arrow + metrics.breathing) + metrics.gap;
+    const items = Math.floor(forItems / slot);
+    // A window of s siblings is at least 2s + 1 items wide. A row too narrow
+    // to hold anything drives this negative, which the clamp below turns into
+    // the only honest answer: no window at all.
+    const byWidth = Math.floor((items - 1) / 2);
+    return Math.max(0, Math.min(byWidth, Math.ceil(totalPages / 2)));
+}
+
+/**
  * fitSiblingCount picks the widest window of page numbers that still fits.
  *
  * The pager used to guess this from the digit count of the last page, and the
@@ -109,6 +139,10 @@ export function pagerRowWidth(items: PageItem[], metrics: PagerMetrics): number 
  * to 300px where the browser measured 329. Measuring the row and asking what
  * fits removes the guess — and it adapts to the things a digit count cannot
  * see, like a 320px phone or a reader who scaled the type up.
+ *
+ * `maxSiblings` is where to start counting down from, not a policy: left out,
+ * it comes from siblingCeiling, so the row's own measurement is what stops the
+ * window rather than a constant.
  *
  * Returns the largest sibling count whose window fits, or 0 if even the
  * narrowest window overflows: a cramped pager still beats one whose arrows sit
@@ -118,9 +152,10 @@ export function fitSiblingCount(
     currentPage: number,
     totalPages: number,
     metrics: PagerMetrics,
-    { boundaryCount = 1, maxSiblings = 3 }: { boundaryCount?: number; maxSiblings?: number } = {},
+    { boundaryCount = 1, maxSiblings }: { boundaryCount?: number; maxSiblings?: number } = {},
 ): number {
-    for (let siblings = maxSiblings; siblings > 0; siblings -= 1) {
+    const ceiling = maxSiblings ?? siblingCeiling(totalPages, metrics);
+    for (let siblings = ceiling; siblings > 0; siblings -= 1) {
         const items = paginationRange(currentPage, totalPages, {
             boundaryCount,
             siblingCount: siblings,

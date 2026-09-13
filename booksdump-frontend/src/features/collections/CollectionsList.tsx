@@ -6,6 +6,8 @@ import { AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/shared/ui/alert';
 
 import { API_URL } from '@/api/config';
+import { cn } from '@/shared/lib/utils';
+import { CONTENT_COLUMN, listColumn } from '@/shared/layout/breakpoints';
 import BookPagination from '@/features/catalogue/BookPagination';
 import { CollectionCoverBook, listPublicCollections, PublicCollectionRow } from '@/api/collections';
 
@@ -140,7 +142,7 @@ const CollectionsList: React.FC = () => {
 
     if (loadError) {
         return (
-            <div className="mx-auto w-full max-w-[1200px] p-4">
+            <div className={cn(CONTENT_COLUMN, 'p-4')}>
                 <Alert variant="destructive">
                     <AlertCircle />
                     <AlertTitle>
@@ -154,7 +156,12 @@ const CollectionsList: React.FC = () => {
 
     return (
         <div className="min-h-[calc(100vh-160px)] p-4">
-            <div className="mx-auto flex min-h-[calc(100vh-200px)] w-full max-w-[1200px] flex-col">
+            {/* One column element: the tiles and the pager share it, because the
+                pager fills its parent and fits its window to what that measures. */}
+            <div
+                className={cn(CONTENT_COLUMN, 'flex min-h-[calc(100vh-200px)] flex-col')}
+                {...listColumn}
+            >
                 <h1 className="mb-2 text-2xl font-medium">
                     {t('publicCollections.title', 'Collections')}
                 </h1>
@@ -185,7 +192,7 @@ const CollectionsList: React.FC = () => {
                 </div>
 
                 {totalPages > 1 && (
-                    <div className="mt-auto flex justify-center pt-6">
+                    <div className="mt-auto pt-6">
                         <BookPagination
                             totalPages={totalPages}
                             currentPage={page}
