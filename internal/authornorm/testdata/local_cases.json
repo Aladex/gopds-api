@@ -1,0 +1,1343 @@
+{
+  "description": "Local normalizer v1 golden cases. Shapes are taken from the legacy catalog (initials, particles, affixes, hyphens, apostrophes, placeholders, collectives, homoglyph mixed script, all-caps and lower-case defects, mojibake, digit and punctuation garbage); the names themselves are public figures or synthetic. Every field of want is compared exactly: an absent field means the empty string, an absent quality_flags means no flags.",
+  "cases": [
+    {
+      "name": "structured complete person keeps source order and builds a separate sort name",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Лев"
+        },
+        {
+          "kind": "middle",
+          "value": "Николаевич"
+        },
+        {
+          "kind": "last",
+          "value": "Толстой"
+        }
+      ],
+      "want": {
+        "given_name": "Лев",
+        "additional_names": "Николаевич",
+        "family_name": "Толстой",
+        "display_name": "Лев Николаевич Толстой",
+        "sort_name": "Толстой, Лев Николаевич",
+        "search_key": "лев николаевич толстой",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "normalized",
+        "method": "structured",
+        "decision_class": "structured_person"
+      }
+    },
+    {
+      "name": "family-first source order is not reordered in display",
+      "components": [
+        {
+          "kind": "last",
+          "value": "Толстой"
+        },
+        {
+          "kind": "first",
+          "value": "Лев"
+        }
+      ],
+      "want": {
+        "given_name": "Лев",
+        "family_name": "Толстой",
+        "display_name": "Толстой Лев",
+        "sort_name": "Толстой, Лев",
+        "search_key": "толстой лев",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "normalized",
+        "method": "structured",
+        "decision_class": "structured_person"
+      }
+    },
+    {
+      "name": "yo is kept in display and folded only in the search key",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Пётр"
+        },
+        {
+          "kind": "last",
+          "value": "Семёнов"
+        }
+      ],
+      "want": {
+        "given_name": "Пётр",
+        "family_name": "Семёнов",
+        "display_name": "Пётр Семёнов",
+        "sort_name": "Семёнов, Пётр",
+        "search_key": "петр семенов",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "normalized",
+        "method": "structured",
+        "decision_class": "structured_person"
+      }
+    },
+    {
+      "name": "latin diacritics survive display and search key",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Søren"
+        },
+        {
+          "kind": "last",
+          "value": "Kierkegaard"
+        }
+      ],
+      "want": {
+        "given_name": "Søren",
+        "family_name": "Kierkegaard",
+        "display_name": "Søren Kierkegaard",
+        "sort_name": "Kierkegaard, Søren",
+        "search_key": "søren kierkegaard",
+        "script": "Latn",
+        "kind": "person",
+        "status": "normalized",
+        "method": "structured",
+        "decision_class": "structured_person"
+      }
+    },
+    {
+      "name": "inner capital is not flattened",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Ronald"
+        },
+        {
+          "kind": "last",
+          "value": "McDonald"
+        }
+      ],
+      "want": {
+        "given_name": "Ronald",
+        "family_name": "McDonald",
+        "display_name": "Ronald McDonald",
+        "sort_name": "McDonald, Ronald",
+        "search_key": "ronald mcdonald",
+        "script": "Latn",
+        "kind": "person",
+        "status": "normalized",
+        "method": "structured",
+        "decision_class": "structured_person"
+      }
+    },
+    {
+      "name": "hyphenated family name stays one field and splits only in the search key",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Михаил"
+        },
+        {
+          "kind": "last",
+          "value": "Салтыков-Щедрин"
+        }
+      ],
+      "want": {
+        "given_name": "Михаил",
+        "family_name": "Салтыков-Щедрин",
+        "display_name": "Михаил Салтыков-Щедрин",
+        "sort_name": "Салтыков-Щедрин, Михаил",
+        "search_key": "михаил салтыков щедрин",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "normalized",
+        "method": "structured",
+        "decision_class": "structured_person",
+        "quality_flags": [
+          "hyphen"
+        ]
+      }
+    },
+    {
+      "name": "apostrophe in a family name is kept in display",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Flannery"
+        },
+        {
+          "kind": "last",
+          "value": "O'Connor"
+        }
+      ],
+      "want": {
+        "given_name": "Flannery",
+        "family_name": "O'Connor",
+        "display_name": "Flannery O'Connor",
+        "sort_name": "O'Connor, Flannery",
+        "search_key": "flannery o connor",
+        "script": "Latn",
+        "kind": "person",
+        "status": "normalized",
+        "method": "structured",
+        "decision_class": "structured_person",
+        "quality_flags": [
+          "apostrophe"
+        ]
+      }
+    },
+    {
+      "name": "greek letters get their own script and full case folding",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Νίκος"
+        },
+        {
+          "kind": "last",
+          "value": "Καζαντζάκης"
+        }
+      ],
+      "want": {
+        "given_name": "Νίκος",
+        "family_name": "Καζαντζάκης",
+        "display_name": "Νίκος Καζαντζάκης",
+        "sort_name": "Καζαντζάκης, Νίκος",
+        "search_key": "νίκοσ καζαντζάκησ",
+        "script": "Grek",
+        "kind": "person",
+        "status": "normalized",
+        "method": "structured",
+        "decision_class": "structured_person"
+      }
+    },
+    {
+      "name": "han name in family-first order",
+      "components": [
+        {
+          "kind": "last",
+          "value": "村上"
+        },
+        {
+          "kind": "first",
+          "value": "春樹"
+        }
+      ],
+      "want": {
+        "given_name": "春樹",
+        "family_name": "村上",
+        "display_name": "村上 春樹",
+        "sort_name": "村上, 春樹",
+        "search_key": "村上 春樹",
+        "script": "Hani",
+        "kind": "person",
+        "status": "normalized",
+        "method": "structured",
+        "decision_class": "structured_person"
+      }
+    },
+    {
+      "name": "inner nbsp is collapsed to one space in display and fields",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Анна\u00a0Мария"
+        },
+        {
+          "kind": "last",
+          "value": "Шмидт"
+        }
+      ],
+      "want": {
+        "given_name": "Анна Мария",
+        "family_name": "Шмидт",
+        "display_name": "Анна Мария Шмидт",
+        "sort_name": "Шмидт, Анна Мария",
+        "search_key": "анна мария шмидт",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "normalized",
+        "method": "structured",
+        "decision_class": "structured_person",
+        "quality_flags": [
+          "whitespace_collapsed"
+        ]
+      }
+    },
+    {
+      "name": "all-caps cyrillic is kept as is and routed to review",
+      "components": [
+        {
+          "kind": "first",
+          "value": "ДЭНИЭЛ"
+        },
+        {
+          "kind": "last",
+          "value": "ВАЙСС"
+        }
+      ],
+      "want": {
+        "given_name": "ДЭНИЭЛ",
+        "family_name": "ВАЙСС",
+        "display_name": "ДЭНИЭЛ ВАЙСС",
+        "sort_name": "ВАЙСС, ДЭНИЭЛ",
+        "search_key": "дэниэл вайсс",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "structured",
+        "decision_class": "case_defect",
+        "quality_flags": [
+          "all_caps"
+        ]
+      }
+    },
+    {
+      "name": "all-caps latin with diacritics keeps case and accents",
+      "components": [
+        {
+          "kind": "first",
+          "value": "ÉMILE"
+        },
+        {
+          "kind": "last",
+          "value": "ZOLA"
+        }
+      ],
+      "want": {
+        "given_name": "ÉMILE",
+        "family_name": "ZOLA",
+        "display_name": "ÉMILE ZOLA",
+        "sort_name": "ZOLA, ÉMILE",
+        "search_key": "émile zola",
+        "script": "Latn",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "structured",
+        "decision_class": "case_defect",
+        "quality_flags": [
+          "all_caps"
+        ]
+      }
+    },
+    {
+      "name": "all-lowercase is a case defect, not a particle",
+      "components": [
+        {
+          "kind": "first",
+          "value": "ivan"
+        },
+        {
+          "kind": "last",
+          "value": "petrov"
+        }
+      ],
+      "want": {
+        "given_name": "ivan",
+        "family_name": "petrov",
+        "display_name": "ivan petrov",
+        "sort_name": "petrov, ivan",
+        "search_key": "ivan petrov",
+        "script": "Latn",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "structured",
+        "decision_class": "case_defect",
+        "quality_flags": [
+          "lowercase"
+        ]
+      }
+    },
+    {
+      "name": "single-letter initial with a dot",
+      "components": [
+        {
+          "kind": "first",
+          "value": "И."
+        },
+        {
+          "kind": "last",
+          "value": "Петров"
+        }
+      ],
+      "want": {
+        "given_name": "И.",
+        "family_name": "Петров",
+        "display_name": "И. Петров",
+        "sort_name": "Петров, И.",
+        "search_key": "и петров",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "structured",
+        "decision_class": "initials",
+        "quality_flags": [
+          "initials"
+        ]
+      }
+    },
+    {
+      "name": "run of initials with a two-letter abbreviation",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Дж.Р.Р."
+        },
+        {
+          "kind": "last",
+          "value": "Толкин"
+        }
+      ],
+      "want": {
+        "given_name": "Дж.Р.Р.",
+        "family_name": "Толкин",
+        "display_name": "Дж.Р.Р. Толкин",
+        "sort_name": "Толкин, Дж.Р.Р.",
+        "search_key": "дж р р толкин",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "structured",
+        "decision_class": "initials",
+        "quality_flags": [
+          "initials"
+        ]
+      }
+    },
+    {
+      "name": "initial glued to the family name inside one field",
+      "components": [
+        {
+          "kind": "last",
+          "value": "Ю.Несбё"
+        }
+      ],
+      "want": {
+        "display_name": "Ю.Несбё",
+        "search_key": "ю несбе",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "rules",
+        "decision_class": "initials",
+        "quality_flags": [
+          "initials",
+          "single_token"
+        ]
+      }
+    },
+    {
+      "name": "bare capital letter is an initial",
+      "components": [
+        {
+          "kind": "first",
+          "value": "B"
+        },
+        {
+          "kind": "last",
+          "value": "Smith"
+        }
+      ],
+      "want": {
+        "given_name": "B",
+        "family_name": "Smith",
+        "display_name": "B Smith",
+        "sort_name": "Smith, B",
+        "search_key": "b smith",
+        "script": "Latn",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "structured",
+        "decision_class": "initials",
+        "quality_flags": [
+          "initials"
+        ]
+      }
+    },
+    {
+      "name": "dutch particle inside the family field",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Людвиг"
+        },
+        {
+          "kind": "last",
+          "value": "ван Бетховен"
+        }
+      ],
+      "want": {
+        "given_name": "Людвиг",
+        "family_name": "ван Бетховен",
+        "display_name": "Людвиг ван Бетховен",
+        "sort_name": "ван Бетховен, Людвиг",
+        "search_key": "людвиг ван бетховен",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "structured",
+        "decision_class": "particle",
+        "quality_flags": [
+          "particle"
+        ]
+      }
+    },
+    {
+      "name": "spanish particle in latin script",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Miguel"
+        },
+        {
+          "kind": "last",
+          "value": "de Cervantes"
+        }
+      ],
+      "want": {
+        "given_name": "Miguel",
+        "family_name": "de Cervantes",
+        "display_name": "Miguel de Cervantes",
+        "sort_name": "de Cervantes, Miguel",
+        "search_key": "miguel de cervantes",
+        "script": "Latn",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "structured",
+        "decision_class": "particle",
+        "quality_flags": [
+          "particle"
+        ]
+      }
+    },
+    {
+      "name": "elided particle glued with an apostrophe",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Шарль"
+        },
+        {
+          "kind": "last",
+          "value": "д'Артаньян"
+        }
+      ],
+      "want": {
+        "given_name": "Шарль",
+        "family_name": "д'Артаньян",
+        "display_name": "Шарль д'Артаньян",
+        "sort_name": "д'Артаньян, Шарль",
+        "search_key": "шарль д артаньян",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "structured",
+        "decision_class": "particle",
+        "quality_flags": [
+          "particle",
+          "apostrophe"
+        ]
+      }
+    },
+    {
+      "name": "arabic article glued with a hyphen in a single field",
+      "components": [
+        {
+          "kind": "last",
+          "value": "аль-Фараби"
+        }
+      ],
+      "want": {
+        "display_name": "аль-Фараби",
+        "search_key": "аль фараби",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "rules",
+        "decision_class": "particle",
+        "quality_flags": [
+          "particle",
+          "single_token",
+          "hyphen"
+        ]
+      }
+    },
+    {
+      "name": "roman numeral suffix is an affix",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Карлтон"
+        },
+        {
+          "kind": "last",
+          "value": "Меллик III"
+        }
+      ],
+      "want": {
+        "given_name": "Карлтон",
+        "family_name": "Меллик III",
+        "display_name": "Карлтон Меллик III",
+        "sort_name": "Меллик III, Карлтон",
+        "search_key": "карлтон меллик iii",
+        "script": "mixed",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "structured",
+        "decision_class": "mixed_script",
+        "quality_flags": [
+          "mixed_script",
+          "affix"
+        ]
+      }
+    },
+    {
+      "name": "latin generational suffix is an affix",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Kurt"
+        },
+        {
+          "kind": "last",
+          "value": "Vonnegut Jr."
+        }
+      ],
+      "want": {
+        "given_name": "Kurt",
+        "family_name": "Vonnegut Jr.",
+        "display_name": "Kurt Vonnegut Jr.",
+        "sort_name": "Vonnegut Jr., Kurt",
+        "search_key": "kurt vonnegut jr",
+        "script": "Latn",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "structured",
+        "decision_class": "affix",
+        "quality_flags": [
+          "affix"
+        ]
+      }
+    },
+    {
+      "name": "clerical title before the name is an affix",
+      "components": [
+        {
+          "kind": "first",
+          "value": "священник Иоанн"
+        },
+        {
+          "kind": "last",
+          "value": "Петров"
+        }
+      ],
+      "want": {
+        "given_name": "священник Иоанн",
+        "family_name": "Петров",
+        "display_name": "священник Иоанн Петров",
+        "sort_name": "Петров, священник Иоанн",
+        "search_key": "священник иоанн петров",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "structured",
+        "decision_class": "affix",
+        "quality_flags": [
+          "affix"
+        ]
+      }
+    },
+    {
+      "name": "latin homoglyph inside a cyrillic family name",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Мария"
+        },
+        {
+          "kind": "last",
+          "value": "Сeмёнова"
+        }
+      ],
+      "want": {
+        "given_name": "Мария",
+        "family_name": "Сeмёнова",
+        "display_name": "Мария Сeмёнова",
+        "sort_name": "Сeмёнова, Мария",
+        "search_key": "мария сeменова",
+        "script": "mixed",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "structured",
+        "decision_class": "mixed_script",
+        "quality_flags": [
+          "mixed_script"
+        ]
+      }
+    },
+    {
+      "name": "transliteration is never attempted across scripts",
+      "components": [
+        {
+          "kind": "first",
+          "value": "John"
+        },
+        {
+          "kind": "last",
+          "value": "Смит"
+        }
+      ],
+      "want": {
+        "given_name": "John",
+        "family_name": "Смит",
+        "display_name": "John Смит",
+        "sort_name": "Смит, John",
+        "search_key": "john смит",
+        "script": "mixed",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "structured",
+        "decision_class": "mixed_script",
+        "quality_flags": [
+          "mixed_script"
+        ]
+      }
+    },
+    {
+      "name": "duplicate first-name child keeps the first value and is never structured",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Иван"
+        },
+        {
+          "kind": "first",
+          "value": "Пётр"
+        },
+        {
+          "kind": "last",
+          "value": "Сидоров"
+        }
+      ],
+      "want": {
+        "given_name": "Иван",
+        "family_name": "Сидоров",
+        "display_name": "Иван Пётр Сидоров",
+        "sort_name": "Сидоров, Иван",
+        "search_key": "иван петр сидоров",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "structured",
+        "decision_class": "duplicate_component",
+        "quality_flags": [
+          "duplicate_component"
+        ]
+      }
+    },
+    {
+      "name": "whole name in one field is not split by guessed order",
+      "components": [
+        {
+          "kind": "last",
+          "value": "Иванов Иван Иванович"
+        }
+      ],
+      "want": {
+        "display_name": "Иванов Иван Иванович",
+        "search_key": "иванов иван иванович",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "rules",
+        "decision_class": "single_field",
+        "quality_flags": [
+          "unstructured"
+        ]
+      }
+    },
+    {
+      "name": "lone family-name token is a mononym, not a family name",
+      "components": [
+        {
+          "kind": "last",
+          "value": "Шатриан"
+        }
+      ],
+      "want": {
+        "display_name": "Шатриан",
+        "search_key": "шатриан",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "rules",
+        "decision_class": "mononym",
+        "quality_flags": [
+          "single_token"
+        ]
+      }
+    },
+    {
+      "name": "nickname alone transfers to the nickname field only",
+      "components": [
+        {
+          "kind": "nickname",
+          "value": "Саша"
+        }
+      ],
+      "want": {
+        "nickname": "Саша",
+        "display_name": "Саша",
+        "search_key": "саша",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "rules",
+        "decision_class": "mononym",
+        "quality_flags": [
+          "single_token",
+          "nickname"
+        ]
+      }
+    },
+    {
+      "name": "given and patronymic without a family name are partial",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Иван"
+        },
+        {
+          "kind": "middle",
+          "value": "Петрович"
+        }
+      ],
+      "want": {
+        "given_name": "Иван",
+        "additional_names": "Петрович",
+        "display_name": "Иван Петрович",
+        "search_key": "иван петрович",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "structured",
+        "decision_class": "partial_structure",
+        "quality_flags": [
+          "partial_structure"
+        ]
+      }
+    },
+    {
+      "name": "present empty first-name does not count as structure",
+      "components": [
+        {
+          "kind": "first",
+          "value": ""
+        },
+        {
+          "kind": "middle",
+          "value": "Иванович"
+        },
+        {
+          "kind": "last",
+          "value": "Петров"
+        }
+      ],
+      "want": {
+        "additional_names": "Иванович",
+        "family_name": "Петров",
+        "display_name": "Иванович Петров",
+        "sort_name": "Петров",
+        "search_key": "иванович петров",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "structured",
+        "decision_class": "partial_structure",
+        "quality_flags": [
+          "partial_structure",
+          "empty_component"
+        ]
+      }
+    },
+    {
+      "name": "nickname next to a full name",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Иван"
+        },
+        {
+          "kind": "last",
+          "value": "Петров"
+        },
+        {
+          "kind": "nickname",
+          "value": "Ваня"
+        }
+      ],
+      "want": {
+        "given_name": "Иван",
+        "family_name": "Петров",
+        "nickname": "Ваня",
+        "display_name": "Иван Петров Ваня",
+        "sort_name": "Петров, Иван",
+        "search_key": "иван петров ваня",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "structured",
+        "decision_class": "nickname_with_name",
+        "quality_flags": [
+          "nickname"
+        ]
+      }
+    },
+    {
+      "name": "parenthesised note is an unusual character",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Иван"
+        },
+        {
+          "kind": "last",
+          "value": "Петров (псевдоним)"
+        }
+      ],
+      "want": {
+        "given_name": "Иван",
+        "family_name": "Петров (псевдоним)",
+        "display_name": "Иван Петров (псевдоним)",
+        "sort_name": "Петров (псевдоним), Иван",
+        "search_key": "иван петров псевдоним",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "structured",
+        "decision_class": "unusual_characters",
+        "quality_flags": [
+          "unusual_characters"
+        ]
+      }
+    },
+    {
+      "name": "collective of authors",
+      "components": [
+        {
+          "kind": "last",
+          "value": "Коллектив авторов"
+        }
+      ],
+      "want": {
+        "display_name": "Коллектив авторов",
+        "search_key": "коллектив авторов",
+        "script": "Cyrl",
+        "kind": "collective",
+        "status": "unresolved",
+        "method": "rules",
+        "decision_class": "collective_candidate",
+        "quality_flags": [
+          "unstructured",
+          "collective_marker"
+        ]
+      }
+    },
+    {
+      "name": "folk tales are a collective, even when structured",
+      "components": [
+        {
+          "kind": "first",
+          "value": "сказки"
+        },
+        {
+          "kind": "last",
+          "value": "Народные"
+        }
+      ],
+      "want": {
+        "display_name": "сказки Народные",
+        "search_key": "сказки народные",
+        "script": "Cyrl",
+        "kind": "collective",
+        "status": "unresolved",
+        "method": "rules",
+        "decision_class": "collective_candidate",
+        "quality_flags": [
+          "lowercase",
+          "collective_marker"
+        ]
+      }
+    },
+    {
+      "name": "latin collective marker",
+      "components": [
+        {
+          "kind": "nickname",
+          "value": "Various Authors"
+        }
+      ],
+      "want": {
+        "display_name": "Various Authors",
+        "search_key": "various authors",
+        "script": "Latn",
+        "kind": "collective",
+        "status": "unresolved",
+        "method": "rules",
+        "decision_class": "collective_candidate",
+        "quality_flags": [
+          "unstructured",
+          "nickname",
+          "collective_marker"
+        ]
+      }
+    },
+    {
+      "name": "two people joined by a conjunction are a collective candidate",
+      "components": [
+        {
+          "kind": "last",
+          "value": "Ильф и Петров"
+        }
+      ],
+      "want": {
+        "display_name": "Ильф и Петров",
+        "search_key": "ильф и петров",
+        "script": "Cyrl",
+        "kind": "collective",
+        "status": "unresolved",
+        "method": "rules",
+        "decision_class": "collective_candidate",
+        "quality_flags": [
+          "unstructured",
+          "collective_marker"
+        ]
+      }
+    },
+    {
+      "name": "hyphen-joined conjunction inside a compound surname is not a collective",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Гонсало"
+        },
+        {
+          "kind": "last",
+          "value": "Сеспедес-и-Менесес"
+        }
+      ],
+      "want": {
+        "given_name": "Гонсало",
+        "family_name": "Сеспедес-и-Менесес",
+        "display_name": "Гонсало Сеспедес-и-Менесес",
+        "sort_name": "Сеспедес-и-Менесес, Гонсало",
+        "search_key": "гонсало сеспедес и менесес",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "normalized",
+        "method": "structured",
+        "decision_class": "structured_person",
+        "quality_flags": [
+          "hyphen"
+        ]
+      }
+    },
+    {
+      "name": "an initial that folds to a conjunction is still an initial",
+      "components": [
+        {
+          "kind": "first",
+          "value": "И. К."
+        },
+        {
+          "kind": "last",
+          "value": "Петров"
+        }
+      ],
+      "want": {
+        "given_name": "И. К.",
+        "family_name": "Петров",
+        "display_name": "И. К. Петров",
+        "sort_name": "Петров, И. К.",
+        "search_key": "и к петров",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "structured",
+        "decision_class": "initials",
+        "quality_flags": [
+          "initials"
+        ]
+      }
+    },
+    {
+      "name": "exact placeholder in one field",
+      "components": [
+        {
+          "kind": "last",
+          "value": "Автор неизвестен"
+        }
+      ],
+      "want": {
+        "display_name": "Автор неизвестен",
+        "search_key": "автор неизвестен",
+        "script": "Cyrl",
+        "kind": "unknown",
+        "status": "normalized",
+        "method": "rules",
+        "decision_class": "placeholder",
+        "quality_flags": [
+          "unstructured",
+          "placeholder"
+        ]
+      }
+    },
+    {
+      "name": "exact placeholder split across first and last",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Автор"
+        },
+        {
+          "kind": "last",
+          "value": "Неизвестен"
+        }
+      ],
+      "want": {
+        "display_name": "Автор Неизвестен",
+        "search_key": "автор неизвестен",
+        "script": "Cyrl",
+        "kind": "unknown",
+        "status": "normalized",
+        "method": "rules",
+        "decision_class": "placeholder",
+        "quality_flags": [
+          "placeholder"
+        ]
+      }
+    },
+    {
+      "name": "cyrillic anonymous placeholder",
+      "components": [
+        {
+          "kind": "last",
+          "value": "Аноним"
+        }
+      ],
+      "want": {
+        "display_name": "Аноним",
+        "search_key": "аноним",
+        "script": "Cyrl",
+        "kind": "unknown",
+        "status": "normalized",
+        "method": "rules",
+        "decision_class": "placeholder",
+        "quality_flags": [
+          "single_token",
+          "placeholder"
+        ]
+      }
+    },
+    {
+      "name": "all-caps placeholder keeps its own display",
+      "components": [
+        {
+          "kind": "last",
+          "value": "АНОНИМ"
+        }
+      ],
+      "want": {
+        "display_name": "АНОНИМ",
+        "search_key": "аноним",
+        "script": "Cyrl",
+        "kind": "unknown",
+        "status": "normalized",
+        "method": "rules",
+        "decision_class": "placeholder",
+        "quality_flags": [
+          "single_token",
+          "all_caps",
+          "placeholder"
+        ]
+      }
+    },
+    {
+      "name": "latin unknown placeholder",
+      "components": [
+        {
+          "kind": "nickname",
+          "value": "Unknown"
+        }
+      ],
+      "want": {
+        "display_name": "Unknown",
+        "search_key": "unknown",
+        "script": "Latn",
+        "kind": "unknown",
+        "status": "normalized",
+        "method": "rules",
+        "decision_class": "placeholder",
+        "quality_flags": [
+          "single_token",
+          "nickname",
+          "placeholder"
+        ]
+      }
+    },
+    {
+      "name": "duplicate component keeps an exact placeholder ambiguous",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Автор"
+        },
+        {
+          "kind": "first",
+          "value": ""
+        },
+        {
+          "kind": "last",
+          "value": "неизвестен"
+        }
+      ],
+      "want": {
+        "given_name": "Автор",
+        "family_name": "неизвестен",
+        "display_name": "Автор неизвестен",
+        "sort_name": "неизвестен, Автор",
+        "search_key": "автор неизвестен",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "structured",
+        "decision_class": "duplicate_component",
+        "quality_flags": [
+          "duplicate_component",
+          "lowercase",
+          "placeholder"
+        ]
+      }
+    },
+    {
+      "name": "dotted initial keeps an exact placeholder ambiguous",
+      "components": [
+        {
+          "kind": "last",
+          "value": "No. Name"
+        }
+      ],
+      "want": {
+        "display_name": "No. Name",
+        "search_key": "no name",
+        "script": "Latn",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "rules",
+        "decision_class": "initials",
+        "quality_flags": [
+          "initials",
+          "unstructured",
+          "placeholder"
+        ]
+      }
+    },
+    {
+      "name": "placeholder word next to a real name is only a fragment",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Эрнст"
+        },
+        {
+          "kind": "last",
+          "value": "Неизвестный"
+        }
+      ],
+      "want": {
+        "display_name": "Эрнст Неизвестный",
+        "search_key": "эрнст неизвестный",
+        "script": "Cyrl",
+        "kind": "unknown",
+        "status": "unresolved",
+        "method": "rules",
+        "decision_class": "placeholder_fragment",
+        "quality_flags": [
+          "placeholder_fragment"
+        ]
+      }
+    },
+    {
+      "name": "punctuation-only value is malformed",
+      "components": [
+        {
+          "kind": "last",
+          "value": "***"
+        }
+      ],
+      "want": {
+        "display_name": "***",
+        "script": "Zyyy",
+        "kind": "malformed",
+        "status": "invalid",
+        "method": "rules",
+        "decision_class": "malformed",
+        "quality_flags": [
+          "unusual_characters",
+          "single_token",
+          "no_letters"
+        ]
+      }
+    },
+    {
+      "name": "digits-only value is malformed",
+      "components": [
+        {
+          "kind": "first",
+          "value": "2002"
+        }
+      ],
+      "want": {
+        "display_name": "2002",
+        "search_key": "2002",
+        "script": "Zyyy",
+        "kind": "malformed",
+        "status": "invalid",
+        "method": "rules",
+        "decision_class": "malformed",
+        "quality_flags": [
+          "unusual_characters",
+          "single_token",
+          "no_letters"
+        ]
+      }
+    },
+    {
+      "name": "decoding replacement characters make the value malformed",
+      "components": [
+        {
+          "kind": "first",
+          "value": "\ufffd\ufffd\ufffd"
+        },
+        {
+          "kind": "last",
+          "value": "Иван"
+        }
+      ],
+      "want": {
+        "display_name": "\ufffd\ufffd\ufffd Иван",
+        "search_key": "\ufffd\ufffd\ufffd иван",
+        "script": "Cyrl",
+        "kind": "malformed",
+        "status": "invalid",
+        "method": "rules",
+        "decision_class": "malformed",
+        "quality_flags": [
+          "unusual_characters",
+          "replacement_character"
+        ]
+      }
+    }
+  ]
+}
