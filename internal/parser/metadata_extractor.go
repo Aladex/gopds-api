@@ -656,7 +656,7 @@ func (p *windowParser) startTitleInfoChild(el xml.StartElement, depth int) {
 	case elSequence:
 		p.startSequence(el)
 	case elBookTitle:
-		p.capture = &textCapture{depth: depth, assign: func(v string) { p.md.Title = v }}
+		p.capture = &textCapture{depth: depth, assign: func(v string) { p.md.Title = strPtr(v) }}
 	case elLang:
 		p.capture = &textCapture{depth: depth, assign: func(v string) { p.md.Lang = strPtr(v) }}
 	case elSrcLang:

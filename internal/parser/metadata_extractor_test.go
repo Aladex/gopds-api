@@ -136,8 +136,8 @@ func TestExtractMultiContributor(t *testing.T) {
 	assertContributor(t, &md.Contributors[3], authornorm.RoleTranslator, 0,
 		strp("John"), nil, strp("Smith"), nil, "John Smith")
 
-	if md.Title != "Метаданные тест" {
-		t.Errorf("title = %q", md.Title)
+	if titleText(md.Title) != "Метаданные тест" {
+		t.Errorf("title = %q", titleText(md.Title))
 	}
 	if md.Lang == nil || *md.Lang != "ru" {
 		t.Errorf("lang = %v, want %q", md.Lang, "ru")
@@ -264,7 +264,7 @@ func TestExtractNamespacesByLocalName(t *testing.T) {
 			if got := md.Contributors[0].Value.First(); got == nil || *got != "Нс" {
 				t.Errorf("first = %v, want %q", got, "Нс")
 			}
-			if md.Title == "" {
+			if md.Title == nil || *md.Title == "" {
 				t.Error("title is empty")
 			}
 		})
@@ -300,11 +300,11 @@ func TestExtractEncodings(t *testing.T) {
 			}
 			c := md.Contributors[0]
 			assertContributor(t, &c, authornorm.RoleAuthor, 0, tc.first, tc.middle, tc.last, nil, c.Value.DisplayName())
-			if tc.title != "" && md.Title != tc.title {
-				t.Errorf("title = %q, want %q", md.Title, tc.title)
+			if tc.title != "" && titleText(md.Title) != tc.title {
+				t.Errorf("title = %q, want %q", titleText(md.Title), tc.title)
 			}
-			if tc.fixture == "enc_declared_utf8_damaged.fb2" && !strings.ContainsRune(md.Title, '�') {
-				t.Errorf("damaged fixture: title = %q, want replacement rune inside", md.Title)
+			if tc.fixture == "enc_declared_utf8_damaged.fb2" && !strings.ContainsRune(titleText(md.Title), '�') {
+				t.Errorf("damaged fixture: title = %q, want replacement rune inside", titleText(md.Title))
 			}
 		})
 	}
@@ -385,8 +385,8 @@ func TestExtractKnownMD5ReadsNoBodyBytes(t *testing.T) {
 	// become components of any credit.
 	assertContributor(t, &md.Contributors[0], authornorm.RoleAuthor, 0,
 		strp("Страж"), nil, strp("Телев"), nil, "Страж Телев")
-	if md.Title != "Телохранитель" {
-		t.Errorf("title = %q, want %q", md.Title, "Телохранитель")
+	if titleText(md.Title) != "Телохранитель" {
+		t.Errorf("title = %q, want %q", titleText(md.Title), "Телохранитель")
 	}
 }
 
@@ -408,7 +408,7 @@ func TestExtractUnknownMD5DrainsBodyIntoHashOnly(t *testing.T) {
 	// The extraction payload is identical to the known-MD5 run: the body is
 	// hashed, never parsed or accumulated.
 	knownRun := extractFixture(t, "body_guard.fb2", known)
-	if md.Title != knownRun.Title || len(md.Contributors) != len(knownRun.Contributors) ||
+	if describePtr(md.Title) != describePtr(knownRun.Title) || len(md.Contributors) != len(knownRun.Contributors) ||
 		len(md.Sequences) != len(knownRun.Sequences) || md.Outcome != knownRun.Outcome {
 		t.Errorf("payload differs from known-MD5 run: %+v vs %+v", md, knownRun)
 	}
@@ -736,8 +736,8 @@ func TestExtractUTF16AnnotationPreservesEncoding(t *testing.T) {
 				}
 				assertContributor(t, &md.Contributors[0], authornorm.RoleAuthor, 0,
 					strp("Страж"), nil, strp("Телев"), nil, "Страж Телев")
-				if md.Title != "Телохранитель" {
-					t.Errorf("known=%v: title = %q, want %q", known, md.Title, "Телохранитель")
+				if titleText(md.Title) != "Телохранитель" {
+					t.Errorf("known=%v: title = %q, want %q", known, titleText(md.Title), "Телохранитель")
 				}
 			})
 		}
@@ -771,8 +771,8 @@ func TestExtractUTF16AnnotationAttributeDelimiter(t *testing.T) {
 				if err != nil {
 					t.Fatalf("known=%v: Extract error = %v, want nil (valid UTF-16 input)", known, err)
 				}
-				if md.Title != "Телохранитель" {
-					t.Errorf("known=%v: title = %q, want %q", known, md.Title, "Телохранитель")
+				if titleText(md.Title) != "Телохранитель" {
+					t.Errorf("known=%v: title = %q, want %q", known, titleText(md.Title), "Телохранитель")
 				}
 			})
 		}
@@ -915,8 +915,8 @@ func TestExtractAnnotationTokenBoundaries(t *testing.T) {
 						}
 						assertContributor(t, &md.Contributors[0], authornorm.RoleAuthor, 0,
 							strp("Страж"), nil, strp("Телев"), nil, "Страж Телев")
-						if md.Title != "Телохранитель" {
-							t.Errorf("title = %q, want %q", md.Title, "Телохранитель")
+						if titleText(md.Title) != "Телохранитель" {
+							t.Errorf("title = %q, want %q", titleText(md.Title), "Телохранитель")
 						}
 						if want := knownMD5Of(b); md.BookMD5 != want {
 							t.Errorf("md5 = %q, want %q", md.BookMD5, want)
@@ -969,8 +969,8 @@ func TestExtractLargeAnnotationLimit(t *testing.T) {
 			}
 			assertContributor(t, &md.Contributors[0], authornorm.RoleAuthor, 0,
 				strp("Аннота"), nil, strp("Циева"), nil, "Аннота Циева")
-			if md.Title != "Большая аннотация" {
-				t.Errorf("limit = N: title = %q, want %q", md.Title, "Большая аннотация")
+			if titleText(md.Title) != "Большая аннотация" {
+				t.Errorf("limit = N: title = %q, want %q", titleText(md.Title), "Большая аннотация")
 			}
 			if md.BookMD5 != known {
 				t.Errorf("limit = N: md5 = %q, want %q", md.BookMD5, known)
@@ -982,4 +982,124 @@ func TestExtractLargeAnnotationLimit(t *testing.T) {
 			}
 		})
 	}
+}
+
+// presenceDoc is a minimal FB2 description with one author; the three
+// fragments go into title-info, document-info and publish-info.
+func presenceDoc(titleInfo, documentInfo, publishInfo string) []byte {
+	return []byte(`<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">
+<description>
+<title-info>
+<author><first-name>Имя</first-name></author>
+` + titleInfo + `
+</title-info>
+<document-info>
+` + documentInfo + `
+</document-info>
+<publish-info>
+` + publishInfo + `
+</publish-info>
+</description>
+<body><section><p>body text</p></section></body>
+</FictionBook>
+`)
+}
+
+// Contract 3.2: an absent element stays nil and a present-but-empty one is a
+// non-nil pointer to "" — for every scalar source field, the title included.
+// The repeated publish-info fields keep a present-empty element as "".
+func TestExtractScalarPresence(t *testing.T) {
+	scalars := []struct {
+		name    string
+		element string
+		place   func(fragment string) []byte
+		get     func(md *authornorm.SourceMetadata) *string
+	}{
+		{"title", "book-title", func(f string) []byte { return presenceDoc(f, "", "") },
+			func(md *authornorm.SourceMetadata) *string { return md.Title }},
+		{"lang", "lang", func(f string) []byte { return presenceDoc(f, "", "") },
+			func(md *authornorm.SourceMetadata) *string { return md.Lang }},
+		{"src-lang", "src-lang", func(f string) []byte { return presenceDoc(f, "", "") },
+			func(md *authornorm.SourceMetadata) *string { return md.SrcLang }},
+		{"document id", "id", func(f string) []byte { return presenceDoc("", f, "") },
+			func(md *authornorm.SourceMetadata) *string { return md.DocumentID }},
+		{"document version", "version", func(f string) []byte { return presenceDoc("", f, "") },
+			func(md *authornorm.SourceMetadata) *string { return md.DocumentVersion }},
+	}
+	for _, s := range scalars {
+		forms := []struct {
+			form     string
+			fragment string
+			want     *string
+		}{
+			{"absent", "", nil},
+			{"self-closing", "<" + s.element + "/>", strp("")},
+			{"open-close", "<" + s.element + "></" + s.element + ">", strp("")},
+			{"whitespace", "<" + s.element + ">  </" + s.element + ">", strp("  ")},
+			{"text", "<" + s.element + ">v</" + s.element + ">", strp("v")},
+		}
+		for _, f := range forms {
+			t.Run(s.name+"/"+f.form, func(t *testing.T) {
+				md, err := extractBytes(t, bytes.NewReader(s.place(f.fragment)), "", 1<<20)
+				if err != nil {
+					t.Fatalf("Extract error: %v", err)
+				}
+				got := s.get(&md)
+				if (got == nil) != (f.want == nil) || (got != nil && *got != *f.want) {
+					t.Errorf("%s = %s, want %s", s.name, describePtr(got), describePtr(f.want))
+				}
+			})
+		}
+	}
+
+	lists := []struct {
+		name    string
+		element string
+		get     func(md *authornorm.SourceMetadata) []string
+	}{
+		{"isbn", "isbn", func(md *authornorm.SourceMetadata) []string { return md.ISBNs }},
+		{"publisher", "publisher", func(md *authornorm.SourceMetadata) []string { return md.Publisher }},
+		{"city", "city", func(md *authornorm.SourceMetadata) []string { return md.City }},
+		{"year", "year", func(md *authornorm.SourceMetadata) []string { return md.Year }},
+	}
+	for _, l := range lists {
+		forms := []struct {
+			form     string
+			fragment string
+			want     []string
+		}{
+			{"absent", "", nil},
+			{"self-closing", "<" + l.element + "/>", []string{""}},
+			{"empty then text", "<" + l.element + "></" + l.element + "><" + l.element + ">v</" + l.element + ">",
+				[]string{"", "v"}},
+		}
+		for _, f := range forms {
+			t.Run(l.name+"/"+f.form, func(t *testing.T) {
+				md, err := extractBytes(t, bytes.NewReader(presenceDoc("", "", f.fragment)), "", 1<<20)
+				if err != nil {
+					t.Fatalf("Extract error: %v", err)
+				}
+				if got := l.get(&md); fmt.Sprintf("%q", got) != fmt.Sprintf("%q", f.want) {
+					t.Errorf("%s = %q, want %q", l.name, got, f.want)
+				}
+			})
+		}
+	}
+}
+
+// titleText is the title's text for comparisons with an expected non-empty
+// title; an absent title compares as "" and so never matches one.
+func titleText(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+func describePtr(p *string) string {
+	if p == nil {
+		return "nil"
+	}
+	return fmt.Sprintf("%q", *p)
 }

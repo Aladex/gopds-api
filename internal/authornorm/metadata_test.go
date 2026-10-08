@@ -28,7 +28,7 @@ func validMetadataFixture() SourceMetadata {
 		EntryName:        "book.fb2",
 		ExtractorVersion: "extractor-v1",
 		BookMD5:          "0123456789abcdef0123456789abcdef",
-		Title:            "Title",
+		Title:            strptr("Title"),
 		Contributors: []Contributor{
 			{Role: RoleAuthor, Position: 0, Value: authorValue},
 			{Role: RoleTranslator, Position: 0, Value: translatorValue},

@@ -74,7 +74,10 @@ type SourceMetadata struct {
 	// the entry through the hash.
 	BookMD5 string
 
-	Title   string
+	// Title, Lang and SrcLang follow the source-field rule of contract 3.2:
+	// nil when the element is absent, a pointer to "" when it is present but
+	// empty.
+	Title   *string
 	Lang    *string
 	SrcLang *string
 
