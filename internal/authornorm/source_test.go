@@ -2,6 +2,7 @@ package authornorm
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 )
 
@@ -231,5 +232,90 @@ func TestCopiedValueKeepsNilDistinctFromPresentEmpty(t *testing.T) {
 		if sv.Middle() != nil {
 			t.Error("absent middle became non-nil after copy")
 		}
+	}
+}
+
+// restoreFrom rebuilds a value from exactly what the credit row stores.
+func restoreFrom(v SourceValue) (SourceValue, error) {
+	return RestoreSourceValue(v.First(), v.Middle(), v.Last(), v.Nickname(), v.DisplayName(), v.HasDuplicateComponent())
+}
+
+func TestRestoreSourceValueRoundTripsEveryStoredShape(t *testing.T) {
+	cases := []struct {
+		name       string
+		components []SourceComponent
+	}{
+		{"first last", []SourceComponent{{ComponentFirst, "Иван"}, {ComponentLast, "Петров"}}},
+		{"last before first", []SourceComponent{{ComponentLast, "Петров"}, {ComponentFirst, "Иван"}}},
+		{"all four out of order", []SourceComponent{
+			{ComponentNickname, "Ник"}, {ComponentLast, "Петров"}, {ComponentMiddle, "Ильич"}, {ComponentFirst, "Иван"},
+		}},
+		{"present empty element", []SourceComponent{{ComponentFirst, ""}, {ComponentLast, "Петров"}}},
+		{"value with inner spaces", []SourceComponent{{ComponentLast, "ван  Гог"}, {ComponentFirst, "Винсент"}}},
+		{"nbsp edges kept", []SourceComponent{{ComponentLast, " Петров "}}},
+		{"duplicate with text", []SourceComponent{{ComponentFirst, "Иван"}, {ComponentFirst, "Пётр"}, {ComponentLast, "Петров"}}},
+		{"duplicate empty first", []SourceComponent{{ComponentFirst, ""}, {ComponentFirst, "Иван"}, {ComponentLast, "Петров"}}},
+		{"duplicate that adds nothing", []SourceComponent{{ComponentFirst, "Иван"}, {ComponentFirst, ""}}},
+		{"identical repeated value", []SourceComponent{{ComponentFirst, "Иван"}, {ComponentFirst, "Иван"}}},
+		{"repeat after another kind", []SourceComponent{
+			{ComponentLast, "Петров"}, {ComponentFirst, "Иван"}, {ComponentLast, "Сидоров"},
+		}},
+		{"repeat of an empty kind before a value", []SourceComponent{
+			{ComponentNickname, ""}, {ComponentLast, "Петров"}, {ComponentNickname, "Ник"},
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			v, err := NewSourceValue(tc.components)
+			if err != nil {
+				t.Fatalf("NewSourceValue: %v", err)
+			}
+			restored, err := restoreFrom(v)
+			if err != nil {
+				t.Fatalf("RestoreSourceValue: %v", err)
+			}
+			if !reflect.DeepEqual(restored, v) {
+				t.Errorf("restored %+v, want %+v", restored, v)
+			}
+			if SourceFingerprint(restored) != SourceFingerprint(v) {
+				t.Error("restored value has another fingerprint")
+			}
+		})
+	}
+}
+
+func TestRestoreSourceValueRejectsWhatNoExtractionProduces(t *testing.T) {
+	cases := []struct {
+		name      string
+		first     *string
+		last      *string
+		display   string
+		duplicate bool
+		want      error
+	}{
+		{"untrimmed field", strptr(" Иван"), strptr("Петров"), " Иван Петров", false, ErrNonCanonicalSource},
+		{"untrimmed field inside a consistent display", strptr(" Иван"), strptr("Петров"), "Петров  Иван", false, ErrNonCanonicalSource},
+		{"decomposed field", strptr("Rene\u0301"), nil, "Rene\u0301", false, ErrNonCanonicalSource},
+		{"empty display", strptr(""), nil, "", false, ErrNoNameComponents},
+		{"display names another person", strptr("Иван"), strptr("Петров"), "Пётр Петров", false, ErrNonCanonicalSource},
+		{"display drops a field", strptr("Иван"), strptr("Петров"), "Петров", false, ErrNonCanonicalSource},
+		{"display with an extra word but no duplicate", strptr("Иван"), strptr("Петров"), "Иван Петров Сидоров", false, ErrNonCanonicalSource},
+		{"display with doubled separator", strptr("Иван"), strptr("Петров"), "Иван  Петров", false, ErrNonCanonicalSource},
+		{"duplicate display misses a field", strptr("Иван"), strptr("Петров"), "Пётр Петров", true, ErrNonCanonicalSource},
+		{"duplicate display untrimmed", strptr("Иван"), nil, "Иван Пётр ", true, ErrNonCanonicalSource},
+		// Fix round 1 (review B3): duplicate forms no extraction can produce.
+		{"duplicate without any name child", nil, nil, "Иван", true, ErrNonCanonicalSource},
+		{"one occurrence used by two children", strptr("Иван"), strptr("Иван"), "Иван", true, ErrNonCanonicalSource},
+		{"overlapping child values", strptr("Анна Мария"), strptr("Мария Петрова"), "Анна Мария Петрова", true, ErrNonCanonicalSource},
+		{"repeat before the first occurrence of its kind", strptr("Иван"), nil, "Пётр Иван", true, ErrNonCanonicalSource},
+		{"repeat cut at a doubled separator", strptr("Иван"), nil, "Иван  Пётр", true, ErrNonCanonicalSource},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := RestoreSourceValue(tc.first, nil, tc.last, nil, tc.display, tc.duplicate)
+			if !errors.Is(err, tc.want) {
+				t.Errorf("err = %v, want %v", err, tc.want)
+			}
+		})
 	}
 }
