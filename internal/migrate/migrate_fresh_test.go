@@ -119,11 +119,65 @@ func TestRunRealMigrationsOnFreshDatabase(t *testing.T) {
 	if _, queryErr := db.QueryOne(pg.Scan(&guards), `
 		SELECT count(*) FROM pg_trigger t
 		JOIN pg_proc p ON p.oid = t.tgfoid
-		WHERE NOT t.tgisinternal AND p.proname = 'author_metadata_reject_mutation'`); queryErr != nil {
+		WHERE NOT t.tgisinternal AND p.proname = 'author_metadata_reject_mutation'
+			AND t.tgrelid::regclass::text IN (
+				'book_metadata_snapshot', 'book_contributor_credit',
+				'author_metadata_run_item_attempt', 'author_metadata_pilot_approval')`); queryErr != nil {
 		t.Fatalf("checking author metadata immutability triggers: %v", queryErr)
 	}
 	if guards != 4 {
 		t.Errorf("found %d immutability triggers, want 4 (snapshot, credit, attempt, pilot approval)", guards)
+	}
+
+	// The normalization pipeline (24-author-normalization-pipeline.sql): its
+	// tables, the one-local-result-per-key and one-open-review indexes, the
+	// resolution consistency trigger, and an acceptance policy that ships
+	// empty — no migration registers a class.
+	var pipelineTables []string
+	if _, queryErr := db.Query(&pipelineTables, `
+		SELECT table_name FROM information_schema.tables
+		WHERE table_schema = 'public' AND table_name IN (
+			'author_acceptance_class',
+			'contributor_normalization_result',
+			'contributor_manual_override',
+			'book_contributor_credit_selection',
+			'book_contributor_credit_selection_audit',
+			'contributor_normalization_job',
+			'contributor_normalization_job_attempt',
+			'contributor_review_item')`); queryErr != nil {
+		t.Fatalf("checking normalization pipeline tables: %v", queryErr)
+	}
+	if len(pipelineTables) != 8 {
+		t.Errorf("found normalization pipeline tables %v, want all 8", pipelineTables)
+	}
+
+	var pipelineIndexes []string
+	if _, queryErr := db.Query(&pipelineIndexes, `
+		SELECT indexname FROM pg_indexes
+		WHERE schemaname = 'public'
+			AND indexname IN (
+				'contributor_normalization_result_one_local_per_key',
+				'contributor_review_item_one_open_per_credit',
+				'contributor_review_item_one_open_per_fingerprint')
+			AND indexdef LIKE 'CREATE UNIQUE INDEX%WHERE%'`); queryErr != nil {
+		t.Fatalf("checking normalization pipeline partial unique indexes: %v", queryErr)
+	}
+	if len(pipelineIndexes) != 3 {
+		t.Errorf("found partial unique indexes %v, want the local-result and two open-review ones", pipelineIndexes)
+	}
+
+	var consistency, policyClasses int
+	if _, queryErr := db.QueryOne(pg.Scan(&consistency, &policyClasses), `
+		SELECT (SELECT count(*) FROM pg_trigger
+				WHERE tgname = 'book_contributor_credit_selection_consistency' AND tgconstraint <> 0),
+			(SELECT count(*) FROM author_acceptance_class)`); queryErr != nil {
+		t.Fatalf("checking the resolution trigger and the acceptance policy: %v", queryErr)
+	}
+	if consistency != 1 {
+		t.Errorf("found %d resolution consistency constraint triggers, want 1", consistency)
+	}
+	if policyClasses != 0 {
+		t.Errorf("a fresh database holds %d acceptance classes, want an empty policy", policyClasses)
 	}
 
 	second, err := Run(ctx, db, os.DirFS("../.."), "database_migrations", AppBaseline())

@@ -765,6 +765,17 @@ func changedValue(t *testing.T, column, udt string) string {
 // refused, then requires each mutable column to change.
 func (f *authorSchemaFixture) requireImmutable(table string, id int64, mutable ...string) {
 	f.t.Helper()
+	f.requireFrozen(table, "id", id, mutable...)
+	f.t.Run("delete", func(t *testing.T) {
+		f.on(t).reject(sqlstateRestrict, "immutable", fmt.Sprintf(`DELETE FROM %s WHERE id = ?`, table), id)
+	})
+}
+
+// requireFrozen is the UPDATE half of requireImmutable, for rows identified
+// by key that may change in the listed columns only and whose deletion is
+// governed elsewhere.
+func (f *authorSchemaFixture) requireFrozen(table, key string, id int64, mutable ...string) {
+	f.t.Helper()
 	allowed := map[string]bool{}
 	for _, c := range mutable {
 		allowed[c] = true
@@ -780,14 +791,11 @@ func (f *authorSchemaFixture) requireImmutable(table string, id int64, mutable .
 		}
 		f.t.Run("update "+column, func(t *testing.T) {
 			f.on(t).reject(sqlstateRestrict, "immutable",
-				fmt.Sprintf(`UPDATE %s SET %s = %s WHERE id = ?`, table, column, changedValue(t, column, udt)), id)
+				fmt.Sprintf(`UPDATE %s SET %s = %s WHERE %s = ?`, table, column, changedValue(t, column, udt), key), id)
 		})
 	}
-	f.t.Run("delete", func(t *testing.T) {
-		f.on(t).reject(sqlstateRestrict, "immutable", fmt.Sprintf(`DELETE FROM %s WHERE id = ?`, table), id)
-	})
 	// A no-op UPDATE of a protected column is not a change and passes.
-	f.accept(fmt.Sprintf(`UPDATE %s SET id = id WHERE id = ?`, table), id)
+	f.accept(fmt.Sprintf(`UPDATE %s SET %s = %s WHERE %s = ?`, table, key, key, key), id)
 }
 
 // RED 9: source credits and snapshot payloads cannot be updated or deleted;
@@ -887,6 +895,8 @@ func TestAuthorMetadataSourceIsImmutable(t *testing.T) {
 			"author_metadata_run_item_attempt.author_metadata_run_item_attempt_closed": "author_metadata_reject_closed_attempt()",
 			"author_metadata_run.author_metadata_run_updated_at":                       "update_updated_at_column()",
 			"author_metadata_run_item.author_metadata_run_item_updated_at":             "update_updated_at_column()",
+			"author_metadata_run_item.author_metadata_run_item_identity": "author_metadata_reject_mutation(" +
+				"status,snapshot_id,lease_owner,lease_expires_at,attempt_count,next_attempt_at,updated_at,finished_at)",
 		}, got)
 	})
 }
@@ -1140,6 +1150,11 @@ func TestAuthorMetadataModelEnumsMatchSchema(t *testing.T) {
 	}
 	for _, s := range models.AuthorMetadataRunItemStatuses() {
 		assert.Equal(t, s != models.AuthorMetadataRunItemPending, s.IsTerminal(), string(s))
+	}
+	// Values the database would refuse are neither active nor terminal.
+	for _, unknown := range []string{"", "unknown", "Extracted", "extracted "} {
+		assert.False(t, models.AuthorMetadataRunItemStatus(unknown).IsTerminal(), "%q", unknown)
+		assert.False(t, models.AuthorMetadataRunStatus(unknown).IsActive(), "%q", unknown)
 	}
 }
 

@@ -85,9 +85,15 @@ func AuthorMetadataRunItemStatuses() []AuthorMetadataRunItemStatus {
 	return append([]AuthorMetadataRunItemStatus{AuthorMetadataRunItemPending}, AuthorMetadataRunItemTerminalStatuses()...)
 }
 
-// IsTerminal reports whether the item has finished.
+// IsTerminal reports whether the item has finished. Values the schema would
+// refuse, the zero value among them, are not terminal.
 func (s AuthorMetadataRunItemStatus) IsTerminal() bool {
-	return s != AuthorMetadataRunItemPending
+	for _, terminal := range AuthorMetadataRunItemTerminalStatuses() {
+		if s == terminal {
+			return true
+		}
+	}
+	return false
 }
 
 // BookMetadataSnapshotOrigin says which path wrote a snapshot: a backfill run,
@@ -249,4 +255,318 @@ type AuthorMetadataPilotApproval struct {
 	NormalizerVersion string                  `pg:"normalizer_version"`
 	ApprovedByUserID  int64                   `pg:"approved_by_user_id"`
 	ApprovedAt        time.Time               `pg:"approved_at,default:now()"`
+}
+
+// The normalization pipeline (migration 24): immutable normalization results,
+// the per-credit resolution with its append-only audit, immutable manual
+// overrides, the local normalization queue, the manual review queue and the
+// acceptance-policy classes. There is no LLM stream; the method enum keeps
+// "llm" so a later LLM project needs no enum migration.
+
+// NormalizationMethod is how a result was produced.
+type NormalizationMethod string
+
+const (
+	NormalizationStructured NormalizationMethod = "structured"
+	NormalizationRules      NormalizationMethod = "rules"
+	NormalizationLLM        NormalizationMethod = "llm"
+	NormalizationManual     NormalizationMethod = "manual"
+)
+
+// NormalizationMethods lists every method the schema accepts.
+func NormalizationMethods() []NormalizationMethod {
+	return []NormalizationMethod{NormalizationStructured, NormalizationRules, NormalizationLLM, NormalizationManual}
+}
+
+// NormalizationKind is what a result says the contributor is.
+type NormalizationKind string
+
+const (
+	NormalizationPerson     NormalizationKind = "person"
+	NormalizationCollective NormalizationKind = "collective"
+	NormalizationUnknown    NormalizationKind = "unknown"
+	NormalizationMalformed  NormalizationKind = "malformed"
+)
+
+// NormalizationKinds lists every kind the schema accepts.
+func NormalizationKinds() []NormalizationKind {
+	return []NormalizationKind{NormalizationPerson, NormalizationCollective, NormalizationUnknown, NormalizationMalformed}
+}
+
+// NormalizationStatus is the outcome a result records. Malformed results are
+// always invalid.
+type NormalizationStatus string
+
+const (
+	NormalizationNormalized NormalizationStatus = "normalized"
+	NormalizationUnresolved NormalizationStatus = "unresolved"
+	NormalizationInvalid    NormalizationStatus = "invalid"
+)
+
+// NormalizationStatuses lists every result status the schema accepts.
+func NormalizationStatuses() []NormalizationStatus {
+	return []NormalizationStatus{NormalizationNormalized, NormalizationUnresolved, NormalizationInvalid}
+}
+
+// CreditSelectionState is where an author credit stands.
+type CreditSelectionState string
+
+const (
+	CreditSelectionSelected   CreditSelectionState = "selected"
+	CreditSelectionInvalid    CreditSelectionState = "invalid"
+	CreditSelectionUnresolved CreditSelectionState = "unresolved"
+	CreditSelectionReview     CreditSelectionState = "review"
+)
+
+// CreditSelectionStates lists every resolution state the schema accepts.
+func CreditSelectionStates() []CreditSelectionState {
+	return []CreditSelectionState{
+		CreditSelectionSelected, CreditSelectionInvalid, CreditSelectionUnresolved, CreditSelectionReview,
+	}
+}
+
+// CreditSelectionBasis is why a selected result was selected.
+type CreditSelectionBasis string
+
+const (
+	CreditSelectionAutomatic           CreditSelectionBasis = "automatic"
+	CreditSelectionFingerprintOverride CreditSelectionBasis = "fingerprint_override"
+	CreditSelectionCreditOverride      CreditSelectionBasis = "credit_override"
+)
+
+// CreditSelectionBases lists every selection basis the schema accepts.
+func CreditSelectionBases() []CreditSelectionBasis {
+	return []CreditSelectionBasis{
+		CreditSelectionAutomatic, CreditSelectionFingerprintOverride, CreditSelectionCreditOverride,
+	}
+}
+
+// UnresolvedReason is the closed reason an author credit stays unresolved.
+type UnresolvedReason string
+
+const (
+	UnresolvedPolicyNotRegistered  UnresolvedReason = "policy_not_registered"
+	UnresolvedNormalizerFailed     UnresolvedReason = "normalizer_failed"
+	UnresolvedReviewLeftUnresolved UnresolvedReason = "review_left_unresolved"
+)
+
+// UnresolvedReasons lists every unresolved reason the schema accepts.
+func UnresolvedReasons() []UnresolvedReason {
+	return []UnresolvedReason{
+		UnresolvedPolicyNotRegistered, UnresolvedNormalizerFailed, UnresolvedReviewLeftUnresolved,
+	}
+}
+
+// NormalizationJobStatus is the state of a local normalization job.
+type NormalizationJobStatus string
+
+const (
+	NormalizationJobPending   NormalizationJobStatus = "pending"
+	NormalizationJobCompleted NormalizationJobStatus = "completed"
+	NormalizationJobFailed    NormalizationJobStatus = "failed"
+)
+
+// NormalizationJobStatuses lists every job status the schema accepts.
+func NormalizationJobStatuses() []NormalizationJobStatus {
+	return []NormalizationJobStatus{NormalizationJobPending, NormalizationJobCompleted, NormalizationJobFailed}
+}
+
+// IsTerminal reports whether the job has finished. Values the schema would
+// refuse are not terminal.
+func (s NormalizationJobStatus) IsTerminal() bool {
+	return s == NormalizationJobCompleted || s == NormalizationJobFailed
+}
+
+// ReviewReason is why a review item was opened.
+type ReviewReason string
+
+const (
+	ReviewAmbiguousDecision        ReviewReason = "ambiguous_decision"
+	ReviewIncompatibleManualSchema ReviewReason = "incompatible_manual_schema"
+)
+
+// ReviewReasons lists every review reason the schema accepts.
+func ReviewReasons() []ReviewReason {
+	return []ReviewReason{ReviewAmbiguousDecision, ReviewIncompatibleManualSchema}
+}
+
+// ReviewStatus is whether a review item still waits for a decision.
+type ReviewStatus string
+
+const (
+	ReviewOpen   ReviewStatus = "open"
+	ReviewClosed ReviewStatus = "closed"
+)
+
+// ReviewStatuses lists every review status the schema accepts.
+func ReviewStatuses() []ReviewStatus {
+	return []ReviewStatus{ReviewOpen, ReviewClosed}
+}
+
+// ReviewResolution is the action that closed a review item.
+type ReviewResolution string
+
+const (
+	ReviewAccepted       ReviewResolution = "accepted"
+	ReviewEdited         ReviewResolution = "edited"
+	ReviewClassified     ReviewResolution = "classified"
+	ReviewLeftUnresolved ReviewResolution = "left_unresolved"
+	ReviewRetried        ReviewResolution = "retried"
+)
+
+// ReviewResolutions lists every resolution the schema accepts.
+func ReviewResolutions() []ReviewResolution {
+	return []ReviewResolution{ReviewAccepted, ReviewEdited, ReviewClassified, ReviewLeftUnresolved, ReviewRetried}
+}
+
+// AuthorAcceptanceClass registers one (policy version, decision class) for
+// automatic selection, with the configuration and the evidence report hash it
+// was measured on. Immutable; the production policy ships empty.
+type AuthorAcceptanceClass struct {
+	tableName            struct{}  `pg:"author_acceptance_class"`
+	ID                   int64     `pg:"id,pk"`
+	PolicyVersion        string    `pg:"policy_version"`
+	DecisionClass        string    `pg:"decision_class"`
+	ConfigVersion        string    `pg:"config_version"`
+	EvidenceReportSHA256 []byte    `pg:"evidence_report_sha256"`
+	RegisteredByUserID   int64     `pg:"registered_by_user_id"`
+	RegisteredAt         time.Time `pg:"registered_at,default:now()"`
+}
+
+// ContributorNormalizationResult is the immutable lexical result for one
+// normalization input: not a person and not a canonical author. Automatic
+// results carry their key and versions; a manual result carries its author
+// instead.
+type ContributorNormalizationResult struct {
+	tableName           struct{}            `pg:"contributor_normalization_result"`
+	ID                  int64               `pg:"id,pk"`
+	SourceFingerprint   []byte              `pg:"source_fingerprint"`
+	NormalizationKey    []byte              `pg:"normalization_key"`
+	ExtractorVersion    *string             `pg:"extractor_version"`
+	NormalizerVersion   *string             `pg:"normalizer_version"`
+	ResultSchemaVersion string              `pg:"result_schema_version"`
+	Method              NormalizationMethod `pg:"method"`
+	Kind                NormalizationKind   `pg:"kind"`
+	Status              NormalizationStatus `pg:"status"`
+	DecisionClass       *string             `pg:"decision_class"`
+	GivenName           *string             `pg:"given_name"`
+	AdditionalNames     []string            `pg:"additional_names,array,default:'{}'"`
+	FamilyName          *string             `pg:"family_name"`
+	Nickname            *string             `pg:"nickname"`
+	Prefix              *string             `pg:"prefix"`
+	Suffix              *string             `pg:"suffix"`
+	DisplayName         *string             `pg:"display_name"`
+	SortName            *string             `pg:"sort_name"`
+	SearchKey           *string             `pg:"search_key"`
+	Script              *string             `pg:"script"`
+	QualityFlags        []string            `pg:"quality_flags,array,default:'{}'"`
+	CreatedByUserID     *int64              `pg:"created_by_user_id"`
+	CreatedAt           time.Time           `pg:"created_at,default:now()"`
+}
+
+// ContributorManualOverride is an immutable manual decision for exactly one
+// scope: ScopeCreditID or ScopeFingerprint. SourceFingerprint is the source
+// it is about; CreditRole and ResultMethod are fixed by the schema.
+type ContributorManualOverride struct {
+	tableName         struct{}            `pg:"contributor_manual_override"`
+	ID                int64               `pg:"id,pk"`
+	ScopeCreditID     *int64              `pg:"scope_credit_id"`
+	ScopeFingerprint  []byte              `pg:"scope_fingerprint"`
+	SourceFingerprint []byte              `pg:"source_fingerprint"`
+	CreditRole        ContributorRole     `pg:"credit_role,default:'author'"`
+	ResultID          int64               `pg:"result_id"`
+	ResultMethod      NormalizationMethod `pg:"result_method,default:'manual'"`
+	CreatedByUserID   int64               `pg:"created_by_user_id"`
+	CreatedAt         time.Time           `pg:"created_at,default:now()"`
+}
+
+// BookContributorCreditSelection is where one author credit stands: selected,
+// invalid, unresolved with a closed reason, or in review. Every change is
+// appended to the audit by the database.
+type BookContributorCreditSelection struct {
+	tableName         struct{}              `pg:"book_contributor_credit_selection"`
+	CreditID          int64                 `pg:"credit_id,pk"`
+	SourceFingerprint []byte                `pg:"source_fingerprint"`
+	CreditRole        ContributorRole       `pg:"credit_role,default:'author'"`
+	State             CreditSelectionState  `pg:"state"`
+	ResultID          *int64                `pg:"result_id"`
+	Basis             *CreditSelectionBasis `pg:"basis"`
+	OverrideID        *int64                `pg:"override_id"`
+	PolicyVersion     *string               `pg:"policy_version"`
+	UnresolvedReason  *UnresolvedReason     `pg:"unresolved_reason"`
+	DecidedByUserID   *int64                `pg:"decided_by_user_id"`
+	DecidedAt         time.Time             `pg:"decided_at,default:now()"`
+}
+
+// BookContributorCreditSelectionAudit is one immutable record of a resolution
+// change.
+type BookContributorCreditSelectionAudit struct {
+	tableName        struct{}              `pg:"book_contributor_credit_selection_audit"`
+	ID               int64                 `pg:"id,pk"`
+	CreditID         int64                 `pg:"credit_id"`
+	PreviousState    *CreditSelectionState `pg:"previous_state"`
+	PreviousResultID *int64                `pg:"previous_result_id"`
+	State            CreditSelectionState  `pg:"state"`
+	ResultID         *int64                `pg:"result_id"`
+	Basis            *CreditSelectionBasis `pg:"basis"`
+	OverrideID       *int64                `pg:"override_id"`
+	PolicyVersion    *string               `pg:"policy_version"`
+	UnresolvedReason *UnresolvedReason     `pg:"unresolved_reason"`
+	DecidedByUserID  *int64                `pg:"decided_by_user_id"`
+	RecordedAt       time.Time             `pg:"recorded_at,default:now()"`
+}
+
+// ContributorNormalizationJob is one local normalization job per
+// normalization key. Lease columns follow AuthorMetadataRunItem.
+type ContributorNormalizationJob struct {
+	tableName         struct{}               `pg:"contributor_normalization_job"`
+	ID                int64                  `pg:"id,pk"`
+	NormalizationKey  []byte                 `pg:"normalization_key"`
+	SourceFingerprint []byte                 `pg:"source_fingerprint"`
+	ExtractorVersion  string                 `pg:"extractor_version"`
+	NormalizerVersion string                 `pg:"normalizer_version"`
+	Status            NormalizationJobStatus `pg:"status,default:'pending'"`
+	ResultID          *int64                 `pg:"result_id"`
+	LastErrorClass    *string                `pg:"last_error_class"`
+	LeaseOwner        *string                `pg:"lease_owner,type:uuid"`
+	LeaseExpiresAt    *time.Time             `pg:"lease_expires_at"`
+	AttemptCount      int                    `pg:"attempt_count,use_zero"`
+	NextAttemptAt     time.Time              `pg:"next_attempt_at,default:now()"`
+	CreatedAt         time.Time              `pg:"created_at,default:now()"`
+	UpdatedAt         time.Time              `pg:"updated_at,default:now()"`
+	FinishedAt        *time.Time             `pg:"finished_at"`
+}
+
+// ContributorNormalizationJobAttempt is one append-only attempt of a local
+// job, finished once with an outcome, a closed error class, or both.
+type ContributorNormalizationJobAttempt struct {
+	tableName  struct{}                `pg:"contributor_normalization_job_attempt"`
+	ID         int64                   `pg:"id,pk"`
+	JobID      int64                   `pg:"job_id"`
+	AttemptNo  int                     `pg:"attempt_no"`
+	LeaseOwner string                  `pg:"lease_owner,type:uuid"`
+	StartedAt  time.Time               `pg:"started_at,default:now()"`
+	FinishedAt *time.Time              `pg:"finished_at"`
+	Outcome    *NormalizationJobStatus `pg:"outcome"`
+	ErrorClass *string                 `pg:"error_class"`
+}
+
+// ContributorReviewItem is one manual review item for exactly one scope,
+// open until a resolution closes it for good.
+type ContributorReviewItem struct {
+	tableName          struct{}          `pg:"contributor_review_item"`
+	ID                 int64             `pg:"id,pk"`
+	ScopeCreditID      *int64            `pg:"scope_credit_id"`
+	ScopeFingerprint   []byte            `pg:"scope_fingerprint"`
+	SourceFingerprint  []byte            `pg:"source_fingerprint"`
+	CreditRole         ContributorRole   `pg:"credit_role,default:'author'"`
+	Reason             ReviewReason      `pg:"reason"`
+	DecisionClass      *string           `pg:"decision_class"`
+	ProposalResultID   *int64            `pg:"proposal_result_id"`
+	Status             ReviewStatus      `pg:"status,default:'open'"`
+	Resolution         *ReviewResolution `pg:"resolution"`
+	ResolutionResultID *int64            `pg:"resolution_result_id"`
+	ResolvedByUserID   *int64            `pg:"resolved_by_user_id"`
+	CreatedAt          time.Time         `pg:"created_at,default:now()"`
+	FinishedAt         *time.Time        `pg:"finished_at"`
 }
