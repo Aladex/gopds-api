@@ -84,6 +84,48 @@ func TestRunRealMigrationsOnFreshDatabase(t *testing.T) {
 		t.Errorf("found %d of 3 search expression indexes", indexes)
 	}
 
+	// The author metadata source layer (23-author-metadata-source.sql): its
+	// tables, the two partial unique indexes that carry its invariants, and
+	// the immutability guard.
+	var sourceTables []string
+	if _, queryErr := db.Query(&sourceTables, `
+		SELECT table_name FROM information_schema.tables
+		WHERE table_schema = 'public' AND table_name IN (
+			'author_metadata_run',
+			'author_metadata_run_item',
+			'author_metadata_run_item_attempt',
+			'author_metadata_pilot_approval',
+			'book_metadata_snapshot',
+			'book_contributor_credit')`); queryErr != nil {
+		t.Fatalf("checking author metadata tables: %v", queryErr)
+	}
+	if len(sourceTables) != 6 {
+		t.Errorf("found author metadata tables %v, want all 6", sourceTables)
+	}
+
+	var partialUnique []string
+	if _, queryErr := db.Query(&partialUnique, `
+		SELECT indexname FROM pg_indexes
+		WHERE schemaname = 'public'
+			AND indexname IN ('author_metadata_run_one_active', 'book_metadata_snapshot_one_current')
+			AND indexdef LIKE 'CREATE UNIQUE INDEX%WHERE%'`); queryErr != nil {
+		t.Fatalf("checking author metadata partial unique indexes: %v", queryErr)
+	}
+	if len(partialUnique) != 2 {
+		t.Errorf("found partial unique indexes %v, want the active-run and current-snapshot ones", partialUnique)
+	}
+
+	var guards int
+	if _, queryErr := db.QueryOne(pg.Scan(&guards), `
+		SELECT count(*) FROM pg_trigger t
+		JOIN pg_proc p ON p.oid = t.tgfoid
+		WHERE NOT t.tgisinternal AND p.proname = 'author_metadata_reject_mutation'`); queryErr != nil {
+		t.Fatalf("checking author metadata immutability triggers: %v", queryErr)
+	}
+	if guards != 4 {
+		t.Errorf("found %d immutability triggers, want 4 (snapshot, credit, attempt, pilot approval)", guards)
+	}
+
 	second, err := Run(ctx, db, os.DirFS("../.."), "database_migrations", AppBaseline())
 	if err != nil {
 		t.Fatalf("re-running the migrations: %v", err)
