@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">
+<description>
+<title-info>
+<author><first-name>Сломан</first-name><last-name>Тегов & друзья</last-name></author>
+<book-title>Малформ</book-title>
+</title-info>
+</description>
+</FictionBook>

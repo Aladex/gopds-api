@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">
+<description>
+<title-info>
+<author><first-name>Лев</first-name><last-name>Сериев</last-name></author>
+<book-title>Серии и публикация</book-title>
+<lang>ru</lang>
+<sequence name="Миры" number="2">
+<sequence name="Хроники"/>
+</sequence>
+<sequence name="Миры" number="3"/>
+</title-info>
+<document-info>
+<id>doc-seq</id>
+<version>3</version>
+</document-info>
+<publish-info>
+<publisher>АСТ</publisher>
+<city>Москва</city>
+<year>2019</year>
+<isbn>978-5-17-1</isbn>
+<isbn>5-17-02</isbn>
+<sequence name="Серия издателя"/>
+</publish-info>
+</description>
+<body><section><p>body text</p></section></body>
+</FictionBook>

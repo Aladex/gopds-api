@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">
+<description>
+<title-info>
+<author><last-name>Соколов</last-name><first-name>Олег</first-name></author>
+<author><nickname>fox</nickname><first-name>Вера</first-name><last-name>Лисина</last-name></author>
+<book-title>Порядок детей</book-title>
+<lang>ru</lang>
+</title-info>
+<document-info>
+<id>doc-order</id>
+<version>1</version>
+</document-info>
+</description>
+<body><section><p>body text</p></section></body>
+</FictionBook>

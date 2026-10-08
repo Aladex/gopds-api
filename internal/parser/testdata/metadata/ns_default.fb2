@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">
+<description>
+<title-info>
+<author><first-name>Нс</first-name><last-name>Дефолтов</last-name></author>
+<book-title>Неймспейс по умолчанию</book-title>
+<lang>ru</lang>
+</title-info>
+<document-info>
+<id>doc-nsd</id>
+<version>1</version>
+</document-info>
+</description>
+<body><section><p>body text</p></section></body>
+</FictionBook>

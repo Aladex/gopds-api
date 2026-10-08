@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">
+<description>
+<title-info>
+<author id="au-1"><first-name>Иван</first-name><last-name>Петров</last-name><nickname>ivanp</nickname></author>
+<author><first-name>Анна</first-name><middle-name>Сергеевна</middle-name><last-name>Сидорова</last-name></author>
+<author><first-name>   </first-name></author>
+<author><first-name></first-name><last-name>Пустов</last-name></author>
+<translator><first-name>John</first-name><last-name>Smith</last-name></translator>
+<book-title>Метаданные тест</book-title>
+<lang>ru</lang>
+<src-lang>en</src-lang>
+</title-info>
+<document-info>
+<id>doc-multi</id>
+<version>1</version>
+</document-info>
+</description>
+<body><section><p>body text</p></section></body>
+</FictionBook>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<fb:FictionBook xmlns:fb="http://www.gribuser.ru/xml/fictionbook/2.0">
+<fb:description>
+<fb:title-info>
+<fb:author><fb:first-name>Нс</fb:first-name><fb:last-name>Префиксов</fb:last-name></fb:author>
+<fb:book-title>Неймспейс с префиксом</fb:book-title>
+<fb:lang>ru</fb:lang>
+</fb:title-info>
+<fb:document-info>
+<fb:id>doc-nsp</fb:id>
+<fb:version>1</fb:version>
+</fb:document-info>
+</fb:description>
+<fb:body><fb:section><fb:p>body text</fb:p></fb:section></fb:body>
+</fb:FictionBook>
