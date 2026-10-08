@@ -272,14 +272,14 @@ type raceResult struct {
 // transactions are open before either call begins. Successes are committed by
 // the racer — the caller role the repository leaves the boundary to — and
 // failures roll back. Outcomes return in completion order.
-func racePersistExtraction(t *testing.T, first, second *ExtractionInput) []raceResult {
+func racePersistExtraction(t *testing.T, scratch *pg.DB, first, second *ExtractionInput) []raceResult {
 	t.Helper()
 	ready := make(chan struct{}, 2)
 	start := make(chan struct{})
 	results := make(chan raceResult, 2)
 	racer := func(input *ExtractionInput) {
 		go func() {
-			tx, err := db.Begin()
+			tx, err := scratch.Begin()
 			if err != nil {
 				results <- raceResult{err: err}
 				return
@@ -309,9 +309,11 @@ func racePersistExtraction(t *testing.T, first, second *ExtractionInput) []raceR
 
 // RED 5: two concurrent writers with two real transactions and a barrier
 // converge on one current snapshot and one complete result set. Run with
-// -count=20: the command is recorded in the phase report.
+// -count=20: the command is recorded in the phase report. The race commits
+// its winner, so the whole test runs in a scratch database that is dropped
+// afterwards: nothing it commits ever touches the integration database.
 func TestPersistExtractionConcurrentWriters(t *testing.T) {
-	requireDatabase(t)
+	s := raceDB(t)
 
 	for _, scenario := range []struct {
 		name    string
@@ -329,19 +331,19 @@ func TestPersistExtractionConcurrentWriters(t *testing.T) {
 				require.NoError(t, err)
 				keys[i] = key
 			}
-			// Jobs are the only race rows that can be cleaned up (their guard
-			// freezes updates, not deletes); snapshots, credits and the book
-			// stay as the documented residue of the committed race.
+			// The scenarios share one scratch database, and jobs are keyed
+			// by normalization input alone, so each scenario clears its own
+			// jobs for the next one.
 			t.Cleanup(func() {
 				for _, key := range keys {
-					_, _ = db.Exec(`DELETE FROM contributor_normalization_job WHERE normalization_key = ?`, key[:])
+					_, _ = s.Exec(`DELETE FROM contributor_normalization_job WHERE normalization_key = ?`, key[:])
 				}
 			})
 
 			// The book must be visible to both transactions, so it is
 			// committed before the race; everything else stays in the racers'
 			// own transactions.
-			book := nextCommittedBook(t, bookMD5(0))
+			book := nextCommittedBook(t, s, bookMD5(0))
 
 			inputFor := func(extractor string) *ExtractionInput {
 				return &ExtractionInput{
@@ -361,7 +363,7 @@ func TestPersistExtractionConcurrentWriters(t *testing.T) {
 			if !scenario.sameKey {
 				second = "extractor-v2"
 			}
-			outcomes := racePersistExtraction(t, inputFor("extractor-v1"), inputFor(second))
+			outcomes := racePersistExtraction(t, s, inputFor("extractor-v1"), inputFor(second))
 
 			var winner *raceResult
 			currentCount, duplicateCount, conflictCount := 0, 0, 0
@@ -398,24 +400,24 @@ func TestPersistExtractionConcurrentWriters(t *testing.T) {
 			// The database ends with exactly one current snapshot and one
 			// complete result set, whichever racer won.
 			var current []int64
-			_, err := db.Query(&current, `SELECT id FROM book_metadata_snapshot WHERE book_id = ? AND is_current`, book)
+			_, err := s.Query(&current, `SELECT id FROM book_metadata_snapshot WHERE book_id = ? AND is_current`, book)
 			require.NoError(t, err)
 			assert.Equal(t, []int64{winner.result.SnapshotID}, current)
 
 			var snapshots int
-			_, err = db.QueryOne(pg.Scan(&snapshots), `SELECT count(*) FROM book_metadata_snapshot WHERE book_id = ?`, book)
+			_, err = s.QueryOne(pg.Scan(&snapshots), `SELECT count(*) FROM book_metadata_snapshot WHERE book_id = ?`, book)
 			require.NoError(t, err)
 			assert.Equal(t, 1, snapshots, "the loser left no half-written snapshot")
 
 			var credits int
-			_, err = db.QueryOne(pg.Scan(&credits), `SELECT count(*) FROM book_contributor_credit c
+			_, err = s.QueryOne(pg.Scan(&credits), `SELECT count(*) FROM book_contributor_credit c
 				JOIN book_metadata_snapshot s ON s.id = c.snapshot_id WHERE s.book_id = ?`, book)
 			require.NoError(t, err)
 			assert.Equal(t, 1, credits)
 
 			if scenario.sameKey {
 				var jobs int
-				_, err = db.QueryOne(pg.Scan(&jobs), `SELECT count(*) FROM contributor_normalization_job
+				_, err = s.QueryOne(pg.Scan(&jobs), `SELECT count(*) FROM contributor_normalization_job
 					WHERE normalization_key = ?`, keys[0][:])
 				require.NoError(t, err)
 				assert.Equal(t, 1, jobs)
@@ -423,7 +425,7 @@ func TestPersistExtractionConcurrentWriters(t *testing.T) {
 				won, lost := 0, 0
 				for _, i := range []int{0, 1} {
 					var jobs int
-					_, err = db.QueryOne(pg.Scan(&jobs), `SELECT count(*) FROM contributor_normalization_job
+					_, err = s.QueryOne(pg.Scan(&jobs), `SELECT count(*) FROM contributor_normalization_job
 						WHERE normalization_key = ?`, keys[i][:])
 					require.NoError(t, err)
 					if jobs == 1 {
@@ -454,11 +456,11 @@ func TestPersistExtractionConcurrentWriters(t *testing.T) {
 		}
 		t.Cleanup(func() {
 			for _, key := range keys {
-				_, _ = db.Exec(`DELETE FROM contributor_normalization_job WHERE normalization_key = ?`, key[:])
+				_, _ = s.Exec(`DELETE FROM contributor_normalization_job WHERE normalization_key = ?`, key[:])
 			}
 		})
 
-		book := nextCommittedBook(t, bookMD5(0))
+		book := nextCommittedBook(t, s, bookMD5(0))
 		inputFor := func(extractor string) *ExtractionInput {
 			return &ExtractionInput{
 				BookID:           book,
@@ -475,7 +477,7 @@ func TestPersistExtractionConcurrentWriters(t *testing.T) {
 
 		// Committed history: v1 written, then superseded by v2.
 		commit := func(extractor string) PersistExtractionResult {
-			tx, err := db.Begin()
+			tx, err := s.Begin()
 			require.NoError(t, err)
 			result, err := PersistExtraction(tx, inputFor(extractor))
 			require.NoError(t, err)
@@ -486,7 +488,7 @@ func TestPersistExtractionConcurrentWriters(t *testing.T) {
 		v2 := commit("extractor-v2")
 		require.NotEqual(t, v1.SnapshotID, v2.SnapshotID)
 
-		outcomes := racePersistExtraction(t, inputFor("extractor-v1"), inputFor("extractor-v3"))
+		outcomes := racePersistExtraction(t, s, inputFor("extractor-v1"), inputFor("extractor-v3"))
 
 		var winner *raceResult
 		written, conflicts := 0, 0
@@ -511,7 +513,7 @@ func TestPersistExtractionConcurrentWriters(t *testing.T) {
 		}
 
 		var current []int64
-		_, err := db.Query(&current, `SELECT id FROM book_metadata_snapshot WHERE book_id = ? AND is_current`, book)
+		_, err := s.Query(&current, `SELECT id FROM book_metadata_snapshot WHERE book_id = ? AND is_current`, book)
 		require.NoError(t, err)
 		assert.Equal(t, []int64{winner.result.SnapshotID}, current)
 
@@ -520,19 +522,19 @@ func TestPersistExtractionConcurrentWriters(t *testing.T) {
 			versions = 3
 		}
 		var snapshots int
-		_, err = db.QueryOne(pg.Scan(&snapshots), `SELECT count(*) FROM book_metadata_snapshot WHERE book_id = ?`, book)
+		_, err = s.QueryOne(pg.Scan(&snapshots), `SELECT count(*) FROM book_metadata_snapshot WHERE book_id = ?`, book)
 		require.NoError(t, err)
 		assert.Equal(t, versions, snapshots, "the loser left no half-written snapshot; history stays")
 
 		var credits int
-		_, err = db.QueryOne(pg.Scan(&credits), `SELECT count(*) FROM book_contributor_credit c
+		_, err = s.QueryOne(pg.Scan(&credits), `SELECT count(*) FROM book_contributor_credit c
 			JOIN book_metadata_snapshot s ON s.id = c.snapshot_id WHERE s.book_id = ?`, book)
 		require.NoError(t, err)
 		assert.Equal(t, versions, credits)
 
 		for extractor, key := range keys {
 			var jobs int
-			_, err = db.QueryOne(pg.Scan(&jobs), `SELECT count(*) FROM contributor_normalization_job
+			_, err = s.QueryOne(pg.Scan(&jobs), `SELECT count(*) FROM contributor_normalization_job
 				WHERE normalization_key = ?`, key[:])
 			require.NoError(t, err)
 			want := 1

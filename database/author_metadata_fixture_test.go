@@ -11,12 +11,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"gopds-api/internal/authornorm"
+	"gopds-api/internal/migrate"
+	"gopds-api/internal/testdb"
 	"gopds-api/models"
 
 	"github.com/go-pg/pg/v10"
@@ -278,46 +281,53 @@ func (p *failAfterDBI) RunInTransaction(ctx context.Context, fn func(*pg.Tx) err
 }
 
 // The concurrency test must commit its winner's rows for the race to resolve,
-// and snapshots and credits are immutable once written, so it cannot clean
-// them up. Its books come from a dedicated slice of the fixture ID range —
-// above everything the rolled-back fixtures allocate, below the search
-// fixture's precondition range — and each process run salts its start and
-// probes upward, so reruns never collide with what earlier runs left behind.
-const (
-	concurrentBookBase int64 = 2_146_500_000
-	// The span plus the probe headroom stays strictly below the search
-	// fixture's precondition range, which starts at 2_147_000_000 and must
-	// stay empty.
-	concurrentBookSpan int64 = 300_000
-	concurrentBookScan int64 = 100_000
-)
+// and snapshots and credits are immutable once written, so the committed side
+// of the race cannot run against the integration database: the books it needs
+// visible to both transactions would stay there forever. The race therefore
+// runs in a scratch database, migrated from the real files and dropped when
+// the test ends — including on failure (FORCE also ends connections a failed
+// test left behind). Nothing the race commits survives the test.
 
-var concurrentBookNext = func() *atomic.Int64 {
-	next := new(atomic.Int64)
-	next.Store(concurrentBookBase + time.Now().UnixNano()%concurrentBookSpan)
-	return next
-}()
-
-// nextCommittedBook inserts and commits one fresh book row for the race. The
-// row is deliberately retired from the reader catalog: approved = false keeps
-// it out of every ordinary list (which the catalog tests draw their fixtures
-// from), and the registerdate is backdated by an offset from now so no
-// date-ordered view picks it up either.
-func nextCommittedBook(t *testing.T, md5 string) int64 {
+// raceDB creates and migrates a scratch database for the concurrency test.
+func raceDB(t *testing.T) *pg.DB {
 	t.Helper()
 	requireDatabase(t)
-	backdated := time.Now().Add(-20 * 365 * 24 * time.Hour)
-	for i := int64(0); i < concurrentBookScan; i++ {
-		id := concurrentBookNext.Add(1)
-		res, err := db.Exec(`INSERT INTO opds_catalog_book
-			(id, filename, path, format, registerdate, docdate, lang, title, annotation, md5, approved)
-			VALUES (?, ?, 'race.zip', 'fb2', ?, '', 'ru', 'race fixture', '', ?, false)
-			ON CONFLICT (id) DO NOTHING`, id, fmt.Sprintf("%d.fb2", id), backdated, md5)
-		require.NoError(t, err)
-		if res.RowsAffected() == 1 {
-			return id
+	cfg, _ := testdb.Configured()
+
+	name := fmt.Sprintf("author_source_race_test_%d", time.Now().UnixNano())
+	_, err := db.Exec("CREATE DATABASE " + name)
+	require.NoError(t, err, "creating the scratch database")
+	// Registered first so it runs last, after the pool below closed.
+	t.Cleanup(func() {
+		if _, dropErr := db.Exec("DROP DATABASE IF EXISTS " + name + " WITH (FORCE)"); dropErr != nil {
+			t.Errorf("dropping the scratch database %s: %v", name, dropErr)
 		}
-	}
-	t.Fatal("no free concurrent-fixture book ID found")
-	return 0
+	})
+
+	scratch := pg.Connect(&pg.Options{
+		Addr: cfg.Host, User: cfg.User, Password: cfg.Password, Database: name, PoolSize: 16,
+	})
+	t.Cleanup(func() { _ = scratch.Close() })
+
+	_, err = migrate.Run(context.Background(), scratch, os.DirFS(".."), "database_migrations", migrate.AppBaseline())
+	require.NoError(t, err, "migrating the scratch database")
+	return scratch
+}
+
+// raceBookNext hands out fresh book IDs inside the scratch database, where
+// every run starts empty and no probing is needed.
+var raceBookNext atomic.Int64
+
+// nextCommittedBook inserts and commits one book row on the scratch pool: the
+// racers' snapshots reference it, and their transactions must see it before
+// the barrier opens.
+func nextCommittedBook(t *testing.T, scratch *pg.DB, md5 string) int64 {
+	t.Helper()
+	id := raceBookNext.Add(1)
+	_, err := scratch.Exec(`INSERT INTO opds_catalog_book
+		(id, filename, path, format, registerdate, docdate, lang, title, annotation, md5)
+		VALUES (?, ?, 'race.zip', 'fb2', now(), '', 'ru', 'race fixture', '', ?)`,
+		id, fmt.Sprintf("%d.fb2", id), md5)
+	require.NoError(t, err)
+	return id
 }
