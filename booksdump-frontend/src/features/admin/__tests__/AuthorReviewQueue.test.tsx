@@ -797,3 +797,36 @@ describe('dialog focus and privacy hardening', () => {
         spies.forEach((spy) => spy.mockRestore());
     });
 });
+
+describe('confirm focus settlement', () => {
+    it('returns focus to the action button once a confirmed request settles', async () => {
+        const user = userEvent.setup();
+        let resolveAccept!: (value: { item: AuthorReviewDetail }) => void;
+        const gate = new Promise<{ item: AuthorReviewDetail }>((resolve) => {
+            resolveAccept = resolve;
+        });
+        api.acceptAuthorReviewItem.mockReturnValueOnce(gate);
+        render(<AuthorReviewQueue />);
+        await openDetail('Fixture Display A');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Single credit' }));
+        const accept = screen.getByRole('button', { name: 'Accept' });
+        accept.focus();
+        await user.keyboard('{Enter}');
+        const dialog = await screen.findByRole('dialog');
+        const confirm = within(dialog).getByRole('button', { name: 'Confirm' });
+        confirm.focus();
+        await user.keyboard('{Enter}');
+
+        // The dialog is closed and the request is in flight: the opener is
+        // disabled, so focus cannot land on it yet.
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        expect(accept).toBeDisabled();
+
+        await act(async () => {
+            resolveAccept({ item: detail() });
+        });
+        await waitFor(() => expect(accept).toBeEnabled());
+        expect(accept).toHaveFocus();
+    });
+});

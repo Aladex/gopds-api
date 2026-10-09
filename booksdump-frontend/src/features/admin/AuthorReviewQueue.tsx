@@ -322,17 +322,22 @@ const AuthorReviewQueue: React.FC = () => {
     // Focus is handed back after the commit, not inside the close handler:
     // the dialog's focus machinery runs while unmounting its content and
     // lands on <body>, overwriting anything focused earlier. BooksList does
-    // the same for the reader dialog.
+    // the same for the reader dialog. Confirm additionally disables the
+    // opener for the duration of the request, so a target that cannot take
+    // focus yet is kept and restored once the request settles.
     useEffect(() => {
-        if (pendingAction !== null) {
+        if (pendingAction !== null || busy) {
             return;
         }
         const opener = dialogOpenerRef.current;
-        dialogOpenerRef.current = null;
-        if (opener && document.contains(opener)) {
+        if (opener === null) {
+            return;
+        }
+        if (document.contains(opener) && !opener.hasAttribute('disabled')) {
+            dialogOpenerRef.current = null;
             opener.focus();
         }
-    }, [pendingAction]);
+    }, [pendingAction, busy]);
 
     const confirmPending = () => {
         if (pendingAction === null || scopeChoice === null) {
