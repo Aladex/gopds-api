@@ -252,6 +252,15 @@ export function percent(done: number, total: number): number {
     return Math.round((done / total) * 100);
 }
 
+/**
+ * The extraction throughput for the reader: the current locale's own digits
+ * and separators, at most one fraction digit — never the raw float the stats
+ * average happens to carry (7507.850998570327 reads as nothing).
+ */
+export function formatItemsPerMinute(rate: number, language: string | undefined): string {
+    return new Intl.NumberFormat(language, { maximumFractionDigits: 1 }).format(rate);
+}
+
 /** A labelled figure. Values sit in their own node so tests and readers see one number each. */
 const Stat: React.FC<{ label: React.ReactNode; value: React.ReactNode }> = ({ label, value }) => (
     <div className="flex items-baseline justify-between gap-4 text-sm">
@@ -298,7 +307,7 @@ const StageProgress: React.FC<{ title: string; done: number; total: number }> = 
 };
 
 const AuthorNormalization: React.FC = () => {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
     const [searchParams, setSearchParams] = useSearchParams();
     /**
      * The tab lives in the address (?tab=review): the detail screen's Back
@@ -871,7 +880,10 @@ const AuthorNormalization: React.FC = () => {
                                                     'authorNormalization.extraction.itemsPerMinute',
                                                     'Items/min',
                                                 )}
-                                                value={run.stages.extraction.items_per_minute}
+                                                value={formatItemsPerMinute(
+                                                    run.stages.extraction.items_per_minute,
+                                                    i18n?.language,
+                                                )}
                                             />
                                             {run.stages.extraction.current_archive !== null && (
                                                 <p className="text-sm break-words">

@@ -508,6 +508,27 @@ describe('detail in a modal (wide)', () => {
             restore();
         }
     });
+
+    it('keeps the retry action clear of the dialog close button', async () => {
+        const restore = stubTableWide(true);
+        try {
+            renderAt('/queue');
+            await openDetailWide('Fixture Display A');
+
+            // jsdom cannot overlap-check two boxes. What is pinned is the
+            // contract that keeps them apart: the close control is an
+            // absolutely placed 44px square in the dialog's top-right corner,
+            // and the header row that carries the retry button at its right
+            // edge reserves right padding at least that wide, at every dialog
+            // width and through any wrap.
+            const header = document.getElementById('author-review-detail-heading')?.parentElement;
+            expect(header).not.toBeNull();
+            expect(header).toHaveClass('pr-12');
+            expect(screen.getByRole('button', { name: 'Retry normalization' })).toBeInTheDocument();
+        } finally {
+            restore();
+        }
+    });
 });
 
 describe('browser history within the queue', () => {

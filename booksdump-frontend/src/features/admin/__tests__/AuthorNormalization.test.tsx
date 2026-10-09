@@ -6,6 +6,7 @@ import AdminSpace from '@/features/admin/AdminPanel';
 import AuthorNormalization, {
     TRACKED_RUN_KEY,
     controlsFor,
+    formatItemsPerMinute,
     fullStartAllowed,
     parseBookIds,
     percent,
@@ -27,11 +28,12 @@ import ruTranslation from '@/locales/ru/translation.json';
 const { i18nHolder } = vi.hoisted(() => ({
     i18nHolder: {
         t: (key: string, opts?: unknown) => (typeof opts === 'string' ? opts : key),
+        language: 'en',
     },
 }));
 
 vi.mock('react-i18next', () => ({
-    useTranslation: () => ({ t: i18nHolder.t }),
+    useTranslation: () => ({ t: i18nHolder.t, i18n: { language: i18nHolder.language } }),
 }));
 
 vi.mock('@/api/admin', async (importOriginal) => {
@@ -1641,5 +1643,70 @@ describe('latest run', () => {
         expect(alert).toHaveTextContent('Failed to load the current run.');
         expect(screen.queryByText('No author normalization run yet. Start one below.')).toBeNull();
         expect(screen.getByRole('button', { name: 'Start' })).toBeDisabled();
+    });
+});
+
+describe('extraction throughput formatting', () => {
+    const withRate = (rate: number) =>
+        makeRun({
+            stages: {
+                ...makeRun().stages,
+                extraction: { ...makeRun().stages.extraction, items_per_minute: rate },
+            },
+        });
+
+    it('renders at most one fraction digit, never the raw float', async () => {
+        currentWillReturn(withRate(7507.850998570327));
+        renderScreen(<AuthorNormalization />);
+
+        const run = await screen.findByRole('region', { name: /Current run/ });
+        const extraction = within(run).getByRole('region', { name: 'Extraction' });
+        expect(within(extraction).getByText('7,507.9')).toBeInTheDocument();
+        expect(within(extraction).queryByText('7507.850998570327')).toBeNull();
+    });
+
+    it('keeps zero as zero', async () => {
+        currentWillReturn(withRate(0));
+        renderScreen(<AuthorNormalization />);
+
+        const run = await screen.findByRole('region', { name: /Current run/ });
+        const extraction = within(run).getByRole('region', { name: 'Extraction' });
+        expect(within(extraction).getByText('0')).toBeInTheDocument();
+    });
+
+    it('follows the Russian locale', async () => {
+        i18nHolder.language = 'ru';
+        try {
+            currentWillReturn(withRate(7507.850998570327));
+            renderScreen(<AuthorNormalization />);
+
+            const run = await screen.findByRole('region', { name: /Current run/ });
+            const extraction = within(run).getByRole('region', { name: 'Extraction' });
+            // The exact group separator is the locale's own business; what is
+            // pinned is that the figure went through ru formatting. The raw
+            // textContent comparison keeps the locale's own non-breaking
+            // space, which the query normalizer would fold away.
+            const expected = new Intl.NumberFormat('ru', { maximumFractionDigits: 1 }).format(
+                7507.850998570327,
+            );
+            expect(
+                within(extraction).getByText((_, element) => element?.textContent === expected),
+            ).toBeInTheDocument();
+            expect(expected).toMatch(/507/);
+        } finally {
+            i18nHolder.language = 'en';
+        }
+    });
+});
+
+describe('formatItemsPerMinute', () => {
+    it('keeps at most one fraction digit and zero as zero', () => {
+        expect(formatItemsPerMinute(7507.850998570327, 'en')).toBe('7,507.9');
+        expect(formatItemsPerMinute(12.5, 'en')).toBe('12.5');
+        expect(formatItemsPerMinute(0, 'en')).toBe('0');
+        expect(formatItemsPerMinute(0, 'ru')).toBe('0');
+        expect(formatItemsPerMinute(7507.850998570327, 'ru')).toBe(
+            new Intl.NumberFormat('ru', { maximumFractionDigits: 1 }).format(7507.850998570327),
+        );
     });
 });

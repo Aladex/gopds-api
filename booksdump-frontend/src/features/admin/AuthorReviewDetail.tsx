@@ -413,7 +413,16 @@ export const AuthorReviewDetail: React.FC<{ itemID: number }> = ({ itemID }) => 
 
     return (
         <section aria-labelledby="author-review-detail-heading" className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center gap-2">
+            {/*
+              The header row carries the retry action at its right edge, and in
+              the modal that edge is where the dialog's close control lives:
+              an absolutely placed 44px square in the top-right corner. The
+              padding reserves room for it at every dialog width and through
+              any wrap, so the two never sit on top of each other; on the
+              full-screen route there is no close control and the padding is
+              simply quiet space.
+            */}
+            <div className="flex flex-wrap items-center gap-2 pr-12">
                 <h3 id="author-review-detail-heading" className="text-base font-medium">
                     {t('authorReview.detailTitle', 'Review item')}
                 </h3>

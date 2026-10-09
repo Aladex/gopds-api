@@ -220,13 +220,22 @@ const BookCard: React.FC<BookCardProps> = ({
               breaks in two, every label parts from its value and the annotation
               comes to a couple of words — before a book with several authors
               makes it worse.
-              
+
               So only the title and the dates sit beside the cover, which is what
               a reader scans first, and the metadata and annotation drop below to
               the card's full width. On a wider screen the same three blocks fall
               into the two columns they had.
             */}
-            <div className="grid grid-cols-[104px_minmax(0,1fr)] gap-x-4 gap-y-3 sm:gap-y-1.5">
+            {/*
+              On sm+ the cover column spans both rows (~206px: the cover plus
+              the format buttons), and when the text column is shorter than
+              that, two auto rows share the difference — the title row grows an
+              empty band under the dates. Naming the rows keeps the title row
+              at its content height and hands all spare height to the second
+              row, where it lands below the metadata. Below sm nothing spans
+              rows and the grid's own auto rows are left alone.
+            */}
+            <div className="grid grid-cols-[104px_minmax(0,1fr)] gap-x-4 gap-y-3 sm:grid-rows-[auto_1fr] sm:gap-y-1.5">
                 <div className="contents sm:row-span-2 sm:flex sm:flex-col sm:gap-2">
                     <BookCover
                         src={cover}
