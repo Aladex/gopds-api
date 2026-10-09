@@ -60,6 +60,10 @@ func SetupAdminRoutes(r *gin.RouterGroup) {
 
 	// Author metadata runs (the run service comes from its wiring point)
 	SetupAuthorMetadataRunRoutes(r.Group("/author-metadata"), authorMetadataRunService())
+
+	// Author metadata review queue (the review service comes from its wiring
+	// point, set by the server's author-metadata initialization)
+	SetupAuthorMetadataReviewRoutes(r.Group("/author-metadata"), authorMetadataReviewService())
 }
 
 // UsersAnswer struct for users list in admin space

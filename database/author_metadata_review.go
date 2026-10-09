@@ -103,22 +103,38 @@ type ManualCorrection struct {
 	Kind           models.NormalizationKind
 }
 
-// validate checks the correction the way the schema will: a selectable kind,
-// a known script, and the non-empty display name and search key a normalized
-// result owes.
+// validate checks a correction an override selects: a selectable kind, a
+// known script, and the non-empty display name and search key a normalized
+// result owes. A malformed kind is refused — an override selects a result,
+// and an invalid one is never selected.
 func (c *ManualCorrection) validate() error {
-	switch c.Kind {
-	case models.NormalizationPerson, models.NormalizationCollective, models.NormalizationUnknown:
-	case models.NormalizationMalformed:
+	if c.Kind == models.NormalizationMalformed {
 		return fmt.Errorf("%w: a manual result cannot select a malformed kind", ErrInvalidManualCorrection)
+	}
+	return c.validateForDecision()
+}
+
+// validateForDecision checks a correction a review decision may carry: the
+// same rules, except a malformed kind, which takes the terminal-invalid path
+// and owes no search key — its result is stored status=invalid, and the
+// schema's non-empty display and search key rule applies to status=normalized
+// only. The display name stays required at every layer: it is what the admin
+// saw and decided on.
+func (c *ManualCorrection) validateForDecision() error {
+	switch c.Kind {
+	case models.NormalizationPerson, models.NormalizationCollective, models.NormalizationUnknown,
+		models.NormalizationMalformed:
 	default:
 		return fmt.Errorf("%w: unknown kind %q", ErrInvalidManualCorrection, c.Kind)
 	}
 	if err := authornorm.Script(c.Script).Validate(); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidManualCorrection, err)
 	}
-	if strings.TrimSpace(c.DisplayName) == "" || strings.TrimSpace(c.SearchKey) == "" {
-		return fmt.Errorf("%w: a normalized manual result needs a display name and a search key", ErrInvalidManualCorrection)
+	if strings.TrimSpace(c.DisplayName) == "" {
+		return fmt.Errorf("%w: a manual result needs a display name", ErrInvalidManualCorrection)
+	}
+	if c.Kind != models.NormalizationMalformed && strings.TrimSpace(c.SearchKey) == "" {
+		return fmt.Errorf("%w: a normalized manual result needs a search key", ErrInvalidManualCorrection)
 	}
 	return nil
 }
@@ -128,14 +144,14 @@ const manualResultColumns = `source_fingerprint, result_schema_version, method, 
 	given_name, additional_names, family_name, nickname, prefix, suffix,
 	display_name, sort_name, search_key, script, quality_flags, created_by_user_id`
 
-func manualResultValues(fingerprint []byte, c *ManualCorrection, admin int64) []interface{} {
+func manualResultValues(fingerprint []byte, c *ManualCorrection, admin int64, status models.NormalizationStatus) []interface{} {
 	additional := []string{}
 	if c.AdditionalName != "" {
 		additional = append(additional, c.AdditionalName)
 	}
 	return []interface{}{
 		fingerprint, strconv.Itoa(authornorm.ResultSchemaVersion), models.NormalizationManual, c.Kind,
-		models.NormalizationNormalized,
+		status,
 		nullable(c.GivenName), pg.Array(additional), nullable(c.FamilyName), nullable(c.Nickname),
 		nullable(c.Prefix), nullable(c.Suffix), nullable(c.DisplayName), nullable(c.SortName),
 		nullable(c.SearchKey), nullable(c.Script), pg.Array([]string{}), admin,
@@ -143,6 +159,14 @@ func manualResultValues(fingerprint []byte, c *ManualCorrection, admin int64) []
 }
 
 const insertManualResultSQL = `INSERT INTO contributor_normalization_result
+	(` + manualResultColumns + `)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+RETURNING id`
+
+// insertManualInvalidResultSQL writes the terminal manual result of a
+// malformed classification: kind malformed, status invalid — a result an
+// override can never select, only the invalid verdict can rest on.
+const insertManualInvalidResultSQL = `INSERT INTO contributor_normalization_result
 	(` + manualResultColumns + `)
 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 RETURNING id`
@@ -278,8 +302,9 @@ func ApplyOverride(
 		}
 	}
 
+	values := manualResultValues(fingerprint, correction, admin, models.NormalizationNormalized)
 	var resultID int64
-	_, err := tx.QueryOneContext(ctx, pg.Scan(&resultID), insertManualResultSQL, manualResultValues(fingerprint, correction, admin)...)
+	_, err := tx.QueryOneContext(ctx, pg.Scan(&resultID), insertManualResultSQL, values...)
 	if err != nil {
 		return OverrideReport{}, fmt.Errorf("writing the manual result: %w", err)
 	}
@@ -332,14 +357,13 @@ func (d ReviewDecision) validate() error {
 		if d.Correction == nil {
 			return fmt.Errorf("%w: an edit needs a correction", ErrInvalidReviewAction)
 		}
-		if err := d.Correction.validate(); err != nil {
+		if err := d.Correction.validateForDecision(); err != nil {
 			return err
 		}
 	case ReviewClassify:
 		switch d.Kind {
-		case models.NormalizationPerson, models.NormalizationCollective, models.NormalizationUnknown:
-		case models.NormalizationMalformed:
-			return fmt.Errorf("%w: a manual result cannot select a malformed kind", ErrInvalidReviewAction)
+		case models.NormalizationPerson, models.NormalizationCollective, models.NormalizationUnknown,
+			models.NormalizationMalformed:
 		default:
 			return fmt.Errorf("%w: unknown classification %q", ErrInvalidReviewAction, d.Kind)
 		}
@@ -353,6 +377,15 @@ func (d ReviewDecision) validate() error {
 		return fmt.Errorf("%w: a retry needs the worker's attempt budget", ErrInvalidReviewAction)
 	}
 	return nil
+}
+
+// malformed reports whether the decision classifies the source as malformed:
+// the terminal-invalid path instead of an override.
+func (d ReviewDecision) malformed() bool {
+	if d.Action == ReviewClassify {
+		return d.Kind == models.NormalizationMalformed
+	}
+	return d.Action == ReviewEdit && d.Correction != nil && d.Correction.Kind == models.NormalizationMalformed
 }
 
 // ReviewReport is what one review action did.
@@ -371,13 +404,13 @@ type ReviewReport struct {
 // proposal's normalization key or versions, only its decided name.
 func proposalAsCorrection(
 	ctx context.Context, tx ResolutionTx, item *reviewItemRow, kind models.NormalizationKind,
-) (ManualCorrection, []byte, error) {
+) (ManualCorrection, error) {
 	if item.ProposalResultID == nil {
-		return ManualCorrection{}, nil, ErrInvalidReviewAction
+		return ManualCorrection{}, ErrInvalidReviewAction
 	}
 	row := new(models.ContributorNormalizationResult)
 	if err := tx.ModelContext(ctx, row).Where("id = ?", *item.ProposalResultID).Select(); err != nil {
-		return ManualCorrection{}, nil, fmt.Errorf("reading the proposal: %w", err)
+		return ManualCorrection{}, fmt.Errorf("reading the proposal: %w", err)
 	}
 	additional := ""
 	if len(row.AdditionalNames) > 0 {
@@ -395,7 +428,7 @@ func proposalAsCorrection(
 	} else {
 		correction.Kind = row.Kind
 	}
-	return correction, row.SourceFingerprint, nil
+	return correction, nil
 }
 
 // closeReviewSQL closes the open item exactly once: the status predicate
@@ -414,6 +447,19 @@ func closeReviewItem(ctx context.Context, tx ResolutionTx, itemID, resultID, adm
 		return ErrReviewConflict
 	}
 	return nil
+}
+
+// completeCorrection derives what the admin's client does not send: the
+// search key and the letter script of the corrected display name. The
+// contract's edit body carries the name fields only; a selected manual
+// result still owes the schema a search key and a script.
+func completeCorrection(c *ManualCorrection) {
+	if strings.TrimSpace(c.SearchKey) == "" {
+		c.SearchKey = authornorm.SearchKey(c.DisplayName)
+	}
+	if strings.TrimSpace(c.Script) == "" {
+		c.Script = string(authornorm.DetectScript(c.DisplayName))
+	}
 }
 
 func nullableInt(id int64) *int64 {
@@ -551,38 +597,26 @@ func ApplyReviewAction(
 	if admin <= 0 {
 		return ReviewReport{}, ErrInvalidReviewActor
 	}
+	if decision.Correction != nil {
+		completeCorrection(decision.Correction)
+	}
 	if err := decision.validate(); err != nil {
 		return ReviewReport{}, err
 	}
 
-	var item reviewItemRow
-	_, err := tx.QueryOneContext(ctx, &item, reviewItemSQL, itemID)
-	if errors.Is(err, pg.ErrNoRows) {
-		return ReviewReport{}, ErrReviewNotFound
-	}
-	if err != nil {
-		return ReviewReport{}, fmt.Errorf("reading the review item: %w", err)
-	}
-	if item.Status != models.ReviewOpen {
-		return ReviewReport{}, ErrReviewConflict
-	}
-
-	// The lock-order rule: every affected credit, ascending, before any
-	// review-item write.
-	credits, err := affectedCreditsOfItem(ctx, tx, &item)
+	item, credits, err := openItemWithLockedCredits(ctx, tx, itemID)
 	if err != nil {
 		return ReviewReport{}, err
-	}
-	for i := range credits {
-		if _, lockErr := tx.ExecContext(ctx, resolutionLockSQL, credits[i].ID); lockErr != nil {
-			return ReviewReport{}, fmt.Errorf("locking the review's credits: %w", lockErr)
-		}
 	}
 
 	report := ReviewReport{Credits: len(credits)}
 	switch decision.Action {
 	case ReviewAccept, ReviewEdit, ReviewClassify:
-		report.ResultID, err = decideWithOverride(ctx, tx, &item, credits, admin, decision)
+		if decision.malformed() {
+			report.ResultID, err = applyInvalidClassification(ctx, tx, &item, credits, admin, decision)
+		} else {
+			report.ResultID, err = decideWithOverride(ctx, tx, &item, credits, admin, decision)
+		}
 	case ReviewLeaveUnresolved:
 		err = applyLeaveUnresolved(ctx, tx, &item, credits, admin)
 	case ReviewRetry:
@@ -590,10 +624,7 @@ func ApplyReviewAction(
 		// closes before the retry touches the job queue, so a worker
 		// completion that follows the same order can never form a cycle with
 		// it.
-		if closeErr := closeReviewItem(ctx, tx, itemID, 0, admin, decision.Action); closeErr != nil {
-			return ReviewReport{}, closeErr
-		}
-		report.JobQueued, err = applyRetry(ctx, tx, &item, &decision)
+		report.JobQueued, err = applyRetryClosed(ctx, tx, &item, admin, &decision)
 	default:
 		return ReviewReport{}, fmt.Errorf("%w: unknown action %q", ErrInvalidReviewAction, decision.Action)
 	}
@@ -616,18 +647,19 @@ func decideWithOverride(
 ) (int64, error) {
 	correction, fingerprint := decision.Correction, item.SourceFingerprint
 	if decision.Action != ReviewEdit {
-		proposed, _, corrErr := proposalAsCorrection(ctx, tx, item, decision.Kind)
+		proposed, corrErr := proposalAsCorrection(ctx, tx, item, decision.Kind)
 		if corrErr != nil {
 			return 0, corrErr
 		}
 		correction = &proposed
 	}
+	completeCorrection(correction)
 	if validErr := correction.validate(); validErr != nil {
 		return 0, validErr
 	}
 	var resultID int64
 	if _, err := tx.QueryOneContext(ctx, pg.Scan(&resultID), insertManualResultSQL,
-		manualResultValues(fingerprint, correction, admin)...); err != nil {
+		manualResultValues(fingerprint, correction, admin, models.NormalizationNormalized)...); err != nil {
 		return 0, fmt.Errorf("writing the manual result: %w", err)
 	}
 	scope := OverrideScope{Fingerprint: item.ScopeFingerprint}
@@ -646,6 +678,57 @@ func decideWithOverride(
 	return resultID, nil
 }
 
+// markInvalidSQL writes the admin's terminal invalid verdict on one credit,
+// resting on the manual malformed result. Like leave-unresolved it is a
+// terminal human decision: it replaces any earlier resolution, and a later
+// automatic resolution will not replace it back.
+const markInvalidSQL = `INSERT INTO book_contributor_credit_selection AS s
+	(credit_id, source_fingerprint, state, result_id, decided_by_user_id)
+VALUES (?0, ?1, 'invalid', ?2, ?3)
+ON CONFLICT (credit_id) DO UPDATE
+SET state = 'invalid', result_id = EXCLUDED.result_id, basis = NULL, override_id = NULL,
+	policy_version = NULL, unresolved_reason = NULL, decided_by_user_id = EXCLUDED.decided_by_user_id, decided_at = now()
+WHERE (s.state, s.result_id, s.basis, s.override_id, s.policy_version, s.unresolved_reason, s.decided_by_user_id)
+	IS DISTINCT FROM ('invalid', EXCLUDED.result_id, NULL, NULL, NULL, NULL, EXCLUDED.decided_by_user_id)`
+
+// applyInvalidClassification is the malformed half of classify and edit: an
+// immutable manual result of kind malformed and status invalid, the item's
+// credits marked invalid on it, the item closed. No override is written — an
+// invalid result is never selected.
+func applyInvalidClassification(
+	ctx context.Context,
+	tx ResolutionTx,
+	item *reviewItemRow,
+	credits []resolvableCredit,
+	admin int64,
+	decision ReviewDecision,
+) (int64, error) {
+	correction, fingerprint := decision.Correction, item.SourceFingerprint
+	if decision.Action != ReviewEdit {
+		proposed, corrErr := proposalAsCorrection(ctx, tx, item, decision.Kind)
+		if corrErr != nil {
+			return 0, corrErr
+		}
+		correction = &proposed
+	}
+	completeCorrection(correction)
+	var resultID int64
+	if _, err := tx.QueryOneContext(ctx, pg.Scan(&resultID), insertManualInvalidResultSQL,
+		manualResultValues(fingerprint, correction, admin, models.NormalizationInvalid)...); err != nil {
+		return 0, fmt.Errorf("writing the manual result: %w", err)
+	}
+	for i := range credits {
+		if _, err := tx.ExecContext(ctx, markInvalidSQL, credits[i].ID, credits[i].SourceFingerprint,
+			resultID, admin); err != nil {
+			return 0, fmt.Errorf("marking the credit invalid: %w", err)
+		}
+	}
+	if err := closeReviewItem(ctx, tx, item.ID, resultID, admin, decision.Action); err != nil {
+		return 0, err
+	}
+	return resultID, nil
+}
+
 // applyLeaveUnresolved writes the closed unresolved verdict on every credit
 // the item covers, then closes the item.
 func applyLeaveUnresolved(
@@ -657,6 +740,44 @@ func applyLeaveUnresolved(
 		}
 	}
 	return closeReviewItem(ctx, tx, item.ID, 0, admin, ReviewLeaveUnresolved)
+}
+
+// openItemWithLockedCredits reads one open review item and locks every credit
+// its decision touches, in ascending ID order — the documented lock-order
+// rule: credits before any review-item write.
+func openItemWithLockedCredits(ctx context.Context, tx ResolutionTx, itemID int64) (reviewItemRow, []resolvableCredit, error) {
+	var item reviewItemRow
+	_, err := tx.QueryOneContext(ctx, &item, reviewItemSQL, itemID)
+	if errors.Is(err, pg.ErrNoRows) {
+		return reviewItemRow{}, nil, ErrReviewNotFound
+	}
+	if err != nil {
+		return reviewItemRow{}, nil, fmt.Errorf("reading the review item: %w", err)
+	}
+	if item.Status != models.ReviewOpen {
+		return reviewItemRow{}, nil, ErrReviewConflict
+	}
+	credits, err := affectedCreditsOfItem(ctx, tx, &item)
+	if err != nil {
+		return reviewItemRow{}, nil, err
+	}
+	for i := range credits {
+		if _, lockErr := tx.ExecContext(ctx, resolutionLockSQL, credits[i].ID); lockErr != nil {
+			return reviewItemRow{}, nil, fmt.Errorf("locking the review's credits: %w", lockErr)
+		}
+	}
+	return item, credits, nil
+}
+
+// applyRetryClosed closes the item and then re-queues its input, in the
+// documented lock order.
+func applyRetryClosed(
+	ctx context.Context, tx ResolutionTx, item *reviewItemRow, admin int64, decision *ReviewDecision,
+) (bool, error) {
+	if err := closeReviewItem(ctx, tx, item.ID, 0, admin, decision.Action); err != nil {
+		return false, err
+	}
+	return applyRetry(ctx, tx, item, decision)
 }
 
 // applyRetry re-queues the item's input under the decision's normalizer

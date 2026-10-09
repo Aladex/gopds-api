@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"gopds-api/api"
 	"gopds-api/config"
 	"gopds-api/logging"
 	"gopds-api/services"
@@ -63,6 +64,15 @@ func startAuthorMetadataRunner(
 // them. A failure is logged and leaves the server running without them: the
 // pipeline is background work, and its jobs wait in the database.
 func initializeAuthorMetadata(db *pg.DB, archivesDir string, c *config.AuthorMetadataConfig) *services.AuthorMetadataRunner {
+	// The admin review API is wired from the same configuration whatever the
+	// worker switch says: reviewing is an administrator's action, not
+	// background work. services.AuthorMetadataReviewConfigFrom shares the
+	// local workers' retry budget, so a review retry is refused exactly when
+	// they could not claim it.
+	if err := api.SetAuthorMetadataReviewService(db, c); err != nil {
+		logging.Errorf("Author metadata review API not wired: %v", err)
+	}
+
 	if !c.Enabled {
 		logging.Info("Author metadata workers disabled")
 		return nil

@@ -815,10 +815,17 @@ const reviewerProbeOwner = "6f1c1c3e-8a0b-4b7e-9d36-3f4f0c6b9a11"
 // credit, the result and the item.
 func seedAmbiguousInput(t *testing.T, s *pg.DB) (credit int64, r authornorm.Result, item int64) {
 	t.Helper()
+	return seedAmbiguousInputAt(t, s, authorSchemaIDBase)
+}
+
+// seedAmbiguousInputAt is seedAmbiguousInput with an explicit fixture ID
+// base, so several seeds can share one scratch database.
+func seedAmbiguousInputAt(t *testing.T, s *pg.DB, base int64) (credit int64, r authornorm.Result, item int64) {
+	t.Helper()
 	ctx := context.Background()
 	seed, err := s.Begin()
 	require.NoError(t, err)
-	next := authorSchemaIDBase
+	next := base
 	f := &authorSchemaFixture{t: t, tx: seed, next: &next}
 	_, ids := f.persistBook(authorCredit(initialsSource(t)))
 	credit = ids[0]
@@ -1344,4 +1351,129 @@ func TestReviewRetryLeavesAnInFlightAttemptAlone(t *testing.T) {
 	require.NoError(t, s.RunInTransaction(ctx, func(tx *pg.Tx) error {
 		return CompleteLocalNormalizationJob(ctx, tx, claims[0].ID, reviewerProbeOwner, resultID)
 	}), "the worker that holds the lease still completes the job")
+}
+
+// Classifying a source as malformed is the terminal-invalid path the admin
+// API's contract offers: an immutable manual result of kind malformed and
+// status invalid, the credits marked invalid on it, the item closed — no
+// override, because an invalid result is never selected.
+func TestReviewClassifyMalformed(t *testing.T) {
+	s := jobsDB(t)
+	ctx := context.Background()
+
+	seed, err := s.Begin()
+	require.NoError(t, err)
+	next := authorSchemaIDBase
+	f := &authorSchemaFixture{t: t, tx: seed, next: &next}
+	item, credit, r := seedReviewItem(t, f)
+	require.NoError(t, seed.Commit())
+
+	tx, err := s.Begin()
+	require.NoError(t, err)
+	report, err := ApplyReviewAction(ctx, tx, item, 1, ReviewDecision{
+		Action: ReviewClassify, Kind: models.NormalizationMalformed})
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
+	assert.NotZero(t, report.ResultID)
+
+	var manual models.ContributorNormalizationResult
+	require.NoError(t, s.Model(&manual).Where("id = ?", report.ResultID).Select())
+	assert.Equal(t, models.NormalizationManual, manual.Method)
+	assert.Equal(t, models.NormalizationMalformed, manual.Kind)
+	assert.Equal(t, models.NormalizationInvalid, manual.Status)
+	assert.Nil(t, manual.NormalizationKey)
+
+	selected, err := selectionOn(s, credit)
+	require.NoError(t, err)
+	require.NotNil(t, selected)
+	assert.Equal(t, models.CreditSelectionInvalid, selected.State)
+	require.NotNil(t, selected.ResultID)
+	assert.Equal(t, report.ResultID, *selected.ResultID)
+	assert.Nil(t, selected.Basis)
+	assert.Nil(t, selected.OverrideID)
+	require.NotNil(t, selected.DecidedByUserID)
+
+	// A later automatic resolution keeps the admin's verdict.
+	resultID, err := InsertLocalResult(ctx, s, &r)
+	require.NoError(t, err)
+	require.NoError(t, s.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		return ResolveCreditSelection(ctx, tx, credit, &AutomaticOutcome{
+			ResultID: resultID, DecisionClass: r.DecisionClass,
+			Decision: authornorm.Decision{Outcome: authornorm.OutcomeReview},
+		})
+	}))
+	selected, err = selectionOn(s, credit)
+	require.NoError(t, err)
+	assert.Equal(t, models.CreditSelectionInvalid, selected.State)
+
+	var decided models.ContributorReviewItem
+	require.NoError(t, s.Model(&decided).Where("id = ?", item).Select())
+	assert.Equal(t, models.ReviewClosed, decided.Status)
+	require.NotNil(t, decided.Resolution)
+	assert.Equal(t, models.ReviewClassified, *decided.Resolution)
+	require.NotNil(t, decided.ResolutionResultID)
+	assert.Equal(t, report.ResultID, *decided.ResolutionResultID)
+
+	// An edit into malformed takes the same terminal path with the admin's
+	// own fields.
+	fresh, _, freshCredit := seedAmbiguousInputAt(t, s, authorSchemaIDBase+50_000)
+	correction := correctionOf("Мусор")
+	correction.Kind = models.NormalizationMalformed
+	tx, err = s.Begin()
+	require.NoError(t, err)
+	editReport, err := ApplyReviewAction(ctx, tx, fresh, 2, ReviewDecision{
+		Action: ReviewEdit, Correction: correction})
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
+	edited, err := selectionOn(s, freshCredit)
+	require.NoError(t, err)
+	require.NotNil(t, edited)
+	assert.Equal(t, models.CreditSelectionInvalid, edited.State)
+	require.NotNil(t, edited.ResultID)
+	assert.Equal(t, editReport.ResultID, *edited.ResultID)
+}
+
+// A contract-shaped malformed edit — punctuation-only display, no search key
+// sent — is the terminal-invalid decision: the derived search key is empty,
+// and an invalid manual result owes none (the schema's non-empty display and
+// search key rule applies to status=normalized only).
+func TestReviewMalformedEditWithoutSearchLetters(t *testing.T) {
+	s := jobsDB(t)
+	ctx := context.Background()
+
+	seed, err := s.Begin()
+	require.NoError(t, err)
+	next := authorSchemaIDBase
+	f := &authorSchemaFixture{t: t, tx: seed, next: &next}
+	item, credit, _ := seedReviewItem(t, f)
+	require.NoError(t, seed.Commit())
+
+	correction := correctionOf("...")
+	correction.Kind = models.NormalizationMalformed
+	correction.SearchKey = ""
+	tx, err := s.Begin()
+	require.NoError(t, err)
+	report, applyErr := ApplyReviewAction(ctx, tx, item, 4, ReviewDecision{
+		Action: ReviewEdit, Correction: correction})
+	require.NoError(t, applyErr)
+	require.NoError(t, tx.Commit())
+
+	var manual models.ContributorNormalizationResult
+	require.NoError(t, s.Model(&manual).Where("id = ?", report.ResultID).Select())
+	assert.Equal(t, models.NormalizationMalformed, manual.Kind)
+	assert.Equal(t, models.NormalizationInvalid, manual.Status)
+	assert.Equal(t, "...", *manual.DisplayName)
+	assert.Nil(t, manual.SearchKey, "an invalid manual result owes no search key")
+
+	selected, err := selectionOn(s, credit)
+	require.NoError(t, err)
+	require.NotNil(t, selected)
+	assert.Equal(t, models.CreditSelectionInvalid, selected.State)
+	require.NotNil(t, selected.DecidedByUserID)
+	assert.Equal(t, int64(4), *selected.DecidedByUserID)
+
+	var decided models.ContributorReviewItem
+	require.NoError(t, s.Model(&decided).Where("id = ?", item).Select())
+	require.NotNil(t, decided.Resolution)
+	assert.Equal(t, models.ReviewEdited, *decided.Resolution)
 }

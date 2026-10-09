@@ -362,17 +362,7 @@ func actorID(c *gin.Context) (int64, error) {
 // delimiters; each of those is an invalid_request here. Field types are then
 // checked by decoding into the request struct.
 func decodeStrict(c *gin.Context, into any) error {
-	raw, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		return runRequestError{codeInvalidRequest}
-	}
-	if structuralErr := checkRequestObject(raw, jsonFieldNames(into)); structuralErr != nil {
-		return structuralErr
-	}
-	if err = json.Unmarshal(raw, into); err != nil {
-		return runRequestError{codeInvalidRequest}
-	}
-	return nil
+	return decodeStrictNullable(c, into)
 }
 
 // jsonFieldNames lists the json tag names of the struct into points to: the
@@ -388,39 +378,16 @@ func jsonFieldNames(into any) []string {
 	return names
 }
 
-// checkRequestObject walks the top-level object token by token.
+// checkRequestObject is the flat view of the one walker: the same core
+// decodeStrict goes through, reached with the field names the runs request
+// types declare. Its tests pin the flat behavior; the algorithm lives once,
+// in checkRequestTree.
 func checkRequestObject(raw []byte, fields []string) error {
-	invalid := runRequestError{codeInvalidRequest}
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
-		return invalid
+	flat := make([]requestField, 0, len(fields))
+	for _, name := range fields {
+		flat = append(flat, requestField{name: name})
 	}
-	allowed := setOf(fields...)
-	seen := make(map[string]bool, len(fields))
-	for dec.More() {
-		tok, err := dec.Token()
-		if err != nil {
-			return invalid
-		}
-		key, ok := tok.(string)
-		if !ok || !allowed[key] || seen[key] {
-			return invalid
-		}
-		seen[key] = true
-		var value json.RawMessage
-		if err = dec.Decode(&value); err != nil || containsNull(value) {
-			return invalid
-		}
-	}
-	if tok, err := dec.Token(); err != nil || tok != json.Delim('}') {
-		return invalid
-	}
-	// Only whitespace may follow: a stray delimiter or a second value is a
-	// token (or a syntax error), not io.EOF.
-	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
-		return invalid
-	}
-	return nil
+	return checkRequestTree(raw, flat, "", nil)
 }
 
 // containsNull reports whether a JSON value is null or holds a null at any
@@ -451,6 +418,148 @@ func containsNull(value json.RawMessage) bool {
 		return false
 	}
 	return walk(decoded)
+}
+
+// decodeStrictNullable is the one strict decoding core every request body
+// goes through: exactly one JSON object whose field names are the json tags
+// of into's struct (and of one nested object level), each present at most
+// once, nothing after the object but whitespace, then a typed Unmarshal. The
+// given dot-separated field paths are the only positions where JSON null is
+// allowed — an explicitly absent optional; the review edit body is the one
+// request that uses them (its optional name fields are sent as null, the
+// contract's "...|null"). Unknown or repeated names, any other null, wrong
+// types and trailing data are invalid_request everywhere, at every depth.
+func decodeStrictNullable(c *gin.Context, into any, nullablePaths ...string) error {
+	raw, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		return runRequestError{codeInvalidRequest}
+	}
+	if structuralErr := checkRequestTree(raw, requestTreeOf(into), "", setOf(nullablePaths...)); structuralErr != nil {
+		return structuralErr
+	}
+	if err = json.Unmarshal(raw, into); err != nil {
+		return runRequestError{codeInvalidRequest}
+	}
+	return nil
+}
+
+// requestField is one field of a request object level for the tree walker.
+type requestField struct {
+	name string
+	// children are the nested object's fields; empty for a scalar field.
+	children []requestField
+}
+
+// requestTreeOf reflects one request struct into the walker's shape: the json
+// tag names of its fields, and, for a field that is (a pointer to) a struct,
+// one more level of the same. One nesting level is all the contracts use.
+func requestTreeOf(into any) []requestField {
+	t := reflect.TypeOf(into).Elem()
+	return requestFieldsOf(t)
+}
+
+func requestFieldsOf(t reflect.Type) []requestField {
+	fields := make([]requestField, 0, t.NumField())
+	for i := range t.NumField() {
+		name, _, _ := strings.Cut(t.Field(i).Tag.Get("json"), ",")
+		if name == "" || name == "-" {
+			continue
+		}
+		ft := t.Field(i).Type
+		for ft.Kind() == reflect.Pointer {
+			ft = ft.Elem()
+		}
+		field := requestField{name: name}
+		if ft.Kind() == reflect.Struct && ft != reflect.TypeOf(time.Time{}) {
+			field.children = requestFieldsOf(ft)
+		}
+		fields = append(fields, field)
+	}
+	return fields
+}
+
+// checkRequestTree walks one object level of a request body, rejecting every
+// rule violation decodeStrict rejects, plus unknown or repeated names inside
+// nested objects — which a plain Unmarshal would silently ignore.
+func checkRequestTree(raw []byte, fields []requestField, path string, nullable map[string]bool) error {
+	invalid := runRequestError{codeInvalidRequest}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return invalid
+	}
+	allowed := make(map[string]requestField, len(fields))
+	for _, field := range fields {
+		allowed[field.name] = field
+	}
+	seen := make(map[string]bool, len(fields))
+	for dec.More() {
+		key, value, entryErr := nextObjectEntry(dec, allowed, seen)
+		if entryErr != nil {
+			return invalid
+		}
+		field := allowed[key]
+		full := path + key
+		if isJSONNull(value) {
+			if !nullable[full] {
+				return invalid
+			}
+			continue
+		}
+		if len(field.children) > 0 {
+			if nestedErr := checkRequestTree(value, field.children, full+".", nullable); nestedErr != nil {
+				return nestedErr
+			}
+			continue
+		}
+		if containsNull(value) {
+			return invalid
+		}
+	}
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('}') {
+		return invalid
+	}
+	if path == "" {
+		// Only whitespace may follow the top-level object.
+		if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+			return invalid
+		}
+	}
+	return nil
+}
+
+// jsonNull is the literal the null checks compare against.
+const jsonNull = "null"
+
+// nextObjectEntry reads one object entry: a not-yet-seen known key and its
+// raw value.
+func nextObjectEntry(
+	dec *json.Decoder, allowed map[string]requestField, seen map[string]bool,
+) (string, json.RawMessage, error) {
+	tok, err := dec.Token()
+	if err != nil {
+		return "", nil, err
+	}
+	key, ok := tok.(string)
+	if !ok || seen[key] {
+		return "", nil, errMalformedEntry
+	}
+	if _, known := allowed[key]; !known {
+		return "", nil, errMalformedEntry
+	}
+	seen[key] = true
+	var value json.RawMessage
+	if decodeErr := dec.Decode(&value); decodeErr != nil {
+		return "", nil, decodeErr
+	}
+	return key, value, nil
+}
+
+// errMalformedEntry marks an object entry the strict walker refuses.
+var errMalformedEntry = errors.New("api: malformed request entry")
+
+// isJSONNull reports whether a raw JSON value is exactly null.
+func isJSONNull(value json.RawMessage) bool {
+	return string(bytes.TrimSpace(value)) == jsonNull
 }
 
 // startRunRequest is the POST /runs body.
