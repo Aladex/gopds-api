@@ -496,4 +496,35 @@ func TestRunLookups(t *testing.T) {
 	})
 }
 
+// RED (review UX task A): the most recent run by id, whatever its status, or
+// nil when no run exists — what GET /runs/latest serves, so a completed run
+// stays visible without any client-side memory of it.
+func TestLatestRun(t *testing.T) {
+	f := withAuthorSchemaTx(t)
+	ctx := context.Background()
+
+	none, err := LatestRun(ctx, f.tx)
+	require.NoError(t, err)
+	assert.Nil(t, none, "an empty table has no latest run")
+
+	completed := f.run(&runSpec{status: "completed"})
+	latest, err := LatestRun(ctx, f.tx)
+	require.NoError(t, err)
+	require.NotNil(t, latest)
+	assert.Equal(t, completed, latest.ID)
+	assert.Equal(t, models.AuthorMetadataRunCompleted, latest.Status, "a terminal run is still the latest")
+
+	failed := f.run(&runSpec{status: "failed_systemic"})
+	latest, err = LatestRun(ctx, f.tx)
+	require.NoError(t, err)
+	require.NotNil(t, latest)
+	assert.Equal(t, failed, latest.ID, "the newest id wins even in a terminal status")
+
+	paused := f.run(&runSpec{status: "paused"})
+	latest, err = LatestRun(ctx, f.tx)
+	require.NoError(t, err)
+	require.NotNil(t, latest)
+	assert.Equal(t, paused, latest.ID, "an active run is the latest while it holds the newest id")
+}
+
 var _ = errors.Is // keep the import used when the RED file is extended

@@ -286,6 +286,13 @@ export const isLocalRetryClass = (value: string): value is AuthorMetadataLocalRe
 export const getCurrentAuthorMetadataRun = () =>
     http.get<{ run: AuthorMetadataRun | null }>('/admin/author-metadata/runs/current');
 
+/**
+ * The most recent run by id, whatever its status: what keeps a completed run
+ * on the dashboard once the active slot empties, with no client-side memory.
+ */
+export const getLatestAuthorMetadataRun = () =>
+    http.get<{ run: AuthorMetadataRun | null }>('/admin/author-metadata/runs/latest');
+
 export const getAuthorMetadataRun = (runID: number) =>
     http.get<{ run: AuthorMetadataRun }>(`/admin/author-metadata/runs/${runID}`);
 

@@ -41,6 +41,7 @@ vi.mock('@/api/admin', async (importOriginal) => {
     return {
         ...actual,
         getCurrentAuthorMetadataRun: vi.fn(),
+        getLatestAuthorMetadataRun: vi.fn(),
         getAuthorMetadataRun: vi.fn(),
         startAuthorMetadataRun: vi.fn(),
         getAuthorMetadataRunReport: vi.fn(),
@@ -67,6 +68,10 @@ vi.mock('@/features/admin/CuratedCollections/CuratedCollectionDetail', () => ({
 }));
 
 const api = vi.mocked(adminApi);
+
+/** The screen now reads the address (the review tab), so it renders inside a router. */
+const renderScreen = (ui: React.ReactElement) =>
+    render(<MemoryRouter initialEntries={['/admin/author-normalization']}>{ui}</MemoryRouter>);
 
 /**
  * One fixture timeline from a single anchor plus offsets: the common rules
@@ -126,8 +131,9 @@ const currentWillReturn = (run: AuthorMetadataRun | null) => {
 
 /**
  * The integrated current endpoint answers only from the active slot
- * (pending/running/paused); a completed run reaches the screen through the
- * tracked id and GET /runs/:id.
+ * (pending/running/paused) and the latest endpoint names the most recent run of
+ * any status; with latest empty, a completed run still reaches the screen
+ * through the tracked id and GET /runs/:id — the secondary fallback.
  */
 const trackedWillReturn = (run: AuthorMetadataRun | null) => {
     if (run !== null) {
@@ -176,6 +182,7 @@ beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.removeItem(TRACKED_RUN_KEY);
     currentWillReturn(null);
+    api.getLatestAuthorMetadataRun.mockResolvedValue({ run: null });
     api.getAuthorMetadataRunReport.mockResolvedValue({
         report: {
             ...completedWithBacklog,
@@ -213,7 +220,7 @@ describe('AdminPanel section', () => {
 
 describe('AuthorNormalization dashboard', () => {
     it('renders the empty state with the start form when no run exists', async () => {
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
 
         expect(
             await screen.findByText('No author normalization run yet. Start one below.'),
@@ -224,7 +231,7 @@ describe('AuthorNormalization dashboard', () => {
 
     it('renders the active run with its stages, credits and versions', async () => {
         currentWillReturn(makeRun());
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
 
         const run = await screen.findByRole('region', { name: /Current run/ });
         expect(within(run).getByText('Running')).toBeInTheDocument();
@@ -262,7 +269,7 @@ describe('AuthorNormalization dashboard', () => {
 
     it('shows four separate stage/queue blocks and no single overall percent', async () => {
         currentWillReturn(makeRun());
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
 
         const run = await screen.findByRole('region', { name: /Current run/ });
         for (const name of ['Extraction', 'Local normalization', 'Manual review', 'Credits']) {
@@ -286,9 +293,9 @@ describe('AuthorNormalization dashboard', () => {
 
     it('renders completed-with-review-backlog semantics: completed, and the backlog spelled out', async () => {
         trackedWillReturn(completedWithBacklog);
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
 
-        const run = await screen.findByRole('region', { name: /Current run/ });
+        const run = await screen.findByRole('region', { name: /Last run/ });
         expect(within(run).getByText('Completed')).toBeInTheDocument();
         expect(screen.getByText('authorNormalization.reviewBacklog')).toBeInTheDocument();
         const review = within(run).getByRole('region', { name: 'Manual review' });
@@ -330,7 +337,7 @@ describe('AuthorNormalization dashboard', () => {
                 },
             }),
         );
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
 
         // The server status is the only source of completion semantics.
         const run = await screen.findByRole('region', { name: /Current run/ });
@@ -348,9 +355,9 @@ describe('AuthorNormalization dashboard', () => {
                 last_error_class: 'archive_unreadable',
             }),
         );
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
 
-        const run = await screen.findByRole('region', { name: /Current run/ });
+        const run = await screen.findByRole('region', { name: /Last run/ });
         expect(within(run).getByText('Failed (systemic)')).toBeInTheDocument();
         expect(within(run).getByText('Last error class')).toBeInTheDocument();
         expect(
@@ -364,7 +371,7 @@ describe('AuthorNormalization dashboard', () => {
 
 describe('start form', () => {
     it('blocks zero, non-numeric and duplicate book IDs client-side', async () => {
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('No author normalization run yet. Start one below.');
 
         const ids = screen.getByLabelText('Book IDs');
@@ -393,7 +400,7 @@ describe('start form', () => {
 
     it('starts a smoke run with the parsed unique IDs', async () => {
         api.startAuthorMetadataRun.mockResolvedValue({ run: makeRun() });
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('No author normalization run yet. Start one below.');
 
         fireEvent.change(screen.getByLabelText('Book IDs'), { target: { value: '12, 3 5' } });
@@ -411,7 +418,7 @@ describe('start form', () => {
 
     it('requires an archive name for the pilot mode and sends it', async () => {
         api.startAuthorMetadataRun.mockResolvedValue({ run: makeRun() });
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('No author normalization run yet. Start one below.');
 
         fireEvent.click(screen.getByRole('button', { name: 'Pilot archive' }));
@@ -434,7 +441,7 @@ describe('start form', () => {
         api.startAuthorMetadataRun.mockRejectedValue(
             new ApiError('active_run_exists', 409, { body: { error: 'active_run_exists' } }),
         );
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('No author normalization run yet. Start one below.');
 
         fireEvent.change(screen.getByLabelText('Book IDs'), { target: { value: '1' } });
@@ -445,7 +452,7 @@ describe('start form', () => {
 
     it('disables starting while a run is active', async () => {
         currentWillReturn(makeRun());
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('Running');
 
         expect(screen.getByRole('button', { name: 'Start' })).toBeDisabled();
@@ -456,7 +463,7 @@ describe('start form', () => {
 describe('full-run approval gate', () => {
     it('offers the explicit approve action on a completed pilot and keeps full start disabled', async () => {
         trackedWillReturn(completedWithBacklog);
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
 
         expect(await screen.findByRole('button', { name: 'Approve full run' })).toBeEnabled();
 
@@ -472,7 +479,7 @@ describe('full-run approval gate', () => {
             run: { ...completedWithBacklog, approved_for_full: true },
         });
         trackedWillReturn(completedWithBacklog);
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByRole('button', { name: 'Approve full run' });
 
         fireEvent.click(screen.getByRole('button', { name: 'Approve full run' }));
@@ -490,7 +497,7 @@ describe('full-run approval gate', () => {
                 body: { error: 'full_run_not_approved' },
             }),
         );
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('Completed');
 
         fireEvent.click(screen.getByRole('button', { name: 'Full catalog' }));
@@ -510,7 +517,7 @@ describe('run controls', () => {
         'enables pause/resume by server status only (%s)',
         async (status, statusText, pauseEnabled, resumeEnabled) => {
             currentWillReturn(makeRun({ status }));
-            render(<AuthorNormalization />);
+            renderScreen(<AuthorNormalization />);
             await screen.findByText(statusText);
 
             const pause = screen.getByRole('button', { name: 'Pause' });
@@ -533,7 +540,7 @@ describe('run controls', () => {
     it('pauses through the API and adopts the returned run', async () => {
         api.pauseAuthorMetadataRun.mockResolvedValue({ run: makeRun({ status: 'paused' }) });
         currentWillReturn(makeRun());
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('Running');
 
         fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
@@ -551,7 +558,7 @@ describe('run controls', () => {
     it('retries the chosen stage and class and reports reopened items', async () => {
         api.retryAuthorMetadataRun.mockResolvedValue({ reopened: 4 });
         trackedWillReturn(makeRun({ status: 'completed', last_error_class: null }));
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('Completed');
 
         chooseRetry('Local normalization', 'normalizer_failed');
@@ -572,7 +579,7 @@ describe('run controls', () => {
     it('reports the honest zero-reopened answer with an explanation', async () => {
         api.retryAuthorMetadataRun.mockResolvedValue({ reopened: 0 });
         trackedWillReturn(makeRun({ status: 'completed', last_error_class: null }));
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('Completed');
 
         chooseRetry('Extraction', 'invalid_fb2');
@@ -602,7 +609,7 @@ describe('run controls', () => {
                 approved_for_full: true,
             }),
         );
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('Completed');
 
         expect(screen.queryByRole('group', { name: 'Retry stage' })).toBeNull();
@@ -613,7 +620,7 @@ describe('run controls', () => {
             new ApiError('already_approved', 409, { body: { error: 'already_approved' } }),
         );
         currentWillReturn(completedWithBacklog);
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByRole('button', { name: 'Approve full run' });
 
         fireEvent.click(screen.getByRole('button', { name: 'Approve full run' }));
@@ -629,7 +636,7 @@ describe('durable status', () => {
         api.getCurrentAuthorMetadataRun
             .mockResolvedValueOnce({ run: makeRun() })
             .mockResolvedValueOnce({ run: completedWithBacklog });
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('Running');
 
         fireEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
@@ -642,7 +649,7 @@ describe('durable status', () => {
         vi.useFakeTimers({ shouldAdvanceTime: true });
         try {
             currentWillReturn(makeRun());
-            render(<AuthorNormalization />);
+            renderScreen(<AuthorNormalization />);
             await screen.findByText('Running');
             expect(api.getCurrentAuthorMetadataRun).toHaveBeenCalledTimes(1);
 
@@ -657,7 +664,7 @@ describe('durable status', () => {
 
     it('loads the report for a completed run and shows its aggregates', async () => {
         trackedWillReturn(completedWithBacklog);
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
 
         await waitFor(() => expect(api.getAuthorMetadataRunReport).toHaveBeenCalledWith(7));
         expect(await screen.findByText('Report')).toBeInTheDocument();
@@ -672,7 +679,7 @@ describe('durable status', () => {
 
     it('does not fetch the report while the run is active', async () => {
         currentWillReturn(makeRun());
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('Running');
 
         expect(api.getAuthorMetadataRunReport).not.toHaveBeenCalled();
@@ -804,7 +811,7 @@ describe('closed error mapping', () => {
             api.startAuthorMetadataRun.mockRejectedValue(
                 new ApiError(code, 400, { body: { error: code } }),
             );
-            render(<AuthorNormalization />);
+            renderScreen(<AuthorNormalization />);
             await screen.findByText('No author normalization run yet. Start one below.');
 
             fireEvent.change(screen.getByLabelText('Book IDs'), { target: { value: '1' } });
@@ -822,7 +829,7 @@ describe('closed error mapping', () => {
                 body: { error: 'unexpected private source details' },
             }),
         );
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('No author normalization run yet. Start one below.');
 
         fireEvent.change(screen.getByLabelText('Book IDs'), { target: { value: '1' } });
@@ -853,9 +860,9 @@ describe('last error class vocabulary', () => {
         ['other', 'Other error'],
     ])('labels the closed value %s without hiding the code', async (code, label) => {
         currentWillReturn(makeRun({ status: 'failed_systemic', last_error_class: code }));
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
 
-        const run = await screen.findByRole('region', { name: /Current run/ });
+        const run = await screen.findByRole('region', { name: /Last run/ });
         expect(within(run).getByText(`${label} (${code})`)).toBeInTheDocument();
     });
 
@@ -863,9 +870,9 @@ describe('last error class vocabulary', () => {
         'renders the generic localized label for the out-of-vocabulary value %s, never the value',
         async (value) => {
             currentWillReturn(makeRun({ status: 'failed_systemic', last_error_class: value }));
-            render(<AuthorNormalization />);
+            renderScreen(<AuthorNormalization />);
 
-            const run = await screen.findByRole('region', { name: /Current run/ });
+            const run = await screen.findByRole('region', { name: /Last run/ });
             expect(within(run).getByText('Other error')).toBeInTheDocument();
             expect(screen.queryByText(value)).toBeNull();
             expect(document.body.textContent).not.toContain(value);
@@ -894,9 +901,9 @@ describe('last error class vocabulary', () => {
                     last_error_class: 'unexpected private source details',
                 }),
             );
-            render(<AuthorNormalization />);
+            renderScreen(<AuthorNormalization />);
 
-            const run = await screen.findByRole('region', { name: /Текущий запуск/ });
+            const run = await screen.findByRole('region', { name: /Последний запуск/ });
             expect(
                 within(run).getByText(ru['authorNormalization.errorClass.other']),
             ).toBeInTheDocument();
@@ -921,7 +928,7 @@ describe('retry eligibility and choice', () => {
         'offers the retry choice for an active %s run (the server allows it)',
         async (status) => {
             currentWillReturn(makeRun({ status, last_error_class: 'lease_expired' }));
-            render(<AuthorNormalization />);
+            renderScreen(<AuthorNormalization />);
             await screen.findByText(
                 status === 'running' ? 'Running' : status === 'paused' ? 'Paused' : 'Queued',
             );
@@ -937,7 +944,7 @@ describe('retry eligibility and choice', () => {
     ] as const)('sends an actual retry POST for a %s run', async (status, statusText) => {
         api.retryAuthorMetadataRun.mockResolvedValue({ reopened: 2 });
         currentWillReturn(makeRun({ status, last_error_class: null }));
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText(statusText);
 
         fireEvent.click(screen.getByRole('button', { name: 'Extraction' }));
@@ -954,7 +961,7 @@ describe('retry eligibility and choice', () => {
 
     it('offers the retry choice for a completed run with no run-level error class', async () => {
         trackedWillReturn(makeRun({ status: 'completed', last_error_class: null }));
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('Completed');
 
         expect(screen.getByRole('group', { name: 'Retry stage' })).toBeInTheDocument();
@@ -962,7 +969,7 @@ describe('retry eligibility and choice', () => {
 
     it('lists exactly the closed class list of the chosen stage', async () => {
         trackedWillReturn(makeRun({ status: 'completed', last_error_class: null }));
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('Completed');
 
         expect(classButtons('Extraction')).toEqual([...AUTHOR_METADATA_EXTRACTION_RETRY_CLASSES]);
@@ -974,7 +981,7 @@ describe('retry eligibility and choice', () => {
     it('lets the admin choose a class different from the run error class', async () => {
         api.retryAuthorMetadataRun.mockResolvedValue({ reopened: 1 });
         trackedWillReturn(makeRun({ status: 'completed', last_error_class: 'invalid_fb2' }));
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('Completed');
 
         fireEvent.click(screen.getByRole('button', { name: 'Extraction' }));
@@ -991,7 +998,7 @@ describe('retry eligibility and choice', () => {
 
     it('offers no retry for a failed-systemic run (the server refuses it)', async () => {
         currentWillReturn(makeRun({ status: 'failed_systemic', last_error_class: 'invalid_fb2' }));
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('Failed (systemic)');
 
         expect(screen.queryByRole('group', { name: 'Retry stage' })).toBeNull();
@@ -1005,7 +1012,7 @@ describe('initial status and superseded responses', () => {
             release = resolve;
         });
         api.getCurrentAuthorMetadataRun.mockReturnValue(gate);
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
 
         expect(screen.getByRole('button', { name: 'Start' })).toBeDisabled();
         expect(screen.queryByText('No author normalization run yet. Start one below.')).toBeNull();
@@ -1021,7 +1028,7 @@ describe('initial status and superseded responses', () => {
 
     it('shows a load failure instead of the empty state and recovers on refresh', async () => {
         api.getCurrentAuthorMetadataRun.mockRejectedValueOnce(new Error('network down'));
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
 
         const alert = await screen.findByRole('alert');
         expect(alert).toHaveTextContent('Failed to load the current run.');
@@ -1047,7 +1054,7 @@ describe('initial status and superseded responses', () => {
             .mockResolvedValueOnce({ run: running })
             .mockImplementationOnce(() => staleGate);
         api.pauseAuthorMetadataRun.mockResolvedValue({ run: makeRun({ status: 'paused' }) });
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('Running');
 
         // The refresh GET is in flight when the pause response lands.
@@ -1068,7 +1075,7 @@ describe('initial status and superseded responses', () => {
 
 describe('unsafe book IDs', () => {
     it('rejects an ID beyond the safe integer range instead of rounding it', async () => {
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('No author normalization run yet. Start one below.');
 
         fireEvent.change(screen.getByLabelText('Book IDs'), {
@@ -1090,7 +1097,7 @@ describe('inherited error-map keys', () => {
             api.startAuthorMetadataRun.mockRejectedValue(
                 new ApiError('private transport message', 500, { body: { error: key } }),
             );
-            render(<AuthorNormalization />);
+            renderScreen(<AuthorNormalization />);
             await screen.findByText('No author normalization run yet. Start one below.');
 
             fireEvent.change(screen.getByLabelText('Book IDs'), { target: { value: '1' } });
@@ -1121,7 +1128,7 @@ describe('inherited error-map keys', () => {
             api.startAuthorMetadataRun.mockRejectedValue(
                 new ApiError('private transport message', 500, { body: { error: 'constructor' } }),
             );
-            render(<AuthorNormalization />);
+            renderScreen(<AuthorNormalization />);
             await screen.findByText(ru['authorNormalization.emptyState']);
 
             fireEvent.change(screen.getByLabelText(ru['authorNormalization.form.bookIds']), {
@@ -1165,7 +1172,7 @@ describe('received run ids outside the safe range', () => {
         api.pauseAuthorMetadataRun.mockResolvedValue({
             run: makeRun({ id: JSON.parse('9007199254740993') as number, status: 'paused' }),
         });
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('Running');
 
         expect(
@@ -1187,7 +1194,7 @@ describe('received run ids outside the safe range', () => {
             ...completedWithBacklog,
             id: JSON.parse('9007199254740993') as number,
         });
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('Completed');
 
         await act(async () => {
@@ -1205,7 +1212,7 @@ describe('unknown server status', () => {
                 last_error_class: 'normalizer_failed',
             }),
         );
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
 
         expect(await screen.findByText('Unknown')).toBeInTheDocument();
         expect(
@@ -1225,7 +1232,7 @@ describe('failing refresh after a loaded run', () => {
         api.getCurrentAuthorMetadataRun
             .mockResolvedValueOnce({ run: makeRun() })
             .mockRejectedValueOnce(new Error('network down'));
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('Running');
         expect(screen.getByRole('button', { name: 'Pause' })).toBeEnabled();
 
@@ -1257,7 +1264,7 @@ describe('superseded GET ordering', () => {
             .mockResolvedValueOnce({ run: makeRun() })
             .mockReturnValueOnce(older.promise)
             .mockReturnValueOnce(newer.promise);
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('Running');
 
         fireEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
@@ -1280,7 +1287,7 @@ describe('superseded GET ordering', () => {
             .mockResolvedValueOnce({ run: makeRun() })
             .mockReturnValueOnce(older.promise)
             .mockReturnValueOnce(newer.promise);
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('Running');
 
         fireEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
@@ -1315,7 +1322,7 @@ describe('garbage error bodies', () => {
         api.startAuthorMetadataRun.mockRejectedValue(
             new ApiError('private transport message', 500, { body }),
         );
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('No author normalization run yet. Start one below.');
 
         fireEvent.change(screen.getByLabelText('Book IDs'), { target: { value: '1' } });
@@ -1333,7 +1340,7 @@ describe('retry payload pairs', () => {
     ] as const)('sends the chosen pair %s/%s', async (stage, stageLabel, errorClass) => {
         api.retryAuthorMetadataRun.mockResolvedValue({ reopened: 1 });
         trackedWillReturn(makeRun({ status: 'completed', last_error_class: null }));
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('Completed');
 
         fireEvent.click(screen.getByRole('button', { name: stageLabel }));
@@ -1356,7 +1363,7 @@ describe('tracked run continuity', () => {
             .mockResolvedValueOnce({ run: running })
             .mockResolvedValue({ run: null });
         api.getAuthorMetadataRun.mockResolvedValue({ run: completedWithBacklog });
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('Running');
 
         fireEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
@@ -1368,7 +1375,7 @@ describe('tracked run continuity', () => {
 
     it('tracks the id of a run it started and follows that run afterwards', async () => {
         api.startAuthorMetadataRun.mockResolvedValue({ run: makeRun({ id: 8 }) });
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('No author normalization run yet. Start one below.');
 
         fireEvent.change(screen.getByLabelText('Book IDs'), { target: { value: '1' } });
@@ -1395,7 +1402,7 @@ describe('tracked run continuity', () => {
         api.getAuthorMetadataRun.mockResolvedValue({
             run: makeRun({ id: 9, status: 'completed' }),
         });
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('Running');
         expect(window.localStorage.getItem(TRACKED_RUN_KEY)).toBe('9');
 
@@ -1411,7 +1418,7 @@ describe('tracked run continuity', () => {
         api.getAuthorMetadataRun.mockRejectedValue(
             new ApiError('run_not_found', 404, { body: { error: 'run_not_found' } }),
         );
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
 
         expect(
             await screen.findByText('No author normalization run yet. Start one below.'),
@@ -1455,7 +1462,7 @@ describe('tracked run continuity', () => {
                 .mockResolvedValueOnce({ run: makeRun() })
                 .mockResolvedValue({ run: null });
             api.getAuthorMetadataRun.mockResolvedValue({ run: completedWithBacklog });
-            render(<AuthorNormalization />);
+            renderScreen(<AuthorNormalization />);
             await screen.findByText('Running');
 
             fireEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
@@ -1472,7 +1479,7 @@ describe('tracked run continuity', () => {
             .mockResolvedValueOnce({ run: makeRun() })
             .mockResolvedValue({ run: null });
         api.getAuthorMetadataRun.mockResolvedValue({ run: completedWithBacklog });
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('Running');
 
         const restore = installThrowingStorage('getItem');
@@ -1491,7 +1498,7 @@ describe('tracked run continuity', () => {
         window.localStorage.setItem(TRACKED_RUN_KEY, '7');
         api.getCurrentAuthorMetadataRun.mockResolvedValue({ run: null });
         api.getAuthorMetadataRun.mockResolvedValue({ run: completedWithBacklog });
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('Completed');
 
         const restore = installThrowingStorage('getItem');
@@ -1513,7 +1520,7 @@ describe('tracked run continuity', () => {
         api.getCurrentAuthorMetadataRun
             .mockResolvedValueOnce({ run: makeRun({ id: unsafeId }) })
             .mockResolvedValue({ run: null });
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('Running');
 
         // The existing invalid-data alert covers the unsafe run while shown.
@@ -1544,7 +1551,7 @@ describe('tracked run continuity', () => {
             window.localStorage.setItem(TRACKED_RUN_KEY, '7');
             api.getCurrentAuthorMetadataRun.mockResolvedValue({ run: null });
             api.getAuthorMetadataRun.mockRejectedValue(failure);
-            render(<AuthorNormalization />);
+            renderScreen(<AuthorNormalization />);
 
             const alert = await screen.findByRole('alert');
             expect(alert).toHaveTextContent('Failed to load the current run.');
@@ -1562,7 +1569,7 @@ describe('tracked run continuity', () => {
         api.getAuthorMetadataRun.mockRejectedValue(
             new ApiError('internal_error', 500, { body: { error: 'internal_error' } }),
         );
-        render(<AuthorNormalization />);
+        renderScreen(<AuthorNormalization />);
         await screen.findByText('Running');
 
         fireEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
@@ -1572,5 +1579,67 @@ describe('tracked run continuity', () => {
         );
         expect(screen.getByText('Running')).toBeInTheDocument();
         expect(screen.queryByText('No author normalization run yet. Start one below.')).toBeNull();
+    });
+});
+
+describe('latest run', () => {
+    it('shows the latest run when the active slot is empty, even completed', async () => {
+        api.getLatestAuthorMetadataRun.mockResolvedValue({ run: completedWithBacklog });
+        renderScreen(<AuthorNormalization />);
+
+        const run = await screen.findByRole('region', { name: /Last run/ });
+        expect(within(run).getByText('Completed')).toBeInTheDocument();
+        expect(api.getAuthorMetadataRun).not.toHaveBeenCalled();
+    });
+
+    it('tracks the id the latest endpoint named', async () => {
+        api.getLatestAuthorMetadataRun.mockResolvedValue({ run: completedWithBacklog });
+        renderScreen(<AuthorNormalization />);
+
+        await screen.findByText('Completed');
+        expect(window.localStorage.getItem(TRACKED_RUN_KEY)).toBe('7');
+    });
+
+    it('does not ask the latest endpoint while a run is active', async () => {
+        currentWillReturn(makeRun());
+        renderScreen(<AuthorNormalization />);
+
+        await screen.findByRole('region', { name: /Current run/ });
+        expect(api.getLatestAuthorMetadataRun).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the tracked id when the latest endpoint fails', async () => {
+        api.getLatestAuthorMetadataRun.mockRejectedValue(
+            new ApiError('internal_error', 500, { body: { error: 'internal_error' } }),
+        );
+        window.localStorage.setItem(TRACKED_RUN_KEY, '9');
+        api.getAuthorMetadataRun.mockResolvedValue({
+            run: makeRun({ id: 9, status: 'completed', completed_at: minutesBefore(5) }),
+        });
+        renderScreen(<AuthorNormalization />);
+
+        const run = await screen.findByRole('region', { name: /Last run/ });
+        expect(within(run).getByText('Completed')).toBeInTheDocument();
+        expect(api.getAuthorMetadataRun).toHaveBeenCalledWith(9);
+    });
+
+    it('keeps the empty state when latest and tracked are both absent', async () => {
+        renderScreen(<AuthorNormalization />);
+
+        expect(
+            await screen.findByText('No author normalization run yet. Start one below.'),
+        ).toBeInTheDocument();
+        expect(api.getAuthorMetadataRun).not.toHaveBeenCalled();
+        expect(screen.getByRole('button', { name: 'Start' })).toBeEnabled();
+    });
+
+    it('reports a load error when the latest endpoint fails and nothing is tracked', async () => {
+        api.getLatestAuthorMetadataRun.mockRejectedValue(new Error('network down'));
+        renderScreen(<AuthorNormalization />);
+
+        const alert = await screen.findByRole('alert');
+        expect(alert).toHaveTextContent('Failed to load the current run.');
+        expect(screen.queryByText('No author normalization run yet. Start one below.')).toBeNull();
+        expect(screen.getByRole('button', { name: 'Start' })).toBeDisabled();
     });
 });

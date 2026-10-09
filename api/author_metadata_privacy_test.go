@@ -48,6 +48,7 @@ var runsCanaryRequests = []struct{ method, path, body string }{
 	{http.MethodPost, "/api/admin/author-metadata/runs", `{"mode":"smoke","book_ids":[1]}`},
 	{http.MethodPost, "/api/admin/author-metadata/runs", `{"mode":"pilot_archive","archive":"zqxcanary-title.zip"}`},
 	{http.MethodGet, "/api/admin/author-metadata/runs/current", ""},
+	{http.MethodGet, "/api/admin/author-metadata/runs/latest", ""},
 	{http.MethodGet, "/api/admin/author-metadata/runs/7", ""},
 	{http.MethodGet, "/api/admin/author-metadata/runs/7/report", ""},
 	{http.MethodPost, "/api/admin/author-metadata/runs/7/pause", ""},
@@ -63,7 +64,7 @@ func TestAuthorMetadataRunSuccessLogsNoRequestText(t *testing.T) {
 	hook := traceHook(t)
 	now := time.Now()
 	run := sampleRun(now)
-	svc := &fakeRunService{run: run, current: &run, report: AuthorMetadataRunReport{
+	svc := &fakeRunService{run: run, current: &run, latest: &run, report: AuthorMetadataRunReport{
 		AuthorMetadataRunView: run, NotReadyReasons: []string{}, ByClass: map[string]int64{}, ByScript: map[string]int64{},
 	}, reopened: 1}
 	r := loggedRunsRouter(svc)

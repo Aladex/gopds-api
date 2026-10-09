@@ -152,6 +152,22 @@ func (a *AuthorMetadataRunAdmin) Current(ctx context.Context) (*AuthorMetadataRu
 	return &st, nil
 }
 
+// Latest reads the most recent run by id, whatever its status; nil when no
+// run exists. It backs GET /runs/latest, which the dashboard consults when
+// the active slot is empty, so a completed run stays visible without any
+// client-side memory of it.
+func (a *AuthorMetadataRunAdmin) Latest(ctx context.Context) (*AuthorMetadataRunState, error) {
+	run, err := database.LatestRun(ctx, a.db)
+	if err != nil || run == nil {
+		return nil, err
+	}
+	st, err := a.state(ctx, run)
+	if err != nil {
+		return nil, err
+	}
+	return &st, nil
+}
+
 // Report reads a run with its readiness: ready only when the run completed,
 // every item is terminal and every current author credit is accounted.
 func (a *AuthorMetadataRunAdmin) Report(ctx context.Context, id int64) (AuthorMetadataRunReportState, error) {

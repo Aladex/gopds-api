@@ -423,6 +423,25 @@ func ActiveRun(ctx context.Context, db pg.DBI) (*models.AuthorMetadataRun, error
 	return run, nil
 }
 
+// LatestRun returns the most recent run by id, whatever its status, or nil
+// when no run exists. The dashboard asks for it once the active slot is
+// empty, so a completed run stays visible from the database alone — no
+// client-side memory involved.
+func LatestRun(ctx context.Context, db pg.DBI) (*models.AuthorMetadataRun, error) {
+	run := &models.AuthorMetadataRun{}
+	err := db.ModelContext(ctx, run).
+		Order("id DESC").
+		Limit(1).
+		Select()
+	if errors.Is(err, pg.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("loading the latest run: %w", err)
+	}
+	return run, nil
+}
+
 // ListCatalogBookIDs enumerates the whole catalog, ascending: the full-mode
 // selector.
 func ListCatalogBookIDs(ctx context.Context, db pg.DBI) ([]int64, error) {

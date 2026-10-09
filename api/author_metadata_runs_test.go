@@ -41,6 +41,7 @@ type fakeRunService struct {
 
 	run      AuthorMetadataRunView
 	current  *AuthorMetadataRunView
+	latest   *AuthorMetadataRunView
 	report   AuthorMetadataRunReport
 	reopened int64
 	err      error
@@ -62,6 +63,11 @@ func (f *fakeRunService) Start(_ context.Context, start AuthorMetadataRunStart, 
 func (f *fakeRunService) Current(context.Context) (*AuthorMetadataRunView, error) {
 	f.record("current", 0)
 	return f.current, f.err
+}
+
+func (f *fakeRunService) Latest(context.Context) (*AuthorMetadataRunView, error) {
+	f.record("latest", 0)
+	return f.latest, f.err
 }
 
 func (f *fakeRunService) Get(_ context.Context, id int64) (AuthorMetadataRunView, error) {
@@ -229,6 +235,7 @@ func productionAdminRouter(t *testing.T, svc AuthorMetadataRunService) *gin.Engi
 var everyRunRoute = []struct{ method, path, body string }{
 	{http.MethodPost, runsBase, `{"mode":"smoke","book_ids":[1]}`},
 	{http.MethodGet, runsBase + "/current", ""},
+	{http.MethodGet, runsBase + "/latest", ""},
 	{http.MethodGet, runsBase + "/5", ""},
 	{http.MethodGet, runsBase + "/5/report", ""},
 	{http.MethodPost, runsBase + "/5/pause", ""},
@@ -270,9 +277,13 @@ func TestAuthorMetadataRunRoutesRequireAnAdministrator(t *testing.T) {
 // Until the phase-8 run service is wired, the routes exist and answer with a
 // closed 500 code instead of panicking or disappearing.
 func TestAuthorMetadataRunServiceWiringPointIsUnavailableUntilWired(t *testing.T) {
-	rec := runsRequest(t, runsRouter(authorMetadataRunService()), http.MethodGet, runsBase+"/current", "")
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
-	assert.JSONEq(t, `{"error":"run_service_unavailable"}`, rec.Body.String())
+	for _, path := range []string{"/current", "/latest"} {
+		t.Run("GET "+path, func(t *testing.T) {
+			rec := runsRequest(t, runsRouter(authorMetadataRunService()), http.MethodGet, runsBase+path, "")
+			assert.Equal(t, http.StatusInternalServerError, rec.Code)
+			assert.JSONEq(t, `{"error":"run_service_unavailable"}`, rec.Body.String())
+		})
+	}
 }
 
 // --- RED 2 and 9: start ---
@@ -400,6 +411,42 @@ func TestCurrentAuthorMetadataRun(t *testing.T) {
 		rec := runsRequest(t, runsRouter(&fakeRunService{current: &run}), http.MethodGet, runsBase+"/current", "")
 		assert.Equal(t, http.StatusOK, rec.Code)
 		assert.JSONEq(t, `{"run":`+sampleRunJSON(now)+`}`, rec.Body.String())
+	})
+}
+
+// --- RED (review UX task A): latest ---
+
+func TestLatestAuthorMetadataRun(t *testing.T) {
+	t.Run("no run is null", func(t *testing.T) {
+		svc := &fakeRunService{}
+		rec := runsRequest(t, runsRouter(svc), http.MethodGet, runsBase+"/latest", "")
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, `{"run":null}`, rec.Body.String())
+		assert.Equal(t, []string{"latest"}, svc.callList())
+	})
+	t.Run("the most recent run, terminal statuses included", func(t *testing.T) {
+		now := time.Now()
+		run := sampleRun(now)
+		run.Status = "completed"
+		wantJSON := strings.Replace(sampleRunJSON(now), `"status": "running"`, `"status": "completed"`, 1)
+		rec := runsRequest(t, runsRouter(&fakeRunService{latest: &run}), http.MethodGet, runsBase+"/latest", "")
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.JSONEq(t, `{"run":`+wantJSON+`}`, rec.Body.String())
+	})
+	t.Run("a service failure is a closed code, never free text", func(t *testing.T) {
+		svc := &fakeRunService{err: fmt.Errorf("private: sql: connection refused")}
+		rec := runsRequest(t, runsRouter(svc), http.MethodGet, runsBase+"/latest", "")
+		assert.Equal(t, http.StatusInternalServerError, rec.Code)
+		assert.JSONEq(t, `{"error":"internal_error"}`, rec.Body.String())
+		assert.NotContains(t, rec.Body.String(), "connection refused")
+	})
+	t.Run("latest is not parsed as a run id", func(t *testing.T) {
+		// The static segment must win over the :id param route: the word
+		// "latest" is not a canonical decimal and must not answer invalid_id.
+		svc := &fakeRunService{}
+		rec := runsRequest(t, runsRouter(svc), http.MethodGet, runsBase+"/latest", "")
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, []string{"latest"}, svc.callList())
 	})
 }
 

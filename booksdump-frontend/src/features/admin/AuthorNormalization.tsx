@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 
@@ -298,6 +299,21 @@ const StageProgress: React.FC<{ title: string; done: number; total: number }> = 
 
 const AuthorNormalization: React.FC = () => {
     const { t } = useTranslation();
+    const [searchParams, setSearchParams] = useSearchParams();
+    /**
+     * The tab lives in the address (?tab=review): the detail screen's Back
+     * button returns here straight into the queue tab, and a reload keeps it.
+     */
+    const activeTab = searchParams.get('tab') === 'review' ? 'review' : 'dashboard';
+    const changeTab = (value: string) => {
+        const next = new URLSearchParams(searchParams);
+        if (value === 'review') {
+            next.set('tab', 'review');
+        } else {
+            next.delete('tab');
+        }
+        setSearchParams(next);
+    };
     const [run, setRun] = useState<AuthorMetadataRun | null>(null);
     const [report, setReport] = useState<AuthorMetadataReport | null>(null);
     const [actionError, setActionError] = useState<string | null>(null);
@@ -364,11 +380,40 @@ const AuthorNormalization: React.FC = () => {
                 setLoadPhase('ready');
                 return;
             }
-            // The slot is empty: a run that completed still exists. Follow the
-            // tracked id through the durable by-id endpoint rather than
-            // inferring that no active slot means no run.
+            // The slot is empty: the latest run of any status — completed
+            // included — is what stays on the dashboard, straight from the
+            // database with no client-side memory involved.
+            let latestFailed = false;
+            try {
+                const latest = await adminApi.getLatestAuthorMetadataRun();
+                if (generation !== fetchGeneration.current) {
+                    return;
+                }
+                if (latest.run !== null) {
+                    rememberTrackedRunId(latest.run.id);
+                    setRun(latest.run);
+                    setLoadPhase('ready');
+                    return;
+                }
+            } catch {
+                if (generation !== fetchGeneration.current) {
+                    return;
+                }
+                latestFailed = true;
+                // The tracked id below is the secondary fallback; whether it
+                // exists decides between a run and a load error.
+            }
             const tracked = trackedRunIdRef.current ?? readTrackedRunId();
             if (tracked === null) {
+                if (latestFailed) {
+                    // The latest endpoint failed and nothing is tracked: no
+                    // confirmed answer exists, so this is not "no run yet".
+                    setActionError(
+                        t('authorNormalization.loadError', 'Failed to load the current run.'),
+                    );
+                    setLoadPhase('failed');
+                    return;
+                }
                 setRun(null);
                 setLoadPhase('ready');
                 return;
@@ -606,7 +651,7 @@ const AuthorNormalization: React.FC = () => {
             <h2 className="text-lg font-medium">
                 {t('authorNormalization.title', 'Author normalization')}
             </h2>
-            <Tabs defaultValue="dashboard">
+            <Tabs value={activeTab} onValueChange={changeTab}>
                 <TabsList>
                     <TabsTrigger value="dashboard">
                         {t('authorNormalization.dashboardTab', 'Dashboard')}
@@ -685,8 +730,17 @@ const AuthorNormalization: React.FC = () => {
                                             id="author-norm-run-heading"
                                             className="text-base font-medium"
                                         >
-                                            {t('authorNormalization.runTitle', 'Current run')} #
-                                            {run.id}
+                                            {/* A run out of the active slot is the last run, not the current one. */}
+                                            {statusKnown && !ACTIVE_STATUSES.has(run.status)
+                                                ? t(
+                                                      'authorNormalization.latestRunTitle',
+                                                      'Last run',
+                                                  )
+                                                : t(
+                                                      'authorNormalization.runTitle',
+                                                      'Current run',
+                                                  )}{' '}
+                                            #{run.id}
                                         </h3>
                                         <Badge>
                                             {t(

@@ -21,6 +21,7 @@ import GenreManagement from '@/features/admin/GenreManagement';
 import CuratedCollectionsList from '@/features/admin/CuratedCollections/CuratedCollectionsList';
 import CuratedCollectionDetail from '@/features/admin/CuratedCollections/CuratedCollectionDetail';
 import AuthorNormalization from '@/features/admin/AuthorNormalization';
+import AuthorReviewDetailScreen from '@/features/admin/AuthorReviewDetail';
 
 /**
  * The admin sections, in the order they are shown.
@@ -132,6 +133,10 @@ const AdminSpace: React.FC = () => {
                 <Route path="invites" element={<InvitesTable />} />
                 <Route path="book-scanning" element={<BookScanning />} />
                 <Route path="author-normalization" element={<AuthorNormalization />} />
+                <Route
+                    path="author-normalization/review/:id"
+                    element={<AuthorReviewDetailScreen />}
+                />
                 <Route path="duplicates" element={<Duplicates />} />
                 <Route path="genres" element={<GenreManagement />} />
                 <Route path="collections" element={<CuratedCollectionsList />} />

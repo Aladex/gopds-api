@@ -240,6 +240,7 @@ type AuthorMetadataRunReport struct {
 type AuthorMetadataRunService interface {
 	Start(ctx context.Context, start AuthorMetadataRunStart, actorUserID int64) (AuthorMetadataRunView, error)
 	Current(ctx context.Context) (*AuthorMetadataRunView, error)
+	Latest(ctx context.Context) (*AuthorMetadataRunView, error)
 	Get(ctx context.Context, id int64) (AuthorMetadataRunView, error)
 	Report(ctx context.Context, id int64) (AuthorMetadataRunReport, error)
 	Pause(ctx context.Context, id int64) (AuthorMetadataRunView, error)
@@ -267,6 +268,10 @@ func (unavailableAuthorMetadataRuns) Start(context.Context, AuthorMetadataRunSta
 }
 
 func (unavailableAuthorMetadataRuns) Current(context.Context) (*AuthorMetadataRunView, error) {
+	return nil, ErrAuthorMetadataRunServiceUnavailable
+}
+
+func (unavailableAuthorMetadataRuns) Latest(context.Context) (*AuthorMetadataRunView, error) {
 	return nil, ErrAuthorMetadataRunServiceUnavailable
 }
 
@@ -306,6 +311,7 @@ func SetupAuthorMetadataRunRoutes(r *gin.RouterGroup, svc AuthorMetadataRunServi
 	runs := r.Group("/runs")
 	runs.POST("", h.start)
 	runs.GET("/current", h.current)
+	runs.GET("/latest", h.latest)
 	runs.GET("/:id", h.get)
 	runs.GET("/:id/report", h.report)
 	runs.POST("/:id/pause", h.pause)
@@ -738,6 +744,28 @@ func (h *authorMetadataRunsHandler) start(c *gin.Context) {
 // @Router /api/admin/author-metadata/runs/current [get]
 func (h *authorMetadataRunsHandler) current(c *gin.Context) {
 	run, err := h.svc.Current(c.Request.Context())
+	if err != nil {
+		abortRunError(c, err)
+		return
+	}
+	if run == nil {
+		c.JSON(http.StatusOK, gin.H{jsonKeyRun: nil})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{jsonKeyRun: presentRun(run)})
+}
+
+// latest godoc
+// @Summary Latest author metadata run
+// @Description The most recent run by id, whatever its status, or null when no run exists; the dashboard shows it once the active slot is empty.
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Produce json
+// @Success 200 {object} map[string]AuthorMetadataRunView
+// @Failure 500 {object} map[string]string
+// @Router /api/admin/author-metadata/runs/latest [get]
+func (h *authorMetadataRunsHandler) latest(c *gin.Context) {
+	run, err := h.svc.Latest(c.Request.Context())
 	if err != nil {
 		abortRunError(c, err)
 		return

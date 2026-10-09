@@ -83,6 +83,18 @@ func (a *runServiceAdapter) Current(ctx context.Context) (*AuthorMetadataRunView
 	return &view, nil
 }
 
+func (a *runServiceAdapter) Latest(ctx context.Context) (*AuthorMetadataRunView, error) {
+	st, err := a.admin.Latest(ctx)
+	if err != nil {
+		return nil, adaptRunError(err)
+	}
+	if st == nil {
+		return nil, nil
+	}
+	view := runView(st)
+	return &view, nil
+}
+
 func (a *runServiceAdapter) Get(ctx context.Context, id int64) (AuthorMetadataRunView, error) {
 	st, err := a.admin.Get(ctx, id)
 	if err != nil {
