@@ -33,6 +33,9 @@ func (s AuthorMetadataStage) LeaseStream() database.LeaseStream {
 		return database.LeaseStreamExtraction
 	case AuthorMetadataStageLocalNormalization:
 		return database.LeaseStreamLocalNormalization
+	case AuthorMetadataStageDualWrite, AuthorMetadataStageReview, AuthorMetadataStageRunner:
+		// Log stages, not leased streams.
+		return ""
 	}
 	return ""
 }

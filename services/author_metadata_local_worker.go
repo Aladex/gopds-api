@@ -11,7 +11,6 @@ import (
 
 	"gopds-api/database"
 	"gopds-api/internal/authornorm"
-	"gopds-api/logging"
 
 	"github.com/go-pg/pg/v10"
 )
@@ -187,7 +186,17 @@ func (w *AuthorMetadataLocalWorker) RunOnce(ctx context.Context) (LocalBatchRepo
 	if err != nil {
 		return report, err
 	}
+	if report.Settled > 0 {
+		LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{
+			Name: AuthorMetadataEventLocalInputsSettled, Stage: AuthorMetadataStageLocalNormalization, Count: report.Settled,
+		})
+	}
 	report.Reconciled, err = w.reconcile(ctx, &policy)
+	if report.Reconciled > 0 {
+		LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{
+			Name: AuthorMetadataEventLocalInputsResolved, Stage: AuthorMetadataStageLocalNormalization, Count: report.Reconciled,
+		})
+	}
 	return report, err
 }
 
@@ -242,7 +251,9 @@ func (w *AuthorMetadataLocalWorker) reconcile(ctx context.Context, policy *autho
 		if decideErr != nil {
 			// The credits stay unaccounted, and visible as pending, rather
 			// than resolved without a valid decision.
-			logging.Warnf("author local job %d: stored result cannot be decided again", job)
+			LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{
+				Name: AuthorMetadataEventLocalUndecidable, Stage: AuthorMetadataStageLocalNormalization, JobID: job,
+			})
 			continue
 		}
 		err = w.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
@@ -346,13 +357,20 @@ func (w *AuthorMetadataLocalWorker) process(
 	switch {
 	case errors.Is(err, authornorm.ErrLeaseLost):
 		report.LeaseLost++
-		logging.Warnf("author local job %d: lease lost, result discarded", claim.ID)
+		LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{
+			Name: AuthorMetadataEventLocalLeaseLost, Stage: AuthorMetadataStageLocalNormalization,
+			JobID: claim.ID, AttemptNo: claim.AttemptNo,
+		})
 		return nil
 	case err != nil:
 		return w.fail(ctx, claim, AuthorMetadataErrorTransientDatabase, report)
 	}
 	report.Completed++
 	report.Outcomes[verdict.decision.Outcome]++
+	LogAuthorMetadataEvent(AuthorMetadataEventDebug, &AuthorMetadataEvent{
+		Name: AuthorMetadataEventLocalJobCompleted, Stage: AuthorMetadataStageLocalNormalization,
+		JobID: claim.ID, AttemptNo: claim.AttemptNo, Status: string(verdict.decision.Outcome),
+	})
 	return nil
 }
 
@@ -374,6 +392,9 @@ func (w *AuthorMetadataLocalWorker) fail(
 		return err
 	}
 	report.Failed++
-	logging.Warnf("author local job %d: attempt %d failed with %s", claim.ID, claim.AttemptNo, class)
+	LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{
+		Name: AuthorMetadataEventLocalAttemptFailed, Stage: AuthorMetadataStageLocalNormalization,
+		JobID: claim.ID, AttemptNo: claim.AttemptNo, Class: class,
+	})
 	return nil
 }

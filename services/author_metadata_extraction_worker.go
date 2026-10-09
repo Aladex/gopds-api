@@ -15,7 +15,6 @@ import (
 	"gopds-api/internal/authornorm"
 	"gopds-api/internal/parser"
 	"gopds-api/internal/safepath"
-	"gopds-api/logging"
 	"gopds-api/models"
 
 	"github.com/go-pg/pg/v10"
@@ -204,13 +203,8 @@ func (c *ExtractionWorkerConfig) validate() error {
 	return nil
 }
 
-// Log field names the worker emits; nothing but IDs, counts and closed
-// classes ever goes into a log value (contract 3.14).
-const (
-	logFieldRunID    = "run_id"
-	logFieldClass    = "class"
-	logFieldSQLState = "sqlstate"
-)
+// The worker logs only AuthorMetadataEvent records (author_metadata_observability.go):
+// IDs, counts and closed classes, never error text (contract 3.14).
 
 // sqlState is the SQLSTATE of a PostgreSQL error, empty for any other error:
 // the only part of an error a log may carry. Error messages can quote row
@@ -315,8 +309,14 @@ func (w *AuthorMetadataExtractionWorker) settleRuns(ctx context.Context, runs ma
 		if err != nil {
 			return err
 		}
-		if _, err = database.CompleteRunIfSettled(ctx, w.db, runID); err != nil {
-			return err
+		completed, completeErr := database.CompleteRunIfSettled(ctx, w.db, runID)
+		if completeErr != nil {
+			return completeErr
+		}
+		if completed {
+			LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{
+				Name: AuthorMetadataEventRunCompleted, Stage: AuthorMetadataStageExtraction, RunID: runID,
+			})
 		}
 	}
 	return nil
@@ -455,16 +455,13 @@ func (w *AuthorMetadataExtractionWorker) processGroup(
 	}
 	archive, err := w.archives.Open(ctx, fullPath)
 	if err != nil {
-		logging.WithFields(logging.Fields{"items": len(items)}).
-			Warn("author metadata extraction: archive unreadable, pausing the run")
 		w.pauseRunsOf(ctx, items)
 		n, failErr := w.failItems(ctx, items, AuthorMetadataErrorArchiveUnreadable)
 		for i := range handled {
 			handled[i] = true
 		}
 		if failErr != nil {
-			logging.WithFields(logging.Fields{logFieldSQLState: sqlState(failErr)}).
-				Error("author metadata extraction: failing claims")
+			extractionWriteFailed(nil, 0, "", failErr)
 		}
 		return n, true
 	}
@@ -559,8 +556,6 @@ func (w *AuthorMetadataExtractionWorker) processItem(
 			// Of no known kind: neither a document nor a volume problem.
 			// The book is retried and ends metadata_parse_failed once out of
 			// attempts; the run goes on.
-			logging.WithFields(logging.Fields{logFieldRunID: run.ID, logFieldClass: string(AuthorMetadataErrorExtractionFailed)}).
-				Warn("author metadata extraction: unclassified extraction error, retrying the book")
 			n, failErr := w.failItems(ctx, []*extractionWorkItem{item}, AuthorMetadataErrorExtractionFailed)
 			if failErr != nil {
 				return w.persistenceFailure(ctx, run, item, failErr)
@@ -582,11 +577,9 @@ func (w *AuthorMetadataExtractionWorker) sourceFailure(
 	run *models.AuthorMetadataRun,
 	item *extractionWorkItem,
 ) itemOutcome {
-	logging.WithFields(logging.Fields{logFieldRunID: run.ID}).Warn("author metadata extraction: entry unreadable, pausing the run")
 	w.pauseSystemic(ctx, run.ID)
 	if _, err := w.failItems(ctx, []*extractionWorkItem{item}, AuthorMetadataErrorArchiveUnreadable); err != nil {
-		logging.WithFields(logging.Fields{logFieldRunID: run.ID, logFieldSQLState: sqlState(err)}).
-			Error("author metadata extraction: failing the item")
+		extractionWriteFailed(item, run.ID, AuthorMetadataErrorArchiveUnreadable, err)
 	}
 	return itemOutcome{systemic: true}
 }
@@ -599,12 +592,9 @@ func (w *AuthorMetadataExtractionWorker) endRun(
 	item *extractionWorkItem,
 	class AuthorMetadataErrorClass,
 ) itemOutcome {
-	logging.WithFields(logging.Fields{logFieldRunID: run.ID, logFieldClass: string(class)}).
-		Error("author metadata extraction: the run cannot go on, ending it")
 	w.failRun(ctx, run.ID, class)
 	if _, err := w.failItems(ctx, []*extractionWorkItem{item}, class); err != nil {
-		logging.WithFields(logging.Fields{logFieldRunID: run.ID, logFieldSQLState: sqlState(err)}).
-			Error("author metadata extraction: failing the item")
+		extractionWriteFailed(item, run.ID, class, err)
 	}
 	return itemOutcome{systemic: true}
 }
@@ -612,11 +602,37 @@ func (w *AuthorMetadataExtractionWorker) endRun(
 // failRun ends the run failed_systemic with a closed class. Losing the race
 // (the run already left the active statuses) is fine.
 func (w *AuthorMetadataExtractionWorker) failRun(ctx context.Context, runID int64, class AuthorMetadataErrorClass) {
-	if err := database.FailRunSystemic(ctx, w.db, runID, string(class)); err != nil &&
-		!errors.Is(err, database.ErrRunTransitionConflict) {
-		logging.WithFields(logging.Fields{logFieldRunID: runID, logFieldSQLState: sqlState(err)}).
-			Error("author metadata extraction: failing the run")
+	err := database.FailRunSystemic(ctx, w.db, runID, string(class))
+	switch {
+	case err == nil:
+		LogAuthorMetadataEvent(AuthorMetadataEventError, &AuthorMetadataEvent{
+			Name: AuthorMetadataEventExtractionRunEnded, Stage: AuthorMetadataStageExtraction, RunID: runID, Class: class,
+		})
+	case !errors.Is(err, database.ErrRunTransitionConflict):
+		extractionWriteFailed(nil, runID, class, err)
 	}
+}
+
+// extractionWriteFailed records that a write of the extraction stream failed:
+// identifiers, the closed class it was about and the SQLSTATE — never the
+// error text, which can quote row data.
+func extractionWriteFailed(item *extractionWorkItem, runID int64, class AuthorMetadataErrorClass, err error) {
+	e := &AuthorMetadataEvent{
+		Name: AuthorMetadataEventExtractionWriteFailed, Stage: AuthorMetadataStageExtraction,
+		RunID: runID, Class: class, SQLState: sqlState(err),
+	}
+	if item != nil {
+		e.ItemID, e.BookID = item.target.ItemID, item.target.BookID
+	}
+	LogAuthorMetadataEvent(AuthorMetadataEventError, e)
+}
+
+// extractionItemCompleted records a per-book terminal status.
+func extractionItemCompleted(run *models.AuthorMetadataRun, item *extractionWorkItem, status models.AuthorMetadataRunItemStatus) {
+	LogAuthorMetadataEvent(AuthorMetadataEventDebug, &AuthorMetadataEvent{
+		Name: AuthorMetadataEventExtractionItemCompleted, Stage: AuthorMetadataStageExtraction,
+		RunID: run.ID, ItemID: item.target.ItemID, BookID: item.target.BookID, Status: string(status),
+	})
 }
 
 // completeTerminalOutcome records a per-book terminal status; a failure to
@@ -631,6 +647,7 @@ func (w *AuthorMetadataExtractionWorker) completeTerminalOutcome(
 	if err := w.completeTerminal(ctx, run.ID, item, status, nil); err != nil {
 		return w.persistenceFailure(ctx, run, item, err)
 	}
+	extractionItemCompleted(run, item, status)
 	return itemOutcome{terminal: true}
 }
 
@@ -719,6 +736,7 @@ func (w *AuthorMetadataExtractionWorker) persistItem(
 		return w.abortPersist(ctx, tx, &committed, run, item, err)
 	}
 	committed = true
+	extractionItemCompleted(run, item, status)
 	return itemOutcome{terminal: true}
 }
 
@@ -751,7 +769,10 @@ func (w *AuthorMetadataExtractionWorker) persistenceFailure(
 	cause error,
 ) itemOutcome {
 	if errors.Is(cause, authornorm.ErrLeaseLost) {
-		logging.WithFields(logging.Fields{logFieldRunID: run.ID}).Info("author metadata extraction: lease lost, result discarded")
+		LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{
+			Name: AuthorMetadataEventExtractionLeaseLost, Stage: AuthorMetadataStageExtraction,
+			RunID: run.ID, ItemID: item.target.ItemID,
+		})
 		return itemOutcome{}
 	}
 	if isInvariantFailure(cause) {
@@ -768,13 +789,10 @@ func (w *AuthorMetadataExtractionWorker) abortInvariant(
 	item *extractionWorkItem,
 	cause error,
 ) itemOutcome {
-	logging.WithFields(logging.Fields{
-		logFieldRunID: run.ID, logFieldClass: string(AuthorMetadataErrorDatabaseInvariant), logFieldSQLState: sqlState(cause),
-	}).Error("author metadata extraction: database invariant failure, ending the run")
+	extractionWriteFailed(item, run.ID, AuthorMetadataErrorDatabaseInvariant, cause)
 	w.failRun(ctx, run.ID, AuthorMetadataErrorDatabaseInvariant)
 	if _, err := w.failItems(ctx, []*extractionWorkItem{item}, AuthorMetadataErrorDatabaseInvariant); err != nil {
-		logging.WithFields(logging.Fields{logFieldRunID: run.ID, logFieldSQLState: sqlState(err)}).
-			Error("author metadata extraction: failing the item")
+		extractionWriteFailed(item, run.ID, AuthorMetadataErrorDatabaseInvariant, err)
 	}
 	return itemOutcome{systemic: true}
 }
@@ -786,13 +804,10 @@ func (w *AuthorMetadataExtractionWorker) failTransient(
 	item *extractionWorkItem,
 	cause error,
 ) itemOutcome {
-	logging.WithFields(logging.Fields{
-		logFieldRunID: runID, logFieldClass: string(AuthorMetadataErrorTransientDatabase), logFieldSQLState: sqlState(cause),
-	}).Warn("author metadata extraction: transient database failure")
+	extractionWriteFailed(item, runID, AuthorMetadataErrorTransientDatabase, cause)
 	n, err := w.failItems(ctx, []*extractionWorkItem{item}, AuthorMetadataErrorTransientDatabase)
 	if err != nil {
-		logging.WithFields(logging.Fields{logFieldRunID: runID, logFieldSQLState: sqlState(err)}).
-			Error("author metadata extraction: failing the item")
+		extractionWriteFailed(item, runID, AuthorMetadataErrorTransientDatabase, err)
 	}
 	return itemOutcome{terminal: n > 0}
 }
@@ -890,9 +905,16 @@ func (w *AuthorMetadataExtractionWorker) failItems(
 		if err := tx.Commit(); err != nil {
 			return exhaustedCount, err
 		}
+		status := retryScheduledStatus
 		if exhausted {
 			exhaustedCount++
+			status = string(models.AuthorMetadataRunItemMetadataParseFailed)
 		}
+		LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{
+			Name: AuthorMetadataEventExtractionItemRetried, Stage: AuthorMetadataStageExtraction,
+			RunID: item.run.ID, ItemID: item.target.ItemID, BookID: item.target.BookID,
+			AttemptNo: item.claim.AttemptNo, Class: class, Status: status,
+		})
 	}
 	return exhaustedCount, nil
 }
@@ -901,10 +923,15 @@ func (w *AuthorMetadataExtractionWorker) failItems(
 // to pause (another worker paused it, or an administrator completed it) is
 // fine: the run is no longer running either way.
 func (w *AuthorMetadataExtractionWorker) pauseSystemic(ctx context.Context, runID int64) {
-	if err := database.PauseRunSystemic(ctx, w.db, runID, string(AuthorMetadataErrorArchiveUnreadable)); err != nil &&
-		!errors.Is(err, database.ErrRunTransitionConflict) {
-		logging.WithFields(logging.Fields{logFieldRunID: runID, logFieldSQLState: sqlState(err)}).
-			Error("author metadata extraction: pausing the run")
+	err := database.PauseRunSystemic(ctx, w.db, runID, string(AuthorMetadataErrorArchiveUnreadable))
+	switch {
+	case err == nil:
+		LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{
+			Name: AuthorMetadataEventExtractionRunPaused, Stage: AuthorMetadataStageExtraction,
+			RunID: runID, Class: AuthorMetadataErrorArchiveUnreadable,
+		})
+	case !errors.Is(err, database.ErrRunTransitionConflict):
+		extractionWriteFailed(nil, runID, AuthorMetadataErrorArchiveUnreadable, err)
 	}
 }
 

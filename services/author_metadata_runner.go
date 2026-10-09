@@ -9,7 +9,6 @@ import (
 
 	"gopds-api/config"
 	"gopds-api/internal/parser"
-	"gopds-api/logging"
 
 	"github.com/go-pg/pg/v10"
 )
@@ -78,7 +77,9 @@ func (r *AuthorMetadataRunner) Start(ctx context.Context, ready func(context.Con
 			defer wg.Done()
 			if err := w.Run(runCtx); err != nil && runCtx.Err() == nil {
 				// The error text is not logged: it may carry query details.
-				logging.Errorf("author metadata worker %s stopped unexpectedly", w.Name())
+				LogAuthorMetadataEvent(AuthorMetadataEventError, &AuthorMetadataEvent{
+					Name: AuthorMetadataEventWorkerStopped, Stage: AuthorMetadataStageRunner, Worker: w.Name(),
+				})
 			}
 		}(w)
 	}
@@ -86,7 +87,9 @@ func (r *AuthorMetadataRunner) Start(ctx context.Context, ready func(context.Con
 		wg.Wait()
 		close(r.done)
 	}()
-	logging.Infof("author metadata workers started: %d", len(r.workers))
+	LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{
+		Name: AuthorMetadataEventWorkersStarted, Stage: AuthorMetadataStageRunner, Count: len(r.workers),
+	})
 	return nil
 }
 
@@ -108,7 +111,9 @@ func (r *AuthorMetadataRunner) Shutdown(ctx context.Context) error {
 
 	select {
 	case <-done:
-		logging.Info("author metadata workers stopped")
+		LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{
+			Name: AuthorMetadataEventWorkersStopped, Stage: AuthorMetadataStageRunner,
+		})
 		return nil
 	case <-ctx.Done():
 		return ErrAuthorMetadataRunnerShutdownTimeout
@@ -158,7 +163,9 @@ func pollLoop(ctx context.Context, name string, poll time.Duration, once func(co
 			return nil
 		}
 		if err != nil {
-			logging.Warnf("author metadata worker %s: batch failed", name)
+			LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{
+				Name: AuthorMetadataEventWorkerBatchFailed, Stage: AuthorMetadataStageRunner, Worker: name,
+			})
 		} else if busy {
 			continue
 		}

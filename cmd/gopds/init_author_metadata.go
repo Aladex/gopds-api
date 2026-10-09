@@ -7,7 +7,6 @@ import (
 
 	"gopds-api/api"
 	"gopds-api/config"
-	"gopds-api/logging"
 	"gopds-api/services"
 
 	"github.com/go-pg/pg/v10"
@@ -74,20 +73,31 @@ func initializeAuthorMetadata(db *pg.DB, archivesDir string, c *config.AuthorMet
 	}
 
 	if !c.Enabled {
-		logging.Info("Author metadata workers disabled")
+		services.LogAuthorMetadataEvent(services.AuthorMetadataEventInfo, &services.AuthorMetadataEvent{
+			Name: services.AuthorMetadataEventWorkersDisabled, Stage: services.AuthorMetadataStageRunner,
+		})
 		return nil
 	}
 	workers, err := buildAuthorMetadataWorkers(db, archivesDir, c)
 	if err != nil {
-		logging.Errorf("Author metadata workers not started: %v", err)
+		authorMetadataNotStarted(err)
 		return nil
 	}
 	runner, err := startAuthorMetadataRunner(context.Background(), db, workers)
 	if err != nil {
-		logging.Errorf("Author metadata workers not started: %v", err)
+		authorMetadataNotStarted(err)
 		return nil
 	}
 	return runner
+}
+
+// authorMetadataNotStarted records a failed start by its SQLSTATE only: the
+// error text of a database failure can quote row data (contract 3.14).
+func authorMetadataNotStarted(err error) {
+	services.LogAuthorMetadataEvent(services.AuthorMetadataEventError, &services.AuthorMetadataEvent{
+		Name: services.AuthorMetadataEventWorkersNotStarted, Stage: services.AuthorMetadataStageRunner,
+		SQLState: services.AuthorMetadataSQLState(err),
+	})
 }
 
 // shutdownAuthorMetadataThenDatabase stops the author metadata workers —
@@ -106,7 +116,11 @@ func shutdownAuthorMetadataThenDatabase(runner *services.AuthorMetadataRunner, d
 		err := runner.Shutdown(ctx)
 		cancel()
 		if err != nil {
-			logging.Errorf("Author metadata workers: %v; the database pool stays open for them until the process exits", err)
+			// The database pool stays open for the workers still running
+			// until the process exits.
+			services.LogAuthorMetadataEvent(services.AuthorMetadataEventError, &services.AuthorMetadataEvent{
+				Name: services.AuthorMetadataEventWorkersShutdownTimeout, Stage: services.AuthorMetadataStageRunner,
+			})
 			return err
 		}
 	}

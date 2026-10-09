@@ -10,7 +10,6 @@ import (
 	"gopds-api/database"
 	"gopds-api/internal/authornorm"
 	"gopds-api/internal/parser"
-	"gopds-api/logging"
 	"gopds-api/models"
 
 	"github.com/go-pg/pg/v10"
@@ -132,7 +131,9 @@ func (w *AuthorMetadataSourceWriter) Persist(tx pg.DBI, bookID int64, p *Prepare
 		return ErrAuthorSourceNotPrepared
 	}
 	if !p.Extracted() {
-		logging.Warnf("author metadata source skipped for book %d: %s", bookID, p.failure)
+		LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{
+			Name: AuthorMetadataEventSourceSkipped, Stage: AuthorMetadataStageDualWrite, BookID: bookID, Status: string(p.failure),
+		})
 		return nil
 	}
 	md := p.metadata
@@ -144,5 +145,8 @@ func (w *AuthorMetadataSourceWriter) Persist(tx pg.DBI, bookID int64, p *Prepare
 	if _, err := database.PersistExtraction(tx, in); err != nil {
 		return fmt.Errorf("persisting author metadata: %w", err)
 	}
+	LogAuthorMetadataEvent(AuthorMetadataEventDebug, &AuthorMetadataEvent{
+		Name: AuthorMetadataEventSourcePersisted, Stage: AuthorMetadataStageDualWrite, BookID: bookID,
+	})
 	return nil
 }

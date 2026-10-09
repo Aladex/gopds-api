@@ -269,8 +269,16 @@ func (s *AuthorMetadataReviewService) act(
 		return applyErr
 	})
 	if err != nil {
+		LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{
+			Name: AuthorMetadataEventReviewActionFailed, Stage: AuthorMetadataStageReview,
+			ReviewItemID: itemID, Status: string(decision.Action), SQLState: sqlState(err),
+		})
 		return database.ReviewReport{}, err
 	}
+	LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{
+		Name: AuthorMetadataEventReviewAction, Stage: AuthorMetadataStageReview,
+		ReviewItemID: itemID, Status: string(decision.Action), Count: report.Credits,
+	})
 	return report, nil
 }
 

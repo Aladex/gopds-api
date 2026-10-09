@@ -501,14 +501,14 @@ func TestScanDualWriteSkipsOnlyAFailedExtraction(t *testing.T) {
 
 	var skipped []string
 	for _, line := range strings.Split(logs.String(), "\n") {
-		if strings.Contains(line, "author metadata") {
+		if strings.Contains(line, string(services.AuthorMetadataEventSourceSkipped)) {
 			skipped = append(skipped, line)
 		}
 	}
 	require.Len(t, skipped, 1)
 	assert.Contains(t, skipped[0], "level=warning")
-	assert.Contains(t, skipped[0], "book "+strconv.FormatInt(id, 10)+":")
-	assert.Contains(t, skipped[0], string(services.AuthorMetadataParseFailed))
+	assert.Contains(t, skipped[0], "book_id="+strconv.FormatInt(id, 10))
+	assert.Contains(t, skipped[0], "status="+string(services.AuthorMetadataParseFailed))
 	for _, secret := range []string{"Секретный", "Писатель", "Скрытое", "oversized"} {
 		assert.NotContains(t, skipped[0], secret)
 	}
