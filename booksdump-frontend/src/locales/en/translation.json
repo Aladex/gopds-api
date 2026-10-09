@@ -18,6 +18,8 @@
   "resetPasswordButton": "Reset password",
   "registerButton": "Register",
   "bookPublished": "Published",
+  "bookPublisher": "Publisher",
+  "bookIsbn": "ISBN",
   "bookAdded": "Added",
   "annotation": "Annotation",
   "routeTitles.books": "New books",

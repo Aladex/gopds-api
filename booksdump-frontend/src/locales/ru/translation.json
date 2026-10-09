@@ -17,6 +17,8 @@
   "resetPasswordButton": "Сбросить пароль",
   "registerButton": "Регистрация",
   "bookPublished": "Опубликовано",
+  "bookPublisher": "Издательство",
+  "bookIsbn": "ISBN",
   "bookAdded": "Добавлено",
   "annotation": "Аннотация",
   "routeTitles.books": "Новые книги",

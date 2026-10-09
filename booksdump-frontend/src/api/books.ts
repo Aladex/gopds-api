@@ -52,6 +52,12 @@ export interface Book {
     md5?: string;
     duplicate_hidden?: boolean;
     position?: number;
+    /**
+     * From the book's current metadata snapshot: null and [] when it has none.
+     * Only the book list sends them, so they are optional here.
+     */
+    publisher?: string | null;
+    isbn?: string[];
 }
 
 export interface BooksPage {

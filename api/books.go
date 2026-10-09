@@ -17,8 +17,18 @@ import (
 
 // ExportAnswer struct for books list response
 type ExportAnswer struct {
-	Books  []models.Book `json:"books"`
-	Length int           `json:"length"`
+	Books  []ListedBook `json:"books"`
+	Length int          `json:"length"`
+}
+
+// ListedBook is one book of the REST list: the catalog row, followed by the
+// publisher and ISBN list of its current metadata snapshot — null and [] when
+// it has none. Only the REST list carries them; OPDS and Telegram render
+// models.Book and are unchanged.
+type ListedBook struct {
+	models.Book
+	Publisher *string  `json:"publisher"`
+	ISBN      []string `json:"isbn"`
 }
 
 // langsAnswer struct for languages list response

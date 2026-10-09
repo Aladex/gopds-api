@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -22,6 +23,43 @@ import (
 // boundary.
 type SearchHandler struct {
 	Search services.PublicSearch
+	// Sources supplies the publisher and ISBN list the book card shows, read
+	// from each listed book's current metadata snapshot. Without it every
+	// book is listed with neither.
+	Sources BookSourceLookup
+}
+
+// BookSourceLookup reads the book card's source-layer fields for a page of
+// books in one call. A book without a current snapshot has no entry.
+type BookSourceLookup interface {
+	BookSourceDetails(ctx context.Context, bookIDs []int64) (map[int64]models.BookSourceDetail, error)
+}
+
+// listedBooks pairs each book of a page with its publisher and ISBN list,
+// asking the source layer once for the whole page. The result is never nil,
+// so an empty page serializes as [], and neither is any ISBN list.
+func (h *SearchHandler) listedBooks(ctx context.Context, books []models.Book) ([]ListedBook, error) {
+	var details map[int64]models.BookSourceDetail
+	if h.Sources != nil && len(books) > 0 {
+		ids := make([]int64, len(books))
+		for i := range books {
+			ids[i] = books[i].ID
+		}
+		var err error
+		if details, err = h.Sources.BookSourceDetails(ctx, ids); err != nil {
+			return nil, err
+		}
+	}
+	out := make([]ListedBook, len(books))
+	for i := range books {
+		detail := details[books[i].ID]
+		isbn := detail.ISBN
+		if isbn == nil {
+			isbn = []string{}
+		}
+		out[i] = ListedBook{Book: books[i], Publisher: detail.Publisher, ISBN: isbn}
+	}
+	return out, nil
 }
 
 // bookListQuery is the list endpoint's query string: the long-standing list
@@ -95,11 +133,13 @@ func (h *SearchHandler) Books(c *gin.Context) {
 			return
 		}
 		// The picker rule applies to every list the API serves: an empty page
-		// serializes as [], never null — a nil slice marshals to null.
-		if page.Books == nil {
-			page.Books = []models.Book{}
+		// serializes as [], never null — listedBooks never returns nil.
+		listed, err := h.listedBooks(c.Request.Context(), page.Books)
+		if err != nil {
+			httputil.NewError(c, http.StatusInternalServerError, err)
+			return
 		}
-		c.JSON(http.StatusOK, ExportAnswer{Books: page.Books, Length: pageCount(page.Total, page.Limit)})
+		c.JSON(http.StatusOK, ExportAnswer{Books: listed, Length: pageCount(page.Total, page.Limit)})
 		return
 	}
 
@@ -117,10 +157,12 @@ func (h *SearchHandler) Books(c *gin.Context) {
 		httputil.NewError(c, http.StatusInternalServerError, err)
 		return
 	}
-	if books == nil {
-		books = []models.Book{}
+	listed, err := h.listedBooks(c.Request.Context(), books)
+	if err != nil {
+		httputil.NewError(c, http.StatusInternalServerError, err)
+		return
 	}
-	c.JSON(http.StatusOK, ExportAnswer{Books: books, Length: pageCount(count, effectiveListLimit(q.Limit))})
+	c.JSON(http.StatusOK, ExportAnswer{Books: listed, Length: pageCount(count, effectiveListLimit(q.Limit))})
 }
 
 // Authors method for retrieving the list of authors on the search page

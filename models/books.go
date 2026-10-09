@@ -159,6 +159,13 @@ type Book struct {
 	Position        int       `pg:"-" json:"position"`
 }
 
+// BookSourceDetail is what the public book card shows from a book's current
+// metadata snapshot: its publisher, nil when there is none, and its ISBN list.
+type BookSourceDetail struct {
+	Publisher *string
+	ISBN      []string
+}
+
 func (b *Book) DownloadName() string {
 	var nameRegExp = regexp.MustCompile(`[^A-Za-z0-9а-яА-ЯёЁ]+`)
 	var name = nameRegExp.ReplaceAllString(b.Title, "_")

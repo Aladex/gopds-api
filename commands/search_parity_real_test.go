@@ -209,7 +209,7 @@ func TestSearchParityOverTheRealCatalog(t *testing.T) {
 
 				var got api.ExportAnswer
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-				assert.Equal(t, wantIDs, idsOf(got.Books), "REST rendered a different page")
+				assert.Equal(t, wantIDs, restBookIDs(got.Books), "REST rendered a different page")
 				// REST reports the total as a page count over the same limit.
 				assert.Equal(t, expectedPages(want.Total, parityPage), got.Length,
 					"REST paged %d rows differently", want.Total)

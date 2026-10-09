@@ -307,6 +307,21 @@ const BookCard: React.FC<BookCardProps> = ({
                         </MetaRow>
                     )}
 
+                    {/* As the source file states them, and only when it does:
+                        no row stands over an empty value. Plain text, not
+                        links — nothing in the catalogue is filtered by them. */}
+                    {book.publisher && (
+                        <MetaRow label={t('bookPublisher')} open={open}>
+                            {book.publisher}
+                        </MetaRow>
+                    )}
+
+                    {book.isbn && book.isbn.length > 0 && (
+                        <MetaRow label={t('bookIsbn')} open={open}>
+                            {book.isbn.join(', ')}
+                        </MetaRow>
+                    )}
+
                     {book.annotation ? (
                         <Expandable
                             open={open}

@@ -27,8 +27,10 @@ import (
 // The bodies below are the current output byte for byte; only values that
 // differ per run — row IDs and the register date — are filled in from the
 // database. Once ProcessBook also writes the author metadata source layer,
-// these must not change: no new fields, same author order and names, same
-// empty-list contract.
+// these must not change: same author order and names, same empty-list
+// contract. The one deliberate change since is the book card's publisher and
+// ISBN list, read from the current snapshot: the scan writes these books'
+// snapshots without either, so each ends in "publisher":null,"isbn":[].
 
 // scanVars are the per-run values the golden bodies refer to: row IDs, the
 // register date as JSON, and the two values derived from the fixture date —
@@ -94,7 +96,8 @@ func renderGolden(t *testing.T, golden string, v scanVars) string {
 
 // The three characterization books as the REST book list serializes them.
 // Nested empty lists are null today (series of a book without one, favorites,
-// covers); only the top-level books list is guaranteed to be [].
+// covers); only the top-level books list and the ISBN list are guaranteed to
+// be [].
 const (
 	restMultiAuthor = `{"id":{{index .Book "multi-author.fb2"}},"path":"characterization.zip","format":"fb2",` +
 		`"filename":"multi-author.fb2","registerdate":{{index .Register "multi-author.fb2"}},"docdate":"{{.Year}}",` +
@@ -105,14 +108,14 @@ const (
 		`"series":[{"id":{{index .Series "Эпопея"}},"ser_no":2,"ser":"Эпопея","lang_code":0}],` +
 		`"genres":[{"id":{{index .Genre "prose_classic"}},"genre":"prose_classic"},` +
 		`{"id":{{index .Genre "prose_history"}},"genre":"prose_history"}],` +
-		`"favorites":null,"covers":null,"favorite_count":0,"position":0}`
+		`"favorites":null,"covers":null,"favorite_count":0,"position":0,"publisher":null,"isbn":[]}`
 	restNoAuthor = `{"id":{{index .Book "no-author.fb2"}},"path":"characterization.zip","format":"fb2",` +
 		`"filename":"no-author.fb2","registerdate":{{index .Register "no-author.fb2"}},"docdate":"{{.Year}}",` +
 		`"lang":"ru","title":"Сборник без автора","cover":false,"annotation":"","fav":false,` +
 		`"approved":true,"md5":"{{index .MD5 "no-author.fb2"}}","duplicate_hidden":false,` +
 		`"authors":[{"id":{{index .Author "Автор неизвестен"}},"full_name":"Автор неизвестен"}],` +
 		`"series":null,"genres":[{"id":{{index .Genre "antology"}},"genre":"antology"}],` +
-		`"favorites":null,"covers":null,"favorite_count":0,"position":0}`
+		`"favorites":null,"covers":null,"favorite_count":0,"position":0,"publisher":null,"isbn":[]}`
 	restLatin = `{"id":{{index .Book "latin-mismatch.fb2"}},"path":"characterization.zip","format":"fb2",` +
 		`"filename":"latin-mismatch.fb2","registerdate":{{index .Register "latin-mismatch.fb2"}},"docdate":"{{.Year}}",` +
 		`"lang":"en","title":"the GREAT book","cover":false,"annotation":"","fav":false,` +
@@ -121,7 +124,7 @@ const (
 		`{"id":{{index .Author "толстой ЛЕВ"}},"full_name":"толстой ЛЕВ"}],` +
 		`"series":[{"id":{{index .Series "Saga"}},"ser_no":0,"ser":"Saga","lang_code":0}],` +
 		`"genres":[{"id":{{index .Genre "sf"}},"genre":"sf"}],` +
-		`"favorites":null,"covers":null,"favorite_count":0,"position":0}`
+		`"favorites":null,"covers":null,"favorite_count":0,"position":0,"publisher":null,"isbn":[]}`
 )
 
 func bookPage(length int, books ...string) string {
@@ -137,7 +140,8 @@ func TestScanCharacterizationRESTJSON(t *testing.T) {
 	v := loadScanVars(t, db, books, now)
 
 	// The production wiring of cmd/gopds: the shared search service over the
-	// PostgreSQL repository, behind the stub identity middleware.
+	// PostgreSQL repository and the source layer for the book card, behind the
+	// stub identity middleware.
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
@@ -145,8 +149,10 @@ func TestScanCharacterizationRESTJSON(t *testing.T) {
 		c.Set("is_superuser", false)
 		c.Next()
 	})
-	SetupBookRoutes(r.Group("/api/books"),
-		&SearchHandler{Search: services.NewSearchService(database.NewPGSearchRepository(db))})
+	SetupBookRoutes(r.Group("/api/books"), &SearchHandler{
+		Search:  services.NewSearchService(database.NewPGSearchRepository(db)),
+		Sources: database.NewPGBookSourceRepository(db),
+	})
 
 	id := func(m map[string]int64, key string) string { return strconv.FormatInt(m[key], 10) }
 	cases := []struct {

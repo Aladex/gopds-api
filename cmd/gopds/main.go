@@ -99,7 +99,7 @@ func run() (code int) {
 
 	route := gin.New()
 	setupMiddleware(route)
-	setupRoutes(route, cfg.Donate, searchService)
+	setupRoutes(route, cfg.Donate, searchService, db)
 
 	return serveUntilShutdown(route)
 }

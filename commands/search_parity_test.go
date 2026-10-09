@@ -82,6 +82,15 @@ func bookIDs(books []models.Book) []int64 {
 	return ids
 }
 
+// restBookIDs is bookIDs over the REST list, whose rows wrap models.Book.
+func restBookIDs(books []api.ListedBook) []int64 {
+	ids := make([]int64, 0, len(books))
+	for i := range books {
+		ids = append(ids, books[i].ID)
+	}
+	return ids
+}
+
 // restBooks drives the REST adapter and returns the books it rendered.
 func restBooks(t *testing.T, svc *parityService, query string) api.ExportAnswer {
 	t.Helper()
@@ -176,7 +185,7 @@ func TestSearchParityTitleAcrossClients(t *testing.T) {
 
 	// Every client showed the page it was handed, in the order it was handed.
 	want := bookIDs(page.Books)
-	assert.Equal(t, want, bookIDs(got.Books), "REST reordered or dropped rows")
+	assert.Equal(t, want, restBookIDs(got.Books), "REST reordered or dropped rows")
 	assert.Equal(t, want, bookIDs(result.Books), "Telegram reordered or dropped rows")
 	assertOrderedIn(t, body, []string{"Парити третья", "Парити первая", "Парити вторая"})
 
@@ -281,7 +290,7 @@ func TestSearchParityTypoTravelsUnchanged(t *testing.T) {
 		require.Len(t, reqs, 1)
 		assert.Equal(t, typo, reqs[0].Query, "%s altered the typo before sending it", name)
 	}
-	assert.Equal(t, []int64{903}, bookIDs(got.Books))
+	assert.Equal(t, []int64{903}, restBookIDs(got.Books))
 	assert.Equal(t, []int64{903}, bookIDs(result.Books))
 	assert.Contains(t, body, "Парити третья")
 }
