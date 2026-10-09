@@ -145,3 +145,158 @@ export const startFixScan = <TResult>(payload?: unknown) =>
     http.post<TResult>('/admin/scan/fix', payload);
 
 export const cancelFixScan = () => http.post<unknown>('/admin/scan/fix/cancel');
+
+// --- Author normalization -------------------------------------------------
+//
+// Types and routes follow the admin author-metadata contract exactly; the
+// backend implements the same contract, so nothing here may drift from it.
+
+export type AuthorMetadataRunMode = 'smoke' | 'pilot_archive' | 'full';
+
+export type AuthorMetadataRunStatus =
+    'pending' | 'running' | 'paused' | 'completed' | 'failed_systemic';
+
+/** Terminal counts per closed extraction outcome, keyed as the backend sends them. */
+export interface AuthorMetadataExtractionByStatus {
+    extracted: number;
+    extracted_no_author: number;
+    already_current: number;
+    entry_missing: number;
+    invalid_fb2: number;
+    unsupported_encoding: number;
+    metadata_parse_failed: number;
+}
+
+export interface AuthorMetadataExtractionStage {
+    total: number;
+    done: number;
+    pending: number;
+    leased: number;
+    oldest_pending_age_s: number;
+    by_status: AuthorMetadataExtractionByStatus;
+    current_archive: string | null;
+    items_per_minute: number;
+}
+
+export interface AuthorMetadataLocalStage {
+    total: number;
+    done: number;
+    pending: number;
+    leased: number;
+    failed: number;
+    oldest_pending_age_s: number;
+}
+
+export interface AuthorMetadataReviewStage {
+    open: number;
+    closed: number;
+}
+
+export interface AuthorMetadataStages {
+    extraction: AuthorMetadataExtractionStage;
+    local: AuthorMetadataLocalStage;
+    review: AuthorMetadataReviewStage;
+}
+
+/** Unresolved credits broken down by closed reason; the keys are server-defined. */
+export interface AuthorMetadataCredits {
+    selected: number;
+    invalid: number;
+    review: number;
+    pending: number;
+    unresolved: Record<string, number>;
+}
+
+export interface AuthorMetadataRun {
+    id: number;
+    mode: AuthorMetadataRunMode;
+    status: AuthorMetadataRunStatus;
+    extractor_version: string;
+    normalizer_version: string;
+    created_at: string;
+    started_at: string | null;
+    extraction_completed_at: string | null;
+    completed_at: string | null;
+    last_error_class: string | null;
+    approved_for_full: boolean;
+    stages: AuthorMetadataStages;
+    credits: AuthorMetadataCredits;
+}
+
+export interface AuthorMetadataReport extends AuthorMetadataRun {
+    ready: boolean;
+    not_ready_reasons: string[];
+    duration_s: number;
+    db_growth_bytes: number;
+    by_class: Record<string, number>;
+    by_script: Record<string, number>;
+}
+
+export interface AuthorMetadataRunStart {
+    mode: AuthorMetadataRunMode;
+    book_ids?: number[];
+    archive?: string;
+}
+
+export const startAuthorMetadataRun = (payload: AuthorMetadataRunStart) =>
+    http.post<{ run: AuthorMetadataRun }>('/admin/author-metadata/runs', payload);
+
+/**
+ * The closed retry error classes per stage, as the runs contract publishes
+ * them. A class valid for one stage can be invalid for the other, so the
+ * payload type below only admits pairs the server accepts.
+ */
+export const AUTHOR_METADATA_EXTRACTION_RETRY_CLASSES = [
+    'entry_missing',
+    'invalid_fb2',
+    'unsupported_encoding',
+    'metadata_parse_failed',
+    'lease_expired',
+    'max_attempts_exceeded',
+    'transient_database',
+] as const;
+
+export const AUTHOR_METADATA_LOCAL_RETRY_CLASSES = [
+    'transient_database',
+    'normalizer_failed',
+    'lease_expired',
+    'max_attempts_exceeded',
+] as const;
+
+export type AuthorMetadataExtractionRetryClass =
+    (typeof AUTHOR_METADATA_EXTRACTION_RETRY_CLASSES)[number];
+
+export type AuthorMetadataLocalRetryClass = (typeof AUTHOR_METADATA_LOCAL_RETRY_CLASSES)[number];
+
+export type AuthorMetadataRetryPayload =
+    | { stage: 'extraction'; error_class: AuthorMetadataExtractionRetryClass }
+    | { stage: 'local'; error_class: AuthorMetadataLocalRetryClass };
+
+export const isExtractionRetryClass = (
+    value: string,
+): value is AuthorMetadataExtractionRetryClass =>
+    (AUTHOR_METADATA_EXTRACTION_RETRY_CLASSES as readonly string[]).includes(value);
+
+export const isLocalRetryClass = (value: string): value is AuthorMetadataLocalRetryClass =>
+    (AUTHOR_METADATA_LOCAL_RETRY_CLASSES as readonly string[]).includes(value);
+
+export const getCurrentAuthorMetadataRun = () =>
+    http.get<{ run: AuthorMetadataRun | null }>('/admin/author-metadata/runs/current');
+
+export const getAuthorMetadataRun = (runID: number) =>
+    http.get<{ run: AuthorMetadataRun }>(`/admin/author-metadata/runs/${runID}`);
+
+export const getAuthorMetadataRunReport = (runID: number) =>
+    http.get<{ report: AuthorMetadataReport }>(`/admin/author-metadata/runs/${runID}/report`);
+
+export const pauseAuthorMetadataRun = (runID: number) =>
+    http.post<{ run: AuthorMetadataRun }>(`/admin/author-metadata/runs/${runID}/pause`);
+
+export const resumeAuthorMetadataRun = (runID: number) =>
+    http.post<{ run: AuthorMetadataRun }>(`/admin/author-metadata/runs/${runID}/resume`);
+
+export const approveAuthorMetadataFullRun = (runID: number) =>
+    http.post<{ run: AuthorMetadataRun }>(`/admin/author-metadata/runs/${runID}/approve-full`);
+
+export const retryAuthorMetadataRun = (runID: number, payload: AuthorMetadataRetryPayload) =>
+    http.post<{ reopened: number }>(`/admin/author-metadata/runs/${runID}/retry`, payload);
