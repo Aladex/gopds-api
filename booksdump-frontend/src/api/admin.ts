@@ -255,6 +255,8 @@ export const AUTHOR_METADATA_EXTRACTION_RETRY_CLASSES = [
     'lease_expired',
     'max_attempts_exceeded',
     'transient_database',
+    'archive_unreadable',
+    'extraction_failed',
 ] as const;
 
 export const AUTHOR_METADATA_LOCAL_RETRY_CLASSES = [

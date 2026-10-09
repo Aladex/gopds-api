@@ -586,7 +586,7 @@
   "authorNormalization.report.byScript": "По системам письма",
   "authorNormalization.errors.invalid_request": "Некорректное тело запроса.",
   "authorNormalization.errors.invalid_mode": "Неизвестный режим запуска.",
-  "authorNormalization.errors.invalid_selector": "Выбранные книги или архив не соответствуют режиму.",
+  "authorNormalization.errors.invalid_selector": "Выбранные книги или архив не соответствуют режиму либо ничего не выбирают.",
   "authorNormalization.errors.too_many_book_ids": "Допустимо не более 10000 идентификаторов.",
   "authorNormalization.errors.invalid_book_id": "Идентификаторы книг должны быть положительными числами.",
   "authorNormalization.errors.duplicate_book_id": "Идентификаторы книг не должны повторяться.",
@@ -668,5 +668,15 @@
   "authorReview.confirm": "Подтвердить",
   "authorReview.editDisplayRequired": "Укажите отображаемое имя.",
   "authorReview.actionError": "Действие не выполнено.",
-  "authorReview.errors.review_conflict": "Элемент проверки изменил другой администратор. Он обновлён; ваш черновик сохранён."
+  "authorReview.errors.review_conflict": "Элемент проверки изменил другой администратор. Он обновлён; ваш черновик сохранён.",
+  "authorNormalization.reopenedNone": "Ничего не возвращено в работу: либо под этот этап и класс ошибки нет неудачных записей, либо у подходящих записей уже исчерпан лимит попыток.",
+  "authorNormalization.retry": "Повторить",
+  "authorNormalization.retryStage": "Этап повтора",
+  "authorNormalization.retryClass": "Класс ошибки для повтора",
+  "authorNormalization.retryHint": "Выберите этап и класс ошибки для возвращения в работу.",
+  "authorNormalization.errorClass.archive_unreadable": "Нечитаемый архив",
+  "authorNormalization.errorClass.database_invariant": "Нарушение целостности базы данных",
+  "authorNormalization.errorClass.version_mismatch": "Несовпадение версий",
+  "authorNormalization.errorClass.extractor_misconfigured": "Неверная настройка экстрактора",
+  "authorNormalization.errorClass.other": "Другая ошибка"
 }

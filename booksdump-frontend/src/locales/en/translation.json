@@ -582,7 +582,7 @@
   "authorNormalization.report.byScript": "By script",
   "authorNormalization.errors.invalid_request": "The request body is malformed.",
   "authorNormalization.errors.invalid_mode": "Unknown run mode.",
-  "authorNormalization.errors.invalid_selector": "The mode and its selector do not match.",
+  "authorNormalization.errors.invalid_selector": "The mode and its selector do not match, or the selector selects no books.",
   "authorNormalization.errors.too_many_book_ids": "At most 10000 book IDs are allowed.",
   "authorNormalization.errors.invalid_book_id": "Book IDs must be positive numbers.",
   "authorNormalization.errors.duplicate_book_id": "Book IDs must not repeat.",
@@ -664,5 +664,15 @@
   "authorReview.confirm": "Confirm",
   "authorReview.editDisplayRequired": "Display name is required.",
   "authorReview.actionError": "Action failed.",
-  "authorReview.errors.review_conflict": "Another admin changed this review item. It has been refreshed; your draft is preserved."
+  "authorReview.errors.review_conflict": "Another admin changed this review item. It has been refreshed; your draft is preserved.",
+  "authorNormalization.reopenedNone": "Nothing was reopened: either no failed row matches this stage and class, or the matching rows have already spent their attempt budget.",
+  "authorNormalization.retry": "Retry",
+  "authorNormalization.retryStage": "Retry stage",
+  "authorNormalization.retryClass": "Retry error class",
+  "authorNormalization.retryHint": "Choose the stage and the error class to reopen.",
+  "authorNormalization.errorClass.archive_unreadable": "Unreadable archive",
+  "authorNormalization.errorClass.database_invariant": "Database invariant broken",
+  "authorNormalization.errorClass.version_mismatch": "Version mismatch",
+  "authorNormalization.errorClass.extractor_misconfigured": "Extractor misconfigured",
+  "authorNormalization.errorClass.other": "Other error"
 }

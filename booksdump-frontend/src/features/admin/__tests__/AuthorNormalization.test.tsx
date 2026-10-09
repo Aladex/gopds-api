@@ -4,11 +4,16 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 
 import AdminSpace from '@/features/admin/AdminPanel';
 import AuthorNormalization, {
+    TRACKED_RUN_KEY,
     controlsFor,
     fullStartAllowed,
     parseBookIds,
     percent,
 } from '@/features/admin/AuthorNormalization';
+import {
+    AUTHOR_METADATA_EXTRACTION_RETRY_CLASSES,
+    AUTHOR_METADATA_LOCAL_RETRY_CLASSES,
+} from '@/api/admin';
 import * as adminApi from '@/api/admin';
 import type { AuthorMetadataRun } from '@/api/admin';
 import { ApiError } from '@/api/errors';
@@ -36,6 +41,7 @@ vi.mock('@/api/admin', async (importOriginal) => {
     return {
         ...actual,
         getCurrentAuthorMetadataRun: vi.fn(),
+        getAuthorMetadataRun: vi.fn(),
         startAuthorMetadataRun: vi.fn(),
         getAuthorMetadataRunReport: vi.fn(),
         pauseAuthorMetadataRun: vi.fn(),
@@ -118,6 +124,19 @@ const currentWillReturn = (run: AuthorMetadataRun | null) => {
     api.getCurrentAuthorMetadataRun.mockResolvedValue({ run });
 };
 
+/**
+ * The integrated current endpoint answers only from the active slot
+ * (pending/running/paused); a completed run reaches the screen through the
+ * tracked id and GET /runs/:id.
+ */
+const trackedWillReturn = (run: AuthorMetadataRun | null) => {
+    if (run !== null) {
+        window.localStorage.setItem(TRACKED_RUN_KEY, String(run.id));
+        api.getAuthorMetadataRun.mockResolvedValue({ run });
+    }
+    api.getCurrentAuthorMetadataRun.mockResolvedValue({ run: null });
+};
+
 const completedWithBacklog = makeRun({
     status: 'completed',
     extraction_completed_at: minutesBefore(120),
@@ -155,6 +174,7 @@ const completedWithBacklog = makeRun({
 
 beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.removeItem(TRACKED_RUN_KEY);
     currentWillReturn(null);
     api.getAuthorMetadataRunReport.mockResolvedValue({
         report: {
@@ -265,7 +285,7 @@ describe('AuthorNormalization dashboard', () => {
     });
 
     it('renders completed-with-review-backlog semantics: completed, and the backlog spelled out', async () => {
-        currentWillReturn(completedWithBacklog);
+        trackedWillReturn(completedWithBacklog);
         render(<AuthorNormalization />);
 
         const run = await screen.findByRole('region', { name: /Current run/ });
@@ -321,17 +341,24 @@ describe('AuthorNormalization dashboard', () => {
         expect(within(local).getByText('60 / 100')).toBeInTheDocument();
     });
 
-    it('renders the failed-systemic state with the closed error class and retry controls', async () => {
-        currentWillReturn(makeRun({ status: 'failed_systemic', last_error_class: 'invalid_fb2' }));
+    it('renders the failed-systemic state with the closed error class and no retry', async () => {
+        currentWillReturn(
+            makeRun({
+                status: 'failed_systemic',
+                last_error_class: 'archive_unreadable',
+            }),
+        );
         render(<AuthorNormalization />);
 
         const run = await screen.findByRole('region', { name: /Current run/ });
         expect(within(run).getByText('Failed (systemic)')).toBeInTheDocument();
         expect(within(run).getByText('Last error class')).toBeInTheDocument();
-        expect(within(run).getByText('invalid_fb2')).toBeInTheDocument();
-        // invalid_fb2 is an extraction-stage class only, so only that retry exists.
-        expect(screen.getByRole('button', { name: 'Retry extraction' })).toBeEnabled();
-        expect(screen.queryByRole('button', { name: 'Retry local normalization' })).toBeNull();
+        expect(
+            within(run).getByText('Unreadable archive (archive_unreadable)'),
+        ).toBeInTheDocument();
+        // Retry semantics: the server answers 409 invalid_transition for a
+        // run ended failed_systemic, so no retry is offered there.
+        expect(screen.queryByRole('group', { name: 'Retry stage' })).toBeNull();
     });
 });
 
@@ -428,7 +455,7 @@ describe('start form', () => {
 
 describe('full-run approval gate', () => {
     it('offers the explicit approve action on a completed pilot and keeps full start disabled', async () => {
-        currentWillReturn(completedWithBacklog);
+        trackedWillReturn(completedWithBacklog);
         render(<AuthorNormalization />);
 
         expect(await screen.findByRole('button', { name: 'Approve full run' })).toBeEnabled();
@@ -444,7 +471,7 @@ describe('full-run approval gate', () => {
         api.approveAuthorMetadataFullRun.mockResolvedValue({
             run: { ...completedWithBacklog, approved_for_full: true },
         });
-        currentWillReturn(completedWithBacklog);
+        trackedWillReturn(completedWithBacklog);
         render(<AuthorNormalization />);
         await screen.findByRole('button', { name: 'Approve full run' });
 
@@ -457,7 +484,7 @@ describe('full-run approval gate', () => {
     });
 
     it('still shows the server rejection for a full start the server does not approve', async () => {
-        currentWillReturn({ ...completedWithBacklog, approved_for_full: true });
+        trackedWillReturn({ ...completedWithBacklog, approved_for_full: true });
         api.startAuthorMetadataRun.mockRejectedValue(
             new ApiError('full_run_not_approved', 409, {
                 body: { error: 'full_run_not_approved' },
@@ -498,8 +525,8 @@ describe('run controls', () => {
             } else {
                 expect(resume).toBeDisabled();
             }
-            // Retry exists only in the failed-systemic state.
-            expect(screen.queryByRole('button', { name: 'Retry extraction' })).toBeNull();
+            // Every server-allowed status offers the retry choice.
+            expect(screen.getByRole('group', { name: 'Retry stage' })).toBeInTheDocument();
         },
     );
 
@@ -515,17 +542,20 @@ describe('run controls', () => {
         expect(await screen.findByText('Paused')).toBeInTheDocument();
     });
 
-    it('retries a failed stage with the run error class and reports reopened items', async () => {
-        const failed = makeRun({
-            status: 'failed_systemic',
-            last_error_class: 'normalizer_failed',
-        });
-        api.retryAuthorMetadataRun.mockResolvedValue({ reopened: 4 });
-        currentWillReturn(failed);
-        render(<AuthorNormalization />);
-        await screen.findByText('Failed (systemic)');
+    /** Picks a stage and a class from the retry choice the dashboard offers. */
+    const chooseRetry = (stageLabel: string, errorClass: string) => {
+        fireEvent.click(screen.getByRole('button', { name: stageLabel }));
+        fireEvent.click(screen.getByRole('button', { name: errorClass }));
+    };
 
-        fireEvent.click(screen.getByRole('button', { name: 'Retry local normalization' }));
+    it('retries the chosen stage and class and reports reopened items', async () => {
+        api.retryAuthorMetadataRun.mockResolvedValue({ reopened: 4 });
+        trackedWillReturn(makeRun({ status: 'completed', last_error_class: null }));
+        render(<AuthorNormalization />);
+        await screen.findByText('Completed');
+
+        chooseRetry('Local normalization', 'normalizer_failed');
+        fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
 
         await waitFor(() =>
             expect(api.retryAuthorMetadataRun).toHaveBeenCalledWith(7, {
@@ -537,6 +567,45 @@ describe('run controls', () => {
         await waitFor(() =>
             expect(api.getCurrentAuthorMetadataRun.mock.calls.length).toBeGreaterThanOrEqual(2),
         );
+    });
+
+    it('reports the honest zero-reopened answer with an explanation', async () => {
+        api.retryAuthorMetadataRun.mockResolvedValue({ reopened: 0 });
+        trackedWillReturn(makeRun({ status: 'completed', last_error_class: null }));
+        render(<AuthorNormalization />);
+        await screen.findByText('Completed');
+
+        chooseRetry('Extraction', 'invalid_fb2');
+        fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+        await waitFor(() =>
+            expect(api.retryAuthorMetadataRun).toHaveBeenCalledWith(7, {
+                stage: 'extraction',
+                error_class: 'invalid_fb2',
+            }),
+        );
+        expect(
+            await screen.findByText(
+                'Nothing was reopened: either no failed row matches this stage and class, or the matching rows have already spent their attempt budget.',
+            ),
+        ).toBeInTheDocument();
+        await waitFor(() =>
+            expect(api.getCurrentAuthorMetadataRun.mock.calls.length).toBeGreaterThanOrEqual(2),
+        );
+    });
+
+    it('offers no retry for an approved pilot: the approval pins it', async () => {
+        trackedWillReturn(
+            makeRun({
+                status: 'completed',
+                last_error_class: 'lease_expired',
+                approved_for_full: true,
+            }),
+        );
+        render(<AuthorNormalization />);
+        await screen.findByText('Completed');
+
+        expect(screen.queryByRole('group', { name: 'Retry stage' })).toBeNull();
     });
 
     it('maps a rejected action to its closed code', async () => {
@@ -587,7 +656,7 @@ describe('durable status', () => {
     });
 
     it('loads the report for a completed run and shows its aggregates', async () => {
-        currentWillReturn(completedWithBacklog);
+        trackedWillReturn(completedWithBacklog);
         render(<AuthorNormalization />);
 
         await waitFor(() => expect(api.getAuthorMetadataRunReport).toHaveBeenCalledWith(7));
@@ -641,43 +710,56 @@ describe('pure helpers', () => {
         expect(controlsFor(makeRun({ status: 'running' }))).toEqual({
             pause: true,
             resume: false,
-            retry: false,
-            retryStages: [],
+            retry: true,
+            retryStages: ['extraction', 'local'],
         });
         expect(controlsFor(makeRun({ status: 'paused' }))).toEqual({
             pause: false,
             resume: true,
-            retry: false,
-            retryStages: [],
-        });
-        // normalizer_failed is a local-stage class only.
-        expect(
-            controlsFor(
-                makeRun({ status: 'failed_systemic', last_error_class: 'normalizer_failed' }),
-            ),
-        ).toEqual({ pause: false, resume: false, retry: true, retryStages: ['local'] });
-        // invalid_fb2 is an extraction-stage class only.
-        expect(
-            controlsFor(makeRun({ status: 'failed_systemic', last_error_class: 'invalid_fb2' })),
-        ).toEqual({ pause: false, resume: false, retry: true, retryStages: ['extraction'] });
-        // lease_expired is retryable in both stages.
-        expect(
-            controlsFor(makeRun({ status: 'failed_systemic', last_error_class: 'lease_expired' })),
-        ).toEqual({
-            pause: false,
-            resume: false,
             retry: true,
             retryStages: ['extraction', 'local'],
         });
-        // A class outside both closed retry lists offers no retry at all.
+        // Retry semantics: the server accepts retry for pending, running,
+        // paused and an unapproved completed run; the stage and class are the
+        // admin's explicit choice, so every allowed status offers both.
+        const bothStages = ['extraction', 'local'];
+        expect(controlsFor(makeRun({ status: 'pending' }))).toEqual({
+            pause: false,
+            resume: false,
+            retry: true,
+            retryStages: bothStages,
+        });
+        expect(controlsFor(makeRun({ status: 'running', last_error_class: null }))).toEqual({
+            pause: true,
+            resume: false,
+            retry: true,
+            retryStages: bothStages,
+        });
+        expect(controlsFor(makeRun({ status: 'paused' }))).toEqual({
+            pause: false,
+            resume: true,
+            retry: true,
+            retryStages: bothStages,
+        });
+        expect(controlsFor(makeRun({ status: 'completed' }))).toEqual({
+            pause: false,
+            resume: false,
+            retry: true,
+            retryStages: bothStages,
+        });
+        // The server answers 409 invalid_transition for failed_systemic and
+        // for an approved pilot (the approval pins it) — no retry offered.
+        expect(
+            controlsFor(makeRun({ status: 'failed_systemic', last_error_class: 'invalid_fb2' })),
+        ).toEqual({ pause: false, resume: false, retry: false, retryStages: [] });
         expect(
             controlsFor(
-                makeRun({ status: 'failed_systemic', last_error_class: 'archive_read_error' }),
+                makeRun({
+                    status: 'completed',
+                    approved_for_full: true,
+                }),
             ),
         ).toEqual({ pause: false, resume: false, retry: false, retryStages: [] });
-        expect(controlsFor(makeRun({ status: 'failed_systemic', last_error_class: null }))).toEqual(
-            { pause: false, resume: false, retry: false, retryStages: [] },
-        );
 
         expect(fullStartAllowed(completedWithBacklog)).toBe(false);
         expect(fullStartAllowed({ ...completedWithBacklog, approved_for_full: true })).toBe(true);
@@ -697,7 +779,8 @@ describe('closed error mapping', () => {
     const CLOSED_ERROR_CODES: Record<string, string> = {
         invalid_request: 'The request body is malformed.',
         invalid_mode: 'Unknown run mode.',
-        invalid_selector: 'The mode and its selector do not match.',
+        invalid_selector:
+            'The mode and its selector do not match, or the selector selects no books.',
         too_many_book_ids: 'At most 10000 book IDs are allowed.',
         invalid_book_id: 'Book IDs must be positive numbers.',
         duplicate_book_id: 'Book IDs must not repeat.',
@@ -761,42 +844,157 @@ describe('closed error mapping', () => {
     });
 });
 
-describe('retry stage validity', () => {
+describe('last error class vocabulary', () => {
     it.each([
-        ['normalizer_failed', 'Retry local normalization', 'Retry extraction'],
-        ['invalid_fb2', 'Retry extraction', 'Retry local normalization'],
-    ] as const)(
-        'offers only the retry action whose stage accepts %s',
-        async (errorClass, offered, withheld) => {
-            currentWillReturn(makeRun({ status: 'failed_systemic', last_error_class: errorClass }));
-            render(<AuthorNormalization />);
-            await screen.findByText('Failed (systemic)');
+        ['archive_unreadable', 'Unreadable archive'],
+        ['database_invariant', 'Database invariant broken'],
+        ['version_mismatch', 'Version mismatch'],
+        ['extractor_misconfigured', 'Extractor misconfigured'],
+        ['other', 'Other error'],
+    ])('labels the closed value %s without hiding the code', async (code, label) => {
+        currentWillReturn(makeRun({ status: 'failed_systemic', last_error_class: code }));
+        render(<AuthorNormalization />);
 
-            expect(screen.getByRole('button', { name: offered })).toBeEnabled();
-            expect(screen.queryByRole('button', { name: withheld })).toBeNull();
+        const run = await screen.findByRole('region', { name: /Current run/ });
+        expect(within(run).getByText(`${label} (${code})`)).toBeInTheDocument();
+    });
+
+    it.each(['constructor', '__proto__', 'unexpected private source details'])(
+        'renders the generic localized label for the out-of-vocabulary value %s, never the value',
+        async (value) => {
+            currentWillReturn(makeRun({ status: 'failed_systemic', last_error_class: value }));
+            render(<AuthorNormalization />);
+
+            const run = await screen.findByRole('region', { name: /Current run/ });
+            expect(within(run).getByText('Other error')).toBeInTheDocument();
+            expect(screen.queryByText(value)).toBeNull();
+            expect(document.body.textContent).not.toContain(value);
         },
     );
 
-    it('offers both retry actions for a class valid in both stages', async () => {
-        currentWillReturn(
-            makeRun({ status: 'failed_systemic', last_error_class: 'lease_expired' }),
-        );
-        render(<AuthorNormalization />);
-        await screen.findByText('Failed (systemic)');
+    it('renders the Russian generic label under a real translator, never the value', async () => {
+        const ru = ruTranslation as Record<string, string>;
+        const instance = i18next.createInstance();
+        await instance.init({
+            lng: 'ru',
+            fallbackLng: 'en',
+            resources: { ru: { translation: ruTranslation }, en: { translation: enTranslation } },
+            keySeparator: false,
+            interpolation: { escapeValue: false },
+        });
+        const fallback = i18nHolder.t;
+        i18nHolder.t = (key: string, opts?: unknown) =>
+            typeof opts === 'string'
+                ? instance.t(key, { defaultValue: opts })
+                : instance.t(key, (opts ?? {}) as Record<string, unknown>);
+        try {
+            currentWillReturn(
+                makeRun({
+                    status: 'failed_systemic',
+                    last_error_class: 'unexpected private source details',
+                }),
+            );
+            render(<AuthorNormalization />);
 
-        expect(screen.getByRole('button', { name: 'Retry extraction' })).toBeEnabled();
-        expect(screen.getByRole('button', { name: 'Retry local normalization' })).toBeEnabled();
+            const run = await screen.findByRole('region', { name: /Текущий запуск/ });
+            expect(
+                within(run).getByText(ru['authorNormalization.errorClass.other']),
+            ).toBeInTheDocument();
+            expect(document.body.textContent).not.toContain('unexpected private source details');
+        } finally {
+            i18nHolder.t = fallback;
+        }
+    });
+});
+
+describe('retry eligibility and choice', () => {
+    /** The closed per-stage class lists, as selectable buttons. */
+    const classButtons = (stageLabel: string) => {
+        fireEvent.click(screen.getByRole('button', { name: stageLabel }));
+        const group = screen.getByRole('group', { name: 'Retry error class' });
+        return within(group)
+            .getAllByRole('button')
+            .map((button) => button.textContent?.trim());
+    };
+
+    it.each(['pending', 'running', 'paused'] as const)(
+        'offers the retry choice for an active %s run (the server allows it)',
+        async (status) => {
+            currentWillReturn(makeRun({ status, last_error_class: 'lease_expired' }));
+            render(<AuthorNormalization />);
+            await screen.findByText(
+                status === 'running' ? 'Running' : status === 'paused' ? 'Paused' : 'Queued',
+            );
+
+            expect(screen.getByRole('group', { name: 'Retry stage' })).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled();
+        },
+    );
+
+    it.each([
+        ['running', 'Running'],
+        ['paused', 'Paused'],
+    ] as const)('sends an actual retry POST for a %s run', async (status, statusText) => {
+        api.retryAuthorMetadataRun.mockResolvedValue({ reopened: 2 });
+        currentWillReturn(makeRun({ status, last_error_class: null }));
+        render(<AuthorNormalization />);
+        await screen.findByText(statusText);
+
+        fireEvent.click(screen.getByRole('button', { name: 'Extraction' }));
+        fireEvent.click(screen.getByRole('button', { name: 'archive_unreadable' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+        await waitFor(() =>
+            expect(api.retryAuthorMetadataRun).toHaveBeenCalledWith(7, {
+                stage: 'extraction',
+                error_class: 'archive_unreadable',
+            }),
+        );
     });
 
-    it('offers no retry when the error class is retryable for neither stage', async () => {
-        currentWillReturn(
-            makeRun({ status: 'failed_systemic', last_error_class: 'archive_read_error' }),
+    it('offers the retry choice for a completed run with no run-level error class', async () => {
+        trackedWillReturn(makeRun({ status: 'completed', last_error_class: null }));
+        render(<AuthorNormalization />);
+        await screen.findByText('Completed');
+
+        expect(screen.getByRole('group', { name: 'Retry stage' })).toBeInTheDocument();
+    });
+
+    it('lists exactly the closed class list of the chosen stage', async () => {
+        trackedWillReturn(makeRun({ status: 'completed', last_error_class: null }));
+        render(<AuthorNormalization />);
+        await screen.findByText('Completed');
+
+        expect(classButtons('Extraction')).toEqual([...AUTHOR_METADATA_EXTRACTION_RETRY_CLASSES]);
+        expect(classButtons('Local normalization')).toEqual([
+            ...AUTHOR_METADATA_LOCAL_RETRY_CLASSES,
+        ]);
+    });
+
+    it('lets the admin choose a class different from the run error class', async () => {
+        api.retryAuthorMetadataRun.mockResolvedValue({ reopened: 1 });
+        trackedWillReturn(makeRun({ status: 'completed', last_error_class: 'invalid_fb2' }));
+        render(<AuthorNormalization />);
+        await screen.findByText('Completed');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Extraction' }));
+        fireEvent.click(screen.getByRole('button', { name: 'extraction_failed' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+        await waitFor(() =>
+            expect(api.retryAuthorMetadataRun).toHaveBeenCalledWith(7, {
+                stage: 'extraction',
+                error_class: 'extraction_failed',
+            }),
         );
+    });
+
+    it('offers no retry for a failed-systemic run (the server refuses it)', async () => {
+        currentWillReturn(makeRun({ status: 'failed_systemic', last_error_class: 'invalid_fb2' }));
         render(<AuthorNormalization />);
         await screen.findByText('Failed (systemic)');
 
-        expect(screen.queryByRole('button', { name: 'Retry extraction' })).toBeNull();
-        expect(screen.queryByRole('button', { name: 'Retry local normalization' })).toBeNull();
+        expect(screen.queryByRole('group', { name: 'Retry stage' })).toBeNull();
     });
 });
 
@@ -1130,15 +1328,17 @@ describe('garbage error bodies', () => {
 
 describe('retry payload pairs', () => {
     it.each([
-        ['lease_expired', 'extraction', 'Retry extraction'],
-        ['lease_expired', 'local', 'Retry local normalization'],
-    ] as const)('sends the contract-valid pair %s/%s', async (errorClass, stage, label) => {
+        ['extraction', 'Extraction', 'lease_expired'],
+        ['local', 'Local normalization', 'transient_database'],
+    ] as const)('sends the chosen pair %s/%s', async (stage, stageLabel, errorClass) => {
         api.retryAuthorMetadataRun.mockResolvedValue({ reopened: 1 });
-        currentWillReturn(makeRun({ status: 'failed_systemic', last_error_class: errorClass }));
+        trackedWillReturn(makeRun({ status: 'completed', last_error_class: null }));
         render(<AuthorNormalization />);
-        await screen.findByText('Failed (systemic)');
+        await screen.findByText('Completed');
 
-        fireEvent.click(screen.getByRole('button', { name: label }));
+        fireEvent.click(screen.getByRole('button', { name: stageLabel }));
+        fireEvent.click(screen.getByRole('button', { name: errorClass }));
+        fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
 
         await waitFor(() =>
             expect(api.retryAuthorMetadataRun).toHaveBeenCalledWith(7, {
@@ -1146,5 +1346,231 @@ describe('retry payload pairs', () => {
                 error_class: errorClass,
             }),
         );
+    });
+});
+
+describe('tracked run continuity', () => {
+    it('follows the tracked run through GET /runs/:id once the active slot empties', async () => {
+        const running = makeRun();
+        api.getCurrentAuthorMetadataRun
+            .mockResolvedValueOnce({ run: running })
+            .mockResolvedValue({ run: null });
+        api.getAuthorMetadataRun.mockResolvedValue({ run: completedWithBacklog });
+        render(<AuthorNormalization />);
+        await screen.findByText('Running');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
+
+        await waitFor(() => expect(api.getAuthorMetadataRun).toHaveBeenCalledWith(7));
+        expect(await screen.findByText('Completed')).toBeInTheDocument();
+        expect(window.localStorage.getItem(TRACKED_RUN_KEY)).toBe('7');
+    });
+
+    it('tracks the id of a run it started and follows that run afterwards', async () => {
+        api.startAuthorMetadataRun.mockResolvedValue({ run: makeRun({ id: 8 }) });
+        render(<AuthorNormalization />);
+        await screen.findByText('No author normalization run yet. Start one below.');
+
+        fireEvent.change(screen.getByLabelText('Book IDs'), { target: { value: '1' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+
+        await screen.findByText('Running');
+        expect(window.localStorage.getItem(TRACKED_RUN_KEY)).toBe('8');
+
+        api.getCurrentAuthorMetadataRun.mockResolvedValue({ run: null });
+        api.getAuthorMetadataRun.mockResolvedValue({
+            run: makeRun({ id: 8, status: 'completed' }),
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
+
+        await waitFor(() => expect(api.getAuthorMetadataRun).toHaveBeenCalledWith(8));
+        expect(await screen.findByText('Completed')).toBeInTheDocument();
+    });
+
+    it('a newer active run replaces the tracked id', async () => {
+        window.localStorage.setItem(TRACKED_RUN_KEY, '7');
+        api.getCurrentAuthorMetadataRun
+            .mockResolvedValueOnce({ run: makeRun({ id: 9 }) })
+            .mockResolvedValue({ run: null });
+        api.getAuthorMetadataRun.mockResolvedValue({
+            run: makeRun({ id: 9, status: 'completed' }),
+        });
+        render(<AuthorNormalization />);
+        await screen.findByText('Running');
+        expect(window.localStorage.getItem(TRACKED_RUN_KEY)).toBe('9');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
+
+        await waitFor(() => expect(api.getAuthorMetadataRun).toHaveBeenCalledWith(9));
+        expect(await screen.findByText('Completed')).toBeInTheDocument();
+    });
+
+    it('falls back to the empty state when the tracked id no longer exists', async () => {
+        window.localStorage.setItem(TRACKED_RUN_KEY, '42');
+        api.getCurrentAuthorMetadataRun.mockResolvedValue({ run: null });
+        api.getAuthorMetadataRun.mockRejectedValue(
+            new ApiError('run_not_found', 404, { body: { error: 'run_not_found' } }),
+        );
+        render(<AuthorNormalization />);
+
+        expect(
+            await screen.findByText('No author normalization run yet. Start one below.'),
+        ).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Start' })).toBeEnabled();
+    });
+
+    /**
+     * Replaces the real window.localStorage with one whose chosen method
+     * genuinely throws — the setupTests polyfill is a plain object, so a
+     * Storage.prototype spy would never intercept it.
+     */
+    const installThrowingStorage = (method: 'getItem' | 'setItem') => {
+        const store = window.localStorage;
+        const boom = () => {
+            throw new Error('storage unavailable');
+        };
+        Object.defineProperty(window, 'localStorage', {
+            configurable: true,
+            value: {
+                getItem: method === 'getItem' ? boom : store.getItem.bind(store),
+                setItem: method === 'setItem' ? boom : store.setItem.bind(store),
+                removeItem: store.removeItem.bind(store),
+                clear: store.clear.bind(store),
+                key: store.key.bind(store),
+                get length() {
+                    return store.length;
+                },
+            } as Storage,
+        });
+        return () => {
+            Object.defineProperty(window, 'localStorage', { configurable: true, value: store });
+        };
+    };
+
+    it('keeps the known run through active-slot completion when the storage write fails', async () => {
+        const restore = installThrowingStorage('setItem');
+        try {
+            expect(() => window.localStorage.setItem('probe', '1')).toThrow();
+            api.getCurrentAuthorMetadataRun
+                .mockResolvedValueOnce({ run: makeRun() })
+                .mockResolvedValue({ run: null });
+            api.getAuthorMetadataRun.mockResolvedValue({ run: completedWithBacklog });
+            render(<AuthorNormalization />);
+            await screen.findByText('Running');
+
+            fireEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
+
+            await waitFor(() => expect(api.getAuthorMetadataRun).toHaveBeenCalledWith(7));
+            expect(await screen.findByText('Completed')).toBeInTheDocument();
+        } finally {
+            restore();
+        }
+    });
+
+    it('keeps the known run when the storage read fails', async () => {
+        api.getCurrentAuthorMetadataRun
+            .mockResolvedValueOnce({ run: makeRun() })
+            .mockResolvedValue({ run: null });
+        api.getAuthorMetadataRun.mockResolvedValue({ run: completedWithBacklog });
+        render(<AuthorNormalization />);
+        await screen.findByText('Running');
+
+        const restore = installThrowingStorage('getItem');
+        try {
+            expect(() => window.localStorage.getItem('probe')).toThrow();
+            fireEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
+
+            await waitFor(() => expect(api.getAuthorMetadataRun).toHaveBeenCalledWith(7));
+            expect(await screen.findByText('Completed')).toBeInTheDocument();
+        } finally {
+            restore();
+        }
+    });
+
+    it('remembers a completed run loaded by id before storage later becomes unavailable', async () => {
+        window.localStorage.setItem(TRACKED_RUN_KEY, '7');
+        api.getCurrentAuthorMetadataRun.mockResolvedValue({ run: null });
+        api.getAuthorMetadataRun.mockResolvedValue({ run: completedWithBacklog });
+        render(<AuthorNormalization />);
+        await screen.findByText('Completed');
+
+        const restore = installThrowingStorage('getItem');
+        try {
+            expect(() => window.localStorage.getItem('probe')).toThrow();
+            fireEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
+
+            // The memory tracker now holds the id the reload used.
+            await waitFor(() => expect(api.getAuthorMetadataRun).toHaveBeenCalledTimes(2));
+            expect(await screen.findByText('Completed')).toBeInTheDocument();
+        } finally {
+            restore();
+        }
+    });
+
+    it('never looks up a rounded unsafe active-run id when its active slot later empties', async () => {
+        // JSON parsing rounds 9007199254740993 to 9007199254740992.
+        const unsafeId = JSON.parse('9007199254740993') as number;
+        api.getCurrentAuthorMetadataRun
+            .mockResolvedValueOnce({ run: makeRun({ id: unsafeId }) })
+            .mockResolvedValue({ run: null });
+        render(<AuthorNormalization />);
+        await screen.findByText('Running');
+
+        // The existing invalid-data alert covers the unsafe run while shown.
+        expect(
+            await screen.findByText(
+                'The run data received from the server is invalid; run actions are disabled.',
+            ),
+        ).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
+
+        expect(
+            await screen.findByText('No author normalization run yet. Start one below.'),
+        ).toBeInTheDocument();
+        expect(api.getAuthorMetadataRun).not.toHaveBeenCalled();
+        expect(window.localStorage.getItem(TRACKED_RUN_KEY)).toBeNull();
+    });
+
+    it.each([
+        [
+            'a server error',
+            new ApiError('internal_error', 500, { body: { error: 'internal_error' } }),
+        ],
+        ['a network failure', new Error('network down')],
+    ])(
+        'reports a retryable load error, not an empty state, when the tracked lookup fails with %s',
+        async (_label, failure) => {
+            window.localStorage.setItem(TRACKED_RUN_KEY, '7');
+            api.getCurrentAuthorMetadataRun.mockResolvedValue({ run: null });
+            api.getAuthorMetadataRun.mockRejectedValue(failure);
+            render(<AuthorNormalization />);
+
+            const alert = await screen.findByRole('alert');
+            expect(alert).toHaveTextContent('Failed to load the current run.');
+            expect(
+                screen.queryByText('No author normalization run yet. Start one below.'),
+            ).toBeNull();
+            expect(screen.getByRole('button', { name: 'Start' })).toBeDisabled();
+        },
+    );
+
+    it('keeps the visible run on screen while the tracked lookup fails', async () => {
+        api.getCurrentAuthorMetadataRun
+            .mockResolvedValueOnce({ run: makeRun() })
+            .mockResolvedValue({ run: null });
+        api.getAuthorMetadataRun.mockRejectedValue(
+            new ApiError('internal_error', 500, { body: { error: 'internal_error' } }),
+        );
+        render(<AuthorNormalization />);
+        await screen.findByText('Running');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(
+            'Failed to load the current run.',
+        );
+        expect(screen.getByText('Running')).toBeInTheDocument();
+        expect(screen.queryByText('No author normalization run yet. Start one below.')).toBeNull();
     });
 });

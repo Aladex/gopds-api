@@ -20,7 +20,13 @@ import type {
     AuthorMetadataRunStart,
     AuthorMetadataRunStatus,
 } from '@/api/admin';
-import { isExtractionRetryClass, isLocalRetryClass } from '@/api/admin';
+import {
+    AUTHOR_METADATA_EXTRACTION_RETRY_CLASSES,
+    AUTHOR_METADATA_LOCAL_RETRY_CLASSES,
+    closedErrorCode,
+    isExtractionRetryClass,
+    isLocalRetryClass,
+} from '@/api/admin';
 import { isApiError } from '@/api/errors';
 import AuthorReviewQueue from '@/features/admin/AuthorReviewQueue';
 
@@ -29,6 +35,34 @@ export const MAX_BOOK_IDS = 10000;
 
 /** How often the durable status is re-fetched while a run is in flight. */
 const POLL_INTERVAL_MS = 15000;
+
+/**
+ * The last run this browser followed. The current endpoint answers only from
+ * the active slot, so once a run completes this id is what keeps it visible
+ * through GET /runs/:id until a newer run starts.
+ */
+export const TRACKED_RUN_KEY = 'authorNormalization.trackedRunId';
+
+const readTrackedRunId = (): number | null => {
+    try {
+        const raw = window.localStorage.getItem(TRACKED_RUN_KEY);
+        if (raw === null) {
+            return null;
+        }
+        const id = Number(raw);
+        return Number.isSafeInteger(id) && id > 0 ? id : null;
+    } catch {
+        return null;
+    }
+};
+
+/**
+ * Remembers the tracked id in component memory first and in browser storage
+ * second. Storage can be unavailable (private mode, quota, a throwing
+ * implementation); the in-memory id is what keeps the run reachable for as
+ * long as the screen is mounted.
+ */
+const useTrackedRunId = () => useRef<number | null>(null);
 
 const ACTIVE_STATUSES: ReadonlySet<AuthorMetadataRunStatus> = new Set([
     'pending',
@@ -42,6 +76,22 @@ const TERMINAL_STATUSES: ReadonlySet<AuthorMetadataRunStatus> = new Set([
 ]);
 
 const MODES: AuthorMetadataRunMode[] = ['smoke', 'pilot_archive', 'full'];
+
+/**
+ * The closed last_error_class vocabulary (contract, phase 20 integration fix
+ * round 1): null, or one of the four run error classes, with the fixed
+ * sentinel "other" for out-of-set stored values. A Map so only its own
+ * entries are found; anything else renders the same generic localized
+ * "other" label with no raw suffix — an out-of-set value has no guaranteed
+ * diagnostic meaning or privacy properties, so it is never echoed.
+ */
+const LAST_ERROR_CLASS_FALLBACKS = new Map([
+    ['archive_unreadable', 'Unreadable archive'],
+    ['database_invariant', 'Database invariant broken'],
+    ['version_mismatch', 'Version mismatch'],
+    ['extractor_misconfigured', 'Extractor misconfigured'],
+    ['other', 'Other error'],
+]);
 
 /** Fallbacks for the dynamic status/mode keys; the locales carry the real strings. */
 const STATUS_FALLBACKS: Record<AuthorMetadataRunStatus, string> = {
@@ -77,7 +127,10 @@ const KNOWN_STATUSES: ReadonlySet<AuthorMetadataRunStatus> = new Set([
 const ERROR_FALLBACKS: ReadonlyMap<string, string> = new Map([
     ['invalid_request', 'The request body is malformed.'],
     ['invalid_mode', 'Unknown run mode.'],
-    ['invalid_selector', 'The mode and its selector do not match.'],
+    [
+        'invalid_selector',
+        'The mode and its selector do not match, or the selector selects no books.',
+    ],
     ['too_many_book_ids', 'At most 10000 book IDs are allowed.'],
     ['invalid_book_id', 'Book IDs must be positive numbers.'],
     ['duplicate_book_id', 'Book IDs must not repeat.'],
@@ -140,23 +193,29 @@ export interface RunControls {
     retryStages: ('extraction' | 'local')[];
 }
 
-/** Which controls the server status permits; nothing else may enable them. */
+/**
+ * Which controls the server status permits; nothing else may enable them.
+ *
+ * Retry follows the server's own state machine (database.retryRunStatuses):
+ * pending, running, paused and an unapproved completed run accept retries —
+ * an active run keeps going, a completed one goes back to running. The
+ * server answers 409 invalid_transition for failed_systemic and for an
+ * approved pilot (the approval pins it), so no retry is offered there. The
+ * stage and error class are the admin's explicit choice from the closed
+ * per-stage lists; the run's last_error_class is a diagnostic, not a
+ * prerequisite.
+ */
 export function controlsFor(run: AuthorMetadataRun): RunControls {
-    const errorClass = run.last_error_class;
-    const retryStages: ('extraction' | 'local')[] = [];
-    if (run.status === 'failed_systemic' && errorClass !== null) {
-        if (isExtractionRetryClass(errorClass)) {
-            retryStages.push('extraction');
-        }
-        if (isLocalRetryClass(errorClass)) {
-            retryStages.push('local');
-        }
-    }
+    const retryable =
+        run.status === 'pending' ||
+        run.status === 'running' ||
+        run.status === 'paused' ||
+        (run.status === 'completed' && !run.approved_for_full);
     return {
         pause: run.status === 'running',
         resume: run.status === 'paused',
-        retry: retryStages.length > 0,
-        retryStages,
+        retry: retryable,
+        retryStages: retryable ? ['extraction', 'local'] : [],
     };
 }
 
@@ -248,6 +307,9 @@ const AuthorNormalization: React.FC = () => {
     const [archiveName, setArchiveName] = useState('');
     const [formError, setFormError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+    /** The admin's explicit retry choice; never derived from the run. */
+    const [retryStage, setRetryStage] = useState<'extraction' | 'local' | null>(null);
+    const [retryClass, setRetryClass] = useState<string | null>(null);
     /**
      * Loading, a confirmed answer (including a confirmed null run), or a
      * failed load. Only a confirmed answer may enable the start form: a
@@ -260,6 +322,32 @@ const AuthorNormalization: React.FC = () => {
      * state the action already replaced.
      */
     const fetchGeneration = useRef(0);
+    const trackedRunIdRef = useTrackedRunId();
+
+    /** Memory first, storage as a best-effort bonus for the next reload. */
+    /**
+     * Only ids JSON parsing has not rounded may enter the tracker; the same
+     * validation every other id consumer applies. An unsafe id is dropped
+     * rather than tracked, so it can never be sent to GET /runs/:id — the
+     * displayed run keeps its invalid-data alert either way.
+     */
+    const rememberTrackedRunId = useCallback((id: number) => {
+        if (Number.isSafeInteger(id) && id > 0) {
+            trackedRunIdRef.current = id;
+            try {
+                window.localStorage.setItem(TRACKED_RUN_KEY, String(id));
+            } catch {
+                // Storage refused; the in-memory id still tracks the run.
+            }
+            return;
+        }
+        trackedRunIdRef.current = null;
+        try {
+            window.localStorage.removeItem(TRACKED_RUN_KEY);
+        } catch {
+            // Storage refused; there is nothing safe left to track anyway.
+        }
+    }, []);
 
     /** The durable status is the source of truth; polling only supplements it. */
     const fetchCurrent = useCallback(async () => {
@@ -269,8 +357,56 @@ const AuthorNormalization: React.FC = () => {
             if (generation !== fetchGeneration.current) {
                 return;
             }
-            setRun(data.run ?? null);
-            setLoadPhase('ready');
+            if (data.run !== null) {
+                // Every run the active slot names becomes the tracked one.
+                rememberTrackedRunId(data.run.id);
+                setRun(data.run);
+                setLoadPhase('ready');
+                return;
+            }
+            // The slot is empty: a run that completed still exists. Follow the
+            // tracked id through the durable by-id endpoint rather than
+            // inferring that no active slot means no run.
+            const tracked = trackedRunIdRef.current ?? readTrackedRunId();
+            if (tracked === null) {
+                setRun(null);
+                setLoadPhase('ready');
+                return;
+            }
+            if (!Number.isSafeInteger(tracked) || tracked <= 0) {
+                // Unreachable with the adoption validation; refused again so
+                // a rounded id is never interpolated into a route.
+                setRun(null);
+                setLoadPhase('ready');
+                return;
+            }
+            try {
+                const byId = await adminApi.getAuthorMetadataRun(tracked);
+                if (generation !== fetchGeneration.current) {
+                    return;
+                }
+                // A run loaded through the fallback is as tracked as any
+                // other: storage failing later must not lose it either.
+                rememberTrackedRunId(byId.run.id);
+                setRun(byId.run);
+                setLoadPhase('ready');
+            } catch (error) {
+                if (generation !== fetchGeneration.current) {
+                    return;
+                }
+                if (closedErrorCode(error) === 'run_not_found') {
+                    // A confirmed missing run is the true empty state.
+                    setRun(null);
+                    setLoadPhase('ready');
+                    return;
+                }
+                // A server or network failure is not "no run": keep whatever
+                // is on screen and surface a retryable load error.
+                setActionError(
+                    t('authorNormalization.loadError', 'Failed to load the current run.'),
+                );
+                setLoadPhase('failed');
+            }
         } catch {
             if (generation !== fetchGeneration.current) {
                 return;
@@ -278,21 +414,30 @@ const AuthorNormalization: React.FC = () => {
             setActionError(t('authorNormalization.loadError', 'Failed to load the current run.'));
             setLoadPhase('failed');
         }
-    }, [t]);
+    }, [rememberTrackedRunId, t]);
 
     useEffect(() => {
         fetchCurrent();
     }, [fetchCurrent]);
 
     /** Adopts a mutation's run and supersedes any status GET still in flight. */
-    const applyRun = useCallback((next: AuthorMetadataRun) => {
-        fetchGeneration.current += 1;
-        setRun(next);
-        setLoadPhase('ready');
-    }, []);
+    const applyRun = useCallback(
+        (next: AuthorMetadataRun) => {
+            fetchGeneration.current += 1;
+            // Starting (or adopting) a run makes it the tracked one.
+            rememberTrackedRunId(next.id);
+            setRun(next);
+            setLoadPhase('ready');
+        },
+        [rememberTrackedRunId],
+    );
 
     const runID = run?.id ?? null;
     const runStatus = run?.status ?? null;
+    useEffect(() => {
+        setRetryStage(null);
+        setRetryClass(null);
+    }, [runID]);
     useEffect(() => {
         setReport(null);
         if (
@@ -436,6 +581,17 @@ const AuthorNormalization: React.FC = () => {
             .catch((error) => setActionError(describeError(error)))
             .finally(() => setBusy(false));
     };
+
+    /** A closed-vocabulary label that keeps the diagnostic code visible. */
+    const labelForLastErrorClass = useCallback(
+        (code: string): string => {
+            const fallback = LAST_ERROR_CLASS_FALLBACKS.get(code);
+            return fallback === undefined
+                ? t('authorNormalization.errorClass.other', 'Other error')
+                : `${t(`authorNormalization.errorClass.${code}`, fallback)} (${code})`;
+        },
+        [t],
+    );
 
     const controls = run !== null ? controlsFor(run) : null;
     const fullAllowed = fullStartAllowed(run);
@@ -614,7 +770,10 @@ const AuthorNormalization: React.FC = () => {
                                                         'Last error class',
                                                     )}
                                                 </span>
-                                                : <span>{run.last_error_class}</span>
+                                                :{' '}
+                                                <span>
+                                                    {labelForLastErrorClass(run.last_error_class)}
+                                                </span>
                                             </AlertDescription>
                                         </Alert>
                                     )}
@@ -847,65 +1006,166 @@ const AuthorNormalization: React.FC = () => {
                                             >
                                                 {t('authorNormalization.resume', 'Resume')}
                                             </Button>
-                                            {controls.retryStages.map((stage) => (
-                                                <Button
-                                                    key={stage}
-                                                    variant="outline"
-                                                    size="sm"
-                                                    disabled={actionsBlocked}
-                                                    onClick={() => {
-                                                        const errorClass = run.last_error_class;
-                                                        if (errorClass === null) {
-                                                            return;
-                                                        }
-                                                        // Only the pairs the contract
-                                                        // admits; controlsFor built this
-                                                        // list from the same guards.
-                                                        const payload =
-                                                            stage === 'extraction' &&
-                                                            isExtractionRetryClass(errorClass)
-                                                                ? { stage, error_class: errorClass }
-                                                                : stage === 'local' &&
-                                                                    isLocalRetryClass(errorClass)
-                                                                  ? {
-                                                                        stage,
-                                                                        error_class: errorClass,
+                                            {controls.retry && (
+                                                <div className="flex flex-col gap-2">
+                                                    <span className="text-xs text-muted-foreground">
+                                                        {t(
+                                                            'authorNormalization.retryHint',
+                                                            'Choose the stage and the error class to reopen.',
+                                                        )}
+                                                    </span>
+                                                    <div
+                                                        role="group"
+                                                        aria-label={t(
+                                                            'authorNormalization.retryStage',
+                                                            'Retry stage',
+                                                        )}
+                                                        className="flex flex-wrap gap-2"
+                                                    >
+                                                        {(['extraction', 'local'] as const).map(
+                                                            (stage) => (
+                                                                <Button
+                                                                    key={stage}
+                                                                    variant={
+                                                                        retryStage === stage
+                                                                            ? 'default'
+                                                                            : 'outline'
                                                                     }
-                                                                  : null;
-                                                        if (payload === null) {
-                                                            return;
-                                                        }
-                                                        withBusy(() =>
-                                                            adminApi
-                                                                .retryAuthorMetadataRun(
-                                                                    run.id,
-                                                                    payload,
-                                                                )
-                                                                .then((data) => {
-                                                                    setNotice(
-                                                                        t(
-                                                                            'authorNormalization.reopened',
-                                                                            {
-                                                                                count: data.reopened,
-                                                                            },
-                                                                        ),
-                                                                    );
-                                                                    return fetchCurrent();
-                                                                }),
-                                                        );
-                                                    }}
-                                                >
-                                                    {stage === 'extraction'
-                                                        ? t(
-                                                              'authorNormalization.retryExtraction',
-                                                              'Retry extraction',
-                                                          )
-                                                        : t(
-                                                              'authorNormalization.retryLocal',
-                                                              'Retry local normalization',
-                                                          )}
-                                                </Button>
-                                            ))}
+                                                                    size="sm"
+                                                                    aria-pressed={
+                                                                        retryStage === stage
+                                                                    }
+                                                                    onClick={() => {
+                                                                        setRetryStage(stage);
+                                                                        setRetryClass(null);
+                                                                    }}
+                                                                >
+                                                                    {stage === 'extraction'
+                                                                        ? t(
+                                                                              'authorNormalization.stage.extraction',
+                                                                              'Extraction',
+                                                                          )
+                                                                        : t(
+                                                                              'authorNormalization.stage.local',
+                                                                              'Local normalization',
+                                                                          )}
+                                                                </Button>
+                                                            ),
+                                                        )}
+                                                    </div>
+                                                    {retryStage !== null && (
+                                                        <div
+                                                            role="group"
+                                                            aria-label={t(
+                                                                'authorNormalization.retryClass',
+                                                                'Retry error class',
+                                                            )}
+                                                            className="flex flex-wrap gap-2"
+                                                        >
+                                                            {(retryStage === 'extraction'
+                                                                ? AUTHOR_METADATA_EXTRACTION_RETRY_CLASSES
+                                                                : AUTHOR_METADATA_LOCAL_RETRY_CLASSES
+                                                            ).map((errorClass) => (
+                                                                <Button
+                                                                    key={errorClass}
+                                                                    variant={
+                                                                        retryClass === errorClass
+                                                                            ? 'default'
+                                                                            : 'outline'
+                                                                    }
+                                                                    size="sm"
+                                                                    aria-pressed={
+                                                                        retryClass === errorClass
+                                                                    }
+                                                                    onClick={() =>
+                                                                        setRetryClass(errorClass)
+                                                                    }
+                                                                >
+                                                                    {errorClass}
+                                                                </Button>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                    <div>
+                                                        <Button
+                                                            size="sm"
+                                                            disabled={
+                                                                actionsBlocked ||
+                                                                retryStage === null ||
+                                                                retryClass === null
+                                                            }
+                                                            onClick={() => {
+                                                                if (
+                                                                    retryStage === null ||
+                                                                    retryClass === null
+                                                                ) {
+                                                                    return;
+                                                                }
+                                                                // The class groups are the
+                                                                // closed per-stage lists; the
+                                                                // guards admit the pair.
+                                                                const payload =
+                                                                    retryStage === 'extraction' &&
+                                                                    isExtractionRetryClass(
+                                                                        retryClass,
+                                                                    )
+                                                                        ? {
+                                                                              stage: retryStage,
+                                                                              error_class:
+                                                                                  retryClass,
+                                                                          }
+                                                                        : retryStage === 'local' &&
+                                                                            isLocalRetryClass(
+                                                                                retryClass,
+                                                                            )
+                                                                          ? {
+                                                                                stage: retryStage,
+                                                                                error_class:
+                                                                                    retryClass,
+                                                                            }
+                                                                          : null;
+                                                                if (payload === null) {
+                                                                    return;
+                                                                }
+                                                                withBusy(() =>
+                                                                    adminApi
+                                                                        .retryAuthorMetadataRun(
+                                                                            run.id,
+                                                                            payload,
+                                                                        )
+                                                                        .then((data) => {
+                                                                            // reopened is the
+                                                                            // exact count; zero is
+                                                                            // an honest answer —
+                                                                            // nothing matched, or
+                                                                            // the matching rows
+                                                                            // spent their budget.
+                                                                            setNotice(
+                                                                                data.reopened > 0
+                                                                                    ? t(
+                                                                                          'authorNormalization.reopened',
+                                                                                          {
+                                                                                              count: data.reopened,
+                                                                                          },
+                                                                                      )
+                                                                                    : t(
+                                                                                          'authorNormalization.reopenedNone',
+                                                                                          'Nothing was reopened: either no failed row matches this stage and class, or the matching rows have already spent their attempt budget.',
+                                                                                      ),
+                                                                            );
+                                                                            return fetchCurrent();
+                                                                        }),
+                                                                );
+                                                            }}
+                                                        >
+                                                            {t(
+                                                                'authorNormalization.retry',
+                                                                'Retry',
+                                                            )}
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            )}
                                             {run.mode === 'pilot_archive' &&
                                                 run.status === 'completed' &&
                                                 !run.approved_for_full && (
