@@ -132,6 +132,7 @@ func Books(now time.Time) map[string][]byte {
 func WriteArchive(t testing.TB, dir string, now time.Time) string {
 	t.Helper()
 	path := filepath.Join(dir, ArchiveName)
+	// #nosec G304 -- a test fixture writing a fixed file name into the caller's test directory
 	f, err := os.Create(path)
 	if err != nil {
 		t.Fatalf("creating the fixture archive: %v", err)
