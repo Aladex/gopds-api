@@ -757,7 +757,7 @@ func (h *authorMetadataRunsHandler) current(c *gin.Context) {
 
 // latest godoc
 // @Summary Latest author metadata run
-// @Description The most recent run by id, whatever its status, or null when no run exists; the dashboard shows it once the active slot is empty.
+// @Description The most recent run by id, any status, or null when there is none; shown once the active slot is empty.
 // @Tags admin
 // @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Produce json
