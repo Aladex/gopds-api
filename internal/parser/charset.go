@@ -322,7 +322,7 @@ func isUTF16Label(label string) bool {
 }
 
 // decodeSingleByte converts content from a declared single-byte charset to
-// UTF-8. The label set is closed — see singleByteCharmap — because the
+// UTF-8. The label set is closed — see singleByteEncodingFor — because the
 // declaration is trusted, not negotiated: known=false means the label is
 // outside the supported set.
 func decodeSingleByte(content []byte, label string) (decoded []byte, known bool) {
