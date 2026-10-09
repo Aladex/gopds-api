@@ -287,6 +287,8 @@ func TestExtractEncodings(t *testing.T) {
 		{"enc_cp1251.fb2", strp(cyrillic.first), strp(cyrillic.middle), strp(cyrillic.last), cyrillic.title},
 		{"enc_koi8r.fb2", strp(cyrillic.first), strp(cyrillic.middle), strp(cyrillic.last), cyrillic.title},
 		{"enc_latin1.fb2", strp("André"), nil, strp("Müller"), "Café"},
+		{"enc_cp1252.fb2", strp("René"), nil, strp("François"), "Café Européen — €5"},
+		{"enc_cp1250.fb2", strp("Łukasz"), nil, strp("Kowalski"), "Źródło w Łodzi"},
 		{"enc_declared_utf8_damaged.fb2", strp(cyrillic.first), strp(cyrillic.middle), strp(cyrillic.last), ""},
 	}
 	for _, tc := range cases {

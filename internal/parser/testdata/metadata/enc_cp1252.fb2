@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="windows-1252"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">
+<description>
+<title-info>
+<author><first-name>René</first-name><last-name>François</last-name></author>
+<book-title>Café Européen — €5</book-title>
+<lang>fr</lang>
+</title-info>
+<document-info>
+<id>enc-test-cp1252</id>
+<version>1</version>
+</document-info>
+</description>
+<body><section><p>L’expresso.</p></section></body>
+</FictionBook>

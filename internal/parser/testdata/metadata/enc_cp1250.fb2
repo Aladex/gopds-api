@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="windows-1250"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">
+<description>
+<title-info>
+<author><first-name>Łukasz</first-name><last-name>Kowalski</last-name></author>
+<book-title>Źródło w Łodzi</book-title>
+<lang>pl</lang>
+</title-info>
+<document-info>
+<id>enc-test-cp1250</id>
+<version>1</version>
+</document-info>
+</description>
+<body><section><p>źrebię</p></section></body>
+</FictionBook>

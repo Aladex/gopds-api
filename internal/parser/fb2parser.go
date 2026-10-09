@@ -12,8 +12,6 @@ import (
 	"unicode/utf8"
 
 	"golang.org/x/net/html/charset"
-	"golang.org/x/text/encoding/charmap"
-	"golang.org/x/text/transform"
 
 	"gopds-api/internal/fb2image"
 	"gopds-api/internal/fb2sanitize"
@@ -688,30 +686,33 @@ func stripWhitespace(value string) string {
 	return builder.String()
 }
 
-// makeCharsetReader creates a reader that converts from the specified charset to UTF-8
+// makeCharsetReader creates a reader that converts from the specified charset
+// to UTF-8. encoding/xml does not call CharsetReader at all for the normalized
+// encoding="utf-8" declaration every current caller leaves behind (the
+// parsers, the converters and the metadata extractor all decode through
+// DecodeToUTF8 first), so in practice this function never runs; the arms
+// resolve through the same closed table (singleByteEncodingFor) as the byte
+// decoder, so a hypothetical caller feeding raw bytes to the XML decoder
+// cannot see a label set — or a byte mapping — the byte decoder disagrees
+// with.
 func makeCharsetReader(charsetLabel string, input io.Reader) (io.Reader, error) {
 	charsetLabel = strings.ToLower(charsetLabel)
 	switch charsetLabel {
 	case labelUTF8, labelUTF8Bare:
 		// Already UTF-8, return as-is
 		return input, nil
-	case labelCP1251, labelCP1251AliasFlat, labelCP1251AliasDash:
-		return transform.NewReader(input, charmap.Windows1251.NewDecoder()), nil
-	case labelLatin1, labelLatin1Alias, labelLatin1AliasFlat:
-		return transform.NewReader(input, charmap.ISO8859_1.NewDecoder()), nil
-	case labelLatin5, labelLatin5Alias, labelLatin5AliasFlat:
-		return transform.NewReader(input, charmap.ISO8859_5.NewDecoder()), nil
-	case labelKOI8R, labelKOI8RAlias:
-		return transform.NewReader(input, charmap.KOI8R.NewDecoder()), nil
-	case "koi8-u", "koi8u":
-		return transform.NewReader(input, charmap.KOI8U.NewDecoder()), nil
-	default:
-		reader, err := charset.NewReaderLabel(charsetLabel, input)
-		if err != nil {
-			return input, nil
-		}
-		return reader, nil
 	}
+	if enc, known := singleByteEncodingFor(charsetLabel); known {
+		return enc.newReader(input), nil
+	}
+	// Unreachable on every current path (DecodeToUTF8 rewrote the
+	// declaration); kept as a last-resort guard so the XML decoder never
+	// fails outright on a label this switch does not name.
+	reader, err := charset.NewReaderLabel(charsetLabel, input)
+	if err != nil {
+		return input, nil
+	}
+	return reader, nil
 }
 
 // --- Public methods for combined parsing (used by converter.ParseFB2Complete) ---

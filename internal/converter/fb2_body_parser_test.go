@@ -938,6 +938,7 @@ func TestParseFB2Body_Encodings(t *testing.T) {
 		{"windows-1251 declared", "encoding_cp1251.fb2", ruMarker},
 		{"koi8-r declared", "encoding_koi8r.fb2", ruMarker},
 		{"iso-8859-1 declared", "encoding_latin1.fb2", "café naïve"},
+		{"windows-1252 declared", "encoding_cp1252.fb2", "Un café à Paris — l’expresso coûte 5 € …"},
 		{"iso-8859-5 declared", "encoding_iso8859_5.fb2", ruMarker},
 		{"utf-8 with BOM", "encoding_utf8_bom.fb2", ruMarker},
 		{"utf-16le with BOM", "encoding_utf16le_bom.fb2", ruMarker},

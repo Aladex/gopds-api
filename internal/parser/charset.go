@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -56,6 +57,32 @@ const (
 	labelLatin1          = "iso-8859-1"
 	labelLatin1Alias     = "latin1"
 	labelLatin1AliasFlat = "iso_8859-1"
+
+	// The Western, Central European, Greek, Turkish, Baltic and Ukrainian
+	// charsets FB2 in the wild declares beyond the Cyrillic set.
+	labelCP1250          = "windows-1250"
+	labelCP1250AliasFlat = "cp1250"
+	labelCP1250AliasDash = "cp-1250"
+	labelCP1252          = "windows-1252"
+	labelCP1252AliasFlat = "cp1252"
+	labelCP1252AliasDash = "cp-1252"
+	labelCP1253          = "windows-1253"
+	labelCP1253AliasFlat = "cp1253"
+	labelCP1253AliasDash = "cp-1253"
+	labelCP1254          = "windows-1254"
+	labelCP1254AliasFlat = "cp1254"
+	labelCP1254AliasDash = "cp-1254"
+	labelCP1257          = "windows-1257"
+	labelCP1257AliasFlat = "cp1257"
+	labelCP1257AliasDash = "cp-1257"
+	labelLatin2          = "iso-8859-2"
+	labelLatin2Alias     = "latin2"
+	labelLatin2AliasFlat = "iso_8859-2"
+	labelLatin9          = "iso-8859-15"
+	labelLatin9Alias     = "latin9"
+	labelLatin9AliasFlat = "iso_8859-15"
+	labelKOI8U           = "koi8-u"
+	labelKOI8UAlias      = "koi8u"
 )
 
 // Byte order marks, longest first: UTF-32LE shares its first two bytes with
@@ -295,29 +322,161 @@ func isUTF16Label(label string) bool {
 }
 
 // decodeSingleByte converts content from a declared single-byte charset to
-// UTF-8. The label set is closed — windows-1251, KOI8-R, ISO-8859-5,
-// ISO-8859-1 and their aliases — because the declaration is trusted, not
-// negotiated: known=false means the label is outside the supported set.
+// UTF-8. The label set is closed — see singleByteCharmap — because the
+// declaration is trusted, not negotiated: known=false means the label is
+// outside the supported set.
 func decodeSingleByte(content []byte, label string) (decoded []byte, known bool) {
-	var enc *charmap.Charmap
-	switch label {
-	case labelCP1251, labelCP1251AliasFlat, labelCP1251AliasDash:
-		enc = charmap.Windows1251
-	case labelKOI8R, labelKOI8RAlias:
-		enc = charmap.KOI8R
-	case labelLatin5, labelLatin5Alias, labelLatin5AliasFlat:
-		enc = charmap.ISO8859_5
-	case labelLatin1, labelLatin1Alias, labelLatin1AliasFlat:
-		enc = charmap.ISO8859_1
-	default:
+	enc, known := singleByteEncodingFor(label)
+	if !known {
 		return nil, false
 	}
-	out, _, err := transform.Bytes(enc.NewDecoder(), content)
+	return enc.decode(content)
+}
+
+// singleByteEncoding is one closed-table entry: either a charmap used exactly
+// as the library decodes it, or an ISO 8859 page carried as a corrected
+// 256-rune table (see correctedISORuneTable).
+type singleByteEncoding struct {
+	charmap *charmap.Charmap // set when the library table is used as-is
+	runes   *[256]rune       // set when a corrected table replaces the library's
+}
+
+// decode converts declared single-byte content to UTF-8. Single-byte charmaps
+// and corrected tables decode any byte; an error is defensive only.
+func (e singleByteEncoding) decode(content []byte) ([]byte, bool) {
+	if e.runes != nil {
+		out := make([]byte, 0, len(content)*singleByteMaxUTF8)
+		for _, b := range content {
+			out = utf8.AppendRune(out, e.runes[b])
+		}
+		return out, true
+	}
+	out, _, err := transform.Bytes(e.charmap.NewDecoder(), content)
 	if err != nil {
-		// Single-byte charmaps decode any byte; this is defensive only.
 		return nil, false
 	}
 	return out, true
+}
+
+// newReader is the streaming form of decode, for the XML decoder's charset
+// reader.
+func (e singleByteEncoding) newReader(input io.Reader) io.Reader {
+	if e.runes != nil {
+		return transform.NewReader(input, runeTableDecoder{table: e.runes})
+	}
+	return transform.NewReader(input, e.charmap.NewDecoder())
+}
+
+// singleByteMaxUTF8 is the largest UTF-8 encoding of any rune in the
+// supported single-byte pages (their highest code points sit in the
+// box-drawing range, U+25xx): three bytes, the size a capacity hint needs.
+const singleByteMaxUTF8 = 3
+
+// runeTableDecoder turns a 256-rune table into a streaming Transformer: every
+// input byte is exactly one rune, so the transform is a flat loop.
+type runeTableDecoder struct{ table *[256]rune }
+
+func (d runeTableDecoder) Transform(dst, src []byte, atEOF bool) (nDst, nSrc int, err error) {
+	for nSrc < len(src) {
+		var buf [utf8.UTFMax]byte
+		n := utf8.EncodeRune(buf[:], d.table[src[nSrc]])
+		if nDst+n > len(dst) {
+			return nDst, nSrc, transform.ErrShortDst
+		}
+		nDst += copy(dst[nDst:], buf[:n])
+		nSrc++
+	}
+	return nDst, nSrc, nil
+}
+
+func (d runeTableDecoder) Reset() {}
+
+// correctedISORuneTable builds the 256-rune decode table of an ISO 8859 page
+// from its charmap, restoring the C1 control characters the page defines at
+// 0x80-0x9F. x/text's tables for several ISO pages (8859-2 and 8859-15 among
+// them) map those bytes to U+FFFD, but the standards define U+0080-U+009F
+// there: they are defined characters, not undecodable bytes, and replacing
+// one with a different rune would silently alter the credited source text.
+// The table is built from the library's own decode so the printable range
+// stays exactly the library's; only the C1 slice is restored by definition.
+// The previously supported ISO-8859-5 deliberately keeps its library behavior
+// (byte-identical requirement for existing labels); see singleByteEncodingFor.
+func correctedISORuneTable(enc *charmap.Charmap) *[256]rune {
+	table := new([256]rune)
+	for b := 0; b < 256; b++ {
+		if b >= 0x80 && b <= 0x9F {
+			table[b] = rune(b)
+			continue
+		}
+		decoded, _, err := transform.Bytes(enc.NewDecoder(), []byte{byte(b)})
+		r, size := utf8.DecodeRune(decoded)
+		if err != nil || size == 0 {
+			r = utf8.RuneError
+		}
+		table[b] = r
+	}
+	return table
+}
+
+// The corrected tables for the two newly admitted ISO pages, built once.
+var (
+	iso8859_2RuneTable  = correctedISORuneTable(charmap.ISO8859_2)
+	iso8859_15RuneTable = correctedISORuneTable(charmap.ISO8859_15)
+)
+
+// singleByteEncodingFor is the one closed table of declared single-byte
+// charsets this build decodes, shared by the byte decoder and the XML
+// decoder's charset reader so the two can never disagree (koi8-u was once
+// known to one and refused by the other). Each label is admitted on measured
+// need, with aliases following the WHATWG label conventions and the existing
+// Cyrillic set's style:
+//
+//   - the Cyrillic set FB2 was built around: windows-1251, KOI8-R, ISO-8859-5,
+//     ISO-8859-1, and koi8-u (Ukrainian — the second language of the
+//     catalog; the reader table already knew it);
+//   - windows-1252: the first prod pilot refused 2% of an archive (143 of
+//     7141 books) on exactly this label — Western European books;
+//   - windows-1250 and -1257 (Central European and Baltic), -1253 (Greek) and
+//     -1254 (Turkish): the Western books a Russian-library catalog carries;
+//   - ISO-8859-2 and ISO-8859-15: the ISO counterparts European tools declare
+//     instead of the windows pages, decoded through corrected tables because
+//     the library replaces their defined C1 characters with U+FFFD.
+//
+// An open label lookup (x/net/html/charset) is deliberately not used: it
+// would silently accept a far wider label set — including labels whose
+// mappings differ from these charmaps — turning every future unknown
+// declaration into accepted-by-default instead of a reviewed, measured
+// decision, and the refusal contract (ErrUnsupportedDeclaredCharset) would
+// no longer name a set anyone could test.
+func singleByteEncodingFor(label string) (singleByteEncoding, bool) {
+	switch label {
+	case labelCP1251, labelCP1251AliasFlat, labelCP1251AliasDash:
+		return singleByteEncoding{charmap: charmap.Windows1251}, true
+	case labelKOI8R, labelKOI8RAlias:
+		return singleByteEncoding{charmap: charmap.KOI8R}, true
+	case labelKOI8U, labelKOI8UAlias:
+		return singleByteEncoding{charmap: charmap.KOI8U}, true
+	case labelLatin5, labelLatin5Alias, labelLatin5AliasFlat:
+		return singleByteEncoding{charmap: charmap.ISO8859_5}, true
+	case labelLatin1, labelLatin1Alias, labelLatin1AliasFlat:
+		return singleByteEncoding{charmap: charmap.ISO8859_1}, true
+	case labelLatin2, labelLatin2Alias, labelLatin2AliasFlat:
+		return singleByteEncoding{runes: iso8859_2RuneTable}, true
+	case labelLatin9, labelLatin9Alias, labelLatin9AliasFlat:
+		return singleByteEncoding{runes: iso8859_15RuneTable}, true
+	case labelCP1250, labelCP1250AliasFlat, labelCP1250AliasDash:
+		return singleByteEncoding{charmap: charmap.Windows1250}, true
+	case labelCP1252, labelCP1252AliasFlat, labelCP1252AliasDash:
+		return singleByteEncoding{charmap: charmap.Windows1252}, true
+	case labelCP1253, labelCP1253AliasFlat, labelCP1253AliasDash:
+		return singleByteEncoding{charmap: charmap.Windows1253}, true
+	case labelCP1254, labelCP1254AliasFlat, labelCP1254AliasDash:
+		return singleByteEncoding{charmap: charmap.Windows1254}, true
+	case labelCP1257, labelCP1257AliasFlat, labelCP1257AliasDash:
+		return singleByteEncoding{charmap: charmap.Windows1257}, true
+	default:
+		return singleByteEncoding{}, false
+	}
 }
 
 // xmlDeclPrefix is the target opening the XML declaration processing
