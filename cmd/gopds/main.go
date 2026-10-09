@@ -56,7 +56,7 @@ func run() (code int) {
 	// The author metadata workers start only once the database answers and
 	// stop before its pool closes: one deferred call keeps that order, and,
 	// registered first, it still runs after every other deferred shutdown.
-	authorMetadata := initializeAuthorMetadata(db, &cfg.AuthorMetadata)
+	authorMetadata := initializeAuthorMetadata(db, cfg.App.FilesPath, &cfg.AuthorMetadata)
 	defer func() {
 		if err := shutdownAuthorMetadataThenDatabase(authorMetadata, db, authorMetadataShutdownTimeout); err != nil && code == 0 {
 			code = 1

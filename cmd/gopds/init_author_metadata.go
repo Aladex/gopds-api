@@ -13,20 +13,26 @@ import (
 )
 
 // authorMetadataShutdownTimeout bounds how long shutdown waits for the author
-// metadata workers before the database pool closes regardless. An abandoned
-// claim is safe: its lease expires and the next start claims it again.
+// metadata workers. When they stop within it the database pool closes; when
+// they do not, the pool stays open for them and the process exits with an
+// error (see shutdownAuthorMetadataThenDatabase). An abandoned claim is safe:
+// its lease expires and the next start claims it again.
 const authorMetadataShutdownTimeout = 10 * time.Second
 
 // buildAuthorMetadataWorkers assembles every embedded author metadata worker
-// from the configuration. This is the one place stages are registered.
-func buildAuthorMetadataWorkers(db *pg.DB, c *config.AuthorMetadataConfig) ([]services.AuthorMetadataStageWorker, error) {
-	var workers []services.AuthorMetadataStageWorker
-
-	// EXTRACTION STAGE (plan phase 8) — register the extraction worker here
-	// once it is merged: c.Extraction.Concurrency loops built from
-	// c.Extraction (claim size, lease, max attempts), c.MetadataMaxBytes and
-	// c.PollInterval, appended to workers like the local loops below. Nothing
-	// else in this file or in the runner changes for it.
+// from the configuration: the extraction loop over the archives under
+// archivesDir, and the local normalization loops. This is the one place
+// stages are registered.
+func buildAuthorMetadataWorkers(
+	db *pg.DB,
+	archivesDir string,
+	c *config.AuthorMetadataConfig,
+) ([]services.AuthorMetadataStageWorker, error) {
+	extraction, err := services.NewAuthorMetadataExtractionLoop(db, archivesDir, c)
+	if err != nil {
+		return nil, fmt.Errorf("building the extraction worker: %w", err)
+	}
+	workers := []services.AuthorMetadataStageWorker{extraction}
 
 	local, err := services.NewAuthorMetadataLocalLoops(db, c)
 	if err != nil {
@@ -56,12 +62,12 @@ func startAuthorMetadataRunner(
 // initializeAuthorMetadata starts the workers when the configuration enables
 // them. A failure is logged and leaves the server running without them: the
 // pipeline is background work, and its jobs wait in the database.
-func initializeAuthorMetadata(db *pg.DB, c *config.AuthorMetadataConfig) *services.AuthorMetadataRunner {
+func initializeAuthorMetadata(db *pg.DB, archivesDir string, c *config.AuthorMetadataConfig) *services.AuthorMetadataRunner {
 	if !c.Enabled {
 		logging.Info("Author metadata workers disabled")
 		return nil
 	}
-	workers, err := buildAuthorMetadataWorkers(db, c)
+	workers, err := buildAuthorMetadataWorkers(db, archivesDir, c)
 	if err != nil {
 		logging.Errorf("Author metadata workers not started: %v", err)
 		return nil

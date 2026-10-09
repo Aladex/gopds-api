@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -109,24 +110,26 @@ func TestAuthorMetadataConfigReachesTheLocalWorker(t *testing.T) {
 
 	c := wiringConfig()
 	c.LocalNormalization.ClaimSize = 2
-	workers, err := buildAuthorMetadataWorkers(db, &c)
+	workers, err := buildAuthorMetadataWorkers(db, t.TempDir(), &c)
 	require.NoError(t, err)
-	require.Len(t, workers, 1, "one local loop, and no extraction worker until phase 8 registers one")
-	report, err := workers[0].(*services.AuthorMetadataLocalLoop).RunOnce(ctx)
+	require.Len(t, workers, 2, "the extraction loop and one local loop")
+	_, isExtraction := workers[0].(*services.AuthorMetadataExtractionLoop)
+	require.True(t, isExtraction, "the extraction stage is registered first")
+	report, err := workers[1].(*services.AuthorMetadataLocalLoop).RunOnce(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, 2, report.Claimed, "claim size 2 takes two jobs")
 
 	c.LocalNormalization.ClaimSize = 3
-	workers, err = buildAuthorMetadataWorkers(db, &c)
+	workers, err = buildAuthorMetadataWorkers(db, t.TempDir(), &c)
 	require.NoError(t, err)
-	report, err = workers[0].(*services.AuthorMetadataLocalLoop).RunOnce(ctx)
+	report, err = workers[1].(*services.AuthorMetadataLocalLoop).RunOnce(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, 3, report.Claimed, "claim size 3 takes three")
 
 	c.LocalNormalization.Concurrency = 2
-	workers, err = buildAuthorMetadataWorkers(db, &c)
+	workers, err = buildAuthorMetadataWorkers(db, t.TempDir(), &c)
 	require.NoError(t, err)
-	assert.Len(t, workers, 2, "concurrency is the number of local loops")
+	assert.Len(t, workers, 3, "local concurrency is the number of local loops")
 }
 
 // The enabled flag keeps every worker off: nothing claims.
@@ -137,7 +140,7 @@ func TestAuthorMetadataDisabledStartsNothing(t *testing.T) {
 	c.Enabled = false
 	c.PollInterval = time.Millisecond
 
-	runner := initializeAuthorMetadata(db, &c)
+	runner := initializeAuthorMetadata(db, t.TempDir(), &c)
 	assert.Nil(t, runner)
 	time.Sleep(50 * time.Millisecond)
 	var attempts int
@@ -146,7 +149,7 @@ func TestAuthorMetadataDisabledStartsNothing(t *testing.T) {
 	assert.Zero(t, attempts)
 
 	c.Enabled = true
-	runner = initializeAuthorMetadata(db, &c)
+	runner = initializeAuthorMetadata(db, t.TempDir(), &c)
 	require.NotNil(t, runner)
 	require.Eventually(t, func() bool {
 		var completed int
@@ -216,4 +219,44 @@ func TestAuthorMetadataStartsNoWorkerBeforeDatabaseReady(t *testing.T) {
 	assert.Zero(t, w.ran.Load())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), closedPool)
+}
+
+// The extraction stage takes its metadata read limit from the configuration:
+// the same book is extracted under the default limit and refused as
+// metadata_parse_failed under a 64-byte one.
+func TestAuthorMetadataConfigReachesTheExtractionWorker(t *testing.T) {
+	payload, err := os.ReadFile(filepath.Join("..", "..", "services", "testdata", "author_metadata", "happy.zip"))
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		maxBytes int64
+		want     string
+	}{{config.AuthorMetadataMaxBytes, "extracted"}, {64, "metadata_parse_failed"}} {
+		t.Run(fmt.Sprint(tc.maxBytes), func(t *testing.T) {
+			db := scratchDB(t)
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "happy.zip"), payload, 0o600))
+			var book int64
+			_, err := db.QueryOne(pg.Scan(&book), `INSERT INTO opds_catalog_book
+				(filename, path, format, registerdate, docdate, lang, title, annotation, md5)
+				VALUES ('multi_contributor.fb2', 'happy.zip', 'fb2', now(), '', 'ru', 'w', '', '') RETURNING id`)
+			require.NoError(t, err)
+			ctx := context.Background()
+			run, err := services.NewAuthorMetadataRunService(db).StartRun(ctx, &services.StartRunRequest{
+				Mode: models.AuthorMetadataRunSmoke, BookIDs: []int64{book},
+			})
+			require.NoError(t, err)
+
+			c := wiringConfig()
+			c.MetadataMaxBytes = tc.maxBytes
+			workers, err := buildAuthorMetadataWorkers(db, dir, &c)
+			require.NoError(t, err)
+			processed, err := workers[0].(*services.AuthorMetadataExtractionLoop).RunOnce(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, 1, processed)
+			var status string
+			_, err = db.QueryOne(pg.Scan(&status), `SELECT status FROM author_metadata_run_item WHERE run_id = ?`, run.ID)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, status)
+		})
+	}
 }

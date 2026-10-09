@@ -14,6 +14,7 @@ import (
 	"gopds-api/config"
 	"gopds-api/database"
 	"gopds-api/internal/authornorm"
+	"gopds-api/internal/parser"
 
 	"github.com/go-pg/pg/v10"
 	"github.com/stretchr/testify/assert"
@@ -322,3 +323,26 @@ func (h slowResultWrite) BeforeQuery(ctx context.Context, e *pg.QueryEvent) (con
 }
 
 func (slowResultWrite) AfterQuery(context.Context, *pg.QueryEvent) error { return nil }
+
+// The extraction loop takes concurrency, claim size, lease, attempts and the
+// metadata read limit from the configuration, and runs this build's
+// extractor version.
+func TestExtractionWorkerConfigFromConfig(t *testing.T) {
+	c := config.AuthorMetadataConfig{
+		MetadataMaxBytes: 12345,
+		Extraction: config.AuthorMetadataStageConfig{
+			Concurrency: 3, ClaimSize: 9, Lease: 70 * time.Second, MaxAttempts: 6,
+		},
+	}
+	cfg := ExtractionWorkerConfigFrom("/archives", &c)
+	assert.Equal(t, "/archives", cfg.ArchivesDir)
+	assert.Equal(t, 3, cfg.Concurrency)
+	assert.Equal(t, 9, cfg.ClaimLimit)
+	assert.Equal(t, 70*time.Second, cfg.Lease)
+	assert.Equal(t, 6, cfg.Retry.MaxAttempts)
+	extractor, ok := cfg.Extractor.(parser.MetadataExtractor)
+	require.True(t, ok)
+	assert.Equal(t, int64(12345), extractor.MetadataMaxBytes)
+	assert.Equal(t, AuthorMetadataExtractorVersion, extractor.ExtractorVersion)
+	assert.Equal(t, int64(config.AuthorMetadataMaxBytes), int64(AuthorMetadataMaxBytes), "one metadata limit constant")
+}

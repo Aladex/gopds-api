@@ -182,11 +182,9 @@ type AuthorMetadataStageConfig struct {
 	MaxAttempts int           `mapstructure:"max_attempts" yaml:"max_attempts"`
 }
 
-// AuthorMetadataMaxBytes is the default metadata read limit, 4 MiB.
-//
-// TODO(merge): the phase-8 extraction worker introduces
-// services.AuthorMetadataMaxBytes with this same value; when it lands, keep
-// one constant and point the other at it so the two cannot drift.
+// AuthorMetadataMaxBytes is the default metadata read limit, 4 MiB. The one
+// constant: services.AuthorMetadataMaxBytes, used by the live dual write,
+// refers to it.
 const AuthorMetadataMaxBytes = 4 << 20
 
 // Config keys of the author metadata settings that both carry a default and

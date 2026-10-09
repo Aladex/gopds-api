@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gopds-api/config"
+	"gopds-api/internal/parser"
 	"gopds-api/logging"
 
 	"github.com/go-pg/pg/v10"
@@ -91,8 +92,10 @@ func (r *AuthorMetadataRunner) Start(ctx context.Context, ready func(context.Con
 
 // Shutdown cancels every worker — their claims and database calls run under
 // the canceled context — and waits until all returned or ctx ends, whichever
-// is first. Only after it returned may the database pool close. It is a no-op
-// for a runner that never started and safe to call again.
+// is first. Only a nil return means every worker returned and the database
+// pool may close; on ErrAuthorMetadataRunnerShutdownTimeout some worker may
+// still use it, and the pool must stay open. It is a no-op for a runner that
+// never started and safe to call again.
 func (r *AuthorMetadataRunner) Shutdown(ctx context.Context) error {
 	r.mu.Lock()
 	if !r.started {
@@ -137,25 +140,93 @@ func (l *AuthorMetadataLocalLoop) RunOnce(ctx context.Context) (LocalBatchReport
 // Run loops until ctx is canceled. A canceled batch leaves its claimed jobs
 // leased; the leases expire and the jobs are claimed again.
 func (l *AuthorMetadataLocalLoop) Run(ctx context.Context) error {
-	timer := time.NewTimer(l.poll)
+	return pollLoop(ctx, l.name, l.poll, func(ctx context.Context) (bool, error) {
+		report, err := l.worker.RunOnce(ctx)
+		return report.Claimed > 0, err
+	})
+}
+
+// pollLoop runs once again at once while it reports work, and after a poll
+// interval of rest when it found none or failed. It returns when ctx is
+// canceled; a failed round is logged by name only, never with its error text.
+func pollLoop(ctx context.Context, name string, poll time.Duration, once func(context.Context) (bool, error)) error {
+	timer := time.NewTimer(poll)
 	defer timer.Stop()
 	for {
-		report, err := l.worker.RunOnce(ctx)
+		busy, err := once(ctx)
 		if ctx.Err() != nil {
 			return nil
 		}
 		if err != nil {
-			logging.Warnf("author metadata worker %s: batch failed", l.name)
-		} else if report.Claimed > 0 {
+			logging.Warnf("author metadata worker %s: batch failed", name)
+		} else if busy {
 			continue
 		}
-		timer.Reset(l.poll)
+		timer.Reset(poll)
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-timer.C:
 		}
 	}
+}
+
+// AuthorMetadataExtractionLoop drives the extraction worker. Every round
+// drains what the running run has to claim; an idle round still reconciles
+// the run and completes it once its credits are accounted for, so the loop
+// keeps polling while the local stream settles the run's last credits.
+type AuthorMetadataExtractionLoop struct {
+	name   string
+	worker *AuthorMetadataExtractionWorker
+	poll   time.Duration
+}
+
+// Name is the loop's log label.
+func (l *AuthorMetadataExtractionLoop) Name() string { return l.name }
+
+// RunOnce runs one round of the underlying worker.
+func (l *AuthorMetadataExtractionLoop) RunOnce(ctx context.Context) (int, error) {
+	return l.worker.ProcessAvailable(ctx)
+}
+
+// Run loops until ctx is canceled.
+func (l *AuthorMetadataExtractionLoop) Run(ctx context.Context) error {
+	return pollLoop(ctx, l.name, l.poll, func(ctx context.Context) (bool, error) {
+		processed, err := l.worker.ProcessAvailable(ctx)
+		return processed > 0, err
+	})
+}
+
+// ExtractionWorkerConfigFrom maps the configuration of the extraction stream
+// onto the worker: concurrency, claim size, lease and attempts from the
+// config, the metadata read limit from metadata_max_bytes, the extractor
+// version this build runs, and the default retry delays.
+func ExtractionWorkerConfigFrom(archivesDir string, c *config.AuthorMetadataConfig) ExtractionWorkerConfig {
+	cfg := DefaultExtractionWorkerConfig(archivesDir, parser.MetadataExtractor{
+		MetadataMaxBytes: c.MetadataMaxBytes,
+		ExtractorVersion: AuthorMetadataExtractorVersion,
+	})
+	cfg.Concurrency = c.Extraction.Concurrency
+	cfg.ClaimLimit = c.Extraction.ClaimSize
+	cfg.Lease = c.Extraction.Lease
+	cfg.Retry.MaxAttempts = c.Extraction.MaxAttempts
+	return cfg
+}
+
+// NewAuthorMetadataExtractionLoop builds the extraction loop over the zip
+// archives under archivesDir. extraction.concurrency is how many archive
+// groups the one worker extracts at once.
+func NewAuthorMetadataExtractionLoop(
+	db *pg.DB,
+	archivesDir string,
+	c *config.AuthorMetadataConfig,
+) (*AuthorMetadataExtractionLoop, error) {
+	cfg := ExtractionWorkerConfigFrom(archivesDir, c)
+	w, err := NewAuthorMetadataExtractionWorker(db, ZipArchiveSource{}, &cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &AuthorMetadataExtractionLoop{name: string(AuthorMetadataStageExtraction), worker: w, poll: c.PollInterval}, nil
 }
 
 // AuthorMetadataLocalWorkerConfigFrom maps the configuration of the local
