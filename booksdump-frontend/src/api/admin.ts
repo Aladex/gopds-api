@@ -1,5 +1,6 @@
 import { http, requestBlob } from '@/api/http';
 import type { Author, Book, Series } from '@/api/books';
+import { isApiError } from '@/api/errors';
 
 /**
  * Administrative endpoints.
@@ -300,3 +301,136 @@ export const approveAuthorMetadataFullRun = (runID: number) =>
 
 export const retryAuthorMetadataRun = (runID: number, payload: AuthorMetadataRetryPayload) =>
     http.post<{ reopened: number }>(`/admin/author-metadata/runs/${runID}/retry`, payload);
+
+// --- Author normalization: manual review ----------------------------------
+//
+// Types and routes follow the admin author-metadata contract's Review section
+// exactly; the backend implements the same contract, so nothing here may drift
+// from it.
+
+/** Reads the closed error code out of a failed request's body, if there is one. */
+export function closedErrorCode(error: unknown): string | null {
+    if (!isApiError(error)) {
+        return null;
+    }
+    const body = error.body;
+    if (!body || typeof body !== 'object') {
+        return null;
+    }
+    const code = (body as Record<string, unknown>).error;
+    return typeof code === 'string' ? code : null;
+}
+
+export type AuthorReviewScope = 'credit' | 'fingerprint';
+
+export type AuthorReviewKind = 'person' | 'collective' | 'unknown' | 'malformed';
+
+export interface AuthorReviewListItem {
+    id: number;
+    scope: AuthorReviewScope;
+    credit_id: number | null;
+    source_fingerprint: string;
+    reason: string;
+    decision_class: string;
+    display_name: string;
+    credits_count: number;
+    created_at: string;
+}
+
+export interface AuthorReviewSource {
+    first: string | null;
+    middle: string | null;
+    last: string | null;
+    nickname: string | null;
+    display: string;
+    flags: string[];
+}
+
+export interface AuthorReviewProposal {
+    given_name: string | null;
+    additional_names: string | null;
+    family_name: string | null;
+    nickname: string | null;
+    display_name: string;
+    sort_name: string | null;
+    search_key: string;
+    script: string;
+    kind: AuthorReviewKind;
+    method: string;
+    quality_flags: string[];
+}
+
+export interface AuthorReviewLinkedBook {
+    id: number;
+    title: string;
+}
+
+export interface AuthorReviewDetail extends AuthorReviewListItem {
+    source: AuthorReviewSource;
+    proposal: AuthorReviewProposal | null;
+    linked_books: AuthorReviewLinkedBook[];
+}
+
+export interface AuthorReviewListQuery {
+    status: 'open' | 'closed';
+    cursor?: string;
+    limit?: number;
+}
+
+/** The edit payload's result object; every name field is nullable but the display name. */
+export interface AuthorReviewEditResult {
+    given_name: string | null;
+    additional_names: string | null;
+    family_name: string | null;
+    nickname: string | null;
+    display_name: string;
+    sort_name: string | null;
+    kind: AuthorReviewKind;
+}
+
+export interface AuthorReviewClassifyKind {
+    kind: 'collective' | 'unknown' | 'malformed';
+}
+
+export const listAuthorReviewItems = (query: AuthorReviewListQuery) =>
+    http.get<{ items: AuthorReviewListItem[]; next_cursor: string | null }>(
+        '/admin/author-metadata/review',
+        { query: { status: query.status, cursor: query.cursor, limit: query.limit } },
+    );
+
+export const getAuthorReviewItem = (itemID: number) =>
+    http.get<{ item: AuthorReviewDetail }>(`/admin/author-metadata/review/${itemID}`);
+
+export const acceptAuthorReviewItem = (itemID: number, payload: { scope: AuthorReviewScope }) =>
+    http.post<{ item: AuthorReviewDetail }>(
+        `/admin/author-metadata/review/${itemID}/accept`,
+        payload,
+    );
+
+export const editAuthorReviewItem = (
+    itemID: number,
+    payload: { scope: AuthorReviewScope; result: AuthorReviewEditResult },
+) =>
+    http.post<{ item: AuthorReviewDetail }>(
+        `/admin/author-metadata/review/${itemID}/edit`,
+        payload,
+    );
+
+export const classifyAuthorReviewItem = (
+    itemID: number,
+    payload: { scope: AuthorReviewScope } & AuthorReviewClassifyKind,
+) =>
+    http.post<{ item: AuthorReviewDetail }>(
+        `/admin/author-metadata/review/${itemID}/classify`,
+        payload,
+    );
+
+export const markAuthorReviewUnresolved = (itemID: number, payload: { scope: AuthorReviewScope }) =>
+    http.post<{ item: AuthorReviewDetail }>(
+        `/admin/author-metadata/review/${itemID}/unresolved`,
+        payload,
+    );
+
+/** Re-runs the local normalizer; the contract sends no body for this action. */
+export const retryAuthorReviewNormalization = (itemID: number) =>
+    http.post<{ item: AuthorReviewDetail }>(`/admin/author-metadata/review/${itemID}/retry`);

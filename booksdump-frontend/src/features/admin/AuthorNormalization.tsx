@@ -9,6 +9,7 @@ import { Card, CardContent } from '@/shared/ui/card';
 import { Field } from '@/shared/ui/field';
 import { Input } from '@/shared/ui/input';
 import { Progress } from '@/shared/ui/progress';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/tabs';
 import { Textarea } from '@/shared/ui/textarea';
 import { formatDate } from '@/shared/lib/formatDate';
 import * as adminApi from '@/api/admin';
@@ -21,6 +22,7 @@ import type {
 } from '@/api/admin';
 import { isExtractionRetryClass, isLocalRetryClass } from '@/api/admin';
 import { isApiError } from '@/api/errors';
+import AuthorReviewQueue from '@/features/admin/AuthorReviewQueue';
 
 /** The contract's ceiling on a smoke run's book_ids selector. */
 export const MAX_BOOK_IDS = 10000;
@@ -445,582 +447,666 @@ const AuthorNormalization: React.FC = () => {
 
     return (
         <div className="flex flex-col gap-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-lg font-medium">
-                    {t('authorNormalization.title', 'Author normalization')}
-                </h2>
-                <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                        setActionError(null);
-                        fetchCurrent();
-                    }}
-                >
-                    <RefreshCw className="size-4" />
-                    {t('authorNormalization.refresh', 'Refresh status')}
-                </Button>
-            </div>
-
-            {loadPhase === 'loading' && (
-                <p className="text-sm text-muted-foreground">{t('loading', 'Loading...')}</p>
-            )}
-            {loadPhase === 'ready' && run === null && (
-                <p className="text-sm text-muted-foreground">
-                    {t(
-                        'authorNormalization.emptyState',
-                        'No author normalization run yet. Start one below.',
-                    )}
-                </p>
-            )}
-            {actionError && (
-                <Alert variant="destructive">
-                    <AlertCircle className="size-4" />
-                    <AlertDescription>{actionError}</AlertDescription>
-                </Alert>
-            )}
-            {run !== null && !idUsable && (
-                <Alert variant="destructive">
-                    <AlertCircle className="size-4" />
-                    <AlertDescription>
-                        {t(
-                            'authorNormalization.invalidRunData',
-                            'The run data received from the server is invalid; run actions are disabled.',
-                        )}
-                    </AlertDescription>
-                </Alert>
-            )}
-            {run !== null && !statusKnown && (
-                <Alert variant="destructive">
-                    <AlertCircle className="size-4" />
-                    <AlertDescription>
-                        {t(
-                            'authorNormalization.unknownStatus',
-                            'The run status received from the server is unknown; actions are disabled until a valid status arrives.',
-                        )}
-                    </AlertDescription>
-                </Alert>
-            )}
-            {notice && <p className="text-sm text-muted-foreground">{notice}</p>}
-
-            {run !== null && (
-                <Card>
-                    <CardContent className="flex flex-col gap-3">
-                        <section
-                            aria-labelledby="author-norm-run-heading"
-                            className="flex flex-col gap-3"
+            <h2 className="text-lg font-medium">
+                {t('authorNormalization.title', 'Author normalization')}
+            </h2>
+            <Tabs defaultValue="dashboard">
+                <TabsList>
+                    <TabsTrigger value="dashboard">
+                        {t('authorNormalization.dashboardTab', 'Dashboard')}
+                    </TabsTrigger>
+                    <TabsTrigger value="review">
+                        {t('authorReview.tab', 'Review queue')}
+                    </TabsTrigger>
+                </TabsList>
+                <TabsContent value="dashboard" className="flex flex-col gap-4">
+                    <div className="flex justify-end">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                                setActionError(null);
+                                fetchCurrent();
+                            }}
                         >
-                            <div className="flex flex-wrap items-center gap-2">
-                                <h3 id="author-norm-run-heading" className="text-base font-medium">
-                                    {t('authorNormalization.runTitle', 'Current run')} #{run.id}
-                                </h3>
-                                <Badge>
-                                    {t(
-                                        `authorNormalization.mode.${run.mode}`,
-                                        MODE_FALLBACKS[run.mode],
-                                    )}
-                                </Badge>
-                                <Badge
-                                    variant={
-                                        run.status === 'failed_systemic'
-                                            ? 'destructive'
-                                            : 'secondary'
-                                    }
+                            <RefreshCw className="size-4" />
+                            {t('authorNormalization.refresh', 'Refresh status')}
+                        </Button>
+                    </div>
+
+                    {loadPhase === 'loading' && (
+                        <p className="text-sm text-muted-foreground">
+                            {t('loading', 'Loading...')}
+                        </p>
+                    )}
+                    {loadPhase === 'ready' && run === null && (
+                        <p className="text-sm text-muted-foreground">
+                            {t(
+                                'authorNormalization.emptyState',
+                                'No author normalization run yet. Start one below.',
+                            )}
+                        </p>
+                    )}
+                    {actionError && (
+                        <Alert variant="destructive">
+                            <AlertCircle className="size-4" />
+                            <AlertDescription>{actionError}</AlertDescription>
+                        </Alert>
+                    )}
+                    {run !== null && !idUsable && (
+                        <Alert variant="destructive">
+                            <AlertCircle className="size-4" />
+                            <AlertDescription>
+                                {t(
+                                    'authorNormalization.invalidRunData',
+                                    'The run data received from the server is invalid; run actions are disabled.',
+                                )}
+                            </AlertDescription>
+                        </Alert>
+                    )}
+                    {run !== null && !statusKnown && (
+                        <Alert variant="destructive">
+                            <AlertCircle className="size-4" />
+                            <AlertDescription>
+                                {t(
+                                    'authorNormalization.unknownStatus',
+                                    'The run status received from the server is unknown; actions are disabled until a valid status arrives.',
+                                )}
+                            </AlertDescription>
+                        </Alert>
+                    )}
+                    {notice && <p className="text-sm text-muted-foreground">{notice}</p>}
+
+                    {run !== null && (
+                        <Card>
+                            <CardContent className="flex flex-col gap-3">
+                                <section
+                                    aria-labelledby="author-norm-run-heading"
+                                    className="flex flex-col gap-3"
                                 >
-                                    {t(
-                                        `authorNormalization.status.${run.status}`,
-                                        KNOWN_STATUSES.has(run.status)
-                                            ? STATUS_FALLBACKS[run.status]
-                                            : t('authorNormalization.status.unknown', 'Unknown'),
-                                    )}
-                                </Badge>
-                            </div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <h3
+                                            id="author-norm-run-heading"
+                                            className="text-base font-medium"
+                                        >
+                                            {t('authorNormalization.runTitle', 'Current run')} #
+                                            {run.id}
+                                        </h3>
+                                        <Badge>
+                                            {t(
+                                                `authorNormalization.mode.${run.mode}`,
+                                                MODE_FALLBACKS[run.mode],
+                                            )}
+                                        </Badge>
+                                        <Badge
+                                            variant={
+                                                run.status === 'failed_systemic'
+                                                    ? 'destructive'
+                                                    : 'secondary'
+                                            }
+                                        >
+                                            {t(
+                                                `authorNormalization.status.${run.status}`,
+                                                KNOWN_STATUSES.has(run.status)
+                                                    ? STATUS_FALLBACKS[run.status]
+                                                    : t(
+                                                          'authorNormalization.status.unknown',
+                                                          'Unknown',
+                                                      ),
+                                            )}
+                                        </Badge>
+                                    </div>
 
-                            <p className="flex flex-wrap gap-x-4 text-sm text-muted-foreground">
-                                <span>
-                                    {t('authorNormalization.extractorVersion', 'Extractor')}:{' '}
-                                    <span className="text-foreground">{run.extractor_version}</span>
-                                </span>
-                                <span>
-                                    {t('authorNormalization.normalizerVersion', 'Normalizer')}:{' '}
-                                    <span className="text-foreground">
-                                        {run.normalizer_version}
-                                    </span>
-                                </span>
-                            </p>
-
-                            <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
-                                {run.started_at && (
-                                    <span>
-                                        {t('authorNormalization.startedAt', 'Started')}:{' '}
-                                        {formatDate(run.started_at)}
-                                    </span>
-                                )}
-                                {run.extraction_completed_at && (
-                                    <span>
-                                        {t(
-                                            'authorNormalization.extractionCompletedAt',
-                                            'Extraction completed',
-                                        )}
-                                        : {formatDate(run.extraction_completed_at)}
-                                    </span>
-                                )}
-                                {run.completed_at && (
-                                    <span>
-                                        {t('authorNormalization.completedAt', 'Completed at')}:{' '}
-                                        {formatDate(run.completed_at)}
-                                    </span>
-                                )}
-                            </div>
-
-                            {run.last_error_class !== null && (
-                                <Alert variant="destructive">
-                                    <AlertCircle className="size-4" />
-                                    <AlertDescription>
+                                    <p className="flex flex-wrap gap-x-4 text-sm text-muted-foreground">
+                                        <span>
+                                            {t('authorNormalization.extractorVersion', 'Extractor')}
+                                            :{' '}
+                                            <span className="text-foreground">
+                                                {run.extractor_version}
+                                            </span>
+                                        </span>
                                         <span>
                                             {t(
-                                                'authorNormalization.lastErrorClass',
-                                                'Last error class',
+                                                'authorNormalization.normalizerVersion',
+                                                'Normalizer',
                                             )}
-                                        </span>
-                                        : <span>{run.last_error_class}</span>
-                                    </AlertDescription>
-                                </Alert>
-                            )}
-
-                            <div className="grid gap-3 md:grid-cols-2">
-                                <StageBlock
-                                    id="author-norm-extraction"
-                                    title={t('authorNormalization.stage.extraction', 'Extraction')}
-                                >
-                                    <StageProgress
-                                        title={t(
-                                            'authorNormalization.stage.extraction',
-                                            'Extraction',
-                                        )}
-                                        done={run.stages.extraction.done}
-                                        total={run.stages.extraction.total}
-                                    />
-                                    <Stat
-                                        label={t('authorNormalization.pending', 'Pending')}
-                                        value={run.stages.extraction.pending}
-                                    />
-                                    <Stat
-                                        label={t('authorNormalization.leased', 'Leased')}
-                                        value={run.stages.extraction.leased}
-                                    />
-                                    <Stat
-                                        label={t(
-                                            'authorNormalization.oldestPending',
-                                            'Oldest pending',
-                                        )}
-                                        value={`${run.stages.extraction.oldest_pending_age_s} ${t(
-                                            'authorNormalization.seconds',
-                                            's',
-                                        )}`}
-                                    />
-                                    <Stat
-                                        label={t(
-                                            'authorNormalization.extraction.itemsPerMinute',
-                                            'Items/min',
-                                        )}
-                                        value={run.stages.extraction.items_per_minute}
-                                    />
-                                    {run.stages.extraction.current_archive !== null && (
-                                        <p className="text-sm break-words">
-                                            <span className="text-muted-foreground">
-                                                {t(
-                                                    'authorNormalization.extraction.currentArchive',
-                                                    'Current archive',
-                                                )}
-                                                :{' '}
+                                            :{' '}
+                                            <span className="text-foreground">
+                                                {run.normalizer_version}
                                             </span>
-                                            <span>{run.stages.extraction.current_archive}</span>
+                                        </span>
+                                    </p>
+
+                                    <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
+                                        {run.started_at && (
+                                            <span>
+                                                {t('authorNormalization.startedAt', 'Started')}:{' '}
+                                                {formatDate(run.started_at)}
+                                            </span>
+                                        )}
+                                        {run.extraction_completed_at && (
+                                            <span>
+                                                {t(
+                                                    'authorNormalization.extractionCompletedAt',
+                                                    'Extraction completed',
+                                                )}
+                                                : {formatDate(run.extraction_completed_at)}
+                                            </span>
+                                        )}
+                                        {run.completed_at && (
+                                            <span>
+                                                {t(
+                                                    'authorNormalization.completedAt',
+                                                    'Completed at',
+                                                )}
+                                                : {formatDate(run.completed_at)}
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    {run.last_error_class !== null && (
+                                        <Alert variant="destructive">
+                                            <AlertCircle className="size-4" />
+                                            <AlertDescription>
+                                                <span>
+                                                    {t(
+                                                        'authorNormalization.lastErrorClass',
+                                                        'Last error class',
+                                                    )}
+                                                </span>
+                                                : <span>{run.last_error_class}</span>
+                                            </AlertDescription>
+                                        </Alert>
+                                    )}
+
+                                    <div className="grid gap-3 md:grid-cols-2">
+                                        <StageBlock
+                                            id="author-norm-extraction"
+                                            title={t(
+                                                'authorNormalization.stage.extraction',
+                                                'Extraction',
+                                            )}
+                                        >
+                                            <StageProgress
+                                                title={t(
+                                                    'authorNormalization.stage.extraction',
+                                                    'Extraction',
+                                                )}
+                                                done={run.stages.extraction.done}
+                                                total={run.stages.extraction.total}
+                                            />
+                                            <Stat
+                                                label={t('authorNormalization.pending', 'Pending')}
+                                                value={run.stages.extraction.pending}
+                                            />
+                                            <Stat
+                                                label={t('authorNormalization.leased', 'Leased')}
+                                                value={run.stages.extraction.leased}
+                                            />
+                                            <Stat
+                                                label={t(
+                                                    'authorNormalization.oldestPending',
+                                                    'Oldest pending',
+                                                )}
+                                                value={`${run.stages.extraction.oldest_pending_age_s} ${t(
+                                                    'authorNormalization.seconds',
+                                                    's',
+                                                )}`}
+                                            />
+                                            <Stat
+                                                label={t(
+                                                    'authorNormalization.extraction.itemsPerMinute',
+                                                    'Items/min',
+                                                )}
+                                                value={run.stages.extraction.items_per_minute}
+                                            />
+                                            {run.stages.extraction.current_archive !== null && (
+                                                <p className="text-sm break-words">
+                                                    <span className="text-muted-foreground">
+                                                        {t(
+                                                            'authorNormalization.extraction.currentArchive',
+                                                            'Current archive',
+                                                        )}
+                                                        :{' '}
+                                                    </span>
+                                                    <span>
+                                                        {run.stages.extraction.current_archive}
+                                                    </span>
+                                                </p>
+                                            )}
+                                            <div className="flex flex-col gap-0.5 border-t border-border pt-2">
+                                                {Object.entries(run.stages.extraction.by_status)
+                                                    .filter(([, count]) => count > 0)
+                                                    .map(([status, count]) => (
+                                                        <Stat
+                                                            key={status}
+                                                            label={status}
+                                                            value={count}
+                                                        />
+                                                    ))}
+                                            </div>
+                                        </StageBlock>
+
+                                        <StageBlock
+                                            id="author-norm-local"
+                                            title={t(
+                                                'authorNormalization.stage.local',
+                                                'Local normalization',
+                                            )}
+                                        >
+                                            <StageProgress
+                                                title={t(
+                                                    'authorNormalization.stage.local',
+                                                    'Local normalization',
+                                                )}
+                                                done={run.stages.local.done}
+                                                total={run.stages.local.total}
+                                            />
+                                            <Stat
+                                                label={t('authorNormalization.pending', 'Pending')}
+                                                value={run.stages.local.pending}
+                                            />
+                                            <Stat
+                                                label={t('authorNormalization.leased', 'Leased')}
+                                                value={run.stages.local.leased}
+                                            />
+                                            <Stat
+                                                label={t(
+                                                    'authorNormalization.local.failed',
+                                                    'Failed',
+                                                )}
+                                                value={run.stages.local.failed}
+                                            />
+                                            <Stat
+                                                label={t(
+                                                    'authorNormalization.oldestPending',
+                                                    'Oldest pending',
+                                                )}
+                                                value={`${run.stages.local.oldest_pending_age_s} ${t(
+                                                    'authorNormalization.seconds',
+                                                    's',
+                                                )}`}
+                                            />
+                                        </StageBlock>
+
+                                        <StageBlock
+                                            id="author-norm-review"
+                                            title={t(
+                                                'authorNormalization.stage.review',
+                                                'Manual review',
+                                            )}
+                                        >
+                                            <StageProgress
+                                                title={t(
+                                                    'authorNormalization.stage.review',
+                                                    'Manual review',
+                                                )}
+                                                done={run.stages.review.closed}
+                                                total={
+                                                    run.stages.review.open +
+                                                    run.stages.review.closed
+                                                }
+                                            />
+                                            <Stat
+                                                label={t('authorNormalization.review.open', 'Open')}
+                                                value={run.stages.review.open}
+                                            />
+                                            <Stat
+                                                label={t(
+                                                    'authorNormalization.review.closed',
+                                                    'Closed',
+                                                )}
+                                                value={run.stages.review.closed}
+                                            />
+                                        </StageBlock>
+
+                                        <StageBlock
+                                            id="author-norm-credits"
+                                            title={t(
+                                                'authorNormalization.stage.credits',
+                                                'Credits',
+                                            )}
+                                        >
+                                            <Stat
+                                                label={t(
+                                                    'authorNormalization.credits.selected',
+                                                    'Selected',
+                                                )}
+                                                value={run.credits.selected}
+                                            />
+                                            <Stat
+                                                label={t(
+                                                    'authorNormalization.credits.invalid',
+                                                    'Invalid',
+                                                )}
+                                                value={run.credits.invalid}
+                                            />
+                                            <Stat
+                                                label={t(
+                                                    'authorNormalization.credits.review',
+                                                    'Awaiting review',
+                                                )}
+                                                value={run.credits.review}
+                                            />
+                                            <Stat
+                                                label={t(
+                                                    'authorNormalization.credits.pending',
+                                                    'Pending',
+                                                )}
+                                                value={run.credits.pending}
+                                            />
+                                            <div className="flex flex-col gap-0.5 border-t border-border pt-2">
+                                                {Object.entries(run.credits.unresolved)
+                                                    .filter(([, count]) => count > 0)
+                                                    .map(([reason, count]) => (
+                                                        <Stat
+                                                            key={reason}
+                                                            label={reason}
+                                                            value={count}
+                                                        />
+                                                    ))}
+                                            </div>
+                                        </StageBlock>
+                                    </div>
+
+                                    {run.status === 'completed' && run.stages.review.open > 0 && (
+                                        <p className="text-sm text-muted-foreground">
+                                            {t('authorNormalization.reviewBacklog', {
+                                                count: run.stages.review.open,
+                                            })}
                                         </p>
                                     )}
-                                    <div className="flex flex-col gap-0.5 border-t border-border pt-2">
-                                        {Object.entries(run.stages.extraction.by_status)
-                                            .filter(([, count]) => count > 0)
-                                            .map(([status, count]) => (
-                                                <Stat key={status} label={status} value={count} />
-                                            ))}
-                                    </div>
-                                </StageBlock>
 
-                                <StageBlock
-                                    id="author-norm-local"
-                                    title={t(
-                                        'authorNormalization.stage.local',
-                                        'Local normalization',
-                                    )}
-                                >
-                                    <StageProgress
-                                        title={t(
-                                            'authorNormalization.stage.local',
-                                            'Local normalization',
-                                        )}
-                                        done={run.stages.local.done}
-                                        total={run.stages.local.total}
-                                    />
-                                    <Stat
-                                        label={t('authorNormalization.pending', 'Pending')}
-                                        value={run.stages.local.pending}
-                                    />
-                                    <Stat
-                                        label={t('authorNormalization.leased', 'Leased')}
-                                        value={run.stages.local.leased}
-                                    />
-                                    <Stat
-                                        label={t('authorNormalization.local.failed', 'Failed')}
-                                        value={run.stages.local.failed}
-                                    />
-                                    <Stat
-                                        label={t(
-                                            'authorNormalization.oldestPending',
-                                            'Oldest pending',
-                                        )}
-                                        value={`${run.stages.local.oldest_pending_age_s} ${t(
-                                            'authorNormalization.seconds',
-                                            's',
-                                        )}`}
-                                    />
-                                </StageBlock>
-
-                                <StageBlock
-                                    id="author-norm-review"
-                                    title={t('authorNormalization.stage.review', 'Manual review')}
-                                >
-                                    <StageProgress
-                                        title={t(
-                                            'authorNormalization.stage.review',
-                                            'Manual review',
-                                        )}
-                                        done={run.stages.review.closed}
-                                        total={run.stages.review.open + run.stages.review.closed}
-                                    />
-                                    <Stat
-                                        label={t('authorNormalization.review.open', 'Open')}
-                                        value={run.stages.review.open}
-                                    />
-                                    <Stat
-                                        label={t('authorNormalization.review.closed', 'Closed')}
-                                        value={run.stages.review.closed}
-                                    />
-                                </StageBlock>
-
-                                <StageBlock
-                                    id="author-norm-credits"
-                                    title={t('authorNormalization.stage.credits', 'Credits')}
-                                >
-                                    <Stat
-                                        label={t(
-                                            'authorNormalization.credits.selected',
-                                            'Selected',
-                                        )}
-                                        value={run.credits.selected}
-                                    />
-                                    <Stat
-                                        label={t('authorNormalization.credits.invalid', 'Invalid')}
-                                        value={run.credits.invalid}
-                                    />
-                                    <Stat
-                                        label={t(
-                                            'authorNormalization.credits.review',
-                                            'Awaiting review',
-                                        )}
-                                        value={run.credits.review}
-                                    />
-                                    <Stat
-                                        label={t('authorNormalization.credits.pending', 'Pending')}
-                                        value={run.credits.pending}
-                                    />
-                                    <div className="flex flex-col gap-0.5 border-t border-border pt-2">
-                                        {Object.entries(run.credits.unresolved)
-                                            .filter(([, count]) => count > 0)
-                                            .map(([reason, count]) => (
-                                                <Stat key={reason} label={reason} value={count} />
-                                            ))}
-                                    </div>
-                                </StageBlock>
-                            </div>
-
-                            {run.status === 'completed' && run.stages.review.open > 0 && (
-                                <p className="text-sm text-muted-foreground">
-                                    {t('authorNormalization.reviewBacklog', {
-                                        count: run.stages.review.open,
-                                    })}
-                                </p>
-                            )}
-
-                            {controls !== null && (
-                                <div className="flex flex-wrap gap-2">
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        disabled={actionsBlocked || !controls.pause}
-                                        onClick={() =>
-                                            withBusy(() =>
-                                                adminApi
-                                                    .pauseAuthorMetadataRun(run.id)
-                                                    .then((data) => applyRun(data.run)),
-                                            )
-                                        }
-                                    >
-                                        {t('authorNormalization.pause', 'Pause')}
-                                    </Button>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        disabled={actionsBlocked || !controls.resume}
-                                        onClick={() =>
-                                            withBusy(() =>
-                                                adminApi
-                                                    .resumeAuthorMetadataRun(run.id)
-                                                    .then((data) => applyRun(data.run)),
-                                            )
-                                        }
-                                    >
-                                        {t('authorNormalization.resume', 'Resume')}
-                                    </Button>
-                                    {controls.retryStages.map((stage) => (
-                                        <Button
-                                            key={stage}
-                                            variant="outline"
-                                            size="sm"
-                                            disabled={actionsBlocked}
-                                            onClick={() => {
-                                                const errorClass = run.last_error_class;
-                                                if (errorClass === null) {
-                                                    return;
-                                                }
-                                                // Only the pairs the contract
-                                                // admits; controlsFor built this
-                                                // list from the same guards.
-                                                const payload =
-                                                    stage === 'extraction' &&
-                                                    isExtractionRetryClass(errorClass)
-                                                        ? { stage, error_class: errorClass }
-                                                        : stage === 'local' &&
-                                                            isLocalRetryClass(errorClass)
-                                                          ? { stage, error_class: errorClass }
-                                                          : null;
-                                                if (payload === null) {
-                                                    return;
-                                                }
-                                                withBusy(() =>
-                                                    adminApi
-                                                        .retryAuthorMetadataRun(run.id, payload)
-                                                        .then((data) => {
-                                                            setNotice(
-                                                                t('authorNormalization.reopened', {
-                                                                    count: data.reopened,
-                                                                }),
-                                                            );
-                                                            return fetchCurrent();
-                                                        }),
-                                                );
-                                            }}
-                                        >
-                                            {stage === 'extraction'
-                                                ? t(
-                                                      'authorNormalization.retryExtraction',
-                                                      'Retry extraction',
-                                                  )
-                                                : t(
-                                                      'authorNormalization.retryLocal',
-                                                      'Retry local normalization',
-                                                  )}
-                                        </Button>
-                                    ))}
-                                    {run.mode === 'pilot_archive' &&
-                                        run.status === 'completed' &&
-                                        !run.approved_for_full && (
+                                    {controls !== null && (
+                                        <div className="flex flex-wrap gap-2">
                                             <Button
+                                                variant="outline"
                                                 size="sm"
-                                                disabled={actionsBlocked}
+                                                disabled={actionsBlocked || !controls.pause}
                                                 onClick={() =>
                                                     withBusy(() =>
                                                         adminApi
-                                                            .approveAuthorMetadataFullRun(run.id)
+                                                            .pauseAuthorMetadataRun(run.id)
                                                             .then((data) => applyRun(data.run)),
                                                     )
                                                 }
                                             >
-                                                {t(
-                                                    'authorNormalization.approveFull',
-                                                    'Approve full run',
-                                                )}
+                                                {t('authorNormalization.pause', 'Pause')}
                                             </Button>
-                                        )}
-                                    {run.mode === 'pilot_archive' &&
-                                        run.status === 'completed' &&
-                                        run.approved_for_full && (
-                                            <p className="self-center text-sm text-muted-foreground">
-                                                {t(
-                                                    'authorNormalization.approvedFull',
-                                                    'Full run approved',
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                disabled={actionsBlocked || !controls.resume}
+                                                onClick={() =>
+                                                    withBusy(() =>
+                                                        adminApi
+                                                            .resumeAuthorMetadataRun(run.id)
+                                                            .then((data) => applyRun(data.run)),
+                                                    )
+                                                }
+                                            >
+                                                {t('authorNormalization.resume', 'Resume')}
+                                            </Button>
+                                            {controls.retryStages.map((stage) => (
+                                                <Button
+                                                    key={stage}
+                                                    variant="outline"
+                                                    size="sm"
+                                                    disabled={actionsBlocked}
+                                                    onClick={() => {
+                                                        const errorClass = run.last_error_class;
+                                                        if (errorClass === null) {
+                                                            return;
+                                                        }
+                                                        // Only the pairs the contract
+                                                        // admits; controlsFor built this
+                                                        // list from the same guards.
+                                                        const payload =
+                                                            stage === 'extraction' &&
+                                                            isExtractionRetryClass(errorClass)
+                                                                ? { stage, error_class: errorClass }
+                                                                : stage === 'local' &&
+                                                                    isLocalRetryClass(errorClass)
+                                                                  ? {
+                                                                        stage,
+                                                                        error_class: errorClass,
+                                                                    }
+                                                                  : null;
+                                                        if (payload === null) {
+                                                            return;
+                                                        }
+                                                        withBusy(() =>
+                                                            adminApi
+                                                                .retryAuthorMetadataRun(
+                                                                    run.id,
+                                                                    payload,
+                                                                )
+                                                                .then((data) => {
+                                                                    setNotice(
+                                                                        t(
+                                                                            'authorNormalization.reopened',
+                                                                            {
+                                                                                count: data.reopened,
+                                                                            },
+                                                                        ),
+                                                                    );
+                                                                    return fetchCurrent();
+                                                                }),
+                                                        );
+                                                    }}
+                                                >
+                                                    {stage === 'extraction'
+                                                        ? t(
+                                                              'authorNormalization.retryExtraction',
+                                                              'Retry extraction',
+                                                          )
+                                                        : t(
+                                                              'authorNormalization.retryLocal',
+                                                              'Retry local normalization',
+                                                          )}
+                                                </Button>
+                                            ))}
+                                            {run.mode === 'pilot_archive' &&
+                                                run.status === 'completed' &&
+                                                !run.approved_for_full && (
+                                                    <Button
+                                                        size="sm"
+                                                        disabled={actionsBlocked}
+                                                        onClick={() =>
+                                                            withBusy(() =>
+                                                                adminApi
+                                                                    .approveAuthorMetadataFullRun(
+                                                                        run.id,
+                                                                    )
+                                                                    .then((data) =>
+                                                                        applyRun(data.run),
+                                                                    ),
+                                                            )
+                                                        }
+                                                    >
+                                                        {t(
+                                                            'authorNormalization.approveFull',
+                                                            'Approve full run',
+                                                        )}
+                                                    </Button>
                                                 )}
-                                            </p>
-                                        )}
-                                </div>
-                            )}
-                        </section>
-                    </CardContent>
-                </Card>
-            )}
-
-            {report !== null && (
-                <Card>
-                    <CardContent className="flex flex-col gap-3">
-                        <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="text-base font-medium">
-                                {t('authorNormalization.report.title', 'Report')}
-                            </h3>
-                            <Badge variant={report.ready ? 'default' : 'secondary'}>
-                                {report.ready
-                                    ? t('authorNormalization.report.ready', 'Ready')
-                                    : t('authorNormalization.report.notReady', 'Not ready')}
-                            </Badge>
-                        </div>
-                        {!report.ready && report.not_ready_reasons.length > 0 && (
-                            <div className="flex flex-col gap-1">
-                                <span className="text-sm text-muted-foreground">
-                                    {t(
-                                        'authorNormalization.report.notReadyReasons',
-                                        'Not ready because',
+                                            {run.mode === 'pilot_archive' &&
+                                                run.status === 'completed' &&
+                                                run.approved_for_full && (
+                                                    <p className="self-center text-sm text-muted-foreground">
+                                                        {t(
+                                                            'authorNormalization.approvedFull',
+                                                            'Full run approved',
+                                                        )}
+                                                    </p>
+                                                )}
+                                        </div>
                                     )}
-                                    :
-                                </span>
-                                <ul className="ml-4 list-disc text-sm">
-                                    {report.not_ready_reasons.map((reason) => (
-                                        <li key={reason}>{reason}</li>
-                                    ))}
-                                </ul>
-                            </div>
-                        )}
-                        <div className="grid gap-1 sm:grid-cols-2">
-                            <Stat
-                                label={t('authorNormalization.report.duration', 'Duration')}
-                                value={report.duration_s}
-                            />
-                            <Stat
-                                label={t(
-                                    'authorNormalization.report.dbGrowth',
-                                    'Database growth, bytes',
-                                )}
-                                value={report.db_growth_bytes}
-                            />
-                        </div>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                            <div className="flex flex-col gap-1">
-                                <h4 className="text-sm font-medium">
-                                    {t('authorNormalization.report.byClass', 'By decision class')}
-                                </h4>
-                                {Object.entries(report.by_class).map(([cls, count]) => (
-                                    <Stat key={cls} label={cls} value={count} />
-                                ))}
-                            </div>
-                            <div className="flex flex-col gap-1">
-                                <h4 className="text-sm font-medium">
-                                    {t('authorNormalization.report.byScript', 'By script')}
-                                </h4>
-                                {Object.entries(report.by_script).map(([script, count]) => (
-                                    <Stat key={script} label={script} value={count} />
-                                ))}
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
-            )}
+                                </section>
+                            </CardContent>
+                        </Card>
+                    )}
 
-            <Card>
-                <CardContent className="flex flex-col gap-3">
-                    <h3 className="text-base font-medium">
-                        {t('authorNormalization.startTitle', 'Start a run')}
-                    </h3>
-                    <div
-                        role="group"
-                        aria-label={t('authorNormalization.startMode', 'Mode')}
-                        className="flex flex-wrap gap-2"
-                    >
-                        {MODES.map((candidate) => (
-                            <Button
-                                key={candidate}
-                                variant={mode === candidate ? 'default' : 'outline'}
-                                size="sm"
-                                aria-pressed={mode === candidate}
-                                onClick={() => {
-                                    setMode(candidate);
-                                    setFormError(null);
-                                }}
+                    {report !== null && (
+                        <Card>
+                            <CardContent className="flex flex-col gap-3">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <h3 className="text-base font-medium">
+                                        {t('authorNormalization.report.title', 'Report')}
+                                    </h3>
+                                    <Badge variant={report.ready ? 'default' : 'secondary'}>
+                                        {report.ready
+                                            ? t('authorNormalization.report.ready', 'Ready')
+                                            : t('authorNormalization.report.notReady', 'Not ready')}
+                                    </Badge>
+                                </div>
+                                {!report.ready && report.not_ready_reasons.length > 0 && (
+                                    <div className="flex flex-col gap-1">
+                                        <span className="text-sm text-muted-foreground">
+                                            {t(
+                                                'authorNormalization.report.notReadyReasons',
+                                                'Not ready because',
+                                            )}
+                                            :
+                                        </span>
+                                        <ul className="ml-4 list-disc text-sm">
+                                            {report.not_ready_reasons.map((reason) => (
+                                                <li key={reason}>{reason}</li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
+                                <div className="grid gap-1 sm:grid-cols-2">
+                                    <Stat
+                                        label={t('authorNormalization.report.duration', 'Duration')}
+                                        value={report.duration_s}
+                                    />
+                                    <Stat
+                                        label={t(
+                                            'authorNormalization.report.dbGrowth',
+                                            'Database growth, bytes',
+                                        )}
+                                        value={report.db_growth_bytes}
+                                    />
+                                </div>
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                    <div className="flex flex-col gap-1">
+                                        <h4 className="text-sm font-medium">
+                                            {t(
+                                                'authorNormalization.report.byClass',
+                                                'By decision class',
+                                            )}
+                                        </h4>
+                                        {Object.entries(report.by_class).map(([cls, count]) => (
+                                            <Stat key={cls} label={cls} value={count} />
+                                        ))}
+                                    </div>
+                                    <div className="flex flex-col gap-1">
+                                        <h4 className="text-sm font-medium">
+                                            {t('authorNormalization.report.byScript', 'By script')}
+                                        </h4>
+                                        {Object.entries(report.by_script).map(([script, count]) => (
+                                            <Stat key={script} label={script} value={count} />
+                                        ))}
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
+
+                    <Card>
+                        <CardContent className="flex flex-col gap-3">
+                            <h3 className="text-base font-medium">
+                                {t('authorNormalization.startTitle', 'Start a run')}
+                            </h3>
+                            <div
+                                role="group"
+                                aria-label={t('authorNormalization.startMode', 'Mode')}
+                                className="flex flex-wrap gap-2"
                             >
-                                {t(
-                                    `authorNormalization.mode.${candidate}`,
-                                    MODE_FALLBACKS[candidate],
-                                )}
-                            </Button>
-                        ))}
-                    </div>
+                                {MODES.map((candidate) => (
+                                    <Button
+                                        key={candidate}
+                                        variant={mode === candidate ? 'default' : 'outline'}
+                                        size="sm"
+                                        aria-pressed={mode === candidate}
+                                        onClick={() => {
+                                            setMode(candidate);
+                                            setFormError(null);
+                                        }}
+                                    >
+                                        {t(
+                                            `authorNormalization.mode.${candidate}`,
+                                            MODE_FALLBACKS[candidate],
+                                        )}
+                                    </Button>
+                                ))}
+                            </div>
 
-                    {mode === 'smoke' && (
-                        <Field
-                            id="author-norm-book-ids"
-                            label={t('authorNormalization.form.bookIds', 'Book IDs')}
-                            hint={t(
-                                'authorNormalization.form.bookIdsHint',
-                                'Comma or whitespace separated, up to 10000, unique, positive.',
+                            {mode === 'smoke' && (
+                                <Field
+                                    id="author-norm-book-ids"
+                                    label={t('authorNormalization.form.bookIds', 'Book IDs')}
+                                    hint={t(
+                                        'authorNormalization.form.bookIdsHint',
+                                        'Comma or whitespace separated, up to 10000, unique, positive.',
+                                    )}
+                                    error={formError ?? undefined}
+                                >
+                                    <Textarea
+                                        id="author-norm-book-ids"
+                                        value={bookIdsText}
+                                        onChange={(event) => setBookIdsText(event.target.value)}
+                                    />
+                                </Field>
                             )}
-                            error={formError ?? undefined}
-                        >
-                            <Textarea
-                                id="author-norm-book-ids"
-                                value={bookIdsText}
-                                onChange={(event) => setBookIdsText(event.target.value)}
-                            />
-                        </Field>
-                    )}
-                    {mode === 'pilot_archive' && (
-                        <Field
-                            id="author-norm-archive"
-                            label={t('authorNormalization.form.archive', 'Archive name')}
-                            error={formError ?? undefined}
-                        >
-                            <Input
-                                id="author-norm-archive"
-                                value={archiveName}
-                                onChange={(event) => setArchiveName(event.target.value)}
-                            />
-                        </Field>
-                    )}
-                    {mode === 'full' && (
-                        <p className="text-sm text-muted-foreground">
-                            {fullAllowed
-                                ? t(
-                                      'authorNormalization.form.fullReady',
-                                      'The approved completed pilot allows a full run.',
-                                  )
-                                : t(
-                                      'authorNormalization.form.fullHint',
-                                      'A full run needs an approved completed pilot run.',
-                                  )}
-                        </p>
-                    )}
-                    {run !== null && ACTIVE_STATUSES.has(run.status) && (
-                        <p className="text-sm text-muted-foreground">
-                            {t(
-                                'authorNormalization.form.activeRunHint',
-                                'A run is already active.',
+                            {mode === 'pilot_archive' && (
+                                <Field
+                                    id="author-norm-archive"
+                                    label={t('authorNormalization.form.archive', 'Archive name')}
+                                    error={formError ?? undefined}
+                                >
+                                    <Input
+                                        id="author-norm-archive"
+                                        value={archiveName}
+                                        onChange={(event) => setArchiveName(event.target.value)}
+                                    />
+                                </Field>
                             )}
-                        </p>
-                    )}
+                            {mode === 'full' && (
+                                <p className="text-sm text-muted-foreground">
+                                    {fullAllowed
+                                        ? t(
+                                              'authorNormalization.form.fullReady',
+                                              'The approved completed pilot allows a full run.',
+                                          )
+                                        : t(
+                                              'authorNormalization.form.fullHint',
+                                              'A full run needs an approved completed pilot run.',
+                                          )}
+                                </p>
+                            )}
+                            {run !== null && ACTIVE_STATUSES.has(run.status) && (
+                                <p className="text-sm text-muted-foreground">
+                                    {t(
+                                        'authorNormalization.form.activeRunHint',
+                                        'A run is already active.',
+                                    )}
+                                </p>
+                            )}
 
-                    <div>
-                        <Button onClick={handleStart} disabled={startDisabled}>
-                            {t('authorNormalization.start', 'Start')}
-                        </Button>
-                    </div>
-                </CardContent>
-            </Card>
+                            <div>
+                                <Button onClick={handleStart} disabled={startDisabled}>
+                                    {t('authorNormalization.start', 'Start')}
+                                </Button>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+                <TabsContent value="review">
+                    <AuthorReviewQueue />
+                </TabsContent>
+            </Tabs>
         </div>
     );
 };

@@ -59,6 +59,19 @@ export const READER_TOC_VARIANT = 'lg';
 export const READER_TOC_QUERY = `(min-width: ${READER_TOC_MIN_WIDTH_REM}rem)`;
 
 /**
+ * Where the admin tables give way to cards.
+ *
+ * The admin screens run their own 1400px column and their tables carry five
+ * or six columns; below this width those rows stop fitting and each row
+ * becomes a card. The scan screens already switched at 900px, so the review
+ * queue joins the same boundary rather than inventing a second one — and it
+ * is written in the rem unit Tailwind's own variants use, so a reader's font
+ * size moves CSS and React together.
+ */
+export const ADMIN_TABLE_WIDE_MIN_WIDTH_REM = 56.25;
+export const ADMIN_TABLE_WIDE_QUERY = `(min-width: ${ADMIN_TABLE_WIDE_MIN_WIDTH_REM}rem)`;
+
+/**
  * The 1200px column the reader-facing list routes draw inside.
  *
  * Named, not repeated: the book cards have always had it and the pager had
