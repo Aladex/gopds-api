@@ -474,7 +474,11 @@ func TestAuthorMetadataReviewAdapter(t *testing.T) {
 	db := reviewAPIDB(t)
 	ctx := context.Background()
 
-	// Wiring through the shared converter, as the server does.
+	// Wiring through the shared converter, as the server does. The wiring
+	// present before this fixture is what cleanup restores, so no later test
+	// inherits an adapter backed by this scratch database.
+	previousWiring := authorMetadataReviewService
+	t.Cleanup(func() { authorMetadataReviewService = previousWiring })
 	serverConfig := config.AuthorMetadataConfig{}
 	serverConfig.LocalNormalization.MaxAttempts = 5
 	require.NoError(t, SetAuthorMetadataReviewService(db, &serverConfig))
@@ -653,11 +657,11 @@ func nameValueOf(t *testing.T, first, last string) authornorm.SourceValue {
 func TestReview17MalformedEditWithoutSearchLetters(t *testing.T) {
 	db := reviewAPIDB(t)
 	ctx := context.Background()
+	previousWiring := authorMetadataReviewService
+	t.Cleanup(func() { authorMetadataReviewService = previousWiring })
 	serverConfig := config.AuthorMetadataConfig{}
 	serverConfig.LocalNormalization.MaxAttempts = 5
 	require.NoError(t, SetAuthorMetadataReviewService(db, &serverConfig))
-	previousService := currentAuthorMetadataReviewService
-	t.Cleanup(func() { authorMetadataReviewService = previousService })
 	adapter := authorMetadataReviewService()
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -739,6 +743,26 @@ func TestReview17MalformedEditWithoutSearchLetters(t *testing.T) {
 	assert.Nil(t, manual.SearchKey)
 }
 
-// currentAuthorMetadataReviewService snapshots the wiring var so tests that
-// replace it restore what was there before their scratch database closed.
-var currentAuthorMetadataReviewService = authorMetadataReviewService
+// The wiring fixtures restore the actual previous wiring value, so running
+// them in sequence leaves the earlier service in place — no test inherits an
+// adapter backed by a scratch database that has since closed.
+func TestReviewWiringFixturesRestorePreviousService(t *testing.T) {
+	sentinel := &fakeReviewService{}
+	previous := authorMetadataReviewService
+	authorMetadataReviewService = func() AuthorMetadataReviewService { return sentinel }
+	t.Cleanup(func() { authorMetadataReviewService = previous })
+
+	t.Run("adapter fixture", TestAuthorMetadataReviewAdapter)
+	assert.Same(t, sentinel, authorMetadataReviewService(),
+		"the adapter fixture must restore the wiring it found")
+	// The restored service still answers: its database is the fake's, not a
+	// closed scratch pool.
+	_, err := authorMetadataReviewService().Detail(context.Background(), 1)
+	assert.NoError(t, err, "the restored wiring must not point at a closed database")
+
+	t.Run("malformed-edit fixture", TestReview17MalformedEditWithoutSearchLetters)
+	assert.Same(t, sentinel, authorMetadataReviewService(),
+		"the malformed-edit fixture must restore the wiring it found")
+	_, err = authorMetadataReviewService().Detail(context.Background(), 1)
+	assert.NoError(t, err)
+}
