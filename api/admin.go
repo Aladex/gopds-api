@@ -57,6 +57,9 @@ func SetupAdminRoutes(r *gin.RouterGroup) {
 
 	// Setup duplicate management routes
 	SetupDuplicatesRoutes(r)
+
+	// Author metadata runs (the run service comes from its wiring point)
+	SetupAuthorMetadataRunRoutes(r.Group("/author-metadata"), authorMetadataRunService())
 }
 
 // UsersAnswer struct for users list in admin space
