@@ -29,10 +29,11 @@ var ErrFullRunNotApproved = errors.New("services: a full run requires an approve
 // other versions than the run declares.
 var ErrRunVersionMismatch = errors.New("services: run versions differ from the versions this build runs")
 
-// StartRunRequest is the closed input of StartRun. The selector fields are
-// mode-scoped: BookIDs for smoke, Archive for pilot_archive, neither for full;
-// a field of another mode is refused, never dropped. Empty versions mean the
-// versions this build runs; any other value must equal them.
+// StartRunRequest is the closed input of StartRun. smoke and pilot_archive
+// take exactly one selector of either kind — BookIDs or Archive — and full
+// takes none (contract 3.9); a second selector or a selector for full is
+// refused, never dropped. Empty versions mean the versions this build runs;
+// any other value must equal them.
 type StartRunRequest struct {
 	Mode              models.AuthorMetadataRunMode
 	BookIDs           []int64
@@ -71,16 +72,14 @@ func runVersions(req *StartRunRequest) (extractor, normalizer string, err error)
 	return extractor, normalizer, nil
 }
 
-// validateRunRequest refuses a selector field that does not belong to the
-// mode before anything is looked up or seeded.
+// validateRunRequest refuses a selector shape the mode does not take before
+// anything is looked up or seeded: smoke and pilot_archive need exactly one
+// selector of either kind (a blank archive is none), full needs none.
 func validateRunRequest(req *StartRunRequest) error {
 	switch req.Mode {
-	case models.AuthorMetadataRunSmoke:
-		if req.Archive != "" {
-			return database.ErrInvalidRunSelector
-		}
-	case models.AuthorMetadataRunPilotArchive:
-		if len(req.BookIDs) > 0 || strings.TrimSpace(req.Archive) == "" {
+	case models.AuthorMetadataRunSmoke, models.AuthorMetadataRunPilotArchive:
+		hasIDs, hasArchive := len(req.BookIDs) > 0, req.Archive != ""
+		if hasIDs == hasArchive || (hasArchive && strings.TrimSpace(req.Archive) == "") {
 			return database.ErrInvalidRunSelector
 		}
 	case models.AuthorMetadataRunFull:
@@ -116,27 +115,11 @@ func (s *AuthorMetadataRunService) StartRun(ctx context.Context, req *StartRunRe
 
 	var bookIDs []int64
 	switch req.Mode {
-	case models.AuthorMetadataRunSmoke:
-		canonical, err := database.CanonicalRunBookIDs(req.BookIDs)
+	case models.AuthorMetadataRunSmoke, models.AuthorMetadataRunPilotArchive:
+		bookIDs, err = s.selectBooks(ctx, req, run)
 		if err != nil {
 			return nil, err
 		}
-		existing, err := database.ListExistingBookIDs(ctx, s.db, canonical)
-		if err != nil {
-			return nil, err
-		}
-		if len(existing) == 0 {
-			return nil, database.ErrInvalidRunSelector
-		}
-		run.SelectorBookIDs = existing
-		bookIDs = existing
-	case models.AuthorMetadataRunPilotArchive:
-		run.SelectorArchive = &req.Archive
-		ids, err := database.ListArchiveBookIDs(ctx, s.db, req.Archive)
-		if err != nil {
-			return nil, err
-		}
-		bookIDs = ids
 	case models.AuthorMetadataRunFull:
 		approved, err := database.HasApprovedPilot(ctx, s.db, extractor, normalizer)
 		if err != nil {
@@ -158,6 +141,37 @@ func (s *AuthorMetadataRunService) StartRun(ctx context.Context, req *StartRunRe
 		return nil, err
 	}
 	return run, nil
+}
+
+// selectBooks resolves the one selector of a smoke or pilot_archive request —
+// book IDs (canonicalized, unknown IDs dropped) or an archive — into the
+// run's stored selector and its items. A selector that selects no catalog
+// book is refused: the run would complete with nothing extracted, and an
+// approved empty pilot would gate a full run.
+func (s *AuthorMetadataRunService) selectBooks(
+	ctx context.Context, req *StartRunRequest, run *models.AuthorMetadataRun,
+) ([]int64, error) {
+	var ids []int64
+	if len(req.BookIDs) > 0 {
+		canonical, err := database.CanonicalRunBookIDs(req.BookIDs)
+		if err != nil {
+			return nil, err
+		}
+		if ids, err = database.ListExistingBookIDs(ctx, s.db, canonical); err != nil {
+			return nil, err
+		}
+		run.SelectorBookIDs = ids
+	} else {
+		var err error
+		if ids, err = database.ListArchiveBookIDs(ctx, s.db, req.Archive); err != nil {
+			return nil, err
+		}
+		run.SelectorArchive = &req.Archive
+	}
+	if len(ids) == 0 {
+		return nil, database.ErrInvalidRunSelector
+	}
+	return ids, nil
 }
 
 // PauseRun stops new claims of a running run. A repeated pause or a pause of

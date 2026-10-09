@@ -562,16 +562,12 @@ func TestApproveFullAuthorMetadataRun(t *testing.T) {
 // --- RED 5: retry ---
 
 func TestRetryAuthorMetadataRunAcceptsOnlyClosedClasses(t *testing.T) {
+	// The contract's closed lists (plans/briefs/authors-api-contract.md).
 	extraction := []string{
-		string(models.AuthorMetadataRunItemEntryMissing), string(models.AuthorMetadataRunItemInvalidFB2),
-		string(models.AuthorMetadataRunItemUnsupportedEncoding), string(models.AuthorMetadataRunItemMetadataParseFailed),
-		database.LeaseErrorLeaseExpired, database.LeaseErrorMaxAttemptsExceeded,
-		string(services.AuthorMetadataErrorTransientDatabase),
+		"entry_missing", "invalid_fb2", "unsupported_encoding", "metadata_parse_failed",
+		"lease_expired", "max_attempts_exceeded", "transient_database", "archive_unreadable", "extraction_failed",
 	}
-	local := make([]string, 0, len(services.AuthorMetadataErrorClasses()))
-	for _, class := range services.AuthorMetadataErrorClasses() {
-		local = append(local, string(class))
-	}
+	local := []string{"transient_database", "normalizer_failed", "lease_expired", "max_attempts_exceeded"}
 	accepted := map[string][]string{"extraction": extraction, "local": local}
 	for stage, classes := range accepted {
 		for _, class := range classes {
@@ -600,6 +596,12 @@ func TestRetryAuthorMetadataRunAcceptsOnlyClosedClasses(t *testing.T) {
 		{"local-only class at the extraction stage", `{"stage":"extraction","error_class":"normalizer_failed"}`, "invalid_error_class"},
 		{"a success status is not an error class", `{"stage":"extraction","error_class":"extracted"}`, "invalid_error_class"},
 		{"case matters", `{"stage":"local","error_class":"Normalizer_Failed"}`, "invalid_error_class"},
+		{"a systemic class ends the run, no retry", `{"stage":"extraction","error_class":"database_invariant"}`,
+			"invalid_error_class"},
+		{"version mismatch is systemic", `{"stage":"extraction","error_class":"version_mismatch"}`, "invalid_error_class"},
+		{"a misconfigured extractor is systemic", `{"stage":"extraction","error_class":"extractor_misconfigured"}`,
+			"invalid_error_class"},
+		{"a refused input cannot be retried", `{"stage":"local","error_class":"no_author_credit"}`, "invalid_error_class"},
 	}
 	for _, c := range rejected {
 		t.Run(c.name, func(t *testing.T) {
@@ -798,4 +800,55 @@ func TestCheckRequestObject(t *testing.T) {
 func TestRunRequestFieldNames(t *testing.T) {
 	assert.Equal(t, []string{"mode", "book_ids", "archive"}, jsonFieldNames(&startRunRequest{}))
 	assert.Equal(t, []string{"stage", "error_class"}, jsonFieldNames(&retryRunRequest{}))
+}
+
+// The handlers keep no list of their own: the accepted classes are exactly
+// the run admin's published lists, built from the pipeline's constants.
+func TestRetryErrorClassesAreThePublishedLists(t *testing.T) {
+	for stage, published := range map[string][]services.AuthorMetadataErrorClass{
+		retryStageExtraction: services.AuthorMetadataExtractionRetryClasses(),
+		retryStageLocal:      services.AuthorMetadataLocalRetryClasses(),
+	} {
+		want := map[string]bool{}
+		for _, class := range published {
+			want[string(class)] = true
+		}
+		assert.Equal(t, want, retryErrorClasses[stage], stage)
+	}
+}
+
+// Every error the services run admin returns maps to its closed code; the
+// cause stays wrapped and never reaches the response.
+func TestRunServiceErrorsMapToContractCodes(t *testing.T) {
+	cases := []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{database.ErrRunNotFound, http.StatusNotFound, codeRunNotFound},
+		{database.ErrActiveRunExists, http.StatusConflict, codeActiveRunExists},
+		{services.ErrFullRunNotApproved, http.StatusConflict, codeFullRunNotApproved},
+		{database.ErrRunTransitionConflict, http.StatusConflict, codeInvalidTransition},
+		{database.ErrNotACompletedPilot, http.StatusConflict, codeNotACompletedPilot},
+		{database.ErrPilotAlreadyApproved, http.StatusConflict, codeAlreadyApproved},
+		{database.ErrInvalidRunSelector, http.StatusBadRequest, codeInvalidSelector},
+		{database.ErrInvalidRunBookIDs, http.StatusBadRequest, codeInvalidBookID},
+		{services.ErrInvalidRetryClass, http.StatusBadRequest, codeInvalidErrorClass},
+		{services.ErrRunVersionMismatch, http.StatusInternalServerError, codeInternalError},
+		{errors.New("ERROR #57014 canceling statement"), http.StatusInternalServerError, codeInternalError},
+	}
+	for _, c := range cases {
+		t.Run(c.code+" "+c.err.Error(), func(t *testing.T) {
+			wrapped := fmt.Errorf("deep in the service: %w", c.err)
+			adapted := adaptRunError(wrapped)
+			require.ErrorIs(t, adapted, c.err, "the cause stays wrapped")
+			status, code := runErrorStatus(adapted)
+			assert.Equal(t, c.status, status)
+			assert.Equal(t, c.code, code)
+
+			rec := runsRequest(t, runsRouter(&fakeRunService{err: adapted}), http.MethodGet, runsBase+"/42", "")
+			assert.Equal(t, c.status, rec.Code)
+			assert.JSONEq(t, `{"error":"`+c.code+`"}`, rec.Body.String())
+		})
+	}
 }

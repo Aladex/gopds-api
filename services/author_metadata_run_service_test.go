@@ -185,6 +185,68 @@ func TestStartRunPilotArchive(t *testing.T) {
 	finishActiveRun(t, db)
 }
 
+// Plan contract 3.9: smoke and pilot_archive each take exactly one selector
+// of either kind. The selector the request named is the one stored; the
+// items are the books it selects.
+func TestStartRunAcceptsEitherSelectorForSmokeAndPilot(t *testing.T) {
+	db := scanfixture.ScratchDB(t)
+	ctx := context.Background()
+	svc := services.NewAuthorMetadataRunService(db)
+	seedCatalogBook(t, db, 11, "pilot.zip", "a.fb2")
+	seedCatalogBook(t, db, 22, "pilot.zip", "b.fb2")
+	seedCatalogBook(t, db, 33, "other.zip", "c.fb2")
+
+	for _, mode := range []models.AuthorMetadataRunMode{models.AuthorMetadataRunSmoke, models.AuthorMetadataRunPilotArchive} {
+		t.Run(string(mode)+" by archive", func(t *testing.T) {
+			req := startRequest(mode)
+			req.Archive = "pilot.zip"
+			run, err := svc.StartRun(ctx, req)
+			require.NoError(t, err)
+			require.NotNil(t, run.SelectorArchive)
+			assert.Equal(t, "pilot.zip", *run.SelectorArchive)
+			assert.Empty(t, run.SelectorBookIDs)
+			assert.Equal(t, []int64{11, 22}, runItems(t, db, run.ID))
+			finishActiveRun(t, db)
+		})
+		t.Run(string(mode)+" by book ids", func(t *testing.T) {
+			req := startRequest(mode)
+			req.BookIDs = []int64{33, 11, 999}
+			run, err := svc.StartRun(ctx, req)
+			require.NoError(t, err)
+			assert.Nil(t, run.SelectorArchive)
+			assert.Equal(t, []int64{11, 33}, run.SelectorBookIDs, "existing IDs, ascending")
+			assert.Equal(t, []int64{11, 33}, runItems(t, db, run.ID))
+			finishActiveRun(t, db)
+		})
+		t.Run(string(mode)+" with both selectors or none", func(t *testing.T) {
+			req := startRequest(mode)
+			req.BookIDs, req.Archive = []int64{11}, "pilot.zip"
+			_, err := svc.StartRun(ctx, req)
+			require.ErrorIs(t, err, database.ErrInvalidRunSelector)
+			_, err = svc.StartRun(ctx, startRequest(mode))
+			require.ErrorIs(t, err, database.ErrInvalidRunSelector)
+			req = startRequest(mode)
+			req.Archive = " "
+			_, err = svc.StartRun(ctx, req)
+			require.ErrorIs(t, err, database.ErrInvalidRunSelector, "a blank archive")
+		})
+		t.Run(string(mode)+" selecting no catalog book", func(t *testing.T) {
+			req := startRequest(mode)
+			req.Archive = "absent.zip"
+			_, err := svc.StartRun(ctx, req)
+			require.ErrorIs(t, err, database.ErrInvalidRunSelector)
+			req = startRequest(mode)
+			req.BookIDs = []int64{999}
+			_, err = svc.StartRun(ctx, req)
+			require.ErrorIs(t, err, database.ErrInvalidRunSelector)
+		})
+	}
+	var runs int
+	_, err := db.QueryOne(pg.Scan(&runs), `SELECT count(*) FROM author_metadata_run WHERE status <> 'completed'`)
+	require.NoError(t, err)
+	assert.Zero(t, runs, "every refused start seeded nothing")
+}
+
 // RED 12: a full run is refused until a pilot_archive run of the same versions
 // completed and was explicitly approved.
 func TestStartRunFullRequiresApprovedPilot(t *testing.T) {

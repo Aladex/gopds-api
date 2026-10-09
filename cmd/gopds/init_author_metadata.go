@@ -41,6 +41,30 @@ func buildAuthorMetadataWorkers(
 	return append(workers, local...), nil
 }
 
+// newAuthorMetadataRunsAPI builds the admin runs service on the run service
+// and the same configuration the workers are built from, so a retry's budget
+// is the budget of the workers that will claim it.
+func newAuthorMetadataRunsAPI(db *pg.DB, c *config.AuthorMetadataConfig) (api.AuthorMetadataRunService, error) {
+	admin, err := services.NewAuthorMetadataRunAdmin(services.NewAuthorMetadataRunService(db), db, c)
+	if err != nil {
+		return nil, err
+	}
+	return api.NewAuthorMetadataRunService(admin), nil
+}
+
+// initializeAuthorMetadataRunsAPI installs the admin runs service the admin
+// routes mount. It is wired whether or not the workers run, so an operator
+// can always read runs; a failure leaves the routes answering
+// run_service_unavailable.
+func initializeAuthorMetadataRunsAPI(db *pg.DB, c *config.AuthorMetadataConfig) {
+	svc, err := newAuthorMetadataRunsAPI(db, c)
+	if err != nil {
+		logging.Errorf("Author metadata runs API not wired: %v", err)
+		return
+	}
+	api.SetAuthorMetadataRunService(svc)
+}
+
 // startAuthorMetadataRunner hands the workers to a new runner and starts it
 // once the database answers; no worker runs before that.
 func startAuthorMetadataRunner(

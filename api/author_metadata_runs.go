@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"gopds-api/database"
 	"gopds-api/models"
 	"gopds-api/services"
 
@@ -77,6 +76,15 @@ var (
 	ErrAuthorMetadataNotACompletedPilot    = errors.New("api: the run is not a completed pilot")
 	ErrAuthorMetadataAlreadyApproved       = errors.New("api: the pilot is already approved")
 	ErrAuthorMetadataRunServiceUnavailable = errors.New("api: the author metadata run service is not wired")
+	// ErrAuthorMetadataInvalidSelector marks a well-formed selector the
+	// catalog cannot satisfy: no book with the given IDs, or an archive
+	// holding no catalog book.
+	ErrAuthorMetadataInvalidSelector = errors.New("api: the selector selects no catalog book")
+	// ErrAuthorMetadataInvalidBookIDs marks book IDs the service refused.
+	ErrAuthorMetadataInvalidBookIDs = errors.New("api: invalid run book IDs")
+	// ErrAuthorMetadataInvalidErrorClass marks a retry class the service
+	// refused for the stage.
+	ErrAuthorMetadataInvalidErrorClass = errors.New("api: the error class is not retryable at this stage")
 )
 
 // runErrorStatus maps a service error to its HTTP status and closed code.
@@ -95,6 +103,12 @@ func runErrorStatus(err error) (status int, code string) {
 		return http.StatusConflict, codeNotACompletedPilot
 	case errors.Is(err, ErrAuthorMetadataAlreadyApproved):
 		return http.StatusConflict, codeAlreadyApproved
+	case errors.Is(err, ErrAuthorMetadataInvalidSelector):
+		return http.StatusBadRequest, codeInvalidSelector
+	case errors.Is(err, ErrAuthorMetadataInvalidBookIDs):
+		return http.StatusBadRequest, codeInvalidBookID
+	case errors.Is(err, ErrAuthorMetadataInvalidErrorClass):
+		return http.StatusBadRequest, codeInvalidErrorClass
 	case errors.Is(err, ErrAuthorMetadataRunServiceUnavailable):
 		return http.StatusInternalServerError, codeRunServiceUnavailable
 	}
@@ -102,26 +116,16 @@ func runErrorStatus(err error) (status int, code string) {
 }
 
 // retryErrorClasses are the closed error classes a retry may reopen, per
-// stage. The extraction list is built from the same constants the extraction
-// path records (the per-book failure statuses and the lease classes); once
-// the phase-8 run service publishes its own closed list, this must switch to
-// it. The local list is the local worker's closed set.
+// stage: the run admin's published lists, built from the pipeline's own
+// constants — no second list is kept here.
 var retryErrorClasses = map[string]map[string]bool{
-	retryStageExtraction: setOf(
-		string(models.AuthorMetadataRunItemEntryMissing),
-		string(models.AuthorMetadataRunItemInvalidFB2),
-		string(models.AuthorMetadataRunItemUnsupportedEncoding),
-		string(models.AuthorMetadataRunItemMetadataParseFailed),
-		database.LeaseErrorLeaseExpired,
-		database.LeaseErrorMaxAttemptsExceeded,
-		string(services.AuthorMetadataErrorTransientDatabase),
-	),
-	retryStageLocal: localRetryClasses(),
+	retryStageExtraction: classSet(services.AuthorMetadataExtractionRetryClasses()),
+	retryStageLocal:      classSet(services.AuthorMetadataLocalRetryClasses()),
 }
 
-func localRetryClasses() map[string]bool {
-	classes := make([]string, 0, len(services.AuthorMetadataErrorClasses()))
-	for _, class := range services.AuthorMetadataErrorClasses() {
+func classSet(list []services.AuthorMetadataErrorClass) map[string]bool {
+	classes := make([]string, 0, len(list))
+	for _, class := range list {
 		classes = append(classes, string(class))
 	}
 	return setOf(classes...)
@@ -246,9 +250,10 @@ type AuthorMetadataRunService interface {
 // authorMetadataRunService is the single wiring point of the concrete run
 // service, used by SetupAdminRoutes.
 //
-// PHASE-8 WIRING POINT: return an adapter over
-// services/author_metadata_run_service.go here once it lands. Until then the
-// routes exist and every call answers 500 run_service_unavailable.
+// The server installs the adapter over the services run admin with
+// SetAuthorMetadataRunService (cmd/gopds, next to the workers). Without it —
+// a binary or test that mounts the admin routes but no run service — every
+// call answers 500 run_service_unavailable.
 var authorMetadataRunService = func() AuthorMetadataRunService {
 	return unavailableAuthorMetadataRuns{}
 }
@@ -683,6 +688,7 @@ func presentReport(in *AuthorMetadataRunReport) AuthorMetadataRunReport {
 // start godoc
 // @Summary Start an author metadata run
 // @Description smoke and pilot_archive take exactly one selector (book_ids or archive), full none.
+// @Description 400 invalid_selector also when the selector selects no catalog book.
 // @Description 409 active_run_exists, 409 full_run_not_approved.
 // @Tags admin
 // @Param Authorization header string true "Token without 'Bearer' prefix"
@@ -848,7 +854,9 @@ func (h *authorMetadataRunsHandler) approveFull(c *gin.Context) {
 // retry godoc
 // @Summary Reopen failed items of one stage and closed error class
 // @Description stage is extraction or local; error_class is a closed class of that stage.
-// @Description Answers the exact number of reopened items.
+// @Description Reopens only failed rows the configured workers can still claim and answers their exact number.
+// @Description A completed run with reopened rows goes back to running (409 active_run_exists when another run is active).
+// @Description 409 invalid_transition for a failed_systemic run or an approved pilot.
 // @Tags admin
 // @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Param id path int true "Run ID"

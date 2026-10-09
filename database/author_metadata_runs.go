@@ -27,9 +27,9 @@ import (
 
 var (
 	// ErrInvalidRunSelector marks a mode/selector combination the contract
-	// forbids: smoke without book IDs, pilot_archive without exactly one
-	// archive, full with any selector, a mode outside the closed set, or a
-	// seed in a non-active status.
+	// forbids: smoke or pilot_archive without exactly one selector (book IDs
+	// or an archive) or selecting no book, full with any selector, a mode
+	// outside the closed set, or a seed in a non-active status.
 	ErrInvalidRunSelector = errors.New("database: run selector does not fit the mode")
 	// ErrInvalidRunBookIDs marks empty, zero, negative or duplicate book IDs.
 	// Out-of-order IDs are valid and canonicalized ascending.
@@ -87,15 +87,15 @@ func validateRunSeed(run *models.AuthorMetadataRun, bookIDs []int64) error {
 	return nil
 }
 
-// validateRunSelector checks the mode-scoped selector shape.
+// validateRunSelector checks the selector shape (contract 3.9): smoke and
+// pilot_archive store exactly one selector of either kind and seed at least
+// one item; full stores none.
 func validateRunSelector(run *models.AuthorMetadataRun, bookIDs []int64) error {
 	switch run.Mode {
-	case models.AuthorMetadataRunSmoke:
-		if len(bookIDs) == 0 || len(run.SelectorBookIDs) == 0 || run.SelectorArchive != nil {
-			return ErrInvalidRunSelector
-		}
-	case models.AuthorMetadataRunPilotArchive:
-		if run.SelectorArchive == nil || strings.TrimSpace(*run.SelectorArchive) == "" || len(run.SelectorBookIDs) > 0 {
+	case models.AuthorMetadataRunSmoke, models.AuthorMetadataRunPilotArchive:
+		hasIDs, hasArchive := len(run.SelectorBookIDs) > 0, run.SelectorArchive != nil
+		if hasIDs == hasArchive || len(bookIDs) == 0 ||
+			(hasArchive && strings.TrimSpace(*run.SelectorArchive) == "") {
 			return ErrInvalidRunSelector
 		}
 	case models.AuthorMetadataRunFull:
@@ -132,8 +132,10 @@ func SeedRun(ctx context.Context, db pg.DBI, run *models.AuthorMetadataRun, book
 }
 
 func seedRun(ctx context.Context, db pg.DBI, run *models.AuthorMetadataRun, bookIDs []int64) error {
+	// A book ID selector is stored as the canonical IDs seeded; an archive
+	// or full run stores none.
 	selectorIDs := bookIDs
-	if run.Mode != models.AuthorMetadataRunSmoke {
+	if len(run.SelectorBookIDs) == 0 {
 		selectorIDs = nil
 	}
 	_, err := db.QueryOneContext(ctx, pg.Scan(&run.ID), `

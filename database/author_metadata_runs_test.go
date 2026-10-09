@@ -73,6 +73,18 @@ func TestSeedRunValidation(t *testing.T) {
 				require.ErrorIs(t, err, ErrInvalidRunSelector)
 			})
 		}
+		// Contract 3.9: smoke and pilot_archive take either kind of selector;
+		// a valid seed passes the pure validation (nothing to refuse before
+		// SQL).
+		for _, mode := range []models.AuthorMetadataRunMode{models.AuthorMetadataRunSmoke, models.AuthorMetadataRunPilotArchive} {
+			byIDs := &models.AuthorMetadataRun{Mode: mode, Status: models.AuthorMetadataRunRunning,
+				ExtractorVersion: "e", NormalizerVersion: "n", SelectorBookIDs: []int64{1}}
+			byArchive := &models.AuthorMetadataRun{Mode: mode, Status: models.AuthorMetadataRunRunning,
+				ExtractorVersion: "e", NormalizerVersion: "n", SelectorArchive: &archive}
+			assert.NoError(t, validateRunSeed(byIDs, []int64{1}), "%s by book ids", mode)
+			assert.NoError(t, validateRunSeed(byArchive, []int64{1}), "%s by archive", mode)
+			assert.ErrorIs(t, validateRunSeed(byIDs, nil), ErrInvalidRunSelector, "%s by book ids selecting none", mode)
+		}
 	})
 
 	t.Run("versions", func(t *testing.T) {
