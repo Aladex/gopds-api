@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { AlertCircle, RefreshCw, RotateCcw, Trash2 } from 'lucide-react';
@@ -25,6 +26,9 @@ import { cn } from '@/shared/lib/utils';
 import * as adminApi from '@/api/admin';
 import { isApiError } from '@/api/errors';
 import { WS_URL } from '@/api/config';
+import AuthorMetadataCard from '@/features/admin/AuthorMetadataCard';
+import AuthorReviewQueue from '@/features/admin/AuthorReviewQueue';
+import { AUTHORS_TAB } from '@/features/admin/AuthorReviewDetail';
 
 interface ScanStatusResponse {
     is_running: boolean;
@@ -168,7 +172,13 @@ interface FixScanErrorEvent {
 }
 
 /** The two archive lists, keyed rather than indexed so the tab reads as itself. */
-type ArchiveTab = 'unscanned' | 'scanned';
+type ArchiveTab = 'unscanned' | 'scanned' | typeof AUTHORS_TAB;
+
+/** The tab the address names (?tab=…), the unscanned archives by default. */
+const tabFromParams = (params: URLSearchParams): ArchiveTab => {
+    const tab = params.get('tab');
+    return tab === 'scanned' || tab === AUTHORS_TAB ? tab : 'unscanned';
+};
 
 /**
  * The palette has no warning colour, so Reset — destructive but reversible —
@@ -204,7 +214,22 @@ const BookScanning: React.FC = () => {
     const [statusMessage, setStatusMessage] = useState<string | null>(null);
     const [scanError, setScanError] = useState<string | null>(null);
     const [lastBookTitle, setLastBookTitle] = useState<string | null>(null);
-    const [currentTab, setCurrentTab] = useState<ArchiveTab>('unscanned');
+    /*
+      The tab lives in the address, so the old author normalization URL can
+      redirect straight into the authors tab and the review detail screen's
+      Back returns to it.
+    */
+    const [searchParams, setSearchParams] = useSearchParams();
+    const currentTab = tabFromParams(searchParams);
+    const setCurrentTab = (tab: ArchiveTab) => {
+        const next = new URLSearchParams(searchParams);
+        if (tab === 'unscanned') {
+            next.delete('tab');
+        } else {
+            next.set('tab', tab);
+        }
+        setSearchParams(next);
+    };
     const [rescanDialogOpen, setRescanDialogOpen] = useState(false);
     const [archiveToRescan, setArchiveToRescan] = useState<string | null>(null);
     const [isRescanning, setIsRescanning] = useState(false);
@@ -733,6 +758,8 @@ const BookScanning: React.FC = () => {
                         setTimeout(() => {
                             setFixScanStatus(null);
                         }, 3000);
+                        // Its per-book author metadata failures joined the errors list.
+                        fetchErrors();
                         break;
                     }
                     case 'fix_scan_error': {
@@ -914,6 +941,8 @@ const BookScanning: React.FC = () => {
                 </Card>
             )}
 
+            <AuthorMetadataCard />
+
             <Card>
                 <CardContent className="flex flex-col gap-3">
                     <div className="flex flex-wrap items-center gap-3">
@@ -992,14 +1021,22 @@ const BookScanning: React.FC = () => {
                         value={currentTab}
                         onValueChange={(value) => setCurrentTab(value as ArchiveTab)}
                     >
-                        <TabsList>
+                        {/* Three long labels: wrap on a narrow screen rather than hide the selected tab off the edge. */}
+                        <TabsList className="flex-wrap">
                             <TabsTrigger value="unscanned" className="flex-1 sm:flex-none">
                                 {t('bookScanUnscannedTitle')}
                             </TabsTrigger>
                             <TabsTrigger value="scanned" className="flex-1 sm:flex-none">
                                 {t('bookScanScannedTitle')}
                             </TabsTrigger>
+                            <TabsTrigger value={AUTHORS_TAB} className="flex-1 sm:flex-none">
+                                {t('authorsTab', 'Authors')}
+                            </TabsTrigger>
                         </TabsList>
+
+                        <TabsContent value={AUTHORS_TAB}>
+                            <AuthorReviewQueue />
+                        </TabsContent>
 
                         <TabsContent value="unscanned" className="flex flex-col gap-3">
                             <div className="flex flex-wrap items-center justify-between gap-2">

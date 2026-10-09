@@ -2,12 +2,16 @@ import React from 'react';
 import { readFileSync } from 'node:fs';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Router, Routes } from 'react-router';
+import { MemoryRouter, Route, Router, Routes, useLocation } from 'react-router';
 import { UNSAFE_createMemoryHistory as createMemoryHistory } from 'react-router';
 
-import AuthorNormalization from '@/features/admin/AuthorNormalization';
 import AuthorReviewQueue from '@/features/admin/AuthorReviewQueue';
+import {
+    LegacyAuthorNormalizationRedirect,
+    LegacyAuthorReviewRedirect,
+} from '@/features/admin/AdminPanel';
 import AuthorReviewDetailScreen, {
+    REVIEW_DETAIL_ROUTE,
     buildEditResult,
     draftFromProposal,
 } from '@/features/admin/AuthorReviewDetail';
@@ -73,8 +77,8 @@ const minutesBefore = (minutes: number) => new Date(anchorMs - minutes * 60_000)
 
 const listItem = (overrides: Partial<AuthorReviewListItem> = {}): AuthorReviewListItem => ({
     id: 11,
-    scope: 'credit',
-    credit_id: 31,
+    scope: 'fingerprint',
+    credit_id: null,
     source_fingerprint: 'a1b2c3d4e5f60718',
     reason: 'initials',
     decision_class: 'ambiguous_initials',
@@ -94,6 +98,19 @@ const secondItem = listItem({
     display_name: 'Fixture Display B',
     credits_count: 4,
     created_at: minutesBefore(30),
+});
+
+/**
+ * A legacy credit-scoped item: only a credit-scoped override flagged after a
+ * schema change opens one, and the simplified tab never shows or decides it.
+ */
+const legacyCreditItem = listItem({
+    id: 13,
+    scope: 'credit',
+    credit_id: 31,
+    source_fingerprint: '5566778899aabbcc',
+    display_name: 'Fixture Display C',
+    created_at: minutesBefore(60),
 });
 
 const detail = (overrides: Partial<AuthorReviewDetail> = {}): AuthorReviewDetail => ({
@@ -131,7 +148,7 @@ beforeEach(() => {
     api.getCurrentAuthorMetadataRun.mockResolvedValue({ run: null });
     api.getLatestAuthorMetadataRun.mockResolvedValue({ run: null });
     api.listAuthorReviewItems.mockResolvedValue({
-        items: [listItem(), secondItem],
+        items: [listItem(), legacyCreditItem, secondItem],
         next_cursor: 'cursor-2',
     });
     api.getAuthorReviewItem.mockResolvedValue({ item: detail() });
@@ -143,9 +160,9 @@ const renderAt = (path: string) =>
         <MemoryRouter initialEntries={[path]}>
             <Routes>
                 <Route path="/queue" element={<AuthorReviewQueue />} />
-                <Route path="/admin/author-normalization" element={<AuthorNormalization />} />
+                <Route path="/admin/book-scanning" element={<AuthorReviewQueue />} />
                 <Route
-                    path="/admin/author-normalization/review/:id"
+                    path="/admin/book-scanning/authors/:id"
                     element={<AuthorReviewDetailScreen />}
                 />
             </Routes>
@@ -168,9 +185,9 @@ const renderWithHistory = (path: string) => {
             <Router navigator={history} location={location}>
                 <Routes>
                     <Route path="/queue" element={<AuthorReviewQueue />} />
-                    <Route path="/admin/author-normalization" element={<AuthorNormalization />} />
+                    <Route path="/admin/book-scanning" element={<AuthorReviewQueue />} />
                     <Route
-                        path="/admin/author-normalization/review/:id"
+                        path="/admin/book-scanning/authors/:id"
                         element={<AuthorReviewDetailScreen />}
                     />
                 </Routes>
@@ -178,6 +195,12 @@ const renderWithHistory = (path: string) => {
         );
     };
     return { history, ...render(<Harness />) };
+};
+
+/** Shows where a redirect landed. */
+const LocationProbe: React.FC = () => {
+    const location = useLocation();
+    return <p data-testid="location">{`${location.pathname}${location.search}`}</p>;
 };
 
 // The default matchMedia answer is "not matching", which is the narrow layout:
@@ -304,23 +327,30 @@ describe('queue list', () => {
 });
 
 describe('detail on its own route (narrow)', () => {
-    it('shows raw components, the proposal, class, scope and bounded books', async () => {
+    it('shows the name as in the file, the proposal and bounded books, nothing technical', async () => {
         renderAt('/queue');
         await openDetail('Fixture Display A');
 
         const panel = screen.getByRole('region', { name: 'Review item' });
-        // Raw source components and flags.
         expect(within(panel).getByText('Fixture Author')).toBeInTheDocument();
-        expect(within(panel).getByText('two_surnames')).toBeInTheDocument();
-        // Proposal fields and diagnostics.
-        expect(screen.getByLabelText('Sort name')).toHaveValue('Author, Fixture');
-        expect(within(panel).getByText('initials_split')).toBeInTheDocument();
-        expect(within(panel).getByText('ambiguous_initials')).toBeInTheDocument();
-        expect(within(panel).getByText('Cyrl')).toBeInTheDocument();
-        // Scope and linked books.
-        expect(within(panel).getByText('Credit')).toBeInTheDocument();
+        expect(within(panel).getByText('Author, Fixture')).toBeInTheDocument();
         expect(within(panel).getByText('Fixture Book One')).toBeInTheDocument();
         expect(within(panel).getByText('Fixture Book Two')).toBeInTheDocument();
+        // Flags, classes, scripts, methods, scope, fingerprint and search key
+        // are not shown at all.
+        for (const technical of [
+            'two_surnames',
+            'initials_split',
+            'ambiguous_initials',
+            'Cyrl',
+            'rules',
+            'Credit',
+            'a1b2c3d4e5f60718',
+            'author fixture',
+        ]) {
+            expect(within(panel).queryByText(technical)).toBeNull();
+        }
+        expect(screen.queryByRole('button', { name: 'Show technical details' })).toBeNull();
     });
 
     it('replaces the queue with the detail screen and offers the way back', async () => {
@@ -333,7 +363,7 @@ describe('detail on its own route (narrow)', () => {
     });
 
     it('deep-links and reloads the detail route without the queue', async () => {
-        renderAt('/admin/author-normalization/review/12');
+        renderAt('/admin/book-scanning/authors/12');
 
         await screen.findByRole('region', { name: 'Review item' });
         expect(api.getAuthorReviewItem).toHaveBeenCalledWith(12);
@@ -343,7 +373,7 @@ describe('detail on its own route (narrow)', () => {
 
     it('refuses unsafe or non-canonical ids from the address', async () => {
         for (const bad of ['9007199254740993', 'abc', '007', '0', '-11']) {
-            const { unmount } = renderAt(`/admin/author-normalization/review/${bad}`);
+            const { unmount } = renderAt(`/admin/book-scanning/authors/${bad}`);
             expect(
                 await screen.findByText('This review item address is invalid.'),
             ).toBeInTheDocument();
@@ -384,7 +414,7 @@ describe('detail on its own route (narrow)', () => {
     });
 
     it('back from a bare deep-link lands on the queue defaults', async () => {
-        renderAt('/admin/author-normalization/review/11');
+        renderAt('/admin/book-scanning/authors/11');
         await screen.findByRole('region', { name: 'Review item' });
 
         fireEvent.click(screen.getByRole('button', { name: 'Back to the queue' }));
@@ -397,27 +427,19 @@ describe('detail on its own route (narrow)', () => {
         );
     });
 
-    it('keeps technical identifiers behind an explicit disclosure', async () => {
-        renderAt('/queue');
-        await openDetail('Fixture Display A');
-
-        expect(screen.queryByText('a1b2c3d4e5f60718')).toBeNull();
-        expect(screen.queryByText('author fixture')).toBeNull();
-
-        fireEvent.click(screen.getByRole('button', { name: 'Show technical details' }));
-        expect(screen.getByText('a1b2c3d4e5f60718')).toBeInTheDocument();
-        expect(screen.getByText('author fixture')).toBeInTheDocument();
-
-        fireEvent.click(screen.getByRole('button', { name: 'Hide technical details' }));
-        expect(screen.queryByText('a1b2c3d4e5f60718')).toBeNull();
-    });
-
-    it('offers the edit form when there is no proposal yet', async () => {
+    it('offers the correction form when there is no proposal yet', async () => {
         api.getAuthorReviewItem.mockResolvedValue({ item: detail({ proposal: null }) });
         renderAt('/queue');
         await openDetail('Fixture Display A');
 
-        expect(screen.getByText('No local proposal yet.')).toBeInTheDocument();
+        expect(screen.getByText('No proposal yet.')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Accept' })).toBeDisabled();
+        fireEvent.click(screen.getByRole('button', { name: 'Correct' }));
+        fireEvent.click(
+            within(screen.getByRole('group', { name: 'What this is' })).getByRole('button', {
+                name: 'Person',
+            }),
+        );
         expect(screen.getByLabelText('Display name')).toHaveValue('');
     });
 });
@@ -509,22 +531,18 @@ describe('detail in a modal (wide)', () => {
         }
     });
 
-    it('keeps the retry action clear of the dialog close button', async () => {
+    it('keeps the header clear of the dialog close button and offers no retry', async () => {
         const restore = stubTableWide(true);
         try {
             renderAt('/queue');
             await openDetailWide('Fixture Display A');
 
-            // jsdom cannot overlap-check two boxes. What is pinned is the
-            // contract that keeps them apart: the close control is an
-            // absolutely placed 44px square in the dialog's top-right corner,
-            // and the header row that carries the retry button at its right
-            // edge reserves right padding at least that wide, at every dialog
-            // width and through any wrap.
+            // jsdom cannot overlap-check two boxes; what keeps the header row
+            // clear of the absolutely placed 44px close square is its padding.
             const header = document.getElementById('author-review-detail-heading')?.parentElement;
             expect(header).not.toBeNull();
             expect(header).toHaveClass('pr-12');
-            expect(screen.getByRole('button', { name: 'Retry normalization' })).toBeInTheDocument();
+            expect(screen.queryByRole('button', { name: 'Retry normalization' })).toBeNull();
         } finally {
             restore();
         }
@@ -653,53 +671,66 @@ describe('browser history within the queue', () => {
     });
 });
 
-describe('scope and actions', () => {
-    it('requires an explicit scope choice and confirmation text before accepting', async () => {
-        api.acceptAuthorReviewItem.mockResolvedValue({ item: detail() });
+const confirmInDialog = async () =>
+    fireEvent.click(
+        within(await screen.findByRole('dialog')).getByRole('button', { name: 'Confirm' }),
+    );
+
+describe("three decisions, always on the item's own scope", () => {
+    it('offers exactly Accept, Correct and Keep as in the file, with no scope to choose', async () => {
         renderAt('/queue');
         await openDetail('Fixture Display A');
 
+        for (const name of ['Accept', 'Correct', 'Keep as in the file']) {
+            expect(screen.getByRole('button', { name })).toBeEnabled();
+        }
+        for (const gone of [
+            'Single credit',
+            'All credits',
+            'Classify',
+            'Mark unresolved',
+            'Save edit',
+        ]) {
+            expect(screen.queryByRole('button', { name: gone })).toBeNull();
+        }
+        // The kinds live behind Correct.
+        expect(screen.queryByRole('group', { name: 'What this is' })).toBeNull();
+    });
+
+    it('accepts with the item scope after a confirmation that can be cancelled', async () => {
+        api.acceptAuthorReviewItem.mockResolvedValue({ item: detail() });
+        api.getAuthorReviewItem.mockResolvedValue({ item: detail({ ...secondItem }) });
+        renderAt('/queue');
+        await openDetail('Fixture Display B');
+
         const accept = screen.getByRole('button', { name: 'Accept' });
-        expect(accept).toBeDisabled();
-
-        fireEvent.click(screen.getByRole('button', { name: 'Single credit' }));
-        expect(accept).toBeEnabled();
-
         fireEvent.click(accept);
         const dialog = await screen.findByRole('dialog');
         expect(
-            within(dialog).getByText('Apply this action to this single credit?'),
+            within(dialog).getByText(
+                'The decision applies to all 4 credits with this name in the file, books added later included.',
+            ),
         ).toBeInTheDocument();
-
         fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
         await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
         expect(api.acceptAuthorReviewItem).not.toHaveBeenCalled();
 
         fireEvent.click(accept);
-        fireEvent.click(
-            await within(await screen.findByRole('dialog')).getByRole('button', {
-                name: 'Confirm',
-            }),
-        );
+        await confirmInDialog();
         await waitFor(() =>
-            expect(api.acceptAuthorReviewItem).toHaveBeenCalledWith(11, { scope: 'credit' }),
+            expect(api.acceptAuthorReviewItem).toHaveBeenCalledWith(12, { scope: 'fingerprint' }),
         );
+        expect(await screen.findByRole('status')).toHaveTextContent('Saved.');
     });
 
-    it('names the fingerprint blast radius in the confirmation', async () => {
+    it('keeps the name as in the file through the unresolved action', async () => {
         api.markAuthorReviewUnresolved.mockResolvedValue({ item: detail() });
         api.getAuthorReviewItem.mockResolvedValue({ item: detail({ ...secondItem }) });
         renderAt('/queue');
         await openDetail('Fixture Display B');
 
-        fireEvent.click(screen.getByRole('button', { name: 'All credits' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Mark unresolved' }));
-        const dialog = await screen.findByRole('dialog');
-        expect(
-            within(dialog).getByText('Apply this action to all 4 credits of this fingerprint?'),
-        ).toBeInTheDocument();
-
-        fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Keep as in the file' }));
+        await confirmInDialog();
         await waitFor(() =>
             expect(api.markAuthorReviewUnresolved).toHaveBeenCalledWith(12, {
                 scope: 'fingerprint',
@@ -707,48 +738,124 @@ describe('scope and actions', () => {
         );
     });
 
-    it('chooses the kind once and classifies with that control', async () => {
+    it('every decision the tab sends is fingerprint-scoped', async () => {
+        api.acceptAuthorReviewItem.mockResolvedValue({ item: detail() });
+        api.markAuthorReviewUnresolved.mockResolvedValue({ item: detail() });
+        api.classifyAuthorReviewItem.mockResolvedValue({ item: detail() });
+        api.editAuthorReviewItem.mockResolvedValue({ item: detail() });
+        renderAt('/queue');
+        await openDetail('Fixture Display A');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Accept' }));
+        await confirmInDialog();
+        await waitFor(() => expect(api.acceptAuthorReviewItem).toHaveBeenCalled());
+        fireEvent.click(await screen.findByRole('button', { name: 'Keep as in the file' }));
+        await confirmInDialog();
+        await waitFor(() => expect(api.markAuthorReviewUnresolved).toHaveBeenCalled());
+        fireEvent.click(await screen.findByRole('button', { name: 'Correct' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Save correction' }));
+        await confirmInDialog();
+        await waitFor(() => expect(api.editAuthorReviewItem).toHaveBeenCalled());
+        fireEvent.click(await screen.findByRole('button', { name: 'Correct' }));
+        const kinds = screen.getByRole('group', { name: 'What this is' });
+        fireEvent.click(within(kinds).getByRole('button', { name: 'Unknown' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Save correction' }));
+        await confirmInDialog();
+        await waitFor(() => expect(api.classifyAuthorReviewItem).toHaveBeenCalled());
+
+        const sent = [
+            ...api.acceptAuthorReviewItem.mock.calls,
+            ...api.markAuthorReviewUnresolved.mock.calls,
+            ...api.editAuthorReviewItem.mock.calls,
+            ...api.classifyAuthorReviewItem.mock.calls,
+        ];
+        expect(sent).toHaveLength(4);
+        for (const [, payload] of sent) {
+            expect(payload.scope).toBe('fingerprint');
+        }
+    });
+
+    it('keeps a legacy credit-scoped item out of the list', async () => {
+        renderAt('/queue');
+        await screen.findByText('Fixture Display A');
+        expect(screen.getByText('Fixture Display B')).toBeInTheDocument();
+        expect(screen.queryByText('Fixture Display C')).toBeNull();
+    });
+
+    it('shows a legacy credit-scoped item opened by its link read-only', async () => {
+        api.getAuthorReviewItem.mockResolvedValue({ item: detail({ ...legacyCreditItem }) });
+        renderAt(`${REVIEW_DETAIL_ROUTE}/13`);
+        await screen.findByRole('region', { name: 'Review item' });
+
+        expect(
+            await screen.findByText(
+                'This item concerns a single book, not every book with this name. It cannot be decided here.',
+            ),
+        ).toBeInTheDocument();
+        for (const name of ['Accept', 'Correct', 'Keep as in the file']) {
+            expect(screen.queryByRole('button', { name })).toBeNull();
+        }
+    });
+
+    it('skips pages that hold only legacy items, so the queue is never empty-looking with more to come', async () => {
+        api.listAuthorReviewItems
+            .mockResolvedValueOnce({ items: [legacyCreditItem], next_cursor: 'cursor-2' })
+            .mockResolvedValueOnce({ items: [secondItem], next_cursor: null });
+        renderAt('/queue');
+
+        await screen.findByText('Fixture Display B');
+        expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
+            status: 'open',
+            cursor: 'cursor-2',
+            limit: 50,
+        });
+        expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
+    });
+
+    it('shows the empty state when only legacy items are left', async () => {
+        api.listAuthorReviewItems.mockResolvedValue({
+            items: [legacyCreditItem],
+            next_cursor: null,
+        });
+        renderAt('/queue');
+
+        expect(await screen.findByText('No review items.')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
+    });
+
+    it('classifies through the kind field of Correct', async () => {
         api.classifyAuthorReviewItem.mockResolvedValue({ item: detail() });
         renderAt('/queue');
         await openDetail('Fixture Display A');
 
-        // The proposal's kind is person: classify cannot send it.
-        expect(screen.queryByRole('group', { name: 'Classify kind' })).toBeNull();
-        const kindGroup = screen.getByRole('group', { name: 'Result kind' });
-        const classify = screen.getByRole('button', { name: 'Classify' });
-        expect(classify).toBeDisabled();
-
-        // A chosen scope does not rescue it: the person kind is not a
-        // classification, so Classify stays disabled until the kind is.
-        fireEvent.click(screen.getByRole('button', { name: 'Single credit' }));
-        expect(classify).toBeDisabled();
-
-        fireEvent.click(within(kindGroup).getByRole('button', { name: 'Collective' }));
-        expect(classify).toBeEnabled();
-        fireEvent.click(classify);
-        fireEvent.click(
-            await within(await screen.findByRole('dialog')).getByRole('button', {
-                name: 'Confirm',
-            }),
-        );
+        fireEvent.click(screen.getByRole('button', { name: 'Correct' }));
+        const kinds = screen.getByRole('group', { name: 'What this is' });
+        fireEvent.click(within(kinds).getByRole('button', { name: 'Collective' }));
+        // Not a person: no name fields to fill.
+        expect(screen.queryByLabelText('Display name')).toBeNull();
+        fireEvent.click(screen.getByRole('button', { name: 'Save correction' }));
+        await confirmInDialog();
 
         await waitFor(() =>
             expect(api.classifyAuthorReviewItem).toHaveBeenCalledWith(11, {
-                scope: 'credit',
+                scope: 'fingerprint',
                 kind: 'collective',
             }),
         );
+        expect(api.editAuthorReviewItem).not.toHaveBeenCalled();
     });
 
-    it('sends the exact edit payload with empty optionals as null', async () => {
+    it('sends the exact correction payload with empty optionals as null', async () => {
         api.editAuthorReviewItem.mockResolvedValue({
             item: detail({ display_name: 'Edited Display' }),
         });
+        api.getAuthorReviewItem.mockResolvedValue({ item: detail({ ...secondItem }) });
         const restore = stubTableWide(true);
         try {
             renderAt('/queue');
-            await openDetailWide('Fixture Display A');
+            await openDetailWide('Fixture Display B');
 
+            fireEvent.click(screen.getByRole('button', { name: 'Correct' }));
             fireEvent.change(screen.getByLabelText('Given name'), { target: { value: 'Given X' } });
             fireEvent.change(screen.getByLabelText('Family name'), {
                 target: { value: 'Family X' },
@@ -757,17 +864,11 @@ describe('scope and actions', () => {
                 target: { value: 'Display X' },
             });
             fireEvent.change(screen.getByLabelText('Sort name'), { target: { value: '' } });
-
-            fireEvent.click(screen.getByRole('button', { name: 'All credits' }));
-            fireEvent.click(screen.getByRole('button', { name: 'Save edit' }));
-            fireEvent.click(
-                await within(await screen.findByRole('dialog')).getByRole('button', {
-                    name: 'Confirm',
-                }),
-            );
+            fireEvent.click(screen.getByRole('button', { name: 'Save correction' }));
+            await confirmInDialog();
 
             await waitFor(() =>
-                expect(api.editAuthorReviewItem).toHaveBeenCalledWith(11, {
+                expect(api.editAuthorReviewItem).toHaveBeenCalledWith(12, {
                     scope: 'fingerprint',
                     result: {
                         given_name: 'Given X',
@@ -783,67 +884,28 @@ describe('scope and actions', () => {
             // The response replaces the detail view...
             expect(await screen.findByText('Edited Display')).toBeInTheDocument();
             // ...but the list keeps the prior item until it is fetched again.
-            expect(screen.getByText('Fixture Display A')).toBeInTheDocument();
+            expect(screen.getByText('Fixture Display B')).toBeInTheDocument();
         } finally {
             restore();
         }
     });
 
-    it('blocks an edit without a display name', async () => {
+    it('blocks a correction without a display name', async () => {
         renderAt('/queue');
         await openDetail('Fixture Display A');
 
+        fireEvent.click(screen.getByRole('button', { name: 'Correct' }));
         fireEvent.change(screen.getByLabelText('Display name'), { target: { value: '   ' } });
-        fireEvent.click(screen.getByRole('button', { name: 'Single credit' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Save edit' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Save correction' }));
 
         expect(await screen.findByText('Display name is required.')).toBeInTheDocument();
         expect(api.editAuthorReviewItem).not.toHaveBeenCalled();
         expect(screen.queryByRole('dialog')).toBeNull();
     });
-
-    it('retries the local normalizer without a scope and refreshes the detail', async () => {
-        api.retryAuthorReviewNormalization.mockResolvedValue({ item: detail() });
-        renderAt('/queue');
-        await openDetail('Fixture Display A');
-        expect(api.getAuthorReviewItem).toHaveBeenCalledTimes(1);
-
-        fireEvent.click(screen.getByRole('button', { name: 'Retry normalization' }));
-        await waitFor(() => expect(api.retryAuthorReviewNormalization).toHaveBeenCalledWith(11));
-        await waitFor(() => expect(api.getAuthorReviewItem).toHaveBeenCalledTimes(2));
-    });
 });
 
-describe('scope explanations', () => {
-    it('explains each scope, the future books, and why Accept is disabled', async () => {
-        api.getAuthorReviewItem.mockResolvedValue({ item: detail({ ...secondItem }) });
-        renderAt('/queue');
-        await openDetail('Fixture Display B');
-
-        expect(
-            screen.getByText('Apply the decision to this single author credit only.'),
-        ).toBeInTheDocument();
-        expect(
-            screen.getByText(
-                'Apply the decision to all 4 credits of the same source name, including books added to the library later.',
-            ),
-        ).toBeInTheDocument();
-        const hint = screen.getByText(
-            'Choose what the action applies to first — the action buttons stay disabled until then.',
-        );
-        expect(hint).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Accept' })).toBeDisabled();
-
-        fireEvent.click(screen.getByRole('button', { name: 'All credits' }));
-        expect(
-            screen.queryByText(
-                'Choose what the action applies to first — the action buttons stay disabled until then.',
-            ),
-        ).toBeNull();
-        expect(screen.getByRole('button', { name: 'Accept' })).toBeEnabled();
-    });
-
-    it('carries the future-books explanation in natural Russian', async () => {
+describe('the scope in plain words', () => {
+    it('carries the later-books explanation in natural Russian', async () => {
         const { default: i18next } = await import('i18next');
         const instance = i18next.createInstance();
         await instance.init({
@@ -861,36 +923,43 @@ describe('scope explanations', () => {
         try {
             api.getAuthorReviewItem.mockResolvedValue({ item: detail({ ...secondItem }) });
             renderAt('/queue');
-            // Under the real Russian translator the row button is «Открыть».
             fireEvent.click(
                 await screen.findByRole('button', { name: 'Открыть: Fixture Display B' }),
             );
             await screen.findByRole('region', { name: 'Элемент проверки' });
-
-            const help = screen.getByText(/появятся в библиотеке позже/);
-            expect(help).toHaveTextContent(/всем записям/i);
+            for (const label of ['Принять', 'Исправить', 'Оставить как в файле']) {
+                expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
+            }
+            fireEvent.click(screen.getByRole('button', { name: 'Принять' }));
+            const help = within(await screen.findByRole('dialog')).getByText(/появятся позже/);
+            expect(help).toHaveTextContent(/всем записям с этим именем/i);
             expect(help).toHaveTextContent('4');
         } finally {
             i18nHolder.t = previous;
         }
     });
 
-    it('keeps both locales complete for the new strings', () => {
-        const keys = [
-            'authorReview.scopeHelp.credit',
-            'authorReview.scopeHelp.fingerprint',
-            'authorReview.scopeDisabledHint',
-            'authorReview.classifyKindHint',
-            'authorReview.backToQueue',
-            'authorReview.invalidItemAddress',
-        ];
+    it('keeps both locales complete for the review strings', () => {
         const en = enTranslation as Record<string, string>;
         const ru = ruTranslation as Record<string, string>;
-        for (const key of keys) {
+        for (const key of [
+            'authorReview.accept',
+            'authorReview.correct',
+            'authorReview.keepAsInFile',
+            'authorReview.saveCorrection',
+            'authorReview.confirmFingerprint',
+            'authorReview.backToQueue',
+            'authorReview.invalidItemAddress',
+            'authorsTab',
+        ]) {
             expect(en[key], `en ${key}`).toBeTruthy();
             expect(ru[key], `ru ${key}`).toBeTruthy();
             expect(ru[key], `ru ${key} is not the English text`).not.toBe(en[key]);
         }
+        expect(ru['authorReview.accept']).toBe('Принять');
+        expect(ru['authorReview.correct']).toBe('Исправить');
+        expect(ru['authorReview.keepAsInFile']).toBe('Оставить как в файле');
+        expect(Object.keys(ru).filter((key) => key.startsWith('authorNormalization.'))).toEqual([]);
     });
 });
 
@@ -903,10 +972,10 @@ describe('conflicts', () => {
         await openDetail('Fixture Display A');
         expect(api.getAuthorReviewItem).toHaveBeenCalledTimes(1);
 
+        fireEvent.click(screen.getByRole('button', { name: 'Correct' }));
         fireEvent.change(screen.getByLabelText('Display name'), {
             target: { value: 'Typed Display' },
         });
-        fireEvent.click(screen.getByRole('button', { name: 'Single credit' }));
         fireEvent.click(screen.getByRole('button', { name: 'Accept' }));
         fireEvent.click(
             await within(await screen.findByRole('dialog')).getByRole('button', {
@@ -927,8 +996,6 @@ describe('conflicts', () => {
         );
         renderAt('/queue');
         await openDetail('Fixture Display A');
-
-        fireEvent.click(screen.getByRole('button', { name: 'Single credit' }));
         fireEvent.click(screen.getByRole('button', { name: 'Accept' }));
         fireEvent.click(
             await within(await screen.findByRole('dialog')).getByRole('button', {
@@ -995,26 +1062,37 @@ describe('layout boundary', () => {
     });
 });
 
-describe('dashboard integration', () => {
-    it('mounts the queue behind a tab of the normalization screen', async () => {
-        renderAt('/admin/author-normalization');
+describe('the old section address', () => {
+    const renderRedirect = (path: string) =>
+        render(
+            <MemoryRouter initialEntries={[path]}>
+                <Routes>
+                    <Route
+                        path="/admin/author-normalization"
+                        element={<LegacyAuthorNormalizationRedirect />}
+                    />
+                    <Route
+                        path="/admin/author-normalization/review/:id"
+                        element={<LegacyAuthorReviewRedirect />}
+                    />
+                    <Route path="/admin/book-scanning" element={<LocationProbe />} />
+                    <Route path="/admin/book-scanning/authors/:id" element={<LocationProbe />} />
+                </Routes>
+            </MemoryRouter>,
+        );
 
-        expect(
-            await screen.findByText('No author normalization run yet. Start one below.'),
-        ).toBeInTheDocument();
-        expect(screen.getByRole('tab', { name: 'Dashboard' })).toBeInTheDocument();
-        expect(api.listAuthorReviewItems).not.toHaveBeenCalled();
-
-        await userEvent.click(screen.getByRole('tab', { name: 'Review queue' }));
-        await waitFor(() => expect(api.listAuthorReviewItems).toHaveBeenCalled());
-        expect(screen.getByText('Fixture Display A')).toBeInTheDocument();
+    it('lands on the authors tab of scanning, query kept', async () => {
+        renderRedirect('/admin/author-normalization?status=closed');
+        expect(await screen.findByTestId('location')).toHaveTextContent(
+            '/admin/book-scanning?status=closed&tab=authors',
+        );
     });
 
-    it('restores the review tab from the address', async () => {
-        renderAt('/admin/author-normalization?tab=review');
-
-        await waitFor(() => expect(api.listAuthorReviewItems).toHaveBeenCalled());
-        expect(screen.getByText('Fixture Display A')).toBeInTheDocument();
+    it('sends an old detail link to the same item in scanning', async () => {
+        renderRedirect('/admin/author-normalization/review/12?status=open');
+        expect(await screen.findByTestId('location')).toHaveTextContent(
+            '/admin/book-scanning/authors/12?status=open',
+        );
     });
 });
 
@@ -1090,8 +1168,6 @@ describe('stale modal state and delayed responses', () => {
         try {
             renderAt('/queue');
             const view = await openDetailWide('Fixture Display A');
-
-            fireEvent.click(screen.getByRole('button', { name: 'Single credit' }));
             fireEvent.click(screen.getByRole('button', { name: 'Accept' }));
             await confirmDialog();
 
@@ -1109,7 +1185,9 @@ describe('stale modal state and delayed responses', () => {
             fireEvent.click(view);
             await screen.findByRole('dialog');
             expect(api.getAuthorReviewItem).toHaveBeenCalledTimes(2);
-            expect(screen.getByLabelText('Display name')).toHaveValue('Fixture Display A');
+            expect(
+                await screen.findByText('Fixture Display A', { selector: 'p' }),
+            ).toBeInTheDocument();
         } finally {
             restore();
         }
@@ -1122,8 +1200,6 @@ describe('stale modal state and delayed responses', () => {
         try {
             renderAt('/queue');
             await openDetailWide('Fixture Display A');
-
-            fireEvent.click(screen.getByRole('button', { name: 'Single credit' }));
             fireEvent.click(screen.getByRole('button', { name: 'Accept' }));
             await confirmDialog();
             fireEvent.click(screen.getByRole('button', { name: 'Close' }));
@@ -1137,29 +1213,6 @@ describe('stale modal state and delayed responses', () => {
 
             expect(screen.queryByRole('status')).toBeNull();
             expect(api.getAuthorReviewItem).toHaveBeenCalledTimes(1);
-        } finally {
-            restore();
-        }
-    });
-
-    it('discards a delayed retry refresh once its modal is closed', async () => {
-        const gate = deferred<{ item: AuthorReviewDetail }>();
-        api.retryAuthorReviewNormalization.mockReturnValueOnce(gate.promise);
-        const restore = stubTableWide(true);
-        try {
-            renderAt('/queue');
-            await openDetailWide('Fixture Display A');
-
-            fireEvent.click(screen.getByRole('button', { name: 'Retry normalization' }));
-            fireEvent.keyDown(document.body, { key: 'Escape' });
-            await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-
-            await act(async () => {
-                gate.resolve({ item: detail() });
-            });
-
-            expect(api.getAuthorReviewItem).toHaveBeenCalledTimes(1);
-            expect(screen.queryByRole('region', { name: 'Review item' })).toBeNull();
         } finally {
             restore();
         }
@@ -1184,16 +1237,17 @@ describe('stale modal state and delayed responses', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Back to the queue' }));
         await screen.findByText('Fixture Display A');
         fireEvent.click(screen.getByRole('button', { name: 'View: Fixture Display B' }));
-        await screen.findByDisplayValue('Proposal B');
+        await screen.findByText('Proposal B');
 
         await act(async () => {
             gate.resolve({ item: detail() });
         });
-        expect(screen.getByLabelText('Display name')).toHaveValue('Proposal B');
+        expect(screen.getByText('Proposal B')).toBeInTheDocument();
+        expect(screen.queryByText('Source B')).toBeInTheDocument();
         expect(api.getAuthorReviewItem).toHaveBeenCalledTimes(2);
     });
 
-    it('keeps Retry disabled until the detail is confirmed', async () => {
+    it('keeps the decisions disabled until the detail is confirmed', async () => {
         let resolveDetail!: (value: { item: AuthorReviewDetail }) => void;
         const gate = new Promise<{ item: AuthorReviewDetail }>((resolve) => {
             resolveDetail = resolve;
@@ -1202,13 +1256,12 @@ describe('stale modal state and delayed responses', () => {
         renderAt('/queue');
 
         fireEvent.click(await screen.findByRole('button', { name: 'View: Fixture Display A' }));
-        const retry = screen.getByRole('button', { name: 'Retry normalization' });
-        expect(retry).toBeDisabled();
+        expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();
 
         await act(async () => {
             resolveDetail({ item: detail() });
         });
-        await waitFor(() => expect(retry).toBeEnabled());
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Accept' })).toBeEnabled());
     });
 });
 
@@ -1217,8 +1270,6 @@ describe('dialog focus and privacy hardening', () => {
         const user = userEvent.setup();
         renderAt('/queue');
         await openDetail('Fixture Display A');
-
-        fireEvent.click(screen.getByRole('button', { name: 'Single credit' }));
         const accept = screen.getByRole('button', { name: 'Accept' });
         accept.focus();
         await user.keyboard('{Enter}');
@@ -1244,8 +1295,6 @@ describe('dialog focus and privacy hardening', () => {
         );
         renderAt('/queue');
         await openDetail('Fixture Display A');
-
-        fireEvent.click(screen.getByRole('button', { name: 'Single credit' }));
         fireEvent.click(screen.getByRole('button', { name: 'Accept' }));
         fireEvent.click(
             await within(await screen.findByRole('dialog')).getByRole('button', {
@@ -1271,8 +1320,6 @@ describe('confirm focus settlement', () => {
         api.acceptAuthorReviewItem.mockReturnValueOnce(gate);
         renderAt('/queue');
         await openDetail('Fixture Display A');
-
-        fireEvent.click(screen.getByRole('button', { name: 'Single credit' }));
         const accept = screen.getByRole('button', { name: 'Accept' });
         accept.focus();
         await user.keyboard('{Enter}');

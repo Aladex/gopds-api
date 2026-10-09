@@ -3,10 +3,13 @@ package services
 import (
 	"archive/zip"
 	"bytes"
+	"context"
+
 	// #nosec G501 -- MD5 identifies identical files during a scan. It is a
 	// fingerprint, not a security control.
 	"crypto/md5"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -222,19 +225,27 @@ func (s *BookScanService) ScanArchive(archivePath string) (*ArchiveReport, error
 		fileName := file.Name
 
 		// Process the book
-		bookID, err := s.ProcessBook(file, archiveName)
-		if err != nil {
-			if err.Error() == "duplicate" {
+		bookID, layerStatus, bookErr := s.processBook(file, archiveName)
+		if layerStatus != "" {
+			report.Errors = append(report.Errors, ScanError{
+				FileName:    fileName,
+				ArchiveName: archiveName,
+				Error:       AuthorMetadataErrorPrefix + layerStatus,
+				Timestamp:   time.Now(),
+			})
+		}
+		if bookErr != nil {
+			if bookErr.Error() == "duplicate" {
 				report.BooksSkipped++
 				logging.Debugf("Skipped duplicate book: %s in %s", fileName, archiveName)
 			} else {
 				report.Errors = append(report.Errors, ScanError{
 					FileName:    fileName,
 					ArchiveName: archiveName,
-					Error:       err.Error(),
+					Error:       bookErr.Error(),
 					Timestamp:   time.Now(),
 				})
-				logging.Warnf("Failed to process book %s in %s: %v", fileName, archiveName, err)
+				logging.Warnf("Failed to process book %s in %s: %v", fileName, archiveName, bookErr)
 			}
 		} else {
 			report.BooksProcessed++
@@ -270,15 +281,25 @@ func (s *BookScanService) ScanArchive(archivePath string) (*ArchiveReport, error
 
 // ProcessBook processes a single FB2 file from an archive
 func (s *BookScanService) ProcessBook(zipFile *zip.File, archiveName string) (int64, error) {
+	id, _, err := s.processBook(zipFile, archiveName)
+	return id, err
+}
+
+// processBook is ProcessBook that also returns the closed class of an author
+// metadata failure on the book, empty when there was none, for the scan's
+// error list.
+//
+//nolint:gocyclo,funlen // the ingest body ProcessBook had (27 branches, 68 statements); only its returns gained the status
+func (s *BookScanService) processBook(zipFile *zip.File, archiveName string) (bookID int64, layerStatus string, err error) {
 	if s.authorSource == nil {
-		return 0, ErrAuthorSourceWriterMissing
+		return 0, "", ErrAuthorSourceWriterMissing
 	}
 	fileName := zipFile.Name
 
 	// 1. Extract and read FB2 content
 	fileReader, err := zipFile.Open()
 	if err != nil {
-		return 0, fmt.Errorf("failed to open file in archive: %w", err)
+		return 0, "", fmt.Errorf("failed to open file in archive: %w", err)
 	}
 	defer func() {
 		if closeErr := fileReader.Close(); closeErr != nil {
@@ -288,17 +309,17 @@ func (s *BookScanService) ProcessBook(zipFile *zip.File, archiveName string) (in
 
 	fb2Content, err := io.ReadAll(fileReader)
 	if err != nil {
-		return 0, fmt.Errorf("failed to read file content: %w", err)
+		return 0, "", fmt.Errorf("failed to read file content: %w", err)
 	}
 
 	// 2. Parse FB2 file
 	fb2Parser := parser.NewFB2Parser(true) // readCover=true
 	parsedBook, err := fb2Parser.Parse(bytes.NewReader(fb2Content))
 	if err != nil {
-		return 0, fmt.Errorf("failed to parse FB2: %w", err)
+		return 0, "", fmt.Errorf("failed to parse FB2: %w", err)
 	}
 	if strings.TrimSpace(parsedBook.Title) == "" {
-		return 0, fmt.Errorf("missing title")
+		return 0, "", fmt.Errorf("missing title")
 	}
 	if len(parsedBook.Authors) == 0 {
 		parsedBook.Authors = []parser.Author{
@@ -324,7 +345,10 @@ func (s *BookScanService) ProcessBook(zipFile *zip.File, archiveName string) (in
 		if err != nil {
 			logging.Warnf("Duplicate check failed for %s, proceeding anyway: %v", fileName, err)
 		} else if isDuplicate {
-			return 0, fmt.Errorf("duplicate")
+			// The legacy side skips it; when the duplicate is this very
+			// book — same archive, entry and bytes — its author layer is
+			// refreshed from the bytes just read.
+			return 0, s.refreshUnchangedBook(fb2Content, archiveName, fileName), fmt.Errorf("duplicate")
 		}
 	}
 
@@ -351,13 +375,13 @@ func (s *BookScanService) ProcessBook(zipFile *zip.File, archiveName string) (in
 	// the transaction; it never touches the legacy book fields above.
 	authorSource, err := s.authorSource.Prepare(fb2Content, archiveName, fileName, book.MD5)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 
 	// Start transaction
 	tx, err := database.GetDB().Begin()
 	if err != nil {
-		return 0, fmt.Errorf("failed to start transaction: %w", err)
+		return 0, "", fmt.Errorf("failed to start transaction: %w", err)
 	}
 	defer func() {
 		if rollbackErr := tx.Rollback(); rollbackErr != nil && rollbackErr != pg.ErrTxDone {
@@ -368,7 +392,7 @@ func (s *BookScanService) ProcessBook(zipFile *zip.File, archiveName string) (in
 	// Insert book
 	_, err = tx.Model(book).Insert()
 	if err != nil {
-		return 0, fmt.Errorf("failed to insert book: %w", err)
+		return 0, "", fmt.Errorf("failed to insert book: %w", err)
 	}
 
 	// 6. Process cover if present
@@ -383,14 +407,14 @@ func (s *BookScanService) ProcessBook(zipFile *zip.File, archiveName string) (in
 	// 7. Process authors
 	err = s.ProcessAuthors(tx, book.ID, parsedBook.Authors)
 	if err != nil {
-		return 0, fmt.Errorf("failed to process authors: %w", err)
+		return 0, "", fmt.Errorf("failed to process authors: %w", err)
 	}
 
 	// 8. Process series if present
 	if parsedBook.Series != nil {
 		err = s.ProcessSeries(tx, book.ID, parsedBook.Series)
 		if err != nil {
-			return 0, fmt.Errorf("failed to process series: %w", err)
+			return 0, "", fmt.Errorf("failed to process series: %w", err)
 		}
 	}
 
@@ -398,27 +422,55 @@ func (s *BookScanService) ProcessBook(zipFile *zip.File, archiveName string) (in
 	if len(parsedBook.Tags) > 0 {
 		err = database.UpdateBookTags(tx, book.ID, parsedBook.Tags, s.llmService)
 		if err != nil {
-			return 0, fmt.Errorf("failed to process genres: %w", err)
+			return 0, "", fmt.Errorf("failed to process genres: %w", err)
 		}
 	}
 
 	// 10. Author metadata source snapshot, in the same transaction: a failure
 	// here rolls back the legacy rows too.
 	if err = s.authorSource.Persist(tx, book.ID, authorSource); err != nil {
-		return 0, fmt.Errorf("failed to write author metadata source: %w", err)
+		return 0, "", fmt.Errorf("failed to write author metadata source: %w", err)
 	}
 
 	// Commit transaction
 	err = tx.Commit()
 	if err != nil {
-		return 0, fmt.Errorf("failed to commit transaction: %w", err)
+		return 0, "", fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	logging.Infof("Successfully added book ID %d: %s", book.ID, parsedBook.Title)
 	if s.publisher != nil {
 		s.publisher.PublishBookProcessed(archiveName, book.Title, book.ID)
 	}
-	return book.ID, nil
+	return book.ID, string(authorSource.Failure()), nil
+}
+
+// refreshUnchangedBook writes the author metadata layer of the catalog book
+// that is exactly this archive entry, if there is one, and returns the closed
+// class of a failure (empty otherwise). A duplicate of another archive's book
+// is not this book and is left alone.
+func (s *BookScanService) refreshUnchangedBook(content []byte, archiveName, fileName string) string {
+	_, bookMD5 := AuthorSourceHead(content)
+	var bookID int64
+	_, err := database.GetDB().QueryOne(pg.Scan(&bookID), `SELECT id FROM opds_catalog_book
+		WHERE path = ? AND filename = ? AND md5 = ? ORDER BY id LIMIT 1`, archiveName, fileName, bookMD5)
+	if errors.Is(err, pg.ErrNoRows) {
+		return ""
+	}
+	if err != nil {
+		logAuthorSourceRefreshFailed(0, err)
+		return AuthorMetadataRefreshUnavailable
+	}
+	status := ""
+	err = database.GetDB().RunInTransaction(context.Background(), func(tx *pg.Tx) error {
+		status = s.authorSource.RefreshExisting(tx, bookID, content, archiveName, fileName)
+		return nil
+	})
+	if err != nil {
+		logAuthorSourceRefreshFailed(bookID, err)
+		return AuthorMetadataRefreshUnavailable
+	}
+	return status
 }
 
 // checkDuplicate checks if a book is a duplicate based on MD5 hash and fuzzy title/author matching

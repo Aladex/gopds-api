@@ -25,6 +25,10 @@ type BookRescanPending struct {
 	CreatedAt       time.Time       `json:"created_at" pg:"created_at,notnull,default:now()"`
 	UpdatedAt       time.Time       `json:"updated_at" pg:"updated_at,notnull,default:now()"`
 	CreatedByUserID int64           `json:"created_by_user_id" pg:"created_by_user_id"`
+	// AuthorSourceHead and AuthorSourceMD5 are what the approval needs to
+	// refresh the author metadata layer without reading the archive again.
+	AuthorSourceHead []byte  `json:"-" pg:"author_source_head"`
+	AuthorSourceMD5  *string `json:"-" pg:"author_source_md5"`
 }
 
 // RescanAuthor represents author info in rescan preview
@@ -163,6 +167,18 @@ type RescanApprovalResponse struct {
 	Updated       *BookRescanNewValues `json:"updated,omitempty"`        // Only if approved
 	UpdatedFields []string             `json:"updated_fields,omitempty"` // Which fields were applied
 	SkippedFields []string             `json:"skipped_fields,omitempty"` // Which fields were not applied
+	// AuthorMetadataFailure is the failed author metadata refresh of the
+	// approved book, nil when there was none: for the scan errors list, not
+	// the response.
+	AuthorMetadataFailure *AuthorSourceFailure `json:"-"`
+}
+
+// AuthorSourceFailure is one book whose author metadata source could not be
+// refreshed: its archive and entry and the closed class, never a name.
+type AuthorSourceFailure struct {
+	Archive string
+	Entry   string
+	Class   string
 }
 
 // Helper to unmarshal JSON fields

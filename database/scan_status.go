@@ -181,22 +181,7 @@ func DeleteBooksByArchive(archiveName string) (int, error) {
 		}
 	}()
 
-	deleteRelated := []string{
-		"DELETE FROM favorite_books WHERE book_id IN (SELECT id FROM opds_catalog_book WHERE path = ?)",
-		"DELETE FROM book_collection_books WHERE book_id IN (SELECT id FROM opds_catalog_book WHERE path = ?)",
-		"DELETE FROM covers WHERE book_id IN (SELECT id FROM opds_catalog_book WHERE path = ?)",
-		"DELETE FROM opds_catalog_bauthor WHERE book_id IN (SELECT id FROM opds_catalog_book WHERE path = ?)",
-		"DELETE FROM opds_catalog_bseries WHERE book_id IN (SELECT id FROM opds_catalog_book WHERE path = ?)",
-	}
-
-	for _, query := range deleteRelated {
-		if _, err := tx.Exec(query, archiveName); err != nil {
-			logging.Error(fmt.Sprintf("Failed to delete related rows for %s: %v", archiveName, err))
-			return 0, err
-		}
-	}
-
-	result, err := tx.Exec("DELETE FROM opds_catalog_book WHERE path = ?", archiveName)
+	deleted, err := deleteArchiveBooks(tx, archiveName)
 	if err != nil {
 		logging.Error(fmt.Sprintf("Failed to delete books for %s: %v", archiveName, err))
 		return 0, err
@@ -207,9 +192,55 @@ func DeleteBooksByArchive(archiveName string) (int, error) {
 		return 0, err
 	}
 
-	deleted := result.RowsAffected()
 	logging.Info(fmt.Sprintf("Deleted %d books for archive %s", deleted, archiveName))
-	return int(deleted), nil
+	return deleted, nil
+}
+
+// deleteArchiveBooks deletes the archive's books and everything that hangs
+// off them inside the caller's transaction: favorites, collections, covers,
+// legacy author, series and genre links, and their author metadata layer.
+//
+// The books are locked once, in ID order, and that set is the target of
+// every statement: a book the scanner adds to the archive meanwhile is not
+// locked, so it is neither cleaned up nor deleted — it simply stays. Locking
+// the books before any row that hangs off them also matches a fix scan, which
+// updates a book and then its links.
+func deleteArchiveBooks(tx pg.DBI, archiveName string) (int, error) {
+	var ids []int64
+	if _, err := tx.Query(&ids, `SELECT id FROM opds_catalog_book WHERE path = ? ORDER BY id FOR UPDATE`,
+		archiveName); err != nil {
+		return 0, fmt.Errorf("locking the books: %w", err)
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	books := pg.Array(ids)
+	deleteRelated := []string{
+		"DELETE FROM favorite_books WHERE book_id = ANY (?)",
+		"DELETE FROM book_collection_books WHERE book_id = ANY (?)",
+		"DELETE FROM covers WHERE book_id = ANY (?)",
+		"DELETE FROM opds_catalog_bauthor WHERE book_id = ANY (?)",
+		"DELETE FROM opds_catalog_bseries WHERE book_id = ANY (?)",
+		// Genre links reference the book with a constraint checked at
+		// commit: left in place they failed every deletion of an archive
+		// whose books have tags.
+		"DELETE FROM opds_catalog_bgenre WHERE book_id = ANY (?)",
+	}
+	for _, query := range deleteRelated {
+		if _, err := tx.Exec(query, books); err != nil {
+			return 0, fmt.Errorf("deleting related rows: %w", err)
+		}
+	}
+
+	// The books' author metadata layer references them and goes first.
+	if _, err := tx.Exec(`SELECT author_layer_delete_books(?::bigint[])`, books); err != nil {
+		return 0, fmt.Errorf("deleting the books' author metadata: %w", err)
+	}
+	result, err := tx.Exec(`DELETE FROM opds_catalog_book WHERE id = ANY (?)`, books)
+	if err != nil {
+		return 0, fmt.Errorf("deleting books: %w", err)
+	}
+	return result.RowsAffected(), nil
 }
 
 // GetCatalogStats returns aggregated statistics across all catalogs

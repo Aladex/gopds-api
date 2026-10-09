@@ -304,21 +304,27 @@ func RecordExtractionItemTerminal(ctx context.Context, db pg.DBI, runID int64) (
 	return done, nil
 }
 
-// ReconcileRunExtraction recomputes the terminal counter from the item rows.
-// The claim layer ends abandoned rows out of attempts inside its own
-// transaction, where no per-item completion runs; the worker reconciles when a
-// claim comes back empty, so those rows still count and extraction completion
-// is still stamped. A run without items completes vacuously. Terminal runs are
-// left untouched.
+// ReconcileRunExtraction recomputes the counters from the item rows. The
+// claim layer ends abandoned rows out of attempts inside its own transaction,
+// where no per-item completion runs; the worker reconciles when a claim comes
+// back empty, so those rows still count and extraction completion is still
+// stamped. The total is recounted too: a run seeds every item in one
+// transaction, so its rows are its total until deleting books removes some of
+// them (migration 26) — the deletion leaves the run row alone, because the
+// extraction worker (item, then run) and a retry (run, then items) lock the
+// two in opposite orders, and this is where the run learns of it. A run
+// without items completes vacuously. Terminal runs are left untouched: their
+// counters stay the record of what they processed.
 func ReconcileRunExtraction(ctx context.Context, db pg.DBI, runID int64) (bool, error) {
 	var done bool
 	_, err := db.QueryOneContext(ctx, pg.Scan(&done), `
 		WITH counted AS (
-			SELECT count(*) AS n FROM author_metadata_run_item
-			WHERE run_id = ? AND status <> 'pending')
+			SELECT count(*) AS total, count(*) FILTER (WHERE status <> 'pending') AS n
+			FROM author_metadata_run_item WHERE run_id = ?)
 		UPDATE author_metadata_run r
-		SET items_terminal = counted.n,
-			extraction_completed_at = CASE WHEN counted.n >= r.items_total
+		SET items_total = counted.total,
+			items_terminal = counted.n,
+			extraction_completed_at = CASE WHEN counted.n >= counted.total
 				THEN coalesce(r.extraction_completed_at, clock_timestamp())
 				ELSE r.extraction_completed_at END
 		FROM counted

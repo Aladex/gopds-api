@@ -383,6 +383,10 @@ func PersistExtraction(conn pg.DBI, in *ExtractionInput) (PersistExtractionResul
 	}
 	rows := buildCreditRows(in.Credits)
 
+	// The book first, then its snapshots: the order the layer deletion takes.
+	if err := lockSourceBook(context.Background(), conn, in.BookID); err != nil {
+		return PersistExtractionResult{}, err
+	}
 	existing, found, err := snapshotByKey(conn, in.BookID, in.BookMD5, in.ExtractorVersion)
 	if err != nil {
 		return PersistExtractionResult{}, err
@@ -424,10 +428,7 @@ func PersistExtraction(conn pg.DBI, in *ExtractionInput) (PersistExtractionResul
 		return PersistExtractionResult{}, translateSnapshotError(markErr)
 	}
 
-	// The acceptance pass decides an input and selects its credits under
-	// this lock; a new author credit joins the input only while holding it,
-	// so the pass never selects a credit its own ambiguity check did not see.
-	if lockErr := lockAuthorInputs(context.Background(), conn, in.ExtractorVersion, rows); lockErr != nil {
+	if lockErr := lockForNewCredits(context.Background(), conn, in.ExtractorVersion, rows); lockErr != nil {
 		return PersistExtractionResult{}, lockErr
 	}
 	if creditsErr := insertSnapshotCredits(conn, id, rows); creditsErr != nil {
@@ -444,6 +445,19 @@ func PersistExtraction(conn pg.DBI, in *ExtractionInput) (PersistExtractionResul
 		CreditsWritten: len(rows),
 		JobsEnqueued:   jobs,
 	}, nil
+}
+
+// lockForNewCredits takes what a writer holds while it adds credits: the
+// author layer, shared, so no credit is added while a layer deletion decides
+// which fingerprints are orphaned; then the inputs the author rows join — the
+// acceptance pass decides an input and selects its credits under that lock,
+// so a new author credit joins the input only while holding it and the pass
+// never selects a credit its own ambiguity check did not see.
+func lockForNewCredits(ctx context.Context, conn pg.DBI, extractorVersion string, rows []creditRow) error {
+	if err := lockAuthorLayerShared(ctx, conn); err != nil {
+		return err
+	}
+	return lockAuthorInputs(ctx, conn, extractorVersion, rows)
 }
 
 // ActiveOverrideForFingerprint returns the newest fingerprint-scoped manual

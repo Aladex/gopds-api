@@ -46,6 +46,9 @@ const (
 	// Live dual write.
 	AuthorMetadataEventSourcePersisted AuthorMetadataEventName = "author_metadata.source_persisted"
 	AuthorMetadataEventSourceSkipped   AuthorMetadataEventName = "author_metadata.source_skipped"
+	// A rescan path could not refresh a book's source for a reason that is
+	// not the document's; the legacy update went through.
+	AuthorMetadataEventSourceRefreshFailed AuthorMetadataEventName = "author_metadata.source_refresh_failed"
 
 	// Review.
 	AuthorMetadataEventReviewAction       AuthorMetadataEventName = "author_metadata.review_action"
@@ -74,7 +77,7 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventLocalLeaseLost, AuthorMetadataEventLocalUndecidable,
 		AuthorMetadataEventLocalInputsSettled, AuthorMetadataEventLocalInputsResolved,
 		AuthorMetadataEventAcceptanceApplied,
-		AuthorMetadataEventSourcePersisted, AuthorMetadataEventSourceSkipped,
+		AuthorMetadataEventSourcePersisted, AuthorMetadataEventSourceSkipped, AuthorMetadataEventSourceRefreshFailed,
 		AuthorMetadataEventReviewAction, AuthorMetadataEventReviewActionFailed,
 		AuthorMetadataEventReviewAPINotWired,
 		AuthorMetadataEventWorkersStarted, AuthorMetadataEventWorkersStopped,

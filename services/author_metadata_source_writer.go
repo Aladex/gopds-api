@@ -2,6 +2,8 @@ package services
 
 import (
 	"bytes"
+	"crypto/md5" // #nosec G501 -- book-content identity, as the scan computes it
+	"encoding/hex"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -149,4 +151,80 @@ func (w *AuthorMetadataSourceWriter) Persist(tx pg.DBI, bookID int64, p *Prepare
 		Name: AuthorMetadataEventSourcePersisted, Stage: AuthorMetadataStageDualWrite, BookID: bookID,
 	})
 	return nil
+}
+
+// AuthorMetadataRefreshUnavailable is the closed class a rescan path reports
+// when the author layer could not be written for a reason that is not the
+// document's: a systemic extraction error or a failed database write.
+const AuthorMetadataRefreshUnavailable = "author_metadata_unavailable"
+
+// AuthorMetadataErrorPrefix starts the scan error a layer failure becomes:
+// the prefix and a closed class, never a name or a title.
+const AuthorMetadataErrorPrefix = "author_metadata: "
+
+// authorSourceHeadBytes is how much of a book a deferred refresh keeps: with a
+// known MD5 the extractor never reads past </description>, and one byte over
+// the metadata window lets an oversized description fail exactly as on the
+// whole file.
+const authorSourceHeadBytes = AuthorMetadataMaxBytes + 1
+
+// AuthorSourceHead returns the part of a book's bytes a later refresh needs,
+// and the MD5 of the whole book.
+func AuthorSourceHead(content []byte) (head []byte, bookMD5 string) {
+	// #nosec G401 -- book-content identity, not a security primitive
+	sum := md5.Sum(content)
+	return content[:min(int64(len(content)), authorSourceHeadBytes)], hex.EncodeToString(sum[:])
+}
+
+// RefreshExisting writes the author layer of an existing book from the bytes
+// a rescan path already read, inside the caller's transaction, with the
+// semantics of ingest: an unchanged book is already_current, a changed one
+// gets a new current snapshot and jobs. It never fails the caller's legacy
+// update: a document failure, a systemic extraction error or a failed write
+// comes back as the closed class to report (empty when the layer is
+// written), and a failed write is rolled back to a savepoint so the
+// transaction stays usable.
+func (w *AuthorMetadataSourceWriter) RefreshExisting(tx *pg.Tx, bookID int64, content []byte, archivePath, entryName string) string {
+	head, bookMD5 := AuthorSourceHead(content)
+	return w.RefreshExistingHead(tx, bookID, head, bookMD5, archivePath, entryName)
+}
+
+// RefreshExistingHead is RefreshExisting from a kept head and the book's MD5
+// (AuthorSourceHead), for a path that read the book earlier.
+func (w *AuthorMetadataSourceWriter) RefreshExistingHead(
+	tx *pg.Tx, bookID int64, head []byte, bookMD5, archivePath, entryName string,
+) string {
+	p, err := w.Prepare(head, archivePath, entryName, bookMD5)
+	if err != nil {
+		logAuthorSourceRefreshFailed(bookID, err)
+		return AuthorMetadataRefreshUnavailable
+	}
+	if !p.Extracted() {
+		// Logs the skip with the book ID and the closed class only.
+		_ = w.Persist(tx, bookID, p)
+		return string(p.Failure())
+	}
+	if _, err = tx.Exec(`SAVEPOINT author_metadata_refresh`); err != nil {
+		logAuthorSourceRefreshFailed(bookID, err)
+		return AuthorMetadataRefreshUnavailable
+	}
+	if err = w.Persist(tx, bookID, p); err != nil {
+		logAuthorSourceRefreshFailed(bookID, err)
+		if _, rollbackErr := tx.Exec(`ROLLBACK TO SAVEPOINT author_metadata_refresh`); rollbackErr != nil {
+			logAuthorSourceRefreshFailed(bookID, rollbackErr)
+		}
+		return AuthorMetadataRefreshUnavailable
+	}
+	if _, err = tx.Exec(`RELEASE SAVEPOINT author_metadata_refresh`); err != nil {
+		logAuthorSourceRefreshFailed(bookID, err)
+		return AuthorMetadataRefreshUnavailable
+	}
+	return ""
+}
+
+func logAuthorSourceRefreshFailed(bookID int64, err error) {
+	LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{
+		Name: AuthorMetadataEventSourceRefreshFailed, Stage: AuthorMetadataStageDualWrite, BookID: bookID,
+		SQLState: AuthorMetadataSQLState(err),
+	})
 }

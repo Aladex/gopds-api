@@ -6,6 +6,7 @@ import {
     Routes,
     useLocation,
     useNavigate,
+    useParams,
 } from 'react-router';
 import { useTranslation } from 'react-i18next';
 
@@ -20,8 +21,10 @@ import BookScanning from '@/features/admin/BookScanning';
 import GenreManagement from '@/features/admin/GenreManagement';
 import CuratedCollectionsList from '@/features/admin/CuratedCollections/CuratedCollectionsList';
 import CuratedCollectionDetail from '@/features/admin/CuratedCollections/CuratedCollectionDetail';
-import AuthorNormalization from '@/features/admin/AuthorNormalization';
-import AuthorReviewDetailScreen from '@/features/admin/AuthorReviewDetail';
+import AuthorReviewDetailScreen, {
+    AUTHORS_TAB,
+    REVIEW_DETAIL_ROUTE,
+} from '@/features/admin/AuthorReviewDetail';
 
 /**
  * The admin sections, in the order they are shown.
@@ -34,15 +37,30 @@ const SECTIONS: { path: string; labelKey: string; fallback?: string }[] = [
     { path: '/admin/users', labelKey: 'users' },
     { path: '/admin/invites', labelKey: 'invites' },
     { path: '/admin/book-scanning', labelKey: 'bookScanning' },
-    {
-        path: '/admin/author-normalization',
-        labelKey: 'authorNormalization.tab',
-        fallback: 'Author normalization',
-    },
     { path: '/admin/duplicates', labelKey: 'duplicates' },
     { path: '/admin/genres', labelKey: 'genreManagement' },
     { path: '/admin/collections', labelKey: 'curatedCollections.tab', fallback: 'Collections' },
 ];
+
+/** The old section's address: the authors tab of scanning, query kept. */
+export const LegacyAuthorNormalizationRedirect: React.FC = () => {
+    const location = useLocation();
+    const params = new URLSearchParams(location.search);
+    params.set('tab', AUTHORS_TAB);
+    return <Navigate to={`/admin/book-scanning?${params.toString()}`} replace />;
+};
+
+/** The old detail address: the same item on the scanning route. */
+export const LegacyAuthorReviewRedirect: React.FC = () => {
+    const location = useLocation();
+    const { id = '' } = useParams();
+    return (
+        <Navigate
+            to={`${REVIEW_DETAIL_ROUTE}/${encodeURIComponent(id)}${location.search}`}
+            replace
+        />
+    );
+};
 
 const AdminSpace: React.FC = () => {
     const location = useLocation();
@@ -132,10 +150,15 @@ const AdminSpace: React.FC = () => {
                 <Route path="users/:page" element={<UsersTable />} />
                 <Route path="invites" element={<InvitesTable />} />
                 <Route path="book-scanning" element={<BookScanning />} />
-                <Route path="author-normalization" element={<AuthorNormalization />} />
+                <Route path="book-scanning/authors/:id" element={<AuthorReviewDetailScreen />} />
+                {/* The former author normalization section lives in scanning now. */}
+                <Route
+                    path="author-normalization"
+                    element={<LegacyAuthorNormalizationRedirect />}
+                />
                 <Route
                     path="author-normalization/review/:id"
-                    element={<AuthorReviewDetailScreen />}
+                    element={<LegacyAuthorReviewRedirect />}
                 />
                 <Route path="duplicates" element={<Duplicates />} />
                 <Route path="genres" element={<GenreManagement />} />

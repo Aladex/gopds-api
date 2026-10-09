@@ -278,6 +278,7 @@ func runFixScan(ctx context.Context, sessionID string, workers int) {
 
 	fixService := newFixScanService()
 	publisher := newScanEventPublisher()
+	authorSourceFailures.startFixScan()
 	if publisher != nil {
 		fixService.SetScanEventPublisher(publisher)
 	}
@@ -323,6 +324,7 @@ func runFixScan(ctx context.Context, sessionID string, workers int) {
 	}()
 
 	report, err := fixService.RunFixScan(ctx, workers)
+	recordFixScanAuthorFailures(report, time.Now())
 
 	// Stop progress ticker
 	close(progressDone)

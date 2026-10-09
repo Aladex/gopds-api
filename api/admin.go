@@ -427,6 +427,10 @@ func ApproveRescan(c *gin.Context) {
 		return
 	}
 
+	if failure := response.AuthorMetadataFailure; failure != nil {
+		authorSourceFailures.record(failure.Archive, failure.Entry, failure.Class, false, time.Now())
+	}
+
 	c.JSON(http.StatusOK, models.Result{
 		Result: response,
 		Error:  nil,

@@ -28,6 +28,8 @@ type FixScanService struct {
 	languageDetector *LanguageDetector
 	llmService       *llm.LLMService
 	publisher        *ScanEventPublisher
+	// authorSource refreshes each re-read book's author metadata layer.
+	authorSource *AuthorMetadataSourceWriter
 
 	// Atomic counters for progress reporting from the handler's ticker
 	ProgressCount  int64
@@ -46,6 +48,11 @@ type FixScanReport struct {
 	ErrorCount    int            `json:"error_count"`
 	Errors        []FixScanError `json:"errors,omitempty"`
 	Duration      time.Duration  `json:"duration"`
+	// AuthorSourceFailures are the books whose author metadata could not be
+	// refreshed, bounded on their own: Errors keeps only the first errors of
+	// every kind, which a run of legacy failures can fill before any of these.
+	// For the scan errors list, not the report.
+	AuthorSourceFailures []FixScanError `json:"-"`
 }
 
 // FixScanError represents a single error during fix scan
@@ -70,6 +77,7 @@ func NewFixScanService(archivesDir, coversDir string, ld *LanguageDetector, llmS
 		coversDir:        coversDir,
 		languageDetector: ld,
 		llmService:       llmSvc,
+		authorSource:     NewAuthorMetadataSourceWriter(),
 	}
 	s.CurrentArchive.Store("")
 	return s
@@ -112,9 +120,10 @@ func (s *FixScanService) RunFixScan(ctx context.Context, workers int) (*FixScanR
 
 	// 3. Worker pool
 	var (
-		errMu     sync.Mutex
-		scanErrs  []FixScanError
-		maxErrors = 500
+		errMu      sync.Mutex
+		scanErrs   []FixScanError
+		authorErrs []FixScanError
+		maxErrors  = 500
 	)
 
 	jobs := make(chan archiveGroup, workers*2)
@@ -125,6 +134,9 @@ func (s *FixScanService) RunFixScan(ctx context.Context, workers int) (*FixScanR
 		errMu.Lock()
 		if len(scanErrs) < maxErrors {
 			scanErrs = append(scanErrs, e)
+		}
+		if strings.HasPrefix(e.Error, AuthorMetadataErrorPrefix) && len(authorErrs) < maxErrors {
+			authorErrs = append(authorErrs, e)
 		}
 		errMu.Unlock()
 	}
@@ -156,7 +168,9 @@ func (s *FixScanService) RunFixScan(ctx context.Context, workers int) (*FixScanR
 		case <-ctx.Done():
 			close(jobs)
 			wg.Wait()
-			return s.buildReport(books, groups, scanErrs, startTime), ctx.Err()
+			report := s.buildReport(books, groups, scanErrs, startTime)
+			report.AuthorSourceFailures = authorErrs
+			return report, ctx.Err()
 		case jobs <- group:
 		}
 	}
@@ -164,6 +178,7 @@ func (s *FixScanService) RunFixScan(ctx context.Context, workers int) (*FixScanR
 	wg.Wait()
 
 	report := s.buildReport(books, groups, scanErrs, startTime)
+	report.AuthorSourceFailures = authorErrs
 	s.publisher.PublishFixScanCompleted(report)
 	return report, nil
 }
@@ -412,6 +427,18 @@ func (s *FixScanService) processBook(book models.Book, archivePath string, fileI
 			Error:       fmt.Sprintf("failed to update tags: %v", err),
 		})
 		return
+	}
+
+	// The author metadata layer from the same bytes, through the ingest
+	// writer; a failure is reported by its closed class and never stops the
+	// legacy update.
+	if status := s.authorSource.RefreshExisting(tx, book.ID, content, book.Path, book.FileName); status != "" {
+		addError(FixScanError{
+			BookID:      book.ID,
+			FileName:    book.FileName,
+			ArchivePath: archivePath,
+			Error:       AuthorMetadataErrorPrefix + status,
+		})
 	}
 
 	err = tx.Commit()

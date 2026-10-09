@@ -3,6 +3,7 @@ package services
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -16,6 +17,8 @@ import (
 	"gopds-api/internal/safepath"
 	"gopds-api/logging"
 	"gopds-api/models"
+
+	"github.com/go-pg/pg/v10"
 )
 
 // RescanService handles book rescanning with approval workflow
@@ -23,6 +26,8 @@ type RescanService struct {
 	archivesDir      string
 	coversDir        string
 	languageDetector *LanguageDetector
+	// authorSource refreshes an approved book's author metadata layer.
+	authorSource *AuthorMetadataSourceWriter
 }
 
 // NewRescanService creates a new RescanService
@@ -31,6 +36,7 @@ func NewRescanService(archivesDir, coversDir string, languageDetector *LanguageD
 		archivesDir:      archivesDir,
 		coversDir:        coversDir,
 		languageDetector: languageDetector,
+		authorSource:     NewAuthorMetadataSourceWriter(),
 	}
 }
 
@@ -122,6 +128,11 @@ func (s *RescanService) RescanBookPreview(bookID int64, userID int64) (*models.R
 		pending.CoverData = parsedBook.Cover
 	}
 
+	// What the approval needs to refresh the author metadata layer from these
+	// same bytes, without reading the archive again.
+	head, sourceMD5 := AuthorSourceHead(fbzContent)
+	pending.AuthorSourceHead, pending.AuthorSourceMD5 = head, &sourceMD5
+
 	// Debug: Log what we're about to save
 	logging.Infof("Saving rescan pending: BookID=%d, AuthorsJSON=%s, SeriesJSON=%s, TagsJSON=%s",
 		pending.BookID, string(pending.AuthorsJSON), string(pending.SeriesJSON), string(pending.TagsJSON))
@@ -195,6 +206,7 @@ func (s *RescanService) ApproveRescan(bookID int64, selectedFields *models.Resca
 		logging.Errorf("Failed to apply rescan changes: %v", err)
 		return nil, fmt.Errorf("failed to apply changes: %w", err)
 	}
+	layerFailure := s.refreshAuthorLayer(pending, book)
 
 	// 5. Return success response
 	newValues := s.pendingToRescanValues(pending)
@@ -208,8 +220,34 @@ func (s *RescanService) ApproveRescan(bookID int64, selectedFields *models.Resca
 		UpdatedFields: updatedFields,
 		SkippedFields: skippedFields,
 	}
+	if layerFailure != "" {
+		response.AuthorMetadataFailure = &models.AuthorSourceFailure{
+			Archive: book.Path, Entry: book.FileName, Class: layerFailure,
+		}
+	}
 
 	return response, nil
+}
+
+// refreshAuthorLayer refreshes an approved book's author metadata layer from
+// the bytes its preview read, in a transaction of its own once the approval
+// has committed: like every refresh it never fails the approval, and a book
+// it leaves stale is refreshed by the next scan that reads it. It returns the
+// closed class of a failure, empty when there was none.
+func (s *RescanService) refreshAuthorLayer(pending *models.BookRescanPending, book *models.Book) string {
+	if len(pending.AuthorSourceHead) == 0 || pending.AuthorSourceMD5 == nil {
+		return "" // a pending rescan from before the layer kept nothing
+	}
+	status := ""
+	err := database.GetDB().RunInTransaction(context.Background(), func(tx *pg.Tx) error {
+		status = s.authorSource.RefreshExistingHead(tx, book.ID, pending.AuthorSourceHead, *pending.AuthorSourceMD5, book.Path, book.FileName)
+		return nil
+	})
+	if err != nil {
+		logAuthorSourceRefreshFailed(book.ID, err)
+		return AuthorMetadataRefreshUnavailable
+	}
+	return status
 }
 
 // getSelectedFieldFlag returns the field flag from selectedFields

@@ -2,6 +2,7 @@ package api
 
 import (
 	"archive/zip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -232,9 +233,38 @@ func GetScanStatus(c *gin.Context) {
 // @Failure 403 {object} httputil.HTTPError
 // @Router /api/admin/scan/errors [get]
 func GetScanErrors(c *gin.Context) {
-	c.JSON(http.StatusOK, ScanErrorsResponse{
-		Errors: scanState.getErrors(),
-	})
+	errs := scanState.getErrors()
+	// The author metadata run's per-book failures belong to the same list,
+	// by their closed class only.
+	failures, err := authorMetadataScanFailures(c.Request.Context())
+	if err != nil {
+		logging.Warnf("Failed to list author metadata scan failures (SQLSTATE %s)", services.AuthorMetadataSQLState(err))
+	}
+	for _, failure := range failures {
+		errs = append(errs, ScanErrorResponse{
+			FileName:    failure.Entry,
+			ArchiveName: failure.Archive,
+			Error:       services.AuthorMetadataErrorPrefix + database.ClosedAuthorMetadataScanClass(failure.Class),
+			Timestamp:   failure.At,
+		})
+	}
+	// And the author source failures of fix scans and approved rescans.
+	errs = append(errs, authorSourceFailures.list()...)
+	c.JSON(http.StatusOK, ScanErrorsResponse{Errors: errs})
+}
+
+// maxAuthorMetadataScanFailures bounds the author metadata failures the scan
+// errors list carries, like the scan's own list.
+const maxAuthorMetadataScanFailures = 500
+
+// authorMetadataScanFailures is the source of the author metadata failures
+// GetScanErrors adds; tests replace it.
+var authorMetadataScanFailures = func(ctx context.Context) ([]database.AuthorMetadataScanFailure, error) {
+	db := database.GetDB()
+	if db == nil {
+		return nil, nil
+	}
+	return database.AuthorMetadataScanFailures(ctx, db, maxAuthorMetadataScanFailures)
 }
 
 // GetScanErrorFile godoc

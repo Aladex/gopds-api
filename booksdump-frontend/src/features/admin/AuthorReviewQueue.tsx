@@ -26,18 +26,32 @@ import {
 const PAGE_LIMIT = 50;
 
 /**
- * The review queue. Wide screens open an item in a modal dialog over the
+ * The author review queue of the scanning section: the name, how many
+ * credits carry it, and when it was queued — the technical identifiers stay
+ * out of the list. Wide screens open an item in a modal dialog over the
  * list; narrow screens navigate to the item's own route, where the address
  * carries the queue's filter and page so Back returns to the same view. The
  * list itself never moves: whatever opens, these rows stay in place.
  */
+
+/**
+ * The tab decides at fingerprint scope only, so it lists only fingerprint
+ * items. A credit-scoped item comes only from a legacy credit override
+ * flagged after a schema change; it stays reachable through the admin API.
+ */
+const isShownInTab = (item: AuthorReviewListItem): boolean => item.scope === 'fingerprint';
+
+/**
+ * How many further pages one load reads past pages that hold only hidden
+ * items, so such a page never shows an empty list with more to come.
+ */
+const MAX_HIDDEN_PAGES = 20;
 
 /** Only ids JSON parsing has not rounded may ever reach a route. */
 const isUsableId = (id: number): boolean => Number.isSafeInteger(id) && id > 0;
 
 /** Fallbacks for the dynamic status/scope keys; the locales carry the real strings. */
 const STATUS_VALUE_FALLBACKS = { open: 'Open', closed: 'Closed' } as const;
-const SCOPE_VALUE_FALLBACKS = { credit: 'Credit', fingerprint: 'Fingerprint' } as const;
 
 const AuthorReviewQueue: React.FC = () => {
     const { t } = useTranslation();
@@ -99,15 +113,31 @@ const AuthorReviewQueue: React.FC = () => {
             setListPhase('loading');
             setListErrorText(null);
             try {
-                const data = await adminApi.listAuthorReviewItems({
+                let data = await adminApi.listAuthorReviewItems({
                     status,
                     cursor: pageCursor,
                     limit: PAGE_LIMIT,
                 });
+                let shown = data.items.filter(isShownInTab);
+                for (
+                    let skipped = 0;
+                    shown.length === 0 && data.next_cursor !== null && skipped < MAX_HIDDEN_PAGES;
+                    skipped++
+                ) {
+                    if (generation !== listGeneration.current) {
+                        return;
+                    }
+                    data = await adminApi.listAuthorReviewItems({
+                        status,
+                        cursor: data.next_cursor,
+                        limit: PAGE_LIMIT,
+                    });
+                    shown = data.items.filter(isShownInTab);
+                }
                 if (generation !== listGeneration.current) {
                     return;
                 }
-                setItems(data.items);
+                setItems(shown);
                 setNextCursor(data.next_cursor);
                 setListPhase('ready');
             } catch (error) {
@@ -266,15 +296,6 @@ const AuthorReviewQueue: React.FC = () => {
                                         <TableHead>
                                             {t('authorReview.col.displayName', 'Display name')}
                                         </TableHead>
-                                        <TableHead>
-                                            {t('authorReview.col.reason', 'Reason')}
-                                        </TableHead>
-                                        <TableHead>
-                                            {t('authorReview.col.class', 'Class')}
-                                        </TableHead>
-                                        <TableHead>
-                                            {t('authorReview.col.scope', 'Scope')}
-                                        </TableHead>
                                         <TableHead className="text-right">
                                             {t('authorReview.col.credits', 'Credits')}
                                         </TableHead>
@@ -293,14 +314,6 @@ const AuthorReviewQueue: React.FC = () => {
                                         <TableRow key={item.id}>
                                             <TableCell className="font-medium">
                                                 {item.display_name}
-                                            </TableCell>
-                                            <TableCell>{item.reason}</TableCell>
-                                            <TableCell>{item.decision_class}</TableCell>
-                                            <TableCell>
-                                                {t(
-                                                    `authorReview.scopeValue.${item.scope}`,
-                                                    SCOPE_VALUE_FALLBACKS[item.scope],
-                                                )}
                                             </TableCell>
                                             <TableCell className="text-right tabular-nums">
                                                 {item.credits_count}
@@ -333,16 +346,6 @@ const AuthorReviewQueue: React.FC = () => {
                                         {item.display_name}
                                     </p>
                                     <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
-                                        <span>
-                                            {t('authorReview.col.reason', 'Reason')}: {item.reason}
-                                        </span>
-                                        <span>
-                                            {t('authorReview.col.scope', 'Scope')}:{' '}
-                                            {t(
-                                                `authorReview.scopeValue.${item.scope}`,
-                                                SCOPE_VALUE_FALLBACKS[item.scope],
-                                            )}
-                                        </span>
                                         <span className="tabular-nums">
                                             {t('authorReview.col.credits', 'Credits')}:{' '}
                                             {item.credits_count}

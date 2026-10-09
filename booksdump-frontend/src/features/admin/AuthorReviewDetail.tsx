@@ -3,7 +3,6 @@ import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 
 import { Alert, AlertDescription } from '@/shared/ui/alert';
-import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
 import { Card, CardContent } from '@/shared/ui/card';
 import {
@@ -16,14 +15,12 @@ import {
 } from '@/shared/ui/dialog';
 import { Field } from '@/shared/ui/field';
 import { Input } from '@/shared/ui/input';
-import { formatDate } from '@/shared/lib/formatDate';
 import * as adminApi from '@/api/admin';
 import type {
     AuthorReviewDetail as AuthorReviewDetailData,
     AuthorReviewEditResult,
     AuthorReviewKind,
     AuthorReviewProposal,
-    AuthorReviewScope,
 } from '@/api/admin';
 import { closedErrorCode } from '@/api/admin';
 
@@ -37,7 +34,10 @@ import { closedErrorCode } from '@/api/admin';
  */
 
 /** The route the review detail screen lives at (narrow layout, deep-linkable). */
-export const REVIEW_DETAIL_ROUTE = '/admin/author-normalization/review';
+export const REVIEW_DETAIL_ROUTE = '/admin/book-scanning/authors';
+
+/** The scanning section's tab the review queue lives in (?tab=authors). */
+export const AUTHORS_TAB = 'authors';
 
 /** The queue's list state, kept in the address so Back can restore it. */
 export const REVIEW_STATUS_PARAM = 'status';
@@ -158,9 +158,10 @@ const parseRouteItemID = (raw: string | undefined): number | null => {
     return id;
 };
 
+/** The only scope the scanning section's review decides at. */
+const FINGERPRINT_SCOPE = 'fingerprint' as const;
+
 /** Fallbacks for the dynamic status/scope/kind keys; the locales carry the real strings. */
-const SCOPE_VALUE_FALLBACKS = { credit: 'Credit', fingerprint: 'Fingerprint' } as const;
-const SCOPE_CHOICE_FALLBACKS = { credit: 'Single credit', fingerprint: 'All credits' } as const;
 const KIND_FALLBACKS: Record<AuthorReviewKind, string> = {
     person: 'Person',
     collective: 'Collective',
@@ -194,7 +195,15 @@ export const useReviewErrorDescriber = () => {
     );
 };
 
-/** One review item's full detail: the audit view, the edit form and the scoped actions. */
+/**
+ * One review item, as an operator needs it: the name as the file has it, the
+ * proposed name, the books it appears in, and three decisions — accept the
+ * proposal, correct it, or leave the name as the file has it. A decision
+ * always applies to every credit with the source name, later books included
+ * (fingerprint scope); there is no scope to choose. A legacy credit-scoped
+ * item is shown read-only. The kinds other than a person are a field of the
+ * correction form.
+ */
 export const AuthorReviewDetail: React.FC<{ itemID: number }> = ({ itemID }) => {
     const { t } = useTranslation();
 
@@ -203,13 +212,12 @@ export const AuthorReviewDetail: React.FC<{ itemID: number }> = ({ itemID }) => 
     const [detailErrorText, setDetailErrorText] = useState<string | null>(null);
 
     const [draft, setDraft] = useState<ReviewEditDraft | null>(null);
+    const [editOpen, setEditOpen] = useState(false);
     const [formErrorText, setFormErrorText] = useState<string | null>(null);
-    const [scopeChoice, setScopeChoice] = useState<AuthorReviewScope | null>(null);
     const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
     const [actionErrorText, setActionErrorText] = useState<string | null>(null);
     const [notice, setNotice] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
-    const [technicalOpen, setTechnicalOpen] = useState(false);
 
     const detailGeneration = useRef(0);
     /**
@@ -229,8 +237,8 @@ export const AuthorReviewDetail: React.FC<{ itemID: number }> = ({ itemID }) => 
     const describeReviewError = useReviewErrorDescriber();
 
     /**
-     * Loads the item. `resetDraft` says whether the edit form restarts from
-     * the server's proposal — a conflict refresh keeps what the admin typed.
+     * Loads the item. `resetDraft` says whether the correction form restarts
+     * from the server's proposal — a conflict refresh keeps what was typed.
      */
     const fetchDetail = useCallback(
         async (resetDraft: boolean) => {
@@ -262,25 +270,18 @@ export const AuthorReviewDetail: React.FC<{ itemID: number }> = ({ itemID }) => 
     );
 
     useEffect(() => {
-        setScopeChoice(null);
         setFormErrorText(null);
         setActionErrorText(null);
         setNotice(null);
-        setTechnicalOpen(false);
+        setEditOpen(false);
         setPendingAction(null);
         fetchDetail(true);
     }, [fetchDetail]);
 
-    const scopeChosen = scopeChoice !== null;
-    const scopedActionDisabled = busy || !scopeChosen;
-    /** Classify sends the chosen kind, and only three kinds are classifiable. */
-    const classifyKind =
-        draft !== null && draft.kind !== 'person'
-            ? (draft.kind as 'collective' | 'unknown' | 'malformed')
-            : null;
+    const actionDisabled = busy || detailPhase !== 'ready';
 
-    const armScopedAction = (action: ScopedActionBody) => {
-        if (scopedActionDisabled) {
+    const armAction = (action: ScopedActionBody) => {
+        if (actionDisabled) {
             return;
         }
         setActionErrorText(null);
@@ -290,8 +291,14 @@ export const AuthorReviewDetail: React.FC<{ itemID: number }> = ({ itemID }) => 
         setPendingAction({ ...action, itemID });
     };
 
-    const handleSaveEdit = () => {
-        if (draft === null || scopedActionDisabled) {
+    /** A person is a corrected name; the other kinds classify the source as it is. */
+    const handleSaveCorrection = () => {
+        if (draft === null || actionDisabled) {
+            return;
+        }
+        if (draft.kind !== 'person') {
+            setFormErrorText(null);
+            armAction({ type: 'classify', kind: draft.kind });
             return;
         }
         const built = buildEditResult(draft);
@@ -300,7 +307,7 @@ export const AuthorReviewDetail: React.FC<{ itemID: number }> = ({ itemID }) => 
             return;
         }
         setFormErrorText(null);
-        armScopedAction({ type: 'edit', result: built.result });
+        armAction({ type: 'edit', result: built.result });
     };
 
     const closeDialog = () => {
@@ -309,10 +316,9 @@ export const AuthorReviewDetail: React.FC<{ itemID: number }> = ({ itemID }) => 
 
     // Focus is handed back after the commit, not inside the close handler:
     // the dialog's focus machinery runs while unmounting its content and
-    // lands on <body>, overwriting anything focused earlier. BooksList does
-    // the same for the reader dialog. Confirm additionally disables the
-    // opener for the duration of the request, so a target that cannot take
-    // focus yet is kept and restored once the request settles.
+    // lands on <body>, overwriting anything focused earlier. Confirm also
+    // disables the opener for the duration of the request, so a target that
+    // cannot take focus yet is kept and restored once the request settles.
     useEffect(() => {
         if (pendingAction !== null || busy) {
             return;
@@ -328,15 +334,20 @@ export const AuthorReviewDetail: React.FC<{ itemID: number }> = ({ itemID }) => 
     }, [pendingAction, busy]);
 
     const confirmPending = () => {
-        if (pendingAction === null || scopeChoice === null) {
+        if (pendingAction === null || detail === null) {
             return;
         }
         // The confirmed target must still be the item the dialog was armed for.
-        if (pendingAction.itemID !== itemID) {
+        if (pendingAction.itemID !== itemID || detail.id !== itemID) {
             setPendingAction(null);
             return;
         }
-        const scope = scopeChoice;
+        // The tab decides at fingerprint scope only.
+        if (detail.scope !== FINGERPRINT_SCOPE) {
+            setPendingAction(null);
+            return;
+        }
+        const scope = FINGERPRINT_SCOPE;
         const action: ScopedActionBody = pendingAction;
         const generation = detailGeneration.current;
         setPendingAction(null);
@@ -356,9 +367,9 @@ export const AuthorReviewDetail: React.FC<{ itemID: number }> = ({ itemID }) => 
                 if (!mountedRef.current || generation !== detailGeneration.current) {
                     return;
                 }
-                // The response replaces the audit view. The list keeps the
-                // prior item until it is fetched again — no optimistic rewrite.
                 setDetail(data.item);
+                setEditOpen(false);
+                setNotice(t('authorReview.decided', 'Saved.'));
             })
             .catch((error) => {
                 if (!mountedRef.current || generation !== detailGeneration.current) {
@@ -379,70 +390,34 @@ export const AuthorReviewDetail: React.FC<{ itemID: number }> = ({ itemID }) => 
             });
     };
 
-    const handleRetry = () => {
-        if (busy || detailPhase !== 'ready') {
-            return;
-        }
-        const generation = detailGeneration.current;
-        setBusy(true);
-        setActionErrorText(null);
-        setNotice(null);
-        adminApi
-            .retryAuthorReviewNormalization(itemID)
-            .then(() => {
-                if (mountedRef.current && generation === detailGeneration.current) {
-                    return fetchDetail(false);
-                }
-                return undefined;
-            })
-            .catch((error) => {
-                if (mountedRef.current && generation === detailGeneration.current) {
-                    setActionErrorText(describeReviewError(error));
-                }
-            })
-            .finally(() => {
-                if (mountedRef.current) {
-                    setBusy(false);
-                }
-            });
-    };
-
     const updateDraft = (patch: Partial<ReviewEditDraft>) => {
         setDraft((current) => (current === null ? current : { ...current, ...patch }));
     };
 
+    const nameField = (id: string, label: string, key: keyof Omit<ReviewEditDraft, 'kind'>) => (
+        <Field
+            id={id}
+            label={label}
+            error={key === 'display' ? (formErrorText ?? undefined) : undefined}
+        >
+            <Input
+                id={id}
+                value={draft?.[key] ?? ''}
+                onChange={(event) => updateDraft({ [key]: event.target.value })}
+            />
+        </Field>
+    );
+
     return (
-        <section aria-labelledby="author-review-detail-heading" className="flex flex-col gap-3">
-            {/*
-              The header row carries the retry action at its right edge, and in
-              the modal that edge is where the dialog's close control lives:
-              an absolutely placed 44px square in the top-right corner. The
-              padding reserves room for it at every dialog width and through
-              any wrap, so the two never sit on top of each other; on the
-              full-screen route there is no close control and the padding is
-              simply quiet space.
-            */}
+        <section
+            aria-labelledby="author-review-detail-heading"
+            className="flex min-w-0 flex-col gap-3"
+        >
+            {/* Room for the modal's close control in the top-right corner. */}
             <div className="flex flex-wrap items-center gap-2 pr-12">
                 <h3 id="author-review-detail-heading" className="text-base font-medium">
                     {t('authorReview.detailTitle', 'Review item')}
                 </h3>
-                {detail !== null && (
-                    <Badge>
-                        {t(
-                            `authorReview.scopeValue.${detail.scope}`,
-                            SCOPE_VALUE_FALLBACKS[detail.scope],
-                        )}
-                    </Badge>
-                )}
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="ml-auto"
-                    disabled={busy || detailPhase !== 'ready'}
-                    onClick={handleRetry}
-                >
-                    {t('authorReview.retry', 'Retry normalization')}
-                </Button>
             </div>
 
             {detailPhase === 'loading' && (
@@ -468,32 +443,26 @@ export const AuthorReviewDetail: React.FC<{ itemID: number }> = ({ itemID }) => 
                 <>
                     <div className="flex flex-col gap-1">
                         <p className="text-base font-medium break-words">{detail.display_name}</p>
-                        <Stat
-                            label={t('authorReview.col.reason', 'Reason')}
-                            value={detail.reason}
-                        />
-                        <Stat
-                            label={t('authorReview.col.class', 'Class')}
-                            value={detail.decision_class}
-                        />
-                        <Stat
-                            label={t('authorReview.col.credits', 'Credits')}
-                            value={detail.credits_count}
-                        />
-                        <Stat
-                            label={t('authorReview.createdLabel', 'Created')}
-                            value={formatDate(detail.created_at)}
-                        />
+                        <p className="text-sm text-muted-foreground">
+                            {t('authorReview.creditsLine', {
+                                defaultValue: 'Appears in {{count}} credits',
+                                count: detail.credits_count,
+                            })}
+                        </p>
                     </div>
 
                     <div className="grid gap-3 md:grid-cols-2">
                         <section
                             aria-labelledby="author-review-source-heading"
-                            className="flex flex-col gap-2 rounded-lg border border-border p-3"
+                            className="flex min-w-0 flex-col gap-2 rounded-lg border border-border p-3"
                         >
                             <h4 id="author-review-source-heading" className="text-sm font-medium">
-                                {t('authorReview.source', 'Source')}
+                                {t('authorReview.source', 'In the file')}
                             </h4>
+                            <Stat
+                                label={t('authorReview.sourceDisplay', 'As written')}
+                                value={detail.source.display}
+                            />
                             <Stat
                                 label={t('authorReview.sourceFirst', 'First name')}
                                 value={detail.source.first ?? '—'}
@@ -510,34 +479,29 @@ export const AuthorReviewDetail: React.FC<{ itemID: number }> = ({ itemID }) => 
                                 label={t('authorReview.sourceNickname', 'Nickname')}
                                 value={detail.source.nickname ?? '—'}
                             />
-                            <Stat
-                                label={t('authorReview.sourceDisplay', 'As written')}
-                                value={detail.source.display}
-                            />
-                            {detail.source.flags.length > 0 && (
-                                <div className="flex flex-wrap gap-1">
-                                    {detail.source.flags.map((flag) => (
-                                        <Badge key={flag} variant="secondary">
-                                            {flag}
-                                        </Badge>
-                                    ))}
-                                </div>
-                            )}
                         </section>
 
                         <section
                             aria-labelledby="author-review-proposal-heading"
-                            className="flex flex-col gap-2 rounded-lg border border-border p-3"
+                            className="flex min-w-0 flex-col gap-2 rounded-lg border border-border p-3"
                         >
                             <h4 id="author-review-proposal-heading" className="text-sm font-medium">
-                                {t('authorReview.proposal', 'Proposal')}
+                                {t('authorReview.proposal', 'Proposed')}
                             </h4>
                             {detail.proposal === null ? (
                                 <p className="text-sm text-muted-foreground">
-                                    {t('authorReview.noProposal', 'No local proposal yet.')}
+                                    {t('authorReview.noProposal', 'No proposal yet.')}
                                 </p>
                             ) : (
                                 <>
+                                    <Stat
+                                        label={t('authorReview.displayName', 'Display name')}
+                                        value={detail.proposal.display_name}
+                                    />
+                                    <Stat
+                                        label={t('authorReview.sortName', 'Sort name')}
+                                        value={detail.proposal.sort_name ?? '—'}
+                                    />
                                     <Stat
                                         label={t('authorReview.proposalKind', 'Kind')}
                                         value={t(
@@ -545,23 +509,6 @@ export const AuthorReviewDetail: React.FC<{ itemID: number }> = ({ itemID }) => 
                                             KIND_FALLBACKS[detail.proposal.kind],
                                         )}
                                     />
-                                    <Stat
-                                        label={t('authorReview.proposalScript', 'Script')}
-                                        value={detail.proposal.script}
-                                    />
-                                    <Stat
-                                        label={t('authorReview.proposalMethod', 'Method')}
-                                        value={detail.proposal.method}
-                                    />
-                                    {detail.proposal.quality_flags.length > 0 && (
-                                        <div className="flex flex-wrap gap-1">
-                                            {detail.proposal.quality_flags.map((flag) => (
-                                                <Badge key={flag} variant="secondary">
-                                                    {flag}
-                                                </Badge>
-                                            ))}
-                                        </div>
-                                    )}
                                 </>
                             )}
                         </section>
@@ -572,14 +519,14 @@ export const AuthorReviewDetail: React.FC<{ itemID: number }> = ({ itemID }) => 
                         className="flex flex-col gap-1"
                     >
                         <h4 id="author-review-books-heading" className="text-sm font-medium">
-                            {t('authorReview.linkedBooks', 'Linked books')}
+                            {t('authorReview.linkedBooks', 'Books')}
                         </h4>
                         {detail.linked_books.length === 0 ? (
                             <p className="text-sm text-muted-foreground">
                                 {t('authorReview.noLinkedBooks', 'None.')}
                             </p>
                         ) : (
-                            <ul className="ml-4 list-disc text-sm">
+                            <ul className="ml-4 list-disc text-sm break-words">
                                 {detail.linked_books.map((book) => (
                                     <li key={book.id}>{book.title}</li>
                                 ))}
@@ -587,260 +534,121 @@ export const AuthorReviewDetail: React.FC<{ itemID: number }> = ({ itemID }) => 
                         )}
                     </section>
 
-                    <div>
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            aria-expanded={technicalOpen}
-                            onClick={() => setTechnicalOpen((open) => !open)}
-                        >
-                            {technicalOpen
-                                ? t('authorReview.hideTechnical', 'Hide technical details')
-                                : t('authorReview.showTechnical', 'Show technical details')}
-                        </Button>
-                        {technicalOpen && (
-                            <div className="mt-2 flex flex-col gap-1 rounded-lg border border-border p-3">
-                                <Stat
-                                    label={t('authorReview.fingerprint', 'Source fingerprint')}
-                                    value={detail.source_fingerprint}
-                                />
-                                <Stat
-                                    label={t('authorReview.creditId', 'Credit ID')}
-                                    value={detail.credit_id ?? '—'}
-                                />
-                                {detail.proposal !== null && (
-                                    <Stat
-                                        label={t('authorReview.searchKey', 'Search key')}
-                                        value={detail.proposal.search_key}
-                                    />
-                                )}
-                            </div>
-                        )}
-                    </div>
-
-                    <section
-                        aria-labelledby="author-review-edit-heading"
-                        className="flex flex-col gap-3 rounded-lg border border-border p-3"
-                    >
-                        <h4 id="author-review-edit-heading" className="text-sm font-medium">
-                            {t('authorReview.edit', 'Edit result')}
-                        </h4>
-                        {draft !== null && (
-                            <>
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                    <Field
-                                        id="author-review-given"
-                                        label={t('authorReview.givenName', 'Given name')}
-                                    >
-                                        <Input
-                                            id="author-review-given"
-                                            value={draft.given}
-                                            onChange={(event) =>
-                                                updateDraft({ given: event.target.value })
-                                            }
-                                        />
-                                    </Field>
-                                    <Field
-                                        id="author-review-additional"
-                                        label={t(
-                                            'authorReview.additionalNames',
-                                            'Additional names',
-                                        )}
-                                    >
-                                        <Input
-                                            id="author-review-additional"
-                                            value={draft.additional}
-                                            onChange={(event) =>
-                                                updateDraft({ additional: event.target.value })
-                                            }
-                                        />
-                                    </Field>
-                                    <Field
-                                        id="author-review-family"
-                                        label={t('authorReview.familyName', 'Family name')}
-                                    >
-                                        <Input
-                                            id="author-review-family"
-                                            value={draft.family}
-                                            onChange={(event) =>
-                                                updateDraft({ family: event.target.value })
-                                            }
-                                        />
-                                    </Field>
-                                    <Field
-                                        id="author-review-nickname"
-                                        label={t('authorReview.nickname', 'Nickname')}
-                                    >
-                                        <Input
-                                            id="author-review-nickname"
-                                            value={draft.nickname}
-                                            onChange={(event) =>
-                                                updateDraft({ nickname: event.target.value })
-                                            }
-                                        />
-                                    </Field>
-                                    <Field
-                                        id="author-review-display"
-                                        label={t('authorReview.displayName', 'Display name')}
-                                        error={formErrorText ?? undefined}
-                                    >
-                                        <Input
-                                            id="author-review-display"
-                                            value={draft.display}
-                                            onChange={(event) =>
-                                                updateDraft({ display: event.target.value })
-                                            }
-                                        />
-                                    </Field>
-                                    <Field
-                                        id="author-review-sort"
-                                        label={t('authorReview.sortName', 'Sort name')}
-                                    >
-                                        <Input
-                                            id="author-review-sort"
-                                            value={draft.sort}
-                                            onChange={(event) =>
-                                                updateDraft({ sort: event.target.value })
-                                            }
-                                        />
-                                    </Field>
-                                </div>
-                                {/*
-                                  The one kind control: the edit result and the
-                                  classify action both send it, so the choice is
-                                  made once and nothing repeats it.
-                                */}
-                                <div
-                                    role="group"
-                                    aria-label={t('authorReview.resultKind', 'Result kind')}
-                                    className="flex flex-wrap gap-2"
-                                >
-                                    {KINDS.map((kind) => (
-                                        <Button
-                                            key={kind}
-                                            variant={draft.kind === kind ? 'default' : 'outline'}
-                                            size="sm"
-                                            aria-pressed={draft.kind === kind}
-                                            onClick={() => updateDraft({ kind })}
-                                        >
-                                            {t(`authorReview.kind.${kind}`, KIND_FALLBACKS[kind])}
-                                        </Button>
-                                    ))}
-                                </div>
-                                {classifyKind === null && (
-                                    <p className="text-xs text-muted-foreground">
-                                        {t(
-                                            'authorReview.classifyKindHint',
-                                            'Classification needs the Collective, Unknown or Malformed kind — pick one of those.',
-                                        )}
-                                    </p>
-                                )}
-                            </>
-                        )}
-                    </section>
-
-                    <section className="flex flex-col gap-3">
-                        <div className="flex flex-col gap-2">
-                            <div
-                                role="group"
-                                aria-label={t('authorReview.scope', 'Action scope')}
-                                className="flex flex-wrap gap-2"
-                            >
-                                {(['credit', 'fingerprint'] as const).map((scope) => (
-                                    <Button
-                                        key={scope}
-                                        variant={scopeChoice === scope ? 'default' : 'outline'}
-                                        size="sm"
-                                        aria-pressed={scopeChoice === scope}
-                                        onClick={() => setScopeChoice(scope)}
-                                    >
-                                        {t(
-                                            `authorReview.scopeChoice.${scope}`,
-                                            SCOPE_CHOICE_FALLBACKS[scope],
-                                        )}
-                                    </Button>
-                                ))}
-                            </div>
-                            {/*
-                              What each choice does, next to the choice: the
-                              owner asked for the scope to explain itself,
-                              including that "all credits" follows the source
-                              name into books the library gains later.
-                            */}
-                            <dl className="flex flex-col gap-1 text-xs text-muted-foreground">
-                                <div className="flex flex-col">
-                                    <dt className="font-medium">
-                                        {t('authorReview.scopeChoice.credit', 'Single credit')}
-                                    </dt>
-                                    <dd>
-                                        {t(
-                                            'authorReview.scopeHelp.credit',
-                                            'Apply the decision to this single author credit only.',
-                                        )}
-                                    </dd>
-                                </div>
-                                <div className="flex flex-col">
-                                    <dt className="font-medium">
-                                        {t('authorReview.scopeChoice.fingerprint', 'All credits')}
-                                    </dt>
-                                    <dd>
-                                        {t('authorReview.scopeHelp.fingerprint', {
-                                            defaultValue:
-                                                'Apply the decision to all {{count}} credits of the same source name, including books added to the library later.',
-                                            count: detail.credits_count,
-                                        })}
-                                    </dd>
-                                </div>
-                            </dl>
-                            {!scopeChosen && (
-                                <p className="text-xs text-muted-foreground">
-                                    {t(
-                                        'authorReview.scopeDisabledHint',
-                                        'Choose what the action applies to first — the action buttons stay disabled until then.',
-                                    )}
-                                </p>
+                    {detail.scope !== FINGERPRINT_SCOPE && (
+                        <p role="note" className="text-sm text-muted-foreground">
+                            {t(
+                                'authorReview.creditReadOnly',
+                                'This item concerns a single book, not every book with this name. It cannot be decided here.',
                             )}
-                        </div>
+                        </p>
+                    )}
 
+                    {detail.scope === FINGERPRINT_SCOPE && (
                         <div className="flex flex-wrap gap-2">
                             <Button
                                 size="sm"
-                                disabled={scopedActionDisabled}
-                                onClick={() => armScopedAction({ type: 'accept' })}
+                                disabled={actionDisabled || detail.proposal === null}
+                                onClick={() => armAction({ type: 'accept' })}
                             >
                                 {t('authorReview.accept', 'Accept')}
                             </Button>
                             <Button
                                 variant="outline"
                                 size="sm"
-                                disabled={scopedActionDisabled || draft === null}
-                                onClick={handleSaveEdit}
+                                disabled={actionDisabled || draft === null}
+                                aria-expanded={editOpen}
+                                onClick={() => setEditOpen((open) => !open)}
                             >
-                                {t('authorReview.saveEdit', 'Save edit')}
+                                {t('authorReview.correct', 'Correct')}
                             </Button>
                             <Button
                                 variant="outline"
                                 size="sm"
-                                disabled={scopedActionDisabled || classifyKind === null}
-                                onClick={() => {
-                                    if (classifyKind === null || scopedActionDisabled) {
-                                        return;
-                                    }
-                                    armScopedAction({ type: 'classify', kind: classifyKind });
-                                }}
+                                disabled={actionDisabled}
+                                onClick={() => armAction({ type: 'unresolved' })}
                             >
-                                {t('authorReview.classify', 'Classify')}
-                            </Button>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                disabled={scopedActionDisabled}
-                                onClick={() => armScopedAction({ type: 'unresolved' })}
-                            >
-                                {t('authorReview.unresolved', 'Mark unresolved')}
+                                {t('authorReview.keepAsInFile', 'Keep as in the file')}
                             </Button>
                         </div>
-                    </section>
+                    )}
+
+                    {detail.scope === FINGERPRINT_SCOPE && editOpen && draft !== null && (
+                        <section
+                            aria-labelledby="author-review-edit-heading"
+                            className="flex flex-col gap-3 rounded-lg border border-border p-3"
+                        >
+                            <h4 id="author-review-edit-heading" className="text-sm font-medium">
+                                {t('authorReview.correctTitle', 'Correction')}
+                            </h4>
+                            <div
+                                role="group"
+                                aria-label={t('authorReview.resultKind', 'What this is')}
+                                className="flex flex-wrap gap-2"
+                            >
+                                {KINDS.map((kind) => (
+                                    <Button
+                                        key={kind}
+                                        variant={draft.kind === kind ? 'default' : 'outline'}
+                                        size="sm"
+                                        aria-pressed={draft.kind === kind}
+                                        onClick={() => updateDraft({ kind })}
+                                    >
+                                        {t(`authorReview.kind.${kind}`, KIND_FALLBACKS[kind])}
+                                    </Button>
+                                ))}
+                            </div>
+                            {draft.kind === 'person' ? (
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                    {nameField(
+                                        'author-review-given',
+                                        t('authorReview.givenName', 'Given name'),
+                                        'given',
+                                    )}
+                                    {nameField(
+                                        'author-review-additional',
+                                        t('authorReview.additionalNames', 'Additional names'),
+                                        'additional',
+                                    )}
+                                    {nameField(
+                                        'author-review-family',
+                                        t('authorReview.familyName', 'Family name'),
+                                        'family',
+                                    )}
+                                    {nameField(
+                                        'author-review-nickname',
+                                        t('authorReview.nickname', 'Nickname'),
+                                        'nickname',
+                                    )}
+                                    {nameField(
+                                        'author-review-display',
+                                        t('authorReview.displayName', 'Display name'),
+                                        'display',
+                                    )}
+                                    {nameField(
+                                        'author-review-sort',
+                                        t('authorReview.sortName', 'Sort name'),
+                                        'sort',
+                                    )}
+                                </div>
+                            ) : (
+                                <p className="text-xs text-muted-foreground">
+                                    {t(
+                                        'authorReview.kindWithoutName',
+                                        'Not a person: the name stays as in the file and is marked with this kind.',
+                                    )}
+                                </p>
+                            )}
+                            <div>
+                                <Button
+                                    size="sm"
+                                    disabled={actionDisabled}
+                                    onClick={handleSaveCorrection}
+                                >
+                                    {t('authorReview.saveCorrection', 'Save correction')}
+                                </Button>
+                            </div>
+                        </section>
+                    )}
                 </>
             )}
 
@@ -848,23 +656,18 @@ export const AuthorReviewDetail: React.FC<{ itemID: number }> = ({ itemID }) => 
                 <DialogContent closeLabel={t('close', 'Close')}>
                     <DialogHeader>
                         <DialogTitle>
-                            {t('authorReview.confirmTitle', 'Confirm the action')}
+                            {t('authorReview.confirmTitle', 'Confirm the decision')}
                         </DialogTitle>
                         <DialogDescription>
-                            {scopeChoice === 'credit'
-                                ? t(
-                                      'authorReview.confirmCredit',
-                                      'Apply this action to this single credit?',
-                                  )
-                                : detail !== null &&
-                                    pendingAction !== null &&
-                                    detail.id === pendingAction.itemID
-                                  ? t('authorReview.confirmFingerprint', {
-                                        defaultValue:
-                                            'Apply this action to all {{count}} credits of this fingerprint?',
-                                        count: detail.credits_count,
-                                    })
-                                  : null}
+                            {detail !== null &&
+                            pendingAction !== null &&
+                            detail.id === pendingAction.itemID
+                                ? t('authorReview.confirmFingerprint', {
+                                      defaultValue:
+                                          'The decision applies to all {{count}} credits with this name in the file, books added later included.',
+                                      count: detail.credits_count,
+                                  })
+                                : null}
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
@@ -900,8 +703,8 @@ const AuthorReviewDetailScreen: React.FC = () => {
             searchParams.get(REVIEW_CURSOR_PARAM) ?? undefined,
             searchParams.getAll(REVIEW_HISTORY_PARAM),
         );
-        params.set('tab', 'review');
-        navigate(`/admin/author-normalization?${params.toString()}`);
+        params.set('tab', AUTHORS_TAB);
+        navigate(`/admin/book-scanning?${params.toString()}`);
     };
 
     return (
