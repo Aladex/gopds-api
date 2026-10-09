@@ -34,6 +34,10 @@ type BookScanService struct {
 	llmService       *llm.LLMService
 	skipDuplicates   bool
 	publisher        *ScanEventPublisher
+	// authorSource writes the author metadata source snapshot of every new
+	// book in the book's own transaction. The constructor installs it; a
+	// scanner without one refuses to ingest.
+	authorSource *AuthorMetadataSourceWriter
 
 	// Progress tracking
 	progressMu          sync.Mutex
@@ -68,7 +72,8 @@ type ScanError struct {
 	Timestamp   time.Time `json:"timestamp"`
 }
 
-// NewBookScanService creates a new BookScanService
+// NewBookScanService creates a new BookScanService with the production author
+// metadata source writer: every book it ingests gets its source snapshot.
 func NewBookScanService(archivesDir, coversDir string, languageDetector *LanguageDetector, skipDuplicates bool, llmSvc *llm.LLMService) *BookScanService {
 	return &BookScanService{
 		archivesDir:      archivesDir,
@@ -76,6 +81,7 @@ func NewBookScanService(archivesDir, coversDir string, languageDetector *Languag
 		languageDetector: languageDetector,
 		llmService:       llmSvc,
 		skipDuplicates:   skipDuplicates,
+		authorSource:     NewAuthorMetadataSourceWriter(),
 	}
 }
 
@@ -264,6 +270,9 @@ func (s *BookScanService) ScanArchive(archivePath string) (*ArchiveReport, error
 
 // ProcessBook processes a single FB2 file from an archive
 func (s *BookScanService) ProcessBook(zipFile *zip.File, archiveName string) (int64, error) {
+	if s.authorSource == nil {
+		return 0, ErrAuthorSourceWriterMissing
+	}
 	fileName := zipFile.Name
 
 	// 1. Extract and read FB2 content
@@ -338,6 +347,13 @@ func (s *BookScanService) ProcessBook(zipFile *zip.File, archiveName string) (in
 	hash := md5.Sum(fb2Content)
 	book.MD5 = hex.EncodeToString(hash[:])
 
+	// The author metadata source comes from the same bytes, extracted before
+	// the transaction; it never touches the legacy book fields above.
+	authorSource, err := s.authorSource.Prepare(fb2Content, archiveName, fileName, book.MD5)
+	if err != nil {
+		return 0, err
+	}
+
 	// Start transaction
 	tx, err := database.GetDB().Begin()
 	if err != nil {
@@ -384,6 +400,12 @@ func (s *BookScanService) ProcessBook(zipFile *zip.File, archiveName string) (in
 		if err != nil {
 			return 0, fmt.Errorf("failed to process genres: %w", err)
 		}
+	}
+
+	// 10. Author metadata source snapshot, in the same transaction: a failure
+	// here rolls back the legacy rows too.
+	if err = s.authorSource.Persist(tx, book.ID, authorSource); err != nil {
+		return 0, fmt.Errorf("failed to write author metadata source: %w", err)
 	}
 
 	// Commit transaction
