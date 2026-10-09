@@ -159,8 +159,8 @@ type ResolveReport struct {
 }
 
 // selectionTarget is one row of book_contributor_credit_selection to arrive
-// at; override marks an override-based target, which may replace an admin's
-// earlier decision, while an automatic one may not.
+// at; manual marks an override-based target, which on the manual path may
+// replace an admin's earlier decision, while an automatic one never does.
 type selectionTarget struct {
 	state    models.CreditSelectionState
 	resultID *int64
@@ -218,8 +218,9 @@ type resolvableCredit struct {
 }
 
 // upsertSelectionSQL writes the target unless the row already says exactly
-// that, so a repeated resolution leaves no audit record; an automatic target
-// (?8 false) never replaces a decision an admin made.
+// that, so a repeated resolution leaves no audit record; unless ?8 — the
+// manual path writing an override — it never replaces a decision an admin
+// made.
 const upsertSelectionSQL = `INSERT INTO book_contributor_credit_selection AS s
 	(credit_id, source_fingerprint, state, result_id, basis, override_id, policy_version, unresolved_reason)
 VALUES (?0, ?1, ?2, ?3, ?4, ?5, ?6, ?7)
@@ -278,6 +279,18 @@ const resolutionLockSQL = `SELECT id FROM book_contributor_credit WHERE id = ? F
 // deadlock (40P01). Review actions must therefore lock every affected credit
 // first — by resolving them, or with resolutionLockSQL — in ascending credit
 // ID order, the order ResolveCredits uses, and change review items after.
+//
+// Decision order: the selection row is written only under the credit lock,
+// so the order of its writes is the order of the decisions — not the start
+// times of the transactions that made them, which can run the other way. An
+// admin's decision recorded in the row (decided_by_user_id, today the
+// review's "leave unresolved") is therefore newer than every override that
+// was committed when it was written, and every override committed after it
+// went through its writer's manual path — out nil, under this lock, before
+// that writer committed — and replaced it there. So the automatic path never
+// replaces an admin's decision, with an override target any more than with
+// an automatic one; only the manual path does, which is how an explicit later
+// correction supersedes it.
 func resolveCredit(
 	ctx context.Context,
 	db ResolutionTx,
@@ -303,9 +316,13 @@ func resolveCredit(
 		return currentState(ctx, db, credit.ID)
 	}
 
+	// Only the manual path may replace an admin's decision. An override the
+	// automatic path finds is never newer than a decision the row holds: see
+	// the ordering rule above.
+	replacesAdminDecision := target.manual && out == nil
 	if _, err = db.ExecContext(ctx, upsertSelectionSQL,
 		credit.ID, credit.SourceFingerprint, string(target.state), target.resultID, target.basis,
-		target.override, target.policy, target.reason, target.manual); err != nil {
+		target.override, target.policy, target.reason, replacesAdminDecision); err != nil {
 		return "", fmt.Errorf("writing the credit's resolution: %w", err)
 	}
 	state, err := currentState(ctx, db, credit.ID)
@@ -455,10 +472,18 @@ func LoadLocalNormalizationInput(ctx context.Context, db pg.DBI, jobID int64) (L
 }
 
 // RecordLocalNormalization persists one computed local normalization inside
-// the caller's transaction: the shared result of the key, the owner-fenced
-// completion of the job, and the resolution of every current author credit of
-// the input. A lost lease fails the completion with authornorm.ErrLeaseLost,
+// the caller's transaction: the shared result of the key, the resolution of
+// every current author credit of the input, and the owner-fenced completion
+// of the job. A lost lease fails the completion with authornorm.ErrLeaseLost,
 // and the caller's rollback discards the rest with it.
+//
+// The statements take their locks in the documented order — credits (and any
+// review items the resolver opens) first, the job last — the same order a
+// review retry uses. Completing the job before resolving the credits would
+// hold the job's row lock while waiting for a credit a retry holds that is
+// itself waiting for the job: the cycle PostgreSQL reports as 40P01. The
+// resolution running before the fence is safe for the same reason the fence
+// is: one transaction, so a lost lease rolls the resolutions back with it.
 func RecordLocalNormalization(
 	ctx context.Context,
 	tx ResolutionTx,
@@ -471,12 +496,16 @@ func RecordLocalNormalization(
 	if err != nil {
 		return ResolveReport{}, err
 	}
+	report, resolveErr := ResolveCredits(ctx, tx, r.SourceFingerprint[:], r.ExtractorVersion, &AutomaticOutcome{
+		ResultID: resultID, DecisionClass: r.DecisionClass, Decision: d,
+	})
+	if resolveErr != nil {
+		return ResolveReport{}, resolveErr
+	}
 	if completeErr := CompleteLocalNormalizationJob(ctx, tx, jobID, owner, resultID); completeErr != nil {
 		return ResolveReport{}, completeErr
 	}
-	return ResolveCredits(ctx, tx, r.SourceFingerprint[:], r.ExtractorVersion, &AutomaticOutcome{
-		ResultID: resultID, DecisionClass: r.DecisionClass, Decision: d,
-	})
+	return report, nil
 }
 
 // LocalInput is one normalization input: a source fingerprint under an
@@ -489,10 +518,13 @@ type LocalInput struct {
 // FailedInputsToSettle lists up to limit inputs of local jobs of one
 // normalizer version that ended failed — on a worker's last failed attempt or
 // on a claim that found the last attempt abandoned — and still have current
-// author credits without a resolution. The caller settles each in its own
-// transaction with ResolveCredits and AutomaticOutcome{Failed: true}: the
-// credits become unresolved with normalizer_failed unless an override decides
-// them.
+// author credits the accounting counts as pending: without a resolution, or
+// in review with no open review item (a review retry closed the item and
+// handed the input back to this job, which then failed). The caller settles
+// each in its own transaction with ResolveCredits and
+// AutomaticOutcome{Failed: true}: the credits become unresolved with
+// normalizer_failed unless an override decides them. A credit under an open
+// review item stays with that item.
 func FailedInputsToSettle(ctx context.Context, db pg.DBI, normalizerVersion string, limit int) ([]LocalInput, error) {
 	var inputs []LocalInput
 	_, err := db.QueryContext(ctx, &inputs, `SELECT DISTINCT j.source_fingerprint, j.extractor_version
@@ -501,7 +533,13 @@ func FailedInputsToSettle(ctx context.Context, db pg.DBI, normalizerVersion stri
 		JOIN book_metadata_snapshot s ON s.id = c.snapshot_id AND s.is_current
 			AND s.extractor_version = j.extractor_version
 		LEFT JOIN book_contributor_credit_selection sel ON sel.credit_id = c.id
-		WHERE j.status = 'failed' AND j.normalizer_version = ? AND sel.credit_id IS NULL
+		WHERE j.status = 'failed' AND j.normalizer_version = ?
+			AND (sel.credit_id IS NULL
+				OR (sel.state = 'review'
+					AND NOT EXISTS (SELECT 1 FROM contributor_review_item i
+						WHERE i.status = 'open' AND i.scope_fingerprint = c.source_fingerprint)
+					AND NOT EXISTS (SELECT 1 FROM contributor_review_item i
+						WHERE i.status = 'open' AND i.scope_credit_id = c.id)))
 		ORDER BY 1, 2
 		LIMIT ?`, normalizerVersion, limit)
 	if err != nil {
