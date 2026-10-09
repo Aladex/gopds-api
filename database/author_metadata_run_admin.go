@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 
 	"gopds-api/models"
 
@@ -92,7 +93,8 @@ func ApprovePilotRun(ctx context.Context, db *pg.DB, runID, actorUserID int64) e
 	})
 }
 
-// ExtractionStageStats is the extraction stream of one run.
+// ExtractionStageStats is the extraction stream of one run in the contract's
+// shape.
 type ExtractionStageStats struct {
 	Total             int64
 	Done              int64
@@ -110,18 +112,18 @@ type ExtractionStageStats struct {
 
 // LocalStageStats is the local normalization stream of a run's inputs.
 type LocalStageStats struct {
-	Total             int64 `pg:"total"`
-	Done              int64 `pg:"done"`
-	Pending           int64 `pg:"pending"`
-	Leased            int64 `pg:"leased"`
-	Failed            int64 `pg:"failed"`
-	OldestPendingAgeS int64 `pg:"oldest_pending_age_s"`
+	Total             int64
+	Done              int64
+	Pending           int64
+	Leased            int64
+	Failed            int64
+	OldestPendingAgeS int64
 }
 
 // ReviewStageStats is the review backlog of a run's inputs.
 type ReviewStageStats struct {
-	Open   int64 `pg:"open"`
-	Closed int64 `pg:"closed"`
+	Open   int64
+	Closed int64
 }
 
 // RunStageStats are the three streams of one run (scope amendment A6).
@@ -131,103 +133,53 @@ type RunStageStats struct {
 	Review     ReviewStageStats
 }
 
-// runInputsCTE is the normalization inputs of a run: the fingerprint and
-// extractor version of every author credit of the current snapshots of the
-// run's books — the credits AuthorCreditAccountingForRun accounts. ?0 is the
-// run ID.
-const runInputsCTE = `run_credits AS (
-	SELECT c.id, c.source_fingerprint, s.extractor_version
-	FROM book_contributor_credit c
-	JOIN book_metadata_snapshot s ON s.id = c.snapshot_id
-	WHERE s.is_current AND c.role = 'author'
-		AND s.book_id IN (SELECT book_id FROM author_metadata_run_item WHERE run_id = ?0)
-), run_inputs AS (
-	SELECT DISTINCT source_fingerprint, extractor_version FROM run_credits
-)`
-
-const extractionStatsSQL = `
-SELECT count(*) AS total,
-	count(*) FILTER (WHERE i.status <> 'pending') AS done,
-	count(*) FILTER (WHERE i.status = 'pending'
-		AND (i.lease_expires_at IS NULL OR i.lease_expires_at <= clock_timestamp())) AS pending,
-	count(*) FILTER (WHERE i.status = 'pending' AND i.lease_expires_at > clock_timestamp()) AS leased,
-	coalesce(floor(extract(epoch FROM clock_timestamp()
-		- min(i.created_at) FILTER (WHERE i.status = 'pending')))::bigint, 0) AS oldest_pending_age_s,
-	(SELECT b.path FROM author_metadata_run_item l JOIN opds_catalog_book b ON b.id = l.book_id
-		WHERE l.run_id = ?0 AND l.status = 'pending' AND l.lease_expires_at > clock_timestamp()
-		ORDER BY l.lease_expires_at DESC, l.id DESC LIMIT 1) AS current_archive,
-	coalesce((SELECT extract(epoch FROM coalesce(r.extraction_completed_at, r.finished_at, clock_timestamp())
-		- r.started_at) FROM author_metadata_run r WHERE r.id = ?0), 0) AS elapsed_s
-FROM author_metadata_run_item i
-WHERE i.run_id = ?0`
-
-const localStatsSQL = `WITH ` + runInputsCTE + `
-SELECT count(j.id) AS total,
-	count(j.id) FILTER (WHERE j.status = 'completed') AS done,
-	count(j.id) FILTER (WHERE j.status = 'pending'
-		AND (j.lease_expires_at IS NULL OR j.lease_expires_at <= clock_timestamp())) AS pending,
-	count(j.id) FILTER (WHERE j.status = 'pending' AND j.lease_expires_at > clock_timestamp()) AS leased,
-	count(j.id) FILTER (WHERE j.status = 'failed') AS failed,
-	coalesce(floor(extract(epoch FROM clock_timestamp()
-		- min(j.created_at) FILTER (WHERE j.status = 'pending')))::bigint, 0) AS oldest_pending_age_s
-FROM run_inputs ri
-JOIN contributor_normalization_job j
-	ON j.source_fingerprint = ri.source_fingerprint AND j.extractor_version = ri.extractor_version
-	AND j.normalizer_version = ?1`
-
-const reviewStatsSQL = `WITH ` + runInputsCTE + `
-SELECT count(*) FILTER (WHERE i.status = 'open') AS open,
-	count(*) FILTER (WHERE i.status = 'closed') AS closed
-FROM contributor_review_item i
-WHERE i.scope_fingerprint IN (SELECT source_fingerprint FROM run_inputs)
-	OR i.scope_credit_id IN (SELECT id FROM run_credits)`
-
-// secondsPerMinute converts the elapsed seconds into the throughput unit.
+// secondsPerMinute converts the stats' throughput into the contract's unit.
 const secondsPerMinute = 60
 
-// LoadRunStageStats counts the three streams of a run.
-func LoadRunStageStats(ctx context.Context, db pg.DBI, run *models.AuthorMetadataRun) (RunStageStats, error) {
-	var stats RunStageStats
-	var extraction struct {
-		Total             int64   `pg:"total"`
-		Done              int64   `pg:"done"`
-		Pending           int64   `pg:"pending"`
-		Leased            int64   `pg:"leased"`
-		OldestPendingAgeS int64   `pg:"oldest_pending_age_s"`
-		CurrentArchive    *string `pg:"current_archive"`
-		ElapsedS          float64 `pg:"elapsed_s"`
+// RunStageStatsFrom shapes the run's aggregates (AuthorMetadataStatsForRun)
+// as the contract's stages: the status shows the same numbers the stats
+// read, by the same definitions — a live lease, the run's version-pinned
+// inputs. Only the archive being extracted is not an aggregate; the caller
+// reads it with RunCurrentArchive.
+func RunStageStatsFrom(stats *AuthorMetadataStats, currentArchive *string) RunStageStats {
+	ex := &stats.Extraction
+	byStatus := make(map[models.AuthorMetadataRunItemStatus]int64, len(ex.ByStatus))
+	for status, n := range ex.ByStatus {
+		byStatus[models.AuthorMetadataRunItemStatus(status)] = n
 	}
-	if _, err := db.QueryOneContext(ctx, &extraction, extractionStatsSQL, run.ID); err != nil {
-		return RunStageStats{}, fmt.Errorf("counting the extraction stage: %w", err)
+	local := &stats.Local
+	return RunStageStats{
+		Extraction: ExtractionStageStats{
+			Total: ex.Total, Done: ex.Terminal, Pending: ex.Pending, Leased: ex.Leased,
+			OldestPendingAgeS: wholeSeconds(ex.OldestPendingAgeS), ByStatus: byStatus,
+			CurrentArchive: currentArchive, ItemsPerMinute: ex.ItemsPerSecond * secondsPerMinute,
+		},
+		Local: LocalStageStats{
+			Total: local.Pending + local.Leased + local.Completed + local.Failed,
+			Done:  local.Completed, Pending: local.Pending, Leased: local.Leased, Failed: local.Failed,
+			OldestPendingAgeS: wholeSeconds(local.OldestPendingAgeS),
+		},
+		Review: ReviewStageStats{Open: stats.Review.Open, Closed: stats.Review.Closed},
 	}
-	stats.Extraction = ExtractionStageStats{
-		Total: extraction.Total, Done: extraction.Done, Pending: extraction.Pending, Leased: extraction.Leased,
-		OldestPendingAgeS: extraction.OldestPendingAgeS, CurrentArchive: extraction.CurrentArchive,
-	}
-	if extraction.ElapsedS > 0 {
-		stats.Extraction.ItemsPerMinute = float64(stats.Extraction.Done) / (extraction.ElapsedS / secondsPerMinute)
-	}
+}
 
-	var byStatus []struct {
-		Status models.AuthorMetadataRunItemStatus
-		N      int64
-	}
-	if _, err := db.QueryContext(ctx, &byStatus, `SELECT status, count(*) AS n FROM author_metadata_run_item
-		WHERE run_id = ? AND status <> 'pending' GROUP BY status`, run.ID); err != nil {
-		return RunStageStats{}, fmt.Errorf("counting the extraction statuses: %w", err)
-	}
-	stats.Extraction.ByStatus = make(map[models.AuthorMetadataRunItemStatus]int64, len(byStatus))
-	for _, row := range byStatus {
-		stats.Extraction.ByStatus[row.Status] = row.N
-	}
+// wholeSeconds is an age in the contract's whole seconds.
+func wholeSeconds(s float64) int64 { return int64(math.Floor(s)) }
 
-	if _, err := db.QueryOneContext(ctx, &stats.Local, localStatsSQL, run.ID, run.NormalizerVersion); err != nil {
-		return RunStageStats{}, fmt.Errorf("counting the local stage: %w", err)
+// RunCurrentArchive reads the archive of the run's item leased most
+// recently, nil when nothing is leased.
+func RunCurrentArchive(ctx context.Context, db pg.DBI, runID int64) (*string, error) {
+	var archive struct {
+		Path *string
 	}
-	if _, err := db.QueryOneContext(ctx, &stats.Review, reviewStatsSQL, run.ID); err != nil {
-		return RunStageStats{}, fmt.Errorf("counting the review stage: %w", err)
+	_, err := db.QueryOneContext(ctx, &archive, `SELECT (SELECT b.path FROM author_metadata_run_item l
+		JOIN opds_catalog_book b ON b.id = l.book_id
+		WHERE l.run_id = ? AND l.status = 'pending' AND l.lease_expires_at > clock_timestamp()
+		ORDER BY l.lease_expires_at DESC, l.id DESC LIMIT 1) AS path`, runID)
+	if err != nil {
+		return nil, fmt.Errorf("reading the current archive: %w", err)
 	}
-	return stats, nil
+	return archive.Path, nil
 }
 
 // RunReportFacts are the report figures beyond the stage numbers.
@@ -239,7 +191,8 @@ type RunReportFacts struct {
 	// shared by key across runs.
 	DBGrowthBytes int64
 	// ByClass and ByScript count the run's current author credits by the
-	// decision class and the script of the result their resolution rests on.
+	// decision class and the script of the result their resolution rests on:
+	// the run's coverage (AuthorMetadataCoverage.ResultClasses).
 	ByClass  map[string]int64
 	ByScript map[string]int64
 }
@@ -251,15 +204,9 @@ SELECT coalesce((SELECT sum(pg_column_size(s.*)) FROM book_metadata_snapshot s W
 	coalesce((SELECT floor(extract(epoch FROM coalesce(r.finished_at, clock_timestamp()) - r.started_at))::bigint
 		FROM author_metadata_run r WHERE r.id = ?0), 0) AS duration_s`
 
-const runResultGroupsSQL = `WITH ` + runInputsCTE + `
-SELECT r.decision_class, r.script, count(*) AS n
-FROM run_credits rc
-JOIN book_contributor_credit_selection sel ON sel.credit_id = rc.id
-JOIN contributor_normalization_result r ON r.id = sel.result_id
-GROUP BY 1, 2`
-
-// LoadRunReportFacts reads the report figures of a run.
-func LoadRunReportFacts(ctx context.Context, db pg.DBI, runID int64) (RunReportFacts, error) {
+// LoadRunReportFacts reads the report figures of a run; the result classes
+// come from the run's coverage, read with its stats.
+func LoadRunReportFacts(ctx context.Context, db pg.DBI, runID int64, coverage *AuthorMetadataCoverage) (RunReportFacts, error) {
 	var head struct {
 		Growth    int64 `pg:"growth"`
 		DurationS int64 `pg:"duration_s"`
@@ -267,26 +214,8 @@ func LoadRunReportFacts(ctx context.Context, db pg.DBI, runID int64) (RunReportF
 	if _, err := db.QueryOneContext(ctx, &head, runGrowthSQL, runID); err != nil {
 		return RunReportFacts{}, fmt.Errorf("measuring the run: %w", err)
 	}
-	facts := RunReportFacts{
-		DurationS: max(head.DurationS, 0), DBGrowthBytes: head.Growth,
-		ByClass: map[string]int64{}, ByScript: map[string]int64{},
-	}
-	var groups []struct {
-		DecisionClass *string
-		Script        *string
-		N             int64
-	}
-	if _, err := db.QueryContext(ctx, &groups, runResultGroupsSQL, runID); err != nil {
-		return RunReportFacts{}, fmt.Errorf("grouping the run's results: %w", err)
-	}
-	for _, g := range groups {
-		if g.DecisionClass != nil {
-			facts.ByClass[*g.DecisionClass] += g.N
-		}
-		if g.Script != nil {
-			facts.ByScript[*g.Script] += g.N
-		}
-	}
+	facts := RunReportFacts{DurationS: max(head.DurationS, 0), DBGrowthBytes: head.Growth}
+	facts.ByClass, facts.ByScript = coverage.ResultClasses()
 	return facts, nil
 }
 
@@ -313,17 +242,16 @@ WHERE i.run_id = ?0 AND i.status <> 'pending' AND i.snapshot_id IS NULL
 	AND (i.status = ?1 OR EXISTS (SELECT 1 FROM author_metadata_run_item_attempt a
 		WHERE a.run_item_id = i.id AND a.error_class = ?1))`
 
-// reopenLocalSQL reopens the failed local jobs of the run's inputs and the
-// run's normalizer version that failed with the class on any attempt and
-// that the workers' budget still allows a claim of. ?0 run, ?1 class,
-// ?2 budget, ?3 normalizer version.
-const reopenLocalSQL = `WITH ` + runInputsCTE + `
+// reopenLocalSQL reopens the failed local jobs of the run's inputs — the
+// stats' run_jobs, so a retry reopens exactly the jobs the status counts:
+// the run's sources under its extractor and normalizer versions — that
+// failed with the class on any attempt and that the workers' budget still
+// allows a claim of. ?0 run, ?1 class, ?2 budget.
+const reopenLocalSQL = runJobsCTE + `
 UPDATE contributor_normalization_job j
 SET status = 'pending', last_error_class = NULL, lease_owner = NULL, lease_expires_at = NULL,
 	next_attempt_at = clock_timestamp(), finished_at = NULL
-FROM run_inputs ri
-WHERE j.source_fingerprint = ri.source_fingerprint AND j.extractor_version = ri.extractor_version
-	AND j.normalizer_version = ?3 AND j.status = 'failed' AND j.attempt_count < ?2
+WHERE j.id IN (SELECT id FROM run_jobs) AND j.status = 'failed' AND j.attempt_count < ?2
 	AND (j.last_error_class = ?1 OR EXISTS (SELECT 1 FROM contributor_normalization_job_attempt a
 		WHERE a.job_id = j.id AND a.error_class = ?1))`
 
@@ -389,7 +317,7 @@ func ReopenRunRows(
 		case RetryExtraction:
 			res, err = tx.ExecContext(ctx, reopenExtractionSQL, runID, errorClass, maxAttempts)
 		case RetryLocal:
-			res, err = tx.ExecContext(ctx, reopenLocalSQL, runID, errorClass, maxAttempts, run.NormalizerVersion)
+			res, err = tx.ExecContext(ctx, reopenLocalSQL, runID, errorClass, maxAttempts)
 		default:
 			return fmt.Errorf("%w: unknown retry stream", ErrInvalidLeaseFailure)
 		}

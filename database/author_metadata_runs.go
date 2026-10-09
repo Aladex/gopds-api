@@ -202,14 +202,53 @@ func TransitionRun(ctx context.Context, db pg.DBI, id int64, from, to models.Aut
 	return nil
 }
 
+// AuthorMetadataRunErrorClasses is the closed vocabulary of a run's
+// last_error_class: the systemic class that pauses a run (an unreadable
+// archive or volume) and the classes that end it failed_systemic. The
+// schema checks the column only for its shape, and a shape is not a
+// vocabulary — a name-shaped value passes it — so the writers check
+// membership. services keeps the constants and a test pins them to this list.
+func AuthorMetadataRunErrorClasses() []string {
+	return []string{classArchiveUnreadable, classDatabaseInvariant, classVersionMismatch, classExtractorMisconfigured}
+}
+
+// ValidRunErrorClass reports whether class is a run error class.
+func ValidRunErrorClass(class string) bool {
+	for _, known := range AuthorMetadataRunErrorClasses() {
+		if class == known {
+			return true
+		}
+	}
+	return false
+}
+
+// ClosedRunErrorClass projects a stored last_error_class onto the run error
+// classes for a response: none stays none, a known class is itself, and any
+// other stored value — the schema accepts the shape — is
+// AuthorMetadataOtherValue, never its own text.
+func ClosedRunErrorClass(class *string) *string {
+	if class == nil {
+		return nil
+	}
+	closed := AuthorMetadataOtherValue
+	if ValidRunErrorClass(*class) {
+		closed = *class
+	}
+	return &closed
+}
+
+// errNotARunErrorClass refuses a systemic write whose class is outside the
+// run error classes; the value itself is not repeated.
+var errNotARunErrorClass = fmt.Errorf("%w: not a run error class", ErrInvalidLeaseFailure)
+
 // PauseRunSystemic pauses a running run because the archive or volume failed:
 // the items keep no mass per-book status (contract 3.3), the run records the
 // closed error class, and claims stop until a resume. Pausing anything but a
 // running run is a conflict — the worker that lost the race to pause simply
 // stops.
 func PauseRunSystemic(ctx context.Context, db pg.DBI, id int64, class string) error {
-	if !ValidLeaseErrorClass(class) {
-		return fmt.Errorf("%w: %q is not a closed error class", ErrInvalidLeaseFailure, class)
+	if !ValidRunErrorClass(class) {
+		return errNotARunErrorClass
 	}
 	res, err := db.ExecContext(ctx, `
 		UPDATE author_metadata_run SET status = 'paused', last_error_class = ?
@@ -227,8 +266,8 @@ func PauseRunSystemic(ctx context.Context, db pg.DBI, id int64, class string) er
 // invariant error means the run cannot make progress (contract 3.3). The
 // terminal status frees the single active-run slot.
 func FailRunSystemic(ctx context.Context, db pg.DBI, id int64, class string) error {
-	if !ValidLeaseErrorClass(class) {
-		return fmt.Errorf("%w: %q is not a closed error class", ErrInvalidLeaseFailure, class)
+	if !ValidRunErrorClass(class) {
+		return errNotARunErrorClass
 	}
 	res, err := db.ExecContext(ctx, `
 		UPDATE author_metadata_run

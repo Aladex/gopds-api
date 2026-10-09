@@ -139,7 +139,7 @@ func sampleRun(now time.Time) AuthorMetadataRunView {
 	created := now.Add(-2 * time.Hour).In(zone)
 	started := now.Add(-time.Hour).In(zone)
 	archive := "fb2-000001-000100.zip"
-	lastError := "transient_database"
+	lastError := "archive_unreadable"
 	return AuthorMetadataRunView{
 		ID: 42, Mode: "pilot_archive", Status: "running",
 		ExtractorVersion: "fb2-metadata-v1", NormalizerVersion: "authornorm-local-v1",
@@ -170,7 +170,7 @@ func sampleRunJSON(now time.Time) string {
 		"id": 42, "mode": "pilot_archive", "status": "running",
 		"extractor_version": "fb2-metadata-v1", "normalizer_version": "authornorm-local-v1",
 		"created_at": %q, "started_at": %q, "extraction_completed_at": null, "completed_at": null,
-		"last_error_class": "transient_database", "approved_for_full": false,
+		"last_error_class": "archive_unreadable", "approved_for_full": false,
 		"stages": {
 			"extraction": {"total": 100, "done": 60, "pending": 38, "leased": 2, "oldest_pending_age_s": 95,
 				"by_status": {"extracted": 50, "extracted_no_author": 3, "already_current": 2, "entry_missing": 1,

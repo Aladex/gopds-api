@@ -197,7 +197,7 @@ func TestSeedRunOneActiveRun(t *testing.T) {
 		require.ErrorIs(t, err, ErrActiveRunExists, "second active run in status %q", status)
 	}
 
-	require.NoError(t, FailRunSystemic(ctx, scratch, first.ID, "transient_database"))
+	require.NoError(t, FailRunSystemic(ctx, scratch, first.ID, "database_invariant"))
 	freed := runSeed()
 	freed.SelectorBookIDs = []int64{book}
 	require.NoError(t, SeedRun(ctx, scratch, freed, []int64{book}), "a terminal run frees the slot")
@@ -280,7 +280,7 @@ func TestSystemicRunTransitions(t *testing.T) {
 	t.Run("fail_systemic finishes the run", func(t *testing.T) {
 		sf := withAuthorSchemaTx(t)
 		run := sf.run(&runSpec{status: "paused"})
-		require.NoError(t, FailRunSystemic(ctx, sf.tx, run, "transient_database"))
+		require.NoError(t, FailRunSystemic(ctx, sf.tx, run, "database_invariant"))
 		var status models.AuthorMetadataRunStatus
 		var finishedAt *time.Time
 		_, err := sf.tx.QueryOne(pg.Scan(&status, &finishedAt),
@@ -289,7 +289,7 @@ func TestSystemicRunTransitions(t *testing.T) {
 		assert.Equal(t, models.AuthorMetadataRunFailedSystemic, status)
 		assert.NotNil(t, finishedAt)
 
-		require.ErrorIs(t, FailRunSystemic(ctx, sf.tx, run, "transient_database"), ErrRunTransitionConflict,
+		require.ErrorIs(t, FailRunSystemic(ctx, sf.tx, run, "database_invariant"), ErrRunTransitionConflict,
 			"a terminal run cannot fail again")
 	})
 }

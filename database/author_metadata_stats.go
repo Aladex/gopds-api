@@ -20,9 +20,6 @@ import (
 // stream reports zeros: no NaN, nothing negative, no null map. There is no
 // LLM stream, so no token or cost figure (scope amendment A1).
 
-// ErrRunNotFound marks a run ID with no row.
-var ErrRunNotFound = errors.New("database: author metadata run not found")
-
 // AuthorMetadataOtherValue is the one dimension value every value outside a
 // closed set is counted under. The schema accepts any error class of the
 // right shape, and a shape is not a vocabulary: an unknown class could carry
@@ -99,25 +96,32 @@ type AuthorMetadataStats struct {
 }
 
 // AuthorMetadataExtractionStats is the extraction stream of the run.
+// Leased is a live lease (lease_expires_at still ahead on the database
+// clock); Pending is every other non-terminal item, an expired lease
+// included, since any worker may claim it. Total = Pending + Leased +
+// Terminal.
 type AuthorMetadataExtractionStats struct {
 	Total    int64 `json:"total"`
 	Pending  int64 `json:"pending"`
 	Leased   int64 `json:"leased"`
 	Terminal int64 `json:"terminal"`
-	// OldestPendingAgeS is the age of the oldest pending item, 0 without one.
+	// OldestPendingAgeS is the age of the oldest non-terminal item, leased
+	// or not, 0 without one.
 	OldestPendingAgeS float64 `json:"oldest_pending_age_s"`
 	// ByStatus has every terminal status, zero or not.
 	ByStatus map[string]int64 `json:"by_status"`
 	// ErrorClasses counts the closed classes recorded on attempts.
 	ErrorClasses map[string]int64 `json:"error_classes"`
-	// DurationS runs from the run's start to extraction completion, or to now
-	// while extraction goes on; 0 before the run started.
+	// DurationS runs from the run's start to extraction completion — or to
+	// the run's end, when it ended before that — or to now while extraction
+	// goes on; 0 before the run started.
 	DurationS      float64 `json:"duration_s"`
 	ItemsPerSecond float64 `json:"items_per_second"`
 }
 
 // AuthorMetadataLocalStats is the local normalization stream of the run's
-// inputs: the jobs of the current author credits of its books.
+// inputs: the jobs of the current author credits of its books. Leased and
+// Pending split the pending jobs by a live lease, as for extraction.
 type AuthorMetadataLocalStats struct {
 	Pending           int64            `json:"pending"`
 	Leased            int64            `json:"leased"`
@@ -154,6 +158,28 @@ type AuthorMetadataCreditStats struct {
 	Review     int64            `json:"review"`
 	Pending    int64            `json:"pending"`
 	Unresolved map[string]int64 `json:"unresolved"`
+}
+
+// Settled reports whether every credit is accounted.
+func (c *AuthorMetadataCreditStats) Settled() bool { return c.Pending == 0 }
+
+// ResultClasses are the coverage counts by the decision class and by the
+// script of a result that has them: the markers of a result without one
+// (a manual result) are left out.
+func (c *AuthorMetadataCoverage) ResultClasses() (byClass, byScript map[string]int64) {
+	byClass = make(map[string]int64, len(c.ByDecisionClass))
+	for class, n := range c.ByDecisionClass {
+		if class != coverageManual {
+			byClass[class] = n
+		}
+	}
+	byScript = make(map[string]int64, len(c.ByScript))
+	for script, n := range c.ByScript {
+		if script != coverageNoScript {
+			byScript[script] = n
+		}
+	}
+	return byClass, byScript
 }
 
 // runAuthorRowsCTE names the current author credits of the run's books (?0)
@@ -237,15 +263,16 @@ func extractionStats(ctx context.Context, db pg.DBI, runID int64) (AuthorMetadat
 	_, err := db.QueryOneContext(ctx, &run, `
 		SELECT
 			(SELECT count(*) FROM author_metadata_run_item WHERE run_id = r.id) AS total,
-			(SELECT count(*) FROM author_metadata_run_item WHERE run_id = r.id AND status = 'pending') AS pending,
+			(SELECT count(*) FROM author_metadata_run_item WHERE run_id = r.id AND status = 'pending'
+				AND (lease_expires_at IS NULL OR lease_expires_at <= clock_timestamp())) AS pending,
 			(SELECT count(*) FROM author_metadata_run_item
-				WHERE run_id = r.id AND status = 'pending' AND lease_owner IS NOT NULL) AS leased,
+				WHERE run_id = r.id AND status = 'pending' AND lease_expires_at > clock_timestamp()) AS leased,
 			(SELECT count(*) FROM author_metadata_run_item WHERE run_id = r.id AND status <> 'pending') AS terminal,
 			greatest(0, coalesce(extract(epoch FROM clock_timestamp() - (
 				SELECT min(created_at) FROM author_metadata_run_item
 				WHERE run_id = r.id AND status = 'pending')), 0))::float8 AS oldest_age,
 			greatest(0, coalesce(extract(epoch FROM
-				coalesce(r.extraction_completed_at, clock_timestamp()) - r.started_at), 0))::float8 AS duration
+				coalesce(r.extraction_completed_at, r.finished_at, clock_timestamp()) - r.started_at), 0))::float8 AS duration
 		FROM author_metadata_run r WHERE r.id = ?`, runID)
 	if errors.Is(err, pg.ErrNoRows) {
 		return AuthorMetadataExtractionStats{}, ErrRunNotFound
@@ -293,8 +320,9 @@ func localStats(ctx context.Context, db pg.DBI, runID int64) (AuthorMetadataLoca
 	var stats AuthorMetadataLocalStats
 	_, err := db.QueryOneContext(ctx, &stats, runJobsCTE+`
 		SELECT
-			count(*) FILTER (WHERE status = 'pending') AS pending,
-			count(*) FILTER (WHERE status = 'pending' AND lease_owner IS NOT NULL) AS leased,
+			count(*) FILTER (WHERE status = 'pending'
+				AND (lease_expires_at IS NULL OR lease_expires_at <= clock_timestamp())) AS pending,
+			count(*) FILTER (WHERE status = 'pending' AND lease_expires_at > clock_timestamp()) AS leased,
 			count(*) FILTER (WHERE status = 'completed') AS completed,
 			count(*) FILTER (WHERE status = 'failed') AS failed,
 			greatest(0, coalesce(extract(epoch FROM clock_timestamp() - min(created_at) FILTER (WHERE status = 'pending')), 0))::float8

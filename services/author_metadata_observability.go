@@ -58,6 +58,7 @@ const (
 	AuthorMetadataEventWorkersDisabled        AuthorMetadataEventName = "author_metadata.workers_disabled"
 	AuthorMetadataEventWorkersNotStarted      AuthorMetadataEventName = "author_metadata.workers_not_started"
 	AuthorMetadataEventWorkersShutdownTimeout AuthorMetadataEventName = "author_metadata.workers_shutdown_timeout"
+	AuthorMetadataEventRunsAPINotWired        AuthorMetadataEventName = "author_metadata.runs_api_not_wired"
 )
 
 // AuthorMetadataEventNames lists every event.
@@ -76,7 +77,7 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventWorkersStarted, AuthorMetadataEventWorkersStopped,
 		AuthorMetadataEventWorkerStopped, AuthorMetadataEventWorkerBatchFailed,
 		AuthorMetadataEventWorkersDisabled, AuthorMetadataEventWorkersNotStarted,
-		AuthorMetadataEventWorkersShutdownTimeout,
+		AuthorMetadataEventWorkersShutdownTimeout, AuthorMetadataEventRunsAPINotWired,
 	}
 }
 

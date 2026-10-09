@@ -55,11 +55,14 @@ func newAuthorMetadataRunsAPI(db *pg.DB, c *config.AuthorMetadataConfig) (api.Au
 // initializeAuthorMetadataRunsAPI installs the admin runs service the admin
 // routes mount. It is wired whether or not the workers run, so an operator
 // can always read runs; a failure leaves the routes answering
-// run_service_unavailable.
+// run_service_unavailable and is logged as a closed event, never its text.
 func initializeAuthorMetadataRunsAPI(db *pg.DB, c *config.AuthorMetadataConfig) {
 	svc, err := newAuthorMetadataRunsAPI(db, c)
 	if err != nil {
-		logging.Errorf("Author metadata runs API not wired: %v", err)
+		services.LogAuthorMetadataEvent(services.AuthorMetadataEventError, &services.AuthorMetadataEvent{
+			Name: services.AuthorMetadataEventRunsAPINotWired, Stage: services.AuthorMetadataStageRunner,
+			SQLState: services.AuthorMetadataSQLState(err),
+		})
 		return
 	}
 	api.SetAuthorMetadataRunService(svc)

@@ -92,12 +92,15 @@ func NewAuthorMetadataRunAdmin(
 	return a, nil
 }
 
-// AuthorMetadataRunState is one run as the admin sees it.
+// AuthorMetadataRunState is one run as the admin sees it. Its stages,
+// credits and coverage are the run's stats (database.AuthorMetadataStatsForRun)
+// read once, so the status and the report show the stats' own numbers.
 type AuthorMetadataRunState struct {
 	Run      models.AuthorMetadataRun
 	Approved bool
 	Stages   database.RunStageStats
-	Credits  database.CreditAccounting
+	Credits  database.AuthorMetadataCreditStats
+	Coverage database.AuthorMetadataCoverage
 }
 
 // AuthorMetadataRunReportState is a run with its readiness verdict.
@@ -114,12 +117,16 @@ func (a *AuthorMetadataRunAdmin) state(ctx context.Context, run *models.AuthorMe
 	if st.Approved, err = database.RunApproved(ctx, a.db, run.ID); err != nil {
 		return AuthorMetadataRunState{}, err
 	}
-	if st.Stages, err = database.LoadRunStageStats(ctx, a.db, run); err != nil {
+	stats, err := database.AuthorMetadataStatsForRun(ctx, a.db, run.ID)
+	if err != nil {
 		return AuthorMetadataRunState{}, err
 	}
-	if st.Credits, err = database.AuthorCreditAccountingForRun(ctx, a.db, run.ID); err != nil {
+	archive, err := database.RunCurrentArchive(ctx, a.db, run.ID)
+	if err != nil {
 		return AuthorMetadataRunState{}, err
 	}
+	st.Stages = database.RunStageStatsFrom(&stats, archive)
+	st.Credits, st.Coverage = stats.Credits, stats.Coverage
 	return st, nil
 }
 
@@ -152,7 +159,7 @@ func (a *AuthorMetadataRunAdmin) Report(ctx context.Context, id int64) (AuthorMe
 	if err != nil {
 		return AuthorMetadataRunReportState{}, err
 	}
-	facts, err := database.LoadRunReportFacts(ctx, a.db, id)
+	facts, err := database.LoadRunReportFacts(ctx, a.db, id, &st.Coverage)
 	if err != nil {
 		return AuthorMetadataRunReportState{}, err
 	}
@@ -226,6 +233,9 @@ func (a *AuthorMetadataRunAdmin) Retry(
 		classes, stream, budget = AuthorMetadataExtractionRetryClasses(), database.RetryExtraction, a.extractionMaxAttempts
 	case AuthorMetadataStageLocalNormalization:
 		classes, stream, budget = AuthorMetadataLocalRetryClasses(), database.RetryLocal, a.localMaxAttempts
+	case AuthorMetadataStageDualWrite, AuthorMetadataStageReview, AuthorMetadataStageRunner:
+		// The event stages have no rows a retry could reopen.
+		return 0, ErrInvalidRetryClass
 	default:
 		return 0, ErrInvalidRetryClass
 	}

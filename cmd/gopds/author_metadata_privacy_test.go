@@ -56,3 +56,36 @@ func TestReviewAPIWiringFailureIsAClosedEvent(t *testing.T) {
 	assert.Equal(t, logrus.ErrorLevel, notWired[0].Level)
 	assert.Equal(t, logrus.Fields{"stage": string(services.AuthorMetadataStageReview)}, notWired[0].Data)
 }
+
+// Integration with phase 16 Part 2: the runs API wiring failure is a closed
+// event too.
+func TestRunsAPIWiringFailureIsAClosedEvent(t *testing.T) {
+	hook := logrustest.NewLocal(logging.GetLogger())
+	t.Cleanup(hook.Reset)
+	previous := logging.GetLogger().GetLevel()
+	logging.GetLogger().SetLevel(logrus.TraceLevel)
+	t.Cleanup(func() { logging.GetLogger().SetLevel(previous) })
+
+	// Without a database the run admin refuses to build.
+	c := config.AuthorMetadataConfig{}
+	_, wiringErr := newAuthorMetadataRunsAPI(nil, &c)
+	require.Error(t, wiringErr)
+	hook.Reset()
+
+	initializeAuthorMetadataRunsAPI(nil, &c)
+
+	var notWired []*logrus.Entry
+	for _, entry := range hook.AllEntries() {
+		line, err := entry.String()
+		require.NoError(t, err)
+		assert.NotContains(t, line, wiringErr.Error(), "the error text is never logged")
+		assert.NotContains(t, line, "run admin", "no part of it either")
+		if entry.Message == string(services.AuthorMetadataEventRunsAPINotWired) {
+			notWired = append(notWired, entry)
+		}
+		assert.True(t, strings.HasPrefix(entry.Message, "author_metadata."), "only closed events: %q", entry.Message)
+	}
+	require.Len(t, notWired, 1)
+	assert.Equal(t, logrus.ErrorLevel, notWired[0].Level)
+	assert.Equal(t, logrus.Fields{"stage": string(services.AuthorMetadataStageRunner)}, notWired[0].Data)
+}

@@ -155,7 +155,7 @@ func runView(st *services.AuthorMetadataRunState) AuthorMetadataRunView {
 	ex := &st.Stages.Extraction
 	unresolved := make(map[string]int64, len(st.Credits.Unresolved))
 	for reason, n := range st.Credits.Unresolved {
-		unresolved[string(reason)] = int64(n)
+		unresolved[reason] = n
 	}
 	return AuthorMetadataRunView{
 		ID: run.ID, Mode: string(run.Mode), Status: string(run.Status),
@@ -185,8 +185,8 @@ func runView(st *services.AuthorMetadataRunState) AuthorMetadataRunView {
 			Review: AuthorMetadataReviewStage{Open: st.Stages.Review.Open, Closed: st.Stages.Review.Closed},
 		},
 		Credits: AuthorMetadataCreditCounts{
-			Selected: int64(st.Credits.Selected), Invalid: int64(st.Credits.Invalid),
-			Review: int64(st.Credits.Review), Pending: int64(st.Credits.Pending), Unresolved: unresolved,
+			Selected: st.Credits.Selected, Invalid: st.Credits.Invalid,
+			Review: st.Credits.Review, Pending: st.Credits.Pending, Unresolved: unresolved,
 		},
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"gopds-api/database"
 	"gopds-api/models"
 	"gopds-api/services"
 
@@ -659,9 +660,11 @@ func nonNilCounts(m map[string]int64) map[string]int64 {
 }
 
 // presentRun normalizes a run for the contract: UTC timestamps, {} for an
-// empty breakdown.
+// empty breakdown, and last_error_class projected onto the closed run error
+// classes (database.ClosedRunErrorClass) whatever the service returned.
 func presentRun(in *AuthorMetadataRunView) AuthorMetadataRunView {
 	run := *in
+	run.LastErrorClass = database.ClosedRunErrorClass(run.LastErrorClass)
 	run.CreatedAt = run.CreatedAt.UTC()
 	run.StartedAt = utcPtr(run.StartedAt)
 	run.ExtractionCompletedAt = utcPtr(run.ExtractionCompletedAt)

@@ -322,3 +322,60 @@ func TestStatsCoverageScriptIsTheClosedSet(t *testing.T) {
 	assert.NotContains(t, stats.Coverage.ByScript, "Qwer")
 	assertClosedDimensions(t, &stats)
 }
+
+// Integration with phase 16 Part 2: leased is a live lease, the same
+// definition the runs API shows, and pending excludes it. A lease that ran
+// out is pending again — any worker may claim the row — whatever owner it
+// still names.
+func TestStatsLeasedIsALiveLease(t *testing.T) {
+	s := localWorkerDB(t)
+	resetPipeline(t, s)
+	f := &workerFixture{t: t, db: s}
+	ctx := context.Background()
+	dir := t.TempDir()
+	privacyArchive(t, dir, "fixture.zip", map[string]string{"canary.fb2": canaryFB2})
+	run := f.privacyRun("fixture.zip", "canary.fb2", "absent.fb2", "absent-2.fb2")
+	owner := database.NewLeaseOwner()
+
+	claims, err := database.ClaimExtractionItems(ctx, s, owner, database.LeaseClaimOptions{Limit: 1, Lease: time.Minute, MaxAttempts: 3})
+	require.NoError(t, err)
+	require.Len(t, claims, 1)
+	stats, err := database.AuthorMetadataStatsForRun(ctx, s, run.ID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), stats.Extraction.Pending, "the leased item is not pending")
+	assert.Equal(t, int64(1), stats.Extraction.Leased)
+
+	f.exec(`UPDATE author_metadata_run_item SET lease_expires_at = clock_timestamp() - interval '1 second' WHERE id = ?`, claims[0].ID)
+	stats, err = database.AuthorMetadataStatsForRun(ctx, s, run.ID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), stats.Extraction.Pending, "an expired lease is pending again")
+	assert.Zero(t, stats.Extraction.Leased, "an expired lease is not a lease, whatever owner it names")
+
+	drainExtraction(t, ctx, privacyExtraction(t, s, dir, ZipArchiveSource{}, productionExtractor()))
+	jobs := int64(f.count(`SELECT count(*) FROM contributor_normalization_job WHERE status = 'pending'`))
+	require.Positive(t, jobs)
+	local, err := database.ClaimLocalNormalizationJobs(ctx, s, owner, database.LeaseClaimOptions{Limit: 1, Lease: time.Minute, MaxAttempts: 3})
+	require.NoError(t, err)
+	require.Len(t, local, 1)
+	stats, err = database.AuthorMetadataStatsForRun(ctx, s, run.ID)
+	require.NoError(t, err)
+	assert.Equal(t, jobs-1, stats.Local.Pending, "the leased job is not pending")
+	assert.Equal(t, int64(1), stats.Local.Leased)
+
+	f.exec(`UPDATE contributor_normalization_job SET lease_expires_at = clock_timestamp() - interval '1 second' WHERE id = ?`, local[0].ID)
+	stats, err = database.AuthorMetadataStatsForRun(ctx, s, run.ID)
+	require.NoError(t, err)
+	assert.Equal(t, jobs, stats.Local.Pending, "an expired lease is pending again")
+	assert.Zero(t, stats.Local.Leased)
+}
+
+// Integration fix round 1: the classes the extraction worker pauses or ends
+// a run with are exactly the run error classes the writers accept and the
+// API shows.
+func TestSystemicClassesAreTheRunErrorClasses(t *testing.T) {
+	systemic := []string{
+		string(AuthorMetadataErrorArchiveUnreadable), string(AuthorMetadataErrorDatabaseInvariant),
+		string(AuthorMetadataErrorVersionMismatch), string(AuthorMetadataErrorExtractorMisconfigured),
+	}
+	assert.ElementsMatch(t, systemic, database.AuthorMetadataRunErrorClasses())
+}

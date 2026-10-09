@@ -71,3 +71,42 @@ func assertNoNaNOrNegative(t *testing.T, stats *AuthorMetadataStats) {
 	}
 	walk("stats", tree)
 }
+
+// Integration with phase 16 Part 2: a run that ended before its extraction
+// completed has a fixed extraction duration — up to its end, not to now — so
+// its throughput stops moving.
+func TestStatsDurationStopsWhenTheRunEnds(t *testing.T) {
+	s := jobsDB(t)
+	ctx := context.Background()
+	run := &models.AuthorMetadataRun{
+		Mode: models.AuthorMetadataRunFull, Status: models.AuthorMetadataRunPending,
+		ExtractorVersion: "extractor-v1", NormalizerVersion: "normalizer-v1",
+	}
+	require.NoError(t, SeedRun(ctx, s, run, nil))
+	_, err := s.Exec(`UPDATE author_metadata_run SET status = 'failed_systemic', last_error_class = 'database_invariant',
+		started_at = clock_timestamp() - interval '10 seconds', finished_at = clock_timestamp() - interval '4 seconds'
+		WHERE id = ?`, run.ID)
+	require.NoError(t, err)
+
+	stats, err := AuthorMetadataStatsForRun(ctx, s, run.ID)
+	require.NoError(t, err)
+	assert.InDelta(t, 6, stats.Extraction.DurationS, 0.5, "started to ended, not to now")
+}
+
+// The report's result classes are the coverage of results that have a
+// decision class and a script: a manual result has neither, and its markers
+// are not a class or a script of their own.
+func TestCoverageResultClassesLeaveOutManualResults(t *testing.T) {
+	cov := AuthorMetadataCoverage{
+		ByDecisionClass: map[string]int64{"initials": 2, coverageManual: 3, AuthorMetadataOtherValue: 1},
+		ByScript:        map[string]int64{"Cyrl": 4, coverageNoScript: 3},
+	}
+	byClass, byScript := cov.ResultClasses()
+	assert.Equal(t, map[string]int64{"initials": 2, AuthorMetadataOtherValue: 1}, byClass)
+	assert.Equal(t, map[string]int64{"Cyrl": 4}, byScript)
+
+	empty := AuthorMetadataCoverage{}
+	byClass, byScript = empty.ResultClasses()
+	assert.NotNil(t, byClass, "an empty report map is an object, not null")
+	assert.NotNil(t, byScript)
+}

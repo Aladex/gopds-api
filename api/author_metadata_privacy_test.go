@@ -18,10 +18,7 @@ import (
 
 	"gopds-api/logging"
 
-	//nolint:depguard // the test raises the logger to its most verbose level
-	"github.com/sirupsen/logrus"
-	//nolint:depguard // asserting on emitted log output needs logrus' own test hook, and logging wraps logrus
-	logrustest "github.com/sirupsen/logrus/hooks/test"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -30,14 +27,60 @@ const apiCanary = "zqxcanary"
 
 var errAPICanary = errors.New("provider said Zqxcanary Title by Zqxcanaryov failed")
 
+// loggedRunsRouter mounts the runs routes behind the server's request
+// logger, which writes every handler's c.Errors into the log.
+func loggedRunsRouter(svc AuthorMetadataRunService) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(logging.GinrusLogger())
+	admin := r.Group("/api/admin", func(c *gin.Context) {
+		c.Set("username", "admin")
+		c.Set("user_id", adminActorID)
+		c.Next()
+	})
+	SetupAuthorMetadataRunRoutes(admin.Group("/author-metadata"), svc)
+	return r
+}
+
+// runsCanaryRequests is every runs route; the selectors and the retry class
+// carry the canary where a body takes text.
+var runsCanaryRequests = []struct{ method, path, body string }{
+	{http.MethodPost, "/api/admin/author-metadata/runs", `{"mode":"smoke","book_ids":[1]}`},
+	{http.MethodPost, "/api/admin/author-metadata/runs", `{"mode":"pilot_archive","archive":"zqxcanary-title.zip"}`},
+	{http.MethodGet, "/api/admin/author-metadata/runs/current", ""},
+	{http.MethodGet, "/api/admin/author-metadata/runs/7", ""},
+	{http.MethodGet, "/api/admin/author-metadata/runs/7/report", ""},
+	{http.MethodPost, "/api/admin/author-metadata/runs/7/pause", ""},
+	{http.MethodPost, "/api/admin/author-metadata/runs/7/resume", ""},
+	{http.MethodPost, "/api/admin/author-metadata/runs/7/approve-full", ""},
+	{http.MethodPost, "/api/admin/author-metadata/runs/7/retry", `{"stage":"extraction","error_class":"entry_missing"}`},
+}
+
+// Integration with phase 16 Part 2: every runs route answers its success
+// behind the request logger, and none of the text a request body carries is
+// logged.
+func TestAuthorMetadataRunSuccessLogsNoRequestText(t *testing.T) {
+	hook := traceHook(t)
+	now := time.Now()
+	run := sampleRun(now)
+	svc := &fakeRunService{run: run, current: &run, report: AuthorMetadataRunReport{
+		AuthorMetadataRunView: run, NotReadyReasons: []string{}, ByClass: map[string]int64{}, ByScript: map[string]int64{},
+	}, reopened: 1}
+	r := loggedRunsRouter(svc)
+	for _, req := range runsCanaryRequests {
+		rec := runsRequest(t, r, req.method, req.path, req.body)
+		assert.Less(t, rec.Code, http.StatusBadRequest, "%s %s: %s", req.method, req.path, rec.Body.String())
+	}
+	assert.Equal(t, "zqxcanary-title.zip", *svc.start.Archive, "the canary reached the service")
+	require.NotEmpty(t, hook.AllEntries(), "the request logger ran")
+	assertNoCanaryLogged(t, hook)
+}
+
 // RED 8: whatever text a service error carries, the response is its closed
-// code, and nothing of the text reaches the body or a log.
+// code, and nothing of the text reaches the body or a log — behind the
+// server's request logger.
 func TestAuthorMetadataRunErrorsAreClosedCodes(t *testing.T) {
-	hook := logrustest.NewLocal(logging.GetLogger())
-	t.Cleanup(hook.Reset)
-	previous := logging.GetLogger().GetLevel()
-	logging.GetLogger().SetLevel(logrus.TraceLevel)
-	t.Cleanup(func() { logging.GetLogger().SetLevel(previous) })
+	hook := traceHook(t)
 
 	errs := []struct {
 		err    error
@@ -48,20 +91,10 @@ func TestAuthorMetadataRunErrorsAreClosedCodes(t *testing.T) {
 		{fmt.Errorf("%w: %w", ErrAuthorMetadataActiveRunExists, errAPICanary), http.StatusConflict, codeActiveRunExists},
 		{fmt.Errorf("%w: %w", ErrAuthorMetadataRunNotFound, errAPICanary), http.StatusNotFound, codeRunNotFound},
 	}
-	requests := []struct{ method, path, body string }{
-		{http.MethodPost, "/api/admin/author-metadata/runs", `{"mode":"smoke","book_ids":[1]}`},
-		{http.MethodGet, "/api/admin/author-metadata/runs/current", ""},
-		{http.MethodGet, "/api/admin/author-metadata/runs/7", ""},
-		{http.MethodGet, "/api/admin/author-metadata/runs/7/report", ""},
-		{http.MethodPost, "/api/admin/author-metadata/runs/7/pause", ""},
-		{http.MethodPost, "/api/admin/author-metadata/runs/7/resume", ""},
-		{http.MethodPost, "/api/admin/author-metadata/runs/7/approve-full", ""},
-		{http.MethodPost, "/api/admin/author-metadata/runs/7/retry", `{"stage":"extraction","error_class":"entry_missing"}`},
-	}
 	for _, e := range errs {
-		for _, req := range requests {
+		for _, req := range runsCanaryRequests {
 			t.Run(fmt.Sprintf("%s %s -> %s", req.method, req.path, e.code), func(t *testing.T) {
-				rec := runsRequest(t, runsRouter(&fakeRunService{err: e.err}), req.method, req.path, req.body)
+				rec := runsRequest(t, loggedRunsRouter(&fakeRunService{err: e.err}), req.method, req.path, req.body)
 				assert.Equal(t, e.status, rec.Code)
 				var body map[string]interface{}
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
@@ -70,11 +103,25 @@ func TestAuthorMetadataRunErrorsAreClosedCodes(t *testing.T) {
 			})
 		}
 	}
-	for _, entry := range hook.AllEntries() {
-		line, err := entry.String()
-		require.NoError(t, err)
-		assert.NotContains(t, strings.ToLower(line+fmt.Sprint(entry.Data)), apiCanary)
+	// Validation refusals of bodies that carry the canary answer a closed
+	// code too.
+	r := loggedRunsRouter(&fakeRunService{})
+	for _, body := range []string{
+		`{"mode":"zqxcanary"}`,
+		`{"mode":"pilot_archive","archive":"zqxcanary.zip","book_ids":[1]}`,
+		`{"mode":"smoke","book_ids":[1],"zqxcanary":1}`,
+	} {
+		rec := runsRequest(t, r, http.MethodPost, "/api/admin/author-metadata/runs", body)
+		assert.Equal(t, http.StatusBadRequest, rec.Code, body)
+		assert.NotContains(t, strings.ToLower(rec.Body.String()), apiCanary, body)
 	}
+	rec := runsRequest(t, r, http.MethodPost, "/api/admin/author-metadata/runs/7/retry",
+		`{"stage":"local","error_class":"zqxcanary"}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.NotContains(t, strings.ToLower(rec.Body.String()), apiCanary)
+
+	require.NotEmpty(t, hook.AllEntries(), "the request logger ran")
+	assertNoCanaryLogged(t, hook)
 }
 
 // jsonKeys collects every object key of a JSON document, dotted by path.
@@ -155,6 +202,49 @@ func TestAuthorMetadataComponentsSendNoWebSocketEvents(t *testing.T) {
 		lower := strings.ToLower(string(src))
 		for _, ws := range []string{"websocket", "broadcast", "sendtoadmins"} {
 			assert.NotContains(t, lower, ws, "%s sends a WebSocket event", file)
+		}
+	}
+}
+
+// Integration fix round 1: last_error_class is projected onto the closed run
+// error classes on every response that carries a run. A stored value outside
+// them — name-shaped text passes the schema's shape — answers "other"; a
+// known class is itself; none stays null. The key is unchanged.
+func TestAuthorMetadataRunLastErrorClassIsClosed(t *testing.T) {
+	routes := []struct{ method, path, body, key string }{
+		{http.MethodPost, "/api/admin/author-metadata/runs", `{"mode":"smoke","book_ids":[1]}`, jsonKeyRun},
+		{http.MethodGet, "/api/admin/author-metadata/runs/current", "", jsonKeyRun},
+		{http.MethodGet, "/api/admin/author-metadata/runs/7", "", jsonKeyRun},
+		{http.MethodGet, "/api/admin/author-metadata/runs/7/report", "", "report"},
+		{http.MethodPost, "/api/admin/author-metadata/runs/7/pause", "", jsonKeyRun},
+		{http.MethodPost, "/api/admin/author-metadata/runs/7/resume", "", jsonKeyRun},
+		{http.MethodPost, "/api/admin/author-metadata/runs/7/approve-full", "", jsonKeyRun},
+	}
+	canary := "zqxcanary_person_123456"
+	known := "archive_unreadable"
+	for _, tc := range []struct {
+		name   string
+		stored *string
+		want   interface{}
+	}{
+		{"name-shaped value", &canary, "other"},
+		{"known class", &known, known},
+		{"none", nil, nil},
+	} {
+		run := sampleRun(time.Now())
+		run.LastErrorClass = tc.stored
+		svc := &fakeRunService{run: run, current: &run, report: AuthorMetadataRunReport{
+			AuthorMetadataRunView: run, NotReadyReasons: []string{},
+		}}
+		for _, route := range routes {
+			rec := runsRequest(t, runsRouter(svc), route.method, route.path, route.body)
+			require.Less(t, rec.Code, http.StatusBadRequest, "%s %s: %s", route.method, route.path, rec.Body.String())
+			assert.NotContains(t, strings.ToLower(rec.Body.String()), apiCanary, "%s %s", tc.name, route.path)
+			var body map[string]map[string]interface{}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			value, present := body[route.key]["last_error_class"]
+			require.True(t, present, "the key stays: %s %s", tc.name, route.path)
+			assert.Equal(t, tc.want, value, "%s %s", tc.name, route.path)
 		}
 	}
 }
