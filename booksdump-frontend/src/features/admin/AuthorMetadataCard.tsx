@@ -15,8 +15,9 @@ import { closedErrorCode } from '@/api/admin';
  * server's gate for a full run: without an approved pilot of the current
  * versions it first checks one archive (the smallest non-empty one), and once
  * that check is complete and clean the same button approves it and walks the
- * whole catalogue. A check that is not clean leaves the button disabled with
- * its reason; "Retry errors" is the way forward. When the server refuses a
+ * whole catalogue. A few books that can never be read (at most 1% of the run)
+ * do not block it; more than that leaves the button disabled with its reason,
+ * and "Retry errors" is the way forward. When the server refuses a
  * full run because the approved check was made by older versions, the same
  * button starts a new check.
  *
@@ -86,6 +87,16 @@ export function runErrors(run: AuthorMetadataRun): number {
     );
 }
 
+/**
+ * Whether the run's failed books are few enough not to block it: at most 1%
+ * of its books, rounded down. A broken FB2 never reads, so demanding zero would
+ * block the catalogue forever; a systematic failure (a whole charset refused)
+ * is well above this and still stops the operator.
+ */
+export function errorsTolerable(run: AuthorMetadataRun): boolean {
+    return runErrors(run) <= Math.floor(run.stages.extraction.total / 100);
+}
+
 export type CardState =
     | { kind: 'idle' }
     | { kind: 'active'; run: AuthorMetadataRun }
@@ -120,10 +131,10 @@ export function cardState(
         report === null
             ? ['run_not_completed']
             : [...new Set(report.not_ready_reasons.map(closedReason))];
-    if (runErrors(run) > 0 && !reasons.includes('errors')) {
+    if (!errorsTolerable(run) && !reasons.includes('errors')) {
         reasons.push('errors');
     }
-    const clean = report !== null && report.ready && runErrors(run) === 0;
+    const clean = report !== null && report.ready && errorsTolerable(run);
     if (run.mode === 'full') {
         return clean ? { kind: 'done', run } : { kind: 'notDone', run, reasons };
     }
@@ -392,12 +403,20 @@ const AuthorMetadataCard: React.FC = () => {
                 )}
                 {controls && state.kind === 'checkReady' && (
                     <p className="text-sm text-muted-foreground">
-                        {t('authorMetadataCard.checkReady', {
-                            defaultValue:
-                                'The check is clean: {{done}} books, no errors, {{growth}} added. Walk the whole catalogue now.',
-                            done: state.run.stages.extraction.done,
-                            growth: formatBytes(state.report.db_growth_bytes),
-                        })}
+                        {runErrors(state.run) === 0
+                            ? t('authorMetadataCard.checkReady', {
+                                  defaultValue:
+                                      'The check is clean: {{done}} books, no errors, {{growth}} added. Walk the whole catalogue now.',
+                                  done: state.run.stages.extraction.done,
+                                  growth: formatBytes(state.report.db_growth_bytes),
+                              })
+                            : t('authorMetadataCard.checkReadyWithErrors', {
+                                  defaultValue:
+                                      'The check passed: {{done}} books, errors: {{errors}}, {{growth}} added. Walk the whole catalogue now.',
+                                  done: state.run.stages.extraction.done,
+                                  errors: runErrors(state.run),
+                                  growth: formatBytes(state.report.db_growth_bytes),
+                              })}
                     </p>
                 )}
                 {controls && (state.kind === 'checkNotReady' || state.kind === 'notDone') && (

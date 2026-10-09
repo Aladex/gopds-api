@@ -574,6 +574,7 @@
   "authorMetadataCard.errors": "Ошибок: {{count}}",
   "authorMetadataCard.done": "Готово",
   "authorMetadataCard.checkReady": "Проверка прошла чисто: книг {{done}}, ошибок нет, прибавилось {{growth}}. Теперь можно пройти весь каталог.",
+  "authorMetadataCard.checkReadyWithErrors": "Проверка прошла: книг {{done}}, ошибок {{errors}}, прибавилось {{growth}}. Можно пройти весь каталог.",
   "authorMetadataCard.notReady": "Не закончено: {{reasons}}.",
   "authorMetadataCard.idleHint": "Новые книги получают метаданные авторов при сканировании. Проход дочитывает книги, отсканированные раньше, — сначала проверкой на самом маленьком архиве.",
   "authorMetadataCard.pause": "Пауза",

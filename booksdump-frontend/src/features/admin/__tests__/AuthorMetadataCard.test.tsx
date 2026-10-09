@@ -120,6 +120,17 @@ const withFailures = (r: AuthorMetadataRun): AuthorMetadataRun => ({
     },
 });
 
+const withOneBrokenBook = (r: AuthorMetadataRun): AuthorMetadataRun => ({
+    ...r,
+    stages: {
+        ...r.stages,
+        extraction: {
+            ...r.stages.extraction,
+            by_status: { ...r.stages.extraction.by_status, metadata_parse_failed: 1 },
+        },
+    },
+});
+
 const showRun = (latest: AuthorMetadataRun | null, latestReport?: AuthorMetadataReport) => {
     api.getLatestAuthorMetadataRun.mockResolvedValue({ run: latest });
     if (latest !== null) {
@@ -182,6 +193,11 @@ describe('pure state', () => {
         expect(
             cardState(withFailures(run({ mode: 'full' })), report(run({ mode: 'full' }))).kind,
         ).toBe('notDone');
+        // One broken book in 120 is within the 1% tolerance; three are not.
+        expect(cardState(withOneBrokenBook(run()), report(run())).kind).toBe('checkReady');
+        expect(
+            cardState(withOneBrokenBook(run({ mode: 'full' })), report(run({ mode: 'full' }))).kind,
+        ).toBe('done');
         expect(cardState(run({ mode: 'smoke' }), report(run({ mode: 'smoke' }))).kind).toBe('idle');
         expect(cardState(run({ mode: 'full', status: 'failed_systemic' }), null).kind).toBe('idle');
     });
@@ -215,6 +231,22 @@ describe('the card', () => {
         const approveOrder = api.approveAuthorMetadataFullRun.mock.invocationCallOrder[0];
         const startOrder = api.startAuthorMetadataRun.mock.invocationCallOrder[0];
         expect(approveOrder).toBeLessThan(startOrder);
+    });
+
+    it('a check with a few broken books shows their count and still walks the catalogue', async () => {
+        showRun(withOneBrokenBook(run()), report(run()));
+        render(<AuthorMetadataCard />);
+        expect(
+            await screen.findByText(/The check passed: 120 books, errors: 1, 3.0 MB added/),
+        ).toBeInTheDocument();
+        const walk = screen.getByRole('button', { name: 'Walk the catalogue' });
+        expect(walk).toBeEnabled();
+        expect(screen.getByRole('button', { name: 'Retry errors' })).toBeEnabled();
+        fireEvent.click(walk);
+        await waitFor(() =>
+            expect(api.startAuthorMetadataRun).toHaveBeenCalledWith({ mode: 'full' }),
+        );
+        expect(api.approveAuthorMetadataFullRun).toHaveBeenCalledWith(5);
     });
 
     it('a check with errors leaves the button disabled with its reason, and retries every class', async () => {

@@ -570,6 +570,7 @@
   "authorMetadataCard.errors": "Errors: {{count}}",
   "authorMetadataCard.done": "Done",
   "authorMetadataCard.checkReady": "The check is clean: {{done}} books, no errors, {{growth}} added. Walk the whole catalogue now.",
+  "authorMetadataCard.checkReadyWithErrors": "The check passed: {{done}} books, errors: {{errors}}, {{growth}} added. Walk the whole catalogue now.",
   "authorMetadataCard.notReady": "Not finished: {{reasons}}.",
   "authorMetadataCard.idleHint": "New books get their author metadata when they are scanned. The pass reads the books scanned before, after a check on the smallest archive.",
   "authorMetadataCard.pause": "Pause",
