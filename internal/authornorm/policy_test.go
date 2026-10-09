@@ -87,48 +87,86 @@ func TestEmptyPolicyDoesNotSelectAValidStructuredCandidate(t *testing.T) {
 	}
 }
 
-func TestRegisteredExactPolicyClassIsSelected(t *testing.T) {
+// Policy versions are cumulative: a pair registered in version N belongs to
+// every later version, and to no earlier one. A registration only ever adds a
+// pair, under a version of its own, so the selections made under an older
+// version stay exactly what that version said.
+func TestPolicyVersionsAreCumulative(t *testing.T) {
 	r := structuredPersonResult(t)
 	proof := evidence("structured-v2")
 	rows := []ClassRegistration{
-		{PolicyVersion: 2, DecisionClass: ClassStructuredPerson, EvidenceSHA256: proof},
-		{PolicyVersion: 3, DecisionClass: ClassPlaceholder, EvidenceSHA256: evidence("placeholder-v3")},
+		{PolicyVersion: 2, DecisionClass: ClassStructuredPerson, Script: ScriptCyrillic, EvidenceSHA256: proof},
+		{PolicyVersion: 3, DecisionClass: ClassPlaceholder, Script: ScriptCyrillic, EvidenceSHA256: evidence("placeholder-v3")},
+	}
+	placeholder := mustNormalize(t, mustSource(t, SourceComponent{Kind: ComponentLast, Value: "Аноним"}))
+
+	// Version 1 predates both registrations.
+	for _, res := range []*Result{&r, &placeholder} {
+		if d := mustDecide(t, mustPolicy(t, 1, rows...), res); d.Selected() {
+			t.Errorf("policy 1 selected %q registered only later: %+v", res.DecisionClass, d)
+		}
 	}
 
 	d := mustDecide(t, mustPolicy(t, 2, rows...), &r)
-	if !d.Selected() || d.Outcome != OutcomeSelected {
-		t.Fatalf("registered (2, structured_person): decision = %+v, want selected", d)
+	if !d.Selected() || d.PolicyVersion != 2 || d.EvidenceSHA256 != proof {
+		t.Fatalf("policy 2, structured_person: decision = %+v, want selected under 2 with its evidence", d)
 	}
-	if d.PolicyVersion != 2 || d.EvidenceSHA256 != proof {
-		t.Errorf("selection audit = (%d, %x), want (2, %x)", d.PolicyVersion, d.EvidenceSHA256, proof)
-	}
-
-	// The same rows under another policy version register a different class:
-	// the version-2 row must not leak into version 3.
-	other := mustDecide(t, mustPolicy(t, 3, rows...), &r)
-	if other.Selected() || other.Reason != ReasonPolicyNotRegistered {
-		t.Errorf("policy version 3: decision = %+v, want unresolved/policy_not_registered", other)
-	}
-
-	// A version with no rows at all selects nothing either.
-	if d := mustDecide(t, mustPolicy(t, 4, rows...), &r); d.Selected() {
-		t.Errorf("policy version 4 without rows selected: %+v", d)
-	}
-
-	// A registered class does not select a different class.
-	placeholder := mustNormalize(t, mustSource(t, SourceComponent{Kind: ComponentLast, Value: "Аноним"}))
 	if d := mustDecide(t, mustPolicy(t, 2, rows...), &placeholder); d.Selected() {
-		t.Errorf("policy 2 selected unregistered class %q", placeholder.DecisionClass)
+		t.Errorf("policy 2 selected %q registered in 3", placeholder.DecisionClass)
 	}
-	if d := mustDecide(t, mustPolicy(t, 3, rows...), &placeholder); !d.Selected() {
-		t.Errorf("policy 3 did not select its registered class %q: %+v", placeholder.DecisionClass, d)
+
+	// Version 3 keeps the version-2 pair and adds its own; a later version
+	// with no row of its own is the same set again.
+	for _, version := range []int{3, 4} {
+		p := mustPolicy(t, version, rows...)
+		if d := mustDecide(t, p, &r); !d.Selected() || d.PolicyVersion != version || d.EvidenceSHA256 != proof {
+			t.Errorf("policy %d, structured_person: decision = %+v, want selected under %d with the v2 evidence",
+				version, d, version)
+		}
+		if d := mustDecide(t, p, &placeholder); !d.Selected() || d.PolicyVersion != version {
+			t.Errorf("policy %d, placeholder: decision = %+v, want selected", version, d)
+		}
+	}
+}
+
+// Registration is per (decision class, script): a Cyrillic registration
+// selects Cyrillic results of the class and nothing else.
+func TestPolicyIsKeyedByScript(t *testing.T) {
+	cyrillic := structuredPersonResult(t)
+	latin := mustNormalize(t, mustSource(t,
+		SourceComponent{Kind: ComponentFirst, Value: "Arthur"},
+		SourceComponent{Kind: ComponentLast, Value: "Conan"},
+	))
+	if cyrillic.DecisionClass != ClassStructuredPerson || latin.DecisionClass != ClassStructuredPerson ||
+		cyrillic.Script != ScriptCyrillic || latin.Script != ScriptLatin {
+		t.Fatalf("fixtures drifted: %q/%q and %q/%q", cyrillic.DecisionClass, cyrillic.Script, latin.DecisionClass, latin.Script)
+	}
+	cyrl := ClassRegistration{PolicyVersion: 2, DecisionClass: ClassStructuredPerson, Script: ScriptCyrillic, EvidenceSHA256: evidence("cyrl")}
+	latn := ClassRegistration{PolicyVersion: 3, DecisionClass: ClassStructuredPerson, Script: ScriptLatin, EvidenceSHA256: evidence("latn")}
+
+	onlyCyrillic := mustPolicy(t, 2, cyrl, latn)
+	if d := mustDecide(t, onlyCyrillic, &cyrillic); !d.Selected() {
+		t.Errorf("registered (structured_person, Cyrl): decision = %+v, want selected", d)
+	}
+	if d := mustDecide(t, onlyCyrillic, &latin); d.Selected() || d.Outcome != OutcomeUnresolved || d.Reason != ReasonPolicyNotRegistered {
+		t.Errorf("unregistered (structured_person, Latn): decision = %+v, want unresolved/policy_not_registered", d)
+	}
+
+	both := mustPolicy(t, 3, cyrl, latn)
+	for _, tc := range []struct {
+		r     *Result
+		proof [32]byte
+	}{{&cyrillic, cyrl.EvidenceSHA256}, {&latin, latn.EvidenceSHA256}} {
+		if d := mustDecide(t, both, tc.r); !d.Selected() || d.EvidenceSHA256 != tc.proof {
+			t.Errorf("%s under both pairs: decision = %+v, want selected with its own evidence", tc.r.Script, d)
+		}
 	}
 }
 
 func TestPolicyRoutesAmbiguousAndMalformedEvenWhenOtherClassesAreRegistered(t *testing.T) {
 	p := mustPolicy(t, 1,
-		ClassRegistration{PolicyVersion: 1, DecisionClass: ClassStructuredPerson, EvidenceSHA256: evidence("a")},
-		ClassRegistration{PolicyVersion: 1, DecisionClass: ClassPlaceholder, EvidenceSHA256: evidence("b")},
+		ClassRegistration{PolicyVersion: 1, DecisionClass: ClassStructuredPerson, Script: ScriptCyrillic, EvidenceSHA256: evidence("a")},
+		ClassRegistration{PolicyVersion: 1, DecisionClass: ClassPlaceholder, Script: ScriptCyrillic, EvidenceSHA256: evidence("b")},
 	)
 	initials := mustNormalize(t, mustSource(t,
 		SourceComponent{Kind: ComponentFirst, Value: "И."},
@@ -144,11 +182,12 @@ func TestPolicyRoutesAmbiguousAndMalformedEvenWhenOtherClassesAreRegistered(t *t
 }
 
 func TestNewAcceptancePolicyRejectsInvalidInput(t *testing.T) {
-	ok := ClassRegistration{PolicyVersion: 1, DecisionClass: ClassStructuredPerson, EvidenceSHA256: evidence("ok")}
+	ok := ClassRegistration{PolicyVersion: 1, DecisionClass: ClassStructuredPerson, Script: ScriptCyrillic, EvidenceSHA256: evidence("ok")}
 	row := func(version int, class DecisionClass, label string) ClassRegistration {
-		return ClassRegistration{PolicyVersion: version, DecisionClass: class, EvidenceSHA256: evidence(label)}
+		return ClassRegistration{PolicyVersion: version, DecisionClass: class, Script: ScriptCyrillic, EvidenceSHA256: evidence(label)}
 	}
-	unproven := ClassRegistration{PolicyVersion: 1, DecisionClass: ClassPlaceholder}
+	unproven := ClassRegistration{PolicyVersion: 1, DecisionClass: ClassPlaceholder, Script: ScriptCyrillic}
+	withScript := func(r ClassRegistration, script Script) ClassRegistration { r.Script = script; return r }
 	cases := []struct {
 		name       string
 		version    int
@@ -167,6 +206,11 @@ func TestNewAcceptancePolicyRejectsInvalidInput(t *testing.T) {
 		{"malformed class", 1, NormalizerVersion, []ClassRegistration{row(1, ClassMalformed, "m")}, ErrClassNotSelectable},
 		{"missing evidence", 1, NormalizerVersion, []ClassRegistration{unproven}, ErrMissingEvidence},
 		{"duplicate class", 1, NormalizerVersion, []ClassRegistration{ok, ok}, ErrDuplicateRegistration},
+		{"duplicate pair across versions", 2, NormalizerVersion,
+			[]ClassRegistration{ok, row(2, ClassStructuredPerson, "again")}, ErrDuplicateRegistration},
+		{"missing script", 1, NormalizerVersion, []ClassRegistration{withScript(ok, "")}, ErrUnknownScript},
+		{"unknown script", 1, NormalizerVersion, []ClassRegistration{withScript(ok, "Abcd")}, ErrUnknownScript},
+		{"lower-case script", 1, NormalizerVersion, []ClassRegistration{withScript(ok, "cyrl")}, ErrUnknownScript},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -179,7 +223,9 @@ func TestNewAcceptancePolicyRejectsInvalidInput(t *testing.T) {
 
 func TestDecideFailsClosed(t *testing.T) {
 	r := structuredPersonResult(t)
-	registered := ClassRegistration{PolicyVersion: 1, DecisionClass: ClassStructuredPerson, EvidenceSHA256: evidence("s")}
+	registered := ClassRegistration{
+		PolicyVersion: 1, DecisionClass: ClassStructuredPerson, Script: ScriptCyrillic, EvidenceSHA256: evidence("s"),
+	}
 
 	var zero AcceptancePolicy
 	if _, err := zero.Decide(&r); !errors.Is(err, ErrInvalidPolicyVersion) {
@@ -236,7 +282,7 @@ func TestStructuralAmbiguityOutranksPlaceholder(t *testing.T) {
 		}, FlagInitials},
 	}
 	registered := mustPolicy(t, 2, ClassRegistration{
-		PolicyVersion: 2, DecisionClass: ClassPlaceholder, EvidenceSHA256: evidence("placeholder-v2"),
+		PolicyVersion: 2, DecisionClass: ClassPlaceholder, Script: ScriptCyrillic, EvidenceSHA256: evidence("placeholder-v2"),
 	})
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -289,7 +335,7 @@ func TestEveryStructuralFlagIsRejectedAtResultBoundary(t *testing.T) {
 					t.Errorf("Validate() = %v, want ErrInconsistentResult", err)
 				}
 				registered := mustPolicy(t, 5, ClassRegistration{
-					PolicyVersion: 5, DecisionClass: class, EvidenceSHA256: evidence(string(class)),
+					PolicyVersion: 5, DecisionClass: class, Script: ScriptCyrillic, EvidenceSHA256: evidence(string(class)),
 				})
 				for name, p := range map[string]AcceptancePolicy{"production": ProductionAcceptancePolicy(), "registered": registered} {
 					d, err := p.Decide(&r)
@@ -299,5 +345,52 @@ func TestEveryStructuralFlagIsRejectedAtResultBoundary(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// The same class under two scripts is two registrations, not a duplicate.
+func TestOneClassMayBeRegisteredForSeveralScripts(t *testing.T) {
+	_, err := NewAcceptancePolicy(3, NormalizerVersion, []ClassRegistration{
+		{PolicyVersion: 2, DecisionClass: ClassStructuredPerson, Script: ScriptCyrillic, EvidenceSHA256: evidence("c")},
+		{PolicyVersion: 3, DecisionClass: ClassStructuredPerson, Script: ScriptLatin, EvidenceSHA256: evidence("l")},
+	})
+	if err != nil {
+		t.Fatalf("NewAcceptancePolicy: %v", err)
+	}
+}
+
+// Selectable is stated here independently of the routing table: exactly the
+// two non-ambiguous classes of well-formed input may be registered.
+func TestSelectableClasses(t *testing.T) {
+	want := map[DecisionClass]bool{ClassPlaceholder: true, ClassStructuredPerson: true}
+	for _, class := range DecisionClasses() {
+		if class.Selectable() != want[class] {
+			t.Errorf("%q.Selectable() = %v, want %v", class, class.Selectable(), want[class])
+		}
+	}
+	if DecisionClass("trusted").Selectable() {
+		t.Error("an unknown class is selectable")
+	}
+}
+
+// Scripts is the closed set Validate accepts, in a fixed order: the schema's
+// closed check is compared against it.
+func TestScriptsAreTheValidatedSet(t *testing.T) {
+	scripts := Scripts()
+	if !slices.IsSorted(scripts) || len(slices.Compact(slices.Clone(scripts))) != len(scripts) {
+		t.Fatalf("Scripts() is not sorted and unique: %q", scripts)
+	}
+	for _, s := range scripts {
+		if err := s.Validate(); err != nil {
+			t.Errorf("Scripts() lists %q, which Validate refuses: %v", s, err)
+		}
+	}
+	for _, s := range []Script{ScriptCyrillic, ScriptLatin, ScriptUndetermined, ScriptMixed, "Grek", "Zinh"} {
+		if !slices.Contains(scripts, s) {
+			t.Errorf("Scripts() misses %q", s)
+		}
+	}
+	if len(scripts) != len(knownScriptCodes)+1 {
+		t.Errorf("len(Scripts()) = %d, want every ISO 15924 code (%d) and mixed", len(scripts), len(knownScriptCodes))
 	}
 }

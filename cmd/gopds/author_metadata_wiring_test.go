@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -18,10 +19,13 @@ import (
 	"gopds-api/internal/authornorm"
 	"gopds-api/internal/migrate"
 	"gopds-api/internal/testdb"
+	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/services"
 
 	"github.com/go-pg/pg/v10"
+	//nolint:depguard // asserting on emitted log output needs logrus' own test hook, and logging wraps logrus
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -132,7 +136,8 @@ func TestAuthorMetadataConfigReachesTheLocalWorker(t *testing.T) {
 	assert.Len(t, workers, 3, "local concurrency is the number of local loops")
 }
 
-// The enabled flag keeps every worker off: nothing claims.
+// The enabled flag keeps every worker off: nothing claims. Only the one-shot
+// acceptance pass runs, and the runner that owns it still shuts down.
 func TestAuthorMetadataDisabledStartsNothing(t *testing.T) {
 	db := scratchDB(t)
 	seedAuthorJobs(t, db, 1)
@@ -141,12 +146,15 @@ func TestAuthorMetadataDisabledStartsNothing(t *testing.T) {
 	c.PollInterval = time.Millisecond
 
 	runner := initializeAuthorMetadata(db, t.TempDir(), &c)
-	assert.Nil(t, runner)
+	require.NotNil(t, runner, "the acceptance pass runs whatever the switch says")
 	time.Sleep(50 * time.Millisecond)
 	var attempts int
 	_, err := db.QueryOne(pg.Scan(&attempts), `SELECT count(*) FROM contributor_normalization_job_attempt`)
 	require.NoError(t, err)
 	assert.Zero(t, attempts)
+	stopped, stop := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stop()
+	require.NoError(t, runner.Shutdown(stopped))
 
 	c.Enabled = true
 	runner = initializeAuthorMetadata(db, t.TempDir(), &c)
@@ -259,4 +267,140 @@ func TestAuthorMetadataConfigReachesTheExtractionWorker(t *testing.T) {
 			assert.Equal(t, tc.want, status)
 		})
 	}
+}
+
+// persistAuthor persists one book whose single author credit is built from
+// kind/value pairs, flagged as the extractor flags a repeated child.
+func persistAuthor(t *testing.T, db *pg.DB, book int64, parts ...string) {
+	t.Helper()
+	kinds := map[string]authornorm.ComponentKind{"first": authornorm.ComponentFirst, "last": authornorm.ComponentLast}
+	components := make([]authornorm.SourceComponent, 0, len(parts)/2)
+	for i := 0; i+1 < len(parts); i += 2 {
+		components = append(components, authornorm.SourceComponent{Kind: kinds[parts[i]], Value: parts[i+1]})
+	}
+	v, err := authornorm.NewSourceValue(components)
+	require.NoError(t, err)
+	credit := database.ExtractionCredit{Role: models.ContributorRoleAuthor, Source: v}
+	if v.HasDuplicateComponent() {
+		credit.QualityFlags = []string{string(authornorm.FlagDuplicateComponent)}
+	}
+	_, err = db.Exec(`INSERT INTO opds_catalog_book (id, filename, path, format, registerdate, docdate, lang,
+		title, annotation, md5) VALUES (?, 'w.fb2', 'w.zip', 'fb2', now(), '', 'ru', 'w', '', '')`, book)
+	require.NoError(t, err)
+	require.NoError(t, db.RunInTransaction(context.Background(), func(tx *pg.Tx) error {
+		_, persistErr := database.PersistExtraction(tx, &database.ExtractionInput{
+			BookID: book, BookMD5: fmt.Sprintf("%032x", book), ExtractorVersion: "extractor-v1",
+			NormalizerVersion: authornorm.NormalizerVersion, Origin: models.BookMetadataSnapshotLive,
+			Outcome: models.BookMetadataSnapshotExtracted, ArchivePath: "w.zip", EntryName: "w.fb2",
+			Credits: []database.ExtractionCredit{credit},
+		})
+		return persistErr
+	}))
+}
+
+// shippedPolicyInsert is migration 25's own INSERT of the shipped
+// registrations, so a test can replay exactly what a release adds.
+func shippedPolicyInsert(t *testing.T) string {
+	t.Helper()
+	body, err := os.ReadFile("../../database_migrations/25-author-acceptance-by-script.sql")
+	require.NoError(t, err)
+	sql := string(body)
+	at := strings.Index(sql, "INSERT INTO public.author_acceptance_class")
+	require.Positive(t, at, "migration 25 no longer inserts the shipped policy")
+	return sql[at:]
+}
+
+// An upgrade: the credits were resolved before the release registered
+// structured_person, so they wait with policy_not_registered. The next start
+// selects them by itself — the workers are off, nobody presses anything.
+func TestAcceptancePassSelectsWaitingCreditsAtStart(t *testing.T) {
+	db := scratchDB(t)
+	ctx := context.Background()
+	persistAuthor(t, db, 700, "first", "Лев", "last", "Толстой")
+	persistAuthor(t, db, 701, "first", "Arthur", "last", "Doyle")
+
+	_, err := db.Exec(`TRUNCATE author_acceptance_class`)
+	require.NoError(t, err)
+	c := wiringConfig()
+	workers, err := buildAuthorMetadataWorkers(db, t.TempDir(), &c)
+	require.NoError(t, err)
+	report, err := workers[1].(*services.AuthorMetadataLocalLoop).RunOnce(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 2, report.Completed)
+	waiting := func(state, reason string) int {
+		var n int
+		_, countErr := db.QueryOne(pg.Scan(&n), `SELECT count(*) FROM book_contributor_credit_selection
+			WHERE state = ? AND coalesce(unresolved_reason, '') = ?`, state, reason)
+		require.NoError(t, countErr)
+		return n
+	}
+	require.Equal(t, 2, waiting("unresolved", "policy_not_registered"))
+
+	_, err = db.Exec(shippedPolicyInsert(t))
+	require.NoError(t, err)
+	c.Enabled = false
+	runner := initializeAuthorMetadata(db, t.TempDir(), &c)
+	require.NotNil(t, runner)
+	require.Eventually(t, func() bool {
+		var selected int
+		_, countErr := db.QueryOne(pg.Scan(&selected), `SELECT count(*) FROM book_contributor_credit_selection
+			WHERE state = 'selected' AND basis = 'automatic' AND policy_version = '2'`)
+		return countErr == nil && selected == 2
+	}, 10*time.Second, 10*time.Millisecond)
+	stopped, stop := context.WithTimeout(ctx, 5*time.Second)
+	defer stop()
+	require.NoError(t, runner.Shutdown(stopped))
+	assert.Zero(t, waiting("unresolved", "policy_not_registered"))
+}
+
+// Review finding B1 at start, workers off: an input whose stored parse is
+// structured_person but which gained a duplicated-child credit afterwards is
+// ambiguous, and the start-up pass must leave it alone — with the workers off
+// nothing would repair it. A plain input in the same start is still selected.
+func TestAcceptancePassAtStartSkipsAnInputThatTurnedAmbiguous(t *testing.T) {
+	hook := logrustest.NewLocal(logging.GetLogger())
+	t.Cleanup(hook.Reset)
+	db := scratchDB(t)
+	ctx := context.Background()
+	persistAuthor(t, db, 710, "first", "Иван", "last", "Петров")
+	persistAuthor(t, db, 711, "first", "Arthur", "last", "Doyle")
+	_, err := db.Exec(`TRUNCATE author_acceptance_class`)
+	require.NoError(t, err)
+	c := wiringConfig()
+	workers, err := buildAuthorMetadataWorkers(db, t.TempDir(), &c)
+	require.NoError(t, err)
+	_, err = workers[1].(*services.AuthorMetadataLocalLoop).RunOnce(ctx)
+	require.NoError(t, err)
+	// The late credit: same fingerprint, a repeated empty first-name child.
+	persistAuthor(t, db, 712, "first", "Иван", "first", "", "last", "Петров")
+
+	_, err = db.Exec(shippedPolicyInsert(t))
+	require.NoError(t, err)
+	c.Enabled = false
+	runner := initializeAuthorMetadata(db, t.TempDir(), &c)
+	require.NotNil(t, runner)
+	// The pass logs once, when it has finished, because it selected Doyle.
+	require.Eventually(t, func() bool {
+		for _, e := range hook.AllEntries() {
+			if e.Message == string(services.AuthorMetadataEventAcceptanceApplied) {
+				return true
+			}
+		}
+		return false
+	}, 10*time.Second, 10*time.Millisecond)
+	stopped, stop := context.WithTimeout(ctx, 5*time.Second)
+	defer stop()
+	require.NoError(t, runner.Shutdown(stopped))
+
+	state := func(book int64) string {
+		var s string
+		_, stateErr := db.QueryOne(pg.Scan(&s), `SELECT coalesce(sel.state, 'none') FROM book_contributor_credit c
+			JOIN book_metadata_snapshot m ON m.id = c.snapshot_id AND m.book_id = ?
+			LEFT JOIN book_contributor_credit_selection sel ON sel.credit_id = c.id`, book)
+		require.NoError(t, stateErr)
+		return s
+	}
+	assert.Equal(t, "selected", state(711), "the plain input is selected")
+	assert.Equal(t, "unresolved", state(710), "the ambiguous input's earlier credit is not selected")
+	assert.Equal(t, "none", state(712))
 }

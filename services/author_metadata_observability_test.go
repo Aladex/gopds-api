@@ -40,7 +40,7 @@ func TestAuthorMetadataEventFieldsAreTheSafeSet(t *testing.T) {
 		Name: AuthorMetadataEventExtractionItemCompleted, Stage: AuthorMetadataStageExtraction,
 		RunID: 1, ItemID: 2, BookID: 3, JobID: 4, ReviewItemID: 5, AttemptNo: 6,
 		Status: "extracted", Class: AuthorMetadataErrorTransientDatabase, SQLState: "23514",
-		Worker: "extraction", Count: 7,
+		Worker: "extraction", Count: 7, PolicyVersion: 8,
 	}
 	keys := make([]string, 0)
 	for key := range full.fields() {
@@ -48,8 +48,8 @@ func TestAuthorMetadataEventFieldsAreTheSafeSet(t *testing.T) {
 	}
 	sort.Strings(keys)
 	assert.Equal(t, []string{
-		"attempt_no", "book_id", "class", "count", "item_id", "job_id", "review_item_id",
-		"run_id", "sqlstate", "stage", "status", "worker",
+		"attempt_no", "book_id", "class", "count", "item_id", "job_id", "policy_version",
+		"review_item_id", "run_id", "sqlstate", "stage", "status", "worker",
 	}, keys, "only identifiers, counts and closed values")
 
 	sparse := AuthorMetadataEvent{Name: AuthorMetadataEventWorkersStarted, Count: 2}

@@ -242,7 +242,7 @@ type shape struct {
 func (s shape) classify() DecisionClass {
 	ambiguous := hasStructuralAmbiguity(func(f QualityFlag) bool { return s.flags[f] })
 	for _, rule := range classPrecedence {
-		if ambiguous && rule.class.selectable() {
+		if ambiguous && rule.class.Selectable() {
 			continue
 		}
 		for _, flag := range rule.flags {

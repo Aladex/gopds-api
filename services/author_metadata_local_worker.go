@@ -69,18 +69,16 @@ type AuthorMetadataLocalWorkerConfig struct {
 	// Retry turns a failed attempt into the delay before the next one and
 	// bounds the attempts.
 	Retry AuthorMetadataRetryPolicy
-	// PolicyVersion is the acceptance policy version decisions are made under.
-	PolicyVersion int
 	// NormalizerVersion is the exact version Normalize produces; jobs of any
 	// other version are refused.
 	NormalizerVersion string
 	Normalize         LocalNormalizer
 }
 
-// Validate refuses a configuration with a non-positive limit, lease or
-// policy version, an invalid retry policy, or no normalizer.
+// Validate refuses a configuration with a non-positive limit or lease, an
+// invalid retry policy, or no normalizer.
 func (c *AuthorMetadataLocalWorkerConfig) Validate() error {
-	if c.ClaimLimit <= 0 || c.Lease <= 0 || c.PolicyVersion <= 0 ||
+	if c.ClaimLimit <= 0 || c.Lease <= 0 ||
 		strings.TrimSpace(c.NormalizerVersion) == "" || c.Normalize == nil {
 		return ErrInvalidAuthorMetadataLocalWorkerConfig
 	}
@@ -97,11 +95,10 @@ const (
 	defaultLocalMaxAttempts = 5
 	defaultLocalBaseDelay   = 5 * time.Second
 	defaultLocalMaxDelay    = 5 * time.Minute
-	defaultPolicyVersion    = 1
 )
 
 // DefaultAuthorMetadataLocalWorkerConfig is the shipped configuration: the
-// local normalizer under the empty production policy version.
+// local normalizer, deciding under the newest registered policy version.
 func DefaultAuthorMetadataLocalWorkerConfig() AuthorMetadataLocalWorkerConfig {
 	return AuthorMetadataLocalWorkerConfig{
 		ClaimLimit: defaultLocalClaimLimit,
@@ -112,7 +109,6 @@ func DefaultAuthorMetadataLocalWorkerConfig() AuthorMetadataLocalWorkerConfig {
 			MaxDelay:    defaultLocalMaxDelay,
 			Jitter:      uniformJitter,
 		},
-		PolicyVersion:     defaultPolicyVersion,
 		NormalizerVersion: authornorm.NormalizerVersion,
 		Normalize:         authornorm.Normalize,
 	}
@@ -159,14 +155,17 @@ type LocalBatchReport struct {
 	// Reconciled counts inputs of completed jobs whose late credits were
 	// resolved from the stored result.
 	Reconciled int
+	// Accepted counts credits the acceptance pass selected.
+	Accepted int
 }
 
-// RunOnce loads the policy, claims one batch, processes every claimed job and
-// accounts the credits of jobs that ended failed. An unloadable policy stops
-// the batch before any claim: no decision is made without it.
+// RunOnce loads the newest policy, claims one batch, processes every claimed
+// job, accounts the credits of jobs that ended failed and selects the credits
+// a registration covers. An unloadable policy stops the batch before any
+// claim: no decision is made without it.
 func (w *AuthorMetadataLocalWorker) RunOnce(ctx context.Context) (LocalBatchReport, error) {
 	report := LocalBatchReport{Outcomes: map[authornorm.Outcome]int{}}
-	policy, err := database.LoadAcceptancePolicy(ctx, w.db, w.cfg.PolicyVersion, w.cfg.NormalizerVersion)
+	policy, err := database.LoadCurrentAcceptancePolicy(ctx, w.db, w.cfg.NormalizerVersion)
 	if err != nil {
 		return report, err
 	}
@@ -197,6 +196,13 @@ func (w *AuthorMetadataLocalWorker) RunOnce(ctx context.Context) (LocalBatchRepo
 			Name: AuthorMetadataEventLocalInputsResolved, Stage: AuthorMetadataStageLocalNormalization, Count: report.Reconciled,
 		})
 	}
+	if err != nil {
+		return report, err
+	}
+	// A registration that committed while this batch decided under the
+	// previous version left its credits unresolved; so did a registration's
+	// own pass cut short. Either way they wait here.
+	report.Accepted, err = ApplyAcceptancePolicy(ctx, w.db, w.cfg.NormalizerVersion, w.cfg.ClaimLimit)
 	return report, err
 }
 
@@ -247,7 +253,7 @@ func (w *AuthorMetadataLocalWorker) reconcile(ctx context.Context, policy *autho
 		if loadErr != nil {
 			return reconciled, loadErr
 		}
-		out, decideErr := reconciledOutcome(policy, &in, &stored, *in.ResultID)
+		out, decideErr := reconciledOutcome(policy, in.DuplicateComponent, &stored, *in.ResultID)
 		if decideErr != nil {
 			// The credits stay unaccounted, and visible as pending, rather
 			// than resolved without a valid decision.
@@ -268,18 +274,20 @@ func (w *AuthorMetadataLocalWorker) reconcile(ctx context.Context, policy *autho
 	return reconciled, nil
 }
 
-// reconciledOutcome decides a stored result for the credits of its input. A
-// credit with the duplicate_component flag that joined after the result was
-// computed without it makes the whole input ambiguous: every credit goes to
-// review with that class, the stored parse kept only as the proposal, instead
-// of inheriting a decision made for the plain reading.
+// reconciledOutcome decides a stored result for the credits of its input;
+// duplicate says whether any author credit of the input carries the
+// duplicate_component flag now. A credit with the flag that joined after the
+// result was computed without it makes the whole input ambiguous: every credit
+// goes to review with that class, the stored parse kept only as the proposal,
+// instead of inheriting a decision made for the plain reading. The local
+// reconciliation and the acceptance pass both decide through here.
 func reconciledOutcome(
 	policy *authornorm.AcceptancePolicy,
-	in *database.LocalNormalizationInput,
+	duplicate bool,
 	stored *authornorm.Result,
 	resultID int64,
 ) (database.AutomaticOutcome, error) {
-	if in.DuplicateComponent && !slices.Contains(stored.QualityFlags, authornorm.FlagDuplicateComponent) {
+	if duplicate && !slices.Contains(stored.QualityFlags, authornorm.FlagDuplicateComponent) {
 		return database.AutomaticOutcome{
 			ResultID:      resultID,
 			DecisionClass: authornorm.ClassDuplicateComponent,

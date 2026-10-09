@@ -293,9 +293,9 @@ func (c DecisionClass) Status() Status {
 	}
 }
 
-// selectable reports whether an acceptance policy may register the class:
+// Selectable reports whether an acceptance policy may register the class:
 // only non-ambiguous classes of well-formed input.
-func (c DecisionClass) selectable() bool {
+func (c DecisionClass) Selectable() bool {
 	return c.Validate() == nil && !c.Ambiguous() && c.Kind() != KindMalformed
 }
 
@@ -440,7 +440,7 @@ func (r *Result) Validate() error {
 	if r.Kind != r.DecisionClass.Kind() || r.Status != r.DecisionClass.Status() {
 		return ErrInconsistentResult
 	}
-	if r.DecisionClass.selectable() && hasStructuralAmbiguity(func(f QualityFlag) bool { return slices.Contains(r.QualityFlags, f) }) {
+	if r.DecisionClass.Selectable() && hasStructuralAmbiguity(func(f QualityFlag) bool { return slices.Contains(r.QualityFlags, f) }) {
 		return ErrInconsistentResult
 	}
 	return nil

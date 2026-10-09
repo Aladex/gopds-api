@@ -105,42 +105,6 @@ func InsertLocalResult(ctx context.Context, db pg.DBI, r *authornorm.Result) (in
 	return id, nil
 }
 
-// LoadAcceptancePolicy builds the policy of one exact version, evaluated for
-// one exact normalizer configuration, from the class table. No row means the
-// empty policy: nothing is selected automatically. A row the domain refuses —
-// an ambiguous or unknown class — fails the load, so a bad registration stops
-// selection instead of widening it.
-func LoadAcceptancePolicy(
-	ctx context.Context,
-	db pg.DBI,
-	version int,
-	normalizerVersion string,
-) (authornorm.AcceptancePolicy, error) {
-	if version <= 0 {
-		return authornorm.AcceptancePolicy{}, authornorm.ErrInvalidPolicyVersion
-	}
-	var rows []models.AuthorAcceptanceClass
-	err := db.ModelContext(ctx, &rows).
-		Where("policy_version = ?", strconv.Itoa(version)).
-		Where("config_version = ?", normalizerVersion).
-		Order("id").
-		Select()
-	if err != nil {
-		return authornorm.AcceptancePolicy{}, fmt.Errorf("loading the acceptance policy: %w", err)
-	}
-	registrations := make([]authornorm.ClassRegistration, 0, len(rows))
-	for i := range rows {
-		var evidence [32]byte
-		copy(evidence[:], rows[i].EvidenceReportSHA256)
-		registrations = append(registrations, authornorm.ClassRegistration{
-			PolicyVersion:  version,
-			DecisionClass:  authornorm.DecisionClass(rows[i].DecisionClass),
-			EvidenceSHA256: evidence,
-		})
-	}
-	return authornorm.NewAcceptancePolicy(version, normalizerVersion, registrations)
-}
-
 // AutomaticOutcome is what the automatic pipeline concluded for one
 // normalization input: the stored result and the policy decision on it, or a
 // local normalization that failed for good.

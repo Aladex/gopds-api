@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -423,6 +424,12 @@ func PersistExtraction(conn pg.DBI, in *ExtractionInput) (PersistExtractionResul
 		return PersistExtractionResult{}, translateSnapshotError(markErr)
 	}
 
+	// The acceptance pass decides an input and selects its credits under
+	// this lock; a new author credit joins the input only while holding it,
+	// so the pass never selects a credit its own ambiguity check did not see.
+	if lockErr := lockAuthorInputs(context.Background(), conn, in.ExtractorVersion, rows); lockErr != nil {
+		return PersistExtractionResult{}, lockErr
+	}
 	if creditsErr := insertSnapshotCredits(conn, id, rows); creditsErr != nil {
 		return PersistExtractionResult{}, creditsErr
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -68,6 +69,9 @@ func initializeAuthorMetadataRunsAPI(db *pg.DB, c *config.AuthorMetadataConfig) 
 	api.SetAuthorMetadataRunService(svc)
 }
 
+// errNoDatabase refuses to start the runner without a pool.
+var errNoDatabase = errors.New("no database pool")
+
 // startAuthorMetadataRunner hands the workers to a new runner and starts it
 // once the database answers; no worker runs before that.
 func startAuthorMetadataRunner(
@@ -77,6 +81,9 @@ func startAuthorMetadataRunner(
 ) (*services.AuthorMetadataRunner, error) {
 	runner := services.NewAuthorMetadataRunner(workers...)
 	ready := func(ctx context.Context) error {
+		if db == nil {
+			return errNoDatabase
+		}
 		_, err := db.ExecContext(ctx, `SELECT 1`)
 		return err
 	}
@@ -86,9 +93,12 @@ func startAuthorMetadataRunner(
 	return runner, nil
 }
 
-// initializeAuthorMetadata starts the workers when the configuration enables
-// them. A failure is logged and leaves the server running without them: the
-// pipeline is background work, and its jobs wait in the database.
+// initializeAuthorMetadata starts the runner: the workers when the
+// configuration enables them, and always the one-shot acceptance pass, which
+// selects the credits waiting for a pair this release registered (the
+// policy ships with the code, so nobody else would). A failure is logged and
+// leaves the server running without them: the pipeline is background work,
+// and its jobs wait in the database.
 func initializeAuthorMetadata(db *pg.DB, archivesDir string, c *config.AuthorMetadataConfig) *services.AuthorMetadataRunner {
 	// The admin review API is wired from the same configuration whatever the
 	// worker switch says: reviewing is an administrator's action, not
@@ -99,16 +109,18 @@ func initializeAuthorMetadata(db *pg.DB, archivesDir string, c *config.AuthorMet
 		authorMetadataReviewAPINotWired(err)
 	}
 
-	if !c.Enabled {
+	workers := []services.AuthorMetadataStageWorker{services.NewAuthorAcceptancePass(db)}
+	if c.Enabled {
+		// Workers that cannot be built do not stop the acceptance pass.
+		if stages, err := buildAuthorMetadataWorkers(db, archivesDir, c); err != nil {
+			authorMetadataNotStarted(err)
+		} else {
+			workers = append(workers, stages...)
+		}
+	} else {
 		services.LogAuthorMetadataEvent(services.AuthorMetadataEventInfo, &services.AuthorMetadataEvent{
 			Name: services.AuthorMetadataEventWorkersDisabled, Stage: services.AuthorMetadataStageRunner,
 		})
-		return nil
-	}
-	workers, err := buildAuthorMetadataWorkers(db, archivesDir, c)
-	if err != nil {
-		authorMetadataNotStarted(err)
-		return nil
 	}
 	runner, err := startAuthorMetadataRunner(context.Background(), db, workers)
 	if err != nil {

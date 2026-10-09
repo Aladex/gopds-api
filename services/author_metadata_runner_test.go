@@ -290,9 +290,7 @@ func TestAuthorMetadataLocalLoopSurvivesFailingBatches(t *testing.T) {
 	s := localWorkerDB(t)
 	f := &workerFixture{t: t, db: s}
 	f.persistBook(author(tolstoy(t)))
-	f.exec(`INSERT INTO author_acceptance_class
-		(policy_version, decision_class, config_version, evidence_report_sha256, registered_by_user_id)
-		VALUES ('1', 'initials', ?, decode(repeat('ee', 32), 'hex'), 1)`, authornorm.NormalizerVersion)
+	f.registerPair("2", authornorm.ClassInitials, authornorm.ScriptCyrillic)
 
 	cfg := testWorkerConfig()
 	w, err := NewAuthorMetadataLocalWorker(s, &cfg)

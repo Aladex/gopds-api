@@ -40,6 +40,8 @@ const (
 	AuthorMetadataEventLocalUndecidable    AuthorMetadataEventName = "author_metadata.local_result_undecidable"
 	AuthorMetadataEventLocalInputsSettled  AuthorMetadataEventName = "author_metadata.local_inputs_settled"
 	AuthorMetadataEventLocalInputsResolved AuthorMetadataEventName = "author_metadata.local_inputs_reconciled"
+	// The credits an acceptance pass selected under the newest policy.
+	AuthorMetadataEventAcceptanceApplied AuthorMetadataEventName = "author_metadata.acceptance_applied"
 
 	// Live dual write.
 	AuthorMetadataEventSourcePersisted AuthorMetadataEventName = "author_metadata.source_persisted"
@@ -71,6 +73,7 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventLocalJobCompleted, AuthorMetadataEventLocalAttemptFailed,
 		AuthorMetadataEventLocalLeaseLost, AuthorMetadataEventLocalUndecidable,
 		AuthorMetadataEventLocalInputsSettled, AuthorMetadataEventLocalInputsResolved,
+		AuthorMetadataEventAcceptanceApplied,
 		AuthorMetadataEventSourcePersisted, AuthorMetadataEventSourceSkipped,
 		AuthorMetadataEventReviewAction, AuthorMetadataEventReviewActionFailed,
 		AuthorMetadataEventReviewAPINotWired,
@@ -86,6 +89,8 @@ const (
 	AuthorMetadataStageDualWrite AuthorMetadataStage = "dual_write"
 	AuthorMetadataStageReview    AuthorMetadataStage = "review"
 	AuthorMetadataStageRunner    AuthorMetadataStage = "runner"
+	// AuthorMetadataStageAcceptance is the start-up acceptance pass.
+	AuthorMetadataStageAcceptance AuthorMetadataStage = "acceptance"
 )
 
 // AuthorMetadataEvent is one log record. Every field is an identifier, a
@@ -108,6 +113,8 @@ type AuthorMetadataEvent struct {
 	// Worker is a worker's fixed label.
 	Worker string
 	Count  int
+	// PolicyVersion is an acceptance policy version.
+	PolicyVersion int
 }
 
 // AuthorMetadataEventLevel is how loud an event is.
@@ -148,6 +155,7 @@ var (
 	knownStages     = closedSet(
 		AuthorMetadataStageExtraction, AuthorMetadataStageLocalNormalization,
 		AuthorMetadataStageDualWrite, AuthorMetadataStageReview, AuthorMetadataStageRunner,
+		AuthorMetadataStageAcceptance,
 	)
 	knownClasses  = closedSet(database.AuthorMetadataAttemptErrorClasses()...)
 	knownStatuses = authorMetadataEventStatuses()
@@ -232,10 +240,10 @@ func closedEventName(name AuthorMetadataEventName) AuthorMetadataEventName {
 }
 
 // closedWorkerLabel accepts the labels the runner's stages carry: the
-// extraction stage's own label, and a local normalization loop's label with
-// its index.
+// extraction stage's and the acceptance pass's own labels, and a local
+// normalization loop's label with its index.
 func closedWorkerLabel(label string) string {
-	if label == string(AuthorMetadataStageExtraction) {
+	if label == string(AuthorMetadataStageExtraction) || label == string(AuthorMetadataStageAcceptance) {
 		return label
 	}
 	index, ok := strings.CutPrefix(label, string(AuthorMetadataStageLocalNormalization)+"-")
@@ -268,6 +276,7 @@ func (e *AuthorMetadataEvent) fields() logging.Fields {
 	put("sqlstate", closedSQLState(e.SQLState), e.SQLState != "")
 	put("worker", closedWorkerLabel(e.Worker), e.Worker != "")
 	put("count", e.Count, e.Count != 0)
+	put("policy_version", e.PolicyVersion, e.PolicyVersion != 0)
 	return f
 }
 

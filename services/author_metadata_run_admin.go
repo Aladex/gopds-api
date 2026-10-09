@@ -249,7 +249,8 @@ func (a *AuthorMetadataRunAdmin) Retry(
 		classes, stream, budget = AuthorMetadataExtractionRetryClasses(), database.RetryExtraction, a.extractionMaxAttempts
 	case AuthorMetadataStageLocalNormalization:
 		classes, stream, budget = AuthorMetadataLocalRetryClasses(), database.RetryLocal, a.localMaxAttempts
-	case AuthorMetadataStageDualWrite, AuthorMetadataStageReview, AuthorMetadataStageRunner:
+	case AuthorMetadataStageDualWrite, AuthorMetadataStageReview, AuthorMetadataStageRunner,
+		AuthorMetadataStageAcceptance:
 		// The event stages have no rows a retry could reopen.
 		return 0, ErrInvalidRetryClass
 	default:

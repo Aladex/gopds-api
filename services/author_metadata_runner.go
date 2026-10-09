@@ -238,7 +238,7 @@ func NewAuthorMetadataExtractionLoop(
 
 // AuthorMetadataLocalWorkerConfigFrom maps the configuration of the local
 // stream onto the worker: claim size, lease and attempts from the config, the
-// shipped normalizer, policy version and retry delays from the defaults.
+// shipped normalizer and retry delays from the defaults.
 func AuthorMetadataLocalWorkerConfigFrom(c *config.AuthorMetadataConfig) AuthorMetadataLocalWorkerConfig {
 	cfg := DefaultAuthorMetadataLocalWorkerConfig()
 	cfg.ClaimLimit = c.LocalNormalization.ClaimSize

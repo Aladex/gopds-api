@@ -10,6 +10,7 @@ package database
 
 import (
 	"context"
+	"crypto/sha256"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -103,12 +104,16 @@ func (f *authorSchemaFixture) finishJob(r *authornorm.Result, resultID int64) {
 		WHERE normalization_key = ?`, resultID, r.NormalizationKey[:])
 }
 
-// registerClass writes one acceptance-class row.
-func (f *authorSchemaFixture) registerClass(policyVersion, class, configVersion string) {
+// registerClass writes one shipped acceptance-class row for a Cyrillic pair
+// and returns its evidence hash.
+func (f *authorSchemaFixture) registerClass(policyVersion, class, configVersion string) [32]byte {
 	f.t.Helper()
+	sum := sha256.Sum256([]byte("evidence:" + policyVersion + "/" + class + "/" + configVersion))
 	f.exec(`INSERT INTO author_acceptance_class
-		(policy_version, decision_class, config_version, evidence_report_sha256, registered_by_user_id)
-		VALUES (?, ?, ?, ?, 1)`, policyVersion, class, configVersion, fingerprint(32, 0xee))
+		(policy_version, decision_class, script, config_version, evidence_report_sha256, evidence_ref, source)
+		VALUES (?, ?, 'Cyrl', ?, ?, 'internal/authornorm/policy_evidence/fixture.json', 'shipped')`,
+		policyVersion, class, configVersion, sum[:])
+	return sum
 }
 
 // selection reads a credit's resolution, nil when it has none.
@@ -152,11 +157,13 @@ func (f *authorSchemaFixture) resolve(r *authornorm.Result, out *AutomaticOutcom
 	return report
 }
 
-// registeredPolicy registers structured_person in policy version 1 and loads it.
+// registeredPolicy replaces the shipped registrations by (structured_person,
+// Cyrl) alone in policy version 2 and loads that version.
 func registeredPolicy(t *testing.T, f *authorSchemaFixture) authornorm.AcceptancePolicy {
 	t.Helper()
-	f.registerClass("1", string(authornorm.ClassStructuredPerson), authornorm.NormalizerVersion)
-	p, err := LoadAcceptancePolicy(context.Background(), f.tx, 1, authornorm.NormalizerVersion)
+	f.exec(`TRUNCATE author_acceptance_class`)
+	f.registerClass("2", string(authornorm.ClassStructuredPerson), authornorm.NormalizerVersion)
+	p, err := LoadAcceptancePolicy(context.Background(), f.tx, 2, authornorm.NormalizerVersion)
 	require.NoError(t, err)
 	return p
 }
@@ -195,12 +202,16 @@ func TestLocalNormalizationStore(t *testing.T) {
 	}
 }
 
-// withStoreTx is withAuthorSchemaTx on the suite's scratch database.
+// withStoreTx is withAuthorSchemaTx on the suite's scratch database. The
+// shipped registrations are emptied inside the transaction, so each case
+// starts from the empty policy and registers exactly what it is about.
 func withStoreTx(t *testing.T) *authorSchemaFixture {
 	t.Helper()
 	tx, err := storeDB.Begin()
 	require.NoError(t, err, "beginning the store test transaction")
 	t.Cleanup(func() { _ = tx.Rollback() })
+	_, err = tx.Exec(`TRUNCATE author_acceptance_class`)
+	require.NoError(t, err)
 	next := authorSchemaIDBase
 	return &authorSchemaFixture{t: t, tx: tx, next: &next}
 }
@@ -275,29 +286,33 @@ func storeLoadAcceptancePolicy(t *testing.T) {
 	})
 	t.Run("registered class selects", func(t *testing.T) {
 		f := withStoreTx(t)
-		p := registeredPolicy(t, f)
+		proof := f.registerClass("2", string(authornorm.ClassStructuredPerson), authornorm.NormalizerVersion)
+		p, err := LoadAcceptancePolicy(context.Background(), f.tx, 2, authornorm.NormalizerVersion)
+		require.NoError(t, err)
 		r := normalizedAs(t, structuredSource(t), authornorm.ClassStructuredPerson)
 		d, err := p.Decide(&r)
 		require.NoError(t, err)
 		assert.True(t, d.Selected())
-		assert.Equal(t, [32]byte(fingerprint(32, 0xee)), d.EvidenceSHA256)
+		assert.Equal(t, proof, d.EvidenceSHA256)
 	})
-	t.Run("other policy version or configuration does not count", func(t *testing.T) {
+	t.Run("a later policy version or another configuration does not count", func(t *testing.T) {
 		f := withStoreTx(t)
-		f.registerClass("2", "structured_person", authornorm.NormalizerVersion)
-		f.registerClass("1", "structured_person", "another-normalizer")
-		emptyPolicy(t, f)
+		f.registerClass("3", "structured_person", authornorm.NormalizerVersion)
+		f.registerClass("2", "structured_person", "another-normalizer")
+		p, err := LoadAcceptancePolicy(context.Background(), f.tx, 2, authornorm.NormalizerVersion)
+		require.NoError(t, err)
+		assert.True(t, p.Empty())
 	})
 	t.Run("an ambiguous registration fails closed", func(t *testing.T) {
 		f := withStoreTx(t)
-		f.registerClass("1", "initials", authornorm.NormalizerVersion)
-		_, err := LoadAcceptancePolicy(context.Background(), f.tx, 1, authornorm.NormalizerVersion)
+		f.registerClass("2", "initials", authornorm.NormalizerVersion)
+		_, err := LoadAcceptancePolicy(context.Background(), f.tx, 2, authornorm.NormalizerVersion)
 		assert.ErrorIs(t, err, authornorm.ErrClassNotSelectable)
 	})
 	t.Run("an unknown registered class fails closed", func(t *testing.T) {
 		f := withStoreTx(t)
-		f.registerClass("1", "no_such_class", authornorm.NormalizerVersion)
-		_, err := LoadAcceptancePolicy(context.Background(), f.tx, 1, authornorm.NormalizerVersion)
+		f.registerClass("2", "no_such_class", authornorm.NormalizerVersion)
+		_, err := LoadAcceptancePolicy(context.Background(), f.tx, 2, authornorm.NormalizerVersion)
 		assert.ErrorIs(t, err, authornorm.ErrUnknownDecisionClass)
 	})
 }
@@ -373,7 +388,7 @@ func storeResolveCreditsRoutesEveryOutcome(t *testing.T) {
 			require.NotNil(t, s)
 			assert.Equal(t, models.CreditSelectionSelected, s.State)
 			assert.Equal(t, models.CreditSelectionAutomatic, *s.Basis)
-			assert.Equal(t, "1", *s.PolicyVersion)
+			assert.Equal(t, "2", *s.PolicyVersion)
 			assert.Equal(t, id, *s.ResultID)
 			assert.Nil(t, s.DecidedByUserID)
 
@@ -381,7 +396,7 @@ func storeResolveCreditsRoutesEveryOutcome(t *testing.T) {
 			require.NoError(t, f.tx.Model(&audit).Where("credit_id = ?", credit).Select())
 			assert.Equal(t, models.CreditSelectionSelected, audit.State)
 			assert.Equal(t, models.CreditSelectionAutomatic, *audit.Basis)
-			assert.Equal(t, "1", *audit.PolicyVersion)
+			assert.Equal(t, "2", *audit.PolicyVersion)
 		}
 		assert.Nil(t, f.selection(second[1]))
 	})

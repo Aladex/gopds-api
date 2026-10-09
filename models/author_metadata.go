@@ -419,17 +419,23 @@ func ReviewResolutions() []ReviewResolution {
 	return []ReviewResolution{ReviewAccepted, ReviewEdited, ReviewClassified, ReviewLeftUnresolved, ReviewRetried}
 }
 
-// AuthorAcceptanceClass registers one (policy version, decision class) for
-// automatic selection, with the configuration and the evidence report hash it
-// was measured on. Immutable; the production policy ships empty.
+// AuthorAcceptanceClass registers one (decision class, script) for automatic
+// selection from its policy version on, for one normalizer configuration,
+// with the hash of the frozen evidence report it rests on and that report's
+// repository path. A shipped registration has no actor (Source "shipped");
+// an administrator's would name one. Immutable; registrations ship with the
+// code.
 type AuthorAcceptanceClass struct {
 	tableName            struct{}  `pg:"author_acceptance_class"`
 	ID                   int64     `pg:"id,pk"`
 	PolicyVersion        string    `pg:"policy_version"`
 	DecisionClass        string    `pg:"decision_class"`
+	Script               string    `pg:"script"`
 	ConfigVersion        string    `pg:"config_version"`
 	EvidenceReportSHA256 []byte    `pg:"evidence_report_sha256"`
-	RegisteredByUserID   int64     `pg:"registered_by_user_id"`
+	EvidenceRef          string    `pg:"evidence_ref"`
+	Source               string    `pg:"source"`
+	RegisteredByUserID   *int64    `pg:"registered_by_user_id"`
 	RegisteredAt         time.Time `pg:"registered_at,default:now()"`
 }
 

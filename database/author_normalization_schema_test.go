@@ -34,6 +34,7 @@ var normalizationTables = []string{
 var normalizationIndexes = []string{
 	"book_contributor_credit_id_fingerprint_role_key",
 	"author_acceptance_class_key",
+	"author_acceptance_class_pair_key",
 	"contributor_normalization_result_one_local_per_key",
 	"contributor_normalization_result_id_fingerprint_key",
 	"contributor_normalization_result_id_fingerprint_method_key",
@@ -130,10 +131,6 @@ func (f *authorSchemaFixture) creditWith(snapshot int64, role string, fp []byte)
 		(snapshot_id, role, position, source_display_name, source_fingerprint)
 		VALUES (?, ?, 0, 'Имя Фамилия', ?) RETURNING id`, snapshot, role, fp)
 }
-
-const acceptanceInsert = `INSERT INTO author_acceptance_class
-	(policy_version, decision_class, config_version, evidence_report_sha256, registered_by_user_id)
-	VALUES (?, ?, ?, ?, ?)`
 
 const overrideInsert = `INSERT INTO contributor_manual_override
 	(scope_credit_id, scope_fingerprint, source_fingerprint, result_id, created_by_user_id)
@@ -342,8 +339,8 @@ func TestNormalizationHistoryIsImmutable(t *testing.T) {
 
 	t.Run("acceptance class", func(t *testing.T) {
 		f := withAuthorSchemaTx(t)
-		id := f.returningID(acceptanceInsert+" RETURNING id",
-			"policy-1", "plain", "normalizer-v1", fingerprint(32, 9), f.user())
+		id := f.returningID(registrationInsert+" RETURNING id",
+			"2", "plain", "Cyrl", "normalizer-v1", fingerprint(32, 9), fixtureEvidenceRef, "admin", f.user())
 		f.requireImmutable("author_acceptance_class", id)
 	})
 
@@ -484,17 +481,18 @@ func TestCreditSelectionStates(t *testing.T) {
 	t.Run("an empty policy selects nothing", func(t *testing.T) {
 		sf := f.on(t)
 		var registered int
-		_, err := sf.tx.QueryOne(pg.Scan(&registered), `SELECT count(*) FROM author_acceptance_class`)
+		_, err := sf.tx.QueryOne(pg.Scan(&registered),
+			`SELECT count(*) FROM author_acceptance_class WHERE config_version = 'normalizer-v1'`)
 		require.NoError(t, err)
-		require.Zero(t, registered, "the acceptance policy ships empty")
+		require.Zero(t, registered, "nothing is registered for the fixture configuration yet")
 		sf.reject(sqlstateCheck, "not registered in the acceptance policy",
-			selectionInsert, credit, fp, "selected", plain, "automatic", nil, "policy-1", nil, nil)
+			selectionInsert, credit, fp, "selected", plain, "automatic", nil, "2", nil, nil)
 	})
 
 	t.Run("every accounting state", func(t *testing.T) {
 		sf := f.on(t)
-		sf.exec(acceptanceInsert, "policy-1", "plain", "normalizer-v1", fingerprint(32, 7), actor)
-		sf.accept(selectionInsert, credit, fp, "selected", plain, "automatic", nil, "policy-1", nil, nil)
+		sf.registerPair("2", "plain", "normalizer-v1")
+		sf.accept(selectionInsert, credit, fp, "selected", plain, "automatic", nil, "2", nil, nil)
 		sf.accept(selectionInsert, credit, fp, "unresolved", initials, nil, nil, nil, "policy_not_registered", nil)
 		sf.accept(selectionInsert, credit, fp, "unresolved", nil, nil, nil, nil, "normalizer_failed", nil)
 		sf.accept(selectionInsert, credit, fp, "unresolved", nil, nil, nil, nil, "review_left_unresolved", actor)
@@ -536,25 +534,27 @@ func TestCreditSelectionStates(t *testing.T) {
 			selectionInsert, credit, fp, "review", nil, nil, nil, nil, nil, 0)
 	})
 
-	t.Run("automatic selection only for a registered class of that configuration", func(t *testing.T) {
+	t.Run("automatic selection only for a pair registered for that configuration by that version", func(t *testing.T) {
 		sf := f.on(t)
 		const notRegistered = "not registered in the acceptance policy"
+		spelled := sf.result(autoRow(fp, "spelled", "normalizer-v5"))
 		// Registered under another normalizer configuration.
-		sf.exec(acceptanceInsert, "policy-2", "plain", "normalizer-v9", fingerprint(32, 7), actor)
+		sf.registerPair("3", "spelled", "normalizer-v9")
 		sf.reject(sqlstateCheck, notRegistered,
-			selectionInsert, credit, fp, "selected", plain, "automatic", nil, "policy-2", nil, nil)
-		// Registered class, other policy version.
-		sf.exec(acceptanceInsert, "policy-3", "plain", "normalizer-v1", fingerprint(32, 7), actor)
+			selectionInsert, credit, fp, "selected", spelled, "automatic", nil, "3", nil, nil)
+		// Registered only in a later version than the selection names.
+		sf.registerPair("4", "spelled", "normalizer-v5")
 		sf.reject(sqlstateCheck, notRegistered,
-			selectionInsert, credit, fp, "selected", plain, "automatic", nil, "policy-4", nil, nil)
+			selectionInsert, credit, fp, "selected", spelled, "automatic", nil, "3", nil, nil)
 		// Other class.
 		sf.reject(sqlstateCheck, notRegistered,
-			selectionInsert, credit, fp, "selected", initials, "automatic", nil, "policy-3", nil, nil)
-		sf.accept(selectionInsert, credit, fp, "selected", plain, "automatic", nil, "policy-3", nil, nil)
-		// An invalid result is never selected, registered or not.
-		sf.exec(acceptanceInsert, "policy-3", "malformed", "normalizer-v1", fingerprint(32, 7), actor)
+			selectionInsert, credit, fp, "selected", initials, "automatic", nil, "4", nil, nil)
+		// Its own version, and any later one: versions are cumulative.
+		sf.accept(selectionInsert, credit, fp, "selected", spelled, "automatic", nil, "4", nil, nil)
+		sf.accept(selectionInsert, credit, fp, "selected", spelled, "automatic", nil, "9", nil, nil)
+		// An invalid result is never selected.
 		sf.reject(sqlstateCheck, "an invalid result cannot be selected",
-			selectionInsert, credit, fp, "selected", invalid, "automatic", nil, "policy-3", nil, nil)
+			selectionInsert, credit, fp, "selected", invalid, "automatic", nil, "4", nil, nil)
 	})
 
 	t.Run("the same normalization input", func(t *testing.T) {
@@ -600,9 +600,8 @@ func TestCreditSelectionStates(t *testing.T) {
 		sf.reject(sqlstateForeignKey, "book_contributor_credit_selection_override_fkey",
 			selectionInsert, credit, fp, "selected", plain, "credit_override", creditOverride, nil, nil, actor)
 		// A manual result is reached through its override, never as automatic.
-		sf.exec(acceptanceInsert, "policy-5", "plain", "normalizer-v1", fingerprint(32, 7), actor)
 		sf.reject(sqlstateCheck, "selected through its override",
-			selectionInsert, credit, fp, "selected", manual, "automatic", nil, "policy-5", nil, nil)
+			selectionInsert, credit, fp, "selected", manual, "automatic", nil, "5", nil, nil)
 	})
 
 	t.Run("resolutions are not deleted", func(t *testing.T) {
@@ -855,29 +854,24 @@ func TestReviewItemQueue(t *testing.T) {
 }
 
 // RED 8 and A2: an acceptance class names its policy version, decision
-// class, configuration and the evidence report's hash.
+// class, configuration and the evidence report's hash. The key, the script and
+// the sample it cites are migration 25's (author_acceptance_schema_test.go).
 func TestAcceptanceClassChecks(t *testing.T) {
 	f := withAuthorSchemaTx(t)
-	actor := f.user()
-	evidence := fingerprint(32, 7)
-
-	f.exec(acceptanceInsert, "policy-1", "plain", "normalizer-v1", evidence, actor)
-	f.reject(sqlstateUnique, "author_acceptance_class_key",
-		acceptanceInsert, "policy-1", "plain", "normalizer-v2", evidence, actor)
-	f.accept(acceptanceInsert, "policy-2", "plain", "normalizer-v1", evidence, actor)
-
-	for _, n := range []int{0, 20, 31, 33} {
-		f.reject(sqlstateCheck, "author_acceptance_class_evidence_check",
-			acceptanceInsert, "policy-9", "plain", "normalizer-v1", fingerprint(n, 7), actor)
+	sum := fingerprint(32, 7)
+	row := func(class, config string, evidence []byte) []interface{} {
+		return []interface{}{"9", class, "Cyrl", config, evidence, fixtureEvidenceRef, "shipped", nil}
 	}
-	f.reject(sqlstateCheck, "author_acceptance_class_policy_version_check",
-		acceptanceInsert, "", "plain", "normalizer-v1", evidence, actor)
-	f.reject(sqlstateCheck, "author_acceptance_class_decision_class_check",
-		acceptanceInsert, "policy-9", "Plain", "normalizer-v1", evidence, actor)
-	f.reject(sqlstateCheck, "author_acceptance_class_config_version_check",
-		acceptanceInsert, "policy-9", "plain", "normalizer-v1\n", evidence, actor)
-	f.reject(sqlstateCheck, "author_acceptance_class_actor_check",
-		acceptanceInsert, "policy-9", "plain", "normalizer-v1", evidence, 0)
+
+	f.accept(registrationInsert, row("plain", "normalizer-v1", sum)...)
+	for _, n := range []int{0, 20, 31, 33} {
+		f.reject(sqlstateCheck, "author_acceptance_class_evidence_check", registrationInsert,
+			row("plain", "normalizer-v1", fingerprint(n, 7))...)
+	}
+	f.reject(sqlstateCheck, "author_acceptance_class_decision_class_check", registrationInsert,
+		row("Plain", "normalizer-v1", sum)...)
+	f.reject(sqlstateCheck, "author_acceptance_class_config_version_check", registrationInsert,
+		row("plain", "normalizer-v1\n", sum)...)
 }
 
 // Deleting never cascades through the pipeline's history.
@@ -981,15 +975,24 @@ func TestNormalizationModelsRoundTrip(t *testing.T) {
 	key := keyFor(string(fp), "extractor-v1", "normalizer-v1")
 
 	class := &models.AuthorAcceptanceClass{
-		PolicyVersion:        "policy-1",
+		PolicyVersion:        "2",
 		DecisionClass:        "plain",
+		Script:               "Cyrl",
 		ConfigVersion:        "normalizer-v1",
 		EvidenceReportSHA256: fingerprint(32, 3),
-		RegisteredByUserID:   actor,
+		EvidenceRef:          fixtureEvidenceRef,
+		Source:               "admin",
+		RegisteredByUserID:   &actor,
 	}
 	_, err := f.tx.Model(class).Returning("*").Insert()
 	require.NoError(t, err)
 	assert.False(t, class.RegisteredAt.IsZero())
+	shipped := &models.AuthorAcceptanceClass{
+		PolicyVersion: "2", DecisionClass: "plain", Script: "Latn", ConfigVersion: "normalizer-v1",
+		EvidenceReportSHA256: fingerprint(32, 3), EvidenceRef: fixtureEvidenceRef, Source: "shipped",
+	}
+	_, err = f.tx.Model(shipped).Returning("*").Insert()
+	require.NoError(t, err, "a shipped registration round-trips with no actor")
 
 	automatic := &models.ContributorNormalizationResult{
 		SourceFingerprint:   fp,
@@ -1050,7 +1053,7 @@ func TestNormalizationModelsRoundTrip(t *testing.T) {
 		State:             models.CreditSelectionSelected,
 		ResultID:          &automatic.ID,
 		Basis:             ptr(models.CreditSelectionAutomatic),
-		PolicyVersion:     ptr("policy-1"),
+		PolicyVersion:     ptr("2"),
 	}
 	_, err = f.tx.Model(selection).Returning("*").Insert()
 	require.NoError(t, err)

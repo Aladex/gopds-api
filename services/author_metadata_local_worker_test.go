@@ -200,14 +200,21 @@ func (f *workerFixture) selection(credit int64) *models.BookContributorCreditSel
 	return s
 }
 
-// registerStructuredPerson registers structured_person in policy version 1
-// for the shipped normalizer.
+// registerStructuredPerson registers (structured_person, Cyrl) in policy
+// version 2, the first a registration takes, for the shipped normalizer.
 func (f *workerFixture) registerStructuredPerson() {
 	f.t.Helper()
+	f.registerPair("2", authornorm.ClassStructuredPerson, authornorm.ScriptCyrillic)
+}
+
+// registerPair registers one pair for the shipped normalizer, as a shipped
+// registration citing a fixture evidence file.
+func (f *workerFixture) registerPair(version string, class authornorm.DecisionClass, script authornorm.Script) {
+	f.t.Helper()
 	f.exec(`INSERT INTO author_acceptance_class
-		(policy_version, decision_class, config_version, evidence_report_sha256, registered_by_user_id)
-		VALUES ('1', ?, ?, decode(repeat('ee', 32), 'hex'), 1)`,
-		string(authornorm.ClassStructuredPerson), authornorm.NormalizerVersion)
+			(policy_version, decision_class, script, config_version, evidence_report_sha256, evidence_ref, source)
+		VALUES (?, ?, ?, ?, decode(repeat('ee', 32), 'hex'), 'testdata/fixture-evidence.json', 'shipped')`,
+		version, string(class), string(script), authornorm.NormalizerVersion)
 }
 
 // manualOverride seeds a manual result and an override on it, scoped to the
@@ -299,7 +306,6 @@ func testWorkerConfig() AuthorMetadataLocalWorkerConfig {
 			MaxAttempts: 3, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond,
 			Jitter: func(time.Duration) time.Duration { return 0 },
 		},
-		PolicyVersion:     1,
 		NormalizerVersion: authornorm.NormalizerVersion,
 		Normalize:         authornorm.Normalize,
 	}
@@ -389,7 +395,6 @@ func TestAuthorMetadataLocalWorkerConfigIsValidated(t *testing.T) {
 		"zero claim limit":      func(c *AuthorMetadataLocalWorkerConfig) { c.ClaimLimit = 0 },
 		"negative lease":        func(c *AuthorMetadataLocalWorkerConfig) { c.Lease = -time.Second },
 		"invalid retry":         func(c *AuthorMetadataLocalWorkerConfig) { c.Retry.MaxAttempts = 0 },
-		"zero policy version":   func(c *AuthorMetadataLocalWorkerConfig) { c.PolicyVersion = 0 },
 		"no normalizer version": func(c *AuthorMetadataLocalWorkerConfig) { c.NormalizerVersion = " " },
 		"no normalizer":         func(c *AuthorMetadataLocalWorkerConfig) { c.Normalize = nil },
 	}
@@ -447,9 +452,9 @@ func workerRegisteredClassSelects(t *testing.T, f *workerFixture) {
 		require.NotNil(t, s)
 		assert.Equal(t, models.CreditSelectionSelected, s.State)
 		assert.Equal(t, models.CreditSelectionAutomatic, *s.Basis)
-		assert.Equal(t, "1", *s.PolicyVersion)
+		assert.Equal(t, "2", *s.PolicyVersion)
 		assert.Equal(t, 1, f.count(`SELECT count(*) FROM book_contributor_credit_selection_audit
-			WHERE credit_id = ? AND state = 'selected' AND basis = 'automatic' AND policy_version = '1'`, credit))
+			WHERE credit_id = ? AND state = 'selected' AND basis = 'automatic' AND policy_version = '2'`, credit))
 	}
 	assert.Equal(t, models.CreditSelectionReview, f.selection(first[1]).State, "an ambiguous class is never selected")
 	assert.Nil(t, f.selection(second[1]), "a translator credit is never resolved")
@@ -916,7 +921,7 @@ func workerLateCreditRegisteredPolicy(t *testing.T, f *workerFixture) {
 	require.NotNil(t, s, "a late credit of a completed key must be resolved")
 	assert.Equal(t, models.CreditSelectionSelected, s.State)
 	assert.Equal(t, models.CreditSelectionAutomatic, *s.Basis)
-	assert.Equal(t, "1", *s.PolicyVersion)
+	assert.Equal(t, "2", *s.PolicyVersion)
 	assert.Equal(t, *f.selection(first).ResultID, *s.ResultID)
 	assert.Equal(t, int64(1), spy.calls.Load())
 	assert.Equal(t, 1, f.resultsFor(authornorm.SourceFingerprint(tolstoy(t))))
@@ -972,7 +977,7 @@ func workerDuplicateResolvedAsPlainReconciled(t *testing.T, f *workerFixture) {
 	d, err := authornorm.ProductionAcceptancePolicy().Decide(&r)
 	require.NoError(t, err)
 	require.Equal(t, authornorm.OutcomeUnresolved, d.Outcome, "the shipped policy registers nothing")
-	policy, err := database.LoadAcceptancePolicy(ctx, f.db, 1, authornorm.NormalizerVersion)
+	policy, err := database.LoadAcceptancePolicy(ctx, f.db, 2, authornorm.NormalizerVersion)
 	require.NoError(t, err)
 	d, err = policy.Decide(&r)
 	require.NoError(t, err)

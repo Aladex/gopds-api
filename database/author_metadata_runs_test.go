@@ -499,8 +499,16 @@ func TestRunLookups(t *testing.T) {
 // RED (review UX task A): the most recent run by id, whatever its status, or
 // nil when no run exists — what GET /runs/latest serves, so a completed run
 // stays visible without any client-side memory of it.
+//
+// It runs on a scratch database of its own: "no run yet" only holds in an
+// empty run table, and a restored catalog has runs of its own.
 func TestLatestRun(t *testing.T) {
-	f := withAuthorSchemaTx(t)
+	requireDatabase(t)
+	tx, err := jobsDB(t).Begin()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = tx.Rollback() })
+	next := authorSchemaIDBase
+	f := &authorSchemaFixture{t: t, tx: tx, next: &next}
 	ctx := context.Background()
 
 	none, err := LatestRun(ctx, f.tx)

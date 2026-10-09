@@ -131,8 +131,8 @@ func TestRunRealMigrationsOnFreshDatabase(t *testing.T) {
 
 	// The normalization pipeline (24-author-normalization-pipeline.sql): its
 	// tables, the one-local-result-per-key and one-open-review indexes, the
-	// resolution consistency trigger, and an acceptance policy that ships
-	// empty — no migration registers a class.
+	// resolution consistency trigger, and the acceptance policy migration 25
+	// ships: structured_person in Cyrillic and Latin script.
 	var pipelineTables []string
 	if _, queryErr := db.Query(&pipelineTables, `
 		SELECT table_name FROM information_schema.tables
@@ -170,14 +170,16 @@ func TestRunRealMigrationsOnFreshDatabase(t *testing.T) {
 	if _, queryErr := db.QueryOne(pg.Scan(&consistency, &policyClasses), `
 		SELECT (SELECT count(*) FROM pg_trigger
 				WHERE tgname = 'book_contributor_credit_selection_consistency' AND tgconstraint <> 0),
-			(SELECT count(*) FROM author_acceptance_class)`); queryErr != nil {
+			(SELECT count(*) FROM author_acceptance_class
+				WHERE source = 'shipped' AND policy_version = '2' AND decision_class = 'structured_person'
+					AND script IN ('Cyrl', 'Latn'))`); queryErr != nil {
 		t.Fatalf("checking the resolution trigger and the acceptance policy: %v", queryErr)
 	}
 	if consistency != 1 {
 		t.Errorf("found %d resolution consistency constraint triggers, want 1", consistency)
 	}
-	if policyClasses != 0 {
-		t.Errorf("a fresh database holds %d acceptance classes, want an empty policy", policyClasses)
+	if policyClasses != 2 {
+		t.Errorf("a fresh database holds %d shipped acceptance classes, want structured_person Cyrl and Latn", policyClasses)
 	}
 
 	second, err := Run(ctx, db, os.DirFS("../.."), "database_migrations", AppBaseline())

@@ -1,0 +1,724 @@
+{
+  "format": "gopds.author-acceptance-evidence.v1",
+  "policy_version": 2,
+  "normalizer_version": "authornorm-local-v1",
+  "pairs": [
+    {
+      "decision_class": "structured_person",
+      "script": "Cyrl"
+    },
+    {
+      "decision_class": "structured_person",
+      "script": "Latn"
+    }
+  ],
+  "drawn_from": "current author credits of the smoke catalog: production catalog copy with sampled archives",
+  "population": {
+    "Cyrl": 2845,
+    "Latn": 738
+  },
+  "sample": "25 random credits per script",
+  "check": "display_name equals the source display in 50 of 50 rows; sort_name puts the source last-name field first",
+  "rows": [
+    {
+      "script": "Cyrl",
+      "source": {
+        "first": "Ангел",
+        "middle": null,
+        "last": "Каралийчев",
+        "nickname": null,
+        "display": "Ангел Каралийчев"
+      },
+      "proposal": {
+        "display_name": "Ангел Каралийчев",
+        "sort_name": "Каралийчев, Ангел"
+      }
+    },
+    {
+      "script": "Cyrl",
+      "source": {
+        "first": "Андрей",
+        "middle": "Львович",
+        "last": "Ливадный",
+        "nickname": null,
+        "display": "Андрей Львович Ливадный"
+      },
+      "proposal": {
+        "display_name": "Андрей Львович Ливадный",
+        "sort_name": "Ливадный, Андрей Львович"
+      }
+    },
+    {
+      "script": "Cyrl",
+      "source": {
+        "first": "Аґата",
+        "middle": null,
+        "last": "Крісті",
+        "nickname": null,
+        "display": "Аґата Крісті"
+      },
+      "proposal": {
+        "display_name": "Аґата Крісті",
+        "sort_name": "Крісті, Аґата"
+      }
+    },
+    {
+      "script": "Cyrl",
+      "source": {
+        "first": "Бранислав",
+        "middle": null,
+        "last": "Нушич",
+        "nickname": null,
+        "display": "Бранислав Нушич"
+      },
+      "proposal": {
+        "display_name": "Бранислав Нушич",
+        "sort_name": "Нушич, Бранислав"
+      }
+    },
+    {
+      "script": "Cyrl",
+      "source": {
+        "first": "Валентин",
+        "middle": null,
+        "last": "Мзареулов",
+        "nickname": null,
+        "display": "Валентин Мзареулов"
+      },
+      "proposal": {
+        "display_name": "Валентин Мзареулов",
+        "sort_name": "Мзареулов, Валентин"
+      }
+    },
+    {
+      "script": "Cyrl",
+      "source": {
+        "first": "Виктор",
+        "middle": null,
+        "last": "Степанычев",
+        "nickname": null,
+        "display": "Виктор Степанычев"
+      },
+      "proposal": {
+        "display_name": "Виктор Степанычев",
+        "sort_name": "Степанычев, Виктор"
+      }
+    },
+    {
+      "script": "Cyrl",
+      "source": {
+        "first": "Владимир",
+        "middle": null,
+        "last": "Домашевич",
+        "nickname": null,
+        "display": "Владимир Домашевич"
+      },
+      "proposal": {
+        "display_name": "Владимир Домашевич",
+        "sort_name": "Домашевич, Владимир"
+      }
+    },
+    {
+      "script": "Cyrl",
+      "source": {
+        "first": "Владимир",
+        "middle": null,
+        "last": "Рецептер",
+        "nickname": null,
+        "display": "Владимир Рецептер"
+      },
+      "proposal": {
+        "display_name": "Владимир Рецептер",
+        "sort_name": "Рецептер, Владимир"
+      }
+    },
+    {
+      "script": "Cyrl",
+      "source": {
+        "first": "Владислав",
+        "middle": null,
+        "last": "Реймонт",
+        "nickname": null,
+        "display": "Владислав Реймонт"
+      },
+      "proposal": {
+        "display_name": "Владислав Реймонт",
+        "sort_name": "Реймонт, Владислав"
+      }
+    },
+    {
+      "script": "Cyrl",
+      "source": {
+        "first": "Генрі Лайон",
+        "middle": null,
+        "last": "Олді",
+        "nickname": null,
+        "display": "Генрі Лайон Олді"
+      },
+      "proposal": {
+        "display_name": "Генрі Лайон Олді",
+        "sort_name": "Олді, Генрі Лайон"
+      }
+    },
+    {
+      "script": "Cyrl",
+      "source": {
+        "first": "Елена",
+        "middle": null,
+        "last": "Навроцкая",
+        "nickname": null,
+        "display": "Елена Навроцкая"
+      },
+      "proposal": {
+        "display_name": "Елена Навроцкая",
+        "sort_name": "Навроцкая, Елена"
+      }
+    },
+    {
+      "script": "Cyrl",
+      "source": {
+        "first": "Елин",
+        "middle": null,
+        "last": "Пелин",
+        "nickname": null,
+        "display": "Елин Пелин"
+      },
+      "proposal": {
+        "display_name": "Елин Пелин",
+        "sort_name": "Пелин, Елин"
+      }
+    },
+    {
+      "script": "Cyrl",
+      "source": {
+        "first": "Иван",
+        "middle": "Фотиевич",
+        "last": "Стаднюк",
+        "nickname": null,
+        "display": "Иван Фотиевич Стаднюк"
+      },
+      "proposal": {
+        "display_name": "Иван Фотиевич Стаднюк",
+        "sort_name": "Стаднюк, Иван Фотиевич"
+      }
+    },
+    {
+      "script": "Cyrl",
+      "source": {
+        "first": "Илья",
+        "middle": null,
+        "last": "Ильф",
+        "nickname": null,
+        "display": "Илья Ильф"
+      },
+      "proposal": {
+        "display_name": "Илья Ильф",
+        "sort_name": "Ильф, Илья"
+      }
+    },
+    {
+      "script": "Cyrl",
+      "source": {
+        "first": "Луис",
+        "middle": null,
+        "last": "Ламур",
+        "nickname": null,
+        "display": "Луис Ламур"
+      },
+      "proposal": {
+        "display_name": "Луис Ламур",
+        "sort_name": "Ламур, Луис"
+      }
+    },
+    {
+      "script": "Cyrl",
+      "source": {
+        "first": "Лю",
+        "middle": null,
+        "last": "Цысинь",
+        "nickname": null,
+        "display": "Лю Цысинь"
+      },
+      "proposal": {
+        "display_name": "Лю Цысинь",
+        "sort_name": "Цысинь, Лю"
+      }
+    },
+    {
+      "script": "Cyrl",
+      "source": {
+        "first": "Людмила",
+        "middle": "Ивановна",
+        "last": "Рублевская",
+        "nickname": null,
+        "display": "Людмила Ивановна Рублевская"
+      },
+      "proposal": {
+        "display_name": "Людмила Ивановна Рублевская",
+        "sort_name": "Рублевская, Людмила Ивановна"
+      }
+    },
+    {
+      "script": "Cyrl",
+      "source": {
+        "first": "Майкл",
+        "middle": "Фрэнсис",
+        "last": "Флинн",
+        "nickname": null,
+        "display": "Майкл Фрэнсис Флинн"
+      },
+      "proposal": {
+        "display_name": "Майкл Фрэнсис Флинн",
+        "sort_name": "Флинн, Майкл Фрэнсис"
+      }
+    },
+    {
+      "script": "Cyrl",
+      "source": {
+        "first": "Надежда",
+        "middle": null,
+        "last": "Кузьмина",
+        "nickname": null,
+        "display": "Надежда Кузьмина"
+      },
+      "proposal": {
+        "display_name": "Надежда Кузьмина",
+        "sort_name": "Кузьмина, Надежда"
+      }
+    },
+    {
+      "script": "Cyrl",
+      "source": {
+        "first": "Наринэ",
+        "middle": "Юриковна",
+        "last": "Абгарян",
+        "nickname": null,
+        "display": "Наринэ Юриковна Абгарян"
+      },
+      "proposal": {
+        "display_name": "Наринэ Юриковна Абгарян",
+        "sort_name": "Абгарян, Наринэ Юриковна"
+      }
+    },
+    {
+      "script": "Cyrl",
+      "source": {
+        "first": "Олег",
+        "middle": "Викторович",
+        "last": "Данильченко",
+        "nickname": null,
+        "display": "Олег Викторович Данильченко"
+      },
+      "proposal": {
+        "display_name": "Олег Викторович Данильченко",
+        "sort_name": "Данильченко, Олег Викторович"
+      }
+    },
+    {
+      "script": "Cyrl",
+      "source": {
+        "first": "Радд",
+        "middle": null,
+        "last": "Ричард",
+        "nickname": null,
+        "display": "Радд Ричард"
+      },
+      "proposal": {
+        "display_name": "Радд Ричард",
+        "sort_name": "Ричард, Радд"
+      }
+    },
+    {
+      "script": "Cyrl",
+      "source": {
+        "first": "Тамара",
+        "middle": null,
+        "last": "Тесля",
+        "nickname": null,
+        "display": "Тамара Тесля"
+      },
+      "proposal": {
+        "display_name": "Тамара Тесля",
+        "sort_name": "Тесля, Тамара"
+      }
+    },
+    {
+      "script": "Cyrl",
+      "source": {
+        "first": "Хейли",
+        "middle": null,
+        "last": "Баркер",
+        "nickname": null,
+        "display": "Хейли Баркер"
+      },
+      "proposal": {
+        "display_name": "Хейли Баркер",
+        "sort_name": "Баркер, Хейли"
+      }
+    },
+    {
+      "script": "Cyrl",
+      "source": {
+        "first": "Юрий",
+        "middle": null,
+        "last": "Росциус",
+        "nickname": null,
+        "display": "Юрий Росциус"
+      },
+      "proposal": {
+        "display_name": "Юрий Росциус",
+        "sort_name": "Росциус, Юрий"
+      }
+    },
+    {
+      "script": "Latn",
+      "source": {
+        "first": "Anne",
+        "middle": null,
+        "last": "Tyler",
+        "nickname": null,
+        "display": "Anne Tyler"
+      },
+      "proposal": {
+        "display_name": "Anne Tyler",
+        "sort_name": "Tyler, Anne"
+      }
+    },
+    {
+      "script": "Latn",
+      "source": {
+        "first": "Arturo",
+        "middle": null,
+        "last": "Pérez-Reverte",
+        "nickname": null,
+        "display": "Arturo Pérez-Reverte"
+      },
+      "proposal": {
+        "display_name": "Arturo Pérez-Reverte",
+        "sort_name": "Pérez-Reverte, Arturo"
+      }
+    },
+    {
+      "script": "Latn",
+      "source": {
+        "first": "Benjamin",
+        "middle": null,
+        "last": "Tate",
+        "nickname": null,
+        "display": "Benjamin Tate"
+      },
+      "proposal": {
+        "display_name": "Benjamin Tate",
+        "sort_name": "Tate, Benjamin"
+      }
+    },
+    {
+      "script": "Latn",
+      "source": {
+        "first": "Charlotte",
+        "middle": null,
+        "last": "Armstrong",
+        "nickname": null,
+        "display": "Charlotte Armstrong"
+      },
+      "proposal": {
+        "display_name": "Charlotte Armstrong",
+        "sort_name": "Armstrong, Charlotte"
+      }
+    },
+    {
+      "script": "Latn",
+      "source": {
+        "first": "David",
+        "middle": null,
+        "last": "Cook",
+        "nickname": null,
+        "display": "David Cook"
+      },
+      "proposal": {
+        "display_name": "David Cook",
+        "sort_name": "Cook, David"
+      }
+    },
+    {
+      "script": "Latn",
+      "source": {
+        "first": "Dick",
+        "middle": null,
+        "last": "Francis",
+        "nickname": null,
+        "display": "Dick Francis"
+      },
+      "proposal": {
+        "display_name": "Dick Francis",
+        "sort_name": "Francis, Dick"
+      }
+    },
+    {
+      "script": "Latn",
+      "source": {
+        "first": "Frank",
+        "middle": "Cottrell",
+        "last": "Boyce",
+        "nickname": null,
+        "display": "Frank Cottrell Boyce"
+      },
+      "proposal": {
+        "display_name": "Frank Cottrell Boyce",
+        "sort_name": "Boyce, Frank Cottrell"
+      }
+    },
+    {
+      "script": "Latn",
+      "source": {
+        "first": "Fransiss",
+        "middle": null,
+        "last": "Braiens",
+        "nickname": null,
+        "display": "Fransiss Braiens"
+      },
+      "proposal": {
+        "display_name": "Fransiss Braiens",
+        "sort_name": "Braiens, Fransiss"
+      }
+    },
+    {
+      "script": "Latn",
+      "source": {
+        "first": "Jeffery",
+        "middle": null,
+        "last": "Deaver",
+        "nickname": null,
+        "display": "Jeffery Deaver"
+      },
+      "proposal": {
+        "display_name": "Jeffery Deaver",
+        "sort_name": "Deaver, Jeffery"
+      }
+    },
+    {
+      "script": "Latn",
+      "source": {
+        "first": "Joseph",
+        "middle": null,
+        "last": "Brassey",
+        "nickname": null,
+        "display": "Joseph Brassey"
+      },
+      "proposal": {
+        "display_name": "Joseph Brassey",
+        "sort_name": "Brassey, Joseph"
+      }
+    },
+    {
+      "script": "Latn",
+      "source": {
+        "first": "Knuts",
+        "middle": null,
+        "last": "Hamsuns",
+        "nickname": null,
+        "display": "Knuts Hamsuns"
+      },
+      "proposal": {
+        "display_name": "Knuts Hamsuns",
+        "sort_name": "Hamsuns, Knuts"
+      }
+    },
+    {
+      "script": "Latn",
+      "source": {
+        "first": "Laura",
+        "middle": null,
+        "last": "Tohe",
+        "nickname": null,
+        "display": "Laura Tohe"
+      },
+      "proposal": {
+        "display_name": "Laura Tohe",
+        "sort_name": "Tohe, Laura"
+      }
+    },
+    {
+      "script": "Latn",
+      "source": {
+        "first": "Micaela",
+        "middle": null,
+        "last": "Morrissette",
+        "nickname": null,
+        "display": "Micaela Morrissette"
+      },
+      "proposal": {
+        "display_name": "Micaela Morrissette",
+        "sort_name": "Morrissette, Micaela"
+      }
+    },
+    {
+      "script": "Latn",
+      "source": {
+        "first": "Olen",
+        "middle": null,
+        "last": "Steinhauer",
+        "nickname": null,
+        "display": "Olen Steinhauer"
+      },
+      "proposal": {
+        "display_name": "Olen Steinhauer",
+        "sort_name": "Steinhauer, Olen"
+      }
+    },
+    {
+      "script": "Latn",
+      "source": {
+        "first": "Onelio Horhe",
+        "middle": null,
+        "last": "Kardoso",
+        "nickname": null,
+        "display": "Onelio Horhe Kardoso"
+      },
+      "proposal": {
+        "display_name": "Onelio Horhe Kardoso",
+        "sort_name": "Kardoso, Onelio Horhe"
+      }
+    },
+    {
+      "script": "Latn",
+      "source": {
+        "first": "Patrick",
+        "middle": null,
+        "last": "Rambaud",
+        "nickname": null,
+        "display": "Patrick Rambaud"
+      },
+      "proposal": {
+        "display_name": "Patrick Rambaud",
+        "sort_name": "Rambaud, Patrick"
+      }
+    },
+    {
+      "script": "Latn",
+      "source": {
+        "first": "Peter",
+        "middle": null,
+        "last": "Reed",
+        "nickname": null,
+        "display": "Peter Reed"
+      },
+      "proposal": {
+        "display_name": "Peter Reed",
+        "sort_name": "Reed, Peter"
+      }
+    },
+    {
+      "script": "Latn",
+      "source": {
+        "first": "Ron",
+        "middle": null,
+        "last": "Taylor",
+        "nickname": null,
+        "display": "Ron Taylor"
+      },
+      "proposal": {
+        "display_name": "Ron Taylor",
+        "sort_name": "Taylor, Ron"
+      }
+    },
+    {
+      "script": "Latn",
+      "source": {
+        "first": "Sedia",
+        "middle": null,
+        "last": "Ekaterina",
+        "nickname": null,
+        "display": "Sedia Ekaterina"
+      },
+      "proposal": {
+        "display_name": "Sedia Ekaterina",
+        "sort_name": "Ekaterina, Sedia"
+      }
+    },
+    {
+      "script": "Latn",
+      "source": {
+        "first": "Sheldon",
+        "middle": null,
+        "last": "Sidney",
+        "nickname": null,
+        "display": "Sheldon Sidney"
+      },
+      "proposal": {
+        "display_name": "Sheldon Sidney",
+        "sort_name": "Sidney, Sheldon"
+      }
+    },
+    {
+      "script": "Latn",
+      "source": {
+        "first": "Sidney",
+        "middle": null,
+        "last": "Sheldon",
+        "nickname": null,
+        "display": "Sidney Sheldon"
+      },
+      "proposal": {
+        "display_name": "Sidney Sheldon",
+        "sort_name": "Sheldon, Sidney"
+      }
+    },
+    {
+      "script": "Latn",
+      "source": {
+        "first": "Simon",
+        "middle": null,
+        "last": "Scarrow",
+        "nickname": null,
+        "display": "Simon Scarrow"
+      },
+      "proposal": {
+        "display_name": "Simon Scarrow",
+        "sort_name": "Scarrow, Simon"
+      }
+    },
+    {
+      "script": "Latn",
+      "source": {
+        "first": "Twelve",
+        "middle": "Winged Dark Burning",
+        "last": "Angel",
+        "nickname": null,
+        "display": "Twelve Winged Dark Burning Angel"
+      },
+      "proposal": {
+        "display_name": "Twelve Winged Dark Burning Angel",
+        "sort_name": "Angel, Twelve Winged Dark Burning"
+      }
+    },
+    {
+      "script": "Latn",
+      "source": {
+        "first": "Wallace",
+        "middle": null,
+        "last": "Stegner",
+        "nickname": null,
+        "display": "Wallace Stegner"
+      },
+      "proposal": {
+        "display_name": "Wallace Stegner",
+        "sort_name": "Stegner, Wallace"
+      }
+    },
+    {
+      "script": "Latn",
+      "source": {
+        "first": "Yann",
+        "middle": null,
+        "last": "Martel",
+        "nickname": null,
+        "display": "Yann Martel"
+      },
+      "proposal": {
+        "display_name": "Yann Martel",
+        "sort_name": "Martel, Yann"
+      }
+    }
+  ]
+}

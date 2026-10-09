@@ -57,6 +57,9 @@ func withReviewTx(t *testing.T) *authorSchemaFixture {
 	tx, err := reviewDB.Begin()
 	require.NoError(t, err, "beginning the review test transaction")
 	t.Cleanup(func() { _ = tx.Rollback() })
+	// Each case starts from the empty policy, as withStoreTx's do.
+	_, err = tx.Exec(`TRUNCATE author_acceptance_class`)
+	require.NoError(t, err)
 	next := authorSchemaIDBase
 	return &authorSchemaFixture{t: t, tx: tx, next: &next}
 }
