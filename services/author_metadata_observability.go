@@ -48,6 +48,7 @@ const (
 	// Review.
 	AuthorMetadataEventReviewAction       AuthorMetadataEventName = "author_metadata.review_action"
 	AuthorMetadataEventReviewActionFailed AuthorMetadataEventName = "author_metadata.review_action_failed"
+	AuthorMetadataEventReviewAPINotWired  AuthorMetadataEventName = "author_metadata.review_api_not_wired"
 
 	// Runner and process lifecycle.
 	AuthorMetadataEventWorkersStarted         AuthorMetadataEventName = "author_metadata.workers_started"
@@ -71,6 +72,7 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventLocalInputsSettled, AuthorMetadataEventLocalInputsResolved,
 		AuthorMetadataEventSourcePersisted, AuthorMetadataEventSourceSkipped,
 		AuthorMetadataEventReviewAction, AuthorMetadataEventReviewActionFailed,
+		AuthorMetadataEventReviewAPINotWired,
 		AuthorMetadataEventWorkersStarted, AuthorMetadataEventWorkersStopped,
 		AuthorMetadataEventWorkerStopped, AuthorMetadataEventWorkerBatchFailed,
 		AuthorMetadataEventWorkersDisabled, AuthorMetadataEventWorkersNotStarted,

@@ -501,56 +501,8 @@ func TestAuthorMetadataReviewAdapter(t *testing.T) {
 		return rec
 	}
 
-	// One ambiguous input behind one open item, seeded through the real
-	// repositories.
-	source := nameValueOf(t, "И.", "Петров")
-	seed := db.RunInTransaction(ctx, func(tx *pg.Tx) error {
-		book := time.Now().UnixNano() % 2_000_000
-		if _, err := tx.Exec(`INSERT INTO opds_catalog_book
-			(id, filename, path, format, registerdate, docdate, lang, title, annotation, md5)
-			VALUES (?, ?, 'fixture.zip', 'fb2', now(), '', 'ru', 'Летние грозы', '', ?)`,
-			book, "book.fb2", fmt.Sprintf("%032x", book)); err != nil {
-			return err
-		}
-		in := &database.ExtractionInput{
-			BookID: book, BookMD5: fmt.Sprintf("%032x", book),
-			ExtractorVersion: "extractor-v1", NormalizerVersion: authornorm.NormalizerVersion,
-			Origin: models.BookMetadataSnapshotLive, Outcome: models.BookMetadataSnapshotExtracted,
-			ArchivePath: "fixture.zip", EntryName: "book.fb2",
-			XMLProvenance: []byte(`{}`), SourceISBNs: []string{}, SourceSequences: []byte(`[]`),
-			QualityFlags: []string{}, Credits: []database.ExtractionCredit{
-				{Role: models.ContributorRoleAuthor, Source: source},
-			},
-		}
-		if _, err := database.PersistExtraction(tx, in); err != nil {
-			return err
-		}
-		result, err := authornorm.Normalize(source, "extractor-v1")
-		if err != nil {
-			return err
-		}
-		resultID, err := database.InsertLocalResult(ctx, tx, &result)
-		if err != nil {
-			return err
-		}
-		if _, err = tx.Exec(`UPDATE contributor_normalization_job
-			SET status = 'completed', result_id = ?, finished_at = now()
-			WHERE normalization_key = ?`, resultID, result.NormalizationKey[:]); err != nil {
-			return err
-		}
-		policy, err := database.LoadAcceptancePolicy(ctx, tx, 1, authornorm.NormalizerVersion)
-		if err != nil {
-			return err
-		}
-		decision, err := policy.Decide(&result)
-		if err != nil {
-			return err
-		}
-		_, err = database.ResolveCredits(ctx, tx, result.SourceFingerprint[:], "extractor-v1",
-			&database.AutomaticOutcome{ResultID: resultID, DecisionClass: result.DecisionClass, Decision: decision})
-		return err
-	})
-	require.NoError(t, seed)
+	// One ambiguous input behind one open item.
+	seedOpenReviewItem(t, db, nameValueOf(t, "И.", "Петров"), "Летние грозы")
 
 	t.Run("list, page and walk the open queue", func(t *testing.T) {
 		rec := request(http.MethodGet, reviewBase+"?status=open", "")
@@ -632,6 +584,61 @@ func TestAuthorMetadataReviewAdapter(t *testing.T) {
 		assert.Equal(t, http.StatusConflict, rec.Code)
 		assert.Equal(t, codeScopeMismatch, reviewCode(t, rec))
 	})
+}
+
+// seedOpenReviewItem seeds, through the real repositories, one book with
+// the given title whose single author credit carries source, and leaves the
+// policy's decision on it — an open review item for an ambiguous source.
+func seedOpenReviewItem(t *testing.T, db *pg.DB, source authornorm.SourceValue, title string) {
+	t.Helper()
+	ctx := context.Background()
+	err := db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		book := time.Now().UnixNano() % 2_000_000
+		if _, err := tx.Exec(`INSERT INTO opds_catalog_book
+			(id, filename, path, format, registerdate, docdate, lang, title, annotation, md5)
+			VALUES (?, ?, 'fixture.zip', 'fb2', now(), '', 'ru', ?, '', ?)`,
+			book, "book.fb2", title, fmt.Sprintf("%032x", book)); err != nil {
+			return err
+		}
+		in := &database.ExtractionInput{
+			BookID: book, BookMD5: fmt.Sprintf("%032x", book),
+			ExtractorVersion: "extractor-v1", NormalizerVersion: authornorm.NormalizerVersion,
+			Origin: models.BookMetadataSnapshotLive, Outcome: models.BookMetadataSnapshotExtracted,
+			ArchivePath: "fixture.zip", EntryName: "book.fb2",
+			XMLProvenance: []byte(`{}`), SourceISBNs: []string{}, SourceSequences: []byte(`[]`),
+			QualityFlags: []string{}, Credits: []database.ExtractionCredit{
+				{Role: models.ContributorRoleAuthor, Source: source},
+			},
+		}
+		if _, err := database.PersistExtraction(tx, in); err != nil {
+			return err
+		}
+		result, err := authornorm.Normalize(source, "extractor-v1")
+		if err != nil {
+			return err
+		}
+		resultID, err := database.InsertLocalResult(ctx, tx, &result)
+		if err != nil {
+			return err
+		}
+		if _, err = tx.Exec(`UPDATE contributor_normalization_job
+			SET status = 'completed', result_id = ?, finished_at = now()
+			WHERE normalization_key = ?`, resultID, result.NormalizationKey[:]); err != nil {
+			return err
+		}
+		policy, err := database.LoadAcceptancePolicy(ctx, tx, 1, authornorm.NormalizerVersion)
+		if err != nil {
+			return err
+		}
+		decision, err := policy.Decide(&result)
+		if err != nil {
+			return err
+		}
+		_, err = database.ResolveCredits(ctx, tx, result.SourceFingerprint[:], "extractor-v1",
+			&database.AutomaticOutcome{ResultID: resultID, DecisionClass: result.DecisionClass, Decision: decision})
+		return err
+	})
+	require.NoError(t, err)
 }
 
 func readerOrNull(body string) io.Reader {

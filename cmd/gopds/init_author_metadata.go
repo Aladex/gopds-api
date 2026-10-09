@@ -69,7 +69,7 @@ func initializeAuthorMetadata(db *pg.DB, archivesDir string, c *config.AuthorMet
 	// local workers' retry budget, so a review retry is refused exactly when
 	// they could not claim it.
 	if err := api.SetAuthorMetadataReviewService(db, c); err != nil {
-		logging.Errorf("Author metadata review API not wired: %v", err)
+		authorMetadataReviewAPINotWired(err)
 	}
 
 	if !c.Enabled {
@@ -96,6 +96,16 @@ func initializeAuthorMetadata(db *pg.DB, archivesDir string, c *config.AuthorMet
 func authorMetadataNotStarted(err error) {
 	services.LogAuthorMetadataEvent(services.AuthorMetadataEventError, &services.AuthorMetadataEvent{
 		Name: services.AuthorMetadataEventWorkersNotStarted, Stage: services.AuthorMetadataStageRunner,
+		SQLState: services.AuthorMetadataSQLState(err),
+	})
+}
+
+// authorMetadataReviewAPINotWired records a failed review API wiring as a
+// closed event with the SQLSTATE at most; the routes then answer
+// review_service_unavailable.
+func authorMetadataReviewAPINotWired(err error) {
+	services.LogAuthorMetadataEvent(services.AuthorMetadataEventError, &services.AuthorMetadataEvent{
+		Name: services.AuthorMetadataEventReviewAPINotWired, Stage: services.AuthorMetadataStageReview,
 		SQLState: services.AuthorMetadataSQLState(err),
 	})
 }
