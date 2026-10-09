@@ -21,6 +21,7 @@ type Config struct {
 	TelegramWebhookURL string         `mapstructure:"telegram_webhook_url" yaml:"telegram_webhook_url"`
 	SecretKey          string         `mapstructure:"secret_key" yaml:"secret_key"`
 	Postgres           PostgresConfig `mapstructure:"postgres" yaml:"postgres"`
+	Database           DatabaseConfig `mapstructure:"database" yaml:"database"`
 	Redis              RedisConfig    `mapstructure:"redis" yaml:"redis"`
 	Sessions           SessionsConfig `mapstructure:"sessions" yaml:"sessions"`
 	App                AppConfig      `mapstructure:"app" yaml:"app"`
@@ -72,6 +73,13 @@ type PostgresConfig struct {
 	DBName   string `mapstructure:"dbname" yaml:"dbname"`
 	DBHost   string `mapstructure:"dbhost" yaml:"dbhost"`
 	MaxConns int    `mapstructure:"max_conns" yaml:"max_conns"`
+}
+
+// DatabaseConfig holds what the server does with the schema at start.
+type DatabaseConfig struct {
+	// AutoMigrate applies pending migrations before anything else touches
+	// the database. Off, a start only reports what is pending.
+	AutoMigrate bool `mapstructure:"auto_migrate" yaml:"auto_migrate"`
 }
 
 // RedisConfig holds Redis configuration
@@ -402,6 +410,9 @@ func setDefaults() {
 	// Database defaults
 	viper.SetDefault("postgres.dbhost", "localhost:5432")
 	viper.SetDefault("postgres.max_conns", 10)
+
+	// A server start applies pending migrations unless told not to.
+	viper.SetDefault("database.auto_migrate", true)
 
 	// Redis defaults
 	viper.SetDefault("redis.host", "localhost")

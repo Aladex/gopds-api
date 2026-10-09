@@ -51,6 +51,14 @@ func run() (code int) {
 	loadConfiguration()
 
 	db := initializeDatabase()
+
+	// The schema comes first: nothing else may touch the database — not the
+	// author metadata workers, not a request — until it is up to date, and a
+	// start that could not finish migrating does not serve at all.
+	if !prepareSchema(db, cfg.Database.AutoMigrate) {
+		closeDatabaseConnection(db)
+		return 1
+	}
 	database.SetDB(db)
 
 	// The author metadata workers start only once the database answers and

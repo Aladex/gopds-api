@@ -1,25 +1,27 @@
 // Command migrate applies the SQL files in database_migrations.
 //
-// It is separate from the server on purpose. Schema changes on a database
-// holding a live catalog are a decision, not a side effect of a deploy: the
-// operator runs this, sees what it did, and then rolls the new image.
+// The server applies pending migrations itself when it starts (unless
+// database.auto_migrate is off), so this is the operator's tool for the rest:
+// previewing what a start would do (-dry-run), migrating a database the server
+// is not pointed at, or running a set from disk (-dir) instead of the one
+// compiled in.
 package main
 
 import (
 	"context"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 	"time"
 
+	migrations "gopds-api/database_migrations"
 	"gopds-api/internal/migrate"
 
 	"github.com/go-pg/pg/v10"
 )
 
 const (
-	migrationsDir = "database_migrations"
-
 	// Long enough for the first run on an empty database, which builds the
 	// whole schema, and short enough that a wedged connection gives up rather
 	// than holding a deploy open.
@@ -32,11 +34,13 @@ func main() {
 		user    = flag.String("user", envOr("GOPDS_POSTGRES_DBUSER", "gopds"), "database user")
 		pass    = flag.String("password", os.Getenv("GOPDS_POSTGRES_DBPASS"), "database password")
 		name    = flag.String("database", envOr("GOPDS_POSTGRES_DBNAME", "gopds"), "database name")
-		dir     = flag.String("dir", migrationsDir, "directory holding the .sql files")
+		dir     = flag.String("dir", "", "directory holding the .sql files (default: the set compiled into this binary)")
 		dryRun  = flag.Bool("dry-run", false, "report what would run, change nothing")
 		timeout = flag.Duration("timeout", defaultTimeout, "how long the whole run may take")
 	)
 	flag.Parse()
+
+	files := migrationSet(*dir)
 
 	db := pg.Connect(&pg.Options{Addr: *addr, User: *user, Password: *pass, Database: *name})
 	defer func() {
@@ -55,7 +59,7 @@ func main() {
 	}
 
 	if *dryRun {
-		if err := report(ctx, db, *dir); err != nil {
+		if err := report(ctx, db, files); err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			cancel()
 			fail(db)
@@ -63,7 +67,7 @@ func main() {
 		return
 	}
 
-	result, err := migrate.Run(ctx, db, os.DirFS("."), *dir, migrate.AppBaseline())
+	result, err := apply(ctx, db, files)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "migration failed: %v\n", err)
 		cancel()
@@ -90,9 +94,24 @@ func main() {
 	}
 }
 
+// apply runs the pending migrations from files under the lock a starting
+// server takes too, so a manual run and a rolling pod never race on a file.
+func apply(ctx context.Context, db *pg.DB, files fs.FS) (migrate.Result, error) {
+	return migrate.RunLocked(ctx, db, files, migrations.Dir, migrate.AppBaseline())
+}
+
+// migrationSet picks the files to run: the embedded set, or a directory on
+// disk when one is named. Either way the files sit at migrations.Dir.
+func migrationSet(dir string) fs.FS {
+	if dir == "" {
+		return migrations.FS()
+	}
+	return os.DirFS(dir)
+}
+
 // report prints what a run would do, touching nothing.
-func report(ctx context.Context, db *pg.DB, dir string) error {
-	toRecord, toApply, err := migrate.Pending(ctx, db, os.DirFS("."), dir, migrate.AppBaseline())
+func report(ctx context.Context, db *pg.DB, files fs.FS) error {
+	toRecord, toApply, err := migrate.Pending(ctx, db, files, migrations.Dir, migrate.AppBaseline())
 	if err != nil {
 		return err
 	}

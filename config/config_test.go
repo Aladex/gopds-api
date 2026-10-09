@@ -385,3 +385,37 @@ func TestLoadAuthorMetadataRejectsNonPositiveValues(t *testing.T) {
 		}
 	}
 }
+
+// A server start applies pending migrations unless the operator turns it off:
+// on by default, off through the file or GOPDS_DATABASE_AUTO_MIGRATE.
+func TestLoadDatabaseAutoMigrate(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		file string
+		env  map[string]string
+		want bool
+	}{
+		{name: "default", want: true},
+		{name: "file off", file: "database:\n  auto_migrate: false\n", want: false},
+		{name: "env off", env: map[string]string{"GOPDS_DATABASE_AUTO_MIGRATE": "false"}, want: false},
+		{name: "env on over file off", file: "database:\n  auto_migrate: false\n",
+			env: map[string]string{"GOPDS_DATABASE_AUTO_MIGRATE": "true"}, want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			isolate(t)
+			setEnv(t, requiredEnv)
+			setEnv(t, tc.env)
+			if tc.file != "" {
+				writeConfigFile(t, tc.file)
+			}
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() = %v, want nil", err)
+			}
+			if cfg.Database.AutoMigrate != tc.want {
+				t.Errorf("Database.AutoMigrate = %v, want %v", cfg.Database.AutoMigrate, tc.want)
+			}
+		})
+	}
+}

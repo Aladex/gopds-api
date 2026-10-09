@@ -248,7 +248,7 @@ db-reset: db-restore db-seed ## Restore the catalog and seed users in one step
 # holding a live catalog, and none of them was written with a reverse; an
 # undo that has never been tested is worse than none, because it invites use.
 # To go back, write a new migration.
-migrate-up: ## Apply pending database migrations
+migrate-up: ## Apply pending database migrations now (the server also does this on start)
 	@echo "Applying database migrations..."
 	go run ./cmd/migrate
 

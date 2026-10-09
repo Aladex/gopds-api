@@ -185,18 +185,29 @@ Inspect their scripts and target configuration before running either command.
 
 ## Database migrations
 
-Files in `database_migrations/` run in filename order. Fresh Compose database
-volumes apply them through PostgreSQL initialization. For an existing database:
+Files in `database_migrations/` run in filename order. They are compiled into
+the binary, and the server applies pending ones itself on start, before it
+serves anything or starts its background workers. A session advisory lock keeps
+two starting replicas from migrating at once: the second waits, then finds
+nothing pending. A failing migration stops the start with a non-zero exit, so
+the server never runs on a half-migrated schema; the log names the file and its
+SQLSTATE.
+
+Set `database.auto_migrate: false` (`GOPDS_DATABASE_AUTO_MIGRATE=false`) to
+turn this off: the server then only logs a warning listing the pending files
+and changes nothing. To look before a deploy, or to migrate by hand:
 
 ```bash
 make migrate-plan # Preview pending files
 make migrate-up   # Apply pending files
 ```
 
-The runner records applied files in `schema_migrations` and executes each new
-file in its own transaction. A database created before the ledger is baselined
-on the first run instead of replaying its schema. Migrations are forward-only;
-to reverse a change, add and test a new migration.
+`cmd/migrate` uses the same embedded files (`-dir` points it at a directory on
+disk instead) and takes the same advisory lock, so a manual run and a starting
+server never apply a file at the same time: whichever comes second waits. The runner records applied files in `schema_migrations` and
+executes each new file in its own transaction. A database created before the
+ledger is baselined on the first run instead of replaying its schema.
+Migrations are forward-only; to reverse a change, add and test a new migration.
 
 ## API and OPDS
 

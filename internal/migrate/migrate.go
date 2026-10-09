@@ -17,6 +17,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/go-pg/pg/v10"
 )
@@ -113,16 +114,68 @@ func Run(
 
 		statements, err := fs.ReadFile(files, path.Join(dir, name))
 		if err != nil {
-			return result, fmt.Errorf("reading %s: %w", name, err)
+			return result, &FileError{Name: name, Err: err}
 		}
 
 		if err := apply(ctx, db, name, string(statements)); err != nil {
-			return result, fmt.Errorf("applying %s: %w", name, err)
+			return result, &FileError{Name: name, Err: err}
 		}
 		result.Applied = append(result.Applied, name)
 	}
 
 	return result, nil
+}
+
+// FileError names the migration a run stopped on. Nothing after it ran, and
+// it was not recorded: its own transaction rolled back.
+type FileError struct {
+	Name string
+	Err  error
+}
+
+func (e *FileError) Error() string { return "applying " + e.Name + ": " + e.Err.Error() }
+func (e *FileError) Unwrap() error { return e.Err }
+
+// LockKey is the session advisory lock every migrator of this application
+// holds while it runs — a starting server and cmd/migrate alike — so two of
+// them never run the same file at once: the second waits, then finds nothing
+// pending. "gopdsmig" in ASCII.
+const LockKey int64 = 0x676f7064736d6967
+
+// unlockTimeout bounds handing the lock back after a run.
+const unlockTimeout = 10 * time.Second
+
+// RunLocked is Run while holding LockKey.
+//
+// The lock is taken on one dedicated connection and the migrations run on the
+// rest of the pool. A process that dies mid-run releases it with its session;
+// a live one unlocks explicitly, because closing a go-pg Conn hands the
+// session back to the pool rather than ending it. A failed unlock is
+// returned: the session would otherwise sit in the pool still holding the
+// lock and stall every other migrator until this process exits.
+func RunLocked(
+	ctx context.Context,
+	db *pg.DB,
+	files fs.FS,
+	dir string,
+	base Baseline,
+) (result Result, err error) {
+	conn := db.Conn()
+	defer func() { _ = conn.Close() }()
+
+	if _, lockErr := conn.ExecContext(ctx, `SELECT pg_advisory_lock(?)`, LockKey); lockErr != nil {
+		return result, fmt.Errorf("taking the migration lock: %w", lockErr)
+	}
+	defer func() {
+		// A fresh context: the run's own may be what ended it.
+		unlockCtx, cancel := context.WithTimeout(context.Background(), unlockTimeout)
+		defer cancel()
+		if _, unlockErr := conn.ExecContext(unlockCtx, `SELECT pg_advisory_unlock(?)`, LockKey); unlockErr != nil {
+			err = errors.Join(err, fmt.Errorf("releasing the migration lock: %w", unlockErr))
+		}
+	}()
+
+	return Run(ctx, db, files, dir, base)
 }
 
 // PreLedgerBoundary is the last migration a ledgerless database is taken to

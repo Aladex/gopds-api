@@ -16,6 +16,10 @@ postgres:
   dbhost: "localhost:5432"
   max_conns: 10
 
+database:
+  # Apply pending migrations on server start; false only warns about them.
+  auto_migrate: true
+
 redis:
   host: localhost
   port: 6379
