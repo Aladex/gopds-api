@@ -7,7 +7,6 @@ import (
 	"errors"
 	"net/http"
 	"os"
-	"os/signal"
 	"time"
 
 	"gopds-api/database"
@@ -20,6 +19,7 @@ import (
 	"gopds-api/telegram"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis"
 )
 
 // @title GOPDS API
@@ -36,12 +36,32 @@ var telegramService *telegram.TelegramService
 // alongside the other dependencies. The phase-4 HTTP handlers consume it.
 var previewService *services.PreviewService
 
+// conversionWatchInterval is how often the e-book conversion directory is
+// checked.
+const conversionWatchInterval = 10 * time.Minute
+
 func main() {
+	os.Exit(run())
+}
+
+// run is the whole server lifetime. Its exit code goes to os.Exit only after
+// it returned, so every deferred shutdown below — including the author
+// metadata workers and the database pool — also runs on the error paths.
+func run() (code int) {
 	loadConfiguration()
 
 	db := initializeDatabase()
-	defer closeDatabaseConnection(db)
 	database.SetDB(db)
+
+	// The author metadata workers start only once the database answers and
+	// stop before its pool closes: one deferred call keeps that order, and,
+	// registered first, it still runs after every other deferred shutdown.
+	authorMetadata := initializeAuthorMetadata(db, &cfg.AuthorMetadata)
+	defer func() {
+		if err := shutdownAuthorMetadataThenDatabase(authorMetadata, db, authorMetadataShutdownTimeout); err != nil && code == 0 {
+			code = 1
+		}
+	}()
 
 	// One search service for every adapter, built on the same pool the
 	// package-global database helpers use.
@@ -58,6 +78,35 @@ func main() {
 	previewService = initializePreviewService()
 	defer previewService.Shutdown()
 
+	// Telegram: bot manager, service and its periodic health checks.
+	stopTelegramHealthCheck := initializeTelegram(mainRedisClient, searchService)
+	defer stopTelegramHealthCheck()
+
+	// Set the Gin mode based on the application configuration.
+	if !cfg.App.DevelMode {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
+	ensureUserPathExists(cfg.App.UsersPath)
+	ensureUserPathExists(cfg.App.MobiConversionDir)
+
+	// Initialize application services (WebSocket manager, etc.)
+	initializeServices()
+
+	// Start watching the directory for e-book conversion tasks
+	go tasks.WatchDirectory(cfg.App.MobiConversionDir, conversionWatchInterval)
+
+	route := gin.New()
+	setupMiddleware(route)
+	setupRoutes(route, cfg.Donate, searchService)
+
+	return serveUntilShutdown(route)
+}
+
+// initializeTelegram sets up the Telegram bot manager and service and starts
+// the bots' periodic health checks. It returns the function that stops them;
+// run defers it at the point where the health checks used to be deferred.
+func initializeTelegram(mainRedisClient *redis.Client, searchService *services.SearchService) (stopHealthCheck func()) {
 	// Initialize the Telegram bot manager
 	telegramConfig := &telegram.Config{
 		BaseURL: cfg.GetTelegramWebhookBaseURL(),
@@ -75,32 +124,18 @@ func main() {
 
 	// Start periodic health checks for Telegram bots
 	healthCheckCtx, healthCheckCancel := context.WithCancel(context.Background())
-	defer healthCheckCancel()
 	if telegramService != nil {
 		telegramService.GetBotManager().StartHealthCheck(healthCheckCtx, 24*time.Hour)
 	}
 
 	// Link BotManager with the database package for admin panel integration
 	database.SetTelegramBotManager(telegramBotManager)
+	return healthCheckCancel
+}
 
-	// Set the Gin mode based on the application configuration.
-	if !cfg.App.DevelMode {
-		gin.SetMode(gin.ReleaseMode)
-	}
-
-	ensureUserPathExists(cfg.App.UsersPath)
-	ensureUserPathExists(cfg.App.MobiConversionDir)
-
-	// Initialize application services (WebSocket manager, etc.)
-	initializeServices()
-
-	// Start watching the directory for e-book conversion tasks
-	go tasks.WatchDirectory(cfg.App.MobiConversionDir, 10*time.Minute)
-
-	route := gin.New()
-	setupMiddleware(route)
-	setupRoutes(route, cfg.Donate, searchService)
-
+// serveUntilShutdown serves HTTP until a shutdown signal arrives, then shuts
+// the server down with a timeout of 5 seconds. It returns the exit code.
+func serveUntilShutdown(route *gin.Engine) int {
 	server := &http.Server{
 		Addr:           cfg.GetServerAddress(),
 		Handler:        route,
@@ -123,16 +158,15 @@ func main() {
 	case err := <-serverErrors:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logging.Errorf("Could not listen on %s: %v\n", server.Addr, err)
-			os.Exit(1)
+			return 1
 		}
 	case <-time.After(1 * time.Second):
 		logging.Info("Server started successfully")
 	}
 
-	// Wait for interrupt signal to gracefully shutdown the server with
+	// Wait for a shutdown signal to gracefully shutdown the server with
 	// a timeout of 5 seconds.
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt)
+	quit := notifyShutdown()
 
 	<-quit
 	logging.Info("Server is shutting down...")
@@ -142,8 +176,9 @@ func main() {
 
 	if err := server.Shutdown(ctx); err != nil {
 		logging.Errorf("Server forced to shutdown: %v", err)
-		os.Exit(1)
+		return 1
 	}
 
 	logging.Info("Server exited")
+	return 0
 }

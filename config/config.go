@@ -28,6 +28,8 @@ type Config struct {
 	Email              EmailConfig    `mapstructure:"email" yaml:"email"`
 	Preview            PreviewConfig  `mapstructure:"preview" yaml:"preview"`
 
+	AuthorMetadata AuthorMetadataConfig `mapstructure:"author_metadata" yaml:"author_metadata"`
+
 	// Donate is deliberately a list rather than a fixed set of fields: which
 	// ways of giving are offered is the operator's business, not this
 	// application's. An empty list means the interface offers none, which is
@@ -150,6 +152,62 @@ type PreviewConfig struct {
 	// size without added safety.
 	MaxPreparedImageBytes int `mapstructure:"max_prepared_image_bytes" yaml:"max_prepared_image_bytes"`
 }
+
+// AuthorMetadataConfig configures the embedded author metadata workers: the
+// extraction stream (plan phase 8) and the local normalization stream (phase
+// 10). There is no LLM stream and so no LLM key, model or limit (scope A1).
+// Every limit has a default; zero or negative values are refused at load,
+// naming the key, so no setting can turn into an unbounded claim, a lease
+// that never expires or endless retries.
+type AuthorMetadataConfig struct {
+	// Enabled starts the workers with the server. Off by default: the
+	// pipeline is switched on by the operator.
+	Enabled bool `mapstructure:"enabled" yaml:"enabled"`
+	// MetadataMaxBytes caps how much of one FB2 file the extractor reads
+	// looking for its metadata.
+	MetadataMaxBytes int64 `mapstructure:"metadata_max_bytes" yaml:"metadata_max_bytes"`
+	// PollInterval is how long an idle worker waits before claiming again.
+	PollInterval       time.Duration             `mapstructure:"poll_interval" yaml:"poll_interval"`
+	Extraction         AuthorMetadataStageConfig `mapstructure:"extraction" yaml:"extraction"`
+	LocalNormalization AuthorMetadataStageConfig `mapstructure:"local_normalization" yaml:"local_normalization"`
+}
+
+// AuthorMetadataStageConfig bounds one leased stream: how many workers run
+// it, how many rows one claim takes, how long a claimed row stays the
+// worker's without a heartbeat, and how many attempts a row gets.
+type AuthorMetadataStageConfig struct {
+	Concurrency int           `mapstructure:"concurrency" yaml:"concurrency"`
+	ClaimSize   int           `mapstructure:"claim_size" yaml:"claim_size"`
+	Lease       time.Duration `mapstructure:"lease" yaml:"lease"`
+	MaxAttempts int           `mapstructure:"max_attempts" yaml:"max_attempts"`
+}
+
+// AuthorMetadataMaxBytes is the default metadata read limit, 4 MiB.
+//
+// TODO(merge): the phase-8 extraction worker introduces
+// services.AuthorMetadataMaxBytes with this same value; when it lands, keep
+// one constant and point the other at it so the two cannot drift.
+const AuthorMetadataMaxBytes = 4 << 20
+
+// Config keys of the author metadata settings that both carry a default and
+// are named by validation.
+const (
+	authorMetadataMaxBytesKey     = "author_metadata.metadata_max_bytes"
+	authorMetadataPollIntervalKey = "author_metadata.poll_interval"
+)
+
+// Defaults of the author metadata streams. Extraction runs one worker by
+// default (contract 3.8); the local stream's numbers are the phase-10 worker
+// defaults.
+const (
+	authorMetadataPollInterval     = 5 * time.Second
+	authorMetadataExtractionClaim  = 50
+	authorMetadataExtractionLease  = 2 * time.Minute
+	authorMetadataLocalClaim       = 100
+	authorMetadataLocalLease       = time.Minute
+	authorMetadataStageMaxAttempts = 5
+	authorMetadataStageConcurrency = 1
+)
 
 // PreviewRedisConfig is the separate Redis destination for the preview
 // cache. Empty host/port/password mean "take the main Redis value" — see
@@ -381,6 +439,20 @@ func setDefaults() {
 	viper.SetDefault("preview.max_nodes", PreviewMaxNodes)
 	viper.SetDefault("preview.max_prepared_image_bytes", PreviewMaxPreparedImageBytes)
 
+	// Author metadata workers: off until the operator enables them, with
+	// bounded defaults for every stream.
+	viper.SetDefault("author_metadata.enabled", false)
+	viper.SetDefault(authorMetadataMaxBytesKey, AuthorMetadataMaxBytes)
+	viper.SetDefault(authorMetadataPollIntervalKey, authorMetadataPollInterval)
+	viper.SetDefault("author_metadata.extraction.concurrency", authorMetadataStageConcurrency)
+	viper.SetDefault("author_metadata.extraction.claim_size", authorMetadataExtractionClaim)
+	viper.SetDefault("author_metadata.extraction.lease", authorMetadataExtractionLease)
+	viper.SetDefault("author_metadata.extraction.max_attempts", authorMetadataStageMaxAttempts)
+	viper.SetDefault("author_metadata.local_normalization.concurrency", authorMetadataStageConcurrency)
+	viper.SetDefault("author_metadata.local_normalization.claim_size", authorMetadataLocalClaim)
+	viper.SetDefault("author_metadata.local_normalization.lease", authorMetadataLocalLease)
+	viper.SetDefault("author_metadata.local_normalization.max_attempts", authorMetadataStageMaxAttempts)
+
 	// App defaults
 	viper.SetDefault("app.devel_mode", false)
 	viper.SetDefault("app.files_path", "./files/")
@@ -418,6 +490,10 @@ func validateConfig(cfg *Config) error {
 		return fmt.Errorf("invalid server port: %d", cfg.Server.Port)
 	}
 
+	if err := cfg.AuthorMetadata.validate(); err != nil {
+		return err
+	}
+
 	// Validate paths exist or can be created
 	paths := []string{
 		cfg.App.FilesPath,
@@ -433,6 +509,38 @@ func validateConfig(cfg *Config) error {
 	}
 
 	return nil
+}
+
+// configLimit is one setting that must be positive, by its config key.
+type configLimit struct {
+	key   string
+	value int64
+}
+
+// validate refuses any non-positive limit, enabled or not: a bad value is
+// reported when it is written, not on the day the workers are switched on.
+func (c *AuthorMetadataConfig) validate() error {
+	limits := []configLimit{
+		{authorMetadataMaxBytesKey, c.MetadataMaxBytes},
+		{authorMetadataPollIntervalKey, int64(c.PollInterval)},
+	}
+	limits = append(limits, c.Extraction.limits("author_metadata.extraction.")...)
+	limits = append(limits, c.LocalNormalization.limits("author_metadata.local_normalization.")...)
+	for _, l := range limits {
+		if l.value <= 0 {
+			return fmt.Errorf("%s must be positive, got %d", l.key, l.value)
+		}
+	}
+	return nil
+}
+
+func (s *AuthorMetadataStageConfig) limits(prefix string) []configLimit {
+	return []configLimit{
+		{prefix + "concurrency", int64(s.Concurrency)},
+		{prefix + "claim_size", int64(s.ClaimSize)},
+		{prefix + "lease", int64(s.Lease)},
+		{prefix + "max_attempts", int64(s.MaxAttempts)},
+	}
 }
 
 // ensureDirectoryExists creates directory if it doesn't exist

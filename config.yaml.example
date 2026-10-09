@@ -39,6 +39,24 @@ redis:
 #   max_nodes: 100000
 #   max_prepared_image_bytes: 50331648 # 48 MiB
 
+# Embedded author metadata workers (extraction and local normalization of
+# source author credits). Off by default; every limit has a built-in default
+# and must be positive — zero or negative values are refused at startup.
+# author_metadata:
+#   enabled: false
+#   metadata_max_bytes: 4194304   # 4 MiB of each FB2 read for metadata
+#   poll_interval: 5s             # idle wait between claims
+#   extraction:
+#     concurrency: 1
+#     claim_size: 50
+#     lease: 2m
+#     max_attempts: 5
+#   local_normalization:
+#     concurrency: 1
+#     claim_size: 100
+#     lease: 1m
+#     max_attempts: 5
+
 sessions:
   key: randomSessionKey12345
   refresh: randomRefreshKey12345

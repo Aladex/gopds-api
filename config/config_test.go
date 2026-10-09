@@ -3,8 +3,10 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 )
@@ -275,5 +277,111 @@ func TestLoadLeavesDonateEmptyWhenUnset(t *testing.T) {
 
 	if len(cfg.Donate) != 0 {
 		t.Errorf("expected no donate methods, got %+v", cfg.Donate)
+	}
+}
+
+// Phase 15: the embedded author metadata workers. Every limit has a default,
+// so the section is usually absent; a value that would make a worker claim
+// nothing, never time out or retry forever is refused at load, by key.
+
+func TestLoadAuthorMetadataDefaults(t *testing.T) {
+	isolate(t)
+	setEnv(t, requiredEnv)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() = %v, want nil", err)
+	}
+
+	want := AuthorMetadataConfig{
+		Enabled:          false,
+		MetadataMaxBytes: 4 << 20,
+		PollInterval:     5 * time.Second,
+		Extraction: AuthorMetadataStageConfig{
+			Concurrency: 1, ClaimSize: 50, Lease: 2 * time.Minute, MaxAttempts: 5,
+		},
+		LocalNormalization: AuthorMetadataStageConfig{
+			Concurrency: 1, ClaimSize: 100, Lease: time.Minute, MaxAttempts: 5,
+		},
+	}
+	if !reflect.DeepEqual(cfg.AuthorMetadata, want) {
+		t.Errorf("AuthorMetadata = %+v, want %+v", cfg.AuthorMetadata, want)
+	}
+	if AuthorMetadataMaxBytes != 4<<20 {
+		t.Errorf("AuthorMetadataMaxBytes = %d, want 4 MiB", AuthorMetadataMaxBytes)
+	}
+}
+
+func TestLoadAuthorMetadataFromFileAndEnv(t *testing.T) {
+	isolate(t)
+	setEnv(t, requiredEnv)
+	writeConfigFile(t, `author_metadata:
+  enabled: true
+  poll_interval: 750ms
+  local_normalization:
+    claim_size: 7
+    lease: 90s
+`)
+	setEnv(t, map[string]string{
+		"GOPDS_AUTHOR_METADATA_METADATA_MAX_BYTES":              "1048576",
+		"GOPDS_AUTHOR_METADATA_EXTRACTION_MAX_ATTEMPTS":         "3",
+		"GOPDS_AUTHOR_METADATA_LOCAL_NORMALIZATION_CONCURRENCY": "2",
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() = %v, want nil", err)
+	}
+	got := cfg.AuthorMetadata
+	if !got.Enabled || got.PollInterval != 750*time.Millisecond || got.MetadataMaxBytes != 1<<20 {
+		t.Errorf("enabled/poll/max bytes = %v/%v/%d", got.Enabled, got.PollInterval, got.MetadataMaxBytes)
+	}
+	if got.LocalNormalization.ClaimSize != 7 || got.LocalNormalization.Lease != 90*time.Second ||
+		got.LocalNormalization.Concurrency != 2 {
+		t.Errorf("local normalization = %+v", got.LocalNormalization)
+	}
+	if got.Extraction.MaxAttempts != 3 || got.Extraction.ClaimSize != 50 {
+		t.Errorf("extraction = %+v", got.Extraction)
+	}
+}
+
+func TestLoadAuthorMetadataRejectsNonPositiveValues(t *testing.T) {
+	keys := []struct {
+		env, key string
+		duration bool
+	}{
+		{"GOPDS_AUTHOR_METADATA_METADATA_MAX_BYTES", "author_metadata.metadata_max_bytes", false},
+		{"GOPDS_AUTHOR_METADATA_POLL_INTERVAL", "author_metadata.poll_interval", true},
+		{"GOPDS_AUTHOR_METADATA_EXTRACTION_CONCURRENCY", "author_metadata.extraction.concurrency", false},
+		{"GOPDS_AUTHOR_METADATA_EXTRACTION_CLAIM_SIZE", "author_metadata.extraction.claim_size", false},
+		{"GOPDS_AUTHOR_METADATA_EXTRACTION_LEASE", "author_metadata.extraction.lease", true},
+		{"GOPDS_AUTHOR_METADATA_EXTRACTION_MAX_ATTEMPTS", "author_metadata.extraction.max_attempts", false},
+		{"GOPDS_AUTHOR_METADATA_LOCAL_NORMALIZATION_CONCURRENCY", "author_metadata.local_normalization.concurrency", false},
+		{"GOPDS_AUTHOR_METADATA_LOCAL_NORMALIZATION_CLAIM_SIZE", "author_metadata.local_normalization.claim_size", false},
+		{"GOPDS_AUTHOR_METADATA_LOCAL_NORMALIZATION_LEASE", "author_metadata.local_normalization.lease", true},
+		{"GOPDS_AUTHOR_METADATA_LOCAL_NORMALIZATION_MAX_ATTEMPTS", "author_metadata.local_normalization.max_attempts", false},
+	}
+	for _, k := range keys {
+		values := []string{"0", "-1"}
+		if k.duration {
+			values = []string{"0s", "-1s"}
+		}
+		for _, value := range values {
+			t.Run(k.key+"="+value, func(t *testing.T) {
+				isolate(t)
+				setEnv(t, requiredEnv)
+				// Disabled workers still get their limits checked: a bad value
+				// must not wait for the day someone turns them on.
+				setEnv(t, map[string]string{k.env: value})
+
+				_, err := Load()
+				if err == nil {
+					t.Fatalf("Load() = nil, want an error naming %s", k.key)
+				}
+				if !strings.Contains(err.Error(), k.key) {
+					t.Errorf("Load() = %v, want the key %s named", err, k.key)
+				}
+			})
+		}
 	}
 }
