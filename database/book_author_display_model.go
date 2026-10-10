@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"errors"
 	"math"
 	"slices"
 	"strings"
@@ -81,17 +82,18 @@ const authorDisplaySourceNone = "none"
 
 // creditSortKey is what a credit sorts by: the selected result's sort name;
 // else "last, first middle" when the file gives a last name; else the name
-// shown.
+// shown. Only parts with a word count, so the key always has one: the name
+// shown has one (creditFromRow).
 func creditSortKey(c *creditName, shown string) string {
-	if c.Selected && strings.TrimSpace(c.SortName) != "" {
+	if c.Selected && hasWords(c.SortName) {
 		return c.SortName
 	}
 	last := strings.TrimSpace(c.Last)
-	if last == "" {
+	if !hasWords(last) {
 		return shown
 	}
 	given := strings.Join(strings.Fields(c.First+" "+c.Middle), " ")
-	if given == "" {
+	if !hasWords(given) {
 		return last
 	}
 	return last + ", " + given
@@ -204,23 +206,34 @@ SET books = book_author_display_name.books + EXCLUDED.books`
 // rows already match is not written; a book that no longer exists loses its
 // rows. It must run inside a transaction, and takes the model's lock there.
 func RebuildAuthorDisplay(ctx context.Context, tx pg.DBI, bookIDs []int64) (int, error) {
+	differed, _, err := rebuildAuthorDisplay(ctx, tx, bookIDs)
+	return differed, err
+}
+
+// rebuildAuthorDisplay is RebuildAuthorDisplay that also returns the books
+// the model refused. The batch is written under a savepoint; when the model
+// refuses it — an integrity violation (SQLSTATE class 23), the way a shape
+// check refused book 389625 in production — it is written again a book at a
+// time, each under its own savepoint, and a book refused alone is skipped:
+// one book never stops a drain or a walk. Any other error ends the rebuild.
+func rebuildAuthorDisplay(ctx context.Context, tx pg.DBI, bookIDs []int64) (int, []AuthorDisplaySkip, error) {
 	if len(bookIDs) == 0 {
-		return 0, nil
+		return 0, nil, nil
 	}
 	if err := lockAuthorDisplayModel(ctx, tx); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	sources, err := loadBookAuthorSources(ctx, tx, bookIDs)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	exists, err := existingBooks(ctx, tx, bookIDs)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	have, err := storedAuthorDisplay(ctx, tx, bookIDs)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	var w authorDisplayWrite
@@ -229,13 +242,65 @@ func RebuildAuthorDisplay(ctx context.Context, tx pg.DBI, bookIDs []int64) (int,
 		if sameAuthorDisplayRows(have[id], want) {
 			continue
 		}
-		w.changed = append(w.changed, id)
-		w.cols.add(want)
+		w.add(id, want)
 	}
-	if applyErr := w.apply(ctx, tx); applyErr != nil {
-		return 0, applyErr
+	if len(w.books) == 0 {
+		return 0, nil, nil
 	}
-	return len(w.changed), nil
+	applyErr := underSavepoint(ctx, tx, "author_display_batch", func() error { return w.apply(ctx, tx) })
+	if applyErr == nil {
+		return len(w.books), nil, nil
+	}
+	if !isIntegrityViolation(applyErr) {
+		return 0, nil, applyErr
+	}
+	differed := 0
+	var skipped []AuthorDisplaySkip
+	for i := range w.books {
+		one := authorDisplayWrite{books: w.books[i : i+1]}
+		err = underSavepoint(ctx, tx, "author_display_book", func() error { return one.apply(ctx, tx) })
+		switch {
+		case err == nil:
+			differed++
+		case isIntegrityViolation(err):
+			skipped = append(skipped, AuthorDisplaySkip{BookID: w.books[i].id, SQLState: sqlState(err)})
+		default:
+			return 0, nil, err
+		}
+	}
+	return differed, skipped, nil
+}
+
+// underSavepoint runs write under a savepoint of the caller's transaction:
+// released when it succeeds, rolled back to — leaving the transaction usable
+// — when it fails.
+func underSavepoint(ctx context.Context, tx pg.DBI, name string, write func() error) error {
+	if _, err := tx.ExecContext(ctx, "SAVEPOINT "+name); err != nil {
+		return err
+	}
+	if err := write(); err != nil {
+		if _, rollbackErr := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT "+name); rollbackErr != nil {
+			return rollbackErr
+		}
+		return err
+	}
+	_, err := tx.ExecContext(ctx, "RELEASE SAVEPOINT "+name)
+	return err
+}
+
+// isIntegrityViolation tells a refusal by the model's constraints (SQLSTATE
+// class 23) from any other failure.
+func isIntegrityViolation(err error) bool {
+	return strings.HasPrefix(sqlState(err), "23")
+}
+
+// sqlState is a PostgreSQL error's SQLSTATE, empty for any other error.
+func sqlState(err error) string {
+	var pgErr pg.Error
+	if errors.As(err, &pgErr) {
+		return pgErr.Field('C')
+	}
+	return ""
 }
 
 // existingBooks tells which of the books are in the catalog.
@@ -269,21 +334,36 @@ func storedAuthorDisplay(ctx context.Context, tx pg.DBI, bookIDs []int64) (map[i
 }
 
 // authorDisplayWrite is the rewrite of the books whose rows differ: their new
-// rows.
+// rows, book by book.
 type authorDisplayWrite struct {
-	changed []int64
-	cols    authorDisplayColumns
+	books []bookAuthorDisplayRows
+}
+
+// bookAuthorDisplayRows is one book's new rows.
+type bookAuthorDisplayRows struct {
+	id   int64
+	rows []authorDisplayRow
+}
+
+func (w *authorDisplayWrite) add(id int64, rows []authorDisplayRow) {
+	w.books = append(w.books, bookAuthorDisplayRows{id: id, rows: rows})
 }
 
 func (w *authorDisplayWrite) apply(ctx context.Context, tx pg.DBI) error {
-	if len(w.changed) == 0 {
+	if len(w.books) == 0 {
 		return nil
 	}
+	changed := make([]int64, len(w.books))
+	var cols authorDisplayColumns
+	for i := range w.books {
+		changed[i] = w.books[i].id
+		cols.add(w.books[i].rows)
+	}
 	var lowered []int64
-	if _, err := tx.QueryContext(ctx, &lowered, deleteAuthorDisplaySQL, pg.In(w.changed)); err != nil {
+	if _, err := tx.QueryContext(ctx, &lowered, deleteAuthorDisplaySQL, pg.In(changed)); err != nil {
 		return err
 	}
-	if c := &w.cols; len(c.book) > 0 {
+	if c := &cols; len(c.book) > 0 {
 		if _, err := tx.ExecContext(ctx, insertAuthorDisplaySQL, pg.Array(c.book), pg.Array(c.position),
 			pg.Array(c.display), pg.Array(c.sortKey), pg.Array(c.source),
 			pg.Array(c.legacy), pg.Array(c.credit), pg.Array(c.extends)); err != nil {
@@ -368,6 +448,15 @@ func idOrZero(id *int64) int64 {
 // took, the distinct books they named, and how many of those it rewrote.
 type AuthorDisplayDrain struct {
 	Marks, Books, Differed int
+	// Skipped are the books the model refused (see RebuildAuthorDisplay).
+	Skipped []AuthorDisplaySkip
+}
+
+// AuthorDisplaySkip is a book the read model refused and the SQLSTATE it was
+// refused with.
+type AuthorDisplaySkip struct {
+	BookID   int64
+	SQLState string
 }
 
 // DrainAuthorDisplayMarks takes the oldest marks, at most limit, and
@@ -395,11 +484,11 @@ func DrainAuthorDisplayMarks(ctx context.Context, tx pg.DBI, limit int) (AuthorD
 		}
 	}
 	books := distinctIDs(named)
-	differed, err := RebuildAuthorDisplay(ctx, tx, books)
+	differed, skipped, err := rebuildAuthorDisplay(ctx, tx, books)
 	if err != nil {
 		return AuthorDisplayDrain{}, err
 	}
-	return AuthorDisplayDrain{Marks: len(marked), Books: len(books), Differed: differed}, nil
+	return AuthorDisplayDrain{Marks: len(marked), Books: len(books), Differed: differed, Skipped: skipped}, nil
 }
 
 func distinctIDs(ids []int64) []int64 {
@@ -441,6 +530,8 @@ type AuthorDisplayReconcileStep struct {
 	// NamesDiffered is how many rows of the name index the finished walk
 	// corrected.
 	NamesDiffered int
+	// Skipped are the books of this step the model refused.
+	Skipped []AuthorDisplaySkip
 }
 
 // reconcileRow is the walk's one row.
@@ -494,10 +585,11 @@ func ReconcileAuthorDisplayStep(ctx context.Context, tx pg.DBI, batch int, every
 			AND NOT EXISTS (SELECT 1 FROM opds_catalog_book b WHERE b.id = d.book_id)`, cursor, upper); err != nil {
 		return out, err
 	}
-	differed, err := RebuildAuthorDisplay(ctx, tx, append(slices.Clone(ids), gone...))
+	differed, skipped, err := rebuildAuthorDisplay(ctx, tx, append(slices.Clone(ids), gone...))
 	if err != nil {
 		return out, err
 	}
+	out.Skipped = skipped
 	out.Books, out.Differed = len(ids), differed
 	out.WalkRead, out.WalkDiffered = state.WalkRead+int64(len(ids)), state.WalkDiffered+int64(differed)
 

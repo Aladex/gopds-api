@@ -83,3 +83,10 @@ func TestBotListNamesABookWithoutAuthors(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, res.Message, "1. Book 1 — Автор неизвестен\n")
 }
+
+// A name of spaces of any kind is no name: an entry whose names are all
+// blank says the author is unknown, as an entry without names does.
+func TestBotListNamesABookWhoseOnlyNameIsBlank(t *testing.T) {
+	assert.Equal(t, "Автор неизвестен", authorsText([]models.AuthorDisplay{{Name: "\u00a0"}}, "Автор неизвестен"))
+	assert.Equal(t, "Анна", authorsText([]models.AuthorDisplay{{Name: "\u3000"}, {Name: "Анна"}}, "Автор неизвестен"))
+}

@@ -2,8 +2,13 @@ package services
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
+
+	"gopds-api/logging"
+
+	logrustest "github.com/sirupsen/logrus/hooks/test" //nolint:depguard // tests assert on the structured log entries
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -77,4 +82,33 @@ func TestAuthorDisplayModelLoopRunsUnderTheRunner(t *testing.T) {
 func TestAuthorDisplayModelConfigDefaults(t *testing.T) {
 	c := AuthorDisplayModelConfig{}.withDefaults()
 	assert.Equal(t, AuthorDisplayModelConfig{Batch: 1000, Every: 24 * time.Hour, Poll: 2 * time.Second}, c)
+}
+
+// A book the model refuses is skipped and logged once, by its ID and nothing
+// else; the worker carries on with the rest.
+func TestAuthorDisplayModelLoopLogsAndSkipsARefusedBook(t *testing.T) {
+	hook := logrustest.NewLocal(logging.GetLogger())
+	t.Cleanup(hook.Reset)
+	s := localWorkerDB(t)
+	f := &workerFixture{t: t, db: s}
+	f.persistBook(author(tolstoy(t)))
+	f.persistBook(author(tolstoy(t)))
+	var books []int64
+	_, err := s.Query(&books, `SELECT id FROM opds_catalog_book ORDER BY id`)
+	require.NoError(t, err)
+	require.Len(t, books, 2)
+	f.exec(`ALTER TABLE book_author_display ADD CONSTRAINT poisoned_book CHECK (book_id <> ` +
+		strconv.FormatInt(books[0], 10) + `) NOT VALID`)
+
+	loop := NewAuthorDisplayModelLoop(s, AuthorDisplayModelConfig{Batch: 10, Every: 24 * time.Hour, Poll: time.Hour})
+	worked, err := loop.RunOnce(context.Background())
+	require.NoError(t, err)
+	assert.True(t, worked)
+	assert.Equal(t, 1, f.count(`SELECT count(*) FROM book_author_display WHERE book_id = ?`, books[1]))
+	assert.Zero(t, f.count(`SELECT count(*) FROM book_author_display_dirty`))
+
+	skipped := eventsNamed(hook, AuthorMetadataEventDisplayBookSkipped)
+	require.Len(t, skipped, 1)
+	assert.Equal(t, books[0], skipped[0].Data["book_id"])
+	assert.Equal(t, "23514", skipped[0].Data["sqlstate"])
 }

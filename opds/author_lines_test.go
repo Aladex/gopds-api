@@ -94,3 +94,14 @@ func TestOpdsEntryWithoutAnyAuthorNamesTheUnknownAuthor(t *testing.T) {
 		assert.Equal(t, []lineAuthor{{Name: models.UnknownAuthorName}}, entryAuthors(t, rec.Body.String(), 1000), name)
 	}
 }
+
+// A blank name — spaces of any kind — is no author either: the entry names
+// the unknown author instead of an empty <name>.
+func TestOpdsEntryWithOnlyABlankAuthorNamesTheUnknownAuthor(t *testing.T) {
+	book := cannedBooks(1)
+	book[0].Authors = []models.Author{{ID: 5, FullName: "\u00a0"}}
+	search := &fakePublicSearch{booksPage: models.BookSearchPage{Books: book, Total: 1, Limit: 10}}
+	rec := doGET(t, newOpdsTestRouter(search), "/opds/books?title="+url.QueryEscape("война"))
+	require.Equal(t, 200, rec.Code)
+	assert.Equal(t, []lineAuthor{{Name: models.UnknownAuthorName}}, entryAuthors(t, rec.Body.String(), 1000))
+}

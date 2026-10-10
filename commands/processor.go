@@ -543,16 +543,19 @@ func writeBookEntries(
 }
 
 // authorsText names a listed book's authors by its author line, or says
-// unknown when the line names no one.
+// unknown when the line names no one. A name of spaces of any kind (U+00A0
+// included) is no name.
 func authorsText(line []models.AuthorDisplay, unknown string) string {
-	names := make([]string, len(line))
-	for i, a := range line {
-		names[i] = a.Name
+	names := make([]string, 0, len(line))
+	for _, a := range line {
+		if name := strings.TrimSpace(a.Name); name != "" {
+			names = append(names, name)
+		}
 	}
-	if text := strings.Join(names, ", "); text != "" {
-		return text
+	if len(names) == 0 {
+		return unknown
 	}
-	return unknown
+	return strings.Join(names, ", ")
 }
 
 // formatCombinedQuery formats the combined query description

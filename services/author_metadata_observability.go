@@ -73,6 +73,8 @@ const (
 	// Author display read model: a walk over the catalog ended; its count is
 	// the books whose rows differed from their line.
 	AuthorMetadataEventDisplayWalkFinished AuthorMetadataEventName = "author_metadata.display_walk_finished"
+	// A book the read model refused was skipped: its ID and the SQLSTATE.
+	AuthorMetadataEventDisplayBookSkipped AuthorMetadataEventName = "author_metadata.display_book_skipped"
 )
 
 // AuthorMetadataEventNames lists every event.
@@ -94,6 +96,7 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventWorkersDisabled, AuthorMetadataEventWorkersNotStarted,
 		AuthorMetadataEventWorkersShutdownTimeout, AuthorMetadataEventRunsAPINotWired,
 		AuthorMetadataEventAggregatesRefreshFailed, AuthorMetadataEventDisplayWalkFinished,
+		AuthorMetadataEventDisplayBookSkipped,
 	}
 }
 

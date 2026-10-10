@@ -3,6 +3,7 @@ package opdsutils
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/viper"
 
@@ -65,7 +66,9 @@ func CreateItem(book *models.Book, authors []models.AuthorDisplay, isKoreader bo
 	links = append(links, posterLinks...)
 
 	// Atom requires an author on every entry: a book whose line names no
-	// one is shown as the unknown author, linked to nothing.
+	// one — or only blank names, spaces of any kind — is shown as the
+	// unknown author, linked to nothing.
+	authors = nonBlankAuthors(authors)
 	if len(authors) == 0 {
 		authors = []models.AuthorDisplay{{Name: models.UnknownAuthorName}}
 	}
@@ -104,4 +107,15 @@ func CreateItem(book *models.Book, authors []models.AuthorDisplay, isKoreader bo
 		Language:    book.Lang,
 		Issued:      book.DocDate,
 	}
+}
+
+// nonBlankAuthors drops the names that are spaces only (Unicode-aware).
+func nonBlankAuthors(authors []models.AuthorDisplay) []models.AuthorDisplay {
+	out := make([]models.AuthorDisplay, 0, len(authors))
+	for _, a := range authors {
+		if strings.TrimSpace(a.Name) != "" {
+			out = append(out, a)
+		}
+	}
+	return out
 }

@@ -40,70 +40,119 @@ type bookAuthorSources struct {
 
 // bookAuthorRowsSQL reads both lists for a page of books at once: the legacy
 // links (one row per distinct author, in the order they were linked) and the
-// author credits of each book's current snapshot in file order, each with the
-// name it shows. A selection whose result carries no display name falls back
-// to the file's spelling like any unselected credit. A credit row also carries
-// what the read model sorts it by: its ID, the selected result's sort name
-// and the file's name parts.
+// author credits of each book's current snapshot in file order. A credit row
+// carries the selected result's display and sort names (NULL without a
+// selection), the file's spelling, and what the read model sorts it by: its
+// ID and the file's name parts. Which of the names is shown — or whether the
+// credit names anyone at all — is decided in Go (creditFromRow), with Unicode-aware
+// rules SQL's btrim does not have.
 const bookAuthorRowsSQL = `
-	SELECT book_id, legacy_id, name, selected, credit_id, sort_name, first_name, middle_name, last_name FROM (
-	SELECT ba.book_id, a.id AS legacy_id, a.full_name AS name, false AS selected, min(ba.id) AS ord,
-	       NULL::bigint AS credit_id, NULL::text AS sort_name,
-	       NULL::text AS first_name, NULL::text AS middle_name, NULL::text AS last_name
+	SELECT book_id, legacy_id, chosen_name, chosen_sort_name, source_name,
+	       credit_id, first_name, middle_name, last_name FROM (
+	SELECT ba.book_id, a.id AS legacy_id, NULL::text AS chosen_name, NULL::text AS chosen_sort_name,
+	       a.full_name AS source_name, min(ba.id) AS ord,
+	       NULL::bigint AS credit_id, NULL::text AS first_name, NULL::text AS middle_name, NULL::text AS last_name
 	FROM opds_catalog_bauthor ba
 	JOIN opds_catalog_author a ON a.id = ba.author_id
 	WHERE ba.book_id IN (?0)
 	GROUP BY ba.book_id, a.id, a.full_name
 	UNION ALL
-	SELECT s.book_id, NULL, CASE WHEN chosen.display_name IS NOT NULL THEN chosen.display_name
-	                             ELSE c.source_display_name END,
-	       chosen.display_name IS NOT NULL, c.position,
-	       c.id, CASE WHEN chosen.display_name IS NOT NULL THEN chosen.sort_name END,
-	       c.source_first_name, c.source_middle_name, c.source_last_name
+	SELECT s.book_id, NULL, chosen.display_name, chosen.sort_name, c.source_display_name, c.position,
+	       c.id, c.source_first_name, c.source_middle_name, c.source_last_name
 	FROM book_metadata_snapshot s
 	JOIN book_contributor_credit c ON c.snapshot_id = s.id AND c.role = 'author'
 	LEFT JOIN LATERAL (
-		SELECT nullif(btrim(r.display_name), '') AS display_name, r.sort_name
+		SELECT r.display_name, r.sort_name
 		FROM book_contributor_credit_selection sel
 		JOIN contributor_normalization_result r ON r.id = sel.result_id
 		WHERE sel.credit_id = c.id AND sel.state = 'selected') chosen ON true
 	WHERE s.is_current AND s.book_id IN (?0)) author_rows
 	ORDER BY book_id, legacy_id IS NULL, ord`
 
+// authorRow is one row of bookAuthorRowsSQL: a legacy author (LegacyID set,
+// its name in SourceName) or an author credit.
+type authorRow struct {
+	BookID         int64   `pg:"book_id"`
+	LegacyID       *int64  `pg:"legacy_id"`
+	ChosenName     *string `pg:"chosen_name"`
+	ChosenSortName string  `pg:"chosen_sort_name"`
+	SourceName     string  `pg:"source_name"`
+	CreditID       int64   `pg:"credit_id"`
+	FirstName      string  `pg:"first_name"`
+	MiddleName     string  `pg:"middle_name"`
+	LastName       string  `pg:"last_name"`
+}
+
+// hasWords reports whether a name has a letter or a digit: a name of
+// spaces of any kind (U+00A0, U+3000, …), punctuation or replacement
+// characters names no one.
+func hasWords(name string) bool {
+	return len(nameWords(name)) > 0
+}
+
+// creditFromRow is the name a credit row shows: the selected result's display
+// name when it has a word, else the file's spelling when that has one. A
+// credit with neither is not a name and is left out, as if the file had not
+// listed it: the line falls back to the next name, the legacy authors, or
+// nobody.
+func creditFromRow(row *authorRow) (creditName, bool) {
+	c := creditName{ID: row.CreditID, First: row.FirstName, Middle: row.MiddleName, Last: row.LastName}
+	switch {
+	case row.ChosenName != nil && hasWords(*row.ChosenName):
+		c.Name, c.Selected, c.SortName = strings.TrimSpace(*row.ChosenName), true, row.ChosenSortName
+	case hasWords(row.SourceName):
+		c.Name = row.SourceName
+	default:
+		return creditName{}, false
+	}
+	return c, true
+}
+
+// legacyFromRow is the legacy author a legacy row names, if its name has a
+// word: a catalog author named "." or a row of replacement characters is no
+// author of the line.
+func legacyFromRow(row *authorRow) (legacyAuthor, bool) {
+	if !hasWords(row.SourceName) {
+		return legacyAuthor{}, false
+	}
+	return legacyAuthor{ID: *row.LegacyID, Name: row.SourceName}, true
+}
+
+// sourcesFromRows groups the rows by book.
+func sourcesFromRows(rows []authorRow) map[int64]*bookAuthorSources {
+	sources := map[int64]*bookAuthorSources{}
+	for i := range rows {
+		row := &rows[i]
+		s := sources[row.BookID]
+		if s == nil {
+			s = &bookAuthorSources{}
+			sources[row.BookID] = s
+		}
+		if row.LegacyID != nil {
+			if a, ok := legacyFromRow(row); ok {
+				s.legacy = append(s.legacy, a)
+			}
+		} else if c, ok := creditFromRow(row); ok {
+			s.credits = append(s.credits, c)
+		}
+	}
+	return sources
+}
+
 // loadBookAuthorSources gathers the legacy authors and author credits of the
 // books in one query. Every requested book has an entry, empty when it has
 // neither.
 func loadBookAuthorSources(ctx context.Context, db pg.DBI, bookIDs []int64) (map[int64]*bookAuthorSources, error) {
-	sources := make(map[int64]*bookAuthorSources, len(bookIDs))
+	var rows []authorRow
+	if len(bookIDs) > 0 {
+		if _, err := db.QueryContext(ctx, &rows, bookAuthorRowsSQL, pg.In(bookIDs)); err != nil {
+			return nil, err
+		}
+	}
+	sources := sourcesFromRows(rows)
 	for _, id := range bookIDs {
-		sources[id] = &bookAuthorSources{}
-	}
-	if len(bookIDs) == 0 {
-		return sources, nil
-	}
-	var rows []struct {
-		BookID     int64  `pg:"book_id"`
-		LegacyID   *int64 `pg:"legacy_id"`
-		Name       string `pg:"name"`
-		Selected   bool   `pg:"selected"`
-		CreditID   int64  `pg:"credit_id"`
-		SortName   string `pg:"sort_name"`
-		FirstName  string `pg:"first_name"`
-		MiddleName string `pg:"middle_name"`
-		LastName   string `pg:"last_name"`
-	}
-	if _, err := db.QueryContext(ctx, &rows, bookAuthorRowsSQL, pg.In(bookIDs)); err != nil {
-		return nil, err
-	}
-	for _, row := range rows {
-		s := sources[row.BookID]
-		if row.LegacyID != nil {
-			s.legacy = append(s.legacy, legacyAuthor{ID: *row.LegacyID, Name: row.Name})
-		} else {
-			s.credits = append(s.credits, creditName{
-				Name: row.Name, Selected: row.Selected, ID: row.CreditID, SortName: row.SortName,
-				First: row.FirstName, Middle: row.MiddleName, Last: row.LastName,
-			})
+		if sources[id] == nil {
+			sources[id] = &bookAuthorSources{}
 		}
 	}
 	return sources, nil

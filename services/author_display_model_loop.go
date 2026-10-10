@@ -70,6 +70,7 @@ func (l *AuthorDisplayModelLoop) RunOnce(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	if drained.Marks >= l.cfg.Batch {
+		logSkippedAuthorDisplay(drained.Skipped)
 		return true, nil
 	}
 	var step database.AuthorDisplayReconcileStep
@@ -78,8 +79,12 @@ func (l *AuthorDisplayModelLoop) RunOnce(ctx context.Context) (bool, error) {
 		step, err = database.ReconcileAuthorDisplayStep(ctx, tx, l.cfg.Batch, l.cfg.Every)
 		return err
 	}); err != nil {
+		// The drain committed: its skipped books are reported all the same.
+		logSkippedAuthorDisplay(drained.Skipped)
 		return false, err
 	}
+	// A book both the drain and the walk step refused is reported once.
+	logSkippedAuthorDisplay(append(drained.Skipped, step.Skipped...))
 	if step.Finished {
 		// Counts only: how many books the walk found its model rows
 		// different from their line — zero when every writer marked.
@@ -89,6 +94,22 @@ func (l *AuthorDisplayModelLoop) RunOnce(ctx context.Context) (bool, error) {
 		})
 	}
 	return drained.Marks > 0 || step.Ran, nil
+}
+
+// logSkippedAuthorDisplay records each book the model refused, once, by its
+// ID and the SQLSTATE — never a name.
+func logSkippedAuthorDisplay(skipped []database.AuthorDisplaySkip) {
+	seen := make(map[int64]bool, len(skipped))
+	for _, skip := range skipped {
+		if seen[skip.BookID] {
+			continue
+		}
+		seen[skip.BookID] = true
+		LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{
+			Name: AuthorMetadataEventDisplayBookSkipped, Stage: AuthorMetadataStageDisplayModel,
+			BookID: skip.BookID, SQLState: skip.SQLState,
+		})
+	}
 }
 
 // Run works until ctx is canceled: batch after batch while there is work,
