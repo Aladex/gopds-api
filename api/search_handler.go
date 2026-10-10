@@ -115,6 +115,7 @@ const maxListLimit = 100
 // @Param  title query string false "Title of the book"
 // @Param  author query int false "Author ID"
 // @Param  book_id query int false "Exact book ID"
+// @Param  sort query string false "Ordinary list order: empty for the newest first, author for by author"
 // @Tags books
 // @Accept  json
 // @Produce  json
@@ -127,6 +128,11 @@ func (h *SearchHandler) Books(c *gin.Context) {
 	var q bookListQuery
 	if err := c.ShouldBindWith(&q, binding.Query); err != nil {
 		httputil.NewError(c, http.StatusBadRequest, errors.New("bad_request"))
+		return
+	}
+	// The ordinary list sorts by author on request; a search keeps its rank.
+	if q.Sort != "" && q.Sort != models.BookSortAuthor {
+		httputil.NewError(c, http.StatusBadRequest, errors.New("bad_sort"))
 		return
 	}
 	// Both of these flags widen what the request may see, so both belong to

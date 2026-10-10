@@ -274,7 +274,13 @@ type BookFilters struct {
 	CuratedCollection int64 `form:"curated_collection" json:"curated_collection"`
 	IncludeHidden     bool  `form:"include_hidden" json:"include_hidden"`
 	Genre             int   `form:"genre" json:"genre"`
+	// Sort orders the ordinary list: "" is the newest first, BookSortAuthor
+	// by the first name of each book's author line.
+	Sort string `form:"sort" json:"sort"`
 }
+
+// BookSortAuthor sorts a book list by author.
+const BookSortAuthor = "author"
 
 // CollectionFilters params for filtering collections list
 type CollectionFilters struct {

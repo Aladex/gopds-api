@@ -64,6 +64,12 @@ func CreateItem(book *models.Book, authors []models.AuthorDisplay, isKoreader bo
 	}
 	links = append(links, posterLinks...)
 
+	// Atom requires an author on every entry: a book whose line names no
+	// one is shown as the unknown author, linked to nothing.
+	if len(authors) == 0 {
+		authors = []models.AuthorDisplay{{Name: models.UnknownAuthorName}}
+	}
+
 	// Add links to author's books
 	var itemAuthors []Author
 	for _, author := range authors {

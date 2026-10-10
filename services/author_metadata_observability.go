@@ -69,6 +69,10 @@ const (
 	// A background refresh of a run's stored figures failed; the next read
 	// starts another.
 	AuthorMetadataEventAggregatesRefreshFailed AuthorMetadataEventName = "author_metadata.aggregates_refresh_failed"
+
+	// Author display read model: a walk over the catalog ended; its count is
+	// the books whose rows differed from their line.
+	AuthorMetadataEventDisplayWalkFinished AuthorMetadataEventName = "author_metadata.display_walk_finished"
 )
 
 // AuthorMetadataEventNames lists every event.
@@ -89,7 +93,7 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventWorkerStopped, AuthorMetadataEventWorkerBatchFailed,
 		AuthorMetadataEventWorkersDisabled, AuthorMetadataEventWorkersNotStarted,
 		AuthorMetadataEventWorkersShutdownTimeout, AuthorMetadataEventRunsAPINotWired,
-		AuthorMetadataEventAggregatesRefreshFailed,
+		AuthorMetadataEventAggregatesRefreshFailed, AuthorMetadataEventDisplayWalkFinished,
 	}
 }
 
@@ -100,6 +104,8 @@ const (
 	AuthorMetadataStageRunner    AuthorMetadataStage = "runner"
 	// AuthorMetadataStageAcceptance is the start-up acceptance pass.
 	AuthorMetadataStageAcceptance AuthorMetadataStage = "acceptance"
+	// AuthorMetadataStageDisplayModel is the author display read-model worker.
+	AuthorMetadataStageDisplayModel AuthorMetadataStage = "display_model"
 )
 
 // AuthorMetadataEvent is one log record. Every field is an identifier, a
@@ -164,7 +170,7 @@ var (
 	knownStages     = closedSet(
 		AuthorMetadataStageExtraction, AuthorMetadataStageLocalNormalization,
 		AuthorMetadataStageDualWrite, AuthorMetadataStageReview, AuthorMetadataStageRunner,
-		AuthorMetadataStageAcceptance,
+		AuthorMetadataStageAcceptance, AuthorMetadataStageDisplayModel,
 	)
 	knownClasses  = closedSet(database.AuthorMetadataAttemptErrorClasses()...)
 	knownStatuses = authorMetadataEventStatuses()
@@ -249,11 +255,12 @@ func closedEventName(name AuthorMetadataEventName) AuthorMetadataEventName {
 }
 
 // closedWorkerLabel accepts the labels the runner's stages carry: the
-// extraction stage's, the acceptance pass's and the LLM worker's own labels,
+// extraction stage's, the acceptance pass's, the LLM worker's and the author display
+// model's own labels,
 // and a local normalization loop's label with its index.
 func closedWorkerLabel(label string) string {
 	if label == string(AuthorMetadataStageExtraction) || label == string(AuthorMetadataStageAcceptance) ||
-		label == authorLLMWorkerName {
+		label == authorLLMWorkerName || label == string(AuthorMetadataStageDisplayModel) {
 		return label
 	}
 	index, ok := strings.CutPrefix(label, string(AuthorMetadataStageLocalNormalization)+"-")

@@ -32,13 +32,19 @@ func TestMigration29FailsFastInsteadOfWaitingForALock(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	ctx := context.Background()
 
+	// Everything up to 28; 29 and whatever follows it come with the retry.
 	before := fstest.MapFS{}
 	entries, err := os.ReadDir("../../database_migrations")
 	if err != nil {
 		t.Fatal(err)
 	}
+	later := 0
 	for _, e := range entries {
-		if !strings.HasSuffix(e.Name(), ".sql") || strings.HasPrefix(e.Name(), "29-") {
+		if !strings.HasSuffix(e.Name(), ".sql") {
+			continue
+		}
+		if number, _, _ := strings.Cut(e.Name(), "-"); len(number) == 2 && number >= "29" {
+			later++
 			continue
 		}
 		data, readErr := os.ReadFile("../../database_migrations/" + e.Name())
@@ -87,7 +93,7 @@ func TestMigration29FailsFastInsteadOfWaitingForALock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("retrying migration 29: %v", err)
 	}
-	if len(result.Applied) != 1 || !strings.HasPrefix(result.Applied[0], "29-") {
+	if len(result.Applied) != later || !strings.HasPrefix(result.Applied[0], "29-") {
 		t.Fatalf("the retry applied %v", result.Applied)
 	}
 }

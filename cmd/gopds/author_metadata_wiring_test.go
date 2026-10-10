@@ -404,3 +404,25 @@ func TestAcceptancePassAtStartSkipsAnInputThatTurnedAmbiguous(t *testing.T) {
 	assert.Equal(t, "unresolved", state(710), "the ambiguous input's earlier credit is not selected")
 	assert.Equal(t, "none", state(712))
 }
+
+// The author display read model is kept by its own worker, which runs
+// whatever the pipeline switch says: search and sorting read the model, and
+// the scan's live dual write and the admin's edits mark books with the
+// pipeline off as well.
+func TestAuthorDisplayModelRunsWhateverTheSwitchSays(t *testing.T) {
+	db := scratchDB(t)
+	persistAuthor(t, db, 720, "first", "Иван", "last", "Петров")
+	c := wiringConfig()
+	c.Enabled = false
+
+	runner := initializeAuthorMetadata(db, t.TempDir(), &c)
+	require.NotNil(t, runner)
+	require.Eventually(t, func() bool {
+		var rows int
+		_, err := db.QueryOne(pg.Scan(&rows), `SELECT count(*) FROM book_author_display`)
+		return err == nil && rows == 1
+	}, 10*time.Second, 10*time.Millisecond, "the marked book never reached the read model")
+	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, runner.Shutdown(shutdown))
+}

@@ -72,3 +72,25 @@ func TestOpdsSearchFeedWithoutAuthorLinesShowsTheLegacyAuthors(t *testing.T) {
 	assert.Equal(t, []lineAuthor{{Name: "Толстой Лев", URI: "/opds/author/5", Related: "/opds/new/0/5"}},
 		entryAuthors(t, rec.Body.String(), 1000))
 }
+
+// Atom requires an <author> on every entry. A book whose line names no one —
+// neither the layer nor the catalog has an author for it — is shown as the
+// unknown-author placeholder, with no link: there is no catalog author
+// behind it. This holds with the read path on and off.
+func TestOpdsEntryWithoutAnyAuthorNamesTheUnknownAuthor(t *testing.T) {
+	book := cannedBooks(1)
+	book[0].Authors = nil
+	search := &fakePublicSearch{booksPage: models.BookSearchPage{Books: book, Total: 1, Limit: 10}}
+	empty := &pageLookup{lines: map[int64]models.BookAuthorDisplay{
+		1000: {Source: models.AuthorDisplayLegacy, Fallback: models.AuthorDisplayNoCredits},
+	}}
+	path := "/opds/books?title=" + url.QueryEscape("война")
+	for name, r := range map[string]*gin.Engine{
+		"layer":  routerWithLines(search, empty),
+		"legacy": newOpdsTestRouter(search),
+	} {
+		rec := doGET(t, r, path)
+		require.Equal(t, 200, rec.Code, name)
+		assert.Equal(t, []lineAuthor{{Name: models.UnknownAuthorName}}, entryAuthors(t, rec.Body.String(), 1000), name)
+	}
+}

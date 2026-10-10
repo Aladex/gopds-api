@@ -103,7 +103,11 @@ visible AS NOT MATERIALIZED (
                 AND ci.match_status IN ('auto_matched', 'manual')))
         -- AuthorQuery narrows the same request: exact/prefix at any length,
         -- the index-served word-similarity lane from three runes up. It
-        -- never falls back to a Go-side author pass.
+        -- never falls back to a Go-side author pass. It matches the legacy
+        -- names, and the names of the book's author line in the read model
+        -- (book_author_display) that can say more than them: a patronymic or
+        -- a given name the catalog lacks, a name the catalog never linked.
+        -- The rest carry only their legacy author's words.
         AND ((SELECT q.author_needle FROM q) IS NULL OR EXISTS (
             SELECT 1 FROM opds_catalog_bauthor ba
             JOIN opds_catalog_author a ON a.id = ba.author_id
@@ -111,7 +115,15 @@ visible AS NOT MATERIALIZED (
                 AND (public.search_normalize(a.full_name) = (SELECT q.author_needle FROM q)
                     OR public.search_normalize(a.full_name) LIKE (SELECT q.author_needle FROM q) || '%'
                     OR (char_length((SELECT q.author_needle FROM q)) >= 3
-                        AND public.search_normalize(a.full_name) %> (SELECT q.author_needle FROM q)))))
+                        AND public.search_normalize(a.full_name) %> (SELECT q.author_needle FROM q))))
+            OR EXISTS (
+            SELECT 1 FROM book_author_display d
+            WHERE d.book_id = b.id
+                AND d.source = 'layer' AND (d.legacy_author_id IS NULL OR d.extends_legacy)
+                AND (d.search_key = (SELECT q.author_needle FROM q)
+                    OR d.search_key LIKE (SELECT q.author_needle FROM q) || '%'
+                    OR (char_length((SELECT q.author_needle FROM q)) >= 3
+                        AND d.search_key %> (SELECT q.author_needle FROM q)))))
 ),
 anchor AS (
     -- The longest needle word, used as the word-coverage lane's index qual.
@@ -497,6 +509,13 @@ func preferContextError(ctx context.Context, err error) error {
 // how many books each one holds. Ties break on id last, or paging repeats
 // and skips rows.
 //
+// Authors are the catalog's entities, found by their own name and by the
+// names linked to them in the read model of author lines
+// (book_author_display.legacy_author_id) that say more than it — a
+// patronymic the catalog dropped. An author found both ways is one row,
+// ranked by whichever of its names is closer; a name linked to no catalog
+// author is not an author here — book search finds it.
+//
 // meta always produces a row, so an empty page still carries the exact total
 // and the correlation hash for logging.
 const authorSearchRepositorySQL = `
@@ -510,6 +529,16 @@ matched AS (
     WHERE public.search_normalize(a.full_name) % (SELECT q.needle FROM q)
         OR public.search_normalize(a.full_name) %> (SELECT q.needle FROM q)
 ),
+extended AS (
+    -- Legacy authors found by a linked name that says more than theirs (the
+    -- name index, book_author_display_name), at the distance of the closest
+    -- such name.
+    SELECT n.legacy_author_id AS id, min((SELECT q.needle FROM q) <<-> n.search_key) AS distance
+    FROM book_author_display_name AS n
+    WHERE n.search_key % (SELECT q.needle FROM q)
+        OR n.search_key %> (SELECT q.needle FROM q)
+    GROUP BY n.legacy_author_id
+),
 counted AS (
     SELECT m.id, m.full_name, count(b.id) AS books_count
     FROM matched AS m
@@ -519,15 +548,33 @@ counted AS (
         AND NOT b.duplicate_hidden
         AND (? = '' OR b.lang = ?)
     GROUP BY m.id, m.full_name
+    UNION ALL
+    -- The authors only a linked name found, counted the same way. Their own
+    -- name is tested against the query again rather than looked up in
+    -- matched, which kept to one reference stays inlined into the parallel
+    -- count above.
+    SELECT a.id, a.full_name, count(b.id) AS books_count
+    FROM extended AS e
+    JOIN opds_catalog_author AS a ON a.id = e.id
+    JOIN opds_catalog_bauthor AS ba ON ba.author_id = a.id
+    JOIN opds_catalog_book AS b ON b.id = ba.book_id
+        AND b.approved
+        AND NOT b.duplicate_hidden
+        AND (? = '' OR b.lang = ?)
+    WHERE NOT (public.search_normalize(a.full_name) % (SELECT q.needle FROM q)
+        OR public.search_normalize(a.full_name) %> (SELECT q.needle FROM q))
+    GROUP BY a.id, a.full_name
 ),
 page AS (
     SELECT c.id, c.full_name, c.books_count,
         row_number() OVER (
-            ORDER BY (SELECT q.needle FROM q) <<-> public.search_normalize(c.full_name) ASC,
+            ORDER BY least((SELECT q.needle FROM q) <<-> public.search_normalize(c.full_name),
+                    coalesce(e.distance, 1)) ASC,
                 c.books_count DESC,
                 c.id ASC
         ) AS pos
     FROM counted c
+    LEFT JOIN extended e ON e.id = c.id
     ORDER BY pos
     LIMIT ? OFFSET ?
 ),
@@ -560,6 +607,7 @@ func (r *PGSearchRepository) SearchAuthors(ctx context.Context, req models.Autho
 	var rows []searchAuthorRow
 	if _, err := r.db.QueryContext(ctx, &rows, authorSearchRepositorySQL,
 		req.Query, req.Query,
+		req.Language, req.Language,
 		req.Language, req.Language,
 		req.Limit, req.Offset); err != nil {
 		return page, preferContextError(ctx, err)
@@ -756,6 +804,20 @@ author_matched AS (
         AND (public.search_normalize(a.full_name) LIKE '%' || (SELECT q.needle FROM q) || '%'
             OR public.search_normalize(a.full_name) %> (SELECT q.needle FROM q))
 ),
+author_extended AS (
+    -- Legacy authors found by a linked name that says more than theirs; a
+    -- name linked to no author is no entity.
+    SELECT n.legacy_author_id AS id,
+        bool_or(n.search_key = (SELECT q.needle FROM q)) AS exact_match,
+        bool_or(n.search_key LIKE (SELECT q.needle FROM q) || '%') AS prefix_match,
+        min((SELECT q.needle FROM q) <<-> n.search_key) AS distance
+    FROM book_author_display_name AS n
+    WHERE ?::text IN ('all', 'author')
+        AND (SELECT q.rune_count FROM q) >= 3
+        AND (n.search_key LIKE '%' || (SELECT q.needle FROM q) || '%'
+            OR n.search_key %> (SELECT q.needle FROM q))
+    GROUP BY n.legacy_author_id
+),
 author_counted AS (
     SELECT m.id, m.full_name, m.norm_name, count(b.id) AS books_count
     FROM author_matched AS m
@@ -765,16 +827,31 @@ author_counted AS (
         AND NOT b.duplicate_hidden
         AND (?::text = '' OR ?::text = 'all' OR b.lang = ?::text)
     GROUP BY m.id, m.full_name, m.norm_name
+    UNION ALL
+    -- The authors only a linked name found; their own name is tested again
+    -- rather than looked up in author_matched, which stays inlined above.
+    SELECT a.id, a.full_name, public.search_normalize(a.full_name), count(b.id) AS books_count
+    FROM author_extended AS e
+    JOIN opds_catalog_author AS a ON a.id = e.id
+    JOIN opds_catalog_bauthor AS ba ON ba.author_id = a.id
+    JOIN opds_catalog_book AS b ON b.id = ba.book_id
+        AND b.approved
+        AND NOT b.duplicate_hidden
+        AND (?::text = '' OR ?::text = 'all' OR b.lang = ?::text)
+    WHERE NOT (public.search_normalize(a.full_name) LIKE '%' || (SELECT q.needle FROM q) || '%'
+        OR public.search_normalize(a.full_name) %> (SELECT q.needle FROM q))
+    GROUP BY a.id, a.full_name
 ),
 authors_page AS (
     SELECT c.id, c.full_name, c.books_count,
         row_number() OVER (
-            ORDER BY (c.norm_name = (SELECT q.needle FROM q)) DESC,
-                (c.norm_name LIKE (SELECT q.needle FROM q) || '%') DESC,
-                (SELECT q.needle FROM q) <<-> c.norm_name ASC,
+            ORDER BY (c.norm_name = (SELECT q.needle FROM q) OR coalesce(e.exact_match, false)) DESC,
+                (c.norm_name LIKE (SELECT q.needle FROM q) || '%' OR coalesce(e.prefix_match, false)) DESC,
+                least((SELECT q.needle FROM q) <<-> c.norm_name, coalesce(e.distance, 1)) ASC,
                 c.books_count DESC, c.id ASC
         ) AS pos
     FROM author_counted AS c
+    LEFT JOIN author_extended AS e ON e.id = c.id
     ORDER BY pos
     LIMIT ?
 ),
@@ -854,7 +931,8 @@ func (r *PGSearchRepository) Suggestions(ctx context.Context, req models.Suggest
 			req.CuratedCollectionID, req.CuratedCollectionID,
 			kind, kind, kind,
 			bookLimit,
-			kind,
+			kind, kind,
+			req.Language, req.Language, req.Language,
 			req.Language, req.Language, req.Language,
 			authorLimit)
 		return err

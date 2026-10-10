@@ -184,7 +184,7 @@ type resolvableCredit struct {
 // upsertSelectionSQL writes the target unless the row already says exactly
 // that, so a repeated resolution leaves no audit record; unless ?8 — the
 // manual path writing an override — it never replaces a decision an admin
-// made.
+// made. It returns the credit when it wrote, for the read model's mark.
 const upsertSelectionSQL = `INSERT INTO book_contributor_credit_selection AS s
 	(credit_id, source_fingerprint, state, result_id, basis, override_id, policy_version, unresolved_reason)
 VALUES (?0, ?1, ?2, ?3, ?4, ?5, ?6, ?7)
@@ -195,7 +195,8 @@ SET state = EXCLUDED.state, result_id = EXCLUDED.result_id, basis = EXCLUDED.bas
 WHERE (s.state, s.result_id, s.basis, s.override_id, s.policy_version, s.unresolved_reason, s.decided_by_user_id)
 		IS DISTINCT FROM (EXCLUDED.state, EXCLUDED.result_id, EXCLUDED.basis, EXCLUDED.override_id,
 			EXCLUDED.policy_version, EXCLUDED.unresolved_reason, NULL::bigint)
-	AND (s.decided_by_user_id IS NULL OR ?8)`
+	AND (s.decided_by_user_id IS NULL OR ?8)
+RETURNING s.credit_id`
 
 // openReviewSQL opens the fingerprint's review item for an ambiguous
 // proposal; an item already open for the fingerprint covers the credit.
@@ -260,6 +261,7 @@ func resolveCredit(
 	db ResolutionTx,
 	credit resolvableCredit,
 	out *AutomaticOutcome,
+	marks *creditMarks,
 ) (models.CreditSelectionState, error) {
 	if _, err := db.ExecContext(ctx, resolutionLockSQL, credit.ID); err != nil {
 		return "", fmt.Errorf("locking the credit: %w", err)
@@ -284,11 +286,13 @@ func resolveCredit(
 	// automatic path finds is never newer than a decision the row holds: see
 	// the ordering rule above.
 	replacesAdminDecision := target.manual && out == nil
-	if _, err = db.ExecContext(ctx, upsertSelectionSQL,
+	var written []int64
+	if _, err = db.QueryContext(ctx, &written, upsertSelectionSQL,
 		credit.ID, credit.SourceFingerprint, string(target.state), target.resultID, target.basis,
 		target.override, target.policy, target.reason, replacesAdminDecision); err != nil {
 		return "", fmt.Errorf("writing the credit's resolution: %w", err)
 	}
+	marks.add(written...)
 	state, err := currentState(ctx, db, credit.ID)
 	if err != nil {
 		return "", err
@@ -339,14 +343,15 @@ func ResolveCredits(
 		return ResolveReport{}, fmt.Errorf("listing the credits of an input: %w", err)
 	}
 	report := ResolveReport{States: map[models.CreditSelectionState]int{}}
+	var marks creditMarks
 	for i := range credits {
-		state, resolveErr := resolveCredit(ctx, db, credits[i], out)
+		state, resolveErr := resolveCredit(ctx, db, credits[i], out, &marks)
 		if resolveErr != nil {
 			return ResolveReport{}, resolveErr
 		}
 		report.States[state]++
 	}
-	return report, nil
+	return report, marks.flush(ctx, db)
 }
 
 // ResolveCreditSelection re-resolves one author credit. With out nil — the
@@ -363,8 +368,11 @@ func ResolveCreditSelection(ctx context.Context, db ResolutionTx, creditID int64
 	if err != nil {
 		return fmt.Errorf("reading the credit: %w", err)
 	}
-	_, err = resolveCredit(ctx, db, credit, out)
-	return err
+	var marks creditMarks
+	if _, err = resolveCredit(ctx, db, credit, out, &marks); err != nil {
+		return err
+	}
+	return marks.flush(ctx, db)
 }
 
 // LocalNormalizationInput is one local job and the stored source it

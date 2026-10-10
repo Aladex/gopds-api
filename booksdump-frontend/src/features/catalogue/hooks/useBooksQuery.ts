@@ -6,6 +6,7 @@ import type { Book, BooksQuery } from '@/api/books';
 
 import { useAuth } from '@/context/AuthContext';
 import { useAuthor } from '@/context/AuthorContext';
+import { BOOK_SORT_AUTHOR, canSortByAuthor } from '@/features/catalogue/bookSort';
 import { pageBaseUrl } from '@/features/catalogue/paginationRange';
 
 /**
@@ -127,6 +128,12 @@ export function useBooksQuery() {
         const bookId = searchParams.get('book_id');
         if (bookId) {
             params.book_id = bookId;
+        }
+        if (
+            searchParams.get('sort') === BOOK_SORT_AUTHOR &&
+            canSortByAuthor(location.pathname, searchParams)
+        ) {
+            params.sort = BOOK_SORT_AUTHOR;
         }
 
         return params;

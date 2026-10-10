@@ -255,6 +255,8 @@
   "theme": "Тема",
   "darkMode": "Темная тема",
   "lightMode": "Светлая тема",
+  "sortNewest": "Новые",
+  "sortByAuthor": "По автору",
   "sortBy": "Сортировать по",
   "sortAscending": "По возрастанию",
   "sortDescending": "По убыванию",

@@ -273,6 +273,7 @@ func SelectRegisteredCredits(
 		return page, fmt.Errorf("listing the credits of a candidate: %w", err)
 	}
 	page.Listed = len(credits)
+	var marks creditMarks
 	for i := range credits {
 		page.Last = credits[i].ID
 		if _, err = tx.ExecContext(ctx, resolutionLockSQL, credits[i].ID); err != nil {
@@ -286,7 +287,7 @@ func SelectRegisteredCredits(
 		if !found || !gate.waitsForPolicy(candidate.ResultID) {
 			continue
 		}
-		state, resolveErr := resolveCredit(ctx, tx, credits[i], out)
+		state, resolveErr := resolveCredit(ctx, tx, credits[i], out, &marks)
 		if resolveErr != nil {
 			return page, resolveErr
 		}
@@ -295,7 +296,7 @@ func SelectRegisteredCredits(
 			page.SelectedIDs = append(page.SelectedIDs, credits[i].ID)
 		}
 	}
-	return page, nil
+	return page, marks.flush(ctx, tx)
 }
 
 // selectedAutomaticallyOn reports a selection the acceptance pass makes: an
@@ -347,6 +348,7 @@ func DemoteAcceptanceSelections(
 	ids := slices.Clone(creditIDs)
 	slices.Sort(ids)
 	demoted := 0
+	var marks creditMarks
 	for _, id := range ids {
 		if _, err := tx.ExecContext(ctx, resolutionLockSQL, id); err != nil {
 			return demoted, fmt.Errorf("locking the credit: %w", err)
@@ -363,7 +365,7 @@ func DemoteAcceptanceSelections(
 			WHERE id = ?`, id); err != nil {
 			return demoted, fmt.Errorf("reading the credit: %w", err)
 		}
-		state, resolveErr := resolveCredit(ctx, tx, credit, out)
+		state, resolveErr := resolveCredit(ctx, tx, credit, out, &marks)
 		if resolveErr != nil {
 			return demoted, resolveErr
 		}
@@ -371,7 +373,7 @@ func DemoteAcceptanceSelections(
 			demoted++
 		}
 	}
-	return demoted, nil
+	return demoted, marks.flush(ctx, tx)
 }
 
 // InputHasDuplicateComponent reports whether any author credit of the input —

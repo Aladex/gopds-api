@@ -323,6 +323,10 @@ func alreadyPersisted(conn pg.DBI, key snapshotKey, bookID int64) (PersistExtrac
 		if err := makeSnapshotCurrent(conn, key.ID, bookID); err != nil {
 			return PersistExtractionResult{}, err
 		}
+		// Another version's credits are the book's now.
+		if err := MarkAuthorDisplayDirty(context.Background(), conn, bookID); err != nil {
+			return PersistExtractionResult{}, err
+		}
 	}
 	return PersistExtractionResult{Outcome: PersistAlreadyCurrent, SnapshotID: key.ID}, nil
 }
@@ -438,6 +442,9 @@ func PersistExtraction(conn pg.DBI, in *ExtractionInput) (PersistExtractionResul
 	jobs, err := enqueueNormalizationJobs(conn, in, rows)
 	if err != nil {
 		return PersistExtractionResult{}, err
+	}
+	if markErr := MarkAuthorDisplayDirty(context.Background(), conn, in.BookID); markErr != nil {
+		return PersistExtractionResult{}, markErr
 	}
 	return PersistExtractionResult{
 		Outcome:        PersistNewSnapshot,

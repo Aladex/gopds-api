@@ -614,11 +614,23 @@ type selectionWriteGate struct {
 }
 
 func (g *selectionWriteGate) ExecContext(ctx context.Context, q interface{}, p ...interface{}) (pg.Result, error) {
+	g.pauseAtTheWrite(q)
+	return g.Tx.ExecContext(ctx, q, p...)
+}
+
+// QueryContext is the path the write takes: it returns the credit it wrote.
+func (g *selectionWriteGate) QueryContext(
+	ctx context.Context, model interface{}, q interface{}, p ...interface{},
+) (pg.Result, error) {
+	g.pauseAtTheWrite(q)
+	return g.Tx.QueryContext(ctx, model, q, p...)
+}
+
+func (g *selectionWriteGate) pauseAtTheWrite(q interface{}) {
 	if sql, ok := q.(string); ok && sql == upsertSelectionSQL {
 		close(g.ready)
 		<-g.release
 	}
-	return g.Tx.ExecContext(ctx, q, p...)
 }
 
 // concurrentResolution runs a resolution in its own goroutine and reports

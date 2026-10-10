@@ -127,7 +127,13 @@ func initializeAuthorMetadata(db *pg.DB, archivesDir string, c *config.AuthorMet
 		authorMetadataReviewAPINotWired(err)
 	}
 
-	workers := []services.AuthorMetadataStageWorker{services.NewAuthorAcceptancePass(db)}
+	// The acceptance pass and the author display read model run whatever
+	// the switch says: the policy ships with the code, and search and sorting
+	// read the model, which the scan and the admin's edits keep marking.
+	workers := []services.AuthorMetadataStageWorker{
+		services.NewAuthorAcceptancePass(db),
+		services.NewAuthorDisplayModelLoop(db, services.AuthorDisplayModelConfig{}),
+	}
 	if c.Enabled {
 		// Workers that cannot be built do not stop the acceptance pass.
 		if stages, err := buildAuthorMetadataWorkers(db, archivesDir, c); err != nil {

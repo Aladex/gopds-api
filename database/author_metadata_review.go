@@ -245,14 +245,15 @@ func insertOverride(ctx context.Context, tx ResolutionTx, scope OverrideScope, f
 // nothing changes otherwise.
 func resolveAffected(ctx context.Context, tx ResolutionTx, credits []resolvableCredit) (map[models.CreditSelectionState]int, error) {
 	states := map[models.CreditSelectionState]int{}
+	var marks creditMarks
 	for i := range credits {
-		state, err := resolveCredit(ctx, tx, credits[i], nil)
+		state, err := resolveCredit(ctx, tx, credits[i], nil, &marks)
 		if err != nil {
 			return nil, err
 		}
 		states[state]++
 	}
-	return states, nil
+	return states, marks.flush(ctx, tx)
 }
 
 // ApplyOverride writes one admin correction as an immutable manual result and
@@ -486,7 +487,8 @@ ON CONFLICT (credit_id) DO UPDATE
 SET state = 'unresolved', result_id = NULL, basis = NULL, override_id = NULL, policy_version = NULL,
 	unresolved_reason = 'review_left_unresolved', decided_by_user_id = EXCLUDED.decided_by_user_id, decided_at = now()
 WHERE (s.state, s.result_id, s.basis, s.override_id, s.policy_version, s.unresolved_reason, s.decided_by_user_id)
-	IS DISTINCT FROM ('unresolved', NULL, NULL, NULL, NULL, 'review_left_unresolved', EXCLUDED.decided_by_user_id)`
+	IS DISTINCT FROM ('unresolved', NULL, NULL, NULL, NULL, 'review_left_unresolved', EXCLUDED.decided_by_user_id)
+RETURNING s.credit_id`
 
 // retryExtractor recovers the extractor version a retry's normalization key
 // needs: the proposal's own input first, else any current credit of the
@@ -689,7 +691,8 @@ ON CONFLICT (credit_id) DO UPDATE
 SET state = 'invalid', result_id = EXCLUDED.result_id, basis = NULL, override_id = NULL,
 	policy_version = NULL, unresolved_reason = NULL, decided_by_user_id = EXCLUDED.decided_by_user_id, decided_at = now()
 WHERE (s.state, s.result_id, s.basis, s.override_id, s.policy_version, s.unresolved_reason, s.decided_by_user_id)
-	IS DISTINCT FROM ('invalid', EXCLUDED.result_id, NULL, NULL, NULL, NULL, EXCLUDED.decided_by_user_id)`
+	IS DISTINCT FROM ('invalid', EXCLUDED.result_id, NULL, NULL, NULL, NULL, EXCLUDED.decided_by_user_id)
+RETURNING s.credit_id`
 
 // applyInvalidClassification is the malformed half of classify and edit: an
 // immutable manual result of kind malformed and status invalid, the item's
@@ -717,11 +720,17 @@ func applyInvalidClassification(
 		manualResultValues(fingerprint, correction, admin, models.NormalizationInvalid)...); err != nil {
 		return 0, fmt.Errorf("writing the manual result: %w", err)
 	}
+	var marks creditMarks
 	for i := range credits {
-		if _, err := tx.ExecContext(ctx, markInvalidSQL, credits[i].ID, credits[i].SourceFingerprint,
+		var written []int64
+		if _, err := tx.QueryContext(ctx, &written, markInvalidSQL, credits[i].ID, credits[i].SourceFingerprint,
 			resultID, admin); err != nil {
 			return 0, fmt.Errorf("marking the credit invalid: %w", err)
 		}
+		marks.add(written...)
+	}
+	if err := marks.flush(ctx, tx); err != nil {
+		return 0, err
 	}
 	if err := closeReviewItem(ctx, tx, item.ID, resultID, admin, decision.Action); err != nil {
 		return 0, err
@@ -734,10 +743,17 @@ func applyInvalidClassification(
 func applyLeaveUnresolved(
 	ctx context.Context, tx ResolutionTx, item *reviewItemRow, credits []resolvableCredit, admin int64,
 ) error {
+	var marks creditMarks
 	for i := range credits {
-		if _, err := tx.ExecContext(ctx, leaveUnresolvedSQL, credits[i].ID, credits[i].SourceFingerprint, admin); err != nil {
+		var written []int64
+		if _, err := tx.QueryContext(ctx, &written, leaveUnresolvedSQL,
+			credits[i].ID, credits[i].SourceFingerprint, admin); err != nil {
 			return fmt.Errorf("leaving the credit unresolved: %w", err)
 		}
+		marks.add(written...)
+	}
+	if err := marks.flush(ctx, tx); err != nil {
+		return err
 	}
 	return closeReviewItem(ctx, tx, item.ID, 0, admin, ReviewLeaveUnresolved)
 }

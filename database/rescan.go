@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -249,6 +250,9 @@ func UpdateBookSeries(tx *pg.Tx, bookID int64, series *models.RescanSeries) erro
 
 // updateBookAuthors updates author relationships
 func updateBookAuthors(tx *pg.Tx, bookID int64, authors []models.RescanAuthor) error {
+	if err := MarkAuthorDisplayDirty(context.Background(), tx, bookID); err != nil {
+		return err
+	}
 	// Delete existing author links
 	_, err := tx.Model(&models.OrderToAuthor{}).
 		Where("book_id = ?", bookID).

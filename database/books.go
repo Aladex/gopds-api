@@ -106,6 +106,16 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, err
 		query = query.
 			WhereIn("book.id IN (?)", ids).
 			OrderExpr("array_position(?, book.id)", pg.Array(ids))
+	} else if filters.Sort == models.BookSortAuthor {
+		// By the first name of each book's author line in the read model, in
+		// the order of book_author_display_first_sort_idx, so the page is
+		// read off the index: one name keeps the newest first, a line that
+		// names no one comes last. Every book has a first row once the model
+		// has it; a book written seconds ago joins the sorted list when the
+		// worker has drained its mark.
+		query = query.
+			Join("JOIN book_author_display AS first_author ON first_author.book_id = book.id AND first_author.position = 0").
+			OrderExpr("first_author.sort_key ASC NULLS LAST, first_author.book_id DESC")
 	} else {
 		query = query.Order("book.id DESC")
 	}
@@ -570,6 +580,9 @@ func UpdateBook(updateReq models.BookUpdateRequest) (models.Book, error) {
 }
 
 func updateBookAuthorsFromUpdateRequest(tx *pg.Tx, bookID int64, authors []models.Author) error {
+	if err := MarkAuthorDisplayDirty(context.Background(), tx, bookID); err != nil {
+		return err
+	}
 	_, err := tx.Model(&models.OrderToAuthor{}).
 		Where("book_id = ?", bookID).
 		Delete()

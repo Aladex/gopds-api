@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useLocation, useParams } from 'react-router';
+import { useLocation, useNavigate, useParams } from 'react-router';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 
@@ -31,6 +31,9 @@ import useScopeName from '@/features/catalogue/hooks/useScopeName';
 import { useFavouriteToggle } from '@/features/catalogue/hooks/useFavouriteToggle';
 import { useBookDownloads } from '@/features/catalogue/hooks/useBookDownloads';
 import BookCard from '@/features/catalogue/BookCard';
+import BookSortToggle from '@/features/catalogue/BookSortToggle';
+import { BOOK_SORT_AUTHOR, canSortByAuthor, withSort } from '@/features/catalogue/bookSort';
+import { pageBaseUrl } from '@/features/catalogue/paginationRange';
 import { ALL_LANGUAGES } from '@/shared/lib/languageUtils';
 
 const SKELETON_COUNT = 10;
@@ -40,7 +43,17 @@ const BooksList: React.FC = () => {
     const { page } = useParams<{ page: string }>();
     const { t } = useTranslation();
     const location = useLocation();
+    const navigate = useNavigate();
     const { state, dispatch, loadBooks } = useBooksQuery();
+    const listParams = new URLSearchParams(location.search);
+    const sortable = canSortByAuthor(location.pathname, listParams);
+    const byAuthor = sortable && listParams.get('sort') === BOOK_SORT_AUTHOR;
+    // A new order starts from its first page: page 7 of the newest books is
+    // not page 7 of the same books by author.
+    const changeSort = (toAuthor: boolean) =>
+        navigate(
+            `${pageBaseUrl(location.pathname)}/1${withSort(location.search, toAuthor ? BOOK_SORT_AUTHOR : null)}`,
+        );
     // The search panel needs to say which genre or series it is confined to,
     // and only the loaded page knows the name.
     useScopeName(state.books);
@@ -177,6 +190,11 @@ const BooksList: React.FC = () => {
 
     return (
         <div className="flex min-h-[calc(100vh-200px)] flex-col">
+            {sortable && (
+                <div className={cn(CONTENT_COLUMN, 'flex justify-end pt-1.5')}>
+                    <BookSortToggle byAuthor={byAuthor} onChange={changeSort} />
+                </div>
+            )}
             {state.loading ? (
                 <div className={CONTENT_COLUMN}>
                     {Array.from({ length: SKELETON_COUNT }).map((_, index) => (

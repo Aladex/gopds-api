@@ -24,6 +24,11 @@ type legacyAuthor struct {
 type creditName struct {
 	Name     string
 	Selected bool
+	// The read model's sort key comes from these: the credit, the selected
+	// result's sort name, and the name parts as the file gives them.
+	ID                  int64
+	SortName            string
+	First, Middle, Last string
 }
 
 // bookAuthorSources is everything a book's author line is decided from: its
@@ -37,10 +42,14 @@ type bookAuthorSources struct {
 // links (one row per distinct author, in the order they were linked) and the
 // author credits of each book's current snapshot in file order, each with the
 // name it shows. A selection whose result carries no display name falls back
-// to the file's spelling like any unselected credit.
+// to the file's spelling like any unselected credit. A credit row also carries
+// what the read model sorts it by: its ID, the selected result's sort name
+// and the file's name parts.
 const bookAuthorRowsSQL = `
-	SELECT book_id, legacy_id, name, selected FROM (
-	SELECT ba.book_id, a.id AS legacy_id, a.full_name AS name, false AS selected, min(ba.id) AS ord
+	SELECT book_id, legacy_id, name, selected, credit_id, sort_name, first_name, middle_name, last_name FROM (
+	SELECT ba.book_id, a.id AS legacy_id, a.full_name AS name, false AS selected, min(ba.id) AS ord,
+	       NULL::bigint AS credit_id, NULL::text AS sort_name,
+	       NULL::text AS first_name, NULL::text AS middle_name, NULL::text AS last_name
 	FROM opds_catalog_bauthor ba
 	JOIN opds_catalog_author a ON a.id = ba.author_id
 	WHERE ba.book_id IN (?0)
@@ -48,11 +57,13 @@ const bookAuthorRowsSQL = `
 	UNION ALL
 	SELECT s.book_id, NULL, CASE WHEN chosen.display_name IS NOT NULL THEN chosen.display_name
 	                             ELSE c.source_display_name END,
-	       chosen.display_name IS NOT NULL, c.position
+	       chosen.display_name IS NOT NULL, c.position,
+	       c.id, CASE WHEN chosen.display_name IS NOT NULL THEN chosen.sort_name END,
+	       c.source_first_name, c.source_middle_name, c.source_last_name
 	FROM book_metadata_snapshot s
 	JOIN book_contributor_credit c ON c.snapshot_id = s.id AND c.role = 'author'
 	LEFT JOIN LATERAL (
-		SELECT nullif(btrim(r.display_name), '') AS display_name
+		SELECT nullif(btrim(r.display_name), '') AS display_name, r.sort_name
 		FROM book_contributor_credit_selection sel
 		JOIN contributor_normalization_result r ON r.id = sel.result_id
 		WHERE sel.credit_id = c.id AND sel.state = 'selected') chosen ON true
@@ -71,10 +82,15 @@ func loadBookAuthorSources(ctx context.Context, db pg.DBI, bookIDs []int64) (map
 		return sources, nil
 	}
 	var rows []struct {
-		BookID   int64  `pg:"book_id"`
-		LegacyID *int64 `pg:"legacy_id"`
-		Name     string `pg:"name"`
-		Selected bool   `pg:"selected"`
+		BookID     int64  `pg:"book_id"`
+		LegacyID   *int64 `pg:"legacy_id"`
+		Name       string `pg:"name"`
+		Selected   bool   `pg:"selected"`
+		CreditID   int64  `pg:"credit_id"`
+		SortName   string `pg:"sort_name"`
+		FirstName  string `pg:"first_name"`
+		MiddleName string `pg:"middle_name"`
+		LastName   string `pg:"last_name"`
 	}
 	if _, err := db.QueryContext(ctx, &rows, bookAuthorRowsSQL, pg.In(bookIDs)); err != nil {
 		return nil, err
@@ -84,7 +100,10 @@ func loadBookAuthorSources(ctx context.Context, db pg.DBI, bookIDs []int64) (map
 		if row.LegacyID != nil {
 			s.legacy = append(s.legacy, legacyAuthor{ID: *row.LegacyID, Name: row.Name})
 		} else {
-			s.credits = append(s.credits, creditName{Name: row.Name, Selected: row.Selected})
+			s.credits = append(s.credits, creditName{
+				Name: row.Name, Selected: row.Selected, ID: row.CreditID, SortName: row.SortName,
+				First: row.FirstName, Middle: row.MiddleName, Last: row.LastName,
+			})
 		}
 	}
 	return sources, nil

@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -238,6 +239,12 @@ func deleteBooksWithLayer(tx pg.DBI, ids []int64) (int, error) {
 		if _, err := tx.Exec(query, books); err != nil {
 			return 0, fmt.Errorf("deleting related rows: %w", err)
 		}
+	}
+
+	// The author display read model goes with them, its name index too, under
+	// the model's lock: a rebuild cannot write the books' rows back.
+	if err := deleteAuthorDisplayOf(context.Background(), tx, ids); err != nil {
+		return 0, fmt.Errorf("deleting the books' author display: %w", err)
 	}
 
 	// The books' author metadata layer references them and goes first.

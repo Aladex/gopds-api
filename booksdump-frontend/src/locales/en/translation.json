@@ -254,6 +254,8 @@
   "theme": "Theme",
   "darkMode": "Dark Mode",
   "lightMode": "Light Mode",
+  "sortNewest": "Newest",
+  "sortByAuthor": "By author",
   "sortBy": "Sort by",
   "sortAscending": "Sort ascending",
   "sortDescending": "Sort descending",
