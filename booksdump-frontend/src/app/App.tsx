@@ -10,14 +10,11 @@ import notFoundRoutes from '@/app/routes/notFoundRoutes';
 import { InterfaceLanguageProvider } from '@/context/InterfaceLanguageContext';
 import { useAuth } from '@/context/AuthContext';
 import { Routes, Route, Navigate } from 'react-router';
-import useAuthWebSocket from '@/shared/hooks/useAuthWebSocket';
+import { WebSocketProvider } from '@/context/WebSocketContext';
 import AppSkeleton from '@/shared/components/AppSkeleton';
 import { Toaster } from '@/shared/ui/sonner';
 
-const App: React.FC<{ isAuthenticated: boolean }> = memo(({ isAuthenticated }) => {
-    // Using WebSocket inside BookConversionProvider
-    useAuthWebSocket('/api/ws', isAuthenticated);
-
+const App: React.FC<{ isAuthenticated: boolean }> = memo(() => {
     return (
         <Routes>
             <Route path="/" element={<Navigate to="/books/page/1" />} />
@@ -41,7 +38,10 @@ const AppWrapper: React.FC = () => {
                 <AuthorProvider>
                     <SearchBarProvider>
                         <BookConversionProvider>
-                            <App isAuthenticated={isAuthenticated} />
+                            {/* The one per-tab socket; every page's events ride it. */}
+                            <WebSocketProvider isAuthenticated={isAuthenticated}>
+                                <App isAuthenticated={isAuthenticated} />
+                            </WebSocketProvider>
                         </BookConversionProvider>
                     </SearchBarProvider>
                 </AuthorProvider>

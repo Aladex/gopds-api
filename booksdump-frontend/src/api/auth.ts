@@ -84,8 +84,9 @@ export const updateCurrentUser = (payload: Partial<User> & Record<string, unknow
 export const getInit = () => http.get<InitResponse>('/init');
 
 /**
- * refreshSession is only for callers that need to know whether the session is
- * still alive without making a real request. Ordinary calls do not need it.
+ * refreshSession asks the backend to rotate the session. Nothing in the app
+ * drives it directly: the transport refreshes once on a 401 and replays, and
+ * the socket's liveness probe uses the read-only self-user endpoint instead.
  */
 export const refreshSession = () =>
     request<void>('/refresh-token', { method: 'POST', skipRefresh: true });

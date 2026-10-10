@@ -46,6 +46,9 @@ type BookScanService struct {
 	progressMu          sync.Mutex
 	currentBookIndex    int
 	totalBooksInArchive int
+	// lastBookTitle is the title of the most recently ingested book, folded
+	// into the throttled progress broadcast instead of a per-book event.
+	lastBookTitle string
 }
 
 // ScanReport contains results of a scan operation
@@ -104,7 +107,25 @@ func (s *BookScanService) GetScanProgress() (processed int, total int) {
 // PublishProgress sends progress update via WebSocket if publisher is available.
 func (s *BookScanService) PublishProgress(currentArchive string, archivesProcessed, totalArchives, booksProcessed, totalBooks int, elapsedSeconds int64) {
 	if s.publisher != nil {
-		s.publisher.PublishScanProgress(currentArchive, archivesProcessed, totalArchives, booksProcessed, totalBooks, elapsedSeconds)
+		s.progressMu.Lock()
+		lastBookTitle := s.lastBookTitle
+		s.progressMu.Unlock()
+		s.publisher.PublishScanProgress(
+			currentArchive, archivesProcessed, totalArchives, booksProcessed, totalBooks,
+			elapsedSeconds, lastBookTitle,
+		)
+	}
+}
+
+// PublishScanCompleted sends the completion frame, flushing the coalesced
+// last-book title with it: the final book may land after the last progress
+// tick of the 500 ms monitor, which has already stopped by then.
+func (s *BookScanService) PublishScanCompleted(report *ScanReport) {
+	if s.publisher != nil {
+		s.progressMu.Lock()
+		lastBookTitle := s.lastBookTitle
+		s.progressMu.Unlock()
+		s.publisher.PublishScanCompleted(report, lastBookTitle)
 	}
 }
 
@@ -158,6 +179,16 @@ func (s *BookScanService) GetUnscannedArchives() ([]string, error) {
 
 	logging.Infof("Found %d unscanned archives", len(unscannedArchives))
 	return unscannedArchives, nil
+}
+
+// BeginScanJob resets the per-job publication state: a fresh scan job must
+// not inherit the previous job's last-book title. Within one job the title
+// deliberately survives an empty or failed archive, so the completion frame
+// still names the last book the job actually ingested.
+func (s *BookScanService) BeginScanJob() {
+	s.progressMu.Lock()
+	s.lastBookTitle = ""
+	s.progressMu.Unlock()
 }
 
 // ScanArchive scans a single archive and processes all FB2 files in it
@@ -440,7 +471,9 @@ func (s *BookScanService) processBook(zipFile *zip.File, archiveName string) (bo
 
 	logging.Infof("Successfully added book ID %d: %s", book.ID, parsedBook.Title)
 	if s.publisher != nil {
-		s.publisher.PublishBookProcessed(archiveName, book.Title, book.ID)
+		s.progressMu.Lock()
+		s.lastBookTitle = parsedBook.Title
+		s.progressMu.Unlock()
 	}
 	return book.ID, string(authorSource.Failure()), nil
 }
@@ -615,6 +648,10 @@ func (s *BookScanService) ScanAll() (*ScanReport, error) {
 
 	logging.Info("Starting full archive scan")
 
+	// The title is per job, not per archive: clear it before any early
+	// return, so even an empty job cannot republish the previous job's title.
+	s.BeginScanJob()
+
 	report := &ScanReport{
 		Errors:         []ScanError{},
 		ArchiveReports: []ArchiveReport{},
@@ -636,9 +673,7 @@ func (s *BookScanService) ScanAll() (*ScanReport, error) {
 	if len(archives) == 0 {
 		logging.Info("No unscanned archives found")
 		report.Duration = time.Since(startTime)
-		if s.publisher != nil {
-			s.publisher.PublishScanCompleted(report)
-		}
+		s.PublishScanCompleted(report)
 		return report, nil
 	}
 
@@ -667,9 +702,7 @@ func (s *BookScanService) ScanAll() (*ScanReport, error) {
 
 	logging.Infof("Completed full scan: %d archives, %d books processed, %d skipped, %d errors in %v",
 		report.TotalArchives, report.ProcessedBooks, report.SkippedBooks, len(report.Errors), report.Duration)
-	if s.publisher != nil {
-		s.publisher.PublishScanCompleted(report)
-	}
+	s.PublishScanCompleted(report)
 
 	return report, nil
 }

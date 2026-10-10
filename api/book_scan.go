@@ -504,6 +504,12 @@ func ResetArchiveScanStatus(c *gin.Context) {
 		return
 	}
 
+	// The scanned-archives list changed without any scan running: tell the
+	// subscribed views to refetch it.
+	if publisher := newScanEventPublisher(); publisher != nil {
+		publisher.PublishArchiveReset(name)
+	}
+
 	c.JSON(http.StatusOK, models.Result{
 		Result: "reset_ok",
 		Error:  nil,
@@ -563,12 +569,10 @@ func runFullScan(sessionID string) {
 	scanState.setTotalArchives(sessionID, len(archives))
 	if len(archives) == 0 {
 		scanState.finish(sessionID)
-		if publisher != nil {
-			publisher.PublishScanCompleted(&services.ScanReport{
-				TotalArchives: 0,
-				Duration:      0,
-			})
-		}
+		scanner.PublishScanCompleted(&services.ScanReport{
+			TotalArchives: 0,
+			Duration:      0,
+		})
 		return
 	}
 
@@ -618,6 +622,7 @@ func runFullScan(sessionID string) {
 		Errors:         []services.ScanError{},
 	}
 	scanStart := time.Now()
+	scanner.BeginScanJob()
 	for _, archivePath := range archives {
 		archiveName := archiveNameFromPath(archivesDir, archivePath)
 		scanState.setCurrentArchive(sessionID, archiveName)
@@ -640,10 +645,8 @@ func runFullScan(sessionID string) {
 	close(progressDone)
 	progressTicker.Stop()
 
-	if publisher != nil {
-		scanReport.Duration = time.Since(scanStart)
-		publisher.PublishScanCompleted(scanReport)
-	}
+	scanReport.Duration = time.Since(scanStart)
+	scanner.PublishScanCompleted(scanReport)
 
 	scanState.finish(sessionID)
 }
@@ -702,6 +705,7 @@ func runSingleArchiveScan(sessionID string, archivePath string) {
 	}()
 
 	// Start the actual scan
+	scanner.BeginScanJob()
 	report, scanErr := scanner.ScanArchive(archivePath)
 	scanState.addErrors(sessionID, report)
 	if scanErr != nil && publisher != nil {
@@ -729,7 +733,7 @@ func runSingleArchiveScan(sessionID string, archivePath string) {
 			scanReport.Errors = append(scanReport.Errors, report.Errors...)
 			scanReport.Duration = report.Duration
 		}
-		publisher.PublishScanCompleted(scanReport)
+		scanner.PublishScanCompleted(scanReport)
 	}
 	scanState.finish(sessionID)
 }

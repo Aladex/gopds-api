@@ -60,8 +60,9 @@ func TestBroadcastToAdmins_OnlyAdmins(t *testing.T) {
 	adminCh := make(chan []byte, 4)
 	userCh := make(chan []byte, 4)
 
-	m.RegisterClient(nil, 1, "admin", true, adminCh)
+	adminID := m.RegisterClient(nil, 1, "admin", true, adminCh)
 	m.RegisterClient(nil, 2, "user", false, userCh)
+	require.True(t, m.Subscribe(adminID, TopicScan))
 
 	err := m.BroadcastToAdmins("scan_progress", map[string]int{"done": 5})
 	require.NoError(t, err)
@@ -82,10 +83,12 @@ func TestBroadcastToAdmins_MultipleAdmins(t *testing.T) {
 	ch1 := make(chan []byte, 4)
 	ch2 := make(chan []byte, 4)
 
-	m.RegisterClient(nil, 1, "admin1", true, ch1)
-	m.RegisterClient(nil, 2, "admin2", true, ch2)
+	id1 := m.RegisterClient(nil, 1, "admin1", true, ch1)
+	id2 := m.RegisterClient(nil, 2, "admin2", true, ch2)
+	require.True(t, m.Subscribe(id1, TopicScan))
+	require.True(t, m.Subscribe(id2, TopicScan))
 
-	err := m.BroadcastToAdmins("test", "hello")
+	err := m.BroadcastToAdmins("scan_error", "hello")
 	require.NoError(t, err)
 
 	assert.Len(t, ch1, 1)
@@ -98,10 +101,11 @@ func TestBroadcastToAdmins_FullChannelDropsMessage(t *testing.T) {
 	ch := make(chan []byte, 1)
 	ch <- []byte("blocking")
 
-	m.RegisterClient(nil, 1, "admin", true, ch)
+	id := m.RegisterClient(nil, 1, "admin", true, ch)
+	require.True(t, m.Subscribe(id, TopicScan))
 
 	// Should not block and should not error.
-	err := m.BroadcastToAdmins("test", "data")
+	err := m.BroadcastToAdmins("scan_error", "data")
 	require.NoError(t, err)
 
 	// Channel still has only the original message.
@@ -110,7 +114,7 @@ func TestBroadcastToAdmins_FullChannelDropsMessage(t *testing.T) {
 
 func TestBroadcastToAdmins_NoClients(t *testing.T) {
 	m := NewWebSocketManager()
-	err := m.BroadcastToAdmins("test", nil)
+	err := m.BroadcastToAdmins("scan_error", nil)
 	require.NoError(t, err)
 }
 
@@ -135,16 +139,18 @@ func TestGetAdminCount(t *testing.T) {
 func TestAdminWSConnection_SendMessage(t *testing.T) {
 	m := NewWebSocketManager()
 	ch := make(chan []byte, 4)
-	m.RegisterClient(nil, 1, "admin", true, ch)
+	id := m.RegisterClient(nil, 1, "admin", true, ch)
+	require.True(t, m.Subscribe(id, TopicScan))
 
 	wsConn := NewAdminWSConnection(m)
-	err := wsConn.SendMessage("scan_done", map[string]bool{"ok": true})
+	err := wsConn.SendMessage("scan_completed", map[string]bool{"ok": true})
 	require.NoError(t, err)
 
 	require.Len(t, ch, 1)
 	var parsed map[string]interface{}
 	require.NoError(t, json.Unmarshal(<-ch, &parsed))
-	assert.Equal(t, "scan_done", parsed["type"])
+	assert.Equal(t, "scan_completed", parsed["type"])
+	assert.Equal(t, TopicScan, parsed["topic"])
 }
 
 func TestConcurrentRegisterUnregister(t *testing.T) {
@@ -172,7 +178,8 @@ func TestConcurrentBroadcast(t *testing.T) {
 	channels := make([]chan []byte, 10)
 	for i := 0; i < 10; i++ {
 		channels[i] = make(chan []byte, 100)
-		m.RegisterClient(nil, int64(i), "admin", true, channels[i])
+		id := m.RegisterClient(nil, int64(i), "admin", true, channels[i])
+		require.True(t, m.Subscribe(id, TopicScan))
 	}
 
 	var wg sync.WaitGroup
@@ -180,7 +187,7 @@ func TestConcurrentBroadcast(t *testing.T) {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			_ = m.BroadcastToAdmins("event", n)
+			_ = m.BroadcastToAdmins("scan_progress", n)
 		}(i)
 	}
 	wg.Wait()

@@ -5,10 +5,12 @@ import React, {
     useCallback,
     useEffect,
     useMemo,
+    useRef,
     ReactNode,
 } from 'react';
 import * as authApi from '@/api/auth';
 import type { User } from '@/api/auth';
+import { notifyAuthIdentityChanged, setSessionExpiredHandler } from '@/api/http';
 import { isApiError } from '@/api/errors';
 import { useNavigate } from 'react-router';
 
@@ -45,8 +47,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     const isAuthenticated = !!user;
 
+    // The auth identity boundary: every install or clear of the current user
+    // — init, restoration through login(), a fresh login, logout including
+    // its error finally, a confirmed expiration — flows through this setter.
+    // A change of identity (to another user or to null) retires every
+    // request still in flight from the previous session by bumping the
+    // transport generation. Profile-field updates of the same user keep it.
+    const identityRef = useRef<string | null>(null);
     // Keep the setter identity stable for context consumers.
     const setUser = useCallback((newUser: User | null) => {
+        const nextIdentity = newUser?.username ?? null;
+        if (identityRef.current !== nextIdentity) {
+            identityRef.current = nextIdentity;
+            notifyAuthIdentityChanged();
+        }
         setUserState(newUser);
     }, []);
 
@@ -181,6 +195,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         },
         [setUser],
     );
+
+    // The transport calls this when a 401 survives its refresh-and-replay:
+    // a confirmed logout. Flip the app in-page so every listener — the
+    // WebSocket above all — stops at once instead of after a reload.
+    useEffect(() => {
+        setSessionExpiredHandler(() => {
+            setUser(null);
+            navigate('/login');
+        });
+    }, [setUser, navigate]);
 
     // Initialize CSRF token and user data
     useEffect(() => {

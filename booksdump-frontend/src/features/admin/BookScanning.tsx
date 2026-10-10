@@ -25,7 +25,7 @@ import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import { cn } from '@/shared/lib/utils';
 import * as adminApi from '@/api/admin';
 import { isApiError } from '@/api/errors';
-import { WS_URL } from '@/api/config';
+import { useWebSocket, WSMessage } from '@/context/WebSocketContext';
 import AuthorMetadataCard from '@/features/admin/AuthorMetadataCard';
 import AuthorReviewQueue from '@/features/admin/AuthorReviewQueue';
 import { AUTHORS_TAB } from '@/features/admin/AuthorReviewDetail';
@@ -81,13 +81,6 @@ interface ArchiveStartedEvent {
     timestamp: string;
 }
 
-interface BookProcessedEvent {
-    archive_name: string;
-    book_title: string;
-    book_id: number;
-    timestamp: string;
-}
-
 interface ArchiveCompletedEvent {
     archive_name: string;
     books_count: number;
@@ -101,6 +94,9 @@ interface ScanCompletedEvent {
     total_books: number;
     total_errors: number;
     duration_ms: number;
+    // Flushes the coalesced progress value: the last book may land after the
+    // final progress tick.
+    last_book_title?: string;
     timestamp: string;
 }
 
@@ -117,6 +113,8 @@ interface ScanProgressEvent {
     total_books: number;
     progress_percent: number;
     elapsed_seconds: number;
+    // The per-book event's payload, folded into the throttled progress frame.
+    last_book_title?: string;
     timestamp: string;
 }
 
@@ -236,8 +234,7 @@ const BookScanning: React.FC = () => {
     const [rescanProgress, setRescanProgress] = useState<ScanStatusResponse | null>(null);
     const [fixScanStatus, setFixScanStatus] = useState<FixScanStatusResponse | null>(null);
     const [isFixScanning, setIsFixScanning] = useState(false);
-    const wsRef = useRef<WebSocket | null>(null);
-    const scannedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const { isConnected, subscribe } = useWebSocket();
     const rescanPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     /** progressPercent prefers the server's own figure, falling back to the counts. */
@@ -581,215 +578,215 @@ const BookScanning: React.FC = () => {
         fetchFixScanStatus();
     }, [fetchErrors, fetchFixScanStatus, fetchStatus, fetchUnscanned, fetchScanned]);
 
-    // Auto-refresh scanned archives every 30 seconds when on scanned tab
-    // (WebSocket handles real-time updates, this is just a fallback)
+    // The scanned list refreshes on socket events (archive_completed and
+    // scan_completed both call fetchScanned); switching to the tab re-reads
+    // it once, and no interval poll remains.
     useEffect(() => {
         if (currentTab === 'scanned') {
             fetchScanned();
-            scannedIntervalRef.current = setInterval(() => {
-                fetchScanned();
-            }, 30000); // Reduced frequency since WebSocket handles updates
         }
-
-        return () => {
-            if (scannedIntervalRef.current) {
-                clearInterval(scannedIntervalRef.current);
-                scannedIntervalRef.current = null;
-            }
-        };
     }, [currentTab, fetchScanned]);
 
-    useEffect(() => {
-        const ws = new WebSocket(`${WS_URL}/api/ws`);
-        wsRef.current = ws;
-
-        ws.onmessage = (event) => {
-            try {
-                const message = JSON.parse(event.data);
-                switch (message.type) {
-                    case 'scan_started': {
-                        const payload = message.data as ScanStartedEvent;
-                        setStatus((prev) => ({
-                            is_running: true,
-                            session_id: prev?.session_id,
-                            total_archives: payload.total_archives,
-                            archives_processed: 0,
-                            current_archive: '',
-                            total_books: 0,
-                            total_errors: 0,
-                            progress_percent: 0,
-                            started_at: payload.timestamp,
-                            elapsed_seconds: 0,
-                        }));
-                        setStatusMessage(t('bookScanStarted'));
-                        setScanError(null);
-                        break;
-                    }
-                    case 'archive_started': {
-                        const payload = message.data as ArchiveStartedEvent;
-                        setStatus((prev) =>
-                            prev ? { ...prev, current_archive: payload.archive_name } : prev,
-                        );
-                        break;
-                    }
-                    case 'book_processed': {
-                        const payload = message.data as BookProcessedEvent;
-                        setLastBookTitle(payload.book_title);
-                        setStatus((prev) =>
-                            prev ? { ...prev, total_books: prev.total_books + 1 } : prev,
-                        );
-                        break;
-                    }
-                    case 'archive_completed': {
-                        const payload = message.data as ArchiveCompletedEvent;
-                        setStatus((prev) =>
-                            prev
-                                ? {
-                                      ...prev,
-                                      archives_processed: prev.archives_processed + 1,
-                                      total_errors: prev.total_errors + payload.errors_count,
-                                      current_archive: '',
-                                  }
-                                : prev,
-                        );
-
-                        // Update scanned archives list when an archive completes
-                        fetchScanned();
-                        break;
-                    }
-                    case 'scan_completed': {
-                        const payload = message.data as ScanCompletedEvent;
-                        setStatus((prev) => ({
-                            is_running: false,
-                            session_id: prev?.session_id,
-                            total_archives: payload.total_archives,
-                            archives_processed: payload.total_archives,
-                            current_archive: '',
-                            total_books: payload.total_books,
-                            total_errors: payload.total_errors,
-                            progress_percent: 100,
-                            started_at: prev?.started_at,
-                            elapsed_seconds: prev?.elapsed_seconds ?? 0,
-                            finished_at: payload.timestamp,
-                        }));
-
-                        // Also mark rescanProgress as completed
-                        setRescanProgress((prev) =>
-                            prev
-                                ? {
-                                      ...prev,
-                                      is_running: false,
-                                      progress_percent: 100,
-                                      archives_processed: payload.total_archives,
-                                      total_books: payload.total_books,
-                                      total_errors: payload.total_errors,
-                                  }
-                                : prev,
-                        );
-
-                        setStatusMessage(t('bookScanCompleted'));
-                        fetchUnscanned();
-                        fetchScanned();
-                        fetchErrors();
-                        break;
-                    }
-                    case 'scan_progress': {
-                        const payload = message.data as ScanProgressEvent;
-                        const patch = {
-                            current_archive: payload.current_archive,
-                            archives_processed: payload.archives_processed,
-                            total_archives: payload.total_archives,
-                            total_books: payload.books_processed,
-                            progress_percent: payload.progress_percent,
-                            elapsed_seconds: payload.elapsed_seconds,
-                        };
-                        setStatus((prev) => (prev ? { ...prev, ...patch } : prev));
-                        // Also update rescanProgress if the rescan dialog is open
-                        setRescanProgress((prev) => (prev ? { ...prev, ...patch } : prev));
-                        break;
-                    }
-                    case 'scan_error': {
-                        const payload = message.data as ScanErrorEvent;
-                        setScanError(payload.message || t('bookScanError'));
-                        break;
-                    }
-                    case 'fix_scan_started': {
-                        const payload = message.data as FixScanStartedEvent;
-                        setIsFixScanning(true);
-                        setFixScanStatus({
-                            is_running: true,
-                            total_books: payload.total_books,
-                            books_processed: 0,
-                            books_updated: 0,
-                            total_archives: payload.total_archives,
-                            error_count: 0,
-                            progress_percent: 0,
-                            started_at: payload.timestamp,
-                            elapsed_seconds: 0,
-                        });
-                        break;
-                    }
-                    case 'fix_scan_progress': {
-                        const payload = message.data as FixScanProgressEvent;
-                        setIsFixScanning(true);
-                        setFixScanStatus((prev) => ({
-                            is_running: true,
-                            total_books: payload.total_books || prev?.total_books || 0,
-                            total_archives: prev?.total_archives ?? 0,
-                            started_at: prev?.started_at,
-                            current_archive: payload.current_archive,
-                            books_processed: payload.books_processed,
-                            books_updated: payload.books_updated,
-                            error_count: payload.error_count,
-                            progress_percent: payload.progress_percent,
-                            elapsed_seconds: payload.elapsed_seconds,
-                        }));
-                        break;
-                    }
-                    case 'fix_scan_completed': {
-                        const payload = message.data as FixScanCompletedEvent;
-                        setIsFixScanning(false);
-                        toast.success(
-                            t('fixScanCompleted', {
-                                updated: payload.updated_books,
-                                total: payload.total_books,
-                            }),
-                        );
-                        setTimeout(() => {
-                            setFixScanStatus(null);
-                        }, 3000);
-                        // Its per-book author metadata failures joined the errors list.
-                        fetchErrors();
-                        break;
-                    }
-                    case 'fix_scan_error': {
-                        const payload = message.data as FixScanErrorEvent;
-                        toast.error(payload.message || t('scanError'));
-                        break;
-                    }
-                    default:
-                        break;
+    // Scan events ride the shared app-wide socket; see WebSocketContext.
+    const handleScanMessage = useCallback(
+        (message: WSMessage) => {
+            switch (message.type) {
+                case 'scan_started': {
+                    const payload = message.data as ScanStartedEvent;
+                    setStatus((prev) => ({
+                        is_running: true,
+                        session_id: prev?.session_id,
+                        total_archives: payload.total_archives,
+                        archives_processed: 0,
+                        current_archive: '',
+                        total_books: 0,
+                        total_errors: 0,
+                        progress_percent: 0,
+                        started_at: payload.timestamp,
+                        elapsed_seconds: 0,
+                    }));
+                    setStatusMessage(t('bookScanStarted'));
+                    setScanError(null);
+                    setLastBookTitle(null);
+                    break;
                 }
-            } catch (error) {
-                console.error('Failed to parse WebSocket message', error);
+                case 'archive_started': {
+                    const payload = message.data as ArchiveStartedEvent;
+                    setStatus((prev) =>
+                        prev ? { ...prev, current_archive: payload.archive_name } : prev,
+                    );
+                    break;
+                }
+                case 'archive_reset':
+                    // An archive left the scanned list without any scan
+                    // running (a reset from this tab or another one).
+                    fetchScanned();
+                    break;
+                case 'archive_completed': {
+                    const payload = message.data as ArchiveCompletedEvent;
+                    setStatus((prev) =>
+                        prev
+                            ? {
+                                  ...prev,
+                                  archives_processed: prev.archives_processed + 1,
+                                  total_errors: prev.total_errors + payload.errors_count,
+                                  current_archive: '',
+                              }
+                            : prev,
+                    );
+
+                    // Update scanned archives list when an archive completes
+                    fetchScanned();
+                    break;
+                }
+                case 'scan_completed': {
+                    const payload = message.data as ScanCompletedEvent;
+                    setStatus((prev) => ({
+                        is_running: false,
+                        session_id: prev?.session_id,
+                        total_archives: payload.total_archives,
+                        archives_processed: payload.total_archives,
+                        current_archive: '',
+                        total_books: payload.total_books,
+                        total_errors: payload.total_errors,
+                        progress_percent: 100,
+                        started_at: prev?.started_at,
+                        elapsed_seconds: prev?.elapsed_seconds ?? 0,
+                        finished_at: payload.timestamp,
+                    }));
+
+                    // Also mark rescanProgress as completed
+                    setRescanProgress((prev) =>
+                        prev
+                            ? {
+                                  ...prev,
+                                  is_running: false,
+                                  progress_percent: 100,
+                                  archives_processed: payload.total_archives,
+                                  total_books: payload.total_books,
+                                  total_errors: payload.total_errors,
+                              }
+                            : prev,
+                    );
+
+                    setStatusMessage(t('bookScanCompleted'));
+                    if (payload.last_book_title) {
+                        setLastBookTitle(payload.last_book_title);
+                    }
+                    fetchUnscanned();
+                    fetchScanned();
+                    fetchErrors();
+                    break;
+                }
+                case 'scan_progress': {
+                    const payload = message.data as ScanProgressEvent;
+                    const patch = {
+                        current_archive: payload.current_archive,
+                        archives_processed: payload.archives_processed,
+                        total_archives: payload.total_archives,
+                        total_books: payload.books_processed,
+                        progress_percent: payload.progress_percent,
+                        elapsed_seconds: payload.elapsed_seconds,
+                    };
+                    setStatus((prev) => (prev ? { ...prev, ...patch } : prev));
+                    // Also update rescanProgress if the rescan dialog is open
+                    setRescanProgress((prev) => (prev ? { ...prev, ...patch } : prev));
+                    if (payload.last_book_title) {
+                        setLastBookTitle(payload.last_book_title);
+                    }
+                    break;
+                }
+                case 'scan_error': {
+                    const payload = message.data as ScanErrorEvent;
+                    setScanError(payload.message || t('bookScanError'));
+                    break;
+                }
+                default:
+                    break;
             }
-        };
+        },
+        [fetchErrors, fetchUnscanned, fetchScanned, t],
+    );
 
-        ws.onerror = (error) => {
-            console.error('Admin WebSocket error', error);
-        };
-
-        ws.onclose = () => {
-            wsRef.current = null;
-        };
-
-        return () => {
-            if (wsRef.current) {
-                wsRef.current.close();
-                wsRef.current = null;
+    const handleFixScanMessage = useCallback(
+        (message: WSMessage) => {
+            switch (message.type) {
+                case 'fix_scan_started': {
+                    const payload = message.data as FixScanStartedEvent;
+                    setIsFixScanning(true);
+                    setFixScanStatus({
+                        is_running: true,
+                        total_books: payload.total_books,
+                        books_processed: 0,
+                        books_updated: 0,
+                        total_archives: payload.total_archives,
+                        error_count: 0,
+                        progress_percent: 0,
+                        started_at: payload.timestamp,
+                        elapsed_seconds: 0,
+                    });
+                    break;
+                }
+                case 'fix_scan_progress': {
+                    const payload = message.data as FixScanProgressEvent;
+                    setIsFixScanning(true);
+                    setFixScanStatus((prev) => ({
+                        is_running: true,
+                        total_books: payload.total_books || prev?.total_books || 0,
+                        total_archives: prev?.total_archives ?? 0,
+                        started_at: prev?.started_at,
+                        current_archive: payload.current_archive,
+                        books_processed: payload.books_processed,
+                        books_updated: payload.books_updated,
+                        error_count: payload.error_count,
+                        progress_percent: payload.progress_percent,
+                        elapsed_seconds: payload.elapsed_seconds,
+                    }));
+                    break;
+                }
+                case 'fix_scan_completed': {
+                    const payload = message.data as FixScanCompletedEvent;
+                    setIsFixScanning(false);
+                    toast.success(
+                        t('fixScanCompleted', {
+                            updated: payload.updated_books,
+                            total: payload.total_books,
+                        }),
+                    );
+                    setTimeout(() => {
+                        setFixScanStatus(null);
+                    }, 3000);
+                    // Its per-book author metadata failures joined the errors list.
+                    fetchErrors();
+                    break;
+                }
+                case 'fix_scan_error': {
+                    const payload = message.data as FixScanErrorEvent;
+                    toast.error(payload.message || t('scanError'));
+                    break;
+                }
+                default:
+                    break;
             }
-        };
-    }, [fetchErrors, fetchUnscanned, fetchScanned, t]);
+        },
+        [fetchErrors, t],
+    );
+
+    useEffect(() => subscribe('scan', handleScanMessage), [subscribe, handleScanMessage]);
+    useEffect(() => subscribe('fix_scan', handleFixScanMessage), [subscribe, handleFixScanMessage]);
+
+    // The hub has no replay: anything that completed while the socket was
+    // down never arrives as an event. A fresh connection re-reads the state
+    // this page mirrors from events.
+    const wasConnectedRef = useRef(isConnected);
+    useEffect(() => {
+        const wasConnected = wasConnectedRef.current;
+        wasConnectedRef.current = isConnected;
+        if (isConnected && !wasConnected) {
+            fetchScanned();
+            fetchStatus();
+        }
+    }, [isConnected, fetchScanned, fetchStatus]);
 
     const selectedError = selectedErrorIndex >= 0 ? scanErrors[selectedErrorIndex] : undefined;
 

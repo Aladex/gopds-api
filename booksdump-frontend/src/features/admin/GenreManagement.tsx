@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Pencil, Save, Sparkles, X } from 'lucide-react';
@@ -19,7 +19,7 @@ import { Progress } from '@/shared/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/ui/table';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import * as adminApi from '@/api/admin';
-import { WS_URL } from '@/api/config';
+import { useWebSocket, WSMessage } from '@/context/WebSocketContext';
 
 interface GenreAdmin {
     id: number;
@@ -65,7 +65,7 @@ const GenreManagement: React.FC = () => {
     const [progressProcessed, setProgressProcessed] = useState(0);
     const [progressTotal, setProgressTotal] = useState(0);
     const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
-    const wsRef = useRef<WebSocket | null>(null);
+    const { subscribe } = useWebSocket();
 
     const fetchGenres = useCallback(async () => {
         setIsLoading(true);
@@ -83,64 +83,44 @@ const GenreManagement: React.FC = () => {
         fetchGenres();
     }, [fetchGenres]);
 
-    // WebSocket for genre title generation progress
-    useEffect(() => {
-        const ws = new WebSocket(`${WS_URL}/api/ws`);
-        wsRef.current = ws;
-
-        ws.onmessage = (event) => {
-            try {
-                const message = JSON.parse(event.data);
-                switch (message.type) {
-                    case 'genre_title_gen_started': {
-                        const payload = message.data as GenreTitleGenStartedEvent;
-                        setIsGenerating(true);
-                        setProgressPercent(0);
-                        setProgressProcessed(0);
-                        setProgressTotal(payload.total);
-                        setProgressCurrent('');
-                        break;
-                    }
-                    case 'genre_title_gen_progress': {
-                        const payload = message.data as GenreTitleGenProgressEvent;
-                        setIsGenerating(true);
-                        setProgressPercent(payload.progress_percent);
-                        setProgressProcessed(payload.processed);
-                        setProgressTotal(payload.total);
-                        setProgressCurrent(payload.current_genre);
-                        break;
-                    }
-                    case 'genre_title_gen_completed': {
-                        const payload = message.data as GenreTitleGenCompletedEvent;
-                        setIsGenerating(false);
-                        setProgressPercent(100);
-                        toast.success(t('titlesGenerated', { count: payload.updated }));
-                        fetchGenres();
-                        break;
-                    }
-                    default:
-                        break;
+    // Genre title generation progress rides the shared app-wide socket.
+    const handleGenresMessage = useCallback(
+        (message: WSMessage) => {
+            switch (message.type) {
+                case 'genre_title_gen_started': {
+                    const payload = message.data as GenreTitleGenStartedEvent;
+                    setIsGenerating(true);
+                    setProgressPercent(0);
+                    setProgressProcessed(0);
+                    setProgressTotal(payload.total);
+                    setProgressCurrent('');
+                    break;
                 }
-            } catch (error) {
-                console.error('Failed to parse WebSocket message', error);
+                case 'genre_title_gen_progress': {
+                    const payload = message.data as GenreTitleGenProgressEvent;
+                    setIsGenerating(true);
+                    setProgressPercent(payload.progress_percent);
+                    setProgressProcessed(payload.processed);
+                    setProgressTotal(payload.total);
+                    setProgressCurrent(payload.current_genre);
+                    break;
+                }
+                case 'genre_title_gen_completed': {
+                    const payload = message.data as GenreTitleGenCompletedEvent;
+                    setIsGenerating(false);
+                    setProgressPercent(100);
+                    toast.success(t('titlesGenerated', { count: payload.updated }));
+                    fetchGenres();
+                    break;
+                }
+                default:
+                    break;
             }
-        };
+        },
+        [fetchGenres, t],
+    );
 
-        ws.onerror = (error) => {
-            console.error('Genre WS error', error);
-        };
-
-        ws.onclose = () => {
-            wsRef.current = null;
-        };
-
-        return () => {
-            if (wsRef.current) {
-                wsRef.current.close();
-                wsRef.current = null;
-            }
-        };
-    }, [fetchGenres, t]);
+    useEffect(() => subscribe('genres', handleGenresMessage), [subscribe, handleGenresMessage]);
 
     const handleEdit = (genre: GenreAdmin) => {
         setEditingId(genre.id);

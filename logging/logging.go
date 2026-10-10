@@ -1,20 +1,22 @@
 package logging
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 )
 
-var logger *logrus.Logger
+var logger atomic.Pointer[logrus.Logger]
 
 func init() {
-	logger = logrus.New()
-	logger.SetFormatter(&logrus.TextFormatter{
+	l := logrus.New()
+	l.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp:   true,
 		TimestampFormat: "2006-01-02 15:04:05",
 	})
+	logger.Store(l)
 
 	// Set the global logrus instance to use the same formatter
 	logrus.SetFormatter(&logrus.TextFormatter{
@@ -25,47 +27,57 @@ func init() {
 
 // GetLogger returns the configured logger instance
 func GetLogger() *logrus.Logger {
-	return logger
+	return logger.Load()
+}
+
+// SetLogger swaps the logger, or restores the package one on nil. Tests use
+// it to capture what production code writes. The pointer swap is atomic
+// because connections outlive the test that captured their output.
+func SetLogger(l *logrus.Logger) {
+	if l == nil {
+		l = logrus.StandardLogger()
+	}
+	logger.Store(l)
 }
 
 // Info logs an info message
 func Info(args ...interface{}) {
-	logger.Info(args...)
+	logger.Load().Info(args...)
 }
 
 // Infof logs a formatted info message
 func Infof(format string, args ...interface{}) {
-	logger.Infof(format, args...)
+	logger.Load().Infof(format, args...)
 }
 
 // Error logs an error message
 func Error(args ...interface{}) {
-	logger.Error(args...)
+	logger.Load().Error(args...)
 }
 
 // Errorf logs a formatted error message
 func Errorf(format string, args ...interface{}) {
-	logger.Errorf(format, args...)
+	logger.Load().Errorf(format, args...)
 }
 
 // Warn logs a warning message
 func Warn(args ...interface{}) {
-	logger.Warn(args...)
+	logger.Load().Warn(args...)
 }
 
 // Warnf logs a formatted warning message
 func Warnf(format string, args ...interface{}) {
-	logger.Warnf(format, args...)
+	logger.Load().Warnf(format, args...)
 }
 
 // Debug logs a debug message
 func Debug(args ...interface{}) {
-	logger.Debug(args...)
+	logger.Load().Debug(args...)
 }
 
 // Debugf logs a formatted debug message
 func Debugf(format string, args ...interface{}) {
-	logger.Debugf(format, args...)
+	logger.Load().Debugf(format, args...)
 }
 
 // Fields is the structured-field map WithFields takes. It is an alias rather
@@ -75,12 +87,12 @@ type Fields = logrus.Fields
 
 // WithField creates an entry with a single field
 func WithField(key string, value interface{}) *logrus.Entry {
-	return logger.WithField(key, value)
+	return logger.Load().WithField(key, value)
 }
 
 // WithFields creates an entry with multiple fields
 func WithFields(fields logrus.Fields) *logrus.Entry {
-	return logger.WithFields(fields)
+	return logger.Load().WithFields(fields)
 }
 
 func GinrusLogger() gin.HandlerFunc {
@@ -105,6 +117,6 @@ func GinrusLogger() gin.HandlerFunc {
 		if errs := c.Errors.Errors(); len(errs) > 0 {
 			fields["errors"] = errs
 		}
-		logger.WithFields(fields).Info("HTTP Request")
+		logger.Load().WithFields(fields).Info("HTTP Request")
 	}
 }

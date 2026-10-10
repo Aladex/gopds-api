@@ -11,6 +11,7 @@ import (
 	"gopds-api/models"
 	"gopds-api/utils"
 
+	"github.com/go-pg/pg/v10"
 	"github.com/google/uuid"
 )
 
@@ -123,7 +124,7 @@ func GetInvites(invites *[]models.Invite) error {
 	return nil
 }
 
-// GetUser function for return users object by username
+// GetUser returns the user by login with their collections.
 func GetUser(u string) (models.User, error) {
 	userDB := new(models.User)
 	err := db.Model(userDB).Where("lower(username) = lower(?)", u).First()
@@ -141,6 +142,19 @@ func GetUser(u string) (models.User, error) {
 	userDB.Collections = collections
 
 	return *userDB, nil
+}
+
+// IsSuperUserByID reads the user's current superuser flag. The WebSocket hub
+// calls it at subscribe time and on its revalidation ticks, so a demotion
+// takes effect without waiting for the token to expire.
+func IsSuperUserByID(id int64) (bool, error) {
+	var isSuperUser bool
+	_, err := db.QueryOne(pg.Scan(&isSuperUser),
+		"SELECT is_superuser FROM auth_user WHERE id = ?", id)
+	if err != nil {
+		return false, err
+	}
+	return isSuperUser, nil
 }
 
 // GetUserList function returns an users list

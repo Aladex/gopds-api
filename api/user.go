@@ -40,6 +40,11 @@ func ActionUser(c *gin.Context) {
 			c.JSON(500, err)
 			return
 		}
+		// A demotion must reach the user's live sockets at once, not at the
+		// next revalidation tick.
+		if !user.IsSuperUser && wsManager != nil {
+			wsManager.RevokeAdminByUserID(user.ID)
+		}
 		logging.Infof("ActionUser completed successfully, returning user: ID=%d, BotToken=%s",
 			user.ID, user.BotToken)
 		c.JSON(200, user)

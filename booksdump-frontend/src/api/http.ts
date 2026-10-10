@@ -109,18 +109,73 @@ async function refreshSession(): Promise<boolean> {
     }
 }
 
+// sessionExpired runs the confirmed-logout path: a 401 that the
+// refresh-and-replay did not fix means the session is genuinely gone. The
+// AuthProvider replaces the default (a full-page navigation) with an in-page
+// logout, so a running app — and its WebSocket — reacts without a reload.
+let sessionExpired: () => void = () => {
+    if (!onAuthRoute()) {
+        window.location.href = '/login';
+    }
+};
+
+/** setSessionExpiredHandler installs the app's in-page confirmed-logout path. */
+export function setSessionExpiredHandler(handler: () => void): void {
+    sessionExpired = handler;
+}
+
+// sessionGeneration identifies the currently installed auth identity. The
+// auth boundary (AuthContext) bumps it through notifyAuthIdentityChanged
+// whenever the current user is installed or cleared — init, restoration,
+// login, logout including its error path — and expireSession bumps it for a
+// confirmed expiration. A request captures the generation at start; a request
+// whose generation is no longer current is obsolete: it must not refresh or
+// replay under whatever session is current now, and only a still-current
+// request may expire the session, so a late 401 from an older session's
+// request cannot log out a newer login and a session expires only once.
+let sessionGeneration = 0;
+
+/**
+ * notifyAuthIdentityChanged is called by the auth boundary (AuthContext)
+ * every time it installs or clears the current user. Anything still in
+ * flight from the previous identity becomes obsolete at once.
+ */
+export function notifyAuthIdentityChanged(): void {
+    sessionGeneration += 1;
+}
+
+// expireSession runs the confirmed-logout path if the request that failed
+// still belongs to the current auth state.
+function expireSession(generationAtStart: number): void {
+    if (generationAtStart !== sessionGeneration) {
+        return;
+    }
+    sessionGeneration += 1;
+    sessionExpired();
+}
+
 /**
  * request performs a JSON call and returns the parsed body.
  *
  * On 401 it refreshes the session once and replays the call. It never retries
  * twice: a second failure means the session is genuinely gone, and looping would
- * turn one expired cookie into a request storm.
+ * turn one expired cookie into a request storm. A 401 that the refresh did not
+ * fix — the refresh failed, or the replayed call is still 401 — is a confirmed
+ * logout and runs the sessionExpired path, not just a request error.
  *
  * A 404 rejects with ApiError like any other status. It does not navigate: a
  * missing book is for the page to render, not a reason to replace the whole
  * application with an error screen.
  */
 export async function request<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
+    return requestAtGeneration<T>(path, options, sessionGeneration);
+}
+
+async function requestAtGeneration<T>(
+    path: string,
+    options: RequestOptions,
+    generationAtStart: number,
+): Promise<T> {
     const { body, query, skipRefresh, headers: initHeaders, ...rest } = options;
     const method = (rest.method ?? 'GET').toUpperCase();
 
@@ -147,12 +202,29 @@ export async function request<T = unknown>(path: string, options: RequestOptions
         throw ApiError.network(cause);
     }
 
-    if (response.status === 401 && !skipRefresh && !isAuthEndpoint(path) && !onAuthRoute()) {
-        if (await refreshSession()) {
-            return request<T>(path, { ...options, skipRefresh: true });
-        }
-        if (!onAuthRoute()) {
-            window.location.href = '/login';
+    // A request whose session was replaced while it was in flight is
+    // obsolete: it must not refresh or replay under whatever session is
+    // current now, and it rejects below with its own 401.
+    if (
+        response.status === 401 &&
+        !isAuthEndpoint(path) &&
+        !onAuthRoute() &&
+        generationAtStart === sessionGeneration
+    ) {
+        if (!skipRefresh && (await refreshSession())) {
+            // The auth identity may have changed while the refresh was in
+            // flight; only a still-current session gets its replay. The
+            // replay keeps the captured generation: it still belongs to the
+            // session the request started under.
+            if (generationAtStart === sessionGeneration) {
+                return requestAtGeneration<T>(
+                    path,
+                    { ...options, skipRefresh: true },
+                    generationAtStart,
+                );
+            }
+        } else {
+            expireSession(generationAtStart);
         }
     }
 
@@ -183,6 +255,14 @@ export async function request<T = unknown>(path: string, options: RequestOptions
  * through one place for credentials, CSRF and the refresh dance.
  */
 export async function requestBlob(path: string, options: RequestOptions = {}): Promise<Blob> {
+    return requestBlobAtGeneration(path, options, sessionGeneration);
+}
+
+async function requestBlobAtGeneration(
+    path: string,
+    options: RequestOptions,
+    generationAtStart: number,
+): Promise<Blob> {
     const { body, query, skipRefresh, headers: initHeaders, ...rest } = options;
     const method = (rest.method ?? 'GET').toUpperCase();
 
@@ -207,18 +287,31 @@ export async function requestBlob(path: string, options: RequestOptions = {}): P
         throw ApiError.network(cause);
     }
 
-    if (response.status === 401 && !skipRefresh && !isAuthEndpoint(path) && !onAuthRoute()) {
-        if (await refreshSession()) {
-            return requestBlob(path, { ...options, skipRefresh: true });
+    // Same obsolescence rule as the JSON transport: no refresh and no replay
+    // for a request whose session was replaced while it was in flight.
+    if (
+        response.status === 401 &&
+        !isAuthEndpoint(path) &&
+        !onAuthRoute() &&
+        generationAtStart === sessionGeneration
+    ) {
+        if (!skipRefresh && (await refreshSession())) {
+            if (generationAtStart === sessionGeneration) {
+                return requestBlobAtGeneration(
+                    path,
+                    { ...options, skipRefresh: true },
+                    generationAtStart,
+                );
+            }
+        } else {
+            expireSession(generationAtStart);
         }
     }
 
     if (!response.ok) {
-        throw new ApiError(
-            response.statusText || `HTTP ${response.status}`,
-            response.status,
-            { responseHeaders: response.headers }
-        );
+        throw new ApiError(response.statusText || `HTTP ${response.status}`, response.status, {
+            responseHeaders: response.headers,
+        });
     }
 
     return response.blob();

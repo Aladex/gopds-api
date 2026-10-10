@@ -26,6 +26,10 @@ type WebSocketConnection interface {
 	SendMessage(messageType string, data interface{}) error
 }
 
+// DuplicateScanProgressType is the WebSocket event type of duplicate scan
+// progress frames; the manager routes them to the duplicates topic.
+const DuplicateScanProgressType = "duplicate_scan_progress"
+
 // DuplicateScanProgress represents the progress of a duplicate scan
 type DuplicateScanProgress struct {
 	JobID           int64  `json:"job_id"`
@@ -81,7 +85,7 @@ func ScanDuplicates(ctx context.Context, db *pg.DB, jobID int64, wsConn WebSocke
 
 	// Send initial WebSocket message
 	if wsConn != nil {
-		_ = wsConn.SendMessage("duplicate_scan_progress", DuplicateScanProgress{
+		_ = wsConn.SendMessage(DuplicateScanProgressType, DuplicateScanProgress{
 			JobID:           jobID,
 			Status:          "running",
 			ProcessedBooks:  0,
@@ -161,7 +165,7 @@ func ScanDuplicates(ctx context.Context, db *pg.DB, jobID int64, wsConn WebSocke
 					}
 
 					if wsConn != nil {
-						_ = wsConn.SendMessage("duplicate_scan_progress", DuplicateScanProgress{
+						_ = wsConn.SendMessage(DuplicateScanProgressType, DuplicateScanProgress{
 							JobID:           jobID,
 							Status:          "running",
 							ProcessedBooks:  processedBooks,
@@ -223,7 +227,7 @@ func ScanDuplicates(ctx context.Context, db *pg.DB, jobID int64, wsConn WebSocke
 
 	// Send final WebSocket message
 	if wsConn != nil {
-		_ = wsConn.SendMessage("duplicate_scan_progress", DuplicateScanProgress{
+		_ = wsConn.SendMessage(DuplicateScanProgressType, DuplicateScanProgress{
 			JobID:           jobID,
 			Status:          "completed",
 			ProcessedBooks:  processedBooks,

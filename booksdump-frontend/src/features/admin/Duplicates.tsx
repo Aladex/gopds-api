@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertCircle, CheckCircle2, Info } from 'lucide-react';
 
@@ -13,7 +13,7 @@ import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import { cn } from '@/shared/lib/utils';
 import * as adminApi from '@/api/admin';
 import { isApiError } from '@/api/errors';
-import { WS_URL } from '@/api/config';
+import { useWebSocket, WSMessage } from '@/context/WebSocketContext';
 
 interface DuplicateGroup {
     md5_hash: string;
@@ -67,7 +67,7 @@ const Duplicates: React.FC = () => {
     const [actionResult, setActionResult] = useState<string | null>(null);
     const [statusMessage, setStatusMessage] = useState<string | null>(null);
     const [workerCount, setWorkerCount] = useState<number>(1);
-    const wsRef = useRef<WebSocket | null>(null);
+    const { subscribe } = useWebSocket();
 
     // A division and a rounding, read straight into a progress bar: memoising it
     // costs more bookkeeping than the arithmetic it saves.
@@ -216,47 +216,31 @@ const Duplicates: React.FC = () => {
         fetchActiveScan();
     }, [fetchGroups, fetchActiveScan]);
 
-    useEffect(() => {
-        const ws = new WebSocket(`${WS_URL}/api/ws`);
-        wsRef.current = ws;
-
-        ws.onmessage = (event) => {
-            try {
-                const message = JSON.parse(event.data);
-                if (message.type !== 'duplicate_scan_progress') {
-                    return;
-                }
-                const payload = message.data as ScanProgress;
-                setScanProgress(payload);
-                if (payload.status === 'completed' || payload.status === 'failed') {
-                    setIsScanning(false);
-                    fetchGroups();
-                    if (payload.status === 'failed') {
-                        setScanError(payload.error || t('scanError'));
-                    }
-                } else {
-                    setIsScanning(true);
-                }
-            } catch (error) {
-                console.error('Failed to parse WebSocket message', error);
+    // Duplicate scan progress rides the shared app-wide socket.
+    const handleDuplicatesMessage = useCallback(
+        (message: WSMessage) => {
+            if (message.type !== 'duplicate_scan_progress') {
+                return;
             }
-        };
-
-        ws.onerror = (error) => {
-            console.error('Admin WebSocket error', error);
-        };
-
-        ws.onclose = () => {
-            wsRef.current = null;
-        };
-
-        return () => {
-            if (wsRef.current) {
-                wsRef.current.close();
-                wsRef.current = null;
+            const payload = message.data as ScanProgress;
+            setScanProgress(payload);
+            if (payload.status === 'completed' || payload.status === 'failed') {
+                setIsScanning(false);
+                fetchGroups();
+                if (payload.status === 'failed') {
+                    setScanError(payload.error || t('scanError'));
+                }
+            } else {
+                setIsScanning(true);
             }
-        };
-    }, [fetchGroups, t]);
+        },
+        [fetchGroups, t],
+    );
+
+    useEffect(
+        () => subscribe('duplicates', handleDuplicatesMessage),
+        [subscribe, handleDuplicatesMessage],
+    );
 
     return (
         <div className="flex flex-col gap-4">

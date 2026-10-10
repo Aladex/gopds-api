@@ -5,8 +5,8 @@ import "time"
 const (
 	ScanStarted        = "scan_started"
 	ArchiveStarted     = "archive_started"
-	BookProcessed      = "book_processed"
 	ArchiveCompleted   = "archive_completed"
+	ArchiveResetType   = "archive_reset"
 	ScanCompleted      = "scan_completed"
 	ScanErrorEventType = "scan_error"
 	ScanProgress       = "scan_progress"
@@ -35,13 +35,6 @@ type ArchiveStartedEvent struct {
 	Timestamp   time.Time `json:"timestamp"`
 }
 
-type BookProcessedEvent struct {
-	ArchiveName string    `json:"archive_name"`
-	BookTitle   string    `json:"book_title"`
-	BookID      int64     `json:"book_id"`
-	Timestamp   time.Time `json:"timestamp"`
-}
-
 type ArchiveCompletedEvent struct {
 	ArchiveName string      `json:"archive_name"`
 	BooksCount  int         `json:"books_count"`
@@ -58,6 +51,9 @@ type ScanCompletedEvent struct {
 	DurationMS     int64           `json:"duration_ms"`
 	Timestamp      time.Time       `json:"timestamp"`
 	ArchiveReports []ArchiveReport `json:"archive_reports,omitempty"`
+	// LastBookTitle flushes the coalesced progress value: the final book may
+	// land after the last 500 ms progress tick.
+	LastBookTitle string `json:"last_book_title,omitempty"`
 }
 
 type ScanErrorEvent struct {
@@ -66,14 +62,17 @@ type ScanErrorEvent struct {
 }
 
 type ScanProgressEvent struct {
-	CurrentArchive    string    `json:"current_archive"`
-	ArchivesProcessed int       `json:"archives_processed"`
-	TotalArchives     int       `json:"total_archives"`
-	BooksProcessed    int       `json:"books_processed"`
-	TotalBooks        int       `json:"total_books"`
-	ProgressPercent   int       `json:"progress_percent"`
-	ElapsedSeconds    int64     `json:"elapsed_seconds"`
-	Timestamp         time.Time `json:"timestamp"`
+	CurrentArchive    string `json:"current_archive"`
+	ArchivesProcessed int    `json:"archives_processed"`
+	TotalArchives     int    `json:"total_archives"`
+	BooksProcessed    int    `json:"books_processed"`
+	TotalBooks        int    `json:"total_books"`
+	ProgressPercent   int    `json:"progress_percent"`
+	ElapsedSeconds    int64  `json:"elapsed_seconds"`
+	// LastBookTitle carries what the per-book book_processed event used to
+	// carry, coalesced into the throttled progress frame.
+	LastBookTitle string    `json:"last_book_title,omitempty"`
+	Timestamp     time.Time `json:"timestamp"`
 }
 
 func NewScanEventPublisher(wsConn WebSocketConnection) *ScanEventPublisher {
@@ -100,18 +99,6 @@ func (p *ScanEventPublisher) PublishArchiveStarted(archiveName string) {
 	})
 }
 
-func (p *ScanEventPublisher) PublishBookProcessed(archiveName, title string, bookID int64) {
-	if p == nil || p.wsConn == nil {
-		return
-	}
-	_ = p.wsConn.SendMessage(BookProcessed, BookProcessedEvent{
-		ArchiveName: archiveName,
-		BookTitle:   title,
-		BookID:      bookID,
-		Timestamp:   time.Now(),
-	})
-}
-
 func (p *ScanEventPublisher) PublishArchiveCompleted(report *ArchiveReport) {
 	if p == nil || p.wsConn == nil || report == nil {
 		return
@@ -126,7 +113,7 @@ func (p *ScanEventPublisher) PublishArchiveCompleted(report *ArchiveReport) {
 	})
 }
 
-func (p *ScanEventPublisher) PublishScanCompleted(report *ScanReport) {
+func (p *ScanEventPublisher) PublishScanCompleted(report *ScanReport, lastBookTitle string) {
 	if p == nil || p.wsConn == nil || report == nil {
 		return
 	}
@@ -137,6 +124,24 @@ func (p *ScanEventPublisher) PublishScanCompleted(report *ScanReport) {
 		DurationMS:     report.Duration.Milliseconds(),
 		Timestamp:      time.Now(),
 		ArchiveReports: report.ArchiveReports,
+		LastBookTitle:  lastBookTitle,
+	})
+}
+
+// ArchiveResetEvent announces that an archive left the scanned list, so views
+// holding the list can refetch it even though no scan was running.
+type ArchiveResetEvent struct {
+	ArchiveName string    `json:"archive_name"`
+	Timestamp   time.Time `json:"timestamp"`
+}
+
+func (p *ScanEventPublisher) PublishArchiveReset(archiveName string) {
+	if p == nil || p.wsConn == nil {
+		return
+	}
+	_ = p.wsConn.SendMessage(ArchiveResetType, ArchiveResetEvent{
+		ArchiveName: archiveName,
+		Timestamp:   time.Now(),
 	})
 }
 
@@ -150,7 +155,12 @@ func (p *ScanEventPublisher) PublishScanError(err error) {
 	})
 }
 
-func (p *ScanEventPublisher) PublishScanProgress(currentArchive string, archivesProcessed, totalArchives, booksProcessed, totalBooks int, elapsedSeconds int64) {
+func (p *ScanEventPublisher) PublishScanProgress(
+	currentArchive string,
+	archivesProcessed, totalArchives, booksProcessed, totalBooks int,
+	elapsedSeconds int64,
+	lastBookTitle string,
+) {
 	if p == nil || p.wsConn == nil {
 		return
 	}
@@ -170,6 +180,7 @@ func (p *ScanEventPublisher) PublishScanProgress(currentArchive string, archives
 		TotalBooks:        totalBooks,
 		ProgressPercent:   progressPercent,
 		ElapsedSeconds:    elapsedSeconds,
+		LastBookTitle:     lastBookTitle,
 		Timestamp:         time.Now(),
 	})
 }

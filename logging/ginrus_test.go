@@ -23,9 +23,9 @@ import (
 // only place these refusals are visible at all.
 func TestGinrusLogger_RecordsAttachedCauses(t *testing.T) {
 	var captured bytes.Buffer
-	previous := logger.Out
-	logger.SetOutput(&captured)
-	defer logger.SetOutput(previous)
+	previous := logger.Load().Out
+	logger.Load().SetOutput(&captured)
+	defer logger.Load().SetOutput(previous)
 
 	const cause = "dial tcp 10.28.0.4:6379: connect: connection refused"
 
@@ -59,9 +59,9 @@ func TestGinrusLogger_RecordsAttachedCauses(t *testing.T) {
 // line that always carries the key teaches a reader to ignore it.
 func TestGinrusLogger_QuietWhenNothingFailed(t *testing.T) {
 	var captured bytes.Buffer
-	previous := logger.Out
-	logger.SetOutput(&captured)
-	defer logger.SetOutput(previous)
+	previous := logger.Load().Out
+	logger.Load().SetOutput(&captured)
+	defer logger.Load().SetOutput(previous)
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

@@ -13,6 +13,42 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// sessionCheckTimeout bounds one session-store round trip.
+const sessionCheckTimeout = 2 * time.Second
+
+// Session verdicts for the WebSocket revalidation loop. The socket needs to
+// tell "the session is confirmed gone" apart from "Redis hiccuped, ask again
+// later"; the HTTP middleware keeps collapsing both into 401.
+var (
+	// ErrSessionMissing: the token has no live session or fails signature
+	// verification — a confirmed invalid session.
+	ErrSessionMissing = errors.New("session_missing")
+	// ErrSessionInconclusive: the session store could not be reached, so the
+	// session's fate is unknown. Not an authorization decision.
+	ErrSessionInconclusive = errors.New("session_inconclusive")
+)
+
+// ValidateWSSession checks the session behind token and classifies the
+// failure for the socket's revalidation loop: ErrSessionMissing is a
+// confirmed loss, anything else is an infrastructure error. It never updates
+// the session timestamp: a liveness check must not extend the session.
+func ValidateWSSession(token string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), sessionCheckTimeout)
+	defer cancel()
+
+	if err := sessions.CheckSessionExists(ctx, token); err != nil {
+		if errors.Is(err, sessions.ErrSessionNotFound) {
+			return ErrSessionMissing
+		}
+		return ErrSessionInconclusive
+	}
+
+	if _, _, _, err := utils.CheckAccessToken(token); err != nil {
+		return ErrSessionMissing
+	}
+	return nil
+}
+
 // ValidateTokenPublic is a public wrapper for validateToken for use in WebSocket handlers
 func ValidateTokenPublic(token string) (string, int64, bool, error) {
 	return validateToken(token)

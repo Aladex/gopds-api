@@ -2,6 +2,7 @@ package sessions
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -14,6 +15,21 @@ import (
 )
 
 const themeKeyPrefix = "session:theme:"
+
+// ErrSessionNotFound: the session store answered, and the token is not in
+// it. Any other lookup error is infrastructure, not a verdict on the session.
+var ErrSessionNotFound = errors.New("session_not_found")
+
+// CheckSessionExists reports whether token has a live session, separating a
+// confirmed miss from a store failure so callers can fail closed without
+// treating a Redis blip as a logout.
+func CheckSessionExists(ctx context.Context, token string) error {
+	_, err := rdb.WithContext(ctx).Get(token).Result()
+	if err == redis.Nil {
+		return ErrSessionNotFound
+	}
+	return err
+}
 
 func CheckSessionKeyInRedis(ctx context.Context, token string) (string, error) {
 	username, err := rdb.WithContext(ctx).Get(token).Result()

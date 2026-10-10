@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,10 +22,10 @@ func init() {
 	gin.SetMode(gin.TestMode)
 }
 
-// wsTestHandler is a plain http.Handler that accepts a WebSocket, registers
-// the client, and runs the same read/write loops as UnifiedWebSocketHandler
-// but without going through gin's router (which wraps ResponseWriter and
-// breaks http.Hijacker support needed by websocket.Accept).
+// wsTestHandler is a plain http.Handler that accepts a WebSocket and runs the
+// same read/write loops as UnifiedWebSocketHandler via serveWebSocket, but
+// without going through gin's router (which wraps ResponseWriter and breaks
+// http.Hijacker support needed by websocket.Accept).
 func wsTestHandler(mgr *services.WebSocketManager, userID int64, username string, isAdmin bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		opts := &websocket.AcceptOptions{InsecureSkipVerify: true}
@@ -36,68 +35,23 @@ func wsTestHandler(mgr *services.WebSocketManager, userID int64, username string
 		}
 		defer conn.CloseNow()
 
-		notifyChan := make(chan []byte, 16)
-		quit := make(chan struct{})
-
-		clientID := mgr.RegisterClient(conn, userID, username, isAdmin, notifyChan)
-		defer mgr.UnregisterClient(clientID)
-
-		// Reader goroutine.
-		go func() {
-			for {
-				typ, data, err := conn.Read(context.Background())
-				if err != nil {
-					close(quit)
-					return
-				}
-				if typ != websocket.MessageText {
-					continue
-				}
-				var typed struct {
-					Type   string `json:"type"`
-					BookID int64  `json:"bookID"`
-					Format string `json:"format"`
-				}
-				if err := json.Unmarshal(data, &typed); err != nil {
-					continue
-				}
-				if typed.Type == "ping" {
-					response, _ := json.Marshal(map[string]string{"type": "pong"})
-					notifyChan <- response
-				}
-			}
-		}()
-
-		// Writer loop.
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case message := <-notifyChan:
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				err := conn.Write(ctx, websocket.MessageText, message)
-				cancel()
-				if err != nil {
-					return
-				}
-			case <-ticker.C:
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				err := conn.Ping(ctx)
-				cancel()
-				if err != nil {
-					return
-				}
-			case <-quit:
-				conn.Close(websocket.StatusNormalClosure, "")
-				return
-			}
-		}
+		serveWebSocket(mgr, conn, userID, username, isAdmin, "")
 	})
 }
 
 func setupTestServer(t *testing.T, userID int64, username string, isAdmin bool) (*httptest.Server, *services.WebSocketManager) {
 	t.Helper()
+
+	// Tests run without Redis and without a database: the live authorization
+	// hooks default to the handshake snapshot unless a test replaces them.
+	previousRole := currentUserIsAdmin
+	currentUserIsAdmin = func(int64) (bool, error) { return isAdmin, nil }
+	previousSession := validateWSSession
+	validateWSSession = func(string) error { return nil }
+	t.Cleanup(func() {
+		currentUserIsAdmin = previousRole
+		validateWSSession = previousSession
+	})
 
 	mgr := services.NewWebSocketManager()
 	s := httptest.NewServer(wsTestHandler(mgr, userID, username, isAdmin))
@@ -148,20 +102,16 @@ func TestWSHandler_PingPong(t *testing.T) {
 
 func TestWSHandler_AdminReceivesBroadcast(t *testing.T) {
 	s, mgr := setupTestServer(t, 1, "admin", true)
-	conn := dialWS(t, s)
+	client := newWSTestClient(t, s)
 
 	// Give the handler time to register the client.
 	time.Sleep(50 * time.Millisecond)
+	client.subscribeTopic(t, services.TopicScan)
 
 	err := mgr.BroadcastToAdmins("scan_started", map[string]int{"total": 10})
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	var msg map[string]interface{}
-	err = wsjson.Read(ctx, conn, &msg)
-	require.NoError(t, err)
+	msg := client.read(t)
 	assert.Equal(t, "scan_started", msg["type"])
 
 	data, ok := msg["data"].(map[string]interface{})
@@ -171,20 +121,15 @@ func TestWSHandler_AdminReceivesBroadcast(t *testing.T) {
 
 func TestWSHandler_RegularUserDoesNotReceiveBroadcast(t *testing.T) {
 	s, mgr := setupTestServer(t, 2, "user", false)
-	conn := dialWS(t, s)
+	client := newWSTestClient(t, s)
 
 	time.Sleep(50 * time.Millisecond)
 
 	err := mgr.BroadcastToAdmins("scan_started", nil)
 	require.NoError(t, err)
 
-	// The user should not receive anything. Try reading with a short timeout.
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
-
-	var msg json.RawMessage
-	err = wsjson.Read(ctx, conn, &msg)
-	assert.Error(t, err)
+	// The user should not receive anything.
+	client.expectSilence(t)
 }
 
 // --- Multiple clients ---
@@ -192,22 +137,20 @@ func TestWSHandler_RegularUserDoesNotReceiveBroadcast(t *testing.T) {
 func TestWSHandler_MultipleAdminsBroadcast(t *testing.T) {
 	s, mgr := setupTestServer(t, 1, "admin", true)
 
-	conn1 := dialWS(t, s)
-	conn2 := dialWS(t, s)
+	client1 := newWSTestClient(t, s)
+	client2 := newWSTestClient(t, s)
 
 	time.Sleep(50 * time.Millisecond)
+	client1.subscribeTopic(t, services.TopicScan)
+	client2.subscribeTopic(t, services.TopicScan)
 
-	err := mgr.BroadcastToAdmins("test_event", "hello")
+	err := mgr.BroadcastToAdmins("scan_error", "hello")
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	var msg1, msg2 map[string]interface{}
-	require.NoError(t, wsjson.Read(ctx, conn1, &msg1))
-	require.NoError(t, wsjson.Read(ctx, conn2, &msg2))
-	assert.Equal(t, "test_event", msg1["type"])
-	assert.Equal(t, "test_event", msg2["type"])
+	msg1 := client1.read(t)
+	msg2 := client2.read(t)
+	assert.Equal(t, "scan_error", msg1["type"])
+	assert.Equal(t, "scan_error", msg2["type"])
 }
 
 // --- Origin validation (OriginCheckMiddleware) ---
