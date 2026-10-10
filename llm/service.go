@@ -1,33 +1,15 @@
 package llm
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"os"
 	"strings"
-	"time"
 	"unicode"
 	"unicode/utf8"
 
 	"gopds-api/logging"
 )
-
-// GetModel returns the OpenAI model from OPENAI_MODEL env, defaulting to gpt-4o-mini.
-func GetModel() string {
-	if m := os.Getenv("OPENAI_MODEL"); m != "" {
-		return m
-	}
-	return "gpt-4o-mini"
-}
-
-// LLMService handles interaction with OpenAI API
-type LLMService struct {
-	apiKey     string
-	httpClient *http.Client
-}
 
 // Command represents a parsed command from LLM response
 type Command struct {
@@ -38,30 +20,24 @@ type Command struct {
 	SearchType string `json:"search_type,omitempty"` // "title_only", "author_only", "combined"
 }
 
-// OpenAIRequest represents the request structure for OpenAI API
-type OpenAIRequest struct {
-	Model    string    `json:"model"`
-	Messages []Message `json:"messages"`
-}
-
-// Message represents a message in the OpenAI request
+// Message represents a message in the LLM request
 type Message struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
 
-// OpenAIResponse represents the response structure from OpenAI API
+// OpenAIResponse represents the response structure from the LLM API
 type OpenAIResponse struct {
 	Choices []Choice  `json:"choices"`
 	Error   *APIError `json:"error,omitempty"`
 }
 
-// Choice represents a choice in OpenAI response
+// Choice represents a choice in the LLM response
 type Choice struct {
 	Message Message `json:"message"`
 }
 
-// APIError represents an error from OpenAI API
+// APIError represents an error from the LLM API
 type APIError struct {
 	Message string `json:"message"`
 	Type    string `json:"type"`
@@ -69,7 +45,6 @@ type APIError struct {
 }
 
 const (
-	openAIAPIURL   = "https://api.openai.com/v1/chat/completions"
 	promptTemplate = `You are a library assistant bot that helps find books and authors in multiple languages. Parse the user query and conversation context to return a JSON object with the command and parameters.
 
 Supported commands:
@@ -136,47 +111,46 @@ Return format:
 }`
 )
 
-// NewLLMService creates a new LLM service instance
-func NewLLMService() *LLMService {
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		logging.Errorf("OPENAI_API_KEY environment variable is not set")
-	}
+// LLMService is the feature layer over the shared LLM client: query parsing,
+// genre titles, curated-collection matching and alternative queries. It sends
+// no HTTP of its own — every request goes through llm.Client and the llm
+// configuration section.
+type LLMService struct {
+	client *Client
+}
 
-	return &LLMService{
-		apiKey: apiKey,
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+// NewLLMService creates a new LLM service from the loaded llm configuration
+// section. When that section leaves the provider unconfigured, every method
+// degrades to its no-LLM result.
+func NewLLMService() *LLMService {
+	return NewLLMServiceWithClient(NewClientFromConfig())
+}
+
+// NewLLMServiceWithClient wires the service onto an explicit client — the seam
+// that points the service at a stub endpoint in tests.
+func NewLLMServiceWithClient(client *Client) *LLMService {
+	if !client.Configured() {
+		logging.Error("LLM is not configured (llm.base_url with llm.api_key, or a non-OpenAI base URL); LLM features stay off")
 	}
+	return &LLMService{client: client}
 }
 
 // ProcessQuery processes user query with conversation context and returns a command
-func (s *LLMService) ProcessQuery(userQuery, context string) (*Command, error) {
-	if s.apiKey == "" {
-		logging.Errorf("OpenAI API key is not configured")
+func (s *LLMService) ProcessQuery(userQuery, conversationContext string) (*Command, error) {
+	if !s.client.Configured() {
 		return &Command{Command: "unknown"}, nil
 	}
 
 	// Build the prompt by replacing placeholders
-	prompt := strings.ReplaceAll(promptTemplate, "{{context}}", context)
+	prompt := strings.ReplaceAll(promptTemplate, "{{context}}", conversationContext)
 	prompt = strings.ReplaceAll(prompt, "{{query}}", userQuery)
 
-	// Create OpenAI request
-	request := OpenAIRequest{
-		Model: GetModel(),
-		Messages: []Message{
-			{
-				Role:    "user",
-				Content: prompt,
-			},
-		},
-	}
-
-	// Send request to OpenAI API
-	response, err := s.callOpenAI(request)
+	// Send request to the LLM API
+	response, err := s.client.ChatCompletion(context.Background(), []Message{
+		{Role: messageRoleUser, Content: prompt},
+	})
 	if err != nil {
-		logging.Errorf("Failed to call OpenAI API: %v", err)
+		logging.Errorf("Failed to call LLM API: %v", err)
 		return &Command{Command: "unknown"}, nil
 	}
 
@@ -201,49 +175,7 @@ func logProcessedQuery(userQuery string, command *Command) {
 		command.Title != "", command.Author != "")
 }
 
-// callOpenAI makes a request to OpenAI API
-func (s *LLMService) callOpenAI(request OpenAIRequest) (*OpenAIResponse, error) {
-	jsonData, err := json.Marshal(request)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %v", err)
-	}
-
-	req, err := http.NewRequest("POST", openAIAPIURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %v", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+s.apiKey)
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %v", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("OpenAI API returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var response OpenAIResponse
-	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %v", err)
-	}
-
-	if response.Error != nil {
-		return nil, fmt.Errorf("OpenAI API error: %s", response.Error.Message)
-	}
-
-	return &response, nil
-}
-
-// parseResponse parses OpenAI response into a Command struct
+// parseResponse parses the LLM response into a Command struct
 func (s *LLMService) parseResponse(response *OpenAIResponse) (*Command, error) {
 	if len(response.Choices) == 0 {
 		return nil, fmt.Errorf("no choices in response")
@@ -354,16 +286,16 @@ type GenreBookContext struct {
 	Annotation string
 }
 
-// GenerateGenreTitle asks OpenAI to produce a human-readable title for a genre tag.
+// GenerateGenreTitle asks the LLM to produce a human-readable title for a genre tag.
 // Returns the genre tag itself if OpenAI is unavailable.
 func (s *LLMService) GenerateGenreTitle(genreTag string) string {
 	return s.GenerateGenreTitleWithBooks(genreTag, nil)
 }
 
-// GenerateGenreTitleWithBooks asks OpenAI to produce a human-readable title for a genre tag,
+// GenerateGenreTitleWithBooks asks the LLM to produce a human-readable title for a genre tag,
 // using sample books as additional context for better accuracy.
 func (s *LLMService) GenerateGenreTitleWithBooks(genreTag string, books []GenreBookContext) string {
-	if s.apiKey == "" {
+	if !s.client.Configured() {
 		return genreTag
 	}
 
@@ -384,23 +316,21 @@ func (s *LLMService) GenerateGenreTitleWithBooks(genreTag string, books []GenreB
 		booksContext = sb.String()
 	}
 
-	request := OpenAIRequest{
-		Model: GetModel(),
-		Messages: []Message{
-			{
-				Role: "user",
-				Content: fmt.Sprintf(
-					"You are a librarian. Given the machine-readable book genre tag \"%s\", "+
-						"provide a short human-readable genre name in Russian. "+
-						"Reply with just the genre name, nothing else. No quotes, no punctuation, no explanation.%s",
-					genreTag, booksContext),
-			},
+	messages := []Message{
+		{
+			Role: messageRoleUser,
+			Content: fmt.Sprintf(
+				"You are a librarian. Given the machine-readable book genre tag \"%s\", "+
+					"provide a short human-readable genre name in Russian. "+
+					"Reply with just the genre name, nothing else. No quotes, no punctuation, no explanation.%s",
+				genreTag, booksContext),
 		},
 	}
 
-	response, err := s.callOpenAI(request)
+	response, err := s.client.ChatCompletion(context.Background(), messages)
 	if err != nil {
-		logging.Warnf("Failed to generate genre title for %q: %v", genreTag, err)
+		// The tag is catalog content; the log carries its length instead.
+		logging.Warnf("Failed to generate genre title (tag %d runes): %v", utf8.RuneCountInString(genreTag), err)
 		return genreTag
 	}
 
@@ -415,7 +345,10 @@ func (s *LLMService) GenerateGenreTitleWithBooks(genreTag string, books []GenreB
 	}
 
 	title = capitalizeFirst(title)
-	logging.Infof("Generated genre title: %q -> %q", genreTag, title)
+	// The tag and the model's title are catalog content; only their lengths
+	// reach the log.
+	logging.Infof("Generated genre title: tag %d runes -> title %d runes",
+		utf8.RuneCountInString(genreTag), utf8.RuneCountInString(title))
 	return title
 }
 
@@ -432,7 +365,7 @@ type AmbiguousCandidate struct {
 // candidates for one external (title, author) pair. Returns nil if the model
 // cannot confidently pick or the API is unavailable.
 func (s *LLMService) ResolveAmbiguousMatch(externalTitle, externalAuthor string, candidates []AmbiguousCandidate) (*int64, error) {
-	if s.apiKey == "" || len(candidates) == 0 {
+	if !s.client.Configured() || len(candidates) == 0 {
 		return nil, nil
 	}
 
@@ -460,13 +393,9 @@ if no candidate is plausibly the same work, answer null.
 Reply with a single line of strict JSON, no comments, no markdown:
 {"book_id": <id from list> | null}`)
 
-	request := OpenAIRequest{
-		Model: GetModel(),
-		Messages: []Message{
-			{Role: "user", Content: sb.String()},
-		},
-	}
-	response, err := s.callOpenAI(request)
+	response, err := s.client.ChatCompletion(context.Background(), []Message{
+		{Role: messageRoleUser, Content: sb.String()},
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -511,7 +440,7 @@ type SuggestedQuery struct {
 // Typical use: external "Скотское хозяйство" by "Джорж Оруэлл" → suggestion
 // {"Скотный двор", "Джордж Оруэлл"}.
 func (s *LLMService) SuggestAlternativeQuery(externalTitle, externalAuthor string) (*SuggestedQuery, error) {
-	if s.apiKey == "" {
+	if !s.client.Configured() {
 		return nil, nil
 	}
 	prompt := fmt.Sprintf(`You are a librarian. A book listing was found in an external catalog
@@ -533,13 +462,9 @@ Rules:
 Reply with strict JSON, no markdown, no commentary:
 {"title": "...", "author": "..."}`, externalTitle, externalAuthor)
 
-	request := OpenAIRequest{
-		Model: GetModel(),
-		Messages: []Message{
-			{Role: "user", Content: prompt},
-		},
-	}
-	response, err := s.callOpenAI(request)
+	response, err := s.client.ChatCompletion(context.Background(), []Message{
+		{Role: messageRoleUser, Content: prompt},
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -569,7 +494,7 @@ Reply with strict JSON, no markdown, no commentary:
 
 // GenerateGenreTitleUnique retries genre title generation, explicitly excluding conflicting titles.
 func (s *LLMService) GenerateGenreTitleUnique(genreTag string, books []GenreBookContext, excluded []string) string {
-	if s.apiKey == "" {
+	if !s.client.Configured() {
 		return genreTag
 	}
 
@@ -592,24 +517,22 @@ func (s *LLMService) GenerateGenreTitleUnique(genreTag string, books []GenreBook
 
 	excludeList := strings.Join(excluded, "\", \"")
 
-	request := OpenAIRequest{
-		Model: GetModel(),
-		Messages: []Message{
-			{
-				Role: "user",
-				Content: fmt.Sprintf(
-					"You are a librarian. Given the machine-readable book genre tag \"%s\", "+
-						"provide a short human-readable genre name in Russian. "+
-						"The following names are already taken by other genres: \"%s\". You MUST suggest a different name. "+
-						"Reply with just the genre name, nothing else. No quotes, no punctuation, no explanation.%s",
-					genreTag, excludeList, booksContext),
-			},
+	messages := []Message{
+		{
+			Role: messageRoleUser,
+			Content: fmt.Sprintf(
+				"You are a librarian. Given the machine-readable book genre tag \"%s\", "+
+					"provide a short human-readable genre name in Russian. "+
+					"The following names are already taken by other genres: \"%s\". You MUST suggest a different name. "+
+					"Reply with just the genre name, nothing else. No quotes, no punctuation, no explanation.%s",
+				genreTag, excludeList, booksContext),
 		},
 	}
 
-	response, err := s.callOpenAI(request)
+	response, err := s.client.ChatCompletion(context.Background(), messages)
 	if err != nil {
-		logging.Warnf("Failed to generate unique genre title for %q: %v", genreTag, err)
+		// The tag is catalog content; the log carries its length instead.
+		logging.Warnf("Failed to generate unique genre title (tag %d runes): %v", utf8.RuneCountInString(genreTag), err)
 		return genreTag
 	}
 
@@ -629,6 +552,9 @@ func (s *LLMService) GenerateGenreTitleUnique(genreTag string, books []GenreBook
 	}
 
 	title = capitalizeFirst(title)
-	logging.Infof("Generated unique genre title: %q -> %q (excluded %v)", genreTag, title, excluded)
+	// The tag, the model's title and the taken names are catalog content; the
+	// log carries lengths and the taken-name count instead.
+	logging.Infof("Generated unique genre title: tag %d runes -> title %d runes, %d taken names excluded",
+		utf8.RuneCountInString(genreTag), utf8.RuneCountInString(title), len(excluded))
 	return title
 }

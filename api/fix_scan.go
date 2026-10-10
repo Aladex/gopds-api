@@ -261,7 +261,7 @@ func newFixScanService() *services.FixScanService {
 	enableDetection, enableOpenAI, openaiTimeout := getLanguageDetectionSettings()
 	var ld *services.LanguageDetector
 	if enableDetection {
-		ld = services.NewLanguageDetector(enableOpenAI, openaiTimeout)
+		ld = services.NewLanguageDetectorWithClient(enableOpenAI, openaiTimeout, llm.NewClientFromConfig())
 	}
 
 	llmSvc := llm.NewLLMService()

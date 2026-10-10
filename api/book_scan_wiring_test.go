@@ -16,7 +16,7 @@ import (
 // wiring, not something a caller has to remember to switch on.
 func TestProductionScanWiringWritesAuthorMetadata(t *testing.T) {
 	// No provider key: genre titles stay local and nothing reaches the network.
-	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("LLM_API_KEY", "")
 	db := scanfixture.ScratchDB(t)
 
 	ids := scanfixture.Ingest(t, t.TempDir(), time.Now(), newBookScanService().ProcessBook)

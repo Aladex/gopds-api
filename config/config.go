@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"reflect"
 	"strings"
@@ -28,6 +29,7 @@ type Config struct {
 	Scanning           ScanningConfig `mapstructure:"scanning" yaml:"scanning"`
 	Email              EmailConfig    `mapstructure:"email" yaml:"email"`
 	Preview            PreviewConfig  `mapstructure:"preview" yaml:"preview"`
+	LLM                LLMConfig      `mapstructure:"llm" yaml:"llm"`
 
 	AuthorMetadata AuthorMetadataConfig `mapstructure:"author_metadata" yaml:"author_metadata"`
 	Authors        AuthorsConfig        `mapstructure:"authors" yaml:"authors"`
@@ -112,12 +114,12 @@ type AppConfig struct {
 
 // ScanningConfig holds scanning-specific configuration
 type ScanningConfig struct {
-	SkipDuplicates             bool   `mapstructure:"skip_duplicates" yaml:"skip_duplicates"`
-	EnableLanguageDetection    bool   `mapstructure:"enable_language_detection" yaml:"enable_language_detection"`
-	EnableOpenAILangDetection  bool   `mapstructure:"enable_openai_lang_detection" yaml:"enable_openai_lang_detection"`
-	OpenAILangDetectionTimeout string `mapstructure:"openai_lang_detection_timeout" yaml:"openai_lang_detection_timeout"`
-	MaxConcurrentFiles         int    `mapstructure:"max_concurrent_files" yaml:"max_concurrent_files"`
-	BatchSize                  int    `mapstructure:"batch_size" yaml:"batch_size"`
+	SkipDuplicates          bool   `mapstructure:"skip_duplicates" yaml:"skip_duplicates"`
+	EnableLanguageDetection bool   `mapstructure:"enable_language_detection" yaml:"enable_language_detection"`
+	EnableLLMLangDetection  bool   `mapstructure:"enable_llm_lang_detection" yaml:"enable_llm_lang_detection"`
+	LLMLangDetectionTimeout string `mapstructure:"llm_lang_detection_timeout" yaml:"llm_lang_detection_timeout"`
+	MaxConcurrentFiles      int    `mapstructure:"max_concurrent_files" yaml:"max_concurrent_files"`
+	BatchSize               int    `mapstructure:"batch_size" yaml:"batch_size"`
 }
 
 // PreviewConfig holds the book-preview pipeline settings. Every key carries
@@ -228,6 +230,75 @@ type PreviewRedisConfig struct {
 	DB       int    `mapstructure:"db" yaml:"db"`
 }
 
+// LLMDefaultModel is the chat model asked for when nothing names one.
+const LLMDefaultModel = "gpt-4o-mini"
+
+// Default values of the llm section.
+const (
+	llmDefaultBaseURL = "https://api.openai.com/v1"
+	llmDefaultTimeout = "30s"
+)
+
+// The section's own unprefixed environment names.
+const (
+	llmEnvBaseURL = "LLM_BASE_URL"
+	llmKeyEnvName = "LLM_API_KEY"
+	llmEnvModel   = "LLM_MODEL"
+)
+
+// LLMConfig is the one LLM provider section every model-backed feature reads:
+// search query parsing, genre titles, curated-collection matching and language
+// detection all send through it, so an installation points everything at one
+// OpenAI-compatible endpoint (plain OpenAI or an in-cluster gateway) with one
+// optional key.
+type LLMConfig struct {
+	// BaseURL is the root of the OpenAI-compatible endpoint; requests go to
+	// BaseURL + "/chat/completions". The default is the public OpenAI API.
+	// An explicitly empty value switches every LLM feature off.
+	BaseURL string `mapstructure:"base_url" yaml:"base_url"`
+	// APIKey is sent as the Authorization bearer token. Optional: empty means
+	// no header at all, which is a valid configuration behind a keyless
+	// gateway that authenticates at the network layer.
+	APIKey string `mapstructure:"api_key" yaml:"api_key"`
+	// Model is the chat model asked for; the default is LLMDefaultModel.
+	Model string `mapstructure:"model" yaml:"model"`
+	// Timeout bounds one LLM HTTP request.
+	Timeout time.Duration `mapstructure:"timeout" yaml:"timeout"`
+}
+
+// isOpenAIPublicAPI reports whether the endpoint's host is api.openai.com.
+func (c LLMConfig) isOpenAIPublicAPI() bool {
+	u, err := url.Parse(c.BaseURL)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(u.Hostname(), "api.openai.com")
+}
+
+// Configured reports whether the LLM features may talk to a provider. The
+// rule: a base URL must be set, and either a key is configured or the endpoint
+// is not the public OpenAI API — a keyless gateway in front of the models is a
+// valid provider, while keyless requests to api.openai.com are always a
+// mistake. Everything else reads as "not configured", and every feature
+// degrades to its no-LLM behavior instead of sending anything.
+func (c LLMConfig) Configured() bool {
+	if c.BaseURL == "" {
+		return false
+	}
+	return c.APIKey != "" || !c.isOpenAIPublicAPI()
+}
+
+// loadedLLM is the llm section of the last successful Load. Callers with no
+// *Config at hand — the zero-argument llm constructors — read it through LLM.
+var loadedLLM LLMConfig
+
+// LLM returns the llm section of the loaded configuration, legacy fallbacks
+// included. Before Load it is the zero value: no base URL, so every LLM
+// feature reads "not configured".
+func LLM() LLMConfig {
+	return loadedLLM
+}
+
 // EmailConfig holds email configuration
 type EmailConfig struct {
 	From       string `mapstructure:"from" yaml:"from"`
@@ -311,6 +382,9 @@ func Load() (*Config, error) {
 	if err := bindEnvKeys(reflect.TypeOf(Config{}), ""); err != nil {
 		return nil, fmt.Errorf("error binding environment variables: %w", err)
 	}
+	if err := bindLLMEnvAliases(); err != nil {
+		return nil, fmt.Errorf("error binding environment variables: %w", err)
+	}
 
 	// Read config file
 	if err := viper.ReadInConfig(); err != nil {
@@ -321,10 +395,17 @@ func Load() (*Config, error) {
 		}
 	}
 
+	// Pre-rename keys a config file may still carry: warn, never honor.
+	warnObsoleteScanningKeys()
+
 	// Unmarshal config into struct
 	if err := viper.Unmarshal(cfg); err != nil {
 		return nil, fmt.Errorf("error unmarshaling config: %w", err)
 	}
+
+	// The resolved llm section is what LLM() hands to the zero-argument
+	// llm constructors.
+	loadedLLM = cfg.LLM
 
 	// Validate configuration
 	if err := validateConfig(cfg); err != nil {
@@ -333,6 +414,36 @@ func Load() (*Config, error) {
 
 	logging.Infof("Configuration loaded successfully from: %s", viper.ConfigFileUsed())
 	return cfg, nil
+}
+
+// The renamed scanning language-detection keys and the obsolete names they
+// replace, shared by the defaults and the obsolete-key warnings.
+const (
+	scanningLLMLangDetectionKey             = "scanning.enable_llm_lang_detection"
+	scanningLLMLangDetectionTimeoutKey      = "scanning.llm_lang_detection_timeout"
+	scanningObsoleteLangDetectionKey        = "scanning.enable_openai_lang_detection"
+	scanningObsoleteLangDetectionTimeoutKey = "scanning.openai_lang_detection_timeout"
+)
+
+// obsoleteScanningKeys are the pre-rename scanning keys a config file may
+// still carry (the production one lives in Vault). They are ignored — never
+// honored as aliases — and each one present earns a single startup warning
+// naming its replacement, so a stale file says what to fix instead of
+// silently switching the LLM language arbiter off.
+var obsoleteScanningKeys = map[string]string{
+	scanningObsoleteLangDetectionKey:        scanningLLMLangDetectionKey,
+	scanningObsoleteLangDetectionTimeoutKey: scanningLLMLangDetectionTimeoutKey,
+}
+
+// warnObsoleteScanningKeys logs one warning per obsolete scanning key present
+// in the loaded configuration. Key names only: no configured value reaches
+// the log.
+func warnObsoleteScanningKeys() {
+	for obsolete, replacement := range obsoleteScanningKeys {
+		if viper.IsSet(obsolete) {
+			logging.Warnf("config: %s is obsolete and ignored; set %s instead", obsolete, replacement)
+		}
+	}
 }
 
 // bindEnvKeys walks a configuration struct and registers every leaf key with
@@ -368,6 +479,25 @@ func bindEnvKeys(t reflect.Type, prefix string) error {
 		}
 
 		if err := viper.BindEnv(key); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// bindLLMEnvAliases gives the llm keys their own unprefixed environment names:
+// LLM_BASE_URL, LLM_API_KEY and LLM_MODEL are the documented variables for the
+// section. bindEnvKeys above already bound the GOPDS_-prefixed twins, and
+// viper checks the prefixed name first, so the effective precedence is
+// GOPDS_LLM_BASE_URL, then LLM_BASE_URL, then the config file, then the
+// built-in default.
+func bindLLMEnvAliases() error {
+	for key, alias := range map[string]string{
+		"llm.base_url": llmEnvBaseURL,
+		"llm.api_key":  llmKeyEnvName,
+		"llm.model":    llmEnvModel,
+	} {
+		if err := viper.BindEnv(key, alias); err != nil {
 			return err
 		}
 	}
@@ -497,6 +627,12 @@ func setDefaults() {
 	// operator switches it.
 	viper.SetDefault("authors.display_source", AuthorsDisplayLegacy)
 
+	// The LLM provider section — one endpoint and one key for every
+	// model-backed feature.
+	viper.SetDefault("llm.base_url", llmDefaultBaseURL)
+	viper.SetDefault("llm.model", LLMDefaultModel)
+	viper.SetDefault("llm.timeout", llmDefaultTimeout)
+
 	// App defaults
 	viper.SetDefault("app.devel_mode", false)
 	viper.SetDefault("app.files_path", "./files/")
@@ -508,8 +644,8 @@ func setDefaults() {
 	// Scanning defaults
 	viper.SetDefault("scanning.skip_duplicates", true)
 	viper.SetDefault("scanning.enable_language_detection", true)
-	viper.SetDefault("scanning.enable_openai_lang_detection", false)
-	viper.SetDefault("scanning.openai_lang_detection_timeout", "5s")
+	viper.SetDefault(scanningLLMLangDetectionKey, false)
+	viper.SetDefault(scanningLLMLangDetectionTimeoutKey, "5s")
 	viper.SetDefault("scanning.max_concurrent_files", 1)
 	viper.SetDefault("scanning.batch_size", 50)
 }
@@ -539,6 +675,13 @@ func validateConfig(cfg *Config) error {
 	}
 	if err := cfg.Authors.validate(); err != nil {
 		return err
+	}
+
+	// An LLM request must be bounded; a non-positive timeout is refused even
+	// with no provider configured, so the bad value surfaces when it is
+	// written, not on the day the LLM is switched on.
+	if cfg.LLM.Timeout <= 0 {
+		return fmt.Errorf("llm.timeout must be positive, got %s", cfg.LLM.Timeout)
 	}
 
 	// Validate paths exist or can be created

@@ -1,13 +1,9 @@
 package services
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
-	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -40,6 +36,7 @@ type LanguageDetector struct {
 	detector      lingua.LanguageDetector
 	enableOpenAI  bool
 	openaiTimeout time.Duration
+	llmClient     *llm.Client
 
 	// Caches for performance
 	standardizationCache map[string]string
@@ -47,8 +44,20 @@ type LanguageDetector struct {
 	cacheMutex           sync.RWMutex
 }
 
-// NewLanguageDetector creates a new language detector with lingua-go
+// NewLanguageDetector creates a language detector whose LLM arbiter is
+// disarmed: whatever enableOpenAI says, it never asks the model, because no
+// client is wired. Construct with NewLanguageDetectorWithClient to arm the
+// arbiter.
 func NewLanguageDetector(enableOpenAI bool, openaiTimeout time.Duration) *LanguageDetector {
+	return NewLanguageDetectorWithClient(enableOpenAI, openaiTimeout, nil)
+}
+
+// NewLanguageDetectorWithClient creates a language detector with lingua-go and
+// the shared LLM client as its arbiter for tag/lingua disagreements. The
+// client carries the provider settings of the llm configuration section; a
+// nil or unconfigured client keeps the arbiter off. openaiTimeout bounds one
+// arbiter request on top of the client's own timeout.
+func NewLanguageDetectorWithClient(enableOpenAI bool, openaiTimeout time.Duration, llmClient *llm.Client) *LanguageDetector {
 	// Build lingua detector with all 75 supported languages
 	detector := lingua.NewLanguageDetectorBuilder().
 		FromLanguages(lingua.AllLanguages()...).
@@ -59,6 +68,7 @@ func NewLanguageDetector(enableOpenAI bool, openaiTimeout time.Duration) *Langua
 		detector:             detector,
 		enableOpenAI:         enableOpenAI,
 		openaiTimeout:        openaiTimeout,
+		llmClient:            llmClient,
 		standardizationCache: make(map[string]string),
 		textHashCache:        make(map[string]LanguageDetectionResult),
 	}
@@ -352,12 +362,7 @@ func (ld *LanguageDetector) DetectLanguage(tagLang, textSample string) LanguageD
 }
 
 func (ld *LanguageDetector) detectWithOpenAI(textSample string) string {
-	if !ld.enableOpenAI {
-		return ""
-	}
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		logging.Warn("OPENAI_API_KEY is not set, skipping OpenAI language detection")
+	if !ld.enableOpenAI || ld.llmClient == nil || !ld.llmClient.Configured() {
 		return ""
 	}
 
@@ -365,54 +370,16 @@ func (ld *LanguageDetector) detectWithOpenAI(textSample string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), ld.openaiTimeout)
 	defer cancel()
 
-	requestBody := map[string]interface{}{
-		"model": llm.GetModel(),
-		"messages": []map[string]string{
-			{
-				"role":    "user",
-				"content": "Detect the language of the following text. Reply with a single ISO 639-1 two-letter code only, nothing else.\n\nTEXT:\n" + sample,
-			},
-		},
-	}
-
-	bodyBytes, err := json.Marshal(requestBody)
+	prompt := "Detect the language of the following text. " +
+		"Reply with a single ISO 639-1 two-letter code only, nothing else.\n\nTEXT:\n" + sample
+	response, err := ld.llmClient.ChatCompletion(ctx, []llm.Message{
+		{Role: "user", Content: prompt},
+	})
 	if err != nil {
-		logging.Warnf("OpenAI language detection marshal error: %v", err)
+		logging.Warnf("LLM language detection call error: %v", err)
 		return ""
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(bodyBytes))
-	if err != nil {
-		logging.Warnf("OpenAI language detection request error: %v", err)
-		return ""
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-
-	client := &http.Client{Timeout: ld.openaiTimeout}
-	resp, err := client.Do(req)
-	if err != nil {
-		logging.Warnf("OpenAI language detection call error: %v", err)
-		return ""
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		logging.Warnf("OpenAI language detection bad status: %d", resp.StatusCode)
-		return ""
-	}
-
-	var response struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		logging.Warnf("OpenAI language detection decode error: %v", err)
-		return ""
-	}
 	if len(response.Choices) == 0 {
 		return ""
 	}

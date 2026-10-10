@@ -75,7 +75,7 @@ func TestScanErrorsCloseEveryAuthorClass(t *testing.T) {
 // Review B8, the reviewer's probe kept: a fix scan's per-book author source
 // failures reach the shared scan errors list, through the real orchestration.
 func TestFixScanAuthorFailuresReachTheScanErrorsList(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("LLM_API_KEY", "")
 	db := scanfixture.ScratchDB(t)
 	dir, covers := t.TempDir(), t.TempDir()
 	viper.Set("app.files_path", dir)
@@ -113,7 +113,7 @@ func TestFixScanAuthorFailuresReachTheScanErrorsList(t *testing.T) {
 // Review B8: an approved single-book rescan whose author source write fails
 // reports the closed class in the same list; the approval itself succeeds.
 func TestApprovedRescanAuthorFailureReachesTheScanErrorsList(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("LLM_API_KEY", "")
 	db := scanfixture.ScratchDB(t)
 	dir, covers := t.TempDir(), t.TempDir()
 	viper.Set("app.files_path", dir)
@@ -182,7 +182,7 @@ func TestAuthorSourceClassesAndBounds(t *testing.T) {
 // come first in the fix scan's order do not starve the author source failures
 // that come after them.
 func TestFixScanAuthorFailuresAreNotStarvedByLegacyErrors(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("LLM_API_KEY", "")
 	db := scanfixture.ScratchDB(t)
 	dir, covers := t.TempDir(), t.TempDir()
 	viper.Set("app.files_path", dir)

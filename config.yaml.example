@@ -67,6 +67,27 @@ redis:
 # authors:
 #   display_source: legacy
 
+# The single LLM provider every model-backed feature reads — search query
+# parsing, genre titles, curated-collection matching, language detection.
+# Point it at plain OpenAI (the default) or any OpenAI-compatible gateway;
+# one endpoint and one optional key for the whole application.
+#
+# Environment: LLM_BASE_URL / LLM_API_KEY / LLM_MODEL override these values
+# (and GOPDS_LLM_BASE_URL and its siblings win over both when set).
+#
+# "Configured" — and therefore whether LLM features run at all — means: a
+# base_url is set, and either an api_key is set or the base_url is not the
+# public OpenAI API. A keyless gateway in front of the models is a valid
+# provider; keyless requests to api.openai.com never are. An explicitly empty
+# base_url switches every LLM feature off.
+# llm:
+#   base_url: "https://api.openai.com/v1"  # endpoint root; requests go to
+#                                           # base_url + /chat/completions
+#   api_key: ""                             # optional; empty = no
+#                                           # Authorization header
+#   model: "gpt-4o-mini"                    # chat model
+#   timeout: 30s                            # bound for one LLM request
+
 sessions:
   key: randomSessionKey12345
   refresh: randomRefreshKey12345
@@ -84,8 +105,8 @@ app:
 scanning:
   skip_duplicates: true
   enable_language_detection: true
-  enable_openai_lang_detection: false
-  openai_lang_detection_timeout: "5s"
+  enable_llm_lang_detection: false
+  llm_lang_detection_timeout: "5s"
   max_concurrent_files: 1
   batch_size: 50
 

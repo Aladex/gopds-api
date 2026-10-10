@@ -9,6 +9,7 @@ import (
 
 	"gopds-api/database"
 	"gopds-api/httputil"
+	"gopds-api/llm"
 	"gopds-api/models"
 	"gopds-api/services"
 
@@ -300,7 +301,7 @@ func RescanBookPreview(c *gin.Context) {
 	enableDetection, enableOpenAI, openaiTimeout := getLanguageDetectionSettings()
 	var languageDetector *services.LanguageDetector
 	if enableDetection {
-		languageDetector = services.NewLanguageDetector(enableOpenAI, openaiTimeout)
+		languageDetector = services.NewLanguageDetectorWithClient(enableOpenAI, openaiTimeout, llm.NewClientFromConfig())
 	}
 
 	// Create rescan service

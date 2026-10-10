@@ -125,7 +125,7 @@ func newBookScanService() *services.BookScanService {
 	enableDetection, enableOpenAI, openaiTimeout := getLanguageDetectionSettings()
 	var languageDetector *services.LanguageDetector
 	if enableDetection {
-		languageDetector = services.NewLanguageDetector(enableOpenAI, openaiTimeout)
+		languageDetector = services.NewLanguageDetectorWithClient(enableOpenAI, openaiTimeout, llm.NewClientFromConfig())
 	}
 
 	skipDuplicates := getScanSkipDuplicates()
@@ -153,21 +153,20 @@ func getScanSkipDuplicates() bool {
 	return viper.GetBool("scanning.skip_duplicates")
 }
 
+// getLanguageDetectionSettings reads the scanning language-detection keys.
+// Their environment names are the canonical GOPDS_-prefixed ones —
+// GOPDS_SCANNING_ENABLE_LLM_LANG_DETECTION and
+// GOPDS_SCANNING_LLM_LANG_DETECTION_TIMEOUT — resolved through viper's
+// prefix; an unprefixed spelling is read by nothing.
 func getLanguageDetectionSettings() (bool, bool, time.Duration) {
 	enableDetection := viper.GetBool("scanning.enable_language_detection")
 	if viper.IsSet("SCAN_ENABLE_LANGUAGE_DETECTION") {
 		enableDetection = viper.GetBool("SCAN_ENABLE_LANGUAGE_DETECTION")
 	}
 
-	enableOpenAI := viper.GetBool("scanning.enable_openai_lang_detection")
-	if viper.IsSet("ENABLE_OPENAI_LANG_DETECTION") {
-		enableOpenAI = viper.GetBool("ENABLE_OPENAI_LANG_DETECTION")
-	}
+	enableOpenAI := viper.GetBool("scanning.enable_llm_lang_detection")
 
-	openaiTimeout := viper.GetDuration("OPENAI_LANG_DETECTION_TIMEOUT")
-	if openaiTimeout == 0 {
-		openaiTimeout = viper.GetDuration("scanning.openai_lang_detection_timeout")
-	}
+	openaiTimeout := viper.GetDuration("scanning.llm_lang_detection_timeout")
 	if openaiTimeout == 0 {
 		openaiTimeout = 5 * time.Second
 	}

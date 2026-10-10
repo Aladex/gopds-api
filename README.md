@@ -121,8 +121,12 @@ export GOPDS_SECRET_KEY=replace-me
 See [`config.yaml.example`](config.yaml.example) for the configuration shape.
 
 - SMTP is required for activation and password-reset emails.
-- `OPENAI_API_KEY` enables OpenAI features; `OPENAI_MODEL` selects the model
-  and currently defaults to `gpt-4o-mini`.
+- The `llm` section configures the single OpenAI-compatible endpoint and
+  optional key behind every LLM feature (query parsing, genre titles,
+  collection matching, language detection); `base_url` defaults to OpenAI, an
+  empty `api_key` sends no Authorization header (valid behind a keyless
+  gateway), and `model` defaults to `gpt-4o-mini`. Environment:
+  `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` (and `GOPDS_LLM_*`).
 - Telegram webhooks require a publicly reachable HTTPS base URL.
 - `app.allowed_origins` adds browser origins accepted by CORS and WebSocket
   origin checks.
