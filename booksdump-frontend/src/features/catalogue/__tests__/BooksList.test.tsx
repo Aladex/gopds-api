@@ -571,75 +571,21 @@ describe('BooksList opens the reader', () => {
     });
 });
 
-describe('BooksList sort by author', () => {
-    const recent = () => makeBook({ registerdate: new Date().toISOString() });
-
-    function renderWithUrl(path: string, route: string) {
-        let currentUrl = '';
-        const UrlProbe: React.FC = () => {
-            const { pathname, search } = useLocation();
-            React.useEffect(() => {
-                currentUrl = pathname + search;
-            }, [pathname, search]);
-            return null;
-        };
-        render(
-            <MemoryRouter initialEntries={[path]}>
-                <Routes>
-                    <Route path={route} element={<BooksList />} />
-                    <Route path="*" element={<BooksList />} />
-                </Routes>
-                <UrlProbe />
-            </MemoryRouter>,
-        );
-        return () => currentUrl;
-    }
-
-    beforeEach(() => listBooks.mockResolvedValue({ books: [recent()], length: 5 }));
-
-    it('offers the order on the catalogue, newest first by default', async () => {
-        renderWithUrl('/books/page/3', '/books/page/:page');
-        const newest = await screen.findByRole('button', { name: 'sortNewest' });
-        expect(newest).toHaveAttribute('aria-pressed', 'true');
-        expect(screen.getByRole('button', { name: 'sortByAuthor' })).toHaveAttribute(
-            'aria-pressed',
-            'false',
-        );
-        expect(listBooks.mock.calls[0][0].sort).toBeUndefined();
-    });
-
-    it('sorts by author from the first page, and keeps the order in the address', async () => {
-        const url = renderWithUrl('/books/find/genre/4/3?x=1', '/books/find/genre/:id/:page');
-        await userEvent.click(await screen.findByRole('button', { name: 'sortByAuthor' }));
-
-        await waitFor(() => expect(url()).toBe('/books/find/genre/4/1?x=1&sort=author'));
-        await waitFor(() =>
-            expect(listBooks).toHaveBeenLastCalledWith(
-                expect.objectContaining({ genre: '4', sort: 'author' }),
-            ),
-        );
-        expect(screen.getByRole('button', { name: 'sortByAuthor' })).toHaveAttribute(
-            'aria-pressed',
-            'true',
-        );
-
-        await userEvent.click(screen.getByRole('button', { name: 'sortNewest' }));
-        await waitFor(() => expect(url()).toBe('/books/find/genre/4/1?x=1'));
-    });
-
+describe('BooksList order', () => {
+    // The catalogue lists the newest books first and offers no other order:
+    // sorting the whole list by author was taken out. A sort left in an old
+    // address is not sent to the API either.
     it.each([
-        [
-            'a search',
-            '/books/page/1?title=%D0%B4%D1%8E%D0%BD%D0%B0&sort=author',
-            '/books/page/:page',
-        ],
-        ['favourites', '/books/favorite/1?sort=author', '/books/favorite/:page'],
-        ['a collection', '/collections/5/page/1?sort=author', '/collections/:id/page/:page'],
-    ])('is neither offered nor sent for %s', async (_name, path, route) => {
-        renderWithUrl(path, route);
-        await waitFor(() => expect(listBooks).toHaveBeenCalled());
+        ['the catalogue', '/books/page/3', '/books/page/:page'],
+        ['an old sorted address', '/books/page/1?sort=author', '/books/page/:page'],
+        ['the books of a genre', '/books/find/genre/4/2?sort=author', '/books/find/genre/:id/:page'],
+    ])('%s has no sort control and never asks for a sort', async (_name, path, route) => {
+        renderAt(path, route);
         await screen.findByText('Заклятые в любви');
-        expect(screen.queryByRole('button', { name: 'sortByAuthor' })).toBeNull();
-        expect(listBooks.mock.calls[0][0].sort).toBeUndefined();
+        expect(screen.queryByRole('group', { name: 'sortBy' })).toBeNull();
+        expect(screen.queryByRole('button', { name: /sortByAuthor|sortNewest/ })).toBeNull();
+        for (const [query] of listBooks.mock.calls) {
+            expect(query).not.toHaveProperty('sort');
+        }
     });
 });

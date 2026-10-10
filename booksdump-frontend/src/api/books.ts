@@ -106,8 +106,6 @@ export interface BooksQuery {
     include_hidden?: boolean;
     /** Pins the result to one exact book — the pick an autocomplete offered. */
     book_id?: number | string;
-    /** Orders an ordinary list by author; a search keeps its ranking. */
-    sort?: 'author';
 }
 
 export interface Language {
