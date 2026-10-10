@@ -60,7 +60,7 @@ func newOpdsTestRouter(search services.PublicSearch) *gin.Engine {
 		c.Set("user_id", int64(77))
 		c.Next()
 	})
-	SetupOpdsRoutes(g, search)
+	SetupOpdsRoutes(g, search, nil)
 	return r
 }
 

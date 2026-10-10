@@ -114,3 +114,19 @@ func TestReportNamesEveryCategory(t *testing.T) {
 		assert.NotNil(t, r.Categories[c].Samples, "samples serialize as [], not null")
 	}
 }
+
+// A book kept on the catalog because one credit names several of its authors
+// is counted apart from the edits the line protects.
+func TestReportCountsBooksKeptForAGluedCredit(t *testing.T) {
+	books := map[int64]*bookAuthorSources{
+		1: {legacy: []legacyAuthor{legacy(10, "Иванов Иван"), legacy(11, "Петров Пётр")},
+			credits: []creditName{fromFile("Иван Иванов, Пётр Петров")}},
+		2: {legacy: []legacyAuthor{legacy(12, "Исправленный Автор")}, credits: []creditName{fromFile("Лев Толстой")}},
+	}
+	r := reportOf(books, 1, 2)
+
+	assert.Equal(t, []int64{1}, r.Categories[ReportDisplayLegacyGluedCredit].Samples)
+	assert.Equal(t, 1, r.Categories[ReportDisplayLegacyGluedCredit].Books)
+	assert.Equal(t, []int64{2}, r.Categories[ReportDisplayLegacyUnmatched].Samples)
+	assert.Equal(t, 0, r.Categories[ReportDisplayLayer].Books)
+}

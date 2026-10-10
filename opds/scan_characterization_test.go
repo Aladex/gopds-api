@@ -19,6 +19,7 @@ import (
 	"gopds-api/services"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-pg/pg/v10"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,7 +35,19 @@ var updatedStamps = regexp.MustCompile(`<updated>[^<]*</updated>`)
 
 const updatedPlaceholder = "<updated>UPDATED</updated>"
 
-func TestScanCharacterizationAtom(t *testing.T) {
+// characterization is the scanned fixture catalog: the scratch database, the
+// book IDs by fixture entry, the catalog author IDs by name, the time of the
+// scan and the template functions that fill both kinds of ID into a golden.
+type characterization struct {
+	db      *pg.DB
+	books   map[string]int64
+	authors map[string]int64
+	now     time.Time
+	funcs   template.FuncMap
+}
+
+func scanCharacterization(t *testing.T) *characterization {
+	t.Helper()
 	db := scanfixture.ScratchDB(t)
 	scanner := services.NewBookScanService(t.TempDir(), t.TempDir(),
 		services.NewLanguageDetector(false, 5*time.Second), false, nil)
@@ -65,37 +78,62 @@ func TestScanCharacterizationAtom(t *testing.T) {
 			return 0, os.ErrNotExist
 		},
 	}
+	return &characterization{db: db, books: books, authors: authors, now: now, funcs: funcs}
+}
 
-	// The production routes of cmd/gopds over the shared search service; the
-	// anonymous user has no favorites.
+// router serves the production routes of cmd/gopds over the shared search
+// service, with the given author lines; the anonymous user has no favorites.
+func (ch *characterization) router(lines *services.AuthorLines) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) { c.Set("user_id", int64(0)); c.Next() })
-	SetupOpdsRoutes(r.Group("/opds"), services.NewSearchService(database.NewPGSearchRepository(db)))
+	SetupOpdsRoutes(r.Group("/opds"), services.NewSearchService(database.NewPGSearchRepository(ch.db)), lines)
+	return r
+}
 
-	cases := []struct {
-		name, path, golden string
-	}{
-		// Navigation entries, then the books newest first, each with its
-		// authors in link order as related links and <author> elements.
-		{"newest books", "/opds/new/0/0", "newest.atom.tmpl"},
-		{"books of one author", "/opds/new/0/" + strconv.FormatInt(authors["Толстой лев"], 10), "author.atom.tmpl"},
-		{"book search", "/opds/books?title=" + url.QueryEscape("Сборник"), "search.atom.tmpl"},
-	}
-	for _, c := range cases {
+// get serves path and returns the feed with its <updated> stamps blanked.
+func (ch *characterization) get(t *testing.T, r *gin.Engine, path string) string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, http.NoBody))
+	require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
+	assert.Equal(t, "application/atom+xml;charset=utf-8", rec.Header().Get("Content-Type"))
+	return updatedStamps.ReplaceAllString(rec.Body.String(), updatedPlaceholder)
+}
+
+// golden fills the IDs and the year into a golden feed.
+func (ch *characterization) golden(t *testing.T, name string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", "scan_characterization", name))
+	require.NoError(t, err)
+	tmpl, err := template.New(name).Funcs(ch.funcs).Option("missingkey=error").Parse(string(raw))
+	require.NoError(t, err)
+	var want bytes.Buffer
+	require.NoError(t, tmpl.Execute(&want, struct{ Year int }{ch.now.Year()}))
+	return want.String()
+}
+
+// goldenFeeds are the feeds pinned byte for byte, by the golden of the
+// catalog's author line; the author layer's golden adds ".layer".
+var goldenFeeds = []struct {
+	name, golden string
+	path         func(ch *characterization) string
+}{
+	// Navigation entries, then the books newest first, each with its
+	// authors in link order as related links and <author> elements.
+	{"newest books", "newest", func(*characterization) string { return "/opds/new/0/0" }},
+	{"books of one author", "author", func(ch *characterization) string {
+		return "/opds/new/0/" + strconv.FormatInt(ch.authors["Толстой лев"], 10)
+	}},
+	{"book search", "search", func(*characterization) string { return "/opds/books?title=" + url.QueryEscape("Сборник") }},
+}
+
+func TestScanCharacterizationAtom(t *testing.T) {
+	ch := scanCharacterization(t)
+	r := ch.router(nil)
+	for _, c := range goldenFeeds {
 		t.Run(c.name, func(t *testing.T) {
-			raw, readErr := os.ReadFile(filepath.Join("testdata", "scan_characterization", c.golden))
-			require.NoError(t, readErr)
-			tmpl, parseErr := template.New(c.golden).Funcs(funcs).Option("missingkey=error").Parse(string(raw))
-			require.NoError(t, parseErr)
-			var want bytes.Buffer
-			require.NoError(t, tmpl.Execute(&want, struct{ Year int }{now.Year()}))
-
-			rec := httptest.NewRecorder()
-			r.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, c.path, http.NoBody))
-			require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
-			assert.Equal(t, "application/atom+xml;charset=utf-8", rec.Header().Get("Content-Type"))
-			assert.Equal(t, want.String(), updatedStamps.ReplaceAllString(rec.Body.String(), updatedPlaceholder))
+			assert.Equal(t, ch.golden(t, c.golden+".atom.tmpl"), ch.get(t, r, c.path(ch)))
 		})
 	}
 }

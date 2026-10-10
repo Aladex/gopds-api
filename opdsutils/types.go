@@ -27,9 +27,11 @@ type Link struct {
 	Href, Rel, Type, Length, Title string
 }
 
+// Author is a name of an entry's author line; ID is the catalog author it
+// links to, nil when it links to none.
 type Author struct {
 	Name string
-	ID   int64
+	ID   *int64
 }
 
 type Item struct {

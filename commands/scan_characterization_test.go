@@ -11,6 +11,7 @@ import (
 	"gopds-api/internal/scanfixture"
 	"gopds-api/services"
 
+	"github.com/go-pg/pg/v10"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,20 +20,25 @@ import (
 // for books written by the real scan path — authors joined in link order,
 // the legacy names, the first series — so the dual write can be shown to
 // change none of it. Only row IDs in callback data vary per run.
-func TestScanCharacterizationTelegramLists(t *testing.T) {
-	db := scanfixture.ScratchDB(t)
+// characterizationTelegramID is the linked Telegram user of the scanned
+// fixture catalog; it has no language preference, so every book is in scope.
+const characterizationTelegramID = 4242
+
+// scanCharacterization scans the fixture books into a scratch database with
+// a linked Telegram user, and returns the database, the book IDs by fixture
+// entry and the catalog author IDs by name.
+func scanCharacterization(t *testing.T) (db *pg.DB, books, authors map[string]int64) {
+	t.Helper()
+	db = scanfixture.ScratchDB(t)
 	scanner := services.NewBookScanService(t.TempDir(), t.TempDir(),
 		services.NewLanguageDetector(false, 5*time.Second), false, nil)
-	books := scanfixture.Ingest(t, t.TempDir(), time.Now(), scanner.ProcessBook)
+	books = scanfixture.Ingest(t, t.TempDir(), time.Now(), scanner.ProcessBook)
 
-	// A linked Telegram user with no language preference: every book is in
-	// scope.
-	const telegramID = 4242
 	_, err := db.Exec(`INSERT INTO auth_user (password, is_superuser, username, email, date_joined, telegram_id)
-		VALUES ('', false, 'characterization', 'characterization@fixture.local', now(), ?)`, telegramID)
+		VALUES ('', false, 'characterization', 'characterization@fixture.local', now(), ?)`, characterizationTelegramID)
 	require.NoError(t, err)
 
-	authors := map[string]int64{}
+	authors = map[string]int64{}
 	var rows []struct {
 		ID       int64
 		FullName string
@@ -42,6 +48,12 @@ func TestScanCharacterizationTelegramLists(t *testing.T) {
 	for _, r := range rows {
 		authors[r.FullName] = r.ID
 	}
+	return db, books, authors
+}
+
+func TestScanCharacterizationTelegramLists(t *testing.T) {
+	db, books, authors := scanCharacterization(t)
+	const telegramID = characterizationTelegramID
 
 	cp := newCommandProcessorWithDeps(services.NewSearchService(database.NewPGSearchRepository(db)),
 		database.GetUserByTelegramID)

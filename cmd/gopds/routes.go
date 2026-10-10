@@ -20,13 +20,14 @@ import (
 
 // setupRoutes defines all route handlers and groups them by their functionality.
 // It includes routes for Swagger UI, file handling, default operations, OPDS feed, API, admin, and Telegram bot interactions.
-// authorLines switches the book list's author line on.
+// authorLines switches the author line of listed books on, for the web list
+// and the OPDS feeds alike.
 func setupRoutes(route *gin.Engine, donate []config.DonateMethod, search services.PublicSearch, db pg.DBI, authorLines bool) {
 	route.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	setupFileRoutes(route.Group("/files", middlewares.AuthMiddleware()))
 	setupFileRoutes(route.Group("/api/files", middlewares.AuthMiddleware()))
 	setupDefaultRoutes(route, donate)
-	setupOpdsRoutes(route.Group("/opds", middlewares.BasicAuth()), search)
+	setupOpdsRoutes(route.Group("/opds", middlewares.BasicAuth()), search, authorLinesOf(db, authorLines))
 	// Add public auth routes (no auth middleware)
 	setupPublicAuthRoutes(route.Group("/api"))
 	// WebSocket: Origin check BEFORE auth, so evil origins get 403 not 401
@@ -111,9 +112,20 @@ func setupDefaultRoutes(route *gin.Engine, donate []config.DonateMethod) {
 	route.POST("/api/token", api.TokenValidation)
 }
 
-// setupOpdsRoutes configures routes for OPDS feed interactions.
-func setupOpdsRoutes(group *gin.RouterGroup, search services.PublicSearch) {
-	opds.SetupOpdsRoutes(group, search)
+// setupOpdsRoutes configures routes for OPDS feed interactions; lines gives
+// the listed books their author lines, nil their legacy authors.
+func setupOpdsRoutes(group *gin.RouterGroup, search services.PublicSearch, lines *services.AuthorLines) {
+	opds.SetupOpdsRoutes(group, search, lines)
+}
+
+// authorLinesOf is the author lines of listed books for the surfaces outside
+// the web list — OPDS and the bot — read from the author layer on db when
+// layer is on, and nil, the legacy authors, when it is off.
+func authorLinesOf(db pg.DBI, layer bool) *services.AuthorLines {
+	if !layer {
+		return nil
+	}
+	return &services.AuthorLines{Lookup: database.NewPGBookSourceRepository(db)}
 }
 
 func setupLogoutRoutes(group *gin.RouterGroup) {

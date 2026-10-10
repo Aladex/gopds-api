@@ -89,12 +89,7 @@ func authorLineOf(book *models.Book, lines map[int64]models.BookAuthorDisplay) [
 	if line, ok := lines[book.ID]; ok {
 		return line.Authors
 	}
-	authors := make([]models.AuthorDisplay, len(book.Authors))
-	for i, a := range book.Authors {
-		id := a.ID
-		authors[i] = models.AuthorDisplay{Name: a.FullName, LegacyAuthorID: &id}
-	}
-	return authors
+	return book.LegacyAuthorLine()
 }
 
 // bookListQuery is the list endpoint's query string: the long-standing list

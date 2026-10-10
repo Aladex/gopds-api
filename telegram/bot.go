@@ -78,15 +78,16 @@ type Config struct {
 }
 
 // NewBotManager creates a new bot manager whose bots build command
-// processors on the one shared search service created in main.
-func NewBotManager(config *Config, redisClient *redis.Client, search services.PublicSearch) *BotManager {
+// processors on the one shared search service created in main, naming the
+// authors of the books they list by lines (nil: the legacy authors).
+func NewBotManager(config *Config, redisClient *redis.Client, search services.PublicSearch, lines *services.AuthorLines) *BotManager {
 	return &BotManager{
 		bots:                make(map[string]*Bot),
 		uuidToBots:          make(map[string]*Bot),
 		config:              config,
 		conversationManager: NewConversationManager(redisClient),
 		newProcessor: func() *commands.CommandProcessor {
-			return commands.NewCommandProcessor(search)
+			return commands.NewCommandProcessor(search, lines)
 		},
 	}
 }

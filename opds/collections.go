@@ -91,7 +91,7 @@ func GetCollections(c *gin.Context) {
 }
 
 // GetCollectionBooks returns an acquisition feed with books from a specific collection.
-func GetCollectionBooks(c *gin.Context) {
+func (f *Feeds) GetCollectionBooks(c *gin.Context) {
 	collectionID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		c.AbortWithStatus(http.StatusBadRequest)
@@ -122,6 +122,29 @@ func GetCollectionBooks(c *gin.Context) {
 
 	_ = userID // reserved for future fav support
 
+	rootLinks := collectionBooksLinks(collectionID, pageNum, total)
+
+	feed := &opdsutils.Feed{
+		Title:   col.Name,
+		Id:      fmt.Sprintf("tag:collection:%d:books:%d", collectionID, pageNum),
+		Links:   rootLinks,
+		Updated: time.Now(),
+	}
+	feed.Items = bookItems(c, f.AuthorLines, books, false)
+
+	atom, err := feed.ToAtom()
+	if err != nil {
+		logging.Errorf("Error converting collection books feed to Atom: %v", err)
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+
+	c.Data(http.StatusOK, "application/atom+xml;charset=utf-8", []byte(atom))
+}
+
+// collectionBooksLinks are the feed links of a page of a collection's books:
+// start, up to the collections, search, and next while pages remain.
+func collectionBooksLinks(collectionID int64, pageNum, total int) []opdsutils.Link {
 	rootLinks := []opdsutils.Link{
 		{
 			Href: "/opds",
@@ -152,26 +175,5 @@ func GetCollectionBooks(c *gin.Context) {
 			Type: "application/atom+xml;profile=opds-catalog",
 		})
 	}
-
-	feed := &opdsutils.Feed{
-		Title:   col.Name,
-		Id:      fmt.Sprintf("tag:collection:%d:books:%d", collectionID, pageNum),
-		Links:   rootLinks,
-		Updated: time.Now(),
-	}
-	feed.Items = []*opdsutils.Item{}
-
-	for _, book := range books {
-		bookItem := opdsutils.CreateItem(book, false)
-		feed.Items = append(feed.Items, &bookItem)
-	}
-
-	atom, err := feed.ToAtom()
-	if err != nil {
-		logging.Errorf("Error converting collection books feed to Atom: %v", err)
-		c.AbortWithStatus(http.StatusInternalServerError)
-		return
-	}
-
-	c.Data(http.StatusOK, "application/atom+xml;charset=utf-8", []byte(atom))
+	return rootLinks
 }

@@ -177,7 +177,7 @@ func GetLanguageRoot(c *gin.Context) {
 }
 
 // GetBooksByLanguage returns books filtered by language
-func GetBooksByLanguage(c *gin.Context) {
+func (f *Feeds) GetBooksByLanguage(c *gin.Context) {
 	lang := c.Param("lang")
 	pageNum, err := strconv.Atoi(c.Param("page"))
 	if err != nil {
@@ -219,14 +219,7 @@ func GetBooksByLanguage(c *gin.Context) {
 		Links:   rootLinks,
 		Updated: time.Now(),
 	}
-	feed.Items = []*opdsutils.Item{}
-
-	isKoreader := strings.Contains(c.GetHeader("User-Agent"), "KOReader")
-
-	for _, book := range books {
-		bookItem := opdsutils.CreateItem(book, isKoreader)
-		feed.Items = append(feed.Items, &bookItem)
-	}
+	feed.Items = bookItems(c, f.AuthorLines, books, isKoreader(c))
 
 	atom, err := feed.ToAtom()
 	if err != nil {
@@ -294,7 +287,7 @@ func SearchByLanguage(c *gin.Context) {
 }
 
 // GetAuthorBooksByLanguage returns books by author filtered by language
-func GetAuthorBooksByLanguage(c *gin.Context) {
+func (f *Feeds) GetAuthorBooksByLanguage(c *gin.Context) {
 	lang := c.Param("lang")
 	authorID, err := strconv.Atoi(c.Param("author"))
 	if err != nil {
@@ -337,16 +330,7 @@ func GetAuthorBooksByLanguage(c *gin.Context) {
 		})
 	}
 
-	// Get author name for title
-	authorName := "Автор"
-	if len(books) > 0 {
-		for _, a := range books[0].Authors {
-			if int(a.ID) == authorID {
-				authorName = a.FullName
-				break
-			}
-		}
-	}
+	authorName := legacyAuthorName(books, authorID)
 
 	feed := &opdsutils.Feed{
 		Title:   fmt.Sprintf("%s (%s)", authorName, getLangName(lang)),
@@ -354,14 +338,7 @@ func GetAuthorBooksByLanguage(c *gin.Context) {
 		Links:   rootLinks,
 		Updated: time.Now(),
 	}
-	feed.Items = []*opdsutils.Item{}
-
-	isKoreader := strings.Contains(c.GetHeader("User-Agent"), "KOReader")
-
-	for _, book := range books {
-		bookItem := opdsutils.CreateItem(book, isKoreader)
-		feed.Items = append(feed.Items, &bookItem)
-	}
+	feed.Items = bookItems(c, f.AuthorLines, books, isKoreader(c))
 
 	atom, err := feed.ToAtom()
 	if err != nil {
@@ -371,4 +348,17 @@ func GetAuthorBooksByLanguage(c *gin.Context) {
 	}
 
 	c.Data(200, "application/atom+xml;charset=utf-8", []byte(atom))
+}
+
+// legacyAuthorName is the catalog name of the author whose books are listed,
+// for the feed title, read from the first book; "Автор" when there is none.
+func legacyAuthorName(books []models.Book, authorID int) string {
+	if len(books) > 0 {
+		for _, a := range books[0].Authors {
+			if int(a.ID) == authorID {
+				return a.FullName
+			}
+		}
+	}
+	return "Автор"
 }

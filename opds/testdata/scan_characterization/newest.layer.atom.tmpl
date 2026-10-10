@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/terms/" xmlns:os="http://a9.com/-/spec/opensearch/1.1/" xmlns:opds="http://opds-spec.org/2010/catalog">
+  <title>Лепробиблиотека</title>
+  <id>tag:root:new:0:0</id>
+  <icon>/favicon.ico</icon>
+  <updated>UPDATED</updated>
+  <link href="/opds" rel="start" type="application/atom+xml;profile=opds-catalog"></link>
+  <link href="/opds-opensearch.xml" rel="search" type="application/opensearchdescription+xml"></link>
+  <link href="/opds/search?searchTerms={searchTerms}" rel="search" type="application/atom+xml"></link>
+  <entry>
+    <title>По языкам</title>
+    <updated>UPDATED</updated>
+    <id>tag:nav:languages</id>
+    <content type="text">Книги по языкам</content>
+    <summary></summary>
+    <link href="/opds/languages" type="application/atom+xml;profile=opds-catalog"></link>
+  </entry>
+  <entry>
+    <title>Подборки</title>
+    <updated>UPDATED</updated>
+    <id>tag:nav:collections</id>
+    <content type="text">Подборки книг</content>
+    <summary></summary>
+    <link href="/opds/collections/0" type="application/atom+xml;profile=opds-catalog"></link>
+  </entry>
+  <entry>
+    <title>the GREAT book</title>
+    <updated>UPDATED</updated>
+    <id>{{book "latin-mismatch.fb2"}}</id>
+    <dc:language>en</dc:language>
+    <dc:issued>{{.Year}}</dc:issued>
+    <summary></summary>
+    <link href="/opds/get/fb2/{{book "latin-mismatch.fb2"}}" rel="http://opds-spec.org/acquisition/open-access" type="application/fb2+zip"></link>
+    <link href="/opds/get/epub/{{book "latin-mismatch.fb2"}}" rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip"></link>
+    <link href="/opds/get/mobi/{{book "latin-mismatch.fb2"}}" rel="http://opds-spec.org/acquisition/open-access" type="application/x-mobipocket-ebook"></link>
+    <link href="/books-posters/no-cover.png" rel="http://opds-spec.org/image" type="image/jpeg"></link>
+    <link href="/books-posters/no-cover.png" rel="x-stanza-cover-image" type="image/jpeg"></link>
+    <link href="/books-posters/no-cover.png" rel="http://opds-spec.org/thumbnail" type="image/jpeg"></link>
+    <link href="/books-posters/no-cover.png" rel="x-stanza-cover-image-thumbnail" type="image/jpeg"></link>
+    <link href="/opds/new/0/{{author "O'brien jOHN"}}" rel="related" type="application/atom+xml;profile=opds-catalog" title="Все книги: jOHN O&#39;brien"></link>
+    <link href="/opds/new/0/{{author "толстой ЛЕВ"}}" rel="related" type="application/atom+xml;profile=opds-catalog" title="Все книги: ЛЕВ толстой"></link>
+    <author>
+      <name>jOHN O&#39;brien</name>
+      <uri>/opds/author/{{author "O'brien jOHN"}}</uri>
+    </author>
+    <author>
+      <name>ЛЕВ толстой</name>
+      <uri>/opds/author/{{author "толстой ЛЕВ"}}</uri>
+    </author>
+  </entry>
+  <entry>
+    <title>Сборник без автора</title>
+    <updated>UPDATED</updated>
+    <id>{{book "no-author.fb2"}}</id>
+    <dc:language>ru</dc:language>
+    <dc:issued>{{.Year}}</dc:issued>
+    <summary></summary>
+    <link href="/opds/get/fb2/{{book "no-author.fb2"}}" rel="http://opds-spec.org/acquisition/open-access" type="application/fb2+zip"></link>
+    <link href="/opds/get/epub/{{book "no-author.fb2"}}" rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip"></link>
+    <link href="/opds/get/mobi/{{book "no-author.fb2"}}" rel="http://opds-spec.org/acquisition/open-access" type="application/x-mobipocket-ebook"></link>
+    <link href="/books-posters/no-cover.png" rel="http://opds-spec.org/image" type="image/jpeg"></link>
+    <link href="/books-posters/no-cover.png" rel="x-stanza-cover-image" type="image/jpeg"></link>
+    <link href="/books-posters/no-cover.png" rel="http://opds-spec.org/thumbnail" type="image/jpeg"></link>
+    <link href="/books-posters/no-cover.png" rel="x-stanza-cover-image-thumbnail" type="image/jpeg"></link>
+    <link href="/opds/new/0/{{author "Автор неизвестен"}}" rel="related" type="application/atom+xml;profile=opds-catalog" title="Все книги: Автор неизвестен"></link>
+    <author>
+      <name>Автор неизвестен</name>
+      <uri>/opds/author/{{author "Автор неизвестен"}}</uri>
+    </author>
+  </entry>
+  <entry>
+    <title>война и МИР</title>
+    <updated>UPDATED</updated>
+    <id>{{book "multi-author.fb2"}}</id>
+    <dc:language>ru</dc:language>
+    <dc:issued>{{.Year}}</dc:issued>
+    <summary>Роман-эпопея о войне и мире.</summary>
+    <link href="/opds/get/fb2/{{book "multi-author.fb2"}}" rel="http://opds-spec.org/acquisition/open-access" type="application/fb2+zip"></link>
+    <link href="/opds/get/epub/{{book "multi-author.fb2"}}" rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip"></link>
+    <link href="/opds/get/mobi/{{book "multi-author.fb2"}}" rel="http://opds-spec.org/acquisition/open-access" type="application/x-mobipocket-ebook"></link>
+    <link href="/books-posters/no-cover.png" rel="http://opds-spec.org/image" type="image/jpeg"></link>
+    <link href="/books-posters/no-cover.png" rel="x-stanza-cover-image" type="image/jpeg"></link>
+    <link href="/books-posters/no-cover.png" rel="http://opds-spec.org/thumbnail" type="image/jpeg"></link>
+    <link href="/books-posters/no-cover.png" rel="x-stanza-cover-image-thumbnail" type="image/jpeg"></link>
+    <link href="/opds/new/0/{{author "Толстой лев"}}" rel="related" type="application/atom+xml;profile=opds-catalog" title="Все книги: лев Николаевич Толстой"></link>
+    <author>
+      <name>лев Николаевич Толстой</name>
+      <uri>/opds/author/{{author "Толстой лев"}}</uri>
+    </author>
+    <author>
+      <name>пушкин</name>
+    </author>
+    <author>
+      <name>Анна</name>
+    </author>
+    <author>
+      <name>Аноним</name>
+    </author>
+  </entry>
+</feed>

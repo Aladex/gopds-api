@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,6 +13,7 @@ import (
 	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/opdsutils"
+	"gopds-api/services"
 )
 
 func hasNextPage(limit, currentPage, totalCount int) bool {
@@ -21,15 +21,17 @@ func hasNextPage(limit, currentPage, totalCount int) bool {
 	return currentPage < totalPages
 }
 
-func GetNewBooks(c *gin.Context) {
-	filters := models.BookFilters{
-		Limit:  10,
-		Offset: 0,
-		Title:  "",
-		Author: 0,
-		Series: 0,
-		Lang:   "",
-	}
+// Feeds serves the OPDS feeds that list books outside search: the newest
+// books (all, by author, favorites), the books of a language and the books of
+// a collection. AuthorLines gives each listed book its author line; nil shows
+// the legacy authors.
+type Feeds struct {
+	AuthorLines *services.AuthorLines
+}
+
+// GetNewBooks serves the newest books, of one author or the reader's favorites.
+func (f *Feeds) GetNewBooks(c *gin.Context) {
+	filters := models.BookFilters{Limit: opdsPageSize}
 	userID := c.GetInt64("user_id")
 
 	hf, err := database.HaveFavs(userID)
@@ -38,10 +40,7 @@ func GetNewBooks(c *gin.Context) {
 		return
 	}
 
-	if c.FullPath() == "/opds/favorites/:page" {
-		filters.Fav = true
-
-	}
+	filters.Fav = c.FullPath() == "/opds/favorites/:page"
 
 	pageNum, err := strconv.Atoi(c.Param("page"))
 	if err != nil {
@@ -67,107 +66,21 @@ func GetNewBooks(c *gin.Context) {
 		c.AbortWithStatus(http.StatusInternalServerError)
 		return
 	}
-	var np string
-	if filters.Fav {
-		np = fmt.Sprintf("/opds/favorites/%d", pageNum+1)
-	} else {
-		np = fmt.Sprintf("/opds/new/%d/%d", pageNum+1, authorID)
-	}
-	rootLinks := []opdsutils.Link{
-		{
-			Href: "/opds",
-			Rel:  "start",
-			Type: "application/atom+xml;profile=opds-catalog",
-		},
-		{
-			Href: "/opds-opensearch.xml",
-			Rel:  "search",
-			Type: "application/opensearchdescription+xml",
-		},
-		{
-			Href: "/opds/search?searchTerms={searchTerms}",
-			Rel:  "search",
-			Type: "application/atom+xml",
-		},
-	}
-
-	if hasNextPage(filters.Limit, pageNum, tc) {
-		rootLinks = append(rootLinks, opdsutils.Link{
-			Href: np,
-			Rel:  "next",
-			Type: "application/atom+xml;profile=opds-catalog"})
-	}
-
+	rootLinks := newBooksLinks(filters.Fav, pageNum, authorID, hasNextPage(filters.Limit, pageNum, tc))
 	feedId := fmt.Sprintf("tag:root:new:%d:%d", pageNum, authorID)
 	if filters.Fav {
 		feedId = fmt.Sprintf("tag:root:favorites:%d", pageNum)
 	}
 
-	feed := &opdsutils.Feed{
-		Title:   "Лепробиблиотека",
-		Id:      feedId,
-		Links:   rootLinks,
-		Updated: time.Now(),
-	}
-	feed.Items = []*opdsutils.Item{}
+	feed := &opdsutils.Feed{Title: "Лепробиблиотека", Id: feedId, Links: rootLinks, Updated: time.Now(),
+		Items: []*opdsutils.Item{}}
 
 	// Show navigation items only on the root page (page 0, no author filter, not favorites)
 	if !filters.Fav && pageNum == 0 && filters.Author == 0 {
-		// Add favorites link if user has favorites
-		if hf {
-			feed.Items = append(feed.Items, &opdsutils.Item{
-				Title: "Избранное",
-				Link: []opdsutils.Link{
-					{
-						Href: "/opds/favorites/0",
-						Type: "application/atom+xml;profile=opds-catalog",
-					},
-				},
-				Id:      "tag:nav:favorites",
-				Updated: time.Now(),
-				Content: "Избранное",
-			})
-		}
-
-		// Add languages navigation
-		feed.Items = append(feed.Items, &opdsutils.Item{
-			Title: "По языкам",
-			Link: []opdsutils.Link{
-				{
-					Href: "/opds/languages",
-					Type: "application/atom+xml;profile=opds-catalog",
-				},
-			},
-			Id:      "tag:nav:languages",
-			Updated: time.Now(),
-			Content: "Книги по языкам",
-		})
-
-		// Add collections navigation
-		feed.Items = append(feed.Items, &opdsutils.Item{
-			Title: "Подборки",
-			Link: []opdsutils.Link{
-				{
-					Href: "/opds/collections/0",
-					Type: "application/atom+xml;profile=opds-catalog",
-				},
-			},
-			Id:      "tag:nav:collections",
-			Updated: time.Now(),
-			Content: "Подборки книг",
-		})
+		feed.Items = append(feed.Items, rootNavigationItems(hf)...)
 	}
 
-	// Check if userAgent contains koreader
-	isKoreader := false
-	if strings.Contains(c.GetHeader("User-Agent"), "KOReader") {
-		isKoreader = true
-	}
-
-	for _, book := range books {
-		bookItem := opdsutils.CreateItem(book, isKoreader)
-		feed.Items = append(feed.Items, &bookItem)
-	}
+	feed.Items = append(feed.Items, bookItems(c, f.AuthorLines, books, isKoreader(c))...)
 
 	atom, err := feed.ToAtom()
 	if err != nil {
@@ -175,4 +88,52 @@ func GetNewBooks(c *gin.Context) {
 	}
 
 	c.Data(200, "application/atom+xml;charset=utf-8", []byte(atom))
+}
+
+// Names and addresses the root page's navigation shares with the feeds it
+// leads to.
+const (
+	titleFavorites     = "Избранное"
+	titleCollections   = "Подборки"
+	titleLanguageBooks = "Книги по языкам"
+	hrefLanguages      = "/opds/languages"
+	hrefCollections    = "/opds/collections/0"
+)
+
+// rootNavigationItems are the navigation entries of the root page: the
+// reader's favorites when they have any, the languages and the collections.
+func rootNavigationItems(haveFavorites bool) []*opdsutils.Item {
+	var items []*opdsutils.Item
+	if haveFavorites {
+		items = append(items, navigationItem(titleFavorites, "/opds/favorites/0", "tag:nav:favorites", titleFavorites))
+	}
+	return append(items,
+		navigationItem("По языкам", hrefLanguages, "tag:nav:languages", titleLanguageBooks),
+		navigationItem(titleCollections, hrefCollections, "tag:nav:collections", "Подборки книг"))
+}
+
+// navigationItem is a navigation entry leading to the catalog feed at href.
+func navigationItem(title, href, id, content string) *opdsutils.Item {
+	return &opdsutils.Item{
+		Title:   title,
+		Link:    []opdsutils.Link{{Href: href, Type: typeOpdsCatalog}},
+		Id:      id,
+		Updated: time.Now(),
+		Content: content,
+	}
+}
+
+// newBooksLinks are the feed links of a page of the newest books (of an
+// author, or the favorites): start, search, and the next page while pages
+// remain.
+func newBooksLinks(favorites bool, pageNum, authorID int, hasNext bool) []opdsutils.Link {
+	links := globalSearchLinks()
+	if !hasNext {
+		return links
+	}
+	next := fmt.Sprintf("/opds/new/%d/%d", pageNum+1, authorID)
+	if favorites {
+		next = fmt.Sprintf("/opds/favorites/%d", pageNum+1)
+	}
+	return append(links, opdsutils.Link{Href: next, Rel: relNext, Type: typeOpdsCatalog})
 }

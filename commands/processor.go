@@ -58,6 +58,9 @@ type CommandProcessor struct {
 	llmService *llm.LLMService
 	search     services.PublicSearch
 	findUser   telegramUserLookup
+	// authorLines names the authors of every listed book; nil names the
+	// legacy authors.
+	authorLines *services.AuthorLines
 }
 
 // CommandResult represents the result of command execution
@@ -81,12 +84,18 @@ type SearchParams struct {
 }
 
 // NewCommandProcessor creates a new command processor on the one search
-// service every adapter shares.
-func NewCommandProcessor(search services.PublicSearch) *CommandProcessor {
+// service every adapter shares; lines names the authors of listed books, and
+// nil names their legacy authors.
+func NewCommandProcessor(search services.PublicSearch, lines *services.AuthorLines) *CommandProcessor {
 	cp := newCommandProcessorWithDeps(search, database.GetUserByTelegramID)
 	cp.llmService = llm.NewLLMService()
+	cp.authorLines = lines
 	return cp
 }
+
+// AuthorLines is what the processor names the authors of listed books by; nil
+// names their legacy authors.
+func (cp *CommandProcessor) AuthorLines() *services.AuthorLines { return cp.authorLines }
 
 // newCommandProcessorWithDeps builds a processor with explicit seams — the
 // shared search surface and the Telegram user lookup. It has no LLM: package
@@ -178,7 +187,7 @@ func (cp *CommandProcessor) executeFindBookWithPagination(
 	}
 
 	// Format the response message with pagination info
-	message := cp.formatBookSearchResultsWithPagination(title, books, totalCount, offset, limit)
+	message := cp.formatBookSearchResultsWithPagination(title, books, cp.authorLines.Page(ctx, books), totalCount, offset, limit)
 
 	// Create inline keyboard with number-based buttons and pagination
 	replyMarkup := cp.createBookButtonsWithPagination(books, offset, limit, totalCount)
@@ -341,43 +350,14 @@ func (cp *CommandProcessor) ExecuteFindAuthorBooksWithPagination(authorID int64,
 	}
 
 	// Format the message like book search results
-	currentPage := (offset / limit) + 1
-	totalPages := (totalCount + limit - 1) / limit
-
-	var messageBuilder strings.Builder
-	messageBuilder.WriteString(fmt.Sprintf("📚 Books by %s:\n", authorName))
-	messageBuilder.WriteString(fmt.Sprintf("Page %d of %d (total found %d books)\n\n", currentPage, totalPages, totalCount))
-
-	for i, book := range books {
-		// Format authors
-		var authorNames []string
-		for _, bookAuthor := range book.Authors {
-			authorNames = append(authorNames, bookAuthor.FullName)
-		}
-		authorsStr := strings.Join(authorNames, ", ")
-		if authorsStr == "" {
-			authorsStr = "Unknown author"
-		}
-
-		// Add book entry with correct numbering
-		bookNumber := offset + i + 1
-		messageBuilder.WriteString(fmt.Sprintf("%d. %s — %s", bookNumber, book.Title, authorsStr))
-
-		// Add series information if available
-		if len(book.Series) > 0 && book.Series[0].Ser != "" {
-			messageBuilder.WriteString(fmt.Sprintf(" (series: %s)", book.Series[0].Ser))
-		}
-
-		messageBuilder.WriteString("\n")
-	}
-
-	messageBuilder.WriteString("\n💡 Select a book by number or use navigation:")
+	list := englishBookList("📚 Books by " + authorName + ":\n")
+	message := list.format(books, cp.authorLines.Page(context.Background(), books), totalCount, offset, limit)
 
 	// Create inline keyboard with book selection buttons and pagination
 	replyMarkup := cp.createBookButtonsWithPagination(books, offset, limit, totalCount)
 
 	return &CommandResult{
-		Message:     messageBuilder.String(),
+		Message:     message,
 		Books:       books,
 		ReplyMarkup: replyMarkup,
 		SearchParams: &SearchParams{
@@ -450,7 +430,8 @@ func (cp *CommandProcessor) executeFindBookWithAuthorWithPagination(
 
 	// Format the response
 	queryDescription := cp.formatCombinedQuery(title, author)
-	message := cp.formatCombinedSearchResultsWithPagination(queryDescription, books, totalCount, offset, limit)
+	message := cp.formatCombinedSearchResultsWithPagination(queryDescription, books, cp.authorLines.Page(ctx, books),
+		totalCount, offset, limit)
 
 	// Create inline keyboard with number-based buttons and pagination
 	replyMarkup := cp.createBookButtonsWithPagination(books, offset, limit, totalCount)
@@ -495,12 +476,91 @@ func combinedSearchNotFound(title, author, lang string, offset int) *CommandResu
 	}
 }
 
+// listWording is the language a book list's entries are written in.
+type listWording struct {
+	unknownAuthor string
+	series        string // format of the first series, with %s for its name
+}
+
+var (
+	englishList = listWording{unknownAuthor: "Unknown author", series: " (series: %s)"}
+	russianList = listWording{unknownAuthor: "Автор неизвестен", series: " (серия: %s)"}
+)
+
+// bookList is how a page of books is written: a title line, the page line
+// (a format of the page, the page count and the total), the entries and a
+// closing hint.
+type bookList struct {
+	title, page, hint string
+	wording           listWording
+	withLang          bool
+}
+
+func englishBookList(title string) bookList {
+	return bookList{title: title, page: "Page %d of %d (total found %d books)\n\n",
+		hint: "\n💡 Select a book by number or use navigation:", wording: englishList}
+}
+
+func russianBookList(title string) bookList {
+	return bookList{title: title, page: "Страница %d из %d (всего %d книг)\n\n",
+		hint: "\n💡 Выберите книгу по номеру или используйте навигацию:", wording: russianList}
+}
+
+// russianSearchList is a Russian list of search results, whose page line
+// says the total was found.
+func russianSearchList(title string) bookList {
+	l := russianBookList(title)
+	l.page = "Страница %d из %d (всего найдено %d книг)\n\n"
+	return l
+}
+
+// format writes the page of books, each named by its author line.
+func (l *bookList) format(books []models.Book, lines [][]models.AuthorDisplay, totalCount, offset, limit int) string {
+	var b strings.Builder
+	b.WriteString(l.title)
+	fmt.Fprintf(&b, l.page, offset/limit+1, (totalCount+limit-1)/limit, totalCount)
+	writeBookEntries(&b, books, lines, offset, l.wording, l.withLang)
+	b.WriteString(l.hint)
+	return b.String()
+}
+
+// writeBookEntries writes one numbered line per book: its title, its authors
+// by its author line and its first series, and its language when withLang.
+func writeBookEntries(
+	b *strings.Builder, books []models.Book, lines [][]models.AuthorDisplay, offset int, w listWording, withLang bool,
+) {
+	for i := range books {
+		book := &books[i]
+		fmt.Fprintf(b, "%d. %s — %s", offset+i+1, book.Title, authorsText(lines[i], w.unknownAuthor))
+		if len(book.Series) > 0 && book.Series[0].Ser != "" {
+			fmt.Fprintf(b, w.series, book.Series[0].Ser)
+		}
+		if withLang && book.Lang != "" {
+			fmt.Fprintf(b, " [%s]", book.Lang)
+		}
+		b.WriteString("\n")
+	}
+}
+
+// authorsText names a listed book's authors by its author line, or says
+// unknown when the line names no one.
+func authorsText(line []models.AuthorDisplay, unknown string) string {
+	names := make([]string, len(line))
+	for i, a := range line {
+		names[i] = a.Name
+	}
+	if text := strings.Join(names, ", "); text != "" {
+		return text
+	}
+	return unknown
+}
+
 // formatCombinedQuery formats the combined query description
 func (cp *CommandProcessor) formatCombinedQuery(title, author string) string {
 	if title != "" && author != "" {
-		return fmt.Sprintf("\"%s\" by %s", title, author)
+		return "\"" + title + "\" by " + author
 	} else if title != "" {
-		return fmt.Sprintf("\"%s\"", title)
+		return "\"" + title + "\""
 	} else if author != "" {
 		return fmt.Sprintf("books by %s", author)
 	}
@@ -508,79 +568,19 @@ func (cp *CommandProcessor) formatCombinedQuery(title, author string) string {
 }
 
 // formatCombinedSearchResultsWithPagination formats combined search results with pagination
-func (cp *CommandProcessor) formatCombinedSearchResultsWithPagination(query string, books []models.Book, totalCount, offset, limit int) string {
-	var builder strings.Builder
-
-	currentPage := (offset / limit) + 1
-	totalPages := (totalCount + limit - 1) / limit
-
-	builder.WriteString(fmt.Sprintf("📚 Search results for %s:\n", query))
-	builder.WriteString(fmt.Sprintf("Page %d of %d (total found %d books)\n\n", currentPage, totalPages, totalCount))
-
-	for i, book := range books {
-		// Format authors
-		var authorNames []string
-		for _, author := range book.Authors {
-			authorNames = append(authorNames, author.FullName)
-		}
-		authorsStr := strings.Join(authorNames, ", ")
-		if authorsStr == "" {
-			authorsStr = "Unknown author"
-		}
-
-		// Add book entry with correct numbering
-		bookNumber := offset + i + 1
-		builder.WriteString(fmt.Sprintf("%d. %s — %s", bookNumber, book.Title, authorsStr))
-
-		// Add series information if available
-		if len(book.Series) > 0 && book.Series[0].Ser != "" {
-			builder.WriteString(fmt.Sprintf(" (series: %s)", book.Series[0].Ser))
-		}
-
-		builder.WriteString("\n")
-	}
-
-	builder.WriteString("\n💡 Select a book by number or use navigation:")
-
-	return builder.String()
+func (cp *CommandProcessor) formatCombinedSearchResultsWithPagination(
+	query string, books []models.Book, lines [][]models.AuthorDisplay, totalCount, offset, limit int,
+) string {
+	list := englishBookList("📚 Search results for " + query + ":\n")
+	return list.format(books, lines, totalCount, offset, limit)
 }
 
 // formatBookSearchResultsWithPagination formats the search results into a message with pagination info
-func (cp *CommandProcessor) formatBookSearchResultsWithPagination(query string, books []models.Book, totalCount, offset, limit int) string {
-	var builder strings.Builder
-
-	currentPage := (offset / limit) + 1
-	totalPages := (totalCount + limit - 1) / limit
-
-	builder.WriteString(fmt.Sprintf("📚 Результаты поиска для \"%s\":\n", query))
-	builder.WriteString(fmt.Sprintf("Страница %d из %d (всего найдено %d книг)\n\n", currentPage, totalPages, totalCount))
-
-	for i, book := range books {
-		// Format authors
-		var authorNames []string
-		for _, author := range book.Authors {
-			authorNames = append(authorNames, author.FullName)
-		}
-		authorsStr := strings.Join(authorNames, ", ")
-		if authorsStr == "" {
-			authorsStr = "Автор неизвестен"
-		}
-
-		// Add book entry with correct numbering
-		bookNumber := offset + i + 1
-		builder.WriteString(fmt.Sprintf("%d. %s — %s", bookNumber, book.Title, authorsStr))
-
-		// Add series information if available
-		if len(book.Series) > 0 && book.Series[0].Ser != "" {
-			builder.WriteString(fmt.Sprintf(" (серия: %s)", book.Series[0].Ser))
-		}
-
-		builder.WriteString("\n")
-	}
-
-	builder.WriteString("\n💡 Выберите книгу по номеру или используйте навигацию:")
-
-	return builder.String()
+func (cp *CommandProcessor) formatBookSearchResultsWithPagination(
+	query string, books []models.Book, lines [][]models.AuthorDisplay, totalCount, offset, limit int,
+) string {
+	list := russianSearchList("📚 Результаты поиска для \"" + query + "\":\n")
+	return list.format(books, lines, totalCount, offset, limit)
 }
 
 // formatAuthorSearchResultsWithPagination formats the author search results into a message with pagination info
@@ -791,7 +791,7 @@ func (cp *CommandProcessor) ExecuteCollectionBooks(collectionID int64, userID in
 	}
 
 	_ = userID // reserved for future fav support
-	message := cp.formatCollectionBooksWithPagination(col.Name, books, total, offset, limit)
+	message := cp.formatCollectionBooksWithPagination(col.Name, books, cp.authorLines.Page(ctx, books), total, offset, limit)
 	replyMarkup := cp.createBookButtonsWithPagination(books, offset, limit, total)
 
 	return &CommandResult{
@@ -860,37 +860,11 @@ func (cp *CommandProcessor) createCollectionButtonsWithPagination(collections []
 }
 
 // formatCollectionBooksWithPagination formats collection books list with pagination info
-func (cp *CommandProcessor) formatCollectionBooksWithPagination(collectionName string, books []models.Book, totalCount, offset, limit int) string {
-	var builder strings.Builder
-
-	currentPage := (offset / limit) + 1
-	totalPages := (totalCount + limit - 1) / limit
-
-	builder.WriteString(fmt.Sprintf("📦 Подборка \"%s\":\n", collectionName))
-	builder.WriteString(fmt.Sprintf("Страница %d из %d (всего %d книг)\n\n", currentPage, totalPages, totalCount))
-
-	for i, book := range books {
-		var authorNames []string
-		for _, author := range book.Authors {
-			authorNames = append(authorNames, author.FullName)
-		}
-		authorsStr := strings.Join(authorNames, ", ")
-		if authorsStr == "" {
-			authorsStr = "Автор неизвестен"
-		}
-
-		bookNumber := offset + i + 1
-		builder.WriteString(fmt.Sprintf("%d. %s — %s", bookNumber, book.Title, authorsStr))
-
-		if len(book.Series) > 0 && book.Series[0].Ser != "" {
-			builder.WriteString(fmt.Sprintf(" (серия: %s)", book.Series[0].Ser))
-		}
-
-		builder.WriteString("\n")
-	}
-
-	builder.WriteString("\n💡 Выберите книгу по номеру или используйте навигацию:")
-	return builder.String()
+func (cp *CommandProcessor) formatCollectionBooksWithPagination(
+	collectionName string, books []models.Book, lines [][]models.AuthorDisplay, totalCount, offset, limit int,
+) string {
+	list := russianBookList("📦 Подборка \"" + collectionName + "\":\n")
+	return list.format(books, lines, totalCount, offset, limit)
 }
 
 // createUnknownResponse creates a response for unknown/unrelated queries
@@ -942,7 +916,8 @@ func (cp *CommandProcessor) ExecuteShowFavorites(userID int64, offset, limit int
 	}
 
 	// Format the response message with pagination info
-	message := cp.formatFavoriteBooksWithPagination(books, totalCount, offset, limit)
+	message := cp.formatFavoriteBooksWithPagination(books, cp.authorLines.Page(context.Background(), books),
+		totalCount, offset, limit)
 
 	// Create inline keyboard with book selection buttons and pagination
 	replyMarkup := cp.createBookButtonsWithPagination(books, offset, limit, totalCount)
@@ -962,44 +937,10 @@ func (cp *CommandProcessor) ExecuteShowFavorites(userID int64, offset, limit int
 }
 
 // formatFavoriteBooksWithPagination formats favorite books list with pagination info
-func (cp *CommandProcessor) formatFavoriteBooksWithPagination(books []models.Book, totalCount, offset, limit int) string {
-	var builder strings.Builder
-
-	currentPage := (offset / limit) + 1
-	totalPages := (totalCount + limit - 1) / limit
-
-	builder.WriteString("⭐ Избранные книги:\n")
-	builder.WriteString(fmt.Sprintf("Страница %d из %d (всего %d книг)\n\n", currentPage, totalPages, totalCount))
-
-	for i, book := range books {
-		// Format authors
-		var authorNames []string
-		for _, author := range book.Authors {
-			authorNames = append(authorNames, author.FullName)
-		}
-		authorsStr := strings.Join(authorNames, ", ")
-		if authorsStr == "" {
-			authorsStr = "Автор неизвестен"
-		}
-
-		// Add book entry with correct numbering
-		bookNumber := offset + i + 1
-		builder.WriteString(fmt.Sprintf("%d. %s — %s", bookNumber, book.Title, authorsStr))
-
-		// Add series information if available
-		if len(book.Series) > 0 && book.Series[0].Ser != "" {
-			builder.WriteString(fmt.Sprintf(" (серия: %s)", book.Series[0].Ser))
-		}
-
-		// Add language info if available
-		if book.Lang != "" {
-			builder.WriteString(fmt.Sprintf(" [%s]", book.Lang))
-		}
-
-		builder.WriteString("\n")
-	}
-
-	builder.WriteString("\n💡 Выберите книгу по номеру или используйте навигацию:")
-
-	return builder.String()
+func (cp *CommandProcessor) formatFavoriteBooksWithPagination(
+	books []models.Book, lines [][]models.AuthorDisplay, totalCount, offset, limit int,
+) string {
+	list := russianBookList("⭐ Избранные книги:\n")
+	list.withLang = true
+	return list.format(books, lines, totalCount, offset, limit)
 }

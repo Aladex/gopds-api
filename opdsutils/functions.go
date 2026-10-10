@@ -73,12 +73,11 @@ func newAtomEntry(i *Item) *AtomEntry {
 
 	atomAuthors := []AtomAuthor{}
 	for _, a := range i.Authors {
-		atomAuthors = append(atomAuthors, AtomAuthor{
-			AtomPerson: AtomPerson{
-				Name: a.Name,
-				Uri:  fmt.Sprintf("/opds/author/%d", a.ID),
-			},
-		})
+		person := AtomPerson{Name: a.Name}
+		if a.ID != nil {
+			person.Uri = fmt.Sprintf("/opds/author/%d", *a.ID)
+		}
+		atomAuthors = append(atomAuthors, AtomAuthor{AtomPerson: person})
 	}
 
 	atomLinks := []AtomLink{}

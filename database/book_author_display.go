@@ -125,6 +125,9 @@ func resolveAuthorDisplay(s *bookAuthorSources) models.BookAuthorDisplay {
 		return legacyDisplay(legacy, models.AuthorDisplayLegacyUnmatched)
 	}
 	links := matchLegacyAuthors(legacy, s.credits)
+	if creditNamesSeveral(legacy, s.credits, links) {
+		return legacyDisplay(legacy, models.AuthorDisplayGluedCredit)
+	}
 	authors := make([]models.AuthorDisplay, len(s.credits))
 	for i, c := range s.credits {
 		name := c.Name
@@ -176,6 +179,45 @@ func legacyWordsInCredits(legacy []legacyAuthor, credits []creditName) bool {
 		creditNames = append(creditNames, c.Name)
 	}
 	return wordsWithin(nameWords(strings.Join(legacyNames, " ")), nameWords(strings.Join(creditNames, " ")))
+}
+
+// creditNamesSeveral reports whether a legacy author the pairing left out
+// is named inside a credit paired with someone else — two people, neither's
+// words all the other's. A file that writes a whole cast into one author
+// field reads so; a longer and a shorter catalog name of one person does not.
+func creditNamesSeveral(legacy []legacyAuthor, credits []creditName, links []*int64) bool {
+	paired := make(map[int64]bool, len(links))
+	for _, id := range links {
+		if id != nil {
+			paired[*id] = true
+		}
+	}
+	for _, left := range legacy {
+		if paired[left.ID] || !namesAnAuthor(left) {
+			continue
+		}
+		leftWords := nameWords(left.Name)
+		for c, id := range links {
+			if id == nil || !wordsWithin(leftWords, nameWords(credits[c].Name)) {
+				continue
+			}
+			ownerWords := nameWords(legacyName(legacy, *id))
+			if !wordsWithin(leftWords, ownerWords) && !wordsWithin(ownerWords, leftWords) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// legacyName is the name of the legacy author with the given ID.
+func legacyName(legacy []legacyAuthor, id int64) string {
+	for _, a := range legacy {
+		if a.ID == id {
+			return a.Name
+		}
+	}
+	return ""
 }
 
 // matchLegacyAuthors pairs credits with the legacy authors they name, one to

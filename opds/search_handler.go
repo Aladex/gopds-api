@@ -26,6 +26,9 @@ import (
 // has no superuser notion, so no OPDS request ever declares a moderator.
 type SearchHandler struct {
 	Search services.PublicSearch
+	// AuthorLines gives each listed book its author line; nil shows the
+	// legacy authors.
+	AuthorLines *services.AuthorLines
 }
 
 // Feed link rels, content types and hrefs. Named here so the search feeds
@@ -138,13 +141,19 @@ func renderFeed(c *gin.Context, feed *opdsutils.Feed) {
 	c.Data(http.StatusOK, atomContentType, []byte(atom))
 }
 
-// bookItems renders book rows as acquisition entries, keeping the KOReader
-// annotation truncation the feeds always had.
-func bookItems(c *gin.Context, books []models.Book) []*opdsutils.Item {
+// isKoreader tells a KOReader client, whose entries get a short annotation.
+func isKoreader(c *gin.Context) bool {
+	return strings.Contains(c.GetHeader("User-Agent"), "KOReader")
+}
+
+// bookItems renders a page of book rows as acquisition entries, reading the
+// author lines of the whole page in one call, and truncating the annotation
+// for KOReader as the feeds always did.
+func bookItems(c *gin.Context, lines *services.AuthorLines, books []models.Book, koreader bool) []*opdsutils.Item {
+	authors := lines.Page(c.Request.Context(), books)
 	items := []*opdsutils.Item{}
-	isKoreader := strings.Contains(c.GetHeader("User-Agent"), "KOReader")
 	for i := range books {
-		bookItem := opdsutils.CreateItem(books[i], isKoreader)
+		bookItem := opdsutils.CreateItem(&books[i], authors[i], koreader)
 		items = append(items, &bookItem)
 	}
 	return items
@@ -206,7 +215,7 @@ func (h *SearchHandler) Books(c *gin.Context) {
 		Id:      fmt.Sprintf("tag:search:books:%s:%d", url.QueryEscape(filters.Title), page),
 		Links:   links,
 		Updated: time.Now(),
-		Items:   bookItems(c, result.Books),
+		Items:   bookItems(c, h.AuthorLines, result.Books, isKoreader(c)),
 	})
 }
 
@@ -289,7 +298,7 @@ func (h *SearchHandler) BooksByLanguage(c *gin.Context) {
 		Id:      fmt.Sprintf("tag:lang:%s:search:books:%s:%d", lang, url.QueryEscape(filters.Title), page),
 		Links:   links,
 		Updated: time.Now(),
-		Items:   bookItems(c, result.Books),
+		Items:   bookItems(c, h.AuthorLines, result.Books, isKoreader(c)),
 	})
 }
 

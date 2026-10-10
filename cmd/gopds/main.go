@@ -88,7 +88,8 @@ func run() (code int) {
 	defer previewService.Shutdown()
 
 	// Telegram: bot manager, service and its periodic health checks.
-	stopTelegramHealthCheck := initializeTelegram(mainRedisClient, searchService)
+	stopTelegramHealthCheck := initializeTelegram(mainRedisClient, searchService,
+		authorLinesOf(db, cfg.Authors.DisplayFromLayer()))
 	defer stopTelegramHealthCheck()
 
 	// Set the Gin mode based on the application configuration.
@@ -115,12 +116,15 @@ func run() (code int) {
 // initializeTelegram sets up the Telegram bot manager and service and starts
 // the bots' periodic health checks. It returns the function that stops them;
 // run defers it at the point where the health checks used to be deferred.
-func initializeTelegram(mainRedisClient *redis.Client, searchService *services.SearchService) (stopHealthCheck func()) {
+// The bots name the authors of the books they list by lines.
+func initializeTelegram(
+	mainRedisClient *redis.Client, searchService *services.SearchService, lines *services.AuthorLines,
+) (stopHealthCheck func()) {
 	// Initialize the Telegram bot manager
 	telegramConfig := &telegram.Config{
 		BaseURL: cfg.GetTelegramWebhookBaseURL(),
 	}
-	telegramBotManager := telegram.NewBotManager(telegramConfig, mainRedisClient, searchService)
+	telegramBotManager := telegram.NewBotManager(telegramConfig, mainRedisClient, searchService, lines)
 
 	// Initialize Telegram service
 	var err error

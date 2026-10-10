@@ -21,7 +21,7 @@ func setupRouter() *gin.Engine {
 	r := gin.New()
 	g := r.Group("/opds")
 	g.GET("/collections/:page", GetCollections)
-	g.GET("/collection/:id/:page", GetCollectionBooks)
+	g.GET("/collection/:id/:page", (&Feeds{}).GetCollectionBooks)
 	return r
 }
 
@@ -97,7 +97,7 @@ func TestCollectionsLinkInRootFeed(t *testing.T) {
 	// It requires a full router with all OPDS routes.
 	r := gin.New()
 	opdsGroup := r.Group("/opds")
-	SetupOpdsRoutes(opdsGroup, &fakePublicSearch{})
+	SetupOpdsRoutes(opdsGroup, &fakePublicSearch{}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/opds/new/0/0", nil)
 	rec := httptest.NewRecorder()

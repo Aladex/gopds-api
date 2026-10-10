@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"gopds-api/models"
+	"gopds-api/services"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/go-redis/redis"
@@ -42,12 +43,21 @@ func TestNewBotManager(t *testing.T) {
 		BaseURL: "https://example.com",
 	}
 
-	bm := NewBotManager(config, redisClient, stubSearch{})
+	bm := NewBotManager(config, redisClient, stubSearch{}, nil)
 
 	assert.NotNil(t, bm)
 	assert.NotNil(t, bm.bots)
 	assert.Equal(t, config, bm.config)
 	assert.NotNil(t, bm.conversationManager)
+}
+
+// Every bot's processors name the authors of listed books by the lines the
+// manager was given: the switch main reads reaches each bot.
+func TestBotProcessorsUseTheManagersAuthorLines(t *testing.T) {
+	lines := &services.AuthorLines{}
+	bm := NewBotManager(&Config{}, nil, stubSearch{}, lines)
+	assert.Same(t, lines, bm.newProcessor().AuthorLines())
+	assert.Nil(t, NewBotManager(&Config{}, nil, stubSearch{}, nil).newProcessor().AuthorLines())
 }
 
 func TestParseAuthorTitle(t *testing.T) {
@@ -166,7 +176,7 @@ func TestGetBotCount(t *testing.T) {
 		BaseURL: "https://example.com",
 	}
 
-	bm := NewBotManager(config, redisClient, stubSearch{})
+	bm := NewBotManager(config, redisClient, stubSearch{}, nil)
 
 	// Initially should be 0
 	assert.Equal(t, 0, bm.GetBotCount())
@@ -200,7 +210,7 @@ func TestListActiveBots(t *testing.T) {
 		BaseURL: "https://example.com",
 	}
 
-	bm := NewBotManager(config, redisClient, stubSearch{})
+	bm := NewBotManager(config, redisClient, stubSearch{}, nil)
 
 	// Initially should be empty
 	tokens := bm.ListActiveBots()
@@ -236,7 +246,7 @@ func TestGetConversationManager(t *testing.T) {
 		BaseURL: "https://example.com",
 	}
 
-	bm := NewBotManager(config, redisClient, stubSearch{})
+	bm := NewBotManager(config, redisClient, stubSearch{}, nil)
 
 	cm := bm.GetConversationManager()
 	assert.NotNil(t, cm)
@@ -257,7 +267,7 @@ func TestGetConversationContext(t *testing.T) {
 		BaseURL: "https://example.com",
 	}
 
-	bm := NewBotManager(config, redisClient, stubSearch{})
+	bm := NewBotManager(config, redisClient, stubSearch{}, nil)
 
 	// Test getting context for a new user
 	ctx, err := bm.GetConversationContext("test-token", 12345)
@@ -280,7 +290,7 @@ func TestGetConversationContextAsString(t *testing.T) {
 		BaseURL: "https://example.com",
 	}
 
-	bm := NewBotManager(config, redisClient, stubSearch{})
+	bm := NewBotManager(config, redisClient, stubSearch{}, nil)
 
 	// Add some messages first
 	err = bm.conversationManager.AddUserMessage("test-token", 12345, "Hello!")
@@ -306,7 +316,7 @@ func TestClearConversationContext(t *testing.T) {
 		BaseURL: "https://example.com",
 	}
 
-	bm := NewBotManager(config, redisClient, stubSearch{})
+	bm := NewBotManager(config, redisClient, stubSearch{}, nil)
 
 	// Add some messages first
 	err = bm.conversationManager.AddUserMessage("test-token", 12345, "Hello!")
@@ -336,7 +346,7 @@ func TestCreateBotForUser_AlreadyExists(t *testing.T) {
 		BaseURL: "https://example.com",
 	}
 
-	bm := NewBotManager(config, redisClient, stubSearch{})
+	bm := NewBotManager(config, redisClient, stubSearch{}, nil)
 
 	// Manually add a bot
 	bm.mutex.Lock()
@@ -363,7 +373,7 @@ func TestRemoveBot_NotFound(t *testing.T) {
 		BaseURL: "https://example.com",
 	}
 
-	bm := NewBotManager(config, redisClient, stubSearch{})
+	bm := NewBotManager(config, redisClient, stubSearch{}, nil)
 
 	err = bm.RemoveBot("non-existent-token")
 	assert.Error(t, err)
@@ -384,7 +394,7 @@ func TestSetWebhook_BotNotFound(t *testing.T) {
 		BaseURL: "https://example.com",
 	}
 
-	bm := NewBotManager(config, redisClient, stubSearch{})
+	bm := NewBotManager(config, redisClient, stubSearch{}, nil)
 
 	err = bm.SetWebhook("non-existent-token")
 	assert.Error(t, err)

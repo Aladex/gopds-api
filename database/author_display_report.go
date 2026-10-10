@@ -39,13 +39,16 @@ const (
 )
 
 // Report categories of the author line the book gets; every book is in
-// exactly one of the three display categories.
+// exactly one of the four display categories.
 const (
 	ReportDisplayLayer           = "display_layer"
 	ReportDisplayLegacyNoCredits = "display_legacy_no_credits"
 	// ReportDisplayLegacyUnmatched: kept on the catalog because its legacy
 	// authors carry a word no credit has; the edits the line protects.
 	ReportDisplayLegacyUnmatched = "display_legacy_unmatched"
+	// ReportDisplayLegacyGluedCredit: kept on the catalog because one credit
+	// names several of its authors.
+	ReportDisplayLegacyGluedCredit = "display_legacy_glued_credit"
 	// ReportLayerUnlinkedName: shown from the layer with a name that links
 	// nowhere.
 	ReportLayerUnlinkedName = "layer_unlinked_name"
@@ -61,7 +64,7 @@ var ReportCategories = []string{
 	ReportWordsNoLayer, ReportWordsNoLegacy,
 	ReportMultiAuthor, ReportAuthorCountDiffers, ReportLegacyPlaceholder, ReportFileNamesTitleCased,
 	ReportDisplayLayer, ReportDisplayLegacyNoCredits, ReportDisplayLegacyUnmatched,
-	ReportLayerUnlinkedName, ReportLayerUnlinkedWithLegacy,
+	ReportDisplayLegacyGluedCredit, ReportLayerUnlinkedName, ReportLayerUnlinkedWithLegacy,
 }
 
 // reportSamples is how many book IDs a category keeps.
@@ -150,6 +153,9 @@ func (r *AuthorDisplayReport) addDisplay(bookID int64, s *bookAuthorSources, leg
 		r.count(ReportDisplayLayer, bookID)
 	case line.Fallback == models.AuthorDisplayNoCredits:
 		r.count(ReportDisplayLegacyNoCredits, bookID)
+		return
+	case line.Fallback == models.AuthorDisplayGluedCredit:
+		r.count(ReportDisplayLegacyGluedCredit, bookID)
 		return
 	default:
 		r.count(ReportDisplayLegacyUnmatched, bookID)

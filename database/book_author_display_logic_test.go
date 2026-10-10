@@ -233,3 +233,55 @@ func TestSubtractiveAndRecombiningEditsGiveWayToTheFile(t *testing.T) {
 		assert.Equal(t, legacyLine(models.AuthorDisplayLegacyUnmatched, linked("Петров-Водкин Иван", 6)), got)
 	})
 }
+
+// A file that writes several people into one author field shows them as one
+// long name, linked to one of them at most, while the catalog has them apart.
+// The catalog's line is the better one there, and the book keeps it. Two
+// legacy names count as two people when neither's words hold the other's.
+func TestOneCreditNamingSeveralCatalogAuthorsKeepsTheCatalog(t *testing.T) {
+	t.Run("the whole cast in one field", func(t *testing.T) {
+		got := resolveAuthorDisplay(&bookAuthorSources{
+			legacy:  []legacyAuthor{legacy(1, "Иванов Иван"), legacy(2, "Петров Пётр"), legacy(3, "Сидоров Олег")},
+			credits: []creditName{fromFile("Иван Иванов, Пётр Петров, Олег Сидоров")},
+		})
+		assert.Equal(t, legacyLine(models.AuthorDisplayGluedCredit,
+			linked("Иванов Иван", 1), linked("Петров Пётр", 2), linked("Сидоров Олег", 3)), got)
+	})
+
+	t.Run("two of them in one field, one apart", func(t *testing.T) {
+		got := resolveAuthorDisplay(&bookAuthorSources{
+			legacy:  []legacyAuthor{legacy(1, "Иванов Иван"), legacy(2, "Петров Пётр"), legacy(3, "Сидоров Олег")},
+			credits: []creditName{selected("Иван Иванов и Пётр Петров"), selected("Олег Сидоров")},
+		})
+		assert.Equal(t, models.AuthorDisplayLegacy, got.Source)
+		assert.Equal(t, models.AuthorDisplayGluedCredit, got.Fallback)
+	})
+
+	t.Run("one person linked twice under a longer and a shorter name", func(t *testing.T) {
+		got := resolveAuthorDisplay(&bookAuthorSources{
+			legacy:  []legacyAuthor{legacy(1, "Петров Иван"), legacy(2, "Петров Иван Иванович")},
+			credits: []creditName{selected("Иван Иванович Петров")},
+		})
+		assert.Equal(t, models.AuthorDisplayLayer, got.Source, "one person is not a cast")
+	})
+
+	t.Run("two people each with a credit of their own", func(t *testing.T) {
+		// The first credit holds both names, yet the pairing gives each person
+		// a credit: no one is lost into another's field.
+		got := resolveAuthorDisplay(&bookAuthorSources{
+			legacy:  []legacyAuthor{legacy(1, "Иванов Иван"), legacy(2, "Петров Пётр")},
+			credits: []creditName{selected("Иван Иванов, Пётр Петров"), selected("Пётр Петров")},
+		})
+		assert.Equal(t, layerLine(linked("Иван Иванов, Пётр Петров", 1), linked("Пётр Петров", 2)), got)
+	})
+
+	t.Run("the placeholder is no one", func(t *testing.T) {
+		// Even spelled out in the same field, the placeholder is not a second
+		// person the line would lose.
+		got := resolveAuthorDisplay(&bookAuthorSources{
+			legacy:  []legacyAuthor{legacy(1, "Иванов Иван"), legacy(2, models.UnknownAuthorName)},
+			credits: []creditName{selected("Иван Иванов, автор неизвестен")},
+		})
+		assert.Equal(t, layerLine(linked("Иван Иванов, автор неизвестен", 1)), got)
+	})
+}

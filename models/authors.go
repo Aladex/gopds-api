@@ -51,6 +51,10 @@ const (
 	// none of its credits has — an administrator's edit, most likely — so the
 	// catalog keeps its say.
 	AuthorDisplayLegacyUnmatched AuthorDisplayFallback = "legacy_unmatched"
+	// AuthorDisplayGluedCredit: one author credit names two or more of the
+	// book's legacy authors — the file wrote several people into one field —
+	// so the catalog, which has them apart, keeps its say.
+	AuthorDisplayGluedCredit AuthorDisplayFallback = "glued_credit"
 )
 
 // BookAuthorDisplay is a book's author line and where it comes from.
@@ -58,4 +62,15 @@ type BookAuthorDisplay struct {
 	Source   AuthorDisplaySource
 	Fallback AuthorDisplayFallback
 	Authors  []AuthorDisplay
+}
+
+// LegacyAuthorLine is the book's legacy authors as an author line, each name
+// linking to its own catalog author.
+func (b *Book) LegacyAuthorLine() []AuthorDisplay {
+	authors := make([]AuthorDisplay, len(b.Authors))
+	for i, a := range b.Authors {
+		id := a.ID
+		authors[i] = AuthorDisplay{Name: a.FullName, LegacyAuthorID: &id}
+	}
+	return authors
 }
