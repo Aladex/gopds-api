@@ -211,6 +211,14 @@ func deleteArchiveBooks(tx pg.DBI, archiveName string) (int, error) {
 		archiveName); err != nil {
 		return 0, fmt.Errorf("locking the books: %w", err)
 	}
+	return deleteBooksWithLayer(tx, ids)
+}
+
+// deleteBooksWithLayer deletes the given books — already locked by the
+// caller, in ID order — and everything that hangs off them, inside the
+// caller's transaction: the archive deletion's semantics for any set of its
+// books, so a large archive can be deleted a slice at a time.
+func deleteBooksWithLayer(tx pg.DBI, ids []int64) (int, error) {
 	if len(ids) == 0 {
 		return 0, nil
 	}

@@ -33,6 +33,8 @@ const (
 	jsonKeyError  = "error"
 	jsonKeyRun    = "run"
 	jsonKeyReport = "report"
+	// jsonKeyArchives is the key of a run's problem archives.
+	jsonKeyArchives = "archives"
 )
 
 // Run modes and retry stages of the contract.
@@ -65,6 +67,7 @@ const (
 	codeAlreadyApproved       = "already_approved"
 	codeInternalError         = "internal_error"
 	codeRunServiceUnavailable = "run_service_unavailable"
+	codeArchiveNotFailed      = "archive_not_failed"
 )
 
 // Errors a run service returns; each maps to one closed code. A service may
@@ -86,6 +89,9 @@ var (
 	// ErrAuthorMetadataInvalidErrorClass marks a retry class the service
 	// refused for the stage.
 	ErrAuthorMetadataInvalidErrorClass = errors.New("api: the error class is not retryable at this stage")
+	// ErrAuthorMetadataArchiveNotFailed marks an archive action on an archive
+	// the run did not find missing or unreadable.
+	ErrAuthorMetadataArchiveNotFailed = errors.New("api: the run found no problem with this archive")
 )
 
 // runErrorStatus maps a service error to its HTTP status and closed code.
@@ -110,6 +116,8 @@ func runErrorStatus(err error) (status int, code string) {
 		return http.StatusBadRequest, codeInvalidBookID
 	case errors.Is(err, ErrAuthorMetadataInvalidErrorClass):
 		return http.StatusBadRequest, codeInvalidErrorClass
+	case errors.Is(err, ErrAuthorMetadataArchiveNotFailed):
+		return http.StatusConflict, codeArchiveNotFailed
 	case errors.Is(err, ErrAuthorMetadataRunServiceUnavailable):
 		return http.StatusInternalServerError, codeRunServiceUnavailable
 	}
@@ -158,6 +166,8 @@ type AuthorMetadataExtractionByStatus struct {
 	InvalidFB2          int64 `json:"invalid_fb2"`
 	UnsupportedEncoding int64 `json:"unsupported_encoding"`
 	MetadataParseFailed int64 `json:"metadata_parse_failed"`
+	ArchiveMissing      int64 `json:"archive_missing"`
+	ArchiveUnreadable   int64 `json:"archive_unreadable"`
 }
 
 // AuthorMetadataExtractionStage is the extraction stream of a run.
@@ -221,6 +231,46 @@ type AuthorMetadataRunView struct {
 	ApprovedForFull       bool                       `json:"approved_for_full"`
 	Stages                AuthorMetadataRunStages    `json:"stages"`
 	Credits               AuthorMetadataCreditCounts `json:"credits"`
+	// Seeding is the progress of a full run whose items are still being
+	// added; null for every other run.
+	Seeding *AuthorMetadataRunSeeding `json:"seeding"`
+	// AggregatesAsOf is when the local, review and credit figures were
+	// computed: now for a small run, the last refresh for a catalog-sized
+	// one, null before its first.
+	AggregatesAsOf *time.Time `json:"aggregates_as_of"`
+}
+
+// AuthorMetadataRunSeeding is how far a full run's seeding is: items added
+// so far and the catalog size at the start.
+type AuthorMetadataRunSeeding struct {
+	Seeded int64 `json:"seeded"`
+	Target int64 `json:"target"`
+}
+
+// AuthorMetadataProblemArchive is one archive the run found missing or
+// unreadable.
+type AuthorMetadataProblemArchive struct {
+	Archive string `json:"archive"`
+	Books   int64  `json:"books"`
+	Reason  string `json:"reason"`
+	// Deletion is the progress of a requested deletion of the archive's
+	// book records; null when none is pending.
+	Deletion *AuthorMetadataArchiveDeletionProgress `json:"deletion"`
+}
+
+// AuthorMetadataArchiveDeletionProgress is how far a pending deletion is.
+type AuthorMetadataArchiveDeletionProgress struct {
+	Deleted int64 `json:"deleted"`
+	Total   int64 `json:"total"`
+}
+
+// AuthorMetadataArchiveDeletion is a requested deletion of an archive's
+// book records: pending until the extraction loop has deleted them all.
+type AuthorMetadataArchiveDeletion struct {
+	Archive      string `json:"archive"`
+	BooksTotal   int64  `json:"books_total"`
+	BooksDeleted int64  `json:"books_deleted"`
+	Status       string `json:"status"`
 }
 
 // AuthorMetadataRunReport is the contract's Report object: the Run fields
@@ -247,6 +297,9 @@ type AuthorMetadataRunService interface {
 	Resume(ctx context.Context, id int64) (AuthorMetadataRunView, error)
 	ApproveFull(ctx context.Context, id, actorUserID int64) (AuthorMetadataRunView, error)
 	Retry(ctx context.Context, id int64, stage, errorClass string) (int64, error)
+	Archives(ctx context.Context, id int64) ([]AuthorMetadataProblemArchive, error)
+	RetryArchive(ctx context.Context, id int64, archive string) (int64, error)
+	DeleteArchive(ctx context.Context, id int64, archive string) (AuthorMetadataArchiveDeletion, error)
 }
 
 // authorMetadataRunService is the single wiring point of the concrete run
@@ -299,6 +352,18 @@ func (unavailableAuthorMetadataRuns) Retry(context.Context, int64, string, strin
 	return 0, ErrAuthorMetadataRunServiceUnavailable
 }
 
+func (unavailableAuthorMetadataRuns) Archives(context.Context, int64) ([]AuthorMetadataProblemArchive, error) {
+	return nil, ErrAuthorMetadataRunServiceUnavailable
+}
+
+func (unavailableAuthorMetadataRuns) RetryArchive(context.Context, int64, string) (int64, error) {
+	return 0, ErrAuthorMetadataRunServiceUnavailable
+}
+
+func (unavailableAuthorMetadataRuns) DeleteArchive(context.Context, int64, string) (AuthorMetadataArchiveDeletion, error) {
+	return AuthorMetadataArchiveDeletion{}, ErrAuthorMetadataRunServiceUnavailable
+}
+
 // authorMetadataRunsHandler serves the runs routes.
 type authorMetadataRunsHandler struct {
 	svc AuthorMetadataRunService
@@ -318,6 +383,9 @@ func SetupAuthorMetadataRunRoutes(r *gin.RouterGroup, svc AuthorMetadataRunServi
 	runs.POST("/:id/resume", h.resume)
 	runs.POST("/:id/approve-full", h.approveFull)
 	runs.POST("/:id/retry", h.retry)
+	runs.GET("/:id/archives", h.archives)
+	runs.POST("/:id/archives/retry", h.retryArchive)
+	runs.POST("/:id/archives/delete", h.deleteArchive)
 }
 
 // --- request validation and error mapping, shared by every handler ---
@@ -648,6 +716,18 @@ func (r *retryRunRequest) validate() error {
 	return nil
 }
 
+// archiveRequest is the body of the archive actions.
+type archiveRequest struct {
+	Archive string `json:"archive"`
+}
+
+func (r *archiveRequest) validate() error {
+	if !validArchiveName(r.Archive) {
+		return runRequestError{codeInvalidArchive}
+	}
+	return nil
+}
+
 // --- response shaping ---
 
 func utcPtr(t *time.Time) *time.Time {
@@ -675,8 +755,26 @@ func presentRun(in *AuthorMetadataRunView) AuthorMetadataRunView {
 	run.StartedAt = utcPtr(run.StartedAt)
 	run.ExtractionCompletedAt = utcPtr(run.ExtractionCompletedAt)
 	run.CompletedAt = utcPtr(run.CompletedAt)
+	run.AggregatesAsOf = utcPtr(run.AggregatesAsOf)
 	run.Credits.Unresolved = nonNilCounts(run.Credits.Unresolved)
 	return run
+}
+
+// problemArchiveReasons are the closed reasons of a problem archive.
+var problemArchiveReasons = setOf(
+	string(models.AuthorMetadataRunItemArchiveMissing), string(models.AuthorMetadataRunItemArchiveUnreadable))
+
+// presentArchives normalizes the problem archives: [] for none, and a reason
+// outside the closed pair read as unreadable, never as its own text.
+func presentArchives(in []AuthorMetadataProblemArchive) []AuthorMetadataProblemArchive {
+	out := make([]AuthorMetadataProblemArchive, 0, len(in))
+	for _, a := range in {
+		if !problemArchiveReasons[a.Reason] {
+			a.Reason = string(models.AuthorMetadataRunItemArchiveUnreadable)
+		}
+		out = append(out, a)
+	}
+	return out
 }
 
 // presentReport normalizes a report: the run part as presentRun, [] and {}
@@ -921,6 +1019,112 @@ func (h *authorMetadataRunsHandler) retry(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusAccepted, gin.H{"reopened": reopened})
+}
+
+// archives godoc
+// @Summary List the archives a run found missing or unreadable
+// @Description Each archive with the run's books in it and the closed reason (archive_missing or archive_unreadable), the most books first.
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param id path int true "Run ID"
+// @Produce json
+// @Success 200 {object} map[string][]AuthorMetadataProblemArchive
+// @Failure 400 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/admin/author-metadata/runs/{id}/archives [get]
+func (h *authorMetadataRunsHandler) archives(c *gin.Context) {
+	id, err := runID(c)
+	if err != nil {
+		abortRunError(c, err)
+		return
+	}
+	archives, err := h.svc.Archives(c.Request.Context(), id)
+	if err != nil {
+		abortRunError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{jsonKeyArchives: presentArchives(archives)})
+}
+
+// archiveAction reads the run ID and the archive of an archive action.
+func archiveAction(c *gin.Context) (id int64, archive string, err error) {
+	if id, err = runID(c); err != nil {
+		return 0, "", err
+	}
+	var req archiveRequest
+	if decodeErr := decodeStrict(c, &req); decodeErr != nil {
+		return 0, "", decodeErr
+	}
+	if validateErr := req.validate(); validateErr != nil {
+		return 0, "", validateErr
+	}
+	return id, req.Archive, nil
+}
+
+// retryArchive godoc
+// @Summary Read again the books of an archive the run found missing or unreadable
+// @Description Reopens the run's books of the archive that the extraction budget still allows; a completed run goes back to running.
+// @Description 409 invalid_transition for a failed_systemic run or an approved pilot, 409 active_run_exists when another run is active.
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param id path int true "Run ID"
+// @Accept json
+// @Produce json
+// @Param body body archiveRequest true "The archive file name"
+// @Success 202 {object} map[string]int64
+// @Failure 400 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Failure 409 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/admin/author-metadata/runs/{id}/archives/retry [post]
+func (h *authorMetadataRunsHandler) retryArchive(c *gin.Context) {
+	id, archive, err := archiveAction(c)
+	if err != nil {
+		abortRunError(c, err)
+		return
+	}
+	reopened, err := h.svc.RetryArchive(c.Request.Context(), id, archive)
+	if err != nil {
+		abortRunError(c, err)
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"reopened": reopened})
+}
+
+// deleteArchive godoc
+// @Summary Request the deletion of the catalog records of the books of a broken archive
+// @Description Only for an archive the run found missing or unreadable (409 archive_not_failed otherwise).
+// @Description Answers 202 at once with the pending request (a second request returns the same one); the
+// @Description extraction loop deletes the books in batches, with their author metadata layer and run items;
+// @Description fingerprint decisions stay.
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param id path int true "Run ID"
+// @Accept json
+// @Produce json
+// @Param body body archiveRequest true "The archive file name"
+// @Success 202 {object} map[string]AuthorMetadataArchiveDeletion
+// @Failure 400 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Failure 409 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/admin/author-metadata/runs/{id}/archives/delete [post]
+func (h *authorMetadataRunsHandler) deleteArchive(c *gin.Context) {
+	id, archive, err := archiveAction(c)
+	if err != nil {
+		abortRunError(c, err)
+		return
+	}
+	deletion, err := h.svc.DeleteArchive(c.Request.Context(), id, archive)
+	if err != nil {
+		abortRunError(c, err)
+		return
+	}
+	if deletion.Status != database.ArchiveDeletionDone {
+		deletion.Status = database.ArchiveDeletionPending
+	}
+	c.JSON(http.StatusAccepted, gin.H{"deletion": deletion})
 }
 
 // runAction serves the routes that take a run ID and answer with the run.

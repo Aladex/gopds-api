@@ -613,21 +613,36 @@ type CreditAccounting struct {
 // closed reason, or in open review. An open review backlog does not block it.
 func (a CreditAccounting) Settled() bool { return a.Pending == 0 }
 
-// creditAccountingSQL judges every current author credit in scope (?0 is a
-// run ID or NULL for the catalog) and groups the verdicts.
-const creditAccountingSQL = `WITH credits AS (
+// The credit accounting judges every current author credit in scope and
+// groups the verdicts. The scope is its own CTE per caller — the catalog, or
+// the run's books joined through its items — and the pending local inputs are
+// one distinct set joined to the credits, so the plan stays joins at any size.
+// A subquery under an OR (the former "?0 IS NULL OR book_id IN (...)" and
+// "OR EXISTS (pending job)") is planned as a SubPlan per credit, and once its
+// hashed form misses work_mem it rescans the whole set for every credit: the
+// catalog-sized run never completed on it. The open review checks stay
+// correlated: each is one lookup in a unique partial index.
+const (
+	accountingCatalogScope = `WITH credits AS (
 	SELECT c.id, c.source_fingerprint, s.extractor_version
 	FROM book_contributor_credit c
 	JOIN book_metadata_snapshot s ON s.id = c.snapshot_id
 	WHERE s.is_current AND c.role = 'author'
-		AND (?0::bigint IS NULL
-			OR s.book_id IN (SELECT book_id FROM author_metadata_run_item WHERE run_id = ?0))
+)`
+	accountingRunScope = `WITH credits AS (
+	SELECT c.id, c.source_fingerprint, s.extractor_version
+	FROM author_metadata_run_item ri
+	JOIN book_metadata_snapshot s ON s.book_id = ri.book_id AND s.is_current
+	JOIN book_contributor_credit c ON c.snapshot_id = s.id AND c.role = 'author'
+	WHERE ri.run_id = ?0
+)`
+	accountingVerdictsSQL = `, pending_inputs AS (
+	SELECT DISTINCT source_fingerprint, extractor_version
+	FROM contributor_normalization_job WHERE status = 'pending'
 ), judged AS (
 	SELECT sel.state, sel.unresolved_reason,
 		(sel.credit_id IS NULL
-			OR EXISTS (SELECT 1 FROM contributor_normalization_job j
-				WHERE j.status = 'pending' AND j.source_fingerprint = cr.source_fingerprint
-					AND j.extractor_version = cr.extractor_version)
+			OR pi.source_fingerprint IS NOT NULL
 			OR (sel.state = 'review'
 				AND NOT EXISTS (SELECT 1 FROM contributor_review_item i
 					WHERE i.status = 'open' AND i.scope_fingerprint = cr.source_fingerprint)
@@ -635,10 +650,13 @@ const creditAccountingSQL = `WITH credits AS (
 					WHERE i.status = 'open' AND i.scope_credit_id = cr.id))) AS pending
 	FROM credits cr
 	LEFT JOIN book_contributor_credit_selection sel ON sel.credit_id = cr.id
+	LEFT JOIN pending_inputs pi
+		ON pi.source_fingerprint = cr.source_fingerprint AND pi.extractor_version = cr.extractor_version
 )
 SELECT coalesce(state, '') AS state, coalesce(unresolved_reason, '') AS reason, pending, count(*) AS credits
 FROM judged
 GROUP BY 1, 2, 3`
+)
 
 func creditAccounting(ctx context.Context, db pg.DBI, runID *int64) (CreditAccounting, error) {
 	var groups []struct {
@@ -647,7 +665,11 @@ func creditAccounting(ctx context.Context, db pg.DBI, runID *int64) (CreditAccou
 		Pending bool
 		Credits int
 	}
-	if _, err := db.QueryContext(ctx, &groups, creditAccountingSQL, runID); err != nil {
+	query, params := accountingCatalogScope+accountingVerdictsSQL, []interface{}{}
+	if runID != nil {
+		query, params = accountingRunScope+accountingVerdictsSQL, []interface{}{*runID}
+	}
+	if _, err := db.QueryContext(ctx, &groups, query, params...); err != nil {
 		return CreditAccounting{}, fmt.Errorf("accounting author credits: %w", err)
 	}
 	var a CreditAccounting

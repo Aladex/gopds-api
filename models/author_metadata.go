@@ -68,6 +68,12 @@ const (
 	AuthorMetadataRunItemInvalidFB2          AuthorMetadataRunItemStatus = "invalid_fb2"
 	AuthorMetadataRunItemUnsupportedEncoding AuthorMetadataRunItemStatus = "unsupported_encoding"
 	AuthorMetadataRunItemMetadataParseFailed AuthorMetadataRunItemStatus = "metadata_parse_failed"
+	// AuthorMetadataRunItemArchiveMissing: the book's archive is not on a
+	// volume whose other archives open.
+	AuthorMetadataRunItemArchiveMissing AuthorMetadataRunItemStatus = "archive_missing"
+	// AuthorMetadataRunItemArchiveUnreadable: the book's archive is there but
+	// does not open, while other archives of the volume do.
+	AuthorMetadataRunItemArchiveUnreadable AuthorMetadataRunItemStatus = "archive_unreadable"
 )
 
 // AuthorMetadataRunItemTerminalStatuses lists the statuses an item ends in.
@@ -76,7 +82,8 @@ func AuthorMetadataRunItemTerminalStatuses() []AuthorMetadataRunItemStatus {
 		AuthorMetadataRunItemExtracted, AuthorMetadataRunItemExtractedNoAuthor,
 		AuthorMetadataRunItemAlreadyCurrent, AuthorMetadataRunItemEntryMissing,
 		AuthorMetadataRunItemInvalidFB2, AuthorMetadataRunItemUnsupportedEncoding,
-		AuthorMetadataRunItemMetadataParseFailed,
+		AuthorMetadataRunItemMetadataParseFailed, AuthorMetadataRunItemArchiveMissing,
+		AuthorMetadataRunItemArchiveUnreadable,
 	}
 }
 
@@ -155,6 +162,13 @@ type AuthorMetadataRun struct {
 	StartedAt             *time.Time              `pg:"started_at"`
 	ExtractionCompletedAt *time.Time              `pg:"extraction_completed_at"`
 	FinishedAt            *time.Time              `pg:"finished_at"`
+	// SeedCursor is set while a full run is being seeded: the highest book ID
+	// whose item exists. Nil once seeding is over, and for every run seeded
+	// at its start.
+	SeedCursor *int64 `pg:"seed_cursor"`
+	// SeedTarget is how many books the catalog held when a full run
+	// started: the end of its seeding progress. Nil for a run seeded at once.
+	SeedTarget *int `pg:"seed_target"`
 }
 
 // AuthorMetadataRunItem is one book in one run: the extraction job and the

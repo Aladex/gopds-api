@@ -184,43 +184,37 @@ func (c *AuthorMetadataCoverage) ResultClasses() (byClass, byScript map[string]i
 
 // runAuthorRowsCTE names the current author credits of the run's books (?0)
 // whose snapshot is the run's extractor version: another version's snapshot
-// is another input.
+// is another input. The run's items are joined, never filtered through an IN
+// list: one item per book makes the join exact, and the planner keeps it a
+// join at any run size.
 const runAuthorRowsCTE = `run_credits AS (
 	SELECT c.id, c.source_fingerprint, s.extractor_version
-	FROM book_contributor_credit c
-	JOIN book_metadata_snapshot s ON s.id = c.snapshot_id
-	WHERE s.is_current AND c.role = 'author'
-		AND s.extractor_version = (SELECT extractor_version FROM author_metadata_run WHERE id = ?0)
-		AND s.book_id IN (SELECT book_id FROM author_metadata_run_item WHERE run_id = ?0))`
+	FROM author_metadata_run r
+	JOIN author_metadata_run_item ri ON ri.run_id = r.id
+	JOIN book_metadata_snapshot s ON s.book_id = ri.book_id AND s.is_current
+		AND s.extractor_version = r.extractor_version
+	JOIN book_contributor_credit c ON c.snapshot_id = s.id AND c.role = 'author'
+	WHERE r.id = ?0)`
 
 // AuthorMetadataStatsForRun reads the aggregates of one run.
 func AuthorMetadataStatsForRun(ctx context.Context, db pg.DBI, runID int64) (AuthorMetadataStats, error) {
-	stats := AuthorMetadataStats{}
-	var err error
-	if stats.Extraction, err = extractionStats(ctx, db, runID); err != nil {
-		return AuthorMetadataStats{}, err
-	}
-	if stats.Local, err = localStats(ctx, db, runID); err != nil {
-		return AuthorMetadataStats{}, err
-	}
-	if stats.Review, err = reviewStats(ctx, db, runID); err != nil {
-		return AuthorMetadataStats{}, err
-	}
-	if stats.Coverage, err = coverageStats(ctx, db, runID); err != nil {
-		return AuthorMetadataStats{}, err
-	}
-	accounting, err := AuthorCreditAccountingForRun(ctx, db, runID)
+	extraction, err := extractionStats(ctx, db, runID)
 	if err != nil {
 		return AuthorMetadataStats{}, err
 	}
-	stats.Credits = AuthorMetadataCreditStats{
-		Total: int64(accounting.Credits), Selected: int64(accounting.Selected), Invalid: int64(accounting.Invalid),
-		Review: int64(accounting.Review), Pending: int64(accounting.Pending), Unresolved: map[string]int64{},
+	agg, err := runAggregates(ctx, db, runID)
+	if err != nil {
+		return AuthorMetadataStats{}, err
 	}
-	for reason, n := range accounting.Unresolved {
-		stats.Credits.Unresolved[string(reason)] = int64(n)
-	}
-	return stats, nil
+	return AuthorMetadataStats{
+		Extraction: extraction, Local: agg.Local, Review: agg.Review, Coverage: agg.Coverage, Credits: agg.Credits,
+	}, nil
+}
+
+// RunExtractionStats reads the run's extraction stream alone: the part of a
+// status that stays cheap at any run size.
+func RunExtractionStats(ctx context.Context, db pg.DBI, runID int64) (AuthorMetadataExtractionStats, error) {
+	return extractionStats(ctx, db, runID)
 }
 
 // closedCounts projects grouped counts onto a closed set: every key passes
@@ -251,23 +245,20 @@ func groupedCounts(ctx context.Context, db pg.DBI, query string, params ...inter
 	return out, nil
 }
 
+// extractionStats reads the extraction stream. The counts by status are the
+// tally's (RunItemCounts); only what depends on the clock reads the items,
+// through the partial indexes of the pending items: the live leases and the
+// oldest pending item.
 func extractionStats(ctx context.Context, db pg.DBI, runID int64) (AuthorMetadataExtractionStats, error) {
 	var run struct {
-		Total     int64
-		Pending   int64
 		Leased    int64
-		Terminal  int64
 		OldestAge float64
 		Duration  float64
 	}
 	_, err := db.QueryOneContext(ctx, &run, `
 		SELECT
-			(SELECT count(*) FROM author_metadata_run_item WHERE run_id = r.id) AS total,
-			(SELECT count(*) FROM author_metadata_run_item WHERE run_id = r.id AND status = 'pending'
-				AND (lease_expires_at IS NULL OR lease_expires_at <= clock_timestamp())) AS pending,
 			(SELECT count(*) FROM author_metadata_run_item
 				WHERE run_id = r.id AND status = 'pending' AND lease_expires_at > clock_timestamp()) AS leased,
-			(SELECT count(*) FROM author_metadata_run_item WHERE run_id = r.id AND status <> 'pending') AS terminal,
 			greatest(0, coalesce(extract(epoch FROM clock_timestamp() - (
 				SELECT min(created_at) FROM author_metadata_run_item
 				WHERE run_id = r.id AND status = 'pending')), 0))::float8 AS oldest_age,
@@ -280,23 +271,30 @@ func extractionStats(ctx context.Context, db pg.DBI, runID int64) (AuthorMetadat
 	if err != nil {
 		return AuthorMetadataExtractionStats{}, fmt.Errorf("reading the run: %w", err)
 	}
-	stats := AuthorMetadataExtractionStats{
-		Total: run.Total, Pending: run.Pending, Leased: run.Leased, Terminal: run.Terminal,
-		OldestPendingAgeS: run.OldestAge, DurationS: run.Duration, ByStatus: map[string]int64{},
+	counts, err := RunItemCounts(ctx, db, runID)
+	if err != nil {
+		return AuthorMetadataExtractionStats{}, err
 	}
-	if run.Duration > 0 {
-		stats.ItemsPerSecond = float64(run.Terminal) / run.Duration
+	stats := AuthorMetadataExtractionStats{
+		Leased: run.Leased, OldestPendingAgeS: run.OldestAge, DurationS: run.Duration, ByStatus: map[string]int64{},
 	}
 	for _, status := range models.AuthorMetadataRunItemTerminalStatuses() {
 		stats.ByStatus[string(status)] = 0
 	}
-	byStatus, err := groupedCounts(ctx, db, `SELECT status AS key, count(*) AS count
-		FROM author_metadata_run_item WHERE run_id = ? AND status <> 'pending' GROUP BY 1`, runID)
-	if err != nil {
-		return AuthorMetadataExtractionStats{}, err
+	for status, n := range counts {
+		stats.Total += n
+		if status == models.AuthorMetadataRunItemPending {
+			continue
+		}
+		stats.Terminal += n
+		stats.ByStatus[string(status)] = n
 	}
-	for status, n := range byStatus {
-		stats.ByStatus[status] = n
+	// A lease counted after the tally was read may belong to an item the
+	// tally already saw end; the pending count never goes below zero.
+	stats.Pending = max(stats.Total-stats.Terminal-stats.Leased, 0)
+	stats.Leased = min(stats.Leased, stats.Total-stats.Terminal)
+	if run.Duration > 0 {
+		stats.ItemsPerSecond = float64(stats.Terminal) / run.Duration
 	}
 	classes, err := groupedCounts(ctx, db, `SELECT a.error_class AS key, count(*) AS count
 		FROM author_metadata_run_item_attempt a
@@ -340,11 +338,14 @@ func localStats(ctx context.Context, db pg.DBI, runID int64) (AuthorMetadataLoca
 }
 
 // runReviewCTE names the review items of the run's credits: scoped to one of
-// its credits or to the fingerprint of one.
+// its credits or to the fingerprint of one. The two scopes are two joins and
+// a union, not one filter with an OR over two subqueries, which the planner
+// can only run row by row against the whole credit list.
 const runReviewCTE = `WITH ` + runAuthorRowsCTE + `, run_review AS (
-	SELECT i.* FROM contributor_review_item i
-	WHERE i.scope_credit_id IN (SELECT id FROM run_credits)
-		OR i.scope_fingerprint IN (SELECT source_fingerprint FROM run_credits))`
+	SELECT i.* FROM contributor_review_item i WHERE i.id IN (
+		SELECT r.id FROM contributor_review_item r JOIN run_credits rc ON rc.id = r.scope_credit_id
+		UNION
+		SELECT r.id FROM contributor_review_item r JOIN run_credits rc ON rc.source_fingerprint = r.scope_fingerprint))`
 
 func reviewStats(ctx context.Context, db pg.DBI, runID int64) (AuthorMetadataReviewStats, error) {
 	var stats AuthorMetadataReviewStats
@@ -363,27 +364,37 @@ func reviewStats(ctx context.Context, db pg.DBI, runID int64) (AuthorMetadataRev
 	return stats, err
 }
 
+// coverageSQL counts the run's resolved credits by the four dimensions in
+// one pass: the join of the credits with their resolution and result is
+// materialized once and grouped four times.
+const coverageSQL = `WITH ` + runAuthorRowsCTE + `, resolved AS MATERIALIZED (
+	SELECT r.method, r.kind, coalesce(r.script, 'none') AS script, coalesce(r.decision_class, 'manual') AS class
+	FROM run_credits rc
+	JOIN book_contributor_credit_selection sel ON sel.credit_id = rc.id
+	JOIN contributor_normalization_result r ON r.id = sel.result_id)
+SELECT 'method' AS dim, method AS key, count(*) AS count FROM resolved GROUP BY method
+UNION ALL SELECT 'kind', kind, count(*) FROM resolved GROUP BY kind
+UNION ALL SELECT 'script', script, count(*) FROM resolved GROUP BY script
+UNION ALL SELECT 'class', class, count(*) FROM resolved GROUP BY class`
+
 func coverageStats(ctx context.Context, db pg.DBI, runID int64) (AuthorMetadataCoverage, error) {
-	resolved := `WITH ` + runAuthorRowsCTE + `
-		SELECT %s AS key, count(*) AS count
-		FROM run_credits rc
-		JOIN book_contributor_credit_selection sel ON sel.credit_id = rc.id
-		JOIN contributor_normalization_result r ON r.id = sel.result_id
-		GROUP BY 1`
-	var cov AuthorMetadataCoverage
-	var err error
-	for _, dim := range []struct {
-		column string
-		into   *map[string]int64
-	}{
-		{"r.method", &cov.ByMethod},
-		{"r.kind", &cov.ByKind},
-		{"coalesce(r.script, 'none')", &cov.ByScript},
-		{"coalesce(r.decision_class, 'manual')", &cov.ByDecisionClass},
-	} {
-		if *dim.into, err = groupedCounts(ctx, db, fmt.Sprintf(resolved, dim.column), runID); err != nil {
-			return AuthorMetadataCoverage{}, err
-		}
+	var rows []struct {
+		Dim   string
+		Key   string
+		Count int64
+	}
+	if _, err := db.QueryContext(ctx, &rows, coverageSQL, runID); err != nil {
+		return AuthorMetadataCoverage{}, fmt.Errorf("reading run aggregates: %w", err)
+	}
+	cov := AuthorMetadataCoverage{
+		ByMethod: map[string]int64{}, ByKind: map[string]int64{},
+		ByScript: map[string]int64{}, ByDecisionClass: map[string]int64{},
+	}
+	into := map[string]map[string]int64{
+		"method": cov.ByMethod, "kind": cov.ByKind, "script": cov.ByScript, "class": cov.ByDecisionClass,
+	}
+	for _, r := range rows {
+		into[r.Dim][r.Key] += r.Count
 	}
 	// Script and decision class are checked only for their shape by the
 	// schema; project them onto the domain's sets like the error classes.

@@ -92,10 +92,13 @@ func validateRunRequest(req *StartRunRequest) error {
 	return nil
 }
 
-// StartRun validates the request, resolves the selector and seeds the run with
-// its items. The seeded run starts running: the pending status exists for a
-// future two-step admin flow, not for this gate. A full run first checks the
-// pilot approval of the exact version pair. A second active run is refused by
+// StartRun validates the request and records the run. A smoke or
+// pilot_archive run is seeded with its items at once and starts running: its
+// selector is bounded (at most 10000 IDs, or one archive). A full run first
+// checks the pilot approval of the exact version pair, then is recorded
+// pending with no item, and its own extraction loop seeds it in batches
+// (database.CreateSeedingRun, database.SeedRunBatch): the start answers at
+// once at any catalog size. Either way a second active run is refused by
 // PostgreSQL as database.ErrActiveRunExists.
 func (s *AuthorMetadataRunService) StartRun(ctx context.Context, req *StartRunRequest) (*models.AuthorMetadataRun, error) {
 	if err := validateRunRequest(req); err != nil {
@@ -113,14 +116,7 @@ func (s *AuthorMetadataRunService) StartRun(ctx context.Context, req *StartRunRe
 		CreatedByUserID:   req.CreatedByUserID,
 	}
 
-	var bookIDs []int64
-	switch req.Mode {
-	case models.AuthorMetadataRunSmoke, models.AuthorMetadataRunPilotArchive:
-		bookIDs, err = s.selectBooks(ctx, req, run)
-		if err != nil {
-			return nil, err
-		}
-	case models.AuthorMetadataRunFull:
+	if req.Mode == models.AuthorMetadataRunFull {
 		approved, err := database.HasApprovedPilot(ctx, s.db, extractor, normalizer)
 		if err != nil {
 			return nil, err
@@ -128,15 +124,16 @@ func (s *AuthorMetadataRunService) StartRun(ctx context.Context, req *StartRunRe
 		if !approved {
 			return nil, ErrFullRunNotApproved
 		}
-		ids, err := database.ListCatalogBookIDs(ctx, s.db)
-		if err != nil {
+		if err := database.CreateSeedingRun(ctx, s.db, run); err != nil {
 			return nil, err
 		}
-		bookIDs = ids
-	default:
-		return nil, database.ErrInvalidRunSelector
+		return run, nil
 	}
 
+	bookIDs, err := s.selectBooks(ctx, req, run)
+	if err != nil {
+		return nil, err
+	}
 	if err := database.SeedRun(ctx, s.db, run, bookIDs); err != nil {
 		return nil, err
 	}

@@ -44,6 +44,7 @@ var runServiceErrors = []struct{ from, to error }{
 	{database.ErrInvalidRunSelector, ErrAuthorMetadataInvalidSelector},
 	{database.ErrInvalidRunBookIDs, ErrAuthorMetadataInvalidBookIDs},
 	{services.ErrInvalidRetryClass, ErrAuthorMetadataInvalidErrorClass},
+	{services.ErrArchiveNotFailed, ErrAuthorMetadataArchiveNotFailed},
 }
 
 func adaptRunError(err error) error {
@@ -161,6 +162,46 @@ func (a *runServiceAdapter) Retry(ctx context.Context, id int64, stage, errorCla
 	return n, nil
 }
 
+func (a *runServiceAdapter) Archives(ctx context.Context, id int64) ([]AuthorMetadataProblemArchive, error) {
+	archives, err := a.admin.Archives(ctx, id)
+	if err != nil {
+		return nil, adaptRunError(err)
+	}
+	out := make([]AuthorMetadataProblemArchive, 0, len(archives))
+	for _, archive := range archives {
+		item := AuthorMetadataProblemArchive{
+			Archive: archive.Archive, Books: archive.Books, Reason: string(archive.Reason),
+		}
+		if archive.Deletion != nil {
+			item.Deletion = &AuthorMetadataArchiveDeletionProgress{
+				Deleted: archive.Deletion.Deleted, Total: archive.Deletion.Total,
+			}
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+func (a *runServiceAdapter) RetryArchive(ctx context.Context, id int64, archive string) (int64, error) {
+	n, err := a.admin.RetryArchive(ctx, id, archive)
+	if err != nil {
+		return 0, adaptRunError(err)
+	}
+	return n, nil
+}
+
+func (a *runServiceAdapter) DeleteArchive(
+	ctx context.Context, id int64, archive string,
+) (AuthorMetadataArchiveDeletion, error) {
+	d, err := a.admin.DeleteArchive(ctx, id, archive)
+	if err != nil {
+		return AuthorMetadataArchiveDeletion{}, adaptRunError(err)
+	}
+	return AuthorMetadataArchiveDeletion{
+		Archive: d.Archive, BooksTotal: d.BooksTotal, BooksDeleted: d.BooksDeleted, Status: d.Status,
+	}, nil
+}
+
 // runView shapes the contract's Run object.
 func runView(st *services.AuthorMetadataRunState) AuthorMetadataRunView {
 	run := &st.Run
@@ -186,6 +227,8 @@ func runView(st *services.AuthorMetadataRunState) AuthorMetadataRunView {
 					InvalidFB2:          ex.ByStatus[models.AuthorMetadataRunItemInvalidFB2],
 					UnsupportedEncoding: ex.ByStatus[models.AuthorMetadataRunItemUnsupportedEncoding],
 					MetadataParseFailed: ex.ByStatus[models.AuthorMetadataRunItemMetadataParseFailed],
+					ArchiveMissing:      ex.ByStatus[models.AuthorMetadataRunItemArchiveMissing],
+					ArchiveUnreadable:   ex.ByStatus[models.AuthorMetadataRunItemArchiveUnreadable],
 				},
 				CurrentArchive: ex.CurrentArchive, ItemsPerMinute: ex.ItemsPerMinute,
 			},
@@ -200,7 +243,16 @@ func runView(st *services.AuthorMetadataRunState) AuthorMetadataRunView {
 			Selected: st.Credits.Selected, Invalid: st.Credits.Invalid,
 			Review: st.Credits.Review, Pending: st.Credits.Pending, Unresolved: unresolved,
 		},
+		Seeding:        seedingView(st.Seeding),
+		AggregatesAsOf: st.AggregatesAsOf,
 	}
+}
+
+func seedingView(seeding *services.RunSeeding) *AuthorMetadataRunSeeding {
+	if seeding == nil {
+		return nil
+	}
+	return &AuthorMetadataRunSeeding{Seeded: seeding.Seeded, Target: seeding.Target}
 }
 
 // completedAt is the contract's completed_at: when a completed run finished.

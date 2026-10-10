@@ -58,6 +58,13 @@ func RunApproved(ctx context.Context, db pg.DBI, id int64) (bool, error) {
 // retry cannot reopen it between the check and the insert; the approval's
 // composite foreign key pins the run's mode, status and versions afterwards.
 // A pilot with no items extracted nothing and approves nothing.
+//
+// The approval is decided on the credits as they are now: under the same
+// lock the pilot's current author credits are accounted exactly
+// (AuthorCreditAccountingForRun, joins only, serial plans) and a pilot with
+// any credit not accounted — a review retry or a reset since its completion,
+// say — is ErrNotACompletedPilot. Stored figures and the report's verdict
+// are display; this is the gate.
 func ApprovePilotRun(ctx context.Context, db *pg.DB, runID, actorUserID int64) error {
 	return db.RunInTransaction(ctx, func(tx *pg.Tx) error {
 		var run struct {
@@ -77,6 +84,16 @@ func ApprovePilotRun(ctx context.Context, db *pg.DB, runID, actorUserID int64) e
 		}
 		if run.Mode != models.AuthorMetadataRunPilotArchive || run.Status != models.AuthorMetadataRunCompleted ||
 			run.ItemsTotal == 0 {
+			return ErrNotACompletedPilot
+		}
+		if _, err = tx.ExecContext(ctx, `SET LOCAL max_parallel_workers_per_gather = 0`); err != nil {
+			return fmt.Errorf("planning serially: %w", err)
+		}
+		accounting, err := AuthorCreditAccountingForRun(ctx, tx, runID)
+		if err != nil {
+			return err
+		}
+		if !accounting.Settled() {
 			return ErrNotACompletedPilot
 		}
 		_, err = tx.ExecContext(ctx, `INSERT INTO author_metadata_pilot_approval
@@ -197,6 +214,9 @@ type RunReportFacts struct {
 	ByScript map[string]int64
 }
 
+// runGrowthSQL measures the stored size of the snapshot and credit rows the
+// run's extraction wrote. It reads every snapshot of the run, so it is one
+// of the run's credit-scale figures (RunAggregates), not a read of its own.
 const runGrowthSQL = `
 SELECT coalesce((SELECT sum(pg_column_size(s.*)) FROM book_metadata_snapshot s WHERE s.run_id = ?0), 0)
 	+ coalesce((SELECT sum(pg_column_size(c.*)) FROM book_contributor_credit c
@@ -204,17 +224,18 @@ SELECT coalesce((SELECT sum(pg_column_size(s.*)) FROM book_metadata_snapshot s W
 	coalesce((SELECT floor(extract(epoch FROM coalesce(r.finished_at, clock_timestamp()) - r.started_at))::bigint
 		FROM author_metadata_run r WHERE r.id = ?0), 0) AS duration_s`
 
-// LoadRunReportFacts reads the report figures of a run; the result classes
-// come from the run's coverage, read with its stats.
+// LoadRunReportFacts reads the report figures of a run that are not
+// credit-scale: its wall time. The result classes come from the run's
+// coverage, read with its stats; DBGrowthBytes is left for the caller to
+// take from the run's aggregates (RunAggregates.GrowthBytes).
 func LoadRunReportFacts(ctx context.Context, db pg.DBI, runID int64, coverage *AuthorMetadataCoverage) (RunReportFacts, error) {
-	var head struct {
-		Growth    int64 `pg:"growth"`
-		DurationS int64 `pg:"duration_s"`
-	}
-	if _, err := db.QueryOneContext(ctx, &head, runGrowthSQL, runID); err != nil {
+	var durationS int64
+	if _, err := db.QueryOneContext(ctx, pg.Scan(&durationS), `
+		SELECT coalesce((SELECT floor(extract(epoch FROM coalesce(r.finished_at, clock_timestamp()) - r.started_at))::bigint
+			FROM author_metadata_run r WHERE r.id = ?), 0)`, runID); err != nil {
 		return RunReportFacts{}, fmt.Errorf("measuring the run: %w", err)
 	}
-	facts := RunReportFacts{DurationS: max(head.DurationS, 0), DBGrowthBytes: head.Growth}
+	facts := RunReportFacts{DurationS: max(durationS, 0)}
 	facts.ByClass, facts.ByScript = coverage.ResultClasses()
 	return facts, nil
 }
@@ -289,6 +310,26 @@ func ReopenRunRows(
 	if !ValidLeaseErrorClass(errorClass) || maxAttempts <= 0 {
 		return 0, fmt.Errorf("%w: retry class or budget", ErrInvalidLeaseFailure)
 	}
+	var query string
+	switch stream {
+	case RetryExtraction:
+		query = reopenExtractionSQL
+	case RetryLocal:
+		query = reopenLocalSQL
+	default:
+		return 0, fmt.Errorf("%w: unknown retry stream", ErrInvalidLeaseFailure)
+	}
+	return reopenRunRowsWith(ctx, db, runID, stream, func(tx *pg.Tx) (pg.Result, error) {
+		return tx.ExecContext(ctx, query, runID, errorClass, maxAttempts)
+	})
+}
+
+// reopenRunRowsWith is the transaction of every retry: the run row locked
+// first and checked, the stream's rows reopened by reopen, and the run
+// reopened when at least one row did. It reports how many rows reopened.
+func reopenRunRowsWith(
+	ctx context.Context, db *pg.DB, runID int64, stream RetryStream, reopen func(*pg.Tx) (pg.Result, error),
+) (int64, error) {
 	var reopened int64
 	err := db.RunInTransaction(ctx, func(tx *pg.Tx) error {
 		run := &models.AuthorMetadataRun{}
@@ -312,15 +353,7 @@ func ReopenRunRows(
 			}
 		}
 
-		var res pg.Result
-		switch stream {
-		case RetryExtraction:
-			res, err = tx.ExecContext(ctx, reopenExtractionSQL, runID, errorClass, maxAttempts)
-		case RetryLocal:
-			res, err = tx.ExecContext(ctx, reopenLocalSQL, runID, errorClass, maxAttempts)
-		default:
-			return fmt.Errorf("%w: unknown retry stream", ErrInvalidLeaseFailure)
-		}
+		res, err := reopen(tx)
 		if err != nil {
 			return fmt.Errorf("reopening the run's rows: %w", err)
 		}

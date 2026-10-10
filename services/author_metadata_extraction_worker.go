@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"io"
+	"io/fs"
 	"math/rand/v2"
 	"strings"
 	"sync"
@@ -151,6 +152,11 @@ type ExtractionWorkerConfig struct {
 	Retry AuthorMetadataRetryPolicy
 	// Extractor is the metadata extraction engine.
 	Extractor MetadataExtractor
+	// SeedBatch is how many items one seeding batch of a full run adds.
+	SeedBatch int
+	// ArchiveDeleteBatch is how many books one batch of a requested archive
+	// deletion removes.
+	ArchiveDeleteBatch int
 }
 
 // The normalizer version stamped on snapshots and normalization keys is
@@ -167,6 +173,14 @@ const (
 	defaultMaxAttempts    = 3
 	defaultRetryBaseDelay = 30 * time.Second
 	defaultRetryMaxDelay  = 10 * time.Minute
+	// defaultSeedBatch keeps one seeding transaction of a full run short
+	// (about a quarter of a second for 5000 items, measured on the full
+	// catalog) while half a million books are seeded in about a hundred
+	// batches.
+	defaultSeedBatch = 5000
+	// defaultArchiveDeleteBatch keeps one deletion transaction short: the
+	// task report measures a batch of this size on the full catalog.
+	defaultArchiveDeleteBatch = 1000
 )
 
 // DefaultExtractionWorkerConfig is the production shape: concurrency 1, small
@@ -189,12 +203,15 @@ func DefaultExtractionWorkerConfig(archivesDir string, extractor MetadataExtract
 				return time.Duration(rand.Int64N(int64(limit) + 1))
 			},
 		},
-		Extractor: extractor,
+		Extractor:          extractor,
+		SeedBatch:          defaultSeedBatch,
+		ArchiveDeleteBatch: defaultArchiveDeleteBatch,
 	}
 }
 
 func (c *ExtractionWorkerConfig) validate() error {
-	if c.ArchivesDir == "" || c.Concurrency <= 0 || c.ClaimLimit <= 0 || c.Lease <= 0 || c.Extractor == nil {
+	if c.ArchivesDir == "" || c.Concurrency <= 0 || c.ClaimLimit <= 0 || c.Lease <= 0 || c.Extractor == nil ||
+		c.SeedBatch <= 0 || c.ArchiveDeleteBatch <= 0 {
 		return ErrInvalidExtractionWorkerConfig
 	}
 	if err := c.Retry.Validate(); err != nil {
@@ -225,6 +242,12 @@ type AuthorMetadataExtractionWorker struct {
 	archives ArchiveSource
 	cfg      ExtractionWorkerConfig
 	owner    string
+
+	// lastOpened is the catalog path of the archive this worker opened
+	// most recently: the first witness that the volume still reads when
+	// another archive does not open.
+	mu         sync.Mutex
+	lastOpened string
 }
 
 // NewAuthorMetadataExtractionWorker validates the configuration and assigns
@@ -259,11 +282,28 @@ func NewAuthorMetadataExtractionWorker(
 // the active run and start the next one, and an item of that next run must
 // never be recorded under the run this call started with (contract 3.9).
 func (w *AuthorMetadataExtractionWorker) ProcessAvailable(ctx context.Context) (int, error) {
+	// A requested archive deletion goes first, a batch per round, whatever
+	// the run's state: it is the administrator's cleanup of a broken
+	// archive, and the round reports it as work so the loop comes back. A
+	// round that is already extracting serves it between its batches.
+	deleted, err := database.DeleteArchiveBatch(ctx, w.db, w.cfg.ArchiveDeleteBatch)
+	if err != nil {
+		return 0, err
+	}
+	if deleted > 0 {
+		return deleted, nil
+	}
 	run, err := database.ActiveRun(ctx, w.db)
 	if err != nil {
 		return 0, err
 	}
-	if run == nil || run.Status != models.AuthorMetadataRunRunning {
+	if run == nil {
+		return 0, nil
+	}
+	if run.Status == models.AuthorMetadataRunPending && run.SeedCursor != nil {
+		return w.seed(ctx, run.ID)
+	}
+	if run.Status != models.AuthorMetadataRunRunning {
 		return 0, nil
 	}
 
@@ -285,6 +325,15 @@ func (w *AuthorMetadataExtractionWorker) ProcessAvailable(ctx context.Context) (
 		n, systemic, err := w.processBatch(ctx, claims, touched)
 		processed += n
 		if err != nil {
+			return processed, err
+		}
+		if err := database.CompactRunItemTally(ctx, w.db, run.ID); err != nil {
+			return processed, err
+		}
+		// A deletion requested meanwhile is served between two extraction
+		// batches: one batch of it per extraction batch, so the cleanup
+		// moves while a long pass drains instead of waiting for its end.
+		if _, err := database.DeleteArchiveBatch(ctx, w.db, w.cfg.ArchiveDeleteBatch); err != nil {
 			return processed, err
 		}
 		if systemic {
@@ -317,9 +366,33 @@ func (w *AuthorMetadataExtractionWorker) settleRuns(ctx context.Context, runs ma
 			LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{
 				Name: AuthorMetadataEventRunCompleted, Stage: AuthorMetadataStageExtraction, RunID: runID,
 			})
+			// The completed run's figures are stored now, so its status and
+			// report read the final numbers without computing them.
+			if refreshErr := database.RefreshRunAggregates(ctx, w.db, runID); refreshErr != nil {
+				extractionWriteFailed(nil, runID, "", refreshErr)
+			}
 		}
 	}
 	return nil
+}
+
+// seed adds one batch of items to the full run being seeded and reports the
+// items added as work done, so the loop comes back at once. Another process
+// that finished the seeding meanwhile leaves nothing to do here.
+func (w *AuthorMetadataExtractionWorker) seed(ctx context.Context, runID int64) (int, error) {
+	seeded, done, err := database.SeedRunBatch(ctx, w.db, runID, w.cfg.SeedBatch)
+	if errors.Is(err, database.ErrRunTransitionConflict) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if done {
+		LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{
+			Name: AuthorMetadataEventRunSeeded, Stage: AuthorMetadataStageExtraction, RunID: runID,
+		})
+	}
+	return seeded, nil
 }
 
 // extractionWorkItem is one claimed item with its catalog location and the
@@ -455,16 +528,22 @@ func (w *AuthorMetadataExtractionWorker) processGroup(
 	}
 	archive, err := w.archives.Open(ctx, fullPath)
 	if err != nil {
-		w.pauseRunsOf(ctx, items)
-		n, failErr := w.failItems(ctx, items, AuthorMetadataErrorArchiveUnreadable)
 		for i := range handled {
 			handled[i] = true
 		}
+		if w.volumeReads(ctx, archivePath) {
+			// The volume reads and this archive does not: its books end
+			// with a per-book status, and the pass goes on.
+			return w.endArchiveItems(ctx, items, archiveFailureStatus(err)), false
+		}
+		w.pauseRunsOf(ctx, items)
+		n, failErr := w.failItems(ctx, items, AuthorMetadataErrorArchiveUnreadable)
 		if failErr != nil {
 			extractionWriteFailed(nil, 0, "", failErr)
 		}
 		return n, true
 	}
+	w.opened(archivePath)
 	defer func() { _ = archive.Close() }()
 
 	processed := 0
@@ -491,6 +570,80 @@ type itemOutcome struct {
 	// systemic: the archive or the database failed in a way that pauses or
 	// ends the run; the item itself was already failed with a closed class.
 	systemic bool
+}
+
+// archiveFailureStatus is the per-book status of an archive that does not
+// open on a volume that reads: missing when the file is not there,
+// unreadable otherwise.
+func archiveFailureStatus(openErr error) models.AuthorMetadataRunItemStatus {
+	if errors.Is(openErr, fs.ErrNotExist) {
+		return models.AuthorMetadataRunItemArchiveMissing
+	}
+	return models.AuthorMetadataRunItemArchiveUnreadable
+}
+
+// endArchiveItems ends every item of a broken archive with its per-book
+// status and reports how many it ended.
+func (w *AuthorMetadataExtractionWorker) endArchiveItems(
+	ctx context.Context, items []*extractionWorkItem, status models.AuthorMetadataRunItemStatus,
+) int {
+	ended := 0
+	for _, item := range items {
+		if w.completeTerminalOutcome(ctx, item.run, item, status).terminal {
+			ended++
+		}
+	}
+	return ended
+}
+
+// opened remembers the archive this worker opened last.
+func (w *AuthorMetadataExtractionWorker) opened(archivePath string) {
+	w.mu.Lock()
+	w.lastOpened = archivePath
+	w.mu.Unlock()
+}
+
+// volumeProbeArchives is how many other archives of the catalog the
+// volume check tries when this worker has opened none it can try again.
+const volumeProbeArchives = 5
+
+// volumeReads decides whether an archive that does not open is that
+// archive's problem or the volume's: the volume reads when another archive
+// of the catalog opens right now — the one this worker opened last, or
+// else one of the first few the catalog names. When none opens (an
+// unmounted volume shows an empty directory, so a missing file alone proves
+// nothing) the volume is taken for gone, and the run pauses as before. A
+// catalog of a single archive has no witness and pauses too.
+func (w *AuthorMetadataExtractionWorker) volumeReads(ctx context.Context, failed string) bool {
+	w.mu.Lock()
+	last := w.lastOpened
+	w.mu.Unlock()
+	var candidates []string
+	if last != "" && last != failed {
+		candidates = append(candidates, last)
+	}
+	others, err := database.OtherArchivePaths(ctx, w.db, failed, volumeProbeArchives)
+	if err != nil {
+		extractionWriteFailed(nil, 0, AuthorMetadataErrorArchiveUnreadable, err)
+	}
+	for _, other := range others {
+		if other != last {
+			candidates = append(candidates, other)
+		}
+	}
+	for _, candidate := range candidates {
+		path, resolveErr := safepath.Resolve(w.cfg.ArchivesDir, candidate)
+		if resolveErr != nil {
+			continue
+		}
+		probe, openErr := w.archives.Open(ctx, path)
+		if openErr != nil {
+			continue
+		}
+		_ = probe.Close()
+		return true
+	}
+	return false
 }
 
 // pauseRunsOf pauses the run of every item of a group.
@@ -569,14 +722,24 @@ func (w *AuthorMetadataExtractionWorker) processItem(
 	return w.persistItem(ctx, run, item, &metadata)
 }
 
-// sourceFailure pauses the run for an archive or volume read failure and
-// records the item's attempt with the closed class, so its lease is released
-// and a resume retries it at once.
+// sourceFailure handles a read failure of an entry stream. On a volume that
+// still reads it is the book's problem: the item's attempt records the closed
+// class and it is retried, ending metadata_parse_failed once out of attempts
+// (the poison-book rule), while the run goes on. Otherwise it is the volume:
+// the run pauses and the item's attempt is released for a resume to retry at
+// once.
 func (w *AuthorMetadataExtractionWorker) sourceFailure(
 	ctx context.Context,
 	run *models.AuthorMetadataRun,
 	item *extractionWorkItem,
 ) itemOutcome {
+	if w.volumeReads(ctx, item.target.ArchivePath) {
+		n, err := w.failItems(ctx, []*extractionWorkItem{item}, AuthorMetadataErrorArchiveUnreadable)
+		if err != nil {
+			extractionWriteFailed(item, run.ID, AuthorMetadataErrorArchiveUnreadable, err)
+		}
+		return itemOutcome{terminal: n > 0}
+	}
 	w.pauseSystemic(ctx, run.ID)
 	if _, err := w.failItems(ctx, []*extractionWorkItem{item}, AuthorMetadataErrorArchiveUnreadable); err != nil {
 		extractionWriteFailed(item, run.ID, AuthorMetadataErrorArchiveUnreadable, err)

@@ -356,7 +356,20 @@ func TestRunsAPIFullRequiresAnApprovedMatchingPilot(t *testing.T) {
 	code, out = f.call(http.MethodPost, runsAPIBase, full)
 	require.Equal(t, http.StatusCreated, code, "%v", out)
 	assert.Equal(t, "full", field(t, out, "run", "mode"))
+	assert.Equal(t, "pending", field(t, out, "run", "status"), "the start answers before the seeding")
+	assert.Equal(t, int64(0), number(t, out, "run", "seeding", "seeded"))
+	assert.Equal(t, int64(6), number(t, out, "run", "seeding", "target"), "the whole catalog")
+	id := int64(field(t, out, "run", "id").(float64))
+	assertRunError(t, f, runsAPIBase, full, http.StatusConflict, "active_run_exists")
+
+	// The run's own loop seeds it and runs it.
+	extraction, _ := f.workers()
+	_, err := extraction.RunOnce(context.Background())
+	require.NoError(t, err)
+	code, out = f.call(http.MethodGet, runPath(id, ""), "")
+	require.Equal(t, http.StatusOK, code, "%v", out)
 	assert.Equal(t, "running", field(t, out, "run", "status"))
+	assert.Nil(t, field(t, out, "run", "seeding"))
 	assert.Equal(t, int64(6), number(t, out, "run", "stages", "extraction", "total"), "the whole catalog")
 }
 
@@ -408,6 +421,7 @@ func TestRunsAPIReportsRealStageNumbers(t *testing.T) {
 	assert.Equal(t, map[string]any{
 		"extracted": 1.0, "extracted_no_author": 0.0, "already_current": 0.0, "entry_missing": 0.0,
 		"invalid_fb2": 1.0, "unsupported_encoding": 1.0, "metadata_parse_failed": 1.0,
+		"archive_missing": 0.0, "archive_unreadable": 0.0,
 	}, field(t, extraction, "by_status"))
 	assert.NotNil(t, field(t, out, "run", "extraction_completed_at"))
 	assert.Positive(t, field(t, extraction, "items_per_minute"))
@@ -754,6 +768,7 @@ func TestRunsAPIReportCountsEveryStatusSeparately(t *testing.T) {
 	assert.Equal(t, map[string]any{
 		"extracted": 1.0, "extracted_no_author": 0.0, "already_current": 0.0, "entry_missing": 1.0,
 		"invalid_fb2": 2.0, "unsupported_encoding": 1.0, "metadata_parse_failed": 3.0,
+		"archive_missing": 0.0, "archive_unreadable": 0.0,
 	}, field(t, out, "run", "stages", "extraction", "by_status"))
 
 	// A second run: a book already extracted ends already_current, two books
@@ -765,5 +780,6 @@ func TestRunsAPIReportCountsEveryStatusSeparately(t *testing.T) {
 	assert.Equal(t, map[string]any{
 		"extracted": 0.0, "extracted_no_author": 2.0, "already_current": 1.0, "entry_missing": 0.0,
 		"invalid_fb2": 0.0, "unsupported_encoding": 0.0, "metadata_parse_failed": 0.0,
+		"archive_missing": 0.0, "archive_unreadable": 0.0,
 	}, field(t, out, "run", "stages", "extraction", "by_status"))
 }

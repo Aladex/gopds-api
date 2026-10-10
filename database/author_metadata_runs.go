@@ -304,7 +304,8 @@ func RecordExtractionItemTerminal(ctx context.Context, db pg.DBI, runID int64) (
 	return done, nil
 }
 
-// ReconcileRunExtraction recomputes the counters from the item rows. The
+// ReconcileRunExtraction recomputes the counters from the item rows, as the
+// tally counts them (RunItemCounts). The
 // claim layer ends abandoned rows out of attempts inside its own transaction,
 // where no per-item completion runs; the worker reconciles when a claim comes
 // back empty, so those rows still count and extraction completion is still
@@ -319,8 +320,8 @@ func ReconcileRunExtraction(ctx context.Context, db pg.DBI, runID int64) (bool, 
 	var done bool
 	_, err := db.QueryOneContext(ctx, pg.Scan(&done), `
 		WITH counted AS (
-			SELECT count(*) AS total, count(*) FILTER (WHERE status <> 'pending') AS n
-			FROM author_metadata_run_item WHERE run_id = ?)
+			SELECT coalesce(sum(items), 0) AS total, coalesce(sum(items) FILTER (WHERE status <> 'pending'), 0) AS n
+			FROM author_metadata_run_item_tally WHERE run_id = ?)
 		UPDATE author_metadata_run r
 		SET items_total = counted.total,
 			items_terminal = counted.n,
@@ -493,53 +494,51 @@ func ListExistingBookIDs(ctx context.Context, db pg.DBI, ids []int64) ([]int64, 
 // run. A paused run is left to the administrator, and a run that is not
 // active is never touched. It reports whether this call completed the run.
 //
-// The run row is locked for the check and the write, so two callers cannot
-// both complete it and nothing completes a run whose status changed under
-// the check. On a *pg.DB the check opens its own transaction; a caller's
-// transaction is joined as-is.
+// The accounting reads every credit of the run's books — seconds at catalog
+// size — so it runs without the run row: the row version it judged is read
+// first, and the completion is one conditional UPDATE of exactly that version
+// (still running, extraction still complete, xmin unchanged). An
+// administrator's pause or a retry meanwhile changes the row, and this call
+// then completes nothing; the next poll accounts again. Two callers cannot
+// both complete the run: the second UPDATE finds it completed.
 func CompleteRunIfSettled(ctx context.Context, db pg.DBI, runID int64) (bool, error) {
-	if pool, ok := db.(*pg.DB); ok {
-		var done bool
-		err := pool.RunInTransaction(ctx, func(tx *pg.Tx) error {
-			var txErr error
-			done, txErr = completeRunIfSettled(ctx, tx, runID)
-			return txErr
-		})
-		return done, err
-	}
-	return completeRunIfSettled(ctx, db, runID)
-}
-
-func completeRunIfSettled(ctx context.Context, db pg.DBI, runID int64) (bool, error) {
 	var run struct {
 		Status    models.AuthorMetadataRunStatus
 		Extracted bool
+		Version   string
 	}
 	_, err := db.QueryOneContext(ctx, &run, `
-		SELECT status, extraction_completed_at IS NOT NULL AS extracted
-		FROM author_metadata_run WHERE id = ? FOR UPDATE`, runID)
+		SELECT status, extraction_completed_at IS NOT NULL AS extracted, xmin::text AS version
+		FROM author_metadata_run WHERE id = ?`, runID)
 	if errors.Is(err, pg.ErrNoRows) {
 		return false, ErrRunTransitionConflict
 	}
 	if err != nil {
-		return false, fmt.Errorf("locking the run: %w", err)
+		return false, fmt.Errorf("reading the run: %w", err)
 	}
 	if run.Status != models.AuthorMetadataRunRunning || !run.Extracted {
 		return false, nil
 	}
-	accounting, err := AuthorCreditAccountingForRun(ctx, db, runID)
+	var accounting CreditAccounting
+	err = serialPlans(ctx, db, func(conn pg.DBI) error {
+		var accErr error
+		accounting, accErr = AuthorCreditAccountingForRun(ctx, conn, runID)
+		return accErr
+	})
 	if err != nil {
 		return false, err
 	}
 	if !accounting.Settled() {
 		return false, nil
 	}
-	if _, err = db.ExecContext(ctx, `
+	res, err := db.ExecContext(ctx, `
 		UPDATE author_metadata_run SET status = 'completed', finished_at = clock_timestamp()
-		WHERE id = ? AND status = 'running'`, runID); err != nil {
+		WHERE id = ? AND status = 'running' AND extraction_completed_at IS NOT NULL AND xmin::text = ?`,
+		runID, run.Version)
+	if err != nil {
 		return false, fmt.Errorf("completing the run: %w", err)
 	}
-	return true, nil
+	return res.RowsAffected() == 1, nil
 }
 
 // LoadRuns reads the runs with the given IDs, keyed by ID.

@@ -726,39 +726,47 @@ func TestExtractionWorkerConcurrency(t *testing.T) {
 
 // The poison-book rule decided in phase 7: an item that exhausts its attempts
 // becomes terminal metadata_parse_failed with the closed class
-// max_attempts_exceeded, and the run continues with the other books.
+// max_attempts_exceeded, and the run continues with the other books. The
+// failing book here is an entry that stops reading in an archive that opened,
+// on a volume whose other archives read: the book's problem, retried without
+// a pause (a whole archive that does not open ends its books at once instead,
+// see TestBrokenArchiveEndsItsBooks).
 func TestExtractionWorkerPoisonBookExhaustion(t *testing.T) {
 	db := scanfixture.ScratchDB(t)
 	dir := copyFixtureArchive(t, "happy.zip")
 	ctx := context.Background()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "corrupt.zip"), []byte("garbage"), 0o600))
 
 	goodPayload := fixtureEntry(t, "happy.zip", "translator_only.fb2")
-	bookGood, bookCorrupt := int64(101), int64(102)
-	// The good book seeds first, so its archive group is processed before the
-	// corrupt one fails systemically.
+	bookGood, bookPoison := int64(101), int64(102)
 	seedWorkerBook(t, db, bookGood, "happy.zip", "translator_only.fb2", md5Of(goodPayload))
-	seedWorkerBook(t, db, bookCorrupt, "corrupt.zip", "c.fb2", md5Of([]byte("c")))
-	run := startWorkerRun(t, db, bookGood, bookCorrupt)
-	svc := services.NewAuthorMetadataRunService(db)
+	seedWorkerBook(t, db, bookPoison, "flaky.zip", "c.fb2", md5Of([]byte("c")))
+	run := startWorkerRun(t, db, bookGood, bookPoison)
 
-	worker := workerConfig(t, db, dir, func(cfg *services.ExtractionWorkerConfig) {
-		cfg.Retry = workerRetryPolicy(2)
-	})
-
-	// Round 1: the corrupt archive pauses the run; its item keeps a retry.
-	_, err := worker.ProcessAvailable(ctx)
+	cfg := services.DefaultExtractionWorkerConfig(dir, workerExtractorEngine())
+	cfg.Lease = 30 * time.Second
+	cfg.Retry = workerRetryPolicy(2)
+	worker, err := services.NewAuthorMetadataExtractionWorker(db, flakySource{}, &cfg)
 	require.NoError(t, err)
-	st := runRow(t, db, run.ID)
-	assert.Equal(t, "paused", st.status)
-	assert.Equal(t, map[int64]string{bookGood: "extracted_no_author", bookCorrupt: "pending"}, bookStatuses(t, db, run.ID))
 
-	// Round 2: the last attempt exhausts; the item ends metadata_parse_failed
-	// and the run can continue.
-	require.NoError(t, svc.ResumeRun(ctx, run.ID))
+	// Round 1: the good book extracts; the poison book's attempts fail one
+	// after the other (the retry delay is a millisecond). The run is never
+	// paused.
 	_, err = worker.ProcessAvailable(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, map[int64]string{bookGood: "extracted_no_author", bookCorrupt: "metadata_parse_failed"},
+	st := runRow(t, db, run.ID)
+	assert.NotEqual(t, "paused", st.status)
+	assert.Nil(t, st.class)
+	statuses := bookStatuses(t, db, run.ID)
+	assert.Equal(t, "extracted_no_author", statuses[bookGood])
+
+	// Further rounds: the last attempt exhausts; the item ends
+	// metadata_parse_failed and the run's extraction is complete.
+	for range 3 {
+		time.Sleep(5 * time.Millisecond)
+		_, err = worker.ProcessAvailable(ctx)
+		require.NoError(t, err)
+	}
+	assert.Equal(t, map[int64]string{bookGood: "extracted_no_author", bookPoison: "metadata_parse_failed"},
 		bookStatuses(t, db, run.ID))
 
 	var outcome, class *string
@@ -766,18 +774,13 @@ func TestExtractionWorkerPoisonBookExhaustion(t *testing.T) {
 		SELECT a.outcome::text, a.error_class
 		FROM author_metadata_run_item_attempt a
 		JOIN author_metadata_run_item i ON i.id = a.run_item_id
-		WHERE i.run_id = ? AND i.book_id = ? AND a.attempt_no = 2`, run.ID, bookCorrupt)
+		WHERE i.run_id = ? AND i.book_id = ? AND a.attempt_no = 2`, run.ID, bookPoison)
 	require.NoError(t, err)
 	require.NotNil(t, outcome)
 	assert.Equal(t, "metadata_parse_failed", *outcome)
 	require.NotNil(t, class)
 	assert.Equal(t, "max_attempts_exceeded", *class)
 
-	// The run continues: resume, the worker finds nothing left and closes
-	// extraction accounting.
-	require.NoError(t, svc.ResumeRun(ctx, run.ID))
-	_, err = worker.ProcessAvailable(ctx)
-	require.NoError(t, err)
 	st = runRow(t, db, run.ID)
 	assert.Equal(t, 2, st.total)
 	assert.Equal(t, 2, st.terminal)

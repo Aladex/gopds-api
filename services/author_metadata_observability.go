@@ -32,6 +32,8 @@ const (
 	AuthorMetadataEventExtractionRunEnded      AuthorMetadataEventName = "author_metadata.extraction_run_ended"
 	AuthorMetadataEventExtractionWriteFailed   AuthorMetadataEventName = "author_metadata.extraction_write_failed"
 	AuthorMetadataEventRunCompleted            AuthorMetadataEventName = "author_metadata.run_completed"
+	// A full run's seeding ended: every book has its item and the run runs.
+	AuthorMetadataEventRunSeeded AuthorMetadataEventName = "author_metadata.run_seeded"
 
 	// Local normalization stream.
 	AuthorMetadataEventLocalJobCompleted   AuthorMetadataEventName = "author_metadata.local_job_completed"
@@ -64,6 +66,9 @@ const (
 	AuthorMetadataEventWorkersNotStarted      AuthorMetadataEventName = "author_metadata.workers_not_started"
 	AuthorMetadataEventWorkersShutdownTimeout AuthorMetadataEventName = "author_metadata.workers_shutdown_timeout"
 	AuthorMetadataEventRunsAPINotWired        AuthorMetadataEventName = "author_metadata.runs_api_not_wired"
+	// A background refresh of a run's stored figures failed; the next read
+	// starts another.
+	AuthorMetadataEventAggregatesRefreshFailed AuthorMetadataEventName = "author_metadata.aggregates_refresh_failed"
 )
 
 // AuthorMetadataEventNames lists every event.
@@ -72,7 +77,7 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventExtractionItemCompleted, AuthorMetadataEventExtractionItemRetried,
 		AuthorMetadataEventExtractionLeaseLost, AuthorMetadataEventExtractionRunPaused,
 		AuthorMetadataEventExtractionRunEnded, AuthorMetadataEventExtractionWriteFailed,
-		AuthorMetadataEventRunCompleted,
+		AuthorMetadataEventRunCompleted, AuthorMetadataEventRunSeeded,
 		AuthorMetadataEventLocalJobCompleted, AuthorMetadataEventLocalAttemptFailed,
 		AuthorMetadataEventLocalLeaseLost, AuthorMetadataEventLocalUndecidable,
 		AuthorMetadataEventLocalInputsSettled, AuthorMetadataEventLocalInputsResolved,
@@ -84,6 +89,7 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventWorkerStopped, AuthorMetadataEventWorkerBatchFailed,
 		AuthorMetadataEventWorkersDisabled, AuthorMetadataEventWorkersNotStarted,
 		AuthorMetadataEventWorkersShutdownTimeout, AuthorMetadataEventRunsAPINotWired,
+		AuthorMetadataEventAggregatesRefreshFailed,
 	}
 }
 

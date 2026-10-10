@@ -103,7 +103,7 @@ func TestStartRunSmoke(t *testing.T) {
 func finishActiveRun(t *testing.T, db *pg.DB) {
 	t.Helper()
 	_, err := db.Exec(`UPDATE author_metadata_run
-		SET status = 'completed', extraction_completed_at = now(), finished_at = now()
+		SET status = 'completed', extraction_completed_at = now(), finished_at = now(), seed_cursor = NULL
 		WHERE status IN ('pending', 'running', 'paused')`)
 	require.NoError(t, err)
 }
@@ -289,8 +289,16 @@ func TestStartRunFullRequiresApprovedPilot(t *testing.T) {
 		run, err := svc.StartRun(ctx, startRequest(models.AuthorMetadataRunFull))
 		require.NoError(t, err)
 		assert.Equal(t, models.AuthorMetadataRunFull, run.Mode)
+		assert.Equal(t, models.AuthorMetadataRunPending, run.Status, "the run's loop seeds it")
 		assert.Empty(t, run.SelectorBookIDs)
 		assert.Nil(t, run.SelectorArchive)
+		for {
+			_, done, err := database.SeedRunBatch(ctx, db, run.ID, 1)
+			require.NoError(t, err)
+			if done {
+				break
+			}
+		}
 		assert.Equal(t, []int64{11, 22}, runItems(t, db, run.ID))
 	})
 

@@ -897,6 +897,11 @@ func TestAuthorMetadataSourceIsImmutable(t *testing.T) {
 			"author_metadata_run_item.author_metadata_run_item_updated_at":             "update_updated_at_column()",
 			"author_metadata_run_item.author_metadata_run_item_identity": "author_metadata_reject_mutation(" +
 				"status,snapshot_id,lease_owner,lease_expires_at,attempt_count,next_attempt_at,updated_at,finished_at)",
+			// Migration 28: the item counts by status follow every statement.
+			"author_metadata_run_item.author_metadata_run_item_tally_insert":   "author_metadata_run_item_tally_count()",
+			"author_metadata_run_item.author_metadata_run_item_tally_update":   "author_metadata_run_item_tally_count()",
+			"author_metadata_run_item.author_metadata_run_item_tally_delete":   "author_metadata_run_item_tally_count()",
+			"author_metadata_run_item.author_metadata_run_item_tally_truncate": "author_metadata_run_item_tally_reset()",
 		}, got)
 	})
 }
@@ -1132,7 +1137,8 @@ func TestAuthorMetadataModelsMatchSchema(t *testing.T) {
 func TestAuthorMetadataModelEnumsMatchSchema(t *testing.T) {
 	strs := func(values ...string) []string { return values }
 	terminal := strs("extracted", "extracted_no_author", "already_current",
-		"entry_missing", "invalid_fb2", "unsupported_encoding", "metadata_parse_failed")
+		"entry_missing", "invalid_fb2", "unsupported_encoding", "metadata_parse_failed",
+		"archive_missing", "archive_unreadable")
 
 	assert.ElementsMatch(t, strs("smoke", "pilot_archive", "full"), enumStrings(models.AuthorMetadataRunModes()))
 	assert.ElementsMatch(t, strs("pending", "running", "paused", "completed", "failed_systemic"),

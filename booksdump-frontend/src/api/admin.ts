@@ -166,6 +166,8 @@ export interface AuthorMetadataExtractionByStatus {
     invalid_fb2: number;
     unsupported_encoding: number;
     metadata_parse_failed: number;
+    archive_missing: number;
+    archive_unreadable: number;
 }
 
 export interface AuthorMetadataExtractionStage {
@@ -222,6 +224,32 @@ export interface AuthorMetadataRun {
     approved_for_full: boolean;
     stages: AuthorMetadataStages;
     credits: AuthorMetadataCredits;
+    /** How far a full run's seeding is; null once it started (and for every other run). */
+    seeding: AuthorMetadataSeeding | null;
+    /** When the local, review and credit figures were computed; null before the first time. */
+    aggregates_as_of: string | null;
+}
+
+export interface AuthorMetadataSeeding {
+    seeded: number;
+    target: number;
+}
+
+/** An archive the run found missing or unreadable, with the run's books in it. */
+export interface AuthorMetadataProblemArchive {
+    archive: string;
+    books: number;
+    reason: 'archive_missing' | 'archive_unreadable';
+    /** A requested deletion of the archive's book records, while it runs; null otherwise. */
+    deletion: { deleted: number; total: number } | null;
+}
+
+/** A requested deletion of an archive's book records, worked off in the background. */
+export interface AuthorMetadataArchiveDeletion {
+    archive: string;
+    books_total: number;
+    books_deleted: number;
+    status: 'pending' | 'done';
 }
 
 export interface AuthorMetadataReport extends AuthorMetadataRun {
@@ -257,6 +285,7 @@ export const AUTHOR_METADATA_EXTRACTION_RETRY_CLASSES = [
     'transient_database',
     'archive_unreadable',
     'extraction_failed',
+    'archive_missing',
 ] as const;
 
 export const AUTHOR_METADATA_LOCAL_RETRY_CLASSES = [
@@ -310,6 +339,27 @@ export const approveAuthorMetadataFullRun = (runID: number) =>
 
 export const retryAuthorMetadataRun = (runID: number, payload: AuthorMetadataRetryPayload) =>
     http.post<{ reopened: number }>(`/admin/author-metadata/runs/${runID}/retry`, payload);
+
+export const getAuthorMetadataRunArchives = (runID: number) =>
+    http.get<{ archives: AuthorMetadataProblemArchive[] }>(
+        `/admin/author-metadata/runs/${runID}/archives`,
+    );
+
+/** Reads the run's books of one problem archive again, e.g. after the file came back. */
+export const retryAuthorMetadataArchive = (runID: number, archive: string) =>
+    http.post<{ reopened: number }>(`/admin/author-metadata/runs/${runID}/archives/retry`, {
+        archive,
+    });
+
+/**
+ * Requests the deletion of the catalogue records of the books of a problem
+ * archive; the server answers at once and deletes them in the background.
+ */
+export const deleteAuthorMetadataArchive = (runID: number, archive: string) =>
+    http.post<{ deletion: AuthorMetadataArchiveDeletion }>(
+        `/admin/author-metadata/runs/${runID}/archives/delete`,
+        { archive },
+    );
 
 // --- Author normalization: manual review ----------------------------------
 //

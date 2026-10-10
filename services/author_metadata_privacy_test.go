@@ -172,11 +172,15 @@ func (e privacyFailingExtractor) Extract(parser.ExtractBookInput) (authornorm.So
 	return authornorm.SourceMetadata{}, errCanary
 }
 
-// privacyReadSource opens archives whose entries fail to read with the
-// canary error.
+// privacyReadSource is a volume that stops reading: the archive being read
+// opens and its entries fail with the canary error, and no other archive
+// opens, so the source failure is the volume's and pauses the run.
 type privacyReadSource struct{}
 
-func (privacyReadSource) Open(context.Context, string) (ArchiveReader, error) {
+func (privacyReadSource) Open(_ context.Context, path string) (ArchiveReader, error) {
+	if filepath.Base(path) != "unread.zip" {
+		return nil, errors.New("volume gone")
+	}
 	return privacyReadArchive{}, nil
 }
 

@@ -56,6 +56,7 @@ func TestAuthorMetadataStatsReconcileWithRows(t *testing.T) {
 	assert.Equal(t, map[string]int64{
 		"extracted": 1, "metadata_parse_failed": 1, "entry_missing": 1,
 		"extracted_no_author": 0, "already_current": 0, "invalid_fb2": 0, "unsupported_encoding": 0,
+		"archive_missing": 0, "archive_unreadable": 0,
 	}, stats.Extraction.ByStatus)
 	assert.Zero(t, stats.Extraction.Pending)
 	assert.Positive(t, stats.Extraction.ItemsPerSecond)

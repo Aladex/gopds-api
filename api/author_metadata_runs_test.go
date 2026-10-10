@@ -45,6 +45,10 @@ type fakeRunService struct {
 	report   AuthorMetadataRunReport
 	reopened int64
 	err      error
+
+	archive  string
+	archives []AuthorMetadataProblemArchive
+	deletion AuthorMetadataArchiveDeletion
 }
 
 func (f *fakeRunService) record(call string, id int64) {
@@ -102,6 +106,23 @@ func (f *fakeRunService) Retry(_ context.Context, id int64, stage, errorClass st
 	return f.reopened, f.err
 }
 
+func (f *fakeRunService) Archives(_ context.Context, id int64) ([]AuthorMetadataProblemArchive, error) {
+	f.record("archives", id)
+	return f.archives, f.err
+}
+
+func (f *fakeRunService) RetryArchive(_ context.Context, id int64, archive string) (int64, error) {
+	f.record("retry-archive", id)
+	f.archive = archive
+	return f.reopened, f.err
+}
+
+func (f *fakeRunService) DeleteArchive(_ context.Context, id int64, archive string) (AuthorMetadataArchiveDeletion, error) {
+	f.record("delete-archive", id)
+	f.archive = archive
+	return f.deletion, f.err
+}
+
 func (f *fakeRunService) callList() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -156,6 +177,7 @@ func sampleRun(now time.Time) AuthorMetadataRunView {
 				ByStatus: AuthorMetadataExtractionByStatus{
 					Extracted: 50, ExtractedNoAuthor: 3, AlreadyCurrent: 2, EntryMissing: 1,
 					InvalidFB2: 1, UnsupportedEncoding: 1, MetadataParseFailed: 2,
+					ArchiveMissing: 4, ArchiveUnreadable: 5,
 				},
 				CurrentArchive: &archive, ItemsPerMinute: 12.5,
 			},
@@ -166,6 +188,7 @@ func sampleRun(now time.Time) AuthorMetadataRunView {
 			Selected: 0, Invalid: 2, Review: 9, Pending: 7,
 			Unresolved: map[string]int64{"policy_not_registered": 51, "normalizer_failed": 1},
 		},
+		AggregatesAsOf: &started,
 	}
 }
 
@@ -180,14 +203,17 @@ func sampleRunJSON(now time.Time) string {
 		"stages": {
 			"extraction": {"total": 100, "done": 60, "pending": 38, "leased": 2, "oldest_pending_age_s": 95,
 				"by_status": {"extracted": 50, "extracted_no_author": 3, "already_current": 2, "entry_missing": 1,
-					"invalid_fb2": 1, "unsupported_encoding": 1, "metadata_parse_failed": 2},
+					"invalid_fb2": 1, "unsupported_encoding": 1, "metadata_parse_failed": 2,
+					"archive_missing": 4, "archive_unreadable": 5},
 				"current_archive": "fb2-000001-000100.zip", "items_per_minute": 12.5},
 			"local": {"total": 80, "done": 70, "pending": 6, "leased": 1, "failed": 3, "oldest_pending_age_s": 40},
 			"review": {"open": 9, "closed": 4}
 		},
 		"credits": {"selected": 0, "invalid": 2, "review": 9, "pending": 7,
-			"unresolved": {"policy_not_registered": 51, "normalizer_failed": 1}}
-	}`, stamp(now.Add(-2*time.Hour)), stamp(now.Add(-time.Hour)))
+			"unresolved": {"policy_not_registered": 51, "normalizer_failed": 1}},
+		"seeding": null,
+		"aggregates_as_of": %q
+	}`, stamp(now.Add(-2*time.Hour)), stamp(now.Add(-time.Hour)), stamp(now.Add(-time.Hour)))
 }
 
 // --- RED 1: route and auth contract through the real AdminMiddleware ---
@@ -480,11 +506,13 @@ func TestAuthorMetadataRunZeroValuesKeepTheShape(t *testing.T) {
 	stage := `"stages": {
 		"extraction": {"total": 0, "done": 0, "pending": 0, "leased": 0, "oldest_pending_age_s": 0,
 			"by_status": {"extracted": 0, "extracted_no_author": 0, "already_current": 0, "entry_missing": 0,
-				"invalid_fb2": 0, "unsupported_encoding": 0, "metadata_parse_failed": 0},
+				"invalid_fb2": 0, "unsupported_encoding": 0, "metadata_parse_failed": 0,
+				"archive_missing": 0, "archive_unreadable": 0},
 			"current_archive": null, "items_per_minute": 0},
 		"local": {"total": 0, "done": 0, "pending": 0, "leased": 0, "failed": 0, "oldest_pending_age_s": 0},
 		"review": {"open": 0, "closed": 0}},
-		"credits": {"selected": 0, "invalid": 0, "review": 0, "pending": 0, "unresolved": {}}`
+		"credits": {"selected": 0, "invalid": 0, "review": 0, "pending": 0, "unresolved": {}},
+		"seeding": null, "aggregates_as_of": null`
 	run := fmt.Sprintf(`"id": 1, "mode": "smoke", "status": "pending", "extractor_version": "", "normalizer_version": "",
 		"created_at": %q, "started_at": null, "extraction_completed_at": null, "completed_at": null,
 		"last_error_class": null, "approved_for_full": false, `, now.UTC().Format(time.RFC3339Nano)) + stage
@@ -613,6 +641,7 @@ func TestRetryAuthorMetadataRunAcceptsOnlyClosedClasses(t *testing.T) {
 	extraction := []string{
 		"entry_missing", "invalid_fb2", "unsupported_encoding", "metadata_parse_failed",
 		"lease_expired", "max_attempts_exceeded", "transient_database", "archive_unreadable", "extraction_failed",
+		"archive_missing",
 	}
 	local := []string{"transient_database", "normalizer_failed", "lease_expired", "max_attempts_exceeded"}
 	accepted := map[string][]string{"extraction": extraction, "local": local}
