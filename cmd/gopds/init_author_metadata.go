@@ -39,7 +39,25 @@ func buildAuthorMetadataWorkers(
 	if err != nil {
 		return nil, fmt.Errorf("building the local normalization workers: %w", err)
 	}
-	return append(workers, local...), nil
+	workers = append(workers, local...)
+
+	// The LLM worker runs when the shared llm section and the participants
+	// allow it; otherwise, or when it cannot be built, the other workers run
+	// without it and the review queue works as it does without the LLM.
+	llmWorker, reason, err := services.NewAuthorLLMWorkerFromConfig(context.Background(), db, archivesDir, c, config.LLM())
+	switch {
+	case err != nil:
+		services.LogAuthorLLMEvent(services.AuthorMetadataEventError, &services.AuthorLLMEvent{
+			Name: services.AuthorLLMEventDisabled, SQLState: services.AuthorMetadataSQLState(err),
+		})
+	case llmWorker == nil:
+		services.LogAuthorLLMEvent(services.AuthorMetadataEventInfo, &services.AuthorLLMEvent{
+			Name: services.AuthorLLMEventDisabled, Class: reason,
+		})
+	default:
+		workers = append(workers, llmWorker)
+	}
+	return workers, nil
 }
 
 // newAuthorMetadataRunsAPI builds the admin runs service on the run service

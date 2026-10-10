@@ -165,8 +165,9 @@ type PreviewConfig struct {
 }
 
 // AuthorMetadataConfig configures the embedded author metadata workers: the
-// extraction stream (plan phase 8) and the local normalization stream (phase
-// 10). There is no LLM stream and so no LLM key, model or limit (scope A1).
+// extraction stream (plan phase 8), the local normalization stream (phase
+// 10) and the LLM stream of design K. The LLM stream has no key or endpoint
+// of its own: it uses the shared llm section.
 // Every limit has a default; zero or negative values are refused at load,
 // naming the key, so no setting can turn into an unbounded claim, a lease
 // that never expires or endless retries.
@@ -181,6 +182,9 @@ type AuthorMetadataConfig struct {
 	PollInterval       time.Duration             `mapstructure:"poll_interval" yaml:"poll_interval"`
 	Extraction         AuthorMetadataStageConfig `mapstructure:"extraction" yaml:"extraction"`
 	LocalNormalization AuthorMetadataStageConfig `mapstructure:"local_normalization" yaml:"local_normalization"`
+	// LLM is the author layer's own part of the LLM settings; the endpoint
+	// and the key are the shared llm section's.
+	LLM AuthorLLMConfig `mapstructure:"llm" yaml:"llm"`
 }
 
 // AuthorMetadataStageConfig bounds one leased stream: how many workers run
@@ -622,6 +626,7 @@ func setDefaults() {
 	viper.SetDefault("author_metadata.local_normalization.claim_size", authorMetadataLocalClaim)
 	viper.SetDefault("author_metadata.local_normalization.lease", authorMetadataLocalLease)
 	viper.SetDefault("author_metadata.local_normalization.max_attempts", authorMetadataStageMaxAttempts)
+	setAuthorLLMDefaults()
 
 	// The book list's author line stays on the legacy catalog until the
 	// operator switches it.
@@ -718,10 +723,20 @@ func (c *AuthorMetadataConfig) validate() error {
 	limits = append(limits, c.LocalNormalization.limits("author_metadata.local_normalization.")...)
 	for _, l := range limits {
 		if l.value <= 0 {
-			return fmt.Errorf("%s must be positive, got %d", l.key, l.value)
+			return limitError(l.key, l.value)
 		}
 	}
-	return nil
+	return c.LLM.validate()
+}
+
+// limitError reports a non-positive limit by its key.
+func limitError(key string, value int64) error {
+	return fmt.Errorf("%s must be positive, got %d", key, value)
+}
+
+// rangeError reports a setting outside its allowed range by its key.
+func rangeError(key, allowed string) error {
+	return fmt.Errorf("%s must be %s", key, allowed)
 }
 
 func (s *AuthorMetadataStageConfig) limits(prefix string) []configLimit {

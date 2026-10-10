@@ -303,6 +303,7 @@ func TestLoadAuthorMetadataDefaults(t *testing.T) {
 		LocalNormalization: AuthorMetadataStageConfig{
 			Concurrency: 1, ClaimSize: 100, Lease: time.Minute, MaxAttempts: 5,
 		},
+		LLM: DefaultAuthorLLMConfig(),
 	}
 	if !reflect.DeepEqual(cfg.AuthorMetadata, want) {
 		t.Errorf("AuthorMetadata = %+v, want %+v", cfg.AuthorMetadata, want)

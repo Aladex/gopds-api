@@ -31,6 +31,9 @@ const messageRoleUser = "user"
 type Client struct {
 	cfg        config.LLMConfig
 	httpClient *http.Client
+	// structuredHTTP serves CompleteStructured: no client-wide timeout, each
+	// structured request carries its own.
+	structuredHTTP *http.Client
 }
 
 // NewClient builds the shared client from the llm configuration section. A
@@ -40,8 +43,9 @@ func NewClient(cfg config.LLMConfig) *Client {
 		cfg.Model = config.LLMDefaultModel
 	}
 	return &Client{
-		cfg:        cfg,
-		httpClient: &http.Client{Timeout: cfg.Timeout},
+		cfg:            cfg,
+		httpClient:     &http.Client{Timeout: cfg.Timeout},
+		structuredHTTP: &http.Client{},
 	}
 }
 

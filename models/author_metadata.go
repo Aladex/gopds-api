@@ -451,6 +451,9 @@ type AuthorAcceptanceClass struct {
 	Source               string    `pg:"source"`
 	RegisteredByUserID   *int64    `pg:"registered_by_user_id"`
 	RegisteredAt         time.Time `pg:"registered_at,default:now()"`
+	// EvidenceReportID is the eval report an llm_eval registration rests on
+	// (migration 29); nil for the shipped and admin sources.
+	EvidenceReportID *int64 `pg:"evidence_report_id"`
 }
 
 // ContributorNormalizationResult is the immutable lexical result for one

@@ -1,0 +1,454 @@
+{
+ "choices": [
+  {
+   "finish_reason": "tool_calls",
+   "index": 0,
+   "logprobs": null,
+   "message": {
+    "content": "",
+    "reasoning_content": "(reasoning omitted from the fixture)",
+    "role": "assistant",
+    "tool_calls": [
+     {
+      "function": {
+       "arguments": "",
+       "name": "submit_roles"
+      },
+      "id": "call_00_ME6PtVTkGgQ2R3ujs1bS9140",
+      "index": 0,
+      "type": "function"
+     },
+     {
+      "function": {
+       "arguments": "{",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "\"",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "form",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "\"",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": ": ",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "\"",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "person",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "\"",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": ", ",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "\"",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "order",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "\"",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": ": ",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "\"",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "family",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "_first",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "\"",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": ", ",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "\"",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "roles",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "\"",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": ": ",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "[",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "{\"",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "i",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "\":",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": " ",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "0",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": ",",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": " \"",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "role",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "\":",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": " \"",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "family",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "\"},",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": " {\"",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "i",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "\":",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": " ",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "1",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": ",",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": " \"",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "role",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "\":",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": " \"",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "given",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "\"",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "}]",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": ", ",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "\"",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "case",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "_f",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "ix",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "\"",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": ": ",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "[]",
+       "name": ""
+      },
+      "index": 0
+     },
+     {
+      "function": {
+       "arguments": "}",
+       "name": ""
+      },
+      "index": 0
+     }
+    ]
+   }
+  }
+ ],
+ "id": "cmb-a9b2374dc48a11f1a206d6fb9ca75d76",
+ "model": "deepseek-v4-pro-0813",
+ "object": "chat.completion",
+ "usage": {
+  "cache_creation_input_tokens": 0,
+  "cache_read_input_tokens": 0,
+  "cached_tokens": 0,
+  "completion_thinking_tokens": 312,
+  "completion_tokens": 427,
+  "completion_tokens_details": {
+   "accepted_prediction_tokens": 0,
+   "audio_tokens": 0,
+   "cached_tokens": 0,
+   "reasoning_tokens": 312,
+   "rejected_prediction_tokens": 0
+  },
+  "credit": 0.04,
+  "prompt_cache_hit_tokens": 0,
+  "prompt_cache_miss_tokens": 1001,
+  "prompt_cache_write_tokens": 0,
+  "prompt_tokens": 1001,
+  "prompt_tokens_details": {
+   "accepted_prediction_tokens": 0,
+   "audio_tokens": 0,
+   "cached_tokens": 0,
+   "reasoning_tokens": 0,
+   "rejected_prediction_tokens": 0
+  },
+  "total_tokens": 1428
+ }
+}

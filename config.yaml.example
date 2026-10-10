@@ -60,6 +60,37 @@ redis:
 #     claim_size: 100
 #     lease: 1m
 #     max_attempts: 5
+#   # The LLM stream: author names the local normalizer could not decide go
+#   # to four models through the shared llm section below (its endpoint and
+#   # key). Names and short book excerpts leave the installation for that
+#   # endpoint. The stream is off when the llm section allows no requests or
+#   # when the four models are not four distinct ids. Changing the endpoint,
+#   # a model or its parameters is a new configuration that needs a new
+#   # quality check; the key is not part of it.
+#   llm:
+#     models:
+#       production_a: gpt-6-luna
+#       production_b: deepseek-v4-pro
+#       judge_a: gpt-6-sol
+#       judge_b: claude-opus-5
+#     params:                       # optional, per participant
+#       judge_a: { reasoning_effort: high }
+#       judge_b: { temperature: 1 }
+#     items_per_request: 1          # names per request, 1..20
+#     request_timeout: 120s         # one-name call; each further name adds
+#     request_timeout_per_item: 30s
+#     concurrency_start: 4          # per model, grows to concurrency_max
+#     concurrency_max: 16
+#     concurrency_total: 32         # all models together, every replica
+#     max_attempts: 5
+#     fingerprint_every: 500        # answers between two model checks
+#     max_output:                   # output ceiling every request carries,
+#       per_call_tokens: 1000       # reasoning included; with the request's
+#       per_item_tokens: 3000       # byte bound it is the reserve of a call
+#     output_limit_field: max_completion_tokens  # or max_tokens
+#     budget:                       # runaway guard, in tokens
+#       one_off_tokens: 900000000   # every run together
+#       run_overrun: 1.5            # pause a run at 1.5x its own estimate
 
 # Where the book list's author line comes from: "legacy" (the default) keeps
 # the catalogue authors; "layer" sends each listed book an authors_display

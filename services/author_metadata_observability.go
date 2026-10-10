@@ -249,10 +249,11 @@ func closedEventName(name AuthorMetadataEventName) AuthorMetadataEventName {
 }
 
 // closedWorkerLabel accepts the labels the runner's stages carry: the
-// extraction stage's and the acceptance pass's own labels, and a local
-// normalization loop's label with its index.
+// extraction stage's, the acceptance pass's and the LLM worker's own labels,
+// and a local normalization loop's label with its index.
 func closedWorkerLabel(label string) string {
-	if label == string(AuthorMetadataStageExtraction) || label == string(AuthorMetadataStageAcceptance) {
+	if label == string(AuthorMetadataStageExtraction) || label == string(AuthorMetadataStageAcceptance) ||
+		label == authorLLMWorkerName {
 		return label
 	}
 	index, ok := strings.CutPrefix(label, string(AuthorMetadataStageLocalNormalization)+"-")
