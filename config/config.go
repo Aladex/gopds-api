@@ -30,6 +30,7 @@ type Config struct {
 	Preview            PreviewConfig  `mapstructure:"preview" yaml:"preview"`
 
 	AuthorMetadata AuthorMetadataConfig `mapstructure:"author_metadata" yaml:"author_metadata"`
+	Authors        AuthorsConfig        `mapstructure:"authors" yaml:"authors"`
 
 	// Donate is deliberately a list rather than a fixed set of fields: which
 	// ways of giving are offered is the operator's business, not this
@@ -398,6 +399,36 @@ const (
 	PreviewMaxPreparedImageBytes = 48 << 20 // 48 MiB
 )
 
+// Where the book list's author line comes from.
+const (
+	// AuthorsDisplayLegacy keeps the line on the catalog's legacy authors:
+	// the list carries no author line of its own.
+	AuthorsDisplayLegacy = "legacy"
+	// AuthorsDisplayLayer reads the line from the author layer.
+	AuthorsDisplayLayer = "layer"
+)
+
+// AuthorsConfig switches what readers are shown of a book's authors.
+type AuthorsConfig struct {
+	// DisplaySource is AuthorsDisplayLegacy or AuthorsDisplayLayer.
+	DisplaySource string `mapstructure:"display_source" yaml:"display_source"`
+}
+
+// DisplayFromLayer reports whether the book list shows the author line from
+// the author layer.
+func (c AuthorsConfig) DisplayFromLayer() bool {
+	return c.DisplaySource == AuthorsDisplayLayer
+}
+
+func (c AuthorsConfig) validate() error {
+	switch c.DisplaySource {
+	case AuthorsDisplayLegacy, AuthorsDisplayLayer:
+		return nil
+	}
+	return fmt.Errorf("authors.display_source must be %q or %q, got %q",
+		AuthorsDisplayLegacy, AuthorsDisplayLayer, c.DisplaySource)
+}
+
 // setDefaults sets default configuration values
 func setDefaults() {
 	// Server defaults
@@ -462,6 +493,10 @@ func setDefaults() {
 	viper.SetDefault("author_metadata.local_normalization.lease", authorMetadataLocalLease)
 	viper.SetDefault("author_metadata.local_normalization.max_attempts", authorMetadataStageMaxAttempts)
 
+	// The book list's author line stays on the legacy catalog until the
+	// operator switches it.
+	viper.SetDefault("authors.display_source", AuthorsDisplayLegacy)
+
 	// App defaults
 	viper.SetDefault("app.devel_mode", false)
 	viper.SetDefault("app.files_path", "./files/")
@@ -500,6 +535,9 @@ func validateConfig(cfg *Config) error {
 	}
 
 	if err := cfg.AuthorMetadata.validate(); err != nil {
+		return err
+	}
+	if err := cfg.Authors.validate(); err != nil {
 		return err
 	}
 

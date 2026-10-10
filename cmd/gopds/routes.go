@@ -20,7 +20,8 @@ import (
 
 // setupRoutes defines all route handlers and groups them by their functionality.
 // It includes routes for Swagger UI, file handling, default operations, OPDS feed, API, admin, and Telegram bot interactions.
-func setupRoutes(route *gin.Engine, donate []config.DonateMethod, search services.PublicSearch, db pg.DBI) {
+// authorLines switches the book list's author line on.
+func setupRoutes(route *gin.Engine, donate []config.DonateMethod, search services.PublicSearch, db pg.DBI, authorLines bool) {
 	route.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	setupFileRoutes(route.Group("/files", middlewares.AuthMiddleware()))
 	setupFileRoutes(route.Group("/api/files", middlewares.AuthMiddleware()))
@@ -31,7 +32,7 @@ func setupRoutes(route *gin.Engine, donate []config.DonateMethod, search service
 	// WebSocket: Origin check BEFORE auth, so evil origins get 403 not 401
 	route.GET("/api/ws", api.OriginCheckMiddleware(), middlewares.AuthMiddleware(), api.UnifiedWebSocketHandler)
 	// Add authenticated API routes with CSRF protection for state-changing operations
-	setupApiRoutes(route.Group("/api", middlewares.AuthMiddleware()), search, db)
+	setupApiRoutes(route.Group("/api", middlewares.AuthMiddleware()), search, db, authorLines)
 	setupLogoutRoutes(route.Group("/api", middlewares.AuthMiddleware()))
 	// Add Telegram webhook routes (public, no auth required)
 	setupTelegramWebhookRoutes(route.Group("/telegram"))
@@ -120,13 +121,16 @@ func setupLogoutRoutes(group *gin.RouterGroup) {
 }
 
 // setupApiRoutes configures API routes for book operations and other functionalities.
-// The book list reads the card's publisher and ISBN from the source layer on db.
-func setupApiRoutes(group *gin.RouterGroup, search services.PublicSearch, db pg.DBI) {
+// The book list reads the card's publisher and ISBN from the source layer on db,
+// and the author line too when authorLines is on.
+func setupApiRoutes(group *gin.RouterGroup, search services.PublicSearch, db pg.DBI, authorLines bool) {
 	booksGroup := group.Group("/books")
-	api.SetupBookRoutes(booksGroup, &api.SearchHandler{
-		Search:  search,
-		Sources: database.NewPGBookSourceRepository(db),
-	})
+	sources := database.NewPGBookSourceRepository(db)
+	books := &api.SearchHandler{Search: search, Sources: sources}
+	if authorLines {
+		books.AuthorLines = sources
+	}
+	api.SetupBookRoutes(booksGroup, books)
 	// Preview routes are registered separately: they need the service, and
 	// widening SetupBookRoutes to carry it would make every caller — tests
 	// included — supply a dependency none of the other routes use.

@@ -324,8 +324,8 @@ func (s *BookScanService) processBook(zipFile *zip.File, archiveName string) (bo
 	if len(parsedBook.Authors) == 0 {
 		parsedBook.Authors = []parser.Author{
 			{
-				Name:    "Автор неизвестен",
-				Sortkey: "Автор неизвестен",
+				Name:    models.UnknownAuthorName,
+				Sortkey: models.UnknownAuthorName,
 			},
 		}
 	}

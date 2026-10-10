@@ -445,6 +445,13 @@ func normalizeWhitespace(value string) string {
 	return strings.Join(parts, " ")
 }
 
+// NormalizeNameCase is the rule the scan applies to each name part it reads:
+// a part written mostly in capitals is title-cased word by word, keeping
+// short abbreviations and Roman numerals; anything else is left as written.
+func NormalizeNameCase(value string) string {
+	return normalizeNameCase(value)
+}
+
 func normalizeNameCase(value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {

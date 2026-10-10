@@ -29,6 +29,7 @@ func SetupAdminRoutes(r *gin.RouterGroup) {
 	r.GET("/authors/search", SearchAuthors)
 	r.GET("/series/search", SearchSeries)
 	r.GET("/books/lookup", LookupBooksByIDs)
+	r.GET("/authors/display-report", AuthorDisplayReport)
 
 	// Book rescan routes
 	r.POST("/books/:id/rescan", RescanBookPreview)

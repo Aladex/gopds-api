@@ -29,6 +29,9 @@ type ListedBook struct {
 	models.Book
 	Publisher *string  `json:"publisher"`
 	ISBN      []string `json:"isbn"`
+	// AuthorsDisplay is the book's author line, present only while the
+	// author line is switched on.
+	AuthorsDisplay []models.AuthorDisplay `json:"authors_display,omitempty"`
 }
 
 // langsAnswer struct for languages list response

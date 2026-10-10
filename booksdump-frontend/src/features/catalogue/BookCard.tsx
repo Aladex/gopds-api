@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { BookOpen, Check, ChevronDown, Pencil, RefreshCw, Star } from 'lucide-react';
 
-import type { Book } from '@/api/books';
+import type { AuthorDisplay, Book } from '@/api/books';
 import { Button } from '@/shared/ui/button';
 import { BouncingDots } from '@/shared/ui/bouncing-dots';
 import { Expandable } from '@/shared/ui/expandable';
@@ -80,15 +80,27 @@ const MetaRow: React.FC<React.PropsWithChildren<{ label: string; open: boolean }
 
 /** MetaItem is one value in such a row: where it goes, and what to forget first. */
 const MetaItem: React.FC<
-    React.PropsWithChildren<{ first: boolean; to: string; onGo: () => void }>
+    React.PropsWithChildren<{ first: boolean; to?: string; onGo?: () => void }>
 > = ({ first, to, onGo, children }) => (
     <>
         {!first && <span className="mx-1.5 text-muted-foreground">·</span>}
-        <Link to={to} onClick={onGo} className="border-b border-border hover:border-current">
-            {children}
-        </Link>
+        {to ? (
+            <Link to={to} onClick={onGo} className="border-b border-border hover:border-current">
+                {children}
+            </Link>
+        ) : (
+            <span>{children}</span>
+        )}
     </>
 );
+
+/**
+ * authorLine is what the authors row shows: the book's author line when the
+ * list sends one, or else the catalogue authors, every one of them a link.
+ */
+const authorLine = (book: Book): AuthorDisplay[] =>
+    book.authors_display ??
+    (book.authors ?? []).map((author) => ({ name: author.full_name, legacy_author_id: author.id }));
 
 export interface BookCardProps {
     book: Book;
@@ -161,7 +173,7 @@ const BookCard: React.FC<BookCardProps> = ({
     // A code the interface cannot name is not shown at all: "zxx" tells a
     // reader less than the empty space where it would have gone.
     const bookLanguage = getLanguageDisplaySafe(book.lang);
-    const authors = book.authors ?? [];
+    const authors = authorLine(book);
 
     const cover = `${API_URL}/books-posters/${coverPath(book.path)}/${coverPath(book.filename)}.jpg`;
 
@@ -267,22 +279,32 @@ const BookCard: React.FC<BookCardProps> = ({
                 >
                     {authors.length > 0 && (
                         <MetaRow label={t('authors')} open={open}>
-                            {authors.map((author, index) => (
-                                <MetaItem
-                                    key={author.id}
-                                    first={index === 0}
-                                    to={`/books/find/author/${author.id}/1`}
-                                    onGo={() => {
-                                        leaveScope();
-                                        // The name is on screen already, so the
-                                        // search panel need not fetch it to say
-                                        // whose books it is scoped to.
-                                        setAuthorName(author.full_name);
-                                    }}
-                                >
-                                    {author.full_name}
-                                </MetaItem>
-                            ))}
+                            {authors.map((author, index) => {
+                                const id = author.legacy_author_id;
+                                return (
+                                    <MetaItem
+                                        // Two credits may share a name, and an
+                                        // unlinked one has no ID: the place in
+                                        // the line is the only stable key.
+                                        key={index}
+                                        first={index === 0}
+                                        to={
+                                            id === undefined
+                                                ? undefined
+                                                : `/books/find/author/${id}/1`
+                                        }
+                                        onGo={() => {
+                                            leaveScope();
+                                            // The name is on screen already, so the
+                                            // search panel need not fetch it to say
+                                            // whose books it is scoped to.
+                                            setAuthorName(author.name);
+                                        }}
+                                    >
+                                        {author.name}
+                                    </MetaItem>
+                                );
+                            })}
                         </MetaRow>
                     )}
 

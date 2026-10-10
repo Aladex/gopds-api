@@ -58,6 +58,20 @@ export interface Book {
      */
     publisher?: string | null;
     isbn?: string[];
+    /**
+     * The book's author line, sent only while the server shows authors from
+     * the author layer: the names in the file's order, each with the
+     * catalogue author it links to when there is one. Absent, the card shows
+     * `authors`.
+     */
+    authors_display?: AuthorDisplay[];
+}
+
+/** One name of a book's author line. */
+export interface AuthorDisplay {
+    name: string;
+    /** The catalogue author the name links to; absent when it is none of them. */
+    legacy_author_id?: number;
 }
 
 export interface BooksPage {

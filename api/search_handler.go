@@ -27,6 +27,15 @@ type SearchHandler struct {
 	// from each listed book's current metadata snapshot. Without it every
 	// book is listed with neither.
 	Sources BookSourceLookup
+	// AuthorLines supplies each listed book's author line. It is set only when
+	// the author line is switched on; without it no book carries one.
+	AuthorLines AuthorDisplayLookup
+}
+
+// AuthorDisplayLookup reads the author line of a page of books in one call;
+// every requested book has an entry.
+type AuthorDisplayLookup interface {
+	BookAuthorDisplay(ctx context.Context, bookIDs []int64) (map[int64]models.BookAuthorDisplay, error)
 }
 
 // BookSourceLookup reads the book card's source-layer fields for a page of
@@ -36,18 +45,27 @@ type BookSourceLookup interface {
 }
 
 // listedBooks pairs each book of a page with its publisher and ISBN list,
-// asking the source layer once for the whole page. The result is never nil,
-// so an empty page serializes as [], and neither is any ISBN list.
+// and with its author line when that is switched on, asking each lookup once
+// for the whole page. The result is never nil, so an empty page serializes as
+// [], and neither is any ISBN list.
 func (h *SearchHandler) listedBooks(ctx context.Context, books []models.Book) ([]ListedBook, error) {
 	var details map[int64]models.BookSourceDetail
-	if h.Sources != nil && len(books) > 0 {
+	var lines map[int64]models.BookAuthorDisplay
+	if len(books) > 0 && (h.Sources != nil || h.AuthorLines != nil) {
 		ids := make([]int64, len(books))
 		for i := range books {
 			ids[i] = books[i].ID
 		}
 		var err error
-		if details, err = h.Sources.BookSourceDetails(ctx, ids); err != nil {
-			return nil, err
+		if h.Sources != nil {
+			if details, err = h.Sources.BookSourceDetails(ctx, ids); err != nil {
+				return nil, err
+			}
+		}
+		if h.AuthorLines != nil {
+			if lines, err = h.AuthorLines.BookAuthorDisplay(ctx, ids); err != nil {
+				return nil, err
+			}
 		}
 	}
 	out := make([]ListedBook, len(books))
@@ -58,8 +76,25 @@ func (h *SearchHandler) listedBooks(ctx context.Context, books []models.Book) ([
 			isbn = []string{}
 		}
 		out[i] = ListedBook{Book: books[i], Publisher: detail.Publisher, ISBN: isbn}
+		if h.AuthorLines != nil {
+			out[i].AuthorsDisplay = authorLineOf(&books[i], lines)
+		}
 	}
 	return out, nil
+}
+
+// authorLineOf is the book's line from the lookup, or its legacy authors
+// when the lookup has none for it.
+func authorLineOf(book *models.Book, lines map[int64]models.BookAuthorDisplay) []models.AuthorDisplay {
+	if line, ok := lines[book.ID]; ok {
+		return line.Authors
+	}
+	authors := make([]models.AuthorDisplay, len(book.Authors))
+	for i, a := range book.Authors {
+		id := a.ID
+		authors[i] = models.AuthorDisplay{Name: a.FullName, LegacyAuthorID: &id}
+	}
+	return authors
 }
 
 // bookListQuery is the list endpoint's query string: the long-standing list

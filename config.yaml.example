@@ -61,6 +61,12 @@ redis:
 #     lease: 1m
 #     max_attempts: 5
 
+# Where the book list's author line comes from: "legacy" (the default) keeps
+# the catalogue authors; "layer" sends each listed book an authors_display
+# line read from the author metadata layer, in the file's order.
+# authors:
+#   display_source: legacy
+
 sessions:
   key: randomSessionKey12345
   refresh: randomRefreshKey12345

@@ -419,3 +419,53 @@ func TestLoadDatabaseAutoMigrate(t *testing.T) {
 		})
 	}
 }
+
+// Where the book list's author line comes from: the legacy catalog until
+// the operator switches it to the author layer, through the file or
+// GOPDS_AUTHORS_DISPLAY_SOURCE; any other value is refused at load, by key.
+func TestLoadAuthorsDisplaySource(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		file string
+		env  map[string]string
+		want string
+	}{
+		{name: "default", want: AuthorsDisplayLegacy},
+		{name: "file", file: "authors:\n  display_source: layer\n", want: AuthorsDisplayLayer},
+		{name: "env over file", file: "authors:\n  display_source: layer\n",
+			env: map[string]string{"GOPDS_AUTHORS_DISPLAY_SOURCE": "legacy"}, want: AuthorsDisplayLegacy},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			isolate(t)
+			setEnv(t, requiredEnv)
+			setEnv(t, tc.env)
+			if tc.file != "" {
+				writeConfigFile(t, tc.file)
+			}
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() = %v, want nil", err)
+			}
+			if cfg.Authors.DisplaySource != tc.want {
+				t.Errorf("Authors.DisplaySource = %q, want %q", cfg.Authors.DisplaySource, tc.want)
+			}
+			if cfg.Authors.DisplayFromLayer() != (tc.want == AuthorsDisplayLayer) {
+				t.Errorf("DisplayFromLayer() = %v for %q", cfg.Authors.DisplayFromLayer(), tc.want)
+			}
+		})
+	}
+
+	for _, value := range []string{"Layer", "both", " "} {
+		t.Run("refuses "+value, func(t *testing.T) {
+			isolate(t)
+			setEnv(t, requiredEnv)
+			setEnv(t, map[string]string{"GOPDS_AUTHORS_DISPLAY_SOURCE": value})
+
+			_, err := Load()
+			if err == nil || !strings.Contains(err.Error(), "authors.display_source") {
+				t.Fatalf("Load() = %v, want an error naming authors.display_source", err)
+			}
+		})
+	}
+}
