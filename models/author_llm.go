@@ -138,6 +138,9 @@ const (
 	// call's hard bound — it ignored the output ceiling, or its tokenizer is
 	// not byte-level. The budget's assumptions no longer hold for it.
 	AuthorLLMPausedOverReserve AuthorLLMPauseReason = "over_reserve"
+	// AuthorLLMPausedRelearnUnstable: a drifted participant's re-learn did not
+	// settle (its calls disagreed, or no output mode worked) — migration 35.
+	AuthorLLMPausedRelearnUnstable AuthorLLMPauseReason = "relearn_unstable"
 	// AuthorLLMPausedQuotaExhausted pauses the endpoint, not a participant:
 	// every configuration calling it.
 	AuthorLLMPausedQuotaExhausted AuthorLLMPauseReason = "quota_exhausted"

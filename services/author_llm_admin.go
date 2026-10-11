@@ -549,7 +549,23 @@ func (a *AuthorLLMAdmin) ResumeParticipant(ctx context.Context, slot string) err
 	if !llmreq.Slot(slot).Valid() {
 		return ErrAuthorLLMInvalidSlot
 	}
-	return database.ResumeAuthorLLMParticipant(ctx, a.db, a.version, llmreq.Slot(slot))
+	reasoning := false
+	for _, p := range authorLLMParticipants(&a.settings) {
+		if p.Slot == llmreq.Slot(slot) {
+			reasoning = p.ReasoningEffort != ""
+		}
+	}
+	started, err := database.ResumeAuthorLLMParticipantRelearning(ctx, a.db, &database.AuthorLLMResume{
+		ConfigVersion: a.version, Slot: llmreq.Slot(slot), Repeats: DefaultAuthorLLMEvalSizes().FingerprintRepeats,
+		Reasoning: reasoning})
+	if err != nil {
+		return err
+	}
+	if started {
+		LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{Name: AuthorMetadataEventLLMRelearnStarted,
+			Stage: AuthorMetadataStageRunner})
+	}
+	return nil
 }
 
 // ResumeEndpoint lifts the endpoint's pause.

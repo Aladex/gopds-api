@@ -406,8 +406,9 @@ func TestAuthorLLMNegotiatedPeriodicCheckAfterThresholdAndRestart(t *testing.T) 
 	}
 }
 
-// 7 (N1). An explicit start of a new eval lifts the participants' bad_request
-// pauses of the current configuration — only those — once.
+// 7 (N1). An explicit start of a new eval lifts the participants' run-bound
+// pauses of the current configuration — bad_request, and since the drift
+// re-learn also drift — only those, once.
 func TestAuthorLLMNewEvalClearsOnlyPreviousBadRequestPause(t *testing.T) {
 	e := newLLMEnv(t)
 	ctx := context.Background()
@@ -439,7 +440,9 @@ func TestAuthorLLMNewEvalClearsOnlyPreviousBadRequestPause(t *testing.T) {
 	a := e.state("production_a")
 	assert.Nil(t, a.PausedReason, "the previous bad_request pause stays")
 	assert.Nil(t, a.PausedAt)
-	for slot, reason := range map[string]string{"production_b": "auth", "judge_a": "drift", "judge_b": "model_mismatch"} {
+	// A drift is the old run's too: the new run learns its own fingerprints.
+	assert.Nil(t, e.state("judge_a").PausedReason, "the previous drift pause stays")
+	for slot, reason := range map[string]string{"production_b": "auth", "judge_b": "model_mismatch"} {
 		st := e.state(llmreq.Slot(slot))
 		require.NotNil(t, st.PausedReason, slot)
 		assert.Equal(t, reason, *st.PausedReason, slot)
@@ -451,7 +454,7 @@ func TestAuthorLLMNewEvalClearsOnlyPreviousBadRequestPause(t *testing.T) {
 	logged := false
 	for _, entry := range hook.AllEntries() {
 		if entry.Message == string(services.AuthorMetadataEventLLMParticipantsResumed) &&
-			entry.Data["run_id"] == run.ID && entry.Data["count"] == 1 {
+			entry.Data["run_id"] == run.ID && entry.Data["count"] == 2 {
 			logged = true
 		}
 	}

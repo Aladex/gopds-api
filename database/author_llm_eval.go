@@ -622,13 +622,10 @@ func StartAuthorLLMEvalRun(
 			RETURNING id`, mode, version, string(settings), createdBy); insertErr != nil {
 			return insertErr
 		}
-		res, resumeErr := tx.ExecContext(ctx, `
-			UPDATE author_llm_provider_state SET paused_reason = NULL, paused_at = NULL
-			WHERE config_version = ?0 AND paused_reason = ?1`, version, string(models.AuthorLLMPausedBadRequest))
-		if resumeErr != nil {
-			return fmt.Errorf("lifting the bad_request pauses: %w", resumeErr)
+		resumed, err = liftRunBoundPauses(ctx, tx, version)
+		if err != nil {
+			return err
 		}
-		resumed = res.RowsAffected()
 		return nil
 	})
 	if err != nil {
@@ -638,4 +635,33 @@ func StartAuthorLLMEvalRun(
 		return 0, 0, fmt.Errorf("creating an eval run: %w", err)
 	}
 	return id, resumed, nil
+}
+
+// liftRunBoundPauses lifts the participant pauses a new run does not inherit:
+// a rejected request format (the eval negotiates the mode again), and a
+// drift or an unsettled re-learn (the run checks or learns its own
+// fingerprints).
+func liftRunBoundPauses(ctx context.Context, tx *pg.Tx, version string) (int, error) {
+	res, err := tx.ExecContext(ctx, `
+		UPDATE author_llm_provider_state SET paused_reason = NULL, paused_at = NULL
+		WHERE config_version = ?0 AND paused_reason IN (?1)`, version, pg.In([]string{
+		string(models.AuthorLLMPausedBadRequest), string(models.AuthorLLMPausedDrift),
+		string(models.AuthorLLMPausedRelearnUnstable)}))
+	if err != nil {
+		return 0, fmt.Errorf("lifting the run-bound pauses: %w", err)
+	}
+	return res.RowsAffected(), nil
+}
+
+// AuthorLLMEvalRunWaits counts what an eval run's stage waits for besides
+// its own jobs: any job of the run not finished (a re-learned participant's
+// re-asked answers of an earlier stage), and any re-learn still running.
+func AuthorLLMEvalRunWaits(ctx context.Context, db pg.DBI, runID int64) (int, error) {
+	var n int
+	if _, err := db.QueryOneContext(ctx, pg.Scan(&n), `
+		SELECT (SELECT count(*) FROM author_llm_job WHERE run_id = ?0 AND status IN ('pending', 'claimed'))
+			+ (SELECT count(*) FROM author_llm_relearn WHERE run_id = ?0 AND status = 'relearning')`, runID); err != nil {
+		return 0, fmt.Errorf("counting what an eval run waits for: %w", err)
+	}
+	return n, nil
 }

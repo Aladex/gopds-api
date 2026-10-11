@@ -99,6 +99,9 @@ const (
 	// AuthorMetadataEventLLMResolveApplyFailed: one verdict could not be
 	// applied (ItemID is the verdict); its credits were left as they were.
 	AuthorMetadataEventLLMResolveApplyFailed AuthorMetadataEventName = "author_metadata.llm_resolve_apply_failed"
+	// AuthorMetadataEventLLMRelearnStarted: a drifted participant's resume
+	// started re-learning its fingerprint in the active run.
+	AuthorMetadataEventLLMRelearnStarted AuthorMetadataEventName = "author_metadata.llm_relearn_started"
 )
 
 // AuthorMetadataEventNames lists every event.
@@ -124,7 +127,7 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventLLMEvalItemSkipped, AuthorMetadataEventLLMEvalRunFailed, AuthorMetadataEventLLMAdminNotWired,
 		AuthorMetadataEventLLMRunClosed, AuthorMetadataEventLLMItemPanic,
 		AuthorMetadataEventLLMParticipantsResumed, AuthorMetadataEventLLMResolveStarted,
-		AuthorMetadataEventLLMResolveApplyFailed,
+		AuthorMetadataEventLLMResolveApplyFailed, AuthorMetadataEventLLMRelearnStarted,
 	}
 }
 

@@ -213,13 +213,23 @@ func (d *AuthorLLMResolveDriver) running(ctx context.Context) (*resolveRun, erro
 	if row.Stage != nil {
 		run.Stage = *row.Stage
 	}
-	if err := json.Unmarshal(row.Settings, &run.Plan); err != nil {
+	if err = json.Unmarshal(row.Settings, &run.Plan); err != nil {
 		return nil, fmt.Errorf("reading a resolve run's plan: %w", err)
 	}
 	if len(row.Reference) > 0 {
-		if err := json.Unmarshal(row.Reference, &run.Reference); err != nil {
+		if err = json.Unmarshal(row.Reference, &run.Reference); err != nil {
 			return nil, fmt.Errorf("reading a resolve run's reference: %w", err)
 		}
+	}
+	learned, err := database.AuthorLLMLearnedReferences(ctx, d.db, run.ID)
+	if err != nil {
+		return nil, err
+	}
+	for slot, ref := range learned {
+		if run.Reference == nil {
+			run.Reference = map[string]database.AuthorLLMFingerprintReference{}
+		}
+		run.Reference[slot] = ref
 	}
 	return run, nil
 }
@@ -550,6 +560,9 @@ type AuthorLLMResolveReportDoc struct {
 	NotRegistrable []string                          `json:"not_registrable"`
 	Skipped        map[string]int                    `json:"skipped"`
 	Tokens         map[string]int64                  `json:"tokens"`
+	// FingerprintRelearns is the history of the participants re-learned
+	// after a drift during the run.
+	FingerprintRelearns []database.AuthorLLMRelearnRecord `json:"fingerprint_relearns"`
 }
 
 // AuthorLLMResolveCount is one stratum's line of the report.
@@ -590,6 +603,12 @@ func (d *AuthorLLMResolveDriver) report(ctx context.Context, run *resolveRun) er
 	}
 	if doc.Tokens, err = database.AuthorLLMTokensBySlot(ctx, d.db, run.ID); err != nil {
 		return err
+	}
+	if doc.FingerprintRelearns, err = database.AuthorLLMRelearns(ctx, d.db, run.ID); err != nil {
+		return err
+	}
+	if doc.FingerprintRelearns == nil {
+		doc.FingerprintRelearns = []database.AuthorLLMRelearnRecord{}
 	}
 	raw, err := json.Marshal(doc)
 	if err != nil {

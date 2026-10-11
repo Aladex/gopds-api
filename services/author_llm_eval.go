@@ -283,6 +283,16 @@ func (d *AuthorLLMEvalDriver) runningEval(ctx context.Context) (*evalRun, error)
 			return nil, fmt.Errorf("reading an eval run's reference: %w", err)
 		}
 	}
+	learned, err := database.AuthorLLMLearnedReferences(ctx, d.db, run.ID)
+	if err != nil {
+		return nil, err
+	}
+	for slot, ref := range learned {
+		if run.Reference == nil {
+			run.Reference = map[string]database.AuthorLLMFingerprintReference{}
+		}
+		run.Reference[slot] = ref
+	}
 	return run, nil
 }
 
@@ -437,7 +447,7 @@ func (d *AuthorLLMEvalDriver) awaitStage(
 			return false, err
 		}
 	}
-	left, err := database.AuthorLLMEvalUnfinished(ctx, d.db, run.ID, purpose)
+	left, err := database.AuthorLLMEvalRunWaits(ctx, d.db, run.ID)
 	return err == nil && left == 0, err
 }
 
@@ -952,7 +962,10 @@ type authorLLMEvalReportDoc struct {
 	Skipped      []evalSkipped                    `json:"skipped"`
 	FailedJobs   []evalFailedJob                  `json:"failed_jobs"`
 	Fingerprints []llmeval.ParticipantFingerprint `json:"fingerprints"`
-	Evaluation   llmeval.Report                   `json:"evaluation"`
+	// FingerprintRelearns is the history of the participants re-learned
+	// after a drift: the reference each replaced, the new one, and when.
+	FingerprintRelearns []database.AuthorLLMRelearnRecord `json:"fingerprint_relearns"`
+	Evaluation          llmeval.Report                    `json:"evaluation"`
 }
 
 // evalSkipped is a skipped item as the report shows it.
@@ -1003,9 +1016,22 @@ func (d *AuthorLLMEvalDriver) report(ctx context.Context, run *evalRun) error {
 		}
 		settings.OutputModes[string(slot)] = mode
 	}
+	relearns, err := database.AuthorLLMRelearns(ctx, d.db, run.ID)
+	if err != nil {
+		return err
+	}
+	for i := range relearns {
+		// A re-learned participant was last asked in its re-learned mode.
+		if relearns[i].NewReference != nil && run.Settings.mode(llmreq.Slot(relearns[i].Participant)) == "" {
+			settings.OutputModes[relearns[i].Participant] = relearns[i].NewReference.OutputMode
+		}
+	}
+	if relearns == nil {
+		relearns = []database.AuthorLLMRelearnRecord{}
+	}
 	doc := authorLLMEvalReportDoc{RunID: run.ID, Mode: run.Mode, ConfigVersion: d.version, Settings: settings,
 		Dropped: data.dropped, Skipped: make([]evalSkipped, 0, len(skips)), FailedJobs: data.failed,
-		Fingerprints: data.fingerprints, Evaluation: evaluation}
+		Fingerprints: data.fingerprints, FingerprintRelearns: relearns, Evaluation: evaluation}
 	if doc.FailedJobs == nil {
 		doc.FailedJobs = []evalFailedJob{}
 	}

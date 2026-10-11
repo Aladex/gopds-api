@@ -343,6 +343,28 @@ describe('AuthorLLMBlock', () => {
         ).toBeInTheDocument();
     });
 
+    it('says a drift resume re-learns the model and re-asks its answers', async () => {
+        const list = participants();
+        list[3] = { ...list[3], paused_reason: 'drift' };
+        list[2] = { ...list[2], paused_reason: 'relearn_unstable' };
+        show(status({ participants: list }));
+        render(<AuthorLLMBlock />);
+        expect(
+            await screen.findByText(
+                'kimi-k3: the provider switched the model — Continue re-learns it and asks its answers again',
+            ),
+        ).toBeInTheDocument();
+        expect(
+            screen.getByText(
+                'gpt-6-sol: the re-learned model kept changing — Continue tries to re-learn it again',
+            ),
+        ).toBeInTheDocument();
+        expect(screen.getAllByRole('button', { name: 'Continue' })).toHaveLength(2);
+        expect(ruTranslation['authorLLM.pause.drift']).toBe(
+            'провайдер подменил модель — «Продолжить» заново изучит её и переспросит её ответы',
+        );
+    });
+
     it('shows participant and endpoint pauses with their action', async () => {
         const list = participants();
         list[1] = { ...list[1], paused_reason: 'model_mismatch' };

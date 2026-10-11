@@ -231,6 +231,24 @@ func claimAuthorLLMCall(ctx context.Context, tx *pg.Tx, opts *AuthorLLMClaimOpti
 	if err != nil {
 		return nil, "", err
 	}
+	// A drifted participant's re-learn: while it runs, the participant only
+	// sends the fixed request, in the re-learn's output mode and learning
+	// its model ids again; once learned, its new reference and model ids
+	// replace the run's.
+	rl, err := latestAuthorLLMRelearn(ctx, tx, run.ID, string(opts.Slot))
+	if err != nil {
+		return nil, "", err
+	}
+	if rl != nil && rl.Status == authorLLMRelearning {
+		if st.CheckCallID != nil {
+			return nil, AuthorLLMClaimCheckInFlight, nil
+		}
+		return claimAuthorLLMFingerprint(ctx, tx, opts, now, run,
+			&AuthorLLMFingerprintReference{OutputMode: rl.OutputMode}, nil)
+	}
+	if rl != nil && rl.Status == authorLLMRelearnLearned && rl.NewReference != nil {
+		ref, expected = rl.NewReference, rl.Models
+	}
 
 	// A due fingerprint check goes before any job of the run: at the run's
 	// start, and after every FingerprintEvery answers. One check is in flight

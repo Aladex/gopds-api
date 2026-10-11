@@ -101,7 +101,12 @@ const participantPause = (t: T, reason: string): string => {
         case 'drift':
             return t(
                 'authorLLM.pause.drift',
-                'the model’s answers drifted — auto-acceptance stopped',
+                'the provider switched the model — Continue re-learns it and asks its answers again',
+            );
+        case 'relearn_unstable':
+            return t(
+                'authorLLM.pause.relearn_unstable',
+                'the re-learned model kept changing — Continue tries to re-learn it again',
             );
         case 'auth':
             return t('authorLLM.pause.auth', 'the provider refuses the key');

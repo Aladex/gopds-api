@@ -100,7 +100,15 @@ func (e *llmEnv) resolveUntilDone(run int64) {
 		time.Sleep(15 * time.Millisecond) // past the test backoff
 	}
 	stage, status := e.runStage(run)
-	e.t.Fatalf("the resolve run never completed: stage %q, status %q", stage, status)
+	p, err := database.AuthorLLMResolveRunProgress(context.Background(), e.db, run)
+	require.NoError(e.t, err)
+	var states []string
+	_, err = e.db.Query(&states, `SELECT slot || ':' || coalesce(paused_reason, '-') || ':' || coalesce(check_call_id::text, '-')
+		|| ':' || coalesce(last_check_passed_at::text, '-') FROM author_llm_provider_state WHERE config_version = ? ORDER BY slot`,
+		e.version)
+	require.NoError(e.t, err)
+	e.t.Fatalf("the resolve run never completed: stage %q, status %q, progress %+v, participants %v",
+		stage, status, p, states)
 }
 
 // resolvedCredit is one author credit's selection, by the credit's last

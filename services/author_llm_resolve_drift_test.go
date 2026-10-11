@@ -31,9 +31,13 @@ func TestAuthorLLMResolveJudgeDriftConfirmsNothing(t *testing.T) {
 	checks := atomic.Int32{}
 	e.fake.setRespond(func(req *fakeRequest) fakeReply {
 		reply := answer(req)
-		if isFingerprint(req) && req.Model == "claude-opus-5" && checks.Add(1) > 1 && !drifted.Load() {
-			// Every check of judge_b after its first: another tokenizer.
+		if isFingerprint(req) && req.Model == "claude-opus-5" && checks.Add(1) > 1 {
+			// Every check of judge_b after its first: another tokenizer, and
+			// after the resume a third model, stable — the re-learn learns it.
 			reply.Prompt = checkPrompt + 50
+			if drifted.Load() {
+				reply.Prompt = checkPrompt + 90
+			}
 		}
 		return reply
 	})
@@ -122,8 +126,12 @@ func TestAuthorLLMResolvePairDriftIsNeverApplied(t *testing.T) {
 	checks := atomic.Int32{}
 	e.fake.setRespond(func(req *fakeRequest) fakeReply {
 		reply := answer(req)
-		if isFingerprint(req) && req.Model == "deepseek-v4-pro" && checks.Add(1) > 1 && !fixed.Load() {
+		if isFingerprint(req) && req.Model == "deepseek-v4-pro" && checks.Add(1) > 1 {
 			reply.Prompt = checkPrompt + 50
+			if fixed.Load() {
+				// After the resume, a stable model the re-learn learns.
+				reply.Prompt = checkPrompt + 90
+			}
 		}
 		return reply
 	})

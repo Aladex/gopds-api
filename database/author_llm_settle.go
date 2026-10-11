@@ -703,6 +703,18 @@ func settleAuthorLLMFingerprint(ctx context.Context, tx *pg.Tx, call *settledCal
 	if !current {
 		return nil
 	}
+	// A check of a participant re-learning its fingerprint measures; it
+	// does not compare with the reference being replaced.
+	rl, err := latestAuthorLLMRelearn(ctx, tx, call.RunID, call.Slot)
+	if err != nil {
+		return err
+	}
+	if rl != nil && rl.Status == authorLLMRelearning && !call.CreatedAt.Before(rl.StartedAt) {
+		handled, relearnErr := settleAuthorLLMRelearnCheck(ctx, tx, call, s, rl, now, report)
+		if relearnErr != nil || handled {
+			return relearnErr
+		}
+	}
 	if s.Outcome != models.AuthorLLMCallAnswered || s.CheckPassed == nil {
 		if err := adjustAuthorLLMParticipant(ctx, tx, call, s, now, 0, report); err != nil {
 			return err
@@ -747,6 +759,28 @@ func driftAuthorLLMParticipant(ctx context.Context, tx *pg.Tx, call *settledCall
 		call.ConfigVersion, call.Slot); err != nil {
 		return fmt.Errorf("reading the last passed check: %w", err)
 	}
+	held, err := voidAuthorLLMWindow(ctx, tx, call.ConfigVersion, call.Slot, call.RunID, lastPass, now, AuthorLLMClassDrift)
+	if err != nil {
+		return err
+	}
+	report.Verdicts = held
+	report.Paused = string(models.AuthorLLMPausedDrift)
+	// The next claim after the resume checks again before any job.
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE author_llm_provider_state
+		SET paused_reason = 'drift', paused_at = ?2, check_run_id = NULL, answered_since_check = 0
+		WHERE config_version = ?0 AND slot = ?1`, call.ConfigVersion, call.Slot, now); err != nil {
+		return fmt.Errorf("pausing a drifted participant: %w", err)
+	}
+	return nil
+}
+
+// voidAuthorLLMWindow sends a participant's answers of a run finished after
+// lastPass back to the queue, marked with class: the verdicts resting on the
+// pair's voided answers become held_drift history, the judgements resting on
+// a judge's are voided. It returns how many verdicts it changed.
+func voidAuthorLLMWindow(ctx context.Context, tx *pg.Tx, version, slot string, runID int64, lastPass *time.Time,
+	now time.Time, class string) (int, error) {
 	var held int
 	_, err := tx.QueryOneContext(ctx, pg.Scan(&held), `
 		WITH window_jobs AS (
@@ -775,20 +809,11 @@ func driftAuthorLLMParticipant(ctx context.Context, tx *pg.Tx, call *settledCall
 			RETURNING v.id
 		)
 		SELECT (SELECT count(*) FROM held) + (SELECT count(*) FROM unjudged)`,
-		call.ConfigVersion, call.Slot, call.RunID, now, AuthorLLMClassDrift, lastPass)
+		version, slot, runID, now, class, lastPass)
 	if err != nil {
-		return fmt.Errorf("voiding a drifted window: %w", err)
+		return 0, fmt.Errorf("voiding a participant's unchecked answers: %w", err)
 	}
-	report.Verdicts = held
-	report.Paused = string(models.AuthorLLMPausedDrift)
-	// The next claim after the resume checks again before any job.
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE author_llm_provider_state
-		SET paused_reason = 'drift', paused_at = ?2, check_run_id = NULL, answered_since_check = 0
-		WHERE config_version = ?0 AND slot = ?1`, call.ConfigVersion, call.Slot, now); err != nil {
-		return fmt.Errorf("pausing a drifted participant: %w", err)
-	}
-	return nil
+	return held, nil
 }
 
 // confirmAuthorLLMVerdicts confirms the run's conditional verdicts whose
@@ -977,7 +1002,9 @@ func askAuthorLLMJudges(ctx context.Context, tx *pg.Tx, a *verdictJob) error {
 		INSERT INTO author_llm_job (config_version, slot, run_id, purpose, source_fingerprint, extractor_version,
 			batch_size, output_mode, input, with_context)
 		SELECT j.config_version, s.slot, j.run_id, j.purpose, j.source_fingerprint, j.extractor_version, 1,
-			coalesce(r.reference -> s.slot ->> 'output_mode', ?1), j.input, true
+			coalesce((SELECT rl.new_reference ->> 'output_mode' FROM author_llm_relearn rl
+					WHERE rl.run_id = j.run_id AND rl.slot = s.slot AND rl.status = 'learned' ORDER BY rl.id DESC LIMIT 1),
+				r.reference -> s.slot ->> 'output_mode', ?1), j.input, true
 		FROM author_llm_job j
 		JOIN author_llm_run r ON r.id = j.run_id
 		JOIN author_llm_verdict v ON v.job_a_id = j.id AND v.verdict = 'agree'

@@ -56,39 +56,100 @@ func EvaluateFingerprint(ms []FingerprintMeasurement, reasoning map[string]bool)
 	out := make([]ParticipantFingerprint, 0, len(participants))
 	prompt := map[string]int64{}
 	for _, p := range participants {
-		got := by[p]
-		if len(got) == 0 {
-			return out, FingerprintResult{Reason: "unanswered: " + p}
-		}
-		fp := ParticipantFingerprint{Participant: p, PromptTokens: got[0].PromptTokens}
-		least := int64(-1)
-		for _, m := range got {
-			if !m.Answered {
-				return out, FingerprintResult{Reason: "unanswered: " + p}
-			}
-			if m.PromptTokens != fp.PromptTokens {
-				return out, FingerprintResult{Reason: fmt.Sprintf("unstable: %s prompt tokens %d and %d", p,
-					fp.PromptTokens, m.PromptTokens)}
-			}
-			if !slices.Contains(fp.Models, m.Model) {
-				fp.Models = append(fp.Models, m.Model)
-			}
-			if least < 0 || m.Reasoning < least {
-				least = m.Reasoning
-			}
-		}
-		slices.Sort(fp.Models)
-		if reasoning[p] {
-			fp.ReasoningFloor = max(least/reasoningFloorDivisor, 1)
+		fp, reason := learnParticipant(p, by[p], reasoning[p])
+		if reason != "" {
+			return out, FingerprintResult{Reason: reason}
 		}
 		prompt[p] = fp.PromptTokens
 		out = append(out, fp)
 	}
-	switch {
-	case prompt[slotProductionA] == prompt[slotProductionB]:
-		return out, FingerprintResult{Reason: "same_lab: production_a and production_b"}
-	case prompt[slotJudgeB] == prompt[slotProductionA] || prompt[slotJudgeB] == prompt[slotProductionB]:
-		return out, FingerprintResult{Reason: "same_lab: judge_b and a production participant"}
+	if reason := labsReason(prompt); reason != "" {
+		return out, FingerprintResult{Reason: reason}
 	}
 	return out, FingerprintResult{OK: true}
+}
+
+// learnParticipant applies the stage's rule to one participant's repeats:
+// all answered, one prompt token count, the model ids named, and for a
+// reasoning participant a floor of half its least reasoning. reason says why
+// it does not hold.
+func learnParticipant(p string, got []FingerprintMeasurement, reasoning bool) (fp ParticipantFingerprint, reason string) {
+	if len(got) == 0 {
+		return fp, "unanswered: " + p
+	}
+	fp = ParticipantFingerprint{Participant: p, PromptTokens: got[0].PromptTokens}
+	least := int64(-1)
+	for _, m := range got {
+		if !m.Answered {
+			return fp, "unanswered: " + p
+		}
+		if m.PromptTokens != fp.PromptTokens {
+			return fp, fmt.Sprintf("unstable: %s prompt tokens %d and %d", p, fp.PromptTokens, m.PromptTokens)
+		}
+		if !slices.Contains(fp.Models, m.Model) {
+			fp.Models = append(fp.Models, m.Model)
+		}
+		if least < 0 || m.Reasoning < least {
+			least = m.Reasoning
+		}
+	}
+	slices.Sort(fp.Models)
+	if reasoning {
+		fp.ReasoningFloor = max(least/reasoningFloorDivisor, 1)
+	}
+	return fp, ""
+}
+
+// The reasons the labs are not told apart.
+const (
+	reasonSameLabPair  = "same_lab: production_a and production_b"
+	reasonSameLabJudge = "same_lab: judge_b and a production participant"
+)
+
+// labsReason checks that the prompt token counts still tell the labs apart:
+// the production pair differs, and the second judge differs from both.
+func labsReason(prompt map[string]int64) string {
+	switch {
+	case prompt[slotProductionA] == prompt[slotProductionB]:
+		return reasonSameLabPair
+	case prompt[slotJudgeB] == prompt[slotProductionA] || prompt[slotJudgeB] == prompt[slotProductionB]:
+		return reasonSameLabJudge
+	}
+	return ""
+}
+
+// RelearnFingerprint re-learns one drifted participant mid-run under the
+// stage's rule: its repeats of the fixed request (ms) must agree, and with
+// the others' current prompt token counts the labs must still be told apart.
+// reason says why it does not settle.
+func RelearnFingerprint(
+	participant string, ms []FingerprintMeasurement, reasoning bool, others map[string]int64,
+) (fp ParticipantFingerprint, reason string) {
+	fp, reason = learnParticipant(participant, ms, reasoning)
+	if reason != "" {
+		return fp, reason
+	}
+	// Only the pairs the participant is in: the others' references were
+	// checked when they were learned.
+	n := fp.PromptTokens
+	switch participant {
+	case slotProductionA, slotProductionB:
+		other := slotProductionB
+		if participant == slotProductionB {
+			other = slotProductionA
+		}
+		if v, ok := others[other]; ok && v == n {
+			return fp, reasonSameLabPair
+		}
+		if v, ok := others[slotJudgeB]; ok && v == n {
+			return fp, reasonSameLabJudge
+		}
+	case slotJudgeB:
+		for _, p := range []string{slotProductionA, slotProductionB} {
+			if v, ok := others[p]; ok && v == n {
+				return fp, reasonSameLabJudge
+			}
+		}
+	}
+	return fp, ""
 }

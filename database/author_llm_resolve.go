@@ -115,6 +115,9 @@ func StartAuthorLLMResolveRun(ctx context.Context, db *pg.DB, s *AuthorLLMResolv
 		if _, lockErr := lockAuthorLLM(ctx, tx, nil); lockErr != nil {
 			return lockErr
 		}
+		if _, liftErr := liftRunBoundPauses(ctx, tx, s.ConfigVersion); liftErr != nil {
+			return liftErr
+		}
 		if _, insertErr := tx.QueryOneContext(ctx, pg.Scan(&id), `
 			INSERT INTO author_llm_run (kind, mode, status, config_version, stage, settings, expected_models,
 				reference, created_by_user_id, started_at)

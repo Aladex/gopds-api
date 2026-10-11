@@ -1,10 +1,13 @@
 package services_test
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -276,4 +279,83 @@ func TestAuthorLLMResolveUnresolvedInputStaysUnresolvedForANewBook(t *testing.T)
 	assert.Equal(t, []string{"llm_judge_disagreement", "llm_judge_disagreement"}, reasons)
 	assert.Zero(t, e.count(`SELECT count(*) FROM contributor_review_item WHERE status = 'open' AND source_fingerprint = ?`,
 		e.fingerprintOf("Петров")))
+}
+
+// Review round 2, follow-up: a late duplicate_component credit of an input
+// the LLM layer decided. The input's credits keep the LLM's decision, and
+// the reconcile counts the input as done: it does not pick it again on every
+// pass, which with a one-input page would starve every later new book.
+func TestAuthorLLMResolvedInputWithALateDuplicateDoesNotLoopTheReconcile(t *testing.T) {
+	e := newLLMEnv(t)
+	ingestEvalCatalogue(t, e)
+	ctx := context.Background()
+	e.completedFullEval(t, true, []llmeval.StratumDecision{passedStratum("initials.cyrl", "A", 1, "confirm", "restructure")}, nil)
+	run, err := e.llmAdmin().Start(ctx, "resolve", "pilot", e.adminUser())
+	require.NoError(t, err)
+	e.resolveUntilDone(run.ID)
+
+	// A book of «А. Б. Петров» with a repeated empty first-name child (the
+	// same fingerprint, the duplicate_component flag), and a plain new book
+	// of «В. Г. Сидоров» behind it.
+	dup := filepath.Join(e.archives, "dup.zip")
+	writeEvalArchive(t, dup, [][3]string{{"А.", "Б.", "Петров"}}, 600)
+	rewriteBook(t, dup, "<first-name>А.</first-name>", "<first-name>А.</first-name><first-name></first-name>")
+	scanArchive(t, e, dup)
+	later := filepath.Join(e.archives, "later.zip")
+	writeEvalArchive(t, later, [][3]string{{"В.", "Г.", "Сидоров"}}, 700)
+	scanArchive(t, e, later)
+	require.Equal(t, 1, e.count(`SELECT count(*) FROM book_contributor_credit WHERE source_last_name = 'Петров'
+		AND 'duplicate_component' = ANY (quality_flags)`))
+
+	cfg := services.DefaultAuthorMetadataLocalWorkerConfig()
+	cfg.ClaimLimit = 1
+	local, err := services.NewAuthorMetadataLocalWorker(e.db, &cfg)
+	require.NoError(t, err)
+	for range 6 {
+		_, err = local.RunOnce(ctx)
+		require.NoError(t, err)
+	}
+	report, err := local.RunOnce(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, report.Reconciled, "the reconcile keeps picking a decided input")
+	for _, last := range []string{"Петров", "Сидоров"} {
+		var rows []struct {
+			State  string  `pg:"state"`
+			Method *string `pg:"method"`
+		}
+		_, err = e.db.Query(&rows, `SELECT s.state, r.method FROM book_contributor_credit c
+			JOIN book_contributor_credit_selection s ON s.credit_id = c.id
+			LEFT JOIN contributor_normalization_result r ON r.id = s.result_id WHERE c.source_last_name = ?`, last)
+		require.NoError(t, err)
+		require.Len(t, rows, 2, last)
+		for _, r := range rows {
+			assert.Equal(t, "selected", r.State, last)
+			assert.Equal(t, "llm", deref(r.Method), last)
+		}
+	}
+}
+
+// rewriteBook replaces a fragment in the one book of an archive.
+func rewriteBook(t *testing.T, path, from, to string) {
+	t.Helper()
+	reader, err := zip.OpenReader(path)
+	require.NoError(t, err)
+	require.Len(t, reader.File, 1)
+	f, err := reader.File[0].Open()
+	require.NoError(t, err)
+	body, err := io.ReadAll(f)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+	name := reader.File[0].Name
+	require.NoError(t, reader.Close())
+	require.Contains(t, string(body), from)
+	out, err := os.Create(path)
+	require.NoError(t, err)
+	zw := zip.NewWriter(out)
+	w, err := zw.Create(name)
+	require.NoError(t, err)
+	_, err = w.Write([]byte(strings.Replace(string(body), from, to, 1)))
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+	require.NoError(t, out.Close())
 }
