@@ -57,6 +57,8 @@ const stageLabels = (t: T): Record<string, string> => ({
     candidates: t('authorLLM.stage.candidates', 'candidates'),
     repeat: t('authorLLM.stage.repeat', 'repeats'),
     report: t('authorLLM.stage.report', 'report'),
+    enqueue: t('authorLLM.stage.enqueue', 'queueing'),
+    resolve: t('authorLLM.stage.resolve', 'resolving'),
 });
 
 const runLabel = (t: T, run: AuthorLLMRun): string => {
@@ -64,6 +66,10 @@ const runLabel = (t: T, run: AuthorLLMRun): string => {
         if (run.mode === 'dev') return t('authorLLM.run.eval_dev', 'Model settings check');
         if (run.mode === 'full') return t('authorLLM.run.eval_full', 'Full check');
         return t('authorLLM.run.eval_pilot', 'Quality check');
+    }
+    if (run.kind === 'resolve') {
+        if (run.mode === 'full') return t('authorLLM.run.resolve_full', 'Resolve everything');
+        return t('authorLLM.run.resolve_pilot', 'Resolve pilot');
     }
     return t('authorLLM.run.other', 'LLM run');
 };
@@ -230,7 +236,7 @@ const AuthorLLMBlock: React.FC = () => {
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = `author-llm-eval-${id}.json`;
+            link.download = `author-llm-${run?.kind === 'resolve' ? 'resolve' : 'eval'}-${id}.json`;
             document.body.appendChild(link);
             link.click();
             link.remove();
@@ -269,6 +275,7 @@ const AuthorLLMBlock: React.FC = () => {
     const labels = stepLabels(t);
     const unavailable = steps.some((s) => !s.available);
     const report = run?.status === 'completed' ? run.report : undefined;
+    const resolved = run?.status === 'completed' ? run.resolve : undefined;
 
     return (
         <section className="flex flex-col gap-2 border-t pt-3">
@@ -432,6 +439,34 @@ const AuthorLLMBlock: React.FC = () => {
                 </div>
             )}
 
+            {run !== null && resolved && (
+                <div className="flex flex-col gap-1">
+                    <p className="text-sm">
+                        {t('authorLLM.resolveSummary', {
+                            defaultValue: '{{run}}: ✓ {{applied}} of {{total}} applied',
+                            run: runLabel(t, run),
+                            applied: formatNumber(resolved.applied),
+                            total: formatNumber(resolved.total),
+                        })}
+                    </p>
+                    <p className="text-sm tabular-nums text-muted-foreground">
+                        {tokensLine(t, run)}
+                        {run.cost !== undefined && status.price_unit
+                            ? ` · ≈ ${formatCost(run.cost)} ${status.price_unit}`
+                            : null}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                        <Button
+                            variant="outline"
+                            disabled={busy}
+                            onClick={() => downloadReport(run.id)}
+                        >
+                            {t('authorLLM.reportButton', 'Report')}
+                        </Button>
+                    </div>
+                </div>
+            )}
+
             {run !== null && run.status === 'closed' && (
                 <p className="text-sm text-muted-foreground">
                     {t('authorLLM.closed', {
@@ -466,7 +501,7 @@ const AuthorLLMBlock: React.FC = () => {
             </ol>
             {unavailable && (
                 <p className="text-sm text-muted-foreground">
-                    {t('authorLLM.notAvailable', 'Resolving and swaps come in the next version.')}
+                    {t('authorLLM.notAvailable', 'Swaps come in the next version.')}
                 </p>
             )}
             <p className="text-xs tabular-nums text-muted-foreground">

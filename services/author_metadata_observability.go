@@ -93,6 +93,12 @@ const (
 	// pauses of the current configuration (count), so the new run's
 	// fingerprint stage may negotiate their request format again.
 	AuthorMetadataEventLLMParticipantsResumed AuthorMetadataEventName = "author_metadata.llm_participants_resumed"
+	// AuthorMetadataEventLLMResolveStarted: a resolve run started; Count is
+	// how many pairs its start registered.
+	AuthorMetadataEventLLMResolveStarted AuthorMetadataEventName = "author_metadata.llm_resolve_started"
+	// AuthorMetadataEventLLMResolveApplyFailed: one verdict could not be
+	// applied (ItemID is the verdict); its credits were left as they were.
+	AuthorMetadataEventLLMResolveApplyFailed AuthorMetadataEventName = "author_metadata.llm_resolve_apply_failed"
 )
 
 // AuthorMetadataEventNames lists every event.
@@ -117,7 +123,8 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventDisplayBookSkipped,
 		AuthorMetadataEventLLMEvalItemSkipped, AuthorMetadataEventLLMEvalRunFailed, AuthorMetadataEventLLMAdminNotWired,
 		AuthorMetadataEventLLMRunClosed, AuthorMetadataEventLLMItemPanic,
-		AuthorMetadataEventLLMParticipantsResumed,
+		AuthorMetadataEventLLMParticipantsResumed, AuthorMetadataEventLLMResolveStarted,
+		AuthorMetadataEventLLMResolveApplyFailed,
 	}
 }
 

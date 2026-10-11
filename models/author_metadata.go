@@ -362,12 +362,36 @@ const (
 	UnresolvedPolicyNotRegistered  UnresolvedReason = "policy_not_registered"
 	UnresolvedNormalizerFailed     UnresolvedReason = "normalizer_failed"
 	UnresolvedReviewLeftUnresolved UnresolvedReason = "review_left_unresolved"
+	// The LLM resolve run's reasons (migration 34): the production pair
+	// disagreed, refused, stayed invalid or failed; a judge did not confirm
+	// the agreed answer; its class, script or tier is not registered; the
+	// excerpt its stratum needs could not be read.
+	UnresolvedLLMDisagreement       UnresolvedReason = "llm_disagreement"
+	UnresolvedLLMRefused            UnresolvedReason = "llm_refused"
+	UnresolvedLLMInvalid            UnresolvedReason = "llm_invalid"
+	UnresolvedLLMFailed             UnresolvedReason = "llm_failed"
+	UnresolvedLLMJudgeDisagreement  UnresolvedReason = "llm_judge_disagreement"
+	UnresolvedLLMJudgeRefused       UnresolvedReason = "llm_judge_refused"
+	UnresolvedLLMJudgeInvalid       UnresolvedReason = "llm_judge_invalid"
+	UnresolvedLLMJudgeFailed        UnresolvedReason = "llm_judge_failed"
+	UnresolvedLLMNotRegistered      UnresolvedReason = "llm_not_registered"
+	UnresolvedLLMContextUnavailable UnresolvedReason = "llm_context_unavailable"
 )
 
 // UnresolvedReasons lists every unresolved reason the schema accepts.
 func UnresolvedReasons() []UnresolvedReason {
-	return []UnresolvedReason{
+	return append([]UnresolvedReason{
 		UnresolvedPolicyNotRegistered, UnresolvedNormalizerFailed, UnresolvedReviewLeftUnresolved,
+	}, LLMUnresolvedReasons()...)
+}
+
+// LLMUnresolvedReasons lists the reasons the LLM resolve run leaves an
+// input unresolved with.
+func LLMUnresolvedReasons() []UnresolvedReason {
+	return []UnresolvedReason{
+		UnresolvedLLMDisagreement, UnresolvedLLMRefused, UnresolvedLLMInvalid, UnresolvedLLMFailed,
+		UnresolvedLLMJudgeDisagreement, UnresolvedLLMJudgeRefused, UnresolvedLLMJudgeInvalid, UnresolvedLLMJudgeFailed,
+		UnresolvedLLMNotRegistered, UnresolvedLLMContextUnavailable,
 	}
 }
 
@@ -426,11 +450,15 @@ const (
 	ReviewClassified     ReviewResolution = "classified"
 	ReviewLeftUnresolved ReviewResolution = "left_unresolved"
 	ReviewRetried        ReviewResolution = "retried"
+	// ReviewAutomatic: the LLM resolve run decided the item (migration 34),
+	// without an admin.
+	ReviewAutomatic ReviewResolution = "automatic"
 )
 
 // ReviewResolutions lists every resolution the schema accepts.
 func ReviewResolutions() []ReviewResolution {
-	return []ReviewResolution{ReviewAccepted, ReviewEdited, ReviewClassified, ReviewLeftUnresolved, ReviewRetried}
+	return []ReviewResolution{ReviewAccepted, ReviewEdited, ReviewClassified, ReviewLeftUnresolved, ReviewRetried,
+		ReviewAutomatic}
 }
 
 // AuthorAcceptanceClass registers one (decision class, script) for automatic

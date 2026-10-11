@@ -763,8 +763,18 @@ func driftAuthorLLMParticipant(ctx context.Context, tx *pg.Tx, call *settledCall
 			WHERE v.confirmed_at IS NULL AND v.verdict <> 'held_drift'
 				AND (v.job_a_id IN (SELECT id FROM window_jobs) OR v.job_b_id IN (SELECT id FROM window_jobs))
 			RETURNING v.id
+		), unjudged AS (
+			-- A judge's voided answers void the judgements they made: the
+			-- judge answers again and the verdict is judged again.
+			UPDATE author_llm_verdict v SET judgement = NULL, judged_a_at = NULL, judged_b_at = NULL
+			FROM author_llm_job j
+			WHERE j.id IN (SELECT id FROM window_jobs) AND j.slot IN ('judge_a', 'judge_b')
+				AND v.source_fingerprint = j.source_fingerprint AND v.extractor_version = j.extractor_version
+				AND v.purpose = j.purpose AND v.config_version = j.config_version
+				AND v.confirmed_at IS NULL AND v.verdict = 'agree' AND v.judgement IS NOT NULL
+			RETURNING v.id
 		)
-		SELECT count(*) FROM held`,
+		SELECT (SELECT count(*) FROM held) + (SELECT count(*) FROM unjudged)`,
 		call.ConfigVersion, call.Slot, call.RunID, now, AuthorLLMClassDrift, lastPass)
 	if err != nil {
 		return fmt.Errorf("voiding a drifted window: %w", err)
@@ -784,6 +794,8 @@ func driftAuthorLLMParticipant(ctx context.Context, tx *pg.Tx, call *settledCall
 // confirmAuthorLLMVerdicts confirms the run's conditional verdicts whose
 // answers both production participants' passed checks cover: each answer
 // finished before the participant's last passed check under the run was sent.
+// An agreed review verdict also waits for the judges' judgement, and one they
+// confirmed for both judges' checks covering their answers.
 func confirmAuthorLLMVerdicts(ctx context.Context, tx *pg.Tx, version string, runID int64, now time.Time) (int, error) {
 	res, err := tx.ExecContext(ctx, `
 		UPDATE author_llm_verdict v SET confirmed_at = ?2
@@ -792,7 +804,15 @@ func confirmAuthorLLMVerdicts(ctx context.Context, tx *pg.Tx, version string, ru
 			AND sa.config_version = ?0 AND sa.slot = 'production_a'
 			AND sb.config_version = ?0 AND sb.slot = 'production_b'
 			AND sa.check_run_id = v.run_id AND sa.last_check_passed_at >= coalesce(v.answered_a_at, '-infinity')
-			AND sb.check_run_id = v.run_id AND sb.last_check_passed_at >= coalesce(v.answered_b_at, '-infinity')`,
+			AND sb.check_run_id = v.run_id AND sb.last_check_passed_at >= coalesce(v.answered_b_at, '-infinity')
+			-- An agreed review answer waits for the judges; one they confirmed
+			-- also for their checks covering their answers.
+			AND (v.verdict <> 'agree' OR v.purpose <> 'review' OR v.judgement IS NOT NULL)
+			AND (v.judgement IS DISTINCT FROM 'confirmed' OR EXISTS (
+				SELECT 1 FROM author_llm_provider_state ja, author_llm_provider_state jb
+				WHERE ja.config_version = ?0 AND ja.slot = 'judge_a' AND jb.config_version = ?0 AND jb.slot = 'judge_b'
+					AND ja.check_run_id = v.run_id AND ja.last_check_passed_at >= v.judged_a_at
+					AND jb.check_run_id = v.run_id AND jb.last_check_passed_at >= v.judged_b_at))`,
 		version, runID, now)
 	if err != nil {
 		return 0, fmt.Errorf("confirming LLM verdicts: %w", err)
@@ -844,6 +864,14 @@ func writeAuthorLLMVerdictsCount(ctx context.Context, tx *pg.Tx, jobIDs []int64,
 	written := 0
 	runs := map[int64]string{}
 	for _, id := range jobIDs {
+		judged, err := judgeAuthorLLMVerdictOfJob(ctx, tx, id)
+		if err != nil {
+			return written, err
+		}
+		if judged != nil {
+			runs[judged.RunID] = judged.ConfigVersion
+			continue
+		}
 		a, b, err := finishedAuthorLLMPair(ctx, tx, id)
 		if err != nil {
 			return written, err
@@ -857,6 +885,9 @@ func writeAuthorLLMVerdictsCount(ctx context.Context, tx *pg.Tx, jobIDs []int64,
 		}
 		written += n
 		runs[a.RunID] = a.ConfigVersion
+		if err := askAuthorLLMJudges(ctx, tx, a); err != nil {
+			return written, err
+		}
 	}
 	for runID, version := range runs {
 		if _, err := confirmAuthorLLMVerdicts(ctx, tx, version, runID, now); err != nil {
@@ -930,6 +961,124 @@ func insertAuthorLLMVerdict(ctx context.Context, tx *pg.Tx, a, b *verdictJob, no
 		return 0, fmt.Errorf("writing an LLM verdict: %w", err)
 	}
 	return res.RowsAffected(), nil
+}
+
+// askAuthorLLMJudges asks both judges about the input's current verdict
+// when the pair agreed on a review input (the run-4 rule: an agreed answer
+// is applied only when both judges confirm it). The judges get the pair's
+// input with its excerpt, one item per request, in their negotiated output
+// mode. Judge jobs the input already has — answered before the pair's
+// answers were voided by a drift — are kept and judged now.
+func askAuthorLLMJudges(ctx context.Context, tx *pg.Tx, a *verdictJob) error {
+	if models.AuthorLLMJobPurpose(a.Purpose) != models.AuthorLLMPurposeReview {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO author_llm_job (config_version, slot, run_id, purpose, source_fingerprint, extractor_version,
+			batch_size, output_mode, input, with_context)
+		SELECT j.config_version, s.slot, j.run_id, j.purpose, j.source_fingerprint, j.extractor_version, 1,
+			coalesce(r.reference -> s.slot ->> 'output_mode', ?1), j.input, true
+		FROM author_llm_job j
+		JOIN author_llm_run r ON r.id = j.run_id
+		JOIN author_llm_verdict v ON v.job_a_id = j.id AND v.verdict = 'agree'
+		CROSS JOIN (VALUES (?2), (?3)) AS s(slot)
+		WHERE j.id = ?0
+		ON CONFLICT DO NOTHING`,
+		a.ID, AuthorLLMDefaultOutputMode, string(llmreq.SlotJudgeA), string(llmreq.SlotJudgeB)); err != nil {
+		return fmt.Errorf("asking the judges: %w", err)
+	}
+	return judgeAuthorLLMVerdict(ctx, tx, a.SourceFingerprint, *a.ExtractorVersion, a.Purpose, a.ConfigVersion)
+}
+
+// judgeAuthorLLMVerdictOfJob judges the input's verdict when the finished
+// job is a judge's review job; it returns that job, nil for any other job.
+func judgeAuthorLLMVerdictOfJob(ctx context.Context, tx *pg.Tx, jobID int64) (*verdictJob, error) {
+	var self verdictJob
+	if err := readVerdictJob(ctx, tx, &self, `j.id = ?0`, jobID); err != nil {
+		return nil, fmt.Errorf("reading a finished LLM job: %w", err)
+	}
+	if models.AuthorLLMJobPurpose(self.Purpose) != models.AuthorLLMPurposeReview || self.ExtractorVersion == nil ||
+		(self.Slot != string(llmreq.SlotJudgeA) && self.Slot != string(llmreq.SlotJudgeB)) {
+		return nil, nil
+	}
+	if err := judgeAuthorLLMVerdict(ctx, tx, self.SourceFingerprint, *self.ExtractorVersion, self.Purpose,
+		self.ConfigVersion); err != nil {
+		return nil, err
+	}
+	return &self, nil
+}
+
+// judgeAuthorLLMVerdict records the judges' judgement of the input's current
+// agreed verdict once both judges' jobs are done: confirmed when both
+// answered it byte-equal to the pair, otherwise why not.
+func judgeAuthorLLMVerdict(ctx context.Context, tx *pg.Tx, fingerprint []byte, extractor, purpose, version string) error {
+	var v struct {
+		ID        int64  `pg:"id"`
+		Canonical []byte `pg:"canonical_sha256"`
+	}
+	_, err := tx.QueryOneContext(ctx, &v, `
+		SELECT v.id, a.canonical_sha256 FROM author_llm_verdict v
+		JOIN author_llm_attempt a ON a.id = v.attempt_a_id
+		WHERE v.source_fingerprint = ?0 AND v.extractor_version = ?1 AND v.purpose = ?2 AND v.config_version = ?3
+			AND v.verdict = 'agree' AND v.judgement IS NULL
+		FOR UPDATE OF v`, fingerprint, extractor, purpose, version)
+	if errors.Is(err, pg.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("reading the verdict to judge: %w", err)
+	}
+	slots := []llmreq.Slot{llmreq.SlotJudgeA, llmreq.SlotJudgeB}
+	judges := make([]verdictJob, len(slots))
+	for i, slot := range slots {
+		err = readVerdictJob(ctx, tx, &judges[i], `j.source_fingerprint = ?0 AND j.extractor_version = ?1
+				AND j.purpose = ?2 AND j.config_version = ?3 AND j.slot = ?4 AND j.eval_item_id IS NULL`,
+			fingerprint, extractor, purpose, version, string(slot))
+		if errors.Is(err, pg.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("reading a judge's job: %w", err)
+		}
+		if !models.AuthorLLMJobStatus(judges[i].Status).IsTerminal() {
+			return nil
+		}
+	}
+	judgement := judgeAuthorLLMAnswer(v.Canonical, &judges[0], &judges[1])
+	finished := func(j *verdictJob) interface{} {
+		if j.AnsweredAt != nil {
+			return *j.AnsweredAt
+		}
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE author_llm_verdict SET judgement = ?1,
+			judged_a_at = coalesce(?2::timestamptz, (SELECT finished_at FROM author_llm_job WHERE id = ?4)),
+			judged_b_at = coalesce(?3::timestamptz, (SELECT finished_at FROM author_llm_job WHERE id = ?5))
+		WHERE id = ?0`, v.ID, string(judgement), finished(&judges[0]), finished(&judges[1]),
+		judges[0].ID, judges[1].ID); err != nil {
+		return fmt.Errorf("recording the judges' judgement: %w", err)
+	}
+	return nil
+}
+
+// judgeAuthorLLMAnswer is the judges' judgement of the pair's agreed answer
+// (its canonical digest): a judge that failed, stayed invalid or refused
+// decides that; otherwise both must have answered the same bytes as the pair.
+func judgeAuthorLLMAnswer(pair []byte, a, b *verdictJob) models.AuthorLLMJudgement {
+	status := func(j *verdictJob) models.AuthorLLMJobStatus { return models.AuthorLLMJobStatus(j.Status) }
+	refused := func(j *verdictJob) bool { return j.Refused != nil && *j.Refused }
+	switch {
+	case status(a) == models.AuthorLLMJobFailed || status(b) == models.AuthorLLMJobFailed:
+		return models.AuthorLLMJudgementFailed
+	case status(a) == models.AuthorLLMJobInvalid || status(b) == models.AuthorLLMJobInvalid:
+		return models.AuthorLLMJudgementInvalid
+	case refused(a) || refused(b):
+		return models.AuthorLLMJudgementRefused
+	case len(pair) == 32 && bytes.Equal(a.CanonicalSHA256, pair) && bytes.Equal(b.CanonicalSHA256, pair):
+		return models.AuthorLLMJudgementConfirmed
+	}
+	return models.AuthorLLMJudgementDisagree
 }
 
 // compareAuthorLLMPair is the verdict of two finished jobs.

@@ -71,26 +71,39 @@ var evalAuthors = [][3]string{
 func ingestEvalCatalogue(t *testing.T, e *llmEnv) {
 	t.Helper()
 	path := filepath.Join(e.archives, "eval.zip")
+	writeEvalArchive(t, path, evalAuthors, 0)
+	scanArchive(t, e, path)
+	drainLocal(t, e.db)
+}
+
+// writeEvalArchive writes one fixture book per author into a zip, numbered
+// from first.
+func writeEvalArchive(t *testing.T, path string, authors [][3]string, first int) {
+	t.Helper()
 	f, err := os.Create(path)
 	require.NoError(t, err)
 	zw := zip.NewWriter(f)
-	for i, a := range evalAuthors {
-		w, createErr := zw.Create(fmt.Sprintf("%d.fb2", i))
+	for i, a := range authors {
+		w, createErr := zw.Create(fmt.Sprintf("%d.fb2", first+i))
 		require.NoError(t, createErr)
-		_, err = w.Write(evalBook(i, a[0], a[1], a[2], time.Now()))
+		_, err = w.Write(evalBook(first+i, a[0], a[1], a[2], time.Now()))
 		require.NoError(t, err)
 	}
 	require.NoError(t, zw.Close())
 	require.NoError(t, f.Close())
+}
+
+// scanArchive runs the real scanner over every book of an archive.
+func scanArchive(t *testing.T, e *llmEnv, path string) {
+	t.Helper()
 	reader, err := zip.OpenReader(path)
 	require.NoError(t, err)
 	defer func() { _ = reader.Close() }()
 	scanner := services.NewBookScanService(e.archives, t.TempDir(), services.NewLanguageDetector(false, 5*time.Second), true, nil)
 	for _, file := range reader.File {
-		_, err = scanner.ProcessBook(file, "eval.zip")
+		_, err = scanner.ProcessBook(file, filepath.Base(path))
 		require.NoError(t, err)
 	}
-	drainLocal(t, e.db)
 }
 
 // byFields answers every item with the roles of its FB2 fields, the way a

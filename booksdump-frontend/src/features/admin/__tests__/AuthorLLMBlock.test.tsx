@@ -57,14 +57,16 @@ const n = (value: number) => value.toLocaleString();
 
 const step = (key: AuthorLLMStep['key'], overrides: Partial<AuthorLLMStep> = {}): AuthorLLMStep => {
     const eval_ = key.startsWith('eval');
+    // Swaps are the one step not built yet.
+    const built = key !== 'swap';
     return {
         key,
         kind: eval_ ? 'eval' : key === 'swap' ? 'swap' : 'resolve',
         mode: key.endsWith('pilot') ? 'pilot' : 'full',
-        available: eval_,
+        available: built,
         enabled: false,
         done: false,
-        blocked: eval_ ? 'prerequisite' : 'not_available',
+        blocked: built ? 'prerequisite' : 'not_available',
         ...overrides,
     };
 };
@@ -139,9 +141,7 @@ describe('AuthorLLMBlock', () => {
         expect(screen.getByRole('button', { name: /Resolve: pilot 500/ })).toBeDisabled();
         expect(screen.getByRole('button', { name: /Resolve everything/ })).toBeDisabled();
         expect(screen.getByRole('button', { name: /Swaps/ })).toBeDisabled();
-        expect(
-            screen.getByText('Resolving and swaps come in the next version.'),
-        ).toBeInTheDocument();
+        expect(screen.getByText('Swaps come in the next version.')).toBeInTheDocument();
 
         fireEvent.click(check);
         await waitFor(() => expect(api.startAuthorLLMRun).toHaveBeenCalledWith('eval', 'pilot'));
@@ -276,6 +276,49 @@ describe('AuthorLLMBlock', () => {
         expect(enTranslation['authorLLM.repeatChanged']).toBe(
             '{{participant}} · repeats: {{share}}% changed',
         );
+    });
+
+    it('sums up a completed resolve run and downloads its report', async () => {
+        show(
+            status({
+                run: llmRun({
+                    kind: 'resolve',
+                    mode: 'pilot',
+                    status: 'completed',
+                    stage: 'done',
+                    progress: undefined,
+                    resolve: { sha256: 'cd', applied: 431, total: 500 },
+                }),
+            }),
+        );
+        const blob = new Blob(['{}'], { type: 'application/json' });
+        api.getAuthorLLMEvalReport.mockResolvedValue(blob);
+        Object.assign(window.URL, { createObjectURL: vi.fn(() => 'blob:r'), revokeObjectURL: vi.fn() });
+        const clicks: string[] = [];
+        const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+            this: HTMLAnchorElement,
+        ) {
+            clicks.push(this.download);
+        });
+        render(<AuthorLLMBlock />);
+        expect(
+            await screen.findByText(`Resolve pilot: ✓ ${n(431)} of ${n(500)} applied`),
+        ).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Report' }));
+        await waitFor(() => expect(clicks).toEqual(['author-llm-resolve-41.json']));
+        click.mockRestore();
+    });
+
+    it('shows a running resolve run with its progress', async () => {
+        show(
+            status({
+                run: llmRun({ kind: 'resolve', mode: 'full', stage: 'resolve', progress: { done: 10, total: 1000 } }),
+            }),
+        );
+        render(<AuthorLLMBlock />);
+        expect(
+            await screen.findByText(`Resolve everything: resolving · ${n(10)} of ${n(1000)}`),
+        ).toBeInTheDocument();
     });
 
     it('says when a completed check cannot back a registration', async () => {
@@ -416,5 +459,7 @@ describe('AuthorLLMBlock', () => {
         expect(ru['authorLLM.notConfigured']).toBe('LLM не настроена');
         expect(ru['authorLLM.step.eval_pilot']).toBe('Проверить качество');
         expect(ru['authorLLM.step.resolve_full']).toBe('Разобрать всё');
+        expect(ru['authorLLM.run.resolve_pilot']).toBe('Разбор: пилот');
+        expect(ru['authorLLM.notAvailable']).toBe('Перестановки появятся в следующей версии.');
     });
 });

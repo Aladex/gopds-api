@@ -466,12 +466,16 @@ func selectAuthorLLMBatch(ctx context.Context, tx *pg.Tx, opts *AuthorLLMClaimOp
 }
 
 // authorLLMTailUnchecked reports whether the participant has answers of the
-// run's verdicts newer than its last passed check.
+// run's verdicts newer than its last passed check: a production answer, or a
+// judge's answer that confirmed the pair.
 func authorLLMTailUnchecked(ctx context.Context, tx *pg.Tx, opts *AuthorLLMClaimOptions, runID int64, lastPass *time.Time) (bool, error) {
-	column := `answered_a_at`
-	if opts.Slot == llmreq.SlotProductionB {
-		column = `answered_b_at`
-	} else if opts.Slot != llmreq.SlotProductionA {
+	// A judge's answers wait for its check only where they confirmed the
+	// pair: any other judgement leaves the input unresolved either way.
+	column, judged := map[llmreq.Slot]string{
+		llmreq.SlotProductionA: `answered_a_at`, llmreq.SlotProductionB: `answered_b_at`,
+		llmreq.SlotJudgeA: `judged_a_at`, llmreq.SlotJudgeB: `judged_b_at`,
+	}[opts.Slot], opts.Slot == llmreq.SlotJudgeA || opts.Slot == llmreq.SlotJudgeB
+	if column == "" {
 		return false, nil
 	}
 	var exists bool
@@ -479,8 +483,9 @@ func authorLLMTailUnchecked(ctx context.Context, tx *pg.Tx, opts *AuthorLLMClaim
 		SELECT EXISTS (
 			SELECT 1 FROM author_llm_verdict v
 			WHERE v.config_version = ?0 AND v.run_id = ?1 AND v.confirmed_at IS NULL AND v.verdict <> 'held_drift'
+				AND (NOT ?3 OR v.judgement = 'confirmed')
 				AND v.`+column+` > coalesce(?2::timestamptz, '-infinity'))`,
-		opts.ConfigVersion, runID, lastPass)
+		opts.ConfigVersion, runID, lastPass, judged)
 	if err != nil {
 		return false, fmt.Errorf("looking for unchecked answers: %w", err)
 	}

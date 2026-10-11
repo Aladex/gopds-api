@@ -139,7 +139,9 @@ func TestAuthorLLMLogsCarryNoNameNoExcerptNoKey(t *testing.T) {
 		}
 	}
 	assert.True(t, sentExcerpt, "the excerpt was not sent")
-	assert.Equal(t, 2, e.count(`SELECT count(*) FROM author_llm_job WHERE context_state = 'attached' AND status = 'answered'`))
+	// The pair and both judges, who confirm the agreed answer with the same
+	// excerpt.
+	assert.Equal(t, 4, e.count(`SELECT count(*) FROM author_llm_job WHERE context_state = 'attached' AND status = 'answered'`))
 	assert.Equal(t, 1, e.count(`SELECT count(*) FROM author_llm_context WHERE payload::text LIKE ?`, "%"+excerptCanary+"%"))
 	assert.Equal(t, 1, e.count(`SELECT count(*) FROM author_llm_verdict WHERE verdict = 'agree' AND context_state = 'attached'`))
 

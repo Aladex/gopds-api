@@ -26,12 +26,18 @@ func (e *llmEnv) llmAdmin() *services.AuthorLLMAdmin {
 	return services.NewAuthorLLMAdmin(e.db, e.version, "", &e.settings)
 }
 
-// adminUser is the administrator who starts the runs.
+// adminUser is the administrator who starts the runs, the same one on
+// every call.
 func (e *llmEnv) adminUser() int64 {
 	e.t.Helper()
 	var id int64
-	_, err := e.db.QueryOne(pg.Scan(&id), `INSERT INTO auth_user (password, is_superuser, username, email, date_joined)
-		VALUES ('', true, 'llm-admin', 'llm-admin@fixture.local', now()) RETURNING id`)
+	_, err := e.db.QueryOne(pg.Scan(&id), `
+		WITH found AS (SELECT id FROM auth_user WHERE username = 'llm-admin'),
+		made AS (
+			INSERT INTO auth_user (password, is_superuser, username, email, date_joined)
+			SELECT '', true, 'llm-admin', 'llm-admin@fixture.local', now() WHERE NOT EXISTS (SELECT 1 FROM found)
+			RETURNING id)
+		SELECT id FROM found UNION ALL SELECT id FROM made`)
 	require.NoError(e.t, err)
 	return id
 }
@@ -82,11 +88,16 @@ func TestAuthorLLMAdminChainAndTransitions(t *testing.T) {
 	assert.True(t, steps["eval_pilot"].Enabled)
 	assert.False(t, steps["eval_full"].Enabled)
 	assert.Equal(t, services.AuthorLLMStepPrerequisite, steps["eval_full"].Blocked)
-	for _, k := range []string{"resolve_pilot", "resolve_full", "swap"} {
-		assert.False(t, steps[k].Available, k)
+	// Resolve is built (phase 6) and waits for its prerequisite; swaps are
+	// not built yet.
+	for _, k := range []string{"resolve_pilot", "resolve_full"} {
+		assert.True(t, steps[k].Available, k)
 		assert.False(t, steps[k].Enabled, k)
-		assert.Equal(t, services.AuthorLLMStepNotAvailable, steps[k].Blocked, k)
+		assert.Equal(t, services.AuthorLLMStepPrerequisite, steps[k].Blocked, k)
 	}
+	assert.False(t, steps["swap"].Available)
+	assert.False(t, steps["swap"].Enabled)
+	assert.Equal(t, services.AuthorLLMStepNotAvailable, steps["swap"].Blocked)
 	assert.Equal(t, e.settings.Budget.OneOffTokens, st.BudgetTokens)
 	require.Len(t, st.Participants, 4)
 	assert.Equal(t, e.settings.Models.ProductionA, st.Participants[0].Model)
@@ -95,7 +106,7 @@ func TestAuthorLLMAdminChainAndTransitions(t *testing.T) {
 	_, err = admin.Start(ctx, "eval", "full", actor)
 	assert.ErrorIs(t, err, services.ErrAuthorLLMPrerequisite)
 	_, err = admin.Start(ctx, "resolve", "pilot", actor)
-	assert.ErrorIs(t, err, services.ErrAuthorLLMRunKindUnavailable)
+	assert.ErrorIs(t, err, services.ErrAuthorLLMPrerequisite)
 	_, err = admin.Start(ctx, "swap", "full", actor)
 	assert.ErrorIs(t, err, services.ErrAuthorLLMRunKindUnavailable)
 	_, err = admin.Start(ctx, "eval", "everything", actor)

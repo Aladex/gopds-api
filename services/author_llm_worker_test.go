@@ -238,7 +238,8 @@ func (e *llmEnv) drain(w *services.AuthorLLMWorker) {
 
 // run starts a run; a resolve run by default, with the evidence a
 // production run carries (the learned model ids and the 777-token
-// references of the production pair) unless the spec names its own.
+// references of the pair and both judges, who confirm every agreed answer)
+// unless the spec names its own.
 func (e *llmEnv) run(spec *database.AuthorLLMRunSpec) int64 {
 	e.t.Helper()
 	spec.ConfigVersion = e.version
@@ -247,21 +248,33 @@ func (e *llmEnv) run(spec *database.AuthorLLMRunSpec) int64 {
 	}
 	if spec.Kind != models.AuthorLLMRunEval {
 		if spec.ExpectedModels == nil {
-			spec.ExpectedModels = map[llmreq.Slot][]string{
-				llmreq.SlotProductionA: {"gpt-6-luna"}, llmreq.SlotProductionB: {"deepseek-v4-pro", "deepseek-v4-pro-0813"},
-			}
+			spec.ExpectedModels = productionEvidence()
 		}
 		if spec.Reference == nil {
-			ref := database.AuthorLLMFingerprintReference{PromptTokens: checkPrompt, OutputMode: "json_schema"}
-			spec.Reference = map[llmreq.Slot]database.AuthorLLMFingerprintReference{
-				llmreq.SlotProductionA: ref, llmreq.SlotProductionB: ref,
-			}
+			spec.Reference = productionReference()
 		}
 	}
 	id, err := database.CreateAuthorLLMRun(context.Background(), e.db, spec)
 	require.NoError(e.t, err)
 	require.NoError(e.t, database.StartAuthorLLMRun(context.Background(), e.db, id))
 	return id
+}
+
+// productionEvidence is the model ids a resolve run learned from its eval:
+// the pair's and the judges'.
+func productionEvidence() map[llmreq.Slot][]string {
+	return map[llmreq.Slot][]string{
+		llmreq.SlotProductionA: {"gpt-6-luna"}, llmreq.SlotProductionB: {"deepseek-v4-pro", "deepseek-v4-pro-0813"},
+		llmreq.SlotJudgeA: {"gpt-6-sol"}, llmreq.SlotJudgeB: {"claude-opus-5"},
+	}
+}
+
+// productionReference is the 777-token fingerprint reference of all four.
+func productionReference() map[llmreq.Slot]database.AuthorLLMFingerprintReference {
+	ref := database.AuthorLLMFingerprintReference{PromptTokens: checkPrompt, OutputMode: "json_schema"}
+	return map[llmreq.Slot]database.AuthorLLMFingerprintReference{
+		llmreq.SlotProductionA: ref, llmreq.SlotProductionB: ref, llmreq.SlotJudgeA: ref, llmreq.SlotJudgeB: ref,
+	}
 }
 
 func testFingerprint(seed string) []byte {
@@ -318,7 +331,8 @@ func TestAuthorLLMPairAgreesAndSettlesUsage(t *testing.T) {
 
 	e.drain(e.worker())
 
-	assert.Equal(t, 2, e.count(`SELECT count(*) FROM author_llm_job WHERE status = 'answered'`))
+	// The pair and both judges, who confirm the agreed answer.
+	assert.Equal(t, 4, e.count(`SELECT count(*) FROM author_llm_job WHERE status = 'answered'`))
 	var v struct {
 		Verdict     string
 		Tier        *string
@@ -332,18 +346,18 @@ func TestAuthorLLMPairAgreesAndSettlesUsage(t *testing.T) {
 	assert.NotNil(t, v.ConfirmedAt, "the tail checks confirm it")
 
 	// Usage replaces the reserve: 100 + 20 per job call, 777 + 20 per check
-	// (two at the start, two for the tail).
-	assert.Equal(t, 2, e.count(`SELECT count(*) FROM author_llm_call
+	// (four at the start, four for the tail).
+	assert.Equal(t, 4, e.count(`SELECT count(*) FROM author_llm_call
 		WHERE kind = 'jobs' AND outcome = 'answered' AND settled_tokens = 120 AND prompt_tokens = 100
 			AND response_model IS NOT NULL`))
-	assert.Equal(t, 4, e.count(`SELECT count(*) FROM author_llm_call WHERE kind = 'fingerprint' AND settled_tokens = 797`))
+	assert.Equal(t, 8, e.count(`SELECT count(*) FROM author_llm_call WHERE kind = 'fingerprint' AND settled_tokens = 797`))
 	spent, err := database.AuthorLLMTokensSpent(context.Background(), e.db, run)
 	require.NoError(t, err)
-	assert.Equal(t, int64(2*120+4*797), spent)
+	assert.Equal(t, int64(4*120+8*797), spent)
 	require.NoError(t, database.FoldAuthorLLMTokenTally(context.Background(), e.db))
 	spent, err = database.AuthorLLMTokensSpent(context.Background(), e.db, run)
 	require.NoError(t, err)
-	assert.Equal(t, int64(2*120+4*797), spent, "folding keeps the sum")
+	assert.Equal(t, int64(4*120+8*797), spent, "folding keeps the sum")
 
 	// Each participant got its own model, the system prompt and the schema.
 	var served []fakeRequest
@@ -352,9 +366,13 @@ func TestAuthorLLMPairAgreesAndSettlesUsage(t *testing.T) {
 			served = append(served, req)
 		}
 	}
-	require.Len(t, served, 2)
-	asked := map[string]bool{served[0].Model: true, served[1].Model: true}
-	assert.True(t, asked["gpt-6-luna"] && asked["deepseek-v4-pro"], "models = %v", asked)
+	require.Len(t, served, 4)
+	asked := map[string]bool{}
+	for _, req := range served {
+		asked[req.Model] = true
+	}
+	assert.True(t, asked["gpt-6-luna"] && asked["deepseek-v4-pro"] && asked["gpt-6-sol"] && asked["claude-opus-5"],
+		"models = %v", asked)
 	assert.Contains(t, served[0].Raw, `"json_schema"`)
 }
 
@@ -715,7 +733,8 @@ func TestAuthorLLMFingerprintChecksConfirmVerdicts(t *testing.T) {
 	// Nothing left to answer: the tail gets a check, which confirms it.
 	e.drain(w)
 	assert.Equal(t, 1, e.count(`SELECT count(*) FROM author_llm_verdict WHERE verdict = 'agree' AND confirmed_at IS NOT NULL`))
-	assert.Equal(t, 4, e.count(`SELECT count(*) FROM author_llm_call WHERE kind = 'fingerprint' AND outcome = 'answered'`))
+	// A start and a tail check of the pair and of both judges.
+	assert.Equal(t, 8, e.count(`SELECT count(*) FROM author_llm_call WHERE kind = 'fingerprint' AND outcome = 'answered'`))
 }
 
 func TestAuthorLLMFingerprintDriftHoldsTheWindow(t *testing.T) {

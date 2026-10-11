@@ -45,18 +45,13 @@ func checked(jobs func(req *fakeRequest) fakeReply) func(req *fakeRequest) fakeR
 }
 
 // productionRun is a resolve run with what a production run carries: the
-// learned model ids and the fingerprint references of the production pair.
+// learned model ids and the fingerprint references of the pair and both
+// judges.
 func (e *llmEnv) productionRun(version string) int64 {
 	e.t.Helper()
-	ref := database.AuthorLLMFingerprintReference{PromptTokens: checkPrompt, OutputMode: "json_schema"}
 	id, err := database.CreateAuthorLLMRun(context.Background(), e.db, &database.AuthorLLMRunSpec{
 		Kind: models.AuthorLLMRunResolve, Mode: "pilot", ConfigVersion: version,
-		ExpectedModels: map[llmreq.Slot][]string{
-			llmreq.SlotProductionA: {"gpt-6-luna"}, llmreq.SlotProductionB: {"deepseek-v4-pro", "deepseek-v4-pro-0813"},
-		},
-		Reference: map[llmreq.Slot]database.AuthorLLMFingerprintReference{
-			llmreq.SlotProductionA: ref, llmreq.SlotProductionB: ref,
-		},
+		ExpectedModels: productionEvidence(), Reference: productionReference(),
 	})
 	require.NoError(e.t, err)
 	require.NoError(e.t, database.StartAuthorLLMRun(context.Background(), e.db, id))
@@ -268,6 +263,18 @@ func TestAuthorLLMLateCheckCannotConfirmANewerAnswer(t *testing.T) {
 			`SELECT confirmed_at FROM author_llm_verdict WHERE source_fingerprint = ?`, testFingerprint(seed))
 		require.NoError(t, qErr)
 		return confirmed
+	}
+	// Both judges confirm both agreed answers, each judge answer covered by
+	// the judge's check right after it.
+	for _, slot := range []llmreq.Slot{llmreq.SlotJudgeA, llmreq.SlotJudgeB} {
+		for {
+			claim, _, claimErr := w.Claim(ctx, slot)
+			require.NoError(t, claimErr)
+			if claim == nil {
+				break
+			}
+			require.NoError(t, w.Process(ctx, slot, claim))
+		}
 	}
 	assert.NotNil(t, verdict("covered"))
 	assert.Nil(t, verdict("late"), "a check sent before the answer confirmed it")

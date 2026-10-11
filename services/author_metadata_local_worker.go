@@ -262,6 +262,9 @@ func (w *AuthorMetadataLocalWorker) reconcile(ctx context.Context, policy *autho
 			})
 			continue
 		}
+		if llmErr := w.withLLMOutcome(ctx, &in, &stored, &out); llmErr != nil {
+			return reconciled, llmErr
+		}
 		err = w.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
 			_, resolveErr := database.ResolveCredits(ctx, tx, in.SourceFingerprint, in.ExtractorVersion, &out)
 			return resolveErr
@@ -272,6 +275,28 @@ func (w *AuthorMetadataLocalWorker) reconcile(ctx context.Context, policy *autho
 		reconciled++
 	}
 	return reconciled, nil
+}
+
+// withLLMOutcome replaces the local outcome of an input the LLM layer
+// decided: a credit that joins it later gets the LLM's selection, or stays
+// unresolved with the LLM's reason, without a new call and without a review
+// item reopened. A credit with the duplicate_component flag that joined
+// after the local result was computed still sends the input to review: the
+// input is not the one the LLM decided.
+func (w *AuthorMetadataLocalWorker) withLLMOutcome(
+	ctx context.Context, in *database.LocalNormalizationInput, stored *authornorm.Result, out *database.AutomaticOutcome,
+) error {
+	if out.DecisionClass != stored.DecisionClass {
+		return nil
+	}
+	decided, err := database.SettledAuthorLLMOutcome(ctx, w.db, in.SourceFingerprint, in.ExtractorVersion)
+	if err != nil || decided == nil {
+		return err
+	}
+	if llm := llmOutcomeOf(decided, stored.DecisionClass, *in.ResultID); llm != nil {
+		*out = *llm
+	}
+	return nil
 }
 
 // reconciledOutcome decides a stored result for the credits of its input;

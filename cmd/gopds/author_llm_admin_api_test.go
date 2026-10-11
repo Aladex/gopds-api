@@ -94,7 +94,11 @@ func TestAuthorLLMAdminWiring(t *testing.T) {
 		rec := llmCall(t, r, http.MethodPost, "/runs", `{"kind":"eval","mode":"full"}`)
 		assert.Equal(t, http.StatusConflict, rec.Code)
 		assert.JSONEq(t, `{"error":"prerequisite_incomplete"}`, rec.Body.String())
+		// Resolve is built and waits for a full eval; swaps are not built.
 		rec = llmCall(t, r, http.MethodPost, "/runs", `{"kind":"resolve","mode":"pilot"}`)
+		assert.Equal(t, http.StatusConflict, rec.Code)
+		assert.JSONEq(t, `{"error":"prerequisite_incomplete"}`, rec.Body.String())
+		rec = llmCall(t, r, http.MethodPost, "/runs", `{"kind":"swap","mode":"full"}`)
 		assert.Equal(t, http.StatusConflict, rec.Code)
 		assert.JSONEq(t, `{"error":"run_kind_unavailable"}`, rec.Body.String())
 

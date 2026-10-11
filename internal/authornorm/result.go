@@ -258,10 +258,33 @@ func DecisionClasses() []DecisionClass {
 
 // Validate reports ErrUnknownDecisionClass for a value outside the closed set.
 func (c DecisionClass) Validate() error {
-	if _, ok := decisionClassRouting[c]; !ok {
-		return ErrUnknownDecisionClass
+	if _, ok := decisionClassRouting[c]; ok {
+		return nil
 	}
-	return nil
+	if base, ok := c.LLMBase(); ok && base.Ambiguous() {
+		if _, known := decisionClassRouting[base]; known {
+			return nil
+		}
+	}
+	return ErrUnknownDecisionClass
+}
+
+// llmClassPrefix marks the class of an LLM result: the local class it
+// resolved, which only an ambiguous one can be.
+const llmClassPrefix = "llm."
+
+// LLMClass is the class of an LLM result that resolved an input of the local
+// class c.
+func LLMClass(c DecisionClass) DecisionClass { return llmClassPrefix + c }
+
+// LLMBase returns the local class an LLM class resolved; ok is false for a
+// local class.
+func (c DecisionClass) LLMBase() (DecisionClass, bool) {
+	base, ok := strings.CutPrefix(string(c), llmClassPrefix)
+	if !ok || base == "" {
+		return "", false
+	}
+	return DecisionClass(base), true
 }
 
 // Ambiguous reports whether the class names a form the normalizer refuses to

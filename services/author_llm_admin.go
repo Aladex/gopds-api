@@ -19,8 +19,8 @@ import (
 // chain is fixed: check quality (an eval pilot), check everything (a full
 // eval), then the production runs — resolve pilot, resolve everything,
 // swaps. Each step is enabled only when the one before it completed under
-// the current configuration. Resolve and swap runs are not built yet: their
-// steps are shown, never enabled, and refused.
+// the current configuration. Swap runs are not built yet: their step is
+// shown, never enabled, and refused.
 
 // Errors of the LLM admin; each maps to one closed API code.
 var (
@@ -30,7 +30,7 @@ var (
 	// ErrAuthorLLMPrerequisite: the step before this one has not completed
 	// under the current configuration.
 	ErrAuthorLLMPrerequisite = errors.New("services: the previous LLM step has not completed")
-	// ErrAuthorLLMRunKindUnavailable: resolve and swap runs are not built yet.
+	// ErrAuthorLLMRunKindUnavailable: swap runs are not built yet.
 	ErrAuthorLLMRunKindUnavailable = errors.New("services: this LLM run kind is not available yet")
 	// ErrAuthorLLMInvalidRun: an unknown kind or mode.
 	ErrAuthorLLMInvalidRun = errors.New("services: unknown LLM run kind or mode")
@@ -123,6 +123,16 @@ type AuthorLLMRunState struct {
 	// Cost is the spend in the price's unit, when a price is configured.
 	Cost   *float64                `json:"cost,omitempty"`
 	Report *AuthorLLMReportSummary `json:"report,omitempty"`
+	// Resolve is the one line the card shows of a resolve report.
+	Resolve *AuthorLLMResolveSummary `json:"resolve,omitempty"`
+}
+
+// AuthorLLMResolveSummary is the one line the card shows of a resolve
+// report: the inputs whose answer was applied, of all it decided.
+type AuthorLLMResolveSummary struct {
+	SHA256  string `json:"sha256"`
+	Applied int    `json:"applied"`
+	Total   int    `json:"total"`
 }
 
 // AuthorLLMParticipantState is a participant and its pause, if any.
@@ -192,15 +202,15 @@ func NewAuthorLLMAdminFromConfig(
 const AuthorLLMDisabledWorkersOff = "workers_disabled"
 
 // authorLLMChain is the chain's steps in order; a step's prerequisite is the
-// step before it. Only the eval steps are built.
+// step before it. Swaps are not built yet.
 var authorLLMChain = []struct {
 	key, kind, mode string
 	available       bool
 }{
 	{AuthorLLMStepEvalPilot, string(models.AuthorLLMRunEval), models.AuthorLLMEvalModePilot, true},
 	{AuthorLLMStepEvalFull, string(models.AuthorLLMRunEval), models.AuthorLLMEvalModeFull, true},
-	{AuthorLLMStepResolvePilot, string(models.AuthorLLMRunResolve), models.AuthorLLMEvalModePilot, false},
-	{AuthorLLMStepResolveFull, string(models.AuthorLLMRunResolve), models.AuthorLLMEvalModeFull, false},
+	{AuthorLLMStepResolvePilot, string(models.AuthorLLMRunResolve), models.AuthorLLMEvalModePilot, true},
+	{AuthorLLMStepResolveFull, string(models.AuthorLLMRunResolve), models.AuthorLLMEvalModeFull, true},
 	{AuthorLLMStepSwap, string(models.AuthorLLMRunSwap), models.AuthorLLMEvalModeFull, false},
 }
 
@@ -225,6 +235,15 @@ func (a *AuthorLLMAdmin) Status(ctx context.Context) (*AuthorLLMStatus, error) {
 		if completed, err = database.AuthorLLMCompletedRuns(ctx, a.db, a.version); err != nil {
 			return nil, err
 		}
+	}
+	if completed[string(models.AuthorLLMRunEval)+"/"+models.AuthorLLMEvalModeFull] {
+		// The resolve pilot rests on the full eval's report: a report that
+		// registers no stratum is no ground for it.
+		registrable, regErr := a.evalRegistersAStratum(ctx)
+		if regErr != nil {
+			return nil, regErr
+		}
+		completed[string(models.AuthorLLMRunEval)+"/"+models.AuthorLLMEvalModeFull] = registrable
 	}
 	st.Steps = authorLLMSteps(st.Enabled, run != nil && isActiveLLMRun(run.Status), completed)
 	if !st.Enabled {
@@ -297,6 +316,7 @@ var authorLLMStagePurpose = map[string]models.AuthorLLMJobPurpose{
 	evalStageJudge:       models.AuthorLLMPurposeEvalJudge,
 	evalStageCandidates:  models.AuthorLLMPurposeEvalCandidate,
 	evalStageRepeat:      models.AuthorLLMPurposeEvalRepeat,
+	resolveStageResolve:  models.AuthorLLMPurposeReview,
 }
 
 // runState is a run as the card shows it.
@@ -336,6 +356,11 @@ func (a *AuthorLLMAdmin) runState(ctx context.Context, run *models.AuthorLLMRun)
 	}
 	if run.Kind == models.AuthorLLMRunEval && run.Status == models.AuthorLLMRunCompleted {
 		if rs.Report, err = a.reportSummary(ctx, run.ID); err != nil {
+			return nil, err
+		}
+	}
+	if run.Kind == models.AuthorLLMRunResolve && run.Status == models.AuthorLLMRunCompleted {
+		if rs.Resolve, err = resolveSummary(ctx, a.db, run.ID); err != nil {
 			return nil, err
 		}
 	}
@@ -391,8 +416,10 @@ func (a *AuthorLLMAdmin) Start(ctx context.Context, kind, mode string, actor int
 		return nil, ErrAuthorLLMNotConfigured
 	}
 	switch kind {
-	case string(models.AuthorLLMRunResolve), string(models.AuthorLLMRunSwap):
+	case string(models.AuthorLLMRunSwap):
 		return nil, ErrAuthorLLMRunKindUnavailable
+	case string(models.AuthorLLMRunResolve):
+		return a.startResolve(ctx, mode, actor)
 	case string(models.AuthorLLMRunEval):
 	default:
 		return nil, ErrAuthorLLMInvalidRun
@@ -415,6 +442,65 @@ func (a *AuthorLLMAdmin) Start(ctx context.Context, kind, mode string, actor int
 		return nil, err
 	}
 	return a.get(ctx, id)
+}
+
+// evalRegistersAStratum reports whether the latest full eval's report
+// registers a stratum of the configuration.
+func (a *AuthorLLMAdmin) evalRegistersAStratum(ctx context.Context) (bool, error) {
+	ev, err := database.LatestAuthorLLMFullEval(ctx, a.db, a.version)
+	if err != nil || ev == nil {
+		return false, err
+	}
+	plan, err := PlanAuthorLLMResolve(ev.Report)
+	if err != nil {
+		return false, err
+	}
+	return len(plan.Strata) > 0, nil
+}
+
+// startResolve starts a resolve run: the pilot on a completed full eval
+// whose report registers a stratum, the full run after a completed pilot.
+func (a *AuthorLLMAdmin) startResolve(ctx context.Context, mode string, actor int64) (*AuthorLLMRunState, error) {
+	switch mode {
+	case models.AuthorLLMEvalModePilot:
+	case models.AuthorLLMEvalModeFull:
+		completed, err := database.AuthorLLMCompletedRuns(ctx, a.db, a.version)
+		if err != nil {
+			return nil, err
+		}
+		if !completed[string(models.AuthorLLMRunResolve)+"/"+models.AuthorLLMEvalModePilot] {
+			return nil, ErrAuthorLLMPrerequisite
+		}
+	default:
+		return nil, ErrAuthorLLMInvalidRun
+	}
+	id, err := StartAuthorLLMResolve(ctx, a.db, a.version, mode, actor)
+	if err != nil {
+		return nil, err
+	}
+	return a.get(ctx, id)
+}
+
+// resolveSummary reads the card's line of a resolve run's report; nil while
+// it has none.
+func resolveSummary(ctx context.Context, db pg.DBI, runID int64) (*AuthorLLMResolveSummary, error) {
+	raw, sha, err := AuthorLLMResolveReportFile(ctx, db, runID)
+	if errors.Is(err, pg.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var doc AuthorLLMResolveReportDoc
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("reading a resolve report: %w", err)
+	}
+	sum := &AuthorLLMResolveSummary{SHA256: sha}
+	for _, line := range doc.Strata {
+		sum.Applied += line.Applied
+		sum.Total += line.Sent
+	}
+	return sum, nil
 }
 
 func (a *AuthorLLMAdmin) get(ctx context.Context, id int64) (*AuthorLLMRunState, error) {
@@ -476,10 +562,15 @@ func (a *AuthorLLMAdmin) ResumeEndpoint(ctx context.Context) error {
 
 // EvalReport is a stored eval report and its SHA-256, as downloaded.
 func (a *AuthorLLMAdmin) EvalReport(ctx context.Context, id int64) (report []byte, sha string, err error) {
-	if _, err = database.GetAuthorLLMRunByID(ctx, a.db, id); err != nil {
+	run, err := database.GetAuthorLLMRunByID(ctx, a.db, id)
+	if err != nil {
 		return nil, "", err
 	}
-	report, sha, err = AuthorLLMEvalReportFile(ctx, a.db, id)
+	if run.Kind == models.AuthorLLMRunResolve {
+		report, sha, err = AuthorLLMResolveReportFile(ctx, a.db, id)
+	} else {
+		report, sha, err = AuthorLLMEvalReportFile(ctx, a.db, id)
+	}
 	if errors.Is(err, pg.ErrNoRows) {
 		return nil, "", ErrAuthorLLMReportNotFound
 	}

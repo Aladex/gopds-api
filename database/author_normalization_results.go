@@ -64,6 +64,26 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (normalization_key) WHERE method IN ` + localMethods + ` DO NOTHING
 RETURNING id`
 
+// resultInsertParams are a result's values in the column order of the
+// result inserts.
+func resultInsertParams(r *authornorm.Result) []interface{} {
+	additional := []string{}
+	if r.AdditionalNames != "" {
+		additional = append(additional, r.AdditionalNames)
+	}
+	flags := make([]string, 0, len(r.QualityFlags))
+	for _, flag := range r.QualityFlags {
+		flags = append(flags, string(flag))
+	}
+	return []interface{}{
+		r.SourceFingerprint[:], r.NormalizationKey[:], r.ExtractorVersion, r.NormalizerVersion,
+		strconv.Itoa(r.SchemaVersion), string(r.Method), string(r.Kind), string(r.Status), string(r.DecisionClass),
+		nullable(r.GivenName), pg.Array(additional), nullable(r.FamilyName), nullable(r.Nickname),
+		nullable(r.Prefix), nullable(r.Suffix), nullable(r.DisplayName), nullable(r.SortName),
+		nullable(r.SearchKey), nullable(string(r.Script)), pg.Array(flags),
+	}
+}
+
 // InsertLocalResult stores a valid local result and returns its ID. A key
 // already stored returns the existing row: any number of credits, workers or
 // retries share the one immutable result of a normalization key.
@@ -74,22 +94,8 @@ func InsertLocalResult(ctx context.Context, db pg.DBI, r *authornorm.Result) (in
 	if r.Method != authornorm.MethodStructured && r.Method != authornorm.MethodRules {
 		return 0, ErrNotLocalResult
 	}
-	additional := []string{}
-	if r.AdditionalNames != "" {
-		additional = append(additional, r.AdditionalNames)
-	}
-	flags := make([]string, 0, len(r.QualityFlags))
-	for _, flag := range r.QualityFlags {
-		flags = append(flags, string(flag))
-	}
-
 	var id int64
-	_, err := db.QueryOneContext(ctx, pg.Scan(&id), insertLocalResultSQL,
-		r.SourceFingerprint[:], r.NormalizationKey[:], r.ExtractorVersion, r.NormalizerVersion,
-		strconv.Itoa(r.SchemaVersion), string(r.Method), string(r.Kind), string(r.Status), string(r.DecisionClass),
-		nullable(r.GivenName), pg.Array(additional), nullable(r.FamilyName), nullable(r.Nickname),
-		nullable(r.Prefix), nullable(r.Suffix), nullable(r.DisplayName), nullable(r.SortName),
-		nullable(r.SearchKey), nullable(string(r.Script)), pg.Array(flags))
+	_, err := db.QueryOneContext(ctx, pg.Scan(&id), insertLocalResultSQL, resultInsertParams(r)...)
 	if err == nil {
 		return id, nil
 	}

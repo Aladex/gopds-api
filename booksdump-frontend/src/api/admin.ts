@@ -407,6 +407,13 @@ export interface AuthorLLMRepeatChange {
     total: number;
 }
 
+/** The one line the card shows of a resolve report. */
+export interface AuthorLLMResolveSummary {
+    sha256: string;
+    applied: number;
+    total: number;
+}
+
 export interface AuthorLLMRun {
     id: number;
     kind: string;
@@ -422,6 +429,7 @@ export interface AuthorLLMRun {
     spent_tokens: number;
     cost?: number;
     report?: AuthorLLMReportSummary;
+    resolve?: AuthorLLMResolveSummary;
 }
 
 export interface AuthorLLMParticipant {

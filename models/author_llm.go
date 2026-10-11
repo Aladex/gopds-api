@@ -157,6 +157,30 @@ const (
 	AuthorLLMVerdictHeldDrift AuthorLLMVerdictValue = "held_drift"
 )
 
+// AuthorLLMJudgement is the judges' judgement of an answer the production
+// pair agreed on (migration 34).
+type AuthorLLMJudgement string
+
+const (
+	// AuthorLLMJudgementConfirmed: both judges answered it byte-equal to the
+	// pair.
+	AuthorLLMJudgementConfirmed AuthorLLMJudgement = "confirmed"
+	AuthorLLMJudgementDisagree  AuthorLLMJudgement = "disagree"
+	AuthorLLMJudgementRefused   AuthorLLMJudgement = "refused"
+	AuthorLLMJudgementInvalid   AuthorLLMJudgement = "invalid"
+	AuthorLLMJudgementFailed    AuthorLLMJudgement = "failed"
+)
+
+// AuthorLLMJudgements lists every judgement the schema accepts.
+func AuthorLLMJudgements() []AuthorLLMJudgement {
+	return []AuthorLLMJudgement{AuthorLLMJudgementConfirmed, AuthorLLMJudgementDisagree, AuthorLLMJudgementRefused,
+		AuthorLLMJudgementInvalid, AuthorLLMJudgementFailed}
+}
+
+// AuthorLLMApplyFailed is the outcome of a verdict whose application failed
+// for that input alone: its credits were left as they were.
+const AuthorLLMApplyFailed = "apply_failed"
+
 // AuthorLLMRun is one row of author_llm_run, as the raw queries scan it.
 type AuthorLLMRun struct {
 	ID              int64              `pg:"id,pk"`
