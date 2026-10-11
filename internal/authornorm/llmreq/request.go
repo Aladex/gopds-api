@@ -126,7 +126,8 @@ var ErrMalformedBatch = errors.New("llmreq: reply is not the batch envelope")
 
 // SplitReply splits a batch reply into per-item replies, one per key. The
 // envelope is parsed strictly — exactly {"results": [...]}, nothing before or
-// after, which also refuses a Markdown fence. Each result is attributed by its
+// after — except for one surrounding Markdown code fence (stripFence), which a
+// model the gateway does not hold to the schema may add. Each result is attributed by its
 // string id and parsed by llmres.ParseReply without the id; a missing,
 // repeated or unparsable result invalidates only its own item, and a result
 // with an unknown or absent id is ignored.
@@ -134,7 +135,7 @@ func SplitReply(content []byte, keys []string) (map[string]ItemReply, error) {
 	var envelope struct {
 		Results *[]json.RawMessage `json:"results"`
 	}
-	dec := json.NewDecoder(bytes.NewReader(content))
+	dec := json.NewDecoder(bytes.NewReader(stripFence(content)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&envelope); err != nil || envelope.Results == nil {
 		return nil, ErrMalformedBatch
@@ -182,6 +183,32 @@ func SplitReply(content []byte, keys []string) (map[string]ItemReply, error) {
 		}
 	}
 	return out, nil
+}
+
+// stripFence returns the body of a reply wrapped in exactly one Markdown code
+// fence — "```json" or "```" alone on the opening line, "```" alone on the
+// closing line, only whitespace around — and the reply unchanged otherwise.
+// Nothing else is lenient: no other language tag, no text around the fence,
+// no fence inside the body, no key aliases.
+func stripFence(content []byte) []byte {
+	const fence = "```"
+	trimmed := bytes.TrimSpace(content)
+	if len(trimmed) < 2*len(fence) || !bytes.HasPrefix(trimmed, []byte(fence)) || !bytes.HasSuffix(trimmed, []byte(fence)) {
+		return content
+	}
+	body := trimmed[len(fence) : len(trimmed)-len(fence)]
+	newline := bytes.IndexByte(body, '\n')
+	if newline < 0 {
+		return content
+	}
+	if tag := bytes.TrimSuffix(body[:newline], []byte("\r")); len(tag) > 0 && string(tag) != "json" {
+		return content
+	}
+	inner := body[newline+1:]
+	if !bytes.HasSuffix(inner, []byte("\n")) {
+		return content
+	}
+	return inner
 }
 
 // batchSchema is built once from llmres.ReplySchema: the single-item reply

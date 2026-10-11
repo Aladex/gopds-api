@@ -146,7 +146,6 @@ func TestSplitReplyPerItem(t *testing.T) {
 
 func TestSplitReplyMalformedBatch(t *testing.T) {
 	for _, content := range []string{
-		"```json\n{\"results\":[]}\n```",
 		`{"results":[]} trailing`,
 		`{"results":{}}`,
 		`{"items":[]}`,
