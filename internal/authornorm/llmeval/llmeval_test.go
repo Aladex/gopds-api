@@ -115,22 +115,67 @@ func TestGateCountsErrorsAndContested(t *testing.T) {
 		t.Fatalf("a clean 700-item stratum: %+v", d)
 	}
 
-	// One contested gold under an accepted answer is an error.
+	// A contested gold (the judges disagree) is neither accepted nor an
+	// error: resolve applies only what both judges confirm.
 	in.Items[3].Judges[1] = answer("y", "confirm")
 	r = Evaluate(&in)
-	if d = decisionOf(t, &r, "initials.cyrl"); d.Passed {
-		t.Fatalf("one error in 700 passed: %+v", d)
+	if d = decisionOf(t, &r, "initials.cyrl"); !d.Passed {
+		t.Fatalf("a contested item failed the stratum: %+v", d)
 	}
 	m := r.Strata["initials.cyrl"].Combos[comboKey(both1)]
-	if m.Accepted != 700 || m.Errors != 1 || m.Contested != 1 {
+	if m.Accepted != 699 || m.Errors != 0 || m.Contested != 1 {
 		t.Errorf("metrics = %+v", m)
 	}
 
 	// A judge refusal also leaves the gold contested.
 	in.Items[3].Judges[1] = Answer{Valid: true, Refused: true, Canonical: "r"}
 	r = Evaluate(&in)
-	if m = r.Strata["initials.cyrl"].Combos[comboKey(both1)]; m.Errors != 1 {
+	if m = r.Strata["initials.cyrl"].Combos[comboKey(both1)]; m.Contested != 1 || m.Errors != 0 {
 		t.Errorf("a refusing judge did not make the item contested: %+v", m)
+	}
+
+	// A real gold mismatch is still an error at the old bound.
+	in.Items[3].Judges[1] = answer("x", "confirm")
+	in.Items[5].Judges = [2]Answer{answer("z", "confirm"), answer("z", "confirm")}
+	r = Evaluate(&in)
+	if d = decisionOf(t, &r, "initials.cyrl"); d.Passed {
+		t.Fatalf("one error in 700 passed: %+v", d)
+	}
+	if m = r.Strata["initials.cyrl"].Combos[comboKey(both1)]; m.Accepted != 700 || m.Errors != 1 || m.Contested != 0 {
+		t.Errorf("metrics = %+v", m)
+	}
+}
+
+// Run 4: the pair agreed with the gold on every item both judges agreed on;
+// the stratum failed only on its contested items. Those now stay out of the
+// bound and are reported as a count and a share.
+func TestRun4ContestedItemsAreOutsideTheGate(t *testing.T) {
+	in := healthy()
+	in.Items = stratumItems("initials.cyrl", 700, agreeX)
+	for i := range 69 {
+		in.Items[i].Judges[1] = answer("other", "confirm")
+	}
+	r := Evaluate(&in)
+	if d := decisionOf(t, &r, "initials.cyrl"); !d.Passed {
+		t.Fatalf("69 contested items and no real error failed: %+v", d)
+	}
+	m := r.Strata["initials.cyrl"].Combos[comboKey(both1)]
+	if m.Accepted != 631 || m.Errors != 0 || m.Contested != 69 {
+		t.Errorf("metrics = %+v", m)
+	}
+	if want := 69.0 / 700.0; m.ContestedShare < want-1e-9 || m.ContestedShare > want+1e-9 {
+		t.Errorf("contested share = %v, want %v", m.ContestedShare, want)
+	}
+
+	// Without enough confirmed items the stratum cannot pass: contested items
+	// do not count toward the 598.
+	in.Items = stratumItems("initials.cyrl", 700, agreeX)
+	for i := range 150 {
+		in.Items[i].Judges[1] = answer("other", "confirm")
+	}
+	r = Evaluate(&in)
+	if d := decisionOf(t, &r, "initials.cyrl"); d.Passed {
+		t.Fatalf("550 confirmed items passed the 598 bound: %+v", d)
 	}
 }
 

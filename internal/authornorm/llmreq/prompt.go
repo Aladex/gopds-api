@@ -21,19 +21,25 @@ Every result has exactly these keys, all required, no others:
 - "form": "person", "collective" (organization, editorial board, anthology label), "multiple_persons"
   (several people written in one name), "placeholder" (unknown author, "Автор неизвестен"), "not_a_name"
   or "cannot_tell".
-- "order": for a person "given_first", "family_first" or "single_name"; for every other form
-  "not_applicable".
 - "roles": an array with exactly one object per token of the item, {"i": the token's index (an integer),
   "role": its role}. The role is "given", "additional" (middle names, patronymics, middle initials),
   "family", "particle" (de, von, van, ibn, ...), "prefix" (titles before the name), "suffix" (Jr., III
   after the name), "nickname", "single_name" (mononym), "separator" (punctuation-only token) or "filler"
   (placeholder words such as "Неизвестный"). An initial keeps the role of the name it abbreviates by
-  position; never expand it.
+  position; never expand it. Label the tokens in the order they are written; the order of the name
+  follows from the roles and is not part of the answer.
+  - Only the first given name is "given". A second given name is "additional", like a patronymic or a
+    middle initial: Western middle names too ("Дж. Майкл Стражински", "Е. Томас Юинг", "Скотни С.
+    Джеймс": the middle token is "additional").
+  - A Spanish or Portuguese double surname is "family" twice ("Х Гарсия Мартинес": both surnames are
+    "family").
+  - Every token of the nickname field is "nickname", whatever it looks like — even a full name with
+    initials ("Князев К. Милослав", "Ли В.Б."): never relabel it as given or family.
 - "case_fix": an array, always present (empty when no token needs it), of objects {"i": the token's
   index, "to": "capitalize" or "capitalize_parts"}, only for tokens written fully in upper or lower case
   that should be capitalized; "capitalize_parts" for hyphenated and apostrophe-joined parts.
 Example: one item "1" with the tokens 0 "И.", 1 "П.", 2 "Сидоров" is answered
-{"results":[{"id":"1","form":"person","order":"given_first","roles":[{"i":0,"role":"given"},{"i":1,"role":"additional"},{"i":2,"role":"family"}],"case_fix":[]}]}
+{"results":[{"id":"1","form":"person","roles":[{"i":0,"role":"given"},{"i":1,"role":"additional"},{"i":2,"role":"family"}],"case_fix":[]}]}
 
 Rules:
 - Use only linguistic knowledge about name forms (patronymic endings, particles, initials, name order in

@@ -8,7 +8,8 @@ import (
 
 // The reply contract of design doc section 2: the model never writes text —
 // it assigns every source token a role from a closed list, reports the name
-// form and the written order, and may ask for the two closed case fixes.
+// form, and may ask for the two closed case fixes. The written order is not
+// asked: it follows from the roles (OrderOf), so no model can contradict it.
 // There is no confidence field: cannot_tell is a refusal, not a probability.
 
 // Form is what the token sequence names.
@@ -38,7 +39,8 @@ func (f Form) valid() bool {
 	return false
 }
 
-// Order is the written order of the name tokens in the source.
+// Order is the written order of the name tokens in the source. It is computed
+// from the roles (OrderOf), never answered by a model.
 type Order string
 
 // The closed set of orders.
@@ -135,6 +137,7 @@ type CaseFix struct {
 }
 
 // Reply is the parsed model answer. It carries no free text by construction.
+// Order is computed from the form and the roles when the reply is parsed.
 type Reply struct {
 	Form    Form             `json:"form"`
 	Order   Order            `json:"order"`
@@ -149,7 +152,6 @@ func (r *Reply) Refused() bool { return r.Form == FormCannotTell }
 // distinguishable from an empty one; the contract requires every field.
 type wireReply struct {
 	Form    *string        `json:"form"`
-	Order   *string        `json:"order"`
 	Roles   *[]wireRole    `json:"roles"`
 	CaseFix *[]wireCaseFix `json:"case_fix"`
 }
@@ -166,22 +168,20 @@ type wireCaseFix struct {
 
 // ParseReply is validator V1: the strict parsing of the model's reply. The
 // SDK's own parsing is not trusted — the bytes are re-read here against the
-// closed schema: all four fields required, unknown fields rejected, enums
-// from the closed sets, no text before or after the JSON value.
+// closed schema: all three fields required, unknown fields (an "order"
+// included) rejected, enums from the closed sets, no text before or after the
+// JSON value. The order is then computed from the roles.
 func ParseReply(raw []byte) (Reply, error) {
 	w, err := decodeWireReply(raw)
 	if err != nil {
 		return Reply{}, err
 	}
-	if w.Form == nil || w.Order == nil || w.Roles == nil || w.CaseFix == nil {
-		return Reply{}, v1Violation("form, order, roles and case_fix are all required")
+	if w.Form == nil || w.Roles == nil || w.CaseFix == nil {
+		return Reply{}, v1Violation("form, roles and case_fix are all required")
 	}
-	rep := Reply{Form: Form(*w.Form), Order: Order(*w.Order)}
+	rep := Reply{Form: Form(*w.Form)}
 	if !rep.Form.valid() {
 		return Reply{}, v1Violation("form is outside the closed set")
-	}
-	if !rep.Order.valid() {
-		return Reply{}, v1Violation("order is outside the closed set")
 	}
 	roles, err := parseWireRoles(*w.Roles)
 	if err != nil {
@@ -196,7 +196,53 @@ func ParseReply(raw []byte) (Reply, error) {
 	if rep.Roles == nil {
 		rep.Roles = []RoleAssignment{}
 	}
+	rep.Order = OrderOf(rep.Form, rep.Roles)
 	return rep, nil
+}
+
+// OrderOf is the written order the roles say: for a person, given_first,
+// family_first or single_name by the role of the first name token; for every
+// other form not_applicable. A person whose first name token is additional
+// (or who has no name token) has no order, and V5 refuses it.
+func OrderOf(form Form, roles []RoleAssignment) Order {
+	if form != FormPerson {
+		return OrderNotApplicable
+	}
+	first, found := 0, false
+	var role Role
+	for _, ra := range roles {
+		if ra.Role.nameRole() && (!found || ra.I < first) {
+			first, role, found = ra.I, ra.Role, true
+		}
+	}
+	switch {
+	case !found:
+		return ""
+	case role == RoleGiven:
+		return OrderGivenFirst
+	case role == RoleFamily:
+		return OrderFamilyFirst
+	case role == RoleSingleName:
+		return OrderSingleName
+	}
+	return ""
+}
+
+// ParseStoredReply reads an answer this service stored itself — the expected
+// answer of a frozen anchor item — which a set frozen before the order was
+// computed still carries. Its "order" is dropped (the roles decide it); the
+// rest is ParseReply's strict contract.
+func ParseStoredReply(raw []byte) (Reply, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return Reply{}, v1Violation("stored reply is not a JSON object")
+	}
+	delete(fields, "order")
+	clean, err := json.Marshal(fields)
+	if err != nil {
+		return Reply{}, err
+	}
+	return ParseReply(clean)
 }
 
 // v1Violation builds a V1 failure: the reply broke the parsing contract.
@@ -267,10 +313,9 @@ const ReplySchema = `{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["form", "order", "roles", "case_fix"],
+  "required": ["form", "roles", "case_fix"],
   "properties": {
     "form": {"$ref": "#/$defs/form"},
-    "order": {"$ref": "#/$defs/order"},
     "roles": {
       "type": "array",
       "items": {
@@ -298,7 +343,6 @@ const ReplySchema = `{
   },
   "$defs": {
     "form": {"enum": ["person", "collective", "multiple_persons", "placeholder", "not_a_name", "cannot_tell"]},
-    "order": {"enum": ["given_first", "family_first", "single_name", "not_applicable"]},
     "role": {"enum": ["given", "additional", "family", "particle", "prefix", "suffix", "nickname", "single_name", "separator", "filler"]},
     "caseFix": {"enum": ["capitalize", "capitalize_parts"]}
   }

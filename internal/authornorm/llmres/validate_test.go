@@ -174,24 +174,17 @@ func TestV5PersonGrammar(t *testing.T) {
 	noName := personReply(role(0, RoleSeparator), role(1, RoleSeparator))
 	checkViolation(t, noName.checkV5(&in), "V5")
 
-	// order=given_first requires the first name token to be given.
-	orderLie := personReply(role(0, RoleFamily), role(1, RoleGiven))
-	checkViolation(t, orderLie.checkV5(&in), "V5")
+	// The first name token is given, family or single_name: the order
+	// follows from it, and an additional one leaves none.
+	additionalFirst := personReply(role(0, RoleAdditional), role(1, RoleFamily))
+	checkViolation(t, additionalFirst.checkV5(&in), "V5")
 
-	// order=family_first requires the first name token to be family.
+	// Family first is a valid person: the order follows from the roles.
 	familyFirst := Reply{Form: FormPerson, Order: OrderFamilyFirst,
 		Roles: []RoleAssignment{role(0, RoleFamily), role(1, RoleGiven)}, CaseFix: []CaseFix{}}
 	if err := familyFirst.checkV5(&in); err != nil {
-		t.Fatalf("consistent family_first rejected: %v", err)
+		t.Fatalf("family first rejected: %v", err)
 	}
-	givenLie := Reply{Form: FormPerson, Order: OrderGivenFirst,
-		Roles: []RoleAssignment{role(0, RoleFamily), role(1, RoleGiven)}, CaseFix: []CaseFix{}}
-	checkViolation(t, givenLie.checkV5(&in), "V5")
-
-	// not_applicable is not a person's order.
-	na := Reply{Form: FormPerson, Order: OrderNotApplicable,
-		Roles: []RoleAssignment{role(0, RoleGiven), role(1, RoleFamily)}, CaseFix: []CaseFix{}}
-	checkViolation(t, na.checkV5(&in), "V5")
 
 	// Family tokens form one contiguous segment, particles aside.
 	inSplit := inputOf(t, FieldValue{FieldFirst, "Гарсиа Лорка де Пабло"})
@@ -232,21 +225,6 @@ func TestV5PersonGrammar(t *testing.T) {
 		Roles: []RoleAssignment{role(0, RoleSingleName), role(1, RoleFamily)}, CaseFix: []CaseFix{}}
 	inMono2 := inputOf(t, FieldValue{FieldFirst, "Мадонна Чикконе"})
 	checkViolation(t, monoMixed.checkV5(&inMono2), "V5")
-}
-
-// --- V6: non-person forms carry no field structure ---
-
-func TestV6NonPerson(t *testing.T) {
-	in := inputOf(t, FieldValue{FieldFirst, "Chuck Hogan, Guillermo del Toro"})
-	collective := Reply{Form: FormMultiplePersons, Order: OrderNotApplicable, Roles: []RoleAssignment{
-		role(0, RoleGiven), role(1, RoleFamily), role(2, RoleSeparator),
-		role(3, RoleGiven), role(4, RoleParticle), role(5, RoleFamily)}, CaseFix: []CaseFix{}}
-	if err := collective.checkV6(&in); err != nil {
-		t.Fatalf("collective with not_applicable order rejected: %v", err)
-	}
-	badOrder := collective
-	badOrder.Order = OrderGivenFirst
-	checkViolation(t, badOrder.checkV6(&in), "V6")
 }
 
 // --- V7: the emitted token keeps the source token's letters ---

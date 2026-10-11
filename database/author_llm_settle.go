@@ -351,7 +351,7 @@ func settleAuthorLLMJobs(
 }
 
 // The output modes in the order the fingerprint stage tries them.
-var authorLLMOutputModeOrder = []string{AuthorLLMDefaultOutputMode, "json_object", "tool"}
+var authorLLMOutputModeOrder = []string{AuthorLLMDefaultOutputMode, authorLLMOutputJSONObject, authorLLMOutputTool}
 
 // Classes of the output-mode negotiation.
 const (

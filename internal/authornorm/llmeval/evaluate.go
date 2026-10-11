@@ -120,8 +120,11 @@ type ComboMetrics struct {
 	Agreed    int `json:"agreed"`
 	Accepted  int `json:"accepted"`
 	Errors    int `json:"errors"`
-	// Contested counts the errors whose gold was contested.
+	// Contested counts the items the pair agreed on without a gold (the
+	// judges disagreed, refused or did not answer); ContestedShare is their
+	// share of the items the pair agreed on.
 	Contested      int                  `json:"contested"`
+	ContestedShare float64              `json:"contested_share"`
 	AcceptedWeight int                  `json:"accepted_weight"`
 	ErrorWeight    int                  `json:"error_weight"`
 	UpperBound     float64              `json:"upper_bound"`
@@ -427,10 +430,14 @@ func measure(c Combo, scope []*Item) ComboMetrics {
 			continue
 		}
 		g := gold(it)
-		isErr := g == "" || g != answer
-		if isErr && g == "" {
+		if g == "" {
+			// No gold — the judges disagree, refuse or did not answer: resolve
+			// applies only what both judges confirm, so the item is neither
+			// accepted nor an error; it is reported as contested.
 			m.Contested++
+			continue
 		}
+		isErr := g != answer
 		acc = append(acc, acceptedItem{tier: ans[0].Tier, weight: max(it.Weight, 1), err: isErr})
 		tc := m.Tiers[ans[0].Tier]
 		tc.Accepted++
@@ -438,6 +445,9 @@ func measure(c Combo, scope []*Item) ComboMetrics {
 			tc.Errors++
 		}
 		m.Tiers[ans[0].Tier] = tc
+	}
+	if agreedTotal := len(acc) + m.Contested; agreedTotal > 0 {
+		m.ContestedShare = float64(m.Contested) / float64(agreedTotal)
 	}
 	m.AllowedTiers = allowedTiers(m.Tiers)
 	for _, a := range acc {

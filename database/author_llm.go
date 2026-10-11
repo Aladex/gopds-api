@@ -247,7 +247,16 @@ const AuthorLLMDefaultOutputMode = "json_schema"
 
 // AuthorLLMOutputModes are the output modes a job can be sent in (the
 // author_llm_job_mode_check constraint).
-func AuthorLLMOutputModes() []string { return []string{"json_schema", "json_object", "tool"} }
+func AuthorLLMOutputModes() []string {
+	return []string{AuthorLLMDefaultOutputMode, authorLLMOutputJSONObject, authorLLMOutputTool}
+}
+
+// The other output modes: a JSON object (the prompt spells the shape) and a
+// forced tool call.
+const (
+	authorLLMOutputJSONObject = "json_object"
+	authorLLMOutputTool       = "tool"
+)
 
 // AuthorLLMNewJob describes one job to enqueue.
 type AuthorLLMNewJob struct {

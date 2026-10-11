@@ -98,8 +98,8 @@ func TestBatchSchemaWrapsTheReplySchema(t *testing.T) {
 	}
 	item := schema["properties"].(map[string]any)["results"].(map[string]any)["items"].(map[string]any)
 	required := item["required"].([]any)
-	if required[0] != "id" || len(required) != 5 {
-		t.Errorf("item required = %v, want id plus the four reply fields", required)
+	if required[0] != "id" || len(required) != 4 {
+		t.Errorf("item required = %v, want id plus the three reply fields", required)
 	}
 	if _, has := item["$defs"]; has {
 		t.Error("item keeps its own $defs")
@@ -109,7 +109,7 @@ func TestBatchSchemaWrapsTheReplySchema(t *testing.T) {
 	}
 }
 
-const okReply = `"form":"person","order":"family_first",` +
+const okReply = `"form":"person",` +
 	`"roles":[{"i":0,"role":"family"},{"i":1,"role":"separator"},{"i":2,"role":"given"}],"case_fix":[]`
 
 func TestSplitReplyPerItem(t *testing.T) {

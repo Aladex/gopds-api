@@ -89,6 +89,10 @@ const (
 	// Preparing or judging one item of an LLM call panicked; the item failed
 	// alone (job and eval item ids, never the value).
 	AuthorMetadataEventLLMItemPanic AuthorMetadataEventName = "author_metadata.llm_item_panic"
+	// An explicit start of an eval lifted the participants' bad_request
+	// pauses of the current configuration (count), so the new run's
+	// fingerprint stage may negotiate their request format again.
+	AuthorMetadataEventLLMParticipantsResumed AuthorMetadataEventName = "author_metadata.llm_participants_resumed"
 )
 
 // AuthorMetadataEventNames lists every event.
@@ -113,6 +117,7 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventDisplayBookSkipped,
 		AuthorMetadataEventLLMEvalItemSkipped, AuthorMetadataEventLLMEvalRunFailed, AuthorMetadataEventLLMAdminNotWired,
 		AuthorMetadataEventLLMRunClosed, AuthorMetadataEventLLMItemPanic,
+		AuthorMetadataEventLLMParticipantsResumed,
 	}
 }
 

@@ -491,13 +491,17 @@ func StoreAuthorLLMEvalReport(ctx context.Context, db *pg.DB, runID int64, versi
 	})
 }
 
-// LockAuthorLLMRunRunning share-locks a run's row for the rest of tx (step 2
-// of the lock order, authorLLMRunHold) and reports whether the run is
-// running. A pause or any other status change waits for tx to end, so the
-// writes tx makes after this check are made for a running run — all of them,
-// not the ones before a concurrent pause.
+// LockAuthorLLMRunRunning locks a run's row for the rest of tx (step 2 of
+// the lock order, authorLLMRunWrite) and reports whether the run is running.
+// A pause or any other status change waits for tx to end, so the writes tx
+// makes after this check are made for a running run — all of them, not the
+// ones before a concurrent pause. The lock is exclusive among enqueuers: two
+// drivers that both found a stage empty take turns, and the second sees the
+// first's jobs when it checks again under the lock (a fingerprint job's
+// output mode can change after its enqueue, so its unique key alone no longer
+// tells a repeat from a new job).
 func LockAuthorLLMRunRunning(ctx context.Context, tx *pg.Tx, runID int64) (bool, error) {
-	if _, err := lockAuthorLLMRuns(ctx, tx, authorLLMRunHold, false, []int64{runID}); err != nil {
+	if _, err := lockAuthorLLMRuns(ctx, tx, authorLLMRunWrite, false, []int64{runID}); err != nil {
 		return false, err
 	}
 	var running bool
@@ -593,20 +597,45 @@ func GetAuthorLLMEvalReport(ctx context.Context, db pg.DBI, runID int64) (*Autho
 // CreateAuthorLLMEvalRun records and starts an eval run at its first stage,
 // with its settings. Starting is instant: the stages run in the background.
 func CreateAuthorLLMEvalRun(ctx context.Context, db *pg.DB, version, mode string, settings []byte, createdBy *int64) (int64, error) {
-	var id int64
-	err := db.RunInTransaction(ctx, func(tx *pg.Tx) error {
-		_, err := tx.QueryOneContext(ctx, pg.Scan(&id), `
+	id, _, err := StartAuthorLLMEvalRun(ctx, db, version, mode, settings, createdBy)
+	return id, err
+}
+
+// StartAuthorLLMEvalRun is an explicit start of an eval run: it creates the
+// run, and in the same transaction lifts the participants' bad_request
+// pauses of the configuration — a previous run's request the provider
+// refused; the new run's fingerprint stage negotiates the request format
+// again. Every other pause, a throttle and the endpoint's pause stay. It
+// follows the lock order: the claim lock, then the new run, then the
+// participants' state. It returns the run and how many pauses it lifted.
+func StartAuthorLLMEvalRun(
+	ctx context.Context, db *pg.DB, version, mode string, settings []byte, createdBy *int64,
+) (id int64, resumed int, err error) {
+	err = RunAuthorLLMTx(ctx, db, func(tx *pg.Tx) error {
+		if _, lockErr := lockAuthorLLM(ctx, tx, nil); lockErr != nil {
+			return lockErr
+		}
+		if _, insertErr := tx.QueryOneContext(ctx, pg.Scan(&id), `
 			INSERT INTO author_llm_run (kind, mode, status, config_version, stage, settings, created_by_user_id,
 				started_at)
 			VALUES ('eval', ?0, 'running', ?1, 'freeze', ?2::jsonb, ?3, now())
-			RETURNING id`, mode, version, string(settings), createdBy)
-		return err
+			RETURNING id`, mode, version, string(settings), createdBy); insertErr != nil {
+			return insertErr
+		}
+		res, resumeErr := tx.ExecContext(ctx, `
+			UPDATE author_llm_provider_state SET paused_reason = NULL, paused_at = NULL
+			WHERE config_version = ?0 AND paused_reason = ?1`, version, string(models.AuthorLLMPausedBadRequest))
+		if resumeErr != nil {
+			return fmt.Errorf("lifting the bad_request pauses: %w", resumeErr)
+		}
+		resumed = res.RowsAffected()
+		return nil
 	})
 	if err != nil {
 		if pgErrorCode(err) == "23505" {
-			return 0, ErrAuthorLLMActiveRun
+			return 0, 0, ErrAuthorLLMActiveRun
 		}
-		return 0, fmt.Errorf("creating an eval run: %w", err)
+		return 0, 0, fmt.Errorf("creating an eval run: %w", err)
 	}
-	return id, nil
+	return id, resumed, nil
 }

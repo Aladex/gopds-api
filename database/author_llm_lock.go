@@ -17,10 +17,10 @@ import (
 //  2. the run rows, in id order, through lockAuthorLLMRuns — taken before any
 //     row of the run's work, in the mode the transaction needs:
 //     - authorLLMRunWrite (FOR NO KEY UPDATE): it changes the run's row — the
-//     claim, which may pause the run on its budget, and the report store;
-//     - authorLLMRunHold (FOR SHARE): it writes the run's work and needs the
-//     run's status to stay as read until it commits — the stage enqueue,
-//     which a pause then waits for, so a stage gets all its jobs or none;
+//     claim, which may pause the run on its budget, and the report store —
+//     or must be alone on the run while its status stays as read: the stage
+//     enqueue, which a pause then waits for (a stage gets all its jobs or
+//     none) and which a second enqueuer waits for (it then finds the jobs);
 //     - authorLLMRunRef (FOR KEY SHARE): it writes rows of the run's work and
 //     never the run — the settle; this conflicts with no status change.
 //     A one-statement change of a run (pause, resume, complete, fail, stage,
@@ -33,7 +33,7 @@ import (
 //     participant's resume) and the enqueues, which insert new job rows;
 //  4. the token tally, written by the calls' trigger and folded on its own.
 //
-// The cycle this order removes: an enqueue holding its run SHARE waits on a
+// The cycle this order removes: an enqueue holding its run lock waits on a
 // job row (a duplicate INSERT conflicts with a job the worker is updating),
 // while the worker, holding that job, waits on the run row to pause it. With
 // the run row first, the worker locks the run before it touches a job — and
@@ -81,7 +81,6 @@ type authorLLMRunLock string
 // The run lock modes, by what the transaction does to the run.
 const (
 	authorLLMRunWrite authorLLMRunLock = "NO KEY UPDATE"
-	authorLLMRunHold  authorLLMRunLock = "SHARE"
 	authorLLMRunRef   authorLLMRunLock = "KEY SHARE"
 )
 

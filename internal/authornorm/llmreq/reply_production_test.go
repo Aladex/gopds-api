@@ -14,11 +14,12 @@ import (
 // shapes are kept exactly; only the item is one realistic three-token name.
 
 // prodValid is gpt-6-luna's and gpt-6-sol's reply: the schema's shape.
-const prodValid = `{"results":[{"case_fix":[],"form":"person","id":"1","order":"given_first",` +
+// The order is no longer asked (run 4): the reply carries none.
+const prodValid = `{"results":[{"case_fix":[],"form":"person","id":"1",` +
 	`"roles":[{"i":0,"role":"given"},{"i":1,"role":"additional"},{"i":2,"role":"family"}]}]}`
 
 // prodIndexKeys is deepseek-v4-pro's reply: "index" for "i", no case_fix.
-const prodIndexKeys = `{"results":[{"id":"1","form":"person","order":"given_first",` +
+const prodIndexKeys = `{"results":[{"id":"1","form":"person",` +
 	`"roles":[{"index":0,"role":"given"},{"index":1,"role":"additional"},{"index":2,"role":"family"}]}]}`
 
 // prodFenced is claude-opus-5's reply: the same invented shape in a
@@ -136,6 +137,11 @@ func TestSystemPromptStatesTheWholeReplyShape(t *testing.T) {
 	sort.Strings(missing)
 	if len(missing) > 0 {
 		t.Errorf("the system prompt does not quote %v", missing)
+	}
+	// The order is computed from the roles (run 4): the prompt never asks
+	// for one, so a model cannot contradict the roles.
+	if strings.Contains(SystemPrompt, `"order"`) || strings.Contains(SystemPrompt, "given_first") {
+		t.Error("the system prompt asks for an order")
 	}
 	// Every key of a result is a described item of the list, and every
 	// array element is spelled as an object with all its keys, in the

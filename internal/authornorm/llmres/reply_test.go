@@ -11,7 +11,7 @@ import (
 // wrapper, a missing field or an extra field all make the reply invalid.
 
 func TestParseReplyValid(t *testing.T) {
-	raw := `{"form":"person","order":"family_first","roles":[{"i":0,"role":"family"},{"i":1,"role":"separator"},` +
+	raw := `{"form":"person","roles":[{"i":0,"role":"family"},{"i":1,"role":"separator"},` +
 		`{"i":2,"role":"given"}],"case_fix":[]}`
 	rep, err := ParseReply([]byte(raw))
 	if err != nil {
@@ -39,25 +39,24 @@ func TestParseReplyInvalid(t *testing.T) {
 		name string
 		raw  string
 	}{
-		{"missing case_fix", `{"form":"person","order":"given_first","roles":[{"i":0,"role":"given"}]}`},
-		{"missing form", `{"order":"given_first","roles":[],"case_fix":[]}`},
-		{"missing order", `{"form":"person","roles":[],"case_fix":[]}`},
-		{"missing roles", `{"form":"person","order":"given_first","case_fix":[]}`},
-		{"unknown top-level field", `{"form":"person","order":"given_first","roles":[],"case_fix":[],"confidence":0.9}`},
-		{"unknown role field", `{"form":"person","order":"given_first","roles":[{"i":0,"role":"given","note":"x"}],"case_fix":[]}`},
-		{"role entry without role", `{"form":"person","order":"given_first","roles":[{"i":0}],"case_fix":[]}`},
-		{"role entry without i", `{"form":"person","order":"given_first","roles":[{"role":"given"}],"case_fix":[]}`},
-		{"index instead of i", `{"form":"person","order":"given_first","roles":[{"index":0,"role":"given"}],"case_fix":[]}`},
-		{"unknown form enum", `{"form":"human","order":"given_first","roles":[],"case_fix":[]}`},
-		{"unknown order enum", `{"form":"person","order":"surname_first","roles":[],"case_fix":[]}`},
-		{"unknown role enum", `{"form":"person","order":"given_first","roles":[{"i":0,"role":"name"}],"case_fix":[]}`},
-		{"unknown case_fix target", `{"form":"person","order":"given_first","roles":[],"case_fix":[{"i":0,"to":"uppercase"}]}`},
-		{"case_fix entry without to", `{"form":"person","order":"given_first","roles":[],"case_fix":[{"i":0}]}`},
-		{"markdown wrapper", "```json\n{\"form\":\"person\",\"order\":\"given_first\",\"roles\":[],\"case_fix\":[]}\n```"},
-		{"trailing explanation", `{"form":"person","order":"given_first","roles":[],"case_fix":[]} because reasons`},
-		{"null form", `{"form":null,"order":"given_first","roles":[],"case_fix":[]}`},
-		{"negative index", `{"form":"person","order":"given_first","roles":[{"i":-1,"role":"given"}],"case_fix":[]}`},
-		{"fractional index", `{"form":"person","order":"given_first","roles":[{"i":0.5,"role":"given"}],"case_fix":[]}`},
+		{"missing case_fix", `{"form":"person","roles":[{"i":0,"role":"given"}]}`},
+		{"missing form", `{"roles":[],"case_fix":[]}`},
+		{"missing roles", `{"form":"person","case_fix":[]}`},
+		{"unknown top-level field", `{"form":"person","roles":[],"case_fix":[],"confidence":0.9}`},
+		{"unknown role field", `{"form":"person","roles":[{"i":0,"role":"given","note":"x"}],"case_fix":[]}`},
+		{"role entry without role", `{"form":"person","roles":[{"i":0}],"case_fix":[]}`},
+		{"role entry without i", `{"form":"person","roles":[{"role":"given"}],"case_fix":[]}`},
+		{"index instead of i", `{"form":"person","roles":[{"index":0,"role":"given"}],"case_fix":[]}`},
+		{"unknown form enum", `{"form":"human","roles":[],"case_fix":[]}`},
+		{"an answered order", `{"form":"person","order":"given_first","roles":[],"case_fix":[]}`},
+		{"unknown role enum", `{"form":"person","roles":[{"i":0,"role":"name"}],"case_fix":[]}`},
+		{"unknown case_fix target", `{"form":"person","roles":[],"case_fix":[{"i":0,"to":"uppercase"}]}`},
+		{"case_fix entry without to", `{"form":"person","roles":[],"case_fix":[{"i":0}]}`},
+		{"markdown wrapper", "```json\n{\"form\":\"person\",\"roles\":[],\"case_fix\":[]}\n```"},
+		{"trailing explanation", `{"form":"person","roles":[],"case_fix":[]} because reasons`},
+		{"null form", `{"form":null,"roles":[],"case_fix":[]}`},
+		{"negative index", `{"form":"person","roles":[{"i":-1,"role":"given"}],"case_fix":[]}`},
+		{"fractional index", `{"form":"person","roles":[{"i":0.5,"role":"given"}],"case_fix":[]}`},
 		{"not json at all", `the author is John Doe`},
 		{"empty input", ``},
 	}
@@ -88,7 +87,10 @@ func TestReplySchemaMatchesClosedSets(t *testing.T) {
 	if err := json.Unmarshal([]byte(ReplySchema), &schema); err != nil {
 		t.Fatalf("ReplySchema is not valid JSON: %v", err)
 	}
-	for _, field := range []string{"form", "order", "roles", "case_fix"} {
+	if _, has := schema.Properties["order"]; has {
+		t.Error("the schema asks for an order; it is computed from the roles")
+	}
+	for _, field := range []string{"form", "roles", "case_fix"} {
 		found := false
 		for _, r := range schema.Required {
 			if r == field {
@@ -117,7 +119,6 @@ func TestReplySchemaMatchesClosedSets(t *testing.T) {
 		}
 	}
 	checkEnum("form", enumStrings(Forms()))
-	checkEnum("order", enumStrings(Orders()))
 	checkEnum("role", enumStrings(Roles()))
 	checkEnum("caseFix", enumStrings(CaseFixKinds()))
 }

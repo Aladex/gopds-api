@@ -18,7 +18,7 @@ func TestCanonicalBytesSortsByIndex(t *testing.T) {
 		t.Fatal("role order in the wire reply must not affect agreement")
 	}
 	got := string(a.CanonicalBytes())
-	want := `{"form":"person","order":"family_first","roles":[{"i":0,"role":"family"},{"i":1,"role":"separator"},` +
+	want := `{"form":"person","roles":[{"i":0,"role":"family"},{"i":1,"role":"separator"},` +
 		`{"i":2,"role":"given"}],"case_fix":[]}`
 	if got != want {
 		t.Fatalf("CanonicalBytes = %s, want %s", got, want)
@@ -39,12 +39,6 @@ func TestAgreeIsByteExact(t *testing.T) {
 	differentForm.Form = FormCollective
 	if Agree(&base, &differentForm) {
 		t.Error("different form must not agree")
-	}
-
-	differentOrder := base
-	differentOrder.Order = OrderGivenFirst
-	if Agree(&base, &differentOrder) {
-		t.Error("different order must not agree")
 	}
 
 	withCaseFix := base

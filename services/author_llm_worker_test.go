@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -156,7 +157,7 @@ func completionBody(model, content string, prompt, output int64) string {
 
 // itemReply is the correct reply to a two-token given-family item.
 func itemReply(id string) map[string]any {
-	return map[string]any{"id": id, "form": "person", "order": "given_first",
+	return map[string]any{"id": id, "form": "person",
 		"roles":    []any{map[string]any{"i": 0, "role": "given"}, map[string]any{"i": 1, "role": "family"}},
 		"case_fix": []any{}}
 }
@@ -370,10 +371,10 @@ func TestAuthorLLMDisagreementAndInvalidReplies(t *testing.T) {
 		}
 		if req.Items[0].Tokens[0].Text == "Анна" {
 			// Roles that do not cover the tokens: V2.
-			return fakeReply{Content: `{"results":[{"id":"1","form":"person","order":"given_first",` +
+			return fakeReply{Content: `{"results":[{"id":"1","form":"person",` +
 				`"roles":[{"i":0,"role":"given"}],"case_fix":[]}]}`}
 		}
-		return fakeReply{Content: `{"results":[{"id":"1","form":"person","order":"family_first",` +
+		return fakeReply{Content: `{"results":[{"id":"1","form":"person",` +
 			`"roles":[{"i":0,"role":"family"},{"i":1,"role":"given"}],"case_fix":[]}]}`}
 	}))
 	e.drain(e.worker())
@@ -871,6 +872,11 @@ func wrapToolFragments(recorded map[string]any, id string) string {
 	body := deepCopy(recorded)
 	msg := body["choices"].([]any)[0].(map[string]any)["message"].(map[string]any)
 	calls := msg["tool_calls"].([]any)
+	// The recording predates the computed order (run 4): it answers an
+	// "order", which the reply no longer has. That key is cut out of the
+	// fragments it spans; the fragments themselves, and everything else,
+	// stay as recorded.
+	dropAcrossFragments(calls, `"order": "family_first", `)
 	calls[0].(map[string]any)["function"].(map[string]any)["name"] = llmreq.SchemaName
 	first := calls[1].(map[string]any)["function"].(map[string]any)
 	first["arguments"] = fmt.Sprintf(`{"results":[{"id":%q,`, id)
@@ -878,6 +884,33 @@ func wrapToolFragments(recorded map[string]any, id string) string {
 	last["arguments"] = last["arguments"].(string) + "]}"
 	out, _ := json.Marshal(body)
 	return string(out)
+}
+
+// dropAcrossFragments removes the first occurrence of text from the joined
+// arguments of the tool-call fragments, character by character from the
+// fragments it spans.
+func dropAcrossFragments(calls []any, text string) {
+	args := make([]string, len(calls))
+	joined := ""
+	for i, c := range calls {
+		args[i] = c.(map[string]any)["function"].(map[string]any)["arguments"].(string)
+		joined += args[i]
+	}
+	start := strings.Index(joined, text)
+	if start < 0 {
+		return
+	}
+	end, pos := start+len(text), 0
+	for i := range args {
+		from, to := pos, pos+len(args[i])
+		pos = to
+		lo, hi := max(from, start), min(to, end)
+		if lo >= hi {
+			continue
+		}
+		args[i] = args[i][:lo-from] + args[i][hi-from:]
+		calls[i].(map[string]any)["function"].(map[string]any)["arguments"] = args[i]
+	}
 }
 
 func deepCopy(m map[string]any) map[string]any {

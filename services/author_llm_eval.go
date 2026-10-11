@@ -184,7 +184,15 @@ func StartAuthorLLMEval(
 	if err != nil {
 		return 0, err
 	}
-	return database.CreateAuthorLLMEvalRun(ctx, db, version, mode, raw, adminID)
+	id, resumed, err := database.StartAuthorLLMEvalRun(ctx, db, version, mode, raw, adminID)
+	if err != nil {
+		return 0, err
+	}
+	if resumed > 0 {
+		LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{
+			Name: AuthorMetadataEventLLMParticipantsResumed, Stage: AuthorMetadataStageRunner, RunID: id, Count: resumed})
+	}
+	return id, nil
 }
 
 // AuthorLLMEvalDriver drives the running eval run through its stages.
@@ -411,6 +419,18 @@ func (d *AuthorLLMEvalDriver) awaitStage(
 			var err error
 			if running, err = database.LockAuthorLLMRunRunning(ctx, tx, run.ID); err != nil || !running {
 				return err
+			}
+			// Under the lock again: another driver may have enqueued the
+			// stage since the check above, and its jobs may since have
+			// changed their output mode.
+			var enqueued bool
+			if _, err = tx.QueryOneContext(ctx, pg.Scan(&enqueued),
+				`SELECT EXISTS (SELECT 1 FROM author_llm_job WHERE run_id = ?0 AND purpose = ?1)`,
+				run.ID, string(purpose)); err != nil {
+				return fmt.Errorf("looking for a stage's jobs: %w", err)
+			}
+			if enqueued {
+				return nil
 			}
 			return enqueue(ctx, tx, run)
 		}); err != nil || !running {
@@ -899,7 +919,9 @@ func anchorCounts(
 		c := llmeval.ParticipantCount{Participant: string(slot), Total: len(anchors)}
 		for i := range anchors {
 			it := &anchors[i]
-			want, err := llmres.ParseReply(it.Expected)
+			// A set frozen before the order was computed stores one; the
+			// roles decide it now.
+			want, err := llmres.ParseStoredReply(it.Expected)
 			if err != nil {
 				continue
 			}
@@ -1247,7 +1269,7 @@ func anchorItemOf(r *database.AuthorLLMAnchorRow) *database.AuthorLLMNewEvalItem
 	if err != nil || len(tokens) != 2 {
 		return nil
 	}
-	expected := llmres.Reply{Form: llmres.FormPerson, Order: llmres.OrderGivenFirst,
+	expected := llmres.Reply{Form: llmres.FormPerson,
 		Roles:   []llmres.RoleAssignment{{I: 0, Role: llmres.RoleGiven}, {I: 1, Role: llmres.RoleFamily}},
 		CaseFix: []llmres.CaseFix{}}
 	raw, err := json.Marshal(input)

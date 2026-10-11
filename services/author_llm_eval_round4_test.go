@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -113,10 +114,13 @@ func TestAuthorLLMEvalDuplicateEnqueueAndBudgetPauseNeverDeadlock(t *testing.T) 
 		// takes the run lock, and again before its first INSERT.
 		hooked := pg.Connect(e.db.Options())
 		atLock := newBeforeQueryGate(func(q string) bool {
-			return strings.Contains(q, "FROM author_llm_run WHERE id IN") && strings.Contains(q, "FOR SHARE")
+			return strings.Contains(q, "FROM author_llm_run WHERE id IN") && strings.Contains(q, " FOR ")
 		})
+		// Past the lock, driver B checks the stage again before it would
+		// insert: it is held there, with the run locked.
+		var locked atomic.Bool
 		atInsert := newBeforeQueryGate(func(q string) bool {
-			return strings.Contains(q, "INSERT INTO author_llm_job") && strings.Contains(q, "'eval_fingerprint'")
+			return locked.Load() && strings.Contains(q, "SELECT EXISTS (SELECT 1 FROM author_llm_job")
 		})
 		hooked.AddQueryHook(atLock)
 		hooked.AddQueryHook(atInsert)
@@ -145,7 +149,8 @@ func TestAuthorLLMEvalDuplicateEnqueueAndBudgetPauseNeverDeadlock(t *testing.T) 
 		require.NotNil(t, first, "iteration %d: refusal %s", i, refusal)
 
 		// Driver B takes the run lock and is held before its duplicate
-		// INSERT.
+		// INSERT (its check of the stage under the lock).
+		locked.Store(true)
 		close(atLock.release)
 		atInsert.await(t, "driver B's INSERT")
 

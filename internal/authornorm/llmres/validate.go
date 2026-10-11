@@ -114,11 +114,12 @@ func NewInput(fields []FieldValue) (Input, error) {
 func (in *Input) Source() authornorm.SourceValue { return in.source }
 
 // Validate runs the reply validators in order: V2 (coverage), V3 (filler and
-// separator constraints), V4 (case fixes), V5 (person grammar), V6
-// (non-person forms). V0 is a separate transport-level check and V1 is the
-// parsing itself; V7 is the assembly invariant.
+// separator constraints), V4 (case fixes), V5 (person grammar). V0 is a
+// separate transport-level check and V1 is the parsing itself; V7 is the
+// assembly invariant. V6 — a non-person form claiming a name order — is gone
+// with the order: the order is computed, not answered.
 func (r *Reply) Validate(in *Input) error {
-	for _, check := range []func(*Input) error{r.checkV2, r.checkV3, r.checkV4, r.checkV5, r.checkV6} {
+	for _, check := range []func(*Input) error{r.checkV2, r.checkV3, r.checkV4, r.checkV5} {
 		if err := check(in); err != nil {
 			return err
 		}
@@ -286,16 +287,13 @@ func capitalizePart(text string) string {
 	return b.String()
 }
 
-// checkV5: the role grammar of a person — at least one name role; family
+// checkV5: the role grammar of a person — at least one name role; the first
+// name token given, family or single_name (the order follows from it); family
 // tokens in one contiguous segment (particles aside); prefix only before and
-// suffix only after the name tokens; the order must agree with the position
-// of the first name token.
+// suffix only after the name tokens.
 func (r *Reply) checkV5(in *Input) error {
 	if r.Form != FormPerson {
 		return nil
-	}
-	if r.Order == OrderNotApplicable {
-		return &Violation{Validator: validatorV5, Detail: "a person's order is never not_applicable"}
 	}
 	roleBy := r.roleByIndex()
 	nameIdx, familyIdx, single := r.nameIndexes()
@@ -314,7 +312,10 @@ func (r *Reply) checkV5(in *Input) error {
 	if err := r.checkAffixPositions(nameIdx); err != nil {
 		return err
 	}
-	return r.checkOrderMatchesFirstRole(nameIdx[0], roleBy)
+	if OrderOf(r.Form, r.Roles) == "" {
+		return &Violation{Validator: validatorV5, Detail: "the first name token is additional"}
+	}
+	return nil
 }
 
 // nameIndexes collects the indexes of the name-carrying roles: every name
@@ -335,12 +336,8 @@ func (r *Reply) nameIndexes() (nameIdx, familyIdx []int, single bool) {
 	return nameIdx, familyIdx, single
 }
 
-// checkSingleNameGrammar: a mononym fixes the order and does not mix with the
-// split name roles.
+// checkSingleNameGrammar: a mononym does not mix with the split name roles.
 func (r *Reply) checkSingleNameGrammar() error {
-	if r.Order != OrderSingleName {
-		return &Violation{Validator: validatorV5, Detail: "single_name role requires order single_name"}
-	}
 	for _, ra := range r.Roles {
 		if ra.Role == RoleGiven || ra.Role == RoleAdditional || ra.Role == RoleFamily {
 			return &Violation{Validator: validatorV5, Detail: "single_name does not mix with given/additional/family"}
@@ -375,41 +372,6 @@ func (r *Reply) checkAffixPositions(nameIdx []int) error {
 		if ra.Role == RoleSuffix && ra.I <= last {
 			return &Violation{Validator: validatorV5, Detail: "suffix before the last name token"}
 		}
-	}
-	return nil
-}
-
-// checkOrderMatchesFirstRole: the written order must agree with the role of
-// the first name token.
-func (r *Reply) checkOrderMatchesFirstRole(first int, roleBy map[int]Role) error {
-	switch r.Order {
-	case OrderGivenFirst:
-		if roleBy[first] != RoleGiven {
-			return &Violation{Validator: validatorV5, Detail: "given_first but the first name token is not given"}
-		}
-	case OrderFamilyFirst:
-		if roleBy[first] != RoleFamily {
-			return &Violation{Validator: validatorV5, Detail: "family_first but the first name token is not family"}
-		}
-	case OrderSingleName:
-		if roleBy[first] != RoleSingleName {
-			return &Violation{Validator: validatorV5, Detail: "single_name order but the first name token is not single_name"}
-		}
-	case OrderNotApplicable:
-		// A person's not_applicable order is rejected before this check.
-	}
-	return nil
-}
-
-// checkV6: for a non-person form the roles build no fields — only the display
-// is assembled (filler/separator aside) — so the reply must not claim an
-// order of name tokens.
-func (r *Reply) checkV6(in *Input) error {
-	if r.Form == FormPerson {
-		return nil
-	}
-	if r.Order != OrderNotApplicable {
-		return &Violation{Validator: validatorV6, Detail: "a non-person form has no name order"}
 	}
 	return nil
 }

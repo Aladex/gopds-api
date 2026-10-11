@@ -106,11 +106,7 @@ func byFields(prompts map[string]int64) func(req *fakeRequest) fakeReply {
 					"nickname": "nickname"}[tok.Field]
 				roles = append(roles, map[string]any{"i": tok.I, "role": role})
 			}
-			order := "given_first"
-			if len(it.Tokens) > 0 && it.Tokens[0].Field == "last" {
-				order = "family_first"
-			}
-			results = append(results, map[string]any{"id": it.ID, "form": "person", "order": order,
+			results = append(results, map[string]any{"id": it.ID, "form": "person",
 				"roles": roles, "case_fix": []any{}})
 		}
 		out, _ := json.Marshal(map[string]any{"results": results})
@@ -396,7 +392,7 @@ func TestAuthorLLMEvalStopsAtTheAnchor(t *testing.T) {
 					}
 					roles = append(roles, map[string]any{"i": tok.I, "role": role})
 				}
-				results = append(results, map[string]any{"id": it.ID, "form": "person", "order": "family_first",
+				results = append(results, map[string]any{"id": it.ID, "form": "person",
 					"roles": roles, "case_fix": []any{}})
 			}
 			out, _ := json.Marshal(map[string]any{"results": results})
