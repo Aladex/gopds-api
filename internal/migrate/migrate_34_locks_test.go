@@ -22,7 +22,7 @@ import (
 // start applies it whole.
 func TestMigration34FailsFastInsteadOfWaitingForALock(t *testing.T) {
 	for _, table := range []string{"contributor_review_item", "book_contributor_credit_selection",
-		"contributor_normalization_result", "author_llm_verdict", "author_llm_run"} {
+		"contributor_normalization_result", "author_llm_verdict", "author_llm_run", "author_llm_job"} {
 		t.Run(table, func(t *testing.T) { migration34UnderAHeldTable(t, table) })
 	}
 }

@@ -92,10 +92,10 @@ func PlanAuthorLLMResolve(report []byte) (database.AuthorLLMResolveSettings, err
 			plan.NotRegistrable = append(plan.NotRegistrable, d.Stratum)
 			continue
 		}
-		combos := doc.Evaluation.Strata[d.Stratum].Combos
+		batch := max(d.ItemsPerRequest, 1)
+		armA := doc.Evaluation.Strata[d.Stratum].Combos[llmeval.ArmA+strconv.Itoa(batch)]
 		plan.Strata[d.Stratum] = database.AuthorLLMResolveStratum{Class: string(class), Script: script, Arm: d.Arm,
-			ItemsPerRequest: max(d.ItemsPerRequest, 1), Tiers: d.Tiers,
-			ArmAPassed: combos[llmeval.ArmA+strconv.Itoa(max(d.ItemsPerRequest, 1))].Passed}
+			ItemsPerRequest: batch, Tiers: d.Tiers, ArmAPassed: armA.Passed, ArmATiers: armA.AllowedTiers}
 	}
 	slices.Sort(plan.NotRegistrable)
 	return plan, nil
@@ -301,7 +301,7 @@ func (d *AuthorLLMResolveDriver) enqueue(ctx context.Context, run *resolveRun) e
 			for _, slot := range pair {
 				jobs = append(jobs, database.AuthorLLMNewJob{ConfigVersion: d.version, Slot: slot,
 					Purpose: models.AuthorLLMPurposeReview, SourceFingerprint: it.row.SourceFingerprint,
-					ExtractorVersion: it.row.ExtractorVersion, BatchSize: plan.ItemsPerRequest,
+					ExtractorVersion: it.row.ExtractorVersion, Arm: plan.Arm, BatchSize: plan.ItemsPerRequest,
 					OutputMode: run.mode(slot), Input: it.input, WithContext: plan.Arm == llmeval.ArmB})
 			}
 		}
@@ -411,17 +411,18 @@ func (d *AuthorLLMResolveDriver) decide(
 		if v.ProposalResultID == nil {
 			return s, nil, nil
 		}
-		return s, &database.AutomaticOutcome{ResultID: *v.ProposalResultID, DecisionClass: base,
+		return s, &database.AutomaticOutcome{ResultID: *v.ProposalResultID, DecisionClass: base, LLM: true,
 			Decision: authornorm.Decision{Outcome: authornorm.OutcomeUnresolved, Reason: authornorm.UnresolvedReason(r)}}, nil
 	}
 	if reason := verdictReason(v); reason != "" {
 		return unresolved(reason)
 	}
 	plan, planned := run.Plan.Strata[stratum]
-	if !planned || v.Tier == nil || !slices.Contains(plan.Tiers, *v.Tier) {
+	if !planned || v.Tier == nil || !slices.Contains(plan.Tiers, *v.Tier) ||
+		deref(v.Arm) != plan.Arm || v.BatchSize != plan.ItemsPerRequest {
 		return unresolved(models.UnresolvedLLMNotRegistered)
 	}
-	if plan.Arm == llmeval.ArmB && v.ContextState == string(models.AuthorLLMContextUnavailable) && !plan.ArmAPassed {
+	if !armAFallbackHolds(&plan, v) {
 		return unresolved(models.UnresolvedLLMContextUnavailable)
 	}
 	result, ok := assembleVerdict(v, input, d.version, base)
@@ -444,8 +445,21 @@ func (d *AuthorLLMResolveDriver) decide(
 		return nil, nil, err
 	}
 	return &database.AuthorLLMVerdictApplication{ResultID: &id, PolicyVersion: &policy, Stratum: stratum},
-		&database.AutomaticOutcome{ResultID: id, DecisionClass: result.DecisionClass,
+		&database.AutomaticOutcome{ResultID: id, DecisionClass: result.DecisionClass, LLM: true,
 			Decision: authornorm.Decision{Outcome: authornorm.OutcomeSelected, PolicyVersion: policyVersion}}, nil
+}
+
+// armAFallbackHolds reports whether the answer stands under the arm it was
+// actually given in. On a stratum registered on arm B, a production
+// participant that could not read the excerpt answered arm A's request —
+// either participant, each job keeps its own context state — and the answer
+// then needs arm A to have passed at that batch size on its own tier.
+func armAFallbackHolds(plan *database.AuthorLLMResolveStratum, v *database.AuthorLLMVerdictToApply) bool {
+	unavailable := string(models.AuthorLLMContextUnavailable)
+	if plan.Arm != llmeval.ArmB || (v.ContextStateA != unavailable && v.ContextStateB != unavailable) {
+		return true
+	}
+	return plan.ArmAPassed && v.Tier != nil && slices.Contains(plan.ArmATiers, *v.Tier)
 }
 
 // verdictStratum is the input's stratum, as the eval named it, and its local
@@ -592,23 +606,4 @@ func AuthorLLMResolveReportFile(ctx context.Context, db pg.DBI, runID int64) (re
 		return nil, "", err
 	}
 	return []byte(r.Report), hex.EncodeToString(r.ReportSHA256), nil
-}
-
-// llmOutcomeOf is the resolver's outcome of an input the LLM layer decided:
-// its selected result, or unresolved on the local proposal with the LLM's
-// reason. nil when the stored decision cannot be read back.
-func llmOutcomeOf(o *database.AuthorLLMOutcome, local authornorm.DecisionClass, localResult int64) *database.AutomaticOutcome {
-	if o.ResultID != nil {
-		policy, err := strconv.Atoi(deref(o.PolicyVersion))
-		if err != nil || o.DecisionClass == nil {
-			return nil
-		}
-		return &database.AutomaticOutcome{ResultID: *o.ResultID, DecisionClass: authornorm.DecisionClass(*o.DecisionClass),
-			Decision: authornorm.Decision{Outcome: authornorm.OutcomeSelected, PolicyVersion: policy}}
-	}
-	if o.Reason == nil {
-		return nil
-	}
-	return &database.AutomaticOutcome{ResultID: localResult, DecisionClass: local,
-		Decision: authornorm.Decision{Outcome: authornorm.OutcomeUnresolved, Reason: authornorm.UnresolvedReason(*o.Reason)}}
 }

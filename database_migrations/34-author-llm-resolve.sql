@@ -11,6 +11,8 @@
 --   author_llm_verdict — the judges' judgement of an agreed answer, and how
 --       the verdict was settled (applied, or the reason it was not).
 --   author_llm_resolve_report — the immutable report of a resolve run.
+--   author_llm_job — a review job carries the arm its stratum was registered
+--       on, so arm A and arm B inputs never share a call.
 --
 -- Locks: every existing table this file alters is taken up front, NOWAIT, as
 -- in 28-33, and the runs in the mode the new foreign key needs. A transaction
@@ -20,10 +22,24 @@
 SET LOCAL lock_timeout = '5s';
 
 LOCK TABLE public.contributor_normalization_result, public.book_contributor_credit_selection,
-    public.contributor_review_item, public.author_llm_verdict
+    public.contributor_review_item, public.author_llm_verdict, public.author_llm_job
     IN ACCESS EXCLUSIVE MODE NOWAIT;
 -- The report's foreign key onto the runs.
 LOCK TABLE public.author_llm_run IN SHARE ROW EXCLUSIVE MODE NOWAIT;
+
+-- A review job names the arm its stratum's eval chose: the claim batches
+-- only jobs of one arm, as the eval asked them. Everything else about the
+-- shape is migration 29's.
+ALTER TABLE public.author_llm_job
+    DROP CONSTRAINT author_llm_job_shape_check,
+    ADD CONSTRAINT author_llm_job_shape_check
+        CHECK (CASE WHEN purpose IN ('review', 'swap_check')
+                    THEN octet_length(source_fingerprint) = 32
+                         AND extractor_version ~ '^[^[:space:]](.*[^[:space:]])?$'
+                         AND eval_item_id IS NULL AND repeat_no = 0
+                    ELSE source_fingerprint IS NULL AND extractor_version IS NULL
+                         AND eval_item_id IS NOT NULL
+               END);
 
 -- One llm result per normalization key (fingerprint, extractor, LLM
 -- configuration), as the local methods have one per key.

@@ -469,24 +469,38 @@ func TestAuthorLLMResolveRespectsTheRegisteredTiersAndExcerpt(t *testing.T) {
 }
 
 func TestAuthorLLMResolveUnreadableExcerptNeedsArmA(t *testing.T) {
-	for name, armAPassed := range map[string]bool{"arm A passed": true, "arm A failed": false} {
+	// The eval chose arm B (with the excerpt) for confirm and restructure.
+	// Without the excerpt the request is arm A's: it is accepted only when arm
+	// A passed at that batch size for the answer's own tier.
+	for name, c := range map[string]struct {
+		armA     llmeval.ComboMetrics
+		selected bool
+	}{
+		"arm A passed for the tier":     {llmeval.ComboMetrics{Passed: true, AllowedTiers: []string{"confirm"}}, true},
+		"arm A passed without the tier": {llmeval.ComboMetrics{Passed: true, AllowedTiers: []string{"restructure"}}, false},
+		"arm A failed":                  {llmeval.ComboMetrics{AllowedTiers: []string{"confirm", "restructure"}}, false},
+	} {
 		t.Run(name, func(t *testing.T) {
 			e := newLLMEnv(t)
 			ingestEvalCatalogue(t, e)
 			ctx := context.Background()
-			e.completedFullEval(t, true, []llmeval.StratumDecision{passedStratum("initials.cyrl", "B", 1, "confirm")},
-				map[string]map[string]llmeval.ComboMetrics{"initials.cyrl": {"A1": {Passed: armAPassed}, "B1": {Passed: true}}})
+			e.completedFullEval(t, true,
+				[]llmeval.StratumDecision{passedStratum("initials.cyrl", "B", 1, "confirm", "restructure")},
+				map[string]map[string]llmeval.ComboMetrics{"initials.cyrl": {"A1": c.armA,
+					"B1": {Passed: true, AllowedTiers: []string{"confirm", "restructure"}}}})
 			// The archive is gone: no excerpt can be read.
 			require.NoError(t, removeArchives(e))
 			run, err := e.llmAdmin().Start(ctx, "resolve", "pilot", e.adminUser())
 			require.NoError(t, err)
 			e.resolveUntilDone(run.ID)
 			s := e.selections()["Петров"]
-			if armAPassed {
+			if c.selected {
 				assert.Equal(t, "selected", s.State)
 				return
 			}
+			assert.Equal(t, "unresolved", s.State)
 			assert.Equal(t, "llm_context_unavailable", deref(s.Reason))
+			assert.Zero(t, e.count(`SELECT count(*) FROM contributor_normalization_result WHERE method = 'llm'`))
 		})
 	}
 }

@@ -28,8 +28,9 @@ var ErrAuthorLLMNoEvidence = errors.New("database: no eval report registers a st
 // AuthorLLMResolveStratum is how a resolve run asks and accepts one stratum,
 // as its eval report decided: the arm and the items per request the pair is
 // asked with, the tiers an agreed answer may have, whether arm A passed at
-// that batch size too (an unreadable excerpt then falls back to it), and the
-// registered pair (the local class and the script).
+// that batch size too and on which tiers (an answer given without the
+// excerpt is arm A's and must pass arm A's own gate), and the registered pair
+// (the local class and the script).
 type AuthorLLMResolveStratum struct {
 	Class           string   `json:"class"`
 	Script          string   `json:"script"`
@@ -37,6 +38,7 @@ type AuthorLLMResolveStratum struct {
 	ItemsPerRequest int      `json:"items_per_request"`
 	Tiers           []string `json:"tiers"`
 	ArmAPassed      bool     `json:"arm_a_passed"`
+	ArmATiers       []string `json:"arm_a_tiers"`
 }
 
 // AuthorLLMResolveSettings are a resolve run's settings: the eval report it
@@ -289,17 +291,20 @@ func AuthorLLMResolveRunProgress(ctx context.Context, db pg.DBI, runID int64) (A
 // its application needs: the pair's agreed reply and input, the judges'
 // judgement, and the input's review item (the local class and proposal).
 type AuthorLLMVerdictToApply struct {
-	ID                int64           `pg:"id"`
-	SourceFingerprint []byte          `pg:"source_fingerprint"`
-	ExtractorVersion  string          `pg:"extractor_version"`
-	Verdict           string          `pg:"verdict"`
-	Tier              *string         `pg:"tier"`
-	ContextState      string          `pg:"context_state"`
-	Judgement         *string         `pg:"judgement"`
-	Reply             json.RawMessage `pg:"reply"`
-	Input             json.RawMessage `pg:"input"`
-	Arm               *string         `pg:"arm"`
-	BatchSize         int             `pg:"batch_size"`
+	ID                int64   `pg:"id"`
+	SourceFingerprint []byte  `pg:"source_fingerprint"`
+	ExtractorVersion  string  `pg:"extractor_version"`
+	Verdict           string  `pg:"verdict"`
+	Tier              *string `pg:"tier"`
+	// The context state of each production job: the excerpt each
+	// participant actually answered with.
+	ContextStateA string          `pg:"context_state_a"`
+	ContextStateB string          `pg:"context_state_b"`
+	Judgement     *string         `pg:"judgement"`
+	Reply         json.RawMessage `pg:"reply"`
+	Input         json.RawMessage `pg:"input"`
+	Arm           *string         `pg:"arm"`
+	BatchSize     int             `pg:"batch_size"`
 	// The local proposal of the input's latest ambiguous review item.
 	DecisionClass    *string  `pg:"decision_class"`
 	ProposalResultID *int64   `pg:"proposal_result_id"`
@@ -312,10 +317,12 @@ type AuthorLLMVerdictToApply struct {
 func AuthorLLMVerdictsToApply(ctx context.Context, db pg.DBI, runID int64, limit int) ([]AuthorLLMVerdictToApply, error) {
 	var rows []AuthorLLMVerdictToApply
 	_, err := db.QueryContext(ctx, &rows, `
-		SELECT v.id, v.source_fingerprint, v.extractor_version, v.verdict, v.tier, v.context_state, v.judgement,
-			a.reply, j.input, j.arm, j.batch_size, i.decision_class, i.proposal_result_id, r.script, r.quality_flags
+		SELECT v.id, v.source_fingerprint, v.extractor_version, v.verdict, v.tier, j.context_state AS context_state_a,
+			jb.context_state AS context_state_b, v.judgement, a.reply, j.input, j.arm, j.batch_size, i.decision_class,
+			i.proposal_result_id, r.script, r.quality_flags
 		FROM author_llm_verdict v
 		JOIN author_llm_job j ON j.id = v.job_a_id
+		JOIN author_llm_job jb ON jb.id = v.job_b_id
 		LEFT JOIN author_llm_attempt a ON a.id = v.attempt_a_id
 		LEFT JOIN LATERAL (
 			SELECT ri.decision_class, ri.proposal_result_id FROM contributor_review_item ri
@@ -423,6 +430,11 @@ func CloseAutomaticReviewItems(ctx context.Context, tx ResolutionTx, fingerprint
 	return res.RowsAffected(), nil
 }
 
+// TestHookAfterLLMOutcomeRead is called, when set, right after the resolver
+// read an input's settled LLM outcome: a test seam to interleave a
+// concurrent writer at that point. Production code never sets it.
+var TestHookAfterLLMOutcomeRead func(fingerprint []byte, found bool)
+
 // AuthorLLMOutcome is the LLM layer's settled decision on an input: the
 // selected LLM result, or the reason it stayed unresolved.
 type AuthorLLMOutcome struct {
@@ -519,4 +531,61 @@ func GetAuthorLLMResolveReport(ctx context.Context, db pg.DBI, runID int64) (*Au
 		return nil, err
 	}
 	return &r, nil
+}
+
+// llmPrecedence enforces LLM > local for every local automatic writer: a
+// local outcome (reconcile, the local stream, a failed local job) on an input
+// the LLM layer has decided becomes that decision — its selected LLM result,
+// or unresolved with its reason on the local result. The decision is read
+// under the input's lock, the lock the resolve run holds while it applies a
+// verdict, so it cannot be applied between this read and the writes that
+// follow: an application either committed before the read (and is seen) or
+// waits for this transaction (and overwrites it after).
+func llmPrecedence(
+	ctx context.Context, db ResolutionTx, fingerprint []byte, extractorVersion string, out *AutomaticOutcome,
+) (*AutomaticOutcome, error) {
+	if err := LockNormalizationInput(ctx, db, fingerprint, extractorVersion); err != nil {
+		return nil, err
+	}
+	decided, err := SettledAuthorLLMOutcome(ctx, db, fingerprint, extractorVersion)
+	if err != nil {
+		return nil, err
+	}
+	if TestHookAfterLLMOutcomeRead != nil {
+		TestHookAfterLLMOutcomeRead(fingerprint, decided != nil)
+	}
+	if decided == nil {
+		return out, nil
+	}
+	if llm := decided.outcome(out); llm != nil {
+		return llm, nil
+	}
+	return out, nil
+}
+
+// outcome is the resolver's outcome of the LLM decision for an input whose
+// local outcome is local: the selected LLM result, or unresolved on the local
+// result with the LLM's reason. nil when the decision cannot stand in (a
+// failed local job has no result to leave unresolved on).
+func (o *AuthorLLMOutcome) outcome(local *AutomaticOutcome) *AutomaticOutcome {
+	if o.ResultID != nil {
+		policy, err := strconv.Atoi(derefString(o.PolicyVersion))
+		if err != nil || o.DecisionClass == nil {
+			return nil
+		}
+		return &AutomaticOutcome{ResultID: *o.ResultID, DecisionClass: authornorm.DecisionClass(*o.DecisionClass),
+			Decision: authornorm.Decision{Outcome: authornorm.OutcomeSelected, PolicyVersion: policy}, LLM: true}
+	}
+	if o.Reason == nil || local.Failed || local.ResultID <= 0 {
+		return nil
+	}
+	return &AutomaticOutcome{ResultID: local.ResultID, DecisionClass: local.DecisionClass, LLM: true,
+		Decision: authornorm.Decision{Outcome: authornorm.OutcomeUnresolved, Reason: authornorm.UnresolvedReason(*o.Reason)}}
+}
+
+func derefString(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }

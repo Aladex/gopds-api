@@ -121,6 +121,10 @@ type AutomaticOutcome struct {
 	// Failed: no result exists; the credits are unresolved with
 	// normalizer_failed.
 	Failed bool
+	// LLM marks the LLM layer's own outcome (the resolve run applying a
+	// verdict); every other outcome is local and yields to a settled LLM
+	// decision on the input.
+	LLM bool
 }
 
 // ResolveReport counts where a resolution left the credits it touched.
@@ -328,7 +332,8 @@ func currentState(ctx context.Context, db pg.DBI, creditID int64) (models.Credit
 // ResolveCredits applies one automatic outcome to every current author credit
 // of its normalization input — the exact source fingerprint under the exact
 // extractor version — through the resolver. Translator credits and credits of
-// superseded snapshots are not touched.
+// superseded snapshots are not touched. A local outcome yields to the LLM
+// layer's settled decision on the input (see llmPrecedence).
 func ResolveCredits(
 	ctx context.Context,
 	db ResolutionTx,
@@ -338,6 +343,12 @@ func ResolveCredits(
 ) (ResolveReport, error) {
 	if _, err := automaticTarget(out); err != nil {
 		return ResolveReport{}, err
+	}
+	if !out.LLM {
+		var err error
+		if out, err = llmPrecedence(ctx, db, fingerprint, extractorVersion, out); err != nil {
+			return ResolveReport{}, err
+		}
 	}
 	var credits []resolvableCredit
 	_, err := db.QueryContext(ctx, &credits, `SELECT c.id, c.source_fingerprint
