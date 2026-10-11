@@ -557,6 +557,11 @@ func (w *AuthorLLMWorker) excerpt(
 			continue
 		}
 		bookID := book.BookID
+		if sum := bc.SHA256(); job.EvalItemID != nil && !slices.Equal(sum[:], job.EvalContextSHA256) {
+			// The frozen book changed since the eval item was frozen: the
+			// item drops out of the measurement.
+			break
+		}
 		if !llmres.ContextRelevant(&bc, tokens) {
 			w.recordContext(ctx, claim, job, models.AuthorLLMContextIrrelevant, &bookID, nil)
 			return nil
@@ -638,12 +643,21 @@ func (w *AuthorLLMWorker) recordContext(ctx context.Context, claim *database.Aut
 const authorLLMMaxEntryBytes = 64 << 20
 
 // readExcerpt reads one book's excerpt from its archive.
-func (w *AuthorLLMWorker) readExcerpt(ctx context.Context, book *database.AuthorLLMContextBook) (bc llmres.BookContext, ok bool) {
-	full, err := safepath.Resolve(w.cfg.ArchivesDir, book.ArchivePath)
+func (w *AuthorLLMWorker) readExcerpt(ctx context.Context, book *database.AuthorLLMContextBook) (llmres.BookContext, bool) {
+	return readAuthorLLMExcerpt(ctx, w.cfg.Archives, w.cfg.ArchivesDir, book)
+}
+
+// readAuthorLLMExcerpt reads one book's excerpt from its archive under dir,
+// leaving the book's own credit out of the other credits. The worker and the
+// eval freeze read excerpts the same way, so a frozen digest is reproducible.
+func readAuthorLLMExcerpt(
+	ctx context.Context, archives ArchiveSource, dir string, book *database.AuthorLLMContextBook,
+) (bc llmres.BookContext, ok bool) {
+	full, err := safepath.Resolve(dir, book.ArchivePath)
 	if err != nil {
 		return llmres.BookContext{}, false
 	}
-	archive, err := w.cfg.Archives.Open(ctx, full)
+	archive, err := archives.Open(ctx, full)
 	if err != nil {
 		return llmres.BookContext{}, false
 	}

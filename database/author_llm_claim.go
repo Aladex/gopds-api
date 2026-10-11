@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -179,7 +180,7 @@ func ClaimAuthorLLMCall(ctx context.Context, db *pg.DB, opts *AuthorLLMClaimOpti
 	}
 	var claim *AuthorLLMClaim
 	var refusal AuthorLLMClaimRefusal
-	err := db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+	err := RunAuthorLLMTx(ctx, db, func(tx *pg.Tx) error {
 		var err error
 		claim, refusal, err = claimAuthorLLMCall(ctx, tx, opts)
 		return err
@@ -207,7 +208,11 @@ func claimAuthorLLMCall(ctx context.Context, tx *pg.Tx, opts *AuthorLLMClaimOpti
 	if err != nil {
 		return nil, "", err
 	}
-	if abandonErr := abandonExpiredAuthorLLMCalls(ctx, tx, now, opts.MaxAttempts); abandonErr != nil {
+	locked, err := lockAuthorLLMClaimRuns(ctx, tx, opts.ConfigVersion, now)
+	if err != nil {
+		return nil, "", err
+	}
+	if abandonErr := abandonExpiredAuthorLLMCalls(ctx, tx, now, opts.MaxAttempts, locked); abandonErr != nil {
 		return nil, "", abandonErr
 	}
 	st, refusal, err := authorLLMParticipantGate(ctx, tx, opts, now)
@@ -217,7 +222,9 @@ func claimAuthorLLMCall(ctx context.Context, tx *pg.Tx, opts *AuthorLLMClaimOpti
 	// Every job belongs to a run: without a running run of this
 	// configuration there is nothing to claim.
 	run, err := activeClaimRun(ctx, tx, opts.ConfigVersion)
-	if err != nil || run == nil {
+	if err != nil || run == nil || !slices.Contains(locked, run.ID) {
+		// No running run, or one another transaction holds (mid-enqueue):
+		// nothing to claim now.
 		return nil, AuthorLLMClaimIdle, err
 	}
 	ref, expected, err := run.checks(opts.Slot)
@@ -236,6 +243,24 @@ func claimAuthorLLMCall(ctx context.Context, tx *pg.Tx, opts *AuthorLLMClaimOpti
 	}
 
 	return claimAuthorLLMJobsOrTail(ctx, tx, opts, now, st, run, ref, expected)
+}
+
+// lockAuthorLLMClaimRuns is the claim's step 2 of the lock order: it locks
+// the runs the claim may write — its configuration's running run, which a
+// budget refusal pauses, and the runs of the calls whose lease ran out, whose
+// jobs the abandonment requeues — before any of their rows. A run another
+// transaction holds is skipped, not waited for under the claim lock: the
+// claim takes nothing from it, and its expired calls wait for the next claim.
+func lockAuthorLLMClaimRuns(ctx context.Context, tx *pg.Tx, version string, now time.Time) ([]int64, error) {
+	var ids []int64
+	if _, err := tx.QueryContext(ctx, &ids, `
+		SELECT id FROM author_llm_run WHERE config_version = ?0 AND status = 'running'
+		UNION
+		SELECT run_id FROM author_llm_call WHERE finished_at IS NULL AND lease_expires_at < ?1`,
+		version, now); err != nil {
+		return nil, fmt.Errorf("listing the claim's LLM runs: %w", err)
+	}
+	return lockAuthorLLMRuns(ctx, tx, authorLLMRunWrite, true, ids)
 }
 
 // claimAuthorLLMJobsOrTail claims the next batch of the run, or, with
@@ -598,12 +623,15 @@ func claimAuthorLLMFingerprint(
 // (settled = reserved), its attempts are
 // closed as abandoned, and its jobs go back to the queue — or fail, when that
 // was their last attempt. Jobs that end here get their verdicts.
-func abandonExpiredAuthorLLMCalls(ctx context.Context, tx *pg.Tx, now time.Time, maxAttempts int) error {
+func abandonExpiredAuthorLLMCalls(ctx context.Context, tx *pg.Tx, now time.Time, maxAttempts int, runIDs []int64) error {
+	if len(runIDs) == 0 {
+		return nil
+	}
 	var ended []int64
 	_, err := tx.QueryContext(ctx, &ended, `
 		WITH expired AS (
 			SELECT id FROM author_llm_call
-			WHERE finished_at IS NULL AND lease_expires_at < ?0
+			WHERE finished_at IS NULL AND lease_expires_at < ?0 AND run_id IN (?3)
 			FOR UPDATE SKIP LOCKED
 		), closed AS (
 			UPDATE author_llm_call c
@@ -631,7 +659,7 @@ func abandonExpiredAuthorLLMCalls(ctx context.Context, tx *pg.Tx, now time.Time,
 			RETURNING j.id, j.status
 		)
 		SELECT id FROM requeued WHERE status = 'failed'`,
-		now, maxAttempts, authorLLMLeaseExpired)
+		now, maxAttempts, authorLLMLeaseExpired, pg.In(runIDs))
 	if err != nil {
 		return fmt.Errorf("closing abandoned LLM calls: %w", err)
 	}

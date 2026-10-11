@@ -139,7 +139,8 @@ func SettleAuthorLLMCall(ctx context.Context, db *pg.DB, s *AuthorLLMSettlement)
 		return nil, ErrInvalidLeaseFailure
 	}
 	report := &AuthorLLMSettleReport{}
-	err := db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+	err := RunAuthorLLMTx(ctx, db, func(tx *pg.Tx) error {
+		*report = AuthorLLMSettleReport{} // a retried settle reports its last attempt only
 		return settleAuthorLLMCallTx(ctx, tx, s, report)
 	})
 	if err != nil {
@@ -152,6 +153,20 @@ func SettleAuthorLLMCall(ctx context.Context, db *pg.DB, s *AuthorLLMSettlement)
 func settleAuthorLLMCallTx(ctx context.Context, tx *pg.Tx, s *AuthorLLMSettlement, report *AuthorLLMSettleReport) error {
 	now, err := lockAuthorLLM(ctx, tx, s.At)
 	if err != nil {
+		return err
+	}
+	// Step 2 of the lock order: the call's run, before the call and its
+	// jobs. The settle never writes the run, so it takes the run only in
+	// KEY SHARE, which no status change waits for.
+	var runID int64
+	_, err = tx.QueryOneContext(ctx, pg.Scan(&runID), `SELECT run_id FROM author_llm_call WHERE id = ?0`, s.CallID)
+	if errors.Is(err, pg.ErrNoRows) {
+		return ErrAuthorLLMLeaseLost
+	}
+	if err != nil {
+		return fmt.Errorf("reading the settled call's run: %w", err)
+	}
+	if _, err = lockAuthorLLMRuns(ctx, tx, authorLLMRunRef, false, []int64{runID}); err != nil {
 		return err
 	}
 	var call settledCall

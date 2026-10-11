@@ -55,7 +55,7 @@ func buildAuthorMetadataWorkers(
 			Name: services.AuthorLLMEventDisabled, Class: reason,
 		})
 	default:
-		workers = append(workers, llmWorker)
+		workers = append(workers, llmWorker, llmWorker.EvalDriver())
 	}
 	return workers, nil
 }

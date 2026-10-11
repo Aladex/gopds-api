@@ -48,7 +48,10 @@ const (
 	AuthorLLMPurposeEvalCandidate AuthorLLMJobPurpose = "eval_candidate"
 	AuthorLLMPurposeEvalRepeat    AuthorLLMJobPurpose = "eval_repeat"
 	AuthorLLMPurposeEvalAnchor    AuthorLLMJobPurpose = "eval_anchor"
-	AuthorLLMPurposeCanary        AuthorLLMJobPurpose = "canary"
+	// AuthorLLMPurposeEvalFingerprint: the fixed fingerprint request sent
+	// by the eval run's fingerprint stage (migration 31).
+	AuthorLLMPurposeEvalFingerprint AuthorLLMJobPurpose = "eval_fingerprint"
+	AuthorLLMPurposeCanary          AuthorLLMJobPurpose = "canary"
 )
 
 // IsResolve reports whether the purpose belongs to the resolve side (an input
@@ -161,6 +164,7 @@ type AuthorLLMRun struct {
 	Stage           *string            `pg:"stage"`
 	EstimateTokens  int64              `pg:"estimate_tokens,use_zero"`
 	ExpectedModels  json.RawMessage    `pg:"expected_models,type:jsonb"`
+	Settings        json.RawMessage    `pg:"settings,type:jsonb"`
 	Reference       json.RawMessage    `pg:"reference,type:jsonb"`
 	PausedReason    *string            `pg:"paused_reason"`
 	LastErrorClass  *string            `pg:"last_error_class"`
@@ -188,3 +192,21 @@ type AuthorLLMProviderState struct {
 	CheckCallID        *int64     `pg:"check_call_id"`
 	UpdatedAt          time.Time  `pg:"updated_at"`
 }
+
+// AuthorLLMEvalItemSet is the set a frozen eval item belongs to.
+type AuthorLLMEvalItemSet string
+
+const (
+	AuthorLLMEvalHoldout     AuthorLLMEvalItemSet = "holdout"
+	AuthorLLMEvalDev         AuthorLLMEvalItemSet = "dev"
+	AuthorLLMEvalAnchor      AuthorLLMEvalItemSet = "anchor"
+	AuthorLLMEvalCanary      AuthorLLMEvalItemSet = "canary"
+	AuthorLLMEvalFingerprint AuthorLLMEvalItemSet = "fingerprint"
+)
+
+// The modes of an eval run.
+const (
+	AuthorLLMEvalModeDev   = "dev"
+	AuthorLLMEvalModePilot = "pilot"
+	AuthorLLMEvalModeFull  = "full"
+)

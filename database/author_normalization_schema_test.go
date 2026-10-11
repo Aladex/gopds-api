@@ -169,7 +169,8 @@ func TestNormalizationSchemaRelationsAndIndexes(t *testing.T) {
 	assert.ElementsMatch(t, normalizationIndexes, indexes)
 
 	// The LLM stream is design K's synchronous one (migration 29): exactly its
-	// relations, and no provider Batch tables.
+	// relations (with migration 31's eval skip record), and no provider Batch
+	// tables.
 	var llm []string
 	_, err = f.tx.Query(&llm, `
 		SELECT table_name FROM information_schema.tables
@@ -179,7 +180,7 @@ func TestNormalizationSchemaRelationsAndIndexes(t *testing.T) {
 		"author_llm_config", "author_llm_participant", "author_llm_endpoint_state", "author_llm_run", "author_llm_eval_set",
 		"author_llm_eval_item", "author_llm_eval_report", "author_llm_context", "author_llm_call",
 		"author_llm_token_tally", "author_llm_job", "author_llm_attempt", "author_llm_provider_state",
-		"author_llm_verdict", "author_llm_canary_run",
+		"author_llm_verdict", "author_llm_canary_run", "author_llm_eval_skip",
 	}, llm)
 }
 

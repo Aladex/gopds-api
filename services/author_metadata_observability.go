@@ -75,6 +75,10 @@ const (
 	AuthorMetadataEventDisplayWalkFinished AuthorMetadataEventName = "author_metadata.display_walk_finished"
 	// A book the read model refused was skipped: its ID and the SQLSTATE.
 	AuthorMetadataEventDisplayBookSkipped AuthorMetadataEventName = "author_metadata.display_book_skipped"
+	// An eval freeze left an item out (its reason is the status); an eval
+	// run ended because a stage cannot be done with its settings.
+	AuthorMetadataEventLLMEvalItemSkipped AuthorMetadataEventName = "author_metadata.llm_eval_item_skipped"
+	AuthorMetadataEventLLMEvalRunFailed   AuthorMetadataEventName = "author_metadata.llm_eval_run_failed"
 )
 
 // AuthorMetadataEventNames lists every event.
@@ -97,6 +101,7 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventWorkersShutdownTimeout, AuthorMetadataEventRunsAPINotWired,
 		AuthorMetadataEventAggregatesRefreshFailed, AuthorMetadataEventDisplayWalkFinished,
 		AuthorMetadataEventDisplayBookSkipped,
+		AuthorMetadataEventLLMEvalItemSkipped, AuthorMetadataEventLLMEvalRunFailed,
 	}
 }
 
@@ -240,6 +245,9 @@ func authorMetadataEventStatuses() map[string]bool {
 		set[v] = true
 	}
 	set[retryScheduledStatus] = true
+	for _, reason := range AuthorLLMEvalSkipReasons() {
+		set[reason] = true
+	}
 	return set
 }
 
@@ -263,7 +271,8 @@ func closedEventName(name AuthorMetadataEventName) AuthorMetadataEventName {
 // and a local normalization loop's label with its index.
 func closedWorkerLabel(label string) string {
 	if label == string(AuthorMetadataStageExtraction) || label == string(AuthorMetadataStageAcceptance) ||
-		label == authorLLMWorkerName || label == string(AuthorMetadataStageDisplayModel) {
+		label == authorLLMWorkerName || label == authorLLMEvalDriverName ||
+		label == string(AuthorMetadataStageDisplayModel) {
 		return label
 	}
 	index, ok := strings.CutPrefix(label, string(AuthorMetadataStageLocalNormalization)+"-")

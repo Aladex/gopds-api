@@ -245,6 +245,10 @@ func GetAuthorLLMRun(ctx context.Context, db pg.DBI, id int64) (*models.AuthorLL
 // names none: strict Structured Outputs.
 const AuthorLLMDefaultOutputMode = "json_schema"
 
+// AuthorLLMOutputModes are the output modes a job can be sent in (the
+// author_llm_job_mode_check constraint).
+func AuthorLLMOutputModes() []string { return []string{"json_schema", "json_object", "tool"} }
+
 // AuthorLLMNewJob describes one job to enqueue.
 type AuthorLLMNewJob struct {
 	ConfigVersion string
