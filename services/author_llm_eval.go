@@ -127,9 +127,22 @@ func DefaultAuthorLLMEvalSettings() AuthorLLMEvalSettings {
 	return AuthorLLMEvalSettings{OutputModes: map[string]string{}, BatchSizes: []int{1, 10}}
 }
 
+// mode is the output mode the run's settings name for a slot, or "" when
+// they name none.
 func (s *AuthorLLMEvalSettings) mode(slot llmreq.Slot) string {
-	if m := s.OutputModes[string(slot)]; m != "" {
+	return s.OutputModes[string(slot)]
+}
+
+// mode is the output mode a run asks a participant in: the run's own setting
+// when it names one (a dev run started through the API with modes), else the
+// mode its fingerprint stage negotiated, else json_schema — the first mode
+// the fingerprint stage tries.
+func (d *AuthorLLMEvalDriver) mode(run *evalRun, slot llmreq.Slot) string {
+	if m := run.Settings.mode(slot); m != "" {
 		return m
+	}
+	if ref, ok := run.Reference[string(slot)]; ok && ref.OutputMode != "" {
+		return ref.OutputMode
 	}
 	return database.AuthorLLMDefaultOutputMode
 }
@@ -224,19 +237,23 @@ type evalRun struct {
 	Mode     string
 	Stage    string
 	Settings AuthorLLMEvalSettings
+	// Reference is what the fingerprint stage learned per participant: its
+	// prompt tokens and its negotiated output mode.
+	Reference map[string]database.AuthorLLMFingerprintReference
 }
 
 // runningEval reads the configuration's running eval run, if any. A paused
 // run is not stepped: its stage waits.
 func (d *AuthorLLMEvalDriver) runningEval(ctx context.Context) (*evalRun, error) {
 	var row struct {
-		ID       int64           `pg:"id"`
-		Mode     string          `pg:"mode"`
-		Stage    *string         `pg:"stage"`
-		Settings json.RawMessage `pg:"settings"`
+		ID        int64           `pg:"id"`
+		Mode      string          `pg:"mode"`
+		Stage     *string         `pg:"stage"`
+		Settings  json.RawMessage `pg:"settings"`
+		Reference json.RawMessage `pg:"reference"`
 	}
 	_, err := d.db.QueryOneContext(ctx, &row, `
-		SELECT id, mode, stage, settings FROM author_llm_run
+		SELECT id, mode, stage, settings, reference FROM author_llm_run
 		WHERE kind = 'eval' AND status = 'running' AND config_version = ?`, d.version)
 	if errors.Is(err, pg.ErrNoRows) {
 		return nil, nil
@@ -251,6 +268,11 @@ func (d *AuthorLLMEvalDriver) runningEval(ctx context.Context) (*evalRun, error)
 	if len(row.Settings) > 0 {
 		if err := json.Unmarshal(row.Settings, &run.Settings); err != nil {
 			return nil, fmt.Errorf("reading an eval run's settings: %w", err)
+		}
+	}
+	if len(row.Reference) > 0 && string(row.Reference) != "null" {
+		if err := json.Unmarshal(row.Reference, &run.Reference); err != nil {
+			return nil, fmt.Errorf("reading an eval run's reference: %w", err)
 		}
 	}
 	return run, nil
@@ -456,7 +478,7 @@ func (d *AuthorLLMEvalDriver) enqueueFingerprint(ctx context.Context, tx *pg.Tx,
 	for _, slot := range llmreq.Slots() {
 		for r := range d.sizes.FingerprintRepeats {
 			if err := d.enqueue(ctx, tx, &database.AuthorLLMEvalJobSpec{RunID: run.ID, Slot: string(slot),
-				Purpose: models.AuthorLLMPurposeEvalFingerprint, RepeatNo: r, OutputMode: run.Settings.mode(slot),
+				Purpose: models.AuthorLLMPurposeEvalFingerprint, RepeatNo: r, OutputMode: d.mode(run, slot),
 				ItemIDs: itemIDs(items)}); err != nil {
 				return err
 			}
@@ -473,7 +495,7 @@ func (d *AuthorLLMEvalDriver) enqueueAnchor(ctx context.Context, tx *pg.Tx, run 
 	}
 	for _, slot := range llmreq.Slots() {
 		if err := d.enqueue(ctx, tx, &database.AuthorLLMEvalJobSpec{RunID: run.ID, Slot: string(slot),
-			Purpose: models.AuthorLLMPurposeEvalAnchor, OutputMode: run.Settings.mode(slot),
+			Purpose: models.AuthorLLMPurposeEvalAnchor, OutputMode: d.mode(run, slot),
 			ItemIDs: itemIDs(items)}); err != nil {
 			return err
 		}
@@ -488,7 +510,7 @@ func (d *AuthorLLMEvalDriver) enqueueJudges(ctx context.Context, tx *pg.Tx, run 
 	}
 	for _, slot := range []llmreq.Slot{llmreq.SlotJudgeA, llmreq.SlotJudgeB} {
 		if err := d.enqueue(ctx, tx, &database.AuthorLLMEvalJobSpec{RunID: run.ID, Slot: string(slot),
-			Purpose: models.AuthorLLMPurposeEvalJudge, OutputMode: run.Settings.mode(slot), WithContext: true,
+			Purpose: models.AuthorLLMPurposeEvalJudge, OutputMode: d.mode(run, slot), WithContext: true,
 			ItemIDs: itemIDs(items)}); err != nil {
 			return err
 		}
@@ -519,7 +541,7 @@ func (d *AuthorLLMEvalDriver) enqueueCandidates(ctx context.Context, tx *pg.Tx, 
 				}
 				if err := d.enqueue(ctx, tx, &database.AuthorLLMEvalJobSpec{RunID: run.ID, Slot: string(slot),
 					Purpose: models.AuthorLLMPurposeEvalCandidate, Arm: arm, BatchSize: batch,
-					OutputMode: run.Settings.mode(slot), WithContext: arm == llmeval.ArmB, ItemIDs: ids}); err != nil {
+					OutputMode: d.mode(run, slot), WithContext: arm == llmeval.ArmB, ItemIDs: ids}); err != nil {
 					return err
 				}
 			}
@@ -571,7 +593,7 @@ func (d *AuthorLLMEvalDriver) enqueueRepeat(ctx context.Context, tx *pg.Tx, run 
 			arm = ""
 		}
 		if err := d.enqueue(ctx, tx, &database.AuthorLLMEvalJobSpec{RunID: run.ID, Slot: string(slot),
-			Purpose: models.AuthorLLMPurposeEvalRepeat, Arm: arm, RepeatNo: 1, OutputMode: run.Settings.mode(slot),
+			Purpose: models.AuthorLLMPurposeEvalRepeat, Arm: arm, RepeatNo: 1, OutputMode: d.mode(run, slot),
 			WithContext: judge, ItemIDs: itemIDs(items)}); err != nil {
 			return err
 		}
@@ -601,8 +623,12 @@ func (d *AuthorLLMEvalDriver) learnFingerprint(ctx context.Context, run *evalRun
 	reference := map[string]database.AuthorLLMFingerprintReference{}
 	for _, p := range data.fingerprints {
 		expected[p.Participant] = p.Models
+		mode := ""
+		if mode == "" {
+			mode = d.mode(run, llmreq.Slot(p.Participant))
+		}
 		reference[p.Participant] = database.AuthorLLMFingerprintReference{PromptTokens: p.PromptTokens,
-			ReasoningFloor: p.ReasoningFloor, OutputMode: run.Settings.mode(llmreq.Slot(p.Participant))}
+			ReasoningFloor: p.ReasoningFloor, OutputMode: mode}
 	}
 	return true, database.SetAuthorLLMRunLearned(ctx, d.db, run.ID, expected, reference)
 }
@@ -615,6 +641,9 @@ type evalData struct {
 	fingerprintResult llmeval.FingerprintResult
 	dropped           int
 	failed            []evalFailedJob
+	// modes is each participant's negotiated output mode: the mode its
+	// answered fingerprint jobs were asked in.
+	modes map[string]string
 }
 
 // evalFailedJob is a job that ended without an answer, as the report shows
@@ -655,6 +684,10 @@ type evalAnswers struct {
 	invalid      map[string]*llmeval.ParticipantCount
 	// failed are the jobs that ended invalid or failed, in read order.
 	failed []evalFailedJob
+	// modes is the output mode each participant's fingerprint was answered
+	// in; noMode the participants whose fingerprint no mode served.
+	modes  map[string]string
+	noMode map[string]bool
 }
 
 // readEvalAnswers reads and sorts the run's answers.
@@ -664,7 +697,7 @@ func (d *AuthorLLMEvalDriver) readEvalAnswers(ctx context.Context, runID int64) 
 		return nil, err
 	}
 	out := &evalAnswers{byItem: map[int64]map[evalAnswerKey]*database.AuthorLLMEvalAnswer{},
-		invalid: map[string]*llmeval.ParticipantCount{}}
+		invalid: map[string]*llmeval.ParticipantCount{}, modes: map[string]string{}, noMode: map[string]bool{}}
 	for i := range answers {
 		a := &answers[i]
 		arm := ""
@@ -676,6 +709,12 @@ func (d *AuthorLLMEvalDriver) readEvalAnswers(ctx context.Context, runID int64) 
 		}
 		out.byItem[a.EvalItemID][evalAnswerKey{a.Purpose, a.Slot, arm, a.BatchSize, a.RepeatNo}] = a
 		if a.Purpose == string(models.AuthorLLMPurposeEvalFingerprint) {
+			if a.Status == string(models.AuthorLLMJobAnswered) {
+				out.modes[a.Slot] = a.OutputMode
+			}
+			if deref(a.LastErrorClass) == database.AuthorLLMClassNoOutputMode {
+				out.noMode[a.Slot] = true
+			}
 			out.measurements = append(out.measurements, measurementOf(a))
 			continue
 		}
@@ -725,6 +764,15 @@ func (d *AuthorLLMEvalDriver) collect(ctx context.Context, run *evalRun) (*evalD
 		reasoning[string(p.Slot)] = p.ReasoningEffort != ""
 	}
 	data.fingerprints, data.fingerprintResult = llmeval.EvaluateFingerprint(answers.measurements, reasoning)
+	data.modes = answers.modes
+	// A participant that refused every output mode has no fingerprint; the
+	// reason says so before anything the measurements say.
+	for _, slot := range llmreq.Slots() {
+		if answers.noMode[string(slot)] {
+			data.fingerprintResult = llmeval.FingerprintResult{Reason: "no_output_mode: " + string(slot)}
+			break
+		}
+	}
 
 	anchors, err := database.AuthorLLMEvalItems(ctx, d.db, []string{authorLLMEvalAnchorSet},
 		[]models.AuthorLLMEvalItemSet{models.AuthorLLMEvalAnchor})
@@ -922,7 +970,18 @@ func (d *AuthorLLMEvalDriver) report(ctx context.Context, run *evalRun) error {
 	if err != nil {
 		return err
 	}
-	doc := authorLLMEvalReportDoc{RunID: run.ID, Mode: run.Mode, ConfigVersion: d.version, Settings: run.Settings,
+	// The report shows the mode each participant was asked in: the
+	// negotiated one, unless the run's settings named another.
+	settings := run.Settings
+	settings.OutputModes = map[string]string{}
+	for _, slot := range llmreq.Slots() {
+		mode := d.mode(run, slot)
+		if m := data.modes[string(slot)]; m != "" && run.Settings.mode(slot) == "" {
+			mode = m
+		}
+		settings.OutputModes[string(slot)] = mode
+	}
+	doc := authorLLMEvalReportDoc{RunID: run.ID, Mode: run.Mode, ConfigVersion: d.version, Settings: settings,
 		Dropped: data.dropped, Skipped: make([]evalSkipped, 0, len(skips)), FailedJobs: data.failed,
 		Fingerprints: data.fingerprints, Evaluation: evaluation}
 	if doc.FailedJobs == nil {

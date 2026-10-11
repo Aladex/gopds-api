@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -276,6 +278,31 @@ func settleAuthorLLMJobs(
 		call.ID); err != nil {
 		return fmt.Errorf("reading the call's attempts: %w", err)
 	}
+	rejected, err := authorLLMFormatRejected(ctx, tx, call, s)
+	if err != nil {
+		return err
+	}
+	if rejected {
+		jobIDs := make([]int64, 0, len(attempts))
+		for _, a := range attempts {
+			if err := closeAuthorLLMAttempt(ctx, tx, a.ID, models.AuthorLLMAttemptHTTPError,
+				authorLLMClassOutputModeRejected, now); err != nil {
+				return err
+			}
+			jobIDs = append(jobIDs, a.JobID)
+		}
+		ended, err := negotiateAuthorLLMOutputMode(ctx, tx, jobIDs, now, report)
+		if err != nil {
+			return err
+		}
+		// The participant is not at fault: no pause, only the streak resets.
+		if err := execAuthorLLM(ctx, tx,
+			`UPDATE author_llm_provider_state SET success_streak = 0 WHERE config_version = ?0 AND slot = ?1`,
+			call.ConfigVersion, call.Slot); err != nil {
+			return err
+		}
+		return writeAuthorLLMVerdictsReport(ctx, tx, ended, now, report)
+	}
 	items := make(map[int64]*AuthorLLMItemSettlement, len(s.Items))
 	for i := range s.Items {
 		items[s.Items[i].AttemptID] = &s.Items[i]
@@ -321,6 +348,88 @@ func settleAuthorLLMJobs(
 		return err
 	}
 	return writeAuthorLLMVerdictsReport(ctx, tx, ended, now, report)
+}
+
+// The output modes in the order the fingerprint stage tries them.
+var authorLLMOutputModeOrder = []string{AuthorLLMDefaultOutputMode, "json_object", "tool"}
+
+// Classes of the output-mode negotiation.
+const (
+	// authorLLMClassOutputModeRejected: the provider refused the request
+	// format; the job is asked again in the next mode.
+	authorLLMClassOutputModeRejected = "output_mode_rejected"
+	// AuthorLLMClassNoOutputMode: the provider refused every mode.
+	AuthorLLMClassNoOutputMode = "no_output_mode"
+)
+
+// authorLLMFormatRejected reports a call the provider refused for its request
+// format, which only the fingerprint stage negotiates: an HTTP 400 — nothing
+// broader, a 5xx, a 429 or a timeout says nothing about the format — on a
+// call of eval fingerprint jobs only.
+func authorLLMFormatRejected(ctx context.Context, tx *pg.Tx, call *settledCall, s *AuthorLLMSettlement) (bool, error) {
+	if s.Outcome != models.AuthorLLMCallHTTPError || s.HTTPStatus != http.StatusBadRequest {
+		return false, nil
+	}
+	var others int
+	if _, err := tx.QueryOneContext(ctx, pg.Scan(&others), `
+		SELECT count(*) FROM author_llm_attempt a JOIN author_llm_job j ON j.id = a.job_id
+		WHERE a.call_id = ?0 AND j.purpose <> ?1`, call.ID, string(models.AuthorLLMPurposeEvalFingerprint)); err != nil {
+		return false, fmt.Errorf("reading the call's purposes: %w", err)
+	}
+	return others == 0, nil
+}
+
+// negotiateAuthorLLMOutputMode moves rejected fingerprint jobs to the next
+// output mode, and the participant's other fingerprint jobs of the run still
+// waiting in the rejected mode with them, so every repeat is asked in the
+// same mode. After the last mode they fail as no_output_mode. It returns the
+// jobs that ended.
+func negotiateAuthorLLMOutputMode(
+	ctx context.Context, tx *pg.Tx, jobIDs []int64, now time.Time, report *AuthorLLMSettleReport,
+) ([]int64, error) {
+	var ended []int64
+	for _, id := range jobIDs {
+		var job struct {
+			RunID      int64  `pg:"run_id"`
+			Slot       string `pg:"slot"`
+			OutputMode string `pg:"output_mode"`
+		}
+		if _, err := tx.QueryOneContext(ctx, &job,
+			`SELECT run_id, slot, output_mode FROM author_llm_job WHERE id = ?0`, id); err != nil {
+			return nil, fmt.Errorf("reading a rejected job: %w", err)
+		}
+		next := ""
+		if i := slices.Index(authorLLMOutputModeOrder, job.OutputMode); i >= 0 && i+1 < len(authorLLMOutputModeOrder) {
+			next = authorLLMOutputModeOrder[i+1]
+		}
+		if next == "" {
+			var failed []int64
+			if _, err := tx.QueryContext(ctx, &failed, `
+				UPDATE author_llm_job SET status = 'failed', call_id = NULL, last_error_class = ?3, finished_at = ?4
+				WHERE (id = ?0 OR (run_id = ?1 AND slot = ?2 AND purpose = ?5 AND status = 'pending'))
+					AND status IN ('pending', 'claimed') AND output_mode = ?6
+				RETURNING id`,
+				id, job.RunID, job.Slot, AuthorLLMClassNoOutputMode, now,
+				string(models.AuthorLLMPurposeEvalFingerprint), job.OutputMode); err != nil {
+				return nil, fmt.Errorf("failing a job no output mode serves: %w", err)
+			}
+			ended = append(ended, failed...)
+			report.Failed += len(failed)
+			continue
+		}
+		res, err := tx.ExecContext(ctx, `
+			UPDATE author_llm_job SET output_mode = ?3, status = 'pending', call_id = NULL, last_error_class = ?4,
+				next_attempt_at = ?5
+			WHERE (id = ?0 OR (run_id = ?1 AND slot = ?2 AND purpose = ?6 AND status = 'pending'))
+				AND status IN ('pending', 'claimed') AND output_mode = ?7`,
+			id, job.RunID, job.Slot, next, authorLLMClassOutputModeRejected, now,
+			string(models.AuthorLLMPurposeEvalFingerprint), job.OutputMode)
+		if err != nil {
+			return nil, fmt.Errorf("asking a rejected job in the next output mode: %w", err)
+		}
+		report.Requeued += res.RowsAffected()
+	}
+	return ended, nil
 }
 
 // closeAuthorLLMAttempt closes one attempt with an outcome.

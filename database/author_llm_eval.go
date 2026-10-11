@@ -413,6 +413,7 @@ type AuthorLLMEvalAnswer struct {
 	ContextState    string  `pg:"context_state"`
 	CanonicalSHA256 []byte  `pg:"canonical_sha256"`
 	LastErrorClass  *string `pg:"last_error_class"`
+	OutputMode      string  `pg:"output_mode"`
 	Refused         *bool   `pg:"refused"`
 	Tier            *string `pg:"tier"`
 	// The answering call's measurements (fingerprint stage).
@@ -427,7 +428,7 @@ func AuthorLLMEvalAnswers(ctx context.Context, db pg.DBI, runID int64) ([]Author
 	var rows []AuthorLLMEvalAnswer
 	_, err := db.QueryContext(ctx, &rows, `
 		SELECT j.eval_item_id, j.purpose, j.slot, j.arm, j.batch_size, j.repeat_no, j.status, j.with_context,
-			j.context_state, a.canonical_sha256, j.last_error_class, a.refused, a.tier, c.response_model, c.prompt_tokens,
+			j.context_state, a.canonical_sha256, j.last_error_class, j.output_mode, a.refused, a.tier, c.response_model, c.prompt_tokens,
 			c.completion_tokens, c.reasoning_tokens
 		FROM author_llm_job j
 		LEFT JOIN author_llm_attempt a ON a.id = j.answer_attempt_id
