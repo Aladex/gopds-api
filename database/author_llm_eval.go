@@ -88,7 +88,53 @@ type AuthorLLMAnchorRow struct {
 // no middle name, no nickname.
 func AuthorLLMAnchorCandidates(ctx context.Context, db pg.DBI, minSupport, minSharePercent int) ([]AuthorLLMAnchorRow, error) {
 	var rows []AuthorLLMAnchorRow
-	_, err := db.QueryContext(ctx, &rows, `
+	err := withoutNestedLoops(ctx, db, func(tx *pg.Tx) error {
+		return queryAuthorLLMAnchorCandidates(ctx, tx, &rows, minSupport, minSharePercent)
+	})
+	return rows, err
+}
+
+// withoutNestedLoops runs fn with enable_nestloop off for its statements
+// only: in a transaction of its own on a pool or a connection, inside the
+// caller's transaction on a *pg.Tx — and there the value it found (the
+// caller's own, not the default) is back for its next statements. The anchor-candidate query needs it: the planner
+// estimates its filtered credits at one row and its word counts at 200 (on
+// the production catalog: ~674 000 credits, 25 157 first and 86 331 last
+// words) and nests loops over the CTE scans, which did not finish in 30
+// minutes; with hash joins it takes seconds.
+func withoutNestedLoops(ctx context.Context, db pg.DBI, fn func(tx *pg.Tx) error) error {
+	guarded := func(tx *pg.Tx) error {
+		var prior string
+		if _, err := tx.QueryOneContext(ctx, pg.Scan(&prior), `SELECT current_setting('enable_nestloop')`); err != nil {
+			return fmt.Errorf("reading enable_nestloop: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `SET LOCAL enable_nestloop = off`); err != nil {
+			return fmt.Errorf("turning nested loops off: %w", err)
+		}
+		err := fn(tx)
+		// The value found comes back on the error path too: a caller's
+		// transaction may go on (a failed statement aborts it, and then the
+		// restore fails with it — fn's error is the one returned).
+		if _, restoreErr := tx.ExecContext(ctx, `SELECT set_config('enable_nestloop', ?, true)`, prior); restoreErr != nil && err == nil {
+			return fmt.Errorf("restoring enable_nestloop: %w", restoreErr)
+		}
+		return err
+	}
+	switch d := db.(type) {
+	case *pg.Tx:
+		return guarded(d)
+	case interface {
+		RunInTransaction(context.Context, func(*pg.Tx) error) error
+	}:
+		return d.RunInTransaction(ctx, guarded)
+	}
+	return fmt.Errorf("database: no transaction for %T", db)
+}
+
+func queryAuthorLLMAnchorCandidates(
+	ctx context.Context, tx *pg.Tx, rows *[]AuthorLLMAnchorRow, minSupport, minSharePercent int,
+) error {
+	_, err := tx.QueryContext(ctx, rows, `
 		WITH cur AS (
 			SELECT c.id, c.source_fingerprint, c.source_first_name, c.source_middle_name, c.source_last_name,
 				c.source_nickname, s.extractor_version
@@ -122,9 +168,9 @@ func AuthorLLMAnchorCandidates(ctx context.Context, db pg.DBI, minSupport, minSh
 			AND l_as_last.n * 100 >= ?1 * (l_as_last.n + coalesce(l_as_first.n, 0))
 		ORDER BY cur.source_fingerprint, cur.id`, minSupport, minSharePercent)
 	if err != nil {
-		return nil, fmt.Errorf("reading the anchor candidates: %w", err)
+		return fmt.Errorf("reading the anchor candidates: %w", err)
 	}
-	return rows, nil
+	return nil
 }
 
 // AuthorLLMNewEvalItem is one item of a set being frozen.

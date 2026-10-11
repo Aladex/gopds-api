@@ -1,6 +1,8 @@
 package services
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"strconv"
 	"strings"
 
@@ -79,6 +81,14 @@ const (
 	// run ended because a stage cannot be done with its settings.
 	AuthorMetadataEventLLMEvalItemSkipped AuthorMetadataEventName = "author_metadata.llm_eval_item_skipped"
 	AuthorMetadataEventLLMEvalRunFailed   AuthorMetadataEventName = "author_metadata.llm_eval_run_failed"
+	// The LLM block's admin could not be built (its configuration row).
+	AuthorMetadataEventLLMAdminNotWired AuthorMetadataEventName = "author_metadata.llm_admin_not_wired"
+	// An administrator closed an LLM run (an older configuration's, or a
+	// paused one).
+	AuthorMetadataEventLLMRunClosed AuthorMetadataEventName = "author_metadata.llm_run_closed"
+	// Preparing or judging one item of an LLM call panicked; the item failed
+	// alone (job and eval item ids, never the value).
+	AuthorMetadataEventLLMItemPanic AuthorMetadataEventName = "author_metadata.llm_item_panic"
 )
 
 // AuthorMetadataEventNames lists every event.
@@ -101,7 +111,8 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventWorkersShutdownTimeout, AuthorMetadataEventRunsAPINotWired,
 		AuthorMetadataEventAggregatesRefreshFailed, AuthorMetadataEventDisplayWalkFinished,
 		AuthorMetadataEventDisplayBookSkipped,
-		AuthorMetadataEventLLMEvalItemSkipped, AuthorMetadataEventLLMEvalRunFailed,
+		AuthorMetadataEventLLMEvalItemSkipped, AuthorMetadataEventLLMEvalRunFailed, AuthorMetadataEventLLMAdminNotWired,
+		AuthorMetadataEventLLMRunClosed, AuthorMetadataEventLLMItemPanic,
 	}
 }
 
@@ -126,7 +137,10 @@ type AuthorMetadataEvent struct {
 	BookID       int64
 	JobID        int64
 	ReviewItemID int64
-	AttemptNo    int
+	// Fingerprint is a source fingerprint, logged as hex only when it is a
+	// 32-byte digest: an identifier, never text.
+	Fingerprint []byte
+	AttemptNo   int
 	// Status is a closed value: an item status, a policy outcome or a
 	// review action.
 	Status string
@@ -299,6 +313,7 @@ func (e *AuthorMetadataEvent) fields() logging.Fields {
 	put("book_id", e.BookID, e.BookID != 0)
 	put("job_id", e.JobID, e.JobID != 0)
 	put("review_item_id", e.ReviewItemID, e.ReviewItemID != 0)
+	put("fingerprint", hex.EncodeToString(e.Fingerprint), len(e.Fingerprint) == sha256.Size)
 	put("attempt_no", e.AttemptNo, e.AttemptNo != 0)
 	put("status", closedValue(e.Status, knownStatuses), e.Status != "")
 	put("class", closedValue(string(e.Class), knownClasses), e.Class != "")

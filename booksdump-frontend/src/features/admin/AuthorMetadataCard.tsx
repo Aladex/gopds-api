@@ -20,6 +20,7 @@ import type {
     AuthorMetadataRun,
 } from '@/api/admin';
 import { closedErrorCode } from '@/api/admin';
+import AuthorLLMBlock from '@/features/admin/AuthorLLMBlock';
 
 /**
  * The author metadata card of the scanning section: one pass over the
@@ -706,6 +707,8 @@ const AuthorMetadataCard: React.FC = () => {
                         </Button>
                     )}
                 </div>
+
+                <AuthorLLMBlock />
             </CardContent>
 
             <Dialog

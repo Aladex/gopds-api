@@ -26,6 +26,9 @@ const (
 	AuthorLLMRunPaused         AuthorLLMRunStatus = "paused"
 	AuthorLLMRunCompleted      AuthorLLMRunStatus = "completed"
 	AuthorLLMRunFailedSystemic AuthorLLMRunStatus = "failed_systemic"
+	// AuthorLLMRunClosed: an administrator ended it (a run of an older
+	// configuration, or a paused one); it leaves the active slot.
+	AuthorLLMRunClosed AuthorLLMRunStatus = "closed"
 )
 
 // AuthorLLMRunPauseReason says why a run is paused.
@@ -169,6 +172,7 @@ type AuthorLLMRun struct {
 	PausedReason    *string            `pg:"paused_reason"`
 	LastErrorClass  *string            `pg:"last_error_class"`
 	CreatedByUserID *int64             `pg:"created_by_user_id"`
+	ClosedByUserID  *int64             `pg:"closed_by_user_id"`
 	CreatedAt       time.Time          `pg:"created_at"`
 	UpdatedAt       time.Time          `pg:"updated_at"`
 	StartedAt       *time.Time         `pg:"started_at"`

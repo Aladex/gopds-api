@@ -91,6 +91,12 @@ redis:
 #     budget:                       # runaway guard, in tokens
 #       one_off_tokens: 900000000   # every run together
 #       run_overrun: 1.5            # pause a run at 1.5x its own estimate
+#     price:                        # optional, display only: cost per 1M tokens
+#       unit: ""                    # e.g. "USD" or "credits"; empty = tokens only
+#       production_a: 0             # same keys as models
+#       production_b: 0
+#       judge_a: 0
+#       judge_b: 0
 
 # Where the book list's author line comes from: "legacy" (the default) keeps
 # the catalogue authors; "layer" sends each listed book an authors_display

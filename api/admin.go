@@ -66,6 +66,9 @@ func SetupAdminRoutes(r *gin.RouterGroup) {
 	// Author metadata review queue (the review service comes from its wiring
 	// point, set by the server's author-metadata initialization)
 	SetupAuthorMetadataReviewRoutes(r.Group("/author-metadata"), authorMetadataReviewService())
+
+	// The LLM block of the card (the LLM admin comes from its wiring point)
+	SetupAuthorLLMRoutes(r.Group("/author-metadata/llm"), authorLLMAdminService())
 }
 
 // UsersAnswer struct for users list in admin space

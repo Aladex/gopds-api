@@ -88,7 +88,8 @@ func TestMigration31FailsFastInsteadOfWaitingForALock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("retrying migration 31: %v", err)
 	}
-	if len(result.Applied) != 1 || !strings.HasPrefix(result.Applied[0], "31-") {
+	// The retry applies 31 first; the files after it follow in the same run.
+	if len(result.Applied) == 0 || !strings.HasPrefix(result.Applied[0], "31-") {
 		t.Fatalf("the retry applied %v", result.Applied)
 	}
 }

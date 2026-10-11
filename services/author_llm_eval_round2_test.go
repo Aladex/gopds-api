@@ -14,10 +14,13 @@ import (
 	"time"
 
 	"gopds-api/database"
+	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/services"
 
 	"github.com/go-pg/pg/v10"
+	"github.com/sirupsen/logrus"                       //nolint:depguard // tests assert on the structured log entries
+	logrustest "github.com/sirupsen/logrus/hooks/test" //nolint:depguard // tests assert on the structured log entries
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -226,10 +229,19 @@ func TestAuthorLLMEvalRecordsPoisonedItems(t *testing.T) {
 		return fakeReply{Content: string(out)}
 	})
 	settings := services.DefaultAuthorLLMEvalSettings()
+	hook := logrustest.NewLocal(logging.GetLogger())
+	t.Cleanup(hook.Reset)
 	run, err := services.StartAuthorLLMEval(context.Background(), e.db, e.version, models.AuthorLLMEvalModeFull, &settings, nil)
 	require.NoError(t, err)
 	stages := e.evalUntilDone(run)
 	assert.Equal(t, []string{"freeze", "fingerprint", "anchor", "judge", "candidates", "repeat", "report"}, stages)
+	skipLogs := map[string][]logrus.Fields{}
+	for _, entry := range hook.AllEntries() {
+		if entry.Message == string(services.AuthorMetadataEventLLMEvalItemSkipped) {
+			reason, _ := entry.Data["status"].(string)
+			skipLogs[reason] = append(skipLogs[reason], entry.Data)
+		}
+	}
 
 	var raw struct {
 		Skipped    []skippedItem `json:"skipped"`
@@ -245,6 +257,21 @@ func TestAuthorLLMEvalRecordsPoisonedItems(t *testing.T) {
 	assert.True(t, slices.ContainsFunc(raw.Skipped, func(s skippedItem) bool {
 		return s.Reason == "input_too_long" && s.Fingerprint == hex.EncodeToString(longFP) && s.Stage == "freeze"
 	}), "skipped %+v", raw.Skipped)
+	// Each skip is logged by its row's identifier — the fingerprint, or the
+	// book — and never by a name.
+	assert.True(t, slices.ContainsFunc(skipLogs["input_too_long"], func(f logrus.Fields) bool {
+		return f["fingerprint"] == hex.EncodeToString(longFP)
+	}), "input_too_long logs %v", skipLogs["input_too_long"])
+	assert.True(t, slices.ContainsFunc(skipLogs["excerpt_unavailable"], func(f logrus.Fields) bool {
+		return f["book_id"] == corruptBook && f["fingerprint"] != nil
+	}), "excerpt_unavailable logs %v", skipLogs["excerpt_unavailable"])
+	for _, entries := range skipLogs {
+		for _, f := range entries {
+			for _, v := range f {
+				assert.NotContains(t, fmt.Sprint(v), "Ааа", "a skip log carries a name")
+			}
+		}
+	}
 	assert.True(t, slices.ContainsFunc(raw.Skipped, func(s skippedItem) bool {
 		return s.Reason == "excerpt_unavailable" && s.BookID == corruptBook
 	}), "skipped %+v", raw.Skipped)

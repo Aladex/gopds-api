@@ -187,3 +187,38 @@ func TestLoadAuthorLLMRefusesOutputLimitsThatCannotFit(t *testing.T) {
 		t.Errorf("the largest ceiling that fits was refused: %v", err)
 	}
 }
+
+// The price is optional and for display only: empty unit by default (the card
+// shows tokens alone), settable per participant, never negative.
+func TestLoadAuthorLLMPrice(t *testing.T) {
+	isolateLLM(t)
+	setEnv(t, requiredEnv)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() = %v", err)
+	}
+	if cfg.AuthorMetadata.LLM.Price != (AuthorLLMPrice{}) {
+		t.Errorf("default price = %+v, want none", cfg.AuthorMetadata.LLM.Price)
+	}
+
+	isolateLLM(t)
+	setEnv(t, requiredEnv)
+	setEnv(t, map[string]string{
+		"GOPDS_AUTHOR_METADATA_LLM_PRICE_UNIT":    "USD",
+		"GOPDS_AUTHOR_METADATA_LLM_PRICE_JUDGE_A": "2.5",
+	})
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load() = %v", err)
+	}
+	if got := cfg.AuthorMetadata.LLM.Price; got.Unit != "USD" || got.JudgeA != 2.5 || got.ProductionA != 0 {
+		t.Errorf("price = %+v", got)
+	}
+
+	isolateLLM(t)
+	setEnv(t, requiredEnv)
+	setEnv(t, map[string]string{"GOPDS_AUTHOR_METADATA_LLM_PRICE_PRODUCTION_B": "-1"})
+	if _, err = Load(); err == nil || !strings.Contains(err.Error(), "author_metadata.llm.price") {
+		t.Errorf("a negative price: %v", err)
+	}
+}

@@ -87,6 +87,23 @@ func initializeAuthorMetadataRunsAPI(db *pg.DB, c *config.AuthorMetadataConfig) 
 	api.SetAuthorMetadataRunService(svc)
 }
 
+// initializeAuthorLLMAdminAPI installs the LLM block's admin: the same
+// configuration identity and version the LLM worker runs under, or the
+// reason the layer is off (then the block says so and starts nothing). A
+// failure leaves the routes answering llm_service_unavailable and is logged
+// as a closed event.
+func initializeAuthorLLMAdminAPI(db *pg.DB, c *config.AuthorMetadataConfig, shared config.LLMConfig) {
+	admin, err := services.NewAuthorLLMAdminFromConfig(context.Background(), db, c, shared)
+	if err != nil {
+		services.LogAuthorMetadataEvent(services.AuthorMetadataEventError, &services.AuthorMetadataEvent{
+			Name: services.AuthorMetadataEventLLMAdminNotWired, Stage: services.AuthorMetadataStageRunner,
+			SQLState: services.AuthorMetadataSQLState(err),
+		})
+		return
+	}
+	api.SetAuthorLLMAdminService(admin)
+}
+
 // errNoDatabase refuses to start the runner without a pool.
 var errNoDatabase = errors.New("no database pool")
 

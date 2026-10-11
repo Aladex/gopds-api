@@ -60,6 +60,17 @@ type AuthorLLMBudget struct {
 	RunOverrun float64 `mapstructure:"run_overrun" yaml:"run_overrun"`
 }
 
+// AuthorLLMPrice is the optional price of each participant per million
+// tokens, for display only: the admin card shows a run's cost next to its
+// tokens. An empty unit means no price: the card shows tokens alone.
+type AuthorLLMPrice struct {
+	Unit        string  `mapstructure:"unit" yaml:"unit"`
+	ProductionA float64 `mapstructure:"production_a" yaml:"production_a"`
+	ProductionB float64 `mapstructure:"production_b" yaml:"production_b"`
+	JudgeA      float64 `mapstructure:"judge_a" yaml:"judge_a"`
+	JudgeB      float64 `mapstructure:"judge_b" yaml:"judge_b"`
+}
+
 // AuthorLLMConfig is the author_metadata.llm section.
 type AuthorLLMConfig struct {
 	Models AuthorLLMModels    `mapstructure:"models" yaml:"models"`
@@ -88,6 +99,7 @@ type AuthorLLMConfig struct {
 	MaxOutput        AuthorLLMMaxOutput `mapstructure:"max_output" yaml:"max_output"`
 	OutputLimitField string             `mapstructure:"output_limit_field" yaml:"output_limit_field"`
 	Budget           AuthorLLMBudget    `mapstructure:"budget" yaml:"budget"`
+	Price            AuthorLLMPrice     `mapstructure:"price" yaml:"price"`
 }
 
 // AuthorLLMMaxItemsPerRequest caps the batch size.
@@ -235,6 +247,8 @@ func (c *AuthorLLMConfig) validate() error {
 		return rangeError(p+"max_output", fmt.Sprintf(
 			"such that per_call_tokens + %d × per_item_tokens is at most %d", AuthorLLMMaxItemsPerRequest,
 			AuthorLLMMaxOutputCeiling))
+	case min(c.Price.ProductionA, c.Price.ProductionB, c.Price.JudgeA, c.Price.JudgeB) < 0:
+		return rangeError(p+"price", "zero or positive per participant")
 	case c.OutputLimitField != AuthorLLMOutputMaxCompletionTokens && c.OutputLimitField != AuthorLLMOutputMaxTokens:
 		return rangeError(p+"output_limit_field", AuthorLLMOutputMaxCompletionTokens+" or "+AuthorLLMOutputMaxTokens)
 	}

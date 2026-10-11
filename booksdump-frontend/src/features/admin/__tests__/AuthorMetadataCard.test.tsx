@@ -50,6 +50,8 @@ vi.mock('@/api/admin', async (importOriginal) => {
         getAuthorMetadataRunArchives: vi.fn(),
         retryAuthorMetadataArchive: vi.fn(),
         deleteAuthorMetadataArchive: vi.fn(),
+        // The card's LLM block has its own tests; here it reads a switched-off layer.
+        getAuthorLLMStatus: vi.fn(),
     };
 });
 
@@ -149,6 +151,17 @@ const showRun = (latest: AuthorMetadataRun | null, latestReport?: AuthorMetadata
 
 beforeEach(() => {
     vi.clearAllMocks();
+    api.getAuthorLLMStatus.mockResolvedValue({
+        status: {
+            enabled: false,
+            reason: 'llm_not_configured',
+            run: null,
+            steps: [],
+            participants: null,
+            budget_tokens: 0,
+            spent_tokens: 0,
+        },
+    });
     api.startAuthorMetadataRun.mockResolvedValue({ run: run({ status: 'running' }) });
     api.approveAuthorMetadataFullRun.mockResolvedValue({ run: run({ approved_for_full: true }) });
     api.pauseAuthorMetadataRun.mockResolvedValue({ run: run({ status: 'paused' }) });

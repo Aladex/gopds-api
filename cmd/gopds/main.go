@@ -66,6 +66,7 @@ func run() (code int) {
 	// registered first, it still runs after every other deferred shutdown.
 	authorMetadata := initializeAuthorMetadata(db, cfg.App.FilesPath, &cfg.AuthorMetadata)
 	initializeAuthorMetadataRunsAPI(db, &cfg.AuthorMetadata)
+	initializeAuthorLLMAdminAPI(db, &cfg.AuthorMetadata, cfg.LLM)
 	defer func() {
 		if err := shutdownAuthorMetadataThenDatabase(authorMetadata, db, authorMetadataShutdownTimeout); err != nil && code == 0 {
 			code = 1

@@ -84,6 +84,9 @@ const (
 	authorLLMInputUnreadable  = "input_unreadable"
 	authorLLMInputTooLong     = "input_too_long"
 	authorLLMRequestOverBound = "request_over_bound"
+	// authorLLMItemPanic: preparing or judging the item panicked; the item
+	// fails alone, its batch goes on.
+	authorLLMItemPanic = "item_panic"
 )
 
 // errAuthorLLMOverBound marks a request larger than the bound its claim
@@ -448,7 +451,14 @@ func (w *AuthorLLMWorker) judgeReplies(items []*preparedItem, content []byte) []
 		case splitErr != nil:
 			s.ValidatorClass = "malformed_batch"
 		default:
-			w.judgeReply(it, replies[it.item.Key], &s)
+			if err := isolateItem(func() error {
+				w.judgeReply(it, replies[it.item.Key], &s)
+				return nil
+			}); err != nil {
+				s = database.AuthorLLMItemSettlement{AttemptID: it.job.AttemptID, Outcome: models.AuthorLLMAttemptInvalid,
+					ValidatorClass: authorLLMItemPanic}
+				logAuthorLLMItemPanic(it)
+			}
 		}
 		out = append(out, s)
 	}
@@ -515,26 +525,47 @@ func (w *AuthorLLMWorker) prepareItems(ctx context.Context, claim *database.Auth
 		job := &claim.Jobs[i]
 		it := &preparedItem{job: job, item: llmreq.Item{Key: job.ItemKey}}
 		items = append(items, it)
-		var input llmreq.ItemInput
-		if err := json.Unmarshal(job.Input, &input); err != nil {
-			it.skip = authorLLMInputUnreadable
-			continue
-		}
-		parsed, err := llmres.NewInput(input.Fields)
-		if err != nil {
-			it.skip = authorLLMInputUnreadable
-			continue
-		}
-		if llmres.CheckLimits(parsed.Tokens) != nil {
-			it.skip = authorLLMInputTooLong
-			continue
-		}
-		it.input, it.item.Input = parsed, input
-		if job.WithContext {
-			it.item.Context = w.excerpt(ctx, claim, job, parsed.Tokens)
+		if err := isolateItem(func() error {
+			w.prepareItem(ctx, claim, it)
+			return nil
+		}); err != nil {
+			it.skip, it.item.Context = authorLLMItemPanic, nil
+			logAuthorLLMItemPanic(it)
 		}
 	}
 	return items
+}
+
+// logAuthorLLMItemPanic logs a panicked item by its identifiers: the job,
+// its eval item and its source fingerprint, whichever it has.
+func logAuthorLLMItemPanic(it *preparedItem) {
+	LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{
+		Name: AuthorMetadataEventLLMItemPanic, Stage: AuthorMetadataStageRunner, JobID: it.job.JobID,
+		ItemID: deref(it.job.EvalItemID), Fingerprint: it.job.SourceFingerprint, Status: authorLLMItemPanic,
+		Worker: authorLLMWorkerName})
+}
+
+// prepareItem builds one job's request item, or marks why it is not sent.
+func (w *AuthorLLMWorker) prepareItem(ctx context.Context, claim *database.AuthorLLMClaim, it *preparedItem) {
+	job := it.job
+	var input llmreq.ItemInput
+	if err := json.Unmarshal(job.Input, &input); err != nil {
+		it.skip = authorLLMInputUnreadable
+		return
+	}
+	parsed, err := llmres.NewInput(input.Fields)
+	if err != nil {
+		it.skip = authorLLMInputUnreadable
+		return
+	}
+	if llmres.CheckLimits(parsed.Tokens) != nil {
+		it.skip = authorLLMInputTooLong
+		return
+	}
+	it.input, it.item.Input = parsed, input
+	if job.WithContext {
+		it.item.Context = w.excerpt(ctx, claim, job, parsed.Tokens)
+	}
 }
 
 // excerpt returns the job's excerpt, reading and storing it the first time.

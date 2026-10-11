@@ -998,12 +998,32 @@ const (
 	evalSkipInputUnreadable    = "input_unreadable"
 	evalSkipExcerptUnavailable = "excerpt_unavailable"
 	evalSkipAnchorIncomplete   = "anchor_incomplete"
+	// evalSkipItemPanic: building the item panicked (a catalog value no
+	// code path expected); the item is left out, the freeze goes on.
+	evalSkipItemPanic = "item_panic"
 )
+
+// errAuthorLLMItemPanic is a panic one item raised, caught so it cannot stop
+// its batch or its stage.
+var errAuthorLLMItemPanic = errors.New("services: an LLM item panicked")
+
+// isolateItem runs fn for one item and turns a panic into
+// errAuthorLLMItemPanic: one bad catalog value is that item's failure, never
+// its batch's or its stage's. The panic's value is not kept — it may carry a
+// name.
+func isolateItem(fn func() error) (err error) {
+	defer func() {
+		if recover() != nil {
+			err = errAuthorLLMItemPanic
+		}
+	}()
+	return fn()
+}
 
 // AuthorLLMEvalSkipReasons lists the closed reasons of a skipped eval item.
 func AuthorLLMEvalSkipReasons() []string {
 	return []string{evalSkipInvalidSource, evalSkipInputTooLong, evalSkipInputUnreadable,
-		evalSkipExcerptUnavailable, evalSkipAnchorIncomplete}
+		evalSkipExcerptUnavailable, evalSkipAnchorIncomplete, evalSkipItemPanic}
 }
 
 // skip records an item the freeze left out and logs it by its identifiers;
@@ -1015,7 +1035,8 @@ func (d *AuthorLLMEvalDriver) skip(ctx context.Context, run *evalRun, sk *databa
 	}
 	LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{
 		Name: AuthorMetadataEventLLMEvalItemSkipped, Stage: AuthorMetadataStageRunner, RunID: run.ID,
-		BookID: deref(sk.BookID), ItemID: deref(sk.EvalItemID), Status: sk.Reason, Worker: authorLLMEvalDriverName})
+		BookID: deref(sk.BookID), ItemID: deref(sk.EvalItemID), Fingerprint: sk.SourceFingerprint, Status: sk.Reason,
+		Worker: authorLLMEvalDriverName})
 	return nil
 }
 
@@ -1126,27 +1147,26 @@ func (d *AuthorLLMEvalDriver) freezeAnchor(ctx context.Context, run *evalRun) er
 	})
 	var items []database.AuthorLLMNewEvalItem
 	taken := map[string]int{}
-	for _, r := range rows {
+	for i := range rows {
+		r := &rows[i]
 		if taken[r.Script] >= d.sizes.Anchor/2 {
 			continue
 		}
-		input := llmreq.ItemInput{Fields: []llmres.FieldValue{
-			{Field: llmres.FieldFirst, Text: r.First}, {Field: llmres.FieldLast, Text: r.Last}},
-			Script: r.Script, Flags: []string{}}
-		tokens, err := input.Tokens()
-		if err != nil || len(tokens) != 2 {
+		var item *database.AuthorLLMNewEvalItem
+		if err := isolateItem(func() error {
+			item = anchorItemOf(r)
+			return nil
+		}); err != nil {
+			if skipErr := d.skip(ctx, run, &database.AuthorLLMEvalSkip{Reason: evalSkipItemPanic,
+				SourceFingerprint: r.SourceFingerprint}); skipErr != nil {
+				return skipErr
+			}
 			continue
 		}
-		expected := llmres.Reply{Form: llmres.FormPerson, Order: llmres.OrderGivenFirst,
-			Roles:   []llmres.RoleAssignment{{I: 0, Role: llmres.RoleGiven}, {I: 1, Role: llmres.RoleFamily}},
-			CaseFix: []llmres.CaseFix{}}
-		raw, err := json.Marshal(input)
-		if err != nil {
-			return err
+		if item == nil {
+			continue
 		}
-		items = append(items, database.AuthorLLMNewEvalItem{ItemSet: models.AuthorLLMEvalAnchor,
-			Stratum: "anchor." + strings.ToLower(r.Script), SourceFingerprint: r.SourceFingerprint,
-			ExtractorVersion: r.ExtractorVersion, Input: raw, Weight: 1, Expected: expected.CanonicalBytes()})
+		items = append(items, *item)
 		taken[r.Script]++
 	}
 	for _, script := range []authornorm.Script{authornorm.ScriptCyrillic, authornorm.ScriptLatin} {
@@ -1156,6 +1176,28 @@ func (d *AuthorLLMEvalDriver) freezeAnchor(ctx context.Context, run *evalRun) er
 		}
 	}
 	return d.freezeSet(ctx, run, authorLLMEvalAnchorSet, items)
+}
+
+// anchorItemOf is a candidate's anchor item, or nil when its name is not
+// exactly two sendable tokens.
+func anchorItemOf(r *database.AuthorLLMAnchorRow) *database.AuthorLLMNewEvalItem {
+	input := llmreq.ItemInput{Fields: []llmres.FieldValue{
+		{Field: llmres.FieldFirst, Text: r.First}, {Field: llmres.FieldLast, Text: r.Last}},
+		Script: r.Script, Flags: []string{}}
+	tokens, err := input.Tokens()
+	if err != nil || len(tokens) != 2 {
+		return nil
+	}
+	expected := llmres.Reply{Form: llmres.FormPerson, Order: llmres.OrderGivenFirst,
+		Roles:   []llmres.RoleAssignment{{I: 0, Role: llmres.RoleGiven}, {I: 1, Role: llmres.RoleFamily}},
+		CaseFix: []llmres.CaseFix{}}
+	raw, err := json.Marshal(input)
+	if err != nil {
+		return nil
+	}
+	return &database.AuthorLLMNewEvalItem{ItemSet: models.AuthorLLMEvalAnchor,
+		Stratum: "anchor." + strings.ToLower(r.Script), SourceFingerprint: r.SourceFingerprint,
+		ExtractorVersion: r.ExtractorVersion, Input: raw, Weight: 1, Expected: expected.CanonicalBytes()}
 }
 
 // stratumOf is an input's stratum: the homoglyph stratum when the homoglyph
@@ -1186,34 +1228,7 @@ func (d *AuthorLLMEvalDriver) freezeStrata(ctx context.Context, run *evalRun, fr
 	if err != nil {
 		return err
 	}
-	strata := map[string][]populationItem{}
-	var skipped []database.AuthorLLMEvalSkip
-	for i := range rows {
-		row := &rows[i]
-		value, err := authornorm.NewSourceValue(componentsOf(row))
-		if err != nil {
-			skipped = append(skipped, database.AuthorLLMEvalSkip{Reason: evalSkipInvalidSource,
-				SourceFingerprint: row.SourceFingerprint})
-			continue
-		}
-		input := llmreq.ItemInput{Fields: llmres.FieldValuesOf(value), Flags: row.QualityFlags}
-		if row.Script != nil {
-			input.Script = *row.Script
-		}
-		if input.Flags == nil {
-			input.Flags = []string{}
-		}
-		tokens, err := input.Tokens()
-		if err != nil {
-			// Over the request limits: never sent, never measured.
-			skipped = append(skipped, database.AuthorLLMEvalSkip{Reason: tokenSkipReason(err),
-				SourceFingerprint: row.SourceFingerprint})
-			continue
-		}
-		item := populationItem{row: row, input: input, tokens: tokens}
-		item.stratum = stratumOf(row, tokens)
-		strata[item.stratum] = append(strata[item.stratum], item)
-	}
+	strata, skipped := classifyPopulation(rows)
 	for i := range skipped {
 		if err := d.skip(ctx, run, &skipped[i]); err != nil {
 			return err
@@ -1235,6 +1250,60 @@ func (d *AuthorLLMEvalDriver) freezeStrata(ctx context.Context, run *evalRun, fr
 		}
 	}
 	return nil
+}
+
+// classifyPopulation turns the review population into request inputs by
+// stratum, leaving out — with the reason — every row that cannot be sent: a
+// source value that does not build, an input over the request limits, or a
+// row whose handling panicked. One row is never more than its own skip.
+func classifyPopulation(rows []database.AuthorLLMPopulationRow) (map[string][]populationItem, []database.AuthorLLMEvalSkip) {
+	strata := map[string][]populationItem{}
+	var skipped []database.AuthorLLMEvalSkip
+	for i := range rows {
+		row := &rows[i]
+		var item populationItem
+		reason := ""
+		if err := isolateItem(func() error {
+			item, reason = buildPopulationItem(row)
+			return nil
+		}); err != nil {
+			reason = evalSkipItemPanic
+		}
+		if reason != "" {
+			skipped = append(skipped, database.AuthorLLMEvalSkip{Reason: reason, SourceFingerprint: row.SourceFingerprint})
+			continue
+		}
+		strata[item.stratum] = append(strata[item.stratum], item)
+	}
+	return strata, skipped
+}
+
+// buildPopulationItem is populationItemOf; a test swaps it to make one row
+// panic.
+var buildPopulationItem = populationItemOf
+
+// populationItemOf builds one row's request input and stratum, or says why
+// the row cannot be sent.
+func populationItemOf(row *database.AuthorLLMPopulationRow) (item populationItem, skipReason string) {
+	value, err := authornorm.NewSourceValue(componentsOf(row))
+	if err != nil {
+		return populationItem{}, evalSkipInvalidSource
+	}
+	input := llmreq.ItemInput{Fields: llmres.FieldValuesOf(value), Flags: row.QualityFlags}
+	if row.Script != nil {
+		input.Script = *row.Script
+	}
+	if input.Flags == nil {
+		input.Flags = []string{}
+	}
+	tokens, err := input.Tokens()
+	if err != nil {
+		// Over the request limits: never sent, never measured.
+		return populationItem{}, tokenSkipReason(err)
+	}
+	item = populationItem{row: row, input: input, tokens: tokens}
+	item.stratum = stratumOf(row, tokens)
+	return item, ""
 }
 
 func componentsOf(row *database.AuthorLLMPopulationRow) []authornorm.SourceComponent {
@@ -1278,7 +1347,19 @@ func (d *AuthorLLMEvalDriver) freezeStratum(ctx context.Context, run *evalRun, n
 		item := database.AuthorLLMNewEvalItem{ItemSet: set, Stratum: name, SourceFingerprint: p.row.SourceFingerprint,
 			ExtractorVersion: p.row.ExtractorVersion, Input: raw, Weight: p.row.Weight}
 		version := authorLLMEvalStratumSet + name
-		if book := d.freezeExcerpt(ctx, &item, p.tokens); book != 0 {
+		var book int64
+		if err := isolateItem(func() error {
+			book = d.freezeExcerpt(ctx, &item, p.tokens)
+			return nil
+		}); err != nil {
+			// Reading the excerpt panicked: the item is frozen without one.
+			item.ContextBookID, item.BookMD5, item.ContextSHA256 = nil, nil, nil
+			if err := d.skip(ctx, run, &database.AuthorLLMEvalSkip{Reason: evalSkipItemPanic,
+				SetVersion: &version, SourceFingerprint: item.SourceFingerprint}); err != nil {
+				return err
+			}
+		}
+		if book != 0 {
 			if err := d.skip(ctx, run, &database.AuthorLLMEvalSkip{Reason: evalSkipExcerptUnavailable,
 				SetVersion: &version, SourceFingerprint: item.SourceFingerprint, BookID: &book}); err != nil {
 				return err
@@ -1393,4 +1474,67 @@ func (d *AuthorLLMEvalDriver) estimate(ctx context.Context, run *evalRun) error 
 	jobs := evalParticipants*d.sizes.FingerprintRepeats + evalParticipants*len(anchors) + judges*len(items) +
 		production*batches*(len(items)+withContext) + evalParticipants*min(len(items), d.sizes.Repeat)
 	return database.SetAuthorLLMRunEstimate(ctx, d.db, run.ID, int64(jobs)*authorLLMEvalTokensPerJob)
+}
+
+// AuthorLLMSamplingReport is what the freeze would sample from the current
+// catalog, without freezing anything: the review population by stratum, the
+// rows it would leave out by reason (with sample fingerprints, never a
+// name), and the anchor candidates by script. It is the read-only check run
+// against production data before an eval run is started there.
+type AuthorLLMSamplingReport struct {
+	Fingerprints int            `json:"fingerprints"`
+	Weight       int64          `json:"weight"`
+	Strata       map[string]int `json:"strata"`
+	Skipped      map[string]int `json:"skipped"`
+	// SkippedSamples holds up to authorLLMSamplingSamples fingerprints of
+	// each skip reason, hex.
+	SkippedSamples   map[string][]string `json:"skipped_samples"`
+	AnchorCandidates map[string]int      `json:"anchor_candidates"`
+	AnchorPanics     int                 `json:"anchor_panics"`
+}
+
+// authorLLMSamplingSamples bounds the sample fingerprints per skip reason.
+const authorLLMSamplingSamples = 20
+
+// AuthorLLMSamplingCheck runs the freeze's population and anchor reads and
+// its per-row classification — the tokenizer and the strata — and reports
+// them. It only reads.
+func AuthorLLMSamplingCheck(ctx context.Context, db pg.DBI, sizes AuthorLLMEvalSizes) (*AuthorLLMSamplingReport, error) {
+	rows, err := database.AuthorLLMEvalPopulation(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	report := &AuthorLLMSamplingReport{Fingerprints: len(rows), Strata: map[string]int{}, Skipped: map[string]int{},
+		SkippedSamples: map[string][]string{}, AnchorCandidates: map[string]int{}}
+	for i := range rows {
+		report.Weight += int64(max(rows[i].Weight, 1))
+	}
+	strata, skipped := classifyPopulation(rows)
+	for name, items := range strata {
+		report.Strata[name] = len(items)
+	}
+	for _, sk := range skipped {
+		report.Skipped[sk.Reason]++
+		if len(report.SkippedSamples[sk.Reason]) < authorLLMSamplingSamples {
+			report.SkippedSamples[sk.Reason] = append(report.SkippedSamples[sk.Reason], hex.EncodeToString(sk.SourceFingerprint))
+		}
+	}
+	anchors, err := database.AuthorLLMAnchorCandidates(ctx, db, sizes.AnchorMinSupport, sizes.AnchorMinSharePercent)
+	if err != nil {
+		return nil, err
+	}
+	for i := range anchors {
+		var item *database.AuthorLLMNewEvalItem
+		if isolateItem(func() error {
+			item = anchorItemOf(&anchors[i])
+			return nil
+		}) != nil {
+			report.AnchorPanics++
+			continue
+		}
+		if item != nil {
+			report.AnchorCandidates[anchors[i].Script]++
+		}
+	}
+	return report, nil
 }

@@ -38,7 +38,7 @@ func TestAuthorMetadataEventNamesAreClosed(t *testing.T) {
 func TestAuthorMetadataEventFieldsAreTheSafeSet(t *testing.T) {
 	full := AuthorMetadataEvent{
 		Name: AuthorMetadataEventExtractionItemCompleted, Stage: AuthorMetadataStageExtraction,
-		RunID: 1, ItemID: 2, BookID: 3, JobID: 4, ReviewItemID: 5, AttemptNo: 6,
+		RunID: 1, ItemID: 2, BookID: 3, JobID: 4, ReviewItemID: 5, AttemptNo: 6, Fingerprint: make([]byte, 32),
 		Status: "extracted", Class: AuthorMetadataErrorTransientDatabase, SQLState: "23514",
 		Worker: "extraction", Count: 7, PolicyVersion: 8,
 	}
@@ -48,7 +48,7 @@ func TestAuthorMetadataEventFieldsAreTheSafeSet(t *testing.T) {
 	}
 	sort.Strings(keys)
 	assert.Equal(t, []string{
-		"attempt_no", "book_id", "class", "count", "item_id", "job_id", "policy_version",
+		"attempt_no", "book_id", "class", "count", "fingerprint", "item_id", "job_id", "policy_version",
 		"review_item_id", "run_id", "sqlstate", "stage", "status", "worker",
 	}, keys, "only identifiers, counts and closed values")
 

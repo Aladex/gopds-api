@@ -157,6 +157,9 @@ export type AuthorMetadataRunMode = 'smoke' | 'pilot_archive' | 'full';
 export type AuthorMetadataRunStatus =
     'pending' | 'running' | 'paused' | 'completed' | 'failed_systemic';
 
+/** An LLM run has the metadata runs' statuses plus closed (by an administrator). */
+export type AuthorLLMRunStatus = AuthorMetadataRunStatus | 'closed';
+
 /** Terminal counts per closed extraction outcome, keyed as the backend sends them. */
 export interface AuthorMetadataExtractionByStatus {
     extracted: number;
@@ -368,6 +371,96 @@ export const deleteAuthorMetadataArchive = (runID: number, archive: string) =>
 // from it.
 
 /** Reads the closed error code out of a failed request's body, if there is one. */
+// --- Author LLM block -----------------------------------------------------
+//
+// The LLM block of the author metadata card. The chain is fixed on the
+// server: check quality (eval pilot) → check everything (eval full) →
+// resolve pilot → resolve everything → swaps; each step says whether it is
+// built, enabled and done, and why it is not enabled.
+
+export type AuthorLLMStepKey =
+    'eval_pilot' | 'eval_full' | 'resolve_pilot' | 'resolve_full' | 'swap';
+
+export interface AuthorLLMStep {
+    key: AuthorLLMStepKey;
+    kind: string;
+    mode: string;
+    available: boolean;
+    enabled: boolean;
+    done: boolean;
+    blocked?: 'not_configured' | 'not_available' | 'prerequisite' | 'active_run';
+}
+
+export interface AuthorLLMReportSummary {
+    sha256: string;
+    strata_total: number;
+    strata_passed: number;
+    excerpt_helps: number;
+    registrable: boolean;
+}
+
+export interface AuthorLLMRun {
+    id: number;
+    kind: string;
+    mode: string;
+    status: AuthorLLMRunStatus;
+    stage?: string;
+    paused_reason?: string;
+    last_error_class?: string;
+    current_config: boolean;
+    progress?: { done: number; total: number };
+    estimate_tokens: number;
+    limit_tokens: number;
+    spent_tokens: number;
+    cost?: number;
+    report?: AuthorLLMReportSummary;
+}
+
+export interface AuthorLLMParticipant {
+    slot: string;
+    model: string;
+    paused_reason?: string;
+}
+
+export interface AuthorLLMStatus {
+    enabled: boolean;
+    reason?: string;
+    run: AuthorLLMRun | null;
+    steps: AuthorLLMStep[];
+    participants: AuthorLLMParticipant[] | null;
+    endpoint_paused_reason?: string;
+    budget_tokens: number;
+    spent_tokens: number;
+    price_unit?: string;
+}
+
+const llmBase = '/admin/author-metadata/llm';
+
+export const getAuthorLLMStatus = () => http.get<{ status: AuthorLLMStatus }>(`${llmBase}/status`);
+
+/** startAuthorLLMRun answers at once; the run's stages go on in the background. */
+export const startAuthorLLMRun = (kind: string, mode: string) =>
+    http.post<{ run: AuthorLLMRun }>(`${llmBase}/runs`, { kind, mode });
+
+export const pauseAuthorLLMRun = (runID: number) =>
+    http.post<{ run: AuthorLLMRun }>(`${llmBase}/runs/${runID}/pause`);
+
+export const resumeAuthorLLMRun = (runID: number) =>
+    http.post<{ run: AuthorLLMRun }>(`${llmBase}/runs/${runID}/resume`);
+
+/** closeAuthorLLMRun ends a run of an older configuration, or a paused one, for good. */
+export const closeAuthorLLMRun = (runID: number) =>
+    http.post<{ run: AuthorLLMRun }>(`${llmBase}/runs/${runID}/close`);
+
+export const resumeAuthorLLMParticipant = (slot: string) =>
+    http.post<unknown>(`${llmBase}/participants/${encodeURIComponent(slot)}/resume`);
+
+export const resumeAuthorLLMEndpoint = () => http.post<unknown>(`${llmBase}/endpoint/resume`);
+
+/** getAuthorLLMEvalReport downloads the stored report, byte for byte. */
+export const getAuthorLLMEvalReport = (runID: number) =>
+    requestBlob(`${llmBase}/eval-report/${runID}`);
+
 export function closedErrorCode(error: unknown): string | null {
     if (!isApiError(error)) {
         return null;
