@@ -35,6 +35,12 @@ const formatNumber = (value: number) => value.toLocaleString();
 const formatCost = (value: number) =>
     value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// formatShare is a changed share in percent, at most one decimal.
+const formatShare = (changed: number, total: number) =>
+    (total > 0 ? (changed * 100) / total : 0).toLocaleString(undefined, {
+        maximumFractionDigits: 1,
+    });
+
 const stepLabels = (t: T): Record<string, string> => ({
     eval_pilot: t('authorLLM.step.eval_pilot', 'Check quality'),
     eval_full: t('authorLLM.step.eval_full', 'Check everything'),
@@ -386,6 +392,20 @@ const AuthorLLMBlock: React.FC = () => {
                             helps: report.excerpt_helps,
                         })}
                     </p>
+                    {(report.repeats ?? []).map((r) => (
+                        <p
+                            key={r.participant}
+                            className="text-sm tabular-nums text-muted-foreground"
+                        >
+                            {t('authorLLM.repeatChanged', {
+                                defaultValue: '{{participant}} · repeats: {{share}}% changed',
+                                participant:
+                                    status.participants?.find((p) => p.slot === r.participant)
+                                        ?.model ?? r.participant,
+                                share: formatShare(r.changed, r.total),
+                            })}
+                        </p>
+                    ))}
                     {!report.registrable && (
                         <p className="text-sm text-muted-foreground">
                             {t(

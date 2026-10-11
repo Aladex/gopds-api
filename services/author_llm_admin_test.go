@@ -161,6 +161,7 @@ func TestAuthorLLMAdminChainAndTransitions(t *testing.T) {
 	assert.Equal(t, sha, st.Run.Report.SHA256)
 	assert.Equal(t, 1, st.Run.Report.StrataTotal, "a pilot measures one stratum")
 	assert.False(t, st.Run.Report.Registrable, "fixture-sized evidence")
+	assert.Len(t, st.Run.Report.Repeats, 4, "every participant's changed repeats")
 	spent, err := database.AuthorLLMTokensSpent(ctx, e.db, run.ID)
 	require.NoError(t, err)
 	assert.Positive(t, spent)

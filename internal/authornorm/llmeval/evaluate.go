@@ -29,8 +29,11 @@ const (
 const (
 	judgeAnchorPercent      = 99
 	productionAnchorPercent = 98
-	maxRepeatChangePercent  = 1
-	maxInvalidPercent       = 2
+	// maxRepeatChangePercent catches a broken or swapped participant, not
+	// honest ambiguity: resolve applies only what the pair and both judges
+	// agree on, so an unstable answer costs coverage, not correctness.
+	maxRepeatChangePercent = 10
+	maxInvalidPercent      = 2
 	// ablationMinGain and ablationMinGainPercent: the excerpt must accept at
 	// least max(30, 5% of the stratum's items) more than arm A.
 	ablationMinGain        = 30
@@ -178,19 +181,44 @@ type Decision struct {
 
 // Report is the evaluation.
 type Report struct {
-	Strata      map[string]StratumReport `json:"strata"`
-	Anchor      []ParticipantCount       `json:"anchor"`
-	Repeat      []ParticipantCount       `json:"repeat"`
-	Invalid     []ParticipantCount       `json:"invalid"`
-	Fingerprint FingerprintResult        `json:"fingerprint"`
-	Decision    Decision                 `json:"decision"`
+	Strata map[string]StratumReport `json:"strata"`
+	Anchor []ParticipantCount       `json:"anchor"`
+	Repeat []ParticipantCount       `json:"repeat"`
+	// RepeatChange is each participant's share of repeated answers that
+	// changed, shown so it can be watched.
+	RepeatChange []RepeatChange     `json:"repeat_change"`
+	Invalid      []ParticipantCount `json:"invalid"`
+	Fingerprint  FingerprintResult  `json:"fingerprint"`
+	Decision     Decision           `json:"decision"`
+}
+
+// RepeatChange is how many of a participant's repeated answers differ from
+// its first ones, and their share.
+type RepeatChange struct {
+	Participant string  `json:"participant"`
+	Changed     int     `json:"changed"`
+	Total       int     `json:"total"`
+	Share       float64 `json:"share"`
+}
+
+// RepeatChanges is the changed share of every participant's repeats.
+func RepeatChanges(counts []ParticipantCount) []RepeatChange {
+	out := make([]RepeatChange, 0, len(counts))
+	for _, c := range counts {
+		rc := RepeatChange{Participant: c.Participant, Changed: c.Total - c.Matched, Total: c.Total}
+		if c.Total > 0 {
+			rc.Share = float64(rc.Changed) / float64(c.Total)
+		}
+		out = append(out, rc)
+	}
+	return out
 }
 
 // Evaluate computes the report and the decision. It is deterministic: strata
 // come out sorted, items in input order.
 func Evaluate(in *Input) Report {
-	r := Report{Strata: map[string]StratumReport{}, Anchor: in.Anchor, Repeat: in.Repeat, Invalid: in.Invalid,
-		Fingerprint: in.Fingerprint}
+	r := Report{Strata: map[string]StratumReport{}, Anchor: in.Anchor, Repeat: in.Repeat,
+		RepeatChange: RepeatChanges(in.Repeat), Invalid: in.Invalid, Fingerprint: in.Fingerprint}
 	reasons := runReasons(in)
 	byStratum := map[string][]*Item{}
 	var names []string

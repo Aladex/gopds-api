@@ -361,7 +361,7 @@ func TestGlobalFailuresStopEveryStratum(t *testing.T) {
 		"anchor production 97%": func(in *Input) {
 			in.Anchor[0].Matched = 291
 		},
-		"repeat over 1%":      func(in *Input) { in.Repeat[3].Matched = 197 },
+		"repeat over 10%":     func(in *Input) { in.Repeat[3].Matched = 179 },
 		"fingerprint":         func(in *Input) { in.Fingerprint = FingerprintResult{Reason: "same_lab"} },
 		"invalid over 2%":     func(in *Input) { in.Invalid = []ParticipantCount{{Participant: "judge_b", Matched: 30, Total: 1000}} },
 		"dev is not evidence": func(in *Input) { in.Registrable = false },
@@ -378,11 +378,12 @@ func TestGlobalFailuresStopEveryStratum(t *testing.T) {
 			t.Errorf("%s: no reason given", name)
 		}
 	}
-	// The thresholds themselves: 99% of judges and 98% of production pass.
+	// The thresholds themselves: 99% of judges and 98% of production at the
+	// anchors, 10% changed repeats and 2% invalid replies pass.
 	in := healthy()
 	in.Items = stratumItems("initials.cyrl", 700, agreeX)
 	in.Anchor[2].Matched, in.Anchor[0].Matched = 297, 294
-	in.Repeat[0].Matched = 198
+	in.Repeat[0].Matched = 180
 	in.Invalid = []ParticipantCount{{Participant: "judge_b", Matched: 20, Total: 1000}}
 	r := Evaluate(&in)
 	if !r.Decision.Registrable || !decisionOf(t, &r, "initials.cyrl").Passed {

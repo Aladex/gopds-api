@@ -91,6 +91,17 @@ type AuthorLLMReportSummary struct {
 	// arm.
 	ExcerptHelps int  `json:"excerpt_helps"`
 	Registrable  bool `json:"registrable"`
+	// Repeats is each participant's changed repeated answers, shown so the
+	// share can be watched; it is no gate of its own.
+	Repeats []AuthorLLMRepeatChange `json:"repeats"`
+}
+
+// AuthorLLMRepeatChange is how many of a participant's repeated answers
+// changed out of all of them.
+type AuthorLLMRepeatChange struct {
+	Participant string `json:"participant"`
+	Changed     int    `json:"changed"`
+	Total       int    `json:"total"`
 }
 
 // AuthorLLMRunState is a run as the card shows it.
@@ -344,6 +355,12 @@ func (a *AuthorLLMAdmin) reportSummary(ctx context.Context, runID int64) (*Autho
 	if err != nil {
 		return nil, err
 	}
+	return summarizeEvalReport(raw, sha)
+}
+
+// summarizeEvalReport is the card's line of a stored report. The repeat
+// change comes from the repeat counts, which every stored report carries.
+func summarizeEvalReport(raw []byte, sha string) (*AuthorLLMReportSummary, error) {
 	var doc struct {
 		Evaluation llmeval.Report `json:"evaluation"`
 	}
@@ -351,7 +368,10 @@ func (a *AuthorLLMAdmin) reportSummary(ctx context.Context, runID int64) (*Autho
 		return nil, fmt.Errorf("reading an eval report: %w", err)
 	}
 	sum := &AuthorLLMReportSummary{SHA256: sha, Registrable: doc.Evaluation.Decision.Registrable,
-		StrataTotal: len(doc.Evaluation.Decision.Strata)}
+		StrataTotal: len(doc.Evaluation.Decision.Strata), Repeats: []AuthorLLMRepeatChange{}}
+	for _, c := range llmeval.RepeatChanges(doc.Evaluation.Repeat) {
+		sum.Repeats = append(sum.Repeats, AuthorLLMRepeatChange{Participant: c.Participant, Changed: c.Changed, Total: c.Total})
+	}
 	for _, d := range doc.Evaluation.Decision.Strata {
 		if d.Passed {
 			sum.StrataPassed++

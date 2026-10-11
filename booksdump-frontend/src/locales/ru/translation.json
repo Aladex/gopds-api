@@ -640,6 +640,7 @@
   "authorLLM.pausedBudget": "На паузе: прогон дошёл до своего предела токенов",
   "authorLLM.reportButton": "Отчёт",
   "authorLLM.reportSummary": "{{run}}: ✓ прошли {{passed}} групп из {{total}} · отрывок помогает в {{helps}}",
+  "authorLLM.repeatChanged": "{{participant}} · повторы: {{share}}% изменились",
   "authorLLM.resume": "Продолжить прогон",
   "authorLLM.run.eval_dev": "Проверка настроек моделей",
   "authorLLM.run.eval_full": "Полная проверка",

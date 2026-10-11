@@ -397,6 +397,14 @@ export interface AuthorLLMReportSummary {
     strata_passed: number;
     excerpt_helps: number;
     registrable: boolean;
+    /** Each participant's changed repeated answers; watched, not a gate. */
+    repeats?: AuthorLLMRepeatChange[];
+}
+
+export interface AuthorLLMRepeatChange {
+    participant: string;
+    changed: number;
+    total: number;
 }
 
 export interface AuthorLLMRun {

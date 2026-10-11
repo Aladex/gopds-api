@@ -636,6 +636,7 @@
   "authorLLM.pausedBudget": "Paused: the run reached its token limit",
   "authorLLM.reportButton": "Report",
   "authorLLM.reportSummary": "{{run}}: ✓ {{passed}} of {{total}} groups passed · the excerpt helps in {{helps}}",
+  "authorLLM.repeatChanged": "{{participant}} · repeats: {{share}}% changed",
   "authorLLM.resume": "Resume",
   "authorLLM.run.eval_dev": "Model settings check",
   "authorLLM.run.eval_full": "Full check",

@@ -241,6 +241,43 @@ describe('AuthorLLMBlock', () => {
         click.mockRestore();
     });
 
+    it('shows how many repeated answers changed, per participant', async () => {
+        show(
+            status({
+                run: llmRun({
+                    status: 'completed',
+                    progress: undefined,
+                    report: {
+                        sha256: 'ab',
+                        strata_total: 1,
+                        strata_passed: 0,
+                        excerpt_helps: 0,
+                        registrable: true,
+                        repeats: [
+                            { participant: 'production_a', changed: 4, total: 200 },
+                            { participant: 'production_b', changed: 3, total: 200 },
+                            { participant: 'judge_b', changed: 0, total: 200 },
+                        ],
+                    },
+                }),
+            }),
+        );
+        render(<AuthorLLMBlock />);
+        expect(
+            await screen.findByText(`gpt-6-luna · repeats: ${n(2)}% changed`),
+        ).toBeInTheDocument();
+        expect(
+            screen.getByText(`deepseek-v4-pro · repeats: ${n(1.5)}% changed`),
+        ).toBeInTheDocument();
+        expect(screen.getByText(`kimi-k3 · repeats: ${n(0)}% changed`)).toBeInTheDocument();
+        expect(ruTranslation['authorLLM.repeatChanged']).toBe(
+            '{{participant}} · повторы: {{share}}% изменились',
+        );
+        expect(enTranslation['authorLLM.repeatChanged']).toBe(
+            '{{participant}} · repeats: {{share}}% changed',
+        );
+    });
+
     it('says when a completed check cannot back a registration', async () => {
         show(
             status({
