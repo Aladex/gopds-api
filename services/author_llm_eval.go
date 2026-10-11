@@ -623,7 +623,7 @@ func (d *AuthorLLMEvalDriver) learnFingerprint(ctx context.Context, run *evalRun
 	reference := map[string]database.AuthorLLMFingerprintReference{}
 	for _, p := range data.fingerprints {
 		expected[p.Participant] = p.Models
-		mode := ""
+		mode := data.modes[p.Participant]
 		if mode == "" {
 			mode = d.mode(run, llmreq.Slot(p.Participant))
 		}
