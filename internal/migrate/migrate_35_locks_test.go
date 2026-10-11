@@ -20,7 +20,7 @@ import (
 // worker on the participants' state or the runs — makes it fail at once with
 // lock_not_available, and the next start applies it whole.
 func TestMigration35FailsFastInsteadOfWaitingForALock(t *testing.T) {
-	for _, table := range []string{"author_llm_provider_state", "author_llm_run"} {
+	for _, table := range []string{"author_llm_provider_state", "author_llm_run", "author_llm_participant"} {
 		t.Run(table, func(t *testing.T) { migration35UnderAHeldTable(t, table) })
 	}
 }

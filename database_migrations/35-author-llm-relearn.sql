@@ -9,14 +9,15 @@
 -- A re-learn that does not settle (the calls disagree, or no output mode
 -- works) leaves the participant paused: relearn_unstable.
 --
--- Locks: the participants' state is taken up front, NOWAIT, and the runs in
--- the mode the new foreign key needs, as in 28-34. A worker holding either
+-- Locks: the participants' state is taken up front, NOWAIT, and the runs and
+-- the participants in the mode the new foreign keys need, as in 28-34. A worker holding either
 -- makes the file fail at once; the next start retries it whole.
 
 SET LOCAL lock_timeout = '5s';
 
 LOCK TABLE public.author_llm_provider_state IN ACCESS EXCLUSIVE MODE NOWAIT;
-LOCK TABLE public.author_llm_run IN SHARE ROW EXCLUSIVE MODE NOWAIT;
+-- The new table's foreign keys onto the runs and the participants.
+LOCK TABLE public.author_llm_run, public.author_llm_participant IN SHARE ROW EXCLUSIVE MODE NOWAIT;
 
 ALTER TABLE public.author_llm_provider_state
     DROP CONSTRAINT author_llm_provider_state_pause_check,

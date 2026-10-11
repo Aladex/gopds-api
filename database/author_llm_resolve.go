@@ -79,7 +79,44 @@ func LatestAuthorLLMFullEval(ctx context.Context, db pg.DBI, version string) (*A
 	if err != nil {
 		return nil, fmt.Errorf("reading the latest full eval: %w", err)
 	}
+	if relearnErr := ev.withRelearns(ctx, db); relearnErr != nil {
+		return nil, relearnErr
+	}
 	return &ev, nil
+}
+
+// withRelearns makes the evidence the eval's effective one: a participant
+// re-learned during the eval was measured — its answers re-asked — under its
+// latest learned reference and model ids, which replace the fingerprint
+// stage's. The originals stay in the run and its re-learn history.
+func (ev *AuthorLLMEvalEvidence) withRelearns(ctx context.Context, db pg.DBI) error {
+	relearns, err := AuthorLLMRelearns(ctx, db, ev.RunID)
+	if err != nil || len(relearns) == 0 {
+		return err
+	}
+	reference := map[string]AuthorLLMFingerprintReference{}
+	expected := map[string][]string{}
+	if len(ev.Reference) > 0 && string(ev.Reference) != jsonNull {
+		if err = json.Unmarshal(ev.Reference, &reference); err != nil {
+			return fmt.Errorf("reading an eval's reference: %w", err)
+		}
+	}
+	if len(ev.ExpectedModels) > 0 && string(ev.ExpectedModels) != jsonNull {
+		if err = json.Unmarshal(ev.ExpectedModels, &expected); err != nil {
+			return fmt.Errorf("reading an eval's model ids: %w", err)
+		}
+	}
+	for i := range relearns {
+		if r := &relearns[i]; r.Status == authorLLMRelearnLearned && r.NewReference != nil {
+			reference[r.Participant] = *r.NewReference
+			expected[r.Participant] = r.Models
+		}
+	}
+	if ev.Reference, err = json.Marshal(reference); err != nil {
+		return err
+	}
+	ev.ExpectedModels, err = json.Marshal(expected)
+	return err
 }
 
 // AuthorLLMResolveStart is a resolve run to start: its mode, the evidence

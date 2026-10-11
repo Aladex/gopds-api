@@ -21,3 +21,13 @@ func PanicOnApplyForTest(t *testing.T, match func(last string) bool) {
 	}
 	t.Cleanup(func() { applyHook = previous })
 }
+
+// SetEvalReportCollectedHookForTest calls fn each time the eval driver's
+// report stage has collected the run's answers, before it computes and
+// stores the report, until the test ends.
+func SetEvalReportCollectedHookForTest(t *testing.T, fn func()) {
+	t.Helper()
+	previous := evalReportCollectedHook
+	evalReportCollectedHook = fn
+	t.Cleanup(func() { evalReportCollectedHook = previous })
+}

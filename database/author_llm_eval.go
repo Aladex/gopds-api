@@ -464,9 +464,51 @@ func AuthorLLMEvalPriorFullRuns(ctx context.Context, db pg.DBI, version string) 
 // resume. The digest is the SHA-256 of the stored report's text form —
 // exactly the bytes the download returns. A report already written is kept.
 func StoreAuthorLLMEvalReport(ctx context.Context, db *pg.DB, runID int64, version string, report []byte) error {
+	return StoreAuthorLLMEvalReportOf(ctx, db, runID, version, report, -1)
+}
+
+// ErrAuthorLLMReportStale refuses an eval report whose answers changed while
+// it was computed: a re-learn started or ended since (its participant's
+// answers go back to the queue), or answers are still to come. Nothing is
+// stored; the report stage computes it again.
+var ErrAuthorLLMReportStale = errors.New("database: the eval report's answers changed while it was computed")
+
+// AuthorLLMRelearnGeneration is the run's re-learn generation: the latest
+// re-learn row. A report is of one generation when it is the same before
+// the answers are read and when the report is stored.
+func AuthorLLMRelearnGeneration(ctx context.Context, db pg.DBI, runID int64) (int64, error) {
+	var gen int64
+	if _, err := db.QueryOneContext(ctx, pg.Scan(&gen),
+		`SELECT coalesce(max(id), 0) FROM author_llm_relearn WHERE run_id = ?0`, runID); err != nil {
+		return 0, fmt.Errorf("reading a run's re-learn generation: %w", err)
+	}
+	return gen, nil
+}
+
+// StoreAuthorLLMEvalReportOf stores a report computed from the answers of
+// one re-learn generation (generation < 0: whatever is current). Under the
+// claim lock — which every settle, and so every re-learn's end and every
+// drift's voiding, holds — it checks again that the run has nothing left to
+// answer, no re-learn running and the same generation; otherwise it refuses
+// with ErrAuthorLLMReportStale and stores nothing.
+func StoreAuthorLLMEvalReportOf(ctx context.Context, db *pg.DB, runID int64, version string, report []byte, generation int64) error {
 	return RunAuthorLLMTx(ctx, db, func(tx *pg.Tx) error {
+		if _, err := lockAuthorLLM(ctx, tx, nil); err != nil {
+			return err
+		}
 		if _, err := lockAuthorLLMRuns(ctx, tx, authorLLMRunWrite, false, []int64{runID}); err != nil {
 			return err
+		}
+		waits, err := AuthorLLMEvalRunWaits(ctx, tx, runID)
+		if err != nil {
+			return err
+		}
+		current, err := AuthorLLMRelearnGeneration(ctx, tx, runID)
+		if err != nil {
+			return err
+		}
+		if waits > 0 || (generation >= 0 && current != generation) {
+			return ErrAuthorLLMReportStale
 		}
 		var running bool
 		if _, err := tx.QueryOneContext(ctx, pg.Scan(&running),

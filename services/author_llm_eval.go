@@ -986,10 +986,50 @@ type evalSetSummary struct {
 
 // report computes the report, stores it with its digest and completes the
 // run.
+// effectiveFingerprints are the fingerprints the eval's answers were given
+// under: the stage's, with every participant re-learned during the run at its
+// latest learned reference and model ids (the originals stay in the
+// re-learn history).
+func effectiveFingerprints(
+	stage []llmeval.ParticipantFingerprint, relearns []database.AuthorLLMRelearnRecord,
+) []llmeval.ParticipantFingerprint {
+	out := slices.Clone(stage)
+	for i := range relearns {
+		r := &relearns[i]
+		if r.NewReference == nil {
+			continue
+		}
+		for j := range out {
+			if out[j].Participant == r.Participant {
+				out[j].PromptTokens, out[j].ReasoningFloor = r.NewReference.PromptTokens, r.NewReference.ReasoningFloor
+				out[j].Models = slices.Clone(r.Models)
+			}
+		}
+	}
+	return out
+}
+
+// evalReportCollectedHook is called, when set, right after the report stage
+// collected the run's answers: a test seam to interleave a re-learn there.
+var evalReportCollectedHook func()
+
 func (d *AuthorLLMEvalDriver) report(ctx context.Context, run *evalRun) error {
+	// One generation: read before the answers, checked again when the
+	// report is stored. A re-learn running, or answers still to come, wait.
+	generation, err := database.AuthorLLMRelearnGeneration(ctx, d.db, run.ID)
+	if err != nil {
+		return err
+	}
+	waits, err := database.AuthorLLMEvalRunWaits(ctx, d.db, run.ID)
+	if err != nil || waits > 0 {
+		return err
+	}
 	data, err := d.collect(ctx, run)
 	if err != nil {
 		return err
+	}
+	if evalReportCollectedHook != nil {
+		evalReportCollectedHook()
 	}
 	evaluation := llmeval.Evaluate(&data.input)
 	versions, _, err := d.scope(ctx, run)
@@ -1020,6 +1060,7 @@ func (d *AuthorLLMEvalDriver) report(ctx context.Context, run *evalRun) error {
 	if err != nil {
 		return err
 	}
+	fingerprints := effectiveFingerprints(data.fingerprints, relearns)
 	for i := range relearns {
 		// A re-learned participant was last asked in its re-learned mode.
 		if relearns[i].NewReference != nil && run.Settings.mode(llmreq.Slot(relearns[i].Participant)) == "" {
@@ -1031,7 +1072,7 @@ func (d *AuthorLLMEvalDriver) report(ctx context.Context, run *evalRun) error {
 	}
 	doc := authorLLMEvalReportDoc{RunID: run.ID, Mode: run.Mode, ConfigVersion: d.version, Settings: settings,
 		Dropped: data.dropped, Skipped: make([]evalSkipped, 0, len(skips)), FailedJobs: data.failed,
-		Fingerprints: data.fingerprints, FingerprintRelearns: relearns, Evaluation: evaluation}
+		Fingerprints: fingerprints, FingerprintRelearns: relearns, Evaluation: evaluation}
 	if doc.FailedJobs == nil {
 		doc.FailedJobs = []evalFailedJob{}
 	}
@@ -1054,7 +1095,13 @@ func (d *AuthorLLMEvalDriver) report(ctx context.Context, run *evalRun) error {
 	if err != nil {
 		return err
 	}
-	return database.StoreAuthorLLMEvalReport(ctx, d.db, run.ID, d.version, raw)
+	err = database.StoreAuthorLLMEvalReportOf(ctx, d.db, run.ID, d.version, raw, generation)
+	if errors.Is(err, database.ErrAuthorLLMReportStale) {
+		// The answers changed under the report: the next step waits for
+		// them and computes it again.
+		return nil
+	}
+	return err
 }
 
 // AuthorLLMEvalReportFile is a report as the admin downloads it: the stored

@@ -246,8 +246,12 @@ func claimAuthorLLMCall(ctx context.Context, tx *pg.Tx, opts *AuthorLLMClaimOpti
 		return claimAuthorLLMFingerprint(ctx, tx, opts, now, run,
 			&AuthorLLMFingerprintReference{OutputMode: rl.OutputMode}, nil)
 	}
-	if rl != nil && rl.Status == authorLLMRelearnLearned && rl.NewReference != nil {
-		ref, expected = rl.NewReference, rl.Models
+	learned, err := latestLearnedAuthorLLMRelearn(ctx, tx, run.ID, string(opts.Slot))
+	if err != nil {
+		return nil, "", err
+	}
+	if learned != nil {
+		ref, expected = learned.NewReference, learned.Models
 	}
 
 	// A due fingerprint check goes before any job of the run: at the run's

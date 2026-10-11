@@ -34,6 +34,9 @@ const (
 	authorLLMRelearnUnstable = "unstable"
 )
 
+// jsonNull is the text of a JSON null.
+const jsonNull = "null"
+
 // authorLLMClassRelearned is the class of a job re-asked after its
 // participant's re-learn.
 const authorLLMClassRelearned = "relearned"
@@ -79,6 +82,23 @@ func latestAuthorLLMRelearn(ctx context.Context, db pg.DBI, runID int64, slot st
 	}
 	if err != nil {
 		return nil, fmt.Errorf("reading a participant's re-learn: %w", err)
+	}
+	return &r, nil
+}
+
+// latestLearnedAuthorLLMRelearn is a participant's latest learned re-learn in
+// a run, whatever came after it — an attempt that did not settle replaces
+// nothing; nil when it has none.
+func latestLearnedAuthorLLMRelearn(ctx context.Context, db pg.DBI, runID int64, slot string) (*AuthorLLMRelearnRecord, error) {
+	var r AuthorLLMRelearnRecord
+	_, err := db.QueryOneContext(ctx, &r, `SELECT `+relearnColumns+` FROM author_llm_relearn
+		WHERE run_id = ?0 AND slot = ?1 AND status = ?2 AND new_reference IS NOT NULL ORDER BY id DESC LIMIT 1`,
+		runID, slot, authorLLMRelearnLearned)
+	if errors.Is(err, pg.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading a participant's learned reference: %w", err)
 	}
 	return &r, nil
 }
@@ -201,19 +221,19 @@ func startAuthorLLMRelearn(ctx context.Context, tx *pg.Tx, r *AuthorLLMResume, r
 // currentAuthorLLMReference is the reference a participant is checked
 // against in the run now: its latest learned re-learn's, else the run's own.
 func currentAuthorLLMReference(ctx context.Context, tx *pg.Tx, runID int64, slot string) (*AuthorLLMFingerprintReference, error) {
-	latest, err := latestAuthorLLMRelearn(ctx, tx, runID, slot)
+	learned, err := latestLearnedAuthorLLMRelearn(ctx, tx, runID, slot)
 	if err != nil {
 		return nil, err
 	}
-	if latest != nil && latest.Status == authorLLMRelearnLearned && latest.NewReference != nil {
-		return latest.NewReference, nil
+	if learned != nil {
+		return learned.NewReference, nil
 	}
 	var raw *string
 	if _, err = tx.QueryOneContext(ctx, pg.Scan(&raw), `SELECT (reference -> ?1)::text FROM author_llm_run WHERE id = ?0`,
 		runID, slot); err != nil {
 		return nil, fmt.Errorf("reading a run's reference: %w", err)
 	}
-	if raw == nil || *raw == "null" {
+	if raw == nil || *raw == jsonNull {
 		return nil, nil
 	}
 	var ref AuthorLLMFingerprintReference
