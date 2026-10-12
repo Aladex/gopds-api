@@ -104,6 +104,9 @@ type Input struct {
 	Repeat []ParticipantCount
 	// Invalid counts invalid answers (Matched) of all answers (Total).
 	Invalid []ParticipantCount
+	// ProviderRejected counts the answers the provider rejected (Matched) of
+	// all answers (Total); Invalid includes them.
+	ProviderRejected []ParticipantCount
 	// Registrable is false for a dev run: its report never registers.
 	Registrable bool
 }
@@ -188,8 +191,10 @@ type Report struct {
 	// changed, shown so it can be watched.
 	RepeatChange []RepeatChange     `json:"repeat_change"`
 	Invalid      []ParticipantCount `json:"invalid"`
-	Fingerprint  FingerprintResult  `json:"fingerprint"`
-	Decision     Decision           `json:"decision"`
+	// ProviderRejected is the part of Invalid the provider rejected.
+	ProviderRejected []ParticipantCount `json:"provider_rejected"`
+	Fingerprint      FingerprintResult  `json:"fingerprint"`
+	Decision         Decision           `json:"decision"`
 }
 
 // RepeatChange is how many of a participant's repeated answers differ from
@@ -218,7 +223,8 @@ func RepeatChanges(counts []ParticipantCount) []RepeatChange {
 // come out sorted, items in input order.
 func Evaluate(in *Input) Report {
 	r := Report{Strata: map[string]StratumReport{}, Anchor: in.Anchor, Repeat: in.Repeat,
-		RepeatChange: RepeatChanges(in.Repeat), Invalid: in.Invalid, Fingerprint: in.Fingerprint}
+		RepeatChange: RepeatChanges(in.Repeat), Invalid: in.Invalid, ProviderRejected: in.ProviderRejected,
+		Fingerprint: in.Fingerprint}
 	reasons := runReasons(in)
 	byStratum := map[string][]*Item{}
 	var names []string

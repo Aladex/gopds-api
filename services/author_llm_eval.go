@@ -712,6 +712,9 @@ type evalAnswers struct {
 	byItem       map[int64]map[evalAnswerKey]*database.AuthorLLMEvalAnswer
 	measurements []llmeval.FingerprintMeasurement
 	invalid      map[string]*llmeval.ParticipantCount
+	// rejected counts the answers the provider rejected per participant,
+	// a part of invalid.
+	rejected map[string]*llmeval.ParticipantCount
 	// failed are the jobs that ended invalid or failed, in read order.
 	failed []evalFailedJob
 	// modes is the output mode each participant's fingerprint was answered
@@ -727,7 +730,8 @@ func (d *AuthorLLMEvalDriver) readEvalAnswers(ctx context.Context, runID int64) 
 		return nil, err
 	}
 	out := &evalAnswers{byItem: map[int64]map[evalAnswerKey]*database.AuthorLLMEvalAnswer{},
-		invalid: map[string]*llmeval.ParticipantCount{}, modes: map[string]string{}, noMode: map[string]bool{}}
+		invalid: map[string]*llmeval.ParticipantCount{}, rejected: map[string]*llmeval.ParticipantCount{},
+		modes: map[string]string{}, noMode: map[string]bool{}}
 	for i := range answers {
 		a := &answers[i]
 		arm := ""
@@ -751,12 +755,17 @@ func (d *AuthorLLMEvalDriver) readEvalAnswers(ctx context.Context, runID int64) 
 		if !models.AuthorLLMJobStatus(a.Status).IsTerminal() {
 			continue
 		}
-		c := out.invalid[a.Slot]
+		c, r := out.invalid[a.Slot], out.rejected[a.Slot]
 		if c == nil {
-			c = &llmeval.ParticipantCount{Participant: a.Slot}
-			out.invalid[a.Slot] = c
+			c, r = &llmeval.ParticipantCount{Participant: a.Slot}, &llmeval.ParticipantCount{Participant: a.Slot}
+			out.invalid[a.Slot], out.rejected[a.Slot] = c, r
 		}
 		c.Total++
+		r.Total++
+		if deref(a.LastErrorClass) == database.AuthorLLMClassProviderRejected &&
+			a.Status == string(models.AuthorLLMJobInvalid) {
+			r.Matched++
+		}
 		if a.Status != string(models.AuthorLLMJobAnswered) {
 			c.Matched++
 			out.failed = append(out.failed, evalFailedJob{EvalItemID: a.EvalItemID, Participant: a.Slot,
@@ -834,6 +843,7 @@ func (d *AuthorLLMEvalDriver) collect(ctx context.Context, run *evalRun) (*evalD
 	data.input.Anchor = data.anchor
 	data.input.Repeat = sortedCounts(repeat)
 	data.input.Invalid = sortedCounts(answers.invalid)
+	data.input.ProviderRejected = sortedCounts(answers.rejected)
 	data.input.Registrable = run.Mode != models.AuthorLLMEvalModeDev
 	return data, nil
 }

@@ -319,3 +319,38 @@ func TestStructuredCarriesTheOutputCeiling(t *testing.T) {
 		t.Error("a refused request reached the endpoint")
 	}
 }
+
+// A failed call keeps the provider's own error code — an identifier, never
+// the message — so a rejection can be counted by its cause. A code that is
+// not an identifier is dropped.
+func TestStructuredKeepsTheProviderCode(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, code string
+	}{
+		{"z.ai content filter", fixture(t, "zai_content_filter_400.json"), "1301"},
+		{"numeric code", `{"error":{"code":1301,"message":"` + structuredCanary + `"}}`, "1301"},
+		{"OpenAI null code", `{"error":{"message":"` + structuredCanary + `","type":"invalid_request_error","code":null}}`, ""},
+		{"OpenAI string code", `{"error":{"message":"m","type":"invalid_request_error","code":"context_length_exceeded"}}`,
+			"context_length_exceeded"},
+		{"text as code", `{"error":{"code":"` + structuredCanary + ` and more"}}`, ""},
+		{"overlong code", `{"error":{"code":"` + strings.Repeat("a", 65) + `"}}`, ""},
+		{"not json", "<html>" + structuredCanary, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, _ := serve(t, http.StatusBadRequest, tc.body, nil)
+			_, err := structuredClient(srv.URL, "").CompleteStructured(context.Background(), &StructuredRequest{
+				Model: "m", System: "s", User: "u", Mode: OutputJSONObject,
+			})
+			var ce *CallError
+			if !errors.As(err, &ce) {
+				t.Fatalf("err = %v, want a *CallError", err)
+			}
+			if ce.Class != ErrorBadRequest || ce.ProviderCode != tc.code {
+				t.Errorf("class/code = %s/%q, want bad_request/%q", ce.Class, ce.ProviderCode, tc.code)
+			}
+			if strings.Contains(err.Error(), structuredCanary) {
+				t.Errorf("error text carries content: %q", err.Error())
+			}
+		})
+	}
+}

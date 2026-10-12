@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -76,7 +77,10 @@ type AuthorLLMSettlement struct {
 	// Outcome is answered when the endpoint returned a response at all.
 	Outcome models.AuthorLLMCallOutcome
 	// ErrorClass is the client's closed class of a failed call.
-	ErrorClass    string
+	ErrorClass string
+	// ProviderCode is the error body's own code, an identifier the client
+	// kept; the attempts store it.
+	ProviderCode  string
 	HTTPStatus    int
 	Latency       time.Duration
 	RetryAfter    time.Duration
@@ -111,6 +115,11 @@ type AuthorLLMSettleReport struct {
 	Requeued int
 	Failed   int
 	Verdicts int
+	// Rejected counts the items the provider rejected.
+	Rejected int
+	// Class is the class the call was closed with, when the settle chose
+	// one other than the client's (provider_rejected).
+	Class string
 	// Paused is the pause reason a participant got, if any.
 	Paused string
 }
@@ -182,14 +191,28 @@ func settleAuthorLLMCallTx(ctx context.Context, tx *pg.Tx, s *AuthorLLMSettlemen
 	if err != nil {
 		return fmt.Errorf("reading the settled call: %w", err)
 	}
-	overReserve, err := closeAuthorLLMCall(ctx, tx, &call, s, now)
+	rejection := authorLLMRejectionNone
+	if call.Kind != string(models.AuthorLLMCallFingerprint) {
+		if rejection, err = authorLLMRejectionOf(ctx, tx, &call, s); err != nil {
+			return err
+		}
+	}
+	closing := s
+	if rejection == authorLLMRejectionSplit || rejection == authorLLMRejectionItem {
+		// The provider refused the call's content, not the participant.
+		c := *s
+		c.ErrorClass = AuthorLLMClassProviderRejected
+		closing = &c
+		report.Class = AuthorLLMClassProviderRejected
+	}
+	overReserve, err := closeAuthorLLMCall(ctx, tx, &call, closing, now)
 	if err != nil {
 		return err
 	}
 	if call.Kind == string(models.AuthorLLMCallFingerprint) {
 		err = settleAuthorLLMFingerprint(ctx, tx, &call, s, now, report)
 	} else {
-		err = settleAuthorLLMJobs(ctx, tx, &call, s, now, report)
+		err = settleAuthorLLMJobs(ctx, tx, &call, s, rejection, now, report)
 	}
 	if err != nil || !overReserve {
 		return err
@@ -267,7 +290,8 @@ func closeAuthorLLMCall(ctx context.Context, tx *pg.Tx, call *settledCall, s *Au
 
 // settleAuthorLLMJobs moves the call's jobs on and adjusts the participant.
 func settleAuthorLLMJobs(
-	ctx context.Context, tx *pg.Tx, call *settledCall, s *AuthorLLMSettlement, now time.Time, report *AuthorLLMSettleReport,
+	ctx context.Context, tx *pg.Tx, call *settledCall, s *AuthorLLMSettlement, rejection authorLLMRejection,
+	now time.Time, report *AuthorLLMSettleReport,
 ) error {
 	var attempts []struct {
 		ID    int64 `pg:"id"`
@@ -302,6 +326,13 @@ func settleAuthorLLMJobs(
 			return err
 		}
 		return writeAuthorLLMVerdictsReport(ctx, tx, ended, now, report)
+	}
+	if rejection == authorLLMRejectionSplit || rejection == authorLLMRejectionItem {
+		jobs := make([][2]int64, 0, len(attempts))
+		for _, a := range attempts {
+			jobs = append(jobs, [2]int64{a.ID, a.JobID})
+		}
+		return settleAuthorLLMRejection(ctx, tx, call, s, jobs, rejection == authorLLMRejectionItem, now, report)
 	}
 	items := make(map[int64]*AuthorLLMItemSettlement, len(s.Items))
 	for i := range s.Items {
@@ -345,6 +376,117 @@ func settleAuthorLLMJobs(
 	}
 
 	if err := adjustAuthorLLMParticipant(ctx, tx, call, s, now, answered, report); err != nil {
+		return err
+	}
+	return writeAuthorLLMVerdictsReport(ctx, tx, ended, now, report)
+}
+
+// AuthorLLMClassProviderRejected: the provider refused one item — an HTTP
+// 400 on a call carrying that item alone, after the participant's output
+// mode was negotiated (the z.ai content filter's 1301). The item ends
+// rejected, counted like a refusal; the participant goes on.
+const AuthorLLMClassProviderRejected = "provider_rejected"
+
+// authorLLMRejectionLimit is how many distinct items rejected in a row, with
+// no answered call in between, say the participant itself is broken: it is
+// then paused bad_request.
+const authorLLMRejectionLimit = 3
+
+// authorLLMRejection is what a 400 on a jobs call means.
+type authorLLMRejection int
+
+const (
+	// authorLLMRejectionNone: not a 400 of a negotiated participant.
+	authorLLMRejectionNone authorLLMRejection = iota
+	// authorLLMRejectionSplit: a multi-item call; its items go again alone,
+	// uncounted, so the item the provider refuses is found.
+	authorLLMRejectionSplit
+	// authorLLMRejectionItem: a single-item call; the item ends rejected.
+	authorLLMRejectionItem
+	// authorLLMRejectionParticipant: the authorLLMRejectionLimit-th distinct
+	// item in a row; the participant pauses bad_request and the item goes
+	// back to the queue.
+	authorLLMRejectionParticipant
+)
+
+// authorLLMRejectionOf classifies a jobs call's HTTP 400. A call of eval
+// fingerprint jobs negotiates the output mode instead (authorLLMFormatRejected);
+// any other jobs call comes after its participant's mode was negotiated. The
+// run of rejections counts distinct items — an eval item, or a source — on the
+// participant's single-item rejected calls since its last answered call or
+// its last bad_request pause, this call's item included.
+func authorLLMRejectionOf(ctx context.Context, tx *pg.Tx, call *settledCall, s *AuthorLLMSettlement) (authorLLMRejection, error) {
+	if s.Outcome != models.AuthorLLMCallHTTPError || s.HTTPStatus != http.StatusBadRequest {
+		return authorLLMRejectionNone, nil
+	}
+	format, err := authorLLMFormatRejected(ctx, tx, call, s)
+	if err != nil || format {
+		return authorLLMRejectionNone, err
+	}
+	if call.Items > 1 {
+		return authorLLMRejectionSplit, nil
+	}
+	var distinct int
+	if _, err := tx.QueryOneContext(ctx, pg.Scan(&distinct), `
+		WITH since AS (
+			SELECT coalesce(max(id), 0) AS id FROM author_llm_call
+			WHERE config_version = ?0 AND slot = ?1 AND finished_at IS NOT NULL
+				AND (outcome = 'answered' OR error_class = ?3)
+		)
+		SELECT count(DISTINCT coalesce(j.eval_item_id::text, encode(j.source_fingerprint, 'hex')))
+		FROM author_llm_call c
+		JOIN author_llm_attempt a ON a.call_id = c.id
+		JOIN author_llm_job j ON j.id = a.job_id
+		WHERE c.config_version = ?0 AND c.slot = ?1 AND c.id > (SELECT id FROM since)
+			AND (c.id = ?2 OR (c.items = 1 AND c.error_class = ?4 AND a.validator_class = ?4))`,
+		call.ConfigVersion, call.Slot, call.ID, authorLLMClassBadRequest, AuthorLLMClassProviderRejected); err != nil {
+		return authorLLMRejectionNone, fmt.Errorf("counting the participant's rejected items: %w", err)
+	}
+	if distinct >= authorLLMRejectionLimit {
+		return authorLLMRejectionParticipant, nil
+	}
+	return authorLLMRejectionItem, nil
+}
+
+// settleAuthorLLMRejection settles a call the provider rejected for its
+// content: a single item ends rejected (status invalid, class
+// provider_rejected, no invalid count — the verdict reads it as a refusal);
+// a batch's items go back alone, uncounted. The participant is not paused;
+// only its success streak resets. jobs are the call's (attempt, job) pairs.
+func settleAuthorLLMRejection(ctx context.Context, tx *pg.Tx, call *settledCall, s *AuthorLLMSettlement,
+	jobs [][2]int64, single bool, now time.Time, report *AuthorLLMSettleReport) error {
+	var ended []int64
+	for _, j := range jobs {
+		attemptID, jobID := j[0], j[1]
+		if single {
+			if err := closeAuthorLLMAttemptCode(ctx, tx, attemptID, models.AuthorLLMAttemptHTTPError,
+				AuthorLLMClassProviderRejected, s.ProviderCode, now); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE author_llm_job SET status = 'invalid', call_id = NULL, last_error_class = ?2, finished_at = ?1
+				WHERE id = ?0`, jobID, now, AuthorLLMClassProviderRejected); err != nil {
+				return fmt.Errorf("ending a rejected LLM job: %w", err)
+			}
+			ended = append(ended, jobID)
+			report.Rejected++
+			continue
+		}
+		if err := closeAuthorLLMAttemptCode(ctx, tx, attemptID, models.AuthorLLMAttemptHTTPError, "",
+			s.ProviderCode, now); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE author_llm_job SET status = 'pending', call_id = NULL, retry_single = true, last_error_class = ?2,
+				next_attempt_at = ?1
+			WHERE id = ?0`, jobID, now, AuthorLLMClassProviderRejected); err != nil {
+			return fmt.Errorf("splitting a rejected LLM batch: %w", err)
+		}
+		report.Requeued++
+	}
+	if err := execAuthorLLM(ctx, tx,
+		`UPDATE author_llm_provider_state SET success_streak = 0 WHERE config_version = ?0 AND slot = ?1`,
+		call.ConfigVersion, call.Slot); err != nil {
 		return err
 	}
 	return writeAuthorLLMVerdictsReport(ctx, tx, ended, now, report)
@@ -435,13 +577,28 @@ func negotiateAuthorLLMOutputMode(
 // closeAuthorLLMAttempt closes one attempt with an outcome.
 func closeAuthorLLMAttempt(ctx context.Context, tx *pg.Tx, attemptID int64, outcome models.AuthorLLMAttemptOutcome,
 	validatorClass string, now time.Time) error {
-	var class interface{}
+	return closeAuthorLLMAttemptCode(ctx, tx, attemptID, outcome, validatorClass, "", now)
+}
+
+// authorLLMProviderCodePattern is the stored form of a provider's error
+// code: a short identifier.
+var authorLLMProviderCodePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$`)
+
+// closeAuthorLLMAttemptCode closes one attempt with an outcome and the
+// provider's error code, kept only when it is an identifier.
+func closeAuthorLLMAttemptCode(ctx context.Context, tx *pg.Tx, attemptID int64, outcome models.AuthorLLMAttemptOutcome,
+	validatorClass, providerCode string, now time.Time) error {
+	var class, code interface{}
 	if validatorClass != "" {
 		class = validatorClass
 	}
+	if authorLLMProviderCodePattern.MatchString(providerCode) {
+		code = providerCode
+	}
 	if _, err := tx.ExecContext(ctx, `
-		UPDATE author_llm_attempt SET finished_at = ?1, outcome = ?2, validator_class = ?3 WHERE id = ?0`,
-		attemptID, now, string(outcome), class); err != nil {
+		UPDATE author_llm_attempt SET finished_at = ?1, outcome = ?2, validator_class = ?3, provider_code = ?4
+		WHERE id = ?0`,
+		attemptID, now, string(outcome), class, code); err != nil {
 		return fmt.Errorf("closing an LLM attempt: %w", err)
 	}
 	return nil
@@ -544,7 +701,7 @@ func failAuthorLLMAttempt(ctx context.Context, tx *pg.Tx, attemptID, jobID int64
 			&AuthorLLMItemSettlement{Outcome: models.AuthorLLMAttemptInvalid, ValidatorClass: "malformed_response"},
 			true, now, report)
 	case isEndpointStateClass(s.ErrorClass):
-		if err := closeAuthorLLMAttempt(ctx, tx, attemptID, outcome, "", now); err != nil {
+		if err := closeAuthorLLMAttemptCode(ctx, tx, attemptID, outcome, "", s.ProviderCode, now); err != nil {
 			return false, err
 		}
 		delay := max(s.RetryAfter, s.BaseBackoff)
@@ -557,7 +714,7 @@ func failAuthorLLMAttempt(ctx context.Context, tx *pg.Tx, attemptID, jobID int64
 		report.Requeued++
 		return false, nil
 	}
-	if err := closeAuthorLLMAttempt(ctx, tx, attemptID, outcome, "", now); err != nil {
+	if err := closeAuthorLLMAttemptCode(ctx, tx, attemptID, outcome, "", s.ProviderCode, now); err != nil {
 		return false, err
 	}
 	class := s.ErrorClass
@@ -855,6 +1012,7 @@ type verdictJob struct {
 	SourceFingerprint []byte     `pg:"source_fingerprint"`
 	ExtractorVersion  *string    `pg:"extractor_version"`
 	Status            string     `pg:"status"`
+	LastErrorClass    *string    `pg:"last_error_class"`
 	ContextState      string     `pg:"context_state"`
 	AttemptID         *int64     `pg:"answer_attempt_id"`
 	CanonicalSHA256   []byte     `pg:"canonical_sha256"`
@@ -864,7 +1022,7 @@ type verdictJob struct {
 }
 
 const verdictJobColumns = `j.id, j.config_version, j.slot, j.run_id, j.purpose, j.source_fingerprint,
-	j.extractor_version, j.status, j.context_state, j.answer_attempt_id, a.canonical_sha256, a.refused, a.tier,
+	j.extractor_version, j.status, j.last_error_class, j.context_state, j.answer_attempt_id, a.canonical_sha256, a.refused, a.tier,
 	a.finished_at AS answered_at`
 
 func writeAuthorLLMVerdictsReport(ctx context.Context, tx *pg.Tx, jobIDs []int64, now time.Time, report *AuthorLLMSettleReport) error {
@@ -1089,18 +1247,35 @@ func judgeAuthorLLMVerdict(ctx context.Context, tx *pg.Tx, fingerprint []byte, e
 	return nil
 }
 
+// providerRejected reports a job whose item the provider rejected: it ended
+// invalid without an answer, and counts as a refusal.
+func (j *verdictJob) providerRejected() bool {
+	return j.Status == string(models.AuthorLLMJobInvalid) && j.LastErrorClass != nil &&
+		*j.LastErrorClass == AuthorLLMClassProviderRejected
+}
+
+// invalid reports a job that stayed invalid on its own replies.
+func (j *verdictJob) invalid() bool {
+	return j.Status == string(models.AuthorLLMJobInvalid) && !j.providerRejected()
+}
+
+// refused reports a job that refused the item, or whose item the provider
+// rejected.
+func (j *verdictJob) refused() bool {
+	return (j.Refused != nil && *j.Refused) || j.providerRejected()
+}
+
 // judgeAuthorLLMAnswer is the judges' judgement of the pair's agreed answer
 // (its canonical digest): a judge that failed, stayed invalid or refused
 // decides that; otherwise both must have answered the same bytes as the pair.
 func judgeAuthorLLMAnswer(pair []byte, a, b *verdictJob) models.AuthorLLMJudgement {
 	status := func(j *verdictJob) models.AuthorLLMJobStatus { return models.AuthorLLMJobStatus(j.Status) }
-	refused := func(j *verdictJob) bool { return j.Refused != nil && *j.Refused }
 	switch {
 	case status(a) == models.AuthorLLMJobFailed || status(b) == models.AuthorLLMJobFailed:
 		return models.AuthorLLMJudgementFailed
-	case status(a) == models.AuthorLLMJobInvalid || status(b) == models.AuthorLLMJobInvalid:
+	case a.invalid() || b.invalid():
 		return models.AuthorLLMJudgementInvalid
-	case refused(a) || refused(b):
+	case a.refused() || b.refused():
 		return models.AuthorLLMJudgementRefused
 	case len(pair) == 32 && bytes.Equal(a.CanonicalSHA256, pair) && bytes.Equal(b.CanonicalSHA256, pair):
 		return models.AuthorLLMJudgementConfirmed
@@ -1111,13 +1286,12 @@ func judgeAuthorLLMAnswer(pair []byte, a, b *verdictJob) models.AuthorLLMJudgeme
 // compareAuthorLLMPair is the verdict of two finished jobs.
 func compareAuthorLLMPair(a, b *verdictJob) (verdict models.AuthorLLMVerdictValue, tier interface{}) {
 	status := func(j *verdictJob) models.AuthorLLMJobStatus { return models.AuthorLLMJobStatus(j.Status) }
-	refused := func(j *verdictJob) bool { return j.Refused != nil && *j.Refused }
 	switch {
 	case status(a) == models.AuthorLLMJobFailed || status(b) == models.AuthorLLMJobFailed:
 		return models.AuthorLLMVerdictFailed, nil
-	case status(a) == models.AuthorLLMJobInvalid || status(b) == models.AuthorLLMJobInvalid:
+	case a.invalid() || b.invalid():
 		return models.AuthorLLMVerdictInvalid, nil
-	case refused(a) || refused(b):
+	case a.refused() || b.refused():
 		return models.AuthorLLMVerdictRefused, nil
 	case len(a.CanonicalSHA256) == 32 && bytes.Equal(a.CanonicalSHA256, b.CanonicalSHA256) && a.Tier != nil:
 		return models.AuthorLLMVerdictAgree, *a.Tier

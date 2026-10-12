@@ -417,6 +417,7 @@ func (w *AuthorLLMWorker) failedCall(s *database.AuthorLLMSettlement, err error)
 	s.ErrorClass = string(ce.Class)
 	s.HTTPStatus = ce.HTTPStatus
 	s.RetryAfter = ce.RetryAfter
+	s.ProviderCode = ce.ProviderCode
 	switch ce.Class {
 	case llm.ErrorTimeout:
 		s.Outcome = models.AuthorLLMCallTimeout
@@ -734,6 +735,10 @@ func (w *AuthorLLMWorker) settle(
 		return err
 	}
 	event.Name, event.Answered, event.Invalid = AuthorLLMEventCallSettled, report.Answered, report.Invalid
+	event.Rejected = report.Rejected
+	if report.Class != "" {
+		event.Class = report.Class
+	}
 	LogAuthorLLMEvent(AuthorMetadataEventInfo, event)
 	if s.CheckPassed != nil {
 		name := AuthorLLMEventCheckPassed

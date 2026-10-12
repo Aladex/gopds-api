@@ -51,8 +51,10 @@ type AuthorLLMEvent struct {
 	Items      int
 	Answered   int
 	Invalid    int
-	Tokens     int64
-	LatencyMS  int64
+	// Rejected counts the items the provider rejected.
+	Rejected  int
+	Tokens    int64
+	LatencyMS int64
 	// SQLState is the SQLSTATE of a database error, never its message.
 	SQLState string
 }
@@ -66,7 +68,7 @@ var authorLLMClosedValues = closedSet(
 	"answered", "http_error", "timeout", "transport_error", "malformed", "abandoned",
 	// client and settle classes, pause reasons, context states, disabled reasons
 	"auth", "quota_exhausted", "rate_limited", "bad_request", "server_error", "malformed_response", "canceled",
-	"model_mismatch", "drift", "lease_expired", "attached", "irrelevant", "unavailable", "none",
+	"model_mismatch", "drift", "provider_rejected", "lease_expired", "attached", "irrelevant", "unavailable", "none",
 	"llm_not_configured", "llm_participants_invalid", "budget_run", "budget_one_off", "budget_monthly",
 	"archive_unreadable", "excerpt_unreadable",
 )
@@ -93,6 +95,7 @@ func (e *AuthorLLMEvent) fields() logging.Fields {
 	put("items", e.Items, e.Items != 0)
 	put("answered", e.Answered, e.Answered != 0)
 	put("invalid", e.Invalid, e.Invalid != 0)
+	put("rejected", e.Rejected, e.Rejected != 0)
 	put("tokens", e.Tokens, e.Tokens != 0)
 	put("latency_ms", e.LatencyMS, e.LatencyMS != 0)
 	put("sqlstate", closedSQLState(e.SQLState), e.SQLState != "")

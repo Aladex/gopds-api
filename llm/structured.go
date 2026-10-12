@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -131,6 +132,9 @@ type CallError struct {
 	HTTPStatus int
 	// RetryAfter is the endpoint's Retry-After, when it sent one.
 	RetryAfter time.Duration
+	// ProviderCode is the error body's own code (z.ai's 1301 for its content
+	// filter), only when it is an identifier; never the message.
+	ProviderCode string
 }
 
 func (e *CallError) Error() string {
@@ -304,9 +308,10 @@ func interpretStructured(req *StructuredRequest, resp *http.Response, raw []byte
 	decodeErr := json.Unmarshal(raw, &wire)
 	if resp.StatusCode != http.StatusOK {
 		return nil, &CallError{
-			Class:      statusClass(resp.StatusCode, wire.Error),
-			HTTPStatus: resp.StatusCode,
-			RetryAfter: retryAfter(resp.Header.Get("Retry-After")),
+			Class:        statusClass(resp.StatusCode, wire.Error),
+			HTTPStatus:   resp.StatusCode,
+			RetryAfter:   retryAfter(resp.Header.Get("Retry-After")),
+			ProviderCode: providerCode(raw),
 		}
 	}
 	if decodeErr != nil {
@@ -418,6 +423,35 @@ func statusClass(status int, apiErr *APIError) ErrorClass {
 		return ErrorBadRequest
 	}
 	return ErrorServer
+}
+
+// providerCodePattern is what a provider's error code may look like to be
+// kept: a short identifier, never free text.
+var providerCodePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$`)
+
+// providerCode reads the error body's code — a string (OpenAI, z.ai) or a
+// number — and keeps it only when it is an identifier.
+func providerCode(raw []byte) string {
+	var body struct {
+		Error *struct {
+			Code json.RawMessage `json:"code"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(raw, &body) != nil || body.Error == nil || len(body.Error.Code) == 0 {
+		return ""
+	}
+	var code string
+	if json.Unmarshal(body.Error.Code, &code) != nil {
+		var n json.Number
+		if json.Unmarshal(body.Error.Code, &n) != nil {
+			return ""
+		}
+		code = n.String()
+	}
+	if !providerCodePattern.MatchString(code) {
+		return ""
+	}
+	return code
 }
 
 func quotaError(apiErr *APIError) bool {

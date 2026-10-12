@@ -597,7 +597,8 @@ func TestAuthorLLMPausesByErrorClass(t *testing.T) {
 		{402, "quota_exhausted", true},
 		{401, "auth", false},
 		{403, "auth", false},
-		{400, "bad_request", false},
+		// A 400 on one item ends only that item; three distinct items in a
+		// row pause the participant (TestAuthorLLMThreeRejectionsInARowPause).
 	} {
 		t.Run(strconv.Itoa(tc.status), func(t *testing.T) {
 			e := newLLMEnv(t)
