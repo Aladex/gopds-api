@@ -9,8 +9,8 @@
 // (the judges disagree, refuse or did not answer) it is contested — neither
 // accepted nor an error, only counted, since resolve applies only what both
 // judges confirm. A stratum passes when the one-sided 95% Clopper–Pearson upper
-// bound of the error share is at most 0.5% and the credit-weighted error share
-// is at most 0.5% too — and only if the run as a whole holds: the fingerprint
+// bound of the error share is at most 1% and the credit-weighted error share
+// is at most 1% too — and only if the run as a whole holds: the fingerprint
 // stage passed, every participant matched the anchor set (judges 99%, production
 // 98%), changed at most 10% of its repeated answers and returned at most 2%
 // invalid replies. The repeat check catches a broken or swapped participant,

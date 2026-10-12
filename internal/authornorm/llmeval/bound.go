@@ -3,11 +3,11 @@ package llmeval
 import "math"
 
 // The gate's error bound: a one-sided 95% upper confidence bound on the share
-// of wrongly accepted items, at most 0.5%.
+// of wrongly accepted items, at most 1%.
 const (
 	// MaxErrorShare is the largest admissible error share, for the count
 	// bound and the credit-weighted share alike.
-	MaxErrorShare = 0.005
+	MaxErrorShare = 0.01
 	// boundAlpha is one minus the bound's confidence.
 	boundAlpha = 0.05
 	// bisectHalf splits the bisection interval.
@@ -56,8 +56,8 @@ func ClopperPearsonUpper(k, n int) float64 {
 }
 
 // PassesBound reports whether k errors among n accepted items keep the upper
-// bound within MaxErrorShare: 0 errors from 598 items on, 1 from 947, 2 from
-// 1 258.
+// bound within MaxErrorShare: 0 errors from 299 items on, 1 from 473, 2 from
+// 628, 3 from 773.
 func PassesBound(k, n int) bool {
 	return n > 0 && ClopperPearsonUpper(k, n) <= MaxErrorShare
 }

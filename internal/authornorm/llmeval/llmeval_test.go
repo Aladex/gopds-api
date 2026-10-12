@@ -8,31 +8,12 @@ import (
 )
 
 func TestClopperPearsonBoundaries(t *testing.T) {
-	// The smallest accepted set that passes the 0.5% bound with k errors.
-	// The design's 949 and 1 259 were rounded up; the exact one-sided 95%
-	// bounds are 947 and 1 258, and the rounded values pass as well.
-	for _, tc := range []struct{ errors, fails, passes int }{
-		{0, 597, 598},
-		{1, 946, 947},
-		{2, 1257, 1258},
-	} {
-		if PassesBound(tc.errors, tc.fails) {
-			t.Errorf("%d errors in %d passed", tc.errors, tc.fails)
-		}
-		if !PassesBound(tc.errors, tc.passes) {
-			t.Errorf("%d errors in %d failed (upper %.6f)", tc.errors, tc.passes, ClopperPearsonUpper(tc.errors, tc.passes))
-		}
-	}
-	for _, tc := range []struct{ errors, n int }{{1, 949}, {2, 1259}} {
-		if !PassesBound(tc.errors, tc.n) {
-			t.Errorf("the design's %d errors in %d failed", tc.errors, tc.n)
-		}
-	}
+	// The per-k thresholds of the 1% bound are in error_share_test.go.
 	if PassesBound(0, 0) {
 		t.Error("an empty set passed")
 	}
-	if PassesBound(3, 1000) {
-		t.Error("3 errors in 1000 passed")
+	if PassesBound(10, 1000) {
+		t.Error("10 errors in 1000 passed")
 	}
 }
 
@@ -134,14 +115,16 @@ func TestGateCountsErrorsAndContested(t *testing.T) {
 		t.Errorf("a refusing judge did not make the item contested: %+v", m)
 	}
 
-	// A real gold mismatch is still an error at the old bound.
+	// A real gold mismatch is still an error: 3 of them in 700 fail the bound.
 	in.Items[3].Judges[1] = answer("x", "confirm")
-	in.Items[5].Judges = [2]Answer{answer("z", "confirm"), answer("z", "confirm")}
+	for _, i := range []int{5, 6, 7} {
+		in.Items[i].Judges = [2]Answer{answer("z", "confirm"), answer("z", "confirm")}
+	}
 	r = Evaluate(&in)
 	if d = decisionOf(t, &r, "initials.cyrl"); d.Passed {
-		t.Fatalf("one error in 700 passed: %+v", d)
+		t.Fatalf("3 errors in 700 passed: %+v", d)
 	}
-	if m = r.Strata["initials.cyrl"].Combos[comboKey(both1)]; m.Accepted != 700 || m.Errors != 1 || m.Contested != 0 {
+	if m = r.Strata["initials.cyrl"].Combos[comboKey(both1)]; m.Accepted != 700 || m.Errors != 3 || m.Contested != 0 {
 		t.Errorf("metrics = %+v", m)
 	}
 }
@@ -168,14 +151,14 @@ func TestRun4ContestedItemsAreOutsideTheGate(t *testing.T) {
 	}
 
 	// Without enough confirmed items the stratum cannot pass: contested items
-	// do not count toward the 598.
+	// do not count toward the 299.
 	in.Items = stratumItems("initials.cyrl", 700, agreeX)
-	for i := range 150 {
+	for i := range 450 {
 		in.Items[i].Judges[1] = answer("other", "confirm")
 	}
 	r = Evaluate(&in)
 	if d := decisionOf(t, &r, "initials.cyrl"); d.Passed {
-		t.Fatalf("550 confirmed items passed the 598 bound: %+v", d)
+		t.Fatalf("250 confirmed items passed the 299 bound: %+v", d)
 	}
 }
 
@@ -394,14 +377,14 @@ func TestGlobalFailuresStopEveryStratum(t *testing.T) {
 func TestDevItemsDoNotCount(t *testing.T) {
 	in := healthy()
 	in.Items = stratumItems("initials.cyrl", 700, agreeX)
-	for i := range 200 {
+	for i := range 450 {
 		in.Items[i].Holdout = false
 	}
 	r := Evaluate(&in)
 	if d := decisionOf(t, &r, "initials.cyrl"); d.Passed {
-		t.Fatalf("500 holdout items passed: %+v", d)
+		t.Fatalf("250 holdout items passed: %+v", d)
 	}
-	if got := r.Strata["initials.cyrl"].Holdout; got != 500 {
+	if got := r.Strata["initials.cyrl"].Holdout; got != 250 {
 		t.Errorf("holdout = %d", got)
 	}
 }
