@@ -221,7 +221,10 @@ type AuthorLLMProviderState struct {
 	LastCheckPassedAt  *time.Time `pg:"last_check_passed_at"`
 	CheckSeq           int64      `pg:"check_seq,use_zero"`
 	CheckCallID        *int64     `pg:"check_call_id"`
-	UpdatedAt          time.Time  `pg:"updated_at"`
+	// RejectedItems are the distinct items the provider rejected since the
+	// participant's last answered call or bad_request pause.
+	RejectedItems []string  `pg:"rejected_items,array"`
+	UpdatedAt     time.Time `pg:"updated_at"`
 }
 
 // AuthorLLMEvalItemSet is the set a frozen eval item belongs to.

@@ -333,8 +333,12 @@ func TestAuthorLLMNegotiatedModeSurvivesLeaseExpiry(t *testing.T) {
 		AND failure_count = 1 AND output_mode = 'json_object'`, dead.Jobs[0].JobID), "the expired job's row")
 }
 
-// 5. After the negotiation a 400 is an ordinary bad request again — from a
-// job or from a periodic check: the participant pauses, the mode stays.
+// 5. After the negotiation a 400 is not renegotiated — from a job or from a
+// periodic check — and the mode stays. A periodic check's 400 pauses the
+// participant at once. A job's 400 rejects only its item: an anchor job ends
+// invalid (provider_rejected) and counts as an anchor miss, so the anchor gate
+// still applies; the third distinct item rejected in a row pauses the
+// participant bad_request.
 func TestAuthorLLMLater400PausesWithoutRenegotiation(t *testing.T) {
 	for _, from := range []string{"job", "periodic check"} {
 		t.Run(from, func(t *testing.T) {
@@ -359,7 +363,7 @@ func TestAuthorLLMLater400PausesWithoutRenegotiation(t *testing.T) {
 			learned.Store(true)
 			driver := services.NewAuthorLLMEvalDriver(e.db, &e.identity, e.version, evalSizes, e.archives, nil, time.Second)
 			w := e.worker()
-			for range 6 {
+			for range 20 {
 				_, err = driver.Step(ctx)
 				require.NoError(t, err)
 				_, err = w.RunOnce(ctx)
@@ -371,6 +375,11 @@ func TestAuthorLLMLater400PausesWithoutRenegotiation(t *testing.T) {
 			st := e.state("production_b")
 			require.NotNil(t, st.PausedReason, "a later 400 did not pause the participant")
 			assert.Equal(t, "bad_request", *st.PausedReason)
+			if from == "job" {
+				assert.Equal(t, 2, e.count(`SELECT count(*) FROM author_llm_job WHERE run_id = ? AND slot = 'production_b'
+					AND purpose = 'eval_anchor' AND status = 'invalid' AND last_error_class = 'provider_rejected'`, run),
+					"the first two rejected anchors ended as misses without a pause")
+			}
 			assert.Equal(t, "json_object", e.reference(t, run)["production_b"].OutputMode)
 			for _, m := range modesOf(e, "deepseek-v4-pro", true)[1:] {
 				assert.Equal(t, "json_object", m, "renegotiated after the fingerprint stage")

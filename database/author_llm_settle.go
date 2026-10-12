@@ -214,8 +214,19 @@ func settleAuthorLLMCallTx(ctx context.Context, tx *pg.Tx, s *AuthorLLMSettlemen
 	} else {
 		err = settleAuthorLLMJobs(ctx, tx, &call, s, rejection, now, report)
 	}
-	if err != nil || !overReserve {
+	if err != nil {
 		return err
+	}
+	if s.Outcome == models.AuthorLLMCallAnswered && len(s.RequestSHA256) > 0 {
+		// The endpoint answered a request: the participant works, and a
+		// run of rejected items starts again.
+		if resetErr := execAuthorLLM(ctx, tx, `UPDATE author_llm_provider_state SET rejected_items = '{}'
+			WHERE config_version = ?0 AND slot = ?1 AND rejected_items <> '{}'`, call.ConfigVersion, call.Slot); resetErr != nil {
+			return resetErr
+		}
+	}
+	if !overReserve {
+		return nil
 	}
 	// The endpoint charged more than the request's hard bound: it
 	// ignored the output ceiling, or its tokenizer is not byte-level.
@@ -309,8 +320,8 @@ func settleAuthorLLMJobs(
 	if rejected {
 		jobIDs := make([]int64, 0, len(attempts))
 		for _, a := range attempts {
-			if err := closeAuthorLLMAttempt(ctx, tx, a.ID, models.AuthorLLMAttemptHTTPError,
-				authorLLMClassOutputModeRejected, now); err != nil {
+			if err := closeAuthorLLMAttemptCode(ctx, tx, a.ID, models.AuthorLLMAttemptHTTPError,
+				authorLLMClassOutputModeRejected, s.ProviderCode, now); err != nil {
 				return err
 			}
 			jobIDs = append(jobIDs, a.JobID)
@@ -411,10 +422,11 @@ const (
 
 // authorLLMRejectionOf classifies a jobs call's HTTP 400. A call of eval
 // fingerprint jobs negotiates the output mode instead (authorLLMFormatRejected);
-// any other jobs call comes after its participant's mode was negotiated. The
-// run of rejections counts distinct items — an eval item, or a source — on the
-// participant's single-item rejected calls since its last answered call or
-// its last bad_request pause, this call's item included.
+// any other jobs call comes after its participant's mode was negotiated. A
+// single-item rejection adds its item — an eval item, or a source — to the
+// participant's run of distinct rejected items, which the settles keep in
+// their own serialized order and an answered call or a bad_request pause
+// empties.
 func authorLLMRejectionOf(ctx context.Context, tx *pg.Tx, call *settledCall, s *AuthorLLMSettlement) (authorLLMRejection, error) {
 	if s.Outcome != models.AuthorLLMCallHTTPError || s.HTTPStatus != http.StatusBadRequest {
 		return authorLLMRejectionNone, nil
@@ -428,18 +440,18 @@ func authorLLMRejectionOf(ctx context.Context, tx *pg.Tx, call *settledCall, s *
 	}
 	var distinct int
 	if _, err := tx.QueryOneContext(ctx, pg.Scan(&distinct), `
-		WITH since AS (
-			SELECT coalesce(max(id), 0) AS id FROM author_llm_call
-			WHERE config_version = ?0 AND slot = ?1 AND finished_at IS NOT NULL
-				AND (outcome = 'answered' OR error_class = ?3)
-		)
-		SELECT count(DISTINCT coalesce(j.eval_item_id::text, encode(j.source_fingerprint, 'hex')))
-		FROM author_llm_call c
-		JOIN author_llm_attempt a ON a.call_id = c.id
-		JOIN author_llm_job j ON j.id = a.job_id
-		WHERE c.config_version = ?0 AND c.slot = ?1 AND c.id > (SELECT id FROM since)
-			AND (c.id = ?2 OR (c.items = 1 AND c.error_class = ?4 AND a.validator_class = ?4))`,
-		call.ConfigVersion, call.Slot, call.ID, authorLLMClassBadRequest, AuthorLLMClassProviderRejected); err != nil {
+		UPDATE author_llm_provider_state ps
+		SET rejected_items = CASE WHEN k.key = ANY(ps.rejected_items) THEN ps.rejected_items
+			ELSE array_append(ps.rejected_items, k.key) END
+		FROM (
+			SELECT coalesce(j.eval_item_id::text, encode(j.source_fingerprint, 'hex')) AS key
+			FROM author_llm_attempt a JOIN author_llm_job j ON j.id = a.job_id
+			WHERE a.call_id = ?2
+			ORDER BY a.id LIMIT 1
+		) k
+		WHERE ps.config_version = ?0 AND ps.slot = ?1
+		RETURNING cardinality(ps.rejected_items)`,
+		call.ConfigVersion, call.Slot, call.ID); err != nil {
 		return authorLLMRejectionNone, fmt.Errorf("counting the participant's rejected items: %w", err)
 	}
 	if distinct >= authorLLMRejectionLimit {
@@ -807,9 +819,11 @@ func execAuthorLLM(ctx context.Context, tx *pg.Tx, query string, params ...inter
 func pauseAuthorLLMParticipant(ctx context.Context, tx *pg.Tx, call *settledCall, reason models.AuthorLLMPauseReason,
 	now time.Time, report *AuthorLLMSettleReport) error {
 	report.Paused = string(reason)
-	return execAuthorLLM(ctx, tx, `UPDATE author_llm_provider_state SET paused_reason = ?2, paused_at = ?3
+	// A bad_request pause ends the run of rejected items it may close.
+	return execAuthorLLM(ctx, tx, `UPDATE author_llm_provider_state SET paused_reason = ?2, paused_at = ?3,
+			rejected_items = CASE WHEN ?2 = ?4 THEN '{}' ELSE rejected_items END
 		WHERE config_version = ?0 AND slot = ?1 AND paused_reason IS NULL`,
-		call.ConfigVersion, call.Slot, string(reason), now)
+		call.ConfigVersion, call.Slot, string(reason), now, string(models.AuthorLLMPausedBadRequest))
 }
 
 // pauseAuthorLLMEndpoint pauses the call's endpoint: a quota is the

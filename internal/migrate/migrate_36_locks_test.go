@@ -15,11 +15,14 @@ import (
 	"github.com/go-pg/pg/v10"
 )
 
-// Migration 36 takes the attempts up front, NOWAIT: a transaction holding
-// them — the LLM worker settling a call — makes it fail at once with
-// lock_not_available, and the next start applies it whole.
+// Migration 36 takes the attempts and the participants' state up front,
+// NOWAIT: a transaction holding either — the LLM worker settling a call —
+// makes it fail at once with lock_not_available, and the next start applies
+// it whole.
 func TestMigration36FailsFastInsteadOfWaitingForALock(t *testing.T) {
-	migration36UnderAHeldTable(t, "author_llm_attempt")
+	for _, table := range []string{"author_llm_attempt", "author_llm_provider_state"} {
+		t.Run(table, func(t *testing.T) { migration36UnderAHeldTable(t, table) })
+	}
 }
 
 func migration36UnderAHeldTable(t *testing.T, table string) {

@@ -1,6 +1,7 @@
 package services_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -277,4 +278,152 @@ func TestAuthorLLMEvalReportCountsProviderRejections(t *testing.T) {
 	assert.Equal(t, inv["judge_b"].Total, rej["judge_b"].Total)
 	assert.GreaterOrEqual(t, inv["judge_b"].Matched, rej["judge_b"].Matched, "rejections are inside the invalid share")
 	assert.Zero(t, rej["production_a"].Matched)
+
+	// The judges agree on every item but the rejected ones: those, and only
+	// those, have no gold.
+	noGold := e.count(`SELECT count(DISTINCT eval_item_id) FROM author_llm_job WHERE run_id = ? AND slot = 'judge_b'
+		AND purpose = 'eval_judge' AND last_error_class = 'provider_rejected'`, run)
+	require.Positive(t, noGold, "no judge item was rejected")
+	measured, gold := 0, 0
+	for _, st := range doc.Evaluation.Strata {
+		measured += st.Holdout
+		gold += st.Gold
+	}
+	assert.Equal(t, measured-noGold, gold, "a rejected judge answer made a gold")
+}
+
+// outOfOrder claims four single-item calls of production_a, one per input
+// ("Петров", "Сидоров", "Кузнецов", "Смирнов", in claim order), before any is
+// sent, so they settle in the order the test chooses — as concurrent calls
+// do. answered names the inputs the provider answers; every other is
+// rejected.
+func outOfOrder(t *testing.T, answered ...string) (e *llmEnv, w *services.AuthorLLMWorker,
+	claims map[string]*database.AuthorLLMClaim) {
+	t.Helper()
+	e = newLLMEnv(t)
+	run := e.run(&database.AuthorLLMRunSpec{})
+	lasts := []string{"Петров", "Сидоров", "Кузнецов", "Смирнов"}
+	for i, last := range lasts {
+		e.reviewPair(&run, "order-"+strconv.Itoa(i), llmreq.ItemInput{Fields: []llmres.FieldValue{
+			{Field: llmres.FieldFirst, Text: "Иван"}, {Field: llmres.FieldLast, Text: last}}, Script: "Cyrl", Flags: []string{}}, 1)
+	}
+	e.fake.setRespond(checked(func(req *fakeRequest) fakeReply {
+		if req.Model == "gpt-6-luna" && !contains(answered, lastNameOf(&req.Items[0])) {
+			return rejected()
+		}
+		return fakeReply{}
+	}))
+	w = e.worker()
+	passChecks(t, w)
+	claims = map[string]*database.AuthorLLMClaim{}
+	for range lasts {
+		claim, refusal, err := w.Claim(context.Background(), llmreq.SlotProductionA)
+		require.NoError(t, err)
+		require.NotNil(t, claim, "refusal %s", refusal)
+		require.Len(t, claim.Jobs, 1)
+		var fp []byte
+		_, err = e.db.QueryOne(pg.Scan(&fp), `SELECT source_fingerprint FROM author_llm_job WHERE id = ?`, claim.Jobs[0].JobID)
+		require.NoError(t, err)
+		for i, last := range lasts {
+			if bytes.Equal(fp, testFingerprint("order-"+strconv.Itoa(i))) {
+				claims[last] = claim
+			}
+		}
+	}
+	require.Len(t, claims, 4)
+	return e, w, claims
+}
+
+// settleIn sends and settles the claimed calls in the given order.
+func settleIn(t *testing.T, w *services.AuthorLLMWorker, claims map[string]*database.AuthorLLMClaim, order ...string) {
+	t.Helper()
+	for _, last := range order {
+		require.NoError(t, w.Process(context.Background(), llmreq.SlotProductionA, claims[last]))
+	}
+}
+
+// R5-F1: the newest call answers first; the three older ones are then
+// rejected in a row. The run of rejections follows the settlement order, so
+// the third pauses the participant and its item goes back to the queue.
+func TestAuthorLLMRejectionGuardCountsOlderCallsAfterNewerSuccess(t *testing.T) {
+	e, w, claims := outOfOrder(t, "Смирнов")
+	settleIn(t, w, claims, "Смирнов", "Петров", "Сидоров")
+	require.Nil(t, e.state(llmreq.SlotProductionA).PausedReason, "two rejections paused the participant")
+	settleIn(t, w, claims, "Кузнецов")
+	st := e.state(llmreq.SlotProductionA)
+	require.NotNil(t, st.PausedReason, "three rejections settled in a row after a newer success did not pause")
+	assert.Equal(t, "bad_request", *st.PausedReason)
+	assert.Equal(t, 1, e.count(`SELECT count(*) FROM author_llm_job WHERE id = ? AND status = 'pending'
+		AND last_error_class = 'bad_request'`, claims["Кузнецов"].Jobs[0].JobID), "the pausing call's item is requeued")
+	assert.Equal(t, 2, e.count(`SELECT count(*) FROM author_llm_job WHERE slot = 'production_a'
+		AND status = 'invalid' AND last_error_class = 'provider_rejected'`))
+}
+
+// R5-F1: two rejections, then an older call answers, then one more
+// rejection. Only one rejection follows the success: no pause.
+func TestAuthorLLMRejectionGuardResetsOnLateOlderSuccess(t *testing.T) {
+	e, w, claims := outOfOrder(t, "Петров")
+	settleIn(t, w, claims, "Сидоров", "Кузнецов", "Петров", "Смирнов")
+	assert.Nil(t, e.state(llmreq.SlotProductionA).PausedReason, "a success settled late did not reset the run")
+	assert.Equal(t, 3, e.count(`SELECT count(*) FROM author_llm_job WHERE slot = 'production_a'
+		AND status = 'invalid' AND last_error_class = 'provider_rejected'`))
+}
+
+// formatRejectedWithCode is the official DeepSeek API's refusal of a request
+// format when its body names the error code.
+const formatRejectedWithCode = `{"error":{"message":"This response_format type is unavailable now",` +
+	`"type":"invalid_request_error","param":null,"code":"invalid_request_error"}}`
+
+// The output-mode negotiation's attempts keep the provider's code too.
+func TestAuthorLLMFormatRejectionKeepsTheProviderCode(t *testing.T) {
+	e := newLLMEnv(t)
+	ingestEvalCatalogue(t, e)
+	base := negotiating(nil)
+	e.fake.setRespond(func(req *fakeRequest) fakeReply {
+		if req.Model == "deepseek-v4-pro" && responseFormat(req) == "json_schema" {
+			return fakeReply{Status: http.StatusBadRequest, Body: formatRejectedWithCode}
+		}
+		return base(req)
+	})
+	ctx := context.Background()
+	run, err := services.StartAuthorLLMEval(ctx, e.db, e.version, models.AuthorLLMEvalModePilot, nil, nil)
+	require.NoError(t, err)
+	e.stepTo(run, "anchor")
+	require.Equal(t, "json_object", e.reference(t, run)["production_b"].OutputMode)
+	rejectedAttempts := e.count(`SELECT count(*) FROM author_llm_attempt a JOIN author_llm_job j ON j.id = a.job_id
+		WHERE j.run_id = ? AND a.validator_class = 'output_mode_rejected'`, run)
+	require.Positive(t, rejectedAttempts)
+	assert.Equal(t, rejectedAttempts, e.count(`SELECT count(*) FROM author_llm_attempt a JOIN author_llm_job j ON j.id = a.job_id
+		WHERE j.run_id = ? AND a.validator_class = 'output_mode_rejected' AND a.provider_code = 'invalid_request_error'`, run),
+		"a negotiation attempt dropped the provider's code")
+}
+
+// The run of rejected items empties on the bad_request pause it closes, and
+// again on the admin's resume: a call still in flight at the pause may
+// settle a rejection in between, and it must not count after the resume.
+func TestAuthorLLMRejectionRunEmptiesOnPauseAndResume(t *testing.T) {
+	for name, resume := range map[string]func(e *llmEnv) error{
+		"admin": func(e *llmEnv) error { return e.llmAdmin().ResumeParticipant(context.Background(), "production_a") },
+		"plain": func(e *llmEnv) error {
+			return database.ResumeAuthorLLMParticipant(context.Background(), e.db, e.version, llmreq.SlotProductionA)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e, w, claims := outOfOrder(t)
+			settleIn(t, w, claims, "Петров", "Сидоров")
+			assert.Len(t, e.state(llmreq.SlotProductionA).RejectedItems, 2)
+			settleIn(t, w, claims, "Кузнецов")
+			st := e.state(llmreq.SlotProductionA)
+			require.NotNil(t, st.PausedReason)
+			assert.Empty(t, st.RejectedItems, "the bad_request pause kept the run")
+			settleIn(t, w, claims, "Смирнов") // in flight at the pause
+			st = e.state(llmreq.SlotProductionA)
+			require.NotNil(t, st.PausedReason)
+			assert.Len(t, st.RejectedItems, 1, "a rejection settled during the pause")
+			require.NoError(t, resume(e))
+			st = e.state(llmreq.SlotProductionA)
+			assert.Nil(t, st.PausedReason)
+			assert.Empty(t, st.RejectedItems, "the resume kept the run")
+		})
+	}
 }

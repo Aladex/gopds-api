@@ -339,7 +339,7 @@ func GetAuthorLLMProviderState(ctx context.Context, db pg.DBI, version string, s
 // "continue" after fixing the cause).
 func ResumeAuthorLLMParticipant(ctx context.Context, db pg.DBI, version string, slot llmreq.Slot) error {
 	_, err := db.ExecContext(ctx, `
-		UPDATE author_llm_provider_state SET paused_reason = NULL, paused_at = NULL
+		UPDATE author_llm_provider_state SET paused_reason = NULL, paused_at = NULL, rejected_items = '{}'
 		WHERE config_version = ?0 AND slot = ?1`, version, string(slot))
 	if err != nil {
 		return fmt.Errorf("resuming an LLM participant: %w", err)
