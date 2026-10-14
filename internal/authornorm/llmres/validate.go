@@ -57,6 +57,14 @@ type Input struct {
 	defects map[int]authornorm.QualityFlag
 }
 
+// SourceFingerprint is the fingerprint of the source the request's fields
+// rebuild. It need not be the fingerprint of the credit the fields were taken
+// from: an empty FB2 element is left out of the fields, and the credit's
+// display keeps the FB2 element order.
+func (in *Input) SourceFingerprint() [32]byte {
+	return authornorm.SourceFingerprint(in.source)
+}
+
 // NewInput builds the request side from the source fields in document order:
 // it tokenizes, and for every token that is the letter-carrying core of a
 // white-space word it records the case defect (all_caps / lowercase) the

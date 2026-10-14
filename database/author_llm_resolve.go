@@ -279,6 +279,7 @@ func EnqueueAuthorLLMReviewJobs(ctx context.Context, db *pg.DB, runID int64, job
 		Input      json.RawMessage `json:"input"`
 		Context    bool            `json:"context"`
 		ConfigVers string          `json:"config"`
+		Again      bool            `json:"again"`
 	}
 	rows := make([]row, 0, len(jobs))
 	for i := range jobs {
@@ -296,7 +297,7 @@ func EnqueueAuthorLLMReviewJobs(ctx context.Context, db *pg.DB, runID int64, job
 		}
 		rows = append(rows, row{Slot: string(j.Slot), FP: hex.EncodeToString(j.SourceFingerprint),
 			Extractor: j.ExtractorVersion, Arm: j.Arm, Batch: j.BatchSize, Mode: mode, Input: input,
-			Context: j.WithContext, ConfigVers: j.ConfigVersion})
+			Context: j.WithContext, ConfigVers: j.ConfigVersion, Again: j.AskAgainApplyFailed})
 	}
 	payload, err := json.Marshal(rows)
 	if err != nil {
@@ -320,23 +321,28 @@ func EnqueueAuthorLLMReviewJobs(ctx context.Context, db *pg.DB, runID int64, job
 			return fmt.Errorf("enqueuing review jobs: %w", insertErr)
 		}
 		inserted = res.RowsAffected()
-		// An input already asked under the configuration whose verdict
-		// failed transiently, and that has no current verdict since, is
-		// asked again whole: its jobs move to this run and start over.
+		// An input already asked under the configuration whose latest
+		// verdict failed transiently — or failed to apply on the
+		// fingerprint defect, when the caller marks it so — and that has no
+		// current verdict since, is asked again whole: its jobs move to
+		// this run and start over. Jobs this run owns already are never
+		// started over: a second enqueue of the run (another driver, or the
+		// same one after a pause) finds them asked.
 		res, insertErr = tx.ExecContext(ctx, `
 			WITH inputs AS (
-				SELECT DISTINCT decode(r.fp, 'hex') AS fp, r.extractor, r.config
-				FROM jsonb_to_recordset(?1::jsonb) AS r(fp text, extractor text, config text)
+				SELECT decode(r.fp, 'hex') AS fp, r.extractor, r.config, bool_or(r.again) AS again
+				FROM jsonb_to_recordset(?1::jsonb) AS r(fp text, extractor text, config text, again boolean)
+				GROUP BY 1, 2, 3
 			), again AS (
 				SELECT i.* FROM inputs i
 				WHERE EXISTS (SELECT 1 FROM author_llm_verdict v
 						WHERE v.source_fingerprint = i.fp AND v.extractor_version = i.extractor
 							AND v.purpose = 'review' AND v.config_version = i.config AND v.settled_at IS NOT NULL
-							AND v.outcome_reason IN (?2))
+							AND (v.outcome_reason IN (?2) OR (i.again AND v.outcome_reason = ?4)))
 					AND NOT EXISTS (SELECT 1 FROM author_llm_verdict v
 						WHERE v.source_fingerprint = i.fp AND v.extractor_version = i.extractor
 							AND v.purpose = 'review' AND v.config_version = i.config AND v.verdict <> 'held_drift'
-							AND (v.outcome_reason IS NULL OR v.outcome_reason NOT IN (?2)))
+							AND (v.outcome_reason IS NULL OR v.outcome_reason NOT IN (?2, ?4)))
 			)
 			UPDATE author_llm_job j
 			SET run_id = ?0, status = 'pending', answer_attempt_id = NULL, finished_at = NULL, call_id = NULL,
@@ -344,8 +350,10 @@ func EnqueueAuthorLLMReviewJobs(ctx context.Context, db *pg.DB, runID int64, job
 				last_error_class = ?3, next_attempt_at = now()
 			FROM again a
 			WHERE j.source_fingerprint = a.fp AND j.extractor_version = a.extractor AND j.config_version = a.config
-				AND j.purpose = 'review' AND j.eval_item_id IS NULL AND j.status IN ('answered', 'invalid', 'failed')`,
-			runID, string(payload), pg.In(authorLLMTransientOutcomes()), authorLLMClassAskedAgain)
+				AND j.purpose = 'review' AND j.eval_item_id IS NULL AND j.run_id <> ?0
+				AND j.status IN ('answered', 'invalid', 'failed')`,
+			runID, string(payload), pg.In(authorLLMTransientOutcomes()), authorLLMClassAskedAgain,
+			models.AuthorLLMApplyFailed)
 		if insertErr != nil {
 			return fmt.Errorf("asking review inputs again: %w", insertErr)
 		}
@@ -367,41 +375,72 @@ func authorLLMTransientOutcomes() []string {
 
 // AuthorLLMTransientInput is an input whose current verdict of a
 // configuration failed transiently but whose credits were left unresolved
-// for it, as earlier resolve runs applied such a verdict (run 15):
-// with the review item its proposal was closed from.
+// for it, as earlier resolve runs applied such a verdict (run 15): the
+// population row a resolve run plans from, with the review item's proposal.
 type AuthorLLMTransientInput struct {
-	SourceFingerprint []byte `pg:"source_fingerprint"`
-	ExtractorVersion  string `pg:"extractor_version"`
-	ProposalResultID  int64  `pg:"proposal_result_id"`
-	DecisionClass     string `pg:"decision_class"`
+	AuthorLLMPopulationRow
+	ProposalResultID int64 `pg:"proposal_result_id"`
 }
 
-// AuthorLLMTransientInputs lists the configuration's inputs whose current
-// verdict failed transiently and that have credits unresolved for that
-// reason, no admin decision on them and no open review item.
+// authorLLMTransientInputSQL selects the configuration's (?0) inputs whose
+// latest verdict failed transiently (?1), with no current verdict since,
+// credits unresolved for that reason and no admin decision on them, and no
+// open review item; ?2 narrows it to one input when not NULL.
+const authorLLMTransientInputSQL = `
+	SELECT DISTINCT ON (v.source_fingerprint, v.extractor_version) v.source_fingerprint, i.decision_class, r.script,
+		r.quality_flags, v.extractor_version, c.source_first_name, c.source_middle_name, c.source_last_name,
+		c.source_nickname, 0 AS weight, i.proposal_result_id
+	FROM author_llm_verdict v
+	JOIN contributor_review_item i ON i.source_fingerprint = v.source_fingerprint
+		AND i.reason = 'ambiguous_decision' AND i.resolution = 'automatic' AND i.decision_class IS NOT NULL
+	JOIN contributor_normalization_result r ON r.id = i.proposal_result_id
+		AND r.extractor_version = v.extractor_version
+	JOIN LATERAL (
+		SELECT cc.source_first_name, cc.source_middle_name, cc.source_last_name, cc.source_nickname
+		FROM book_contributor_credit cc
+		JOIN book_metadata_snapshot s ON s.id = cc.snapshot_id AND s.is_current
+		WHERE cc.source_fingerprint = v.source_fingerprint AND cc.role = 'author'
+			AND s.extractor_version = v.extractor_version
+		ORDER BY cc.id
+		LIMIT 1) c ON true
+	WHERE v.config_version = ?0 AND v.purpose = 'review' AND v.settled_at IS NOT NULL AND v.outcome_reason IN (?1)
+		AND (?2::bytea IS NULL OR (v.source_fingerprint = ?2 AND v.extractor_version = ?3))
+		AND NOT EXISTS (SELECT 1 FROM author_llm_verdict w
+			WHERE w.source_fingerprint = v.source_fingerprint AND w.extractor_version = v.extractor_version
+				AND w.purpose = v.purpose AND w.config_version = v.config_version AND w.verdict <> 'held_drift'
+				AND (w.outcome_reason IS NULL OR w.outcome_reason NOT IN (?1)))
+		AND NOT EXISTS (SELECT 1 FROM contributor_review_item o
+			WHERE o.scope_fingerprint = v.source_fingerprint AND o.reason = 'ambiguous_decision' AND o.status = 'open')
+		AND EXISTS (SELECT 1 FROM book_contributor_credit_selection sel
+			WHERE sel.source_fingerprint = v.source_fingerprint AND sel.state = 'unresolved'
+				AND sel.unresolved_reason = v.outcome_reason AND sel.decided_by_user_id IS NULL)
+		AND NOT EXISTS (SELECT 1 FROM book_contributor_credit_selection sel
+			WHERE sel.source_fingerprint = v.source_fingerprint AND sel.decided_by_user_id IS NOT NULL)
+	ORDER BY v.source_fingerprint, v.extractor_version, i.id DESC`
+
+// AuthorLLMTransientInputs lists the configuration's inputs an earlier run
+// left unresolved on a transient failure (authorLLMTransientInputSQL).
 func AuthorLLMTransientInputs(ctx context.Context, db pg.DBI, version string) ([]AuthorLLMTransientInput, error) {
 	var rows []AuthorLLMTransientInput
-	_, err := db.QueryContext(ctx, &rows, `
-		SELECT DISTINCT ON (v.source_fingerprint, v.extractor_version) v.source_fingerprint, v.extractor_version,
-			i.proposal_result_id, i.decision_class
-		FROM author_llm_verdict v
-		JOIN contributor_review_item i ON i.source_fingerprint = v.source_fingerprint
-			AND i.reason = 'ambiguous_decision' AND i.resolution = 'automatic' AND i.decision_class IS NOT NULL
-		WHERE v.config_version = ?0 AND v.purpose = 'review' AND v.settled_at IS NOT NULL AND v.outcome_reason IN (?1)
-			AND NOT EXISTS (SELECT 1 FROM author_llm_verdict w
-				WHERE w.source_fingerprint = v.source_fingerprint AND w.extractor_version = v.extractor_version
-					AND w.purpose = v.purpose AND w.config_version = v.config_version AND w.verdict <> 'held_drift'
-					AND (w.outcome_reason IS NULL OR w.outcome_reason NOT IN (?1)))
-			AND NOT EXISTS (SELECT 1 FROM contributor_review_item o
-				WHERE o.scope_fingerprint = v.source_fingerprint AND o.reason = 'ambiguous_decision' AND o.status = 'open')
-			AND EXISTS (SELECT 1 FROM book_contributor_credit_selection s
-				WHERE s.source_fingerprint = v.source_fingerprint AND s.state = 'unresolved'
-					AND s.unresolved_reason = v.outcome_reason AND s.decided_by_user_id IS NULL)
-		ORDER BY v.source_fingerprint, v.extractor_version, i.id DESC`, version, pg.In(authorLLMTransientOutcomes()))
-	if err != nil {
+	if _, err := db.QueryContext(ctx, &rows, authorLLMTransientInputSQL, version,
+		pg.In(authorLLMTransientOutcomes()), nil, ""); err != nil {
 		return nil, fmt.Errorf("listing the transiently failed LLM inputs: %w", err)
 	}
 	return rows, nil
+}
+
+// AuthorLLMTransientInputEligible reports whether one input is still one
+// AuthorLLMTransientInputs lists: checked again under the input's lock
+// before it is reopened.
+func AuthorLLMTransientInputEligible(
+	ctx context.Context, tx ResolutionTx, version string, fingerprint []byte, extractorVersion string,
+) (bool, error) {
+	var rows []AuthorLLMTransientInput
+	if _, err := tx.QueryContext(ctx, &rows, authorLLMTransientInputSQL, version,
+		pg.In(authorLLMTransientOutcomes()), fingerprint, extractorVersion); err != nil {
+		return false, fmt.Errorf("checking a transiently failed LLM input: %w", err)
+	}
+	return len(rows) > 0, nil
 }
 
 // AuthorLLMResolveProgress is what a resolve run still waits for: jobs not

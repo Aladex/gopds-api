@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -160,6 +161,11 @@ func StartAuthorLLMResolve(ctx context.Context, db *pg.DB, version, mode string,
 	return id, nil
 }
 
+// resolveEnqueuePlannedHook is called, when set, once an enqueue has planned
+// what it asks and before it writes anything: a test seam to pause the run
+// or race a second driver there.
+var resolveEnqueuePlannedHook func()
+
 // resolveStartPlannedHook is called, when set, between a resolve start's
 // evidence read and its transaction: a test seam to publish a report there.
 var resolveStartPlannedHook func()
@@ -285,9 +291,6 @@ func (d *AuthorLLMResolveDriver) Step(ctx context.Context) (bool, error) {
 // the rest. An input that cannot be sent is recorded as skipped; one row is
 // never more than its own skip.
 func (d *AuthorLLMResolveDriver) enqueue(ctx context.Context, run *resolveRun) error {
-	if err := d.reopenTransient(ctx); err != nil {
-		return err
-	}
 	rows, err := database.AuthorLLMEvalPopulation(ctx, d.db)
 	if err != nil {
 		return err
@@ -298,6 +301,22 @@ func (d *AuthorLLMResolveDriver) enqueue(ctx context.Context, run *resolveRun) e
 		if err := database.RecordAuthorLLMEvalSkip(ctx, d.db, run.ID, &skipped[i]); err != nil {
 			return err
 		}
+	}
+	// The inputs an earlier run left unresolved on a transient failure are
+	// planned with the open review: the run reopens only those it asks.
+	transient, err := database.AuthorLLMTransientInputs(ctx, d.db, d.version)
+	if err != nil {
+		return err
+	}
+	proposals := map[string]int64{}
+	transientRows := make([]database.AuthorLLMPopulationRow, 0, len(transient))
+	for i := range transient {
+		transientRows = append(transientRows, transient[i].AuthorLLMPopulationRow)
+		proposals[inputKey(transient[i].SourceFingerprint, transient[i].ExtractorVersion)] = transient[i].ProposalResultID
+	}
+	reopenStrata, _ := classifyPopulation(transientRows)
+	for name, pop := range reopenStrata {
+		strata[name] = append(strata[name], pop...)
 	}
 	var items []populationItem
 	for name, pop := range strata {
@@ -311,18 +330,41 @@ func (d *AuthorLLMResolveDriver) enqueue(ctx context.Context, run *resolveRun) e
 	if run.Mode == models.AuthorLLMEvalModePilot && len(items) > d.sizes.Pilot {
 		items = items[:d.sizes.Pilot]
 	}
-	for start := 0; start < len(items); start += resolveEnqueueChunk {
-		chunk := items[start:min(start+resolveEnqueueChunk, len(items))]
+	if resolveEnqueuePlannedHook != nil {
+		resolveEnqueuePlannedHook()
+	}
+	asked := items[:0]
+	for i := range items {
+		it := &items[i]
+		proposal, reopen := proposals[inputKey(it.row.SourceFingerprint, it.row.ExtractorVersion)]
+		if reopen {
+			ok, reopenErr := d.reopenTransient(ctx, run, it.row, proposal)
+			if reopenErr != nil || !ok {
+				if errors.Is(reopenErr, errResolveRunNotRunning) {
+					return nil
+				}
+				if reopenErr != nil {
+					return reopenErr
+				}
+				continue
+			}
+		}
+		asked = append(asked, *it)
+	}
+	for start := 0; start < len(asked); start += resolveEnqueueChunk {
+		chunk := asked[start:min(start+resolveEnqueueChunk, len(asked))]
 		pair := []llmreq.Slot{llmreq.SlotProductionA, llmreq.SlotProductionB}
 		jobs := make([]database.AuthorLLMNewJob, 0, len(pair)*len(chunk))
 		for i := range chunk {
 			it := &chunk[i]
 			plan := run.Plan.Strata[it.stratum]
+			again := fingerprintDefect(it)
 			for _, slot := range pair {
 				jobs = append(jobs, database.AuthorLLMNewJob{ConfigVersion: d.version, Slot: slot,
 					Purpose: models.AuthorLLMPurposeReview, SourceFingerprint: it.row.SourceFingerprint,
 					ExtractorVersion: it.row.ExtractorVersion, Arm: plan.Arm, BatchSize: plan.ItemsPerRequest,
-					OutputMode: run.mode(slot), Input: it.input, WithContext: plan.Arm == llmeval.ArmB})
+					OutputMode: run.mode(slot), Input: it.input, WithContext: plan.Arm == llmeval.ArmB,
+					AskAgainApplyFailed: again})
 			}
 		}
 		if _, err := database.EnqueueAuthorLLMReviewJobs(ctx, d.db, run.ID, jobs); err != nil {
@@ -332,32 +374,64 @@ func (d *AuthorLLMResolveDriver) enqueue(ctx context.Context, run *resolveRun) e
 	return nil
 }
 
-// reopenTransient gives the inputs an earlier run left unresolved on a
-// transient failure their review back, so this run asks them again: the
-// resolver puts their credits back in review on their local proposal and
-// opens a review item for it (an admin's decision is kept). Run 15 settled
-// 118 such inputs llm_judge_failed this way.
-func (d *AuthorLLMResolveDriver) reopenTransient(ctx context.Context) error {
-	inputs, err := database.AuthorLLMTransientInputs(ctx, d.db, d.version)
+// inputKey names an input in a map.
+func inputKey(fingerprint []byte, extractorVersion string) string {
+	return string(fingerprint) + "\x00" + extractorVersion
+}
+
+// fingerprintDefect reports an input whose request fields do not rebuild
+// its fingerprint: an apply_failed verdict of it is the defect run 15 hit
+// (20 inputs, 23503) before the result took the verdict's fingerprint, and
+// it is asked again. An apply_failed of any other input stays final.
+func fingerprintDefect(it *populationItem) bool {
+	in, err := llmres.NewInput(it.input.Fields)
 	if err != nil {
-		return err
+		return false
 	}
-	for i := range inputs {
-		in := &inputs[i]
-		out := &database.AutomaticOutcome{ResultID: in.ProposalResultID,
-			DecisionClass: authornorm.DecisionClass(in.DecisionClass), LLM: true,
-			Decision: authornorm.Decision{Outcome: authornorm.OutcomeReview}}
-		if err := d.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
-			if lockErr := database.LockNormalizationInput(ctx, tx, in.SourceFingerprint, in.ExtractorVersion); lockErr != nil {
-				return lockErr
-			}
-			_, resolveErr := database.ResolveCredits(ctx, tx, in.SourceFingerprint, in.ExtractorVersion, out)
-			return resolveErr
-		}); err != nil {
+	fp := in.SourceFingerprint()
+	return !bytes.Equal(fp[:], it.row.SourceFingerprint)
+}
+
+// errResolveRunNotRunning stops an enqueue whose run was paused or closed
+// meanwhile: it writes nothing more, and a resumed run enqueues again.
+var errResolveRunNotRunning = errors.New("services: the resolve run is not running")
+
+// reopenTransient gives an input an earlier run left unresolved on a
+// transient failure its review back, so this run asks it again: the resolver
+// puts its credits back in review on the local proposal and opens a review
+// item for it. It runs under the run's lock — a paused or closed run reopens
+// nothing (errResolveRunNotRunning) — and the input's, and checks again that
+// the input is still eligible (an admin may have decided it since); false
+// when it is not.
+func (d *AuthorLLMResolveDriver) reopenTransient(
+	ctx context.Context, run *resolveRun, row *database.AuthorLLMPopulationRow, proposal int64,
+) (bool, error) {
+	out := &database.AutomaticOutcome{ResultID: proposal, DecisionClass: authornorm.DecisionClass(row.DecisionClass),
+		LLM: true, Decision: authornorm.Decision{Outcome: authornorm.OutcomeReview}}
+	reopened := false
+	err := d.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		running, err := database.LockAuthorLLMRunRunning(ctx, tx, run.ID)
+		if err != nil {
 			return err
 		}
-	}
-	return nil
+		if !running {
+			return errResolveRunNotRunning
+		}
+		if lockErr := database.LockNormalizationInput(ctx, tx, row.SourceFingerprint, row.ExtractorVersion); lockErr != nil {
+			return lockErr
+		}
+		eligible, err := database.AuthorLLMTransientInputEligible(ctx, tx, d.version, row.SourceFingerprint,
+			row.ExtractorVersion)
+		if err != nil || !eligible {
+			return err
+		}
+		if _, err = database.ResolveCredits(ctx, tx, row.SourceFingerprint, row.ExtractorVersion, out); err != nil {
+			return err
+		}
+		reopened = true
+		return nil
+	})
+	return reopened, err
 }
 
 // mode is a participant's negotiated output mode, as the eval learned it.

@@ -60,3 +60,12 @@ func SetResolveStartPlannedHookForTest(t *testing.T, fn func()) {
 	resolveStartPlannedHook = fn
 	t.Cleanup(func() { resolveStartPlannedHook = previous })
 }
+
+// SetResolveEnqueuePlannedHookForTest calls fn in every resolve enqueue once
+// it has planned and before it writes, until the test ends.
+func SetResolveEnqueuePlannedHookForTest(t *testing.T, fn func()) {
+	t.Helper()
+	previous := resolveEnqueuePlannedHook
+	resolveEnqueuePlannedHook = fn
+	t.Cleanup(func() { resolveEnqueuePlannedHook = previous })
+}

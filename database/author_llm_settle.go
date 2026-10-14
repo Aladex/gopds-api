@@ -1185,7 +1185,7 @@ func insertAuthorLLMVerdict(ctx context.Context, tx *pg.Tx, a, b *verdictJob, no
 		VALUES (?0, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
 		ON CONFLICT (source_fingerprint, extractor_version, purpose, config_version)
 			WHERE verdict <> 'held_drift'
-				AND (outcome_reason IS NULL OR outcome_reason NOT IN ('llm_failed', 'llm_judge_failed'))
+				AND (outcome_reason IS NULL OR outcome_reason NOT IN ('llm_failed', 'llm_judge_failed', 'apply_failed'))
 			DO NOTHING`,
 		a.ConfigVersion, a.RunID, a.SourceFingerprint, a.ExtractorVersion, a.Purpose, string(verdict), tier,
 		contextState, a.ID, b.ID, a.AttemptID, b.AttemptID, a.AnsweredAt, b.AnsweredAt, now)

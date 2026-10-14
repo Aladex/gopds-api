@@ -274,6 +274,10 @@ type AuthorLLMNewJob struct {
 	OutputMode        string
 	Input             llmreq.ItemInput
 	WithContext       bool
+	// AskAgainApplyFailed marks a review input whose request fields do not
+	// rebuild its fingerprint: an apply_failed verdict of it was the
+	// fingerprint defect run 15 hit, and a later run asks it again.
+	AskAgainApplyFailed bool
 }
 
 // EnqueueAuthorLLMJobs inserts jobs, skipping any whose key already has one.
