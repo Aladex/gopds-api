@@ -321,13 +321,16 @@ func EnqueueAuthorLLMReviewJobs(ctx context.Context, db *pg.DB, runID int64, job
 			return fmt.Errorf("enqueuing review jobs: %w", insertErr)
 		}
 		inserted = res.RowsAffected()
-		// An input already asked under the configuration whose latest
-		// verdict failed transiently — or failed to apply on the
-		// fingerprint defect, when the caller marks it so — and that has no
-		// current verdict since, is asked again whole: its jobs move to
-		// this run and start over. Jobs this run owns already are never
-		// started over: a second enqueue of the run (another driver, or the
-		// same one after a pause) finds them asked.
+		// An input already asked under the configuration is asked again
+		// whole — its jobs move to this run and start over — when its
+		// latest verdict (the newest one that is not held_drift) is settled
+		// and failed transiently, or failed to apply on the fingerprint
+		// defect when the caller marks it so. The latest outcome decides:
+		// an older transient verdict never revives an input whose latest
+		// outcome is final, an apply_failed of another cause included. No
+		// current verdict may exist either. Jobs this run owns already are
+		// never started over: a second enqueue of the run (another driver,
+		// or the same one after a pause) finds them asked.
 		res, insertErr = tx.ExecContext(ctx, `
 			WITH inputs AS (
 				SELECT decode(r.fp, 'hex') AS fp, r.extractor, r.config, bool_or(r.again) AS again
@@ -335,10 +338,13 @@ func EnqueueAuthorLLMReviewJobs(ctx context.Context, db *pg.DB, runID int64, job
 				GROUP BY 1, 2, 3
 			), again AS (
 				SELECT i.* FROM inputs i
-				WHERE EXISTS (SELECT 1 FROM author_llm_verdict v
-						WHERE v.source_fingerprint = i.fp AND v.extractor_version = i.extractor
-							AND v.purpose = 'review' AND v.config_version = i.config AND v.settled_at IS NOT NULL
-							AND (v.outcome_reason IN (?2) OR (i.again AND v.outcome_reason = ?4)))
+				JOIN LATERAL (SELECT v.settled_at, v.outcome_reason FROM author_llm_verdict v
+					WHERE v.source_fingerprint = i.fp AND v.extractor_version = i.extractor
+						AND v.purpose = 'review' AND v.config_version = i.config AND v.verdict <> 'held_drift'
+					ORDER BY v.id DESC
+					LIMIT 1) latest ON true
+				WHERE latest.settled_at IS NOT NULL
+					AND (latest.outcome_reason IN (?2) OR (i.again AND latest.outcome_reason = ?4))
 					AND NOT EXISTS (SELECT 1 FROM author_llm_verdict v
 						WHERE v.source_fingerprint = i.fp AND v.extractor_version = i.extractor
 							AND v.purpose = 'review' AND v.config_version = i.config AND v.verdict <> 'held_drift'
@@ -383,7 +389,8 @@ type AuthorLLMTransientInput struct {
 }
 
 // authorLLMTransientInputSQL selects the configuration's (?0) inputs whose
-// latest verdict failed transiently (?1), with no current verdict since,
+// latest verdict (the newest that is not held_drift) failed transiently
+// (?1), with no current verdict,
 // credits unresolved for that reason and no admin decision on them, and no
 // open review item; ?2 narrows it to one input when not NULL.
 const authorLLMTransientInputSQL = `
@@ -405,6 +412,10 @@ const authorLLMTransientInputSQL = `
 		LIMIT 1) c ON true
 	WHERE v.config_version = ?0 AND v.purpose = 'review' AND v.settled_at IS NOT NULL AND v.outcome_reason IN (?1)
 		AND (?2::bytea IS NULL OR (v.source_fingerprint = ?2 AND v.extractor_version = ?3))
+		AND NOT EXISTS (SELECT 1 FROM author_llm_verdict n
+			WHERE n.source_fingerprint = v.source_fingerprint AND n.extractor_version = v.extractor_version
+				AND n.purpose = v.purpose AND n.config_version = v.config_version AND n.verdict <> 'held_drift'
+				AND n.id > v.id)
 		AND NOT EXISTS (SELECT 1 FROM author_llm_verdict w
 			WHERE w.source_fingerprint = v.source_fingerprint AND w.extractor_version = v.extractor_version
 				AND w.purpose = v.purpose AND w.config_version = v.config_version AND w.verdict <> 'held_drift'
