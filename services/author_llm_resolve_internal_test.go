@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"testing"
 
@@ -22,7 +23,7 @@ func TestResolveDecideRefusesAnotherScript(t *testing.T) {
 		{Field: llmres.FieldLast, Text: "Smith"}}, Flags: []string{}}
 	class, script, confirmed, tier, arm := "initials", "Cyrl", string(models.AuthorLLMJudgementConfirmed), "confirm", "A"
 	v := &database.AuthorLLMVerdictToApply{
-		ID: 1, SourceFingerprint: make([]byte, 32), ExtractorVersion: "x1", Verdict: "agree", Tier: &tier,
+		ID: 1, SourceFingerprint: bytes.Repeat([]byte{7}, 32), ExtractorVersion: "x1", Verdict: "agree", Tier: &tier,
 		ContextStateA: "none", ContextStateB: "none", Arm: &arm, BatchSize: 1, Judgement: &confirmed,
 		DecisionClass: &class, ProposalScript: &script,
 		Reply: []byte(`{"form":"person","roles":[{"i":0,"role":"given"},{"i":1,"role":"additional"},` +
@@ -70,7 +71,7 @@ func TestResolveDecideRefusesAnotherArmOrBatch(t *testing.T) {
 		batch int
 	}{"another arm": {"B", 2}, "another batch": {"A", 1}} {
 		v := &database.AuthorLLMVerdictToApply{
-			ID: 1, SourceFingerprint: make([]byte, 32), ExtractorVersion: "x1", Verdict: "agree", Tier: &tier,
+			ID: 1, SourceFingerprint: bytes.Repeat([]byte{7}, 32), ExtractorVersion: "x1", Verdict: "agree", Tier: &tier,
 			ContextStateA: "none", ContextStateB: "none", Arm: &c.arm, BatchSize: c.batch, Judgement: &confirmed,
 			DecisionClass: &class, ProposalScript: &script,
 			Reply: []byte(`{"form":"person","roles":[{"i":0,"role":"given"},{"i":1,"role":"additional"},` +

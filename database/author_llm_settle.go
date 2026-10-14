@@ -105,7 +105,11 @@ type AuthorLLMSettlement struct {
 	// BaseBackoff and MaxBackoff shape the retry delay of a failed job.
 	BaseBackoff time.Duration
 	MaxBackoff  time.Duration
-	At          *time.Time
+	// TransientWindow is how long a job keeps retrying transient failures:
+	// it fails once it has MaxAttempts of them and the window since the
+	// first has passed.
+	TransientWindow time.Duration
+	At              *time.Time
 }
 
 // AuthorLLMSettleReport counts what a settle did.
@@ -143,7 +147,8 @@ func SettleAuthorLLMCall(ctx context.Context, db *pg.DB, s *AuthorLLMSettlement)
 	if !validOwner(s.Owner) {
 		return nil, ErrInvalidLeaseOwner
 	}
-	if s.MaxAttempts < 1 || s.ConcurrencyMax < 1 || s.BaseBackoff <= 0 || s.MaxBackoff < s.BaseBackoff {
+	if s.MaxAttempts < 1 || s.ConcurrencyMax < 1 || s.BaseBackoff <= 0 || s.MaxBackoff < s.BaseBackoff ||
+		s.TransientWindow < 0 {
 		return nil, ErrInvalidLeaseOptions
 	}
 	if s.ErrorClass != "" && !ValidLeaseErrorClass(s.ErrorClass) {
@@ -701,9 +706,11 @@ func attemptOutcomeOf(o models.AuthorLLMCallOutcome) models.AuthorLLMAttemptOutc
 // response. Throttling, auth, bad requests, quota and cancellation are the
 // endpoint's or the configuration's state, not the job's: the job goes back
 // without a count, after Retry-After when the endpoint sent one. A server
-// error, a timeout or a broken transport counts a failure and backs off
-// exponentially with jitter, until the attempts run out. A malformed body
-// counts like an invalid reply.
+// error, a timeout or a broken transport is transient: it counts a failure
+// and backs off exponentially with jitter, capped at MaxBackoff, and the job
+// fails only once it has MaxAttempts failures and the transient window since
+// its first one has passed — a gateway's burst of 503 outlasts five quick
+// attempts (run 15). A malformed body counts like an invalid reply.
 func failAuthorLLMAttempt(ctx context.Context, tx *pg.Tx, attemptID, jobID int64, s *AuthorLLMSettlement,
 	now time.Time, report *AuthorLLMSettleReport) (bool, error) {
 	outcome := attemptOutcomeOf(s.Outcome)
@@ -737,13 +744,15 @@ func failAuthorLLMAttempt(ctx context.Context, tx *pg.Tx, attemptID, jobID int64
 	if _, err := tx.QueryOneContext(ctx, pg.Scan(&status), `
 		UPDATE author_llm_job
 		SET failure_count = failure_count + 1, call_id = NULL, last_error_class = ?2,
-			status = CASE WHEN failure_count + 1 >= ?3 THEN 'failed' ELSE 'pending' END,
-			finished_at = CASE WHEN failure_count + 1 >= ?3 THEN ?1::timestamptz END,
-			next_attempt_at = ?1::timestamptz + least(?4 * power(2, failure_count), ?5)
+			transient_since = coalesce(transient_since, ?1::timestamptz),
+			status = CASE WHEN `+authorLLMTransientExhausted+` THEN 'failed' ELSE 'pending' END,
+			finished_at = CASE WHEN `+authorLLMTransientExhausted+` THEN ?1::timestamptz END,
+			next_attempt_at = ?1::timestamptz + least(?4 * power(2, least(failure_count, 30)), ?5)
 				* (0.8 + random() * 0.4) * interval '1 microsecond'
 		WHERE id = ?0
 		RETURNING status`,
-		jobID, now, class, s.MaxAttempts, micros(s.BaseBackoff), micros(s.MaxBackoff)); err != nil {
+		jobID, now, class, s.MaxAttempts, micros(s.BaseBackoff), micros(s.MaxBackoff),
+		micros(s.TransientWindow)); err != nil {
 		return false, fmt.Errorf("recording a failed LLM call: %w", err)
 	}
 	if status == string(models.AuthorLLMJobFailed) {
@@ -752,6 +761,21 @@ func failAuthorLLMAttempt(ctx context.Context, tx *pg.Tx, attemptID, jobID int64
 	}
 	report.Requeued++
 	return false, nil
+}
+
+// authorLLMTransientExhausted is the condition, in a job update, that a
+// transient failure ends the job: it is the MaxAttempts-th (?3) or later, and
+// the window (?6, microseconds) since the first of its run has passed (now is
+// ?1). Columns are the job's before the update.
+const authorLLMTransientExhausted = `failure_count + 1 >= ?3
+	AND coalesce(transient_since, ?1::timestamptz) <= ?1::timestamptz - ?6 * interval '1 microsecond'`
+
+// isTransientCall reports a call that ended on a transient failure: no
+// usable response, and nothing the endpoint's or the configuration's state
+// explains.
+func isTransientCall(s *AuthorLLMSettlement) bool {
+	return s.Outcome != models.AuthorLLMCallAnswered && s.Outcome != models.AuthorLLMCallMalformed &&
+		!isEndpointStateClass(s.ErrorClass)
 }
 
 // isEndpointStateClass reports the classes that say nothing about the job.
@@ -766,7 +790,9 @@ func isEndpointStateClass(class string) bool {
 
 // adjustAuthorLLMParticipant applies a call's outcome to the participant's
 // shared state: the AIMD window (+1 per authorLLMAIMDStep answered calls in a
-// row, halved by a 429, with its Retry-After as a throttle), the pauses (402
+// row, halved by a 429, with its Retry-After as a throttle, and halved by a
+// transient failure, with a backoff as a throttle — a participant failing
+// across items slows down instead of failing them one by one), the pauses (402
 // pauses every participant of the endpoint, 401/403 and 400 the participant,
 // repeated model_mismatch the participant), and the answers since the last
 // fingerprint check.
@@ -801,6 +827,13 @@ func adjustAuthorLLMParticipant(ctx context.Context, tx *pg.Tx, call *settledCal
 		return pauseAuthorLLMParticipant(ctx, tx, call, models.AuthorLLMPausedAuth, now, report)
 	case authorLLMClassBadRequest:
 		return pauseAuthorLLMParticipant(ctx, tx, call, models.AuthorLLMPausedBadRequest, now, report)
+	}
+	if isTransientCall(s) {
+		return execAuthorLLM(ctx, tx, `
+			UPDATE author_llm_provider_state
+			SET concurrency = greatest(1, concurrency / 2), success_streak = 0,
+				throttled_until = greatest(throttled_until, ?2::timestamptz + ?3 * interval '1 microsecond')
+			WHERE config_version = ?0 AND slot = ?1`, call.ConfigVersion, call.Slot, now, micros(s.BaseBackoff))
 	}
 	return execAuthorLLM(ctx, tx,
 		`UPDATE author_llm_provider_state SET success_streak = 0 WHERE config_version = ?0 AND slot = ?1`,
@@ -957,7 +990,7 @@ func voidAuthorLLMWindow(ctx context.Context, tx *pg.Tx, version, slot string, r
 		WITH window_jobs AS (
 			UPDATE author_llm_job j
 			SET status = 'pending', answer_attempt_id = NULL, finished_at = NULL, call_id = NULL,
-				invalid_count = 0, failure_count = 0, retry_single = false,
+				invalid_count = 0, failure_count = 0, transient_since = NULL, retry_single = false,
 				last_error_class = ?4, next_attempt_at = ?3
 			WHERE j.config_version = ?0 AND j.slot = ?1 AND j.run_id = ?2
 				AND j.status IN ('answered', 'invalid', 'failed')
@@ -1151,7 +1184,9 @@ func insertAuthorLLMVerdict(ctx context.Context, tx *pg.Tx, a, b *verdictJob, no
 			answered_b_at, created_at)
 		VALUES (?0, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
 		ON CONFLICT (source_fingerprint, extractor_version, purpose, config_version)
-			WHERE verdict <> 'held_drift' DO NOTHING`,
+			WHERE verdict <> 'held_drift'
+				AND (outcome_reason IS NULL OR outcome_reason NOT IN ('llm_failed', 'llm_judge_failed'))
+			DO NOTHING`,
 		a.ConfigVersion, a.RunID, a.SourceFingerprint, a.ExtractorVersion, a.Purpose, string(verdict), tier,
 		contextState, a.ID, b.ID, a.AttemptID, b.AttemptID, a.AnsweredAt, b.AnsweredAt, now)
 	if err != nil {

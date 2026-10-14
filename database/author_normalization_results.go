@@ -564,7 +564,7 @@ const completedInputsToReconcileSQL = `SELECT DISTINCT j.id
 				AND NOT EXISTS (SELECT 1 FROM author_llm_verdict v
 					WHERE v.source_fingerprint = j.source_fingerprint AND v.extractor_version = j.extractor_version
 						AND v.purpose = 'review' AND v.settled_at IS NOT NULL AND v.verdict <> 'held_drift'
-						AND v.outcome_reason IS DISTINCT FROM ?3)))
+						AND (v.outcome_reason IS NULL OR v.outcome_reason NOT IN (?3)))))
 	ORDER BY j.id
 	LIMIT ?2`
 
@@ -574,7 +574,7 @@ const completedInputsToReconcileSQL = `SELECT DISTINCT j.id
 func CompletedInputsToReconcile(ctx context.Context, db pg.DBI, normalizerVersion string, limit int) ([]int64, error) {
 	var ids []int64
 	if _, err := db.QueryContext(ctx, &ids, completedInputsToReconcileSQL,
-		normalizerVersion, duplicateComponentFlag, limit, models.AuthorLLMApplyFailed); err != nil {
+		normalizerVersion, duplicateComponentFlag, limit, pg.In(models.AuthorLLMUndecidedOutcomes())); err != nil {
 		return nil, fmt.Errorf("listing completed inputs to reconcile: %w", err)
 	}
 	return ids, nil

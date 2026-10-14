@@ -59,6 +59,9 @@ type AuthorLLMWorkerConfig struct {
 	// BaseBackoff and MaxBackoff shape the retry delay of a failed job.
 	BaseBackoff time.Duration
 	MaxBackoff  time.Duration
+	// TransientWindow is how long a job keeps retrying a transient failure
+	// (a 5xx, a timeout, a broken connection) before it fails.
+	TransientWindow time.Duration
 	// Clock overrides the operation clock in tests; nil is the server clock.
 	Clock func() *time.Time
 }
@@ -68,7 +71,13 @@ const (
 	authorLLMPollInterval = 5 * time.Second
 	authorLLMLeaseMargin  = time.Minute
 	authorLLMBaseBackoff  = 5 * time.Second
-	authorLLMMaxBackoff   = 10 * time.Minute
+	// authorLLMTransientWindow: a job retries transient failures for 45
+	// minutes at least. Run 15's 503 burst lasted about 7; eval runs saw
+	// hundreds an hour. Longer outages pause nothing but the job; the
+	// participant is throttled meanwhile, and the next resolve run asks a
+	// still-failed input again.
+	authorLLMTransientWindow = 45 * time.Minute
+	authorLLMMaxBackoff      = 5 * time.Minute
 	// authorLLMTierClass is the decision class an attempt's reply is
 	// assembled under: the assembly gives the tier, and the class of the
 	// result proper is decided when a verdict becomes a result.
@@ -124,6 +133,9 @@ func NewAuthorLLMWorker(db *pg.DB, client AuthorLLMCaller, cfg *AuthorLLMWorkerC
 	if c.MaxBackoff < c.BaseBackoff {
 		c.MaxBackoff = authorLLMMaxBackoff
 	}
+	if c.TransientWindow <= 0 {
+		c.TransientWindow = authorLLMTransientWindow
+	}
 	return &AuthorLLMWorker{db: db, client: client, cfg: c, owner: database.NewLeaseOwner()}, nil
 }
 
@@ -150,6 +162,7 @@ func (w *AuthorLLMWorker) claimOptions(slot llmreq.Slot) *database.AuthorLLMClai
 		ConcurrencyTotal: s.ConcurrencyTotal,
 		FingerprintEvery: s.FingerprintEvery,
 		MaxAttempts:      s.MaxAttempts,
+		TransientWindow:  w.cfg.TransientWindow,
 		Output:           w.cfg.Identity.Output,
 		OneOffTokens:     s.Budget.OneOffTokens,
 		RunOverrun:       s.Budget.RunOverrun,
@@ -280,7 +293,7 @@ func (w *AuthorLLMWorker) Process(ctx context.Context, slot llmreq.Slot, claim *
 	settlement := &database.AuthorLLMSettlement{
 		CallID: claim.CallID, Owner: w.owner,
 		MaxAttempts: w.cfg.Settings.MaxAttempts, ConcurrencyMax: w.cfg.Settings.ConcurrencyMax,
-		BaseBackoff: w.cfg.BaseBackoff, MaxBackoff: w.cfg.MaxBackoff,
+		BaseBackoff: w.cfg.BaseBackoff, MaxBackoff: w.cfg.MaxBackoff, TransientWindow: w.cfg.TransientWindow,
 	}
 	items, err := w.callItems(ctx, claim)
 	if err != nil {

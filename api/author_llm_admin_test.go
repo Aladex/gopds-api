@@ -327,6 +327,7 @@ func TestAuthorLLMEvalReportRecompute(t *testing.T) {
 		{services.ErrAuthorLLMRunConfigChanged, http.StatusConflict, "run_config_changed"},
 		{database.ErrAuthorLLMRunState, http.StatusConflict, "invalid_transition"},
 		{database.ErrAuthorLLMReportStale, http.StatusConflict, "report_stale"},
+		{database.ErrAuthorLLMEvidenceChanged, http.StatusConflict, "evidence_changed"},
 		{services.ErrAuthorLLMInvalidRun, http.StatusBadRequest, "invalid_run"},
 		{services.ErrAuthorLLMReportNotFound, http.StatusNotFound, "report_not_found"},
 	} {

@@ -56,15 +56,6 @@ func Orders() []Order {
 	return []Order{OrderGivenFirst, OrderFamilyFirst, OrderSingleName, OrderNotApplicable}
 }
 
-func (o Order) valid() bool {
-	for _, known := range Orders() {
-		if o == known {
-			return true
-		}
-	}
-	return false
-}
-
 // Role is the role the model assigns to one source token.
 type Role string
 

@@ -42,3 +42,21 @@ func SetEvalGateForTest(t *testing.T, gate func(*llmeval.Input) llmeval.Report) 
 	evaluateEval = gate
 	t.Cleanup(func() { evaluateEval = previous })
 }
+
+// SetApplyHookForTest calls fn with each verdict's input right before the
+// resolve driver applies it, until the test ends.
+func SetApplyHookForTest(t *testing.T, fn func(input *llmreq.ItemInput)) {
+	t.Helper()
+	previous := applyHook
+	applyHook = fn
+	t.Cleanup(func() { applyHook = previous })
+}
+
+// SetResolveStartPlannedHookForTest calls fn between a resolve start's read
+// of its eval evidence and its transaction, until the test ends.
+func SetResolveStartPlannedHookForTest(t *testing.T, fn func()) {
+	t.Helper()
+	previous := resolveStartPlannedHook
+	resolveStartPlannedHook = fn
+	t.Cleanup(func() { resolveStartPlannedHook = previous })
+}

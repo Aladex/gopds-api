@@ -183,6 +183,8 @@ type llmEnv struct {
 	version  string
 	settings config.AuthorLLMConfig
 	archives string
+	// transientWindow, when set, is the workers' transient retry window.
+	transientWindow time.Duration
 }
 
 // testOutput is the default output ceiling of the section.
@@ -216,7 +218,7 @@ func (e *llmEnv) worker() *services.AuthorLLMWorker {
 	client := llm.NewClient(config.LLMConfig{BaseURL: e.srv.URL + "/v1", Timeout: 30 * time.Second})
 	w, err := services.NewAuthorLLMWorker(e.db, client, &services.AuthorLLMWorkerConfig{
 		Settings: e.settings, Identity: e.identity, ConfigVersion: e.version, ArchivesDir: e.archives,
-		BaseBackoff: time.Millisecond, MaxBackoff: 10 * time.Millisecond,
+		BaseBackoff: time.Millisecond, MaxBackoff: 10 * time.Millisecond, TransientWindow: e.transientWindow,
 	})
 	require.NoError(e.t, err)
 	return w

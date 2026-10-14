@@ -1,6 +1,7 @@
 package database
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -24,6 +25,17 @@ import (
 // ErrAuthorLLMNoEvidence marks a resolve start without a completed full eval
 // of the configuration whose report registers a stratum.
 var ErrAuthorLLMNoEvidence = errors.New("database: no eval report registers a stratum of this configuration")
+
+// ErrAuthorLLMEvidenceChanged refuses a resolve start whose plan was built
+// from an eval report that is no longer the configuration's latest: a
+// recomputation published another version in between. Nothing is written;
+// a new start plans from the latest version.
+var ErrAuthorLLMEvidenceChanged = errors.New("database: the eval report changed while the resolve start was planned")
+
+// TestHookResolveStartLocked is called, when set, inside a resolve start's
+// transaction right after it took the claim lock: a test seam to race a
+// recomputation against it.
+var TestHookResolveStartLocked func()
 
 // AuthorLLMResolveStratum is how a resolve run asks and accepts one stratum,
 // as its eval report decided: the arm and the items per request the pair is
@@ -140,7 +152,9 @@ const llmEvalSource = "llm_eval"
 // every planned stratum the configuration has not registered yet: source
 // llm_eval, the admin who started it, and the report by id and digest, all
 // under one new policy version. A run already active refuses with
-// ErrAuthorLLMActiveRun and registers nothing.
+// ErrAuthorLLMActiveRun and registers nothing; so does, with
+// ErrAuthorLLMEvidenceChanged, evidence that is no longer the
+// configuration's latest report once the claim lock is held.
 func StartAuthorLLMResolveRun(ctx context.Context, db *pg.DB, s *AuthorLLMResolveStart) (id int64, registered int, err error) {
 	if s.Evidence == nil || len(s.Settings.Strata) == 0 {
 		return 0, 0, ErrAuthorLLMNoEvidence
@@ -153,6 +167,20 @@ func StartAuthorLLMResolveRun(ctx context.Context, db *pg.DB, s *AuthorLLMResolv
 		registered = 0
 		if _, lockErr := lockAuthorLLM(ctx, tx, nil); lockErr != nil {
 			return lockErr
+		}
+		if TestHookResolveStartLocked != nil {
+			TestHookResolveStartLocked()
+		}
+		// The plan was built from evidence read before the lock; a
+		// recomputation publishes under the same lock, so the latest
+		// report read now is the one the registrations may rest on.
+		latest, readErr := LatestAuthorLLMFullEval(ctx, tx, s.ConfigVersion)
+		if readErr != nil {
+			return readErr
+		}
+		if latest == nil || latest.ReportID != s.Evidence.ReportID ||
+			!bytes.Equal(latest.ReportSHA256, s.Evidence.ReportSHA256) {
+			return ErrAuthorLLMEvidenceChanged
 		}
 		if _, liftErr := liftRunBoundPauses(ctx, tx, s.ConfigVersion); liftErr != nil {
 			return liftErr
@@ -292,9 +320,88 @@ func EnqueueAuthorLLMReviewJobs(ctx context.Context, db *pg.DB, runID int64, job
 			return fmt.Errorf("enqueuing review jobs: %w", insertErr)
 		}
 		inserted = res.RowsAffected()
+		// An input already asked under the configuration whose verdict
+		// failed transiently, and that has no current verdict since, is
+		// asked again whole: its jobs move to this run and start over.
+		res, insertErr = tx.ExecContext(ctx, `
+			WITH inputs AS (
+				SELECT DISTINCT decode(r.fp, 'hex') AS fp, r.extractor, r.config
+				FROM jsonb_to_recordset(?1::jsonb) AS r(fp text, extractor text, config text)
+			), again AS (
+				SELECT i.* FROM inputs i
+				WHERE EXISTS (SELECT 1 FROM author_llm_verdict v
+						WHERE v.source_fingerprint = i.fp AND v.extractor_version = i.extractor
+							AND v.purpose = 'review' AND v.config_version = i.config AND v.settled_at IS NOT NULL
+							AND v.outcome_reason IN (?2))
+					AND NOT EXISTS (SELECT 1 FROM author_llm_verdict v
+						WHERE v.source_fingerprint = i.fp AND v.extractor_version = i.extractor
+							AND v.purpose = 'review' AND v.config_version = i.config AND v.verdict <> 'held_drift'
+							AND (v.outcome_reason IS NULL OR v.outcome_reason NOT IN (?2)))
+			)
+			UPDATE author_llm_job j
+			SET run_id = ?0, status = 'pending', answer_attempt_id = NULL, finished_at = NULL, call_id = NULL,
+				failure_count = 0, invalid_count = 0, retry_single = false, transient_since = NULL,
+				last_error_class = ?3, next_attempt_at = now()
+			FROM again a
+			WHERE j.source_fingerprint = a.fp AND j.extractor_version = a.extractor AND j.config_version = a.config
+				AND j.purpose = 'review' AND j.eval_item_id IS NULL AND j.status IN ('answered', 'invalid', 'failed')`,
+			runID, string(payload), pg.In(authorLLMTransientOutcomes()), authorLLMClassAskedAgain)
+		if insertErr != nil {
+			return fmt.Errorf("asking review inputs again: %w", insertErr)
+		}
+		inserted += res.RowsAffected()
 		return nil
 	})
 	return inserted, err
+}
+
+// authorLLMClassAskedAgain marks a review job a later run asks again after
+// its input's verdict failed transiently.
+const authorLLMClassAskedAgain = "asked_again"
+
+// authorLLMTransientOutcomes are the verdict outcomes a later run asks
+// again.
+func authorLLMTransientOutcomes() []string {
+	return []string{string(models.UnresolvedLLMFailed), string(models.UnresolvedLLMJudgeFailed)}
+}
+
+// AuthorLLMTransientInput is an input whose current verdict of a
+// configuration failed transiently but whose credits were left unresolved
+// for it, as earlier resolve runs applied such a verdict (run 15):
+// with the review item its proposal was closed from.
+type AuthorLLMTransientInput struct {
+	SourceFingerprint []byte `pg:"source_fingerprint"`
+	ExtractorVersion  string `pg:"extractor_version"`
+	ProposalResultID  int64  `pg:"proposal_result_id"`
+	DecisionClass     string `pg:"decision_class"`
+}
+
+// AuthorLLMTransientInputs lists the configuration's inputs whose current
+// verdict failed transiently and that have credits unresolved for that
+// reason, no admin decision on them and no open review item.
+func AuthorLLMTransientInputs(ctx context.Context, db pg.DBI, version string) ([]AuthorLLMTransientInput, error) {
+	var rows []AuthorLLMTransientInput
+	_, err := db.QueryContext(ctx, &rows, `
+		SELECT DISTINCT ON (v.source_fingerprint, v.extractor_version) v.source_fingerprint, v.extractor_version,
+			i.proposal_result_id, i.decision_class
+		FROM author_llm_verdict v
+		JOIN contributor_review_item i ON i.source_fingerprint = v.source_fingerprint
+			AND i.reason = 'ambiguous_decision' AND i.resolution = 'automatic' AND i.decision_class IS NOT NULL
+		WHERE v.config_version = ?0 AND v.purpose = 'review' AND v.settled_at IS NOT NULL AND v.outcome_reason IN (?1)
+			AND NOT EXISTS (SELECT 1 FROM author_llm_verdict w
+				WHERE w.source_fingerprint = v.source_fingerprint AND w.extractor_version = v.extractor_version
+					AND w.purpose = v.purpose AND w.config_version = v.config_version AND w.verdict <> 'held_drift'
+					AND (w.outcome_reason IS NULL OR w.outcome_reason NOT IN (?1)))
+			AND NOT EXISTS (SELECT 1 FROM contributor_review_item o
+				WHERE o.scope_fingerprint = v.source_fingerprint AND o.reason = 'ambiguous_decision' AND o.status = 'open')
+			AND EXISTS (SELECT 1 FROM book_contributor_credit_selection s
+				WHERE s.source_fingerprint = v.source_fingerprint AND s.state = 'unresolved'
+					AND s.unresolved_reason = v.outcome_reason AND s.decided_by_user_id IS NULL)
+		ORDER BY v.source_fingerprint, v.extractor_version, i.id DESC`, version, pg.In(authorLLMTransientOutcomes()))
+	if err != nil {
+		return nil, fmt.Errorf("listing the transiently failed LLM inputs: %w", err)
+	}
+	return rows, nil
 }
 
 // AuthorLLMResolveProgress is what a resolve run still waits for: jobs not
@@ -459,6 +566,19 @@ func SettleAuthorLLMVerdict(ctx context.Context, tx ResolutionTx, verdictID int6
 	return res.RowsAffected() == 1, nil
 }
 
+// CurrentAuthorCredits counts the input's author credits in current
+// snapshots: zero once a rescan removed the input.
+func CurrentAuthorCredits(ctx context.Context, tx ResolutionTx, fingerprint []byte, extractorVersion string) (int, error) {
+	var n int
+	if _, err := tx.QueryOneContext(ctx, pg.Scan(&n), `SELECT count(*) FROM book_contributor_credit c
+		JOIN book_metadata_snapshot s ON s.id = c.snapshot_id
+		WHERE c.source_fingerprint = ?0 AND s.extractor_version = ?1 AND s.is_current AND c.role = 'author'`,
+		fingerprint, extractorVersion); err != nil {
+		return 0, fmt.Errorf("counting an input's credits: %w", err)
+	}
+	return n, nil
+}
+
 // CloseAutomaticReviewItems closes the input's open ambiguous review item as
 // decided by the service: with the LLM result it selected, or none.
 func CloseAutomaticReviewItems(ctx context.Context, tx ResolutionTx, fingerprint []byte, resultID *int64) (int, error) {
@@ -488,7 +608,8 @@ type AuthorLLMOutcome struct {
 
 // SettledAuthorLLMOutcome is the latest applied LLM decision on an input of
 // any configuration; nil when the LLM layer has not decided it (an
-// application that failed decides nothing).
+// application that failed, a gone input or a transient failure decides
+// nothing).
 func SettledAuthorLLMOutcome(ctx context.Context, db pg.DBI, fingerprint []byte, extractorVersion string) (*AuthorLLMOutcome, error) {
 	var out AuthorLLMOutcome
 	_, err := db.QueryOneContext(ctx, &out, `
@@ -496,9 +617,9 @@ func SettledAuthorLLMOutcome(ctx context.Context, db pg.DBI, fingerprint []byte,
 		FROM author_llm_verdict v LEFT JOIN contributor_normalization_result r ON r.id = v.result_id
 		WHERE v.source_fingerprint = ?0 AND v.extractor_version = ?1 AND v.purpose = 'review'
 			AND v.settled_at IS NOT NULL AND v.verdict <> 'held_drift'
-			AND v.outcome_reason IS DISTINCT FROM ?2
+			AND (v.outcome_reason IS NULL OR v.outcome_reason NOT IN (?2))
 		ORDER BY v.settled_at DESC, v.id DESC
-		LIMIT 1`, fingerprint, extractorVersion, models.AuthorLLMApplyFailed)
+		LIMIT 1`, fingerprint, extractorVersion, pg.In(models.AuthorLLMUndecidedOutcomes()))
 	if errors.Is(err, pg.ErrNoRows) {
 		return nil, nil
 	}
@@ -517,15 +638,19 @@ type AuthorLLMResolveCount struct {
 	Count   int     `pg:"count"`
 }
 
+// AuthorLLMUnknownStratum names, in a resolve report, the verdicts settled
+// without a stratum (an input whose stratum could not be read back).
+const AuthorLLMUnknownStratum = "unknown"
+
 // AuthorLLMResolveCounts counts a resolve run's settled verdicts by stratum
 // and outcome.
 func AuthorLLMResolveCounts(ctx context.Context, db pg.DBI, runID int64) ([]AuthorLLMResolveCount, error) {
 	var rows []AuthorLLMResolveCount
 	_, err := db.QueryContext(ctx, &rows, `
-		SELECT coalesce(stratum, '') AS stratum, outcome_reason, result_id IS NOT NULL AS applied, count(*) AS count
+		SELECT coalesce(stratum, ?1) AS stratum, outcome_reason, result_id IS NOT NULL AS applied, count(*) AS count
 		FROM author_llm_verdict
 		WHERE run_id = ?0 AND settled_at IS NOT NULL AND verdict <> 'held_drift'
-		GROUP BY 1, 2, 3 ORDER BY 1, 2`, runID)
+		GROUP BY 1, 2, 3 ORDER BY 1, 2`, runID, AuthorLLMUnknownStratum)
 	if err != nil {
 		return nil, fmt.Errorf("counting a resolve run's verdicts: %w", err)
 	}

@@ -58,7 +58,17 @@ func TestMigration33OnlyMakesOutputModeMutable(t *testing.T) {
 		return heap, args
 	}
 	heapBefore, argsBefore := read()
-	if _, err = Run(ctx, db, os.DirFS("../.."), "database_migrations", AppBaseline()); err != nil {
+	// Migration 33 alone: later files change the same trigger again.
+	through33 := fstest.MapFS{}
+	for name, f := range before {
+		through33[name] = f
+	}
+	data, err := os.ReadFile("../../database_migrations/33-author-llm-job-output-mode.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	through33["database_migrations/33-author-llm-job-output-mode.sql"] = &fstest.MapFile{Data: data}
+	if _, err = Run(ctx, db, through33, "database_migrations", AppBaseline()); err != nil {
 		t.Fatalf("applying 33: %v", err)
 	}
 	heapAfter, argsAfter := read()

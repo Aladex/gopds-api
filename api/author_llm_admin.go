@@ -45,6 +45,7 @@ const (
 	codeLLMServiceUnavailable = "llm_service_unavailable"
 	codeLLMReportStale        = "report_stale"
 	codeLLMInvalidVersion     = "invalid_version"
+	codeLLMEvidenceChanged    = "evidence_changed"
 )
 
 // errAuthorLLMServiceUnavailable: the LLM admin is not wired.
@@ -65,6 +66,7 @@ var llmErrors = []struct {
 	{database.ErrAuthorLLMRunNotFound, http.StatusNotFound, codeRunNotFound},
 	{services.ErrAuthorLLMReportNotFound, http.StatusNotFound, codeLLMReportNotFound},
 	{database.ErrAuthorLLMReportStale, http.StatusConflict, codeLLMReportStale},
+	{database.ErrAuthorLLMEvidenceChanged, http.StatusConflict, codeLLMEvidenceChanged},
 	{services.ErrAuthorLLMInvalidRun, http.StatusBadRequest, codeLLMInvalidRun},
 	{services.ErrAuthorLLMInvalidSlot, http.StatusBadRequest, codeLLMInvalidSlot},
 	{errAuthorLLMServiceUnavailable, http.StatusInternalServerError, codeLLMServiceUnavailable},

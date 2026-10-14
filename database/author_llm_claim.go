@@ -47,8 +47,11 @@ type AuthorLLMClaimOptions struct {
 	ConcurrencyTotal int
 	// FingerprintEvery is how many answered jobs pass between two checks.
 	FingerprintEvery int
-	// MaxAttempts is how many failed calls a job gets.
-	MaxAttempts int
+	// MaxAttempts is how many failed calls a job gets; TransientWindow how
+	// long, at least, it keeps retrying transient ones (a lease that
+	// expired is one).
+	MaxAttempts     int
+	TransientWindow time.Duration
 	// Output is the output ceiling each request carries; with the prompt's
 	// byte bound it is the call's reserve (llmreq.OutputLimits.Reserve).
 	Output llmreq.OutputLimits
@@ -212,7 +215,8 @@ func claimAuthorLLMCall(ctx context.Context, tx *pg.Tx, opts *AuthorLLMClaimOpti
 	if err != nil {
 		return nil, "", err
 	}
-	if abandonErr := abandonExpiredAuthorLLMCalls(ctx, tx, now, opts.MaxAttempts, locked); abandonErr != nil {
+	if abandonErr := abandonExpiredAuthorLLMCalls(ctx, tx, now, opts.MaxAttempts, opts.TransientWindow,
+		locked); abandonErr != nil {
 		return nil, "", abandonErr
 	}
 	st, refusal, err := authorLLMParticipantGate(ctx, tx, opts, now)
@@ -650,7 +654,9 @@ func claimAuthorLLMFingerprint(
 // (settled = reserved), its attempts are
 // closed as abandoned, and its jobs go back to the queue — or fail, when that
 // was their last attempt. Jobs that end here get their verdicts.
-func abandonExpiredAuthorLLMCalls(ctx context.Context, tx *pg.Tx, now time.Time, maxAttempts int, runIDs []int64) error {
+func abandonExpiredAuthorLLMCalls(
+	ctx context.Context, tx *pg.Tx, now time.Time, maxAttempts int, window time.Duration, runIDs []int64,
+) error {
 	if len(runIDs) == 0 {
 		return nil
 	}
@@ -679,14 +685,17 @@ func abandonExpiredAuthorLLMCalls(ctx context.Context, tx *pg.Tx, now time.Time,
 		), requeued AS (
 			UPDATE author_llm_job j
 			SET call_id = NULL, failure_count = j.failure_count + 1, last_error_class = ?2,
-				status = CASE WHEN j.failure_count + 1 >= ?1 THEN 'failed' ELSE 'pending' END,
-				finished_at = CASE WHEN j.failure_count + 1 >= ?1 THEN ?0::timestamptz END,
+				transient_since = coalesce(j.transient_since, ?0::timestamptz),
+				status = CASE WHEN j.failure_count + 1 >= ?1 AND coalesce(j.transient_since, ?0::timestamptz)
+					<= ?0::timestamptz - ?4 * interval '1 microsecond' THEN 'failed' ELSE 'pending' END,
+				finished_at = CASE WHEN j.failure_count + 1 >= ?1 AND coalesce(j.transient_since, ?0::timestamptz)
+					<= ?0::timestamptz - ?4 * interval '1 microsecond' THEN ?0::timestamptz END,
 				next_attempt_at = ?0
 			FROM attempts WHERE j.id = attempts.job_id AND j.status = 'claimed'
 			RETURNING j.id, j.status
 		)
 		SELECT id FROM requeued WHERE status = 'failed'`,
-		now, maxAttempts, authorLLMLeaseExpired, pg.In(runIDs))
+		now, maxAttempts, authorLLMLeaseExpired, pg.In(runIDs), micros(window))
 	if err != nil {
 		return fmt.Errorf("closing abandoned LLM calls: %w", err)
 	}

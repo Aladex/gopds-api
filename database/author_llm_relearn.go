@@ -401,7 +401,7 @@ func learnAuthorLLMRelearn(ctx context.Context, tx *pg.Tx, call *settledCall, rl
 	if kind == string(models.AuthorLLMRunEval) {
 		if voidErr := execAuthorLLM(ctx, tx, `
 			UPDATE author_llm_job SET status = 'pending', answer_attempt_id = NULL, finished_at = NULL, call_id = NULL,
-				failure_count = 0, invalid_count = 0, retry_single = false, last_error_class = ?3,
+				failure_count = 0, transient_since = NULL, invalid_count = 0, retry_single = false, last_error_class = ?3,
 				next_attempt_at = ?2
 			WHERE run_id = ?0 AND slot = ?1 AND purpose <> ?4 AND status IN ('answered', 'invalid', 'failed')`,
 			call.RunID, call.Slot, now, authorLLMClassRelearned, string(models.AuthorLLMPurposeEvalFingerprint)); voidErr != nil {

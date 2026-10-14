@@ -184,6 +184,24 @@ func AuthorLLMJudgements() []AuthorLLMJudgement {
 // for that input alone: its credits were left as they were.
 const AuthorLLMApplyFailed = "apply_failed"
 
+// AuthorLLMInputGone is the outcome of a verdict whose input had no current
+// credit left when it was applied: a rescan removed it.
+const AuthorLLMInputGone = "input_gone"
+
+// AuthorLLMUndecidedOutcomes are the verdict outcomes that decide nothing
+// about the input: the application failed, the input is gone, or the pair or
+// the judges failed transiently — the next resolve run asks the input again.
+func AuthorLLMUndecidedOutcomes() []string {
+	return []string{AuthorLLMApplyFailed, AuthorLLMInputGone, string(UnresolvedLLMFailed),
+		string(UnresolvedLLMJudgeFailed)}
+}
+
+// AuthorLLMTransientOutcome reports a verdict outcome the next resolve run
+// asks again: the pair or the judges failed transiently.
+func AuthorLLMTransientOutcome(reason string) bool {
+	return reason == string(UnresolvedLLMFailed) || reason == string(UnresolvedLLMJudgeFailed)
+}
+
 // AuthorLLMRun is one row of author_llm_run, as the raw queries scan it.
 type AuthorLLMRun struct {
 	ID              int64              `pg:"id,pk"`

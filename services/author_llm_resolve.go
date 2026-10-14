@@ -144,6 +144,9 @@ func StartAuthorLLMResolve(ctx context.Context, db *pg.DB, version, mode string,
 		return 0, ErrAuthorLLMPrerequisite
 	}
 	plan.ReportID, plan.ReportSHA256 = ev.ReportID, hex.EncodeToString(ev.ReportSHA256)
+	if resolveStartPlannedHook != nil {
+		resolveStartPlannedHook()
+	}
 	id, registered, err := database.StartAuthorLLMResolveRun(ctx, db, &database.AuthorLLMResolveStart{
 		ConfigVersion: version, Mode: mode, Evidence: ev, Settings: plan, CreatedBy: admin})
 	if errors.Is(err, database.ErrAuthorLLMNoEvidence) || errors.Is(err, database.ErrAuthorLLMRunEvidence) {
@@ -156,6 +159,10 @@ func StartAuthorLLMResolve(ctx context.Context, db *pg.DB, version, mode string,
 		Stage: AuthorMetadataStageRunner, RunID: id, Count: registered, Worker: authorLLMResolveDriverName})
 	return id, nil
 }
+
+// resolveStartPlannedHook is called, when set, between a resolve start's
+// evidence read and its transaction: a test seam to publish a report there.
+var resolveStartPlannedHook func()
 
 // AuthorLLMResolveDriver moves the configuration's running resolve run
 // through its stages.
@@ -278,6 +285,9 @@ func (d *AuthorLLMResolveDriver) Step(ctx context.Context) (bool, error) {
 // the rest. An input that cannot be sent is recorded as skipped; one row is
 // never more than its own skip.
 func (d *AuthorLLMResolveDriver) enqueue(ctx context.Context, run *resolveRun) error {
+	if err := d.reopenTransient(ctx); err != nil {
+		return err
+	}
 	rows, err := database.AuthorLLMEvalPopulation(ctx, d.db)
 	if err != nil {
 		return err
@@ -316,6 +326,34 @@ func (d *AuthorLLMResolveDriver) enqueue(ctx context.Context, run *resolveRun) e
 			}
 		}
 		if _, err := database.EnqueueAuthorLLMReviewJobs(ctx, d.db, run.ID, jobs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// reopenTransient gives the inputs an earlier run left unresolved on a
+// transient failure their review back, so this run asks them again: the
+// resolver puts their credits back in review on their local proposal and
+// opens a review item for it (an admin's decision is kept). Run 15 settled
+// 118 such inputs llm_judge_failed this way.
+func (d *AuthorLLMResolveDriver) reopenTransient(ctx context.Context) error {
+	inputs, err := database.AuthorLLMTransientInputs(ctx, d.db, d.version)
+	if err != nil {
+		return err
+	}
+	for i := range inputs {
+		in := &inputs[i]
+		out := &database.AutomaticOutcome{ResultID: in.ProposalResultID,
+			DecisionClass: authornorm.DecisionClass(in.DecisionClass), LLM: true,
+			Decision: authornorm.Decision{Outcome: authornorm.OutcomeReview}}
+		if err := d.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+			if lockErr := database.LockNormalizationInput(ctx, tx, in.SourceFingerprint, in.ExtractorVersion); lockErr != nil {
+				return lockErr
+			}
+			_, resolveErr := database.ResolveCredits(ctx, tx, in.SourceFingerprint, in.ExtractorVersion, out)
+			return resolveErr
+		}); err != nil {
 			return err
 		}
 	}
@@ -365,8 +403,18 @@ func (d *AuthorLLMResolveDriver) applyIsolated(ctx context.Context, run *resolve
 		Stage: AuthorMetadataStageRunner, RunID: run.ID, ItemID: v.ID, Worker: authorLLMResolveDriverName,
 		SQLState: AuthorMetadataSQLState(err)})
 	reason := models.AuthorLLMApplyFailed
+	// The report counts it under its stratum, when the input still reads.
+	stratum := ""
+	_ = isolateItem(func() error {
+		var input llmreq.ItemInput
+		if json.Unmarshal(v.Input, &input) == nil {
+			stratum, _ = verdictStratum(v, &input)
+		}
+		return nil
+	})
 	return d.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
-		_, settleErr := database.SettleAuthorLLMVerdict(ctx, tx, v.ID, &database.AuthorLLMVerdictApplication{Reason: &reason})
+		_, settleErr := database.SettleAuthorLLMVerdict(ctx, tx, v.ID,
+			&database.AuthorLLMVerdictApplication{Reason: &reason, Stratum: stratum})
 		return settleErr
 	})
 }
@@ -391,8 +439,27 @@ func (d *AuthorLLMResolveDriver) apply(ctx context.Context, run *resolveRun, v *
 		if err := database.LockNormalizationInput(ctx, tx, v.SourceFingerprint, v.ExtractorVersion); err != nil {
 			return err
 		}
+		credits, err := database.CurrentAuthorCredits(ctx, tx, v.SourceFingerprint, v.ExtractorVersion)
+		if err != nil {
+			return err
+		}
+		if credits == 0 {
+			// A rescan removed the input after the verdict was confirmed:
+			// nothing to apply it to.
+			stratum, _ := verdictStratum(v, &input)
+			gone := models.AuthorLLMInputGone
+			_, err = database.SettleAuthorLLMVerdict(ctx, tx, v.ID,
+				&database.AuthorLLMVerdictApplication{Reason: &gone, Stratum: stratum})
+			return err
+		}
 		settlement, outcome, err := d.decide(ctx, tx, run, v, &input)
 		if err != nil {
+			return err
+		}
+		if settlement.Reason != nil && models.AuthorLLMTransientOutcome(*settlement.Reason) {
+			// A transient failure decides nothing: the review stays open
+			// and the credits as they are, and the next run asks again.
+			_, err = database.SettleAuthorLLMVerdict(ctx, tx, v.ID, settlement)
 			return err
 		}
 		if outcome != nil {
@@ -538,6 +605,19 @@ func assembleVerdict(
 	}
 	out, err := llmres.Assemble(&in, &rep, v.ExtractorVersion, version, authornorm.LLMClass(base))
 	if err != nil {
+		return authornorm.Result{}, false
+	}
+	// The result is of the input the verdict judged, whose identity is its
+	// stored fingerprint. The request's fields are a view of the credit that
+	// need not hash back to it: an empty FB2 element is left out of them,
+	// and the fingerprint's display keeps the FB2 element order (run 15:
+	// 20 results the credits' selections could not point at, 23503).
+	if len(v.SourceFingerprint) != len(out.Result.SourceFingerprint) {
+		return authornorm.Result{}, false
+	}
+	copy(out.Result.SourceFingerprint[:], v.SourceFingerprint)
+	if out.Result.NormalizationKey, err = authornorm.NormalizationKey(out.Result.SourceFingerprint, v.ExtractorVersion,
+		version); err != nil {
 		return authornorm.Result{}, false
 	}
 	for _, f := range v.QualityFlags {
