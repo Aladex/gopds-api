@@ -3,6 +3,7 @@ package services
 import (
 	"testing"
 
+	"gopds-api/internal/authornorm/llmeval"
 	"gopds-api/internal/authornorm/llmreq"
 	"gopds-api/internal/authornorm/llmres"
 )
@@ -30,4 +31,14 @@ func SetEvalReportCollectedHookForTest(t *testing.T, fn func()) {
 	previous := evalReportCollectedHook
 	evalReportCollectedHook = fn
 	t.Cleanup(func() { evalReportCollectedHook = previous })
+}
+
+// SetEvalGateForTest makes every eval report — the report stage's and a
+// recomputation — computed by gate instead of llmeval.Evaluate, until the
+// test ends or it is set again.
+func SetEvalGateForTest(t *testing.T, gate func(*llmeval.Input) llmeval.Report) {
+	t.Helper()
+	previous := evaluateEval
+	evaluateEval = gate
+	t.Cleanup(func() { evaluateEval = previous })
 }

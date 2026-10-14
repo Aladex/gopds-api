@@ -561,7 +561,7 @@ func TestAuthorLLMResolveReportCountsAppliedAndNot(t *testing.T) {
 	require.NotNil(t, st.Run.Resolve, "the card's line of a resolve report")
 	assert.Equal(t, 5, st.Run.Resolve.Applied)
 	assert.Equal(t, 7, st.Run.Resolve.Total)
-	raw, sha, err := e.llmAdmin().EvalReport(ctx, run.ID)
+	raw, sha, err := e.llmAdmin().EvalReport(ctx, run.ID, 0)
 	require.NoError(t, err)
 	assert.Equal(t, sha, st.Run.Resolve.SHA256)
 	var doc struct {

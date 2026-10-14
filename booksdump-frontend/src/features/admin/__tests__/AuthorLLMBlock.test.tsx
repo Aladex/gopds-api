@@ -48,6 +48,7 @@ vi.mock('@/api/admin', async (importOriginal) => {
         resumeAuthorLLMParticipant: vi.fn(),
         resumeAuthorLLMEndpoint: vi.fn(),
         getAuthorLLMEvalReport: vi.fn(),
+        recomputeAuthorLLMEvalReport: vi.fn(),
     };
 });
 
@@ -241,6 +242,141 @@ describe('AuthorLLMBlock', () => {
         click.mockRestore();
     });
 
+    it('recomputes a completed check of the current configuration', async () => {
+        const completed = llmRun({
+            status: 'completed',
+            stage: 'done',
+            progress: undefined,
+            report: {
+                sha256: 'ab',
+                strata_total: 16,
+                strata_passed: 0,
+                excerpt_helps: 0,
+                registrable: false,
+            },
+        });
+        show(status({ run: completed }));
+        api.recomputeAuthorLLMEvalReport.mockResolvedValue({ run: completed });
+        render(<AuthorLLMBlock />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Recompute report' }));
+        await waitFor(() => expect(api.recomputeAuthorLLMEvalReport).toHaveBeenCalledWith(41));
+        expect(ruTranslation['authorLLM.recomputeButton']).toBe('Пересчитать отчёт');
+        expect(enTranslation['authorLLM.recomputeButton']).toBe('Recompute report');
+    });
+
+    it('offers no recompute for an older configuration or a resolve run', async () => {
+        const report = {
+            sha256: 'ab',
+            strata_total: 1,
+            strata_passed: 0,
+            excerpt_helps: 0,
+            registrable: false,
+        };
+        show(
+            status({
+                run: llmRun({
+                    status: 'completed',
+                    progress: undefined,
+                    current_config: false,
+                    report,
+                }),
+            }),
+        );
+        const { unmount } = render(<AuthorLLMBlock />);
+        expect(await screen.findByRole('button', { name: 'Report' })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Recompute report' })).toBeNull();
+        unmount();
+        show(
+            status({
+                run: llmRun({ kind: 'resolve', status: 'completed', progress: undefined, report }),
+            }),
+        );
+        render(<AuthorLLMBlock />);
+        expect(await screen.findAllByRole('button', { name: 'Report' })).not.toHaveLength(0);
+        expect(screen.queryByRole('button', { name: 'Recompute report' })).toBeNull();
+    });
+
+    it('says why a recompute was refused when the answers changed', async () => {
+        const completed = llmRun({
+            status: 'completed',
+            progress: undefined,
+            report: {
+                sha256: 'ab',
+                strata_total: 1,
+                strata_passed: 0,
+                excerpt_helps: 0,
+                registrable: false,
+            },
+        });
+        show(status({ run: completed }));
+        api.recomputeAuthorLLMEvalReport.mockRejectedValue(
+            new ApiError('conflict', 409, { body: { error: 'report_stale' } }),
+        );
+        render(<AuthorLLMBlock />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Recompute report' }));
+        expect(
+            await screen.findByText(
+                "The run's answers changed while the report was computed; try again.",
+            ),
+        ).toBeInTheDocument();
+    });
+
+    it('lists the report versions and downloads an older one', async () => {
+        show(
+            status({
+                run: llmRun({
+                    status: 'completed',
+                    progress: undefined,
+                    report: {
+                        sha256: 'cd',
+                        strata_total: 32,
+                        strata_passed: 3,
+                        excerpt_helps: 0,
+                        registrable: true,
+                        version: 2,
+                        versions: [
+                            {
+                                version: 1,
+                                sha256: 'ab',
+                                registrable: false,
+                                created_at: new Date(Date.now() - 86_400_000).toISOString(),
+                            },
+                            {
+                                version: 2,
+                                sha256: 'cd',
+                                registrable: true,
+                                created_at: new Date().toISOString(),
+                            },
+                        ],
+                    },
+                }),
+            }),
+        );
+        const blob = new Blob(['{}'], { type: 'application/json' });
+        api.getAuthorLLMEvalReport.mockResolvedValue(blob);
+        Object.assign(window.URL, {
+            createObjectURL: vi.fn(() => 'blob:report'),
+            revokeObjectURL: vi.fn(),
+        });
+        const clicks: string[] = [];
+        const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+            this: HTMLAnchorElement,
+        ) {
+            clicks.push(this.download);
+        });
+        render(<AuthorLLMBlock />);
+        expect(await screen.findByText('Version 1 · registers nothing')).toBeInTheDocument();
+        expect(screen.getByText('Version 2 · registers groups')).toBeInTheDocument();
+        // The latest is the main Report button; only the older one has its own.
+        const buttons = screen.getAllByRole('button', { name: 'Report' });
+        expect(buttons).toHaveLength(2);
+        fireEvent.click(buttons[0]);
+        await waitFor(() => expect(api.getAuthorLLMEvalReport).toHaveBeenCalledWith(41, 1));
+        await waitFor(() => expect(clicks).toEqual(['author-llm-eval-41-v1.json']));
+        expect(ruTranslation['authorLLM.reportVersion']).toBe('Версия {{version}} · {{verdict}}');
+        click.mockRestore();
+    });
+
     it('shows how many repeated answers changed, per participant', async () => {
         show(
             status({
@@ -293,7 +429,10 @@ describe('AuthorLLMBlock', () => {
         );
         const blob = new Blob(['{}'], { type: 'application/json' });
         api.getAuthorLLMEvalReport.mockResolvedValue(blob);
-        Object.assign(window.URL, { createObjectURL: vi.fn(() => 'blob:r'), revokeObjectURL: vi.fn() });
+        Object.assign(window.URL, {
+            createObjectURL: vi.fn(() => 'blob:r'),
+            revokeObjectURL: vi.fn(),
+        });
         const clicks: string[] = [];
         const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
             this: HTMLAnchorElement,
@@ -312,7 +451,12 @@ describe('AuthorLLMBlock', () => {
     it('shows a running resolve run with its progress', async () => {
         show(
             status({
-                run: llmRun({ kind: 'resolve', mode: 'full', stage: 'resolve', progress: { done: 10, total: 1000 } }),
+                run: llmRun({
+                    kind: 'resolve',
+                    mode: 'full',
+                    stage: 'resolve',
+                    progress: { done: 10, total: 1000 },
+                }),
             }),
         );
         render(<AuthorLLMBlock />);

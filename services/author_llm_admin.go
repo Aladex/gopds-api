@@ -2,9 +2,11 @@ package services
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"gopds-api/config"
 	"gopds-api/database"
@@ -94,6 +96,18 @@ type AuthorLLMReportSummary struct {
 	// Repeats is each participant's changed repeated answers, shown so the
 	// share can be watched; it is no gate of its own.
 	Repeats []AuthorLLMRepeatChange `json:"repeats"`
+	// Version is the version summarized, the latest; Versions every version
+	// of the run's report, oldest first.
+	Version  int                      `json:"version"`
+	Versions []AuthorLLMReportVersion `json:"versions"`
+}
+
+// AuthorLLMReportVersion is one version of an eval report.
+type AuthorLLMReportVersion struct {
+	Version     int       `json:"version"`
+	SHA256      string    `json:"sha256"`
+	Registrable bool      `json:"registrable"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // AuthorLLMRepeatChange is how many of a participant's repeated answers
@@ -380,7 +394,21 @@ func (a *AuthorLLMAdmin) reportSummary(ctx context.Context, runID int64) (*Autho
 	if err != nil {
 		return nil, err
 	}
-	return summarizeEvalReport(raw, sha)
+	sum, err := summarizeEvalReport(raw, sha)
+	if err != nil {
+		return nil, err
+	}
+	versions, err := database.AuthorLLMEvalReportVersions(ctx, a.db, runID)
+	if err != nil {
+		return nil, err
+	}
+	sum.Versions = make([]AuthorLLMReportVersion, 0, len(versions))
+	for _, v := range versions {
+		sum.Version = v.Version
+		sum.Versions = append(sum.Versions, AuthorLLMReportVersion{Version: v.Version,
+			SHA256: hex.EncodeToString(v.ReportSHA256), Registrable: v.Registrable, CreatedAt: v.CreatedAt})
+	}
+	return sum, nil
 }
 
 // summarizeEvalReport is the card's line of a stored report. The repeat
@@ -576,8 +604,9 @@ func (a *AuthorLLMAdmin) ResumeEndpoint(ctx context.Context) error {
 	return database.ResumeAuthorLLMEndpoint(ctx, a.db, a.version)
 }
 
-// EvalReport is a stored eval report and its SHA-256, as downloaded.
-func (a *AuthorLLMAdmin) EvalReport(ctx context.Context, id int64) (report []byte, sha string, err error) {
+// EvalReport is a stored report and its SHA-256, as downloaded: an eval
+// run's given version (0: the latest), or a resolve run's report.
+func (a *AuthorLLMAdmin) EvalReport(ctx context.Context, id int64, version int) (report []byte, sha string, err error) {
 	run, err := database.GetAuthorLLMRunByID(ctx, a.db, id)
 	if err != nil {
 		return nil, "", err
@@ -585,12 +614,35 @@ func (a *AuthorLLMAdmin) EvalReport(ctx context.Context, id int64) (report []byt
 	if run.Kind == models.AuthorLLMRunResolve {
 		report, sha, err = AuthorLLMResolveReportFile(ctx, a.db, id)
 	} else {
-		report, sha, err = AuthorLLMEvalReportFile(ctx, a.db, id)
+		report, sha, err = AuthorLLMEvalReportVersionFile(ctx, a.db, id, version)
 	}
 	if errors.Is(err, pg.ErrNoRows) {
 		return nil, "", ErrAuthorLLMReportNotFound
 	}
 	return report, sha, err
+}
+
+// RecomputeEvalReport computes a completed eval run's report of the
+// current configuration again from its stored answers with the current gate
+// code and stores it as the next version, unless it says what the latest
+// says (RecomputeAuthorLLMEvalReport). It returns the run as the card shows
+// it.
+func (a *AuthorLLMAdmin) RecomputeEvalReport(ctx context.Context, id int64) (*AuthorLLMRunState, error) {
+	if a.disabled != "" {
+		return nil, ErrAuthorLLMNotConfigured
+	}
+	_, stored, err := RecomputeAuthorLLMEvalReport(ctx, a.db, a.version, id)
+	if errors.Is(err, pg.ErrNoRows) {
+		return nil, ErrAuthorLLMReportNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if stored {
+		LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{
+			Name: AuthorMetadataEventLLMReportRecomputed, Stage: AuthorMetadataStageRunner, RunID: id})
+	}
+	return a.get(ctx, id)
 }
 
 // Close ends a run for good: one of an older configuration, or a paused

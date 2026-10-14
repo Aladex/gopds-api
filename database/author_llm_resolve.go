@@ -63,13 +63,15 @@ type AuthorLLMEvalEvidence struct {
 }
 
 // LatestAuthorLLMFullEval reads the latest completed full eval run of the
-// configuration with its report; nil when there is none.
+// configuration with its latest report version; nil when there is none.
 func LatestAuthorLLMFullEval(ctx context.Context, db pg.DBI, version string) (*AuthorLLMEvalEvidence, error) {
 	var ev AuthorLLMEvalEvidence
 	_, err := db.QueryOneContext(ctx, &ev, `
 		SELECT r.id AS run_id, e.id AS report_id, e.report_sha256, e.report::text AS report, r.expected_models,
 			r.reference
-		FROM author_llm_run r JOIN author_llm_eval_report e ON e.run_id = r.id
+		FROM author_llm_run r
+		JOIN LATERAL (SELECT id, report_sha256, report FROM author_llm_eval_report
+			WHERE run_id = r.id ORDER BY version DESC LIMIT 1) e ON true
 		WHERE r.config_version = ?0 AND r.kind = 'eval' AND r.mode = 'full' AND r.status = 'completed'
 		ORDER BY r.finished_at DESC, r.id DESC
 		LIMIT 1`, version)

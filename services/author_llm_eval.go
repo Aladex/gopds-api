@@ -248,6 +248,10 @@ type evalRun struct {
 	// Reference is what the fingerprint stage learned per participant: its
 	// prompt tokens and its negotiated output mode.
 	Reference map[string]database.AuthorLLMFingerprintReference
+	// reportSets, when not nil, are the stratum set versions the run's stored
+	// report measured: a recomputation measures those, not the sets frozen
+	// since.
+	reportSets []string
 }
 
 // runningEval reads the configuration's running eval run, if any. A paused
@@ -456,6 +460,9 @@ func (d *AuthorLLMEvalDriver) scope(ctx context.Context, run *evalRun) ([]string
 	sets := []models.AuthorLLMEvalItemSet{models.AuthorLLMEvalHoldout, models.AuthorLLMEvalDev}
 	if run.Mode == models.AuthorLLMEvalModeDev {
 		sets = []models.AuthorLLMEvalItemSet{models.AuthorLLMEvalDev}
+	}
+	if run.reportSets != nil {
+		return run.reportSets, sets, nil
 	}
 	if run.Mode == models.AuthorLLMEvalModePilot {
 		return []string{authorLLMEvalStratumSet + authorLLMEvalPilotStratum}, sets, nil
@@ -686,9 +693,14 @@ type evalFailedJob struct {
 	Class       string `json:"class,omitempty"`
 }
 
+// answerOf is a job's answer: valid when answered, invalid when it ended
+// any other way, neither while it waits or when it was never asked.
 func answerOf(a *database.AuthorLLMEvalAnswer) llmeval.Answer {
-	if a == nil || a.Status != string(models.AuthorLLMJobAnswered) {
+	if a == nil {
 		return llmeval.Answer{}
+	}
+	if a.Status != string(models.AuthorLLMJobAnswered) {
+		return llmeval.Answer{Invalid: models.AuthorLLMJobStatus(a.Status).IsTerminal()}
 	}
 	out := llmeval.Answer{Valid: true, Canonical: hex.EncodeToString(a.CanonicalSHA256)}
 	if a.Refused != nil {
@@ -835,8 +847,9 @@ func (d *AuthorLLMEvalDriver) collect(ctx context.Context, run *evalRun) (*evalD
 			data.dropped++
 			continue
 		}
-		data.input.Items = append(data.input.Items, evalItem(&items[i], jobs, combos))
-		countRepeats(repeat, jobs)
+		item := evalItem(&items[i], jobs, combos)
+		item.Repeated = countRepeats(repeat, jobs)
+		data.input.Items = append(data.input.Items, item)
 	}
 	data.input.Combos = combos
 	data.input.Fingerprint = data.fingerprintResult
@@ -894,8 +907,13 @@ func evalItemDropped(jobs map[evalAnswerKey]*database.AuthorLLMEvalAnswer) bool 
 }
 
 // countRepeats compares an item's repeated answers with its first ones: the
-// judge's own, and the production participants' arm A at one per request.
-func countRepeats(counts map[string]*llmeval.ParticipantCount, jobs map[evalAnswerKey]*database.AuthorLLMEvalAnswer) {
+// judge's own, and the production participants' arm A at one per request. It
+// adds them to the run's counts and returns the item's: whether each
+// participant asked again reproduced its answer.
+func countRepeats(
+	counts map[string]*llmeval.ParticipantCount, jobs map[evalAnswerKey]*database.AuthorLLMEvalAnswer,
+) map[string]bool {
+	var item map[string]bool
 	for _, slot := range llmreq.Slots() {
 		arm, purpose := llmeval.ArmA, string(models.AuthorLLMPurposeEvalCandidate)
 		if slot == llmreq.SlotJudgeA || slot == llmreq.SlotJudgeB {
@@ -913,10 +931,16 @@ func countRepeats(counts map[string]*llmeval.ParticipantCount, jobs map[evalAnsw
 			counts[string(slot)] = c
 		}
 		c.Total++
-		if first.Valid && second.Valid && first == second {
+		same := first.Valid && second.Valid && first == second
+		if same {
 			c.Matched++
 		}
+		if item == nil {
+			item = map[string]bool{}
+		}
+		item[string(slot)] = same
 	}
+	return item
 }
 
 func sortedCounts(m map[string]*llmeval.ParticipantCount) []llmeval.ParticipantCount {
@@ -958,6 +982,9 @@ func anchorCounts(
 
 // authorLLMEvalReportDoc is the stored report.
 type authorLLMEvalReportDoc struct {
+	// ReportVersion is 1 for the report stage's; a recomputation stores the
+	// next one with the version it supersedes (RecomputeAuthorLLMEvalReport).
+	ReportVersion int                   `json:"report_version"`
 	RunID         int64                 `json:"run_id"`
 	Mode          string                `json:"mode"`
 	ConfigVersion string                `json:"config_version"`
@@ -1023,6 +1050,10 @@ func effectiveFingerprints(
 // collected the run's answers: a test seam to interleave a re-learn there.
 var evalReportCollectedHook func()
 
+// evaluateEval is the gate code a report is computed with; a test swaps it
+// for an older or a newer one.
+var evaluateEval = llmeval.Evaluate
+
 func (d *AuthorLLMEvalDriver) report(ctx context.Context, run *evalRun) error {
 	// One generation: read before the answers, checked again when the
 	// report is stored. A re-learn running, or answers still to come, wait.
@@ -1041,7 +1072,7 @@ func (d *AuthorLLMEvalDriver) report(ctx context.Context, run *evalRun) error {
 	if evalReportCollectedHook != nil {
 		evalReportCollectedHook()
 	}
-	evaluation := llmeval.Evaluate(&data.input)
+	evaluation := evaluateEval(&data.input)
 	versions, _, err := d.scope(ctx, run)
 	if err != nil {
 		return err
@@ -1080,7 +1111,7 @@ func (d *AuthorLLMEvalDriver) report(ctx context.Context, run *evalRun) error {
 	if relearns == nil {
 		relearns = []database.AuthorLLMRelearnRecord{}
 	}
-	doc := authorLLMEvalReportDoc{RunID: run.ID, Mode: run.Mode, ConfigVersion: d.version, Settings: settings,
+	doc := authorLLMEvalReportDoc{ReportVersion: 1, RunID: run.ID, Mode: run.Mode, ConfigVersion: d.version, Settings: settings,
 		Dropped: data.dropped, Skipped: make([]evalSkipped, 0, len(skips)), FailedJobs: data.failed,
 		Fingerprints: fingerprints, FingerprintRelearns: relearns, Evaluation: evaluation}
 	if doc.FailedJobs == nil {
@@ -1115,13 +1146,109 @@ func (d *AuthorLLMEvalDriver) report(ctx context.Context, run *evalRun) error {
 }
 
 // AuthorLLMEvalReportFile is a report as the admin downloads it: the stored
-// text and its SHA-256, which is the digest a registration cites.
+// text of the latest version and its SHA-256, which is the digest a
+// registration cites.
 func AuthorLLMEvalReportFile(ctx context.Context, db pg.DBI, runID int64) (report []byte, sha string, err error) {
-	r, err := database.GetAuthorLLMEvalReport(ctx, db, runID)
+	return AuthorLLMEvalReportVersionFile(ctx, db, runID, 0)
+}
+
+// AuthorLLMEvalReportVersionFile is one version of a report as downloaded;
+// version 0 is the latest.
+func AuthorLLMEvalReportVersionFile(
+	ctx context.Context, db pg.DBI, runID int64, version int,
+) (report []byte, sha string, err error) {
+	r, err := database.GetAuthorLLMEvalReportVersion(ctx, db, runID, version)
 	if err != nil {
 		return nil, "", err
 	}
 	return []byte(r.Report), hex.EncodeToString(r.ReportSHA256), nil
+}
+
+// storedEvalReport reads a stored report version for its recomputation: the
+// document by key, the run as it measured it (its mode, settings and stratum
+// sets) and its fingerprint verdict.
+func storedEvalReport(
+	row *models.AuthorLLMRun, prev *database.AuthorLLMEvalReport,
+) (doc map[string]json.RawMessage, run *evalRun, fingerprint llmeval.FingerprintResult, err error) {
+	var stored struct {
+		Sets       []evalSetSummary `json:"sets"`
+		Evaluation struct {
+			Fingerprint llmeval.FingerprintResult `json:"fingerprint"`
+		} `json:"evaluation"`
+	}
+	if err = json.Unmarshal([]byte(prev.Report), &doc); err != nil {
+		return nil, nil, fingerprint, fmt.Errorf("reading an eval report: %w", err)
+	}
+	if err = json.Unmarshal([]byte(prev.Report), &stored); err != nil {
+		return nil, nil, fingerprint, fmt.Errorf("reading an eval report: %w", err)
+	}
+	run = &evalRun{ID: row.ID, Mode: row.Mode, Settings: DefaultAuthorLLMEvalSettings(), reportSets: []string{}}
+	if len(row.Settings) > 0 {
+		if err = json.Unmarshal(row.Settings, &run.Settings); err != nil {
+			return nil, nil, fingerprint, fmt.Errorf("reading an eval run's settings: %w", err)
+		}
+	}
+	for _, set := range stored.Sets {
+		if strings.HasPrefix(set.SetVersion, authorLLMEvalStratumSet) {
+			run.reportSets = append(run.reportSets, set.SetVersion)
+		}
+	}
+	return doc, run, stored.Evaluation.Fingerprint, nil
+}
+
+// RecomputeAuthorLLMEvalReport computes a completed eval run's report again
+// from the run's stored answers with the current gate code — no model is
+// asked anything — and stores it as the run's next report version, which a
+// resolve run then registers from. The report measures the sets the stored
+// report measured; the fingerprint verdict is the stored one (the
+// fingerprint stage is not run again). Everything else in the report is the
+// stored version's. A run of another configuration is refused with
+// ErrAuthorLLMRunConfigChanged, a run that is not a completed eval run with
+// ErrAuthorLLMInvalidRun or database.ErrAuthorLLMRunState; a report equal to
+// the latest version is not stored again (stored false).
+func RecomputeAuthorLLMEvalReport(
+	ctx context.Context, db *pg.DB, version string, runID int64,
+) (latest *database.AuthorLLMEvalReport, stored bool, err error) {
+	row, err := database.GetAuthorLLMRunByID(ctx, db, runID)
+	if err != nil {
+		return nil, false, err
+	}
+	switch {
+	case row.Kind != models.AuthorLLMRunEval:
+		return nil, false, ErrAuthorLLMInvalidRun
+	case row.ConfigVersion != version:
+		return nil, false, ErrAuthorLLMRunConfigChanged
+	case row.Status != models.AuthorLLMRunCompleted:
+		return nil, false, database.ErrAuthorLLMRunState
+	}
+	// One generation, as in the report stage: read before the answers and
+	// checked again when the version is stored.
+	generation, err := database.AuthorLLMRelearnGeneration(ctx, db, runID)
+	if err != nil {
+		return nil, false, err
+	}
+	prev, err := database.GetAuthorLLMEvalReport(ctx, db, runID)
+	if err != nil {
+		return nil, false, err
+	}
+	doc, run, fingerprint, err := storedEvalReport(row, prev)
+	if err != nil {
+		return nil, false, err
+	}
+	d := &AuthorLLMEvalDriver{db: db, version: version}
+	data, err := d.collect(ctx, run)
+	if err != nil {
+		return nil, false, err
+	}
+	data.input.Fingerprint = fingerprint
+	if doc["evaluation"], err = json.Marshal(evaluateEval(&data.input)); err != nil {
+		return nil, false, err
+	}
+	raw, err := json.Marshal(doc)
+	if err != nil {
+		return nil, false, err
+	}
+	return database.RecomputeAuthorLLMEvalReport(ctx, db, runID, version, raw, generation)
 }
 
 // The freeze. Sets are written once: a set version already frozen is never

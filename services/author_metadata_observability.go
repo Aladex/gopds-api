@@ -102,6 +102,9 @@ const (
 	// AuthorMetadataEventLLMRelearnStarted: a drifted participant's resume
 	// started re-learning its fingerprint in the active run.
 	AuthorMetadataEventLLMRelearnStarted AuthorMetadataEventName = "author_metadata.llm_relearn_started"
+	// AuthorMetadataEventLLMReportRecomputed: an administrator recomputed a
+	// completed eval run's report and a new version was stored.
+	AuthorMetadataEventLLMReportRecomputed AuthorMetadataEventName = "author_metadata.llm_report_recomputed"
 )
 
 // AuthorMetadataEventNames lists every event.
@@ -128,6 +131,7 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventLLMRunClosed, AuthorMetadataEventLLMItemPanic,
 		AuthorMetadataEventLLMParticipantsResumed, AuthorMetadataEventLLMResolveStarted,
 		AuthorMetadataEventLLMResolveApplyFailed, AuthorMetadataEventLLMRelearnStarted,
+		AuthorMetadataEventLLMReportRecomputed,
 	}
 }
 

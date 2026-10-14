@@ -29,7 +29,8 @@ type AuthorLLMAdminService interface {
 	Close(ctx context.Context, id, actor int64) (*services.AuthorLLMRunState, error)
 	ResumeParticipant(ctx context.Context, slot string) error
 	ResumeEndpoint(ctx context.Context) error
-	EvalReport(ctx context.Context, id int64) ([]byte, string, error)
+	EvalReport(ctx context.Context, id int64, version int) ([]byte, string, error)
+	RecomputeEvalReport(ctx context.Context, id int64) (*services.AuthorLLMRunState, error)
 }
 
 // Closed error codes of the LLM routes (beside the runs API's shared ones).
@@ -42,6 +43,8 @@ const (
 	codeLLMInvalidSlot        = "invalid_slot"
 	codeLLMReportNotFound     = "report_not_found"
 	codeLLMServiceUnavailable = "llm_service_unavailable"
+	codeLLMReportStale        = "report_stale"
+	codeLLMInvalidVersion     = "invalid_version"
 )
 
 // errAuthorLLMServiceUnavailable: the LLM admin is not wired.
@@ -61,6 +64,7 @@ var llmErrors = []struct {
 	{services.ErrAuthorLLMRunConfigChanged, http.StatusConflict, codeLLMRunConfigChanged},
 	{database.ErrAuthorLLMRunNotFound, http.StatusNotFound, codeRunNotFound},
 	{services.ErrAuthorLLMReportNotFound, http.StatusNotFound, codeLLMReportNotFound},
+	{database.ErrAuthorLLMReportStale, http.StatusConflict, codeLLMReportStale},
 	{services.ErrAuthorLLMInvalidRun, http.StatusBadRequest, codeLLMInvalidRun},
 	{services.ErrAuthorLLMInvalidSlot, http.StatusBadRequest, codeLLMInvalidSlot},
 	{errAuthorLLMServiceUnavailable, http.StatusInternalServerError, codeLLMServiceUnavailable},
@@ -122,8 +126,12 @@ func (unavailableAuthorLLMAdmin) ResumeEndpoint(context.Context) error {
 	return errAuthorLLMServiceUnavailable
 }
 
-func (unavailableAuthorLLMAdmin) EvalReport(context.Context, int64) (report []byte, sha string, err error) {
+func (unavailableAuthorLLMAdmin) EvalReport(context.Context, int64, int) (report []byte, sha string, err error) {
 	return nil, "", errAuthorLLMServiceUnavailable
+}
+
+func (unavailableAuthorLLMAdmin) RecomputeEvalReport(context.Context, int64) (*services.AuthorLLMRunState, error) {
+	return nil, errAuthorLLMServiceUnavailable
 }
 
 // authorLLMHandler serves the LLM routes.
@@ -141,6 +149,7 @@ func SetupAuthorLLMRoutes(r *gin.RouterGroup, svc AuthorLLMAdminService) {
 	r.POST("/runs/:id/resume", h.resume)
 	r.POST("/runs/:id/close", h.close)
 	r.GET("/eval-report/:id", h.report)
+	r.POST("/eval-report/:id/recompute", h.recompute)
 	r.POST("/participants/:slot/resume", h.resumeParticipant)
 	r.POST("/endpoint/resume", h.resumeEndpoint)
 }
@@ -236,9 +245,11 @@ func (h *authorLLMHandler) runAction(c *gin.Context,
 // report godoc
 // @Summary Download an LLM eval report
 // @Description The stored report, byte for byte; X-Report-SHA256 is the digest a registration cites.
+// @Description An eval run's report has versions (a recomputation adds one); without version it is the latest.
 // @Tags admin
 // @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Param id path int true "Run id"
+// @Param version query int false "Report version, 1 and up"
 // @Produce json
 // @Success 200 {file} file
 // @Router /api/admin/author-metadata/llm/eval-report/{id} [get]
@@ -248,7 +259,14 @@ func (h *authorLLMHandler) report(c *gin.Context) {
 		abortLLMError(c, err)
 		return
 	}
-	body, sha, err := h.svc.EvalReport(c.Request.Context(), id)
+	version := 0
+	if raw := c.Query("version"); raw != "" {
+		if version, err = strconv.Atoi(raw); err != nil || version < 1 {
+			abortRun(c, http.StatusBadRequest, codeLLMInvalidVersion)
+			return
+		}
+	}
+	body, sha, err := h.svc.EvalReport(c.Request.Context(), id, version)
 	if err != nil {
 		abortLLMError(c, err)
 		return
@@ -256,6 +274,31 @@ func (h *authorLLMHandler) report(c *gin.Context) {
 	c.Header("Content-Disposition", `attachment; filename="author-llm-eval-`+strconv.FormatInt(id, 10)+`.json"`)
 	c.Header("X-Report-SHA256", sha)
 	c.Data(http.StatusOK, "application/json", body)
+}
+
+// recompute godoc
+// @Summary Recompute a completed eval run's report
+// @Description Computes the report again from the run's stored answers with the current gate code, without calling
+// @Description any model, and stores it as the next version unless it says what the latest says. Only a completed eval
+// @Description run of the current configuration.
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param id path int true "Run id"
+// @Produce json
+// @Success 200 {object} map[string]services.AuthorLLMRunState
+// @Router /api/admin/author-metadata/llm/eval-report/{id}/recompute [post]
+func (h *authorLLMHandler) recompute(c *gin.Context) {
+	id, err := runID(c)
+	if err != nil {
+		abortLLMError(c, err)
+		return
+	}
+	run, err := h.svc.RecomputeEvalReport(c.Request.Context(), id)
+	if err != nil {
+		abortLLMError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{jsonKeyRun: run})
 }
 
 // resumeParticipant godoc

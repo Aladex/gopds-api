@@ -49,13 +49,19 @@ func stratumItems(stratum string, n int, prod func(i int, c Combo) [2]Answer) []
 	for i := range n {
 		it := Item{ID: int64(i + 1), Stratum: stratum, Weight: 1, Holdout: true, HasContext: true,
 			Judges:     [2]Answer{answer("x", "confirm"), answer("x", "confirm")},
-			Candidates: map[Combo][2]Answer{}}
+			Candidates: map[Combo][2]Answer{}, Repeated: reproducedByAll()}
 		for _, c := range both {
 			it.Candidates[c] = prod(i, c)
 		}
 		items = append(items, it)
 	}
 	return items
+}
+
+// reproducedByAll is an item every participant was asked again and
+// answered the same.
+func reproducedByAll() map[string]bool {
+	return map[string]bool{slotProductionA: true, slotProductionB: true, slotJudgeA: true, slotJudgeB: true}
 }
 
 func agreeX(int, Combo) [2]Answer { return [2]Answer{answer("x", "confirm"), answer("x", "confirm")} }
@@ -344,9 +350,7 @@ func TestGlobalFailuresStopEveryStratum(t *testing.T) {
 		"anchor production 97%": func(in *Input) {
 			in.Anchor[0].Matched = 291
 		},
-		"repeat over 10%":     func(in *Input) { in.Repeat[3].Matched = 179 },
 		"fingerprint":         func(in *Input) { in.Fingerprint = FingerprintResult{Reason: "same_lab"} },
-		"invalid over 2%":     func(in *Input) { in.Invalid = []ParticipantCount{{Participant: "judge_b", Matched: 30, Total: 1000}} },
 		"dev is not evidence": func(in *Input) { in.Registrable = false },
 	}
 	for name, mutate := range cases {
@@ -362,15 +366,22 @@ func TestGlobalFailuresStopEveryStratum(t *testing.T) {
 		}
 	}
 	// The thresholds themselves: 99% of judges and 98% of production at the
-	// anchors, 10% changed repeats and 2% invalid replies pass.
+	// anchors pass.
 	in := healthy()
 	in.Items = stratumItems("initials.cyrl", 700, agreeX)
 	in.Anchor[2].Matched, in.Anchor[0].Matched = 297, 294
-	in.Repeat[0].Matched = 180
-	in.Invalid = []ParticipantCount{{Participant: "judge_b", Matched: 20, Total: 1000}}
 	r := Evaluate(&in)
 	if !r.Decision.Registrable || !decisionOf(t, &r, "initials.cyrl").Passed {
 		t.Errorf("thresholds met exactly did not pass: %+v", r.Decision)
+	}
+	// The run-wide invalid and repeat shares are information: a stratum is
+	// gated on its own items' invalid answers and the passing strata's
+	// repeats (stratum_gates_test.go).
+	in.Repeat[3].Matched = 120
+	in.Invalid = []ParticipantCount{{Participant: "judge_b", Matched: 300, Total: 1000}}
+	r = Evaluate(&in)
+	if !r.Decision.Registrable || !decisionOf(t, &r, "initials.cyrl").Passed {
+		t.Errorf("the run-wide shares stopped a clean stratum: %+v", r.Decision)
 	}
 }
 

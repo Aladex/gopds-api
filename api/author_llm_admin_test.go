@@ -23,16 +23,17 @@ import (
 // transition with a closed code, and the report downloaded byte for byte.
 
 type fakeLLMAdmin struct {
-	mu     sync.Mutex
-	calls  []string
-	kind   string
-	mode   string
-	actor  int64
-	id     int64
-	slot   string
-	err    error
-	report []byte
-	sha    string
+	mu      sync.Mutex
+	calls   []string
+	kind    string
+	mode    string
+	actor   int64
+	id      int64
+	slot    string
+	err     error
+	report  []byte
+	sha     string
+	version int
 }
 
 func (f *fakeLLMAdmin) record(call string) {
@@ -107,13 +108,22 @@ func (f *fakeLLMAdmin) ResumeEndpoint(context.Context) error {
 	return f.err
 }
 
-func (f *fakeLLMAdmin) EvalReport(_ context.Context, id int64) (report []byte, sha string, err error) {
+func (f *fakeLLMAdmin) EvalReport(_ context.Context, id int64, version int) (report []byte, sha string, err error) {
 	f.record("report")
-	f.id = id
+	f.id, f.version = id, version
 	if f.err != nil {
 		return nil, "", f.err
 	}
 	return f.report, f.sha, nil
+}
+
+func (f *fakeLLMAdmin) RecomputeEvalReport(_ context.Context, id int64) (*services.AuthorLLMRunState, error) {
+	f.record("recompute")
+	f.id = id
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.run(), nil
 }
 
 const llmBase = "/api/admin/author-metadata/llm"
@@ -138,6 +148,7 @@ var everyLLMRoute = []struct{ method, path, body string }{
 	{http.MethodPost, llmBase + "/runs/5/resume", ""},
 	{http.MethodPost, llmBase + "/runs/5/close", ""},
 	{http.MethodGet, llmBase + "/eval-report/5", ""},
+	{http.MethodPost, llmBase + "/eval-report/5/recompute", ""},
 	{http.MethodPost, llmBase + "/participants/judge_a/resume", ""},
 	{http.MethodPost, llmBase + "/endpoint/resume", ""},
 }
@@ -287,4 +298,41 @@ func TestAuthorLLMEvalReportDownload(t *testing.T) {
 	assert.Equal(t, `attachment; filename="author-llm-eval-5.json"`, rec.Header().Get("Content-Disposition"))
 	assert.Equal(t, "ab12", rec.Header().Get("X-Report-SHA256"))
 	assert.Equal(t, int64(5), svc.id)
+	assert.Zero(t, svc.version, "without a version the latest is downloaded")
+
+	// An older version of an eval run's report is downloaded by its number.
+	rec = runsRequest(t, llmRouter(svc), http.MethodGet, llmBase+"/eval-report/5?version=2", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, 2, svc.version)
+	for _, bad := range []string{"0", "-1", "x"} {
+		rec = runsRequest(t, llmRouter(svc), http.MethodGet, llmBase+"/eval-report/5?version="+bad, "")
+		assert.Equal(t, http.StatusBadRequest, rec.Code, bad)
+		assert.JSONEq(t, `{"error":"invalid_version"}`, rec.Body.String(), bad)
+	}
+}
+
+func TestAuthorLLMEvalReportRecompute(t *testing.T) {
+	svc := &fakeLLMAdmin{}
+	rec := runsRequest(t, llmRouter(svc), http.MethodPost, llmBase+"/eval-report/7/recompute", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, int64(7), svc.id)
+	assert.Contains(t, rec.Body.String(), `"run":{`)
+
+	// The refusals carry their closed codes.
+	for _, c := range []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{services.ErrAuthorLLMRunConfigChanged, http.StatusConflict, "run_config_changed"},
+		{database.ErrAuthorLLMRunState, http.StatusConflict, "invalid_transition"},
+		{database.ErrAuthorLLMReportStale, http.StatusConflict, "report_stale"},
+		{services.ErrAuthorLLMInvalidRun, http.StatusBadRequest, "invalid_run"},
+		{services.ErrAuthorLLMReportNotFound, http.StatusNotFound, "report_not_found"},
+	} {
+		svc = &fakeLLMAdmin{err: c.err}
+		rec = runsRequest(t, llmRouter(svc), http.MethodPost, llmBase+"/eval-report/7/recompute", "")
+		assert.Equal(t, c.status, rec.Code, c.code)
+		assert.JSONEq(t, `{"error":"`+c.code+`"}`, rec.Body.String(), c.code)
+	}
 }

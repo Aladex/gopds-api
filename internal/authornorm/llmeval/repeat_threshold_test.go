@@ -10,7 +10,8 @@ import (
 // against honest ambiguity: resolve applies only what the pair and both
 // judges agree on, so an unstable answer costs coverage, not correctness.
 // Run 5 (initials.cyrl) changed 4, 2, 3 and 4 answers of 200 on ambiguous
-// names and must pass; more than 10% changed still stops the run.
+// names and must pass; more than 10% changed on the passing strata's repeats
+// still stops the run.
 func TestRepeatToleratesHonestAmbiguity(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -26,11 +27,19 @@ func TestRepeatToleratesHonestAmbiguity(t *testing.T) {
 	for _, c := range cases {
 		in := healthy()
 		in.Items = stratumItems("initials.cyrl", 700, agreeX)
-		for i := range in.Repeat {
-			in.Repeat[i].Matched = c.matched[i]
+		// 200 of the items were repeated; participant p reproduced the
+		// first matched[p] of them.
+		for i := range in.Items {
+			in.Items[i].Repeated = nil
+			if i < 200 {
+				in.Items[i].Repeated = map[string]bool{}
+				for p, name := range repeatParticipants {
+					in.Items[i].Repeated[name] = i < c.matched[p]
+				}
+			}
 		}
 		r := Evaluate(&in)
-		repeatReason := slices.ContainsFunc(r.Decision.Reasons, func(s string) bool { return strings.HasPrefix(s, "repeat:") })
+		repeatReason := slices.ContainsFunc(r.Decision.Reasons, func(s string) bool { return strings.HasPrefix(s, "pooled repeat:") })
 		if c.pass && (repeatReason || !r.Decision.Registrable || !decisionOf(t, &r, "initials.cyrl").Passed) {
 			t.Errorf("%s: failed: %+v", c.name, r.Decision)
 		}

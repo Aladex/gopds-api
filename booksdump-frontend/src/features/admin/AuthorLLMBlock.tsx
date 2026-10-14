@@ -150,6 +150,11 @@ const describeError = (t: T, error: unknown): string => {
                 'authorLLM.error.invalid_transition',
                 'The run has changed; the block was refreshed.',
             );
+        case 'report_stale':
+            return t(
+                'authorLLM.error.report_stale',
+                "The run's answers changed while the report was computed; try again.",
+            );
         default:
             return t('authorLLM.error.other', 'The action failed.');
     }
@@ -235,13 +240,18 @@ const AuthorLLMBlock: React.FC = () => {
         }
     };
 
-    const downloadReport = (id: number) =>
+    const downloadReport = (id: number, version?: number) =>
         act(async () => {
-            const blob = await adminApi.getAuthorLLMEvalReport(id);
+            const blob =
+                version === undefined
+                    ? await adminApi.getAuthorLLMEvalReport(id)
+                    : await adminApi.getAuthorLLMEvalReport(id, version);
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = `author-llm-${run?.kind === 'resolve' ? 'resolve' : 'eval'}-${id}.json`;
+            link.download = `author-llm-${run?.kind === 'resolve' ? 'resolve' : 'eval'}-${id}${
+                version === undefined ? '' : `-v${version}`
+            }.json`;
             document.body.appendChild(link);
             link.click();
             link.remove();
@@ -432,6 +442,37 @@ const AuthorLLMBlock: React.FC = () => {
                             ? ` · ≈ ${formatCost(run.cost)} ${status.price_unit}`
                             : null}
                     </p>
+                    {(report.versions ?? []).length > 1 &&
+                        (report.versions ?? []).map((v) => (
+                            <div
+                                key={v.version}
+                                className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
+                            >
+                                <span className="tabular-nums">
+                                    {t('authorLLM.reportVersion', {
+                                        defaultValue: 'Version {{version}} · {{verdict}}',
+                                        version: v.version,
+                                        verdict: v.registrable
+                                            ? t('authorLLM.versionRegistrable', 'registers groups')
+                                            : t(
+                                                  'authorLLM.versionNotRegistrable',
+                                                  'registers nothing',
+                                              ),
+                                    })}
+                                </span>
+                                {v.version !== report.version && (
+                                    <Button
+                                        variant="link"
+                                        size="sm"
+                                        className="h-auto p-0"
+                                        disabled={busy}
+                                        onClick={() => downloadReport(run.id, v.version)}
+                                    >
+                                        {t('authorLLM.reportButton', 'Report')}
+                                    </Button>
+                                )}
+                            </div>
+                        ))}
                     <div className="flex flex-wrap gap-2">
                         <Button
                             variant="outline"
@@ -440,6 +481,17 @@ const AuthorLLMBlock: React.FC = () => {
                         >
                             {t('authorLLM.reportButton', 'Report')}
                         </Button>
+                        {run.kind === 'eval' && run.current_config && (
+                            <Button
+                                variant="outline"
+                                disabled={busy}
+                                onClick={() =>
+                                    act(() => adminApi.recomputeAuthorLLMEvalReport(run.id))
+                                }
+                            >
+                                {t('authorLLM.recomputeButton', 'Recompute report')}
+                            </Button>
+                        )}
                     </div>
                 </div>
             )}

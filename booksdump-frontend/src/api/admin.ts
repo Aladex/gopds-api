@@ -399,6 +399,17 @@ export interface AuthorLLMReportSummary {
     registrable: boolean;
     /** Each participant's changed repeated answers; watched, not a gate. */
     repeats?: AuthorLLMRepeatChange[];
+    /** The version summed up, the latest; every version, oldest first. */
+    version?: number;
+    versions?: AuthorLLMReportVersion[];
+}
+
+/** One version of an eval report: a recomputation adds one, the old ones stay. */
+export interface AuthorLLMReportVersion {
+    version: number;
+    sha256: string;
+    registrable: boolean;
+    created_at: string;
 }
 
 export interface AuthorLLMRepeatChange {
@@ -473,9 +484,21 @@ export const resumeAuthorLLMParticipant = (slot: string) =>
 
 export const resumeAuthorLLMEndpoint = () => http.post<unknown>(`${llmBase}/endpoint/resume`);
 
-/** getAuthorLLMEvalReport downloads the stored report, byte for byte. */
-export const getAuthorLLMEvalReport = (runID: number) =>
-    requestBlob(`${llmBase}/eval-report/${runID}`);
+/**
+ * getAuthorLLMEvalReport downloads the stored report, byte for byte: the
+ * latest version, or the given one of an eval run's report.
+ */
+export const getAuthorLLMEvalReport = (runID: number, version?: number) =>
+    requestBlob(
+        `${llmBase}/eval-report/${runID}${version === undefined ? '' : `?version=${version}`}`,
+    );
+
+/**
+ * recomputeAuthorLLMEvalReport computes a completed eval run's report again
+ * from its stored answers with the current gates, as a new version.
+ */
+export const recomputeAuthorLLMEvalReport = (runID: number) =>
+    http.post<{ run: AuthorLLMRun }>(`${llmBase}/eval-report/${runID}/recompute`);
 
 export function closedErrorCode(error: unknown): string | null {
     if (!isApiError(error)) {

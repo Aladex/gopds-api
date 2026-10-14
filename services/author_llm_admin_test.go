@@ -144,7 +144,7 @@ func TestAuthorLLMAdminChainAndTransitions(t *testing.T) {
 	assert.ErrorIs(t, err, database.ErrAuthorLLMRunState)
 	_, err = admin.Pause(ctx, run.ID+1000)
 	assert.ErrorIs(t, err, database.ErrAuthorLLMRunNotFound)
-	_, _, err = admin.EvalReport(ctx, run.ID)
+	_, _, err = admin.EvalReport(ctx, run.ID, 0)
 	assert.ErrorIs(t, err, services.ErrAuthorLLMReportNotFound)
 
 	// A stage's progress: its jobs that ended out of all of them.
@@ -165,7 +165,7 @@ func TestAuthorLLMAdminChainAndTransitions(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "completed", st.Run.Status)
 	require.NotNil(t, st.Run.Report)
-	report, sha, err := admin.EvalReport(ctx, run.ID)
+	report, sha, err := admin.EvalReport(ctx, run.ID, 0)
 	require.NoError(t, err)
 	sum := sha256.Sum256(report)
 	assert.Equal(t, hex.EncodeToString(sum[:]), sha)

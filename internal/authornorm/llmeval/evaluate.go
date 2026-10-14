@@ -52,6 +52,10 @@ type Answer struct {
 	Refused   bool   `json:"refused"`
 	Canonical string `json:"canonical"`
 	Tier      string `json:"tier"`
+	// Invalid is an answer asked for that ended without a valid one: the
+	// validators rejected it, the provider rejected the item, or the job
+	// failed. An answer never asked for is neither valid nor invalid.
+	Invalid bool `json:"invalid,omitempty"`
 }
 
 // Combo is one way the production pair was asked: an arm of the ablation and
@@ -78,6 +82,19 @@ type Item struct {
 	Judges     [2]Answer
 	// Candidates are the production pair's answers per combo.
 	Candidates map[Combo][2]Answer
+	// Repeated holds, for every participant whose answer to the item was
+	// asked again, whether the repeat reproduced its first answer.
+	Repeated map[string]bool
+}
+
+// InvalidShare is a participant's invalid answers of all answered or
+// invalid ones in a scope, and whether the share is within the limit.
+type InvalidShare struct {
+	Participant string  `json:"participant"`
+	Invalid     int     `json:"invalid"`
+	Total       int     `json:"total"`
+	Share       float64 `json:"share"`
+	Passed      bool    `json:"passed"`
 }
 
 // ParticipantCount is a per-participant count: Matched of Total.
@@ -139,9 +156,14 @@ type ComboMetrics struct {
 	// the accepted items and errors in those tiers — what the stratum would
 	// actually accept.
 	Passed          bool     `json:"passed"`
+	ErrorsPassed    bool     `json:"errors_passed"`
 	AllowedTiers    []string `json:"allowed_tiers"`
 	AllowedAccepted int      `json:"allowed_accepted"`
 	AllowedErrors   int      `json:"allowed_errors"`
+	// Invalid is each production participant's invalid share in the combo;
+	// InvalidPassed whether both are within the limit.
+	Invalid       []InvalidShare `json:"invalid"`
+	InvalidPassed bool           `json:"invalid_passed"`
 }
 
 // AblationResult compares arm B with arm A at one batch size.
@@ -162,6 +184,8 @@ type StratumReport struct {
 	Gold     int                     `json:"gold"`
 	Combos   map[string]ComboMetrics `json:"combos"`
 	Ablation map[int]AblationResult  `json:"ablation"`
+	// JudgeInvalid is each judge's invalid share on the measured items.
+	JudgeInvalid []InvalidShare `json:"judge_invalid"`
 }
 
 // StratumDecision is what the run decides for a stratum.
@@ -171,6 +195,9 @@ type StratumDecision struct {
 	Arm             string   `json:"arm,omitempty"`
 	ItemsPerRequest int      `json:"items_per_request,omitempty"`
 	Tiers           []string `json:"tiers,omitempty"`
+	// Reason says why a stratum that passed no combo, or failed its judges'
+	// invalid gate, decides nothing.
+	Reason string `json:"reason,omitempty"`
 }
 
 // Decision is the run's decision.
@@ -194,7 +221,37 @@ type Report struct {
 	// ProviderRejected is the part of Invalid the provider rejected.
 	ProviderRejected []ParticipantCount `json:"provider_rejected"`
 	Fingerprint      FingerprintResult  `json:"fingerprint"`
-	Decision         Decision           `json:"decision"`
+	// PooledRepeat is the reproduction over the repeat items of the strata
+	// that passed their own gates.
+	PooledRepeat PooledRepeat `json:"pooled_repeat"`
+	Decision     Decision     `json:"decision"`
+}
+
+// MinPooledRepeatItems is the repeat items each participant needs on the
+// passing strata.
+const MinPooledRepeatItems = 50
+
+// PooledRepeat is the reproduction gate over the passing strata.
+type PooledRepeat struct {
+	Strata       []string            `json:"strata"`
+	Participants []PooledRepeatCount `json:"participants"`
+}
+
+// PooledRepeatCount is one participant's pooled repeats: reproduced of
+// total, per stratum and in all.
+type PooledRepeatCount struct {
+	Participant string          `json:"participant"`
+	Reproduced  int             `json:"reproduced"`
+	Total       int             `json:"total"`
+	ByStratum   []StratumRepeat `json:"by_stratum"`
+	Passed      bool            `json:"passed"`
+}
+
+// StratumRepeat is a participant's repeats in one stratum.
+type StratumRepeat struct {
+	Stratum    string `json:"stratum"`
+	Reproduced int    `json:"reproduced"`
+	Total      int    `json:"total"`
 }
 
 // RepeatChange is how many of a participant's repeated answers differ from
@@ -239,18 +296,28 @@ func Evaluate(in *Input) Report {
 	for _, name := range names {
 		report, decision := evaluateStratum(in.Combos, byStratum[name])
 		decision.Stratum = name
-		if len(reasons) > 0 {
-			decision = StratumDecision{Stratum: name}
-		}
 		r.Strata[name] = report
 		r.Decision.Strata = append(r.Decision.Strata, decision)
+	}
+	// The reproduction is judged on the strata that passed on their own
+	// items: the junk strata's repeats neither help nor sink them.
+	pooled, pooledReasons := pooledRepeat(r.Decision.Strata, byStratum)
+	r.PooledRepeat = pooled
+	reasons = append(reasons, pooledReasons...)
+	if len(reasons) > 0 {
+		for i := range r.Decision.Strata {
+			r.Decision.Strata[i] = StratumDecision{Stratum: r.Decision.Strata[i].Stratum}
+		}
 	}
 	r.Decision.Reasons = reasons
 	r.Decision.Registrable = in.Registrable && len(reasons) == 0
 	return r
 }
 
-// runReasons lists why the run as a whole decides nothing.
+// runReasons lists why the run as a whole decides nothing. The run-wide
+// invalid and repeat shares are not among them: a stratum's invalid answers
+// are gated on its own items, the reproduction on the passing strata's
+// repeats (pooledRepeat).
 func runReasons(in *Input) []string {
 	var reasons []string
 	if !in.Fingerprint.OK {
@@ -259,17 +326,114 @@ func runReasons(in *Input) []string {
 	reasons = append(reasons, AnchorReasons(in.Anchor)...)
 	reasons = append(reasons, evidenceReasons("anchor", in.Anchor, MinAnchorItems)...)
 	reasons = append(reasons, evidenceReasons("repeat", in.Repeat, MinRepeatItems)...)
-	for _, c := range in.Repeat {
-		if c.Total == 0 || (c.Total-c.Matched)*percent > c.Total*maxRepeatChangePercent {
-			reasons = append(reasons, fmt.Sprintf("repeat: %s reproduced %d of %d", c.Participant, c.Matched, c.Total))
-		}
-	}
-	for _, c := range in.Invalid {
-		if c.Total > 0 && c.Matched*percent > c.Total*maxInvalidPercent {
-			reasons = append(reasons, fmt.Sprintf("invalid: %s %d of %d", c.Participant, c.Matched, c.Total))
-		}
-	}
 	return reasons
+}
+
+// pooledRepeat is every participant's reproduction over the repeat items of
+// the strata that passed: at least MinPooledRepeatItems of them, at most 10%
+// changed. With no stratum passed there is nothing to register and no
+// reason.
+func pooledRepeat(decisions []StratumDecision, byStratum map[string][]*Item) (pool PooledRepeat, reasons []string) {
+	pool = PooledRepeat{Strata: []string{}, Participants: make([]PooledRepeatCount, 0, len(participants))}
+	for _, d := range decisions {
+		if d.Passed {
+			pool.Strata = append(pool.Strata, d.Stratum)
+		}
+	}
+	for _, p := range participants {
+		c := PooledRepeatCount{Participant: p, ByStratum: make([]StratumRepeat, 0, len(pool.Strata))}
+		for _, name := range pool.Strata {
+			sr := StratumRepeat{Stratum: name}
+			for _, it := range byStratum[name] {
+				if reproduced, ok := it.Repeated[p]; ok {
+					sr.Total++
+					if reproduced {
+						sr.Reproduced++
+					}
+				}
+			}
+			c.Reproduced += sr.Reproduced
+			c.Total += sr.Total
+			c.ByStratum = append(c.ByStratum, sr)
+		}
+		switch {
+		case c.Total < MinPooledRepeatItems:
+			reasons = append(reasons, fmt.Sprintf("pooled repeat evidence: %s answered %d of the %d items required",
+				p, c.Total, MinPooledRepeatItems))
+		case (c.Total-c.Reproduced)*percent > c.Total*maxRepeatChangePercent:
+			reasons = append(reasons, fmt.Sprintf("pooled repeat: %s reproduced %d of %d", p, c.Reproduced, c.Total))
+		default:
+			c.Passed = true
+		}
+		pool.Participants = append(pool.Participants, c)
+	}
+	if len(pool.Strata) == 0 {
+		return pool, nil
+	}
+	return pool, reasons
+}
+
+// countInvalid counts one answer into a participant's invalid share; an
+// answer never asked for is not counted.
+func countInvalid(s *InvalidShare, a Answer) {
+	switch {
+	case a.Invalid:
+		s.Invalid++
+		s.Total++
+	case a.Valid:
+		s.Total++
+	}
+}
+
+// closeShares computes the shares and the 2% limit; it reports whether
+// every participant is within it.
+func closeShares(shares []InvalidShare) bool {
+	all := true
+	for i := range shares {
+		s := &shares[i]
+		if s.Total > 0 {
+			s.Share = float64(s.Invalid) / float64(s.Total)
+		}
+		s.Passed = s.Invalid*percent <= s.Total*maxInvalidPercent
+		all = all && s.Passed
+	}
+	return all
+}
+
+// invalidReason names the first participant over the invalid limit.
+func invalidReason(shares []InvalidShare, where string) string {
+	for _, s := range shares {
+		if !s.Passed {
+			return fmt.Sprintf("invalid: %s %d of %d%s", s.Participant, s.Invalid, s.Total, where)
+		}
+	}
+	return ""
+}
+
+// judgeInvalid is each judge's invalid share on the measured items.
+func judgeInvalid(scope []*Item) ([]InvalidShare, bool) {
+	shares := []InvalidShare{{Participant: slotJudgeA}, {Participant: slotJudgeB}}
+	for _, it := range scope {
+		for j := range it.Judges {
+			countInvalid(&shares[j], it.Judges[j])
+		}
+	}
+	return shares, closeShares(shares)
+}
+
+// comboInvalid is each production participant's invalid share in a combo.
+func comboInvalid(c Combo, scope []*Item) ([]InvalidShare, bool) {
+	shares := []InvalidShare{{Participant: slotProductionA}, {Participant: slotProductionB}}
+	for _, it := range scope {
+		ans, ok := candidates(it, c)
+		if !ok {
+			continue
+		}
+		for p := range ans {
+			countInvalid(&shares[p], ans[p])
+		}
+	}
+	return shares, closeShares(shares)
 }
 
 // evidenceReasons lists the participants without the full evidence of a
@@ -343,8 +507,13 @@ func agreed(ans *[2]Answer, ok bool) string {
 }
 
 // evaluateStratum measures every combo and decides the arm and batch size.
+// A combo is eligible only when both production participants answered it
+// validly enough on the stratum's items, the stratum only when both judges
+// did.
 func evaluateStratum(combos []Combo, all []*Item) (StratumReport, StratumDecision) {
 	scope, report := stratumScope(all)
+	judgesPassed := false
+	report.JudgeInvalid, judgesPassed = judgeInvalid(scope)
 	for _, c := range combos {
 		report.Combos[comboKey(c)] = measure(c, scope)
 	}
@@ -355,7 +524,20 @@ func evaluateStratum(combos []Combo, all []*Item) (StratumReport, StratumDecisio
 			options[b] = o
 		}
 	}
-	return report, chooseBatch(batches, options)
+	if !judgesPassed {
+		return report, StratumDecision{Reason: invalidReason(report.JudgeInvalid, "")}
+	}
+	decision := chooseBatch(batches, options)
+	if !decision.Passed {
+		decision.Reason = "gate: no combo passed"
+		for _, c := range combos {
+			if m := report.Combos[comboKey(c)]; m.ErrorsPassed && !m.InvalidPassed {
+				decision.Reason = invalidReason(m.Invalid, " in "+comboKey(c))
+				break
+			}
+		}
+	}
+	return report, decision
 }
 
 // stratumScope splits a stratum into the measured items — the holdout, or
@@ -493,7 +675,9 @@ func measure(c Combo, scope []*Item) ComboMetrics {
 		}
 	}
 	g := gate(acc, m.AllowedTiers)
-	m.UpperBound, m.Passed, m.AllowedAccepted, m.AllowedErrors = g.upper, g.passed, g.accepted, g.errors
+	m.UpperBound, m.ErrorsPassed, m.AllowedAccepted, m.AllowedErrors = g.upper, g.passed, g.accepted, g.errors
+	m.Invalid, m.InvalidPassed = comboInvalid(c, scope)
+	m.Passed = m.ErrorsPassed && m.InvalidPassed
 	return m
 }
 

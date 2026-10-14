@@ -441,13 +441,13 @@ func AuthorLLMEvalAnswers(ctx context.Context, db pg.DBI, runID int64) ([]Author
 	return rows, nil
 }
 
-// AuthorLLMEvalPriorFullRuns counts the completed full eval reports of
+// AuthorLLMEvalPriorFullRuns counts the full eval runs with a report of
 // configurations with this prompt: the report names which attempt on the same
-// holdout this is.
+// holdout this is. A run's recomputed versions count once.
 func AuthorLLMEvalPriorFullRuns(ctx context.Context, db pg.DBI, version string) (int, error) {
 	var n int
 	_, err := db.QueryOneContext(ctx, pg.Scan(&n), `
-		SELECT count(*) FROM author_llm_eval_report r
+		SELECT count(DISTINCT r.run_id) FROM author_llm_eval_report r
 		JOIN author_llm_run run ON run.id = r.run_id
 		JOIN author_llm_config c ON c.version = r.config_version
 		WHERE run.mode = 'full'
@@ -521,7 +521,7 @@ func StoreAuthorLLMEvalReportOf(ctx context.Context, db *pg.DB, runID int64, ver
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO author_llm_eval_report (run_id, config_version, report, report_sha256)
 			VALUES (?0, ?1, ?2::jsonb, sha256(convert_to((?2::jsonb)::text, 'UTF8')))
-			ON CONFLICT (run_id) DO NOTHING`, runID, version, string(report)); err != nil {
+			ON CONFLICT (run_id, version) DO NOTHING`, runID, version, string(report)); err != nil {
 			return fmt.Errorf("storing an eval report: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx, `
@@ -613,27 +613,152 @@ func AuthorLLMEvalSkips(ctx context.Context, db pg.DBI, runID int64, versions []
 	return rows, nil
 }
 
-// AuthorLLMEvalReport is a stored report: its text form and digest.
+// AuthorLLMEvalReport is a stored report version: its text form and digest.
 type AuthorLLMEvalReport struct {
 	ID            int64     `pg:"id"`
 	RunID         int64     `pg:"run_id"`
 	ConfigVersion string    `pg:"config_version"`
+	Version       int       `pg:"version"`
 	Report        string    `pg:"report"`
 	ReportSHA256  []byte    `pg:"report_sha256"`
 	CreatedAt     time.Time `pg:"created_at"`
 }
 
-// GetAuthorLLMEvalReport reads a run's report for download: the text whose
-// SHA-256 is the stored digest.
+const evalReportColumns = `id, run_id, config_version, version, report::text AS report, report_sha256, created_at`
+
+// GetAuthorLLMEvalReport reads a run's latest report version for download:
+// the text whose SHA-256 is the stored digest.
 func GetAuthorLLMEvalReport(ctx context.Context, db pg.DBI, runID int64) (*AuthorLLMEvalReport, error) {
+	return GetAuthorLLMEvalReportVersion(ctx, db, runID, 0)
+}
+
+// GetAuthorLLMEvalReportVersion reads one version of a run's report; version
+// 0 is the latest.
+func GetAuthorLLMEvalReportVersion(ctx context.Context, db pg.DBI, runID int64, version int) (*AuthorLLMEvalReport, error) {
 	var r AuthorLLMEvalReport
 	_, err := db.QueryOneContext(ctx, &r, `
-		SELECT id, run_id, config_version, report::text AS report, report_sha256, created_at
-		FROM author_llm_eval_report WHERE run_id = ?0`, runID)
+		SELECT `+evalReportColumns+` FROM author_llm_eval_report
+		WHERE run_id = ?0 AND (?1 = 0 OR version = ?1)
+		ORDER BY version DESC LIMIT 1`, runID, version)
 	if err != nil {
 		return nil, fmt.Errorf("reading an eval report: %w", err)
 	}
 	return &r, nil
+}
+
+// AuthorLLMEvalReportVersion is one version of a run's report as the card
+// lists it.
+type AuthorLLMEvalReportVersion struct {
+	ID           int64     `pg:"id"`
+	Version      int       `pg:"version"`
+	ReportSHA256 []byte    `pg:"report_sha256"`
+	Registrable  bool      `pg:"registrable"`
+	CreatedAt    time.Time `pg:"created_at"`
+}
+
+// AuthorLLMEvalReportVersions lists the versions of a run's report, oldest
+// first.
+func AuthorLLMEvalReportVersions(ctx context.Context, db pg.DBI, runID int64) ([]AuthorLLMEvalReportVersion, error) {
+	var out []AuthorLLMEvalReportVersion
+	if _, err := db.QueryContext(ctx, &out, `
+		SELECT id, version, report_sha256, created_at,
+			coalesce((report #>> '{evaluation,decision,registrable}')::boolean, false) AS registrable
+		FROM author_llm_eval_report WHERE run_id = ?0 ORDER BY version`, runID); err != nil {
+		return nil, fmt.Errorf("listing an eval report's versions: %w", err)
+	}
+	return out, nil
+}
+
+// The keys a report version adds to the computed report: its number and the
+// version it replaces. Two versions say the same when they are equal without
+// them.
+const (
+	evalReportVersionKey    = "report_version"
+	evalReportSupersedesKey = "supersedes"
+)
+
+// recomputeFence locks the run and checks, under the claim lock tx holds,
+// that it is a completed eval run of the configuration with nothing left to
+// answer and the re-learn generation the report was computed from.
+func recomputeFence(ctx context.Context, tx *pg.Tx, runID int64, version string, generation int64) error {
+	if _, err := lockAuthorLLMRuns(ctx, tx, authorLLMRunWrite, false, []int64{runID}); err != nil {
+		return err
+	}
+	var completed bool
+	if _, err := tx.QueryOneContext(ctx, pg.Scan(&completed), `
+		SELECT kind = 'eval' AND status = 'completed' AND config_version = ?1
+		FROM author_llm_run WHERE id = ?0`, runID, version); err != nil {
+		return fmt.Errorf("reading an eval run: %w", err)
+	}
+	if !completed {
+		return ErrAuthorLLMRunState
+	}
+	waits, err := AuthorLLMEvalRunWaits(ctx, tx, runID)
+	if err != nil {
+		return err
+	}
+	current, err := AuthorLLMRelearnGeneration(ctx, tx, runID)
+	if err != nil {
+		return err
+	}
+	if waits > 0 || current != generation {
+		return ErrAuthorLLMReportStale
+	}
+	return nil
+}
+
+// RecomputeAuthorLLMEvalReport stores a report computed again from a
+// completed eval run's answers as the run's next report version, citing the
+// version it replaces. It is fenced like the report stage
+// (StoreAuthorLLMEvalReportOf): under the claim lock and the run's lock the
+// run must be a completed eval run of the configuration (else
+// ErrAuthorLLMRunState), with nothing left to answer and the same re-learn
+// generation (else ErrAuthorLLMReportStale). A report that says what the
+// latest version says is not stored again: the latest version is returned,
+// with stored false.
+func RecomputeAuthorLLMEvalReport(
+	ctx context.Context, db *pg.DB, runID int64, version string, report []byte, generation int64,
+) (latest *AuthorLLMEvalReport, stored bool, err error) {
+	err = RunAuthorLLMTx(ctx, db, func(tx *pg.Tx) error {
+		stored = false
+		if _, lockErr := lockAuthorLLM(ctx, tx, nil); lockErr != nil {
+			return lockErr
+		}
+		if fenceErr := recomputeFence(ctx, tx, runID, version, generation); fenceErr != nil {
+			return fenceErr
+		}
+		prev, readErr := GetAuthorLLMEvalReport(ctx, tx, runID)
+		if readErr != nil {
+			return readErr
+		}
+		latest = prev
+		var same bool
+		if _, cmpErr := tx.QueryOneContext(ctx, pg.Scan(&same), `
+			SELECT (?0::jsonb - ?2 - ?3) = (?1::jsonb - ?2 - ?3)`,
+			prev.Report, string(report), evalReportVersionKey, evalReportSupersedesKey); cmpErr != nil {
+			return fmt.Errorf("comparing eval report versions: %w", cmpErr)
+		}
+		if same {
+			return nil
+		}
+		var next AuthorLLMEvalReport
+		if _, insErr := tx.QueryOneContext(ctx, &next, `
+			WITH doc AS (
+				SELECT (?2::jsonb - ?6 - ?7) || jsonb_build_object(?6, ?3::int, ?7,
+					jsonb_build_object('id', ?4::bigint, 'version', ?5::int, 'sha256', encode(?8::bytea, 'hex'))) AS report)
+			INSERT INTO author_llm_eval_report (run_id, config_version, version, report, report_sha256)
+			SELECT ?0, ?1, ?3, report, sha256(convert_to(report::text, 'UTF8')) FROM doc
+			RETURNING `+evalReportColumns, runID, prev.ConfigVersion, string(report), prev.Version+1, prev.ID,
+			prev.Version, evalReportVersionKey, evalReportSupersedesKey, prev.ReportSHA256); insErr != nil {
+			return fmt.Errorf("storing an eval report version: %w", insErr)
+		}
+		latest, stored = &next, true
+		return nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	return latest, stored, nil
 }
 
 // CreateAuthorLLMEvalRun records and starts an eval run at its first stage,
