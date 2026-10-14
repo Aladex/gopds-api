@@ -206,14 +206,38 @@ func TestAssembleSwapFromStructuredFields(t *testing.T) {
 }
 
 func TestAssembleParticleTailInSort(t *testing.T) {
-	// Сервантес Сааведра, Мигель де — a particle written lowercase in the
-	// source moves to the end of the sort name.
+	// Medici, Lorenzo dei — a particle written lowercase in the source moves
+	// to the end of the sort name. "dei" is outside the local normalizer's
+	// particle list, so V8 leaves the particle role to the models.
 	out := assembleOne(t,
-		[]FieldValue{{FieldFirst, "Сервантес Сааведра, Мигель де"}},
+		[]FieldValue{{FieldFirst, "Medici, Lorenzo dei"}},
 		&Reply{Form: FormPerson, Order: OrderFamilyFirst, CaseFix: []CaseFix{}, Roles: []RoleAssignment{
-			role(0, RoleFamily), role(1, RoleFamily), role(2, RoleSeparator),
-			role(3, RoleGiven), role(4, RoleParticle)}})
+			role(0, RoleFamily), role(1, RoleSeparator), role(2, RoleGiven), role(3, RoleParticle)}})
 
+	r := out.Result
+	if r.DisplayName != "Lorenzo dei Medici" {
+		t.Errorf("display = %q", r.DisplayName)
+	}
+	if r.SortName != "Medici, Lorenzo dei" {
+		t.Errorf("sort = %q", r.SortName)
+	}
+	if r.FamilyName != "Medici" {
+		t.Errorf("family = %q", r.FamilyName)
+	}
+}
+
+func TestAssembleListedParticleNeedsANameComponent(t *testing.T) {
+	// Сервантес Сааведра, Мигель де — "де" is a listed particle: the
+	// particle role would drop it from every name component (V8); kept with
+	// the given name, the sort name still ends with it.
+	fields := []FieldValue{{FieldFirst, "Сервантес Сааведра, Мигель де"}}
+	in := inputOf(t, fields...)
+	dropped := Reply{Form: FormPerson, Order: OrderFamilyFirst, CaseFix: []CaseFix{}, Roles: []RoleAssignment{
+		role(0, RoleFamily), role(1, RoleFamily), role(2, RoleSeparator), role(3, RoleGiven), role(4, RoleParticle)}}
+	checkViolation(t, dropped.Validate(&in), validatorV8)
+
+	out := assembleOne(t, fields, &Reply{Form: FormPerson, Order: OrderFamilyFirst, CaseFix: []CaseFix{}, Roles: []RoleAssignment{
+		role(0, RoleFamily), role(1, RoleFamily), role(2, RoleSeparator), role(3, RoleGiven), role(4, RoleGiven)}})
 	r := out.Result
 	if r.DisplayName != "Мигель де Сервантес Сааведра" {
 		t.Errorf("display = %q", r.DisplayName)
@@ -221,17 +245,22 @@ func TestAssembleParticleTailInSort(t *testing.T) {
 	if r.SortName != "Сервантес Сааведра, Мигель де" {
 		t.Errorf("sort = %q", r.SortName)
 	}
-	if r.FamilyName != "Сервантес Сааведра" {
-		t.Errorf("family = %q", r.FamilyName)
+	if r.FamilyName != "Сервантес Сааведра" || r.GivenName != "Мигель де" {
+		t.Errorf("fields = %q/%q", r.GivenName, r.FamilyName)
 	}
 }
 
 func TestAssembleCapitalizedParticleStaysWithFamily(t *testing.T) {
-	// Ле Гуин, Урсула — a capitalized particle stays with the family.
-	out := assembleOne(t,
-		[]FieldValue{{FieldFirst, "Ле Гуин, Урсула"}},
-		&Reply{Form: FormPerson, Order: OrderFamilyFirst, CaseFix: []CaseFix{}, Roles: []RoleAssignment{
-			role(0, RoleParticle), role(1, RoleFamily), role(2, RoleSeparator), role(3, RoleGiven)}})
+	// Ле Гуин, Урсула — a capitalized particle belongs to the family name;
+	// the particle role would leave the family name "Гуин" (V8).
+	fields := []FieldValue{{FieldFirst, "Ле Гуин, Урсула"}}
+	in := inputOf(t, fields...)
+	dropped := Reply{Form: FormPerson, Order: OrderFamilyFirst, CaseFix: []CaseFix{}, Roles: []RoleAssignment{
+		role(0, RoleParticle), role(1, RoleFamily), role(2, RoleSeparator), role(3, RoleGiven)}}
+	checkViolation(t, dropped.Validate(&in), validatorV8)
+
+	out := assembleOne(t, fields, &Reply{Form: FormPerson, Order: OrderFamilyFirst, CaseFix: []CaseFix{}, Roles: []RoleAssignment{
+		role(0, RoleFamily), role(1, RoleFamily), role(2, RoleSeparator), role(3, RoleGiven)}})
 
 	r := out.Result
 	if r.DisplayName != "Урсула Ле Гуин" {
@@ -240,8 +269,8 @@ func TestAssembleCapitalizedParticleStaysWithFamily(t *testing.T) {
 	if r.SortName != "Ле Гуин, Урсула" {
 		t.Errorf("sort = %q", r.SortName)
 	}
-	if r.FamilyName != "Гуин" {
-		t.Errorf("family = %q — particles are their own role", r.FamilyName)
+	if r.FamilyName != "Ле Гуин" {
+		t.Errorf("family = %q", r.FamilyName)
 	}
 }
 

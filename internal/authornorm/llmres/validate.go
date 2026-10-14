@@ -34,6 +34,7 @@ const (
 	validatorV5 = "V5"
 	validatorV6 = "V6"
 	validatorV7 = "V7"
+	validatorV8 = "V8"
 )
 
 // ValidateModelID is validator V0: the model id in the response must be one
@@ -55,6 +56,9 @@ type Input struct {
 
 	source  authornorm.SourceValue
 	defects map[int]authornorm.QualityFlag
+	// particles marks the letter-carrying tokens of the words the local
+	// normalizer classifies as name particles.
+	particles map[int]bool
 }
 
 // SourceFingerprint is the fingerprint of the source the request's fields
@@ -97,10 +101,18 @@ func NewInput(fields []FieldValue) (Input, error) {
 
 	var tokens []Token
 	defects := map[int]authornorm.QualityFlag{}
+	particles := map[int]bool{}
 	for _, f := range fields {
 		wordDefects := authornorm.WordCaseDefects(f.Text, displayWordCount)
 		for wi, word := range strings.Fields(f.Text) {
 			parts := splitWord(word)
+			if authornorm.ParticleWord(word, displayWordCount) {
+				for pi, part := range parts {
+					if strings.IndexFunc(part, unicode.IsLetter) >= 0 {
+						particles[len(tokens)+pi] = true
+					}
+				}
+			}
 			if flag, ok := wordDefects[wi]; ok {
 				// The defect belongs to the word's letter-carrying core token.
 				for pi, part := range parts {
@@ -115,19 +127,20 @@ func NewInput(fields []FieldValue) (Input, error) {
 			}
 		}
 	}
-	return Input{Tokens: tokens, source: v, defects: defects}, nil
+	return Input{Tokens: tokens, source: v, defects: defects, particles: particles}, nil
 }
 
 // Source returns the canonical source value the input was built from.
 func (in *Input) Source() authornorm.SourceValue { return in.source }
 
 // Validate runs the reply validators in order: V2 (coverage), V3 (filler and
-// separator constraints), V4 (case fixes), V5 (person grammar). V0 is a
+// separator constraints), V4 (case fixes), V5 (person grammar), V8 (name
+// particles). V0 is a
 // separate transport-level check and V1 is the parsing itself; V7 is the
 // assembly invariant. V6 — a non-person form claiming a name order — is gone
 // with the order: the order is computed, not answered.
 func (r *Reply) Validate(in *Input) error {
-	for _, check := range []func(*Input) error{r.checkV2, r.checkV3, r.checkV4, r.checkV5} {
+	for _, check := range []func(*Input) error{r.checkV2, r.checkV3, r.checkV4, r.checkV5, r.checkV8} {
 		if err := check(in); err != nil {
 			return err
 		}
@@ -379,6 +392,35 @@ func (r *Reply) checkAffixPositions(nameIdx []int) error {
 		}
 		if ra.Role == RoleSuffix && ra.I <= last {
 			return &Violation{Validator: validatorV5, Detail: "suffix before the last name token"}
+		}
+	}
+	return nil
+}
+
+// checkV8: a person keeps every name particle in a name component. A token
+// of a word the local normalizer classifies as a particle must take the
+// family role or the role of the FB2 field it came from (given for first,
+// additional for middle, family for last, nickname for nickname). The
+// particle role puts the token in no component at all — "Le" of "Le Guin"
+// would vanish from the family name — so it is invalid for such a token, and
+// so is any other move. A word that only looks like a particle and is a
+// given name ("Ben" in the first field) keeps its own field's role.
+func (r *Reply) checkV8(in *Input) error {
+	if r.Form != FormPerson {
+		return nil
+	}
+	own := map[Field]Role{
+		FieldFirst:    RoleGiven,
+		FieldMiddle:   RoleAdditional,
+		FieldLast:     RoleFamily,
+		FieldNickname: RoleNickname,
+	}
+	for _, ra := range r.Roles {
+		if ra.I < 0 || ra.I >= len(in.Tokens) || !in.particles[ra.I] {
+			continue
+		}
+		if ra.Role != RoleFamily && ra.Role != own[in.Tokens[ra.I].Field] {
+			return &Violation{Validator: validatorV8, Detail: fmt.Sprintf("particle token %d left out of the family and its own field", ra.I)}
 		}
 	}
 	return nil

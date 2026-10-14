@@ -73,3 +73,12 @@ func WordCaseDefects(value string, displayWordCount int) map[int]QualityFlag {
 func IsInitialToken(token string) bool {
 	return isInitialToken(token)
 }
+
+// ParticleWord reports whether NormalizerVersion v1 classifies a white-space
+// word as a name particle — the classification behind FlagParticle: a word
+// glued to a particle prefix ("d'Artagnan"), or a standalone particle ("Le",
+// "фон") when the display has more than one word. displayWordCount is the
+// word count of the whole display, as in WordCaseDefects.
+func ParticleWord(word string, displayWordCount int) bool {
+	return classifyToken(word, displayWordCount).particle
+}

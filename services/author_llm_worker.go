@@ -71,12 +71,15 @@ const (
 	authorLLMPollInterval = 5 * time.Second
 	authorLLMLeaseMargin  = time.Minute
 	authorLLMBaseBackoff  = 5 * time.Second
-	// authorLLMTransientWindow: a job retries transient failures for 45
-	// minutes at least. Run 15's 503 burst lasted about 7; eval runs saw
-	// hundreds an hour. Longer outages pause nothing but the job; the
-	// participant is throttled meanwhile, and the next resolve run asks a
-	// still-failed input again.
-	authorLLMTransientWindow = 45 * time.Minute
+	// authorLLMTransientWindow: a job retries transient failures for a day
+	// at least. Run 16's judge, throttled to one concurrent call by a
+	// persistent 503, ran 47 jobs past the former 45 minutes; a full run may
+	// take as long as it needs, so a slow but working provider must not fail
+	// items. A day outlasts a throttled participant and an overnight outage
+	// and still ends a job whose provider is gone. The participant is
+	// throttled meanwhile, and the next resolve run asks a still-failed
+	// input again.
+	authorLLMTransientWindow = 24 * time.Hour
 	authorLLMMaxBackoff      = 5 * time.Minute
 	// authorLLMTierClass is the decision class an attempt's reply is
 	// assembled under: the assembly gives the tier, and the class of the
