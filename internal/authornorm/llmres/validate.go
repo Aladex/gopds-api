@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unicode"
 
 	"golang.org/x/text/cases"
@@ -397,6 +398,16 @@ func (r *Reply) checkAffixPositions(nameIdx []int) error {
 	return nil
 }
 
+// CheckParticles is V8 alone: it checks a reply stored before V8 existed
+// against the particle rule. Like V8 inside Validate it relies on the role
+// coverage V2 checked when the reply was answered.
+func (r *Reply) CheckParticles(in *Input) error { return r.checkV8(in) }
+
+// TestHookSkipV8, while true, makes V8 accept every reply: a test seam that
+// plays a binary built before V8 (resolve runs 15 and 16), so the real
+// pipeline stores the rows that binary stored. Production code never sets it.
+var TestHookSkipV8 atomic.Bool
+
 // checkV8: a person keeps every name particle in a name component. A token
 // of a word the local normalizer classifies as a particle must take the
 // family role or the role of the FB2 field it came from (given for first,
@@ -406,7 +417,7 @@ func (r *Reply) checkAffixPositions(nameIdx []int) error {
 // so is any other move. A word that only looks like a particle and is a
 // given name ("Ben" in the first field) keeps its own field's role.
 func (r *Reply) checkV8(in *Input) error {
-	if r.Form != FormPerson {
+	if r.Form != FormPerson || TestHookSkipV8.Load() {
 		return nil
 	}
 	own := map[Field]Role{

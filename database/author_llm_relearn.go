@@ -176,9 +176,11 @@ func resumeAuthorLLMParticipantTx(ctx context.Context, tx *pg.Tx, r *AuthorLLMRe
 		WHERE config_version = ?0 AND slot = ?1 FOR UPDATE`, r.ConfigVersion, string(r.Slot)); err != nil {
 		return false, fmt.Errorf("reading the participant state: %w", err)
 	}
-	// The resume also starts the participant's run of rejected items again.
+	// The resume also starts the participant's run of rejected items, and
+	// the window of its failing checks, again.
 	if liftErr := execAuthorLLM(ctx, tx, `UPDATE author_llm_provider_state
-		SET paused_reason = NULL, paused_at = NULL, rejected_items = '{}'
+		SET paused_reason = NULL, paused_at = NULL, rejected_items = '{}', check_failures = 0,
+			check_failing_since = NULL
 		WHERE config_version = ?0 AND slot = ?1`, r.ConfigVersion, string(r.Slot)); liftErr != nil {
 		return false, liftErr
 	}

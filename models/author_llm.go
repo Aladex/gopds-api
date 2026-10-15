@@ -141,6 +141,10 @@ const (
 	// AuthorLLMPausedRelearnUnstable: a drifted participant's re-learn did not
 	// settle (its calls disagreed, or no output mode worked) — migration 35.
 	AuthorLLMPausedRelearnUnstable AuthorLLMPauseReason = "relearn_unstable"
+	// AuthorLLMPausedCheckUnavailable: the participant's fingerprint check
+	// kept failing transiently past the transient window — migration 40.
+	// Its answers stay unconfirmed until a resumed check passes.
+	AuthorLLMPausedCheckUnavailable AuthorLLMPauseReason = "check_unavailable"
 	// AuthorLLMPausedQuotaExhausted pauses the endpoint, not a participant:
 	// every configuration calling it.
 	AuthorLLMPausedQuotaExhausted AuthorLLMPauseReason = "quota_exhausted"
@@ -239,6 +243,10 @@ type AuthorLLMProviderState struct {
 	LastCheckPassedAt  *time.Time `pg:"last_check_passed_at"`
 	CheckSeq           int64      `pg:"check_seq,use_zero"`
 	CheckCallID        *int64     `pg:"check_call_id"`
+	// CheckFailures counts the participant's consecutive failed checks
+	// since CheckFailingSince, the first of them (migration 40).
+	CheckFailures     int        `pg:"check_failures,use_zero"`
+	CheckFailingSince *time.Time `pg:"check_failing_since"`
 	// RejectedItems are the distinct items the provider rejected since the
 	// participant's last answered call or bad_request pause.
 	RejectedItems []string  `pg:"rejected_items,array"`

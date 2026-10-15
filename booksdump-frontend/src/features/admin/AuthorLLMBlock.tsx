@@ -108,6 +108,11 @@ const participantPause = (t: T, reason: string): string => {
                 'authorLLM.pause.relearn_unstable',
                 'the re-learned model kept changing — Continue tries to re-learn it again',
             );
+        case 'check_unavailable':
+            return t(
+                'authorLLM.pause.check_unavailable',
+                'the model check kept failing for a day — Continue checks it again',
+            );
         case 'auth':
             return t('authorLLM.pause.auth', 'the provider refuses the key');
         case 'bad_request':

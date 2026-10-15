@@ -628,6 +628,7 @@
   "authorLLM.pause": "Pause",
   "authorLLM.pause.auth": "the provider refuses the key",
   "authorLLM.pause.bad_request": "the provider rejects the requests",
+  "authorLLM.pause.check_unavailable": "the model check kept failing for a day — Continue checks it again",
   "authorLLM.pause.drift": "the provider switched the model — Continue re-learns it and asks its answers again",
   "authorLLM.pause.model_mismatch": "the model answers differently than at the check — auto-acceptance stopped",
   "authorLLM.pause.other": "paused",

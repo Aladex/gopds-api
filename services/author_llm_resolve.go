@@ -351,6 +351,15 @@ func (d *AuthorLLMResolveDriver) enqueue(ctx context.Context, run *resolveRun) e
 		}
 		asked = append(asked, *it)
 	}
+	if err := d.enqueueJobs(ctx, run, asked); err != nil {
+		return err
+	}
+	return d.reopenHeld(ctx, run)
+}
+
+// enqueueJobs enqueues the production pair's jobs of the inputs the run
+// asks.
+func (d *AuthorLLMResolveDriver) enqueueJobs(ctx context.Context, run *resolveRun, asked []populationItem) error {
 	for start := 0; start < len(asked); start += resolveEnqueueChunk {
 		chunk := asked[start:min(start+resolveEnqueueChunk, len(asked))]
 		pair := []llmreq.Slot{llmreq.SlotProductionA, llmreq.SlotProductionB}
@@ -368,6 +377,52 @@ func (d *AuthorLLMResolveDriver) enqueue(ctx context.Context, run *resolveRun) e
 			}
 		}
 		if _, err := database.EnqueueAuthorLLMReviewJobs(ctx, d.db, run.ID, jobs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// reopenHeld gives the inputs the particle rule holds their review back
+// where an earlier binary took it: run 17 closed its V8 rejections with the
+// credits unresolved llm_invalid, and runs 15 and 16 selected results whose
+// reply dropped the particle. The resolver puts the credits back in review
+// on the local proposal and opens the review item; the input is not asked
+// again. Each reopen runs under the run's lock — a paused or closed run
+// reopens nothing — and the input's, and checks again that the input is
+// still eligible (an admin may have decided it since). It runs after the
+// jobs are enqueued, so a reopened input takes no place in the run's sample.
+func (d *AuthorLLMResolveDriver) reopenHeld(ctx context.Context, run *resolveRun) error {
+	held, err := database.AuthorLLMHeldInputs(ctx, d.db)
+	if err != nil {
+		return err
+	}
+	for i := range held {
+		h := &held[i]
+		out := &database.AutomaticOutcome{ResultID: h.ProposalResultID, DecisionClass: authornorm.DecisionClass(h.DecisionClass),
+			LLM: true, Decision: authornorm.Decision{Outcome: authornorm.OutcomeReview}}
+		err = d.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+			running, lockErr := database.LockAuthorLLMRunRunning(ctx, tx, run.ID)
+			if lockErr != nil {
+				return lockErr
+			}
+			if !running {
+				return errResolveRunNotRunning
+			}
+			if lockErr := database.LockNormalizationInput(ctx, tx, h.SourceFingerprint, h.ExtractorVersion); lockErr != nil {
+				return lockErr
+			}
+			eligible, checkErr := database.AuthorLLMHeldInputEligible(ctx, tx, h.SourceFingerprint, h.ExtractorVersion)
+			if checkErr != nil || !eligible {
+				return checkErr
+			}
+			_, resolveErr := database.ResolveCredits(ctx, tx, h.SourceFingerprint, h.ExtractorVersion, out)
+			return resolveErr
+		})
+		if errors.Is(err, errResolveRunNotRunning) {
+			return nil
+		}
+		if err != nil {
 			return err
 		}
 	}
@@ -530,9 +585,11 @@ func (d *AuthorLLMResolveDriver) apply(ctx context.Context, run *resolveRun, v *
 		if err != nil {
 			return err
 		}
-		if settlement.Reason != nil && models.AuthorLLMTransientOutcome(*settlement.Reason) {
+		if settlement.KeepReview || (settlement.Reason != nil && models.AuthorLLMTransientOutcome(*settlement.Reason)) {
 			// A transient failure decides nothing: the review stays open
 			// and the credits as they are, and the next run asks again.
+			// Nor does a verdict the particle rule holds, which stays
+			// final: the input is left to manual review.
 			_, err = database.SettleAuthorLLMVerdict(ctx, tx, v.ID, settlement)
 			return err
 		}
@@ -564,6 +621,15 @@ func (d *AuthorLLMResolveDriver) decide(
 		}
 		return s, &database.AutomaticOutcome{ResultID: *v.ProposalResultID, DecisionClass: base, LLM: true,
 			Decision: authornorm.Decision{Outcome: authornorm.OutcomeUnresolved, Reason: authornorm.UnresolvedReason(r)}}, nil
+	}
+	if v.ParticleHeld() {
+		// V8 refused the pair's or a judge's replies, or refuses the
+		// agreed reply now: settled for the report, left to manual review.
+		reason := string(models.UnresolvedLLMInvalid)
+		if verdictReason(v) == models.UnresolvedLLMJudgeInvalid {
+			reason = string(models.UnresolvedLLMJudgeInvalid)
+		}
+		return &database.AuthorLLMVerdictApplication{Reason: &reason, Stratum: stratum, KeepReview: true}, nil, nil
 	}
 	if reason := verdictReason(v); reason != "" {
 		return unresolved(reason)

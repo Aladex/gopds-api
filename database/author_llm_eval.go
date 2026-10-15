@@ -806,16 +806,22 @@ func StartAuthorLLMEvalRun(
 
 // liftRunBoundPauses lifts the participant pauses a new run does not inherit:
 // a rejected request format (the eval negotiates the mode again), and a
-// drift or an unsettled re-learn (the run checks or learns its own
-// fingerprints).
+// drift, an unsettled re-learn or a check that kept failing (the run checks
+// or learns its own fingerprints). The window of failing checks starts again
+// with the run.
 func liftRunBoundPauses(ctx context.Context, tx *pg.Tx, version string) (int, error) {
 	res, err := tx.ExecContext(ctx, `
 		UPDATE author_llm_provider_state SET paused_reason = NULL, paused_at = NULL
 		WHERE config_version = ?0 AND paused_reason IN (?1)`, version, pg.In([]string{
 		string(models.AuthorLLMPausedBadRequest), string(models.AuthorLLMPausedDrift),
-		string(models.AuthorLLMPausedRelearnUnstable)}))
+		string(models.AuthorLLMPausedRelearnUnstable), string(models.AuthorLLMPausedCheckUnavailable)}))
 	if err != nil {
 		return 0, fmt.Errorf("lifting the run-bound pauses: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, `
+		UPDATE author_llm_provider_state SET check_failures = 0, check_failing_since = NULL
+		WHERE config_version = ?0 AND check_failures > 0`, version); err != nil {
+		return 0, fmt.Errorf("starting the failing checks' window again: %w", err)
 	}
 	return res.RowsAffected(), nil
 }

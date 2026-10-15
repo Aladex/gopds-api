@@ -907,6 +907,14 @@ func settleAuthorLLMFingerprint(ctx context.Context, tx *pg.Tx, call *settledCal
 	if !current {
 		return nil
 	}
+	if s.Outcome == models.AuthorLLMCallAnswered {
+		// The endpoint answered the check: its failure count ends.
+		if err := execAuthorLLM(ctx, tx, `UPDATE author_llm_provider_state
+			SET check_failures = 0, check_failing_since = NULL
+			WHERE config_version = ?0 AND slot = ?1 AND check_failures > 0`, call.ConfigVersion, call.Slot); err != nil {
+			return err
+		}
+	}
 	// A check of a participant re-learning its fingerprint measures; it
 	// does not compare with the reference being replaced.
 	rl, err := latestAuthorLLMRelearn(ctx, tx, call.RunID, call.Slot)
@@ -925,6 +933,15 @@ func settleAuthorLLMFingerprint(ctx context.Context, tx *pg.Tx, call *settledCal
 		}
 		if report.Paused != "" {
 			return nil
+		}
+		if s.Outcome != models.AuthorLLMCallAnswered && !isEndpointStateClass(s.ErrorClass) {
+			exhausted, err := countAuthorLLMCheckFailure(ctx, tx, call, s, now)
+			if err != nil {
+				return err
+			}
+			if exhausted {
+				return pauseAuthorLLMParticipant(ctx, tx, call, models.AuthorLLMPausedCheckUnavailable, now, report)
+			}
 		}
 		_, err := tx.ExecContext(ctx, `
 			UPDATE author_llm_provider_state
@@ -952,6 +969,29 @@ func settleAuthorLLMFingerprint(ctx context.Context, tx *pg.Tx, call *settledCal
 		return err
 	}
 	return driftAuthorLLMParticipant(ctx, tx, call, now, report)
+}
+
+// countAuthorLLMCheckFailure counts a check that got no usable response — a
+// transient failure or a malformed body; the endpoint's own state (429,
+// auth, quota, a bad request) has its own throttle or pause. It reports
+// whether the check is exhausted the way a job is (authorLLMTransientExhausted):
+// this is its MaxAttempts-th failure or later, and the transient window since
+// the first has passed. Without the bound a check that kept failing was sent
+// again after every throttle and the run never finished (review B3 of
+// 9cc500c).
+func countAuthorLLMCheckFailure(ctx context.Context, tx *pg.Tx, call *settledCall, s *AuthorLLMSettlement,
+	now time.Time) (bool, error) {
+	var exhausted bool
+	if _, err := tx.QueryOneContext(ctx, pg.Scan(&exhausted), `
+		UPDATE author_llm_provider_state
+		SET check_failures = check_failures + 1, check_failing_since = coalesce(check_failing_since, ?2::timestamptz)
+		WHERE config_version = ?0 AND slot = ?1
+		RETURNING check_failures >= ?3
+			AND check_failing_since <= ?2::timestamptz - ?4 * interval '1 microsecond'`,
+		call.ConfigVersion, call.Slot, now, s.MaxAttempts, micros(s.TransientWindow)); err != nil {
+		return false, fmt.Errorf("counting a failed fingerprint check: %w", err)
+	}
+	return exhausted, nil
 }
 
 // driftAuthorLLMParticipant pauses a participant whose fingerprint changed and

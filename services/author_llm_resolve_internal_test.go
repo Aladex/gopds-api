@@ -23,11 +23,12 @@ func TestResolveDecideRefusesAnotherScript(t *testing.T) {
 		{Field: llmres.FieldLast, Text: "Smith"}}, Flags: []string{}}
 	class, script, confirmed, tier, arm := "initials", "Cyrl", string(models.AuthorLLMJudgementConfirmed), "confirm", "A"
 	v := &database.AuthorLLMVerdictToApply{
-		ID: 1, SourceFingerprint: bytes.Repeat([]byte{7}, 32), ExtractorVersion: "x1", Verdict: "agree", Tier: &tier,
+		ID: 1, SourceFingerprint: bytes.Repeat([]byte{7}, 32), ExtractorVersion: "x1", Tier: &tier,
 		ContextStateA: "none", ContextStateB: "none", Arm: &arm, BatchSize: 1, Judgement: &confirmed,
 		DecisionClass: &class, ProposalScript: &script,
-		Reply: []byte(`{"form":"person","roles":[{"i":0,"role":"given"},{"i":1,"role":"additional"},` +
-			`{"i":2,"role":"family"}],"case_fix":[]}`),
+		AuthorLLMParticleEvidence: database.AuthorLLMParticleEvidence{Verdict: "agree",
+			Reply: []byte(`{"form":"person","roles":[{"i":0,"role":"given"},{"i":1,"role":"additional"},` +
+				`{"i":2,"role":"family"}],"case_fix":[]}`)},
 	}
 	run := &resolveRun{Plan: database.AuthorLLMResolveSettings{Strata: map[string]database.AuthorLLMResolveStratum{
 		"initials.cyrl": {Class: "initials", Script: "Cyrl", Arm: "A", ItemsPerRequest: 1,
@@ -71,11 +72,12 @@ func TestResolveDecideRefusesAnotherArmOrBatch(t *testing.T) {
 		batch int
 	}{"another arm": {"B", 2}, "another batch": {"A", 1}} {
 		v := &database.AuthorLLMVerdictToApply{
-			ID: 1, SourceFingerprint: bytes.Repeat([]byte{7}, 32), ExtractorVersion: "x1", Verdict: "agree", Tier: &tier,
+			ID: 1, SourceFingerprint: bytes.Repeat([]byte{7}, 32), ExtractorVersion: "x1", Tier: &tier,
 			ContextStateA: "none", ContextStateB: "none", Arm: &c.arm, BatchSize: c.batch, Judgement: &confirmed,
 			DecisionClass: &class, ProposalScript: &script,
-			Reply: []byte(`{"form":"person","roles":[{"i":0,"role":"given"},{"i":1,"role":"additional"},` +
-				`{"i":2,"role":"family"}],"case_fix":[]}`),
+			AuthorLLMParticleEvidence: database.AuthorLLMParticleEvidence{Verdict: "agree",
+				Reply: []byte(`{"form":"person","roles":[{"i":0,"role":"given"},{"i":1,"role":"additional"},` +
+					`{"i":2,"role":"family"}],"case_fix":[]}`)},
 		}
 		s, _, err := d.decide(context.Background(), nil, run, v, &input)
 		require.NoError(t, err, name)

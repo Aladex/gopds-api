@@ -648,6 +648,13 @@ func claimAuthorLLMFingerprint(
 	}, "", nil
 }
 
+// authorLLMCheckExhausted is the condition, in the abandonment's update of
+// a participant (alias p, columns before the update), that an abandoned
+// check exhausts it: its MaxAttempts-th (?1) failure or later, and the window
+// (?4, microseconds) since the first has passed (now is ?0).
+const authorLLMCheckExhausted = `p.check_failures + 1 >= ?1
+	AND coalesce(p.check_failing_since, ?0::timestamptz) <= ?0::timestamptz - ?4 * interval '1 microsecond'`
+
 // abandonExpiredAuthorLLMCalls closes every call whose lease ran out: the
 // process that sent it died or hung between the request and its settle. The
 // call keeps its reserve — the hard bound of what it could cost — as spent
@@ -678,8 +685,15 @@ func abandonExpiredAuthorLLMCalls(
 			RETURNING a.job_id
 		), checks AS (
 			-- An abandoned check is no longer in flight; the next claim
-			-- sends another.
-			UPDATE author_llm_provider_state p SET check_call_id = NULL
+			-- sends another. It counts as a failed check: past the
+			-- window the participant is paused, as the settle does it.
+			UPDATE author_llm_provider_state p SET check_call_id = NULL,
+				check_failures = p.check_failures + 1,
+				check_failing_since = coalesce(p.check_failing_since, ?0::timestamptz),
+				paused_reason = CASE WHEN p.paused_reason IS NULL AND `+authorLLMCheckExhausted+`
+					THEN ?5 ELSE p.paused_reason END,
+				paused_at = CASE WHEN p.paused_reason IS NULL AND `+authorLLMCheckExhausted+`
+					THEN ?0::timestamptz ELSE p.paused_at END
 			FROM closed WHERE p.check_call_id = closed.id
 			RETURNING p.slot
 		), requeued AS (
@@ -695,7 +709,8 @@ func abandonExpiredAuthorLLMCalls(
 			RETURNING j.id, j.status
 		)
 		SELECT id FROM requeued WHERE status = 'failed'`,
-		now, maxAttempts, authorLLMLeaseExpired, pg.In(runIDs), micros(window))
+		now, maxAttempts, authorLLMLeaseExpired, pg.In(runIDs), micros(window),
+		string(models.AuthorLLMPausedCheckUnavailable))
 	if err != nil {
 		return fmt.Errorf("closing abandoned LLM calls: %w", err)
 	}

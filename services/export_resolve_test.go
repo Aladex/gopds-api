@@ -69,3 +69,12 @@ func SetResolveEnqueuePlannedHookForTest(t *testing.T, fn func()) {
 	resolveEnqueuePlannedHook = fn
 	t.Cleanup(func() { resolveEnqueuePlannedHook = previous })
 }
+
+// OnApplyForTest calls fn with each verdict's input right before the resolve
+// driver applies it, until the test ends.
+func OnApplyForTest(t *testing.T, fn func(input *llmreq.ItemInput)) {
+	t.Helper()
+	previous := applyHook
+	applyHook = fn
+	t.Cleanup(func() { applyHook = previous })
+}

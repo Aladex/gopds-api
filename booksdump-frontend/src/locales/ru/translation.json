@@ -632,6 +632,7 @@
   "authorLLM.pause": "Пауза",
   "authorLLM.pause.auth": "провайдер не принимает ключ",
   "authorLLM.pause.bad_request": "провайдер отклоняет запросы",
+  "authorLLM.pause.check_unavailable": "проверка модели сутки не проходила — «Продолжить» проверит её снова",
   "authorLLM.pause.drift": "провайдер подменил модель — «Продолжить» заново изучит её и переспросит её ответы",
   "authorLLM.pause.model_mismatch": "модель отвечает не так, как на проверке — автопринятие остановлено",
   "authorLLM.pause.other": "на паузе",

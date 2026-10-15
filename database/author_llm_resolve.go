@@ -493,17 +493,17 @@ type AuthorLLMVerdictToApply struct {
 	ID                int64   `pg:"id"`
 	SourceFingerprint []byte  `pg:"source_fingerprint"`
 	ExtractorVersion  string  `pg:"extractor_version"`
-	Verdict           string  `pg:"verdict"`
 	Tier              *string `pg:"tier"`
 	// The context state of each production job: the excerpt each
 	// participant actually answered with.
-	ContextStateA string          `pg:"context_state_a"`
-	ContextStateB string          `pg:"context_state_b"`
-	Judgement     *string         `pg:"judgement"`
-	Reply         json.RawMessage `pg:"reply"`
-	Input         json.RawMessage `pg:"input"`
-	Arm           *string         `pg:"arm"`
-	BatchSize     int             `pg:"batch_size"`
+	ContextStateA string  `pg:"context_state_a"`
+	ContextStateB string  `pg:"context_state_b"`
+	Judgement     *string `pg:"judgement"`
+	// The pair's comparison, its agreed reply and input, and whether a V8
+	// rejection made the verdict invalid: the particle hold's evidence.
+	AuthorLLMParticleEvidence
+	Arm       *string `pg:"arm"`
+	BatchSize int     `pg:"batch_size"`
 	// The local proposal of the input's latest ambiguous review item.
 	DecisionClass    *string  `pg:"decision_class"`
 	ProposalResultID *int64   `pg:"proposal_result_id"`
@@ -517,8 +517,9 @@ func AuthorLLMVerdictsToApply(ctx context.Context, db pg.DBI, runID int64, limit
 	var rows []AuthorLLMVerdictToApply
 	_, err := db.QueryContext(ctx, &rows, `
 		SELECT v.id, v.source_fingerprint, v.extractor_version, v.verdict, v.tier, j.context_state AS context_state_a,
-			jb.context_state AS context_state_b, v.judgement, a.reply, j.input, j.arm, j.batch_size, i.decision_class,
-			i.proposal_result_id, r.script, r.quality_flags
+			jb.context_state AS context_state_b, v.judgement, a.reply, j.input, `+authorLLMParticleRejectedSQL+`
+				AS particle_rejected, j.arm, j.batch_size, i.decision_class, i.proposal_result_id, r.script,
+			r.quality_flags
 		FROM author_llm_verdict v
 		JOIN author_llm_job j ON j.id = v.job_a_id
 		JOIN author_llm_job jb ON jb.id = v.job_b_id
@@ -595,6 +596,9 @@ type AuthorLLMVerdictApplication struct {
 	PolicyVersion *string
 	Reason        *string
 	Stratum       string
+	// KeepReview: the application leaves the input's credits and review as
+	// they are — the particle rule holds the verdict for manual review.
+	KeepReview bool
 }
 
 // SettleAuthorLLMVerdict records how a confirmed verdict was applied. A
@@ -654,17 +658,24 @@ type AuthorLLMOutcome struct {
 	DecisionClass *string `pg:"decision_class"`
 	PolicyVersion *string `pg:"policy_version"`
 	Reason        *string `pg:"outcome_reason"`
+	AuthorLLMParticleEvidence
 }
 
 // SettledAuthorLLMOutcome is the latest applied LLM decision on an input of
 // any configuration; nil when the LLM layer has not decided it (an
 // application that failed, a gone input or a transient failure decides
-// nothing).
+// nothing), or when the particle rule holds that decision for manual review
+// (a V8 rejection, or a stored reply that fails V8 now): its result is not
+// reused and its reason not inherited.
 func SettledAuthorLLMOutcome(ctx context.Context, db pg.DBI, fingerprint []byte, extractorVersion string) (*AuthorLLMOutcome, error) {
 	var out AuthorLLMOutcome
 	_, err := db.QueryOneContext(ctx, &out, `
-		SELECT v.result_id, r.decision_class, v.policy_version, v.outcome_reason
-		FROM author_llm_verdict v LEFT JOIN contributor_normalization_result r ON r.id = v.result_id
+		SELECT v.result_id, r.decision_class, v.policy_version, v.outcome_reason, v.verdict,
+			`+authorLLMParticleRejectedSQL+` AS particle_rejected, a.reply, j.input
+		FROM author_llm_verdict v
+		LEFT JOIN contributor_normalization_result r ON r.id = v.result_id
+		LEFT JOIN author_llm_attempt a ON a.id = v.attempt_a_id
+		LEFT JOIN author_llm_job j ON j.id = v.job_a_id
 		WHERE v.source_fingerprint = ?0 AND v.extractor_version = ?1 AND v.purpose = 'review'
 			AND v.settled_at IS NOT NULL AND v.verdict <> 'held_drift'
 			AND (v.outcome_reason IS NULL OR v.outcome_reason NOT IN (?2))
@@ -675,6 +686,9 @@ func SettledAuthorLLMOutcome(ctx context.Context, db pg.DBI, fingerprint []byte,
 	}
 	if err != nil {
 		return nil, fmt.Errorf("reading the LLM outcome of an input: %w", err)
+	}
+	if out.ParticleHeld() {
+		return nil, nil
 	}
 	return &out, nil
 }
