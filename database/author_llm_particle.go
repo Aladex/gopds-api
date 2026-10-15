@@ -105,7 +105,7 @@ const authorLLMHeldCandidateSQL = `
 		FROM author_llm_verdict v
 		LEFT JOIN author_llm_attempt a ON a.id = v.attempt_a_id
 		LEFT JOIN author_llm_job j ON j.id = v.job_a_id
-		WHERE v.purpose = 'review' AND v.settled_at IS NOT NULL AND v.verdict <> 'held_drift'
+		WHERE ` + authorLLMDecidingPurposeSQL + ` AND v.settled_at IS NOT NULL AND v.verdict <> 'held_drift'
 			AND (v.outcome_reason IS NULL OR v.outcome_reason NOT IN (?0))
 			AND (?1::bytea IS NULL OR (v.source_fingerprint = ?1 AND v.extractor_version = ?2))
 		ORDER BY v.source_fingerprint, v.extractor_version, v.settled_at DESC, v.id DESC) x

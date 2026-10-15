@@ -73,6 +73,20 @@ const resolveApplyBatch = 200
 // passed strata that cannot (homoglyph, or no single script). A report that
 // is not registrable plans nothing.
 func PlanAuthorLLMResolve(report []byte) (database.AuthorLLMResolveSettings, error) {
+	return planAuthorLLMRun(report, models.AuthorLLMRunResolve)
+}
+
+// PlanAuthorLLMSwap reads a stored eval report of mode swap into a swap
+// run's plan: its passed (swap, script) strata. A swap stratum the report
+// measured and did not pass — swap.latn has too few candidates to reach the
+// gate — is listed as not passed and never registered.
+func PlanAuthorLLMSwap(report []byte) (database.AuthorLLMResolveSettings, error) {
+	return planAuthorLLMRun(report, models.AuthorLLMRunSwap)
+}
+
+// planAuthorLLMRun plans a production run of kind from an eval report: a
+// swap run only the swap strata, a resolve run every other.
+func planAuthorLLMRun(report []byte, kind models.AuthorLLMRunKind) (database.AuthorLLMResolveSettings, error) {
 	var doc struct {
 		Evaluation llmeval.Report `json:"evaluation"`
 	}
@@ -85,7 +99,13 @@ func PlanAuthorLLMResolve(report []byte) (database.AuthorLLMResolveSettings, err
 		return plan, nil
 	}
 	for _, d := range doc.Evaluation.Decision.Strata {
+		if isSwapStratum(d.Stratum) != (kind == models.AuthorLLMRunSwap) {
+			continue
+		}
 		if !d.Passed {
+			if kind == models.AuthorLLMRunSwap {
+				plan.NotPassed = append(plan.NotPassed, d.Stratum)
+			}
 			continue
 		}
 		class, script, ok := registrablePair(d.Stratum)
@@ -99,7 +119,13 @@ func PlanAuthorLLMResolve(report []byte) (database.AuthorLLMResolveSettings, err
 			ItemsPerRequest: batch, Tiers: d.Tiers, ArmAPassed: armA.Passed, ArmATiers: armA.AllowedTiers}
 	}
 	slices.Sort(plan.NotRegistrable)
+	slices.Sort(plan.NotPassed)
 	return plan, nil
+}
+
+// isSwapStratum reports a (swap, script) stratum.
+func isSwapStratum(stratum string) bool {
+	return strings.HasPrefix(stratum, string(authornorm.ClassSwap)+".")
 }
 
 // registrablePair splits a stratum "<class>.<script>" into the local class
@@ -119,7 +145,7 @@ func registrablePair(stratum string) (authornorm.DecisionClass, string, bool) {
 	if s := authornorm.Script(script); s == authornorm.ScriptMixed || s.Validate() != nil {
 		return "", "", false
 	}
-	if authornorm.LLMClass(class).Validate() != nil {
+	if class != authornorm.ClassSwap && authornorm.LLMClass(class).Validate() != nil {
 		return "", "", false
 	}
 	return class, script, true
@@ -130,14 +156,28 @@ func registrablePair(stratum string) (authornorm.DecisionClass, string, bool) {
 // same transaction. Without a completed full eval whose report registers a
 // stratum it refuses with ErrAuthorLLMPrerequisite.
 func StartAuthorLLMResolve(ctx context.Context, db *pg.DB, version, mode string, admin int64) (int64, error) {
-	ev, err := database.LatestAuthorLLMFullEval(ctx, db, version)
+	return startAuthorLLMProduction(ctx, db, models.AuthorLLMRunResolve, version, mode, admin)
+}
+
+// StartAuthorLLMSwap starts a swap run of the configuration on its latest
+// eval of mode swap: the registration of its passed swap strata happens in
+// the same transaction. Without one whose report registers a swap stratum it
+// refuses with ErrAuthorLLMPrerequisite.
+func StartAuthorLLMSwap(ctx context.Context, db *pg.DB, version, mode string, admin int64) (int64, error) {
+	return startAuthorLLMProduction(ctx, db, models.AuthorLLMRunSwap, version, mode, admin)
+}
+
+func startAuthorLLMProduction(
+	ctx context.Context, db *pg.DB, kind models.AuthorLLMRunKind, version, mode string, admin int64,
+) (int64, error) {
+	ev, err := database.LatestAuthorLLMEvidence(ctx, db, version, kind)
 	if err != nil {
 		return 0, err
 	}
 	if ev == nil {
 		return 0, ErrAuthorLLMPrerequisite
 	}
-	plan, err := PlanAuthorLLMResolve(ev.Report)
+	plan, err := planAuthorLLMRun(ev.Report, kind)
 	if err != nil {
 		return 0, err
 	}
@@ -149,7 +189,7 @@ func StartAuthorLLMResolve(ctx context.Context, db *pg.DB, version, mode string,
 		resolveStartPlannedHook()
 	}
 	id, registered, err := database.StartAuthorLLMResolveRun(ctx, db, &database.AuthorLLMResolveStart{
-		ConfigVersion: version, Mode: mode, Evidence: ev, Settings: plan, CreatedBy: admin})
+		Kind: kind, ConfigVersion: version, Mode: mode, Evidence: ev, Settings: plan, CreatedBy: admin})
 	if errors.Is(err, database.ErrAuthorLLMNoEvidence) || errors.Is(err, database.ErrAuthorLLMRunEvidence) {
 		return 0, ErrAuthorLLMPrerequisite
 	}
@@ -210,7 +250,9 @@ func (d *AuthorLLMResolveDriver) Run(ctx context.Context) error {
 
 // resolveRun is the running resolve run as the driver reads it.
 type resolveRun struct {
-	ID        int64
+	ID int64
+	// Kind is resolve or swap: the swap run runs on the same machinery.
+	Kind      models.AuthorLLMRunKind
 	Mode      string
 	Stage     string
 	Plan      database.AuthorLLMResolveSettings
@@ -222,7 +264,7 @@ func (d *AuthorLLMResolveDriver) running(ctx context.Context) (*resolveRun, erro
 	if err != nil || row == nil {
 		return nil, err
 	}
-	run := &resolveRun{ID: row.ID, Mode: row.Mode}
+	run := &resolveRun{ID: row.ID, Kind: row.Kind, Mode: row.Mode}
 	if row.Stage != nil {
 		run.Stage = *row.Stage
 	}
@@ -258,7 +300,11 @@ func (d *AuthorLLMResolveDriver) Step(ctx context.Context) (bool, error) {
 	var next string
 	switch run.Stage {
 	case resolveStageEnqueue:
-		if err = d.enqueue(ctx, run); err == nil {
+		enqueue := d.enqueue
+		if run.Kind == models.AuthorLLMRunSwap {
+			enqueue = d.enqueueSwap
+		}
+		if err = enqueue(ctx, run); err == nil {
 			next = resolveStageResolve
 		}
 	case resolveStageResolve:
@@ -370,7 +416,7 @@ func (d *AuthorLLMResolveDriver) enqueueJobs(ctx context.Context, run *resolveRu
 			again := fingerprintDefect(it)
 			for _, slot := range pair {
 				jobs = append(jobs, database.AuthorLLMNewJob{ConfigVersion: d.version, Slot: slot,
-					Purpose: models.AuthorLLMPurposeReview, SourceFingerprint: it.row.SourceFingerprint,
+					Purpose: run.purpose(), SourceFingerprint: it.row.SourceFingerprint,
 					ExtractorVersion: it.row.ExtractorVersion, Arm: plan.Arm, BatchSize: plan.ItemsPerRequest,
 					OutputMode: run.mode(slot), Input: it.input, WithContext: plan.Arm == llmeval.ArmB,
 					AskAgainApplyFailed: again})
@@ -489,6 +535,14 @@ func (d *AuthorLLMResolveDriver) reopenTransient(
 	return reopened, err
 }
 
+// purpose is the purpose of the run's jobs.
+func (r *resolveRun) purpose() models.AuthorLLMJobPurpose {
+	if r.Kind == models.AuthorLLMRunSwap {
+		return models.AuthorLLMPurposeSwapCheck
+	}
+	return models.AuthorLLMPurposeReview
+}
+
 // mode is a participant's negotiated output mode, as the eval learned it.
 func (r *resolveRun) mode(slot llmreq.Slot) string {
 	if ref, ok := r.Reference[string(slot)]; ok && ref.OutputMode != "" {
@@ -500,7 +554,7 @@ func (r *resolveRun) mode(slot llmreq.Slot) string {
 // resolve applies the run's confirmed verdicts; once nothing is left to
 // answer, judge, confirm or apply, the stage is done.
 func (d *AuthorLLMResolveDriver) resolve(ctx context.Context, run *resolveRun) (string, error) {
-	verdicts, err := database.AuthorLLMVerdictsToApply(ctx, d.db, run.ID, resolveApplyBatch)
+	verdicts, err := database.AuthorLLMVerdictsToApply(ctx, d.db, run.ID, run.Kind, resolveApplyBatch)
 	if err != nil {
 		return "", err
 	}
@@ -585,11 +639,13 @@ func (d *AuthorLLMResolveDriver) apply(ctx context.Context, run *resolveRun, v *
 		if err != nil {
 			return err
 		}
-		if settlement.KeepReview || (settlement.Reason != nil && models.AuthorLLMTransientOutcome(*settlement.Reason)) {
+		if settlement.KeepReview || (settlement.Reason != nil && models.AuthorLLMTransientOutcome(*settlement.Reason)) ||
+			(run.Kind == models.AuthorLLMRunSwap && settlement.ResultID == nil) {
 			// A transient failure decides nothing: the review stays open
 			// and the credits as they are, and the next run asks again.
 			// Nor does a verdict the particle rule holds, which stays
-			// final: the input is left to manual review.
+			// final: the input is left to manual review. A swap that is
+			// not applied changes nothing: the local selection stays.
 			_, err = database.SettleAuthorLLMVerdict(ctx, tx, v.ID, settlement)
 			return err
 		}
@@ -598,8 +654,10 @@ func (d *AuthorLLMResolveDriver) apply(ctx context.Context, run *resolveRun, v *
 				return err
 			}
 		}
-		if _, err = database.CloseAutomaticReviewItems(ctx, tx, v.SourceFingerprint, settlement.ResultID); err != nil {
-			return err
+		if run.Kind != models.AuthorLLMRunSwap {
+			if _, err = database.CloseAutomaticReviewItems(ctx, tx, v.SourceFingerprint, settlement.ResultID); err != nil {
+				return err
+			}
 		}
 		_, err = database.SettleAuthorLLMVerdict(ctx, tx, v.ID, settlement)
 		return err
@@ -634,6 +692,10 @@ func (d *AuthorLLMResolveDriver) decide(
 	if reason := verdictReason(v); reason != "" {
 		return unresolved(reason)
 	}
+	if run.Kind == models.AuthorLLMRunSwap && deref(v.Tier) == string(llmres.TierConfirm) {
+		// The pair and both judges confirm the FB2 fields: no swap.
+		return unresolved(models.UnresolvedReason(models.AuthorLLMSwapFieldsConfirmed))
+	}
 	plan, planned := run.Plan.Strata[stratum]
 	if !planned || v.Tier == nil || !slices.Contains(plan.Tiers, *v.Tier) ||
 		deref(v.Arm) != plan.Arm || v.BatchSize != plan.ItemsPerRequest {
@@ -649,6 +711,15 @@ func (d *AuthorLLMResolveDriver) decide(
 	if string(result.Script) != plan.Script {
 		return unresolved(models.UnresolvedLLMNotRegistered)
 	}
+	if run.Kind == models.AuthorLLMRunSwap {
+		agree, agreeErr := d.swapStatsAgree(ctx, tx, run, v, input)
+		if agreeErr != nil {
+			return nil, nil, agreeErr
+		}
+		if !agree {
+			return unresolved(models.UnresolvedReason(models.AuthorLLMSwapStatsDisagree))
+		}
+	}
 	policy, err := database.AuthorLLMRegistration(ctx, tx, d.version, result.DecisionClass, plan.Script)
 	if err != nil {
 		return nil, nil, err
@@ -656,6 +727,17 @@ func (d *AuthorLLMResolveDriver) decide(
 	policyVersion, convErr := strconv.Atoi(policy)
 	if policy == "" || convErr != nil {
 		return unresolved(models.UnresolvedLLMNotRegistered)
+	}
+	if run.Kind == models.AuthorLLMRunSwap {
+		// An automatic selection replaces another only under a policy
+		// version no lower than the one it was made under.
+		current, policyErr := database.AuthorLLMSelectedPolicy(ctx, tx, v.SourceFingerprint, v.ExtractorVersion)
+		if policyErr != nil {
+			return nil, nil, policyErr
+		}
+		if policyVersion < current {
+			return unresolved(models.UnresolvedLLMNotRegistered)
+		}
 	}
 	id, err := database.InsertLLMResult(ctx, tx, &result)
 	if err != nil {
@@ -778,8 +860,11 @@ type AuthorLLMResolveReportDoc struct {
 	EvalReportSHA  string                            `json:"eval_report_sha256"`
 	Strata         map[string]*AuthorLLMResolveCount `json:"strata"`
 	NotRegistrable []string                          `json:"not_registrable"`
-	Skipped        map[string]int                    `json:"skipped"`
-	Tokens         map[string]int64                  `json:"tokens"`
+	// NotPassed are the swap strata the swap eval measured and did not pass:
+	// reported, never registered.
+	NotPassed []string         `json:"not_passed,omitempty"`
+	Skipped   map[string]int   `json:"skipped"`
+	Tokens    map[string]int64 `json:"tokens"`
 	// FingerprintRelearns is the history of the participants re-learned
 	// after a drift during the run.
 	FingerprintRelearns []database.AuthorLLMRelearnRecord `json:"fingerprint_relearns"`
@@ -800,7 +885,8 @@ func (d *AuthorLLMResolveDriver) report(ctx context.Context, run *resolveRun) er
 	}
 	doc := AuthorLLMResolveReportDoc{RunID: run.ID, Mode: run.Mode, ConfigVersion: d.version,
 		EvalReportID: run.Plan.ReportID, EvalReportSHA: run.Plan.ReportSHA256,
-		Strata: map[string]*AuthorLLMResolveCount{}, NotRegistrable: run.Plan.NotRegistrable, Skipped: map[string]int{}}
+		Strata: map[string]*AuthorLLMResolveCount{}, NotRegistrable: run.Plan.NotRegistrable,
+		NotPassed: run.Plan.NotPassed, Skipped: map[string]int{}}
 	for _, c := range counts {
 		line, ok := doc.Strata[c.Stratum]
 		if !ok {

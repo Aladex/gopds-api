@@ -170,7 +170,10 @@ func (s *AuthorLLMEvalSettings) validate() error {
 func StartAuthorLLMEval(
 	ctx context.Context, db *pg.DB, version, mode string, settings *AuthorLLMEvalSettings, adminID *int64,
 ) (int64, error) {
-	if mode != models.AuthorLLMEvalModeDev && mode != models.AuthorLLMEvalModePilot && mode != models.AuthorLLMEvalModeFull {
+	switch mode {
+	case models.AuthorLLMEvalModeDev, models.AuthorLLMEvalModePilot, models.AuthorLLMEvalModeFull,
+		models.AuthorLLMEvalModeSwap:
+	default:
 		return 0, fmt.Errorf("services: unknown eval mode %q", mode)
 	}
 	if settings == nil {
@@ -471,9 +474,12 @@ func (d *AuthorLLMEvalDriver) scope(ctx context.Context, run *evalRun) ([]string
 	if err != nil {
 		return nil, nil, err
 	}
+	// A swap eval measures the swap strata alone; every other run measures
+	// every other stratum, never the swap ones again.
+	swap := run.Mode == models.AuthorLLMEvalModeSwap
 	var versions []string
 	for v := range frozen {
-		if strings.HasPrefix(v, authorLLMEvalStratumSet) {
+		if name, ok := strings.CutPrefix(v, authorLLMEvalStratumSet); ok && isSwapStratum(name) == swap {
 			versions = append(versions, v)
 		}
 	}
@@ -1274,7 +1280,8 @@ func (d *AuthorLLMEvalDriver) freeze(ctx context.Context, run *evalRun) error {
 	if err := d.freezeStrata(ctx, run, frozen); err != nil {
 		return err
 	}
-	if run.Mode != models.AuthorLLMEvalModePilot && !frozen[authorLLMEvalCanarySet] {
+	if (run.Mode == models.AuthorLLMEvalModeFull || run.Mode == models.AuthorLLMEvalModeDev) &&
+		!frozen[authorLLMEvalCanarySet] {
 		if err := d.freezeCanary(ctx, run); err != nil {
 			return err
 		}
@@ -1513,9 +1520,19 @@ type populationItem struct {
 }
 
 // freezeStrata freezes every stratum the run needs that is not frozen yet:
-// the pilot's one stratum, or all of them.
+// the pilot's one stratum, the swap strata for a swap eval, or all the
+// others.
 func (d *AuthorLLMEvalDriver) freezeStrata(ctx context.Context, run *evalRun, frozen map[string]bool) error {
-	rows, err := database.AuthorLLMEvalPopulation(ctx, d.db)
+	swap := run.Mode == models.AuthorLLMEvalModeSwap
+	var rows []database.AuthorLLMPopulationRow
+	var err error
+	if swap {
+		// The swap candidates on statistics of the run's own: the
+		// population of the swap strata, and nothing else.
+		rows, err = swapCandidateRows(ctx, d.db, run.ID)
+	} else {
+		rows, err = database.AuthorLLMEvalPopulation(ctx, d.db)
+	}
 	if err != nil {
 		return err
 	}
@@ -1528,6 +1545,9 @@ func (d *AuthorLLMEvalDriver) freezeStrata(ctx context.Context, run *evalRun, fr
 	names := make([]string, 0, len(strata))
 	for name := range strata {
 		if run.Mode == models.AuthorLLMEvalModePilot && name != authorLLMEvalPilotStratum {
+			continue
+		}
+		if isSwapStratum(name) != swap {
 			continue
 		}
 		if !frozen[authorLLMEvalStratumSet+name] {

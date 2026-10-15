@@ -192,6 +192,14 @@ const AuthorLLMApplyFailed = "apply_failed"
 // credit left when it was applied: a rescan removed it.
 const AuthorLLMInputGone = "input_gone"
 
+// The outcomes of a swap verdict that is not applied for want of a swap
+// (migration 41): the pair confirms the FB2 fields, or the catalog's role
+// statistics do not say what the answer says. The local selection stays.
+const (
+	AuthorLLMSwapFieldsConfirmed = "swap_fields_confirmed"
+	AuthorLLMSwapStatsDisagree   = "swap_stats_disagree"
+)
+
 // AuthorLLMUndecidedOutcomes are the verdict outcomes that decide nothing
 // about the input: the application failed, the input is gone, or the pair or
 // the judges failed transiently — the next resolve run asks the input again.
@@ -269,4 +277,8 @@ const (
 	AuthorLLMEvalModeDev   = "dev"
 	AuthorLLMEvalModePilot = "pilot"
 	AuthorLLMEvalModeFull  = "full"
+	// AuthorLLMEvalModeSwap is an eval run that measures the swap strata
+	// alone (migration 41): their registration needs its own measurement,
+	// and the other strata are not paid for again.
+	AuthorLLMEvalModeSwap = "swap"
 )

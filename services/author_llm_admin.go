@@ -32,7 +32,8 @@ var (
 	// ErrAuthorLLMPrerequisite: the step before this one has not completed
 	// under the current configuration.
 	ErrAuthorLLMPrerequisite = errors.New("services: the previous LLM step has not completed")
-	// ErrAuthorLLMRunKindUnavailable: swap runs are not built yet.
+	// ErrAuthorLLMRunKindUnavailable: a run kind the chain marks as not
+	// available (every kind is built since phase 7; the API keeps the code).
 	ErrAuthorLLMRunKindUnavailable = errors.New("services: this LLM run kind is not available yet")
 	// ErrAuthorLLMInvalidRun: an unknown kind or mode.
 	ErrAuthorLLMInvalidRun = errors.New("services: unknown LLM run kind or mode")
@@ -52,7 +53,11 @@ const (
 	AuthorLLMStepEvalFull     = "eval_full"
 	AuthorLLMStepResolvePilot = "resolve_pilot"
 	AuthorLLMStepResolveFull  = "resolve_full"
-	AuthorLLMStepSwap         = "swap"
+	// The swaps: their own eval (the swap strata alone), then the pilot and
+	// the full run.
+	AuthorLLMStepSwapEval  = "swap_eval"
+	AuthorLLMStepSwapPilot = "swap_pilot"
+	AuthorLLMStepSwapFull  = "swap_full"
 )
 
 // Why a step is not enabled.
@@ -216,7 +221,7 @@ func NewAuthorLLMAdminFromConfig(
 const AuthorLLMDisabledWorkersOff = "workers_disabled"
 
 // authorLLMChain is the chain's steps in order; a step's prerequisite is the
-// step before it. Swaps are not built yet.
+// step before it.
 var authorLLMChain = []struct {
 	key, kind, mode string
 	available       bool
@@ -225,7 +230,9 @@ var authorLLMChain = []struct {
 	{AuthorLLMStepEvalFull, string(models.AuthorLLMRunEval), models.AuthorLLMEvalModeFull, true},
 	{AuthorLLMStepResolvePilot, string(models.AuthorLLMRunResolve), models.AuthorLLMEvalModePilot, true},
 	{AuthorLLMStepResolveFull, string(models.AuthorLLMRunResolve), models.AuthorLLMEvalModeFull, true},
-	{AuthorLLMStepSwap, string(models.AuthorLLMRunSwap), models.AuthorLLMEvalModeFull, false},
+	{AuthorLLMStepSwapEval, string(models.AuthorLLMRunEval), models.AuthorLLMEvalModeSwap, true},
+	{AuthorLLMStepSwapPilot, string(models.AuthorLLMRunSwap), models.AuthorLLMEvalModePilot, true},
+	{AuthorLLMStepSwapFull, string(models.AuthorLLMRunSwap), models.AuthorLLMEvalModeFull, true},
 }
 
 // Status is the LLM block.
@@ -258,6 +265,14 @@ func (a *AuthorLLMAdmin) Status(ctx context.Context) (*AuthorLLMStatus, error) {
 			return nil, regErr
 		}
 		completed[string(models.AuthorLLMRunEval)+"/"+models.AuthorLLMEvalModeFull] = registrable
+	}
+	if completed[string(models.AuthorLLMRunEval)+"/"+models.AuthorLLMEvalModeSwap] {
+		// Likewise the swap pilot rests on the swap eval's report.
+		registrable, regErr := a.swapEvalRegistersAStratum(ctx)
+		if regErr != nil {
+			return nil, regErr
+		}
+		completed[string(models.AuthorLLMRunEval)+"/"+models.AuthorLLMEvalModeSwap] = registrable
 	}
 	st.Steps = authorLLMSteps(st.Enabled, run != nil && isActiveLLMRun(run.Status), completed)
 	if !st.Enabled {
@@ -339,7 +354,11 @@ func (a *AuthorLLMAdmin) runState(ctx context.Context, run *models.AuthorLLMRun)
 		Stage: deref(run.Stage), PausedReason: deref(run.PausedReason), LastErrorClass: deref(run.LastErrorClass),
 		CurrentConfig: run.ConfigVersion == a.version, EstimateTokens: run.EstimateTokens,
 		LimitTokens: int64(float64(run.EstimateTokens) * a.settings.Budget.RunOverrun)}
-	if purpose, ok := authorLLMStagePurpose[rs.Stage]; ok && isActiveLLMRun(run.Status) {
+	purpose, ok := authorLLMStagePurpose[rs.Stage]
+	if run.Kind == models.AuthorLLMRunSwap && rs.Stage == resolveStageResolve {
+		purpose = models.AuthorLLMPurposeSwapCheck
+	}
+	if ok && isActiveLLMRun(run.Status) {
 		done, total, err := database.AuthorLLMJobProgress(ctx, a.db, run.ID, purpose)
 		if err != nil {
 			return nil, err
@@ -373,7 +392,8 @@ func (a *AuthorLLMAdmin) runState(ctx context.Context, run *models.AuthorLLMRun)
 			return nil, err
 		}
 	}
-	if run.Kind == models.AuthorLLMRunResolve && run.Status == models.AuthorLLMRunCompleted {
+	if (run.Kind == models.AuthorLLMRunResolve || run.Kind == models.AuthorLLMRunSwap) &&
+		run.Status == models.AuthorLLMRunCompleted {
 		if rs.Resolve, err = resolveSummary(ctx, a.db, run.ID); err != nil {
 			return nil, err
 		}
@@ -445,21 +465,27 @@ func (a *AuthorLLMAdmin) Start(ctx context.Context, kind, mode string, actor int
 	}
 	switch kind {
 	case string(models.AuthorLLMRunSwap):
-		return nil, ErrAuthorLLMRunKindUnavailable
+		return a.startProduction(ctx, models.AuthorLLMRunSwap, mode, actor)
 	case string(models.AuthorLLMRunResolve):
-		return a.startResolve(ctx, mode, actor)
+		return a.startProduction(ctx, models.AuthorLLMRunResolve, mode, actor)
 	case string(models.AuthorLLMRunEval):
 	default:
 		return nil, ErrAuthorLLMInvalidRun
 	}
 	switch mode {
 	case models.AuthorLLMEvalModeDev, models.AuthorLLMEvalModePilot:
-	case models.AuthorLLMEvalModeFull:
+	case models.AuthorLLMEvalModeFull, models.AuthorLLMEvalModeSwap:
+		// The full eval follows the pilot; the swap eval the full one, whose
+		// anchor and fingerprints it measures again.
+		before := models.AuthorLLMEvalModePilot
+		if mode == models.AuthorLLMEvalModeSwap {
+			before = models.AuthorLLMEvalModeFull
+		}
 		completed, err := database.AuthorLLMCompletedRuns(ctx, a.db, a.version)
 		if err != nil {
 			return nil, err
 		}
-		if !completed[kind+"/"+models.AuthorLLMEvalModePilot] {
+		if !completed[kind+"/"+before] {
 			return nil, ErrAuthorLLMPrerequisite
 		}
 	default:
@@ -486,9 +512,26 @@ func (a *AuthorLLMAdmin) evalRegistersAStratum(ctx context.Context) (bool, error
 	return len(plan.Strata) > 0, nil
 }
 
-// startResolve starts a resolve run: the pilot on a completed full eval
-// whose report registers a stratum, the full run after a completed pilot.
-func (a *AuthorLLMAdmin) startResolve(ctx context.Context, mode string, actor int64) (*AuthorLLMRunState, error) {
+// swapEvalRegistersAStratum reports whether the latest swap eval's report
+// registers a swap stratum of the configuration.
+func (a *AuthorLLMAdmin) swapEvalRegistersAStratum(ctx context.Context) (bool, error) {
+	ev, err := database.LatestAuthorLLMSwapEval(ctx, a.db, a.version)
+	if err != nil || ev == nil {
+		return false, err
+	}
+	plan, err := PlanAuthorLLMSwap(ev.Report)
+	if err != nil {
+		return false, err
+	}
+	return len(plan.Strata) > 0, nil
+}
+
+// startProduction starts a resolve or a swap run: the pilot on the eval
+// whose report registers a stratum of its kind (the full eval, the swap
+// eval), the full run after a completed pilot of the same kind.
+func (a *AuthorLLMAdmin) startProduction(
+	ctx context.Context, kind models.AuthorLLMRunKind, mode string, actor int64,
+) (*AuthorLLMRunState, error) {
 	switch mode {
 	case models.AuthorLLMEvalModePilot:
 	case models.AuthorLLMEvalModeFull:
@@ -496,13 +539,13 @@ func (a *AuthorLLMAdmin) startResolve(ctx context.Context, mode string, actor in
 		if err != nil {
 			return nil, err
 		}
-		if !completed[string(models.AuthorLLMRunResolve)+"/"+models.AuthorLLMEvalModePilot] {
+		if !completed[string(kind)+"/"+models.AuthorLLMEvalModePilot] {
 			return nil, ErrAuthorLLMPrerequisite
 		}
 	default:
 		return nil, ErrAuthorLLMInvalidRun
 	}
-	id, err := StartAuthorLLMResolve(ctx, a.db, a.version, mode, actor)
+	id, err := startAuthorLLMProduction(ctx, a.db, kind, a.version, mode, actor)
 	if err != nil {
 		return nil, err
 	}
@@ -611,7 +654,7 @@ func (a *AuthorLLMAdmin) EvalReport(ctx context.Context, id int64, version int) 
 	if err != nil {
 		return nil, "", err
 	}
-	if run.Kind == models.AuthorLLMRunResolve {
+	if run.Kind == models.AuthorLLMRunResolve || run.Kind == models.AuthorLLMRunSwap {
 		report, sha, err = AuthorLLMResolveReportFile(ctx, a.db, id)
 	} else {
 		report, sha, err = AuthorLLMEvalReportVersionFile(ctx, a.db, id, version)

@@ -9,10 +9,11 @@ import { closedErrorCode } from '@/api/admin';
 
 /**
  * The LLM block of the author metadata card. It shows one chain — check
- * quality, check everything, resolve a pilot, resolve everything, swaps —
- * with every step the server built; a step is enabled only when the server
- * says the one before it completed under the current configuration. Resolve
- * and swap runs are not built yet: their steps are shown, disabled. Under the
+ * quality, check everything, resolve a pilot, resolve everything, check the
+ * swaps, swaps pilot, swap everything — with every step the server built; a
+ * step is enabled only when the server says the one before it completed under
+ * the current configuration. A step the server marks not built is shown,
+ * disabled. Under the
  * chain: the run to show (its stage and progress, tokens against its
  * estimate and limit, and the cost when a price is configured), the pauses of
  * the provider and of the participants with their action, and the one-line
@@ -46,7 +47,9 @@ const stepLabels = (t: T): Record<string, string> => ({
     eval_full: t('authorLLM.step.eval_full', 'Check everything'),
     resolve_pilot: t('authorLLM.step.resolve_pilot', 'Resolve: pilot 500'),
     resolve_full: t('authorLLM.step.resolve_full', 'Resolve everything'),
-    swap: t('authorLLM.step.swap', 'Swaps'),
+    swap_eval: t('authorLLM.step.swap_eval', 'Swaps: check'),
+    swap_pilot: t('authorLLM.step.swap_pilot', 'Swaps: pilot 500'),
+    swap_full: t('authorLLM.step.swap_full', 'Swap everything'),
 });
 
 const stageLabels = (t: T): Record<string, string> => ({
@@ -65,11 +68,16 @@ const runLabel = (t: T, run: AuthorLLMRun): string => {
     if (run.kind === 'eval') {
         if (run.mode === 'dev') return t('authorLLM.run.eval_dev', 'Model settings check');
         if (run.mode === 'full') return t('authorLLM.run.eval_full', 'Full check');
+        if (run.mode === 'swap') return t('authorLLM.run.eval_swap', 'Swaps check');
         return t('authorLLM.run.eval_pilot', 'Quality check');
     }
     if (run.kind === 'resolve') {
         if (run.mode === 'full') return t('authorLLM.run.resolve_full', 'Resolve everything');
         return t('authorLLM.run.resolve_pilot', 'Resolve pilot');
+    }
+    if (run.kind === 'swap') {
+        if (run.mode === 'full') return t('authorLLM.run.swap_full', 'Swap everything');
+        return t('authorLLM.run.swap_pilot', 'Swaps pilot');
     }
     return t('authorLLM.run.other', 'LLM run');
 };
@@ -254,7 +262,7 @@ const AuthorLLMBlock: React.FC = () => {
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = `author-llm-${run?.kind === 'resolve' ? 'resolve' : 'eval'}-${id}${
+            link.download = `author-llm-${run?.kind === 'resolve' || run?.kind === 'swap' ? run.kind : 'eval'}-${id}${
                 version === undefined ? '' : `-v${version}`
             }.json`;
             document.body.appendChild(link);
@@ -563,7 +571,7 @@ const AuthorLLMBlock: React.FC = () => {
             </ol>
             {unavailable && (
                 <p className="text-sm text-muted-foreground">
-                    {t('authorLLM.notAvailable', 'Swaps come in the next version.')}
+                    {t('authorLLM.notAvailable', 'This step comes in the next version.')}
                 </p>
             )}
             <p className="text-xs tabular-nums text-muted-foreground">

@@ -623,7 +623,7 @@
   "authorLLM.error.run_kind_unavailable": "Этот шаг появится в следующей версии.",
   "authorLLM.failed": "{{run}} остановилась с ошибкой ({{class}})",
   "authorLLM.loadFailed": "Не удалось прочитать состояние LLM.",
-  "authorLLM.notAvailable": "Перестановки появятся в следующей версии.",
+  "authorLLM.notAvailable": "Этот шаг появится в следующей версии.",
   "authorLLM.notConfigured": "LLM не настроена",
   "authorLLM.notConfiguredModels": "LLM не настроена: нужны четыре разные модели",
   "authorLLM.notConfiguredWorkers": "LLM не настроена: обработка метаданных авторов выключена",
@@ -671,11 +671,16 @@
   "authorLLM.step.eval_pilot": "Проверить качество",
   "authorLLM.step.resolve_full": "Разобрать всё",
   "authorLLM.step.resolve_pilot": "Разбор: пилот 500",
-  "authorLLM.step.swap": "Перестановки",
   "authorLLM.title": "Разбор LLM",
   "authorLLM.tokens": "Токенов: {{spent}} из ~{{estimate}} (пауза на {{limit}})",
   "authorLLM.tokensSpent": "Токенов: {{spent}}",
   "authorLLM.close": "Закрыть прогон",
   "authorLLM.closed": "{{run}}: закрыт",
-  "authorLLM.error.run_config_changed": "Этот прогон относится к прежней конфигурации; его можно только закрыть."
+  "authorLLM.error.run_config_changed": "Этот прогон относится к прежней конфигурации; его можно только закрыть.",
+  "authorLLM.step.swap_eval": "Перестановки: проверка",
+  "authorLLM.step.swap_pilot": "Перестановки: пилот 500",
+  "authorLLM.step.swap_full": "Переставить всё",
+  "authorLLM.run.eval_swap": "Проверка перестановок",
+  "authorLLM.run.swap_pilot": "Перестановки: пилот",
+  "authorLLM.run.swap_full": "Перестановки: всё"
 }

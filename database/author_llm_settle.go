@@ -1074,9 +1074,9 @@ func confirmAuthorLLMVerdicts(ctx context.Context, tx *pg.Tx, version string, ru
 			AND sb.config_version = ?0 AND sb.slot = 'production_b'
 			AND sa.check_run_id = v.run_id AND sa.last_check_passed_at >= coalesce(v.answered_a_at, '-infinity')
 			AND sb.check_run_id = v.run_id AND sb.last_check_passed_at >= coalesce(v.answered_b_at, '-infinity')
-			-- An agreed review answer waits for the judges; one they confirmed
-			-- also for their checks covering their answers.
-			AND (v.verdict <> 'agree' OR v.purpose <> 'review' OR v.judgement IS NOT NULL)
+			-- An agreed review or swap answer waits for the judges; one they
+			-- confirmed also for their checks covering their answers.
+			AND (v.verdict <> 'agree' OR v.purpose NOT IN ('review', 'swap_check') OR v.judgement IS NOT NULL)
 			AND (v.judgement IS DISTINCT FROM 'confirmed' OR EXISTS (
 				SELECT 1 FROM author_llm_provider_state ja, author_llm_provider_state jb
 				WHERE ja.config_version = ?0 AND ja.slot = 'judge_a' AND jb.config_version = ?0 AND jb.slot = 'judge_b'
@@ -1236,13 +1236,13 @@ func insertAuthorLLMVerdict(ctx context.Context, tx *pg.Tx, a, b *verdictJob, no
 }
 
 // askAuthorLLMJudges asks both judges about the input's current verdict
-// when the pair agreed on a review input (the run-4 rule: an agreed answer
-// is applied only when both judges confirm it). The judges get the pair's
+// when the pair agreed on a review input or a swap candidate (the run-4
+// rule: an agreed answer is applied only when both judges confirm it). The judges get the pair's
 // input with its excerpt, one item per request, in their negotiated output
 // mode. Judge jobs the input already has — answered before the pair's
 // answers were voided by a drift — are kept and judged now.
 func askAuthorLLMJudges(ctx context.Context, tx *pg.Tx, a *verdictJob) error {
-	if models.AuthorLLMJobPurpose(a.Purpose) != models.AuthorLLMPurposeReview {
+	if !models.AuthorLLMJobPurpose(a.Purpose).IsResolve() {
 		return nil
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -1265,13 +1265,14 @@ func askAuthorLLMJudges(ctx context.Context, tx *pg.Tx, a *verdictJob) error {
 }
 
 // judgeAuthorLLMVerdictOfJob judges the input's verdict when the finished
-// job is a judge's review job; it returns that job, nil for any other job.
+// job is a judge's review or swap job; it returns that job, nil for any
+// other job.
 func judgeAuthorLLMVerdictOfJob(ctx context.Context, tx *pg.Tx, jobID int64) (*verdictJob, error) {
 	var self verdictJob
 	if err := readVerdictJob(ctx, tx, &self, `j.id = ?0`, jobID); err != nil {
 		return nil, fmt.Errorf("reading a finished LLM job: %w", err)
 	}
-	if models.AuthorLLMJobPurpose(self.Purpose) != models.AuthorLLMPurposeReview || self.ExtractorVersion == nil ||
+	if !models.AuthorLLMJobPurpose(self.Purpose).IsResolve() || self.ExtractorVersion == nil ||
 		(self.Slot != string(llmreq.SlotJudgeA) && self.Slot != string(llmreq.SlotJudgeB)) {
 		return nil, nil
 	}

@@ -563,7 +563,7 @@ const completedInputsToReconcileSQL = `SELECT DISTINCT j.id
 				-- outranks the late duplicate's local review.
 				AND NOT EXISTS (SELECT 1 FROM author_llm_verdict v
 					WHERE v.source_fingerprint = j.source_fingerprint AND v.extractor_version = j.extractor_version
-						AND v.purpose = 'review' AND v.settled_at IS NOT NULL AND v.verdict <> 'held_drift'
+						AND ` + authorLLMDecidingPurposeSQL + ` AND v.settled_at IS NOT NULL AND v.verdict <> 'held_drift'
 						AND (v.outcome_reason IS NULL OR v.outcome_reason NOT IN (?3)))))
 	ORDER BY j.id
 	LIMIT ?2`

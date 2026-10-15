@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import AuthorLLMBlock from '@/features/admin/AuthorLLMBlock';
 import * as adminApi from '@/api/admin';
@@ -57,17 +57,18 @@ const api = vi.mocked(adminApi);
 const n = (value: number) => value.toLocaleString();
 
 const step = (key: AuthorLLMStep['key'], overrides: Partial<AuthorLLMStep> = {}): AuthorLLMStep => {
-    const eval_ = key.startsWith('eval');
-    // Swaps are the one step not built yet.
-    const built = key !== 'swap';
+    // The swaps' check is an eval of mode swap.
+    const eval_ = key.startsWith('eval') || key === 'swap_eval';
+    const kind = eval_ ? 'eval' : key.startsWith('swap') ? 'swap' : 'resolve';
+    const mode = key === 'swap_eval' ? 'swap' : key.endsWith('pilot') ? 'pilot' : 'full';
     return {
         key,
-        kind: eval_ ? 'eval' : key === 'swap' ? 'swap' : 'resolve',
-        mode: key.endsWith('pilot') ? 'pilot' : 'full',
-        available: built,
+        kind,
+        mode,
+        available: true,
         enabled: false,
         done: false,
-        blocked: built ? 'prerequisite' : 'not_available',
+        blocked: 'prerequisite',
         ...overrides,
     };
 };
@@ -77,7 +78,9 @@ const freshSteps = (): AuthorLLMStep[] => [
     step('eval_full'),
     step('resolve_pilot'),
     step('resolve_full'),
-    step('swap'),
+    step('swap_eval'),
+    step('swap_pilot'),
+    step('swap_full'),
 ];
 
 const participants = (): AuthorLLMParticipant[] => [
@@ -141,8 +144,10 @@ describe('AuthorLLMBlock', () => {
         expect(screen.getByRole('button', { name: /Check everything/ })).toBeDisabled();
         expect(screen.getByRole('button', { name: /Resolve: pilot 500/ })).toBeDisabled();
         expect(screen.getByRole('button', { name: /Resolve everything/ })).toBeDisabled();
-        expect(screen.getByRole('button', { name: /Swaps/ })).toBeDisabled();
-        expect(screen.getByText('Swaps come in the next version.')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Swaps: check/ })).toBeDisabled();
+        expect(screen.getByRole('button', { name: /Swaps: pilot 500/ })).toBeDisabled();
+        expect(screen.getByRole('button', { name: /Swap everything/ })).toBeDisabled();
+        expect(screen.queryByText('This step comes in the next version.')).not.toBeInTheDocument();
 
         fireEvent.click(check);
         await waitFor(() => expect(api.startAuthorLLMRun).toHaveBeenCalledWith('eval', 'pilot'));
@@ -157,7 +162,9 @@ describe('AuthorLLMBlock', () => {
                     step('eval_full', { enabled: true, blocked: undefined }),
                     step('resolve_pilot'),
                     step('resolve_full'),
-                    step('swap'),
+                    step('swap_eval'),
+                    step('swap_pilot'),
+                    step('swap_full'),
                 ],
             }),
         );
@@ -626,6 +633,68 @@ describe('AuthorLLMBlock', () => {
         expect(ru['authorLLM.step.eval_pilot']).toBe('Проверить качество');
         expect(ru['authorLLM.step.resolve_full']).toBe('Разобрать всё');
         expect(ru['authorLLM.run.resolve_pilot']).toBe('Разбор: пилот');
-        expect(ru['authorLLM.notAvailable']).toBe('Перестановки появятся в следующей версии.');
+        expect(ru['authorLLM.notAvailable']).toBe('Этот шаг появится в следующей версии.');
+        expect(ru['authorLLM.step.swap_pilot']).toBe('Перестановки: пилот 500');
+    });
+
+    it('starts the swaps step by step: their check, the pilot, everything', async () => {
+        const done = { done: true, blocked: undefined };
+        show(
+            status({
+                steps: [
+                    step('eval_pilot', done),
+                    step('eval_full', done),
+                    step('resolve_pilot', done),
+                    step('resolve_full', done),
+                    step('swap_eval', { enabled: true, blocked: undefined }),
+                    step('swap_pilot'),
+                    step('swap_full'),
+                ],
+            }),
+        );
+        render(<AuthorLLMBlock />);
+        const check = await screen.findByRole('button', { name: /Swaps: check/ });
+        expect(check).toBeEnabled();
+        expect(screen.getByRole('button', { name: /Swaps: pilot 500/ })).toBeDisabled();
+        fireEvent.click(check);
+        await waitFor(() => expect(api.startAuthorLLMRun).toHaveBeenCalledWith('eval', 'swap'));
+
+        show(
+            status({
+                steps: [
+                    step('eval_pilot', done),
+                    step('eval_full', done),
+                    step('resolve_pilot', done),
+                    step('resolve_full', done),
+                    step('swap_eval', done),
+                    step('swap_pilot', { enabled: true, blocked: undefined }),
+                    step('swap_full'),
+                ],
+            }),
+        );
+        cleanup();
+        render(<AuthorLLMBlock />);
+        const pilot = await screen.findByRole('button', { name: /Swaps: pilot 500/ });
+        expect(pilot).toBeEnabled();
+        fireEvent.click(pilot);
+        await waitFor(() => expect(api.startAuthorLLMRun).toHaveBeenCalledWith('swap', 'pilot'));
+    });
+
+    it('shows a running swap run with its progress', async () => {
+        show(
+            status({
+                run: llmRun({
+                    kind: 'swap',
+                    mode: 'pilot',
+                    stage: 'resolve',
+                    progress: { done: 120, total: 500 },
+                }),
+                steps: freshSteps().map((s) => ({ ...s, enabled: false })),
+            }),
+        );
+        render(<AuthorLLMBlock />);
+        expect(
+            await screen.findByText(`Swaps pilot: resolving · ${n(120)} of ${n(500)}`),
+        ).toBeInTheDocument();
     });
 });

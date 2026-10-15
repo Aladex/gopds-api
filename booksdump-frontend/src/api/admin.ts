@@ -375,11 +375,18 @@ export const deleteAuthorMetadataArchive = (runID: number, archive: string) =>
 //
 // The LLM block of the author metadata card. The chain is fixed on the
 // server: check quality (eval pilot) → check everything (eval full) →
-// resolve pilot → resolve everything → swaps; each step says whether it is
-// built, enabled and done, and why it is not enabled.
+// resolve pilot → resolve everything → check the swaps (eval swap) → swaps
+// pilot → swap everything; each step says whether it is built, enabled and
+// done, and why it is not enabled.
 
 export type AuthorLLMStepKey =
-    'eval_pilot' | 'eval_full' | 'resolve_pilot' | 'resolve_full' | 'swap';
+    | 'eval_pilot'
+    | 'eval_full'
+    | 'resolve_pilot'
+    | 'resolve_full'
+    | 'swap_eval'
+    | 'swap_pilot'
+    | 'swap_full';
 
 export interface AuthorLLMStep {
     key: AuthorLLMStepKey;

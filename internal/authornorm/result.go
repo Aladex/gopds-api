@@ -256,9 +256,18 @@ func DecisionClasses() []DecisionClass {
 	return append([]DecisionClass(nil), decisionClassOrder...)
 }
 
+// ClassSwap names the inputs of a swap run (design K, phase 7): selected
+// structured_person credits whose given and family name the catalog's role
+// statistics say are the other way round. It is no local class — the local
+// normalizer never gives it — only the base of the LLM class llm.swap.
+const ClassSwap DecisionClass = "swap"
+
 // Validate reports ErrUnknownDecisionClass for a value outside the closed set.
 func (c DecisionClass) Validate() error {
 	if _, ok := decisionClassRouting[c]; ok {
+		return nil
+	}
+	if c == LLMClass(ClassSwap) {
 		return nil
 	}
 	if base, ok := c.LLMBase(); ok && base.Ambiguous() {

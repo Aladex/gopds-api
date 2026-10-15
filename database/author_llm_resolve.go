@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"gopds-api/internal/authornorm"
@@ -61,6 +62,10 @@ type AuthorLLMResolveSettings struct {
 	ReportSHA256   string                             `json:"report_sha256"`
 	Strata         map[string]AuthorLLMResolveStratum `json:"strata"`
 	NotRegistrable []string                           `json:"not_registrable"`
+	// NotPassed are the swap strata the swap eval measured and did not pass
+	// (swap.latn has too few candidates to reach the gate): reported, never
+	// registered.
+	NotPassed []string `json:"not_passed,omitempty"`
 }
 
 // AuthorLLMEvalEvidence is the latest completed full eval of a
@@ -75,8 +80,30 @@ type AuthorLLMEvalEvidence struct {
 }
 
 // LatestAuthorLLMFullEval reads the latest completed full eval run of the
-// configuration with its latest report version; nil when there is none.
+// configuration with its latest report version; nil when there is none. A
+// resolve run rests on it.
 func LatestAuthorLLMFullEval(ctx context.Context, db pg.DBI, version string) (*AuthorLLMEvalEvidence, error) {
+	return latestAuthorLLMEval(ctx, db, version, models.AuthorLLMEvalModeFull)
+}
+
+// LatestAuthorLLMSwapEval reads the latest completed eval run of mode swap of
+// the configuration — the measurement of the swap strata a swap run rests on
+// — with its latest report version; nil when there is none.
+func LatestAuthorLLMSwapEval(ctx context.Context, db pg.DBI, version string) (*AuthorLLMEvalEvidence, error) {
+	return latestAuthorLLMEval(ctx, db, version, models.AuthorLLMEvalModeSwap)
+}
+
+// LatestAuthorLLMEvidence is the evidence a production run of kind rests on:
+// the latest full eval for a resolve run, the latest swap eval for a swap
+// run.
+func LatestAuthorLLMEvidence(ctx context.Context, db pg.DBI, version string, kind models.AuthorLLMRunKind) (*AuthorLLMEvalEvidence, error) {
+	if kind == models.AuthorLLMRunSwap {
+		return LatestAuthorLLMSwapEval(ctx, db, version)
+	}
+	return LatestAuthorLLMFullEval(ctx, db, version)
+}
+
+func latestAuthorLLMEval(ctx context.Context, db pg.DBI, version, mode string) (*AuthorLLMEvalEvidence, error) {
 	var ev AuthorLLMEvalEvidence
 	_, err := db.QueryOneContext(ctx, &ev, `
 		SELECT r.id AS run_id, e.id AS report_id, e.report_sha256, e.report::text AS report, r.expected_models,
@@ -84,9 +111,9 @@ func LatestAuthorLLMFullEval(ctx context.Context, db pg.DBI, version string) (*A
 		FROM author_llm_run r
 		JOIN LATERAL (SELECT id, report_sha256, report FROM author_llm_eval_report
 			WHERE run_id = r.id ORDER BY version DESC LIMIT 1) e ON true
-		WHERE r.config_version = ?0 AND r.kind = 'eval' AND r.mode = 'full' AND r.status = 'completed'
+		WHERE r.config_version = ?0 AND r.kind = 'eval' AND r.mode = ?1 AND r.status = 'completed'
 		ORDER BY r.finished_at DESC, r.id DESC
-		LIMIT 1`, version)
+		LIMIT 1`, version, mode)
 	if errors.Is(err, pg.ErrNoRows) {
 		return nil, nil
 	}
@@ -133,9 +160,11 @@ func (ev *AuthorLLMEvalEvidence) withRelearns(ctx context.Context, db pg.DBI) er
 	return err
 }
 
-// AuthorLLMResolveStart is a resolve run to start: its mode, the evidence
-// and the plan.
+// AuthorLLMResolveStart is a production run to start: its kind (resolve, or
+// swap on the same machinery), its mode, the evidence and the plan.
 type AuthorLLMResolveStart struct {
+	// Kind is resolve when empty.
+	Kind          models.AuthorLLMRunKind
 	ConfigVersion string
 	Mode          string
 	Evidence      *AuthorLLMEvalEvidence
@@ -163,6 +192,10 @@ func StartAuthorLLMResolveRun(ctx context.Context, db *pg.DB, s *AuthorLLMResolv
 	if err != nil {
 		return 0, 0, err
 	}
+	kind := s.Kind
+	if kind == "" {
+		kind = models.AuthorLLMRunResolve
+	}
 	err = RunAuthorLLMTx(ctx, db, func(tx *pg.Tx) error {
 		registered = 0
 		if _, lockErr := lockAuthorLLM(ctx, tx, nil); lockErr != nil {
@@ -174,7 +207,7 @@ func StartAuthorLLMResolveRun(ctx context.Context, db *pg.DB, s *AuthorLLMResolv
 		// The plan was built from evidence read before the lock; a
 		// recomputation publishes under the same lock, so the latest
 		// report read now is the one the registrations may rest on.
-		latest, readErr := LatestAuthorLLMFullEval(ctx, tx, s.ConfigVersion)
+		latest, readErr := LatestAuthorLLMEvidence(ctx, tx, s.ConfigVersion, kind)
 		if readErr != nil {
 			return readErr
 		}
@@ -188,9 +221,9 @@ func StartAuthorLLMResolveRun(ctx context.Context, db *pg.DB, s *AuthorLLMResolv
 		if _, insertErr := tx.QueryOneContext(ctx, pg.Scan(&id), `
 			INSERT INTO author_llm_run (kind, mode, status, config_version, stage, settings, expected_models,
 				reference, created_by_user_id, started_at)
-			VALUES ('resolve', ?0, 'running', ?1, 'enqueue', ?2::jsonb, ?3::jsonb, ?4::jsonb, ?5, now())
+			VALUES (?6, ?0, 'running', ?1, 'enqueue', ?2::jsonb, ?3::jsonb, ?4::jsonb, ?5, now())
 			RETURNING id`, s.Mode, s.ConfigVersion, string(settings), string(s.Evidence.ExpectedModels),
-			string(s.Evidence.Reference), s.CreatedBy); insertErr != nil {
+			string(s.Evidence.Reference), s.CreatedBy, string(kind)); insertErr != nil {
 			return insertErr
 		}
 		// The acceptance table is small and written only here and by
@@ -229,28 +262,29 @@ func StartAuthorLLMResolveRun(ctx context.Context, db *pg.DB, s *AuthorLLMResolv
 		case "23514":
 			return 0, 0, ErrAuthorLLMRunEvidence
 		}
-		return 0, 0, fmt.Errorf("starting a resolve run: %w", err)
+		return 0, 0, fmt.Errorf("starting a %s run: %w", kind, err)
 	}
 	return id, registered, nil
 }
 
-// AuthorLLMResolveRun is the running resolve run of a configuration as its
-// driver reads it.
+// AuthorLLMResolveRun is the running production run (resolve or swap) of a
+// configuration as its driver reads it.
 type AuthorLLMResolveRun struct {
-	ID        int64           `pg:"id"`
-	Mode      string          `pg:"mode"`
-	Stage     *string         `pg:"stage"`
-	Settings  json.RawMessage `pg:"settings"`
-	Reference json.RawMessage `pg:"reference"`
+	ID        int64                   `pg:"id"`
+	Kind      models.AuthorLLMRunKind `pg:"kind"`
+	Mode      string                  `pg:"mode"`
+	Stage     *string                 `pg:"stage"`
+	Settings  json.RawMessage         `pg:"settings"`
+	Reference json.RawMessage         `pg:"reference"`
 }
 
-// RunningAuthorLLMResolveRun reads the configuration's running resolve run;
-// nil when there is none.
+// RunningAuthorLLMResolveRun reads the configuration's running production
+// run — resolve, or swap on the same machinery; nil when there is none.
 func RunningAuthorLLMResolveRun(ctx context.Context, db pg.DBI, version string) (*AuthorLLMResolveRun, error) {
 	var run AuthorLLMResolveRun
 	_, err := db.QueryOneContext(ctx, &run, `
-		SELECT id, mode, stage, settings, reference FROM author_llm_run
-		WHERE kind = 'resolve' AND status = 'running' AND config_version = ?`, version)
+		SELECT id, kind, mode, stage, settings, reference FROM author_llm_run
+		WHERE kind IN ('resolve', 'swap') AND status = 'running' AND config_version = ?`, version)
 	if errors.Is(err, pg.ErrNoRows) {
 		return nil, nil
 	}
@@ -260,8 +294,9 @@ func RunningAuthorLLMResolveRun(ctx context.Context, db pg.DBI, version string) 
 	return &run, nil
 }
 
-// EnqueueAuthorLLMReviewJobs inserts the review jobs of a running resolve
-// run in one statement per call; a job whose input already has one under
+// EnqueueAuthorLLMReviewJobs inserts the jobs of a running production run —
+// review jobs of a resolve run, swap checks of a swap run, all of one purpose
+// — in one statement per call; a job whose input already has one under
 // the configuration is kept (the pilot's inputs are never asked again by the
 // full run). A run that is not running at that moment gets nothing. It
 // returns how many were new.
@@ -281,10 +316,15 @@ func EnqueueAuthorLLMReviewJobs(ctx context.Context, db *pg.DB, runID int64, job
 		ConfigVers string          `json:"config"`
 		Again      bool            `json:"again"`
 	}
+	purpose := jobs[0].Purpose
+	if !purpose.IsResolve() {
+		return 0, ErrAuthorLLMInvalidJob
+	}
 	rows := make([]row, 0, len(jobs))
 	for i := range jobs {
 		j := &jobs[i]
-		if !j.Slot.Valid() || j.BatchSize < 1 || len(j.SourceFingerprint) != 32 || j.ExtractorVersion == "" {
+		if !j.Slot.Valid() || j.BatchSize < 1 || len(j.SourceFingerprint) != 32 || j.ExtractorVersion == "" ||
+			j.Purpose != purpose {
 			return 0, ErrAuthorLLMInvalidJob
 		}
 		input, err := json.Marshal(j.Input)
@@ -312,11 +352,11 @@ func EnqueueAuthorLLMReviewJobs(ctx context.Context, db *pg.DB, runID int64, job
 		res, insertErr := tx.ExecContext(ctx, `
 			INSERT INTO author_llm_job (config_version, slot, run_id, purpose, source_fingerprint, extractor_version,
 				arm, batch_size, output_mode, input, with_context)
-			SELECT r.config, r.slot, ?0, 'review', decode(r.fp, 'hex'), r.extractor, nullif(r.arm, ''), r.batch,
+			SELECT r.config, r.slot, ?0, ?2, decode(r.fp, 'hex'), r.extractor, nullif(r.arm, ''), r.batch,
 				r.mode, r.input, r.context
 			FROM jsonb_to_recordset(?1::jsonb) AS r(slot text, fp text, extractor text, arm text, batch int,
 				mode text, input jsonb, context boolean, config text)
-			ON CONFLICT DO NOTHING`, runID, string(payload))
+			ON CONFLICT DO NOTHING`, runID, string(payload), string(purpose))
 		if insertErr != nil {
 			return fmt.Errorf("enqueuing review jobs: %w", insertErr)
 		}
@@ -340,14 +380,14 @@ func EnqueueAuthorLLMReviewJobs(ctx context.Context, db *pg.DB, runID int64, job
 				SELECT i.* FROM inputs i
 				JOIN LATERAL (SELECT v.settled_at, v.outcome_reason FROM author_llm_verdict v
 					WHERE v.source_fingerprint = i.fp AND v.extractor_version = i.extractor
-						AND v.purpose = 'review' AND v.config_version = i.config AND v.verdict <> 'held_drift'
+						AND v.purpose = ?5 AND v.config_version = i.config AND v.verdict <> 'held_drift'
 					ORDER BY v.id DESC
 					LIMIT 1) latest ON true
 				WHERE latest.settled_at IS NOT NULL
 					AND (latest.outcome_reason IN (?2) OR (i.again AND latest.outcome_reason = ?4))
 					AND NOT EXISTS (SELECT 1 FROM author_llm_verdict v
 						WHERE v.source_fingerprint = i.fp AND v.extractor_version = i.extractor
-							AND v.purpose = 'review' AND v.config_version = i.config AND v.verdict <> 'held_drift'
+							AND v.purpose = ?5 AND v.config_version = i.config AND v.verdict <> 'held_drift'
 							AND (v.outcome_reason IS NULL OR v.outcome_reason NOT IN (?2, ?4)))
 			)
 			UPDATE author_llm_job j
@@ -356,10 +396,10 @@ func EnqueueAuthorLLMReviewJobs(ctx context.Context, db *pg.DB, runID int64, job
 				last_error_class = ?3, next_attempt_at = now()
 			FROM again a
 			WHERE j.source_fingerprint = a.fp AND j.extractor_version = a.extractor AND j.config_version = a.config
-				AND j.purpose = 'review' AND j.eval_item_id IS NULL AND j.run_id <> ?0
+				AND j.purpose = ?5 AND j.eval_item_id IS NULL AND j.run_id <> ?0
 				AND j.status IN ('answered', 'invalid', 'failed')`,
 			runID, string(payload), pg.In(authorLLMTransientOutcomes()), authorLLMClassAskedAgain,
-			models.AuthorLLMApplyFailed)
+			models.AuthorLLMApplyFailed, string(purpose))
 		if insertErr != nil {
 			return fmt.Errorf("asking review inputs again: %w", insertErr)
 		}
@@ -511,31 +551,77 @@ type AuthorLLMVerdictToApply struct {
 	QualityFlags     []string `pg:"quality_flags,array"`
 }
 
-// AuthorLLMVerdictsToApply lists up to limit confirmed, unapplied verdicts
-// of a run, oldest first.
-func AuthorLLMVerdictsToApply(ctx context.Context, db pg.DBI, runID int64, limit int) ([]AuthorLLMVerdictToApply, error) {
-	var rows []AuthorLLMVerdictToApply
-	_, err := db.QueryContext(ctx, &rows, `
+// authorLLMVerdictsToApplySQL lists up to ?1 confirmed, unapplied verdicts
+// of run ?0, oldest first; {{proposal}} is the lateral that gives each its
+// local class, local result, script and flags.
+const authorLLMVerdictsToApplySQL = `
 		SELECT v.id, v.source_fingerprint, v.extractor_version, v.verdict, v.tier, j.context_state AS context_state_a,
-			jb.context_state AS context_state_b, v.judgement, a.reply, j.input, `+authorLLMParticleRejectedSQL+`
+			jb.context_state AS context_state_b, v.judgement, a.reply, j.input, ` + authorLLMParticleRejectedSQL + `
 				AS particle_rejected, j.arm, j.batch_size, i.decision_class, i.proposal_result_id, r.script,
 			r.quality_flags
 		FROM author_llm_verdict v
 		JOIN author_llm_job j ON j.id = v.job_a_id
 		JOIN author_llm_job jb ON jb.id = v.job_b_id
 		LEFT JOIN author_llm_attempt a ON a.id = v.attempt_a_id
-		LEFT JOIN LATERAL (
-			SELECT ri.decision_class, ri.proposal_result_id FROM contributor_review_item ri
-			WHERE ri.scope_fingerprint = v.source_fingerprint AND ri.reason = 'ambiguous_decision'
-			ORDER BY ri.id DESC LIMIT 1) i ON true
+		LEFT JOIN LATERAL ({{proposal}}) i ON true
 		LEFT JOIN contributor_normalization_result r ON r.id = i.proposal_result_id
 		WHERE v.run_id = ?0 AND v.verdict <> 'held_drift' AND v.confirmed_at IS NOT NULL AND v.settled_at IS NULL
 		ORDER BY v.id
-		LIMIT ?1`, runID, limit)
+		LIMIT ?1`
+
+// authorLLMReviewProposalSQL: a review input's local proposal is its latest
+// ambiguous review item's.
+const authorLLMReviewProposalSQL = `
+			SELECT ri.decision_class, ri.proposal_result_id FROM contributor_review_item ri
+			WHERE ri.scope_fingerprint = v.source_fingerprint AND ri.reason = 'ambiguous_decision'
+			ORDER BY ri.id DESC LIMIT 1`
+
+// authorLLMSwapProposalSQL: a swap candidate's local result is the
+// structured_person result its credits are selected on, and its class is
+// swap.
+const authorLLMSwapProposalSQL = `
+			SELECT 'swap'::text AS decision_class, sel.result_id AS proposal_result_id
+			FROM book_contributor_credit c
+			JOIN book_metadata_snapshot s ON s.id = c.snapshot_id AND s.is_current
+				AND s.extractor_version = v.extractor_version
+			JOIN book_contributor_credit_selection sel ON sel.credit_id = c.id
+			JOIN contributor_normalization_result lr ON lr.id = sel.result_id
+				AND lr.decision_class = 'structured_person'
+			WHERE c.source_fingerprint = v.source_fingerprint AND c.role = 'author'
+			ORDER BY c.id LIMIT 1`
+
+// AuthorLLMVerdictsToApply lists up to limit confirmed, unapplied verdicts
+// of a run, oldest first: of a resolve run with each input's review
+// proposal, of a swap run with its selected local result.
+func AuthorLLMVerdictsToApply(
+	ctx context.Context, db pg.DBI, runID int64, kind models.AuthorLLMRunKind, limit int,
+) ([]AuthorLLMVerdictToApply, error) {
+	proposal := authorLLMReviewProposalSQL
+	if kind == models.AuthorLLMRunSwap {
+		proposal = authorLLMSwapProposalSQL
+	}
+	var rows []AuthorLLMVerdictToApply
+	_, err := db.QueryContext(ctx, &rows, strings.Replace(authorLLMVerdictsToApplySQL, "{{proposal}}", proposal, 1),
+		runID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("listing the verdicts to apply: %w", err)
 	}
 	return rows, nil
+}
+
+// AuthorLLMSelectedPolicy is the highest policy version the input's current
+// author credits are selected under; 0 when none is.
+func AuthorLLMSelectedPolicy(ctx context.Context, tx ResolutionTx, fingerprint []byte, extractorVersion string) (int, error) {
+	var policy int
+	if _, err := tx.QueryOneContext(ctx, pg.Scan(&policy), `
+		SELECT coalesce(max(sel.policy_version::int), 0) FROM book_contributor_credit c
+		JOIN book_metadata_snapshot s ON s.id = c.snapshot_id AND s.is_current AND s.extractor_version = ?1
+		JOIN book_contributor_credit_selection sel ON sel.credit_id = c.id AND sel.state = 'selected'
+		WHERE c.source_fingerprint = ?0 AND c.role = 'author' AND sel.policy_version ~ '^[0-9]+$'`,
+		fingerprint, extractorVersion); err != nil {
+		return 0, fmt.Errorf("reading an input's policy version: %w", err)
+	}
+	return policy, nil
 }
 
 // AuthorLLMRegistration is the policy version under which the configuration
@@ -646,6 +732,12 @@ func CloseAutomaticReviewItems(ctx context.Context, tx ResolutionTx, fingerprint
 	return res.RowsAffected(), nil
 }
 
+// authorLLMDecidingPurposeSQL is true for a verdict (alias v) that can
+// decide its input: a review verdict, or a swap verdict that selected a
+// result. A swap that was not applied changes nothing — the local selection
+// stays — so it decides nothing either.
+const authorLLMDecidingPurposeSQL = `(v.purpose = 'review' OR (v.purpose = 'swap_check' AND v.result_id IS NOT NULL))`
+
 // TestHookAfterLLMOutcomeRead is called, when set, right after the resolver
 // read an input's settled LLM outcome: a test seam to interleave a
 // concurrent writer at that point. Production code never sets it.
@@ -676,7 +768,7 @@ func SettledAuthorLLMOutcome(ctx context.Context, db pg.DBI, fingerprint []byte,
 		LEFT JOIN contributor_normalization_result r ON r.id = v.result_id
 		LEFT JOIN author_llm_attempt a ON a.id = v.attempt_a_id
 		LEFT JOIN author_llm_job j ON j.id = v.job_a_id
-		WHERE v.source_fingerprint = ?0 AND v.extractor_version = ?1 AND v.purpose = 'review'
+		WHERE v.source_fingerprint = ?0 AND v.extractor_version = ?1 AND `+authorLLMDecidingPurposeSQL+`
 			AND v.settled_at IS NOT NULL AND v.verdict <> 'held_drift'
 			AND (v.outcome_reason IS NULL OR v.outcome_reason NOT IN (?2))
 		ORDER BY v.settled_at DESC, v.id DESC

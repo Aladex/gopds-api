@@ -619,7 +619,7 @@
   "authorLLM.error.run_kind_unavailable": "This step comes in the next version.",
   "authorLLM.failed": "{{run}} stopped with an error ({{class}})",
   "authorLLM.loadFailed": "Could not read the LLM state.",
-  "authorLLM.notAvailable": "Swaps come in the next version.",
+  "authorLLM.notAvailable": "This step comes in the next version.",
   "authorLLM.notConfigured": "LLM is not configured",
   "authorLLM.notConfiguredModels": "LLM is not configured: four different models are needed",
   "authorLLM.notConfiguredWorkers": "LLM is not configured: author metadata processing is off",
@@ -667,11 +667,16 @@
   "authorLLM.step.eval_pilot": "Check quality",
   "authorLLM.step.resolve_full": "Resolve everything",
   "authorLLM.step.resolve_pilot": "Resolve: pilot 500",
-  "authorLLM.step.swap": "Swaps",
   "authorLLM.title": "LLM review",
   "authorLLM.tokens": "Tokens: {{spent}} of ~{{estimate}} (paused at {{limit}})",
   "authorLLM.tokensSpent": "Tokens: {{spent}}",
   "authorLLM.close": "Close run",
   "authorLLM.closed": "{{run}}: closed",
-  "authorLLM.error.run_config_changed": "This run belongs to an earlier configuration; it can only be closed."
+  "authorLLM.error.run_config_changed": "This run belongs to an earlier configuration; it can only be closed.",
+  "authorLLM.step.swap_eval": "Swaps: check",
+  "authorLLM.step.swap_pilot": "Swaps: pilot 500",
+  "authorLLM.step.swap_full": "Swap everything",
+  "authorLLM.run.eval_swap": "Swaps check",
+  "authorLLM.run.swap_pilot": "Swaps pilot",
+  "authorLLM.run.swap_full": "Swap everything"
 }
