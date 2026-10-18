@@ -24,6 +24,20 @@ const BUTTON_SWITCHES = [
     { field: 'show_telegram_button', labelKey: 'kindle.showTelegramButton' },
 ] as const;
 
+/*
+ * Which settings change was asked for last. Held here, outside the component,
+ * because the component does not outlive a closed profile: the busy flag
+ * below serializes changes only within one opening, and a profile closed
+ * while a change was slow and opened again could start another. The older
+ * answer — or its rollback — then landed after the newer one and put the
+ * whole user back as it had been. Only the latest change's answer is applied.
+ */
+const settingsChanges = { latest: 0 };
+
+/** beginChange numbers a change; isLatest says whether it is still the last. */
+const beginChange = () => ++settingsChanges.latest;
+const isLatest = (change: number) => change === settingsChanges.latest;
+
 /** SenderAddress offers a line break before the @ and nowhere else. */
 const SenderAddress: React.FC<{ address: string }> = ({ address }) => {
     const at = address.lastIndexOf('@');
@@ -68,13 +82,15 @@ const KindleSettings: React.FC = () => {
 
     const save = async () => {
         setBusy(true);
+        const change = beginChange();
         try {
             const updated = await kindleApi.setKindleEmail(typed);
+            if (!isLatest(change)) return;
             updateUser(updated);
             setAddress(updated.kindle_email ?? typed);
             toast.success(t('kindle.saved'));
         } catch {
-            toast.error(t('kindle.saveError'));
+            if (isLatest(change)) toast.error(t('kindle.saveError'));
         } finally {
             setBusy(false);
         }
@@ -82,13 +98,15 @@ const KindleSettings: React.FC = () => {
 
     const remove = async () => {
         setBusy(true);
+        const change = beginChange();
         try {
             const updated = await kindleApi.clearKindleEmail();
+            if (!isLatest(change)) return;
             updateUser(updated);
             setAddress('');
             toast.success(t('kindle.removed'));
         } catch {
-            toast.error(t('kindle.saveError'));
+            if (isLatest(change)) toast.error(t('kindle.saveError'));
         } finally {
             setBusy(false);
         }
@@ -110,15 +128,19 @@ const KindleSettings: React.FC = () => {
     ) => {
         if (!user || busy) return;
         setBusy(true);
+        const change = beginChange();
         // Shown at once, and put back if the server disagrees. Nothing else
         // here can change meanwhile, so the user as it was is still the one
         // to go back to.
         updateUser({ ...user, [field]: value });
         try {
-            updateUser(await authApi.updateCurrentUser({ [field]: value }));
+            const updated = await authApi.updateCurrentUser({ [field]: value });
+            if (isLatest(change)) updateUser(updated);
         } catch {
-            updateUser(user);
-            toast.error(t('kindle.buttonsSaveError'));
+            if (isLatest(change)) {
+                updateUser(user);
+                toast.error(t('kindle.buttonsSaveError'));
+            }
         } finally {
             setBusy(false);
         }

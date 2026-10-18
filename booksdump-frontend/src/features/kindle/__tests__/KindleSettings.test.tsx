@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { toast } from 'sonner';
 
@@ -223,5 +223,99 @@ describe('the sender address on a narrow screen', () => {
         expect(domain).toHaveTextContent('@booksdump.com');
         expect(domain.className).toMatch(/whitespace-nowrap/);
         expect(code).toHaveTextContent(SENDER);
+    });
+});
+
+describe('a profile closed and opened again while a change is slow', () => {
+    // updateUser stands in for AuthContext: it replaces the user, as the
+    // real one does.
+    afterEach(() => updateUser.mockReset());
+
+    const installStore = () =>
+        updateUser.mockImplementation((next: User) => {
+            authState.user = next;
+        });
+
+    const pending = <T,>() => {
+        let resolve: (value: T) => void = () => {};
+        let reject: (reason: unknown) => void = () => {};
+        const promise = new Promise<T>((res, rej) => {
+            resolve = res;
+            reject = rej;
+        });
+        return { promise, resolve, reject };
+    };
+
+    it.each([
+        ['answers late', 'resolve'],
+        ['fails late', 'reject'],
+    ] as const)(
+        'does not let the old change undo the new one when it %s',
+        async (_name, outcome) => {
+            installStore();
+            const first = pending<User>();
+            const second = pending<User>();
+            vi.mocked(authApi.updateCurrentUser)
+                .mockReturnValueOnce(first.promise)
+                .mockReturnValueOnce(second.promise);
+
+            const opening = render(<KindleSettings key="first" />);
+            await userEvent.click(screen.getByRole('switch', { name: 'kindle.showKindleButton' }));
+            opening.unmount();
+
+            render(<KindleSettings key="second" />);
+            await userEvent.click(
+                screen.getByRole('switch', { name: 'kindle.showTelegramButton' }),
+            );
+            expect(authApi.updateCurrentUser).toHaveBeenCalledTimes(2);
+
+            // The newer answer first, then the older one — a stale snapshot,
+            // or a failure whose rollback would restore the user as it was.
+            const both = {
+                ...authState.user,
+                show_kindle_button: false,
+                show_telegram_button: false,
+            };
+            await act(async () => second.resolve(both));
+            await act(async () => {
+                if (outcome === 'resolve') {
+                    first.resolve({ ...both, show_telegram_button: true });
+                } else {
+                    first.reject(new Error('500'));
+                }
+            });
+
+            expect(authState.user.show_telegram_button).toBe(false);
+            expect(
+                screen.getByRole('switch', { name: 'kindle.showTelegramButton' }),
+            ).not.toBeChecked();
+            expect(toast.error).not.toHaveBeenCalled();
+        },
+    );
+
+    it('does not let an old address save overwrite a newer removal', async () => {
+        installStore();
+        authState.user.kindle_email = 'old@kindle.com';
+        const saving = pending<User>();
+        vi.mocked(kindleApi.setKindleEmail).mockReturnValueOnce(saving.promise);
+        vi.mocked(kindleApi.clearKindleEmail).mockResolvedValueOnce({
+            ...authState.user,
+            kindle_email: '',
+        });
+
+        const opening = render(<KindleSettings key="first" />);
+        await userEvent.clear(field());
+        await userEvent.type(field(), 'new@kindle.com');
+        await userEvent.click(saveButton());
+        opening.unmount();
+
+        render(<KindleSettings key="second" />);
+        await userEvent.click(screen.getByRole('button', { name: 'kindle.remove' }));
+        await waitFor(() => expect(authState.user.kindle_email).toBe(''));
+
+        await act(async () =>
+            saving.resolve({ ...authState.user, kindle_email: 'new@kindle.com' }),
+        );
+        expect(authState.user.kindle_email).toBe('');
     });
 });
