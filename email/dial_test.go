@@ -27,11 +27,31 @@ import (
 // These run a mail server on a loopback port and check what the client does
 // with it. Nothing here reaches the network.
 
-// fakeServer speaks just enough SMTP to answer a greeting and an EHLO.
+// fakeServer speaks just enough SMTP to answer a greeting and an EHLO, and to
+// take one message: it keeps the envelope as the client wrote it and the
+// message as it arrived.
 type fakeServer struct {
 	offerSTARTTLS bool
 	cert          tls.Certificate
 	seen          []string
+
+	mailFrom string
+	rcptTo   string
+	data     []byte
+
+	// done closes when the conversation is over, so a test reads the fields
+	// above only once the server has stopped writing them.
+	done chan struct{}
+}
+
+// wait blocks until the server has finished its one conversation.
+func (f *fakeServer) wait(t *testing.T) {
+	t.Helper()
+	select {
+	case <-f.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the fake server never finished the conversation")
+	}
 }
 
 func (f *fakeServer) listen(t *testing.T) string {
@@ -43,7 +63,9 @@ func (f *fakeServer) listen(t *testing.T) string {
 	}
 	t.Cleanup(func() { _ = listener.Close() })
 
+	f.done = make(chan struct{})
 	go func() {
+		defer close(f.done)
 		conn, err := listener.Accept()
 		if err != nil {
 			return
@@ -68,6 +90,18 @@ func (f *fakeServer) serve(conn net.Conn) {
 		f.seen = append(f.seen, command)
 
 		switch {
+		case strings.HasPrefix(command, "MAIL FROM:"):
+			f.mailFrom = strings.TrimSpace(line)
+			fmt.Fprint(conn, "250 ok\r\n")
+		case strings.HasPrefix(command, "RCPT TO:"):
+			f.rcptTo = strings.TrimSpace(line)
+			fmt.Fprint(conn, "250 ok\r\n")
+		case command == "DATA":
+			fmt.Fprint(conn, "354 go ahead\r\n")
+			if !f.readData(reader) {
+				return
+			}
+			fmt.Fprint(conn, "250 queued\r\n")
 		case strings.HasPrefix(command, "EHLO"):
 			if f.offerSTARTTLS {
 				fmt.Fprint(conn, "250-fake\r\n250 STARTTLS\r\n")
@@ -88,6 +122,23 @@ func (f *fakeServer) serve(conn net.Conn) {
 		default:
 			fmt.Fprint(conn, "250 ok\r\n")
 		}
+	}
+}
+
+// readData takes the message up to the lone dot, undoing the dot-stuffing the
+// client applied.
+func (f *fakeServer) readData(reader *bufio.Reader) bool {
+	var body strings.Builder
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return false
+		}
+		if line == ".\r\n" {
+			f.data = []byte(body.String())
+			return true
+		}
+		body.WriteString(strings.TrimPrefix(line, "."))
 	}
 }
 

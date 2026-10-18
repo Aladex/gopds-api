@@ -83,7 +83,7 @@ func writePart(b *bytes.Buffer, boundary, contentType, body string) {
 	// dot, which SMTP would otherwise eat.
 	writeHeader(b, "Content-Transfer-Encoding", "base64")
 	b.WriteString("\r\n")
-	b.WriteString(base64Lines(body))
+	b.WriteString(base64Lines([]byte(body)))
 	b.WriteString("\r\n")
 }
 
@@ -154,9 +154,9 @@ func randomToken() (string, error) {
 
 // base64Lines encodes a part and wraps it at 76 characters, which is the limit
 // RFC 2045 sets and which some servers enforce by refusing the message.
-func base64Lines(s string) string {
+func base64Lines(data []byte) string {
 	const width = 76
-	encoded := base64.StdEncoding.EncodeToString([]byte(s))
+	encoded := base64.StdEncoding.EncodeToString(data)
 
 	var b strings.Builder
 	for start := 0; start < len(encoded); start += width {

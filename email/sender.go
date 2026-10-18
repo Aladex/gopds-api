@@ -139,6 +139,10 @@ func dial(servername, host, port string, tlsconfig *tls.Config) (*smtp.Client, e
 	return client, nil
 }
 
+// mailConnection opens the session a message goes out over; tests point it at
+// a server of their own.
+var mailConnection = MailConnection
+
 // sendEmail renders one email and hands it to the mail server.
 func sendEmail(data *SendType, templateName string) error {
 	data.From = viper.GetString("email.from")
@@ -170,7 +174,7 @@ func sendEmail(data *SendType, templateName string) error {
 // Close, and Close is where the server finally says whether it took the
 // message at all: a refused email was logged as delivered.
 func send(from, to string, msg []byte) error {
-	client, err := MailConnection()
+	client, err := mailConnection()
 	if err != nil {
 		return err
 	}
