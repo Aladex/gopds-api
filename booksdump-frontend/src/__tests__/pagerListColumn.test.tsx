@@ -103,6 +103,10 @@ vi.mock('@/context/AuthorContext', () => {
     const value = { authorId: '', setAuthorId: vi.fn(), setAuthorName: vi.fn() };
     return { useAuthor: () => value };
 });
+vi.mock('@/context/WebSocketContext', () => {
+    const value = { isConnected: true, subscribe: vi.fn(), sendToKindle: vi.fn() };
+    return { useWebSocket: () => value };
+});
 vi.mock('@/context/FavContext', () => {
     const value = { fav: false, favEnabled: true, setFavEnabled: vi.fn() };
     return { useFav: () => value };

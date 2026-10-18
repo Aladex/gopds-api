@@ -75,6 +75,10 @@ vi.mock('@/context/BookConversionContext', () => ({
 
 vi.mock('@/shared/lib/downloadViaIframe', () => ({ downloadViaIframe: vi.fn() }));
 
+// The cards' Kindle button asks the socket; nothing here sends a book.
+const webSocketValue = { isConnected: true, subscribe: vi.fn(), sendToKindle: vi.fn() };
+vi.mock('@/context/WebSocketContext', () => ({ useWebSocket: () => webSocketValue }));
+
 // The preview client is mocked at the boundary the dialog uses, so the tests
 // below exercise the real dialog: whether the catalogue can reach it at all
 // is precisely what they are here to hold.
@@ -488,10 +492,7 @@ describe('BooksList opens the reader', () => {
         // hardcoded id and language — is indistinguishable from wiring that
         // works.
         listBooks.mockResolvedValue({
-            books: [
-                makeBook(),
-                makeBook({ id: 42, title: 'The Other Book', lang: 'en' }),
-            ],
+            books: [makeBook(), makeBook({ id: 42, title: 'The Other Book', lang: 'en' })],
             length: 2,
         });
         renderAt('/books/page/1');
@@ -578,7 +579,11 @@ describe('BooksList order', () => {
     it.each([
         ['the catalogue', '/books/page/3', '/books/page/:page'],
         ['an old sorted address', '/books/page/1?sort=author', '/books/page/:page'],
-        ['the books of a genre', '/books/find/genre/4/2?sort=author', '/books/find/genre/:id/:page'],
+        [
+            'the books of a genre',
+            '/books/find/genre/4/2?sort=author',
+            '/books/find/genre/:id/:page',
+        ],
     ])('%s has no sort control and never asks for a sort', async (_name, path, route) => {
         renderAt(path, route);
         await screen.findByText('Заклятые в любви');

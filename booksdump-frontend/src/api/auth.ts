@@ -24,6 +24,16 @@ export interface User {
     have_favs?: boolean;
     has_bot_token?: boolean;
     date_joined?: string;
+    /** The reader's Send-to-Kindle address; empty until they give one. */
+    kindle_email?: string;
+    /**
+     * The address their books are mailed from, which they put on Amazon's
+     * approved list. Theirs alone, and it never changes.
+     */
+    kindle_sender?: string;
+    /** Whether the book card shows each send button. Shown unless false. */
+    show_kindle_button?: boolean;
+    show_telegram_button?: boolean;
 }
 
 /** InitResponse is the bootstrap payload the app reads on start. */

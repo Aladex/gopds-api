@@ -22,11 +22,26 @@ export interface WSMessage {
 
 export type WSMessageHandler = (message: WSMessage) => void;
 
+/**
+ * KindleReply is how a send to the reader's Kindle went. "sent" means the mail
+ * relay took the message, which is as far as anyone can see: Amazon says
+ * nothing back. An error carries the server's code, or one of two of this
+ * side's own — `unavailable` when there was no connection to ask over, and
+ * `connection_lost` when it went away before the answer came.
+ */
+export interface KindleReply {
+    status: 'sent' | 'error';
+    code?: string;
+}
+
 interface WebSocketContextType {
     isConnected: boolean;
     // subscribe registers a topic handler and returns the unsubscribe
     // function; components call it from an effect so unmount unsubscribes.
     subscribe: (topic: string, handler: WSMessageHandler) => () => void;
+    // sendToKindle asks the server to mail the book to the reader's Kindle
+    // and resolves with its answer. It never rejects.
+    sendToKindle: (bookID: number) => Promise<KindleReply>;
 }
 
 const WebSocketContext = createContext<WebSocketContextType | undefined>(undefined);
@@ -63,6 +78,12 @@ const isConversionReplyFrame = (message: WSMessage): boolean => {
     return message.status === 'ready' || message.status === 'error';
 };
 
+// isKindleReplyFrame recognizes the answer to a sendToKindle request.
+const isKindleReplyFrame = (message: WSMessage): boolean =>
+    message.type === 'kindle' &&
+    typeof message.bookID === 'number' &&
+    (message.status === 'sent' || message.status === 'error');
+
 interface WebSocketProviderProps {
     isAuthenticated: boolean;
     // Fires on every successful reconnect after a dropped live connection, so
@@ -85,7 +106,19 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
     const openRef = useRef(false);
     const handlersRef = useRef(new Map<string, Set<WSMessageHandler>>());
     const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // Kindle requests waiting for their reply, by book. More than one may wait
+    // on the same book; one reply answers them all.
+    const kindleWaitersRef = useRef(new Map<number, Array<(reply: KindleReply) => void>>());
     const { state, dispatch } = useBookConversion();
+
+    const settleKindle = useCallback((bookID: number | null, reply: KindleReply) => {
+        const waiters = kindleWaitersRef.current;
+        const books = bookID === null ? Array.from(waiters.keys()) : [bookID];
+        for (const id of books) {
+            waiters.get(id)?.forEach((resolve) => resolve(reply));
+            waiters.delete(id);
+        }
+    }, []);
 
     const sendFrame = useCallback((frame: Record<string, unknown>) => {
         if (wsRef.current && openRef.current) {
@@ -205,6 +238,13 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
                     handleConversionReply(parsed);
                     return;
                 }
+                if (isKindleReplyFrame(parsed)) {
+                    settleKindle(parsed.bookID as number, {
+                        status: parsed.status as KindleReply['status'],
+                        code: typeof parsed.code === 'string' ? parsed.code : undefined,
+                    });
+                    return;
+                }
                 if (typeof parsed.topic === 'string') {
                     handlersRef.current.get(parsed.topic)?.forEach((handler) => handler(parsed));
                 }
@@ -217,6 +257,10 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
             ws.onclose = () => {
                 connecting = false;
                 openRef.current = false;
+                // A reply cannot arrive on a connection that is gone. The
+                // server may still have sent the book; the reader is told the
+                // answer was lost, not that it failed.
+                settleKindle(null, { status: 'error', code: 'connection_lost' });
                 if (wsRef.current === ws) {
                     wsRef.current = null;
                 }
@@ -261,9 +305,10 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
             }
             wsRef.current = null;
             openRef.current = false;
+            settleKindle(null, { status: 'error', code: 'connection_lost' });
             setIsConnected(false);
         };
-    }, [isAuthenticated, handleConversionReply, onReconnect]);
+    }, [isAuthenticated, handleConversionReply, onReconnect, settleKindle]);
 
     // Conversion requests ride the same socket, one per newly added book.
     useEffect(() => {
@@ -304,7 +349,24 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
         [sendFrame],
     );
 
-    const value = useMemo(() => ({ isConnected, subscribe }), [isConnected, subscribe]);
+    const sendToKindle = useCallback(
+        (bookID: number) =>
+            new Promise<KindleReply>((resolve) => {
+                if (!wsRef.current || !openRef.current) {
+                    resolve({ status: 'error', code: 'unavailable' });
+                    return;
+                }
+                const waiters = kindleWaitersRef.current;
+                waiters.set(bookID, [...(waiters.get(bookID) ?? []), resolve]);
+                sendFrame({ type: 'kindle', bookID });
+            }),
+        [sendFrame],
+    );
+
+    const value = useMemo(
+        () => ({ isConnected, subscribe, sendToKindle }),
+        [isConnected, subscribe, sendToKindle],
+    );
 
     return <WebSocketContext.Provider value={value}>{children}</WebSocketContext.Provider>;
 };

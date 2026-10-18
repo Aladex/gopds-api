@@ -31,6 +31,9 @@ import useScopeName from '@/features/catalogue/hooks/useScopeName';
 import { useFavouriteToggle } from '@/features/catalogue/hooks/useFavouriteToggle';
 import { useBookDownloads } from '@/features/catalogue/hooks/useBookDownloads';
 import BookCard from '@/features/catalogue/BookCard';
+import KindleSetupDialog from '@/features/kindle/KindleSetupDialog';
+import { useSendToKindle } from '@/features/kindle/useSendToKindle';
+import { useProfileOpener } from '@/features/profile/ProfileOpenerContext';
 import { ALL_LANGUAGES } from '@/shared/lib/languageUtils';
 
 const SKELETON_COUNT = 10;
@@ -128,6 +131,11 @@ const BooksList: React.FC = () => {
 
     const notify = (message: string) => toast(message, { duration: 2000 });
 
+    // One Kindle sender and one setup dialog for the whole page, not one per
+    // card.
+    const kindle = useSendToKindle();
+    const { openProfile } = useProfileOpener();
+
     const handleFavBook = useFavouriteToggle(dispatch, notify);
 
     const handleUpdateBook = async (book: Book) => {
@@ -217,6 +225,11 @@ const BooksList: React.FC = () => {
                                 onToggleApproved={handleUpdateBook}
                                 onRescan={handleRescanBook}
                                 onEdit={handleEditBook}
+                                showKindleButton={user?.show_kindle_button !== false}
+                                showTelegramButton={user?.show_telegram_button !== false}
+                                kindleConfigured={kindle.configured}
+                                isSendingToKindle={kindle.isSending(book.id)}
+                                onSendToKindle={kindle.send}
                             />
                         </div>
                     ))}
@@ -229,6 +242,12 @@ const BooksList: React.FC = () => {
                     </div>
                 </div>
             )}
+
+            <KindleSetupDialog
+                open={kindle.setupOpen}
+                onClose={kindle.closeSetup}
+                onOpenSettings={() => openProfile('kindle')}
+            />
 
             <EditBookDialog
                 open={editDialogOpen}

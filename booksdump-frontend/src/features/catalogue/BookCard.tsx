@@ -10,6 +10,7 @@ import { Expandable } from '@/shared/ui/expandable';
 import BookCover from '@/features/catalogue/BookCover';
 import { cn } from '@/shared/lib/utils';
 import { getLanguageDisplaySafe } from '@/shared/lib/languageUtils';
+import { KindleButton, TelegramButton } from '@/features/kindle/SendButtons';
 
 import { API_URL } from '@/api/config';
 import { useAuthor } from '@/context/AuthorContext';
@@ -138,6 +139,18 @@ export interface BookCardProps {
     onToggleApproved: (book: Book) => void;
     onRescan: (bookID: number) => void;
     onEdit: (book: Book) => void;
+    /**
+     * The two send buttons, each shown unless the reader turned it off in the
+     * profile. Optional, and off when left out, so a card rendered without a
+     * reader behind it shows neither.
+     */
+    showKindleButton?: boolean;
+    showTelegramButton?: boolean;
+    /** Whether the reader has a Kindle address to send to. */
+    kindleConfigured?: boolean;
+    isSendingToKindle?: boolean;
+    /** Sends the book, or opens the setup when there is no Kindle yet. */
+    onSendToKindle?: (bookID: number) => void;
 }
 
 /** coverPath mirrors the sanitising the poster route expects. */
@@ -158,6 +171,11 @@ const BookCard: React.FC<BookCardProps> = ({
     onToggleApproved,
     onRescan,
     onEdit,
+    showKindleButton = false,
+    showTelegramButton = false,
+    kindleConfigured = false,
+    isSendingToKindle = false,
+    onSendToKindle,
 }) => {
     const { t } = useTranslation();
     const { setSearchItem } = useSearchBar();
@@ -429,6 +447,14 @@ const BookCard: React.FC<BookCardProps> = ({
                             {t('bookRead')}
                         </Button>
                     )}
+                    {showKindleButton && (
+                        <KindleButton
+                            configured={kindleConfigured}
+                            sending={isSendingToKindle}
+                            onClick={() => onSendToKindle?.(book.id)}
+                        />
+                    )}
+                    {showTelegramButton && <TelegramButton />}
                     {isSuperuser && (
                         <>
                             <Button
