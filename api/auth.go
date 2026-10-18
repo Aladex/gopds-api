@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gopds-api/database"
+	"gopds-api/email"
 	"gopds-api/httputil"
 	"gopds-api/logging"
 	"gopds-api/middlewares"
@@ -125,19 +126,8 @@ func AuthCheck(c *gin.Context) {
 		return
 	}
 
-	hasBotToken := dbUser.BotToken != ""
-	thisUser := models.LoggedInUser{
-		User:          dbUser.Login,
-		FirstName:     dbUser.FirstName,
-		LastName:      dbUser.LastName,
-		BooksLang:     dbUser.BooksLang,
-		InterfaceLang: dbUser.InterfaceLang,
-		Token:         &accessToken,
-		IsSuperuser:   &dbUser.IsSuperUser,
-		HaveFavs:      &hf,
-		HasBotToken:   &hasBotToken,
-		DateJoined:    &dbUser.DateJoined,
-	}
+	thisUser := profileOf(&dbUser, hf)
+	thisUser.Token = &accessToken
 
 	if err := sessions.SetSessionKey(ctx, thisUser); err != nil {
 		httputil.NewError(c, http.StatusForbidden, err)
@@ -220,6 +210,36 @@ func LogOut(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"result": "ok"})
 }
 
+// profileOf is the user as the interface sees them.
+//
+// It used to be written out five times — login, self-user, change-me and both
+// paths of init — and the copies had already drifted: two carried the
+// collections and three did not, for no reason anyone recorded. Every field
+// added since would have had to be added five times, and a builder missed was
+// a profile that forgot the reader's Kindle address after a Save. Collections
+// are whatever the caller loaded; a nil list is what those three always sent.
+func profileOf(dbUser *models.User, haveFavs bool) models.LoggedInUser {
+	hasBotToken := dbUser.BotToken != ""
+	showKindle := dbUser.ShowKindleButton
+	showTelegram := dbUser.ShowTelegramButton
+	return models.LoggedInUser{
+		User:               dbUser.Login,
+		FirstName:          dbUser.FirstName,
+		LastName:           dbUser.LastName,
+		BooksLang:          dbUser.BooksLang,
+		InterfaceLang:      dbUser.InterfaceLang,
+		IsSuperuser:        &dbUser.IsSuperUser,
+		HaveFavs:           &haveFavs,
+		Collections:        dbUser.Collections,
+		HasBotToken:        &hasBotToken,
+		DateJoined:         &dbUser.DateJoined,
+		KindleEmail:        dbUser.KindleEmail,
+		KindleSender:       email.KindleSenderAddress(dbUser.KindleSenderID),
+		ShowKindleButton:   &showKindle,
+		ShowTelegramButton: &showTelegram,
+	}
+}
+
 // SelfUser method for retrieving user information by token
 // Auth godoc
 // @Summary Get user information by token
@@ -243,19 +263,7 @@ func SelfUser(c *gin.Context) {
 	if hf, err := database.HaveFavs(dbUser.ID); err != nil {
 		httputil.NewError(c, http.StatusBadRequest, err)
 	} else {
-		hasBotToken := dbUser.BotToken != ""
-		c.JSON(http.StatusOK, models.LoggedInUser{
-			User:          dbUser.Login,
-			BooksLang:     dbUser.BooksLang,
-			InterfaceLang: dbUser.InterfaceLang,
-			IsSuperuser:   &dbUser.IsSuperUser,
-			FirstName:     dbUser.FirstName,
-			LastName:      dbUser.LastName,
-			HaveFavs:      &hf,
-			Collections:   dbUser.Collections,
-			HasBotToken:   &hasBotToken,
-			DateJoined:    &dbUser.DateJoined,
-		})
+		c.JSON(http.StatusOK, profileOf(&dbUser, hf))
 	}
 }
 
@@ -330,19 +338,7 @@ func InitSession(c *gin.Context) {
 
 							// Add user data to response
 							if hf, err := database.HaveFavs(dbUser.ID); err == nil {
-								hasBotToken := dbUser.BotToken != ""
-								response["user"] = models.LoggedInUser{
-									User:          dbUser.Login,
-									BooksLang:     dbUser.BooksLang,
-									InterfaceLang: dbUser.InterfaceLang,
-									IsSuperuser:   &dbUser.IsSuperUser,
-									FirstName:     dbUser.FirstName,
-									LastName:      dbUser.LastName,
-									HaveFavs:      &hf,
-									Collections:   dbUser.Collections,
-									HasBotToken:   &hasBotToken,
-									DateJoined:    &dbUser.DateJoined,
-								}
+								response["user"] = profileOf(&dbUser, hf)
 							}
 
 							// Add theme if available
@@ -382,19 +378,7 @@ func InitSession(c *gin.Context) {
 	}
 
 	if hf, err := database.HaveFavs(dbUser.ID); err == nil {
-		hasBotToken := dbUser.BotToken != ""
-		response["user"] = models.LoggedInUser{
-			User:          dbUser.Login,
-			BooksLang:     dbUser.BooksLang,
-			InterfaceLang: dbUser.InterfaceLang,
-			IsSuperuser:   &dbUser.IsSuperUser,
-			FirstName:     dbUser.FirstName,
-			LastName:      dbUser.LastName,
-			HaveFavs:      &hf,
-			Collections:   dbUser.Collections,
-			HasBotToken:   &hasBotToken,
-			DateJoined:    &dbUser.DateJoined,
-		}
+		response["user"] = profileOf(&dbUser, hf)
 	}
 
 	if theme, err := sessions.GetThemeForToken(ctx, token); err == nil {
@@ -497,18 +481,7 @@ func ChangeUser(c *gin.Context) {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
 	} else {
-		hasBotToken := updatedUser.BotToken != ""
-		c.JSON(http.StatusOK, models.LoggedInUser{
-			User:          updatedUser.Login,
-			FirstName:     updatedUser.FirstName,
-			LastName:      updatedUser.LastName,
-			IsSuperuser:   &updatedUser.IsSuperUser,
-			BooksLang:     updatedUser.BooksLang,
-			InterfaceLang: updatedUser.InterfaceLang,
-			HaveFavs:      &hf,
-			HasBotToken:   &hasBotToken,
-			DateJoined:    &updatedUser.DateJoined,
-		})
+		c.JSON(http.StatusOK, profileOf(&updatedUser, hf))
 	}
 }
 

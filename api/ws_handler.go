@@ -93,6 +93,9 @@ const (
 	wsMsgSubscribe   = "subscribe"
 	wsMsgUnsubscribe = "unsubscribe"
 	wsMsgConvert     = "convert"
+	// wsMsgKindle is both the request to send a book to the reader's Kindle
+	// and its reply.
+	wsMsgKindle = "kindle"
 
 	wsMsgPong           = "pong"
 	wsMsgSubscribed     = "subscribed"
@@ -290,6 +293,9 @@ func handleClientMessage(
 	case wsMsgConvert:
 		handleConversionRequest(typed.BookID, typed.Format, notifyChan, done)
 		return true
+
+	case wsMsgKindle:
+		return handleKindleRequest(userID, typed.BookID, notifyChan, done)
 
 	default:
 		// The frame is whatever the client sent. Its size and the fields that

@@ -206,6 +206,15 @@ email:
         warning: "Если вы не запрашивали смену пароля, просто не открывайте ссылку — пароль останется прежним."
         footer: "Вы получили это письмо, потому что для вашего аккаунта на Example запросили смену пароля."
 
+# Send to Kindle. Every reader mails books from an address of their own,
+# {their sender id}@{sender_domain}, which they put on Amazon's approved
+# list once; the relay above must be allowed to send as any address on that
+# domain (with MailerSend: the domain verified, SPF and DKIM in place).
+# Leave sender_domain out to use the domain of email.from. The domain in use
+# is logged once at startup.
+kindle:
+  sender_domain: "example.com"
+
 # Ways of supporting this instance, shown in the "Donate" dialog.
 #
 # The interface knows nothing about any particular one: each entry says how it

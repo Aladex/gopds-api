@@ -21,6 +21,8 @@ func SetupBookRoutes(r *gin.RouterGroup, search *SearchHandler) {
 	r.GET("/getsigned/:format/:id", GetSignedBookUrl)
 	r.GET("/autocomplete", search.Autocomplete)
 	r.POST("/change-me", middlewares.CSRFMiddleware(), ChangeUser)
+	r.PUT("/kindle", middlewares.CSRFMiddleware(), SetKindleEmail)
+	r.DELETE("/kindle", middlewares.CSRFMiddleware(), ClearKindleEmail)
 	r.POST("/theme", middlewares.CSRFMiddleware(), SetThemePreference)
 	r.GET("/authors", search.Authors)
 	r.POST("/author", GetAuthor)

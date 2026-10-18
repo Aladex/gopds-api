@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gopds-api/database"
+	"gopds-api/email"
 	_ "gopds-api/internal/swaggerdocs" // Import to include documentation for Swagger UI
 	"gopds-api/logging"
 	"gopds-api/middlewares"
@@ -103,6 +104,7 @@ func run() (code int) {
 
 	// Initialize application services (WebSocket manager, etc.)
 	initializeServices()
+	email.LogKindleSenderDomain()
 
 	// Start watching the directory for e-book conversion tasks
 	go tasks.WatchDirectory(cfg.App.MobiConversionDir, conversionWatchInterval)

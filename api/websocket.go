@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"gopds-api/httputil"
 	"gopds-api/internal/safeio"
 	"gopds-api/logging"
+	"gopds-api/models"
 	"gopds-api/utils"
 
 	"github.com/gin-gonic/gin"
@@ -72,25 +74,38 @@ func ConvertBookToMobi(bookID int64) error {
 	return nil
 }
 
-func ConvertBookToEpub(bookID int64) error {
+// errBookFileMissing is a book whose row exists and whose file does not.
+var errBookFileMissing = errors.New("book file not found")
+
+// epubOf converts one book to EPUB in memory, refusing one over limit bytes
+// with safeio.ErrTooLarge. It returns the book's row alongside, for the name.
+func epubOf(bookID, limit int64) (models.Book, []byte, error) {
 	book, err := database.GetBook(bookID)
 	if err != nil {
-		return err
+		return book, nil, err
 	}
 	zipPath := viper.GetString("app.files_path") + book.Path
 
 	if !utils.FileExists(zipPath) {
-		return fmt.Errorf("book file not found: %s", zipPath)
+		return book, nil, fmt.Errorf("%w: %s", errBookFileMissing, zipPath)
 	}
 
 	bp := utils.NewBookProcessor(book.FileName, zipPath)
 	rc, err := bp.Epub()
 	if err != nil {
-		return err
+		return book, nil, err
 	}
 	defer rc.Close()
 
-	data, err := safeio.ReadAll(rc, safeio.MaxBookBytes)
+	data, err := safeio.ReadAll(rc, limit)
+	if err != nil {
+		return book, nil, err
+	}
+	return book, data, nil
+}
+
+func ConvertBookToEpub(bookID int64) error {
+	book, data, err := epubOf(bookID, safeio.MaxBookBytes)
 	if err != nil {
 		return err
 	}
@@ -98,7 +113,7 @@ func ConvertBookToEpub(bookID int64) error {
 	epubStore.Store(bookID, &ConvertedFile{
 		Data:        data,
 		Filename:    book.DownloadName() + ".epub",
-		ContentType: "application/epub+zip",
+		ContentType: epubContentType,
 	})
 
 	logging.Infof("Book %d converted to EPUB and stored in memory (%d bytes)", bookID, len(data))
