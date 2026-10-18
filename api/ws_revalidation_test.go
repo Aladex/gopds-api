@@ -253,7 +253,7 @@ func TestWSHandler_ControlReplyUnblocksWhenConnectionDies(t *testing.T) {
 
 	finished := make(chan struct{})
 	go func() {
-		handleClientMessage(nil, 1, 1, clientMessage{Type: "ping"}, 20, notifyChan, done)
+		handleClientMessage(nil, 1, 1, clientMessage{Type: "ping"}, 20, nil, notifyChan, done)
 		close(finished)
 	}()
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,6 +17,11 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"github.com/gin-gonic/gin"
 	"github.com/go-pg/pg/v10"
+
+	//nolint:depguard // the test raises the logger to debug to see what would reach each level
+	"github.com/sirupsen/logrus"
+	//nolint:depguard // asserting on emitted log output needs logrus' own test hook, and logging wraps logrus
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,6 +29,8 @@ import (
 	"gopds-api/database"
 	"gopds-api/email"
 	"gopds-api/internal/safeio"
+	"gopds-api/logging"
+	"gopds-api/middlewares"
 	"gopds-api/models"
 )
 
@@ -61,7 +69,7 @@ func installKindleWorld(t *testing.T, w *kindleWorld) {
 		kindleSends = previousQueue
 		viper.Set("kindle.sender_domain", "")
 	})
-	kindleSends = newKindleQueue(kindleConcurrency)
+	kindleSends = newKindleQueue(kindleConcurrency, kindleAdmission)
 	viper.Set("kindle.sender_domain", "booksdump.test")
 
 	kindleTargetOf = func(int64) (database.KindleTarget, error) { return w.target, w.targetErr }
@@ -307,4 +315,212 @@ func TestProfileCarriesTheKindleSettings(t *testing.T) {
 	require.NotNil(t, profile.ShowTelegramButton)
 	assert.False(t, *profile.ShowKindleButton)
 	assert.True(t, *profile.ShowTelegramButton)
+}
+
+// queueSize counts the sends admitted and not yet finished.
+func queueSize() int {
+	kindleSends.mu.Lock()
+	defer kindleSends.mu.Unlock()
+	return len(kindleSends.inFlight)
+}
+
+// The queue is bounded as a whole: past its limit a request is told busy at
+// once, before any goroutine or claim is spent on it.
+func TestKindleRefusesPastTheGlobalAdmissionLimit(t *testing.T) {
+	world := configuredReader()
+	world.gate = make(chan struct{})
+	installKindleWorld(t, world)
+	kindleSends = newKindleQueue(1, 3)
+	s, _ := setupTestServer(t, 7, "reader", false)
+	conn := dialWS(t, s)
+
+	for id := int64(1); id <= 3; id++ {
+		askKindle(t, conn, id)
+	}
+	require.Eventually(t, func() bool { return queueSize() == 3 }, 2*time.Second, 5*time.Millisecond)
+	askKindle(t, conn, 4)
+	reply := readKindleReply(t, conn)
+	assert.EqualValues(t, 4, reply["bookID"])
+	assert.Equal(t, kindleCodeBusy, reply["code"])
+	assert.Equal(t, 3, queueSize())
+
+	close(world.gate)
+	for i := 0; i < 3; i++ {
+		assert.Equal(t, "sent", readKindleReply(t, conn)["status"])
+	}
+	assert.Len(t, world.mailed(), 3)
+}
+
+// One connection may not hold more than its share of the queue.
+func TestKindleRefusesPastTheSocketLimit(t *testing.T) {
+	world := configuredReader()
+	world.gate = make(chan struct{})
+	installKindleWorld(t, world)
+	s, _ := setupTestServer(t, 7, "reader", false)
+	conn := dialWS(t, s)
+
+	for id := int64(1); id <= kindleSocketPending; id++ {
+		askKindle(t, conn, id)
+	}
+	require.Eventually(t, func() bool { return queueSize() == kindleSocketPending }, 2*time.Second, 5*time.Millisecond)
+	askKindle(t, conn, 99)
+	reply := readKindleReply(t, conn)
+	assert.EqualValues(t, 99, reply["bookID"])
+	assert.Equal(t, kindleCodeBusy, reply["code"])
+	assert.Equal(t, kindleSocketPending, queueSize(), "the refused request kept its claim")
+
+	close(world.gate)
+	for i := 0; i < kindleSocketPending; i++ {
+		readKindleReply(t, conn)
+	}
+}
+
+// A request still waiting for a slot when its connection closes is dropped:
+// no conversion, no email, and its claim goes back. The ones already running
+// finish.
+func TestKindleDropsAWaitingRequestWhenTheSocketCloses(t *testing.T) {
+	world := configuredReader()
+	world.gate = make(chan struct{})
+	installKindleWorld(t, world)
+	s, _ := setupTestServer(t, 7, "reader", false)
+	running := dialWS(t, s)
+	waiting := dialWS(t, s)
+
+	askKindle(t, running, 1)
+	askKindle(t, running, 2)
+	require.Eventually(t, func() bool { return world.converting.Load() == kindleConcurrency }, 2*time.Second, 5*time.Millisecond)
+	askKindle(t, waiting, 3)
+	require.Eventually(t, func() bool { return queueSize() == 3 }, 2*time.Second, 5*time.Millisecond)
+
+	require.NoError(t, waiting.Close(websocket.StatusNormalClosure, "bye"))
+	require.Eventually(t, func() bool { return queueSize() == 2 }, 2*time.Second, 5*time.Millisecond,
+		"the waiting request kept its claim after its socket closed")
+
+	close(world.gate)
+	readKindleReply(t, running)
+	readKindleReply(t, running)
+	time.Sleep(50 * time.Millisecond)
+	assert.Len(t, world.mailed(), 2, "a request from a closed socket was mailed")
+}
+
+// A socket outlives a logout elsewhere. Sending mail over it checks the
+// session first, and nothing goes out on one that has ended.
+func TestKindleRefusesASessionThatHasEnded(t *testing.T) {
+	world := configuredReader()
+	installKindleWorld(t, world)
+	s, _ := setupTestServer(t, 7, "reader", false)
+	var checks atomic.Int32
+	validateWSSession = func(string) error {
+		checks.Add(1)
+		return middlewares.ErrSessionMissing
+	}
+	conn := dialWS(t, s)
+
+	askKindle(t, conn, 42)
+	reply := readKindleReply(t, conn)
+
+	assert.Equal(t, kindleCodeSessionExpired, reply["code"])
+	assert.Positive(t, checks.Load())
+	assert.Empty(t, world.mailed())
+	assert.Zero(t, world.maxConverting.Load())
+}
+
+// The session is checked again after the wait for a slot, which may have
+// lasted long enough for the reader to log out.
+func TestKindleChecksTheSessionAgainAfterWaiting(t *testing.T) {
+	world := configuredReader()
+	world.gate = make(chan struct{})
+	installKindleWorld(t, world)
+	s, _ := setupTestServer(t, 7, "reader", false)
+	var revoked atomic.Bool
+	validateWSSession = func(string) error {
+		if revoked.Load() {
+			return middlewares.ErrSessionMissing
+		}
+		return nil
+	}
+	conn := dialWS(t, s)
+
+	askKindle(t, conn, 1)
+	askKindle(t, conn, 2)
+	require.Eventually(t, func() bool { return world.converting.Load() == kindleConcurrency }, 2*time.Second, 5*time.Millisecond)
+	askKindle(t, conn, 3)
+	require.Eventually(t, func() bool { return queueSize() == 3 }, 2*time.Second, 5*time.Millisecond)
+	revoked.Store(true)
+	close(world.gate)
+
+	codes := map[float64]interface{}{}
+	for i := 0; i < 3; i++ {
+		reply := readKindleReply(t, conn)
+		codes[reply["bookID"].(float64)] = reply["code"]
+	}
+	assert.Equal(t, kindleCodeSessionExpired, codes[3])
+	assert.Len(t, world.mailed(), 2)
+}
+
+// captureLogs records every entry the application logs, debug included.
+func captureLogs(t *testing.T) *logtest.Hook {
+	t.Helper()
+	logger, hook := logtest.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+	logging.SetLogger(logger)
+	t.Cleanup(func() { logging.SetLogger(nil) })
+	return hook
+}
+
+// A panic in the conversion is a failure in the reply and in the log alike.
+// The log line was written before the recovery and said sent.
+func TestKindlePanicIsLoggedAsAFailure(t *testing.T) {
+	world := configuredReader()
+	installKindleWorld(t, world)
+	kindleBookOf = func(int64) (kindleBook, error) { panic("malformed book") }
+	hook := captureLogs(t)
+	s, _ := setupTestServer(t, 7, "reader", false)
+	conn := dialWS(t, s)
+
+	askKindle(t, conn, 42)
+	assert.Equal(t, kindleCodeConversionFailed, readKindleReply(t, conn)["code"])
+
+	var outcomes []string
+	for _, entry := range hook.AllEntries() {
+		if strings.Contains(entry.Message, "outcome=") {
+			outcomes = append(outcomes, entry.Message)
+		}
+	}
+	require.Len(t, outcomes, 1)
+	assert.Contains(t, outcomes[0], "outcome=conversion_failed")
+	assert.Empty(t, world.mailed())
+}
+
+// A refused send is logged by its class, never by its addresses — at any
+// level a production log keeps. The server's own words, which echo the
+// address, are for debug only.
+func TestKindleRelayFailureLogsNoAddresses(t *testing.T) {
+	world := configuredReader()
+	world.mailErr = &email.SendError{
+		Stage: email.StageRcpt,
+		Err:   &textproto.Error{Code: 550, Msg: "5.1.1 <reader@kindle.com>: no such user"},
+	}
+	installKindleWorld(t, world)
+	hook := captureLogs(t)
+	s, _ := setupTestServer(t, 7, "reader", false)
+	conn := dialWS(t, s)
+
+	askKindle(t, conn, 42)
+	assert.Equal(t, kindleCodeSendFailed, readKindleReply(t, conn)["code"])
+
+	sender := email.KindleSenderAddress(world.target.SenderID)
+	var classified bool
+	for _, entry := range hook.AllEntries() {
+		if entry.Level <= logrus.InfoLevel {
+			assert.NotContains(t, entry.Message, world.target.Email, "an address at %s", entry.Level)
+			assert.NotContains(t, entry.Message, world.target.SenderID, "a sender id at %s", entry.Level)
+			if strings.Contains(entry.Message, "stage=rcpt code=550") &&
+				strings.Contains(entry.Message, "user_id=7") && strings.Contains(entry.Message, "book_id=42") {
+				classified = true
+			}
+		}
+	}
+	assert.True(t, classified, "no classified error line")
+	assert.NotEmpty(t, sender)
 }

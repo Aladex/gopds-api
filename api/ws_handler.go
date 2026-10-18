@@ -138,6 +138,10 @@ func serveWebSocket(mgr *services.WebSocketManager, conn *websocket.Conn, userID
 	defer close(done)
 	defer func() { _ = conn.CloseNow() }()
 
+	// The session goes with the connection's Kindle requests, which check it
+	// again before any mail goes out.
+	kindle := &kindleSocket{token: token}
+
 	var clientID uint64
 	if mgr != nil {
 		clientID = mgr.RegisterClient(conn, userID, username, isAdmin, notifyChan)
@@ -170,7 +174,7 @@ func serveWebSocket(mgr *services.WebSocketManager, conn *websocket.Conn, userID
 				continue
 			}
 
-			if !handleClientMessage(mgr, clientID, userID, typed, len(data), notifyChan, done) {
+			if !handleClientMessage(mgr, clientID, userID, typed, len(data), kindle, notifyChan, done) {
 				return
 			}
 		}
@@ -263,6 +267,7 @@ func handleClientMessage(
 	userID int64,
 	typed clientMessage,
 	frameSize int,
+	kindle *kindleSocket,
 	notifyChan chan []byte,
 	done <-chan struct{},
 ) bool {
@@ -295,7 +300,7 @@ func handleClientMessage(
 		return true
 
 	case wsMsgKindle:
-		return handleKindleRequest(userID, typed.BookID, notifyChan, done)
+		return handleKindleRequest(userID, typed.BookID, kindle, notifyChan, done)
 
 	default:
 		// The frame is whatever the client sent. Its size and the fields that
