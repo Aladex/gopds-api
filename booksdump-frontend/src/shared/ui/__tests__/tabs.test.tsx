@@ -44,13 +44,15 @@ describe("the segmented bar", () => {
     expect(tab.firstElementChild).toBe(icon)
   })
 
-  it("stacks the icon over the label in equal columns, tall enough for a thumb", () => {
+  it("stacks the icon over the label in content-width columns, tall enough for a thumb", () => {
     renderTabs({ stacked: true })
     const tab = screen.getByRole("tab", { name: "Подключения" })
 
     expect(screen.getByRole("tablist")).toHaveAttribute("data-stacked", "true")
     expect(tab.className).toMatch(/\bflex-col\b/)
-    expect(tab.className).toMatch(/\bflex-1\b/)
+    // Content-width, sharing the spare room: equal thirds cut «Подключения».
+    expect(tab.className).toMatch(/\bflex-auto\b/)
+    expect(tab.className).not.toMatch(/\bflex-1\b|\bmin-w-0\b/)
     expect(tab.className).toMatch(/\bmin-h-12\b/)
     expect(tab.className).toMatch(/text-\[13px\]/)
     expect(tab.className).not.toMatch(/truncate/)

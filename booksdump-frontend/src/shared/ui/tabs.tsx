@@ -113,11 +113,17 @@ function TabsTrigger({
           // over the rail: by default the fill runs under the border too, and
           // the same half-black over white measured 1.5:1.
           "bg-clip-padding data-[state=active]:border-foreground/50 data-[state=active]:bg-card data-[state=active]:shadow-xs",
+          // Every segment is as wide as its own label and the rail's spare
+          // room is shared out equally (flex: 1 1 auto) — never cut, and never
+          // narrower than its word: a bar with more than fits scrolls rather
+          // than squeezing them. Equal thirds were tried for the profile's
+          // sheet and «Подключения» needed 90px of a third's 81 at 320px.
+          "flex-auto",
           stacked
-            ? // Equal columns, the icon over the label, and a target at least
-              // 48px tall for a thumb.
-              "min-h-12 min-w-0 flex-1 flex-col gap-0.5 px-1 py-1.5 text-[13px] [&_svg:not([class*='size-'])]:size-[18px]"
-            : "h-9 flex-none px-3 sm:h-7 sm:text-[13px]",
+            ? // The icon over the label, and a target at least 48px tall for
+              // a thumb.
+              "min-h-12 flex-col gap-0.5 px-1 py-1.5 text-[13px] [&_svg:not([class*='size-'])]:size-[18px]"
+            : "h-9 px-3 sm:h-7 sm:text-[13px]",
         ],
         variant === "underline" && [
           // At least 44px to press, the line on the list's own rule.

@@ -229,13 +229,7 @@ const ProfileContent: React.FC<ProfileContentProps> = ({
             <Tabs value={tab} onValueChange={setTab} className="mt-3 grid grid-cols-1">
                 <TabsList stacked={inSheet} className="row-start-1 w-full">
                     {TABS.map((entry) => (
-                        <TabsTrigger
-                            key={entry.value}
-                            value={entry.value}
-                            icon={entry.icon}
-                            // On a desktop the three share the row by their words.
-                            className={inSheet ? undefined : 'flex-auto'}
-                        >
+                        <TabsTrigger key={entry.value} value={entry.value} icon={entry.icon}>
                             {t(entry.labelKey)}
                         </TabsTrigger>
                     ))}
