@@ -3,9 +3,12 @@ package email
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/smtp"
+	"net/textproto"
+	"os"
 	"time"
 
 	"gopds-api/logging"
@@ -54,6 +57,14 @@ const implicitTLSPort = "465"
 
 // dialTimeout bounds reaching the mail server.
 const dialTimeout = 15 * time.Second
+
+// sessionTimeout bounds the whole conversation once the connection is up:
+// greeting, STARTTLS, AUTH, the envelope, the body and QUIT. The dial timeout
+// alone left everything after the TCP handshake unbounded, so a relay that
+// accepted a connection and then said nothing held the caller forever — and a
+// Kindle send holds one of a couple of global slots while it waits. Two
+// minutes is generous for a 24 MiB body. A variable so tests can shorten it.
+var sessionTimeout = 2 * time.Minute
 
 // MailConnection opens an authenticated, encrypted session with the mail server.
 //
@@ -111,6 +122,10 @@ func dial(servername, host, port string, tlsconfig *tls.Config) (*smtp.Client, e
 		if err != nil {
 			return nil, fmt.Errorf("connecting to %s: %w", servername, err)
 		}
+		if deadlineErr := conn.SetDeadline(time.Now().Add(sessionTimeout)); deadlineErr != nil {
+			_ = conn.Close()
+			return nil, fmt.Errorf("bounding the session with %s: %w", host, deadlineErr)
+		}
 		client, err := smtp.NewClient(conn, host)
 		if err != nil {
 			_ = conn.Close()
@@ -122,6 +137,12 @@ func dial(servername, host, port string, tlsconfig *tls.Config) (*smtp.Client, e
 	plain, err := (&net.Dialer{}).DialContext(ctx, "tcp", servername)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to %s: %w", servername, err)
+	}
+	// Set on the raw connection, so it still holds once STARTTLS has wrapped
+	// it: every read and write of the session goes through this socket.
+	if deadlineErr := plain.SetDeadline(time.Now().Add(sessionTimeout)); deadlineErr != nil {
+		_ = plain.Close()
+		return nil, fmt.Errorf("bounding the session with %s: %w", host, deadlineErr)
 	}
 	client, err := smtp.NewClient(plain, host)
 	if err != nil {
@@ -165,6 +186,53 @@ func sendEmail(data *SendType, templateName string) error {
 	return nil
 }
 
+// The stages of an SMTP conversation a send can fail at, as SendError names
+// them.
+const (
+	StageConnect = "connect"
+	StageMail    = "mail"
+	StageRcpt    = "rcpt"
+	StageData    = "data"
+	StageAccept  = "accept"
+	StageQuit    = "quit"
+)
+
+// SendError is a send that failed at one stage of the conversation.
+//
+// Its text carries no address. The stages used to be reported as "MAIL FROM
+// <sender>" and "RCPT TO <recipient>", and a Kindle send logs its failures at
+// error level: a refused recipient wrote the reader's Kindle address into the
+// ordinary log. What the server said is still inside, and may itself echo an
+// address — which is why FailureClass exists.
+type SendError struct {
+	Stage string
+	Err   error
+}
+
+func (e *SendError) Error() string { return "smtp " + e.Stage + ": " + e.Err.Error() }
+func (e *SendError) Unwrap() error { return e.Err }
+
+// FailureClass describes a failed send by what it was rather than what anyone
+// wrote: the stage, the server's reply code when it gave one, and whether the
+// session ran out of time. Safe for a log at any level.
+func FailureClass(err error) string {
+	stage := "unknown"
+	var sendErr *SendError
+	if errors.As(err, &sendErr) {
+		stage = sendErr.Stage
+	}
+	class := "stage=" + stage
+	var reply *textproto.Error
+	if errors.As(err, &reply) {
+		class += fmt.Sprintf(" code=%d", reply.Code)
+	}
+	var netErr net.Error
+	if errors.Is(err, os.ErrDeadlineExceeded) || (errors.As(err, &netErr) && netErr.Timeout()) {
+		class += " timeout"
+	}
+	return class
+}
+
 // send carries one built message through an SMTP conversation.
 //
 // Every step is checked on its own. They used to share a condition — `if
@@ -176,34 +244,37 @@ func sendEmail(data *SendType, templateName string) error {
 func send(from, to string, msg []byte) error {
 	client, err := mailConnection()
 	if err != nil {
-		return err
+		return &SendError{Stage: StageConnect, Err: err}
 	}
 	defer func() {
-		// Quit closes the connection politely; a failure here says nothing
-		// about whether the message was accepted, which Close already settled.
+		// Quit closes the connection politely; a failure here — the server
+		// gone quiet, the session deadline reached — says nothing about
+		// whether the message was accepted, which Close already settled.
 		if quitErr := client.Quit(); quitErr != nil {
-			logging.Warnf("Closing the connection to the mail server: %v", quitErr)
+			logging.Warnf("Closing the connection to the mail server: %s",
+				FailureClass(&SendError{Stage: StageQuit, Err: quitErr}))
+			_ = client.Close()
 		}
 	}()
 
 	if mailErr := client.Mail(from); mailErr != nil {
-		return fmt.Errorf("MAIL FROM %s: %w", from, mailErr)
+		return &SendError{Stage: StageMail, Err: mailErr}
 	}
 	if rcptErr := client.Rcpt(to); rcptErr != nil {
-		return fmt.Errorf("RCPT TO %s: %w", to, rcptErr)
+		return &SendError{Stage: StageRcpt, Err: rcptErr}
 	}
 
 	w, err := client.Data()
 	if err != nil {
-		return fmt.Errorf("opening the message body: %w", err)
+		return &SendError{Stage: StageData, Err: err}
 	}
 	if _, writeErr := w.Write(msg); writeErr != nil {
 		_ = w.Close()
-		return fmt.Errorf("writing the message body: %w", writeErr)
+		return &SendError{Stage: StageData, Err: writeErr}
 	}
 	// This is the acceptance, not a formality.
 	if closeErr := w.Close(); closeErr != nil {
-		return fmt.Errorf("the server did not accept the message: %w", closeErr)
+		return &SendError{Stage: StageAccept, Err: closeErr}
 	}
 	return nil
 }

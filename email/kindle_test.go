@@ -13,6 +13,7 @@ import (
 	"net/smtp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 )
@@ -159,7 +160,7 @@ func TestKindleAttachmentIsNamedBothWays(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parsing Content-Disposition %q: %v", disposition, err)
 	}
-	if kind != "attachment" {
+	if kind != dispositionAttachment {
 		t.Errorf("disposition is %q, want attachment", kind)
 	}
 	// Go's parser prefers the extended form, as RFC 2231 says it should.
@@ -338,5 +339,147 @@ func TestSendToKindleUsesTheReadersAddressOnTheEnvelope(t *testing.T) {
 	_, parts := kindleParts(t, server.data)
 	if len(parts) != 2 || !bytes.Equal(parts[1].body, d.Book.Data) {
 		t.Error("the book that reached the server is not the book that was sent")
+	}
+}
+
+// fakeRelay points the mail connection at a fake server for one test.
+func fakeRelay(t *testing.T, server *fakeServer) {
+	t.Helper()
+	cert, pool := selfSigned(t)
+	server.offerSTARTTLS = true
+	server.cert = cert
+	address := server.listen(t)
+
+	previous := mailConnection
+	t.Cleanup(func() { mailConnection = previous })
+	mailConnection = func() (*smtp.Client, error) {
+		host, port, _ := net.SplitHostPort(address)
+		return dial(address, host, port, &tls.Config{
+			ServerName: "127.0.0.1",
+			RootCAs:    pool,
+			MinVersion: tls.VersionTLS12,
+		})
+	}
+}
+
+// The relay took the message and then went quiet. The book was accepted, so
+// the send succeeded — and it returns once the session deadline passes rather
+// than waiting on QUIT forever.
+func TestSendToKindleSucceedsWhenOnlyQuitStalls(t *testing.T) {
+	shortSession(t, 500*time.Millisecond)
+	server := &fakeServer{stallOnQuit: true}
+	fakeRelay(t, server)
+
+	d := kindleSample(t)
+	started := time.Now()
+	err := SendToKindle(&d)
+	if err != nil {
+		t.Fatalf("an accepted message was reported as failed: %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 3*time.Second {
+		t.Errorf("the send waited %v on QUIT", elapsed)
+	}
+}
+
+// A refused recipient is classified by stage and code, and the error text
+// names neither the reader's Kindle nor their sender — though the class alone
+// is what is safe to log, since the server's own words may echo the address.
+func TestRefusedRecipientIsClassifiedWithoutAddresses(t *testing.T) {
+	server := &fakeServer{rejectRcpt: true}
+	fakeRelay(t, server)
+
+	d := kindleSample(t)
+	err := SendToKindle(&d)
+	if err == nil {
+		t.Fatal("a refused recipient was reported as sent")
+	}
+	if got := FailureClass(err); got != "stage=rcpt code=550" {
+		t.Errorf("the failure is classified as %q", got)
+	}
+	class := FailureClass(err)
+	if strings.Contains(class, d.To) || strings.Contains(class, d.From) {
+		t.Errorf("the class carries an address: %q", class)
+	}
+	if strings.Contains(err.Error(), "RCPT TO "+d.To) {
+		t.Errorf("the error names the recipient as the stage: %v", err)
+	}
+}
+
+// A session that runs out of time says so.
+func TestFailureClassNamesATimeout(t *testing.T) {
+	shortSession(t, 200*time.Millisecond)
+	server := &fakeServer{silent: true}
+	address := server.listen(t)
+
+	previous := mailConnection
+	t.Cleanup(func() { mailConnection = previous })
+	mailConnection = func() (*smtp.Client, error) {
+		host, port, _ := net.SplitHostPort(address)
+		return dial(address, host, port, &tls.Config{MinVersion: tls.VersionTLS12})
+	}
+
+	d := kindleSample(t)
+	err := SendToKindle(&d)
+	if got := FailureClass(err); got != "stage=connect timeout" {
+		t.Errorf("a stalled greeting is classified as %q (%v)", got, err)
+	}
+}
+
+// A title may run to 512 characters. Unfolded, a long Cyrillic subject was a
+// single 1200-byte line, past RFC 5322's hard limit of 998, and a server that
+// enforces it refuses the message. Every physical line must fit, the headers
+// within 78 wherever folding can do it; and folding must not change what is
+// read back.
+func TestKindleLongTitleKeepsEveryLineShort(t *testing.T) {
+	d := kindleSample(t)
+	d.Title = strings.Repeat("Ж", 512)
+	d.Book.Filename = strings.Repeat("Длинное_название_", 30) + ".epub"
+	msg := buildKindle(t, &d)
+
+	head, _, _ := bytes.Cut(msg, []byte("\r\n\r\n"))
+	for i, line := range strings.Split(string(msg), "\r\n") {
+		if len(line) > 998 {
+			t.Fatalf("line %d is %d characters long, past RFC 5322's 998", i, len(line))
+		}
+	}
+	// 78 is RFC 5322's SHOULD; a single token — a Message-ID, one encoded
+	// word — cannot be folded, so a line may pass it only when there is no
+	// space left in it to fold at.
+	for i, line := range strings.Split(string(head), "\r\n") {
+		if len(line) <= 78 {
+			continue
+		}
+		body := strings.TrimLeft(line, " ")
+		if _, value, named := strings.Cut(body, ": "); named && line[0] != ' ' {
+			body = value
+		}
+		if strings.Contains(body, " ") {
+			t.Errorf("header line %d is %d characters long and could have been folded: %.90q", i, len(line), line)
+		}
+	}
+
+	h, parts := kindleParts(t, msg)
+	decoded, err := new(mime.WordDecoder).DecodeHeader(h.Get("Subject"))
+	if err != nil {
+		t.Fatalf("decoding the folded subject: %v", err)
+	}
+	if decoded != d.Title {
+		t.Errorf("the folded subject decodes to %d runes, not the %d-rune title", len([]rune(decoded)), 512)
+	}
+
+	disposition := parts[1].header.Get("Content-Disposition")
+	_, params, err := mime.ParseMediaType(disposition)
+	if err != nil {
+		t.Fatalf("parsing the folded disposition: %v", err)
+	}
+	name := params["filename"]
+	if !strings.HasSuffix(name, ".epub") || len([]rune(name)) != maxFilenameRunes {
+		t.Errorf("the file name came back as %q (%d runes)", name, len([]rune(name)))
+	}
+	if !strings.HasPrefix(d.Book.Filename, strings.TrimSuffix(name, ".epub")) {
+		t.Errorf("the capped name %q is not the start of the original", name)
+	}
+	if !bytes.Equal(parts[1].body, d.Book.Data) {
+		t.Error("the book did not survive the long headers")
 	}
 }

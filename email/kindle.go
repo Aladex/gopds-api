@@ -192,7 +192,7 @@ func buildKindleMessage(d *KindleDelivery, now time.Time) ([]byte, error) {
 	writeHeader(&b, "To", to.String())
 	writeHeader(&b, "Date", now.Format(time.RFC1123Z))
 	writeHeader(&b, "Message-ID", messageID(from.Address, now))
-	writeHeader(&b, "Subject", mime.QEncoding.Encode("UTF-8", subject))
+	writeFoldedHeader(&b, "Subject", mime.QEncoding.Encode("UTF-8", subject))
 	writeHeader(&b, "MIME-Version", "1.0")
 	writeHeader(&b, "Content-Type", `multipart/mixed; boundary="`+boundary+`"`)
 	b.WriteString("\r\n")
@@ -206,8 +206,9 @@ func buildKindleMessage(d *KindleDelivery, now time.Time) ([]byte, error) {
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	writeHeader(&b, "Content-Type", contentType+`; name="`+asciiFilename(d.Book.Filename)+`"`)
-	writeHeader(&b, "Content-Disposition", attachmentDisposition(d.Book.Filename))
+	filename := capFilename(d.Book.Filename, maxFilenameRunes)
+	writeFoldedHeader(&b, "Content-Type", contentType+`; name="`+asciiFilename(filename)+`"`)
+	writeFoldedHeader(&b, "Content-Disposition", attachmentDisposition(filename))
 	writeHeader(&b, "Content-Transfer-Encoding", "base64")
 	b.WriteString("\r\n")
 	b.WriteString(base64Lines(d.Book.Data))
@@ -220,8 +221,88 @@ func buildKindleMessage(d *KindleDelivery, now time.Time) ([]byte, error) {
 // for a client that knows nothing newer; filename*= is RFC 2231's encoded
 // form, which a client that reads it prefers, and which carries a Cyrillic
 // name intact.
+//
+// The encoded form of a long name runs to hundreds of characters, so it is
+// cut into RFC 2231 continuations (filename*0*=, filename*1*=, …), each short
+// enough for a line of its own once the header is folded.
 func attachmentDisposition(filename string) string {
-	return `attachment; filename="` + asciiFilename(filename) + `"; filename*=UTF-8''` + rfc2231Encode(filename)
+	parts := []string{dispositionAttachment, `filename="` + asciiFilename(filename) + `"`}
+	chunks := splitEncoded(rfc2231Encode(filename), continuationWidth)
+	if len(chunks) == 1 {
+		parts = append(parts, "filename*=UTF-8''"+chunks[0])
+	} else {
+		for i, chunk := range chunks {
+			value := chunk
+			if i == 0 {
+				value = "UTF-8''" + chunk
+			}
+			parts = append(parts, fmt.Sprintf("filename*%d*=%s", i, value))
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
+// dispositionAttachment says the part is a file to keep, not to show inline.
+const dispositionAttachment = "attachment"
+
+// Header line limits. RFC 5322 forbids a physical line over 998 characters and
+// asks for 78; an unfolded header broke the first for a long Cyrillic title,
+// and a server enforcing it refuses the whole message.
+const (
+	foldWidth         = 78
+	continuationWidth = 60
+	// maxFilenameRunes caps the attachment's name. A title may run to 512
+	// characters; Kindle names the document from the EPUB's own metadata, so
+	// nothing is lost by a shorter file name.
+	maxFilenameRunes = 100
+)
+
+// writeFoldedHeader writes a header, folding it at spaces so that its lines
+// stay within foldWidth where the value allows. A fold is a CRLF before an
+// existing space, which unfolding takes out again: the value read back is the
+// value written. Encoded words carry no spaces of their own and Go separates
+// them with one, so a Q-encoded subject folds between words.
+func writeFoldedHeader(b *bytes.Buffer, name, value string) {
+	line := name + ":"
+	for _, word := range strings.Split(value, " ") {
+		if word != "" && len(line)+1+len(word) > foldWidth && strings.TrimSpace(line) != name+":" {
+			b.WriteString(line)
+			b.WriteString("\r\n")
+			line = ""
+		}
+		line += " " + word
+	}
+	b.WriteString(line)
+	b.WriteString("\r\n")
+}
+
+// capFilename shortens a name to at most limit runes, keeping its extension.
+func capFilename(name string, limit int) string {
+	runes := []rune(name)
+	if len(runes) <= limit {
+		return name
+	}
+	ext := ""
+	if dot := strings.LastIndex(name, "."); dot > 0 && len([]rune(name[dot:])) < limit/2 {
+		ext = name[dot:]
+	}
+	keep := limit - len([]rune(ext))
+	return string([]rune(strings.TrimSuffix(name, ext))[:keep]) + ext
+}
+
+// splitEncoded cuts a percent-encoded string into pieces of at most width
+// characters, never inside a %XX triplet.
+func splitEncoded(s string, width int) []string {
+	var chunks []string
+	for len(s) > width {
+		cut := width
+		if i := strings.LastIndexByte(s[:cut], '%'); i > cut-3 {
+			cut = i
+		}
+		chunks = append(chunks, s[:cut])
+		s = s[cut:]
+	}
+	return append(chunks, s)
 }
 
 // asciiFilename is the name with everything a quoted header value cannot hold

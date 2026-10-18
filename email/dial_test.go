@@ -39,6 +39,15 @@ type fakeServer struct {
 	rcptTo   string
 	data     []byte
 
+	// silent accepts the connection and never greets; stallOnQuit takes the
+	// message and then never answers QUIT; rejectRcpt refuses the recipient
+	// the way a real server does, echoing the address back. A stalled server
+	// holds until the test ends.
+	silent      bool
+	stallOnQuit bool
+	rejectRcpt  bool
+	release     chan struct{}
+
 	// done closes when the conversation is over, so a test reads the fields
 	// above only once the server has stopped writing them.
 	done chan struct{}
@@ -64,6 +73,8 @@ func (f *fakeServer) listen(t *testing.T) string {
 	t.Cleanup(func() { _ = listener.Close() })
 
 	f.done = make(chan struct{})
+	f.release = make(chan struct{})
+	t.Cleanup(func() { close(f.release) })
 	go func() {
 		defer close(f.done)
 		conn, err := listener.Accept()
@@ -78,6 +89,10 @@ func (f *fakeServer) listen(t *testing.T) string {
 }
 
 func (f *fakeServer) serve(conn net.Conn) {
+	if f.silent {
+		<-f.release
+		return
+	}
 	reader := bufio.NewReader(conn)
 	fmt.Fprint(conn, "220 fake ESMTP\r\n")
 
@@ -95,6 +110,10 @@ func (f *fakeServer) serve(conn net.Conn) {
 			fmt.Fprint(conn, "250 ok\r\n")
 		case strings.HasPrefix(command, "RCPT TO:"):
 			f.rcptTo = strings.TrimSpace(line)
+			if f.rejectRcpt {
+				fmt.Fprintf(conn, "550 5.1.1 %s: no such user\r\n", strings.TrimPrefix(f.rcptTo, "RCPT TO:"))
+				continue
+			}
 			fmt.Fprint(conn, "250 ok\r\n")
 		case command == "DATA":
 			fmt.Fprint(conn, "354 go ahead\r\n")
@@ -117,6 +136,10 @@ func (f *fakeServer) serve(conn net.Conn) {
 			conn = tlsConn
 			reader = bufio.NewReader(tlsConn)
 		case strings.HasPrefix(command, "QUIT"):
+			if f.stallOnQuit {
+				<-f.release
+				return
+			}
 			fmt.Fprint(conn, "221 bye\r\n")
 			return
 		default:
@@ -270,4 +293,34 @@ func selfSigned(t *testing.T) (tls.Certificate, *x509.CertPool) {
 	pool.AddCert(leaf)
 
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key, Leaf: leaf}, pool
+}
+
+// shortSession shrinks the session deadline for one test.
+func shortSession(t *testing.T, d time.Duration) {
+	t.Helper()
+	previous := sessionTimeout
+	sessionTimeout = d
+	t.Cleanup(func() { sessionTimeout = previous })
+}
+
+// A relay that accepts the connection and never greets used to hold the
+// caller until the peer went away — forever, for a relay that only stopped
+// answering. The session deadline ends it.
+func TestDialGivesUpOnAServerThatNeverGreets(t *testing.T) {
+	shortSession(t, 300*time.Millisecond)
+	server := &fakeServer{silent: true}
+	address := server.listen(t)
+
+	host, port, _ := net.SplitHostPort(address)
+	started := time.Now()
+	client, err := dial(address, host, port, &tls.Config{MinVersion: tls.VersionTLS12})
+	elapsed := time.Since(started)
+
+	if err == nil {
+		_ = client.Close()
+		t.Fatal("a server that never greeted was accepted")
+	}
+	if elapsed > 3*time.Second {
+		t.Errorf("dial waited %v for a greeting, past its %v deadline", elapsed, sessionTimeout)
+	}
 }
