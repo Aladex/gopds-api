@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Plyr from 'plyr';
 import 'plyr/dist/plyr.css';
@@ -31,6 +31,30 @@ export const PLYR_OPTIONS: Plyr.Options = {
     fullscreen: { enabled: true, iosNative: true },
 };
 
+/**
+ * The player's own words — its buttons' names and the progress bar's — that
+ * the controls in PLYR_OPTIONS use. Plyr ships them in English only; each is
+ * looked up as plyr.<key> in the interface's own translations. Plyr's
+ * placeholders are single-braced, {currentTime}, so i18next leaves them be.
+ */
+export const PLYR_LABEL_KEYS = [
+    'play',
+    'pause',
+    'restart',
+    'seek',
+    'seekLabel',
+    'played',
+    'buffered',
+    'currentTime',
+    'duration',
+    'volume',
+    'mute',
+    'unmute',
+    'enterFullscreen',
+    'exitFullscreen',
+    'frameTitle',
+] as const;
+
 /** The how-to video and its poster, one per interface language. */
 const videoFor = (language: string) => {
     const lang = language.startsWith('ru') ? 'ru' : 'en';
@@ -57,6 +81,12 @@ const KindleVideo: React.FC<{ className?: string }> = ({ className }) => {
     const { src, poster } = videoFor(i18n.language ?? '');
     const label = t('kindle.videoLabel');
     const host = useRef<HTMLDivElement>(null);
+    // A change of language builds the player again with the new words, as it
+    // already does for the other language's video.
+    const labels = useMemo(
+        () => Object.fromEntries(PLYR_LABEL_KEYS.map((key) => [key, t(`plyr.${key}`)])),
+        [t],
+    );
 
     // Keyed by the source so a change of language starts over: the other
     // language's video may well exist where this one did not.
@@ -98,7 +128,7 @@ const KindleVideo: React.FC<{ className?: string }> = ({ className }) => {
 
         let player: Plyr | null = null;
         try {
-            player = new Plyr(video, PLYR_OPTIONS);
+            player = new Plyr(video, { ...PLYR_OPTIONS, i18n: labels });
         } catch {
             // A browser Plyr does not support keeps the native player.
         }
@@ -108,7 +138,7 @@ const KindleVideo: React.FC<{ className?: string }> = ({ className }) => {
             player?.destroy();
             box.replaceChildren();
         };
-    }, [src, posterSrc, label, failed]);
+    }, [src, posterSrc, label, labels, failed]);
 
     const frame = cn('aspect-video w-full overflow-hidden rounded-md bg-muted', className);
 

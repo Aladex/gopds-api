@@ -110,3 +110,29 @@ it('gives way to the illustration when the video is missing, and takes the playe
     expect(container.querySelector('video')).toBeNull();
     expect(container.querySelector('img')!.getAttribute('src')).toBe(KINDLE_ILLUSTRATION);
 });
+
+// Plyr ships its controls' names in English only; they come from the
+// interface's own translations, and a change of language builds the player
+// again with the new words.
+it('names the player’s controls in the interface language', () => {
+    render(<KindleVideo />);
+    const labels = players[0].options.i18n as Record<string, string>;
+
+    expect(labels.play).toBe('plyr.play');
+    expect(labels.enterFullscreen).toBe('plyr.enterFullscreen');
+    expect(labels.seekLabel).toBe('plyr.seekLabel');
+});
+
+it('builds the player again when the language changes', () => {
+    const { rerender } = render(<KindleVideo />);
+    expect(players).toHaveLength(1);
+
+    translation.i18n.language = 'en';
+    translation.t = (key: string) => `en:${key}`;
+    rerender(<KindleVideo />);
+
+    expect(players).toHaveLength(2);
+    expect(players[0].destroyed).toBe(true);
+    expect((players[1].options.i18n as Record<string, string>).play).toBe('en:plyr.play');
+    translation.t = (key: string) => key;
+});
