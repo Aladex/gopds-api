@@ -17,6 +17,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"github.com/gin-gonic/gin"
 	"github.com/go-pg/pg/v10"
+	"github.com/golang-jwt/jwt/v4"
 
 	//nolint:depguard // the test raises the logger to debug to see what would reach each level
 	"github.com/sirupsen/logrus"
@@ -32,6 +33,8 @@ import (
 	"gopds-api/logging"
 	"gopds-api/middlewares"
 	"gopds-api/models"
+	"gopds-api/sessions"
+	"gopds-api/utils"
 )
 
 // kindleWorld is everything outside a Kindle send, faked: the reader's row,
@@ -65,6 +68,13 @@ func installKindleWorld(t *testing.T, w *kindleWorld) {
 	previousTarget, previousBook, previousMail := kindleTargetOf, kindleBookOf, mailToKindle
 	previousQueue := kindleSends
 	t.Cleanup(func() {
+		// Sends still finishing after the test — their socket closed, their
+		// reply going nowhere — leave the queue under its lock; waiting for
+		// that orders their last use of these before the swap back.
+		deadline := time.Now().Add(5 * time.Second)
+		for queueSize() > 0 && time.Now().Before(deadline) {
+			time.Sleep(5 * time.Millisecond)
+		}
 		kindleTargetOf, kindleBookOf, mailToKindle = previousTarget, previousBook, previousMail
 		kindleSends = previousQueue
 		viper.Set("kindle.sender_domain", "")
@@ -449,12 +459,23 @@ func TestKindleChecksTheSessionAgainAfterWaiting(t *testing.T) {
 	revoked.Store(true)
 	close(world.gate)
 
+	// The expired session closes the socket once its reply is out, so the
+	// other two replies may or may not make it ahead of the close.
 	codes := map[float64]interface{}{}
-	for i := 0; i < 3; i++ {
-		reply := readKindleReply(t, conn)
-		codes[reply["bookID"].(float64)] = reply["code"]
+	for len(codes) < 3 {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		var msg map[string]interface{}
+		err := wsjson.Read(ctx, conn, &msg)
+		cancel()
+		if err != nil {
+			break
+		}
+		if msg["type"] == wsMsgKindle {
+			codes[msg["bookID"].(float64)] = msg["code"]
+		}
 	}
 	assert.Equal(t, kindleCodeSessionExpired, codes[3])
+	require.Eventually(t, func() bool { return len(world.mailed()) == 2 }, 2*time.Second, 5*time.Millisecond)
 	assert.Len(t, world.mailed(), 2)
 }
 
@@ -523,4 +544,91 @@ func TestKindleRelayFailureLogsNoAddresses(t *testing.T) {
 	}
 	assert.True(t, classified, "no classified error line")
 	assert.NotEmpty(t, sender)
+}
+
+// accessTokenUntil signs a real access token, as CreateTokenPair does, that
+// expires at the given moment.
+func accessTokenUntil(t *testing.T, expires time.Time) string {
+	t.Helper()
+	claims := utils.Token{
+		UserID:     "reader",
+		DatabaseID: 7,
+		TokenType:  "access",
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "gopds-api",
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(expires),
+		},
+	}
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(viper.GetString("sessions.key")))
+	require.NoError(t, err)
+	require.NoError(t, sessions.SetSessionKey(context.Background(), models.LoggedInUser{User: "reader", Token: &token}))
+	return token
+}
+
+// A socket keeps the token it was opened with; access tokens live fifteen
+// minutes. Once it has expired, a Kindle request over that socket is told
+// session_expired — through the production validator, against a real signed
+// token — and the socket is closed, so the client reconnects with the session
+// it holds now instead of every later send failing the same way.
+func TestKindleExpiredSocketTokenClosesTheSocket(t *testing.T) {
+	world := configuredReader()
+	installKindleWorld(t, world)
+	installSessionStore(t)
+	previous := validateWSSession
+	validateWSSession = middlewares.ValidateWSSession
+	t.Cleanup(func() { validateWSSession = previous })
+
+	token := accessTokenUntil(t, time.Now().Add(2*time.Second))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.CloseNow() }()
+		serveWebSocket(nil, conn, 7, "reader", false, token)
+	}))
+	t.Cleanup(server.Close)
+	conn := dialWS(t, server)
+
+	// While the token is good, the book goes.
+	askKindle(t, conn, 41)
+	require.Equal(t, "sent", readKindleReply(t, conn)["status"])
+
+	require.Eventually(t, func() bool {
+		_, _, _, err := utils.CheckAccessToken(token)
+		return err != nil
+	}, 5*time.Second, 50*time.Millisecond, "the token never expired")
+
+	askKindle(t, conn, 42)
+	reply := readKindleReply(t, conn)
+	assert.Equal(t, kindleCodeSessionExpired, reply["code"])
+	assert.Len(t, world.mailed(), 1, "a book was mailed on an expired token")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, _, err := conn.Read(ctx)
+	assert.Equal(t, websocket.StatusPolicyViolation, websocket.CloseStatus(err),
+		"the socket stayed open on an expired token: %v", err)
+}
+
+// A request whose connection is already closed does not start, even with
+// every slot free: both cases of the wait are ready then, and the slot used
+// to win about half the time.
+func TestKindleClosedSocketStartsNothingEvenWithFreeSlots(t *testing.T) {
+	world := configuredReader()
+	installKindleWorld(t, world)
+	previous := validateWSSession
+	validateWSSession = func(string) error { return nil }
+	t.Cleanup(func() { validateWSSession = previous })
+
+	done := make(chan struct{})
+	close(done)
+	const requests = 128
+	for i := 0; i < requests; i++ {
+		assert.Equal(t, kindleOutcomeDropped, runKindleSend(7, int64(i), "token", done))
+	}
+	assert.Zero(t, world.maxConverting.Load(), "a conversion started for a closed socket")
+	assert.Empty(t, world.mailed())
+	assert.Empty(t, kindleSends.slots, "a slot was kept")
 }

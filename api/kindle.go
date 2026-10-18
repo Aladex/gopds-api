@@ -194,11 +194,32 @@ func (q *kindleQueue) leave(key kindleKey) {
 // acquire waits for a slot, or gives up when the connection goes away: a
 // request nobody can be told the answer to is not worth a conversion. False
 // means it gave up.
+//
+// A select with both cases ready picks either, so a closed connection alone
+// does not stop a request when a slot happens to be free: it is checked
+// before the wait and again once a slot is held, and the slot handed back.
 func (q *kindleQueue) acquire(done <-chan struct{}) bool {
+	if isClosed(done) {
+		return false
+	}
 	select {
 	case q.slots <- struct{}{}:
-		return true
 	case <-done:
+		return false
+	}
+	if isClosed(done) {
+		q.releaseSlot()
+		return false
+	}
+	return true
+}
+
+// isClosed reports whether the channel has been closed, without waiting.
+func isClosed(done <-chan struct{}) bool {
+	select {
+	case <-done:
+		return true
+	default:
 		return false
 	}
 }
@@ -215,6 +236,23 @@ var kindleSends = newKindleQueue(kindleConcurrency, kindleAdmission)
 type kindleSocket struct {
 	token   string
 	pending atomic.Int32
+
+	// expired closes once a Kindle request finds the session gone. The
+	// writer loop then delivers what is queued — the session_expired reply
+	// among it — and closes the connection, as the admin revalidation does:
+	// nothing more runs on a dead token, and the client's reconnect comes
+	// back with the session it has now.
+	expired    chan struct{}
+	expireOnce sync.Once
+}
+
+func newKindleSocket(token string) *kindleSocket {
+	return &kindleSocket{token: token, expired: make(chan struct{})}
+}
+
+// expire marks the connection's session as gone.
+func (k *kindleSocket) expire() {
+	k.expireOnce.Do(func() { close(k.expired) })
 }
 
 // The outside world behind a Kindle send, swappable in tests.
@@ -251,7 +289,7 @@ func epubForKindle(bookID int64) (kindleBook, error) {
 // already on its way, the queue full — is answered at once.
 func handleKindleRequest(userID, bookID int64, sock *kindleSocket, notifyChan chan []byte, done <-chan struct{}) bool {
 	if sock == nil {
-		sock = &kindleSocket{}
+		sock = newKindleSocket("")
 	}
 	key := kindleKey{userID: userID, bookID: bookID}
 	if code := kindleSends.admit(key); code != "" {
@@ -270,6 +308,9 @@ func handleKindleRequest(userID, bookID int64, sock *kindleSocket, notifyChan ch
 		sock.pending.Add(-1)
 		if code != kindleOutcomeDropped {
 			wsSend(notifyChan, done, kindleReply(bookID, code))
+		}
+		if code == kindleCodeSessionExpired {
+			sock.expire()
 		}
 	}()
 	return true

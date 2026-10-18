@@ -140,7 +140,7 @@ func serveWebSocket(mgr *services.WebSocketManager, conn *websocket.Conn, userID
 
 	// The session goes with the connection's Kindle requests, which check it
 	// again before any mail goes out.
-	kindle := &kindleSocket{token: token}
+	kindle := newKindleSocket(token)
 
 	var clientID uint64
 	if mgr != nil {
@@ -182,7 +182,7 @@ func serveWebSocket(mgr *services.WebSocketManager, conn *websocket.Conn, userID
 
 	// The writer loop is the connection's owner: it returns when the
 	// connection ends, whatever ended it.
-	runWriterLoop(mgr, conn, userID, clientID, token, notifyChan, quit)
+	runWriterLoop(mgr, conn, userID, clientID, token, notifyChan, quit, kindle.expired)
 }
 
 // runWriterLoop is the single goroutine that writes to the connection. It
@@ -192,6 +192,11 @@ func serveWebSocket(mgr *services.WebSocketManager, conn *websocket.Conn, userID
 // drops the subscriptions; an inconclusive check (session store or database
 // unreachable) only suspends admin delivery until a tick succeeds — an
 // outage is not an authorization decision.
+//
+// expired closes when a Kindle request finds the session gone (any socket,
+// admin or not): the replies already queued are written, then the
+// connection is closed with 1008, and the client reconnects with whatever
+// session it now holds.
 func runWriterLoop(
 	mgr *services.WebSocketManager,
 	conn *websocket.Conn,
@@ -200,6 +205,7 @@ func runWriterLoop(
 	token string,
 	notifyChan chan []byte,
 	quit chan struct{},
+	expired <-chan struct{},
 ) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -249,11 +255,37 @@ func runWriterLoop(
 			}
 			mgr.SetAdminRole(clientID, adminNow)
 			mgr.SetSuspended(clientID, false)
+		case <-expired:
+			flushQueued(conn, notifyChan)
+			logging.Infof("WebSocket session expired, closing: id=%d", userID)
+			_ = conn.Close(websocket.StatusPolicyViolation, kindleCodeSessionExpired)
+			return
 		case <-quit:
 			logging.Infof("WebSocket closed: id=%d", userID)
 			// The peer is already going away; a failure to say so
 			// politely changes nothing on this side.
 			_ = conn.Close(websocket.StatusNormalClosure, "")
+			return
+		}
+	}
+}
+
+// wsWriteTimeout bounds one frame written to the peer.
+const wsWriteTimeout = 5 * time.Second
+
+// flushQueued writes whatever replies are already waiting, so the one that
+// explains a close arrives before it.
+func flushQueued(conn *websocket.Conn, notifyChan chan []byte) {
+	for {
+		select {
+		case message := <-notifyChan:
+			ctx, cancel := context.WithTimeout(context.Background(), wsWriteTimeout)
+			err := conn.Write(ctx, websocket.MessageText, message)
+			cancel()
+			if err != nil {
+				return
+			}
+		default:
 			return
 		}
 	}
