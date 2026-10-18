@@ -733,5 +733,8 @@
   "bookMenuRescan": "Пересканировать",
   "bookMenuEdit": "Редактировать",
   "bookMenuApprove": "Одобрить",
-  "bookMenuUnapprove": "Снять одобрение"
+  "bookMenuUnapprove": "Снять одобрение",
+  "profileConnectionTab.kindle": "Kindle",
+  "profileConnectionTab.telegram": "Telegram",
+  "profileConnectionTab.opds": "OPDS"
 }

@@ -729,5 +729,8 @@
   "bookMenuRescan": "Rescan",
   "bookMenuEdit": "Edit",
   "bookMenuApprove": "Approve",
-  "bookMenuUnapprove": "Withdraw approval"
+  "bookMenuUnapprove": "Withdraw approval",
+  "profileConnectionTab.kindle": "Kindle",
+  "profileConnectionTab.telegram": "Telegram",
+  "profileConnectionTab.opds": "OPDS"
 }

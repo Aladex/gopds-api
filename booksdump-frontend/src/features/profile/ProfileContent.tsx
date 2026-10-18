@@ -1,11 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { AlertCircle, CheckCircle2, ChevronDown, LogOut } from 'lucide-react';
 
 import { Button } from '@/shared/ui/button';
 import { Expandable } from '@/shared/ui/expandable';
 import { Input } from '@/shared/ui/input';
-import { Tabs, TabsList, TabsTrigger } from '@/shared/ui/tabs';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/tabs';
 import FadingTabPanel from '@/shared/components/FadingTabPanel';
 import { cn } from '@/shared/lib/utils';
 
@@ -45,6 +45,22 @@ const TABS = [
     // catalogue itself.
     { value: 'connections', labelKey: 'profileTab.connections' },
 ] as const;
+
+/** The parts of the connections tab, Kindle first: it is the one most asked for. */
+const CONNECTION_TABS = [
+    { value: 'kindle', labelKey: 'profileConnectionTab.kindle' },
+    { value: 'telegram', labelKey: 'profileConnectionTab.telegram' },
+    { value: 'opds', labelKey: 'profileConnectionTab.opds' },
+] as const;
+
+type ConnectionTab = (typeof CONNECTION_TABS)[number]['value'];
+
+/*
+ * The connection last chosen, for the rest of this page's life. The profile
+ * is mounted afresh on every opening, so component state alone would forget
+ * it at once; nothing is written to storage, so a reload starts on Kindle.
+ */
+let rememberedConnection: ConnectionTab = 'kindle';
 
 export function focusFirstProfileField(event: Event) {
     event.preventDefault();
@@ -119,15 +135,15 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, section, onClose 
     // The dialog and the sheet both mount this afresh on every opening, so the
     // section asked for can simply choose the first tab.
     const [tab, setTab] = useState<string>(section === 'kindle' ? 'connections' : TABS[0].value);
-
-    // Opened for the Kindle settings, the profile scrolls them into view: they
-    // sit under the Telegram block, below the fold of a phone's sheet.
-    const kindleRef = useRef<HTMLDivElement>(null);
-    useEffect(() => {
-        if (section === 'kindle') {
-            kindleRef.current?.scrollIntoView?.({ block: 'start' });
-        }
-    }, [section]);
+    // Asked for the Kindle settings, the profile opens on them; otherwise on
+    // the connection last looked at.
+    const [connection, setConnection] = useState<ConnectionTab>(
+        section === 'kindle' ? 'kindle' : rememberedConnection,
+    );
+    const chooseConnection = (value: ConnectionTab) => {
+        rememberedConnection = value;
+        setConnection(value);
+    };
 
     const {
         firstName,
@@ -317,131 +333,189 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, section, onClose 
                 </FadingTabPanel>
 
                 <FadingTabPanel value="connections" active={tab === 'connections'}>
-                    <Group
-                        first
-                        title={
-                            <>
-                                {t('profileSection.telegramBot')}
-                                <span
-                                    className={cn(
-                                        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] normal-case tracking-normal',
-                                        botConnected
-                                            ? 'border-green-600/50 text-green-600 dark:border-green-400/50 dark:text-green-400'
-                                            : 'text-muted-foreground',
-                                    )}
-                                >
-                                    {botConnected ? (
-                                        <CheckCircle2 aria-hidden="true" className="size-3" />
-                                    ) : (
-                                        <AlertCircle aria-hidden="true" className="size-3" />
-                                    )}
-                                    {botConnected
-                                        ? t('telegramBot.connected')
-                                        : t('telegramBot.notConfigured')}
-                                </span>
-                            </>
-                        }
+                    {/*
+                      Three ways of getting the books out, each a tab of its
+                      own: one long column of all three ran past a phone's
+                      sheet several times over, and the Kindle settings — the
+                      ones the book card sends the reader to — were the last.
+                      Lighter than the tabs above, so they read as parts of
+                      this one rather than siblings of it; and only the chosen
+                      one is mounted, so each is as tall as itself.
+                    */}
+                    <Tabs
+                        value={connection}
+                        onValueChange={(value) => chooseConnection(value as ConnectionTab)}
+                        className="mt-3 gap-0"
                     >
-                        {botConnected ? (
-                            <>
-                                <p className="mb-3 text-sm text-muted-foreground">
-                                    {t('telegramBot.startHint')}
-                                </p>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    disabled={botLoading}
-                                    onClick={handleRemoveBotToken}
-                                    className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                                >
-                                    {t('telegramBot.removeToken')}
-                                </Button>
-                            </>
-                        ) : (
-                            <>
-                                <p className="mb-2 text-xs text-muted-foreground">
-                                    <Trans
-                                        i18nKey="telegramBot.tokenHint"
-                                        components={{ botfather: <BotFatherLink /> }}
-                                    />{' '}
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowInstruction((value) => !value)}
-                                        aria-expanded={showInstruction}
-                                        className="text-primary underline"
-                                    >
-                                        {t('telegramBot.instructionToggle')}
-                                    </button>
-                                </p>
-
-                                <Expandable open={showInstruction} peekLines={0} fade={false}>
-                                    <ol className="mb-3 list-decimal pl-5 text-xs text-muted-foreground [&>li]:mb-1">
-                                        <li>
-                                            <Trans
-                                                i18nKey="telegramBot.step1"
-                                                components={{ botfather: <BotFatherLink /> }}
-                                            />
-                                        </li>
-                                        <li>{t('telegramBot.step2')}</li>
-                                        <li>{t('telegramBot.step3')}</li>
-                                        <li>{t('telegramBot.step4')}</li>
-                                    </ol>
-                                </Expandable>
-
-                                <div className="mb-3">
-                                    <Field
-                                        id="profile-bot-token"
-                                        placeholder={t('telegramBot.tokenPlaceholder')}
-                                        value={botToken}
-                                        disabled={botLoading}
-                                        onChange={setBotToken}
-                                    />
-                                </div>
-                                <Button
-                                    size="sm"
-                                    disabled={botLoading || !botToken.trim()}
-                                    onClick={handleSetBotToken}
-                                >
-                                    {botLoading
-                                        ? t('telegramBot.connecting')
-                                        : t('telegramBot.connectButton')}
-                                </Button>
-                            </>
-                        )}
-                    </Group>
-
-                    <div ref={kindleRef} id="profile-kindle" className="scroll-mt-4">
-                        <Group
-                            title={
-                                <>
-                                    {t('profileSection.kindle')}
-                                    <span
-                                        className={cn(
-                                            'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] normal-case tracking-normal',
-                                            user?.kindle_email
-                                                ? 'border-green-600/50 text-green-600 dark:border-green-400/50 dark:text-green-400'
-                                                : 'text-muted-foreground',
-                                        )}
-                                    >
-                                        {user?.kindle_email ? (
-                                            <CheckCircle2 aria-hidden="true" className="size-3" />
-                                        ) : (
-                                            <AlertCircle aria-hidden="true" className="size-3" />
-                                        )}
-                                        {user?.kindle_email
-                                            ? t('kindle.configured')
-                                            : t('kindle.notConfigured')}
-                                    </span>
-                                </>
-                            }
+                        <TabsList
+                            aria-label={t('profileTab.connections')}
+                            className="h-auto gap-4 rounded-none border-b border-border bg-transparent p-0"
                         >
-                            <KindleSettings />
-                        </Group>
-                    </div>
+                            {CONNECTION_TABS.map((entry) => (
+                                <TabsTrigger
+                                    key={entry.value}
+                                    value={entry.value}
+                                    className={cn(
+                                        '-mb-px h-8 rounded-none border-b-2 border-transparent px-0.5 font-normal text-muted-foreground sm:h-8',
+                                        'data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:font-medium data-[state=active]:shadow-none',
+                                    )}
+                                >
+                                    {t(entry.labelKey)}
+                                </TabsTrigger>
+                            ))}
+                        </TabsList>
 
-                    <Group title={t('profileSection.opdsReader')}>
-                        <OpdsConnection />
-                    </Group>
+                        <TabsContent value="kindle">
+                            <Group
+                                first
+                                title={
+                                    <>
+                                        {t('profileSection.kindle')}
+                                        <span
+                                            className={cn(
+                                                'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] normal-case tracking-normal',
+                                                user?.kindle_email
+                                                    ? 'border-green-600/50 text-green-600 dark:border-green-400/50 dark:text-green-400'
+                                                    : 'text-muted-foreground',
+                                            )}
+                                        >
+                                            {user?.kindle_email ? (
+                                                <CheckCircle2
+                                                    aria-hidden="true"
+                                                    className="size-3"
+                                                />
+                                            ) : (
+                                                <AlertCircle
+                                                    aria-hidden="true"
+                                                    className="size-3"
+                                                />
+                                            )}
+                                            {user?.kindle_email
+                                                ? t('kindle.configured')
+                                                : t('kindle.notConfigured')}
+                                        </span>
+                                    </>
+                                }
+                            >
+                                <KindleSettings />
+                            </Group>
+                        </TabsContent>
+
+                        <TabsContent value="telegram">
+                            <Group
+                                first
+                                title={
+                                    <>
+                                        {t('profileSection.telegramBot')}
+                                        <span
+                                            className={cn(
+                                                'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] normal-case tracking-normal',
+                                                botConnected
+                                                    ? 'border-green-600/50 text-green-600 dark:border-green-400/50 dark:text-green-400'
+                                                    : 'text-muted-foreground',
+                                            )}
+                                        >
+                                            {botConnected ? (
+                                                <CheckCircle2
+                                                    aria-hidden="true"
+                                                    className="size-3"
+                                                />
+                                            ) : (
+                                                <AlertCircle
+                                                    aria-hidden="true"
+                                                    className="size-3"
+                                                />
+                                            )}
+                                            {botConnected
+                                                ? t('telegramBot.connected')
+                                                : t('telegramBot.notConfigured')}
+                                        </span>
+                                    </>
+                                }
+                            >
+                                {botConnected ? (
+                                    <>
+                                        <p className="mb-3 text-sm text-muted-foreground">
+                                            {t('telegramBot.startHint')}
+                                        </p>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            disabled={botLoading}
+                                            onClick={handleRemoveBotToken}
+                                            className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                        >
+                                            {t('telegramBot.removeToken')}
+                                        </Button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <p className="mb-2 text-xs text-muted-foreground">
+                                            <Trans
+                                                i18nKey="telegramBot.tokenHint"
+                                                components={{ botfather: <BotFatherLink /> }}
+                                            />{' '}
+                                            <button
+                                                type="button"
+                                                onClick={() =>
+                                                    setShowInstruction((value) => !value)
+                                                }
+                                                aria-expanded={showInstruction}
+                                                className="text-primary underline"
+                                            >
+                                                {t('telegramBot.instructionToggle')}
+                                            </button>
+                                        </p>
+
+                                        <Expandable
+                                            open={showInstruction}
+                                            peekLines={0}
+                                            fade={false}
+                                        >
+                                            <ol className="mb-3 list-decimal pl-5 text-xs text-muted-foreground [&>li]:mb-1">
+                                                <li>
+                                                    <Trans
+                                                        i18nKey="telegramBot.step1"
+                                                        components={{
+                                                            botfather: <BotFatherLink />,
+                                                        }}
+                                                    />
+                                                </li>
+                                                <li>{t('telegramBot.step2')}</li>
+                                                <li>{t('telegramBot.step3')}</li>
+                                                <li>{t('telegramBot.step4')}</li>
+                                            </ol>
+                                        </Expandable>
+
+                                        <div className="mb-3">
+                                            <Field
+                                                id="profile-bot-token"
+                                                placeholder={t('telegramBot.tokenPlaceholder')}
+                                                value={botToken}
+                                                disabled={botLoading}
+                                                onChange={setBotToken}
+                                            />
+                                        </div>
+                                        <Button
+                                            size="sm"
+                                            disabled={botLoading || !botToken.trim()}
+                                            onClick={handleSetBotToken}
+                                        >
+                                            {botLoading
+                                                ? t('telegramBot.connecting')
+                                                : t('telegramBot.connectButton')}
+                                        </Button>
+                                    </>
+                                )}
+                            </Group>
+                        </TabsContent>
+
+                        <TabsContent value="opds">
+                            <Group first title={t('profileSection.opdsReader')}>
+                                <OpdsConnection />
+                            </Group>
+                        </TabsContent>
+                    </Tabs>
                 </FadingTabPanel>
             </Tabs>
 
@@ -455,7 +529,7 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, section, onClose 
 
               Not on the connections tab, which has no Save to keep in reach:
               there the bar only covered the bottom of the Kindle group — its
-              switches, right where the setup dialog scrolls the reader to —
+              switches, in the part the setup dialog sends the reader to —
               while offering nothing the dialog's own close does not.
             */}
             <div
