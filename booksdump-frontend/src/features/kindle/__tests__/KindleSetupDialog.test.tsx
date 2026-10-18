@@ -56,6 +56,29 @@ describe('on a phone', () => {
         expect(screen.getByTestId('kindle-setup-scroll').className).toMatch(/overflow-y-auto/);
     });
 
+    it('keeps the title above the scrolling body, as the donate sheet does', () => {
+        renderSetup();
+        const scroller = screen.getByTestId('kindle-setup-scroll');
+        const title = screen.getByText('kindleSetup.title');
+
+        expect(scroller).not.toContainElement(title);
+        expect(scroller.className).toMatch(/overflow-y-auto/);
+        expect(scroller).toContainElement(screen.getByText('kindleSetup.intro'));
+    });
+
+    // Side by side the two buttons needed 312px of the 288 a 320px phone has
+    // and pushed Close off the left edge; the shared sheet footer stacks them.
+    it('stacks the two buttons in the shared sheet footer, below the scroller', () => {
+        renderSetup();
+        const footer = screen.getByTestId('kindle-setup-footer');
+
+        expect(footer).toHaveAttribute('data-slot', 'drawer-footer');
+        expect(footer.className).toMatch(/flex-col/);
+        expect(screen.getByTestId('kindle-setup-scroll')).not.toContainElement(footer);
+        const names = [...footer.querySelectorAll('button')].map((b) => b.textContent);
+        expect(names).toEqual(['kindleSetup.openSettings', 'close']);
+    });
+
     it('plays the video inline at the sheet’s width, without the sheet dragging off', () => {
         renderSetup();
         const video = document.querySelector('video')!;
@@ -77,8 +100,16 @@ describe('on a phone', () => {
 });
 
 describe('on a desktop', () => {
-    it('stays a dialog', () => {
+    it('stays a dialog, under the same 85vh cap as the profile and the donate dialog', () => {
         renderSetup();
+
+        const content = document.querySelector('[data-slot="dialog-content"]')!;
+        expect(content.className).toMatch(/max-h-\[85vh\]/);
+        const footer = document.querySelector('[data-slot="dialog-footer"]')!;
+        expect([...footer.querySelectorAll('button')].map((b) => b.textContent)).toEqual([
+            'close',
+            'kindleSetup.openSettings',
+        ]);
 
         expect(document.querySelector('[data-slot="dialog-content"]')).toBeInTheDocument();
         expect(document.querySelector('[data-slot="drawer-content"]')).not.toBeInTheDocument();
