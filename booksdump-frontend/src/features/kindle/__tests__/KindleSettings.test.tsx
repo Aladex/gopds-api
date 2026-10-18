@@ -22,7 +22,7 @@ vi.mock('sonner', () => ({
     toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn(), info: vi.fn() }),
 }));
 vi.mock('@/api/kindle', () => ({ setKindleEmail: vi.fn(), clearKindleEmail: vi.fn() }));
-vi.mock('@/api/auth', () => ({ updateCurrentUser: vi.fn() }));
+vi.mock('@/api/auth', () => ({ updateCurrentUser: vi.fn(), getCurrentUser: vi.fn() }));
 
 const updateUser = vi.fn();
 const authState: { user: User; updateUser: typeof updateUser } = {
@@ -43,6 +43,8 @@ beforeEach(() => {
         kindle_email: '',
         kindle_sender: SENDER,
     };
+    // A re-read after a set-aside answer finds the user as the store holds it.
+    vi.mocked(authApi.getCurrentUser).mockImplementation(async () => authState.user);
 });
 
 const field = () => screen.getByLabelText('kindle.addressLabel');
@@ -202,13 +204,19 @@ describe('one change at a time', () => {
     });
 
     it('holds the switches while the address is being saved', async () => {
-        vi.mocked(kindleApi.setKindleEmail).mockReturnValue(new Promise(() => {}));
+        let answer: (user: User) => void = () => {};
+        vi.mocked(kindleApi.setKindleEmail).mockReturnValue(
+            new Promise((resolve) => (answer = resolve)),
+        );
         render(<KindleSettings />);
 
         await userEvent.type(field(), 'reader@kindle.com');
         await userEvent.click(saveButton());
 
         expect(screen.getByRole('switch', { name: 'kindle.showKindleButton' })).toBeDisabled();
+        // Settled, as every change is: the count of changes running lives
+        // outside the component and outlives the test.
+        await act(async () => answer({ ...authState.user, kindle_email: 'reader@kindle.com' }));
     });
 });
 
@@ -292,6 +300,46 @@ describe('a profile closed and opened again while a change is slow', () => {
             expect(toast.error).not.toHaveBeenCalled();
         },
     );
+
+    // The older request may also be the later write. Its answer — false and
+    // false, the row as stored — is set aside as stale, and the newer answer
+    // still says Kindle is on. Once both have settled the user is read again,
+    // once, and the page shows what the database holds.
+    it('reads the user again when the older change committed last', async () => {
+        installStore();
+        const first = pending<User>();
+        const second = pending<User>();
+        vi.mocked(authApi.updateCurrentUser)
+            .mockReturnValueOnce(first.promise)
+            .mockReturnValueOnce(second.promise);
+        const stored = {
+            ...authState.user,
+            show_kindle_button: false,
+            show_telegram_button: false,
+        };
+        vi.mocked(authApi.getCurrentUser).mockResolvedValue(stored);
+
+        const opening = render(<KindleSettings key="first" />);
+        await userEvent.click(screen.getByRole('switch', { name: 'kindle.showKindleButton' }));
+        opening.unmount();
+        render(<KindleSettings key="second" />);
+        await userEvent.click(screen.getByRole('switch', { name: 'kindle.showTelegramButton' }));
+
+        // B committed first, before A's write: Kindle still on in its row.
+        await act(async () =>
+            second.resolve({
+                ...authState.user,
+                show_kindle_button: true,
+                show_telegram_button: false,
+            }),
+        );
+        expect(authApi.getCurrentUser).not.toHaveBeenCalled();
+        await act(async () => first.resolve(stored));
+
+        await waitFor(() => expect(authState.user.show_kindle_button).toBe(false));
+        expect(authState.user.show_telegram_button).toBe(false);
+        expect(authApi.getCurrentUser).toHaveBeenCalledTimes(1);
+    });
 
     it('does not let an old address save overwrite a newer removal', async () => {
         installStore();

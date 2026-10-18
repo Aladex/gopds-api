@@ -4,6 +4,7 @@ import { Check, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 
 import * as authApi from '@/api/auth';
+import type { User } from '@/api/auth';
 import * as kindleApi from '@/api/kindle';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/shared/ui/button';
@@ -32,11 +33,37 @@ const BUTTON_SWITCHES = [
  * answer — or its rollback — then landed after the newer one and put the
  * whole user back as it had been. Only the latest change's answer is applied.
  */
-const settingsChanges = { latest: 0 };
+//
+// The latest request is not always the latest write, though: an older one may
+// commit after it, and its answer — the truest row — is the one discarded.
+// So a discarded answer marks the settings stale, and once the last change
+// running has settled the user is read once more and shown as stored.
+const settingsChanges = { latest: 0, running: 0, stale: false };
 
 /** beginChange numbers a change; isLatest says whether it is still the last. */
-const beginChange = () => ++settingsChanges.latest;
-const isLatest = (change: number) => change === settingsChanges.latest;
+const beginChange = () => {
+    settingsChanges.running += 1;
+    return ++settingsChanges.latest;
+};
+const isLatest = (change: number) => {
+    const latest = change === settingsChanges.latest;
+    settingsChanges.stale ||= !latest;
+    return latest;
+};
+
+/** endChange re-reads the user after the last change, if an answer was set aside. */
+const endChange = async (updateUser: (user: User) => void) => {
+    settingsChanges.running -= 1;
+    if (settingsChanges.running > 0 || !settingsChanges.stale) return;
+    settingsChanges.stale = false;
+    const asOf = settingsChanges.latest;
+    try {
+        const stored = await authApi.getCurrentUser();
+        if (asOf === settingsChanges.latest) updateUser(stored);
+    } catch {
+        // The next change, or the next page load, will show the truth.
+    }
+};
 
 /** SenderAddress offers a line break before the @ and nowhere else. */
 const SenderAddress: React.FC<{ address: string }> = ({ address }) => {
@@ -93,6 +120,7 @@ const KindleSettings: React.FC = () => {
             if (isLatest(change)) toast.error(t('kindle.saveError'));
         } finally {
             setBusy(false);
+            void endChange(updateUser);
         }
     };
 
@@ -109,6 +137,7 @@ const KindleSettings: React.FC = () => {
             if (isLatest(change)) toast.error(t('kindle.saveError'));
         } finally {
             setBusy(false);
+            void endChange(updateUser);
         }
     };
 
@@ -143,6 +172,7 @@ const KindleSettings: React.FC = () => {
             }
         } finally {
             setBusy(false);
+            void endChange(updateUser);
         }
     };
 
