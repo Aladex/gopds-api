@@ -52,6 +52,15 @@ beforeEach(() => {
     matches.current = false;
 });
 
+// Unmounting the last dialog leaves Radix's focus scope a zero-delay timer to
+// fire. Under a loaded full run the file's environment could be torn down
+// first, and the timer then dispatched into a window that no longer existed —
+// an unhandled error after every test here had passed. One macrotask lets it
+// run while the window is still there.
+afterAll(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+});
+
 test('gives every configured method a tab, in the order configured', async () => {
     await openWith([bitcoin, card, boosty]);
 
