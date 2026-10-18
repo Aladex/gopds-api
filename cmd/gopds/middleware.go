@@ -62,9 +62,11 @@ func setupMiddleware(route *gin.Engine) {
 // URL always matches the origin the browser sees (works for both production domain
 // and local binary runs).
 func securityHeadersMiddleware() gin.HandlerFunc {
-	// Static part of CSP (everything except connect-src)
+	// Static part of CSP (everything except connect-src). media-src is the
+	// Send-to-Kindle how-to video the frontend ships under /videos/: without
+	// it default-src 'none' blocks every <video> on the page.
 	const cspTemplate = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
-		"img-src 'self' data:; font-src 'self'; connect-src %s; manifest-src 'self'; " +
+		"img-src 'self' data:; media-src 'self'; font-src 'self'; connect-src %s; manifest-src 'self'; " +
 		"frame-src 'self'; frame-ancestors 'self'; form-action 'self'; base-uri 'self'; object-src 'none'"
 
 	return func(c *gin.Context) {
