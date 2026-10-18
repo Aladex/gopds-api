@@ -228,7 +228,15 @@
     --destructive-foreground: #ffffff;
 
     --border: rgba(255, 255, 255, 0.12);
-    --input: rgba(255, 255, 255, 0.12);
+    /*
+     * A field's outline, at the 3:1 a control boundary needs: 0.36 renders
+     * #6f6f6f on the #1e1e1e of a sheet or dialog (3.3:1) and #676767 on the
+     * #121212 page (3.3:1). At 0.12 it was 1.45:1, a field drawn as a faint
+     * rectangle. The fills made from this token (bg-input/10, /17, /27 in
+     * src/shared/ui) were rescaled with it, so they stay the shades they were
+     * at 0.12 with /30, /50 and /80: only the outlines change.
+     */
+    --input: rgba(255, 255, 255, 0.36);
     --ring: #9e9e9e;
 }
 

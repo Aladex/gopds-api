@@ -165,7 +165,7 @@ const TokenField: React.FC<{
                     control rather than a box with a list stuck below it. */}
                 <div
                     className={cn(
-                        'flex min-h-9 w-full flex-wrap items-center gap-1 rounded-md border border-input bg-transparent px-2 py-1 shadow-xs dark:bg-input/30',
+                        'flex min-h-9 w-full flex-wrap items-center gap-1 rounded-md border border-input bg-transparent px-2 py-1 shadow-xs dark:bg-input/10',
                         'focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50',
                         disabled && 'pointer-events-none opacity-50',
                     )}
@@ -650,7 +650,7 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
                                 disabled={loading}
                                 onChange={(event) => setAnnotation(event.target.value)}
                                 className={cn(
-                                    'w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs outline-none transition-[color,box-shadow] md:text-sm dark:bg-input/30',
+                                    'w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs outline-none transition-[color,box-shadow] md:text-sm dark:bg-input/10',
                                     'placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50',
                                     'focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50',
                                     'scrollbar-thin',

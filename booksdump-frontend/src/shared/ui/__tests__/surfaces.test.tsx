@@ -89,3 +89,50 @@ it("draws a field’s outline at 3:1 or more on paper and on the desk", () => {
   // The page background itself is not this change's to touch.
   expect(light).toMatch(/--background:\s*#b3b3b3/)
 })
+
+it("draws a dark field's outline at 3:1 or more on a dark sheet and the dark page", () => {
+  const dark = css.slice(css.indexOf("--background: #121212"))
+  const alpha = Number(
+    dark.match(/--input:\s*rgba\(255,\s*255,\s*255,\s*([\d.]+)\)/)![1],
+  )
+  const over = (base: number) => Math.round(base + (255 - base) * alpha)
+
+  // #1e1e1e is the dark card/popover — every sheet and dialog — and #121212
+  // the dark page.
+  expect(contrast(over(0x1e), 0x1e)).toBeGreaterThanOrEqual(3)
+  expect(contrast(over(0x12), 0x12)).toBeGreaterThanOrEqual(3)
+})
+
+// The fills made from the dark input token were rescaled with it: a field, a
+// checkbox, an outline button and a switch track keep the shades they had at
+// 0.12 with /30, /50 and /80. Only the outlines were meant to change.
+it("keeps the dark fills made from the input token at their old shades", () => {
+  const dark = css.slice(css.indexOf("--background: #121212"))
+  const alpha = Number(
+    dark.match(/--input:\s*rgba\(255,\s*255,\s*255,\s*([\d.]+)\)/)![1],
+  )
+  const sources = [
+    "input",
+    "checkbox",
+    "button",
+    "select",
+    "textarea",
+    "switch",
+  ]
+    .map((name) =>
+      readFileSync(
+        join(dirname(fileURLToPath(import.meta.url)), `../${name}.tsx`),
+        "utf8",
+      ),
+    )
+    .join("\n")
+  const used = [...sources.matchAll(/bg-input\/(\d+)/g)].map((m) =>
+    Number(m[1]),
+  )
+  expect(used.length).toBeGreaterThan(0)
+  const before = [0.12 * 0.3, 0.12 * 0.5, 0.12 * 0.8]
+  for (const percent of used) {
+    const shade = alpha * (percent / 100)
+    expect(before.some((old) => Math.abs(old - shade) < 0.004)).toBe(true)
+  }
+})

@@ -30,7 +30,7 @@ function Checkbox({
         "disabled:cursor-not-allowed disabled:opacity-50",
         "data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground",
         "aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40",
-        "dark:bg-input/30 dark:data-[state=checked]:bg-primary",
+        "dark:bg-input/10 dark:data-[state=checked]:bg-primary",
         className,
       )}
       {...props}

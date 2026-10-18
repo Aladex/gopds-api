@@ -414,7 +414,7 @@ const BookPagination: React.FC<PaginationProps> = ({ totalPages, currentPage, ba
                                     // than the tier it was handed.
                                     !fitted && cellMinWidth,
                                     // The active page uses shadcn's outline variant,
-                                    // which carries a dark:bg-input/30 of its own.
+                                    // which carries a dark:bg-input/10 of its own.
                                     // tailwind-merge treats a variant class and a
                                     // plain one as different properties, so the
                                     // dark half has to be named explicitly or it

@@ -12,7 +12,7 @@ import { cn } from "@/shared/lib/utils"
  * call site would work until the day one of them changes here and not there.
  */
 const inputFrame =
-  "h-10 w-full min-w-0 sm:h-8 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none selection:bg-primary selection:text-primary-foreground placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-[13px] dark:bg-input/30"
+  "h-10 w-full min-w-0 sm:h-8 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none selection:bg-primary selection:text-primary-foreground placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-[13px] dark:bg-input/10"
 
 /** The ring is drawn on whatever element owns the frame. */
 const inputFocusRing =
