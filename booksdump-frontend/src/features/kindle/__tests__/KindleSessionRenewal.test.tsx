@@ -170,3 +170,27 @@ it('signs the reader out and shows the login form when the session cannot be ren
     expect(toast.error).toHaveBeenCalledWith('sendToKindle.error.session_expired');
     expect(screen.queryByRole('button', { name: 'send' })).not.toBeInTheDocument();
 });
+
+it('does not ask again on the expired socket when the renewal beats its close', async () => {
+    vi.mocked(authApi.getCurrentUser).mockResolvedValue(reader);
+    await renderApp();
+    await userEvent.click(screen.getByRole('button', { name: 'send' }));
+    const first = lastSocket();
+
+    // The reply arrives, the renewal finishes, and only then the close.
+    await act(async () => {
+        first.receive({ type: 'kindle', bookID: 5, status: 'error', code: 'session_expired' });
+    });
+    await waitFor(() => expect(authApi.getCurrentUser).toHaveBeenCalled());
+    await act(async () => {});
+    expect(first.kindleFrames()).toHaveLength(1);
+
+    act(() => first.serverClose());
+    await waitFor(() => expect(lastSocket()).not.toBe(first), { timeout: 4000 });
+    const second = lastSocket();
+    act(() => second.open());
+    await waitFor(() => expect(second.kindleFrames()).toEqual([{ type: 'kindle', bookID: 5 }]));
+    act(() => second.receive({ type: 'kindle', bookID: 5, status: 'sent' }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1));
+    expect(toast.error).not.toHaveBeenCalled();
+});
