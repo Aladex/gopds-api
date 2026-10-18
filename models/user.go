@@ -48,6 +48,19 @@ type User struct {
 	Active          bool                `pg:"active" json:"active"`
 	Collections     []BookCollection    `pg:"rel:has-many" json:"collections"`
 	TelegramRequest UserTelegramRequest `pg:"-" json:"-"`
+
+	// Send to Kindle. The columns are NOT NULL, and go-pg writes a Go zero as
+	// NULL unless told otherwise — so the address and both switches carry
+	// use_zero, or turning a button off or clearing the address would fail on
+	// every full-row update of the user. The switches also carry their
+	// default: with use_zero alone an insert would write false over the
+	// column's true, and a new reader would start with both buttons hidden.
+	// The sender id has neither: the database assigns it on insert and it is
+	// never written again.
+	KindleEmail        string `pg:"kindle_email,use_zero" json:"-"`
+	KindleSenderID     string `pg:"kindle_sender_id" json:"-"`
+	ShowKindleButton   bool   `pg:"show_kindle_button,use_zero,default:true" json:"-"`
+	ShowTelegramButton bool   `pg:"show_telegram_button,use_zero,default:true" json:"-"`
 }
 
 // LoggedInUser struct for user table with token
@@ -63,6 +76,14 @@ type LoggedInUser struct {
 	IsSuperuser   *bool            `json:"is_superuser,omitempty"`
 	HasBotToken   *bool            `json:"has_bot_token,omitempty"`
 	DateJoined    *time.Time       `json:"date_joined,omitempty"`
+
+	// KindleEmail is the reader's Send-to-Kindle address, "" when unset.
+	KindleEmail string `json:"kindle_email"`
+	// KindleSender is the full address their books are mailed from, the one
+	// they approve on Amazon; "" when the installation names no domain.
+	KindleSender       string `json:"kindle_sender"`
+	ShowKindleButton   *bool  `json:"show_kindle_button,omitempty"`
+	ShowTelegramButton *bool  `json:"show_telegram_button,omitempty"`
 }
 
 // LoginRequest struct for login request
@@ -128,4 +149,10 @@ type SelfUserChangeRequest struct {
 	NewPassword   string `json:"new_password" form:"new_password"`
 	BooksLang     string `json:"books_lang" form:"books_lang"`
 	InterfaceLang string `json:"interface_lang" form:"interface_lang"`
+
+	// The two book card buttons. Pointers, because the profile's Save sends
+	// the whole form and a switch it does not mention must stay as it is:
+	// nil leaves the setting alone, true and false set it.
+	ShowKindleButton   *bool `json:"show_kindle_button" form:"show_kindle_button"`
+	ShowTelegramButton *bool `json:"show_telegram_button" form:"show_telegram_button"`
 }

@@ -218,6 +218,12 @@ func UpdateUserProfile(userID int64, updates models.SelfUserChangeRequest) (mode
 	if updates.InterfaceLang != "" {
 		user.InterfaceLang = updates.InterfaceLang
 	}
+	if updates.ShowKindleButton != nil {
+		user.ShowKindleButton = *updates.ShowKindleButton
+	}
+	if updates.ShowTelegramButton != nil {
+		user.ShowTelegramButton = *updates.ShowTelegramButton
+	}
 	if updates.NewPassword != "" {
 		logging.Info("Updating password for user ", user.Login)
 		hashedPassword := utils.CreatePasswordHash(updates.NewPassword)
@@ -228,6 +234,44 @@ func UpdateUserProfile(userID int64, updates models.SelfUserChangeRequest) (mode
 		return user, err
 	}
 	return user, nil
+}
+
+// SetKindleEmail stores the reader's Send-to-Kindle address, or clears it
+// when address is "". The caller has already validated and normalized it.
+//
+// One column, written on its own rather than through UpdateUserProfile: that
+// one reads an empty field as "leave it alone", which is exactly the value
+// that has to mean "clear it" here.
+func SetKindleEmail(userID int64, address string) (models.User, error) {
+	var user models.User
+	res, err := db.Model(&user).
+		Set("kindle_email = ?", address).
+		Where("id = ?", userID).
+		Returning("*").
+		Update()
+	if err != nil {
+		return user, err
+	}
+	if res.RowsAffected() == 0 {
+		return user, pg.ErrNoRows
+	}
+	return user, nil
+}
+
+// KindleTarget is what sending a book to a reader's Kindle needs to know
+// about them, read fresh at the moment of sending.
+type KindleTarget struct {
+	Email    string
+	SenderID string
+}
+
+// GetKindleTarget reads the reader's Kindle address and sender id.
+func GetKindleTarget(userID int64) (KindleTarget, error) {
+	var target KindleTarget
+	_, err := db.QueryOne(&target, `
+		SELECT kindle_email AS email, kindle_sender_id::text AS sender_id
+		FROM auth_user WHERE id = ?`, userID)
+	return target, err
 }
 
 // UpdateUserByAdmin updates user data by admin (integrated with new Telegram architecture)
