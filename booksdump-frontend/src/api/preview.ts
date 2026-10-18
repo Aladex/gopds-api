@@ -47,7 +47,12 @@ export const previewClient = {
     // synchronously would make one error arrive by a different route than the
     // rest, and every caller would need a try/catch around the call as well
     // as a .catch on it.
-    getChunk: async (bookId: number, chunkNumber: number, revision: string, signal?: AbortSignal) => {
+    getChunk: async (
+        bookId: number,
+        chunkNumber: number,
+        revision: string,
+        signal?: AbortSignal,
+    ) => {
         requireRevision(revision);
         return http.get<ChunkResponse>(`/books/preview/${bookId}/chunk/${chunkNumber}`, {
             query: { revision },
@@ -55,7 +60,12 @@ export const previewClient = {
         });
     },
 
-    getImage: async (bookId: number, imageNumber: number, revision: string, signal?: AbortSignal) => {
+    getImage: async (
+        bookId: number,
+        imageNumber: number,
+        revision: string,
+        signal?: AbortSignal,
+    ) => {
         requireRevision(revision);
         return requestBlob(`/books/preview/${bookId}/image/${imageNumber}`, {
             query: { revision },

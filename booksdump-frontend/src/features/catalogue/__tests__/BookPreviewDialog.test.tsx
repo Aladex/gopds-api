@@ -229,13 +229,7 @@ function signalAware<T>(producer: () => T | Promise<T>) {
 function renderDialog(props: Partial<React.ComponentProps<typeof BookPreviewDialog>> = {}) {
     const onClose = vi.fn();
     const view = render(
-        <BookPreviewDialog
-            open
-            bookId={12}
-            bookLang="ru"
-            onClose={onClose}
-            {...props}
-        />,
+        <BookPreviewDialog open bookId={12} bookLang="ru" onClose={onClose} {...props} />,
     );
     return { ...view, onClose };
 }
@@ -270,9 +264,7 @@ describe('BookPreviewDialog — states', () => {
 
         d.resolve(makePreview());
 
-        await waitFor(() =>
-            expect(screen.queryByRole('status')).not.toBeInTheDocument(),
-        );
+        await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
         // Same className before and after: the dialog does not reflow when the
         // text arrives. jsdom has no layout, so the class is the contract.
         expect(screen.getByTestId('preview-text-column').className).toBe(loadingClass);
@@ -419,9 +411,7 @@ describe('BookPreviewDialog — cancellation', () => {
         await waitFor(() => expect(signals.length).toBe(1));
         expect(signals[0].aborted).toBe(false);
 
-        view.rerender(
-            <BookPreviewDialog open bookId={13} bookLang="ru" onClose={vi.fn()} />,
-        );
+        view.rerender(<BookPreviewDialog open bookId={13} bookLang="ru" onClose={vi.fn()} />);
 
         // The new request fires for the new book; the previous request's
         // signal must have flipped to aborted in between.
@@ -431,9 +421,7 @@ describe('BookPreviewDialog — cancellation', () => {
     });
 
     it('aborts the in-flight chunk request when the dialog closes', async () => {
-        getPreview.mockImplementation(
-            signalAware(() => makePreview({ chunk_count: 5 })),
-        );
+        getPreview.mockImplementation(signalAware(() => makePreview({ chunk_count: 5 })));
         let captured: AbortSignal | undefined;
         getChunk.mockImplementation((_id, _n, _rev, signal) => {
             captured = signal;
@@ -675,9 +663,7 @@ describe('BookPreviewDialog — request ordering', () => {
                 }),
             ),
         );
-        getChunk.mockImplementation(
-            signalAware(() => Promise.reject(new ApiError('gone', 410))),
-        );
+        getChunk.mockImplementation(signalAware(() => Promise.reject(new ApiError('gone', 410))));
 
         renderDialog();
         await screen.findByTestId('first-portion');
@@ -874,7 +860,7 @@ describe('BookPreviewDialog — request ordering', () => {
         expect(screen.getByTestId('portion-b')).toBeInTheDocument();
     });
 
-    it('a book switch starts from a clean slate and the previous book\'s late answers never land', async () => {
+    it("a book switch starts from a clean slate and the previous book's late answers never land", async () => {
         const previews = capturePreviewCalls();
         const calls = captureChunkCalls();
 
@@ -892,9 +878,7 @@ describe('BookPreviewDialog — request ordering', () => {
         await reachBottom();
         await waitFor(() => expect(calls.length).toBe(1)); // chunk request, book 12
 
-        view.rerender(
-            <BookPreviewDialog open bookId={13} bookLang="ru" onClose={vi.fn()} />,
-        );
+        view.rerender(<BookPreviewDialog open bookId={13} bookLang="ru" onClose={vi.fn()} />);
 
         // Clean slate: the old portion disappears at once and the new book's
         // preview is requested. Both of book 12's requests are aborted.
@@ -930,9 +914,7 @@ describe('BookPreviewDialog — request ordering', () => {
         const view = renderDialog({ bookId: 12 });
         await waitFor(() => expect(previews.length).toBe(1));
 
-        view.rerender(
-            <BookPreviewDialog open bookId={13} bookLang="ru" onClose={vi.fn()} />,
-        );
+        view.rerender(<BookPreviewDialog open bookId={13} bookLang="ru" onClose={vi.fn()} />);
         await waitFor(() => expect(previews.length).toBe(2));
         expect(previews[0].signal.aborted).toBe(true);
 
@@ -949,7 +931,6 @@ describe('BookPreviewDialog — request ordering', () => {
         expect(await screen.findByTestId('book-thirteen')).toBeInTheDocument();
         expect(screen.queryByTestId('book-twelve')).not.toBeInTheDocument();
     });
-
 
     // Aborting does not un-queue an answer that has already arrived: in a
     // browser a response can land in the microtask queue with the abort right
@@ -980,7 +961,8 @@ describe('BookPreviewDialog — request ordering', () => {
             ),
         );
         // Deliberately blind to the signal: the answer arrives regardless.
-        getChunk.mockImplementationOnce(() => first.promise)
+        getChunk
+            .mockImplementationOnce(() => first.promise)
             .mockImplementationOnce(() => second.promise);
 
         renderDialog();
@@ -998,7 +980,6 @@ describe('BookPreviewDialog — request ordering', () => {
         expect(screen.queryByTestId('stale')).toBeNull();
         expect(screen.getByTestId('wanted')).toBeInTheDocument();
     });
-
 });
 
 describe('BookPreviewDialog — narrow TOC panel', () => {
@@ -1410,14 +1391,19 @@ describe('BookPreviewDialog — narrow TOC panel', () => {
 
         await userEvent.click(screen.getByTestId('preview-toc-trigger'));
         let panel = await screen.findByTestId('preview-toc-panel');
-        expect(within(panel).getByRole('button', { name: 'Chapter 1' }))
-            .toHaveAttribute('aria-current', 'page');
-        expect(within(panel).getByRole('button', { name: 'Chapter 2' }))
-            .not.toHaveAttribute('aria-current');
+        expect(within(panel).getByRole('button', { name: 'Chapter 1' })).toHaveAttribute(
+            'aria-current',
+            'page',
+        );
+        expect(within(panel).getByRole('button', { name: 'Chapter 2' })).not.toHaveAttribute(
+            'aria-current',
+        );
 
         // Close the panel without ever clicking Chapter 2.
         await userEvent.click(screen.getByRole('button', { name: 'previewCloseToc' }));
-        await waitFor(() => expect(screen.queryByTestId('preview-toc-panel')).not.toBeInTheDocument());
+        await waitFor(() =>
+            expect(screen.queryByTestId('preview-toc-panel')).not.toBeInTheDocument(),
+        );
 
         // Read on, and scroll past chapter 2's heading in what arrives.
         await reachBottom();
@@ -1430,10 +1416,13 @@ describe('BookPreviewDialog — narrow TOC panel', () => {
         // Re-open: Chapter 2 is now active, even though it was never clicked.
         await userEvent.click(screen.getByTestId('preview-toc-trigger'));
         panel = await screen.findByTestId('preview-toc-panel');
-        expect(within(panel).getByRole('button', { name: 'Chapter 2' }))
-            .toHaveAttribute('aria-current', 'page');
-        expect(within(panel).getByRole('button', { name: 'Chapter 1' }))
-            .not.toHaveAttribute('aria-current');
+        expect(within(panel).getByRole('button', { name: 'Chapter 2' })).toHaveAttribute(
+            'aria-current',
+            'page',
+        );
+        expect(within(panel).getByRole('button', { name: 'Chapter 1' })).not.toHaveAttribute(
+            'aria-current',
+        );
     });
 
     it('mutation #4: nested entries expose depth so a reader can see the hierarchy', async () => {

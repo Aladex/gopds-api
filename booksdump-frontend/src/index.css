@@ -352,9 +352,15 @@
         margin-block: 1.8em 0.8em;
     }
 
-    .portion h1 { font-size: 1.35em; }
-    .portion h2 { font-size: 1.2em; }
-    .portion :is(h3, h4, h5, h6) { font-size: 1.05em; }
+    .portion h1 {
+        font-size: 1.35em;
+    }
+    .portion h2 {
+        font-size: 1.2em;
+    }
+    .portion :is(h3, h4, h5, h6) {
+        font-size: 1.05em;
+    }
 
     /*
      * The first heading of a portion does not push the text down: the reader
@@ -519,7 +525,7 @@
      * is `pv-{key}`, and both begin `#pv` — so a plain "see chapter II" link
      * was being set as a tiny superscript.
      */
-    .portion a[href^="#pv"][href*="-note-"] {
+    .portion a[href^='#pv'][href*='-note-'] {
         font-size: 0.75em;
         vertical-align: super;
         line-height: 0;
@@ -528,7 +534,7 @@
         text-decoration: none;
     }
 
-    .portion a[href^="#pv"][href*="-note-"]:hover {
+    .portion a[href^='#pv'][href*='-note-']:hover {
         text-decoration: underline;
     }
 }

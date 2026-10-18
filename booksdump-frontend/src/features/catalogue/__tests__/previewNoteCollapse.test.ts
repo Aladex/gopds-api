@@ -32,9 +32,7 @@ describe('the stylesheet hides a footnote until the dialog has handled it', () =
         root.walkRules((rule) => {
             const hidesIt = rule.nodes?.some(
                 (node) =>
-                    node.type === 'decl' &&
-                    node.prop === 'display' &&
-                    node.value.trim() === 'none',
+                    node.type === 'decl' && node.prop === 'display' && node.value.trim() === 'none',
             );
             if (!hidesIt) return;
             // The selector has to be that note and nothing more. Two

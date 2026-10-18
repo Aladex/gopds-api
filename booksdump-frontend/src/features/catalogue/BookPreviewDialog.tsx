@@ -119,10 +119,7 @@ export const SCROLL_AREA_CLASS = cn(
  * inside it at 62ch and a wider shell would put slack on the side of the
  * measure that the reader's eye reads as wasted paper.
  */
-const DIALOG_WIDTH_CLASS = cn(
-    'w-[calc(100%-1rem)]',
-    'sm:max-w-[1180px]',
-);
+const DIALOG_WIDTH_CLASS = cn('w-[calc(100%-1rem)]', 'sm:max-w-[1180px]');
 
 /**
  * One portion of the book, injected as HTML.
@@ -413,25 +410,23 @@ export default function BookPreviewDialog({
         // `portions` — see the contract above.
         setChunkFailure(null);
 
-        previewClient
-            .getChunk(bookId, frontier, preview.revision, controller.signal)
-            .then(
-                (res) => {
-                    if (generation !== chunkGeneration.current) return;
-                    if (controller.signal.aborted) return;
-                    setPortions((prev) => {
-                        const next = new Map(prev);
-                        next.set(frontier, res.chunk);
-                        return next;
-                    });
-                },
-                (err) => {
-                    if (generation !== chunkGeneration.current) return;
-                    if (controller.signal.aborted) return;
-                    if (err instanceof DOMException && err.name === 'AbortError') return;
-                    setChunkFailure({ index: frontier, kind: classifyPreviewError(err).kind });
-                },
-            );
+        previewClient.getChunk(bookId, frontier, preview.revision, controller.signal).then(
+            (res) => {
+                if (generation !== chunkGeneration.current) return;
+                if (controller.signal.aborted) return;
+                setPortions((prev) => {
+                    const next = new Map(prev);
+                    next.set(frontier, res.chunk);
+                    return next;
+                });
+            },
+            (err) => {
+                if (generation !== chunkGeneration.current) return;
+                if (controller.signal.aborted) return;
+                if (err instanceof DOMException && err.name === 'AbortError') return;
+                setChunkFailure({ index: frontier, kind: classifyPreviewError(err).kind });
+            },
+        );
 
         return () => controller.abort();
     }, [needsChunkFetch, frontier, preview, bookId, chunkRetry]);
@@ -439,8 +434,7 @@ export default function BookPreviewDialog({
     // The frontier is the last portion of the book: there is nothing further
     // to fetch. It was called `isFirstChunkLast` when the first chunk was the
     // only one a fresh dialog had.
-    const frontierIsLast =
-        preview != null && frontier >= preview.chunk_count - 1;
+    const frontierIsLast = preview != null && frontier >= preview.chunk_count - 1;
     const awaitingChunk =
         firstPhase === 'ready' &&
         preview != null &&
@@ -666,7 +660,7 @@ export default function BookPreviewDialog({
         if (!pendingPortionReady) return;
 
         const area = scrollAreaRef.current;
-        const {index, anchor} = pendingScroll;
+        const { index, anchor } = pendingScroll;
         // The queue is state and not a ref on purpose, at the price of the
         // setState-in-effect this file already carries twice. A ref would
         // leave this effect depending on the portion alone, and a book with
@@ -683,9 +677,7 @@ export default function BookPreviewDialog({
         // (the server guarantees uniqueness within a chunk, not across
         // them), so a global getElementById could match a portion the
         // reader is not looking at.
-        const portionEl = area.querySelector(
-            `[data-testid="preview-portion-${index}"]`,
-        );
+        const portionEl = area.querySelector(`[data-testid="preview-portion-${index}"]`);
         const anchorEl = anchor == null ? null : document.getElementById(anchor);
         if (anchorEl && portionEl && portionEl.contains(anchorEl)) {
             anchorEl.scrollIntoView({ block: 'start' });
@@ -777,10 +769,7 @@ export default function BookPreviewDialog({
                         setTocPanelOpen(false);
                     }
                 }}
-                className={cn(
-                    'flex max-h-[90vh] flex-col gap-0 p-0',
-                    DIALOG_WIDTH_CLASS,
-                )}
+                className={cn('flex max-h-[90vh] flex-col gap-0 p-0', DIALOG_WIDTH_CLASS)}
             >
                 <DialogHeader className="border-b border-border px-6 py-4 pr-12">
                     <DialogTitle>{t('previewTitle')}</DialogTitle>
@@ -861,12 +850,12 @@ export default function BookPreviewDialog({
                         )}
 
                         {/*
-                          * The text scrolls; the contents column beside it does
-                          * not ride along. The ref stays on this element, so
-                          * everything measured against "the scroll area" — the
-                          * anchors, the sentinel's root, the reader's place —
-                          * still means the text the reader is reading.
-                          */}
+                         * The text scrolls; the contents column beside it does
+                         * not ride along. The ref stays on this element, so
+                         * everything measured against "the scroll area" — the
+                         * anchors, the sentinel's root, the reader's place —
+                         * still means the text the reader is reading.
+                         */}
                         <div
                             ref={scrollAreaRef}
                             data-testid="preview-scroll-area"
@@ -879,112 +868,112 @@ export default function BookPreviewDialog({
                                 lang={bookLang}
                                 className={TEXT_COLUMN_CLASS}
                             >
-                            {firstPhase === 'loading' && (
-                                <div role="status" aria-live="polite" className="space-y-3">
-                                    <Skeleton className="h-4 w-full" />
-                                    <Skeleton className="h-4 w-full" />
-                                    <Skeleton className="h-4 w-3/4" />
-                                    <span className="sr-only">{t('previewLoading')}</span>
-                                </div>
-                            )}
+                                {firstPhase === 'loading' && (
+                                    <div role="status" aria-live="polite" className="space-y-3">
+                                        <Skeleton className="h-4 w-full" />
+                                        <Skeleton className="h-4 w-full" />
+                                        <Skeleton className="h-4 w-3/4" />
+                                        <span className="sr-only">{t('previewLoading')}</span>
+                                    </div>
+                                )}
 
-                            {firstPhase === 'first-error' && firstErrorKind != null && (
-                                <div role="alert" className="text-sm text-destructive">
-                                    <p>{t(ERROR_KEY[firstErrorKind])}</p>
-                                    {firstErrorKind === 'retryable' && (
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="sm"
-                                            className="mt-3"
-                                            onClick={retryFirst}
-                                        >
-                                            {t('previewRetry')}
-                                        </Button>
-                                    )}
-                                </div>
-                            )}
+                                {firstPhase === 'first-error' && firstErrorKind != null && (
+                                    <div role="alert" className="text-sm text-destructive">
+                                        <p>{t(ERROR_KEY[firstErrorKind])}</p>
+                                        {firstErrorKind === 'retryable' && (
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                className="mt-3"
+                                                onClick={retryFirst}
+                                            >
+                                                {t('previewRetry')}
+                                            </Button>
+                                        )}
+                                    </div>
+                                )}
 
-                            {firstPhase === 'ready' && (
-                                <>
-                                    {/*
-                                     * Phase 2 invariant: every byte of this HTML
-                                     * was built by our FB2 parser from a file a
-                                     * librarian uploaded. No reader input reaches
-                                     * this string — it is not a value the reader
-                                     * can influence — so dangerouslySetInnerHTML
-                                     * is the honest name for what is otherwise an
-                                     * innerHTML assignment. Sanitising it would
-                                     * imply there is something to filter, and
-                                     * there is not.
-                                     */}
-                                    {orderedPortions.map(([index, html]) => (
-                                        <Portion key={index} index={index} html={html} />
-                                    ))}
+                                {firstPhase === 'ready' && (
+                                    <>
+                                        {/*
+                                         * Phase 2 invariant: every byte of this HTML
+                                         * was built by our FB2 parser from a file a
+                                         * librarian uploaded. No reader input reaches
+                                         * this string — it is not a value the reader
+                                         * can influence — so dangerouslySetInnerHTML
+                                         * is the honest name for what is otherwise an
+                                         * innerHTML assignment. Sanitising it would
+                                         * imply there is something to filter, and
+                                         * there is not.
+                                         */}
+                                        {orderedPortions.map(([index, html]) => (
+                                            <Portion key={index} index={index} html={html} />
+                                        ))}
 
-                                    {chunkFailure && chunkFailure.index === frontier && (
-                                        <div
-                                            role="alert"
-                                            className="mt-4 text-sm text-destructive"
-                                        >
-                                            <p>{t(ERROR_KEY[chunkFailure.kind])}</p>
-                                            {chunkFailure.kind === 'retryable' && (
-                                                <Button
-                                                    type="button"
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="mt-3"
-                                                    onClick={retryChunk}
-                                                >
-                                                    {t('previewRetry')}
-                                                </Button>
-                                            )}
-                                        </div>
-                                    )}
+                                        {chunkFailure && chunkFailure.index === frontier && (
+                                            <div
+                                                role="alert"
+                                                className="mt-4 text-sm text-destructive"
+                                            >
+                                                <p>{t(ERROR_KEY[chunkFailure.kind])}</p>
+                                                {chunkFailure.kind === 'retryable' && (
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="mt-3"
+                                                        onClick={retryChunk}
+                                                    >
+                                                        {t('previewRetry')}
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        )}
 
-                                    {awaitingChunk && (
-                                        <div
-                                            role="status"
-                                            aria-live="polite"
-                                            className="mt-4 space-y-2"
-                                        >
-                                            <Skeleton className="h-4 w-full" />
-                                            <Skeleton className="h-4 w-3/4" />
-                                            <span className="sr-only">
-                                                {t('previewLoading')}
-                                            </span>
-                                        </div>
-                                    )}
+                                        {awaitingChunk && (
+                                            <div
+                                                role="status"
+                                                aria-live="polite"
+                                                className="mt-4 space-y-2"
+                                            >
+                                                <Skeleton className="h-4 w-full" />
+                                                <Skeleton className="h-4 w-3/4" />
+                                                <span className="sr-only">
+                                                    {t('previewLoading')}
+                                                </span>
+                                            </div>
+                                        )}
 
-                                    {/*
-                                     * The foot of the text says one of three
-                                     * things, and it has to say one of them.
-                                     * With no button left, a fetch that
-                                     * failed silently would read as the end
-                                     * of the book, and a book that ended
-                                     * would read as a fetch still coming.
-                                     * The failure and the spinner are above;
-                                     * this is the other two.
-                                     */}
-                                    {canLoadMore && (
-                                        <div
-                                            ref={loadMoreRef}
-                                            data-testid="preview-load-more"
-                                            aria-hidden="true"
-                                            className="h-px"
-                                        />
-                                    )}
+                                        {/*
+                                         * The foot of the text says one of three
+                                         * things, and it has to say one of them.
+                                         * With no button left, a fetch that
+                                         * failed silently would read as the end
+                                         * of the book, and a book that ended
+                                         * would read as a fetch still coming.
+                                         * The failure and the spinner are above;
+                                         * this is the other two.
+                                         */}
+                                        {canLoadMore && (
+                                            <div
+                                                ref={loadMoreRef}
+                                                data-testid="preview-load-more"
+                                                aria-hidden="true"
+                                                className="h-px"
+                                            />
+                                        )}
 
-                                    {frontierIsLast && portions.has(frontier) && (
-                                        <p
-                                            data-testid="preview-end-of-book"
-                                            className="mt-8 border-t border-border pt-4 text-center text-sm text-muted-foreground"
-                                        >
-                                            {t('previewEndOfBook')}
-                                        </p>
-                                    )}
-                                </>
-                            )}
+                                        {frontierIsLast && portions.has(frontier) && (
+                                            <p
+                                                data-testid="preview-end-of-book"
+                                                className="mt-8 border-t border-border pt-4 text-center text-sm text-muted-foreground"
+                                            >
+                                                {t('previewEndOfBook')}
+                                            </p>
+                                        )}
+                                    </>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -1010,9 +999,7 @@ export default function BookPreviewDialog({
                                 >
                                     {t('previewCloseToc')}
                                 </button>
-                                <h2 className="text-sm font-medium">
-                                    {t('previewTocLabel')}
-                                </h2>
+                                <h2 className="text-sm font-medium">{t('previewTocLabel')}</h2>
                             </div>
                             <nav
                                 aria-label={t('previewTocLabel')}

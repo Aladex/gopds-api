@@ -11,7 +11,11 @@ export class ApiError extends Error {
     /** Response headers, when available. */
     readonly responseHeaders?: Headers;
 
-    constructor(message: string, status: number, options: { code?: string; body?: unknown; responseHeaders?: Headers } = {}) {
+    constructor(
+        message: string,
+        status: number,
+        options: { code?: string; body?: unknown; responseHeaders?: Headers } = {},
+    ) {
         super(message);
         this.name = 'ApiError';
         this.status = status;

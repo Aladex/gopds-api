@@ -38,9 +38,7 @@ describe('bringing the marked chapter into the contents column', () => {
         // What jsdom reports for every element, and what a collapsed column
         // reports for real. Centring against a zero viewport would compute an
         // offset out of nothing.
-        expect(
-            tocScrollTopFor({ top: 900, height: 20, viewTop: 0, viewHeight: 0 }),
-        ).toBeNull();
+        expect(tocScrollTopFor({ top: 900, height: 20, viewTop: 0, viewHeight: 0 })).toBeNull();
     });
 });
 

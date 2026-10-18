@@ -4,7 +4,11 @@ import { fileURLToPath } from 'node:url';
 import { __unstable__loadDesignSystem } from 'tailwindcss';
 import { Scanner } from '@tailwindcss/oxide';
 
-import { CARD_WIDE_MIN_WIDTH_REM, CARD_WIDE_QUERY, CARD_WIDE_VARIANT } from '@/shared/layout/breakpoints';
+import {
+    CARD_WIDE_MIN_WIDTH_REM,
+    CARD_WIDE_QUERY,
+    CARD_WIDE_VARIANT,
+} from '@/shared/layout/breakpoints';
 
 const projectPath = (relative: string) => fileURLToPath(new URL(relative, import.meta.url));
 
@@ -77,8 +81,7 @@ describe.each(layoutFiles)('the layout boundary in $file', ({ file, mustStyleByW
      * the one Tailwind uses to decide what a file asks for, so anything the
      * build compiles is something this test sees.
      */
-    const candidates = () =>
-        new Scanner({}).scanFiles([{ content: source, extension: 'tsx' }]);
+    const candidates = () => new Scanner({}).scanFiles([{ content: source, extension: 'tsx' }]);
 
     it('styles nothing at a boundary other than the one React asks about', async () => {
         const design = await designSystem();
@@ -109,7 +112,10 @@ describe.each(layoutFiles)('the layout boundary in $file', ({ file, mustStyleByW
             // supports-[…]:sm: and sm:max-lg: are all the same defect — the
             // layout answering to something besides the width — and listing
             // them one by one only ever catches the ones already thought of.
-            expect(parsed.variants, `${candidate} is conditional on more than a width`).toHaveLength(1);
+            expect(
+                parsed.variants,
+                `${candidate} is conditional on more than a width`,
+            ).toHaveLength(1);
 
             // And that one variant must be the named breakpoint itself. An
             // arbitrary variant can carry the right number and still add a
@@ -122,18 +128,25 @@ describe.each(layoutFiles)('the layout boundary in $file', ({ file, mustStyleByW
             expect(printed, `${candidate} is not the named breakpoint`).toBe(CARD_WIDE_VARIANT);
 
             const conditions = [...css.matchAll(/width\s*(>=|<=|>|<)\s*([\d.]+)rem/g)];
-            expect(conditions, `${candidate} is guarded by ${conditions.length} width conditions`).toHaveLength(1);
+            expect(
+                conditions,
+                `${candidate} is guarded by ${conditions.length} width conditions`,
+            ).toHaveLength(1);
 
             // Above the boundary, not below: max-sm: is the other side of the
             // same number, and pairing it with a min-width query puts CSS and
             // React on opposite sides.
             expect(conditions[0][1], `${candidate} applies below the boundary`).toBe('>=');
-            expect(Number(conditions[0][2]), `${candidate} switches at another width`)
-                .toBe(CARD_WIDE_MIN_WIDTH_REM);
+            expect(Number(conditions[0][2]), `${candidate} switches at another width`).toBe(
+                CARD_WIDE_MIN_WIDTH_REM,
+            );
         }
 
         if (mustStyleByWidth) {
-            expect(guarded, `${file} styles nothing by width, so nothing holds the boundary`).not.toHaveLength(0);
+            expect(
+                guarded,
+                `${file} styles nothing by width, so nothing holds the boundary`,
+            ).not.toHaveLength(0);
         }
     });
 

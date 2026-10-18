@@ -54,7 +54,7 @@ const renderCard = (isWide: boolean) =>
                 formatDate={(value) => value}
                 isBookConverting={() => false}
                 onDownload={vi.fn()}
-            onPreview={vi.fn()}
+                onPreview={vi.fn()}
                 onEpubRequest={vi.fn()}
                 onMobiRequest={vi.fn()}
                 onToggleFavourite={vi.fn()}

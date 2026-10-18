@@ -66,7 +66,9 @@ describe('previewClient.getChunk', () => {
     it('throws if revision is missing', async () => {
         await expect(previewClient.getChunk(123, 5, '')).rejects.toThrow('revision is required');
         await expect(previewClient.getChunk(123, 5, '')).rejects.toThrow(ApiError);
-        await expect(previewClient.getChunk(123, 5, '')).rejects.toSatisfy((e: ApiError) => e.status === 400);
+        await expect(previewClient.getChunk(123, 5, '')).rejects.toSatisfy(
+            (e: ApiError) => e.status === 400,
+        );
         expect(fetchSpy).not.toHaveBeenCalled();
     });
 
@@ -87,7 +89,7 @@ describe('previewClient.getImage', () => {
             new Response(blob, {
                 status: 200,
                 headers: { 'Content-Type': 'image/jpeg' },
-            })
+            }),
         );
 
         const result = await previewClient.getImage(123, 3, 'rev1');
@@ -108,7 +110,7 @@ describe('previewClient.getImage', () => {
             new Response(blob, {
                 status: 200,
                 headers: { 'Content-Type': 'image/jpeg' },
-            })
+            }),
         );
         const controller = new AbortController();
 
@@ -252,7 +254,7 @@ describe('mutation tests', () => {
         await expect(previewClient.getChunk(123, 5, 'rev1', controller.signal)).rejects.toSatisfy(
             (e: ApiError) => {
                 return e.status === 0 && e.isNetworkError;
-            }
+            },
         );
         expect(initOf(0).signal).toBe(controller.signal);
     });
