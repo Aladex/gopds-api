@@ -1,11 +1,19 @@
 import React, { useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
-import { AlertCircle, CheckCircle2, ChevronDown, LogOut } from 'lucide-react';
+import {
+    AlertCircle,
+    CheckCircle2,
+    ChevronDown,
+    LogOut,
+    Plug,
+    ShieldCheck,
+    UserRound,
+} from 'lucide-react';
 
 import { Button } from '@/shared/ui/button';
 import { Expandable } from '@/shared/ui/expandable';
 import { Input } from '@/shared/ui/input';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from '@/shared/ui/tabs';
 import FadingTabPanel from '@/shared/components/FadingTabPanel';
 import { cn } from '@/shared/lib/utils';
 
@@ -19,6 +27,8 @@ type ProfileContentProps = {
     open: boolean;
     /** The part of the profile to open on, when a page asked for one. */
     section?: ProfileSection;
+    /** Shown in the phone's bottom sheet rather than the desktop dialog. */
+    inSheet?: boolean;
     onClose: () => void;
 };
 
@@ -36,14 +46,14 @@ export const PROFILE_FIRST_FIELD_ID = 'profile-first-name';
  * how I get in, and what else is plugged into the account.
  */
 const TABS = [
-    { value: 'account', labelKey: 'profileTab.account' },
-    { value: 'security', labelKey: 'profileTab.security' },
+    { value: 'account', labelKey: 'profileTab.account', icon: UserRound },
+    { value: 'security', labelKey: 'profileTab.security', icon: ShieldCheck },
     // Both ways of getting the books out of here and into something of the
     // reader's own — a bot in their messenger, an application on their reader.
     // The OPDS instructions used to be a section of the site's navigation,
     // which gave a page read once during setup the same standing as the
     // catalogue itself.
-    { value: 'connections', labelKey: 'profileTab.connections' },
+    { value: 'connections', labelKey: 'profileTab.connections', icon: Plug },
 ] as const;
 
 /** The parts of the connections tab, Kindle first: it is the one most asked for. */
@@ -127,7 +137,12 @@ const Field: React.FC<{
     </div>
 );
 
-const ProfileContent: React.FC<ProfileContentProps> = ({ open, section, onClose }) => {
+const ProfileContent: React.FC<ProfileContentProps> = ({
+    open,
+    section,
+    inSheet = false,
+    onClose,
+}) => {
     const { t } = useTranslation();
     const [showInstruction, setShowInstruction] = useState(false);
     // Switching tabs unmounts fields but not their values: the form state lives
@@ -205,24 +220,23 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, section, onClose 
               a form whose Save sat somewhere below the fold; split, the tallest
               of the three fits with room to spare.
 
-              Three labels this short never overflow the row, so the primitive's
-              horizontal scroll stays dormant and none of them slides out of
-              reach.
+              Each tab names itself with an icon and a short word, and in the
+              phone's sheet the icon stands above the word in three equal
+              columns: «Аккаунт · Безопасность · Подключения» side by side were
+              cut to «Акка… · Безопасн… · Подключ…» at 320 and 360px, and a tab
+              whose name is cut cannot be told from its neighbour.
             */}
             <Tabs value={tab} onValueChange={setTab} className="mt-3 grid grid-cols-1">
-                <TabsList className="row-start-1 w-full">
+                <TabsList stacked={inSheet} className="row-start-1 w-full">
                     {TABS.map((entry) => (
                         <TabsTrigger
                             key={entry.value}
                             value={entry.value}
-                            /* Sized by their words rather than into equal
-                               thirds: a third of a 350px sheet is about eighty
-                               pixels, and "Безопасность" is wider than that.
-                               flex-auto still fills the row, so the three share
-                               it without any of them being cut. */
-                            className="min-w-0 flex-auto"
+                            icon={entry.icon}
+                            // On a desktop the three share the row by their words.
+                            className={inSheet ? undefined : 'flex-auto'}
                         >
-                            <span className="truncate">{t(entry.labelKey)}</span>
+                            {t(entry.labelKey)}
                         </TabsTrigger>
                     ))}
                 </TabsList>
@@ -338,34 +352,29 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, section, onClose 
                       own: one long column of all three ran past a phone's
                       sheet several times over, and the Kindle settings — the
                       ones the book card sends the reader to — were the last.
-                      Lighter than the tabs above, so they read as parts of
-                      this one rather than siblings of it; and only the chosen
-                      one is mounted, so each is as tall as itself.
+                      The shared tabs' underline form, so they read as parts of
+                      this tab rather than a second bar beside it; and the same
+                      fading panels in one grid cell as the tabs above, so the
+                      sheet keeps its height as the three are switched.
                     */}
                     <Tabs
                         value={connection}
                         onValueChange={(value) => chooseConnection(value as ConnectionTab)}
-                        className="mt-3 gap-0"
+                        className="mt-3 grid grid-cols-1"
                     >
                         <TabsList
+                            variant="underline"
                             aria-label={t('profileTab.connections')}
-                            className="h-auto gap-4 rounded-none border-b border-border bg-transparent p-0"
+                            className="row-start-1"
                         >
                             {CONNECTION_TABS.map((entry) => (
-                                <TabsTrigger
-                                    key={entry.value}
-                                    value={entry.value}
-                                    className={cn(
-                                        '-mb-px h-8 rounded-none border-b-2 border-transparent px-0.5 font-normal text-muted-foreground sm:h-8',
-                                        'data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:font-medium data-[state=active]:shadow-none',
-                                    )}
-                                >
+                                <TabsTrigger key={entry.value} value={entry.value}>
                                     {t(entry.labelKey)}
                                 </TabsTrigger>
                             ))}
                         </TabsList>
 
-                        <TabsContent value="kindle">
+                        <FadingTabPanel value="kindle" active={connection === 'kindle'}>
                             <Group
                                 first
                                 title={
@@ -399,9 +408,9 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, section, onClose 
                             >
                                 <KindleSettings />
                             </Group>
-                        </TabsContent>
+                        </FadingTabPanel>
 
-                        <TabsContent value="telegram">
+                        <FadingTabPanel value="telegram" active={connection === 'telegram'}>
                             <Group
                                 first
                                 title={
@@ -508,13 +517,13 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, section, onClose 
                                     </>
                                 )}
                             </Group>
-                        </TabsContent>
+                        </FadingTabPanel>
 
-                        <TabsContent value="opds">
+                        <FadingTabPanel value="opds" active={connection === 'opds'}>
                             <Group first title={t('profileSection.opdsReader')}>
                                 <OpdsConnection />
                             </Group>
-                        </TabsContent>
+                        </FadingTabPanel>
                     </Tabs>
                 </FadingTabPanel>
             </Tabs>

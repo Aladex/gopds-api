@@ -58,7 +58,7 @@ const ProfileDrawer: React.FC<ProfileDrawerProps> = ({ open, section, onClose })
                     {t('profileSection.personalData')}
                 </DrawerDescription>
                 <div className="scrollbar-thin overflow-y-auto px-4 pb-6">
-                    <ProfileContent open={open} section={section} onClose={onClose} />
+                    <ProfileContent open={open} section={section} inSheet onClose={onClose} />
                 </div>
             </DrawerContent>
         </Drawer>

@@ -71,20 +71,27 @@ it('keeps the footer off the Kindle settings, and stuck where there is a Save', 
     expect(screen.getByTestId('profile-footer').className).toMatch(/sticky/);
 });
 
-// The connections tab is three tabs of its own: Kindle, Telegram, OPDS. Only
-// the chosen one is on the page.
+// The connections tab is three tabs of its own: Kindle, Telegram, OPDS. All
+// three stay mounted, as the main tabs' panels do — fading in one grid cell,
+// so the sheet does not change height — and only the chosen one is shown and
+// reachable: the others are inactive and inert.
 const subTab = (name: string) => screen.getByRole('tab', { name });
+const panelOf = (text: string) =>
+    screen.getByText(text).closest('[data-slot="tabs-content"]') as HTMLElement;
 const onlyShows = (shown: 'kindle' | 'telegram' | 'opds') => {
     const groups = {
-        kindle: () => screen.queryByText('kindle-settings'),
-        telegram: () => screen.queryByText('profileSection.telegramBot'),
-        opds: () => screen.queryByText('opds-connection'),
+        kindle: 'kindle-settings',
+        telegram: 'profileSection.telegramBot',
+        opds: 'opds-connection',
     };
-    for (const [name, query] of Object.entries(groups)) {
+    for (const [name, text] of Object.entries(groups)) {
+        const panel = panelOf(text);
         if (name === shown) {
-            expect(query()).toBeInTheDocument();
+            expect(panel).toHaveAttribute('data-state', 'active');
+            expect(panel).not.toHaveAttribute('inert');
         } else {
-            expect(query()).not.toBeInTheDocument();
+            expect(panel).toHaveAttribute('data-state', 'inactive');
+            expect(panel).toHaveAttribute('inert');
         }
     }
 };
@@ -152,5 +159,46 @@ describe('the connections tab', () => {
 
         expect(setItem).not.toHaveBeenCalled();
         setItem.mockRestore();
+    });
+});
+
+describe('the main tabs', () => {
+    it('stack icon over label in the phone’s sheet', () => {
+        render(<ProfileContent open inSheet onClose={vi.fn()} />);
+        const [list] = screen.getAllByRole('tablist');
+
+        expect(list).toHaveAttribute('data-stacked', 'true');
+        for (const name of [
+            'profileTab.account',
+            'profileTab.security',
+            'profileTab.connections',
+        ]) {
+            const tab = screen.getByRole('tab', { name });
+            expect(tab.querySelector('svg')).not.toBeNull();
+            expect(tab.textContent).toBe(name);
+            expect(tab.querySelector('.truncate')).toBeNull();
+        }
+    });
+
+    it('put the icon beside the label in the desktop dialog', () => {
+        render(<ProfileContent open onClose={vi.fn()} />);
+        const [list] = screen.getAllByRole('tablist');
+
+        expect(list).not.toHaveAttribute('data-stacked');
+        expect(
+            screen.getByRole('tab', { name: 'profileTab.account' }).querySelector('svg'),
+        ).not.toBeNull();
+    });
+
+    it('show the connections as the shared underline tabs', async () => {
+        render(<ProfileContent open section="kindle" onClose={vi.fn()} />);
+        const lists = screen.getAllByRole('tablist');
+
+        expect(lists[1]).toHaveAttribute('data-variant', 'underline');
+        expect(lists[1]).toHaveAccessibleName('profileTab.connections');
+        // No look of its own: only the shared component's classes.
+        expect(
+            screen.getByRole('tab', { name: 'profileConnectionTab.kindle' }).className,
+        ).not.toMatch(/h-8|px-0\.5/);
     });
 });
