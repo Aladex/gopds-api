@@ -92,16 +92,26 @@ it('sends a kindle frame and resolves with the reply for that book', async () =>
     await expect(pending).resolves.toEqual({ status: 'error', code: 'too_large' });
 });
 
-it('answers every request waiting on the same book with the one reply', async () => {
+it('asks once for a book already asked for, and answers both callers with the one reply', async () => {
     renderSocket();
     act(() => socket().open());
 
     const first = send(42);
     const second = send(42);
-    act(() => socket().receive({ type: 'kindle', bookID: 42, status: 'sent' }));
+    const frames = socket()
+        .sent.map((frame) => JSON.parse(frame))
+        .filter((frame) => frame.type === 'kindle');
+    // One frame: a second would draw an in_progress that settles the first
+    // request before its own outcome arrives.
+    expect(frames).toEqual([{ type: 'kindle', bookID: 42 }]);
 
+    act(() => socket().receive({ type: 'kindle', bookID: 42, status: 'sent' }));
     await expect(first).resolves.toEqual({ status: 'sent', code: undefined });
     await expect(second).resolves.toEqual({ status: 'sent', code: undefined });
+
+    // Settled, the book may be asked for again.
+    void send(42);
+    expect(socket().sent.filter((frame) => frame.includes('"kindle"'))).toHaveLength(2);
 });
 
 it('says the answer was lost when the connection goes before the reply', async () => {

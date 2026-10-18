@@ -191,6 +191,7 @@ describe('a reader with a Kindle address', () => {
         ['conversion_failed', 'sendToKindle.error.conversion_failed'],
         ['send_failed', 'sendToKindle.error.send_failed'],
         ['connection_lost', 'sendToKindle.error.connection_lost'],
+        ['busy', 'sendToKindle.error.busy'],
         ['something_new', 'sendToKindle.error.send_failed'],
     ])('names the %s error', async (code, key) => {
         sendToKindle.mockResolvedValue({ status: 'error', code });
@@ -200,6 +201,19 @@ describe('a reader with a Kindle address', () => {
 
         await waitFor(() => expect(toast.error).toHaveBeenCalledWith(key));
         expect(toast.success).not.toHaveBeenCalled();
+    });
+
+    it('asks a reader whose session ended to sign in again', async () => {
+        sendToKindle.mockResolvedValue({ status: 'error', code: 'session_expired' });
+        await renderList();
+
+        await userEvent.click(screen.getByRole('button', { name: 'sendToKindle.send' }));
+
+        await waitFor(() =>
+            expect(toast.error).toHaveBeenCalledWith('sendToKindle.error.session_expired', {
+                action: { label: 'sendToKindle.signIn', onClick: expect.any(Function) },
+            }),
+        );
     });
 
     it('treats a second request for a book already on its way as news, not failure', async () => {

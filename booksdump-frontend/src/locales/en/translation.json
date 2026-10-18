@@ -722,5 +722,8 @@
   "sendToKindle.error.in_progress": "This book is already on its way to your Kindle",
   "sendToKindle.error.unavailable": "No connection to the server. Try again in a minute",
   "sendToKindle.error.connection_lost": "The connection dropped — the book may still have gone. Check your Kindle in a few minutes",
-  "sendToTelegram.soon": "Sending to Telegram is coming in the next version"
+  "sendToTelegram.soon": "Sending to Telegram is coming in the next version",
+  "sendToKindle.error.busy": "The server is busy, try again in a minute",
+  "sendToKindle.error.session_expired": "Your session has expired — sign in again to send the book",
+  "sendToKindle.signIn": "Sign in"
 }

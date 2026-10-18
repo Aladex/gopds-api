@@ -356,8 +356,18 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
                     resolve({ status: 'error', code: 'unavailable' });
                     return;
                 }
+                // A book already asked for is not asked for again: the later
+                // caller waits on the same answer. A second frame would have
+                // the server reply in_progress, and that reply — answering
+                // every waiter on the book — settled the first request too,
+                // before its real outcome came.
                 const waiters = kindleWaitersRef.current;
-                waiters.set(bookID, [...(waiters.get(bookID) ?? []), resolve]);
+                const pending = waiters.get(bookID);
+                if (pending) {
+                    pending.push(resolve);
+                    return;
+                }
+                waiters.set(bookID, [resolve]);
                 sendFrame({ type: 'kindle', bookID });
             }),
         [sendFrame],

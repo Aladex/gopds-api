@@ -726,5 +726,8 @@
   "sendToKindle.error.in_progress": "Эта книга уже отправляется на Kindle",
   "sendToKindle.error.unavailable": "Нет связи с сервером. Попробуйте через минуту",
   "sendToKindle.error.connection_lost": "Связь с сервером прервалась — книга могла уйти. Проверьте Kindle через несколько минут",
-  "sendToTelegram.soon": "Отправка в Telegram появится в следующей версии"
+  "sendToTelegram.soon": "Отправка в Telegram появится в следующей версии",
+  "sendToKindle.error.busy": "Сервер занят, попробуйте через минуту",
+  "sendToKindle.error.session_expired": "Сессия истекла — войдите снова, чтобы отправить книгу",
+  "sendToKindle.signIn": "Войти"
 }

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
@@ -15,6 +16,8 @@ const KNOWN_ERRORS = new Set([
     'in_progress',
     'unavailable',
     'connection_lost',
+    'busy',
+    'session_expired',
 ]);
 
 /**
@@ -29,6 +32,7 @@ export const useSendToKindle = () => {
     const { user } = useAuth();
     const { sendToKindle } = useWebSocket();
     const { t } = useTranslation();
+    const navigate = useNavigate();
     const [sending, setSending] = useState<ReadonlySet<number>>(() => new Set());
     const [setupOpen, setSetupOpen] = useState(false);
 
@@ -58,6 +62,14 @@ export const useSendToKindle = () => {
             const code = reply.code && KNOWN_ERRORS.has(reply.code) ? reply.code : 'send_failed';
             if (code === 'in_progress') {
                 toast.info(t('sendToKindle.error.in_progress'));
+                return;
+            }
+            if (code === 'session_expired') {
+                // The socket outlived the session; nothing is sent until the
+                // reader signs in again, so say how.
+                toast.error(t('sendToKindle.error.session_expired'), {
+                    action: { label: t('sendToKindle.signIn'), onClick: () => navigate('/login') },
+                });
                 return;
             }
             toast.error(t(`sendToKindle.error.${code}`));
