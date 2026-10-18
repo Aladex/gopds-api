@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 import ProfileContent from '@/features/profile/ProfileContent';
 
@@ -58,4 +59,14 @@ it('opens on the account tab otherwise', () => {
         'aria-selected',
         'true',
     );
+});
+
+// On the connections tab the footer is not stuck over the content: it covered
+// the Kindle switches, where the setup dialog scrolls the reader to.
+it('keeps the footer off the Kindle settings, and stuck where there is a Save', async () => {
+    render(<ProfileContent open section="kindle" onClose={vi.fn()} />);
+    expect(screen.getByTestId('profile-footer').className).not.toMatch(/sticky/);
+
+    await userEvent.click(screen.getByRole('tab', { name: 'profileTab.account' }));
+    expect(screen.getByTestId('profile-footer').className).toMatch(/sticky/);
 });

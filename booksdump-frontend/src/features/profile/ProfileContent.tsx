@@ -452,10 +452,17 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, section, onClose 
               below the fold, so the sheet opened showing no way to save.
               The background is the surface's own, or the fields would show
               through as they pass beneath.
+
+              Not on the connections tab, which has no Save to keep in reach:
+              there the bar only covered the bottom of the Kindle group — its
+              switches, right where the setup dialog scrolls the reader to —
+              while offering nothing the dialog's own close does not.
             */}
             <div
+                data-testid="profile-footer"
                 className={cn(
-                    'sticky bottom-0 mt-5 flex justify-end gap-2 border-t border-border',
+                    tab !== 'connections' && 'sticky bottom-0',
+                    'mt-5 flex justify-end gap-2 border-t border-border',
                     'bg-background pt-4 pb-1',
                 )}
             >

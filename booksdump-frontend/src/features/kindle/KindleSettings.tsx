@@ -24,6 +24,19 @@ const BUTTON_SWITCHES = [
     { field: 'show_telegram_button', labelKey: 'kindle.showTelegramButton' },
 ] as const;
 
+/** SenderAddress offers a line break before the @ and nowhere else. */
+const SenderAddress: React.FC<{ address: string }> = ({ address }) => {
+    const at = address.lastIndexOf('@');
+    if (at <= 0) return <>{address}</>;
+    return (
+        <>
+            {address.slice(0, at)}
+            <wbr />
+            <span className="whitespace-nowrap">{address.slice(at)}</span>
+        </>
+    );
+};
+
 /**
  * KindleSettings is the profile's Kindle group: the sender address to approve
  * on Amazon, the steps and the video, the reader's Kindle address, and the two
@@ -40,6 +53,10 @@ const KindleSettings: React.FC = () => {
     const sender = user?.kindle_sender ?? '';
 
     const [address, setAddress] = useState(current);
+    // One change at a time, the address and the switches alike. Each answer
+    // is the whole user, and it replaces the one this page holds: two in
+    // flight could land out of order, and the older answer — or the rollback
+    // of a failed one — would put back what the newer one had just changed.
     const [busy, setBusy] = useState(false);
     const [showVideo, setShowVideo] = useState(false);
     const [copied, setCopied] = useState(false);
@@ -91,14 +108,19 @@ const KindleSettings: React.FC = () => {
         field: (typeof BUTTON_SWITCHES)[number]['field'],
         value: boolean,
     ) => {
-        if (!user) return;
-        // Shown at once, and put back if the server disagrees.
+        if (!user || busy) return;
+        setBusy(true);
+        // Shown at once, and put back if the server disagrees. Nothing else
+        // here can change meanwhile, so the user as it was is still the one
+        // to go back to.
         updateUser({ ...user, [field]: value });
         try {
             updateUser(await authApi.updateCurrentUser({ [field]: value }));
         } catch {
             updateUser(user);
             toast.error(t('kindle.buttonsSaveError'));
+        } finally {
+            setBusy(false);
         }
     };
 
@@ -107,14 +129,17 @@ const KindleSettings: React.FC = () => {
             <div>
                 <p className="mb-1 text-xs text-muted-foreground">{t('kindle.senderLabel')}</p>
                 {sender ? (
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-col items-start gap-2">
                         {/* Monospace for the address alone: it is copied
-                            character for character into Amazon's form. */}
+                            character for character into Amazon's form. A
+                            line of its own, and only one place it may break —
+                            before the @ — so a narrow sheet never shows the
+                            domain cut in two as if it were two words. */}
                         <code
                             data-testid="kindle-sender"
-                            className="min-w-0 flex-1 rounded border border-border bg-muted px-2 py-1.5 font-mono text-xs break-all"
+                            className="w-full rounded border border-border bg-muted px-2 py-1.5 font-mono text-xs break-normal"
                         >
-                            {sender}
+                            <SenderAddress address={sender} />
                         </code>
                         <Button
                             variant="outline"
@@ -208,6 +233,7 @@ const KindleSettings: React.FC = () => {
                             </label>
                             <Switch
                                 id={id}
+                                disabled={busy}
                                 checked={user?.[field] !== false}
                                 onCheckedChange={(value) => toggleButton(field, value)}
                             />

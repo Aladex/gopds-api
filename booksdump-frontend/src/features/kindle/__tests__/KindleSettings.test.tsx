@@ -180,3 +180,48 @@ describe('the card button switches', () => {
         expect(toast.error).toHaveBeenCalledWith('kindle.buttonsSaveError');
     });
 });
+
+describe('one change at a time', () => {
+    it('holds both switches while one is being saved, so answers cannot cross', async () => {
+        let answer: (user: User) => void = () => {};
+        vi.mocked(authApi.updateCurrentUser).mockReturnValue(
+            new Promise((resolve) => (answer = resolve)),
+        );
+        render(<KindleSettings />);
+        const kindle = screen.getByRole('switch', { name: 'kindle.showKindleButton' });
+        const telegram = screen.getByRole('switch', { name: 'kindle.showTelegramButton' });
+
+        await userEvent.click(kindle);
+        expect(kindle).toBeDisabled();
+        expect(telegram).toBeDisabled();
+        await userEvent.click(telegram);
+        expect(authApi.updateCurrentUser).toHaveBeenCalledTimes(1);
+
+        answer({ ...authState.user, show_kindle_button: false });
+        await waitFor(() => expect(telegram).toBeEnabled());
+    });
+
+    it('holds the switches while the address is being saved', async () => {
+        vi.mocked(kindleApi.setKindleEmail).mockReturnValue(new Promise(() => {}));
+        render(<KindleSettings />);
+
+        await userEvent.type(field(), 'reader@kindle.com');
+        await userEvent.click(saveButton());
+
+        expect(screen.getByRole('switch', { name: 'kindle.showKindleButton' })).toBeDisabled();
+    });
+});
+
+describe('the sender address on a narrow screen', () => {
+    it('may break before the @ and nowhere in the domain', () => {
+        render(<KindleSettings />);
+        const code = screen.getByTestId('kindle-sender');
+
+        expect(code.className).not.toMatch(/break-all/);
+        expect(code.querySelectorAll('wbr')).toHaveLength(1);
+        const domain = code.querySelector('span')!;
+        expect(domain).toHaveTextContent('@booksdump.com');
+        expect(domain.className).toMatch(/whitespace-nowrap/);
+        expect(code).toHaveTextContent(SENDER);
+    });
+});
