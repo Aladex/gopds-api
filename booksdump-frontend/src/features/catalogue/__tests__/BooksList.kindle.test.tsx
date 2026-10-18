@@ -31,7 +31,8 @@ vi.mock('@/api/books', () => ({ listBooks: vi.fn(), toggleFavourite: vi.fn() }))
 vi.mock('@/api/auth', () => ({ getCurrentUser: vi.fn() }));
 vi.mock('@/api/admin', () => ({ updateBook: vi.fn() }));
 
-const authState: { user: User } = {
+const logout = vi.fn();
+const authState: { user: User; logout: typeof logout } = {
     user: {
         username: 'reader',
         first_name: '',
@@ -39,6 +40,7 @@ const authState: { user: User } = {
         is_superuser: false,
         books_lang: 'ru',
     },
+    logout,
 };
 vi.mock('@/context/AuthContext', () => ({ useAuth: () => authState }));
 vi.mock('@/context/FavContext', () => {
@@ -203,17 +205,14 @@ describe('a reader with a Kindle address', () => {
         expect(toast.success).not.toHaveBeenCalled();
     });
 
-    it('asks a reader whose session ended to sign in again', async () => {
+    it('signs out a reader whose session could not be renewed', async () => {
         sendToKindle.mockResolvedValue({ status: 'error', code: 'session_expired' });
         await renderList();
 
         await userEvent.click(screen.getByRole('button', { name: 'sendToKindle.send' }));
 
-        await waitFor(() =>
-            expect(toast.error).toHaveBeenCalledWith('sendToKindle.error.session_expired', {
-                action: { label: 'sendToKindle.signIn', onClick: expect.any(Function) },
-            }),
-        );
+        await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
+        expect(toast.error).toHaveBeenCalledWith('sendToKindle.error.session_expired');
     });
 
     it('treats a second request for a book already on its way as news, not failure', async () => {

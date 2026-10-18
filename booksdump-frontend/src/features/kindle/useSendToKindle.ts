@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
@@ -29,10 +28,9 @@ const KNOWN_ERRORS = new Set([
  * server: there is nothing it could do with the request but refuse it.
  */
 export const useSendToKindle = () => {
-    const { user } = useAuth();
+    const { user, logout } = useAuth();
     const { sendToKindle } = useWebSocket();
     const { t } = useTranslation();
-    const navigate = useNavigate();
     const [sending, setSending] = useState<ReadonlySet<number>>(() => new Set());
     const [setupOpen, setSetupOpen] = useState(false);
 
@@ -65,11 +63,13 @@ export const useSendToKindle = () => {
                 return;
             }
             if (code === 'session_expired') {
-                // The socket outlived the session; nothing is sent until the
-                // reader signs in again, so say how.
-                toast.error(t('sendToKindle.error.session_expired'), {
-                    action: { label: t('sendToKindle.signIn'), onClick: () => navigate('/login') },
-                });
+                // Only after the socket provider tried to renew the session
+                // and could not: it is really gone. Signing out the way the
+                // Logout button does clears the reader here too — sending
+                // them to /login while still signed in only bounced them back
+                // to the catalogue.
+                toast.error(t('sendToKindle.error.session_expired'));
+                logout();
                 return;
             }
             toast.error(t(`sendToKindle.error.${code}`));

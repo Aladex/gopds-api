@@ -111,14 +111,77 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
     const kindleWaitersRef = useRef(new Map<number, Array<(reply: KindleReply) => void>>());
     const { state, dispatch } = useBookConversion();
 
-    const settleKindle = useCallback((bookID: number | null, reply: KindleReply) => {
-        const waiters = kindleWaitersRef.current;
-        const books = bookID === null ? Array.from(waiters.keys()) : [bookID];
-        for (const id of books) {
-            waiters.get(id)?.forEach((resolve) => resolve(reply));
-            waiters.delete(id);
+    // A socket keeps the access token it was opened with, and that token lives
+    // fifteen minutes; the server then answers a Kindle request with
+    // session_expired and closes the socket. Such a request is not given up:
+    // the session is renewed through the ordinary HTTP refresh, and the book
+    // asked for once more on the next socket. kindleRetryRef holds those books
+    // — false while the renewal runs, true once it succeeded — and
+    // kindleRetriedRef the ones already asked a second time, which are not
+    // retried again. expiredSocketRef is the socket that said so, never used
+    // for the retry even if its close has not arrived yet.
+    const kindleRetryRef = useRef(new Map<number, boolean>());
+    const kindleRetriedRef = useRef(new Set<number>());
+    const expiredSocketRef = useRef<WebSocket | null>(null);
+
+    // settleKindle answers the waiters on one book, or on every book with
+    // null — leaving out, unless everything is going away, the ones waiting
+    // on a renewal, whose socket closing is part of the plan.
+    const settleKindle = useCallback(
+        (bookID: number | null, reply: KindleReply, everything = false) => {
+            const waiters = kindleWaitersRef.current;
+            const books =
+                bookID === null
+                    ? Array.from(waiters.keys()).filter(
+                          (id) => everything || !kindleRetryRef.current.has(id),
+                      )
+                    : [bookID];
+            for (const id of books) {
+                kindleRetryRef.current.delete(id);
+                kindleRetriedRef.current.delete(id);
+                waiters.get(id)?.forEach((resolve) => resolve(reply));
+                waiters.delete(id);
+            }
+        },
+        [],
+    );
+
+    // resendKindle asks again for every book whose session was renewed, if a
+    // socket other than the expired one is open; otherwise the next open does.
+    const resendKindle = useCallback(() => {
+        const ws = wsRef.current;
+        if (!ws || !openRef.current || ws === expiredSocketRef.current) {
+            return;
+        }
+        for (const [bookID, renewed] of kindleRetryRef.current) {
+            if (renewed) {
+                kindleRetryRef.current.delete(bookID);
+                kindleRetriedRef.current.add(bookID);
+                ws.send(JSON.stringify({ type: 'kindle', bookID }));
+            }
         }
     }, []);
+
+    // renewAndRetry starts the renewal for a book whose send met an expired
+    // session. getCurrentUser goes through the transport's refresh-and-replay;
+    // when that cannot renew the session the transport has already run the
+    // app's confirmed-logout path, and the book is answered session_expired.
+    const renewAndRetry = useCallback(
+        (bookID: number, ws: WebSocket) => {
+            expiredSocketRef.current = ws;
+            kindleRetryRef.current.set(bookID, false);
+            getCurrentUser().then(
+                () => {
+                    if (kindleRetryRef.current.has(bookID)) {
+                        kindleRetryRef.current.set(bookID, true);
+                        resendKindle();
+                    }
+                },
+                () => settleKindle(bookID, { status: 'error', code: 'session_expired' }),
+            );
+        },
+        [resendKindle, settleKindle],
+    );
 
     const sendFrame = useCallback((frame: Record<string, unknown>) => {
         if (wsRef.current && openRef.current) {
@@ -212,6 +275,9 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
                 for (const topic of handlersRef.current.keys()) {
                     ws.send(JSON.stringify({ type: 'subscribe', topic }));
                 }
+                // And ask again for the books whose session was renewed while
+                // the socket was down.
+                resendKindle();
                 if (everOpened) {
                     // This open recovers from a dropped live connection, and
                     // events since the drop are lost: let views catch up.
@@ -239,7 +305,16 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
                     return;
                 }
                 if (isKindleReplyFrame(parsed)) {
-                    settleKindle(parsed.bookID as number, {
+                    const bookID = parsed.bookID as number;
+                    if (
+                        parsed.code === 'session_expired' &&
+                        kindleWaitersRef.current.has(bookID) &&
+                        !kindleRetriedRef.current.has(bookID)
+                    ) {
+                        renewAndRetry(bookID, ws);
+                        return;
+                    }
+                    settleKindle(bookID, {
                         status: parsed.status as KindleReply['status'],
                         code: typeof parsed.code === 'string' ? parsed.code : undefined,
                     });
@@ -305,10 +380,17 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
             }
             wsRef.current = null;
             openRef.current = false;
-            settleKindle(null, { status: 'error', code: 'connection_lost' });
+            settleKindle(null, { status: 'error', code: 'connection_lost' }, true);
             setIsConnected(false);
         };
-    }, [isAuthenticated, handleConversionReply, onReconnect, settleKindle]);
+    }, [
+        isAuthenticated,
+        handleConversionReply,
+        onReconnect,
+        settleKindle,
+        renewAndRetry,
+        resendKindle,
+    ]);
 
     // Conversion requests ride the same socket, one per newly added book.
     useEffect(() => {
