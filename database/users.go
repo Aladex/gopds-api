@@ -197,40 +197,63 @@ func GetUserList(filters models.UserFilters) ([]models.User, int, error) {
 	return users, count, nil
 }
 
-// UpdateUserProfile safely updates only profile fields that users can change themselves
+// profileReadHook runs between reading the user and writing the update.
+// Tests use it to land a concurrent write in exactly that gap.
+var profileReadHook = func() {}
+
+// UpdateUserProfile applies what the reader changed in their profile.
+//
+// Only the columns the request names are written. It used to write the whole
+// row it had read, so two requests in flight — the two card switches flipped
+// one after the other, or a name saved while the Kindle address was cleared —
+// each put back the other's column as it found it, and the second success
+// undid the first.
 func UpdateUserProfile(userID int64, updates models.SelfUserChangeRequest) (models.User, error) {
 	var user models.User
 	err := db.Model(&user).Where("id = ?", userID).Select()
 	if err != nil {
 		return user, err
 	}
+	profileReadHook()
 
-	// Only update fields that users should be able to change
+	var columns []string
 	if updates.FirstName != "" {
 		user.FirstName = updates.FirstName
+		columns = append(columns, "first_name")
 	}
 	if updates.LastName != "" {
 		user.LastName = updates.LastName
+		columns = append(columns, "last_name")
 	}
 	if updates.BooksLang != "" {
 		user.BooksLang = updates.BooksLang
+		columns = append(columns, "books_lang")
 	}
 	if updates.InterfaceLang != "" {
 		user.InterfaceLang = updates.InterfaceLang
+		columns = append(columns, "interface_lang")
 	}
 	if updates.ShowKindleButton != nil {
 		user.ShowKindleButton = *updates.ShowKindleButton
+		columns = append(columns, "show_kindle_button")
 	}
 	if updates.ShowTelegramButton != nil {
 		user.ShowTelegramButton = *updates.ShowTelegramButton
+		columns = append(columns, "show_telegram_button")
 	}
 	if updates.NewPassword != "" {
 		logging.Info("Updating password for user ", user.Login)
 		hashedPassword := utils.CreatePasswordHash(updates.NewPassword)
 		user.Password = hashedPassword
+		columns = append(columns, "password")
+	}
+	if len(columns) == 0 {
+		return user, nil
 	}
 
-	if _, err := db.Model(&user).WherePK().Update(); err != nil {
+	// RETURNING the whole row, so the caller sees what the database holds —
+	// including whatever another request wrote to the columns left alone.
+	if _, err := db.Model(&user).Column(columns...).WherePK().Returning("*").Update(); err != nil {
 		return user, err
 	}
 	return user, nil

@@ -137,3 +137,74 @@ func TestSetKindleEmailForNobodyFails(t *testing.T) {
 		t.Error("setting an address for a reader who does not exist succeeded")
 	}
 }
+
+// Two writes in flight at once — here, one lands between the profile
+// update's read and its write. The update used to write back the whole row it
+// had read, so whichever finished second undid the other, both reporting
+// success. Each must now leave the other's columns alone.
+func TestProfileUpdateKeepsAConcurrentWrite(t *testing.T) {
+	requireDatabase(t)
+	off := false
+
+	cases := []struct {
+		name       string
+		update     models.SelfUserChangeRequest
+		concurrent string
+		check      func(t *testing.T, stored models.User)
+	}{
+		{
+			name:       "the other switch",
+			update:     models.SelfUserChangeRequest{ShowKindleButton: &off},
+			concurrent: `UPDATE auth_user SET show_telegram_button = false WHERE id = ?`,
+			check: func(t *testing.T, stored models.User) {
+				if stored.ShowKindleButton || stored.ShowTelegramButton {
+					t.Errorf("the buttons are %v/%v, want both off", stored.ShowKindleButton, stored.ShowTelegramButton)
+				}
+			},
+		},
+		{
+			name:       "a cleared Kindle address",
+			update:     models.SelfUserChangeRequest{FirstName: "Аркадий"},
+			concurrent: `UPDATE auth_user SET kindle_email = '' WHERE id = ?`,
+			check: func(t *testing.T, stored models.User) {
+				if stored.KindleEmail != "" || stored.FirstName != "Аркадий" {
+					t.Errorf("the row holds %q / %q, want the address cleared and the name saved",
+						stored.KindleEmail, stored.FirstName)
+				}
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			user := kindleReader(t)
+			if _, err := SetKindleEmail(user.ID, "reader@kindle.com"); err != nil {
+				t.Fatal(err)
+			}
+
+			previous := profileReadHook
+			t.Cleanup(func() { profileReadHook = previous })
+			profileReadHook = func() {
+				if _, err := db.Exec(tc.concurrent, user.ID); err != nil {
+					t.Errorf("the concurrent write: %v", err)
+				}
+			}
+
+			returned, err := UpdateUserProfile(user.ID, tc.update)
+			if err != nil {
+				t.Fatalf("updating the profile: %v", err)
+			}
+			profileReadHook = previous
+
+			var stored models.User
+			if err := db.Model(&stored).Where("id = ?", user.ID).Select(); err != nil {
+				t.Fatal(err)
+			}
+			tc.check(t, stored)
+			// What the caller is handed is the row as it stands, not as read.
+			tc.check(t, returned)
+			if stored.KindleSenderID != user.KindleSenderID {
+				t.Errorf("the sender id changed")
+			}
+		})
+	}
+}
