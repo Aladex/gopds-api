@@ -1,13 +1,14 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
-import { BookOpen, Check, ChevronDown, Pencil, RefreshCw, Star } from 'lucide-react';
+import { BookOpen, ChevronDown, Star } from 'lucide-react';
 
 import type { AuthorDisplay, Book } from '@/api/books';
 import { Button } from '@/shared/ui/button';
 import { BouncingDots } from '@/shared/ui/bouncing-dots';
 import { Expandable } from '@/shared/ui/expandable';
 import BookCover from '@/features/catalogue/BookCover';
+import BookAdminMenu from '@/features/catalogue/BookAdminMenu';
 import { cn } from '@/shared/lib/utils';
 import { getLanguageDisplaySafe } from '@/shared/lib/languageUtils';
 import { KindleButton, TelegramButton } from '@/features/kindle/SendButtons';
@@ -434,7 +435,10 @@ const BookCard: React.FC<BookCardProps> = ({
 
                 {!isWide && downloads}
 
-                <div className={cn('flex items-center justify-end gap-0.5', 'pt-2', 'sm:pt-0')}>
+                <div
+                    data-testid="book-actions"
+                    className={cn('flex items-center justify-end gap-0.5', 'pt-2', 'sm:pt-0')}
+                >
                     {book.format === PREVIEWABLE_FORMAT && (
                         <Button
                             variant="ghost"
@@ -456,41 +460,12 @@ const BookCard: React.FC<BookCardProps> = ({
                     )}
                     {showTelegramButton && <TelegramButton />}
                     {isSuperuser && (
-                        <>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                title={t('rescanBook')}
-                                aria-label={t('rescanBook')}
-                                onClick={() => onRescan(book.id)}
-                            >
-                                <RefreshCw className="size-4" />
-                            </Button>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                title={t('editBook')}
-                                aria-label={t('editBook')}
-                                onClick={() => onEdit(book)}
-                            >
-                                <Pencil className="size-4" />
-                            </Button>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                title={book.approved ? t('bookApproved') : t('bookNotApproved')}
-                                aria-label={
-                                    book.approved ? t('bookApproved') : t('bookNotApproved')
-                                }
-                                aria-pressed={book.approved}
-                                onClick={() => onToggleApproved(book)}
-                                className={
-                                    book.approved ? 'text-green-600 dark:text-green-400' : undefined
-                                }
-                            >
-                                <Check className="size-4" />
-                            </Button>
-                        </>
+                        <BookAdminMenu
+                            book={book}
+                            onRescan={onRescan}
+                            onEdit={onEdit}
+                            onToggleApproved={onToggleApproved}
+                        />
                     )}
                     <Button
                         variant="ghost"

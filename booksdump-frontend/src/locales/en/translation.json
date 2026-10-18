@@ -724,5 +724,10 @@
   "sendToKindle.error.connection_lost": "The connection dropped — the book may still have gone. Check your Kindle in a few minutes",
   "sendToTelegram.soon": "Sending to Telegram is coming in the next version",
   "sendToKindle.error.busy": "The server is busy, try again in a minute",
-  "sendToKindle.error.session_expired": "Your session has expired — sign in again to send the book"
+  "sendToKindle.error.session_expired": "Your session has expired — sign in again to send the book",
+  "bookAdminActions": "Admin actions",
+  "bookMenuRescan": "Rescan",
+  "bookMenuEdit": "Edit",
+  "bookMenuApprove": "Approve",
+  "bookMenuUnapprove": "Withdraw approval"
 }

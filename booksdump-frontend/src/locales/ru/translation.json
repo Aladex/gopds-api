@@ -728,5 +728,10 @@
   "sendToKindle.error.connection_lost": "Связь с сервером прервалась — книга могла уйти. Проверьте Kindle через несколько минут",
   "sendToTelegram.soon": "Отправка в Telegram появится в следующей версии",
   "sendToKindle.error.busy": "Сервер занят, попробуйте через минуту",
-  "sendToKindle.error.session_expired": "Сессия закончилась — войдите снова, чтобы отправить книгу"
+  "sendToKindle.error.session_expired": "Сессия закончилась — войдите снова, чтобы отправить книгу",
+  "bookAdminActions": "Действия администратора",
+  "bookMenuRescan": "Пересканировать",
+  "bookMenuEdit": "Редактировать",
+  "bookMenuApprove": "Одобрить",
+  "bookMenuUnapprove": "Снять одобрение"
 }

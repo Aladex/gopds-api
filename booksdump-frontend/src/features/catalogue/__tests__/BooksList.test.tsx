@@ -394,17 +394,21 @@ describe('BooksList moderation controls', () => {
         renderAt('/books/page/1');
         await screen.findByText('Заклятые в любви');
 
-        expect(screen.queryByRole('button', { name: 'rescanBook' })).not.toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: 'editBook' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /bookAdminActions/ })).not.toBeInTheDocument();
     });
 
-    it('shows a superuser the rescan and edit controls', async () => {
+    // Behind one menu button rather than three of their own, so the row
+    // still fits a phone-width card.
+    it('shows a superuser the rescan and edit controls in the admin menu', async () => {
         authState.user.is_superuser = true;
         renderAt('/books/page/1');
         await screen.findByText('Заклятые в любви');
 
-        expect(screen.getByRole('button', { name: 'rescanBook' })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'editBook' })).toBeInTheDocument();
+        await userEvent.click(screen.getByRole('button', { name: 'bookAdminActions' }));
+
+        expect(await screen.findByRole('menuitem', { name: 'bookMenuRescan' })).toBeInTheDocument();
+        expect(screen.getByRole('menuitem', { name: 'bookMenuEdit' })).toBeInTheDocument();
+        expect(screen.getByRole('menuitemcheckbox', { name: 'bookMenuUnapprove' })).toBeChecked();
     });
 });
 
