@@ -10,6 +10,7 @@ import React, {
 } from 'react';
 import { WS_URL, API_URL } from '@/api/config';
 import { getCurrentUser } from '@/api/auth';
+import { isApiError } from '@/api/errors';
 import { useBookConversion } from '@/context/BookConversionContext';
 
 // One frame from the server: a topic event or a per-connection reply.
@@ -77,6 +78,9 @@ const isConversionReplyFrame = (message: WSMessage): boolean => {
     }
     return message.status === 'ready' || message.status === 'error';
 };
+
+/** How a renewal of an expired socket session ended. */
+type RenewalOutcome = 'renewed' | 'revoked' | 'unavailable';
 
 // isKindleReplyFrame recognizes the answer to a sendToKindle request.
 const isKindleReplyFrame = (message: WSMessage): boolean =>
@@ -162,23 +166,54 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
         }
     }, []);
 
-    // renewAndRetry starts the renewal for a book whose send met an expired
-    // session. getCurrentUser goes through the transport's refresh-and-replay;
-    // when that cannot renew the session the transport has already run the
-    // app's confirmed-logout path, and the book is answered session_expired.
+    // The renewal under way, shared by every book that met the expired
+    // socket: several sends queued on one socket all come back expired
+    // together, and a renewal each meant one refresh each — competing
+    // rotations of the same refresh token, where the loser is told the token
+    // was revoked and logs out a session the winner had just renewed.
+    const renewalRef = useRef<Promise<RenewalOutcome> | null>(null);
+
+    // renewAndRetry renews the session for a book whose send met an expired
+    // socket, joining the renewal already running if there is one, and asks
+    // for the book again once it succeeds. getCurrentUser goes through the
+    // transport's refresh-and-replay. Only a 401 out of it is a verdict — the
+    // transport has then already run the app's confirmed-logout path — and
+    // the book is answered session_expired. Anything else (a 503, no network)
+    // proves nothing about the session: it is kept, and the book answered
+    // unavailable, to be sent again by hand.
     const renewAndRetry = useCallback(
         (bookID: number, ws: WebSocket) => {
             expiredSocketRef.current = ws;
             kindleRetryRef.current.set(bookID, false);
-            getCurrentUser().then(
-                () => {
-                    if (kindleRetryRef.current.has(bookID)) {
-                        kindleRetryRef.current.set(bookID, true);
-                        resendKindle();
+            let renewal = renewalRef.current;
+            if (!renewal) {
+                const started: Promise<RenewalOutcome> = getCurrentUser().then(
+                    () => 'renewed',
+                    (error: unknown) =>
+                        isApiError(error) && error.status === 401 ? 'revoked' : 'unavailable',
+                );
+                renewal = started;
+                renewalRef.current = started;
+                void started.then(() => {
+                    if (renewalRef.current === started) {
+                        renewalRef.current = null;
                     }
-                },
-                () => settleKindle(bookID, { status: 'error', code: 'session_expired' }),
-            );
+                });
+            }
+            void renewal.then((outcome) => {
+                if (!kindleRetryRef.current.has(bookID)) {
+                    return;
+                }
+                if (outcome === 'renewed') {
+                    kindleRetryRef.current.set(bookID, true);
+                    resendKindle();
+                    return;
+                }
+                settleKindle(bookID, {
+                    status: 'error',
+                    code: outcome === 'revoked' ? 'session_expired' : 'unavailable',
+                });
+            });
         },
         [resendKindle, settleKindle],
     );

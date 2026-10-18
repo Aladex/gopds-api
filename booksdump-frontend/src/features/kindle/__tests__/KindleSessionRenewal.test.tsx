@@ -24,13 +24,46 @@ vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 vi.mock('sonner', () => ({
     toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn(), info: vi.fn() }),
 }));
-vi.mock('@/api/auth', () => ({
+// The auth provider's own start-up and logout calls are stubbed; the renewal
+// itself — getCurrentUser — is the real one, through the real HTTP transport
+// and its refresh-and-replay, with only fetch replaced below.
+vi.mock('@/api/auth', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/api/auth')>()),
     getInit: vi.fn(),
-    getCurrentUser: vi.fn(),
     getCsrfToken: vi.fn(),
     logout: vi.fn(),
-    refreshSession: vi.fn(),
 }));
+
+/**
+ * The server's side of the renewal, modelled on the production contract:
+ * self-user answers 401 until the session has been refreshed; the first
+ * refresh rotates the refresh token, and any later one presents the rotated
+ * token and is refused, as the blacklist refuses it.
+ */
+type Network = { selfUser: 'expired' | 'down'; refresh: 'rotates' | 'revoked' };
+let network: Network;
+let refreshes = 0;
+let refreshed = false;
+const json = (status: number, body: unknown) =>
+    new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+const fakeFetch = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith('/api/refresh-token')) {
+        refreshes += 1;
+        if (network.refresh === 'rotates' && refreshes === 1) {
+            refreshed = true;
+            return json(200, { expires_in: 900 });
+        }
+        return json(401, { message: 'refresh_token_revoked' });
+    }
+    if (url.endsWith('/api/books/self-user')) {
+        if (network.selfUser === 'down') return json(503, { message: 'unavailable' });
+        return refreshed ? json(200, reader) : json(401, { message: 'invalid_session' });
+    }
+    return json(404, {});
+});
+const refreshPosts = () =>
+    fakeFetch.mock.calls.filter(([input]) => String(input).endsWith('/api/refresh-token')).length;
 
 class MockWebSocket {
     static instances: MockWebSocket[] = [];
@@ -77,9 +110,14 @@ const reader = {
 const Sender = () => {
     const kindle = useSendToKindle();
     return (
-        <button type="button" onClick={() => kindle.send(5)}>
-            send
-        </button>
+        <>
+            <button type="button" onClick={() => kindle.send(5)}>
+                send
+            </button>
+            <button type="button" onClick={() => kindle.send(6)}>
+                send other
+            </button>
+        </>
     );
 };
 
@@ -127,6 +165,10 @@ beforeEach(() => {
     vi.clearAllMocks();
     MockWebSocket.instances = [];
     vi.stubGlobal('WebSocket', MockWebSocket);
+    vi.stubGlobal('fetch', fakeFetch);
+    network = { selfUser: 'expired', refresh: 'rotates' };
+    refreshes = 0;
+    refreshed = false;
     vi.mocked(authApi.getInit).mockResolvedValue({ csrf_token: 'csrf', user: reader });
     vi.mocked(authApi.getCsrfToken).mockResolvedValue({ csrf_token: 'csrf' });
     vi.mocked(authApi.logout).mockResolvedValue(undefined);
@@ -138,11 +180,10 @@ afterEach(() => {
 
 it('renews the session, reconnects and sends the book once more — with no error on the way', async () => {
     // The transport's refresh-and-replay renews the session.
-    vi.mocked(authApi.getCurrentUser).mockResolvedValue(reader);
     await renderApp();
     const first = await expireTheFirstSocket();
 
-    expect(authApi.getCurrentUser).toHaveBeenCalled();
+    await waitFor(() => expect(refreshPosts()).toBe(1));
     // The provider reconnects on its own backoff; the new socket carries the
     // renewed cookie and the book is asked for on it, once.
     await waitFor(() => expect(lastSocket()).not.toBe(first), { timeout: 4000 });
@@ -159,7 +200,8 @@ it('renews the session, reconnects and sends the book once more — with no erro
 });
 
 it('signs the reader out and shows the login form when the session cannot be renewed', async () => {
-    vi.mocked(authApi.getCurrentUser).mockRejectedValue(new Error('401'));
+    // The refresh itself is refused: the session really is gone.
+    network.refresh = 'revoked';
     await renderApp();
     await expireTheFirstSocket();
 
@@ -172,7 +214,6 @@ it('signs the reader out and shows the login form when the session cannot be ren
 });
 
 it('does not ask again on the expired socket when the renewal beats its close', async () => {
-    vi.mocked(authApi.getCurrentUser).mockResolvedValue(reader);
     await renderApp();
     await userEvent.click(screen.getByRole('button', { name: 'send' }));
     const first = lastSocket();
@@ -181,7 +222,7 @@ it('does not ask again on the expired socket when the renewal beats its close', 
     await act(async () => {
         first.receive({ type: 'kindle', bookID: 5, status: 'error', code: 'session_expired' });
     });
-    await waitFor(() => expect(authApi.getCurrentUser).toHaveBeenCalled());
+    await waitFor(() => expect(refreshPosts()).toBe(1));
     await act(async () => {});
     expect(first.kindleFrames()).toHaveLength(1);
 
@@ -193,4 +234,56 @@ it('does not ask again on the expired socket when the renewal beats its close', 
     act(() => second.receive({ type: 'kindle', bookID: 5, status: 'sent' }));
     await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1));
     expect(toast.error).not.toHaveBeenCalled();
+});
+
+// A 503 from the renewal proves nothing about the session. The reader stays
+// signed in and is told to try again; nothing logs them out.
+it('keeps the session when the renewal meets a temporary server failure', async () => {
+    network.selfUser = 'down';
+    await renderApp();
+    await expireTheFirstSocket();
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('sendToKindle.error.unavailable'));
+    expect(authApi.logout).not.toHaveBeenCalled();
+    expect(refreshPosts()).toBe(0);
+    expect(screen.queryByText('login-form')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'send' })).toBeInTheDocument();
+});
+
+// Two sends queued on one socket expire together. One renewal serves both —
+// a refresh each would rotate the same refresh token twice, and the second,
+// refused, would log out the session the first had renewed — and each book is
+// asked for exactly once more on the new socket.
+it('renews two expired books through one refresh and sends both', async () => {
+    await renderApp();
+    await userEvent.click(screen.getByRole('button', { name: 'send' }));
+    await userEvent.click(screen.getByRole('button', { name: 'send other' }));
+    const first = lastSocket();
+    expect(first.kindleFrames()).toHaveLength(2);
+    act(() => {
+        first.receive({ type: 'kindle', bookID: 5, status: 'error', code: 'session_expired' });
+        first.receive({ type: 'kindle', bookID: 6, status: 'error', code: 'session_expired' });
+        first.serverClose();
+    });
+
+    await waitFor(() => expect(lastSocket()).not.toBe(first), { timeout: 4000 });
+    const second = lastSocket();
+    act(() => second.open());
+    await waitFor(() => expect(second.kindleFrames()).toHaveLength(2));
+    expect(second.kindleFrames()).toEqual(
+        expect.arrayContaining([
+            { type: 'kindle', bookID: 5 },
+            { type: 'kindle', bookID: 6 },
+        ]),
+    );
+    expect(refreshPosts()).toBe(1);
+
+    act(() => {
+        second.receive({ type: 'kindle', bookID: 5, status: 'sent' });
+        second.receive({ type: 'kindle', bookID: 6, status: 'sent' });
+    });
+    await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(2));
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(authApi.logout).not.toHaveBeenCalled();
+    expect(screen.queryByText('login-form')).not.toBeInTheDocument();
 });

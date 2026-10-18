@@ -724,7 +724,7 @@
   "sendToKindle.error.conversion_failed": "Не удалось подготовить EPUB для Kindle",
   "sendToKindle.error.send_failed": "Не удалось отправить на Kindle. Попробуйте позже",
   "sendToKindle.error.in_progress": "Эта книга уже отправляется на Kindle",
-  "sendToKindle.error.unavailable": "Нет связи с сервером. Попробуйте через минуту",
+  "sendToKindle.error.unavailable": "Не получилось связаться с сервером, попробуйте ещё раз",
   "sendToKindle.error.connection_lost": "Связь с сервером прервалась — книга могла уйти. Проверьте Kindle через несколько минут",
   "sendToTelegram.soon": "Отправка в Telegram появится в следующей версии",
   "sendToKindle.error.busy": "Сервер занят, попробуйте через минуту",
