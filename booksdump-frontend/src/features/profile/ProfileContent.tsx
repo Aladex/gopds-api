@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { AlertCircle, CheckCircle2, ChevronDown, LogOut } from 'lucide-react';
 
@@ -12,9 +12,13 @@ import { cn } from '@/shared/lib/utils';
 import { useProfileForm } from '@/features/profile/useProfileForm';
 import { OpdsConnection } from '@/features/opds/OpdsInfo';
 import InterfaceLanguageToggle from '@/shared/layout/InterfaceLanguageToggle';
+import KindleSettings from '@/features/kindle/KindleSettings';
+import type { ProfileSection } from '@/features/profile/ProfileOpenerContext';
 
 type ProfileContentProps = {
     open: boolean;
+    /** The part of the profile to open on, when a page asked for one. */
+    section?: ProfileSection;
     onClose: () => void;
 };
 
@@ -107,12 +111,23 @@ const Field: React.FC<{
     </div>
 );
 
-const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
+const ProfileContent: React.FC<ProfileContentProps> = ({ open, section, onClose }) => {
     const { t } = useTranslation();
     const [showInstruction, setShowInstruction] = useState(false);
     // Switching tabs unmounts fields but not their values: the form state lives
     // in useProfileForm, so a name typed here survives a look at the bot tab.
-    const [tab, setTab] = useState<string>(TABS[0].value);
+    // The dialog and the sheet both mount this afresh on every opening, so the
+    // section asked for can simply choose the first tab.
+    const [tab, setTab] = useState<string>(section === 'kindle' ? 'connections' : TABS[0].value);
+
+    // Opened for the Kindle settings, the profile scrolls them into view: they
+    // sit under the Telegram block, below the fold of a phone's sheet.
+    const kindleRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (section === 'kindle') {
+            kindleRef.current?.scrollIntoView?.({ block: 'start' });
+        }
+    }, [section]);
 
     const {
         firstName,
@@ -395,6 +410,35 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                         )}
                     </Group>
 
+                    <div ref={kindleRef} id="profile-kindle" className="scroll-mt-4">
+                        <Group
+                            title={
+                                <>
+                                    {t('profileSection.kindle')}
+                                    <span
+                                        className={cn(
+                                            'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] normal-case tracking-normal',
+                                            user?.kindle_email
+                                                ? 'border-green-600/50 text-green-600 dark:border-green-400/50 dark:text-green-400'
+                                                : 'text-muted-foreground',
+                                        )}
+                                    >
+                                        {user?.kindle_email ? (
+                                            <CheckCircle2 aria-hidden="true" className="size-3" />
+                                        ) : (
+                                            <AlertCircle aria-hidden="true" className="size-3" />
+                                        )}
+                                        {user?.kindle_email
+                                            ? t('kindle.configured')
+                                            : t('kindle.notConfigured')}
+                                    </span>
+                                </>
+                            }
+                        >
+                            <KindleSettings />
+                        </Group>
+                    </div>
+
                     <Group title={t('profileSection.opdsReader')}>
                         <OpdsConnection />
                     </Group>
@@ -419,8 +463,9 @@ const ProfileContent: React.FC<ProfileContentProps> = ({ open, onClose }) => {
                     {t('close')}
                 </Button>
                 {/* Connections have nothing this button could save: the bot is
-                    connected and disconnected on its own buttons, at once, and
-                    the OPDS section is instructions. */}
+                    connected and disconnected on its own buttons, at once, the
+                    Kindle settings likewise, and the OPDS section is
+                    instructions. */}
                 {tab !== 'connections' && <Button onClick={handleSave}>{t('save')}</Button>}
             </div>
         </div>

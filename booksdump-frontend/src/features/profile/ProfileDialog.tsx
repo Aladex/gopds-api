@@ -3,15 +3,18 @@ import { useTranslation } from 'react-i18next';
 
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/shared/ui/dialog';
 
+import type { ProfileSection } from '@/features/profile/ProfileOpenerContext';
 import ProfileContent, { focusFirstProfileField } from '@/features/profile/ProfileContent';
 
 type ProfileDialogProps = {
     open: boolean;
+    /** The part of the profile to open on, when a page asked for one. */
+    section?: ProfileSection;
     onClose: () => void;
 };
 
 /** ProfileDialog is the profile on a desktop, where there is room for a modal. */
-const ProfileDialog: React.FC<ProfileDialogProps> = ({ open, onClose }) => {
+const ProfileDialog: React.FC<ProfileDialogProps> = ({ open, section, onClose }) => {
     const { t } = useTranslation();
 
     return (
@@ -27,7 +30,7 @@ const ProfileDialog: React.FC<ProfileDialogProps> = ({ open, onClose }) => {
                 <DialogDescription className="sr-only">
                     {t('profileSection.personalData')}
                 </DialogDescription>
-                <ProfileContent open={open} onClose={onClose} />
+                <ProfileContent open={open} section={section} onClose={onClose} />
             </DialogContent>
         </Dialog>
     );

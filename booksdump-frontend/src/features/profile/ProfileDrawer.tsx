@@ -3,10 +3,13 @@ import { useTranslation } from 'react-i18next';
 
 import { Drawer, DrawerContent, DrawerDescription, DrawerTitle } from '@/shared/ui/drawer';
 
+import type { ProfileSection } from '@/features/profile/ProfileOpenerContext';
 import ProfileContent from '@/features/profile/ProfileContent';
 
 type ProfileDrawerProps = {
     open: boolean;
+    /** The part of the profile to open on, when a page asked for one. */
+    section?: ProfileSection;
     onClose: () => void;
 };
 
@@ -31,7 +34,7 @@ function keepKeyboardClosed(event: Event) {
  * ProfileDrawer is the profile on a phone: a sheet from the bottom edge, which
  * can be swiped away as well as dismissed.
  */
-const ProfileDrawer: React.FC<ProfileDrawerProps> = ({ open, onClose }) => {
+const ProfileDrawer: React.FC<ProfileDrawerProps> = ({ open, section, onClose }) => {
     const { t } = useTranslation();
 
     return (
@@ -55,7 +58,7 @@ const ProfileDrawer: React.FC<ProfileDrawerProps> = ({ open, onClose }) => {
                     {t('profileSection.personalData')}
                 </DrawerDescription>
                 <div className="scrollbar-thin overflow-y-auto px-4 pb-6">
-                    <ProfileContent open={open} onClose={onClose} />
+                    <ProfileContent open={open} section={section} onClose={onClose} />
                 </div>
             </DrawerContent>
         </Drawer>
