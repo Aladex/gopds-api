@@ -159,7 +159,7 @@ const RescanPreviewDialog: React.FC<RescanPreviewDialogProps> = ({
                             'rounded-md border p-2',
                             isChanged
                                 ? 'border-destructive/40 bg-destructive/10'
-                                : 'border-border bg-background',
+                                : 'border-border bg-card',
                         )}
                     >
                         <p className="mb-0.5 text-[11px] text-muted-foreground">
@@ -172,7 +172,7 @@ const RescanPreviewDialog: React.FC<RescanPreviewDialogProps> = ({
                             'rounded-md border p-2',
                             isChanged
                                 ? 'border-green-600/40 bg-green-500/10 dark:border-green-400/40'
-                                : 'border-border bg-background',
+                                : 'border-border bg-card',
                         )}
                     >
                         <p className="mb-0.5 text-[11px] text-muted-foreground">

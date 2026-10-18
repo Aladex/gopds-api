@@ -193,10 +193,13 @@
      * The two are set apart because they are asked different things. A field's
      * outline is a control boundary, which WCAG wants at 3:1, and at 0.12 it
      * was less than half of that: an input was a rectangle of the same white as
-     * the card behind it. 0.42 renders #949494 at 3.03:1.
+     * the card behind it. 0.42 rendered #949494 at 3.03:1 — a pass by a
+     * hair, and on the grey the sheets used to be, a field looked switched
+     * off. 0.5 renders #808080: 3.95:1 on the white of a card, a dialog or a
+     * sheet, and 3.3:1 still on the page grey.
      */
     --border: rgba(0, 0, 0, 0.26);
-    --input: rgba(0, 0, 0, 0.42);
+    --input: rgba(0, 0, 0, 0.5);
     --ring: #616161;
 
     --radius: 0.5rem;

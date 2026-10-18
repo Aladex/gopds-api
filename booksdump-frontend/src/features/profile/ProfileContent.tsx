@@ -546,7 +546,7 @@ const ProfileContent: React.FC<ProfileContentProps> = ({
                 className={cn(
                     tab !== 'connections' && 'sticky bottom-0',
                     'mt-5 flex justify-end gap-2 border-t border-border',
-                    'bg-background pt-4 pb-1',
+                    'bg-popover pt-4 pb-1',
                 )}
             >
                 <Button variant="ghost" onClick={handleClose}>
