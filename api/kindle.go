@@ -236,6 +236,9 @@ var kindleSends = newKindleQueue(kindleConcurrency, kindleAdmission)
 type kindleSocket struct {
 	token   string
 	pending atomic.Int32
+	// telegramPending counts the connection's Telegram requests, bounded
+	// like its Kindle ones.
+	telegramPending atomic.Int32
 
 	// expired closes once a Kindle request finds the session gone. The
 	// writer loop then delivers what is queued — the session_expired reply
@@ -357,8 +360,14 @@ func runKindleSend(userID, bookID int64, token string, done <-chan struct{}) (co
 
 // kindleReply is the frame answering one request; an empty code is success.
 func kindleReply(bookID int64, code string) []byte {
+	return sendReply(wsMsgKindle, bookID, code)
+}
+
+// sendReply is the frame answering one request to send a book somewhere —
+// Kindle or Telegram, named by msgType; an empty code is success.
+func sendReply(msgType string, bookID int64, code string) []byte {
 	reply := map[string]interface{}{
-		wsKeyType:   wsMsgKindle,
+		wsKeyType:   msgType,
 		wsKeyBookID: bookID,
 		wsKeyStatus: kindleStatusSent,
 	}

@@ -48,6 +48,8 @@ type BotStatusResponse struct {
 	// BotUsername and TelegramName describe the connected bot.
 	BotUsername  string `json:"bot_username,omitempty"`
 	TelegramName string `json:"telegram_name,omitempty"`
+	// DefaultFormat is the format books are sent in from the site.
+	DefaultFormat string `json:"default_format,omitempty"`
 	// PendingBotUsername is a bot entered but not linked yet; while a
 	// connection exists, this is a change of connection in progress.
 	PendingBotUsername string `json:"pending_bot_username,omitempty"`
@@ -273,6 +275,9 @@ func statusOf(ctx context.Context, userID int64) (BotStatusResponse, error) {
 	if state.Binding != nil {
 		status.BotUsername = state.Bot.Username
 		status.TelegramName = state.Binding.TGDisplay
+		if status.DefaultFormat, err = database.GetTelegramDefaultFormat(ctx, userID); err != nil {
+			return BotStatusResponse{}, err
+		}
 		switch {
 		case state.Bot.Status == models.TelegramBotTokenRejected:
 			status.State = stateTokenRejected

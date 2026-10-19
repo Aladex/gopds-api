@@ -138,8 +138,8 @@ func serveWebSocket(mgr *services.WebSocketManager, conn *websocket.Conn, userID
 	defer close(done)
 	defer func() { _ = conn.CloseNow() }()
 
-	// The session goes with the connection's Kindle requests, which check it
-	// again before any mail goes out.
+	// The session goes with the connection's Kindle and Telegram requests,
+	// which check it again before anything goes out.
 	kindle := newKindleSocket(token)
 
 	var clientID uint64
@@ -333,6 +333,9 @@ func handleClientMessage(
 
 	case wsMsgKindle:
 		return handleKindleRequest(userID, typed.BookID, kindle, notifyChan, done)
+
+	case wsMsgTelegram:
+		return handleTelegramRequest(userID, typed.BookID, kindle, notifyChan, done)
 
 	default:
 		// The frame is whatever the client sent. Its size and the fields that

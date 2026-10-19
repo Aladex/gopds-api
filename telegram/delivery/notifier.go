@@ -136,13 +136,14 @@ func (n *notifier) sent(ctx context.Context) {
 }
 
 // finish tells the reader how a job ended that did not end in the file. The
-// chat is written to only for outcomes the reader can act on.
+// chat is written to only for outcomes the reader can act on, and only for
+// jobs asked for in the chat: a job from the site is answered on the site.
 func (n *notifier) finish(ctx context.Context, outcome string, _ int) {
 	if n.done != nil {
 		n.stop()
 	}
 	text, markup := outcomeScreen(n.s.cfg.SiteURL, n.book, n.job.Format, outcome)
-	if text == "" {
+	if text == "" || n.job.Origin != models.DeliveryFromBot {
 		return
 	}
 	n.mu.Lock()

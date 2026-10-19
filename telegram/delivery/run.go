@@ -214,6 +214,7 @@ func (s *Service) settle(
 		if markErr := database.MarkTelegramDeliverySent(context.WithoutCancel(ctx), lease, int64(msg.ID)); markErr != nil {
 			logging.Warnf("Delivery: job %d sent, but recording it: %v", job.ID, markErr)
 		}
+		s.ended(job.ID)
 		n.sent(ctx)
 	case tgapi.ClassNotSent:
 		if int(job.Attempt) < s.cfg.MaxAttempts {
@@ -268,6 +269,7 @@ func (s *Service) finishAs(ctx context.Context, lease database.DeliveryLease, n 
 		logging.Warnf("Delivery: job %d: closing as %s: %v", lease.ID, outcome, err)
 		return
 	}
+	s.ended(lease.ID)
 	if n != nil {
 		n.finish(ctx, outcome, 0)
 	}

@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"gopds-api/api"
 	"gopds-api/database"
 	"gopds-api/email"
 	_ "gopds-api/internal/swaggerdocs" // Import to include documentation for Swagger UI
@@ -157,10 +158,11 @@ func initializeTelegram(
 	if telegramService != nil {
 		telegramService.GetBotManager().StartHealthCheck(healthCheckCtx, 24*time.Hour)
 		telegramService.GetBotManager().StartInboxSweeper(healthCheckCtx, inboxSweepInterval)
-		// Book files go out as durable jobs, from the bot and (later) the site.
+		// Book files go out as durable jobs, from the bot and from the site.
 		deliveries = delivery.New(&delivery.Config{SiteURL: cfg.GetServerBaseURL(), Redis: mainRedisClient},
 			telegramService.GetBotManager())
 		telegramService.GetBotManager().SetDelivery(deliveries)
+		api.SetTelegramDelivery(deliveries)
 		deliveries.Start(healthCheckCtx)
 	}
 	return func() {

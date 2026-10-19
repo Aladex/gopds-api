@@ -378,3 +378,15 @@ func GetBookWithAuthors(ctx context.Context, id int64) (*models.Book, error) {
 	}
 	return book, nil
 }
+
+// GetTelegramDefaultFormat is the format the account's books are sent in
+// when it does not name one: its setting, EPUB without one.
+func GetTelegramDefaultFormat(ctx context.Context, userID int64) (string, error) {
+	var format string
+	_, err := db.QueryOneContext(ctx, pg.Scan(&format),
+		`SELECT default_format FROM telegram_user_settings WHERE user_id = ?`, userID)
+	if errors.Is(err, pg.ErrNoRows) {
+		return "epub", nil
+	}
+	return format, err
+}

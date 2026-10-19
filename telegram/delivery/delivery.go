@@ -97,6 +97,9 @@ type Config struct {
 	PrepareTimeout time.Duration
 	// Retention is how long finished jobs are kept.
 	Retention time.Duration
+	// AwaitPoll is how often a site request looks at its job, for jobs other
+	// processes run.
+	AwaitPoll time.Duration
 	// Prepare produces the file; nil means PrepareFile.
 	Prepare PrepareFunc
 	// SiteURL is the library's address, for the «open on the site» buttons.
@@ -136,6 +139,7 @@ func (c Config) withDefaults() Config { //nolint:gocritic // defaults fill a cop
 	set(&c.NotSentBackoff, defaultNotSentBackoff)
 	set(&c.PrepareTimeout, defaultPrepareTimeout)
 	set(&c.Retention, defaultRetention)
+	set(&c.AwaitPoll, defaultAwaitPoll)
 	if c.Prepare == nil {
 		c.Prepare = PrepareFile
 	}
@@ -154,11 +158,15 @@ type Service struct {
 	owner uuid.UUID
 	wake  chan struct{}
 
-	mu      sync.Mutex
-	cancel  context.CancelFunc
-	quit    <-chan struct{}
-	loops   sync.WaitGroup
-	running sync.WaitGroup
+	mu     sync.Mutex
+	cancel context.CancelFunc
+	quit   <-chan struct{}
+
+	// watchers are the site requests waiting for their jobs to end.
+	watchMu  sync.Mutex
+	watchers map[int64][]chan struct{}
+	loops    sync.WaitGroup
+	running  sync.WaitGroup
 }
 
 // New makes a service; Start runs it.
@@ -318,6 +326,7 @@ func (s *Service) sweep(ctx context.Context) {
 		for i := range closed {
 			job := &closed[i]
 			logging.Warnf("Delivery: job %d closed %s after its holder stopped", job.ID, job.State)
+			s.ended(job.ID)
 			s.tellClosed(context.WithoutCancel(ctx), job)
 		}
 		if time.Since(lastPrune) > time.Hour {
