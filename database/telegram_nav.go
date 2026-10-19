@@ -390,3 +390,30 @@ func CloseTelegramPrompt(ctx context.Context, p *models.TelegramPrompt, state st
 	})
 	return closed, err
 }
+
+// RetireTelegramPanel hands a panel's outstanding work to the panel that
+// replaces it (a new message of the other kind): the delivery jobs pressed on
+// it, and the repaints owed to it, now name the replacement; the old panel
+// shows nothing any more, so nothing repaints it into yet another panel.
+func RetireTelegramPanel(ctx context.Context, old, replacement *models.TelegramPanel) error {
+	return db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		if err := guardInboxLease(ctx, tx); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE telegram_delivery SET origin_message_id = ?, origin_revision = ?
+			WHERE bot_ref = ? AND chat_id = ? AND origin_message_id = ?`,
+			replacement.MessageID, replacement.Revision, old.BotRef, old.ChatID, old.MessageID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE telegram_panel_repaint SET message_id = ? WHERE bot_ref = ? AND chat_id = ? AND message_id = ?`,
+			replacement.MessageID, old.BotRef, old.ChatID, old.MessageID); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `
+			UPDATE telegram_panel SET node_id = 0 WHERE bot_ref = ? AND chat_id = ? AND message_id = ?`,
+			old.BotRef, old.ChatID, old.MessageID)
+		return err
+	})
+}

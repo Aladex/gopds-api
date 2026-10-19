@@ -107,9 +107,8 @@ func (r *Router) movePanel(
 	if rich && !panel.IsHome && !r.richFor(ctx, b) {
 		// The reader chose plain cards (or Telegram refuses rich ones): a
 		// message keeps its kind, so the screen goes out as a new plain
-		// panel, and the old one loses its buttons.
-		r.stripKeyboard(ctx, b, panel)
-		r.sendPanel(ctx, b, panel.ChatID, node, paint, false)
+		// panel.
+		r.replacePanel(ctx, b, panel, node, paint)
 		return true
 	}
 	screen := paint(&keys{b: b, rev: uint16(rev), rich: rich}) // #nosec G115 -- revisions are 1..65534
@@ -120,12 +119,25 @@ func (r *Router) movePanel(
 	case errors.As(err, &refused):
 		// A message keeps its kind (plan-ui.md §2.4): the screen goes out
 		// as a new plain panel, and the old one loses its buttons.
-		r.stripKeyboard(ctx, b, panel)
-		r.sendPanel(ctx, b, panel.ChatID, node, paint, panel.IsHome)
+		r.replacePanel(ctx, b, panel, node, paint)
 	default:
 		logging.Warnf("Telegram bot %d: editing a panel: %v", b.Ref, tgapi.RedactURL(err))
 	}
 	return true
+}
+
+// replacePanel sends node as a new panel in place of one that cannot show
+// it, takes the old one's buttons away, and hands it the old one's
+// outstanding work: a file on its way repaints the new card, not the old.
+func (r *Router) replacePanel(ctx context.Context, b *Bot, old *models.TelegramPanel, node *models.TelegramNode, paint render) {
+	r.stripKeyboard(ctx, b, old)
+	replacement := r.sendPanel(ctx, b, old.ChatID, node, paint, old.IsHome)
+	if replacement == nil {
+		return
+	}
+	if err := database.RetireTelegramPanel(ctx, old, replacement); err != nil && !errors.Is(err, database.ErrInboxLeaseLost) {
+		logging.Warnf("Telegram bot %d: handing a panel's work to its replacement: %v", b.Ref, err)
+	}
 }
 
 // richRefusedError is Telegram refusing a rich message for a reason other
