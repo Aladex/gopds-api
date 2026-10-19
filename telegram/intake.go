@@ -238,8 +238,15 @@ func (bm *BotManager) dispatch(parent context.Context, b *Bot, update *tgbot.Upd
 	}
 	defer func() { <-bm.inflight }()
 
-	bm.handle(ctx, b, update)
-
+	if err := bm.handle(ctx, b, update); err != nil && ledger.nothingSent() {
+		// No handler could be chosen, and nothing was tried: the update is
+		// unread, and goes back whole for the next sweep (within its attempts).
+		logging.Warnf("Inbox: update %d of telegram bot %d: choosing its handler: %v; handing it back", lease.UpdateID, lease.BotRef, err)
+		if relErr := database.ReleaseTelegramInboxUpdate(parent, lease); relErr != nil {
+			logging.Warnf("Inbox: handing back update %d of telegram bot %d: %v", lease.UpdateID, lease.BotRef, relErr)
+		}
+		return
+	}
 	if ledger.onlyUnsent() {
 		// Every call it tried provably never left: the update is handed back
 		// whole for the next sweep, rather than closed with its reply lost.
@@ -257,23 +264,24 @@ func (bm *BotManager) dispatch(parent context.Context, b *Bot, update *tgbot.Upd
 
 // handle runs one update through the bot's router: the v2 router for a bot
 // switched to it, the legacy handlers otherwise — and for the old
-// interface's buttons, still in the v2 bots' chats.
-func (bm *BotManager) handle(ctx context.Context, b *Bot, update *tgbot.Update) {
+// interface's buttons, still in the v2 bots' chats. An error means no
+// handler could be chosen and none ran: the update is unread.
+func (bm *BotManager) handle(ctx context.Context, b *Bot, update *tgbot.Update) error {
 	vb, err := bm.v2Bot(ctx, b)
 	if err != nil {
-		logging.Warnf("Inbox: reading telegram bot %d: %v", b.ref, err)
-		return
+		return fmt.Errorf("reading telegram bot %d: %w", b.ref, err)
 	}
 	if vb != nil {
 		if msg := update.Message; msg != nil && isLinkStart(msg.Text) {
 			b.handleStart(ctx, update)
-			return
+			return nil
 		}
 		if bm.router.Handle(ctx, vb, update) {
-			return
+			return nil
 		}
 	}
 	b.bot.ProcessUpdate(ctx, update)
+	return nil
 }
 
 // replyLedger counts what a handler's outgoing calls may have done: calls
@@ -282,6 +290,13 @@ type replyLedger struct {
 	mu             sync.Mutex
 	possiblySent   int
 	provablyUnsent int
+}
+
+// nothingSent reports that no call may have reached Telegram.
+func (l *replyLedger) nothingSent() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.possiblySent == 0
 }
 
 // onlyUnsent reports that calls were tried and none may have reached Telegram.
