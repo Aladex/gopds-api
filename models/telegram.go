@@ -256,5 +256,8 @@ type TelegramPanelRepaint struct {
 	MessageID int64
 	BindingID int64
 	BookID    int64
+	// JobID is the delivery job whose end owes the repaint (migration 50);
+	// 0 for repaints recorded before it.
+	JobID     int64
 	CreatedAt time.Time `pg:"default:now()"`
 }

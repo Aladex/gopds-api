@@ -48,7 +48,7 @@ func (r *Router) JobEnded(ctx context.Context, job *models.TelegramDelivery) {
 		return
 	}
 	if err := database.AddTelegramRepaint(ctx, &models.TelegramPanelRepaint{BotRef: job.BotRef, ChatID: job.ChatID,
-		MessageID: *job.OriginMessageID, BindingID: job.BindingID, BookID: job.BookID}); err != nil {
+		MessageID: *job.OriginMessageID, BindingID: job.BindingID, BookID: job.BookID, JobID: job.ID}); err != nil {
 		logging.Warnf("Telegram bot %d: recording the repaint of job %d: %v", job.BotRef, job.ID, err)
 		return
 	}
@@ -100,6 +100,13 @@ func (r *Router) repaintCard(ctx context.Context, b *Bot, job *models.TelegramPa
 	if err != nil {
 		return isNoRows(err)
 	}
+	if panel.NodeID == 0 && job.JobID != 0 {
+		// Retired since the repaint was recorded: the job names the panel
+		// that replaced it.
+		if panel, err = r.currentPanel(ctx, job); err != nil {
+			return isNoRows(err)
+		}
+	}
 	node, err := database.GetTelegramNode(ctx, b.Binding.UserID, panel.NodeID)
 	if err != nil {
 		return isNoRows(err)
@@ -129,4 +136,17 @@ func (r *Router) SweepRepaints(ctx context.Context) {
 	for _, c := range chats {
 		r.repaintChat(ctx, c.BotRef, c.ChatID, repaintSweepFor)
 	}
+}
+
+// currentPanel is the panel a repaint's job names now: a replacement takes
+// its retired panel's jobs over.
+func (r *Router) currentPanel(ctx context.Context, job *models.TelegramPanelRepaint) (*models.TelegramPanel, error) {
+	d, err := database.GetTelegramDelivery(ctx, job.JobID)
+	if err != nil {
+		return nil, err
+	}
+	if d.OriginMessageID == nil {
+		return nil, errNoRows
+	}
+	return database.GetTelegramPanel(ctx, job.BotRef, job.ChatID, *d.OriginMessageID)
 }
