@@ -249,6 +249,7 @@ func TestMaskToken(t *testing.T) {
 	}{
 		{"normal token", "1234567890:ABCDEFGHIJ", "1234567890:***"},
 		{"short bot id keeps the secret out", "12:ABCDEFGHIJ", "12:***"},
+		{"seven-digit bot id", "1234567:AAH-secret-part", "1234567:***"},
 		{"no colon", "abc", "***"},
 		{"empty token", "", "***"},
 	}
