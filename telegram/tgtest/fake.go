@@ -1,0 +1,403 @@
+// Package tgtest is the fake Telegram every bot test talks to.
+//
+// FakeBotAPI is an HTTP server that answers Bot API methods the way Telegram
+// does and records every call, so a test can drive a real update through the
+// real webhook route and assert on what the bot actually sent: the method,
+// its fields, its keyboard, its file. Rules script the unhappy answers — 429,
+// 403, "message is not modified", a hang, a dropped connection — so delivery
+// and error handling are tested end to end, not only through their parts.
+//
+// The package knows nothing about this service's bots; it only speaks the
+// Bot API. Wiring a bot to it is one option: tgapi.Endpoint{ServerURL:
+// fake.URL()}.
+package tgtest
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"mime"
+	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+// firstMessageID is where the fake's message ids start; any value works, a
+// non-trivial one keeps ids from being confused with counts in assertions.
+const firstMessageID = 100
+
+// Call is one request a bot made to the fake.
+type Call struct {
+	Token  string
+	Method string
+	// Params holds every non-file field as sent. The SDK encodes structured
+	// fields (reply_markup, link_preview_options, …) as JSON strings; read
+	// them with Decode.
+	Params map[string]string
+	// Files holds the uploaded parts by field name.
+	Files map[string]UploadedFile
+	// MessageID is the message_id the fake answered with when the call
+	// created or edited a message, else 0.
+	MessageID int64
+	At        time.Time
+}
+
+// UploadedFile is one multipart file part.
+type UploadedFile struct {
+	Filename string
+	Size     int
+	SHA256   string
+	Data     []byte
+}
+
+// Decode unmarshals the JSON field name into v.
+func (c *Call) Decode(name string, v any) error {
+	raw, ok := c.Params[name]
+	if !ok {
+		return fmt.Errorf("call %s has no field %q", c.Method, name)
+	}
+	return json.Unmarshal([]byte(raw), v)
+}
+
+// Int64 returns the integer field name, or 0.
+func (c *Call) Int64(name string) int64 {
+	v, _ := strconv.ParseInt(c.Params[name], 10, 64)
+	return v
+}
+
+// Reply writes the fake's answer to one call.
+type Reply func(w http.ResponseWriter, r *http.Request, c *Call)
+
+// Rule overrides the default answer for matching calls. Rules are tried in
+// the order they were added; the first that matches and has uses left wins.
+type Rule struct {
+	// Method matches the Bot API method name, case-insensitively; empty
+	// matches every method.
+	Method string
+	// Match narrows the rule further; nil matches every call of Method.
+	Match func(Call) bool
+	Reply Reply
+	// Times is how many calls the rule answers; 0 means every call.
+	Times int
+
+	used int
+}
+
+// FakeBotAPI is a scripted, recording Bot API server.
+type FakeBotAPI struct {
+	srv *httptest.Server
+
+	mu     sync.Mutex
+	cond   *sync.Cond
+	calls  []Call
+	rules  []*Rule
+	nextID int64
+}
+
+// NewFakeBotAPI starts a fake on a local port; it stops when the test ends.
+func NewFakeBotAPI(t testing.TB) *FakeBotAPI {
+	t.Helper()
+	f := &FakeBotAPI{nextID: firstMessageID}
+	f.cond = sync.NewCond(&f.mu)
+	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
+	t.Cleanup(f.srv.Close)
+	return f
+}
+
+// NewFakeBotAPIFromServer wraps a server the caller configured itself (for
+// example HTTP/2 over TLS). The caller sets srv.Config.Handler to the
+// returned fake's Handler before starting it.
+func NewFakeBotAPIFromServer(t testing.TB, srv *httptest.Server) *FakeBotAPI {
+	t.Helper()
+	f := &FakeBotAPI{nextID: firstMessageID, srv: srv}
+	f.cond = sync.NewCond(&f.mu)
+	return f
+}
+
+// Handler is the fake's HTTP handler.
+func (f *FakeBotAPI) Handler() http.Handler { return http.HandlerFunc(f.serve) }
+
+// URL is the base URL to give a bot as its Bot API server.
+func (f *FakeBotAPI) URL() string { return f.srv.URL }
+
+// Server is the underlying test server.
+func (f *FakeBotAPI) Server() *httptest.Server { return f.srv }
+
+// On adds a rule.
+func (f *FakeBotAPI) On(r Rule) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	rule := r
+	f.rules = append(f.rules, &rule)
+}
+
+// Calls returns the recorded calls of method (all calls when method is
+// empty), oldest first.
+func (f *FakeBotAPI) Calls(method string) []Call {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.matching(method)
+}
+
+func (f *FakeBotAPI) matching(method string) []Call {
+	var out []Call
+	for _, c := range f.calls {
+		if method == "" || strings.EqualFold(c.Method, method) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// WaitCalls waits until at least n calls of method were recorded and returns
+// all of them; it fails the test after timeout.
+func (f *FakeBotAPI) WaitCalls(t testing.TB, method string, n int, timeout time.Duration) []Call {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	timer := time.AfterFunc(timeout, func() {
+		f.mu.Lock()
+		f.cond.Broadcast()
+		f.mu.Unlock()
+	})
+	defer timer.Stop()
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for {
+		got := f.matching(method)
+		if len(got) >= n {
+			return got
+		}
+		if !time.Now().Before(deadline) {
+			t.Fatalf("waited %s for %d %s call(s), got %d: %s", timeout, n, method, len(got), f.summaryLocked())
+			return nil
+		}
+		f.cond.Wait()
+	}
+}
+
+// Quiet asserts that no call of method arrives within d beyond the want
+// already recorded. It is how a test says "and nothing else was sent".
+func (f *FakeBotAPI) Quiet(t testing.TB, method string, want int, d time.Duration) {
+	t.Helper()
+	time.Sleep(d)
+	if got := len(f.Calls(method)); got != want {
+		t.Fatalf("want exactly %d %s call(s), got %d: %s", want, method, got, f.summary())
+	}
+}
+
+func (f *FakeBotAPI) summary() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.summaryLocked()
+}
+
+func (f *FakeBotAPI) summaryLocked() string {
+	names := make([]string, 0, len(f.calls))
+	for _, c := range f.calls {
+		names = append(names, c.Method)
+	}
+	return "[" + strings.Join(names, " ") + "]"
+}
+
+func (f *FakeBotAPI) serve(w http.ResponseWriter, r *http.Request) {
+	call, err := parseCall(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request: "+err.Error())
+		return
+	}
+
+	f.mu.Lock()
+	reply := f.ruleFor(&call)
+	f.mu.Unlock()
+	if reply == nil {
+		reply = f.defaultReply
+	}
+	reply(w, r, &call)
+
+	f.mu.Lock()
+	f.calls = append(f.calls, call)
+	f.cond.Broadcast()
+	f.mu.Unlock()
+}
+
+func (f *FakeBotAPI) ruleFor(c *Call) Reply {
+	for _, rule := range f.rules {
+		if rule.Method != "" && !strings.EqualFold(rule.Method, c.Method) {
+			continue
+		}
+		if rule.Times > 0 && rule.used >= rule.Times {
+			continue
+		}
+		if rule.Match != nil && !rule.Match(*c) {
+			continue
+		}
+		rule.used++
+		return rule.Reply
+	}
+	return nil
+}
+
+// newMessageID hands out message ids, like a private chat does.
+func (f *FakeBotAPI) newMessageID() int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nextID++
+	return f.nextID
+}
+
+// defaultReply answers like a healthy Telegram.
+func (f *FakeBotAPI) defaultReply(w http.ResponseWriter, _ *http.Request, c *Call) {
+	switch strings.ToLower(c.Method) {
+	case "getme":
+		writeResult(w, BotUser(c.Token))
+	case "sendmessage", "senddocument", "sendphoto", "copymessage":
+		c.MessageID = f.newMessageID()
+		writeResult(w, messageFor(c))
+	case "editmessagetext", "editmessagecaption", "editmessagemedia", "editmessagereplymarkup":
+		c.MessageID = c.Int64("message_id")
+		writeResult(w, messageFor(c))
+	case "getwebhookinfo":
+		writeResult(w, map[string]any{"url": "", "has_custom_certificate": false, "pending_update_count": 0})
+	case "answercallbackquery", "setwebhook", "deletewebhook", "setmycommands", "deletemycommands",
+		"sendchataction", "deletemessage", "setmydescription", "setmyshortdescription", "setmyprofilephoto",
+		"removemyprofilephoto", "answerinlinequery", "sendmessagedraft":
+		writeResult(w, true)
+	default:
+		writeError(w, http.StatusNotFound, "Not Found: method not found")
+	}
+}
+
+// BotUser is what getMe answers for token: the bot id is the token's prefix,
+// as in real tokens.
+func BotUser(token string) map[string]any {
+	prefix, _, _ := strings.Cut(token, ":")
+	id, _ := strconv.ParseInt(prefix, 10, 64)
+	return map[string]any{
+		"id":         id, //nolint:goconst // a Bot API field name, clearer inline than as a constant
+		"is_bot":     true,
+		"first_name": "Test Bot",
+		"username":   fmt.Sprintf("test%d_bot", id),
+	}
+}
+
+func messageFor(c *Call) map[string]any {
+	chatID, _ := strconv.ParseInt(c.Params["chat_id"], 10, 64)
+	msg := map[string]any{
+		"message_id": c.MessageID,
+		"date":       time.Now().Unix(),
+		"chat":       map[string]any{"id": chatID, "type": "private"},
+		"from":       BotUser(c.Token),
+	}
+	if text, ok := c.Params["text"]; ok {
+		msg["text"] = text
+	}
+	if caption, ok := c.Params["caption"]; ok {
+		msg["caption"] = caption
+	}
+	if markup, ok := c.Params["reply_markup"]; ok {
+		msg["reply_markup"] = json.RawMessage(markup)
+	}
+	if doc, ok := c.Files["document"]; ok {
+		msg["document"] = map[string]any{
+			"file_id":        "doc-" + doc.SHA256[:16],
+			"file_unique_id": doc.SHA256[:16],
+			"file_name":      doc.Filename,
+			"file_size":      doc.Size,
+		}
+	}
+	return msg
+}
+
+func parseCall(r *http.Request) (Call, error) {
+	// Path: /bot{token}/{method}
+	path := strings.TrimPrefix(r.URL.Path, "/")
+	if !strings.HasPrefix(path, "bot") {
+		return Call{}, fmt.Errorf("unexpected path %q", r.URL.Path)
+	}
+	slash := strings.LastIndex(path, "/")
+	if slash < 0 {
+		return Call{}, fmt.Errorf("no method in %q", r.URL.Path)
+	}
+	c := Call{
+		Token:  path[len("bot"):slash],
+		Method: path[slash+1:],
+		Params: map[string]string{},
+		Files:  map[string]UploadedFile{},
+		At:     time.Now(),
+	}
+
+	mediaType, params, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	switch mediaType {
+	case "multipart/form-data":
+		mr := multipart.NewReader(r.Body, params["boundary"])
+		for {
+			part, err := mr.NextPart()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return c, err
+			}
+			data, err := io.ReadAll(part)
+			if err != nil {
+				return c, err
+			}
+			if part.FileName() != "" {
+				sum := sha256.Sum256(data)
+				c.Files[part.FormName()] = UploadedFile{
+					Filename: part.FileName(), Size: len(data), SHA256: hex.EncodeToString(sum[:]), Data: data,
+				}
+				continue
+			}
+			c.Params[part.FormName()] = string(data)
+		}
+	case "application/json":
+		var fields map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&fields); err != nil {
+			return c, err
+		}
+		for k, v := range fields {
+			var s string
+			if json.Unmarshal(v, &s) == nil {
+				c.Params[k] = s
+			} else {
+				c.Params[k] = string(v)
+			}
+		}
+	default:
+		// No body: methods without fields (getMe, getWebhookInfo).
+		_, _ = io.Copy(io.Discard, r.Body)
+	}
+	return c, nil
+}
+
+// apiAnswer is the Bot API's response envelope.
+type apiAnswer struct {
+	OK          bool           `json:"ok"`
+	Result      any            `json:"result,omitempty"`
+	ErrorCode   int            `json:"error_code,omitempty"`
+	Description string         `json:"description,omitempty"`
+	Parameters  map[string]any `json:"parameters,omitempty"`
+}
+
+func writeAnswer(w http.ResponseWriter, status int, a apiAnswer) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(a)
+}
+
+func writeResult(w http.ResponseWriter, result any) {
+	writeAnswer(w, http.StatusOK, apiAnswer{OK: true, Result: result})
+}
+
+func writeError(w http.ResponseWriter, code int, description string) {
+	writeAnswer(w, code, apiAnswer{ErrorCode: code, Description: description})
+}
