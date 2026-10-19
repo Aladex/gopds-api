@@ -34,13 +34,13 @@ beforeEach(() => {
     players.length = 0;
 });
 
-it('plays the video in the interface language, silent and inline, through Plyr', () => {
+it('plays the video in the interface language, with sound and inline, through Plyr', () => {
     const { container } = render(<KindleVideo />);
     const video = container.querySelector('video')!;
 
     expect(video.getAttribute('src')).toBe('/videos/kindle-setup-ru.mp4');
     expect(video.getAttribute('poster')).toBe('/videos/kindle-setup-ru.jpg');
-    expect(video.muted).toBe(true);
+    expect(video.muted).toBe(false);
     expect(video).toHaveAttribute('playsinline');
     expect(video.preload).toBe('metadata');
     expect(players).toHaveLength(1);

@@ -26,8 +26,9 @@ export const PLYR_OPTIONS: Plyr.Options = {
     iconUrl: PLYR_SPRITE,
     loadSprite: true,
     blankVideo: '',
-    controls: ['play-large', 'play', 'progress', 'current-time', 'fullscreen'],
-    muted: true,
+    controls: ['play-large', 'play', 'progress', 'current-time', 'mute', 'volume', 'fullscreen'],
+    // The video has a quiet music bed; it plays only after the reader presses play.
+    muted: false,
     fullscreen: { enabled: true, iosNative: true },
 };
 
@@ -115,7 +116,6 @@ const KindleVideo: React.FC<{ className?: string }> = ({ className }) => {
         video.preload = 'metadata';
         video.poster = posterSrc;
         video.controls = true;
-        video.muted = true;
         // Reflected as the playsinline attribute: iOS plays it in the page
         // rather than taking it to full screen.
         video.playsInline = true;
