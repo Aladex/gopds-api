@@ -4,13 +4,12 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
 import * as authApi from '@/api/auth';
-import * as telegramApi from '@/api/telegram';
 
 /*
- * Only the two whose identity is read stay wrapped: notify and fetchBotStatus
- * are named in dependency lists below. Everything else is called from a click
- * handler, so a fresh function each render is observed by nobody and the React
- * Compiler memoises what is worth memoising.
+ * Only notify stays wrapped: it is named in a dependency list below.
+ * Everything else is called from a click handler, so a fresh function each
+ * render is observed by nobody and the React Compiler memoises what is worth
+ * memoising. The Telegram connection has its own state, in TelegramSettings.
  */
 export const useProfileForm = (open: boolean) => {
     const { logout, updateUser, user } = useAuth();
@@ -23,11 +22,6 @@ export const useProfileForm = (open: boolean) => {
     const [newPassword, setNewPassword] = useState('');
     const [showPasswordFields, setShowPasswordFields] = useState(false);
 
-    // Telegram bot state
-    const [botToken, setBotToken] = useState('');
-    const [botConnected, setBotConnected] = useState(user?.has_bot_token || false);
-    const [botLoading, setBotLoading] = useState(false);
-
     // Outcomes are announced through the application's toaster rather than a
     // snackbar owned by this hook.
     const notify = useCallback(
@@ -39,33 +33,13 @@ export const useProfileForm = (open: boolean) => {
         if (user && open) {
             setFirstName(user.first_name || '');
             setLastName(user.last_name || '');
-            setBotConnected(user.has_bot_token || false);
         }
     }, [user, open]);
-
-    // Declared before the effect that calls it: reaching forward to a const
-    // happens to work, because the effect runs after the whole body, but it is
-    // a temporal dead zone away from a crash if the call ever moves.
-    const fetchBotStatus = useCallback(async () => {
-        try {
-            const status = await telegramApi.getBotStatus();
-            setBotConnected(status?.has_bot_token || false);
-        } catch {
-            // The user's own has_bot_token stands in when the status is unknown.
-        }
-    }, []);
-
-    useEffect(() => {
-        if (open) {
-            fetchBotStatus();
-        }
-    }, [open, fetchBotStatus]);
 
     const resetFields = () => {
         setShowPasswordFields(false);
         setOldPassword('');
         setNewPassword('');
-        setBotToken('');
     };
 
     const handleUserChange = async () => {
@@ -106,43 +80,6 @@ export const useProfileForm = (open: boolean) => {
         navigate('/login');
     };
 
-    const handleSetBotToken = async () => {
-        if (!botToken.trim()) return;
-        setBotLoading(true);
-        try {
-            await telegramApi.setBotToken(botToken.trim());
-            setBotConnected(true);
-            setBotToken('');
-            notify('telegramBot.tokenSet');
-            // Update user context
-            if (user) {
-                updateUser({ ...user, has_bot_token: true });
-            }
-        } catch {
-            notify('telegramBot.tokenError', false);
-        } finally {
-            setBotLoading(false);
-        }
-    };
-
-    const handleRemoveBotToken = async () => {
-        setBotLoading(true);
-        try {
-            await telegramApi.removeBotToken();
-            {
-                setBotConnected(false);
-                notify('telegramBot.tokenRemoved');
-                if (user) {
-                    updateUser({ ...user, has_bot_token: false });
-                }
-            }
-        } catch {
-            notify('telegramBot.removeError', false);
-        } finally {
-            setBotLoading(false);
-        }
-    };
-
     const togglePasswordFields = () => {
         setShowPasswordFields((prev) => !prev);
     };
@@ -154,9 +91,6 @@ export const useProfileForm = (open: boolean) => {
         oldPassword,
         newPassword,
         showPasswordFields,
-        botToken,
-        botConnected,
-        botLoading,
         user,
 
         // Setters
@@ -164,14 +98,11 @@ export const useProfileForm = (open: boolean) => {
         setLastName,
         setOldPassword,
         setNewPassword,
-        setBotToken,
 
         // Actions
         handleUserChange,
         handleDropSessions,
         handleLogout,
-        handleSetBotToken,
-        handleRemoveBotToken,
         togglePasswordFields,
         resetFields,
     };

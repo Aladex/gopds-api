@@ -22,7 +22,6 @@ export interface User {
     /** The locale the interface speaks; unrelated to which books are shown. */
     interface_lang?: string;
     have_favs?: boolean;
-    has_bot_token?: boolean;
     date_joined?: string;
     /** The reader's Send-to-Kindle address; empty until they give one. */
     kindle_email?: string;

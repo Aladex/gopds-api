@@ -50,12 +50,12 @@ interface User {
     is_superuser: boolean;
     date_joined: string;
     last_login: string;
-    token?: string;
+    /** The Telegram connection, read-only here: it is the reader's own. */
+    telegram?: { bot_username: string; state: 'connected' | 'blocked' | 'token_rejected' };
 }
 
 // Update user payload interface
-interface UpdateUserPayload extends Omit<User, 'token'> {
-    bot_token: string;
+interface UpdateUserPayload extends User {
     new_password?: string;
 }
 
@@ -205,7 +205,6 @@ const UsersTable: React.FC = () => {
     const [newPassword, setNewPassword] = useState<string>('');
     const [email, setEmail] = useState<string>('');
     const [lastName, setLastName] = useState<string>('');
-    const [token, setToken] = useState<string>('');
     const [isActive, setIsActive] = useState<boolean>(false);
     const [isSuperuser, setIsSuperuser] = useState<boolean>(false);
     const [searchQuery, setSearchQuery] = useState<string>('');
@@ -253,7 +252,6 @@ const UsersTable: React.FC = () => {
         setEmail(user.email);
         setIsActive(user.active);
         setIsSuperuser(user.is_superuser);
-        setToken(user.token ?? '');
         // A stale password from a previous edit must not follow the admin onto
         // the next user, where it would silently reset that account.
         setNewPassword('');
@@ -301,7 +299,6 @@ const UsersTable: React.FC = () => {
             email: email,
             active: isActive,
             is_superuser: isSuperuser,
-            bot_token: token,
         };
         if (newPassword) {
             updatedUser.new_password = newPassword; // Add password only if it is set
@@ -584,13 +581,18 @@ const UsersTable: React.FC = () => {
                                 />
                             </Field>
 
-                            <Field id="edit-user-token" label={t('token')}>
-                                <Input
-                                    id="edit-user-token"
-                                    value={token}
-                                    onChange={(event) => setToken(event.target.value)}
-                                />
-                            </Field>
+                            <div className="text-sm">
+                                <span className="text-muted-foreground">
+                                    {t('profileSection.telegramBot')}:{' '}
+                                </span>
+                                <span data-testid="edit-user-telegram">
+                                    {selectedUser?.telegram
+                                        ? `@${selectedUser.telegram.bot_username} · ${t(
+                                              `telegram.adminState.${selectedUser.telegram.state}`,
+                                          )}`
+                                        : t('telegram.badge.none')}
+                                </span>
+                            </div>
 
                             <div className="flex items-center gap-2">
                                 <Checkbox

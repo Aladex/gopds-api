@@ -1,10 +1,11 @@
 import { createContext, useContext } from 'react';
 
 /**
- * The parts of the profile a page can open it on. Only the Kindle settings so
- * far: the book card's setup dialog sends the reader straight to them.
+ * The parts of the profile a page can open it on: the Kindle settings, where
+ * the book card's setup dialog sends the reader, and the Telegram ones, where
+ * the bot's «Open profile» button does.
  */
-export type ProfileSection = 'kindle';
+export type ProfileSection = 'kindle' | 'telegram';
 
 export interface ProfileOpener {
     openProfile: (section?: ProfileSection) => void;

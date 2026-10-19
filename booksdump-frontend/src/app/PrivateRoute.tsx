@@ -1,6 +1,6 @@
 // src/components/PrivateRoute.tsx
-import React, { memo, useState } from 'react';
-import { Navigate } from 'react-router';
+import React, { memo, useEffect, useState } from 'react';
+import { Navigate, useSearchParams } from 'react-router';
 
 import { cn } from '@/shared/lib/utils';
 
@@ -37,6 +37,24 @@ const PrivateRoute: React.FC<{ children: React.ReactNode; requireSuperuser?: boo
                 setIsProfileDialogOpen(true);
             }
         };
+
+        // The bot's «Open profile» button links to ?profile=telegram: the page
+        // opens with that part of the profile, and the address is cleaned so
+        // a reload does not open it again.
+        const [searchParams, setSearchParams] = useSearchParams();
+        const asked = searchParams.get('profile');
+        useEffect(() => {
+            if (!isAuthenticated || (asked !== 'telegram' && asked !== 'kindle')) return;
+            setProfileSection(asked);
+            if (isMobile) {
+                setIsProfileDrawerOpen(true);
+            } else {
+                setIsProfileDialogOpen(true);
+            }
+            const rest = new URLSearchParams(searchParams);
+            rest.delete('profile');
+            setSearchParams(rest, { replace: true });
+        }, [asked, isAuthenticated, isMobile, searchParams, setSearchParams]);
 
         const handleCloseProfile = () => {
             setIsProfileDrawerOpen(false);

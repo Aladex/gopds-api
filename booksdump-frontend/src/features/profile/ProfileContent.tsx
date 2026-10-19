@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Trans, useTranslation } from 'react-i18next';
+import { useTranslation } from 'react-i18next';
 import {
     AlertCircle,
     CheckCircle2,
@@ -21,6 +21,10 @@ import { useProfileForm } from '@/features/profile/useProfileForm';
 import { OpdsConnection } from '@/features/opds/OpdsInfo';
 import InterfaceLanguageToggle from '@/shared/layout/InterfaceLanguageToggle';
 import KindleSettings, { CardButtonSettings } from '@/features/kindle/KindleSettings';
+import TelegramSettings, {
+    telegramBadge,
+    useTelegramConnection,
+} from '@/features/telegram/TelegramSettings';
 import type { ProfileSection } from '@/features/profile/ProfileOpenerContext';
 
 type ProfileContentProps = {
@@ -76,17 +80,6 @@ export function focusFirstProfileField(event: Event) {
     event.preventDefault();
     document.getElementById(PROFILE_FIRST_FIELD_ID)?.focus();
 }
-
-const BotFatherLink = (props: React.PropsWithChildren) => (
-    <a
-        href="https://t.me/BotFather"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-primary underline-offset-2 hover:underline"
-    >
-        {props.children}
-    </a>
-);
 
 /**
  * Group is a labelled band of the profile.
@@ -144,17 +137,14 @@ const ProfileContent: React.FC<ProfileContentProps> = ({
     onClose,
 }) => {
     const { t } = useTranslation();
-    const [showInstruction, setShowInstruction] = useState(false);
     // Switching tabs unmounts fields but not their values: the form state lives
     // in useProfileForm, so a name typed here survives a look at the bot tab.
     // The dialog and the sheet both mount this afresh on every opening, so the
     // section asked for can simply choose the first tab.
-    const [tab, setTab] = useState<string>(section === 'kindle' ? 'connections' : TABS[0].value);
-    // Asked for the Kindle settings, the profile opens on them; otherwise on
-    // the connection last looked at.
-    const [connection, setConnection] = useState<ConnectionTab>(
-        section === 'kindle' ? 'kindle' : rememberedConnection,
-    );
+    const [tab, setTab] = useState<string>(section ? 'connections' : TABS[0].value);
+    // Asked for a connection's settings, the profile opens on them; otherwise
+    // on the connection last looked at.
+    const [connection, setConnection] = useState<ConnectionTab>(section ?? rememberedConnection);
     const chooseConnection = (value: ConnectionTab) => {
         rememberedConnection = value;
         setConnection(value);
@@ -166,23 +156,19 @@ const ProfileContent: React.FC<ProfileContentProps> = ({
         oldPassword,
         newPassword,
         showPasswordFields,
-        botToken,
-        botConnected,
-        botLoading,
         user,
         setFirstName,
         setLastName,
         setOldPassword,
         setNewPassword,
-        setBotToken,
         handleUserChange,
         handleDropSessions,
         handleLogout,
-        handleSetBotToken,
-        handleRemoveBotToken,
         togglePasswordFields,
         resetFields,
     } = useProfileForm(open);
+    const telegram = useTelegramConnection(open);
+    const badge = telegramBadge(telegram.status);
 
     const formatDate = (value?: string) => {
         if (!value) return '';
@@ -418,14 +404,15 @@ const ProfileContent: React.FC<ProfileContentProps> = ({
                                     <>
                                         {t('profileSection.telegramBot')}
                                         <span
+                                            data-testid="telegram-badge"
                                             className={cn(
                                                 'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] normal-case tracking-normal',
-                                                botConnected
+                                                badge.ok
                                                     ? 'border-green-600/50 text-green-600 dark:border-green-400/50 dark:text-green-400'
                                                     : 'text-muted-foreground',
                                             )}
                                         >
-                                            {botConnected ? (
+                                            {badge.ok ? (
                                                 <CheckCircle2
                                                     aria-hidden="true"
                                                     className="size-3"
@@ -436,87 +423,15 @@ const ProfileContent: React.FC<ProfileContentProps> = ({
                                                     className="size-3"
                                                 />
                                             )}
-                                            {botConnected
-                                                ? t('telegramBot.connected')
-                                                : t('telegramBot.notConfigured')}
+                                            {t(badge.key)}
                                         </span>
                                     </>
                                 }
                             >
-                                {botConnected ? (
-                                    <>
-                                        <p className="mb-3 text-sm text-muted-foreground">
-                                            {t('telegramBot.startHint')}
-                                        </p>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            disabled={botLoading}
-                                            onClick={handleRemoveBotToken}
-                                            className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                                        >
-                                            {t('telegramBot.removeToken')}
-                                        </Button>
-                                    </>
-                                ) : (
-                                    <>
-                                        <p className="mb-2 text-xs text-muted-foreground">
-                                            <Trans
-                                                i18nKey="telegramBot.tokenHint"
-                                                components={{ botfather: <BotFatherLink /> }}
-                                            />{' '}
-                                            <button
-                                                type="button"
-                                                onClick={() =>
-                                                    setShowInstruction((value) => !value)
-                                                }
-                                                aria-expanded={showInstruction}
-                                                className="text-primary underline"
-                                            >
-                                                {t('telegramBot.instructionToggle')}
-                                            </button>
-                                        </p>
-
-                                        <Expandable
-                                            open={showInstruction}
-                                            peekLines={0}
-                                            fade={false}
-                                        >
-                                            <ol className="mb-3 list-decimal pl-5 text-xs text-muted-foreground [&>li]:mb-1">
-                                                <li>
-                                                    <Trans
-                                                        i18nKey="telegramBot.step1"
-                                                        components={{
-                                                            botfather: <BotFatherLink />,
-                                                        }}
-                                                    />
-                                                </li>
-                                                <li>{t('telegramBot.step2')}</li>
-                                                <li>{t('telegramBot.step3')}</li>
-                                                <li>{t('telegramBot.step4')}</li>
-                                            </ol>
-                                        </Expandable>
-
-                                        <div className="mb-3">
-                                            <Field
-                                                id="profile-bot-token"
-                                                placeholder={t('telegramBot.tokenPlaceholder')}
-                                                value={botToken}
-                                                disabled={botLoading}
-                                                onChange={setBotToken}
-                                            />
-                                        </div>
-                                        <Button
-                                            size="sm"
-                                            disabled={botLoading || !botToken.trim()}
-                                            onClick={handleSetBotToken}
-                                        >
-                                            {botLoading
-                                                ? t('telegramBot.connecting')
-                                                : t('telegramBot.connectButton')}
-                                        </Button>
-                                    </>
-                                )}
+                                <TelegramSettings
+                                    status={telegram.status}
+                                    onStatus={telegram.setStatus}
+                                />
                             </Group>
                         </FadingTabPanel>
 
