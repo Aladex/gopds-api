@@ -35,3 +35,20 @@ func TestLanguageNames(t *testing.T) {
 	assert.Equal(t, "английский", Language(" EN "))
 	assert.Equal(t, "XX", Language("xx"))
 }
+
+func TestLanguageIDsRoundTrip(t *testing.T) {
+	assert.Equal(t, uint8(0), LangID(""))
+	assert.Equal(t, "", LangCode(0))
+	for _, code := range []string{"ru", "en", "uk", "zu", "aa"} {
+		assert.Equal(t, code, LangCode(LangID(code)), code)
+	}
+	assert.Equal(t, uint8(0), LangID("xx"))
+	assert.Less(t, len(langCodes), 255)
+}
+
+// The table is append-only: these ids are in buttons already sent.
+func TestLanguageIDsAreFrozen(t *testing.T) {
+	assert.Equal(t, uint8(1), LangID("aa"))
+	assert.Equal(t, uint8(37), LangID("en"))
+	assert.Equal(t, uint8(135), LangID("ru"))
+}

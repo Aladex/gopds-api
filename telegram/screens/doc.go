@@ -155,6 +155,26 @@ func (p Photo) rich() []models.InputRichBlock {
 		InputRichBlockPhoto: &models.InputRichBlockPhoto{Photo: photo}}}
 }
 
+func (c Code) plain(b *strings.Builder) {
+	b.WriteString(html.EscapeString(c.Prefix))
+	b.WriteString("<code>" + html.EscapeString(c.Code) + "</code>")
+	b.WriteString(html.EscapeString(c.Suffix))
+	b.WriteString("\n")
+}
+
+func (c Code) rich() []models.InputRichBlock {
+	parts := []models.RichText{}
+	if c.Prefix != "" {
+		parts = append(parts, text(c.Prefix))
+	}
+	parts = append(parts, models.RichText{Type: models.RichTextTypeCode, RichTextCode: &models.RichTextCode{Text: text(c.Code)}})
+	if c.Suffix != "" {
+		parts = append(parts, text(c.Suffix))
+	}
+	t := models.RichText{Array: parts}
+	return []models.InputRichBlock{paragraph(&t)}
+}
+
 func text(s string) models.RichText { return models.RichText{PlainText: s} }
 
 func paragraph(t *models.RichText) models.InputRichBlock {
@@ -208,12 +228,13 @@ func stripTags(s string) string {
 	return b.String()
 }
 
-// Button is one inline button: a v2 callback, or a URL.
+// Button is one inline button: a v2 callback, a URL, or text to copy.
 type Button struct {
-	Text  string
-	Env   *cbv2.Envelope
-	URL   string
-	Style string
+	Text     string
+	Env      *cbv2.Envelope
+	URL      string
+	Style    string
+	CopyText string
 }
 
 // Screen is a rendered screen: content and keyboard.

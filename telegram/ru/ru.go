@@ -65,8 +65,10 @@ func TruncateSentence(s string, limit int) string {
 
 func isSpace(r rune) bool { return r == ' ' || r == '\n' || r == '\t' }
 
-// languages names the catalogue's common book languages the way a sentence
+// languages names the catalog's common book languages the way a sentence
 // does: «Язык: русский».
+//
+//nolint:goconst // a table of codes, not repeated words
 var languages = map[string]string{
 	"ru": "русский", "en": "английский", "uk": "украинский", "be": "белорусский", "de": "немецкий",
 	"fr": "французский", "es": "испанский", "it": "итальянский", "pl": "польский", "cs": "чешский",

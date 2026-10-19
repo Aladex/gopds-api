@@ -1,0 +1,87 @@
+package screens
+
+import (
+	"strings"
+	"testing"
+
+	"gopds-api/config"
+	"gopds-api/telegram/cbv2"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// texts are a screen's button labels, row by row.
+func texts(s *Screen) [][]string {
+	out := make([][]string, 0, len(s.Keys))
+	for _, row := range s.Keys {
+		var line []string
+		for _, b := range row {
+			line = append(line, b.Text)
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
+func setEnv(string) *cbv2.Envelope { return env() }
+
+// A value to copy is written out and has a copy button; a link is a URL
+// button; nothing else carries the value.
+func TestDonateShowsValuesAndCopyButtons(t *testing.T) {
+	s := DonateScreen([]config.DonateMethod{
+		{ID: "btc", Label: "Bitcoin", Kind: "address", Value: "bc1qexample"},
+		{ID: "boosty", Label: "Boosty", Kind: "link", Value: "https://boosty.to/x"},
+	}, env())
+	assert.Contains(t, s.Doc.Plain(), "<code>bc1qexample</code>")
+	require.Len(t, s.Keys, 3)
+	assert.Equal(t, "bc1qexample", s.Keys[0][0].CopyText)
+	assert.Equal(t, "https://boosty.to/x", s.Keys[1][0].URL)
+	assert.Equal(t, []string{ButtonToSettings}, texts(&s)[2])
+}
+
+// The language pager: ten a page, two a row, paged, and a way back.
+func TestTheLanguagePagerPages(t *testing.T) {
+	codes := []string{"ru", "en", "uk", "de", "fr", "es", "it", "pl", "be", "kk", "ja", "zh"}
+	first := LanguagePagerScreen(codes, 0, "ru", setEnv, func(int) *cbv2.Envelope { return env() }, Button{Text: ButtonBack, Env: env()})
+	labels := texts(&first)
+	assert.Equal(t, []string{"✓ Русский", "English"}, labels[0])
+	assert.Len(t, labels, 5+2, "five rows of two, the pager, the way back")
+	assert.Contains(t, first.Doc.Plain(), "Страница 1 из 2")
+	second := LanguagePagerScreen(codes, 5, "", setEnv, func(int) *cbv2.Envelope { return env() }, Button{Text: ButtonBack, Env: env()})
+	assert.Contains(t, second.Doc.Plain(), "Страница 2 из 2", "a page past the end is the last")
+}
+
+// Settings name their values; «Поддержать проект» only with donation methods.
+func TestSettingsShowTheirValues(t *testing.T) {
+	k := &SettingsKeys{Format: env(), Language: env(), Style: env(), Inline: env(), Home: env()}
+	s := SettingsScreen("fb2", "", true, k)
+	plain := s.Doc.Plain()
+	for _, want := range []string{"Основной формат: FB2", "Язык поиска: все языки", "Вид карточек: простой"} {
+		assert.Contains(t, plain, want)
+	}
+	for _, row := range texts(&s) {
+		assert.NotContains(t, row, ButtonDonate)
+	}
+	k.Donate = env()
+	s = SettingsScreen("epub", "ru", false, k)
+	assert.Contains(t, s.Doc.Plain(), "Язык поиска: русский")
+	assert.Contains(t, texts(&s), []string{ButtonDonate})
+}
+
+// The inline instructions keep the command inside code.
+func TestTheInlineInstructionsKeepTheCommandInCode(t *testing.T) {
+	s := InlineScreen("my_library_bot", env())
+	plain := s.Doc.Plain()
+	assert.Contains(t, plain, "<code>/setinline</code>")
+	assert.Contains(t, plain, "@my_library_bot")
+	assert.Equal(t, 1, strings.Count(plain, "/setinline"), "never a bare, tappable command")
+}
+
+// WithBack puts the way back before «Домой».
+func TestWithBackPrependsToTheLastRow(t *testing.T) {
+	s := Notice(CopyCollectionGone, env()).WithBack(&Button{Text: ButtonToCollections, Env: env()})
+	assert.Equal(t, [][]string{{ButtonToCollections, ButtonHome}}, texts(&s))
+	same := Notice(CopyCollectionGone, env()).WithBack(nil)
+	assert.Equal(t, [][]string{{ButtonHome}}, texts(&same))
+}

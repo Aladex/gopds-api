@@ -134,6 +134,10 @@ type Results struct {
 	AuthorTotal int
 	// BooksFailed and AuthorsFailed say a branch did not answer.
 	BooksFailed, AuthorsFailed bool
+	// AuthorName is the author the search is filtered by, "" for none.
+	AuthorName string
+	// Suggestions are offered on an empty page.
+	Suggestions []models.AutocompleteSuggestion
 }
 
 // ResultsKeys are the envelopes the results buttons carry; the router fills
@@ -145,6 +149,14 @@ type ResultsKeys struct {
 	Page     func(page int) *cbv2.Envelope
 	Book     func(id int64) *cbv2.Envelope
 	Home     *cbv2.Envelope
+	// The filters (S5): ask for an author, drop it, pick a language, search
+	// all languages; nil leaves a button out.
+	Author, ClearAuthor, Language, AllLanguages *cbv2.Envelope
+	// OpenAuthor opens an author of the authors tab; Suggest a suggestion.
+	OpenAuthor func(id int64) *cbv2.Envelope
+	Suggest    func(s *models.AutocompleteSuggestion) *cbv2.Envelope
+	// Back returns to the list this one came from, nil for none.
+	Back *Button
 }
 
 // ResultsScreen renders a search page (plan-ui.md §1.2–1.3).
@@ -164,13 +176,13 @@ func ResultsScreen(r *Results, k *ResultsKeys) Screen {
 	var buttons [][]Button
 	total := r.BookTotal
 	if r.Tab == 0 {
-		if r.Lang != "" {
-			blocks = append(blocks, Line{Text: "Язык: " + ru.Language(r.Lang)})
+		if line := filterLine(r); line != "" {
+			blocks = append(blocks, Line{Text: line})
 		}
 		list, buttons = bookList(r, k)
 	} else {
 		total = r.AuthorTotal
-		list = authorList(r)
+		list, buttons = authorList(r, k)
 	}
 	blocks = append(blocks, list...)
 	keys = append(keys, buttons...)
@@ -181,18 +193,82 @@ func ResultsScreen(r *Results, k *ResultsKeys) Screen {
 	if row := pagingRow(r.Page, pages, k.Page); len(row) > 0 {
 		keys = append(keys, row)
 	}
-	keys = append(keys, []Button{{Text: ButtonHome, Env: k.Home}})
-	return Screen{Doc: Doc{Blocks: blocks}, Keys: keys}
+	if row := filterRow(r, k); len(row) > 0 {
+		keys = append(keys, row)
+	}
+	return Screen{Doc: Doc{Blocks: blocks}, Keys: append(keys, lastRow(k.Back, k.Home))}
 }
 
-// emptyResults is S-EMPTY without filters.
+// filterLine names the filters in force: «Язык: русский · Автор: Азимов».
+func filterLine(r *Results) string {
+	var parts []string
+	if r.Lang != "" {
+		parts = append(parts, "Язык: "+ru.Language(r.Lang))
+	}
+	if r.AuthorName != "" {
+		parts = append(parts, "Автор: "+r.AuthorName)
+	}
+	return strings.Join(parts, " · ")
+}
+
+// filterRow is the author and language buttons, with their current values.
+func filterRow(r *Results, k *ResultsKeys) []Button {
+	var row []Button
+	if k.Author != nil && r.Tab == 0 {
+		if r.AuthorName == "" {
+			row = append(row, Button{Text: ButtonAuthor, Env: k.Author})
+		} else {
+			row = append(row, Button{Text: ButtonAuthor + ": " + ru.Truncate(Surname(r.AuthorName), bookButtonRunes), Env: k.Author})
+			if k.ClearAuthor != nil {
+				row = append(row, Button{Text: ButtonClearAuthor, Env: k.ClearAuthor})
+			}
+		}
+	}
+	if k.Language != nil {
+		label := ButtonLanguage
+		if r.Lang != "" {
+			label += ": " + ru.Language(r.Lang)
+		}
+		row = append(row, Button{Text: label, Env: k.Language})
+	}
+	return row
+}
+
+// lastRow is the way back when there is one, and «Домой».
+func lastRow(back *Button, home *cbv2.Envelope) []Button {
+	row := []Button{}
+	if back != nil {
+		row = append(row, *back)
+	}
+	return append(row, Button{Text: ButtonHome, Env: home})
+}
+
+// emptyResults is S-EMPTY: what is in force, the resets of what is, and up
+// to three suggestions.
 func emptyResults(r *Results, k *ResultsKeys) Screen {
 	blocks := []Block{Line{Text: "По запросу «" + r.Query + "» ничего не найдено"}}
-	if r.Lang != "" {
-		blocks = append(blocks, Line{Text: "Язык: " + ru.Language(r.Lang)})
+	if line := filterLine(r); line != "" {
+		blocks = append(blocks, Line{Text: line})
 	}
 	blocks = append(blocks, Gap{}, Line{Text: "Попробуй часть названия или только фамилию автора."})
-	return Screen{Doc: Doc{Blocks: blocks}, Keys: [][]Button{{{Text: ButtonHome, Env: k.Home}}}}
+	var keys [][]Button
+	if k.Suggest != nil {
+		for i := range r.Suggestions {
+			s := &r.Suggestions[i]
+			label := "Книга: "
+			if s.Type == "author" {
+				label = "Автор: "
+			}
+			keys = append(keys, []Button{{Text: label + ru.Truncate(s.Value, bookButtonRunes), Env: k.Suggest(s)}})
+		}
+	}
+	if r.Lang != "" && k.AllLanguages != nil {
+		keys = append(keys, []Button{{Text: ButtonAllLanguages, Env: k.AllLanguages}})
+	}
+	if r.AuthorName != "" && k.ClearAuthor != nil {
+		keys = append(keys, []Button{{Text: ButtonClearAuthor, Env: k.ClearAuthor}})
+	}
+	return Screen{Doc: Doc{Blocks: blocks}, Keys: append(keys, lastRow(k.Back, k.Home))}
 }
 
 // bookList is the books tab's list and its buttons.
@@ -217,8 +293,8 @@ func bookList(r *Results, k *ResultsKeys) ([]Block, [][]Button) {
 	return blocks, buttons
 }
 
-// authorList is the authors tab's list; its buttons come with S5.
-func authorList(r *Results) []Block {
+// authorList is the authors tab's list and its buttons.
+func authorList(r *Results, k *ResultsKeys) ([]Block, [][]Button) {
 	lang := "все"
 	if r.Lang != "" {
 		lang = ru.Language(r.Lang)
@@ -226,10 +302,11 @@ func authorList(r *Results) []Block {
 	blocks := []Block{Line{Text: "Авторы по запросу. Язык книг: " + lang + "."}, Gap{}}
 	switch {
 	case r.AuthorsFailed:
-		return append(blocks, Line{Text: "Авторы временно недоступны."})
+		return append(blocks, Line{Text: "Авторы временно недоступны."}), nil
 	case r.AuthorTotal == 0:
-		return append(blocks, Line{Text: "Авторов по этому запросу нет."})
+		return append(blocks, Line{Text: "Авторов по этому запросу нет."}), nil
 	}
+	var buttons [][]Button
 	for i := range r.Authors {
 		a := &r.Authors[i]
 		line := strconv.Itoa(r.Page*PageSize+i+1) + ". " + ru.Truncate(a.FullName, listLineRunes)
@@ -237,8 +314,11 @@ func authorList(r *Results) []Block {
 			line += " — " + ru.Books(a.BooksCount)
 		}
 		blocks = append(blocks, Line{Text: line})
+		if k.OpenAuthor != nil {
+			buttons = append(buttons, []Button{{Text: ru.Truncate(a.FullName, nameButtonRunes), Env: k.OpenAuthor(a.ID)}})
+		}
 	}
-	return blocks
+	return blocks, buttons
 }
 
 func tabsRow(r *Results, k *ResultsKeys) []Button {
@@ -340,6 +420,11 @@ type CardKeys struct {
 	Annotation *cbv2.Envelope
 	Back       *cbv2.Envelope
 	Home       *cbv2.Envelope
+	// Author opens the book's one author, BookAuthors lists several, Series
+	// opens its series; nil leaves the button out.
+	Author      func(id int64) *cbv2.Envelope
+	BookAuthors *cbv2.Envelope
+	Series      func(id int64) *cbv2.Envelope
 }
 
 // Limits of the card (plan-ui.md §2.2, §2.6).
@@ -469,6 +554,9 @@ func cardKeys(c *Card, k *CardKeys, cut bool) [][]Button {
 	} else {
 		keys = append(keys, []Button{{Text: ButtonNotFavorite, Env: k.Favorite(true)}})
 	}
+	if row := relationsRow(c.Book, k); len(row) > 0 {
+		keys = append(keys, row)
+	}
 	if cut {
 		keys = append(keys, []Button{{Text: CopyAnnotationFull, Env: k.Annotation}})
 	}
@@ -481,6 +569,32 @@ func cardKeys(c *Card, k *CardKeys, cut bool) [][]Button {
 	}
 	last = append(last, Button{Text: ButtonHome, Env: k.Home})
 	return append(keys, last)
+}
+
+// relationsRow is «Книги автора» (or «Авторы книги») and «Серия».
+func relationsRow(b *models.Book, k *CardKeys) []Button {
+	var row []Button
+	var authors []int64
+	for i := range b.Authors {
+		if strings.TrimSpace(b.Authors[i].FullName) != "" {
+			authors = append(authors, b.Authors[i].ID)
+		}
+	}
+	switch {
+	case len(authors) == 1 && k.Author != nil:
+		row = append(row, Button{Text: ButtonAuthorBooks, Env: k.Author(authors[0])})
+	case len(authors) > 1 && k.BookAuthors != nil:
+		row = append(row, Button{Text: ButtonBookAuthors, Env: k.BookAuthors})
+	}
+	if k.Series != nil {
+		for _, s := range b.Series {
+			if s != nil && strings.TrimSpace(s.Ser) != "" {
+				row = append(row, Button{Text: ButtonSeries, Env: k.Series(s.ID)})
+				break
+			}
+		}
+	}
+	return row
 }
 
 // BookURL is the site's page of one book.
