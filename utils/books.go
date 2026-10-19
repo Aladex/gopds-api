@@ -110,6 +110,12 @@ func (bp *BookProcessor) readWithoutConversion(rc io.ReadCloser) (io.ReadCloser,
 // Epub generates an EPUB file from the FB2 book.
 // Returns an io.ReadCloser containing the complete EPUB archive.
 func (bp *BookProcessor) Epub() (io.ReadCloser, error) {
+	return bp.EpubContext(context.Background())
+}
+
+// EpubContext is Epub with the parse bound to ctx: a canceled or expired
+// context stops it.
+func (bp *BookProcessor) EpubContext(ctx context.Context) (io.ReadCloser, error) {
 	fb2Content, err := bp.extractFB2()
 	if err != nil {
 		logging.Errorf("Failed to extract FB2 from archive %s: %v", bp.path, err)
@@ -119,12 +125,10 @@ func (bp *BookProcessor) Epub() (io.ReadCloser, error) {
 	// Parse FB2 in one pass (both metadata and body structure)
 	// This is ~30-40% faster than parsing metadata and body separately.
 	//
-	// ctx is context.Background() because the EPUB-download handler does not
-	// flow a request context through BookProcessor yet. When the API grows a
-	// per-download cancellation knob, that ctx belongs here — until then the
-	// download is atomic, and a closed client pays only for the work done so
-	// far (the response is streamed after this returns).
-	doc, bookFile, err := converter.ParseFB2Complete(context.Background(), fb2Content, true)
+	// The site's download handlers pass context.Background(): they do not
+	// flow a request context through BookProcessor yet, so a download is
+	// atomic and a closed client pays only for the work done so far.
+	doc, bookFile, err := converter.ParseFB2Complete(ctx, fb2Content, true)
 	if err != nil {
 		logging.Errorf("Failed to parse FB2 content for %s: %v", bp.filename, err)
 		return nil, fmt.Errorf("failed to parse FB2 content: %w", err)
@@ -153,7 +157,7 @@ func (bp *BookProcessor) Mobi() (io.ReadCloser, error) {
 // forever.
 func (bp *BookProcessor) MobiContext(ctx context.Context) (io.ReadCloser, error) {
 	// Step 1: Generate EPUB from FB2
-	epubReader, err := bp.Epub()
+	epubReader, err := bp.EpubContext(ctx)
 	if err != nil {
 		logging.Errorf("Failed to generate EPUB for MOBI conversion %s: %v", bp.filename, err)
 		return nil, fmt.Errorf("failed to generate EPUB: %w", err)
@@ -229,6 +233,75 @@ func (bp *BookProcessor) MobiContext(ctx context.Context) (io.ReadCloser, error)
 
 func (bp *BookProcessor) FB2() (io.ReadCloser, error) {
 	return bp.process()
+}
+
+// FB2Limited is the FB2 book for a caller with a size limit. The entry is
+// read through the limit, so an oversized book costs at most about limit
+// bytes of memory and fails with safeio.ErrTooLarge.
+func (bp *BookProcessor) FB2Limited(limit int64) ([]byte, error) {
+	r, err := zip.OpenReader(bp.path)
+	if err != nil {
+		return nil, err
+	}
+	defer closeResource(r)
+	rc, err := bp.openEntry(&r.Reader)
+	if err != nil {
+		return nil, err
+	}
+	defer closeResource(rc)
+	return safeio.ReadAll(rc, limit)
+}
+
+// ZipLimited is Zip for a caller with a size limit on the archive it gets:
+// the archive is written into a buffer that refuses to grow past limit, and
+// fails with safeio.ErrTooLarge.
+func (bp *BookProcessor) ZipLimited(df string, limit int64) ([]byte, error) {
+	r, err := zip.OpenReader(bp.path)
+	if err != nil {
+		return nil, err
+	}
+	defer closeResource(r)
+	rc, err := bp.openEntry(&r.Reader)
+	if err != nil {
+		return nil, err
+	}
+	defer closeResource(rc)
+	out := &cappedBuffer{limit: limit}
+	w := zip.NewWriter(out)
+	zf, err := w.Create(df + ".fb2")
+	if err != nil {
+		return nil, err
+	}
+	if _, err := safeio.Copy(zf, rc, safeio.MaxBookBytes); err != nil {
+		return nil, err
+	}
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
+	return out.buf.Bytes(), nil
+}
+
+// openEntry opens the book's entry in its archive.
+func (bp *BookProcessor) openEntry(r *zip.Reader) (io.ReadCloser, error) {
+	for _, f := range r.File {
+		if f.Name == bp.filename {
+			return f.Open()
+		}
+	}
+	return nil, ErrBookNotInArchive
+}
+
+// cappedBuffer is a buffer that fails a write which would take it past limit.
+type cappedBuffer struct {
+	buf   bytes.Buffer
+	limit int64
+}
+
+func (c *cappedBuffer) Write(p []byte) (int, error) {
+	if int64(c.buf.Len())+int64(len(p)) > c.limit {
+		return 0, fmt.Errorf("%w of %d bytes", safeio.ErrTooLarge, c.limit)
+	}
+	return c.buf.Write(p)
 }
 
 func (bp *BookProcessor) Zip(df string) (io.ReadCloser, error) {

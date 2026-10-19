@@ -42,28 +42,25 @@ func PrepareFile(ctx context.Context, book *models.Book, format string, limit in
 	}
 	bp := utils.NewBookProcessor(book.FileName, archive)
 
+	// FB2 and ZIP are produced under the limit itself. EPUB and MOBI are
+	// converted first — from the FB2 entry, under the site's own bound — and
+	// their result is read under the limit; ctx bounds the conversion.
 	var (
-		rc  io.ReadCloser
-		err error
+		data []byte
+		err  error
 	)
 	switch format {
 	case FormatFB2:
-		rc, err = bp.FB2()
-	case FormatEPUB:
-		rc, err = bp.Epub()
-	case FormatMOBI:
-		rc, err = bp.MobiContext(ctx)
+		data, err = bp.FB2Limited(limit)
 	case FormatZIP:
-		rc, err = bp.Zip(book.FileName)
+		data, err = bp.ZipLimited(book.FileName, limit)
+	case FormatEPUB:
+		data, err = readConverted(bp.EpubContext(ctx))(limit)
+	case FormatMOBI:
+		data, err = readConverted(bp.MobiContext(ctx))(limit)
 	default:
 		return File{}, ErrUnknownFormat
 	}
-	if err != nil {
-		return File{}, err
-	}
-	defer func() { _ = rc.Close() }()
-
-	data, err := safeio.ReadAll(rc, limit)
 	if errors.Is(err, safeio.ErrTooLarge) {
 		return File{}, ErrTooLarge
 	}
@@ -71,4 +68,15 @@ func PrepareFile(ctx context.Context, book *models.Book, format string, limit in
 		return File{}, err
 	}
 	return File{Name: fmt.Sprintf("%s.%s", book.DownloadName(), format), Data: data}, nil
+}
+
+// readConverted reads a converter's result under a limit.
+func readConverted(rc io.ReadCloser, err error) func(limit int64) ([]byte, error) {
+	return func(limit int64) ([]byte, error) {
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = rc.Close() }()
+		return safeio.ReadAll(rc, limit)
+	}
 }
