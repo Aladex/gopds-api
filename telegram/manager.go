@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"gopds-api/commands"
+	"gopds-api/config"
 	"gopds-api/database"
 	"gopds-api/logging"
 	"gopds-api/models"
@@ -44,6 +45,8 @@ type Config struct {
 	// ChatWait is how long a v2 update waits for its chat, held by another
 	// transition, before it is handed back; zero is the router's default.
 	ChatWait time.Duration
+	// Donate is how the library may be supported; none hides the button.
+	Donate []config.DonateMethod
 }
 
 // BotManager serves the personal bots: it knows them by webhook path, takes
@@ -434,6 +437,7 @@ func (bm *BotManager) SetDelivery(d *delivery.Service) {
 		Delivery:    d,
 		SiteURL:     bm.config.SiteURL,
 		ChatWait:    bm.config.ChatWait,
+		Donate:      bm.config.Donate,
 		PostersPath: func() string { return viper.GetString("app.posters_path") },
 	}, bm)
 	d.SetCards(bm.router)
@@ -469,7 +473,7 @@ func (bm *BotManager) v2Bot(ctx context.Context, b *Bot) (*router.Bot, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &router.Bot{Client: b.bot, Ref: b.ref, TGBotID: b.tgBotID, NavKey: navKey, Binding: binding}, nil
+	return &router.Bot{Client: b.bot, Ref: b.ref, TGBotID: b.tgBotID, Username: b.username, NavKey: navKey, Binding: binding}, nil
 }
 
 // Client is the SDK client of a served bot, for the delivery service.

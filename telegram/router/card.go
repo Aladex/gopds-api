@@ -27,54 +27,29 @@ func cardNode(userID, viewID, bookID, parent int64) *models.TelegramNode {
 	return &models.TelegramNode{UserID: userID, ViewID: viewID, Screen: int16(ScrBook), EntityID: bookID, ParentID: parent}
 }
 
-// showCard moves a panel to a book's card. It returns the toast, if any.
-func (r *Router) showCard(ctx context.Context, b *Bot, panel *models.TelegramPanel, expected int32, node *models.TelegramNode) string {
+// cardPainter reads a book's card.
+func (r *Router) cardPainter(ctx context.Context, b *Bot, node *models.TelegramNode) (render, string, bool) {
 	book, err := database.GetBookCard(ctx, node.EntityID)
 	if err != nil {
 		if errors.Is(err, errNoRows) {
-			return screens.CopyUnavailable
+			return nil, screens.CopyUnavailable, false
 		}
-		return screens.CopyLibraryDown
+		return nil, screens.CopyLibraryDown, false
 	}
 	if !visible(book) {
-		return screens.CopyUnavailable
-	}
-	if upsertErr := upsertNode(ctx, node); upsertErr != nil {
-		return screens.CopyLibraryDown
+		return nil, screens.CopyUnavailable, false
 	}
 	paint, err := r.paintCard(ctx, b, node, book)
 	if err != nil {
-		return screens.CopyLibraryDown
+		return nil, screens.CopyLibraryDown, false
 	}
-	if !r.movePanel(ctx, b, panel, expected, node, paint) {
-		return screens.CopyScreenChanged
-	}
-	return ""
+	return paint, "", true
 }
 
 // sendCard opens a book's card in a new panel: from a document's «Открыть
 // карточку».
 func (r *Router) sendCard(ctx context.Context, b *Bot, chatID, bookID int64) string {
-	book, err := database.GetBookCard(ctx, bookID)
-	if err != nil {
-		if errors.Is(err, errNoRows) {
-			return screens.CopyUnavailable
-		}
-		return screens.CopyLibraryDown
-	}
-	if !visible(book) {
-		return screens.CopyUnavailable
-	}
-	node := cardNode(b.Binding.UserID, 0, bookID, 0)
-	if upsertErr := upsertNode(ctx, node); upsertErr != nil {
-		return screens.CopyLibraryDown
-	}
-	paint, err := r.paintCard(ctx, b, node, book)
-	if err != nil {
-		return screens.CopyLibraryDown
-	}
-	r.sendPanel(ctx, b, chatID, node, paint, false)
-	return ""
+	return r.open(ctx, b, chatID, cardNode(b.Binding.UserID, 0, bookID, 0))
 }
 
 // paintCard reads what a card shows besides the book and paints it.
@@ -95,10 +70,7 @@ func (r *Router) paintCard(ctx context.Context, b *Bot, node *models.TelegramNod
 	for _, f := range formats {
 		preparing[f] = true
 	}
-	back := ""
-	if node.ParentID != 0 {
-		back = screens.ButtonToResults
-	}
+	back := backLabel(ctx, b, node.ParentID)
 	return func(k *keys) screens.Screen {
 		card := &screens.Card{
 			Book: book, Rich: k.rich, Favorite: fav, DefaultFormat: ui.DefaultFormat,
@@ -107,7 +79,7 @@ func (r *Router) paintCard(ctx context.Context, b *Bot, node *models.TelegramNod
 		if k.rich {
 			card.Cover = r.cover(ctx, b, book)
 		}
-		entity, view, parent := uint64(book.ID), uint64(node.ViewID), uint64(node.ParentID) // #nosec G115 -- serial ids
+		entity, view, parent, self := uint64(book.ID), uint64(node.ViewID), uint64(node.ParentID), uint64(node.ID) // #nosec G115 -- serial ids
 		screen, _ := screens.CardScreen(card, &screens.CardKeys{
 			Download: func(format string) *cbv2.Envelope {
 				return k.env(cbv2.Envelope{Op: cbv2.OpDownload, EntityID: entity, ViewID: view, ReturnID: parent,
@@ -121,8 +93,14 @@ func (r *Router) paintCard(ctx context.Context, b *Bot, node *models.TelegramNod
 				return k.env(cbv2.Envelope{Op: cbv2.OpSetFavorite, EntityID: entity, ViewID: view, ReturnID: parent,
 					Arg: arg})
 			},
-			Annotation: k.env(cbv2.Envelope{Op: cbv2.OpAnnotation, EntityID: entity, ViewID: view,
-				ReturnID: uint64(node.ID)}), // #nosec G115 -- serial ids
+			Annotation: k.env(cbv2.Envelope{Op: cbv2.OpAnnotation, EntityID: entity, ViewID: view, ReturnID: self}),
+			Author: func(id int64) *cbv2.Envelope {
+				return k.env(cbv2.Envelope{Op: cbv2.OpOpenAuthor, EntityID: uint64(id), ViewID: view, ReturnID: self}) // #nosec G115 -- serial ids
+			},
+			BookAuthors: k.env(cbv2.Envelope{Op: cbv2.OpBookAuthors, EntityID: entity, ViewID: view, ReturnID: self}),
+			Series: func(id int64) *cbv2.Envelope {
+				return k.env(cbv2.Envelope{Op: cbv2.OpOpenSeries, EntityID: uint64(id), ViewID: view, ReturnID: self}) // #nosec G115 -- serial ids
+			},
 			Back: k.env(cbv2.Envelope{Op: cbv2.OpBack, ReturnID: parent}),
 			Home: k.home(),
 		})
@@ -164,7 +142,7 @@ func (r *Router) download(
 		return delivery.RepeatToast(&job), true
 	}
 	node := cardNode(b.Binding.UserID, int64(env.ViewID), int64(env.EntityID), int64(env.ReturnID)) // #nosec G115 -- decoded ids fit
-	r.showCard(ctx, b, panel, panel.Revision, node)
+	r.show(ctx, b, panel, panel.Revision, node)
 	return fmt.Sprintf(delivery.ToastPreparing, strings.ToUpper(format)), true
 }
 
@@ -180,37 +158,32 @@ func (r *Router) setFavorite(ctx context.Context, b *Bot, panel *models.Telegram
 		return screens.CopyFavFailed
 	}
 	node := cardNode(b.Binding.UserID, int64(env.ViewID), int64(env.EntityID), int64(env.ReturnID)) // #nosec G115 -- decoded ids fit
-	r.showCard(ctx, b, panel, panel.Revision, node)
+	r.show(ctx, b, panel, panel.Revision, node)
 	if want {
 		return screens.CopyFavAdded
 	}
 	return screens.CopyFavRemoved
 }
 
-// showAnnotation moves a panel to a page of a book's annotation; parent is
-// the card's node.
-func (r *Router) showAnnotation(
-	ctx context.Context, b *Bot, panel *models.TelegramPanel, expected int32, bookID, parent int64, page int,
-) string {
-	book, err := database.GetBookCard(ctx, bookID)
-	if err != nil || !visible(book) {
-		return screens.CopyUnavailable
-	}
-	node := &models.TelegramNode{UserID: b.Binding.UserID, Screen: int16(ScrBookAnnotation), EntityID: bookID,
+// annotationNode is a page of a book's annotation; parent is the card's node.
+func annotationNode(userID, bookID, parent int64, page int) *models.TelegramNode {
+	return &models.TelegramNode{UserID: userID, Screen: int16(ScrBookAnnotation), EntityID: bookID,
 		Page: int32(page), ParentID: parent} // #nosec G115 -- pages are small
-	if err := upsertNode(ctx, node); err != nil {
-		return screens.CopyLibraryDown
+}
+
+// annotationPainter reads a page of a book's annotation.
+func (r *Router) annotationPainter(ctx context.Context, node *models.TelegramNode) (render, string, bool) {
+	book, err := database.GetBookCard(ctx, node.EntityID)
+	if err != nil || !visible(book) {
+		return nil, screens.CopyUnavailable, false
 	}
-	paint := func(k *keys) screens.Screen {
+	bookID, parent, page := node.EntityID, node.ParentID, int(node.Page)
+	return func(k *keys) screens.Screen {
 		pageEnv := func(p int) *cbv2.Envelope {
 			return k.env(cbv2.Envelope{Op: cbv2.OpAnnotationPage, EntityID: uint64(bookID), // #nosec G115 -- serial ids
 				Page: uint32(p), ReturnID: uint64(parent)}) // #nosec G115 -- small values
 		}
 		return screens.AnnotationScreen(book, page, pageEnv(page-1), pageEnv(page+1),
 			k.env(cbv2.Envelope{Op: cbv2.OpBack, ReturnID: uint64(parent)}), k.home()) // #nosec G115 -- serial ids
-	}
-	if !r.movePanel(ctx, b, panel, expected, node, paint) {
-		return screens.CopyScreenChanged
-	}
-	return ""
+	}, "", true
 }

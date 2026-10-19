@@ -7,6 +7,7 @@ import (
 	"gopds-api/database"
 	"gopds-api/logging"
 	"gopds-api/models"
+	"gopds-api/telegram/cbv2"
 	"gopds-api/telegram/screens"
 	"gopds-api/telegram/tgapi"
 
@@ -46,7 +47,7 @@ func (r *Router) newHome(ctx context.Context, b *Bot, chatID int64, linked bool)
 		logging.Warnf("Telegram bot %d: recording the home node: %v", b.Ref, err)
 		return
 	}
-	panel := r.sendPanel(ctx, b, chatID, node, func(*keys) screens.Screen { return screens.Home(linked) }, true)
+	panel := r.sendPanel(ctx, b, chatID, node, r.paintHome(linked), true)
 	if panel != nil {
 		r.pin(ctx, b, panel)
 	}
@@ -99,4 +100,16 @@ func (r *Router) checkPin(ctx context.Context, b *Bot, chatID int64) {
 
 func pinnedIs(chat *tgbot.ChatFullInfo, messageID int64) bool {
 	return chat != nil && chat.PinnedMessage != nil && int64(chat.PinnedMessage.ID) == messageID
+}
+
+// paintHome paints the home screen with its sections; linked greets a chat
+// just bound to the library.
+func (r *Router) paintHome(linked bool) render {
+	return func(k *keys) screens.Screen {
+		return screens.HomeScreen(linked, &screens.HomeKeys{
+			Favorites:   k.env(cbv2.Envelope{Op: cbv2.OpFavorites}),
+			Collections: k.env(cbv2.Envelope{Op: cbv2.OpCollections}),
+			Settings:    k.env(cbv2.Envelope{Op: cbv2.OpSettings}),
+		})
+	}
 }

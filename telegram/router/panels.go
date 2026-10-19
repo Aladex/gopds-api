@@ -60,7 +60,9 @@ func (r *Router) richFor(ctx context.Context, b *Bot) bool {
 func (r *Router) sendPanel(
 	ctx context.Context, b *Bot, chatID int64, node *models.TelegramNode, paint render, home bool,
 ) *models.TelegramPanel {
-	rich := r.richFor(ctx, b)
+	// The home panel is plain in both modes (plan-ui.md §1.1): there is
+	// nothing on it for a rich message to add.
+	rich := !home && r.richFor(ctx, b)
 	screen := paint(&keys{b: b, rev: 1, rich: rich})
 	msg, mode, err := r.send(ctx, b, chatID, &screen, rich)
 	if err != nil {
@@ -102,6 +104,14 @@ func (r *Router) movePanel(
 	}
 	panel.Revision, panel.NodeID = rev, node.ID
 	rich := panel.Mode == models.TelegramPanelRich
+	if rich && !panel.IsHome && !r.richFor(ctx, b) {
+		// The reader chose plain cards (or Telegram refuses rich ones): a
+		// message keeps its kind, so the screen goes out as a new plain
+		// panel, and the old one loses its buttons.
+		r.stripKeyboard(ctx, b, panel)
+		r.sendPanel(ctx, b, panel.ChatID, node, paint, false)
+		return true
+	}
 	screen := paint(&keys{b: b, rev: uint16(rev), rich: rich}) // #nosec G115 -- revisions are 1..65534
 	err = r.edit(ctx, b, panel, &screen)
 	var refused richRefusedError
@@ -292,6 +302,9 @@ func (r *Router) markup(b *Bot, chatID int64, rows [][]screens.Button) (*tgbot.I
 		line := make([]tgbot.InlineKeyboardButton, 0, len(row))
 		for _, button := range row {
 			btn := tgbot.InlineKeyboardButton{Text: button.Text, Style: button.Style, URL: button.URL}
+			if button.CopyText != "" {
+				btn.CopyText = &tgbot.CopyTextButton{Text: button.CopyText}
+			}
 			if button.Env != nil {
 				data, err := cbv2.Encode(button.Env, b.NavKey, bind)
 				if err != nil {

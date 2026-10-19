@@ -22,10 +22,10 @@ import (
 // the button to this bot, owner and chat), generation, the panel and its
 // revision, then the action.
 func (r *Router) callback(ctx context.Context, b *Bot, q *tgbot.CallbackQuery) bool {
-	if !cbv2.IsV2(q.Data) {
-		return false
-	}
 	msg := q.Message.Message
+	if !cbv2.IsV2(q.Data) {
+		return r.legacy(ctx, b, q, msg)
+	}
 	if msg == nil || b.Binding == nil || q.From.ID != b.Binding.TGUserID || msg.Chat.Type != tgbot.ChatTypePrivate {
 		r.answer(ctx, b, q, screens.CopyButtonDenied)
 		return true
@@ -40,8 +40,12 @@ func (r *Router) callback(ctx context.Context, b *Bot, q *tgbot.CallbackQuery) b
 		r.answer(ctx, b, q, screens.CopyButtonDenied)
 		return true
 	}
-	if env.Revision == cbv2.DocumentRevision {
+	switch env.Revision {
+	case cbv2.DocumentRevision:
 		r.answer(ctx, b, q, r.documentButton(ctx, b, msg.Chat.ID, &env))
+		return true
+	case 0:
+		r.answer(ctx, b, q, r.promptButton(ctx, b, msg, &env))
 		return true
 	}
 	panel, err := database.GetTelegramPanel(ctx, b.Ref, msg.Chat.ID, int64(msg.ID))
@@ -65,28 +69,80 @@ func (r *Router) callback(ctx context.Context, b *Bot, q *tgbot.CallbackQuery) b
 }
 
 // act runs a panel's action and returns its toast.
+//
+//nolint:gocyclo,funlen // one flat dispatch on the button's op
 func (r *Router) act(ctx context.Context, b *Bot, panel *models.TelegramPanel, env *cbv2.Envelope) string {
 	userID := b.Binding.UserID
+	viewID, entity, parent := int64(env.ViewID), int64(env.EntityID), int64(env.ReturnID) // #nosec G115 -- decoded ids fit
+	show := func(node *models.TelegramNode) string { return r.show(ctx, b, panel, panel.Revision, node) }
 	//exhaustive:ignore // the ops of later slices fall through to «unsupported»
 	switch env.Op {
 	case cbv2.OpHome:
 		return r.goHome(ctx, b, panel)
-	case cbv2.OpTab:
-		return r.showResults(ctx, b, panel, panel.Revision, int64(env.ViewID), env.Arg, 0) // #nosec G115 -- decoded ids fit
-	case cbv2.OpPage, cbv2.OpRetryBranch, cbv2.OpRetrySearch:
-		return r.showResults(ctx, b, panel, panel.Revision, int64(env.ViewID), env.Arg, int(env.Page)) // #nosec G115 -- decoded ids fit
+	case cbv2.OpTab, cbv2.OpRetryBranch, cbv2.OpRetrySearch:
+		return show(&models.TelegramNode{UserID: userID, ViewID: viewID, Screen: int16(tabScreen(env.Arg)),
+			Page: int32(env.Page), ParentID: parent}) // #nosec G115 -- pages are small
+	case cbv2.OpPage:
+		return r.page(ctx, b, panel, env)
 	case cbv2.OpOpenBook:
-		node := cardNode(userID, int64(env.ViewID), int64(env.EntityID), int64(env.ReturnID)) // #nosec G115 -- decoded ids fit
-		return r.showCard(ctx, b, panel, panel.Revision, node)
+		return show(cardNode(userID, viewID, entity, parent))
 	case cbv2.OpSetFavorite:
 		return r.setFavorite(ctx, b, panel, env)
 	case cbv2.OpAnnotation, cbv2.OpAnnotationPage:
-		bookID, parent := int64(env.EntityID), int64(env.ReturnID) // #nosec G115 -- decoded ids fit
-		return r.showAnnotation(ctx, b, panel, panel.Revision, bookID, parent, int(env.Page))
+		return show(annotationNode(userID, entity, parent, int(env.Page)))
 	case cbv2.OpBack:
-		return r.back(ctx, b, panel, int64(env.ReturnID)) // #nosec G115 -- decoded ids fit
+		return r.back(ctx, b, panel, parent)
+	case cbv2.OpOpenAuthor:
+		return r.openList(ctx, b, panel, &models.TelegramView{Kind: ViewAuthorBooks, AuthorID: entity,
+			Lang: inheritLang(ctx, b, viewID)}, parent)
+	case cbv2.OpOpenSeries:
+		return r.openList(ctx, b, panel, &models.TelegramView{Kind: ViewSeriesBooks, SeriesID: entity,
+			Lang: inheritLang(ctx, b, viewID)}, parent)
+	case cbv2.OpOpenCollection:
+		// A collection is a curated list across languages: it opens whole.
+		return r.openList(ctx, b, panel, &models.TelegramView{Kind: ViewCollectionBooks, CollectionID: entity}, parent)
+	case cbv2.OpFavorites:
+		return r.openList(ctx, b, panel, &models.TelegramView{Kind: ViewFavorites, Favorites: true}, parent)
+	case cbv2.OpCollections:
+		page := int32(env.Page) // #nosec G115 -- pages are small
+		return show(&models.TelegramNode{UserID: userID, Screen: int16(ScrCollections), Page: page, ParentID: parent})
+	case cbv2.OpBookAuthors:
+		return show(&models.TelegramNode{UserID: userID, ViewID: viewID, Screen: int16(ScrBookAuthors), EntityID: entity, ParentID: parent})
+	case cbv2.OpLanguagePicker:
+		return show(languageNode(userID, viewID, parent, env.Arg == languagePickerPager, env.Page))
+	case cbv2.OpSetLanguage:
+		return r.setLanguage(ctx, b, panel, env)
+	case cbv2.OpClearAuthor:
+		return r.refine(ctx, b, panel, viewID, parent, func(v *models.TelegramView) { v.AuthorID = 0 })
+	case cbv2.OpPromptAuthor:
+		return r.askAuthor(ctx, b, panel, viewID)
+	case cbv2.OpPromptAuthorSearch:
+		return r.askAuthorSearch(ctx, b, panel, viewID)
+	case cbv2.OpPromptFavSearch:
+		return r.ask(ctx, b, panel, promptFavoritesSearch, screens.PromptFavoritesSearch)
+	case cbv2.OpSettings:
+		return r.openSettings(ctx, b, panel, env)
+	case cbv2.OpSetFormat:
+		return r.setFormat(ctx, b, panel, env)
+	case cbv2.OpSetCardStyle:
+		return r.setCardStyle(ctx, b, panel, env)
 	}
 	return screens.CopyUnsupported
+}
+
+// page moves a panel to another page of a view: of a search's tab, or of a
+// list.
+func (r *Router) page(ctx context.Context, b *Bot, panel *models.TelegramPanel, env *cbv2.Envelope) string {
+	view, toast, ok := viewOf(ctx, b, int64(env.ViewID)) // #nosec G115 -- decoded ids fit
+	if !ok {
+		return toast
+	}
+	screen := screenOfView(view.Kind)
+	if view.Kind == ViewSearch {
+		screen = tabScreen(env.Arg)
+	}
+	return r.show(ctx, b, panel, panel.Revision, &models.TelegramNode{UserID: b.Binding.UserID, ViewID: view.ID,
+		Screen: int16(screen), Page: int32(env.Page), ParentID: int64(env.ReturnID)}) // #nosec G115 -- decoded ids fit
 }
 
 // back shows the node a «Назад» points at.
@@ -98,20 +154,10 @@ func (r *Router) back(ctx context.Context, b *Bot, panel *models.TelegramPanel, 
 	if err != nil {
 		return expiredOrDown(err)
 	}
-	//exhaustive:ignore // an annotation or a notice is never a «Назад» target
-	switch Screen(node.Screen) {
-	case ScrHome:
+	if Screen(node.Screen) == ScrHome {
 		return r.goHome(ctx, b, panel)
-	case ScrResultsBooks, ScrResultsAuthors:
-		tab := uint8(0)
-		if Screen(node.Screen) == ScrResultsAuthors {
-			tab = 1
-		}
-		return r.showResults(ctx, b, panel, panel.Revision, node.ViewID, tab, int(node.Page))
-	case ScrBook:
-		return r.showCard(ctx, b, panel, panel.Revision, node)
 	}
-	return screens.CopyExpired
+	return r.show(ctx, b, panel, panel.Revision, node)
 }
 
 // goHome turns the panel into the home screen, and is «Домой»'s pin check.
@@ -120,7 +166,7 @@ func (r *Router) goHome(ctx context.Context, b *Bot, panel *models.TelegramPanel
 	if err := upsertNode(ctx, node); err != nil {
 		return screens.CopyLibraryDown
 	}
-	if !r.movePanel(ctx, b, panel, panel.Revision, node, func(*keys) screens.Screen { return screens.Home(false) }) {
+	if !r.movePanel(ctx, b, panel, panel.Revision, node, r.paintHome(false)) {
 		return screens.CopyScreenChanged
 	}
 	r.checkPin(ctx, b, panel.ChatID)

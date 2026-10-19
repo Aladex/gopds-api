@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"gopds-api/config"
 	"gopds-api/database"
 	"gopds-api/logging"
 	"gopds-api/models"
@@ -68,7 +69,9 @@ type Bot struct {
 	Client  *bot.Bot
 	Ref     int64
 	TGBotID int64
-	NavKey  []byte
+	// Username is the bot's @name, without the @; "" when not known.
+	Username string
+	NavKey   []byte
 	// Binding is the bot's active binding: whose library it serves and who
 	// owns it in Telegram.
 	Binding *models.TelegramBinding
@@ -85,6 +88,8 @@ type Config struct {
 	Search   services.PublicSearch
 	Delivery *delivery.Service
 	SiteURL  string
+	// Donate is how the library may be supported; none hides the button.
+	Donate []config.DonateMethod
 	// PostersPath is where cover files live; "" means no covers.
 	PostersPath func() string
 	// SearchTimeout bounds each search branch; zero is 3 s.
@@ -199,6 +204,9 @@ func (r *Router) message(ctx context.Context, b *Bot, msg *tgbot.Message) {
 	text := msg.Text
 	if text == "" {
 		r.notice(ctx, b, msg.Chat.ID, screens.CopyNotText, true)
+		return
+	}
+	if msg.ReplyToMessage != nil && r.reply(ctx, b, msg) {
 		return
 	}
 	if strings.HasPrefix(text, "/") {

@@ -404,24 +404,24 @@ func TestARichCardUploadsItsCoverOnce(t *testing.T) {
 	v.tap(&card, "← К результатам")
 	back := v.latest(results.MessageID)
 	assert.Contains(t, content(&back), "Поиск: «мир»")
-	_, card = v.openFixtureCardFrom(&back)
+	card = v.openFixtureCardFrom(&back)
 	assert.Equal(t, fileID, richPhotoMedia(t, &card))
 	assert.NotContains(t, card.Files, "cover", "no second upload")
 }
 
 // openFixtureCardFrom opens the fixture book from a results panel.
-func (v *v2Stack) openFixtureCardFrom(results *tgtest.Call) (panel, card tgtest.Call) {
+func (v *v2Stack) openFixtureCardFrom(results *tgtest.Call) tgtest.Call {
 	v.t.Helper()
 	for _, row := range tgtest.ButtonTexts(v.t, results) {
 		for _, text := range row {
 			if strings.Contains(text, "война и МИР") {
 				v.tap(results, text)
-				return *results, v.latest(results.MessageID)
+				return v.latest(results.MessageID)
 			}
 		}
 	}
 	v.t.Fatalf("no fixture book in %v", tgtest.ButtonTexts(v.t, results))
-	return tgtest.Call{}, tgtest.Call{}
+	return tgtest.Call{}
 }
 
 // (g) A file_id Telegram refuses is forgotten, and the cover uploaded.
@@ -457,13 +457,21 @@ func TestARichRefusalFallsBackToPlain(t *testing.T) {
 		}})
 	})
 	home := v.lastSend()
-	assert.Equal(t, "sendMessage", home.Method)
+	assert.Equal(t, "sendMessage", home.Method, "the home panel is plain in both modes")
 	assert.Contains(t, home.Params["text"], "Напиши название книги")
 	assert.Equal(t, 1, v.count(`SELECT count(*) FROM telegram_panel WHERE mode = 'plain' AND is_home`))
-	assert.Equal(t, 1, v.count(`SELECT count(*) FROM telegram_bot_ui WHERE rich_rejected_at IS NOT NULL`))
+	assert.Zero(t, v.count(`SELECT count(*) FROM telegram_bot_ui WHERE rich_rejected_at IS NOT NULL`))
 
 	v.say("мир")
+	results := v.lastSend()
+	assert.Equal(t, "sendMessage", results.Method, "sent plain after the refusal")
+	assert.Equal(t, 1, v.count(`SELECT count(*) FROM telegram_panel WHERE message_id = ? AND mode = 'plain'`, results.MessageID))
+	assert.Equal(t, 1, v.count(`SELECT count(*) FROM telegram_bot_ui WHERE rich_rejected_at IS NOT NULL`))
+
+	tried := len(v.fake.Calls("sendRichMessage"))
+	v.say("мир")
 	assert.Equal(t, "sendMessage", v.lastSend().Method, "kept plain")
+	assert.Len(t, v.fake.Calls("sendRichMessage"), tried, "without trying rich again")
 }
 
 // (i) A plain card: the annotation in a collapsed quote; one too long for
@@ -507,6 +515,7 @@ func TestAFileFromTheCard(t *testing.T) {
 	v := newV2(t, func(s *stack) { release = gatedPrepare(s) })
 	t.Cleanup(release)
 	_, card := v.openFixtureCard()
+	messages := len(v.messagesTo(ownerTG))
 	v.tap(&card, "EPUB")
 	marked := v.latest(card.MessageID)
 	assert.Equal(t, "⏳ Готовлю EPUB…", tgtest.ButtonTexts(t, &marked)[0][0])
@@ -520,7 +529,7 @@ func TestAFileFromTheCard(t *testing.T) {
 	assert.True(t, strings.HasPrefix(doc[0].Params["caption"], "война и МИР — "), doc[0].Params["caption"])
 	assert.Contains(t, doc[0].Params["caption"], "\nEPUB · ")
 	assert.Equal(t, [][]string{{"Открыть карточку"}}, tgtest.ButtonTexts(t, &doc[0]))
-	assert.Empty(t, v.messagesTo(ownerTG), "no status message for a card's job")
+	assert.Len(t, v.messagesTo(ownerTG), messages, "no status message for a card's job")
 	final := v.latest(card.MessageID)
 	assert.Equal(t, "EPUB", tgtest.ButtonTexts(t, &final)[0][0])
 }

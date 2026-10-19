@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"gopds-api/database"
 	"gopds-api/logging"
@@ -34,13 +35,10 @@ func (r *Router) search(ctx context.Context, b *Bot, chatID int64, query string,
 		r.sendPlainText(ctx, b, chatID, screens.CopyLibraryDown)
 		return
 	}
-	res, _ := r.runSearch(ctx, view, tab, 0)
 	node := &models.TelegramNode{UserID: b.Binding.UserID, ViewID: view.ID, Screen: int16(tabScreen(tab))}
-	if err := upsertNode(ctx, node); err != nil {
-		logging.Warnf("Telegram bot %d: recording a results node: %v", b.Ref, err)
-		return
+	if toast := r.open(ctx, b, chatID, node); toast != "" {
+		r.sendPlainText(ctx, b, chatID, toast)
 	}
-	r.sendPanel(ctx, b, chatID, node, r.paintResults(view, node, res), false)
 }
 
 // typing shows «typing» once the search has taken TypingAfter; the returned
@@ -100,7 +98,7 @@ func (r *Router) searchPage(ctx context.Context, view *models.TelegramView, tab 
 		bctx, cancel := context.WithTimeout(ctx, r.cfg.SearchTimeout)
 		defer cancel()
 		got, err := r.cfg.Search.SearchBooks(bctx, models.BookSearchRequest{
-			Query: view.Query, Language: view.Lang, Limit: bookLimit, Offset: bookOffset,
+			Query: view.Query, Language: view.Lang, AuthorID: view.AuthorID, Limit: bookLimit, Offset: bookOffset,
 		})
 		if err != nil {
 			logging.Warnf("Telegram v2: book search failed: %v", err)
@@ -133,51 +131,98 @@ func (r *Router) searchPage(ctx context.Context, view *models.TelegramView, tab 
 	return res
 }
 
-// paintResults paints a results page whose node is node.
-func (r *Router) paintResults(view *models.TelegramView, node *models.TelegramNode, res *screens.Results) render {
-	return func(k *keys) screens.Screen {
-		viewID := uint64(view.ID) // #nosec G115 -- serial ids
-		return screens.ResultsScreen(res, &screens.ResultsKeys{
-			Tab: func(tab uint8) *cbv2.Envelope {
-				return k.env(cbv2.Envelope{Op: cbv2.OpTab, ViewID: viewID, Arg: tab})
-			},
-			RetryTab: func(tab uint8) *cbv2.Envelope {
-				return k.env(cbv2.Envelope{Op: cbv2.OpRetryBranch, ViewID: viewID, Arg: tab})
-			},
-			RetryAll: k.env(cbv2.Envelope{Op: cbv2.OpRetrySearch, ViewID: viewID, Arg: res.Tab}),
-			Page: func(page int) *cbv2.Envelope {
-				return k.env(cbv2.Envelope{Op: cbv2.OpPage, ViewID: viewID, Page: uint32(page), Arg: res.Tab}) // #nosec G115 -- pages are small
-			},
-			Book: func(id int64) *cbv2.Envelope {
-				return k.env(cbv2.Envelope{Op: cbv2.OpOpenBook, EntityID: uint64(id), ViewID: viewID, // #nosec G115 -- serial ids
-					ReturnID: uint64(node.ID)}) // #nosec G115 -- serial ids
-			},
-			Home: k.home(),
-		})
+// resultsPainter reads a results page: the node's tab and page of its view.
+func (r *Router) resultsPainter(ctx context.Context, b *Bot, node *models.TelegramNode) (render, string, bool) {
+	view, toast, ok := viewOf(ctx, b, node.ViewID)
+	if !ok {
+		return nil, toast, false
+	}
+	tab := uint8(0)
+	if Screen(node.Screen) == ScrResultsAuthors {
+		tab = 1
+	}
+	res, moved := r.runSearch(ctx, view, tab, int(node.Page))
+	node.Page = int32(res.Page) // #nosec G115 -- pages are small
+	r.decorate(ctx, view, res)
+	if moved {
+		toast = screens.CopyListChanged
+	}
+	return r.paintResults(view, node, res, r.backTo(ctx, b, node.ParentID)), toast, true
+}
+
+// suggestionMinRunes is the shortest query worth suggesting for.
+const suggestionMinRunes = 3
+
+// decorate adds what a results page shows besides its lists: the filtering
+// author's name, and suggestions when nothing was found.
+func (r *Router) decorate(ctx context.Context, view *models.TelegramView, res *screens.Results) {
+	if view.AuthorID != 0 {
+		if author, err := database.GetTelegramAuthor(ctx, view.AuthorID); err == nil {
+			res.AuthorName = author.FullName
+		}
+	}
+	empty := !res.BooksFailed && !res.AuthorsFailed && res.BookTotal == 0 && res.AuthorTotal == 0
+	if !empty || utf8.RuneCountInString(view.Query) < suggestionMinRunes {
+		return
+	}
+	sctx, cancel := context.WithTimeout(ctx, r.cfg.SearchTimeout)
+	defer cancel()
+	got, err := r.cfg.Search.Suggestions(sctx, models.SuggestionRequest{
+		Query: view.Query, Kind: models.SuggestionAll, Language: view.Lang, Limit: suggestionMinRunes,
+	})
+	if err != nil {
+		logging.Debugf("Telegram v2: suggestions failed: %v", err)
+		return
+	}
+	for _, s := range got.Suggestions {
+		if s.ID != 0 && (s.Type == suggestionAuthor || s.Type == suggestionBook) && len(res.Suggestions) < suggestionMinRunes {
+			res.Suggestions = append(res.Suggestions, s)
+		}
 	}
 }
 
-// showResults moves a panel to page of view's tab.
-func (r *Router) showResults(
-	ctx context.Context, b *Bot, panel *models.TelegramPanel, expected int32, viewID int64, tab uint8, page int,
-) string {
-	view, err := database.GetTelegramView(ctx, b.Binding.UserID, viewID)
-	if err != nil {
-		return expiredOrDown(err)
+// The kinds of suggestion a results page offers.
+const (
+	suggestionAuthor = "author"
+	suggestionBook   = "book"
+)
+
+// paintResults paints a results page whose node is node.
+func (r *Router) paintResults(view *models.TelegramView, node *models.TelegramNode, res *screens.Results,
+	back func(*keys) *screens.Button) render {
+	return func(k *keys) screens.Screen {
+		viewID, parent, self := uint64(view.ID), uint64(node.ParentID), uint64(node.ID) // #nosec G115 -- serial ids
+		at := func(op cbv2.Op, tab uint8, page int) *cbv2.Envelope {
+			return k.env(cbv2.Envelope{Op: op, ViewID: viewID, Arg: tab, Page: uint32(page), ReturnID: parent}) // #nosec G115 -- pages are small
+		}
+		here := func(op cbv2.Op, entity uint64) *cbv2.Envelope {
+			return k.env(cbv2.Envelope{Op: op, ViewID: viewID, EntityID: entity, ReturnID: self})
+		}
+		rk := &screens.ResultsKeys{
+			Tab:      func(tab uint8) *cbv2.Envelope { return at(cbv2.OpTab, tab, 0) },
+			RetryTab: func(tab uint8) *cbv2.Envelope { return at(cbv2.OpRetryBranch, tab, 0) },
+			RetryAll: at(cbv2.OpRetrySearch, res.Tab, res.Page),
+			Page:     func(page int) *cbv2.Envelope { return at(cbv2.OpPage, res.Tab, page) },
+			Book:     func(id int64) *cbv2.Envelope { return here(cbv2.OpOpenBook, uint64(id)) }, // #nosec G115 -- serial ids
+			Author:   here(cbv2.OpPromptAuthor, 0),
+			Language: here(cbv2.OpLanguagePicker, 0),
+			// «Искать на всех языках» is the language set to none.
+			AllLanguages: here(cbv2.OpSetLanguage, 0),
+			OpenAuthor:   func(id int64) *cbv2.Envelope { return here(cbv2.OpOpenAuthor, uint64(id)) }, // #nosec G115 -- serial ids
+			Suggest: func(s *models.AutocompleteSuggestion) *cbv2.Envelope {
+				if s.Type == suggestionAuthor {
+					return here(cbv2.OpOpenAuthor, uint64(s.ID)) // #nosec G115 -- serial ids
+				}
+				return here(cbv2.OpOpenBook, uint64(s.ID)) // #nosec G115 -- serial ids
+			},
+			Back: back(k),
+			Home: k.home(),
+		}
+		if view.AuthorID != 0 {
+			rk.ClearAuthor = here(cbv2.OpClearAuthor, 0)
+		}
+		return screens.ResultsScreen(res, rk)
 	}
-	res, moved := r.runSearch(ctx, view, tab, page)
-	node := &models.TelegramNode{UserID: b.Binding.UserID, ViewID: view.ID, Screen: int16(tabScreen(tab)),
-		Page: int32(res.Page)} // #nosec G115 -- pages are small
-	if err := upsertNode(ctx, node); err != nil {
-		return screens.CopyLibraryDown
-	}
-	if !r.movePanel(ctx, b, panel, expected, node, r.paintResults(view, node, res)) {
-		return screens.CopyScreenChanged
-	}
-	if moved {
-		return screens.CopyListChanged
-	}
-	return ""
 }
 
 // expiredOrDown is the answer to a node or view that could not be read.

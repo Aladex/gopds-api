@@ -140,6 +140,7 @@ func initializeTelegram(
 		BaseURL: cfg.GetTelegramWebhookBaseURL(),
 		SiteURL: cfg.GetServerBaseURL(),
 		Secrets: box,
+		Donate:  cfg.Donate,
 	}
 	telegramBotManager := telegram.NewBotManager(telegramConfig, mainRedisClient, searchService, lines)
 

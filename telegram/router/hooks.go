@@ -100,7 +100,7 @@ func (r *Router) repaintCard(ctx context.Context, b *Bot, job *models.TelegramPa
 	if err != nil || Screen(node.Screen) != ScrBook || node.EntityID != job.BookID {
 		return
 	}
-	r.showCard(ctx, b, panel, panel.Revision, node)
+	r.show(ctx, b, panel, panel.Revision, node)
 }
 
 // repaintSweepAge is how long a repaint waits before the sweeper takes it;
