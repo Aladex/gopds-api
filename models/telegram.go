@@ -213,6 +213,23 @@ type TelegramNode struct {
 	LastUsedAt time.Time `pg:"default:now()"`
 }
 
+// TelegramPrompt is a question the v2 bot asked with force_reply, waiting for
+// the reader's reply.
+type TelegramPrompt struct {
+	tableName       struct{} `pg:"telegram_prompt"`
+	BotRef          int64    `pg:",pk"`
+	ChatID          int64    `pg:",pk"`
+	PromptMessageID int64    `pg:",pk"`
+	UserID          int64
+	Kind            int16
+	SourceMessageID int64
+	SourceNodeID    int64
+	SourceRevision  int32
+	State           string
+	ExpiresAt       time.Time
+	CreatedAt       time.Time `pg:"default:now()"`
+}
+
 // TelegramPanel is a bot message that shows nodes and is edited in place.
 type TelegramPanel struct {
 	tableName    struct{} `pg:"telegram_panel"`

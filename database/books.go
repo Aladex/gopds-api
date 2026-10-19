@@ -116,6 +116,13 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, err
 		query = query.
 			Join("JOIN book_author_display AS first_author ON first_author.book_id = book.id AND first_author.position = 0").
 			OrderExpr("first_author.sort_key ASC NULLS LAST, first_author.book_id DESC")
+	} else if filters.Sort == models.BookSortTitle {
+		query = query.OrderExpr("lower(book.title) ASC, book.id ASC")
+	} else if filters.Sort == models.BookSortSeries && filters.Series != 0 {
+		query = query.
+			Join("LEFT JOIN opds_catalog_bseries AS series_order ON series_order.book_id = book.id AND series_order.ser_id = ?",
+				filters.Series).
+			OrderExpr("COALESCE(NULLIF(series_order.ser_no, 0), 2147483647) ASC, lower(book.title) ASC, book.id ASC")
 	} else {
 		query = query.Order("book.id DESC")
 	}

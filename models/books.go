@@ -279,8 +279,16 @@ type BookFilters struct {
 	Sort string `form:"sort" json:"sort"`
 }
 
-// BookSortAuthor sorts a book list by author.
-const BookSortAuthor = "author"
+// The orders of a book list besides the newest first.
+const (
+	// BookSortAuthor sorts a book list by author.
+	BookSortAuthor = "author"
+	// BookSortTitle sorts by title, then id: a stable alphabetical list.
+	BookSortTitle = "title"
+	// BookSortSeries sorts a series' books by their number in it; books
+	// without a number come last, by title.
+	BookSortSeries = "series"
+)
 
 // CollectionFilters params for filtering collections list
 type CollectionFilters struct {

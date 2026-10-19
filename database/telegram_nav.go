@@ -300,3 +300,93 @@ func PruneTelegramNavigation(ctx context.Context, age time.Duration) error {
 		DELETE FROM telegram_view WHERE last_used_at < now() - make_interval(secs => ?)`, age.Seconds())
 	return err
 }
+
+// GetTelegramAuthor loads an author by id.
+func GetTelegramAuthor(ctx context.Context, id int64) (*models.Author, error) {
+	a := new(models.Author)
+	err := db.ModelContext(ctx, a).Where("id = ?", id).Select()
+	return a, err
+}
+
+// GetTelegramSeries loads a series by id.
+func GetTelegramSeries(ctx context.Context, id int64) (*models.Series, error) {
+	s := new(models.Series)
+	err := db.ModelContext(ctx, s).Where("id = ?", id).Select()
+	return s, err
+}
+
+// The account's bot settings the v2 bot writes; a row is made on first use.
+const (
+	setDefaultFormat = `INSERT INTO telegram_user_settings (user_id, default_format) VALUES (?, ?)
+		ON CONFLICT (user_id) DO UPDATE SET default_format = EXCLUDED.default_format, updated_at = now()`
+	setSearchLang = `INSERT INTO telegram_user_settings (user_id, search_lang) VALUES (?, ?)
+		ON CONFLICT (user_id) DO UPDATE SET search_lang = EXCLUDED.search_lang, updated_at = now()`
+	setCardStyle = `INSERT INTO telegram_user_settings (user_id, card_style) VALUES (?, ?)
+		ON CONFLICT (user_id) DO UPDATE SET card_style = EXCLUDED.card_style, updated_at = now()`
+)
+
+func setTelegramSetting(ctx context.Context, query string, userID int64, value string) error {
+	return db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		if err := guardInboxLease(ctx, tx); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, query, userID, value)
+		return err
+	})
+}
+
+// SetTelegramDefaultFormat stores the format books are sent in by default —
+// the bot's and the site's.
+func SetTelegramDefaultFormat(ctx context.Context, userID int64, format string) error {
+	return setTelegramSetting(ctx, setDefaultFormat, userID, format)
+}
+
+// SetTelegramSearchLang stores the language of new searches; "" for all.
+func SetTelegramSearchLang(ctx context.Context, userID int64, lang string) error {
+	return setTelegramSetting(ctx, setSearchLang, userID, lang)
+}
+
+// SetTelegramCardStyle stores rich or plain cards.
+func SetTelegramCardStyle(ctx context.Context, userID int64, style string) error {
+	return setTelegramSetting(ctx, setCardStyle, userID, style)
+}
+
+// CreateTelegramPrompt records a question just sent.
+func CreateTelegramPrompt(ctx context.Context, p *models.TelegramPrompt) error {
+	return db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		if err := guardInboxLease(ctx, tx); err != nil {
+			return err
+		}
+		_, err := tx.ModelContext(ctx, p).Insert()
+		return err
+	})
+}
+
+// GetTelegramPrompt loads the question a message is; pg.ErrNoRows when it is
+// none.
+func GetTelegramPrompt(ctx context.Context, botRef, chatID, messageID int64) (*models.TelegramPrompt, error) {
+	p := &models.TelegramPrompt{BotRef: botRef, ChatID: chatID, PromptMessageID: messageID}
+	err := db.ModelContext(ctx, p).WherePK().Select()
+	return p, err
+}
+
+// CloseTelegramPrompt moves an open, unexpired question to state; false when
+// it was not open any more.
+func CloseTelegramPrompt(ctx context.Context, p *models.TelegramPrompt, state string) (bool, error) {
+	var closed bool
+	err := db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		if err := guardInboxLease(ctx, tx); err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, `
+			UPDATE telegram_prompt SET state = ?
+			WHERE bot_ref = ? AND chat_id = ? AND prompt_message_id = ? AND state = 'open' AND expires_at > now()`,
+			state, p.BotRef, p.ChatID, p.PromptMessageID)
+		if err != nil {
+			return err
+		}
+		closed = res.RowsAffected() == 1
+		return nil
+	})
+	return closed, err
+}
