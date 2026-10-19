@@ -44,6 +44,8 @@ var ErrUnknownKey = errors.New("secrets: unknown key id")
 // Box seals and opens values.
 type Box struct {
 	keys map[int16]cipher.AEAD
+	// secret derives the values every process must agree on (Derive).
+	secret []byte
 }
 
 // NewBox derives the key from secretKey.
@@ -63,7 +65,20 @@ func NewBox(secretKey string) (*Box, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Box{keys: map[int16]cipher.AEAD{CurrentKeyID: aead}}, nil
+	return &Box{keys: map[int16]cipher.AEAD{CurrentKeyID: aead}, secret: []byte(secretKey)}, nil
+}
+
+// Derive is n bytes bound to label and to secret_key: the same in every
+// process and at every start, and nothing anyone without secret_key can
+// guess — for values that are not stored, like the manager bot's webhook path
+// and secret.
+func (b *Box) Derive(label string, n int) []byte {
+	key, err := hkdf.Key(sha256.New, b.secret, nil, info+" derive "+label, n)
+	if err != nil {
+		// Only an n past what HKDF-SHA256 can give (255 × 32 bytes).
+		panic(fmt.Sprintf("secrets: deriving %d bytes: %v", n, err))
+	}
+	return key
 }
 
 // Seal encrypts plain for purpose under the current key. The result is the

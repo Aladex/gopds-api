@@ -63,6 +63,8 @@ type stack struct {
 	// clientTimeout bounds every call to the fake Telegram; zero is the
 	// production default.
 	clientTimeout time.Duration
+	// managerToken, when set, is the Managed Bots manager's token.
+	managerToken string
 }
 
 // secondPod is another process of the same service on the same database and
@@ -137,6 +139,7 @@ func (s *stack) start() *stack {
 	s.delivery = delivery.New(&cfg, s.bm)
 	s.bm.SetDelivery(s.delivery)
 	s.delivery.Start(context.Background())
+	require.NoError(s.t, s.bm.StartManager(context.Background(), s.managerToken))
 
 	bm, deliveries := s.bm, s.delivery
 	s.t.Cleanup(bm.WaitIdle)

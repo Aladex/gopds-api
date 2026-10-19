@@ -42,6 +42,8 @@ const (
 		"Сначала отключи его в профиле того аккаунта."
 	copyBotTaken = "Этот бот уже подключён к другому аккаунту библиотеки\n\n" +
 		"Своего бота можно подключить в профиле библиотеки."
+	copyNotCreator = "Подтвердить подключение может только создатель этого бота\n\n" +
+		"Своего бота можно подключить в профиле библиотеки."
 	copyStranger = "Это личный бот другого пользователя\n\n" +
 		"Своего бота можно подключить в профиле библиотеки."
 	copyButtonUnavailable  = "Эта кнопка недоступна."
@@ -132,6 +134,8 @@ func (b *Bot) handleLink(ctx context.Context, msg *tgbot.Message, secret string)
 		b.sendScreen(ctx, msg.Chat.ID, copyBotTaken, b.manager.siteButton())
 	case database.LinkExpired:
 		b.sendScreen(ctx, msg.Chat.ID, copyLinkExpired, b.manager.profileButton())
+	case database.LinkNotCreator:
+		b.sendScreen(ctx, msg.Chat.ID, copyNotCreator, b.manager.siteButton())
 	}
 }
 

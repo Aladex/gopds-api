@@ -123,6 +123,15 @@ func (u *Updates) Text(userID int64, text string) *models.Update {
 	return &models.Update{ID: u.next.Add(1), Message: msg}
 }
 
+// ManagedBot is the managed_bot update a manager gets when creatorID made,
+// or now owns, the bot of token, named username.
+func (u *Updates) ManagedBot(creatorID int64, token, username string) *models.Update {
+	return &models.Update{ID: u.next.Add(1), ManagedBot: &models.ManagedBotUpdated{
+		User: User(creatorID),
+		Bot:  &models.User{ID: botID(token), IsBot: true, FirstName: "Мои книги", Username: username},
+	}}
+}
+
 // Callback is a press of the button with data on message (a message the bot
 // sent, as recorded by the fake).
 func (u *Updates) Callback(userID int64, on *Call, data string) *models.Update {

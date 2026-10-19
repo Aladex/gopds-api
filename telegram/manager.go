@@ -75,6 +75,10 @@ type BotManager struct {
 	search services.PublicSearch
 	router *router.Router
 
+	// manager creates readers' bots (Managed Bots); nil while that path is
+	// off. Set by StartManager.
+	manager *Manager
+
 	// process identifies this process as the holder of inbox leases.
 	process  uuid.UUID
 	inflight chan struct{}
@@ -417,10 +421,18 @@ func (bm *BotManager) botByPath(ctx context.Context, path string) (*Bot, error) 
 	if err != nil {
 		return nil, err
 	}
-	if model.Status != models.TelegramBotActive || model.TokenEnc == nil {
+	if !servable(model) {
 		return nil, nil
 	}
 	return bm.serve(model)
+}
+
+// servable reports a bot the service answers for: an active one, or a
+// managed one whose owner changed — its new owner's /start link has to reach
+// it (ListServableTelegramBots).
+func servable(model *models.TelegramBot) bool {
+	return model.TokenEnc != nil &&
+		(model.Status == models.TelegramBotActive || model.Status == models.TelegramBotOwnerChanged)
 }
 
 // botByRef finds a served bot by its row id, loading it when needed.
@@ -435,7 +447,7 @@ func (bm *BotManager) botByRef(ctx context.Context, ref int64) (*Bot, error) {
 	if err != nil {
 		return nil, err
 	}
-	if model.Status != models.TelegramBotActive || model.TokenEnc == nil {
+	if !servable(model) {
 		return nil, nil
 	}
 	return bm.serve(model)
@@ -478,7 +490,9 @@ func (bm *BotManager) v2Bot(ctx context.Context, b *Bot) (*router.Bot, error) {
 	if err != nil {
 		return nil, err
 	}
-	if model.Router == models.TelegramRouterMaintenance {
+	// Maintenance, and a managed bot whose owner changed, answer with a
+	// notice instead (BotManager.maintenance).
+	if model.Router == models.TelegramRouterMaintenance || model.Status != models.TelegramBotActive {
 		return nil, nil
 	}
 	navKey, err := bm.config.Secrets.Open(model.KeyID, secrets.PurposeNavKey, model.NavKeyEnc)

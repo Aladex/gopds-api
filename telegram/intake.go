@@ -85,12 +85,12 @@ func (bm *BotManager) HandleWebhook(c *gin.Context) {
 		return
 	}
 	if b == nil {
-		c.JSON(http.StatusNotFound, ErrorResponse{Error: "Bot not found"})
+		c.JSON(http.StatusNotFound, ErrorResponse{Error: errBotNotFound})
 		return
 	}
 	if subtle.ConstantTimeCompare([]byte(c.GetHeader(webhookSecretHeader)), []byte(b.webhookSecret)) != 1 {
 		logging.Warnf("Webhook secret mismatch for telegram bot %d", b.ref)
-		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "Invalid secret token"})
+		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: errInvalidSecret})
 		return
 	}
 	body, update, ok := readUpdate(c, b)
@@ -301,21 +301,29 @@ func (bm *BotManager) handle(ctx context.Context, b *Bot, update *tgbot.Update) 
 	return nil
 }
 
-// copyMaintenance is a bot switched to maintenance (plan-ui.md §5.4).
-const copyMaintenance = "Поиск в боте временно недоступен. Книги можно найти на сайте."
+// copyMaintenance is a bot switched to maintenance (plan-ui.md §5.4), and
+// copyOwnerChanged a managed bot Telegram moved to another owner (P1-1).
+const (
+	copyMaintenance  = "Поиск в боте временно недоступен. Книги можно найти на сайте."
+	copyOwnerChanged = "Владелец этого бота в Telegram сменился. Подключи его заново в профиле библиотеки."
+)
 
 // maintenance answers an update while the bot is in maintenance: a message
 // gets the notice with the site's address, a press the notice as a toast, an
 // inline query nothing. Its jobs and binding keep their state.
 func (bm *BotManager) maintenance(ctx context.Context, b *Bot, update *tgbot.Update) {
+	text, button := copyMaintenance, bm.siteButton()
+	if model, err := database.GetTelegramBot(ctx, b.ref); err == nil && model.Status == models.TelegramBotOwnerChanged {
+		text, button = copyOwnerChanged, bm.profileButton()
+	}
 	switch {
 	case update.Message != nil:
 		if update.Message.Chat.Type == tgbot.ChatTypePrivate {
-			b.sendScreen(ctx, update.Message.Chat.ID, copyMaintenance, bm.siteButton())
+			b.sendScreen(ctx, update.Message.Chat.ID, text, button)
 		}
 	case update.CallbackQuery != nil:
 		_, _ = b.bot.AnswerCallbackQuery(ctx, &tgbotapi.AnswerCallbackQueryParams{
-			CallbackQueryID: update.CallbackQuery.ID, Text: copyMaintenance,
+			CallbackQueryID: update.CallbackQuery.ID, Text: text,
 		})
 	case update.InlineQuery != nil:
 		_, _ = b.bot.AnswerInlineQuery(ctx, &tgbotapi.AnswerInlineQueryParams{

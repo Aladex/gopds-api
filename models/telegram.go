@@ -261,3 +261,45 @@ type TelegramPanelRepaint struct {
 	JobID     int64
 	CreatedAt time.Time `pg:"default:now()"`
 }
+
+// The states of a telegram_pending_connection.
+const (
+	PendingConnectionWaiting  = "waiting"
+	PendingConnectionFound    = "found"
+	PendingConnectionCanceled = "canceled"
+	PendingConnectionLinked   = "linked"
+)
+
+// TelegramPendingConnection is a reader's «Создать личного бота» waiting for
+// Telegram to say the bot was made (migration 51).
+type TelegramPendingConnection struct {
+	tableName      struct{} `pg:"telegram_pending_connection"`
+	ID             int64
+	UserID         int64
+	DiscoveryLabel string
+	State          string
+	BotRef         *int64
+	ExpiresAt      time.Time
+	CreatedAt      time.Time `pg:"default:now()"`
+	UpdatedAt      time.Time `pg:"default:now()"`
+}
+
+// TelegramManagedBot is what the manager confirmed about a bot it manages.
+type TelegramManagedBot struct {
+	tableName        struct{} `pg:"telegram_managed_bot"`
+	BotRef           int64    `pg:",pk"`
+	AccessRestricted bool     `pg:",use_zero"`
+	ReadyAt          *time.Time
+	CheckedAt        time.Time `pg:"default:now()"`
+}
+
+// TelegramManagedEvent is one managed_bot update the manager got.
+type TelegramManagedEvent struct {
+	tableName   struct{}  `pg:"telegram_managed_event"`
+	UpdateID    int64     `pg:",pk"`
+	BotTGID     int64     `pg:"bot_tg_id"`
+	CreatorTGID int64     `pg:"creator_tg_id"`
+	BotUsername string    `pg:",use_zero"`
+	ReceivedAt  time.Time `pg:"default:now()"`
+	ProcessedAt *time.Time
+}

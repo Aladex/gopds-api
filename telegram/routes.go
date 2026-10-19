@@ -36,15 +36,19 @@ type SetBotTokenRequest struct {
 
 // ErrorResponse error structure. Error is a stable code the site translates:
 // invalid_token, bot_taken, telegram_unavailable, webhook_failed,
-// no_pending_bot, internal.
+// no_pending_bot, managed_unavailable, managed_not_found, internal.
 type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
 // BotStatusResponse is the account's Telegram connection as the site shows it.
 type BotStatusResponse struct {
-	// State is none, pending_link, connected, token_rejected or blocked.
+	// State is none, pending_link, connected, token_rejected, blocked or
+	// owner_changed.
 	State string `json:"state"`
+	// BotKind is how the connected bot came: manual (its token entered) or
+	// managed (created through the manager).
+	BotKind string `json:"bot_kind,omitempty"`
 	// BotUsername and TelegramName describe the connected bot.
 	BotUsername  string `json:"bot_username,omitempty"`
 	TelegramName string `json:"telegram_name,omitempty"`
@@ -57,7 +61,31 @@ type BotStatusResponse struct {
 	LinkURL string `json:"link_url,omitempty"`
 	// LinkExpiresAt is when the newest link of the pending bot stops working.
 	LinkExpiresAt *time.Time `json:"link_expires_at,omitempty"`
+	// ManagedAvailable is the Managed path on: a bot can be created here.
+	ManagedAvailable bool `json:"managed_available"`
+	// Managed is a Managed connection in progress.
+	Managed *ManagedStatus `json:"managed,omitempty"`
 }
+
+// ManagedStatus is a Managed connection in progress (concept §C.3).
+type ManagedStatus struct {
+	// State is waiting (no bot from Telegram yet), not_ready (a bot came, but
+	// does not answer yet) or ready (the bot is the pending one, to link).
+	State string `json:"state"`
+	// CreateURL is Telegram's creation window, while waiting.
+	CreateURL string `json:"create_url,omitempty"`
+	// BotUsername is the bot that came, once one did.
+	BotUsername string `json:"bot_username,omitempty"`
+	// ExpiresAt is when a waiting connection stops waiting.
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// States of ManagedStatus.
+const (
+	managedWaiting  = "waiting"
+	managedNotReady = "not_ready"
+	managedReady    = "ready"
+)
 
 // Error codes of ErrorResponse.
 const (
@@ -66,7 +94,16 @@ const (
 	errTelegramUnavailable = "telegram_unavailable"
 	errWebhookFailed       = "webhook_failed"
 	errNoPendingBot        = "no_pending_bot"
+	errManagedUnavailable  = "managed_unavailable"
+	errManagedNotFound     = "managed_not_found"
 	errInternal            = "internal"
+)
+
+// Answers to a webhook call that is not Telegram's: an unknown path, or a
+// wrong secret token.
+const (
+	errBotNotFound   = "Bot not found"
+	errInvalidSecret = "Invalid secret token"
 )
 
 // Connection states of BotStatusResponse.
@@ -76,6 +113,7 @@ const (
 	stateConnected     = "connected"
 	stateTokenRejected = "token_rejected"
 	stateBlocked       = "blocked"
+	stateOwnerChanged  = "owner_changed"
 )
 
 // userIDOf reads the authenticated user, answering 401 when there is none.
@@ -183,11 +221,15 @@ func (r *Routes) NewLink(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: errInternal})
 		return
 	}
-	if state.Pending == nil {
+	switch {
+	case state.Pending != nil:
+		r.respondWithLink(c, userID, state.Pending.ID, state.Pending.Username)
+	case state.Binding != nil && state.Bot.Status == models.TelegramBotOwnerChanged:
+		// The bot's new owner links it again to take it over.
+		r.respondWithLink(c, userID, state.Bot.ID, state.Bot.Username)
+	default:
 		c.JSON(http.StatusConflict, ErrorResponse{Error: errNoPendingBot})
-		return
 	}
-	r.respondWithLink(c, userID, state.Pending.ID, state.Pending.Username)
 }
 
 // respondWithLink stores a new link for botRef and answers with the status
@@ -200,7 +242,7 @@ func (r *Routes) respondWithLink(c *gin.Context, userID, botRef int64, username 
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: errInternal})
 		return
 	}
-	status, err := statusOf(ctx, userID)
+	status, err := r.statusOf(ctx, userID)
 	if err != nil {
 		logging.Errorf("User %d: reading the telegram status: %v", userID, err)
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: errInternal})
@@ -226,6 +268,11 @@ func (r *Routes) RemoveBotToken(c *gin.Context) {
 		return
 	}
 	bm := r.botManager
+	if err := database.CancelTelegramPendingConnection(c.Request.Context(), userID); err != nil {
+		logging.Errorf("User %d: canceling a managed connection: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: errInternal})
+		return
+	}
 	bots, err := database.DisconnectTelegram(c.Request.Context(), userID)
 	if err != nil {
 		logging.Errorf("User %d: disconnecting telegram: %v", userID, err)
@@ -240,7 +287,7 @@ func (r *Routes) RemoveBotToken(c *gin.Context) {
 		}
 	}
 	logging.Infof("User %d disconnected telegram (%d bots)", userID, len(bots))
-	c.JSON(http.StatusOK, BotStatusResponse{State: stateNone})
+	c.JSON(http.StatusOK, BotStatusResponse{State: stateNone, ManagedAvailable: bm.managerOf() != nil})
 }
 
 // GetBotStatus gets the status of the bot for the current user
@@ -256,7 +303,12 @@ func (r *Routes) GetBotStatus(c *gin.Context) {
 	if !ok {
 		return
 	}
-	status, err := statusOf(c.Request.Context(), userID)
+	r.respondWithStatus(c, userID)
+}
+
+// respondWithStatus answers with the account's connection.
+func (r *Routes) respondWithStatus(c *gin.Context, userID int64) {
+	status, err := r.statusOf(c.Request.Context(), userID)
 	if err != nil {
 		logging.Errorf("User %d: reading the telegram status: %v", userID, err)
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: errInternal})
@@ -266,14 +318,16 @@ func (r *Routes) GetBotStatus(c *gin.Context) {
 }
 
 // statusOf reads the account's connection.
-func statusOf(ctx context.Context, userID int64) (BotStatusResponse, error) {
+func (r *Routes) statusOf(ctx context.Context, userID int64) (BotStatusResponse, error) {
 	state, err := database.GetTelegramUserState(ctx, userID)
 	if err != nil {
 		return BotStatusResponse{}, err
 	}
-	status := BotStatusResponse{State: stateNone}
+	m := r.botManager.managerOf()
+	status := BotStatusResponse{State: stateNone, ManagedAvailable: m != nil}
 	if state.Binding != nil {
 		status.BotUsername = state.Bot.Username
+		status.BotKind = state.Bot.Kind
 		status.TelegramName = state.Binding.TGDisplay
 		if status.DefaultFormat, err = database.GetTelegramDefaultFormat(ctx, userID); err != nil {
 			return BotStatusResponse{}, err
@@ -281,6 +335,8 @@ func statusOf(ctx context.Context, userID int64) (BotStatusResponse, error) {
 		switch {
 		case state.Bot.Status == models.TelegramBotTokenRejected:
 			status.State = stateTokenRejected
+		case state.Bot.Status == models.TelegramBotOwnerChanged:
+			status.State = stateOwnerChanged
 		case state.Binding.BlockedAt != nil:
 			status.State = stateBlocked
 		default:
@@ -295,6 +351,36 @@ func statusOf(ctx context.Context, userID int64) (BotStatusResponse, error) {
 		if status.LinkExpiresAt, err = database.LatestTelegramLinkExpiry(ctx, userID, state.Pending.ID); err != nil {
 			return BotStatusResponse{}, err
 		}
+	}
+	if status.Managed, err = managedStatusOf(ctx, m, userID); err != nil {
+		return BotStatusResponse{}, err
+	}
+	return status, nil
+}
+
+// managedStatusOf is the account's Managed connection in progress, if any.
+func managedStatusOf(ctx context.Context, m *Manager, userID int64) (*ManagedStatus, error) {
+	pc, err := database.OpenTelegramPendingConnection(ctx, userID)
+	if err != nil || pc == nil {
+		return nil, err
+	}
+	if pc.BotRef == nil {
+		if m == nil {
+			return nil, nil
+		}
+		return &ManagedStatus{State: managedWaiting, CreateURL: m.CreateURL(pc.DiscoveryLabel), ExpiresAt: pc.ExpiresAt}, nil
+	}
+	bot, err := database.GetTelegramBot(ctx, *pc.BotRef)
+	if err != nil {
+		return nil, err
+	}
+	managed, err := database.GetTelegramManagedBot(ctx, bot.ID)
+	if err != nil {
+		return nil, err
+	}
+	status := &ManagedStatus{State: managedNotReady, BotUsername: bot.Username, ExpiresAt: pc.ExpiresAt}
+	if managed != nil && managed.ReadyAt != nil {
+		status.State = managedReady
 	}
 	return status, nil
 }
@@ -330,4 +416,189 @@ func isValidToken(token string) bool {
 
 	authToken := parts[1]
 	return len(authToken) >= minAuthTokenLength
+}
+
+// ClaimManagedRequest names a bot the reader already created.
+type ClaimManagedRequest struct {
+	Username string `json:"username" binding:"required"`
+}
+
+// StartManaged is «Создать личного бота»: a connection waits for the bot
+// Telegram's creation window makes. Any earlier waiting one is canceled.
+// @Summary Start creating a personal bot
+// @Description Starts a Managed connection and returns Telegram's creation link
+// @Tags telegram
+// @Produce json
+// @Success 200 {object} BotStatusResponse
+// @Failure 401 {object} ErrorResponse
+// @Failure 409 {object} ErrorResponse
+// @Router /api/telegram/managed [post]
+func (r *Routes) StartManaged(c *gin.Context) {
+	userID, ok := userIDOf(c)
+	if !ok {
+		return
+	}
+	if r.botManager.managerOf() == nil {
+		c.JSON(http.StatusConflict, ErrorResponse{Error: errManagedUnavailable})
+		return
+	}
+	label := NewDiscoveryLabel()
+	if err := database.StartTelegramPendingConnection(c.Request.Context(), userID, label, time.Now().Add(managedLinkTTL)); err != nil {
+		logging.Errorf("User %d: starting a managed connection: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: errInternal})
+		return
+	}
+	r.respondWithStatus(c, userID)
+}
+
+// ClaimManaged is «Я уже создал бота»: a bot of this manager, named by its
+// username, becomes the one the connection waits on — for when the reader
+// changed the suggested username. It proves nothing: only the bot's creator
+// can open its link.
+// @Summary Name the personal bot already created
+// @Tags telegram
+// @Accept json
+// @Produce json
+// @Param request body ClaimManagedRequest true "Bot username"
+// @Success 200 {object} BotStatusResponse
+// @Failure 401 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
+// @Failure 409 {object} ErrorResponse
+// @Router /api/telegram/managed/claim [post]
+func (r *Routes) ClaimManaged(c *gin.Context) {
+	userID, ok := userIDOf(c)
+	if !ok {
+		return
+	}
+	if r.botManager.managerOf() == nil {
+		c.JSON(http.StatusConflict, ErrorResponse{Error: errManagedUnavailable})
+		return
+	}
+	var req ClaimManagedRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusNotFound, ErrorResponse{Error: errManagedNotFound})
+		return
+	}
+	username := strings.TrimPrefix(strings.TrimSpace(req.Username), "@")
+	_, err := database.ClaimTelegramManagedBot(c.Request.Context(), userID, username)
+	switch {
+	case errors.Is(err, database.ErrManagedBotNotFound):
+		c.JSON(http.StatusNotFound, ErrorResponse{Error: errManagedNotFound})
+		return
+	case errors.Is(err, database.ErrTelegramBotTaken):
+		c.JSON(http.StatusConflict, ErrorResponse{Error: errBotTaken})
+		return
+	case err != nil:
+		logging.Errorf("User %d: claiming a managed bot: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: errInternal})
+		return
+	}
+	r.respondWithStatus(c, userID)
+}
+
+// CheckManaged is «Проверить ещё раз»: the bot the connection found, if it
+// is not ready yet, is set up again.
+// @Summary Check the personal bot again
+// @Tags telegram
+// @Produce json
+// @Success 200 {object} BotStatusResponse
+// @Failure 401 {object} ErrorResponse
+// @Router /api/telegram/managed/check [post]
+func (r *Routes) CheckManaged(c *gin.Context) {
+	userID, ok := userIDOf(c)
+	if !ok {
+		return
+	}
+	ctx := c.Request.Context()
+	if m := r.botManager.managerOf(); m != nil {
+		if err := r.recheck(ctx, m, userID); err != nil {
+			logging.Errorf("User %d: checking the managed bot: %v", userID, tgapi.RedactURL(err))
+			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: errInternal})
+			return
+		}
+	}
+	r.respondWithStatus(c, userID)
+}
+
+// recheck sets up the found bot of userID's connection again, if it is not
+// ready.
+func (r *Routes) recheck(ctx context.Context, m *Manager, userID int64) error {
+	pc, err := database.OpenTelegramPendingConnection(ctx, userID)
+	if err != nil || pc == nil || pc.BotRef == nil {
+		return err
+	}
+	managed, err := database.GetTelegramManagedBot(ctx, *pc.BotRef)
+	if err != nil || (managed != nil && managed.ReadyAt != nil) {
+		return err
+	}
+	bot, err := database.GetTelegramBot(ctx, *pc.BotRef)
+	if err != nil {
+		return err
+	}
+	if !servable(bot) {
+		return nil
+	}
+	return m.Recheck(ctx, bot)
+}
+
+// CancelManaged is «Отменить подключение»: the connection stops waiting. The
+// bot in Telegram stays; the reader may delete it there.
+// @Summary Cancel creating a personal bot
+// @Tags telegram
+// @Produce json
+// @Success 200 {object} BotStatusResponse
+// @Failure 401 {object} ErrorResponse
+// @Router /api/telegram/managed [delete]
+func (r *Routes) CancelManaged(c *gin.Context) {
+	userID, ok := userIDOf(c)
+	if !ok {
+		return
+	}
+	if err := database.CancelTelegramPendingConnection(c.Request.Context(), userID); err != nil {
+		logging.Errorf("User %d: canceling a managed connection: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: errInternal})
+		return
+	}
+	r.respondWithStatus(c, userID)
+}
+
+// RestoreManaged is W-TOKEN-ERROR's «Восстановить подключение» for a bot the
+// manager made: Telegram issues it a new token, on this click only.
+// @Summary Restore the personal bot's token
+// @Tags telegram
+// @Produce json
+// @Success 200 {object} BotStatusResponse
+// @Failure 401 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
+// @Failure 409 {object} ErrorResponse
+// @Failure 502 {object} ErrorResponse
+// @Router /api/telegram/managed/restore [post]
+func (r *Routes) RestoreManaged(c *gin.Context) {
+	userID, ok := userIDOf(c)
+	if !ok {
+		return
+	}
+	m := r.botManager.managerOf()
+	if m == nil {
+		c.JSON(http.StatusConflict, ErrorResponse{Error: errManagedUnavailable})
+		return
+	}
+	ctx := c.Request.Context()
+	state, err := database.GetTelegramUserState(ctx, userID)
+	if err != nil {
+		logging.Errorf("User %d: reading the telegram status: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: errInternal})
+		return
+	}
+	if state.Binding == nil || state.Bot.Kind != models.TelegramBotManaged || state.Bot.Status != models.TelegramBotTokenRejected {
+		c.JSON(http.StatusNotFound, ErrorResponse{Error: errManagedNotFound})
+		return
+	}
+	if err := m.Restore(ctx, state.Bot); err != nil {
+		logging.Errorf("User %d: restoring managed bot %d: %v", userID, state.Bot.ID, tgapi.RedactURL(err))
+		c.JSON(http.StatusBadGateway, ErrorResponse{Error: errTelegramUnavailable})
+		return
+	}
+	logging.Infof("User %d restored managed bot %d", userID, state.Bot.ID)
+	r.respondWithStatus(c, userID)
 }

@@ -23,17 +23,19 @@ type Config struct {
 	// TelegramPublicMediaURL is a host Telegram can fetch the covers from,
 	// serving /books-posters/ as the site does; "" leaves inline results
 	// without covers.
-	TelegramPublicMediaURL string         `mapstructure:"telegram_public_media_url" yaml:"telegram_public_media_url"`
-	SecretKey              string         `mapstructure:"secret_key" yaml:"secret_key"`
-	Postgres               PostgresConfig `mapstructure:"postgres" yaml:"postgres"`
-	Database               DatabaseConfig `mapstructure:"database" yaml:"database"`
-	Redis                  RedisConfig    `mapstructure:"redis" yaml:"redis"`
-	Sessions               SessionsConfig `mapstructure:"sessions" yaml:"sessions"`
-	App                    AppConfig      `mapstructure:"app" yaml:"app"`
-	Scanning               ScanningConfig `mapstructure:"scanning" yaml:"scanning"`
-	Email                  EmailConfig    `mapstructure:"email" yaml:"email"`
-	Preview                PreviewConfig  `mapstructure:"preview" yaml:"preview"`
-	LLM                    LLMConfig      `mapstructure:"llm" yaml:"llm"`
+	TelegramPublicMediaURL string `mapstructure:"telegram_public_media_url" yaml:"telegram_public_media_url"`
+	// Telegram holds the Managed Bots manager (P1-1).
+	Telegram  TelegramConfig `mapstructure:"telegram" yaml:"telegram"`
+	SecretKey string         `mapstructure:"secret_key" yaml:"secret_key"`
+	Postgres  PostgresConfig `mapstructure:"postgres" yaml:"postgres"`
+	Database  DatabaseConfig `mapstructure:"database" yaml:"database"`
+	Redis     RedisConfig    `mapstructure:"redis" yaml:"redis"`
+	Sessions  SessionsConfig `mapstructure:"sessions" yaml:"sessions"`
+	App       AppConfig      `mapstructure:"app" yaml:"app"`
+	Scanning  ScanningConfig `mapstructure:"scanning" yaml:"scanning"`
+	Email     EmailConfig    `mapstructure:"email" yaml:"email"`
+	Preview   PreviewConfig  `mapstructure:"preview" yaml:"preview"`
+	LLM       LLMConfig      `mapstructure:"llm" yaml:"llm"`
 
 	AuthorMetadata AuthorMetadataConfig `mapstructure:"author_metadata" yaml:"author_metadata"`
 	Authors        AuthorsConfig        `mapstructure:"authors" yaml:"authors"`
@@ -43,6 +45,19 @@ type Config struct {
 	// application's. An empty list means the interface offers none, which is
 	// what anyone running their own copy should get until they say otherwise.
 	Donate []DonateMethod `mapstructure:"donate" yaml:"donate"`
+}
+
+// TelegramConfig is the bots' settings that are not per bot.
+type TelegramConfig struct {
+	Manager TelegramManagerConfig `mapstructure:"manager" yaml:"manager"`
+}
+
+// TelegramManagerConfig is the technical manager bot that creates readers'
+// personal bots (Managed Bots). An empty token switches the Managed path off,
+// and the site keeps offering only an existing bot's token. The token comes
+// from GOPDS_TELEGRAM_MANAGER_TOKEN; it is never logged.
+type TelegramManagerConfig struct {
+	Token string `mapstructure:"token" yaml:"token"`
 }
 
 // DonateMethod is one way of supporting the service.

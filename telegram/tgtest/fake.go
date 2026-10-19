@@ -113,6 +113,10 @@ type FakeBotAPI struct {
 	// pinned is each chat's most recent pinned message, as getChat reports
 	// it.
 	pinned map[int64]int64
+	// webhooks is each token's webhook URL, as getWebhookInfo reports it.
+	webhooks map[string]string
+	// The Managed Bots side (managed.go).
+	managed
 }
 
 // NewFakeBotAPI starts a fake on a local port; it stops when the test ends.
@@ -345,7 +349,7 @@ func (f *FakeBotAPI) newMessageID() int64 {
 func (f *FakeBotAPI) defaultReply(w http.ResponseWriter, _ *http.Request, c *Call) {
 	switch strings.ToLower(c.Method) {
 	case "getme":
-		writeResult(w, BotUser(c.Token))
+		writeResult(w, f.meFor(c.Token))
 	case "sendmessage", "senddocument", "sendphoto", "copymessage", "sendrichmessage":
 		c.MessageID = f.newMessageID()
 		writeResult(w, messageFor(c))
@@ -358,8 +362,14 @@ func (f *FakeBotAPI) defaultReply(w http.ResponseWriter, _ *http.Request, c *Cal
 	case "getchat":
 		writeResult(w, f.chatFor(c.Int64("chat_id")))
 	case "getwebhookinfo":
-		writeResult(w, map[string]any{"url": "", "has_custom_certificate": false, "pending_update_count": 0})
-	case "answercallbackquery", "setwebhook", "deletewebhook", "setmycommands", "deletemycommands",
+		writeResult(w, map[string]any{"url": f.webhookOf(c.Token), "has_custom_certificate": false, "pending_update_count": 0})
+	case "setwebhook", "deletewebhook":
+		f.setWebhookOf(c.Token, c.Params["url"])
+		writeResult(w, true)
+	case methodGetManagedBotToken, methodReplaceManagedBotToken, methodSetManagedBotAccessSettings,
+		methodGetManagedBotAccessSettings:
+		f.managedReply(w, c)
+	case "answercallbackquery", "setmycommands", "deletemycommands",
 		"sendchataction", "deletemessage", "setmydescription", "setmyshortdescription", "setmyprofilephoto",
 		"removemyprofilephoto", "answerinlinequery", "sendmessagedraft", "setchatmenubutton", "unpinchatmessage":
 		writeResult(w, true)

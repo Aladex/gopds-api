@@ -21,6 +21,9 @@ type Me struct {
 	Username       string `json:"username"`
 	FirstName      string `json:"first_name"`
 	SupportsInline bool   `json:"supports_inline_queries"`
+	// CanManageBots is Bot Management Mode, set in BotFather: the bot may
+	// create and manage other bots (Managed Bots).
+	CanManageBots bool `json:"can_manage_bots"`
 }
 
 // GetMe asks Telegram about the bot whose token this is. Errors name neither

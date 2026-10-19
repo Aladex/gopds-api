@@ -167,6 +167,11 @@ func initializeTelegram(
 		telegramService.GetBotManager().SetDelivery(deliveries)
 		api.SetTelegramDelivery(deliveries)
 		deliveries.Start(healthCheckCtx)
+		// Managed Bots: on only with a manager token Telegram lets manage
+		// bots; otherwise a reader connects a bot by its token.
+		if err := telegramService.GetBotManager().StartManager(healthCheckCtx, cfg.Telegram.Manager.Token); err != nil {
+			logging.Errorf("Telegram manager is off: %v", err)
+		}
 	}
 	return func() {
 		healthCheckCancel()

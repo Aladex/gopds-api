@@ -36,6 +36,8 @@ func (s *TelegramService) SetupWebhookRoutes(group *gin.RouterGroup) {
 	// Dynamic route for bot webhooks
 	// Format: /telegram/{token}
 	group.POST("/:token", s.routes.HandleWebhook)
+	// The manager's own webhook: /telegram/manager/{uuid}
+	group.POST("/manager/:path", s.botManager.HandleManagerWebhook)
 }
 
 // SetupApiRoutes sets up API routes for managing Telegram bots
@@ -45,6 +47,12 @@ func (s *TelegramService) SetupApiRoutes(group *gin.RouterGroup) {
 	group.DELETE("/bot", s.routes.RemoveBotToken)
 	group.GET("/bot/status", s.routes.GetBotStatus)
 	group.POST("/link", s.routes.NewLink)
+	// Managed Bots: a personal bot created through the manager
+	group.POST("/managed", s.routes.StartManaged)
+	group.DELETE("/managed", s.routes.CancelManaged)
+	group.POST("/managed/claim", s.routes.ClaimManaged)
+	group.POST("/managed/check", s.routes.CheckManaged)
+	group.POST("/managed/restore", s.routes.RestoreManaged)
 }
 
 // GetBotManager returns the bot manager instance

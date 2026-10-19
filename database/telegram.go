@@ -101,7 +101,8 @@ func nextGeneration(ctx context.Context, tx *pg.Tx, botRef int64, freshNavKey []
 func ListServableTelegramBots(ctx context.Context) ([]models.TelegramBot, error) {
 	var bots []models.TelegramBot
 	err := db.ModelContext(ctx, &bots).
-		Where("status = ?", models.TelegramBotActive).
+		// A bot whose owner changed is served for its new owner's /start link.
+		WhereIn("status IN (?)", []string{models.TelegramBotActive, models.TelegramBotOwnerChanged}).
 		Where("token_enc IS NOT NULL").
 		Order("id").
 		Select()
@@ -261,6 +262,9 @@ const (
 	// LinkBotTaken: the bot serves another library account now. A link
 	// handed out before another account confirmed the bot does not move it.
 	LinkBotTaken
+	// LinkNotCreator: a managed bot's link opened by someone other than the
+	// Telegram user who made the bot (concept §C.3, step 4).
+	LinkNotCreator
 )
 
 // ConsumeTelegramLinkToken binds botRef to the link's account and to tgUserID,
@@ -346,6 +350,15 @@ func bindByLink(
 	botRef := link.BotRef
 	// The caller holds the bot row: it serializes every binding change of
 	// this bot, and every link change after it.
+	bot := &models.TelegramBot{ID: botRef}
+	if err := tx.ModelContext(ctx, bot).WherePK().Select(); err != nil {
+		return LinkExpired, nil, err
+	}
+	// A managed bot is proved by its creator alone: the link is the site's
+	// half, the creator's /start Telegram's.
+	if bot.Kind == models.TelegramBotManaged && (bot.CreatorTGID == nil || *bot.CreatorTGID != tgUserID) {
+		return LinkNotCreator, nil, nil
+	}
 	var otherAccount int
 	if _, err := tx.QueryOneContext(ctx, pg.Scan(&otherAccount), `
 		SELECT count(*) FROM telegram_binding
@@ -395,6 +408,19 @@ func bindByLink(
 	if _, err = tx.ExecContext(ctx, `
 		UPDATE telegram_link_token SET expires_at = least(expires_at, now())
 		WHERE bot_ref = ? AND user_id <> ? AND consumed_at IS NULL`, botRef, link.UserID); err != nil {
+		return LinkExpired, nil, err
+	}
+	// The account's Managed connection in progress is done; a managed bot
+	// whose owner changed is its new owner's now, and served again.
+	if _, err = tx.ExecContext(ctx, `
+		UPDATE telegram_pending_connection SET state = ?, updated_at = now()
+		WHERE user_id = ? AND state IN (?, ?)`,
+		models.PendingConnectionLinked, link.UserID, models.PendingConnectionWaiting, models.PendingConnectionFound); err != nil {
+		return LinkExpired, nil, err
+	}
+	if _, err = tx.ExecContext(ctx, `
+		UPDATE telegram_bot SET status = ?, updated_at = now() WHERE id = ? AND status = ?`,
+		models.TelegramBotActive, botRef, models.TelegramBotOwnerChanged); err != nil {
 		return LinkExpired, nil, err
 	}
 	return LinkCreated, binding, nil
@@ -451,6 +477,9 @@ func GetTelegramUserState(ctx context.Context, userID int64) (TelegramUserState,
 		Where("added_by_user_id = ?", userID).
 		Where("token_enc IS NOT NULL").
 		Where("status = ?", models.TelegramBotActive).
+		// A bot the manager made waits for a link once it answers.
+		Where(`kind <> ? OR EXISTS (SELECT 1 FROM telegram_managed_bot m
+			WHERE m.bot_ref = telegram_bot.id AND m.ready_at IS NOT NULL)`, models.TelegramBotManaged).
 		// Not bound now, and entered after its last binding ended: a bot
 		// left behind by a change of connection is not waiting for a link.
 		Where(`NOT EXISTS (SELECT 1 FROM telegram_binding b WHERE b.bot_ref = telegram_bot.id
