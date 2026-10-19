@@ -41,6 +41,9 @@ func EnqueueTelegramDelivery(
 	var job models.TelegramDelivery
 	admission := Admitted
 	err := db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		if err := guardInboxLease(ctx, tx); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(?, ?)`, deliveryUserLock, d.UserID); err != nil {
 			return err
 		}

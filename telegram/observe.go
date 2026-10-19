@@ -10,6 +10,7 @@ import (
 
 	"gopds-api/database"
 	"gopds-api/logging"
+	"gopds-api/telegram/tgapi"
 )
 
 // observingClient carries a bot's outgoing calls and notices the one answer
@@ -38,12 +39,16 @@ func (bm *BotManager) observedClient(ref int64) *observingClient {
 // held — and marks that a reply may be on its way. A handler that lost its
 // lease to another process makes no call at all.
 func (c *observingClient) Do(req *http.Request) (*http.Response, error) {
-	if lease, ok := inboxLeaseOf(req.Context()); ok {
+	lease, handling := database.InboxLeaseFrom(req.Context())
+	if handling {
 		if err := database.MarkTelegramInboxReplyStarted(req.Context(), lease); err != nil {
 			return nil, fmt.Errorf("not sending for update %d: %w", lease.UpdateID, err)
 		}
 	}
 	resp, err := c.inner.Do(req) // #nosec G704 -- the request goes to the configured Bot API endpoint
+	if handling {
+		c.reconcile(req.Context(), lease, err)
+	}
 	if err != nil || resp.StatusCode != http.StatusForbidden {
 		return resp, err
 	}
@@ -54,6 +59,24 @@ func (c *observingClient) Do(req *http.Request) (*http.Response, error) {
 		c.onDeny()
 	}
 	return resp, nil
+}
+
+// reconcile records a handler's call in its ledger. A call that provably never
+// reached Telegram takes back the update's reply mark — unless an earlier call
+// of the same update may have reached it — so the update stays safe to run
+// again instead of being closed as uncertain.
+func (c *observingClient) reconcile(ctx context.Context, lease database.InboxLease, err error) {
+	class, _ := tgapi.Classify(err)
+	unsent := class == tgapi.ClassNotSent
+	ledger := replyLedgerOf(ctx)
+	if ledger == nil {
+		return
+	}
+	if ledger.record(unsent) && unsent {
+		if clearErr := database.ClearTelegramInboxReplyStarted(context.WithoutCancel(ctx), lease); clearErr != nil {
+			logging.Warnf("Inbox: taking back the reply mark of update %d: %v", lease.UpdateID, clearErr)
+		}
+	}
 }
 
 // deniesTheOwner reports whether a 403 says the chat is closed to the bot:

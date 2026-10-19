@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"gopds-api/database"
@@ -224,7 +225,8 @@ func isLinkStart(text string) bool {
 // (and its fence) in the database before the call starts.
 func (bm *BotManager) dispatch(parent context.Context, b *Bot, update *tgbot.Update, lease database.InboxLease) {
 	defer bm.handling.Done()
-	ctx, cancel := context.WithCancelCause(withInboxLease(parent, lease))
+	ledger := &replyLedger{}
+	ctx, cancel := context.WithCancelCause(withReplyLedger(database.WithInboxLease(parent, lease), ledger))
 	defer cancel(nil)
 	go bm.keepLease(ctx, cancel, lease)
 
@@ -238,9 +240,59 @@ func (bm *BotManager) dispatch(parent context.Context, b *Bot, update *tgbot.Upd
 
 	b.bot.ProcessUpdate(ctx, update)
 
+	if ledger.onlyUnsent() {
+		// Every call it tried provably never left: the update is handed back
+		// whole for the next sweep, rather than closed with its reply lost.
+		logging.Warnf("Inbox: update %d of telegram bot %d sent nothing; handing it back", lease.UpdateID, lease.BotRef)
+		if err := database.ReleaseTelegramInboxUpdate(parent, lease); err != nil {
+			logging.Warnf("Inbox: handing back update %d of telegram bot %d: %v", lease.UpdateID, lease.BotRef, err)
+		}
+		return
+	}
 	if err := database.FinishTelegramInboxUpdate(parent, lease, "done"); err != nil {
+		// Taken over, or past its lease: the next holder decides.
 		logging.Warnf("Inbox: closing update %d of telegram bot %d: %v", lease.UpdateID, lease.BotRef, err)
 	}
+}
+
+// replyLedger counts what a handler's outgoing calls may have done: calls
+// that may have reached Telegram, and calls that provably did not.
+type replyLedger struct {
+	mu             sync.Mutex
+	possiblySent   int
+	provablyUnsent int
+}
+
+// onlyUnsent reports that calls were tried and none may have reached Telegram.
+func (l *replyLedger) onlyUnsent() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.possiblySent == 0 && l.provablyUnsent > 0
+}
+
+// record notes one call's result; it reports whether every call so far was
+// provably unsent, so the update's reply mark may be taken back.
+func (l *replyLedger) record(unsent bool) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if unsent {
+		l.provablyUnsent++
+	} else {
+		l.possiblySent++
+	}
+	return l.possiblySent == 0
+}
+
+// replyLedgerKey carries a handler's ledger.
+type replyLedgerKey struct{}
+
+func withReplyLedger(ctx context.Context, l *replyLedger) context.Context {
+	return context.WithValue(ctx, replyLedgerKey{}, l)
+}
+
+func replyLedgerOf(ctx context.Context) *replyLedger {
+	l, _ := ctx.Value(replyLedgerKey{}).(*replyLedger)
+	return l
 }
 
 // keepLease renews the lease until ctx ends. When a renewal fails — the row
@@ -261,19 +313,6 @@ func (bm *BotManager) keepLease(ctx context.Context, cancel context.CancelCauseF
 			}
 		}
 	}
-}
-
-// inboxLeaseKey carries the lease of the update a handler is working on.
-type inboxLeaseKey struct{}
-
-func withInboxLease(ctx context.Context, lease database.InboxLease) context.Context {
-	return context.WithValue(ctx, inboxLeaseKey{}, lease)
-}
-
-// inboxLeaseOf returns the lease a context carries, if it is a handler's.
-func inboxLeaseOf(ctx context.Context) (database.InboxLease, bool) {
-	lease, ok := ctx.Value(inboxLeaseKey{}).(database.InboxLease)
-	return lease, ok
 }
 
 // StartInboxSweeper hands updates whose process died to this one, every

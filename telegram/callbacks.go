@@ -430,6 +430,8 @@ func (h *CallbackHandler) handleDownload(ctx context.Context, b *tgbotapi.Bot, u
 		OriginMessageID: int64(messageID),
 	})
 	switch {
+	case errors.Is(err, database.ErrInboxLeaseLost):
+		// This process no longer holds the press; the one that does answers.
 	case errors.Is(err, delivery.ErrNotFound), errors.Is(err, delivery.ErrUnavailable):
 		h.answerCallbackText(ctx, b, q, delivery.ToastUnavailable)
 	case errors.Is(err, delivery.ErrUnknownFormat):

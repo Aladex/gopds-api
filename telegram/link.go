@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"strings"
 	"time"
 
@@ -109,6 +110,10 @@ func (b *Bot) handleStart(ctx context.Context, update *tgbot.Update) {
 func (b *Bot) handleLink(ctx context.Context, msg *tgbot.Message, secret string) {
 	outcome, _, err := database.ConsumeTelegramLinkToken(ctx, b.ref, linkHash(secret), msg.From.ID,
 		displayName(msg.From), b.manager.freshNavKey())
+	if errors.Is(err, database.ErrInboxLeaseLost) {
+		// This process no longer holds the update; the one that does answers.
+		return
+	}
 	if err != nil {
 		logging.Errorf("Linking telegram bot %d: %v", b.ref, err)
 		b.sendScreen(ctx, msg.Chat.ID, copyLibraryUnavailable, nil)

@@ -74,7 +74,7 @@ func AdoptLegacyTelegramBot(ctx context.Context, bot *models.TelegramBot, ownerT
 func nextGeneration(ctx context.Context, tx *pg.Tx, botRef int64, freshNavKey []byte) (int32, error) {
 	var generation int32
 	if _, err := tx.QueryOneContext(ctx, pg.Scan(&generation),
-		`SELECT next_generation FROM telegram_bot WHERE id = ? FOR UPDATE`, botRef); err != nil {
+		`SELECT next_generation FROM telegram_bot WHERE id = ? FOR NO KEY UPDATE`, botRef); err != nil {
 		return 0, err
 	}
 	if generation > maxGeneration {
@@ -269,16 +269,24 @@ func ConsumeTelegramLinkToken(
 	outcome := LinkExpired
 	var binding *models.TelegramBinding
 	err := db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		if err := guardInboxLease(ctx, tx); err != nil {
+			return err
+		}
+		// One order for every link and binding change: the bot row first,
+		// then its links. Locking the link first and the bot second would let
+		// two confirmations each hold what the other waits for. NO KEY: the
+		// bot's key does not change, so the bot's incoming updates — whose
+		// inbox rows reference it — are not held up meanwhile.
+		if _, err := tx.ExecContext(ctx, `SELECT 1 FROM telegram_bot WHERE id = ? FOR NO KEY UPDATE`, botRef); err != nil {
+			return err
+		}
 		link := new(models.TelegramLinkToken)
-		err := tx.ModelContext(ctx, link).Where("secret_sha256 = ?", secretHash).For("UPDATE").Select()
+		err := tx.ModelContext(ctx, link).Where("secret_sha256 = ? AND bot_ref = ?", secretHash, botRef).For("UPDATE").Select()
 		if errors.Is(err, pg.ErrNoRows) {
 			return nil
 		}
 		if err != nil {
 			return err
-		}
-		if link.BotRef != botRef {
-			return nil
 		}
 		if link.ConsumedAt != nil {
 			outcome, binding, err = replayedLink(ctx, tx, link, tgUserID)
@@ -314,10 +322,8 @@ func bindByLink(
 	ctx context.Context, tx *pg.Tx, link *models.TelegramLinkToken, tgUserID int64, tgDisplay string, freshNavKey []byte,
 ) (LinkOutcome, *models.TelegramBinding, error) {
 	botRef := link.BotRef
-	// The bot row first: it serializes every binding change of this bot.
-	if _, err := tx.ExecContext(ctx, `SELECT 1 FROM telegram_bot WHERE id = ? FOR UPDATE`, botRef); err != nil {
-		return LinkExpired, nil, err
-	}
+	// The caller holds the bot row: it serializes every binding change of
+	// this bot, and every link change after it.
 	var otherAccount int
 	if _, err := tx.QueryOneContext(ctx, pg.Scan(&otherAccount), `
 		SELECT count(*) FROM telegram_binding
@@ -504,6 +510,44 @@ type InboxLease struct {
 // ErrInboxLeaseLost means the row is no longer held by this lease.
 var ErrInboxLeaseLost = errors.New("telegram inbox lease lost")
 
+// inboxLeaseKey carries the lease of the update a handler is working on.
+type inboxLeaseKey struct{}
+
+// WithInboxLease marks ctx as a handler's, working for lease. Every durable
+// write made under such a context checks the lease in its own transaction.
+func WithInboxLease(ctx context.Context, lease InboxLease) context.Context {
+	return context.WithValue(ctx, inboxLeaseKey{}, lease)
+}
+
+// InboxLeaseFrom returns the lease a context carries, if it is a handler's.
+func InboxLeaseFrom(ctx context.Context) (InboxLease, bool) {
+	lease, ok := ctx.Value(inboxLeaseKey{}).(InboxLease)
+	return lease, ok
+}
+
+// guardInboxLease is the fence of a handler's transaction: when ctx is a
+// handler's, the update must still be held — same owner, same fence, lease
+// live — or the transaction fails with ErrInboxLeaseLost and commits nothing.
+// The row is locked FOR SHARE, so a takeover waits for this transaction
+// rather than slipping in before it commits. Outside a handler it does
+// nothing.
+func guardInboxLease(ctx context.Context, tx *pg.Tx) error {
+	l, ok := InboxLeaseFrom(ctx)
+	if !ok {
+		return nil
+	}
+	var held int
+	if _, err := tx.QueryContext(ctx, pg.Scan(&held), `
+		SELECT 1 FROM telegram_update_inbox WHERE `+leaseHeld+` FOR SHARE`,
+		l.BotRef, l.UpdateID, l.Owner, l.Fence); err != nil {
+		return err
+	}
+	if held != 1 {
+		return ErrInboxLeaseLost
+	}
+	return nil
+}
+
 // InsertTelegramInboxUpdate records an accepted update, leased to owner for
 // lease, and returns the lease. It reports false when the update was already
 // recorded — a redelivery, which must not be handled again.
@@ -558,14 +602,37 @@ func MarkTelegramInboxReplyStarted(ctx context.Context, l InboxLease) error {
 	return nil
 }
 
+// ClearTelegramInboxReplyStarted takes back the reply mark of an outgoing call
+// that provably never reached Telegram, so the update stays safe to run again.
+// Only the same holder (owner and fence) may; a live lease is not required —
+// the mark is its own, and nobody else has acted on the row.
+func ClearTelegramInboxReplyStarted(ctx context.Context, l InboxLease) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE telegram_update_inbox SET reply_started_at = NULL
+		WHERE bot_ref = ? AND update_id = ? AND lease_owner = ? AND fence = ? AND state = 'pending'`,
+		l.BotRef, l.UpdateID, l.Owner, l.Fence)
+	return err
+}
+
+// ReleaseTelegramInboxUpdate hands a held update back unfinished — its reply
+// provably never left — for the next sweep to run again.
+func ReleaseTelegramInboxUpdate(ctx context.Context, l InboxLease) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE telegram_update_inbox SET lease_expires_at = now()
+		WHERE bot_ref = ? AND update_id = ? AND lease_owner = ? AND fence = ? AND state = 'pending'`,
+		l.BotRef, l.UpdateID, l.Owner, l.Fence)
+	return err
+}
+
 // FinishTelegramInboxUpdate closes a held update as state and forgets its
-// payload; ErrInboxLeaseLost when the lease is gone.
+// payload; ErrInboxLeaseLost when the lease is gone — expired included: a
+// holder past its lease cannot vouch that its work is complete, and the row
+// stays for the next one.
 func FinishTelegramInboxUpdate(ctx context.Context, l InboxLease, state string) error {
 	res, err := db.ExecContext(ctx, `
 		UPDATE telegram_update_inbox
 		SET state = ?, payload = NULL, lease_owner = NULL, lease_expires_at = NULL, finished_at = now()
-		WHERE bot_ref = ? AND update_id = ? AND lease_owner = ? AND fence = ? AND state = 'pending'`,
-		state, l.BotRef, l.UpdateID, l.Owner, l.Fence)
+		WHERE `+leaseHeld, state, l.BotRef, l.UpdateID, l.Owner, l.Fence)
 	if err != nil {
 		return err
 	}
