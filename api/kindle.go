@@ -161,10 +161,18 @@ type kindleSocket struct {
 	// back with the session it has now.
 	expired    chan struct{}
 	expireOnce sync.Once
+
+	// session and isAdmin are the authorization lookups as they were when
+	// the connection opened. The connection's goroutines read only these,
+	// never the package variables tests swap: a connection a finished test
+	// left running cannot race the next test's swap.
+	session func(token string) error
+	isAdmin func(userID int64) (bool, error)
 }
 
 func newKindleSocket(token string) *kindleSocket {
-	return &kindleSocket{token: token, expired: make(chan struct{})}
+	return &kindleSocket{token: token, expired: make(chan struct{}),
+		session: validateWSSession, isAdmin: currentUserIsAdmin}
 }
 
 // expire marks the connection's session as gone.
@@ -211,7 +219,7 @@ func handleKindleRequest(userID, bookID int64, sock *kindleSocket, notifyChan ch
 	}
 	sock.pending.Add(1)
 	go func() {
-		code := runKindleSend(userID, bookID, sock.token, done)
+		code := sock.sendToKindle(userID, bookID, done)
 		// Released before the reply goes out, so a reader who asks again the
 		// moment they see it is not told the first one is still running.
 		queue.Leave(key)
@@ -226,9 +234,16 @@ func handleKindleRequest(userID, bookID int64, sock *kindleSocket, notifyChan ch
 	return true
 }
 
-// runKindleSend does one send and writes its one line of log.
+// runKindleSend does one send for a connection opened with token, and writes
+// its one line of log.
 func runKindleSend(userID, bookID int64, token string, done <-chan struct{}) string {
-	return kindleSender().Run(userID, bookID, func() string { return kindleSessionCode(userID, token) }, done)
+	return newKindleSocket(token).sendToKindle(userID, bookID, done)
+}
+
+// sendToKindle does one send for this connection, and writes its one line of
+// log.
+func (k *kindleSocket) sendToKindle(userID, bookID int64, done <-chan struct{}) string {
+	return kindleSender().Run(userID, bookID, func() string { return k.sessionCode(userID) }, done)
 }
 
 // kindleReply is the frame answering one request; an empty code is success.
@@ -252,11 +267,11 @@ func sendReply(msgType string, bookID int64, code string) []byte {
 	return message
 }
 
-// kindleSessionCode checks that the socket's session still stands. A session
+// sessionCode checks that the socket's session still stands. A session
 // confirmed gone is session_expired; a session store that does not answer
 // fails the send closed, as send_failed, since mail cannot be unsent.
-func kindleSessionCode(userID int64, token string) string {
-	err := validateWSSession(token)
+func (k *kindleSocket) sessionCode(userID int64) string {
+	err := k.session(k.token)
 	if err == nil {
 		return ""
 	}

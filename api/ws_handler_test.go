@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,12 +23,12 @@ func init() {
 	gin.SetMode(gin.TestMode)
 }
 
-// wsTestHandler is a plain http.Handler that accepts a WebSocket and runs the
-// same read/write loops as UnifiedWebSocketHandler via serveWebSocket, but
-// without going through gin's router (which wraps ResponseWriter and breaks
-// http.Hijacker support needed by websocket.Accept).
-func wsTestHandler(mgr *services.WebSocketManager, userID int64, username string, isAdmin bool) http.Handler {
+// wsTestHandler serves test connections, counting them in handlers so a
+// test can wait for every one to end.
+func wsTestHandler(mgr *services.WebSocketManager, userID int64, username string, isAdmin bool, handlers *sync.WaitGroup) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handlers.Add(1)
+		defer handlers.Done()
 		opts := &websocket.AcceptOptions{InsecureSkipVerify: true}
 		conn, err := websocket.Accept(w, r, opts)
 		if err != nil {
@@ -39,23 +40,43 @@ func wsTestHandler(mgr *services.WebSocketManager, userID int64, username string
 	})
 }
 
+// handlersEnd bounds the wait for a test's connections to end.
+const handlersEnd = 5 * time.Second
+
 func setupTestServer(t *testing.T, userID int64, username string, isAdmin bool) (*httptest.Server, *services.WebSocketManager) {
 	t.Helper()
 
 	// Tests run without Redis and without a database: the live authorization
 	// hooks default to the handshake snapshot unless a test replaces them.
+	// They are put back only once every connection of the test has ended
+	// (the cleanup below runs first): a connection outliving its test read
+	// them while the next test swapped them — a data race on master's CI.
+	// A test that replaces them after this needs no cleanup of its own.
 	previousRole := currentUserIsAdmin
 	currentUserIsAdmin = func(int64) (bool, error) { return isAdmin, nil }
 	previousSession := validateWSSession
 	validateWSSession = func(string) error { return nil }
+	previousInterval := wsRevalidateInterval
 	t.Cleanup(func() {
 		currentUserIsAdmin = previousRole
 		validateWSSession = previousSession
+		wsRevalidateInterval = previousInterval
 	})
 
 	mgr := services.NewWebSocketManager()
-	s := httptest.NewServer(wsTestHandler(mgr, userID, username, isAdmin))
-	t.Cleanup(s.Close)
+	var handlers sync.WaitGroup
+	s := httptest.NewServer(wsTestHandler(mgr, userID, username, isAdmin, &handlers))
+	t.Cleanup(func() {
+		s.CloseClientConnections()
+		s.Close()
+		ended := make(chan struct{})
+		go func() { handlers.Wait(); close(ended) }()
+		select {
+		case <-ended:
+		case <-time.After(handlersEnd):
+			t.Errorf("a test connection did not end within %s", handlersEnd)
+		}
+	})
 	return s, mgr
 }
 

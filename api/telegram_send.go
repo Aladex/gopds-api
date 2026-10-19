@@ -64,7 +64,7 @@ func handleTelegramRequest(userID, bookID int64, sock *kindleSocket, notifyChan 
 	sock.telegramPending.Add(1)
 	go func() {
 		defer sock.telegramPending.Add(-1)
-		code := runTelegramSend(userID, bookID, sock.token, done)
+		code := runTelegramSend(userID, bookID, sock, done)
 		if code == kindleOutcomeDropped {
 			return
 		}
@@ -78,8 +78,8 @@ func handleTelegramRequest(userID, bookID int64, sock *kindleSocket, notifyChan 
 
 // runTelegramSend makes the request and waits for its outcome; it returns
 // kindleOutcomeDropped when the connection went away first.
-func runTelegramSend(userID, bookID int64, token string, done <-chan struct{}) string {
-	if code := kindleSessionCode(userID, token); code != "" {
+func runTelegramSend(userID, bookID int64, sock *kindleSocket, done <-chan struct{}) string {
+	if code := sock.sessionCode(userID); code != "" {
 		return code
 	}
 	d := currentTelegramDelivery()

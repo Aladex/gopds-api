@@ -15,17 +15,17 @@ import (
 // an infrastructure blip, fails closed on both for delivery, and only spends
 // checks on sockets that hold admin subscriptions.
 
-// stubRoleSource swaps the live role lookup for a flippable test one.
+// stubRoleSource swaps the live role lookup for a flippable test one. It
+// comes after setupTestServer, which puts the lookup back once the test's
+// connections have ended.
 func stubRoleSource(t *testing.T, admin, roleErr *atomic.Bool) {
 	t.Helper()
-	previous := currentUserIsAdmin
 	currentUserIsAdmin = func(userID int64) (bool, error) {
 		if roleErr != nil && roleErr.Load() {
 			return false, assert.AnError
 		}
 		return admin.Load(), nil
 	}
-	t.Cleanup(func() { currentUserIsAdmin = previous })
 }
 
 // sessionStubError boxes the error a stubSessionSource returns, because an
@@ -33,23 +33,22 @@ func stubRoleSource(t *testing.T, admin, roleErr *atomic.Bool) {
 type sessionStubError struct{ err error }
 
 // stubSessionSource swaps the session check; the boxed error is returned
-// when set.
+// when set. It comes after setupTestServer, which puts the check back once
+// the test's connections have ended.
 func stubSessionSource(t *testing.T, sessionErr *atomic.Value) {
 	t.Helper()
 	sessionErr.Store(sessionStubError{})
-	previous := validateWSSession
 	validateWSSession = func(string) error {
 		return sessionErr.Load().(sessionStubError).err
 	}
-	t.Cleanup(func() { validateWSSession = previous })
 }
 
-// fastRevalidation shortens the revalidation period for the test.
+// fastRevalidation shortens the revalidation period for the test. It comes
+// after setupTestServer, which puts the period back once the test's
+// connections have ended.
 func fastRevalidation(t *testing.T) {
 	t.Helper()
-	previous := wsRevalidateInterval
 	wsRevalidateInterval = 20 * time.Millisecond
-	t.Cleanup(func() { wsRevalidateInterval = previous })
 }
 
 // drainPing reads until the pong for a ping arrives and reports every
@@ -219,17 +218,12 @@ func TestWSHandler_RegularSocketIsNotRevalidated(t *testing.T) {
 	s, _ := setupTestServer(t, 5, "user", false)
 	fastRevalidation(t)
 
-	// Counting stubs go in AFTER setupTestServer, which installs defaults.
+	// Counting stubs go in AFTER setupTestServer, which installs defaults
+	// and puts the originals back.
 	var sessionCalls atomic.Int64
 	var roleCalls atomic.Int64
-	previousSession := validateWSSession
 	validateWSSession = func(string) error { sessionCalls.Add(1); return nil }
-	previousRole := currentUserIsAdmin
 	currentUserIsAdmin = func(int64) (bool, error) { roleCalls.Add(1); return false, nil }
-	t.Cleanup(func() {
-		validateWSSession = previousSession
-		currentUserIsAdmin = previousRole
-	})
 
 	client := newWSTestClient(t, s)
 	sessionCalls.Store(0)

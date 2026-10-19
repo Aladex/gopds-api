@@ -182,7 +182,7 @@ func serveWebSocket(mgr *services.WebSocketManager, conn *websocket.Conn, userID
 
 	// The writer loop is the connection's owner: it returns when the
 	// connection ends, whatever ended it.
-	runWriterLoop(mgr, conn, userID, clientID, token, notifyChan, quit, kindle.expired)
+	runWriterLoop(mgr, conn, userID, clientID, kindle, notifyChan, quit)
 }
 
 // runWriterLoop is the single goroutine that writes to the connection. It
@@ -202,11 +202,11 @@ func runWriterLoop(
 	conn *websocket.Conn,
 	userID int64,
 	clientID uint64,
-	token string,
+	sock *kindleSocket,
 	notifyChan chan []byte,
 	quit chan struct{},
-	expired <-chan struct{},
 ) {
+	expired := sock.expired
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	revalidate := time.NewTicker(wsRevalidateInterval)
@@ -236,7 +236,7 @@ func runWriterLoop(
 			if mgr == nil || !mgr.HasAdminSubscriptions(clientID) {
 				continue
 			}
-			if err := validateWSSession(token); err != nil {
+			if err := sock.session(sock.token); err != nil {
 				if errors.Is(err, middlewares.ErrSessionMissing) {
 					logging.Infof("WebSocket session no longer valid, closing: id=%d", userID)
 					return
@@ -247,7 +247,7 @@ func runWriterLoop(
 				mgr.SetSuspended(clientID, true)
 				continue
 			}
-			adminNow, err := currentUserIsAdmin(userID)
+			adminNow, err := sock.isAdmin(userID)
 			if err != nil {
 				logging.Warnf("WebSocket role re-check failed, suspending: id=%d err=%v", userID, err)
 				mgr.SetSuspended(clientID, true)
@@ -318,7 +318,7 @@ func handleClientMessage(
 		return wsSend(notifyChan, done, response)
 
 	case wsMsgSubscribe:
-		return handleSubscribe(mgr, clientID, userID, typed.Topic, notifyChan, done)
+		return handleSubscribe(mgr, clientID, userID, typed.Topic, kindle.isAdmin, notifyChan, done)
 
 	case wsMsgUnsubscribe:
 		if mgr != nil {
@@ -356,6 +356,7 @@ func handleSubscribe(
 	clientID uint64,
 	userID int64,
 	topic string,
+	isAdmin func(int64) (bool, error),
 	notifyChan chan []byte,
 	done <-chan struct{},
 ) bool {
@@ -372,7 +373,7 @@ func handleSubscribe(
 	}
 	// Every topic so far carries admin data. No user identifiers in the log:
 	// the refusal says enough without them.
-	adminNow, err := currentUserIsAdmin(userID)
+	adminNow, err := isAdmin(userID)
 	if err != nil {
 		logging.Warnf("Role check failed, refusing subscription: topic=%q client_id=%d", topic, clientID)
 		return refuse("unavailable")
