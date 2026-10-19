@@ -7,9 +7,10 @@ import BookCard, { type BookCardProps } from '@/features/catalogue/BookCard';
 import type { Book } from '@/api/books';
 
 // An administrator's three actions on a book — rescan, edit, approve — sit in
-// one menu at the end of the action row. As three buttons of their own, with
-// the two send buttons beside them, the row ran to seven controls and out of
-// a phone-width card.
+// one menu in the card's top-right corner. As three buttons of their own, with
+// the two send buttons beside them, the row ran to seven controls and out of a
+// phone-width card; and in the action row, among the buttons a reader presses
+// every day, the menu was one stray tap away.
 
 const translate = (key: string, fallback?: string) => fallback ?? key;
 vi.mock('react-i18next', () => ({
@@ -67,32 +68,55 @@ const renderCard = (props: Partial<BookCardProps> = {}) =>
     );
 
 const actions = () => screen.getByTestId('book-actions');
-const menuButton = () => within(actions()).getByRole('button', { name: /^bookAdminActions/ });
+const menuButton = () => screen.getByRole('button', { name: /^bookAdminActions/ });
 
 beforeEach(() => vi.clearAllMocks());
 
-describe('the action row', () => {
-    it('gives an administrator one control more than a reader, not three', () => {
+describe('where the menu is', () => {
+    it('sits in the card’s corner, out of the action row', () => {
+        renderCard();
+        const corner = menuButton().parentElement!;
+
+        expect(within(actions()).queryByRole('button', { name: /bookAdminActions/ })).toBeNull();
+        expect(corner.className).toMatch(/\babsolute\b/);
+        expect(corner.className).toMatch(/\btop-2\b/);
+        expect(corner.className).toMatch(/\bright-2\b/);
+        // Placed by the card itself: the nearest positioned box.
+        expect(screen.getByTestId('book-card').className).toMatch(/\brelative\b/);
+    });
+
+    it('comes after the title for a keyboard and a screen reader', () => {
+        renderCard();
+        const title = screen.getByRole('heading', { name: book.title });
+
+        expect(
+            title.compareDocumentPosition(menuButton()) & Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+    });
+
+    it('keeps the title clear of it, and only on an administrator’s card', () => {
+        const admin = renderCard();
+        expect(screen.getByRole('heading', { name: book.title }).className).toMatch(/\bpr-8\b/);
+        admin.unmount();
+
+        renderCard({ isSuperuser: false });
+        expect(screen.getByRole('heading', { name: book.title }).className).not.toMatch(/\bpr-/);
+        expect(screen.queryByRole('button', { name: /bookAdminActions/ })).toBeNull();
+    });
+
+    it('leaves the action row the same for an administrator and a reader', () => {
         const reader = renderCard({ isSuperuser: false });
-        const readerControls = within(actions()).getAllByRole('button').length;
+        const readerRow = within(actions())
+            .getAllByRole('button')
+            .map((b) => b.getAttribute('aria-label') ?? b.textContent);
         reader.unmount();
 
         renderCard();
-        const adminControls = within(actions()).getAllByRole('button');
+        const adminRow = within(actions())
+            .getAllByRole('button')
+            .map((b) => b.getAttribute('aria-label') ?? b.textContent);
 
-        expect(adminControls).toHaveLength(readerControls + 1);
-        // Read · Kindle · Telegram · admin menu · star: five, the widest row
-        // a 320px card has room for (measured; see report-post1.md).
-        expect(adminControls).toHaveLength(5);
-        const names = adminControls.map((b) => b.getAttribute('aria-label') ?? b.textContent);
-        expect(names.indexOf('bookAdminActions')).toBe(names.length - 2);
-        expect(names[names.length - 1]).toBe('bookFavAdd');
-    });
-
-    it('keeps the reader’s row as it was', () => {
-        renderCard({ isSuperuser: false });
-
-        expect(within(actions()).queryByRole('button', { name: /bookAdminActions/ })).toBeNull();
+        expect(adminRow).toEqual(readerRow);
     });
 });
 

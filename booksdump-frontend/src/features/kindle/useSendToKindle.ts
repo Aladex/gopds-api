@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { Book } from '@/api/books';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
@@ -20,12 +21,17 @@ const KNOWN_ERRORS = new Set([
 ]);
 
 /**
- * useSendToKindle is the "To Kindle" button's behaviour for a whole list of
+ * useSendToKindle is the "Kindle" button's behaviour for a whole list of
  * cards: whether the reader has a Kindle to send to, which books are on their
- * way, and the setup dialog for a reader who has not set one up yet.
+ * way, the question asked before one is sent, and the setup dialog for a
+ * reader who has not set one up yet.
  *
  * A reader with no Kindle address gets the dialog and nothing goes to the
  * server: there is nothing it could do with the request but refuse it.
+ *
+ * A reader with one is asked first. A press used to send at once, and a book
+ * sent by a stray tap is a mail in someone's Kindle library that cannot be
+ * taken back.
  */
 export const useSendToKindle = () => {
     const { user, logout } = useAuth();
@@ -33,8 +39,25 @@ export const useSendToKindle = () => {
     const { t } = useTranslation();
     const [sending, setSending] = useState<ReadonlySet<number>>(() => new Set());
     const [setupOpen, setSetupOpen] = useState(false);
+    // The book the reader is asked about. Kept after the answer, so the
+    // question does not empty while it animates shut.
+    const [pending, setPending] = useState<Book | null>(null);
+    const [confirmOpen, setConfirmOpen] = useState(false);
 
     const configured = Boolean(user?.kindle_email);
+
+    /** request is the card button's press: the setup, or the question. */
+    const request = (book: Book) => {
+        if (!configured) {
+            setSetupOpen(true);
+            return;
+        }
+        if (sending.has(book.id)) {
+            return;
+        }
+        setPending(book);
+        setConfirmOpen(true);
+    };
 
     const send = async (bookID: number) => {
         if (!configured) {
@@ -89,7 +112,20 @@ export const useSendToKindle = () => {
 
     return {
         configured,
+        /** Where the book goes: said in the question, so it is checked once more. */
+        address: user?.kindle_email ?? '',
         isSending: (bookID: number) => sending.has(bookID),
+        request,
+        pending,
+        confirmOpen,
+        /** Sends the book asked about; only the confirmation calls this. */
+        confirm: () => {
+            if (!pending || !confirmOpen) return;
+            setConfirmOpen(false);
+            void send(pending.id);
+        },
+        cancel: () => setConfirmOpen(false),
+        /** Sends without asking: what the confirmation does once answered. */
         send,
         setupOpen,
         closeSetup: () => setSetupOpen(false),

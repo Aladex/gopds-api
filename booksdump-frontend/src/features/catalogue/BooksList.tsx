@@ -32,6 +32,7 @@ import { useFavouriteToggle } from '@/features/catalogue/hooks/useFavouriteToggl
 import { useBookDownloads } from '@/features/catalogue/hooks/useBookDownloads';
 import BookCard from '@/features/catalogue/BookCard';
 import KindleSetupDialog from '@/features/kindle/KindleSetupDialog';
+import KindleSendConfirm from '@/features/kindle/KindleSendConfirm';
 import { useSendToKindle } from '@/features/kindle/useSendToKindle';
 import { useProfileOpener } from '@/features/profile/ProfileOpenerContext';
 import { ALL_LANGUAGES } from '@/shared/lib/languageUtils';
@@ -131,8 +132,8 @@ const BooksList: React.FC = () => {
 
     const notify = (message: string) => toast(message, { duration: 2000 });
 
-    // One Kindle sender and one setup dialog for the whole page, not one per
-    // card.
+    // One Kindle sender, one question before sending and one setup dialog for
+    // the whole page, not one per card.
     const kindle = useSendToKindle();
     const { openProfile } = useProfileOpener();
 
@@ -229,7 +230,7 @@ const BooksList: React.FC = () => {
                                 showTelegramButton={user?.show_telegram_button !== false}
                                 kindleConfigured={kindle.configured}
                                 isSendingToKindle={kindle.isSending(book.id)}
-                                onSendToKindle={kindle.send}
+                                onSendToKindle={kindle.request}
                             />
                         </div>
                     ))}
@@ -242,6 +243,14 @@ const BooksList: React.FC = () => {
                     </div>
                 </div>
             )}
+
+            <KindleSendConfirm
+                open={kindle.confirmOpen}
+                book={kindle.pending}
+                address={kindle.address}
+                onConfirm={kindle.confirm}
+                onCancel={kindle.cancel}
+            />
 
             <KindleSetupDialog
                 open={kindle.setupOpen}

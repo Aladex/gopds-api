@@ -26,7 +26,7 @@ type BookAdminMenuProps = {
  *
  * They were three icon buttons of their own in the card's action row, and
  * with the two send buttons the row grew to seven — wider than a card on a
- * phone. One button opens them all now, just before the star.
+ * phone. One button opens them all now, in the card's top-right corner.
  *
  * The approval used to show as the colour of its button, green when given.
  * It is still seen without opening anything: a book not yet approved puts a

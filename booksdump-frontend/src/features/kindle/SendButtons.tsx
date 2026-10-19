@@ -9,10 +9,12 @@ import TelegramIcon from '@/shared/icons/TelegramIcon';
 import { cn } from '@/shared/lib/utils';
 
 /*
- * The two "send it somewhere" buttons of the book card, icon-only like the star
- * beside them. Their hints are radix tooltips rather than a title attribute: a
- * title never shows on keyboard focus or on a touch screen, and for the
- * Telegram button the hint is the whole of what it has to say.
+ * The two "send it somewhere" buttons of the book card. Kindle is labelled like
+ * Read beside it — an icon alone was not recognised until pressed — and
+ * Telegram, which only promises, stays an icon. Their hints are radix tooltips
+ * rather than a title attribute: a title never shows on keyboard focus or on a
+ * touch screen, and for the Telegram button the hint is the whole of what it
+ * has to say.
  */
 
 type KindleButtonProps = {
@@ -23,8 +25,8 @@ type KindleButtonProps = {
 };
 
 /**
- * KindleButton sends the book, or — muted, for a reader who has not set up a
- * Kindle — opens the setup. Muted rather than disabled: it still does
+ * KindleButton asks to send the book, or — muted, for a reader who has not set
+ * up a Kindle — opens the setup. Muted rather than disabled: it still does
  * something, and what it does is the way to make it work.
  *
  * While the book is on its way it shows a spinner and says so. It stays
@@ -39,20 +41,23 @@ export const KindleButton: React.FC<KindleButtonProps> = ({ configured, sending,
         <TooltipProvider>
             <Tooltip>
                 <TooltipTrigger asChild>
+                    {/* The name keeps the visible word in it, so a reader
+                        who says "Kindle" to a voice control still reaches it. */}
                     <Button
                         variant="ghost"
-                        size="icon"
+                        size="sm"
                         aria-label={sending ? t('sendToKindle.sending') : label}
                         aria-busy={sending || undefined}
                         data-configured={configured}
                         onClick={onClick}
-                        className={cn(!configured && 'text-muted-foreground')}
+                        className={cn('gap-1.5', !configured && 'text-muted-foreground')}
                     >
                         {sending ? (
                             <Loader2 aria-hidden="true" className="size-4 animate-spin" />
                         ) : (
                             <KindleIcon className="size-4" />
                         )}
+                        {t('sendToKindle.button')}
                     </Button>
                 </TooltipTrigger>
                 <TooltipContent>{sending ? t('sendToKindle.sending') : label}</TooltipContent>

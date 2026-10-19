@@ -121,10 +121,10 @@ describe('the Kindle button', () => {
         expect(button).not.toBeDisabled();
 
         await userEvent.click(button);
-        expect(onSendToKindle).toHaveBeenCalledWith(9);
+        expect(onSendToKindle).toHaveBeenCalledWith(book);
     });
 
-    it('sends the book when there is a Kindle to send to', async () => {
+    it('asks to send the book when there is a Kindle to send to', async () => {
         const onSendToKindle = vi.fn();
         renderCard({ showKindleButton: true, kindleConfigured: true, onSendToKindle });
         const button = kindleButton()!;
@@ -132,7 +132,31 @@ describe('the Kindle button', () => {
         expect(button).toHaveAccessibleName('sendToKindle.send');
         expect(button.className).not.toMatch(/text-muted-foreground/);
         await userEvent.click(button);
-        expect(onSendToKindle).toHaveBeenCalledWith(9);
+        expect(onSendToKindle).toHaveBeenCalledWith(book);
+    });
+
+    it('says «Kindle» beside its icon, as Read does, while Telegram stays an icon', () => {
+        renderCard({ showKindleButton: true, showTelegramButton: true, kindleConfigured: true });
+        const button = kindleButton()!;
+        const read = screen.getByRole('button', { name: 'bookRead' });
+
+        expect(button).toHaveTextContent('sendToKindle.button');
+        // The visible word is in the name, for voice control.
+        expect(button).toHaveAccessibleName('sendToKindle.send');
+        expect(button.querySelector('svg')).toBeInTheDocument();
+        // Read's size and spacing, so the two read as a pair.
+        for (const cls of ['h-8', 'gap-1.5']) {
+            expect(button.className.split(/\s+/)).toContain(cls);
+            expect(read.className.split(/\s+/)).toContain(cls);
+        }
+        expect(telegramButton()).toHaveTextContent('');
+    });
+
+    it('keeps the word, muted, when there is no Kindle yet', () => {
+        renderCard({ showKindleButton: true, kindleConfigured: false });
+
+        expect(kindleButton()).toHaveTextContent('sendToKindle.button');
+        expect(kindleButton()!.className).toMatch(/text-muted-foreground/);
     });
 
     it('shows that the book is on its way', () => {

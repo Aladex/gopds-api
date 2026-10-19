@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { toast } from 'sonner';
@@ -14,7 +14,7 @@ import type { KindleReply } from '@/context/WebSocketContext';
 // its one setup dialog, with the socket and the toaster replaced at their
 // edges. What is held here is the behaviour a reader sees — a reader with no
 // Kindle gets the setup and nothing is sent; one with a Kindle gets the frame
-// sent and the outcome said.
+// sent — once they have said yes to the question — and the outcome said.
 
 const translate = (key: string, fallback?: string) => fallback ?? key;
 const translation = { t: translate, i18n: { language: 'ru' } };
@@ -105,6 +105,13 @@ const book: Book = {
     favorite_count: 0,
 };
 
+/** Presses the card's button and says yes. */
+const sendBook = async () => {
+    await userEvent.click(screen.getByRole('button', { name: 'sendToKindle.send' }));
+    const question = await screen.findByRole('dialog');
+    await userEvent.click(within(question).getByRole('button', { name: 'sendToKindle.confirm' }));
+};
+
 const renderList = async () => {
     render(
         <MemoryRouter initialEntries={['/books/page/1']}>
@@ -160,7 +167,7 @@ describe('a reader with a Kindle address', () => {
         sendToKindle.mockResolvedValue({ status: 'sent' });
         await renderList();
 
-        await userEvent.click(screen.getByRole('button', { name: 'sendToKindle.send' }));
+        await sendBook();
 
         expect(sendToKindle).toHaveBeenCalledWith(5);
         await waitFor(() =>
@@ -178,9 +185,12 @@ describe('a reader with a Kindle address', () => {
         await renderList();
 
         const button = screen.getByRole('button', { name: 'sendToKindle.send' });
-        await userEvent.click(button);
+        await sendBook();
         expect(await screen.findByRole('button', { name: 'sendToKindle.sending' })).toBe(button);
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+        // A press while it is on its way neither asks again nor sends again.
         await userEvent.click(button);
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
         expect(sendToKindle).toHaveBeenCalledTimes(1);
 
         answer({ status: 'sent' });
@@ -199,7 +209,7 @@ describe('a reader with a Kindle address', () => {
         sendToKindle.mockResolvedValue({ status: 'error', code });
         await renderList();
 
-        await userEvent.click(screen.getByRole('button', { name: 'sendToKindle.send' }));
+        await sendBook();
 
         await waitFor(() => expect(toast.error).toHaveBeenCalledWith(key));
         expect(toast.success).not.toHaveBeenCalled();
@@ -209,7 +219,7 @@ describe('a reader with a Kindle address', () => {
         sendToKindle.mockResolvedValue({ status: 'error', code: 'session_expired' });
         await renderList();
 
-        await userEvent.click(screen.getByRole('button', { name: 'sendToKindle.send' }));
+        await sendBook();
 
         await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
         expect(toast.error).toHaveBeenCalledWith('sendToKindle.error.session_expired');
@@ -219,7 +229,7 @@ describe('a reader with a Kindle address', () => {
         sendToKindle.mockResolvedValue({ status: 'error', code: 'in_progress' });
         await renderList();
 
-        await userEvent.click(screen.getByRole('button', { name: 'sendToKindle.send' }));
+        await sendBook();
 
         await waitFor(() =>
             expect(toast.info).toHaveBeenCalledWith('sendToKindle.error.in_progress'),
@@ -231,9 +241,81 @@ describe('a reader with a Kindle address', () => {
         sendToKindle.mockResolvedValue({ status: 'error', code: 'not_configured' });
         await renderList();
 
-        await userEvent.click(screen.getByRole('button', { name: 'sendToKindle.send' }));
+        await sendBook();
 
         expect(await screen.findByRole('dialog')).toHaveTextContent('kindleSetup.title');
+    });
+});
+
+describe('the question before sending', () => {
+    beforeEach(() => {
+        authState.user.kindle_email = 'reader@kindle.com';
+        sendToKindle.mockResolvedValue({ status: 'sent' });
+    });
+
+    it('names the book, its author and the address, and sends nothing yet', async () => {
+        await renderList();
+
+        await userEvent.click(screen.getByRole('button', { name: 'sendToKindle.send' }));
+
+        const question = await screen.findByRole('dialog');
+        expect(question).toHaveAccessibleName('sendToKindle.confirmTitle');
+        expect(question).toHaveTextContent(book.title);
+        expect(question).toHaveTextContent('Аркадий Стругацкий');
+        expect(within(question).getByTestId('kindle-confirm-address')).toHaveTextContent(
+            'reader@kindle.com',
+        );
+        expect(
+            within(question).getByRole('button', { name: 'sendToKindle.confirm' }),
+        ).toBeVisible();
+        expect(within(question).getByRole('button', { name: 'cancel' })).toBeVisible();
+        expect(sendToKindle).not.toHaveBeenCalled();
+    });
+
+    it('sends nothing when cancelled, and gives the focus back to the card', async () => {
+        await renderList();
+        const button = screen.getByRole('button', { name: 'sendToKindle.send' });
+
+        await userEvent.click(button);
+        await userEvent.click(
+            within(await screen.findByRole('dialog')).getByRole('button', { name: 'cancel' }),
+        );
+
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+        expect(sendToKindle).not.toHaveBeenCalled();
+        await waitFor(() => expect(button).toHaveFocus());
+    });
+
+    it('cancels on Escape', async () => {
+        await renderList();
+        const button = screen.getByRole('button', { name: 'sendToKindle.send' });
+
+        await userEvent.click(button);
+        await screen.findByRole('dialog');
+        await userEvent.keyboard('{Escape}');
+
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+        expect(sendToKindle).not.toHaveBeenCalled();
+        await waitFor(() => expect(button).toHaveFocus());
+    });
+
+    it('sends on Enter, Send having the focus, and gives the focus back', async () => {
+        await renderList();
+        const button = screen.getByRole('button', { name: 'sendToKindle.send' });
+
+        await userEvent.click(button);
+        const question = await screen.findByRole('dialog');
+        await waitFor(() =>
+            expect(
+                within(question).getByRole('button', { name: 'sendToKindle.confirm' }),
+            ).toHaveFocus(),
+        );
+        await userEvent.keyboard('{Enter}');
+
+        await waitFor(() => expect(sendToKindle).toHaveBeenCalledWith(5));
+        expect(sendToKindle).toHaveBeenCalledTimes(1);
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+        await waitFor(() => expect(button).toHaveFocus());
     });
 });
 

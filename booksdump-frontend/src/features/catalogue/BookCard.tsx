@@ -150,8 +150,8 @@ export interface BookCardProps {
     /** Whether the reader has a Kindle address to send to. */
     kindleConfigured?: boolean;
     isSendingToKindle?: boolean;
-    /** Sends the book, or opens the setup when there is no Kindle yet. */
-    onSendToKindle?: (bookID: number) => void;
+    /** Asks to send the book, or opens the setup when there is no Kindle yet. */
+    onSendToKindle?: (book: Book) => void;
 }
 
 /** coverPath mirrors the sanitising the poster route expects. */
@@ -243,7 +243,7 @@ const BookCard: React.FC<BookCardProps> = ({
         <article
             data-testid="book-card"
             data-state={open ? 'open' : 'collapsed'}
-            className="rounded border border-border bg-card p-4 transition-colors hover:border-muted-foreground"
+            className="relative rounded border border-border bg-card p-4 transition-colors hover:border-muted-foreground"
         >
             {/*
               One grid, two arrangements. A phone has no room for a cover beside
@@ -277,7 +277,28 @@ const BookCard: React.FC<BookCardProps> = ({
                 </div>
 
                 <div className="col-start-2 row-start-1 flex min-w-0 flex-col gap-1.5">
-                    <h3 className="text-lg font-medium text-balance">{book.title}</h3>
+                    <h3 className={cn('text-lg font-medium text-balance', isSuperuser && 'pr-8')}>
+                        {book.title}
+                    </h3>
+                    {/*
+                      The administrator's menu, in the card's top-right corner rather
+                      than in the action row: there it sat among the buttons a reader
+                      presses every day, one stray tap from a rescan, and it took the
+                      room the labelled Kindle button needs at 320px. The title keeps
+                      clear of it with padding of its own. Here in the source, after
+                      the title, so it is read and tabbed to after it; placed by the
+                      card, the nearest positioned box.
+                    */}
+                    {isSuperuser && (
+                        <div className="absolute top-2 right-2">
+                            <BookAdminMenu
+                                book={book}
+                                onRescan={onRescan}
+                                onEdit={onEdit}
+                                onToggleApproved={onToggleApproved}
+                            />
+                        </div>
+                    )}
 
                     <div className="flex flex-wrap gap-x-3.5 gap-y-1 text-[13px] text-muted-foreground">
                         <span>
@@ -455,18 +476,10 @@ const BookCard: React.FC<BookCardProps> = ({
                         <KindleButton
                             configured={kindleConfigured}
                             sending={isSendingToKindle}
-                            onClick={() => onSendToKindle?.(book.id)}
+                            onClick={() => onSendToKindle?.(book)}
                         />
                     )}
                     {showTelegramButton && <TelegramButton />}
-                    {isSuperuser && (
-                        <BookAdminMenu
-                            book={book}
-                            onRescan={onRescan}
-                            onEdit={onEdit}
-                            onToggleApproved={onToggleApproved}
-                        />
-                    )}
                     <Button
                         variant="ghost"
                         size="icon"
