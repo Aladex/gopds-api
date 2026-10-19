@@ -143,7 +143,8 @@ func New(cfg *Config, bots Bots) *Router {
 // The whole update — panel reads, moves, renders and the Telegram calls —
 // runs holding its chat (plan-ui.md §5.1), so that two edits of one panel
 // never reach Telegram in the opposite order of their revisions, whichever
-// pod sends them.
+// pod sends them. It reports false, too, for a bot no longer served by the
+// v2 router once the chat is held.
 func (r *Router) Handle(ctx context.Context, b *Bot, update *tgbot.Update) (bool, error) {
 	if chatID, ok := chatOf(update); ok {
 		unlock, err := database.LockTelegramChat(ctx, b.Ref, chatID, r.cfg.ChatHold, r.cfg.ChatWait)
@@ -151,6 +152,17 @@ func (r *Router) Handle(ctx context.Context, b *Bot, update *tgbot.Update) (bool
 			return false, fmt.Errorf("holding chat %d: %w", chatID, err)
 		}
 		defer unlock()
+		// What b says was read before the wait: the bot may have been
+		// relinked — a new owner, a new generation — or switched back
+		// meanwhile. Only what holds now authorizes the update.
+		fresh, err := r.bots.V2Bot(ctx, b.Ref)
+		if err != nil {
+			return false, fmt.Errorf("reading telegram bot %d again: %w", b.Ref, err)
+		}
+		if fresh == nil {
+			return false, nil
+		}
+		b = fresh
 	}
 	switch {
 	case update.CallbackQuery != nil:

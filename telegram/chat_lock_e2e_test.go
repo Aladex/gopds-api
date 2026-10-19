@@ -2,14 +2,17 @@ package telegram_test
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"gopds-api/database"
 	"gopds-api/telegram/tgtest"
 
 	"github.com/stretchr/testify/assert"
@@ -123,4 +126,62 @@ func TestAChatHeldElsewhereHandsTheUpdateBack(t *testing.T) {
 	assert.Equal(t, 1, v.count(`SELECT count(*) FROM telegram_update_inbox WHERE update_id = ? AND state = 'pending'`, update.ID),
 		"the update is kept for the next sweep")
 	assert.NotEmpty(t, panel.MessageID)
+}
+
+// R1 (review-s4-fixes.md): a callback that waited for its chat is checked
+// against the binding as it is once the chat is held — here the bot was
+// relinked meanwhile, to the same owner (a new generation) or to another.
+func TestAQueuedCallbackIsCheckedAgainstTheBindingAfterItsWait(t *testing.T) {
+	for name, newOwner := range map[string]int64{"same owner": ownerTG, "new owner": ownerTG + 1} {
+		t.Run(name, func(t *testing.T) {
+			var armed atomic.Bool
+			waiting := make(chan struct{})
+			var signaled sync.Once
+			v := newV2(t, func(s *stack) {
+				s.db.AddQueryHook(queryHook(func(_ context.Context, q string) error {
+					if armed.Load() && strings.Contains(q, "INSERT INTO telegram_chat_lock") {
+						signaled.Do(func() { close(waiting) })
+					}
+					return nil
+				}))
+			})
+			v.addBooks("QueuedRelink")
+			v.say("QueuedRelink")
+			panel := v.lastSend()
+			ref := int64(v.count(`SELECT id FROM telegram_bot`))
+			unlock, err := database.LockTelegramChat(context.Background(), ref, ownerTG, time.Minute, time.Second)
+			require.NoError(t, err)
+			defer unlock()
+			armed.Store(true)
+			done := make(chan struct{})
+			go func() { v.tap(&panel, "Вперёд →"); close(done) }()
+			select {
+			case <-waiting:
+			case <-time.After(5 * time.Second):
+				t.Fatal("the callback did not wait for its chat")
+			}
+			secret, _ := v.connect(v.user, botToken1)
+			rec := v.hook(botToken1).Post(t, v.u.Text(newOwner, "/start link_"+secret))
+			require.Equal(t, http.StatusOK, rec.Code)
+			require.Eventually(t, func() bool {
+				return v.count(`SELECT count(*) FROM telegram_binding WHERE status = 'active' AND generation = 2 AND tg_user_id = ?`, newOwner) == 1
+			}, 5*time.Second, 10*time.Millisecond)
+			unlock()
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("the queued callback did not finish")
+			}
+			v.bm.WaitIdle()
+			assert.Empty(t, v.edits(panel.MessageID), "a button of the old binding changes nothing")
+			assert.Equal(t, "Эта кнопка недоступна.", v.lastAnswer())
+		})
+	}
+}
+
+// lastAnswer is the newest callback answer's toast.
+func (v *v2Stack) lastAnswer() string {
+	answers := v.fake.Calls("answerCallbackQuery")
+	require.NotEmpty(v.t, answers)
+	return answers[len(answers)-1].Params["text"]
 }
