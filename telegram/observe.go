@@ -61,6 +61,9 @@ func (c *observingClient) Do(req *http.Request) (*http.Response, error) {
 	return resp, nil
 }
 
+// clearReplyMark takes back a reply mark; a variable so a test can make it fail.
+var clearReplyMark = database.ClearTelegramInboxReplyStarted
+
 // reconcile records a handler's call in its ledger. A call that provably never
 // reached Telegram takes back the update's reply mark — unless an earlier call
 // of the same update may have reached it — so the update stays safe to run
@@ -73,7 +76,7 @@ func (c *observingClient) reconcile(ctx context.Context, lease database.InboxLea
 		return
 	}
 	if ledger.record(unsent) && unsent {
-		if clearErr := database.ClearTelegramInboxReplyStarted(context.WithoutCancel(ctx), lease); clearErr != nil {
+		if clearErr := clearReplyMark(context.WithoutCancel(ctx), lease); clearErr != nil {
 			logging.Warnf("Inbox: taking back the reply mark of update %d: %v", lease.UpdateID, clearErr)
 		}
 	}

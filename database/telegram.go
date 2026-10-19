@@ -614,11 +614,13 @@ func ClearTelegramInboxReplyStarted(ctx context.Context, l InboxLease) error {
 	return err
 }
 
-// ReleaseTelegramInboxUpdate hands a held update back unfinished — its reply
-// provably never left — for the next sweep to run again.
+// ReleaseTelegramInboxUpdate hands a held update back unfinished — every
+// reply it tried provably never left — for the next sweep to run again. The
+// reply mark goes in the same statement: a mark left behind by a failed
+// per-call clear would otherwise close the update as uncertain, its reply lost.
 func ReleaseTelegramInboxUpdate(ctx context.Context, l InboxLease) error {
 	_, err := db.ExecContext(ctx, `
-		UPDATE telegram_update_inbox SET lease_expires_at = now()
+		UPDATE telegram_update_inbox SET lease_expires_at = now(), reply_started_at = NULL
 		WHERE bot_ref = ? AND update_id = ? AND lease_owner = ? AND fence = ? AND state = 'pending'`,
 		l.BotRef, l.UpdateID, l.Owner, l.Fence)
 	return err

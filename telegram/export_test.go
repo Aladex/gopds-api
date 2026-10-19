@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"errors"
 
 	"gopds-api/database"
 
@@ -17,4 +18,12 @@ func (bm *BotManager) DispatchWithLease(ref int64, update *tgbot.Update, lease d
 	}
 	bm.handling.Add(1)
 	bm.dispatch(context.Background(), b, update, lease)
+}
+
+// FailReplyMarkClears makes every per-call reply-mark clear fail, as a
+// database hiccup would, until the returned function restores it.
+func FailReplyMarkClears() (restore func()) {
+	previous := clearReplyMark
+	clearReplyMark = func(context.Context, database.InboxLease) error { return errors.New("injected failure") }
+	return func() { clearReplyMark = previous }
 }

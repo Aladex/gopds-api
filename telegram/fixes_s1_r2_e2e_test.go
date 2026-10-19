@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"gopds-api/database"
+	"gopds-api/telegram"
 
 	"github.com/go-pg/pg/v10"
 	"github.com/google/uuid"
@@ -187,4 +188,34 @@ func TestConcurrentConfirmationsDoNotDeadlock(t *testing.T) {
 	b := s.waitMessage(otherTG, 1).Params["text"]
 	assert.ElementsMatch(t, []string{linkedText, botTakenText}, []string{a, b})
 	assert.Equal(t, 1, s.count(`SELECT count(*) FROM telegram_binding WHERE status = 'active'`))
+}
+
+// The per-call clear of the reply mark fails — a database hiccup at that very
+// moment. The hand-back clears the mark itself, in the same statement, so the
+// update still replays instead of closing as uncertain.
+func TestAFailedMarkClearStillLeavesTheUpdateReplayable(t *testing.T) {
+	s := newStack(t)
+	refuse := &refuseArmedSendMessage{}
+	s.transport = refuse
+	s.start()
+	user := s.seedUser("reader")
+	secret, _ := s.connect(user, botToken1)
+	s.linkVia(botToken1, ownerTG, secret)
+	s.waitMessage(ownerTG, 1)
+	s.bm.WaitIdle()
+
+	restore := telegram.FailReplyMarkClears()
+	defer restore()
+	refuse.armed.Store(true)
+	update := s.u.Text(ownerTG, "/b мир")
+	s.hook(botToken1).Post(t, update)
+	s.bm.WaitIdle()
+	assert.Equal(t, 1, s.count(`SELECT count(*) FROM telegram_update_inbox
+		WHERE update_id = ? AND state = 'pending' AND reply_started_at IS NULL AND lease_expires_at <= now()`, update.ID))
+
+	refuse.armed.Store(false)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s.bm.StartInboxSweeper(ctx, time.Hour)
+	assert.Contains(t, s.waitMessage(ownerTG, 2).Params["text"], "война и МИР")
 }
