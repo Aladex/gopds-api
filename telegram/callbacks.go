@@ -461,10 +461,10 @@ func (h *CallbackHandler) sendBookFile(ctx context.Context, b *tgbotapi.Bot, cha
 		return err
 	}
 
-	// Buffer the entire file in memory: go-telegram/bot calls
-	// reflect.Value.IsNil on InputFileUpload.Data, which panics when the
-	// concrete io.Reader is a struct value (e.g. io.NopCloser). Wrapping
-	// the bytes in *bytes.Reader (a pointer type) sidesteps that.
+	// Buffer the entire file in memory: the SDK holds the whole multipart
+	// body in memory anyway (since v1.27.0, so a request can be replayed
+	// after an HTTP/2 GOAWAY), and the read cap bounds what a conversion
+	// may produce.
 	data, err := safeio.ReadAll(rc, safeio.MaxBookBytes)
 	if cerr := rc.Close(); cerr != nil {
 		logging.Errorf("Failed to close book reader: %v", cerr)

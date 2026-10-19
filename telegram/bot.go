@@ -1174,10 +1174,8 @@ func (b *Bot) sendDonate(ctx context.Context, bot *tgbotapi.Bot, conversationMan
 }
 
 // recoverMiddleware catches panics from downstream handlers so a single
-// faulty update can't take down the whole bot process. Notably, the
-// go-telegram/bot library panics inside its multipart-form builder when
-// InputFileUpload.Data wraps a struct-typed io.Reader (e.g. io.NopCloser),
-// and that panic propagates out of its async handler goroutine.
+// faulty update can't take down the whole bot process: the SDK runs each
+// handler in its own goroutine, where an unrecovered panic would end it.
 func recoverMiddleware(next tgbotapi.HandlerFunc) tgbotapi.HandlerFunc {
 	return func(ctx context.Context, b *tgbotapi.Bot, update *tgbot.Update) {
 		defer func() {
