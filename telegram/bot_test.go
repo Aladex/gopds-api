@@ -183,14 +183,14 @@ func TestGetBotCount(t *testing.T) {
 
 	// Manually add a bot to test counting
 	bm.mutex.Lock()
-	bm.bots["test-token-1"] = &Bot{token: "test-token-1", userID: 1}
+	bm.bots["test-token-1"] = &Bot{token: "test-token-1", ref: 1}
 	bm.mutex.Unlock()
 
 	assert.Equal(t, 1, bm.GetBotCount())
 
 	// Add another bot
 	bm.mutex.Lock()
-	bm.bots["test-token-2"] = &Bot{token: "test-token-2", userID: 2}
+	bm.bots["test-token-2"] = &Bot{token: "test-token-2", ref: 2}
 	bm.mutex.Unlock()
 
 	assert.Equal(t, 2, bm.GetBotCount())
@@ -218,17 +218,17 @@ func TestListActiveBots(t *testing.T) {
 
 	// Manually add bots
 	bm.mutex.Lock()
-	bm.bots["1234567890:ABC"] = &Bot{token: "1234567890:ABC", userID: 1}
-	bm.bots["0987654321:XYZ"] = &Bot{token: "0987654321:XYZ", userID: 2}
+	bm.bots["1234567890:ABC"] = &Bot{token: "1234567890:ABC", ref: 1}
+	bm.bots["0987654321:XYZ"] = &Bot{token: "0987654321:XYZ", ref: 2}
 	bm.mutex.Unlock()
 
 	tokens = bm.ListActiveBots()
 	assert.Len(t, tokens, 2)
 
-	// Each token should be masked and include user ID
+	// Each token should be masked and name its bot row
 	for _, token := range tokens {
 		assert.Contains(t, token, "***")
-		assert.Contains(t, token, "(user")
+		assert.Contains(t, token, "(bot")
 	}
 }
 
@@ -330,75 +330,6 @@ func TestClearConversationContext(t *testing.T) {
 	ctx, err := bm.GetConversationContext("test-token", 12345)
 	require.NoError(t, err)
 	assert.Empty(t, ctx.Messages)
-}
-
-func TestCreateBotForUser_AlreadyExists(t *testing.T) {
-	mr, err := miniredis.Run()
-	require.NoError(t, err)
-	defer mr.Close()
-
-	redisClient := redis.NewClient(&redis.Options{
-		Addr: mr.Addr(),
-	})
-	defer redisClient.Close()
-
-	config := &Config{
-		BaseURL: "https://example.com",
-	}
-
-	bm := NewBotManager(config, redisClient, stubSearch{}, nil)
-
-	// Manually add a bot
-	bm.mutex.Lock()
-	bm.bots["existing-token"] = &Bot{token: "existing-token", userID: 1}
-	bm.mutex.Unlock()
-
-	// Try to create a bot with the same token
-	err = bm.CreateBotForUser("existing-token", 2, "test-uuid")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "already exists")
-}
-
-func TestRemoveBot_NotFound(t *testing.T) {
-	mr, err := miniredis.Run()
-	require.NoError(t, err)
-	defer mr.Close()
-
-	redisClient := redis.NewClient(&redis.Options{
-		Addr: mr.Addr(),
-	})
-	defer redisClient.Close()
-
-	config := &Config{
-		BaseURL: "https://example.com",
-	}
-
-	bm := NewBotManager(config, redisClient, stubSearch{}, nil)
-
-	err = bm.RemoveBot("non-existent-token")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
-}
-
-func TestSetWebhook_BotNotFound(t *testing.T) {
-	mr, err := miniredis.Run()
-	require.NoError(t, err)
-	defer mr.Close()
-
-	redisClient := redis.NewClient(&redis.Options{
-		Addr: mr.Addr(),
-	})
-	defer redisClient.Close()
-
-	config := &Config{
-		BaseURL: "https://example.com",
-	}
-
-	bm := NewBotManager(config, redisClient, stubSearch{}, nil)
-
-	err = bm.SetWebhook("non-existent-token")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
 }
 
 func TestRegisterCommands(t *testing.T) {

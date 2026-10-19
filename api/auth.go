@@ -219,7 +219,6 @@ func LogOut(c *gin.Context) {
 // a profile that forgot the reader's Kindle address after a Save. Collections
 // are whatever the caller loaded; a nil list is what those three always sent.
 func profileOf(dbUser *models.User, haveFavs bool) models.LoggedInUser {
-	hasBotToken := dbUser.BotToken != ""
 	showKindle := dbUser.ShowKindleButton
 	showTelegram := dbUser.ShowTelegramButton
 	return models.LoggedInUser{
@@ -231,7 +230,6 @@ func profileOf(dbUser *models.User, haveFavs bool) models.LoggedInUser {
 		IsSuperuser:        &dbUser.IsSuperUser,
 		HaveFavs:           &haveFavs,
 		Collections:        dbUser.Collections,
-		HasBotToken:        &hasBotToken,
 		DateJoined:         &dbUser.DateJoined,
 		KindleEmail:        dbUser.KindleEmail,
 		KindleSender:       email.KindleSenderAddress(dbUser.KindleSenderID),

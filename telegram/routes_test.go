@@ -3,13 +3,15 @@ package telegram
 import (
 	"net/http"
 	"net/http/httptest"
-	"regexp"
 	"strings"
 	"testing"
+
+	"gopds-api/telegram/secrets"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -123,26 +125,26 @@ func TestHandleWebhook_UnknownBot(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
-func TestWebhookSecretFromToken_Deterministic(t *testing.T) {
-	token := "123456789:ABCdefGHIjklMNOpqrSTUvwxYZ"
-	s1 := webhookSecretFromToken(token)
-	s2 := webhookSecretFromToken(token)
-	assert.Equal(t, s1, s2)
-}
-
-func TestWebhookSecretFromToken_Format(t *testing.T) {
-	s := webhookSecretFromToken("123456789:ABCdefGHIjklMNOpqrSTUvwxYZ")
-	assert.Len(t, s, 32, "secret must be 32 chars")
-	assert.NotEmpty(t, s)
-	matched, err := regexp.MatchString(`^[A-Za-z0-9_-]+$`, s)
+// A new bot's webhook secret is random, not derived from anything, and in
+// the alphabet Telegram accepts for secret_token.
+func TestNewBotModelGivesFreshSecrets(t *testing.T) {
+	box, err := secrets.NewBox("test secret key")
 	require.NoError(t, err)
-	assert.True(t, matched, "secret must match Telegram's secret_token regex")
-}
+	bm := NewBotManager(&Config{Secrets: box}, nil, stubSearch{}, nil)
 
-func TestWebhookSecretFromToken_DependsOnToken(t *testing.T) {
-	s1 := webhookSecretFromToken("123:abc")
-	s2 := webhookSecretFromToken("123:abd")
-	assert.NotEqual(t, s1, s2)
+	a := bm.newBotModel(123, "123:abc", uuid.New())
+	b := bm.newBotModel(123, "123:abc", uuid.New())
+	secretA, err := box.Open(a.KeyID, secrets.PurposeWebhookSecret, a.WebhookSecretEnc)
+	require.NoError(t, err)
+	secretB, err := box.Open(b.KeyID, secrets.PurposeWebhookSecret, b.WebhookSecretEnc)
+	require.NoError(t, err)
+
+	assert.NotEqual(t, secretA, secretB)
+	assert.Regexp(t, `^[A-Za-z0-9_-]{32,256}$`, string(secretA))
+	token, err := box.Open(a.KeyID, secrets.PurposeToken, a.TokenEnc)
+	require.NoError(t, err)
+	assert.Equal(t, "123:abc", string(token))
+	assert.Equal(t, secrets.TokenHash("123:abc"), a.TokenSHA256)
 }
 
 func TestHandleWebhook_MissingSecretToken(t *testing.T) {
@@ -151,9 +153,9 @@ func TestHandleWebhook_MissingSecretToken(t *testing.T) {
 
 	const fakeToken = "555:secret-token"
 	const fakeUUID = "uuid-missing-secret"
-	fakeBot := &Bot{token: fakeToken, webhookUUID: fakeUUID}
+	fakeBot := &Bot{token: fakeToken, webhookPath: fakeUUID, webhookSecret: "the-right-secret"}
 	botManager.bots[fakeToken] = fakeBot
-	botManager.uuidToBots[fakeUUID] = fakeBot
+	botManager.byPath[fakeUUID] = fakeBot
 
 	routes := NewRoutes(botManager)
 	router.POST("/telegram/:token", routes.HandleWebhook)
@@ -173,9 +175,9 @@ func TestHandleWebhook_WrongSecretToken(t *testing.T) {
 
 	const fakeToken = "555:secret-token"
 	const fakeUUID = "uuid-wrong-secret"
-	fakeBot := &Bot{token: fakeToken, webhookUUID: fakeUUID}
+	fakeBot := &Bot{token: fakeToken, webhookPath: fakeUUID, webhookSecret: "the-right-secret"}
 	botManager.bots[fakeToken] = fakeBot
-	botManager.uuidToBots[fakeUUID] = fakeBot
+	botManager.byPath[fakeUUID] = fakeBot
 
 	routes := NewRoutes(botManager)
 	router.POST("/telegram/:token", routes.HandleWebhook)
@@ -245,10 +247,10 @@ func TestMaskToken(t *testing.T) {
 		token    string
 		expected string
 	}{
-		{"normal token", "1234567890:ABCDEFGHIJ", "1234567890***"},
-		{"short token", "abc", "***"},
+		{"normal token", "1234567890:ABCDEFGHIJ", "1234567890:***"},
+		{"short bot id keeps the secret out", "12:ABCDEFGHIJ", "12:***"},
+		{"no colon", "abc", "***"},
 		{"empty token", "", "***"},
-		{"exactly 10 chars", "0123456789", "0123456789***"},
 	}
 
 	for _, tt := range tests {

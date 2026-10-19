@@ -44,6 +44,7 @@ func (s *TelegramService) SetupApiRoutes(group *gin.RouterGroup) {
 	group.POST("/bot", s.routes.SetBotToken)
 	group.DELETE("/bot", s.routes.RemoveBotToken)
 	group.GET("/bot/status", s.routes.GetBotStatus)
+	group.POST("/link", s.routes.NewLink)
 }
 
 // GetBotManager returns the bot manager instance

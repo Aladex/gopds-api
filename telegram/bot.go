@@ -2,49 +2,20 @@ package telegram
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"runtime/debug"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 
 	"gopds-api/commands"
 	"gopds-api/logging"
-	"gopds-api/services"
-	"gopds-api/telegram/tgapi"
 
 	"gopds-api/database"
 
-	"github.com/gin-gonic/gin"
-	"github.com/go-redis/redis"
 	tgbotapi "github.com/go-telegram/bot"
 	tgbot "github.com/go-telegram/bot/models"
 )
-
-// webhookSecretFromToken derives a deterministic per-bot value for the
-// X-Telegram-Bot-Api-Secret-Token header. It is independent from the
-// webhook URL path (UUID), so a leaked URL alone cannot forge updates.
-func webhookSecretFromToken(token string) string {
-	h := sha256.Sum256([]byte("webhook_secret:" + token))
-	return hex.EncodeToString(h[:])[:32]
-}
-
-// BotManager manages Telegram bots linked to system users
-type BotManager struct {
-	bots                map[string]*Bot // token -> Bot
-	uuidToBots          map[string]*Bot // webhook_uuid -> Bot
-	mutex               sync.RWMutex
-	config              *Config
-	conversationManager *ConversationManager
-	// newProcessor builds command processors on the one shared search
-	// service; there is no global default service to fall back to.
-	newProcessor func() *commands.CommandProcessor
-}
 
 // The bot sees the reader's own words: a search phrase, a name, the running
 // conversation. None of it belongs in a log — what debugging needs is that the
@@ -64,208 +35,14 @@ func logStatefulInput(telegramID int64, state, text string) {
 		telegramID, state, utf8.RuneCountInString(text))
 }
 
-// Bot represents a bot linked to a system user
-type Bot struct {
-	token        string
-	bot          *tgbotapi.Bot
-	userID       int64  // ID of the user in our system who owns this bot
-	webhookUUID  string // UUID used in webhook URL instead of token
-	newProcessor func() *commands.CommandProcessor
-}
-
-// Config contains settings for bots
-type Config struct {
-	BaseURL string // base URL for webhooks
-	// API is the Bot API server the bots call; the zero value is Telegram's
-	// cloud API. Tests point it at a tgtest fake.
-	API tgapi.Endpoint
-}
-
-// NewBotManager creates a new bot manager whose bots build command
-// processors on the one shared search service created in main, naming the
-// authors of the books they list by lines (nil: the legacy authors).
-func NewBotManager(config *Config, redisClient *redis.Client, search services.PublicSearch, lines *services.AuthorLines) *BotManager {
-	return &BotManager{
-		bots:                make(map[string]*Bot),
-		uuidToBots:          make(map[string]*Bot),
-		config:              config,
-		conversationManager: NewConversationManager(redisClient),
-		newProcessor: func() *commands.CommandProcessor {
-			return commands.NewCommandProcessor(search, lines)
-		},
-	}
-}
-
-// InitializeExistingBots initializes bots for all users with tokens
-func (bm *BotManager) InitializeExistingBots() error {
-	users, err := database.GetUsersWithBotTokens()
-	if err != nil {
-		return fmt.Errorf("failed to get users with bot tokens: %v", err)
-	}
-
-	logging.Infof("Found %d users with bot tokens, initializing bots...", len(users))
-
-	successfullyInitialized := 0
-	for _, user := range users {
-		if user.WebhookUUID == "" {
-			logging.Warnf("User %d has bot token but no webhook_uuid, skipping", user.ID)
-			continue
-		}
-
-		err := bm.createBotForUser(user.BotToken, user.ID, user.WebhookUUID)
-		if err != nil {
-			logging.Errorf("Failed to initialize bot for user %d: %v", user.ID, err)
-			continue
-		}
-
-		// Always (re)set the webhook on startup so that the secret_token gets
-		// pushed to Telegram for already-configured bots. SetWebhook is idempotent;
-		// runHealthCheck still uses checkWebhookStatus shortcut in hot-path.
-		if err := bm.SetWebhook(user.BotToken); err != nil {
-			logging.Errorf("Failed to set webhook for user %d: %v", user.ID, err)
-		}
-
-		successfullyInitialized++
-	}
-
-	logging.Infof("Initialized %d telegram bots successfully", successfullyInitialized)
-	return nil
-}
-
-// CreateBotForUser creates a bot for a specific user
-func (bm *BotManager) CreateBotForUser(token string, userID int64, webhookUUID string) error {
-	bm.mutex.Lock()
-	defer bm.mutex.Unlock()
-
-	if _, exists := bm.bots[token]; exists {
-		return fmt.Errorf("bot with token already exists")
-	}
-
-	return bm.createBotForUser(token, userID, webhookUUID)
-}
-
-// createBotForUser internal function for creating bot (without mutex)
-func (bm *BotManager) createBotForUser(token string, userID int64, webhookUUID string) error {
-	b, err := bm.createBotInstance(token, userID)
-	if err != nil {
-		return fmt.Errorf("failed to create bot: %v", err)
-	}
-
-	b.webhookUUID = webhookUUID
-	bm.bots[token] = b
-	bm.uuidToBots[webhookUUID] = b
-	logging.Infof("Bot created successfully for user %d (webhook UUID: %s)", userID, webhookUUID)
-	return nil
-}
-
-// createBotInstance creates a bot instance
-func (bm *BotManager) createBotInstance(token string, userID int64) (*Bot, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	type botResult struct {
-		bot *tgbotapi.Bot
-		err error
-	}
-
-	resultChan := make(chan botResult, 1)
-	go func() {
-		opts := append(bm.config.API.Options(),
-			tgbotapi.WithMiddlewares(recoverMiddleware, privateChatMiddleware),
-			tgbotapi.WithWebhookSecretToken(webhookSecretFromToken(token)),
-			tgbotapi.WithDefaultHandler(func(ctx context.Context, b *tgbotapi.Bot, update *tgbot.Update) {
-				logging.Debugf("Unhandled update type in bot for user %d", userID)
-			}),
-		)
-		teleBot, err := tgbotapi.New(token, opts...)
-		resultChan <- botResult{bot: teleBot, err: err}
-	}()
-
-	var teleBot *tgbotapi.Bot
-	var err error
-
-	select {
-	case result := <-resultChan:
-		teleBot = result.bot
-		err = result.err
-	case <-ctx.Done():
-		return nil, fmt.Errorf("timeout creating bot - token might be invalid")
-	}
-
-	if err != nil {
-		logging.Infof("bot.New failed for user %d: %v", userID, err)
-		return nil, err
-	}
-
-	bot := &Bot{
-		token:        token,
-		bot:          teleBot,
-		userID:       userID,
-		newProcessor: bm.newProcessor,
-	}
-
-	bot.setupHandlers(bm.conversationManager)
-
-	if err := bot.registerCommands(); err != nil {
-		logging.Warnf("Failed to register commands for user %d: %v", userID, err)
-	}
-
-	return bot, nil
-}
-
 // setupHandlers sets up command handlers for the bot
 func (b *Bot) setupHandlers(conversationManager *ConversationManager) {
-	// /start command
-	b.bot.RegisterHandler(tgbotapi.HandlerTypeMessageText, "start", tgbotapi.MatchTypeCommand, func(ctx context.Context, bot *tgbotapi.Bot, update *tgbot.Update) {
-		telegramID := update.Message.From.ID
-
-		if err := conversationManager.ProcessIncomingMessage(b.token, &IncomingMessage{
-			SenderID:  update.Message.From.ID,
-			Text:      update.Message.Text,
-			MessageID: update.Message.ID,
-		}); err != nil {
-			logging.Errorf("Failed to process incoming message: %v", err)
-		}
-
-		botOwner, err := database.GetUserByBotToken(b.token)
-		if err != nil {
-			logging.Infof("Failed to get bot owner for token %s: %v", maskToken(b.token), err)
-			response := "Bot configuration error. Please contact administrator."
-			_ = conversationManager.ProcessOutgoingMessage(b.token, telegramID, response)
-			b.sendMessage(ctx, bot, update.Message.Chat.ID, response, nil)
-			return
-		}
-
-		var response string
-
-		if botOwner.TelegramID != 0 {
-			if int64(botOwner.TelegramID) != telegramID {
-				return
-			}
-			response = "You are already linked to the library account!\n\nUse the keyboard buttons below to interact with the library:"
-			_ = conversationManager.ProcessOutgoingMessage(b.token, telegramID, response)
-			b.sendMessageWithReplyKeyboard(ctx, bot, update.Message.Chat.ID, response, GetMainKeyboard())
-			return
-		}
-
-		existingUser, err := database.GetUserByTelegramID(telegramID)
-		if err == nil && existingUser.ID != 0 && existingUser.ID != botOwner.ID {
-			return
-		}
-
-		err = database.UpdateTelegramID(b.token, telegramID)
-		if err != nil {
-			logging.Infof("Failed to update telegram_id for token %s: %v", maskToken(b.token), err)
-			response = "Error linking account. Please try again later."
-			_ = conversationManager.ProcessOutgoingMessage(b.token, telegramID, response)
-			b.sendMessage(ctx, bot, update.Message.Chat.ID, response, nil)
-			return
-		}
-
-		response = "Welcome! Your account has been successfully linked to the library.\n\nUse the keyboard buttons below to interact with the library:"
-		_ = conversationManager.ProcessOutgoingMessage(b.token, telegramID, response)
-		b.sendMessageWithReplyKeyboard(ctx, bot, update.Message.Chat.ID, response, GetMainKeyboard())
-	})
+	// /start command: linking, or a reminder of the connection. It never
+	// enters the conversation context: a link carries a secret.
+	b.bot.RegisterHandler(tgbotapi.HandlerTypeMessageText, "start", tgbotapi.MatchTypeCommand,
+		func(ctx context.Context, _ *tgbotapi.Bot, update *tgbot.Update) {
+			b.handleStart(ctx, update)
+		})
 
 	// /context command
 	b.bot.RegisterHandler(tgbotapi.HandlerTypeMessageText, "context", tgbotapi.MatchTypeCommand, b.withAuth(conversationManager, func(ctx context.Context, bot *tgbotapi.Bot, update *tgbot.Update, telegramID int64) {
@@ -562,14 +339,15 @@ func (b *Bot) withAuth(conversationManager *ConversationManager, handler authHan
 	}
 }
 
-// isAuthorizedUser checks if the user is the owner of this bot
+// isAuthorizedUser checks if the user is the owner of this bot: the Telegram
+// user of its active binding.
 func (b *Bot) isAuthorizedUser(telegramID int64) bool {
-	botOwner, err := database.GetUserByBotToken(b.token)
+	binding, err := database.GetActiveTelegramBinding(context.Background(), b.ref)
 	if err != nil {
-		logging.Infof("Failed to get bot owner for authorization check: %v", err)
+		logging.Infof("Failed to read the binding of telegram bot %d: %v", b.ref, err)
 		return false
 	}
-	return int64(botOwner.TelegramID) == telegramID
+	return binding != nil && binding.TGUserID == telegramID
 }
 
 // sendMessage sends a text message with optional inline keyboard.
@@ -642,404 +420,6 @@ func (b *Bot) validateUserLinked(ctx context.Context, bot *tgbotapi.Bot, convers
 	return nil
 }
 
-// HandleWebhook handles incoming webhooks from Telegram
-func (bm *BotManager) HandleWebhook(c *gin.Context) {
-	webhookUUID := c.Param("token")
-
-	bm.mutex.RLock()
-	bot, exists := bm.uuidToBots[webhookUUID]
-	bm.mutex.RUnlock()
-
-	if !exists {
-		logging.Infof("Webhook received for unknown UUID: %s", webhookUUID)
-		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
-		return
-	}
-
-	if c.GetHeader("X-Telegram-Bot-Api-Secret-Token") != webhookSecretFromToken(bot.token) {
-		logging.Warnf("Webhook secret mismatch for UUID %s", webhookUUID)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid secret token"})
-		return
-	}
-
-	var update tgbot.Update
-	if err := c.ShouldBindJSON(&update); err != nil {
-		logging.Infof("Error parsing webhook for UUID %s: %v", webhookUUID, err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid webhook data"})
-		return
-	}
-
-	logging.Infof("Processing webhook for user %d, update ID: %d", bot.userID, update.ID)
-
-	// Detach from gin's request context: ProcessUpdate dispatches handlers in a
-	// goroutine, but gin cancels c.Request.Context() the moment we return — so
-	// any outgoing Telegram API call from the handler would fail with
-	// "context canceled".
-	bot.bot.ProcessUpdate(context.Background(), &update)
-
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
-}
-
-// rawClient is the client of the health check's direct calls: the endpoint's
-// own when it names one, otherwise a short-lived default.
-func (bm *BotManager) rawClient() *http.Client {
-	if bm.config.API.HTTPClient != nil {
-		return bm.config.API.HTTPClient
-	}
-	return &http.Client{Timeout: rawCallTimeout}
-}
-
-// rawCallTimeout bounds one direct health-check call.
-const rawCallTimeout = 8 * time.Second
-
-// checkWebhookStatus checks if webhook is already correctly configured
-func (bm *BotManager) checkWebhookStatus(token string) (bool, error) {
-	bm.mutex.RLock()
-	bot, exists := bm.bots[token]
-	bm.mutex.RUnlock()
-
-	if !exists {
-		return false, fmt.Errorf("bot with token not found")
-	}
-
-	expectedURL := fmt.Sprintf("%s/telegram/%s", bm.config.BaseURL, bot.webhookUUID)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	type webhookInfoResult struct {
-		ok  bool
-		url string
-		err error
-	}
-
-	resultChan := make(chan webhookInfoResult, 1)
-	go func() {
-		apiURL := bm.config.API.MethodURL(token, "getWebhookInfo")
-
-		client := bm.rawClient()
-		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-		if err != nil {
-			resultChan <- webhookInfoResult{ok: false, err: err}
-			return
-		}
-
-		resp, err := client.Do(req)
-		if err != nil {
-			resultChan <- webhookInfoResult{ok: false, err: tgapi.RedactURL(err)}
-			return
-		}
-		defer func() {
-			if closeErr := resp.Body.Close(); closeErr != nil {
-				logging.Errorf("Failed to close response body: %v", closeErr)
-			}
-		}()
-
-		if resp.StatusCode != http.StatusOK {
-			resultChan <- webhookInfoResult{ok: false, err: fmt.Errorf("API returned status %d", resp.StatusCode)}
-			return
-		}
-
-		var result struct {
-			Ok     bool `json:"ok"`
-			Result struct {
-				URL string `json:"url"`
-			} `json:"result"`
-		}
-
-		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			resultChan <- webhookInfoResult{ok: false, err: err}
-			return
-		}
-
-		if !result.Ok {
-			resultChan <- webhookInfoResult{ok: false, err: fmt.Errorf("API returned ok=false")}
-			return
-		}
-
-		resultChan <- webhookInfoResult{ok: true, url: result.Result.URL, err: nil}
-	}()
-
-	select {
-	case result := <-resultChan:
-		if result.err != nil {
-			logging.Errorf("Failed to get webhook info for user %d: %v", bot.userID, result.err)
-			return false, result.err
-		}
-
-		if result.url == expectedURL {
-			logging.Infof("Webhook already correctly configured for user %d: %s", bot.userID, expectedURL)
-			return true, nil
-		}
-
-		if result.url != "" {
-			logging.Infof("Webhook exists but URL mismatch for user %d. Expected: %s, Current: %s",
-				bot.userID, expectedURL, result.url)
-		} else {
-			logging.Infof("No webhook configured for user %d", bot.userID)
-		}
-
-		return false, nil
-	case <-ctx.Done():
-		logging.Warnf("Timeout getting webhook info for user %d", bot.userID)
-		return false, fmt.Errorf("timeout getting webhook info")
-	}
-}
-
-// SetWebhook sets webhook for the bot
-func (bm *BotManager) SetWebhook(token string) error {
-	bm.mutex.RLock()
-	bot, exists := bm.bots[token]
-	bm.mutex.RUnlock()
-
-	if !exists {
-		return fmt.Errorf("bot with token not found")
-	}
-
-	webhookURL := fmt.Sprintf("%s/telegram/%s", bm.config.BaseURL, bot.webhookUUID)
-
-	logging.Infof("Setting webhook for user %d", bot.userID)
-	logging.Infof("BaseURL configured: %s", bm.config.BaseURL)
-	logging.Infof("Webhook URL: %s", webhookURL)
-
-	// Note: no early-return on URL match — we cannot introspect the secret_token
-	// remotely (Telegram's getWebhookInfo doesn't expose it), so always rewrite
-	// the webhook to ensure the secret is in sync with the bot's token.
-
-	// setWebhook replaces whatever is registered, so there is nothing to delete
-	// first. The delete used to be here and never worked: DeleteWebhookParams
-	// has one field, and it is omitempty, so a zero struct produces a multipart
-	// form with no parts at all. Telegram answers that with a 400 and an empty
-	// body, which is not JSON, and every startup logged a decode error while
-	// the webhook went on being set correctly by the call below.
-	logging.Infof("Setting webhook for user %d...", bot.userID)
-
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel2()
-
-	type webhookResult struct {
-		err error
-	}
-
-	resultChan := make(chan webhookResult, 1)
-	go func() {
-		logging.Infof("Calling Telegram API to set new webhook...")
-		_, err := bot.bot.SetWebhook(ctx2, &tgbotapi.SetWebhookParams{
-			URL:         webhookURL,
-			SecretToken: webhookSecretFromToken(token),
-		})
-		if err != nil {
-			logging.Errorf("Telegram API returned error when setting webhook: %v", err)
-		}
-		resultChan <- webhookResult{err: err}
-	}()
-
-	select {
-	case result := <-resultChan:
-		if result.err != nil {
-			logging.Errorf("Failed to set webhook for user %d with URL %s: %v", bot.userID, webhookURL, result.err)
-			return fmt.Errorf("failed to set webhook: %v", result.err)
-		}
-	case <-ctx2.Done():
-		logging.Errorf("Timeout setting webhook for user %d with URL %s", bot.userID, webhookURL)
-		return fmt.Errorf("timeout setting webhook - token might be invalid")
-	}
-
-	logging.Infof("Webhook set successfully for user %d: %s", bot.userID, webhookURL)
-	return nil
-}
-
-// RemoveBot removes bot and clears connection with user
-func (bm *BotManager) RemoveBot(token string) error {
-	bm.mutex.Lock()
-	defer bm.mutex.Unlock()
-
-	bot, exists := bm.bots[token]
-	if !exists {
-		return fmt.Errorf("bot with token not found")
-	}
-
-	logging.Infof("Starting bot removal process for user %d", bot.userID)
-
-	delete(bm.uuidToBots, bot.webhookUUID)
-	delete(bm.bots, token)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// DropPendingUpdates carries the request as much as it states the intent:
-	// every field of these params is omitempty, so leaving them all zero sends
-	// a multipart form with no parts, which Telegram rejects with an empty body
-	// that then fails to parse as JSON. Dropping what is queued is right here
-	// anyway — the bot is going away and nobody will read it.
-	_, err := bot.bot.DeleteWebhook(ctx, &tgbotapi.DeleteWebhookParams{DropPendingUpdates: true})
-	if err != nil {
-		logging.Errorf("Warning: failed to remove webhook for bot %s: %v", maskToken(token), err)
-	} else {
-		logging.Infof("Webhook removed successfully for bot %s", maskToken(token))
-	}
-
-	logging.Infof("Bot removed successfully for user %d", bot.userID)
-	return nil
-}
-
-// GetBotCount returns the number of active bots for debugging
-func (bm *BotManager) GetBotCount() int {
-	bm.mutex.RLock()
-	defer bm.mutex.RUnlock()
-	return len(bm.bots)
-}
-
-// ListActiveBots returns list of active bot tokens for debugging
-func (bm *BotManager) ListActiveBots() []string {
-	bm.mutex.RLock()
-	defer bm.mutex.RUnlock()
-
-	tokens := make([]string, 0, len(bm.bots))
-	for token, bot := range bm.bots {
-		tokens = append(tokens, fmt.Sprintf("%s (user %d)", maskToken(token), bot.userID))
-	}
-	return tokens
-}
-
-// GetConversationManager returns the conversation manager instance
-func (bm *BotManager) GetConversationManager() *ConversationManager {
-	return bm.conversationManager
-}
-
-// GetConversationContext returns conversation context for a specific user and bot
-func (bm *BotManager) GetConversationContext(token string, userID int64) (*ConversationContext, error) {
-	return bm.conversationManager.GetContext(token, userID)
-}
-
-// GetConversationContextAsString returns conversation context as formatted string
-func (bm *BotManager) GetConversationContextAsString(token string, userID int64) (string, error) {
-	return bm.conversationManager.GetContextAsString(token, userID)
-}
-
-// ClearConversationContext clears conversation context for a specific user and bot
-func (bm *BotManager) ClearConversationContext(token string, userID int64) error {
-	return bm.conversationManager.ClearContext(token, userID)
-}
-
-// StartHealthCheck starts a periodic health check goroutine for all bots
-func (bm *BotManager) StartHealthCheck(ctx context.Context, interval time.Duration) {
-	go func() {
-		logging.Infof("Bot health check started with interval %v", interval)
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				logging.Info("Bot health check stopped")
-				return
-			case <-ticker.C:
-				bm.runHealthCheck()
-			}
-		}
-	}()
-}
-
-// runHealthCheck validates all active bots and cleans up invalid ones
-func (bm *BotManager) runHealthCheck() {
-	bm.mutex.RLock()
-	tokens := make([]string, 0, len(bm.bots))
-	botUsers := make(map[string]int64)
-	for token, bot := range bm.bots {
-		tokens = append(tokens, token)
-		botUsers[token] = bot.userID
-	}
-	bm.mutex.RUnlock()
-
-	logging.Infof("Running health check for %d bots", len(tokens))
-
-	for _, token := range tokens {
-		userID := botUsers[token]
-
-		valid, err := bm.validateBotToken(token)
-		if err != nil {
-			logging.Warnf("Health check: failed to validate token for user %d: %v", userID, err)
-			continue
-		}
-
-		if !valid {
-			logging.Warnf("Health check: invalid token detected for user %d, removing bot", userID)
-			if err := bm.RemoveBot(token); err != nil {
-				logging.Errorf("Health check: failed to remove bot for user %d: %v", userID, err)
-			}
-			if err := database.ClearBotToken(userID); err != nil {
-				logging.Errorf("Health check: failed to clear bot token in DB for user %d: %v", userID, err)
-			}
-			continue
-		}
-
-		isCorrect, err := bm.checkWebhookStatus(token)
-		if err != nil {
-			logging.Warnf("Health check: failed to check webhook for user %d: %v", userID, err)
-			continue
-		}
-
-		if !isCorrect {
-			logging.Infof("Health check: webhook misconfigured for user %d, resetting", userID)
-			if err := bm.SetWebhook(token); err != nil {
-				logging.Errorf("Health check: failed to set webhook for user %d: %v", userID, err)
-			}
-		}
-	}
-
-	logging.Info("Bot health check completed")
-}
-
-// validateBotToken checks if a bot token is valid by calling Telegram's getMe API
-func (bm *BotManager) validateBotToken(token string) (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	apiURL := bm.config.API.MethodURL(token, "getMe")
-
-	client := bm.rawClient()
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return false, fmt.Errorf("failed to create request: %v", err)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return false, fmt.Errorf("failed to call getMe: %v", tgapi.RedactURL(err))
-	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			logging.Errorf("Failed to close response body: %v", closeErr)
-		}
-	}()
-
-	if resp.StatusCode == http.StatusUnauthorized {
-		return false, nil
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("getMe returned status %d", resp.StatusCode)
-	}
-
-	var result struct {
-		Ok bool `json:"ok"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return false, fmt.Errorf("failed to decode getMe response: %v", err)
-	}
-
-	return result.Ok, nil
-}
-
-// maskToken masks token for logging
-func maskToken(token string) string {
-	if len(token) < 10 {
-		return "***"
-	}
-	return token[:10] + "***"
-}
-
 // registerCommands registers bot commands in Telegram via setMyCommands API
 func (b *Bot) registerCommands() error {
 	botCommands := []tgbot.BotCommand{
@@ -1073,13 +453,13 @@ func (b *Bot) registerCommands() error {
 	select {
 	case result := <-resultChan:
 		if result.err != nil {
-			logging.Errorf("Failed to register commands for user %d: %v", b.userID, result.err)
+			logging.Errorf("Failed to register commands for telegram bot %d: %v", b.ref, result.err)
 			return result.err
 		}
-		logging.Infof("Successfully registered %d commands for user %d", len(botCommands), b.userID)
+		logging.Infof("Successfully registered %d commands for telegram bot %d", len(botCommands), b.ref)
 		return nil
 	case <-ctx.Done():
-		logging.Errorf("Timeout registering commands for user %d", b.userID)
+		logging.Errorf("Timeout registering commands for telegram bot %d", b.ref)
 		return fmt.Errorf("timeout registering commands")
 	}
 }

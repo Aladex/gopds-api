@@ -45,8 +45,7 @@ func ActionUser(c *gin.Context) {
 		if !user.IsSuperUser && wsManager != nil {
 			wsManager.RevokeAdminByUserID(user.ID)
 		}
-		logging.Infof("ActionUser completed successfully, returning user: ID=%d, BotToken=%s",
-			user.ID, user.BotToken)
+		logging.Infof("ActionUser completed successfully, returning user: ID=%d", user.ID)
 		c.JSON(200, user)
 		return
 	} else {

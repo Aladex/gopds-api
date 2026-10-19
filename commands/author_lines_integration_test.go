@@ -38,7 +38,7 @@ func TestScanCharacterizationTelegramListsFromTheAuthorLayer(t *testing.T) {
 		VALUES (?, ?, 'x', 'manual', 1)`, collection, multi)
 	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO favorite_books (user_id, book_id)
-		SELECT id, ? FROM auth_user WHERE telegram_id = ?`, multi, telegramID)
+		SELECT user_id, ? FROM telegram_binding WHERE tg_user_id = ? AND status = 'active'`, multi, telegramID)
 	require.NoError(t, err)
 
 	cases := []struct {

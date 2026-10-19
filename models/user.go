@@ -29,21 +29,26 @@ type UserTelegramRequest struct {
 
 // User struct for user table
 type User struct {
-	tableName       struct{}            `pg:"auth_user,discard_unknown_columns" json:"-"`
-	ID              int64               `pg:"id,pk" json:"id"`
-	Login           string              `pg:"username" json:"username"`
-	NewPassword     string              `pg:"-" json:"new_password"`
-	Password        string              `pg:"password" json:"-" form:"password"`
-	LastLogin       time.Time           `pg:"last_login" json:"last_login"`
-	IsSuperUser     bool                `pg:"is_superuser,use_zero" json:"is_superuser"`
-	FirstName       string              `pg:"first_name" json:"first_name" form:"first_name"`
-	LastName        string              `pg:"last_name" json:"last_name" form:"last_name"`
-	BooksLang       string              `pg:"books_lang" json:"books_lang" form:"books_lang"`
-	InterfaceLang   string              `pg:"interface_lang" json:"interface_lang" form:"interface_lang"`
-	Email           string              `pg:"email" json:"email"`
-	BotToken        string              `pg:"bot_token" json:"bot_token" form:"bot_token"`
-	WebhookUUID     string              `pg:"webhook_uuid" json:"-"`
-	TelegramID      int                 `pg:"telegram_id" json:"telegram_id" form:"telegram_id"`
+	tableName     struct{}  `pg:"auth_user,discard_unknown_columns" json:"-"`
+	ID            int64     `pg:"id,pk" json:"id"`
+	Login         string    `pg:"username" json:"username"`
+	NewPassword   string    `pg:"-" json:"new_password"`
+	Password      string    `pg:"password" json:"-" form:"password"`
+	LastLogin     time.Time `pg:"last_login" json:"last_login"`
+	IsSuperUser   bool      `pg:"is_superuser,use_zero" json:"is_superuser"`
+	FirstName     string    `pg:"first_name" json:"first_name" form:"first_name"`
+	LastName      string    `pg:"last_name" json:"last_name" form:"last_name"`
+	BooksLang     string    `pg:"books_lang" json:"books_lang" form:"books_lang"`
+	InterfaceLang string    `pg:"interface_lang" json:"interface_lang" form:"interface_lang"`
+	Email         string    `pg:"email" json:"email"`
+	// The bot columns of the first Telegram connection. The connection lives
+	// in telegram_bot / telegram_binding now; these are read once, at start,
+	// to adopt old bots, and are never shown: a token is control of the bot.
+	BotToken    string `pg:"bot_token" json:"-"`
+	WebhookUUID string `pg:"webhook_uuid" json:"-"`
+	TelegramID  int    `pg:"telegram_id" json:"-"`
+	// Telegram is the connection as the admin list shows it, when there is one.
+	Telegram        *UserTelegram       `pg:"-" json:"telegram,omitempty"`
 	DateJoined      time.Time           `pg:"date_joined" json:"date_joined"`
 	Active          bool                `pg:"active" json:"active"`
 	Collections     []BookCollection    `pg:"rel:has-many" json:"collections"`
@@ -63,6 +68,13 @@ type User struct {
 	ShowTelegramButton bool   `pg:"show_telegram_button,use_zero,default:true" json:"-"`
 }
 
+// UserTelegram is a user's Telegram connection, without secrets.
+type UserTelegram struct {
+	BotUsername string `json:"bot_username"`
+	// State is connected, blocked or token_rejected.
+	State string `json:"state"`
+}
+
 // LoggedInUser struct for user table with token
 type LoggedInUser struct {
 	User          string           `json:"username"`
@@ -74,7 +86,6 @@ type LoggedInUser struct {
 	Token         *string          `json:"token,omitempty"`
 	Collections   []BookCollection `json:"collections"`
 	IsSuperuser   *bool            `json:"is_superuser,omitempty"`
-	HasBotToken   *bool            `json:"has_bot_token,omitempty"`
 	DateJoined    *time.Time       `json:"date_joined,omitempty"`
 
 	// KindleEmail is the reader's Send-to-Kindle address, "" when unset.

@@ -18,6 +18,7 @@ import (
 	"gopds-api/sessions"
 	"gopds-api/tasks" // Import the tasks package for WatchDirectory
 	"gopds-api/telegram"
+	"gopds-api/telegram/secrets"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis"
@@ -116,6 +117,10 @@ func run() (code int) {
 	return serveUntilShutdown(route)
 }
 
+// inboxSweepInterval is how often a process looks for updates another one
+// left unfinished.
+const inboxSweepInterval = 30 * time.Second
+
 // initializeTelegram sets up the Telegram bot manager and service and starts
 // the bots' periodic health checks. It returns the function that stops them;
 // run defers it at the point where the health checks used to be deferred.
@@ -124,13 +129,19 @@ func initializeTelegram(
 	mainRedisClient *redis.Client, searchService *services.SearchService, lines *services.AuthorLines,
 ) (stopHealthCheck func()) {
 	// Initialize the Telegram bot manager
+	box, err := secrets.NewBox(cfg.SecretKey)
+	if err != nil {
+		logging.Errorf("Telegram is disabled: %v", err)
+		return func() {}
+	}
 	telegramConfig := &telegram.Config{
 		BaseURL: cfg.GetTelegramWebhookBaseURL(),
+		SiteURL: cfg.GetServerBaseURL(),
+		Secrets: box,
 	}
 	telegramBotManager := telegram.NewBotManager(telegramConfig, mainRedisClient, searchService, lines)
 
 	// Initialize Telegram service
-	var err error
 	telegramService, err = telegram.NewTelegramService(telegramBotManager)
 	if err != nil {
 		logging.Errorf("Failed to initialize Telegram service: %v", err)
@@ -138,14 +149,13 @@ func initializeTelegram(
 		telegramService = nil
 	}
 
-	// Start periodic health checks for Telegram bots
+	// Start periodic health checks for Telegram bots, and the sweeper that
+	// hands this process the updates a stopped one left unfinished.
 	healthCheckCtx, healthCheckCancel := context.WithCancel(context.Background())
 	if telegramService != nil {
 		telegramService.GetBotManager().StartHealthCheck(healthCheckCtx, 24*time.Hour)
+		telegramService.GetBotManager().StartInboxSweeper(healthCheckCtx, inboxSweepInterval)
 	}
-
-	// Link BotManager with the database package for admin panel integration
-	database.SetTelegramBotManager(telegramBotManager)
 	return healthCheckCancel
 }
 

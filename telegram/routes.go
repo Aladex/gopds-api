@@ -1,14 +1,20 @@
 package telegram
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"strings"
-
-	"gopds-api/logging"
+	"time"
 
 	"gopds-api/database"
+	"gopds-api/logging"
+	"gopds-api/models"
+	"gopds-api/telegram/secrets"
+	"gopds-api/telegram/tgapi"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // Routes contains all routes for working with Telegram bots
@@ -28,215 +34,263 @@ type SetBotTokenRequest struct {
 	Token string `json:"token" binding:"required"`
 }
 
-// SetBotTokenResponse structure of the response when setting the bot token
-type SetBotTokenResponse struct {
-	Message string `json:"message"`
-}
-
-// ErrorResponse error structure
+// ErrorResponse error structure. Error is a stable code the site translates:
+// invalid_token, bot_taken, telegram_unavailable, webhook_failed,
+// no_pending_bot, internal.
 type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
-// SetBotToken sets the bot token for the current user
-// @Summary Set Telegram bot token
-// @Description Sets the Telegram bot token for the current user
+// BotStatusResponse is the account's Telegram connection as the site shows it.
+type BotStatusResponse struct {
+	// State is none, pending_link, connected, token_rejected or blocked.
+	State string `json:"state"`
+	// BotUsername and TelegramName describe the connected bot.
+	BotUsername  string `json:"bot_username,omitempty"`
+	TelegramName string `json:"telegram_name,omitempty"`
+	// PendingBotUsername is a bot entered but not linked yet; while a
+	// connection exists, this is a change of connection in progress.
+	PendingBotUsername string `json:"pending_bot_username,omitempty"`
+	// LinkURL is the one-time link, given only by the call that made it.
+	LinkURL string `json:"link_url,omitempty"`
+	// LinkExpiresAt is when the newest link of the pending bot stops working.
+	LinkExpiresAt *time.Time `json:"link_expires_at,omitempty"`
+}
+
+// Error codes of ErrorResponse.
+const (
+	errInvalidToken        = "invalid_token"
+	errBotTaken            = "bot_taken"
+	errTelegramUnavailable = "telegram_unavailable"
+	errWebhookFailed       = "webhook_failed"
+	errNoPendingBot        = "no_pending_bot"
+	errInternal            = "internal"
+)
+
+// Connection states of BotStatusResponse.
+const (
+	stateNone          = "none"
+	statePendingLink   = "pending_link"
+	stateConnected     = "connected"
+	stateTokenRejected = "token_rejected"
+	stateBlocked       = "blocked"
+)
+
+// userIDOf reads the authenticated user, answering 401 when there is none.
+func userIDOf(c *gin.Context) (int64, bool) {
+	value, exists := c.Get("user_id")
+	userID, ok := value.(int64)
+	if !exists || !ok {
+		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not authenticated"})
+		return 0, false
+	}
+	return userID, true
+}
+
+// SetBotToken connects an existing bot by its token and returns a one-time
+// link: the connection is made when the owner opens it in Telegram.
+// @Summary Connect an existing Telegram bot
+// @Description Checks the token with Telegram, registers the bot for the current user
+// @Description and returns a one-time link to confirm the connection from Telegram
 // @Tags telegram
 // @Accept json
 // @Produce json
 // @Param request body SetBotTokenRequest true "Bot token"
-// @Success 200 {object} SetBotTokenResponse
+// @Success 200 {object} BotStatusResponse
 // @Failure 400 {object} ErrorResponse
 // @Failure 401 {object} ErrorResponse
 // @Failure 409 {object} ErrorResponse
-// @Failure 500 {object} ErrorResponse
+// @Failure 502 {object} ErrorResponse
 // @Router /api/telegram/bot [post]
 func (r *Routes) SetBotToken(c *gin.Context) {
-	// Get user ID and username from context (set by AuthMiddleware)
-	userIDInterface, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not authenticated"})
-		return
-	}
-
-	userID, ok := userIDInterface.(int64)
+	userID, ok := userIDOf(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "Invalid user ID"})
 		return
 	}
-
-	username, _ := c.Get("username")
-	usernameStr, ok := username.(string)
-	if !ok || usernameStr == "" {
-		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not authenticated"})
-		return
-	}
-
 	var req SetBotTokenRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "Invalid request: " + err.Error()})
+	if err := c.ShouldBindJSON(&req); err != nil || !isValidToken(strings.TrimSpace(req.Token)) {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: errInvalidToken})
 		return
 	}
+	token := strings.TrimSpace(req.Token)
+	ctx := c.Request.Context()
+	bm := r.botManager
 
-	// Token validation
-	if !isValidToken(req.Token) {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "Invalid bot token format"})
-		return
-	}
-
-	// Check if this token is already used by another user
-	existingUser, err := database.GetUserByBotToken(req.Token)
-	if err == nil && existingUser.ID != userID {
-		c.JSON(http.StatusConflict, ErrorResponse{Error: "This bot token is already used by another user"})
-		return
-	}
-
-	// Get current user to check if they have an existing bot token
-	currentUser, err := database.GetUser(usernameStr)
+	client, err := tgapi.New(token, bm.config.API)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to get user info: " + err.Error()})
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: errInvalidToken})
 		return
 	}
-
-	// If user has an existing bot token, remove the old bot first
-	if currentUser.BotToken != "" && currentUser.BotToken != req.Token {
-		logging.Infof("User %d changing bot token from %s to %s", userID, maskToken(currentUser.BotToken), maskToken(req.Token))
-
-		// Remove old bot (this will also remove its webhook)
-		err = r.botManager.RemoveBot(currentUser.BotToken)
-		if err != nil {
-			logging.Errorf("Failed to remove old bot for user %d: %v", userID, err)
-			// Continue anyway - maybe the bot was already removed
+	me, err := client.GetMe(ctx)
+	if err != nil {
+		class, _ := tgapi.Classify(err)
+		if class == tgapi.ClassUnauthorized || class == tgapi.ClassBadRequest {
+			c.JSON(http.StatusBadRequest, ErrorResponse{Error: errInvalidToken})
+			return
 		}
-	}
-
-	// Update token in database (generates webhook_uuid)
-	webhookUUID, err := database.UpdateBotToken(userID, req.Token)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to update bot token: " + err.Error()})
+		logging.Warnf("User %d: checking a bot token with Telegram: %v", userID, tgapi.RedactURL(err))
+		c.JSON(http.StatusBadGateway, ErrorResponse{Error: errTelegramUnavailable})
 		return
 	}
 
-	// Create bot
-	err = r.botManager.CreateBotForUser(req.Token, userID, webhookUUID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to create bot: " + err.Error()})
+	model := bm.newBotModel(me.ID, token, uuid.New())
+	model.Username = me.Username
+	registered, err := database.RegisterManualTelegramBot(ctx, userID, model)
+	if errors.Is(err, database.ErrTelegramBotTaken) {
+		c.JSON(http.StatusConflict, ErrorResponse{Error: errBotTaken})
 		return
 	}
-
-	// Set webhook
-	err = r.botManager.SetWebhook(req.Token)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Bot created but failed to set webhook: " + err.Error()})
+		logging.Errorf("User %d: registering telegram bot %d: %v", userID, me.ID, err)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: errInternal})
 		return
 	}
-
-	c.JSON(http.StatusOK, SetBotTokenResponse{
-		Message: "Bot token set successfully",
-	})
+	b, err := bm.serve(registered)
+	if err != nil {
+		logging.Errorf("User %d: serving telegram bot %d: %v", userID, registered.ID, err)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: errInternal})
+		return
+	}
+	if err := bm.setWebhook(b); err != nil {
+		logging.Warnf("User %d: %v", userID, err)
+		c.JSON(http.StatusBadGateway, ErrorResponse{Error: errWebhookFailed})
+		return
+	}
+	logging.Infof("User %d registered telegram bot %d", userID, registered.ID)
+	r.respondWithLink(c, userID, registered.ID, registered.Username)
 }
 
-// RemoveBotToken removes the bot token for the current user
-// @Summary Remove Telegram bot token
-// @Description Removes the Telegram bot token for the current user
+// NewLink gives a fresh one-time link for the bot the user entered last.
+// @Summary Get a new Telegram link
+// @Description Returns a new one-time link that confirms the pending bot of the current user
 // @Tags telegram
-// @Accept json
 // @Produce json
-// @Success 200 {object} map[string]string
+// @Success 200 {object} BotStatusResponse
 // @Failure 401 {object} ErrorResponse
-// @Failure 404 {object} ErrorResponse
+// @Failure 409 {object} ErrorResponse
+// @Router /api/telegram/link [post]
+func (r *Routes) NewLink(c *gin.Context) {
+	userID, ok := userIDOf(c)
+	if !ok {
+		return
+	}
+	state, err := database.GetTelegramUserState(c.Request.Context(), userID)
+	if err != nil {
+		logging.Errorf("User %d: reading the telegram status: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: errInternal})
+		return
+	}
+	if state.Pending == nil {
+		c.JSON(http.StatusConflict, ErrorResponse{Error: errNoPendingBot})
+		return
+	}
+	r.respondWithLink(c, userID, state.Pending.ID, state.Pending.Username)
+}
+
+// respondWithLink stores a new link for botRef and answers with the status
+// and the link itself — the only time the secret leaves the server.
+func (r *Routes) respondWithLink(c *gin.Context, userID, botRef int64, username string) {
+	ctx := c.Request.Context()
+	secret, hash := NewLinkSecret()
+	if err := database.CreateTelegramLinkToken(ctx, userID, botRef, hash, time.Now().Add(LinkTTL)); err != nil {
+		logging.Errorf("User %d: storing a telegram link: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: errInternal})
+		return
+	}
+	status, err := statusOf(ctx, userID)
+	if err != nil {
+		logging.Errorf("User %d: reading the telegram status: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: errInternal})
+		return
+	}
+	status.LinkURL = LinkURL(username, secret)
+	c.JSON(http.StatusOK, status)
+}
+
+// RemoveBotToken disconnects the account's bot: the binding ends, the token
+// is forgotten and the webhook removed. Favorites and files in the chat stay.
+// @Summary Disconnect the Telegram bot
+// @Description Ends the current user's Telegram connection and forgets the bot token
+// @Tags telegram
+// @Produce json
+// @Success 200 {object} BotStatusResponse
+// @Failure 401 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /api/telegram/bot [delete]
 func (r *Routes) RemoveBotToken(c *gin.Context) {
-	// Get user ID and username from context (set by AuthMiddleware)
-	userIDInterface, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not authenticated"})
-		return
-	}
-
-	userID, ok := userIDInterface.(int64)
+	userID, ok := userIDOf(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "Invalid user ID"})
 		return
 	}
-
-	username, _ := c.Get("username")
-	usernameStr, ok := username.(string)
-	if !ok || usernameStr == "" {
-		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not authenticated"})
-		return
-	}
-
-	// Get user to get the token
-	user, err := database.GetUser(usernameStr)
+	bm := r.botManager
+	bots, err := database.DisconnectTelegram(c.Request.Context(), userID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, ErrorResponse{Error: "User not found"})
+		logging.Errorf("User %d: disconnecting telegram: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: errInternal})
 		return
 	}
-
-	if user.BotToken == "" {
-		c.JSON(http.StatusNotFound, ErrorResponse{Error: "No bot token found for user"})
-		return
+	for i := range bots {
+		bm.forget(bots[i].ID)
+		token, err := bm.config.Secrets.Open(bots[i].KeyID, secrets.PurposeToken, bots[i].TokenEnc)
+		if err == nil {
+			bm.dropWebhook(string(token))
+		}
 	}
-
-	logging.Infof("User %d removing bot token %s", userID, maskToken(user.BotToken))
-
-	// Remove bot (this will also remove its webhook)
-	err = r.botManager.RemoveBot(user.BotToken)
-	if err != nil {
-		logging.Errorf("Failed to remove bot for user %d: %v", userID, err)
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to remove bot: " + err.Error()})
-		return
-	}
-
-	// Remove token from database
-	_, err = database.UpdateBotToken(userID, "")
-	if err != nil {
-		logging.Errorf("Failed to clear bot token for user %d: %v", userID, err)
-		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Bot removed but failed to clear token from database: " + err.Error()})
-		return
-	}
-
-	logging.Infof("Successfully removed bot and cleared token for user %d", userID)
-	c.JSON(http.StatusOK, gin.H{"message": "Bot token removed successfully"})
+	logging.Infof("User %d disconnected telegram (%d bots)", userID, len(bots))
+	c.JSON(http.StatusOK, BotStatusResponse{State: stateNone})
 }
 
 // GetBotStatus gets the status of the bot for the current user
 // @Summary Get Telegram bot status
-// @Description Gets information about the status of the Telegram bot for the current user
+// @Description The current user's Telegram connection
 // @Tags telegram
-// @Accept json
 // @Produce json
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} BotStatusResponse
 // @Failure 401 {object} ErrorResponse
-// @Failure 404 {object} ErrorResponse
 // @Router /api/telegram/bot/status [get]
 func (r *Routes) GetBotStatus(c *gin.Context) {
-	// Get username from context (set by AuthMiddleware)
-	username, exists := c.Get("username")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not authenticated"})
+	userID, ok := userIDOf(c)
+	if !ok {
 		return
 	}
-
-	usernameStr, ok := username.(string)
-	if !ok || usernameStr == "" {
-		c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "User not authenticated"})
-		return
-	}
-
-	// Get user
-	user, err := database.GetUser(usernameStr)
+	status, err := statusOf(c.Request.Context(), userID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, ErrorResponse{Error: "User not found"})
+		logging.Errorf("User %d: reading the telegram status: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: errInternal})
 		return
 	}
+	c.JSON(http.StatusOK, status)
+}
 
-	c.JSON(http.StatusOK, gin.H{
-		"has_bot_token":   user.BotToken != "",
-		"telegram_linked": user.TelegramID != 0,
-	})
+// statusOf reads the account's connection.
+func statusOf(ctx context.Context, userID int64) (BotStatusResponse, error) {
+	state, err := database.GetTelegramUserState(ctx, userID)
+	if err != nil {
+		return BotStatusResponse{}, err
+	}
+	status := BotStatusResponse{State: stateNone}
+	if state.Binding != nil {
+		status.BotUsername = state.Bot.Username
+		status.TelegramName = state.Binding.TGDisplay
+		switch {
+		case state.Bot.Status == models.TelegramBotTokenRejected:
+			status.State = stateTokenRejected
+		case state.Binding.BlockedAt != nil:
+			status.State = stateBlocked
+		default:
+			status.State = stateConnected
+		}
+	}
+	if state.Pending != nil {
+		status.PendingBotUsername = state.Pending.Username
+		if state.Binding == nil {
+			status.State = statePendingLink
+		}
+		if status.LinkExpiresAt, err = database.LatestTelegramLinkExpiry(ctx, userID, state.Pending.ID); err != nil {
+			return BotStatusResponse{}, err
+		}
+	}
+	return status, nil
 }
 
 // HandleWebhook handles webhook from Telegram

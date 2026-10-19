@@ -6,16 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"gopds-api/database"
 	"gopds-api/internal/scanfixture"
-	"gopds-api/services"
-	"gopds-api/telegram"
-	"gopds-api/telegram/tgapi"
 	"gopds-api/telegram/tgtest"
 
-	"github.com/alicebob/miniredis/v2"
-	"github.com/gin-gonic/gin"
-	"github.com/go-redis/redis"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,60 +23,32 @@ import (
 const (
 	legacyOwnerTG = 4242
 	legacyToken   = "123456789:AAH-legacy-e2e-token-0123456789abcdef"
-	legacyBaseURL = "https://bot.example.test"
 )
 
 type legacyBot struct {
-	fake  *tgtest.FakeBotAPI
-	hook  tgtest.Webhook
-	u     *tgtest.Updates
-	books map[string]int64
-	uuid  string
+	*stack
+	hook   tgtest.Webhook
+	uuid   string
+	userID int64
 }
 
+// startLegacyBot starts the service over an account whose bot was connected
+// the old way, owner included: the startup adopts it.
 func startLegacyBot(t *testing.T) legacyBot {
 	t.Helper()
-	db := scanfixture.ScratchDB(t)
-	scanner := services.NewBookScanService(t.TempDir(), t.TempDir(),
-		services.NewLanguageDetector(false, 5*time.Second), false, nil)
-	books := scanfixture.Ingest(t, t.TempDir(), time.Now(), scanner.ProcessBook)
-
+	s := newStack(t)
+	userID := s.seedUser("legacy-e2e")
 	webhookUUID := uuid.NewString()
-	_, err := db.Exec(`INSERT INTO auth_user
-		(password, is_superuser, username, email, date_joined, bot_token, webhook_uuid, telegram_id)
-		VALUES ('', false, 'legacy-e2e', 'legacy-e2e@fixture.local', now(), ?, ?, ?)`,
-		legacyToken, webhookUUID, legacyOwnerTG)
-	require.NoError(t, err)
-
-	mr := miniredis.RunT(t)
-	rc := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	t.Cleanup(func() { _ = rc.Close() })
-
-	fake := tgtest.NewFakeBotAPI(t)
-	bm := telegram.NewBotManager(&telegram.Config{
-		BaseURL: legacyBaseURL,
-		API:     tgapi.Endpoint{ServerURL: fake.URL()},
-	}, rc, services.NewSearchService(database.NewPGSearchRepository(db)), nil)
-
-	svc, err := telegram.NewTelegramService(bm)
-	require.NoError(t, err)
-	gin.SetMode(gin.TestMode)
-	engine := gin.New()
-	svc.SetupWebhookRoutes(engine.Group("/telegram"))
-
-	return legacyBot{
-		fake:  fake,
-		hook:  tgtest.WebhookFromSetWebhook(t, fake, legacyToken, engine),
-		u:     tgtest.NewUpdates(),
-		books: books,
-		uuid:  webhookUUID,
-	}
+	owner := int64(legacyOwnerTG)
+	s.seedLegacyBot(userID, legacyToken, webhookUUID, &owner)
+	s.start()
+	return legacyBot{stack: s, hook: s.hook(legacyToken), uuid: webhookUUID, userID: userID}
 }
 
 func TestLegacyStartupRegistersTheBotWithTelegram(t *testing.T) {
 	b := startLegacyBot(t)
 
-	require.Len(t, b.fake.Calls("getMe"), 1, "bot.New validates the token once")
+	assert.Empty(t, b.fake.Calls("getMe"), "serving a stored bot makes no call before its webhook")
 	commands := b.fake.Calls("setMyCommands")
 	require.Len(t, commands, 1)
 	var registered []struct{ Command string }
@@ -96,8 +61,8 @@ func TestLegacyStartupRegistersTheBotWithTelegram(t *testing.T) {
 
 	hooks := b.fake.Calls("setWebhook")
 	require.Len(t, hooks, 1)
-	assert.Equal(t, legacyBaseURL+"/telegram/"+b.uuid, hooks[0].Params["url"])
-	assert.Len(t, hooks[0].Params["secret_token"], 32)
+	assert.Equal(t, stackBaseURL+"/telegram/"+b.uuid, hooks[0].Params["url"])
+	assert.Regexp(t, `^[0-9a-f]{48}$`, hooks[0].Params["secret_token"], "a random secret, not one derived from the token")
 	assert.Equal(t, legacyToken, hooks[0].Token)
 }
 
@@ -132,17 +97,22 @@ func TestLegacyBookSearchAndCard(t *testing.T) {
 	assert.Equal(t, "Book selected", answers[0].Params["text"])
 }
 
-// The legacy bot answers only its linked owner; anyone else gets silence.
+// The bot serves only its owner. A stranger used to get silence; now they
+// get one explanation an hour, and none of the owner's library.
 func TestLegacyBotIgnoresStrangers(t *testing.T) {
 	b := startLegacyBot(t)
 
 	rec := b.hook.Post(t, b.u.Text(5555, "/b мир"))
 	require.Equal(t, http.StatusOK, rec.Code)
-	b.fake.Quiet(t, "sendMessage", 0, 300*time.Millisecond)
+	got := b.waitMessage(5555, 1)
+	assert.Equal(t, "Это личный бот другого пользователя\n\nСвоего бота можно подключить в профиле библиотеки.",
+		got.Params["text"])
+	b.hook.Post(t, b.u.Text(5555, "/b мир"))
+	b.settle(5555, 1)
 
 	// The owner is still served, so the silence above is about the sender.
 	b.hook.Post(t, b.u.Text(legacyOwnerTG, "/b мир"))
-	b.fake.WaitCalls(t, "sendMessage", 1, 5*time.Second)
+	b.waitMessage(legacyOwnerTG, 1)
 }
 
 func TestLegacyWebhookRejectsAWrongSecret(t *testing.T) {

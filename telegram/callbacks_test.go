@@ -35,8 +35,8 @@ func TestNewCallbackHandler(t *testing.T) {
 	defer cleanup()
 
 	bot := &Bot{
-		token:  "test-token",
-		userID: 123,
+		token: "test-token",
+		ref:   123,
 	}
 
 	handler := NewCallbackHandler(bot, cm)

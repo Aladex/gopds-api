@@ -104,8 +104,7 @@ func TestHealthCheckErrorsKeepTheTokenOut(t *testing.T) {
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "secret-part")
 
-	bm.bots = map[string]*Bot{token: {token: token}}
-	_, err = bm.checkWebhookStatus(token)
+	_, err = bm.checkWebhookStatus(&Bot{token: token})
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "secret-part")
 }

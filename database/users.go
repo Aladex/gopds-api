@@ -12,7 +12,6 @@ import (
 	"gopds-api/utils"
 
 	"github.com/go-pg/pg/v10"
-	"github.com/google/uuid"
 )
 
 func UserObject(search string) (models.User, error) {
@@ -194,7 +193,49 @@ func GetUserList(filters models.UserFilters) ([]models.User, int, error) {
 	if err != nil {
 		return users, 0, err
 	}
+	if attachErr := attachTelegram(users); attachErr != nil {
+		return users, 0, attachErr
+	}
 	return users, count, nil
+}
+
+// attachTelegram fills in each user's Telegram connection for the admin
+// list: the bot's username and the state, never anything secret.
+func attachTelegram(users []models.User) error {
+	if len(users) == 0 {
+		return nil
+	}
+	ids := make([]int64, len(users))
+	for i := range users {
+		ids[i] = users[i].ID
+	}
+	var rows []struct {
+		UserID    int64
+		Username  string
+		Status    string
+		BlockedAt *time.Time
+	}
+	if _, err := db.Query(&rows, `
+		SELECT b.user_id, t.username, t.status, b.blocked_at
+		FROM telegram_binding b JOIN telegram_bot t ON t.id = b.bot_ref
+		WHERE b.status = 'active' AND b.user_id IN (?)`, pg.In(ids)); err != nil {
+		return err
+	}
+	byUser := make(map[int64]*models.UserTelegram, len(rows))
+	for _, r := range rows {
+		state := "connected"
+		switch {
+		case r.Status == models.TelegramBotTokenRejected:
+			state = "token_rejected"
+		case r.BlockedAt != nil:
+			state = "blocked"
+		}
+		byUser[r.UserID] = &models.UserTelegram{BotUsername: r.Username, State: state}
+	}
+	for i := range users {
+		users[i].Telegram = byUser[users[i].ID]
+	}
+	return nil
 }
 
 // profileReadHook runs between reading the user and writing the update.
@@ -297,7 +338,9 @@ func GetKindleTarget(userID int64) (KindleTarget, error) {
 	return target, err
 }
 
-// UpdateUserByAdmin updates user data by admin (integrated with new Telegram architecture)
+// UpdateUserByAdmin updates user data by admin. The Telegram connection is
+// the reader's own and is not changed here: the admin sees its state, and the
+// bot columns are written back as they were read.
 func UpdateUserByAdmin(action models.AdminCommandToUser) (models.User, error) {
 	var userToChange models.User
 	err := db.Model(&userToChange).Where("id = ?", action.User.ID).Select()
@@ -313,63 +356,13 @@ func UpdateUserByAdmin(action models.AdminCommandToUser) (models.User, error) {
 		userToChange.Password = hashedPassword
 	}
 
-	// Check if BotToken has actually changed
-	oldBotToken := userToChange.BotToken
-	botTokenChanged := oldBotToken != action.User.BotToken
-
-	logging.Infof("Bot token changed: %v (old='%s' -> new='%s')",
-		botTokenChanged, oldBotToken, action.User.BotToken)
-
-	// Handle bot token changes BEFORE updating database
-	if botTokenChanged {
-		logging.Info("Processing bot token change...")
-
-		// Step 1: Remove old bot if exists (synchronously with timeout)
-		if oldBotToken != "" {
-			logging.Infof("Removing old bot with token: %s", oldBotToken)
-			if err := removeBotFromManagerSync(oldBotToken); err != nil {
-				logging.Error("Failed to remove old bot:", err)
-				// Continue anyway - we want to clean up the database
-			}
-		}
-
-		// Step 2: Clear old data from database
-		if oldBotToken != "" {
-			logging.Info("Clearing old bot data from database")
-			err = ClearBotToken(userToChange.ID)
-			if err != nil {
-				logging.Error("Failed to clear old bot token:", err)
-			}
-		}
-	}
-
-	// Update user details (including new bot token)
 	userToChange = updateUserDetails(userToChange, action.User)
 
-	// Step 3: Update database with new token
 	_, err = db.Model(&userToChange).WherePK().Update()
 	if err != nil {
 		logging.Errorf("Failed to update user in database: %v", err)
 		return userToChange, err
 	}
-
-	// Step 4: Create new bot if token provided (after database is updated)
-	if botTokenChanged && action.User.BotToken != "" {
-		logging.Infof("Creating new bot with token: %s", action.User.BotToken)
-		if err := createBotInManager(action.User.BotToken, userToChange.ID); err != nil {
-			logging.Error("Failed to create new bot:", err)
-			// Don't fail the update if bot creation fails - token is already saved in DB
-		}
-	}
-
-	// Verify the update by reading the user again
-	var verifyUser models.User
-	err = db.Model(&verifyUser).Where("id = ?", userToChange.ID).Select()
-	if err == nil {
-		logging.Infof("Verification - user after update: ID=%d, BotToken=%s",
-			verifyUser.ID, verifyUser.BotToken)
-	}
-
 	return userToChange, nil
 }
 
@@ -398,7 +391,6 @@ func updateUserDetails(userToChange, newUserDetails models.User) models.User {
 	userToChange.BooksLang = newUserDetails.BooksLang
 	userToChange.Email = newUserDetails.Email
 	userToChange.IsSuperUser = newUserDetails.IsSuperUser
-	userToChange.BotToken = newUserDetails.BotToken
 	userToChange.Active = newUserDetails.Active
 	return userToChange
 }
@@ -476,152 +468,12 @@ func DeleteUser(id string) error {
 	return tx.Commit()
 }
 
-// UpdateBotToken updates bot token and webhook_uuid for user
-func UpdateBotToken(userID int64, botToken string) (string, error) {
-	webhookUUID := ""
-	if botToken != "" {
-		webhookUUID = uuid.New().String()
-	}
-	_, err := db.Model(&models.User{}).
-		Set("bot_token = ?", botToken).
-		Set("webhook_uuid = ?", webhookUUID).
-		Where("id = ?", userID).
-		Update()
-	return webhookUUID, err
-}
-
-// GetUserByBotToken finds user by bot token
-func GetUserByBotToken(botToken string) (models.User, error) {
-	var user models.User
-	err := db.Model(&user).Where("bot_token = ?", botToken).First()
-	return user, err
-}
-
-// UpdateTelegramID updates Telegram ID for user with specified bot token
-func UpdateTelegramID(botToken string, telegramID int64) error {
-	_, err := db.Model(&models.User{}).
-		Set("telegram_id = ?", telegramID).
-		Where("bot_token = ? AND telegram_id IS NULL", botToken).
-		Update()
-	return err
-}
-
-// GetUserByTelegramID finds user by Telegram ID
+// GetUserByTelegramID finds the library account a Telegram user is bound to:
+// the active binding decides, not the old auth_user.telegram_id.
 func GetUserByTelegramID(telegramID int64) (models.User, error) {
 	var user models.User
-	err := db.Model(&user).Where("telegram_id = ?", telegramID).First()
+	err := db.Model(&user).
+		Where("id = (SELECT user_id FROM telegram_binding WHERE tg_user_id = ? AND status = 'active')", telegramID).
+		Select()
 	return user, err
-}
-
-// ClearBotToken clears bot token, webhook_uuid and Telegram ID for user
-func ClearBotToken(userID int64) error {
-	_, err := db.Model(&models.User{}).
-		Set("bot_token = NULL, telegram_id = NULL, webhook_uuid = ''").
-		Where("id = ?", userID).
-		Update()
-	return err
-}
-
-// GetUserByWebhookUUID finds user by webhook UUID
-func GetUserByWebhookUUID(webhookUUID string) (models.User, error) {
-	var user models.User
-	err := db.Model(&user).Where("webhook_uuid = ?", webhookUUID).First()
-	return user, err
-}
-
-// GetUsersWithBotTokens returns all users who have bot tokens
-func GetUsersWithBotTokens() ([]models.User, error) {
-	var users []models.User
-	err := db.Model(&users).Where("bot_token IS NOT NULL AND bot_token != ''").Select()
-	return users, err
-}
-
-// Telegram Bot Manager integration functions
-var telegramBotManager interface {
-	CreateBotForUser(token string, userID int64, webhookUUID string) error
-	RemoveBot(token string) error
-	SetWebhook(token string) error
-}
-
-// SetTelegramBotManager sets reference to BotManager for admin panel integration
-func SetTelegramBotManager(manager interface {
-	CreateBotForUser(token string, userID int64, webhookUUID string) error
-	RemoveBot(token string) error
-	SetWebhook(token string) error
-}) {
-	telegramBotManager = manager
-}
-
-// createBotInManager creates bot in BotManager and sets webhook
-func createBotInManager(token string, userID int64) error {
-	if telegramBotManager == nil {
-		logging.Warn("Telegram BotManager not set, skipping bot creation")
-		return nil
-	}
-
-	// Get user's webhook_uuid from DB
-	var user models.User
-	err := db.Model(&user).Column("webhook_uuid").Where("id = ?", userID).Select()
-	if err != nil {
-		return fmt.Errorf("failed to get webhook_uuid for user %d: %v", userID, err)
-	}
-	if user.WebhookUUID == "" {
-		return fmt.Errorf("user %d has no webhook_uuid", userID)
-	}
-
-	logging.Infof("Starting bot creation process for user %d", userID)
-	logging.Infof("Bot token (masked): %s...%s", token[:5], token[len(token)-5:])
-
-	// Create bot with timeout to avoid blocking admin operations
-	done := make(chan error, 1)
-	go func() {
-		logging.Infof("Creating bot instance for user %d...", userID)
-		err := telegramBotManager.CreateBotForUser(token, userID, user.WebhookUUID)
-		if err != nil {
-			logging.Errorf("Failed to create bot for user %d: %v", userID, err)
-			// Check if this is an authorization error from Telegram
-			if strings.Contains(err.Error(), "Unauthorized (401)") {
-				logging.Errorf("Invalid bot token for user %d: %s. Please check the token in @BotFather", userID, err)
-				done <- fmt.Errorf("invalid bot token - please verify the token with @BotFather")
-				return
-			}
-			done <- err
-			return
-		}
-
-		logging.Infof("Bot created successfully for user %d, now setting webhook...", userID)
-		// Set webhook
-		err = telegramBotManager.SetWebhook(token)
-		if err != nil {
-			logging.Errorf("Failed to set webhook for user %d: %v", userID, err)
-		} else {
-			logging.Infof("Webhook set successfully for user %d", userID)
-		}
-		done <- err
-	}()
-
-	// Wait for bot creation with timeout
-	select {
-	case err := <-done:
-		if err != nil {
-			logging.Errorf("Bot creation process failed for user %d: %v", userID, err)
-		} else {
-			logging.Infof("Bot creation process completed successfully for user %d", userID)
-		}
-		return err
-	case <-time.After(15 * time.Second):
-		logging.Errorf("Timeout creating bot for user %d - operation cancelled", userID)
-		return fmt.Errorf("timeout creating bot - operation took too long")
-	}
-}
-
-// removeBotFromManagerSync removes bot from BotManager synchronously, blocking until done
-func removeBotFromManagerSync(token string) error {
-	if telegramBotManager == nil {
-		logging.Warn("Telegram BotManager not set, skipping bot removal")
-		return nil
-	}
-
-	// Directly call the RemoveBot function without goroutine
-	return telegramBotManager.RemoveBot(token)
 }

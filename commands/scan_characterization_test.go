@@ -34,8 +34,17 @@ func scanCharacterization(t *testing.T) (db *pg.DB, books, authors map[string]in
 		services.NewLanguageDetector(false, 5*time.Second), false, nil)
 	books = scanfixture.Ingest(t, t.TempDir(), time.Now(), scanner.ProcessBook)
 
-	_, err := db.Exec(`INSERT INTO auth_user (password, is_superuser, username, email, date_joined, telegram_id)
-		VALUES ('', false, 'characterization', 'characterization@fixture.local', now(), ?)`, characterizationTelegramID)
+	// The Telegram user reaches the account through an active binding of a
+	// bot; the bot's secrets are never read here, so they are placeholders.
+	_, err := db.Exec(`
+		WITH u AS (
+			INSERT INTO auth_user (password, is_superuser, username, email, date_joined)
+			VALUES ('', false, 'characterization', 'characterization@fixture.local', now()) RETURNING id),
+		b AS (
+			INSERT INTO telegram_bot (tg_bot_id, kind, webhook_path, webhook_secret_enc, nav_key_enc)
+			VALUES (1, 'manual', gen_random_uuid(), decode('00', 'hex'), decode('00', 'hex')) RETURNING id)
+		INSERT INTO telegram_binding (user_id, bot_ref, tg_user_id, generation, status)
+		SELECT u.id, b.id, ?, 1, 'active' FROM u, b`, characterizationTelegramID)
 	require.NoError(t, err)
 
 	authors = map[string]int64{}
