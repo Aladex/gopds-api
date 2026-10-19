@@ -326,7 +326,8 @@ func (bm *BotManager) sweepInbox(ctx context.Context) {
 	}
 }
 
-// WaitIdle waits until every update this process took has been handled.
+// WaitIdle waits until every update this process took has been handled,
+// and the background naming of adopted bots has finished.
 func (bm *BotManager) WaitIdle() { bm.handling.Wait() }
 
 // answerStranger answers someone who is not the bot's owner. A button gets

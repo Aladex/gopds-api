@@ -102,7 +102,7 @@ func TestARedeliveredUpdateIsHandledOnce(t *testing.T) {
 
 // (c) A stranger writing to a linked bot learns it is someone else's, once
 // an hour, and leaves nothing behind; their buttons do nothing; a used link
-// does not hand them the bot.
+// does not hand them the bot, nor even reach it.
 func TestAStrangerCannotTakeALinkedBot(t *testing.T) {
 	s := newStack(t).start()
 	user := s.seedUser("reader")
@@ -122,16 +122,15 @@ func TestAStrangerCannotTakeALinkedBot(t *testing.T) {
 	answers := s.fake.WaitCalls(t, "answerCallbackQuery", 1, 5*time.Second)
 	assert.Equal(t, "Эта кнопка недоступна.", answers[0].Params["text"])
 
+	// A used link is no key: the stranger stays a stranger, already answered
+	// this hour.
 	hook.Post(t, s.u.Text(otherTG, "/start link_"+secret))
-	used := s.waitMessage(otherTG, 2)
-	assert.Equal(t, "Эта ссылка уже использована\n\nОткрой профиль на сайте и получи новую ссылку.", used.Params["text"])
+	s.settle(otherTG, 1)
 
 	assert.Equal(t, 1, s.count(`SELECT count(*) FROM telegram_binding WHERE status = 'active' AND tg_user_id = ?`, ownerTG))
 	assert.Equal(t, 0, s.count(`SELECT count(*) FROM telegram_binding WHERE tg_user_id = ?`, otherTG))
-	// Recorded: the owner's /start and the stranger's /start with a link —
-	// a link is how a bot gets its owner, so it is let through to be refused.
-	// The stranger's other messages and the button press are not.
-	assert.Equal(t, 2, s.count(`SELECT count(*) FROM telegram_update_inbox`))
+	// Recorded: the owner's /start with the link, nothing of the stranger's.
+	assert.Equal(t, 1, s.count(`SELECT count(*) FROM telegram_update_inbox`))
 	for _, key := range s.mr.Keys() {
 		if strings.HasPrefix(key, "tg2:stranger:") {
 			continue
@@ -157,8 +156,10 @@ func TestAnExpiredLinkDoesNotBind(t *testing.T) {
 	require.Len(t, keyboard, 1)
 	assert.Equal(t, "Открыть профиль", keyboard[0][0].Text)
 	assert.Equal(t, stackSiteURL+"/?profile=telegram", keyboard[0][0].URL)
+	// A link never issued is no key: on a bot nobody owns yet, a stranger
+	// hears that the bot is not connected.
 	s.linkVia(botToken1, ownerTG, "never-issued-secret-0123456789abc")
-	assert.Equal(t, expiredText, s.waitMessage(ownerTG, 2).Params["text"])
+	assert.Equal(t, unlinked, s.waitMessage(ownerTG, 2).Params["text"])
 	assert.Equal(t, 0, s.count(`SELECT count(*) FROM telegram_binding`))
 
 	code, status := s.api(user, http.MethodGet, "/bot/status", "")

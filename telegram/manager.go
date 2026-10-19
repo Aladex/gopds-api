@@ -139,7 +139,11 @@ func (bm *BotManager) InitializeExistingBots() error {
 		served++
 	}
 	logging.Infof("Serving %d telegram bots", served)
-	go bm.refreshIdentities()
+	bm.handling.Add(1)
+	go func() {
+		defer bm.handling.Done()
+		bm.refreshIdentities()
+	}()
 	return nil
 }
 
