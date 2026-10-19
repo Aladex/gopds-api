@@ -232,7 +232,8 @@ func HumanSize(n int) string {
 	if n < mb {
 		return fmt.Sprintf("%d КБ", (n+kb-1)/kb)
 	}
-	whole, tenth := n/mb, (n%mb)/(mb/10)
+	const tenths = 10
+	whole, tenth := n/mb, (n%mb)/(mb/tenths)
 	if tenth == 0 {
 		return fmt.Sprintf("%d МБ", whole)
 	}

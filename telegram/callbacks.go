@@ -423,7 +423,7 @@ func (h *CallbackHandler) handleDownload(ctx context.Context, b *tgbotapi.Bot, u
 	if !ok {
 		chatID = q.From.ID
 	}
-	_, admission, err := h.bot.manager.delivery.Enqueue(ctx, delivery.Request{
+	_, admission, err := h.bot.manager.delivery.Enqueue(ctx, &delivery.Request{
 		UserID: binding.UserID, BindingID: binding.ID, BotRef: h.bot.ref, ChatID: chatID,
 		BookID: bookID, Format: format, Origin: models.DeliveryFromBot,
 		TapKey:          fmt.Sprintf("legacy:%d:%s", h.bot.ref, q.ID),

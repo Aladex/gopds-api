@@ -28,7 +28,7 @@ const (
 	Busy
 )
 
-// deliveryUserLock namespaces the advisory lock that serialises one account's
+// deliveryUserLock namespaces the advisory lock that serializes one account's
 // admissions, so its limit holds with two processes enqueueing at once.
 const deliveryUserLock = 7_317_014
 
@@ -131,10 +131,15 @@ func ClaimTelegramDeliveries(ctx context.Context, owner uuid.UUID, lease time.Du
 	return jobs, err
 }
 
+// leaseArgs is how many arguments deliveryHeld takes.
+const leaseArgs = 3
+
 // heldUpdate runs an UPDATE of a held job and reports a lost lease.
 func heldUpdate(ctx context.Context, set string, l DeliveryLease, extra string, args ...any) error {
 	query := `UPDATE telegram_delivery SET ` + set + ` WHERE ` + deliveryHeld + extra
-	all := append(args, l.ID, l.Owner, l.Fence)
+	all := make([]any, 0, len(args)+leaseArgs)
+	all = append(all, args...)
+	all = append(all, l.ID, l.Owner, l.Fence)
 	res, err := db.ExecContext(ctx, query, all...)
 	if err != nil {
 		return err

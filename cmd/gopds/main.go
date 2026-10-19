@@ -158,7 +158,7 @@ func initializeTelegram(
 		telegramService.GetBotManager().StartHealthCheck(healthCheckCtx, 24*time.Hour)
 		telegramService.GetBotManager().StartInboxSweeper(healthCheckCtx, inboxSweepInterval)
 		// Book files go out as durable jobs, from the bot and (later) the site.
-		deliveries = delivery.New(delivery.Config{SiteURL: cfg.GetServerBaseURL(), Redis: mainRedisClient},
+		deliveries = delivery.New(&delivery.Config{SiteURL: cfg.GetServerBaseURL(), Redis: mainRedisClient},
 			telegramService.GetBotManager())
 		telegramService.GetBotManager().SetDelivery(deliveries)
 		deliveries.Start(healthCheckCtx)

@@ -148,7 +148,7 @@ func (bp *BookProcessor) Mobi() (io.ReadCloser, error) {
 	return bp.MobiContext(context.Background())
 }
 
-// MobiContext is Mobi with kindlegen bound to ctx: a cancelled or expired
+// MobiContext is Mobi with kindlegen bound to ctx: a canceled or expired
 // context kills the subprocess, so a hung conversion cannot hold its caller
 // forever.
 func (bp *BookProcessor) MobiContext(ctx context.Context) (io.ReadCloser, error) {

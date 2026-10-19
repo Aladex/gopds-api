@@ -125,7 +125,7 @@ func (s *stack) start() *stack {
 	setDefault(&cfg.Poll, 50*time.Millisecond)
 	setDefault(&cfg.StatusAfter, 5*time.Second)
 	setDefault(&cfg.NotSentBackoff, 100*time.Millisecond)
-	s.delivery = delivery.New(cfg, s.bm)
+	s.delivery = delivery.New(&cfg, s.bm)
 	s.bm.SetDelivery(s.delivery)
 	s.delivery.Start(context.Background())
 

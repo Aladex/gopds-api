@@ -40,6 +40,32 @@ import (
 // envelope. A Local Bot API server would change only this.
 const UploadLimit = 50 * 1000 * 1000
 
+// The defaults of Config.
+const (
+	defaultWorkers         = 2 // as many conversions at once as Send to Kindle
+	defaultPerUser         = 3
+	defaultTotal           = 64
+	defaultMaxAttempts     = 3
+	defaultLease           = 45 * time.Second
+	defaultHeartbeat       = 15 * time.Second
+	defaultStatusAfter     = 3 * time.Second
+	defaultChatActionEvery = 4500 * time.Millisecond // the action shows for 5 s
+	defaultShortWait       = 30 * time.Second
+	defaultNotSentBackoff  = 5 * time.Second
+	defaultPrepareTimeout  = 2 * time.Minute
+	defaultRetention       = 30 * 24 * time.Hour
+	// sweepsPerLease is how often within a lease the sweeper looks.
+	sweepsPerLease = 3
+)
+
+// The formats a book is delivered in.
+const (
+	FormatEPUB = "epub"
+	FormatFB2  = "fb2"
+	FormatMOBI = "mobi"
+	FormatZIP  = "zip"
+)
+
 // Config sets the service's limits and pace. Zero values take the defaults.
 type Config struct {
 	// Workers is how many jobs one process runs at once.
@@ -80,36 +106,36 @@ type Config struct {
 	Redis *redis.Client
 }
 
-func (c Config) withDefaults() Config {
+func (c Config) withDefaults() Config { //nolint:gocritic // defaults fill a copy, never the caller's value
 	set := func(v *time.Duration, d time.Duration) {
 		if *v == 0 {
 			*v = d
 		}
 	}
 	if c.Workers == 0 {
-		c.Workers = 2
+		c.Workers = defaultWorkers
 	}
 	if c.PerUser == 0 {
-		c.PerUser = 3
+		c.PerUser = defaultPerUser
 	}
 	if c.Total == 0 {
-		c.Total = 64
+		c.Total = defaultTotal
 	}
 	if c.UploadLimit == 0 {
 		c.UploadLimit = UploadLimit
 	}
 	if c.MaxAttempts == 0 {
-		c.MaxAttempts = 3
+		c.MaxAttempts = defaultMaxAttempts
 	}
-	set(&c.Lease, 45*time.Second)
-	set(&c.Heartbeat, 15*time.Second)
+	set(&c.Lease, defaultLease)
+	set(&c.Heartbeat, defaultHeartbeat)
 	set(&c.Poll, time.Second)
-	set(&c.StatusAfter, 3*time.Second)
-	set(&c.ChatActionEvery, 4500*time.Millisecond)
-	set(&c.ShortWait, 30*time.Second)
-	set(&c.NotSentBackoff, 5*time.Second)
-	set(&c.PrepareTimeout, 2*time.Minute)
-	set(&c.Retention, 30*24*time.Hour)
+	set(&c.StatusAfter, defaultStatusAfter)
+	set(&c.ChatActionEvery, defaultChatActionEvery)
+	set(&c.ShortWait, defaultShortWait)
+	set(&c.NotSentBackoff, defaultNotSentBackoff)
+	set(&c.PrepareTimeout, defaultPrepareTimeout)
+	set(&c.Retention, defaultRetention)
 	if c.Prepare == nil {
 		c.Prepare = PrepareFile
 	}
@@ -135,7 +161,7 @@ type Service struct {
 }
 
 // New makes a service; Start runs it.
-func New(cfg Config, bots Bots) *Service {
+func New(cfg *Config, bots Bots) *Service {
 	return &Service{cfg: cfg.withDefaults(), bots: bots, owner: uuid.New(), wake: make(chan struct{}, 1)}
 }
 
@@ -157,7 +183,7 @@ var (
 )
 
 // Formats are the formats a book is delivered in.
-var Formats = []string{"epub", "fb2", "mobi", "zip"}
+var Formats = []string{FormatEPUB, FormatFB2, FormatMOBI, FormatZIP}
 
 func knownFormat(f string) bool {
 	for _, known := range Formats {
@@ -171,7 +197,7 @@ func knownFormat(f string) bool {
 // Enqueue records a request and wakes a worker. The returned admission says
 // whether a new job was made, the same press or file was already on its way
 // (that job is returned), or a limit was reached.
-func (s *Service) Enqueue(ctx context.Context, r Request) (models.TelegramDelivery, database.Admission, error) {
+func (s *Service) Enqueue(ctx context.Context, r *Request) (models.TelegramDelivery, database.Admission, error) {
 	if !knownFormat(r.Format) {
 		return models.TelegramDelivery{}, 0, ErrUnknownFormat
 	}
@@ -269,7 +295,7 @@ func (s *Service) work(ctx context.Context) {
 // prunes old rows.
 func (s *Service) sweep(ctx context.Context) {
 	defer s.loops.Done()
-	ticker := time.NewTicker(s.cfg.Lease / 3)
+	ticker := time.NewTicker(s.cfg.Lease / sweepsPerLease)
 	defer ticker.Stop()
 	lastPrune := time.Time{}
 	for {

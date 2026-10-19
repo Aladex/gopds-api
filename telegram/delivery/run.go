@@ -39,8 +39,7 @@ func (s *Service) run(parent context.Context, job *models.TelegramDelivery) {
 	}
 	book, err := database.GetBookWithAuthors(ctx, job.BookID)
 	if errors.Is(err, pg.ErrNoRows) {
-		n := s.notifierFor(client, job, &models.Book{ID: job.BookID})
-		s.finish(ctx, lease, n, models.OutcomeNotFound)
+		s.finish(ctx, lease, s.notifierFor(client, job, &models.Book{ID: job.BookID}), models.OutcomeNotFound)
 		return
 	}
 	if err != nil {
@@ -56,35 +55,15 @@ func (s *Service) run(parent context.Context, job *models.TelegramDelivery) {
 		s.finish(ctx, lease, n, outcome)
 		return
 	}
-
-	prepCtx, prepCancel := context.WithTimeout(ctx, s.cfg.PrepareTimeout)
-	file, err := s.cfg.Prepare(prepCtx, book, job.Format, s.cfg.UploadLimit)
-	prepCancel()
-	if ctx.Err() != nil {
-		return // the lease is gone; the next holder prepares again
-	}
-	switch {
-	case errors.Is(err, ErrTooLarge):
-		s.finish(ctx, lease, n, models.OutcomeTooLarge)
-		return
-	case errors.Is(err, ErrFileMissing):
-		s.finish(ctx, lease, n, models.OutcomeNotFound)
-		return
-	case err != nil:
-		logging.Warnf("Delivery: job %d: preparing book %d as %s: %v", job.ID, job.BookID, job.Format, err)
-		s.finish(ctx, lease, n, models.OutcomeConversionFailed)
-		return
-	case int64(len(file.Data)) > s.cfg.UploadLimit:
-		// Whatever prepared it, a file over the limit is not uploaded.
-		s.finish(ctx, lease, n, models.OutcomeTooLarge)
+	file, ok := s.prepare(ctx, job, book, lease, n)
+	if !ok {
 		return
 	}
-
 	// The book may have been withdrawn, or the chat unbound, while it was
 	// being prepared.
-	if fresh, err := database.GetBookWithAuthors(ctx, job.BookID); err == nil {
+	if fresh, freshErr := database.GetBookWithAuthors(ctx, job.BookID); freshErr == nil {
 		book = fresh
-	} else if errors.Is(err, pg.ErrNoRows) {
+	} else if errors.Is(freshErr, pg.ErrNoRows) {
 		s.finish(ctx, lease, n, models.OutcomeNotFound)
 		return
 	}
@@ -92,12 +71,39 @@ func (s *Service) run(parent context.Context, job *models.TelegramDelivery) {
 		s.finish(ctx, lease, n, outcome)
 		return
 	}
-
 	if err := database.StartTelegramDeliverySend(ctx, lease, int64(len(file.Data))); err != nil {
 		return
 	}
 	n.sending(ctx)
 	s.send(ctx, client, job, book, file, lease, n)
+}
+
+// prepare produces the job's file, closing the job when it cannot be made or
+// may not be sent; false when the job is done with.
+func (s *Service) prepare(
+	ctx context.Context, job *models.TelegramDelivery, book *models.Book, lease database.DeliveryLease, n *notifier,
+) (File, bool) {
+	prepCtx, prepCancel := context.WithTimeout(ctx, s.cfg.PrepareTimeout)
+	file, err := s.cfg.Prepare(prepCtx, book, job.Format, s.cfg.UploadLimit)
+	prepCancel()
+	if ctx.Err() != nil {
+		return File{}, false // the lease is gone; the next holder prepares again
+	}
+	switch {
+	case errors.Is(err, ErrTooLarge):
+		s.finish(ctx, lease, n, models.OutcomeTooLarge)
+	case errors.Is(err, ErrFileMissing):
+		s.finish(ctx, lease, n, models.OutcomeNotFound)
+	case err != nil:
+		logging.Warnf("Delivery: job %d: preparing book %d as %s: %v", job.ID, job.BookID, job.Format, err)
+		s.finish(ctx, lease, n, models.OutcomeConversionFailed)
+	case int64(len(file.Data)) > s.cfg.UploadLimit:
+		// Whatever prepared it, a file over the limit is not uploaded.
+		s.finish(ctx, lease, n, models.OutcomeTooLarge)
+	default:
+		return file, true
+	}
+	return File{}, false
 }
 
 // stillDeliverable re-checks the book and the chat's binding.
@@ -112,22 +118,16 @@ func (s *Service) stillDeliverable(ctx context.Context, job *models.TelegramDeli
 	return "", true
 }
 
-// send uploads the file and records what Telegram's answer means.
+// send uploads the file and records what Telegram's answer means. Only a
+// 429 short enough to wait out in place sends the same request again.
 func (s *Service) send(
 	ctx context.Context, client *bot.Bot, job *models.TelegramDelivery, book *models.Book, file File,
 	lease database.DeliveryLease, n *notifier,
 ) {
 	waited := false
 	for {
-		if wait := s.rateLimited(job.BotRef); wait > 0 {
-			if wait > s.cfg.ShortWait || waited {
-				s.requeue(ctx, lease, n, wait)
-				return
-			}
-			waited = true
-			if !sleep(ctx, wait) {
-				return
-			}
+		if wait := s.rateLimited(job.BotRef); wait > 0 && !s.waitOut(ctx, lease, n, wait, &waited) {
+			return
 		}
 		msg, err := client.SendDocument(ctx, &bot.SendDocumentParams{
 			ChatID:   job.ChatID,
@@ -135,50 +135,64 @@ func (s *Service) send(
 			Caption:  fileCaption(book, job.Format, len(file.Data)),
 		})
 		class, wait := tgapi.Classify(err)
-		switch class {
-		case tgapi.ClassOK:
-			if err := database.MarkTelegramDeliverySent(context.WithoutCancel(ctx), lease, int64(msg.ID)); err != nil {
-				logging.Warnf("Delivery: job %d sent, but recording it: %v", job.ID, err)
-			}
-			n.sent(ctx)
-			return
-		case tgapi.ClassRateLimited:
+		if class == tgapi.ClassRateLimited {
 			s.shareRateLimit(job.BotRef, wait)
-			if wait > s.cfg.ShortWait || waited {
-				s.requeue(ctx, lease, n, wait)
+			if !s.waitOut(ctx, lease, n, wait, &waited) {
 				return
 			}
-			waited = true
-			if !sleep(ctx, wait) {
-				return
-			}
-		case tgapi.ClassNotSent:
-			if int(job.Attempt) < s.cfg.MaxAttempts {
-				backoff := s.cfg.NotSentBackoff << (job.Attempt - 1)
-				logging.Warnf("Delivery: job %d did not reach Telegram, again in %s: %v", job.ID, backoff, tgapi.RedactURL(err))
-				_ = database.RequeueTelegramDelivery(ctx, lease, backoff)
-				return
-			}
-			s.finish(ctx, lease, n, models.OutcomeSendRejected)
-			return
-		case tgapi.ClassForbidden:
-			s.finish(ctx, lease, nil, models.OutcomeBotBlocked)
-			return
-		case tgapi.ClassUnauthorized:
-			if err := database.SetTelegramBotStatus(ctx, job.BotRef, models.TelegramBotTokenRejected); err != nil {
-				logging.Warnf("Delivery: marking telegram bot %d: %v", job.BotRef, err)
-			}
-			s.finish(ctx, lease, nil, models.OutcomeTokenRejected)
-			return
-		case tgapi.ClassUnknown:
-			logging.Warnf("Delivery: job %d: the send's outcome is unknown: %v", job.ID, tgapi.RedactURL(err))
-			s.finishAs(ctx, lease, n, models.DeliveryUncertain, models.OutcomeUncertain)
-			return
-		default:
-			logging.Warnf("Delivery: job %d: Telegram refused the file: %v", job.ID, tgapi.RedactURL(err))
-			s.finish(ctx, lease, n, models.OutcomeSendRejected)
+			continue
+		}
+		s.settle(ctx, job, lease, n, class, msg, err)
+		return
+	}
+}
+
+// waitOut spends a 429 wait in place, once per job and only a short one;
+// otherwise it puts the job back in the queue. It reports whether to send
+// again now.
+func (s *Service) waitOut(
+	ctx context.Context, lease database.DeliveryLease, n *notifier, wait time.Duration, waited *bool,
+) bool {
+	if wait > s.cfg.ShortWait || *waited {
+		s.requeue(ctx, lease, n, wait)
+		return false
+	}
+	*waited = true
+	return sleep(ctx, wait)
+}
+
+// settle records what one answer of Telegram means for the job.
+func (s *Service) settle(
+	ctx context.Context, job *models.TelegramDelivery, lease database.DeliveryLease, n *notifier,
+	class tgapi.Class, msg *tgbot.Message, err error,
+) {
+	switch class {
+	case tgapi.ClassOK:
+		if markErr := database.MarkTelegramDeliverySent(context.WithoutCancel(ctx), lease, int64(msg.ID)); markErr != nil {
+			logging.Warnf("Delivery: job %d sent, but recording it: %v", job.ID, markErr)
+		}
+		n.sent(ctx)
+	case tgapi.ClassNotSent:
+		if int(job.Attempt) < s.cfg.MaxAttempts {
+			backoff := s.cfg.NotSentBackoff << (job.Attempt - 1)
+			logging.Warnf("Delivery: job %d did not reach Telegram, again in %s: %v", job.ID, backoff, tgapi.RedactURL(err))
+			_ = database.RequeueTelegramDelivery(ctx, lease, backoff)
 			return
 		}
+		s.finish(ctx, lease, n, models.OutcomeSendRejected)
+	case tgapi.ClassForbidden:
+		s.finish(ctx, lease, nil, models.OutcomeBotBlocked)
+	case tgapi.ClassUnauthorized:
+		if markErr := database.SetTelegramBotStatus(ctx, job.BotRef, models.TelegramBotTokenRejected); markErr != nil {
+			logging.Warnf("Delivery: marking telegram bot %d: %v", job.BotRef, markErr)
+		}
+		s.finish(ctx, lease, nil, models.OutcomeTokenRejected)
+	case tgapi.ClassUnknown, tgapi.ClassRateLimited:
+		logging.Warnf("Delivery: job %d: the send's outcome is unknown: %v", job.ID, tgapi.RedactURL(err))
+		s.finishAs(ctx, lease, n, models.DeliveryUncertain, models.OutcomeUncertain)
+	case tgapi.ClassBadRequest, tgapi.ClassNotModified, tgapi.ClassMessageGone:
+		logging.Warnf("Delivery: job %d: Telegram refused the file: %v", job.ID, tgapi.RedactURL(err))
+		s.finish(ctx, lease, n, models.OutcomeSendRejected)
 	}
 }
 

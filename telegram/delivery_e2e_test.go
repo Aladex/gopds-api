@@ -33,7 +33,7 @@ type deliveryStack struct {
 
 // openCard starts s (configured by the caller), binds the bot and opens the
 // card of the multi-author fixture book through the legacy search.
-func openCard(t *testing.T, s *stack) deliveryStack {
+func openCard(t *testing.T, s *stack) *deliveryStack {
 	t.Helper()
 	s.start()
 	user := s.seedUser("reader")
@@ -45,18 +45,18 @@ func openCard(t *testing.T, s *stack) deliveryStack {
 	s.hook(botToken1).Post(t, s.u.Tap(t, ownerTG, &list, "1"))
 	card := s.waitMessage(ownerTG, 3)
 	require.Contains(t, card.Params["text"], "война и МИР")
-	return deliveryStack{stack: s, card: card, bookID: s.books[scanfixture.EntryMultiAuthor]}
+	return &deliveryStack{stack: s, card: card, bookID: s.books[scanfixture.EntryMultiAuthor]}
 }
 
-// tap presses a format button of the card.
-func (d deliveryStack) tap(t *testing.T, label string) {
+// tapEPUB presses the card's EPUB button.
+func (d *deliveryStack) tapEPUB(t *testing.T) {
 	t.Helper()
-	rec := d.hook(botToken1).Post(t, d.u.Tap(t, ownerTG, &d.card, label))
+	rec := d.hook(botToken1).Post(t, d.u.Tap(t, ownerTG, &d.card, "📚 EPUB"))
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
 // job is the only delivery row.
-func (d deliveryStack) job(t *testing.T) models.TelegramDelivery {
+func (d *deliveryStack) job(t *testing.T) models.TelegramDelivery {
 	t.Helper()
 	var jobs []models.TelegramDelivery
 	require.NoError(t, d.db.Model(&jobs).Select())
@@ -65,7 +65,7 @@ func (d deliveryStack) job(t *testing.T) models.TelegramDelivery {
 }
 
 // waitJob waits until the only job reaches state.
-func (d deliveryStack) waitJob(t *testing.T, state string) models.TelegramDelivery {
+func (d *deliveryStack) waitJob(t *testing.T, state string) models.TelegramDelivery {
 	t.Helper()
 	require.Eventually(t, func() bool {
 		return d.count(`SELECT count(*) FROM telegram_delivery WHERE state = ?`, state) == 1
@@ -74,7 +74,7 @@ func (d deliveryStack) waitJob(t *testing.T, state string) models.TelegramDelive
 }
 
 // answers waits for n callback answers and returns their texts.
-func (d deliveryStack) answers(t *testing.T, n int) []string {
+func (d *deliveryStack) answers(t *testing.T, n int) []string {
 	t.Helper()
 	var texts []string
 	for _, c := range d.fake.WaitCalls(t, "answerCallbackQuery", n, 5*time.Second) {
@@ -87,7 +87,7 @@ func (d deliveryStack) answers(t *testing.T, n int) []string {
 // prepared, then the document with its caption — and nothing else attached.
 func TestATapDeliversTheFile(t *testing.T) {
 	d := openCard(t, newStack(t))
-	d.tap(t, "📚 EPUB")
+	d.tapEPUB(t)
 
 	doc := d.fake.WaitAnswered(t, "sendDocument", 1, 15*time.Second)[0]
 	job := d.waitJob(t, models.DeliverySent)
@@ -126,9 +126,9 @@ func TestTwoTapsMakeOneFile(t *testing.T) {
 	}
 	d := openCard(t, s)
 
-	d.tap(t, "📚 EPUB")
+	d.tapEPUB(t)
 	time.Sleep(10 * time.Millisecond)
-	d.tap(t, "📚 EPUB")
+	d.tapEPUB(t)
 	answers := d.answers(t, 3)
 	assert.Equal(t, []string{"Готовлю EPUB…", "Файл уже готовится"}, answers[1:])
 
@@ -143,7 +143,7 @@ func TestARateLimitIsWaitedOut(t *testing.T) {
 	s := newStack(t)
 	s.fake.On(tgtest.Rule{Method: "sendDocument", Reply: tgtest.TooManyRequests(1), Times: 1})
 	d := openCard(t, s)
-	d.tap(t, "📚 EPUB")
+	d.tapEPUB(t)
 
 	d.waitJob(t, models.DeliverySent)
 	docs := d.fake.Calls("sendDocument")
@@ -164,7 +164,7 @@ func TestAnUnansweredSendIsNotRepeated(t *testing.T) {
 	s.clientTimeout = time.Second
 	s.fake.On(tgtest.Rule{Method: "sendDocument", Reply: s.fake.Hang(5 * time.Second)})
 	d := openCard(t, s)
-	d.tap(t, "📚 EPUB")
+	d.tapEPUB(t)
 
 	job := d.waitJob(t, models.DeliveryUncertain)
 	assert.Equal(t, models.OutcomeUncertain, *job.Outcome)
@@ -200,7 +200,7 @@ func TestARefusedConnectionIsRetried(t *testing.T) {
 	s := newStack(t)
 	s.transport = &failFirstDial{}
 	d := openCard(t, s)
-	d.tap(t, "📚 EPUB")
+	d.tapEPUB(t)
 
 	job := d.waitJob(t, models.DeliverySent)
 	assert.Equal(t, int16(2), job.Attempt, "claimed once more after the refused connection")
@@ -215,7 +215,7 @@ func TestAFileOverTheLimitIsNotUploaded(t *testing.T) {
 		return delivery.File{Name: "big.epub", Data: make([]byte, 51*1000*1000)}, nil
 	}
 	d := openCard(t, s)
-	d.tap(t, "📚 EPUB")
+	d.tapEPUB(t)
 
 	job := d.waitJob(t, models.DeliveryFailed)
 	assert.Equal(t, models.OutcomeTooLarge, *job.Outcome)
@@ -237,7 +237,7 @@ func TestABookWithdrawnMidwayIsNotSent(t *testing.T) {
 		return delivery.File{Name: "book.epub", Data: []byte("PK small")}, nil
 	}
 	d := openCard(t, s)
-	d.tap(t, "📚 EPUB")
+	d.tapEPUB(t)
 
 	job := d.waitJob(t, models.DeliveryFailed)
 	assert.Equal(t, models.OutcomeUnavailable, *job.Outcome)
@@ -262,7 +262,7 @@ func TestAStallWhilePreparingIsTakenOver(t *testing.T) {
 		return delivery.PrepareFile(ctx, b, f, limit)
 	}
 	d := openCard(t, s)
-	d.tap(t, "📚 EPUB")
+	d.tapEPUB(t)
 	require.Eventually(t, func() bool { return calls.Load() == 1 }, 5*time.Second, 10*time.Millisecond)
 
 	// The holder's lease runs out; its heartbeats now fail.
@@ -296,7 +296,7 @@ func TestAStopWhileSendingIsUncertain(t *testing.T) {
 		},
 	})
 	d := openCard(t, s)
-	d.tap(t, "📚 EPUB")
+	d.tapEPUB(t)
 	require.Eventually(t, func() bool { return entered.Load() == 1 }, 10*time.Second, 10*time.Millisecond)
 
 	_, err := d.db.Exec(`UPDATE telegram_delivery SET lease_expires_at = now() - interval '1 second'`)
@@ -315,7 +315,7 @@ func TestABlockedBotFailsTheJob(t *testing.T) {
 	s := newStack(t)
 	s.fake.On(tgtest.Rule{Method: "sendDocument", Reply: tgtest.Forbidden("")})
 	d := openCard(t, s)
-	d.tap(t, "📚 EPUB")
+	d.tapEPUB(t)
 
 	job := d.waitJob(t, models.DeliveryFailed)
 	assert.Equal(t, models.OutcomeBotBlocked, *job.Outcome)

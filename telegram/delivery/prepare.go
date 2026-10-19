@@ -47,13 +47,13 @@ func PrepareFile(ctx context.Context, book *models.Book, format string, limit in
 		err error
 	)
 	switch format {
-	case "fb2":
+	case FormatFB2:
 		rc, err = bp.FB2()
-	case "epub":
+	case FormatEPUB:
 		rc, err = bp.Epub()
-	case "mobi":
+	case FormatMOBI:
 		rc, err = bp.MobiContext(ctx)
-	case "zip":
+	case FormatZIP:
 		rc, err = bp.Zip(book.FileName)
 	default:
 		return File{}, ErrUnknownFormat
