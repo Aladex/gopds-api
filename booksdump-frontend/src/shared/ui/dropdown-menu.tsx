@@ -10,10 +10,48 @@ import { cn } from "@/shared/lib/utils"
  * disappears behind them.
  */
 
+/*
+ * Radix opens a menu on pointerdown. With a mouse that is what a menu should
+ * do, but a finger that lands on a trigger to start scrolling the page opens
+ * the menu too — before anyone can tell a scroll from a tap. So for touch and
+ * pen the trigger ignores pointerdown and opens on click, which the browser
+ * fires only for a tap that did not turn into a scroll. The root holds the
+ * open state so the trigger can do that; the keyboard is left to Radix.
+ */
+type DropdownMenuOpenContextValue = {
+  open: boolean
+  setOpen: (open: boolean) => void
+}
+
+const DropdownMenuOpenContext =
+  React.createContext<DropdownMenuOpenContextValue | null>(null)
+
 function DropdownMenu({
+  open: openProp,
+  defaultOpen = false,
+  onOpenChange,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
-  return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />
+  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(defaultOpen)
+  const open = openProp ?? uncontrolledOpen
+  const setOpen = React.useCallback(
+    (next: boolean) => {
+      if (openProp === undefined) setUncontrolledOpen(next)
+      onOpenChange?.(next)
+    },
+    [openProp, onOpenChange],
+  )
+  const context = React.useMemo(() => ({ open, setOpen }), [open, setOpen])
+  return (
+    <DropdownMenuOpenContext.Provider value={context}>
+      <DropdownMenuPrimitive.Root
+        data-slot="dropdown-menu"
+        open={open}
+        onOpenChange={setOpen}
+        {...props}
+      />
+    </DropdownMenuOpenContext.Provider>
+  )
 }
 
 function DropdownMenuPortal({
@@ -25,11 +63,43 @@ function DropdownMenuPortal({
 }
 
 function DropdownMenuTrigger({
+  onPointerDown,
+  onPointerCancel,
+  onClick,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Trigger>) {
+  const menu = React.useContext(DropdownMenuOpenContext)
+  // Whether the menu was open when the tap began, or null when no tap is
+  // under way: by the time its click arrives, the tap itself may already have
+  // closed the menu as a press outside it.
+  const tap = React.useRef<{ wasOpen: boolean } | null>(null)
   return (
     <DropdownMenuPrimitive.Trigger
       data-slot="dropdown-menu-trigger"
+      onPointerDown={(event) => {
+        onPointerDown?.(event)
+        tap.current = null
+        if (event.defaultPrevented || !menu) return
+        if (event.pointerType === "touch" || event.pointerType === "pen") {
+          tap.current = { wasOpen: menu.open }
+          // Default prevented, Radix leaves this pointerdown alone.
+          event.preventDefault()
+        }
+      }}
+      // A touch the browser took for a scroll ends here, with no click.
+      onPointerCancel={(event) => {
+        onPointerCancel?.(event)
+        tap.current = null
+      }}
+      onClick={(event) => {
+        onClick?.(event)
+        // A click from the keyboard or a mouse has no tap behind it: Radix
+        // has already answered its keydown or pointerdown.
+        const started = tap.current
+        tap.current = null
+        if (event.defaultPrevented || !menu || !started) return
+        menu.setOpen(!started.wasOpen)
+      }}
       {...props}
     />
   )
