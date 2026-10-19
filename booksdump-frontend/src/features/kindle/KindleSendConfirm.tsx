@@ -3,22 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import type { Book } from '@/api/books';
 import { Button } from '@/shared/ui/button';
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from '@/shared/ui/dialog';
-import {
-    Drawer,
-    DrawerContent,
-    DrawerDescription,
-    DrawerFooter,
-    DrawerTitle,
-} from '@/shared/ui/drawer';
-import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
+import ResponsiveSheet from '@/shared/components/ResponsiveSheet';
 
 type KindleSendConfirmProps = {
     open: boolean;
@@ -42,8 +27,10 @@ const authorsOf = (book: Book) =>
  * KindleSendConfirm asks before a book is sent to the reader's Kindle: which
  * book, and to which address.
  *
- * The shell is the one the Kindle setup and the donate dialog have — a dialog
- * on a desktop, a sheet from the bottom edge on a phone. «Send» takes the
+ * The shell is the Kindle setup's — a dialog on a desktop, a sheet from the
+ * bottom edge on a phone — with the details scrolling between the title and
+ * the buttons: a collection with twenty authors still leaves Send and Cancel
+ * on a 640px-high screen. «Send» takes the
  * focus when it opens, so Enter sends and Escape cancels; closing gives the
  * focus back to the card's button, which is where the reader was.
  */
@@ -55,7 +42,6 @@ const KindleSendConfirm: React.FC<KindleSendConfirmProps> = ({
     onCancel,
 }) => {
     const { t } = useTranslation();
-    const isMobile = useMediaQuery('(max-width: 600px)');
     const sendRef = useRef<HTMLButtonElement>(null);
 
     // Radix gives the focus back to the dialog's own trigger, and this one is
@@ -79,8 +65,8 @@ const KindleSendConfirm: React.FC<KindleSendConfirmProps> = ({
     const authors = book ? authorsOf(book) : '';
     const details = book && (
         <>
-            <span className="block font-medium text-foreground">{book.title}</span>
-            {authors && <span className="block">{authors}</span>}
+            <span className="block font-medium break-words text-foreground">{book.title}</span>
+            {authors && <span className="block break-words">{authors}</span>}
         </>
     );
     // Plain text: an address to read over, not to copy.
@@ -103,48 +89,21 @@ const KindleSendConfirm: React.FC<KindleSendConfirmProps> = ({
         </Button>
     );
 
-    if (isMobile) {
-        return (
-            <Drawer open={open} onOpenChange={onOpenChange}>
-                <DrawerContent onOpenAutoFocus={focusSend} onCloseAutoFocus={focusCard}>
-                    <div className="flex flex-col gap-3 px-4 pt-2">
-                        <DrawerTitle className="text-base font-medium">
-                            {t('sendToKindle.confirmTitle')}
-                        </DrawerTitle>
-                        <DrawerDescription className="text-sm text-muted-foreground">
-                            {details}
-                        </DrawerDescription>
-                        {target}
-                    </div>
-                    {/* Stacked and full width, the main one first, as the
-                        setup sheet has them. */}
-                    <DrawerFooter className="pt-3">
-                        {send}
-                        {cancel}
-                    </DrawerFooter>
-                </DrawerContent>
-            </Drawer>
-        );
-    }
-
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent
-                closeLabel={t('close')}
-                onOpenAutoFocus={focusSend}
-                onCloseAutoFocus={focusCard}
-            >
-                <DialogHeader>
-                    <DialogTitle>{t('sendToKindle.confirmTitle')}</DialogTitle>
-                    <DialogDescription>{details}</DialogDescription>
-                </DialogHeader>
-                {target}
-                <DialogFooter>
-                    {cancel}
-                    {send}
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+        <ResponsiveSheet
+            data-testid="kindle-confirm"
+            open={open}
+            onOpenChange={onOpenChange}
+            title={t('sendToKindle.confirmTitle')}
+            description={details}
+            closeLabel={t('close')}
+            onOpenAutoFocus={focusSend}
+            onCloseAutoFocus={focusCard}
+            primary={send}
+            secondary={cancel}
+        >
+            {target}
+        </ResponsiveSheet>
     );
 };
 
