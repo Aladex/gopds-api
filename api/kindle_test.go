@@ -111,7 +111,7 @@ func installKindleWorld(t *testing.T, w *kindleWorld) {
 func configuredReader() *kindleWorld {
 	return &kindleWorld{
 		target: database.KindleTarget{Email: "reader@kindle.com", SenderID: "5f0c7a52-3c1e-4bb4-9a77-0b3c1f6a2d10"},
-		book:   kindleBook{title: "Полдень", filename: "polden.epub", data: []byte("PK-epub-bytes")},
+		book:   kindleBook{Title: "Полдень", Filename: "polden.epub", Data: []byte("PK-epub-bytes")},
 	}
 }
 
@@ -329,9 +329,7 @@ func TestProfileCarriesTheKindleSettings(t *testing.T) {
 
 // queueSize counts the sends admitted and not yet finished.
 func queueSize() int {
-	kindleSends.mu.Lock()
-	defer kindleSends.mu.Unlock()
-	return len(kindleSends.inFlight)
+	return kindleSends.Size()
 }
 
 // The queue is bounded as a whole: past its limit a request is told busy at
@@ -630,5 +628,5 @@ func TestKindleClosedSocketStartsNothingEvenWithFreeSlots(t *testing.T) {
 	}
 	assert.Zero(t, world.maxConverting.Load(), "a conversion started for a closed socket")
 	assert.Empty(t, world.mailed())
-	assert.Empty(t, kindleSends.slots, "a slot was kept")
+	assert.Zero(t, kindleSends.Running(), "a slot was kept")
 }

@@ -1,7 +1,6 @@
 package api
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,7 +13,7 @@ import (
 	"gopds-api/httputil"
 	"gopds-api/internal/safeio"
 	"gopds-api/logging"
-	"gopds-api/models"
+	"gopds-api/services/kindlesend"
 	"gopds-api/utils"
 
 	"github.com/gin-gonic/gin"
@@ -75,34 +74,13 @@ func ConvertBookToMobi(bookID int64) error {
 }
 
 // errBookFileMissing is a book whose row exists and whose file does not.
-var errBookFileMissing = errors.New("book file not found")
+var errBookFileMissing = kindlesend.ErrBookFileMissing
 
-// epubOf converts one book to EPUB in memory, refusing one over limit bytes
-// with safeio.ErrTooLarge. It returns the book's row alongside, for the name.
-func epubOf(bookID, limit int64) (models.Book, []byte, error) {
-	book, err := database.GetBook(bookID)
-	if err != nil {
-		return book, nil, err
-	}
-	zipPath := viper.GetString("app.files_path") + book.Path
+// epubOf converts one book to EPUB in memory (kindlesend.EPUBOf).
+var epubOf = kindlesend.EPUBOf
 
-	if !utils.FileExists(zipPath) {
-		return book, nil, fmt.Errorf("%w: %s", errBookFileMissing, zipPath)
-	}
-
-	bp := utils.NewBookProcessor(book.FileName, zipPath)
-	rc, err := bp.Epub()
-	if err != nil {
-		return book, nil, err
-	}
-	defer rc.Close()
-
-	data, err := safeio.ReadAll(rc, limit)
-	if err != nil {
-		return book, nil, err
-	}
-	return book, data, nil
-}
+// epubContentType is what an EPUB is, to a browser and to a mail client.
+const epubContentType = kindlesend.ContentType
 
 func ConvertBookToEpub(bookID int64) error {
 	book, data, err := epubOf(bookID, safeio.MaxBookBytes)
