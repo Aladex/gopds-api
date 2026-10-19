@@ -51,8 +51,7 @@ func (s *Service) run(parent context.Context, job *models.TelegramDelivery) {
 	n.start(ctx)
 	defer n.stop()
 
-	if outcome, ok := s.stillDeliverable(ctx, job, book); !ok {
-		s.finish(ctx, lease, n, outcome)
+	if !s.stillDeliverable(ctx, job, book, lease, n) {
 		return
 	}
 	file, ok := s.prepare(ctx, job, book, lease, n)
@@ -67,8 +66,7 @@ func (s *Service) run(parent context.Context, job *models.TelegramDelivery) {
 		s.finish(ctx, lease, n, models.OutcomeNotFound)
 		return
 	}
-	if outcome, ok := s.stillDeliverable(ctx, job, book); !ok {
-		s.finish(ctx, lease, n, outcome)
+	if !s.stillDeliverable(ctx, job, book, lease, n) {
 		return
 	}
 	if err := database.StartTelegramDeliverySend(ctx, lease, int64(len(file.Data))); err != nil {
@@ -106,16 +104,23 @@ func (s *Service) prepare(
 	return File{}, false
 }
 
-// stillDeliverable re-checks the book and the chat's binding.
-func (s *Service) stillDeliverable(ctx context.Context, job *models.TelegramDelivery, book *models.Book) (string, bool) {
-	if !visible(book) {
-		return models.OutcomeUnavailable, false
-	}
+// stillDeliverable re-checks the book and the chat's binding. A job that may
+// not go out is closed unavailable; its chat is told only while it is still
+// the reader's — an ended binding leaves a chat the library no longer writes
+// to.
+func (s *Service) stillDeliverable(
+	ctx context.Context, job *models.TelegramDelivery, book *models.Book, lease database.DeliveryLease, n *notifier,
+) bool {
 	binding, err := database.GetActiveTelegramBinding(ctx, job.BotRef)
 	if err != nil || binding == nil || binding.ID != job.BindingID {
-		return models.OutcomeUnavailable, false
+		s.finish(ctx, lease, nil, models.OutcomeUnavailable)
+		return false
 	}
-	return "", true
+	if !visible(book) {
+		s.finish(ctx, lease, n, models.OutcomeUnavailable)
+		return false
+	}
+	return true
 }
 
 // send uploads the file and records what Telegram's answer means. Only a

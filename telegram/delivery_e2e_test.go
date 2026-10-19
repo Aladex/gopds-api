@@ -245,6 +245,27 @@ func TestABookWithdrawnMidwayIsNotSent(t *testing.T) {
 	assert.Empty(t, d.fake.Calls("sendDocument"))
 }
 
+// The chat is unbound while the file is prepared: the job ends unavailable,
+// nothing is sent, and the chat — no longer the reader's — is not written to.
+func TestAnUnboundChatIsNotWrittenTo(t *testing.T) {
+	s := newStack(t)
+	s.deliveryCfg.Prepare = func(ctx context.Context, b *models.Book, f string, limit int64) (delivery.File, error) {
+		if _, err := s.db.Exec(`UPDATE telegram_binding SET status = 'revoked', revoked_at = now() WHERE status = 'active'`); err != nil {
+			return delivery.File{}, err
+		}
+		return delivery.File{Name: "book.epub", Data: []byte("PK small")}, nil
+	}
+	d := openCard(t, s)
+	d.tapEPUB(t)
+
+	job := d.waitJob(t, models.DeliveryFailed)
+	assert.Equal(t, models.OutcomeUnavailable, *job.Outcome)
+	d.delivery.WaitIdle()
+	d.fake.Quiet(t, "sendMessage", 3, 200*time.Millisecond)
+	assert.Empty(t, d.fake.Calls("sendDocument"))
+	assert.Empty(t, d.fake.Calls("editMessageText"))
+}
+
 // (h) A process that stalls while preparing loses the job to another, which
 // prepares it again and sends it: one file. The stalled one, when it wakes,
 // cannot send — its lease is gone.
