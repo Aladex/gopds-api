@@ -96,6 +96,43 @@ func TestANewLinkGetsNoKeyboardMessage(t *testing.T) {
 	}
 }
 
+// The keyboard belongs to the chat: a chat linked again before its first
+// update to the v2 bot still has the old keyboard, and gets the one message;
+// linked once more, it is the latest binding's mark that counts.
+func TestARelinkedChatStillLosesTheOldKeyboard(t *testing.T) {
+	v := adoptedReader(t)
+	secret, _ := v.connect(v.user, botToken1)
+	v.post(v.u.Text(ownerTG, "/start link_"+secret))
+	v.say("мир")
+	assert.Equal(t, 1, keyboardNotices(v))
+	assert.Equal(t, 1, v.count(`SELECT count(*) FROM telegram_binding WHERE status = 'active' AND reply_kb_removed_at IS NOT NULL`))
+
+	secret, _ = v.connect(v.user, botToken1)
+	v.post(v.u.Text(ownerTG, "/start link_"+secret))
+	v.say("война")
+	assert.Equal(t, 1, keyboardNotices(v), "the adopted binding's unset mark is history")
+}
+
+// A chat that got the message keeps it got across a relink: never twice.
+func TestARelinkAfterTheMessageSendsItNoMore(t *testing.T) {
+	v := adoptedReader(t)
+	v.say("мир")
+	secret, _ := v.connect(v.user, botToken1)
+	v.post(v.u.Text(ownerTG, "/start link_"+secret))
+	v.say("война")
+	assert.Equal(t, 1, keyboardNotices(v))
+}
+
+func keyboardNotices(v *v2Stack) int {
+	count := 0
+	for _, c := range v.fake.Calls("sendMessage") {
+		if c.Params["text"] == copyKeyboardGone {
+			count++
+		}
+	}
+	return count
+}
+
 // A bot in maintenance answers with the notice and the site's address; it
 // searches nothing, and its binding and jobs keep their state.
 func TestMaintenanceAnswersWithTheSite(t *testing.T) {

@@ -321,6 +321,23 @@ func ConsumeTelegramLinkToken(
 	return outcome, binding, nil
 }
 
+// chatKeyboardGone is the «keyboard removed» mark a new binding of this bot
+// and chat starts with. The keyboard belongs to the chat, not to a binding: a
+// chat this bot was bound to before keeps its latest binding's mark, unset
+// while the old interface's keyboard may still be there; a chat bound to it
+// for the first time never had that keyboard.
+func chatKeyboardGone(ctx context.Context, tx *pg.Tx, botRef, tgUserID int64) (*time.Time, error) {
+	var mark *time.Time
+	_, err := tx.QueryOneContext(ctx, pg.Scan(&mark), `
+		SELECT reply_kb_removed_at FROM telegram_binding
+		WHERE bot_ref = ? AND tg_user_id = ? ORDER BY id DESC LIMIT 1`, botRef, tgUserID)
+	if errors.Is(err, pg.ErrNoRows) {
+		now := time.Now()
+		return &now, nil
+	}
+	return mark, err
+}
+
 // bindByLink makes the binding a live link asks for, inside the caller's
 // transaction.
 func bindByLink(
@@ -351,17 +368,19 @@ func bindByLink(
 	if err != nil {
 		return LinkExpired, nil, err
 	}
+	keyboardGone, err := chatKeyboardGone(ctx, tx, botRef, tgUserID)
+	if err != nil {
+		return LinkExpired, nil, err
+	}
 	if _, err = tx.ExecContext(ctx, `
 		UPDATE telegram_binding SET status = 'revoked', revoked_at = now()
 		WHERE status = 'active' AND (user_id = ? OR bot_ref = ? OR tg_user_id = ?)`,
 		link.UserID, botRef, tgUserID); err != nil {
 		return LinkExpired, nil, err
 	}
-	// A chat linked now never had the old interface's keyboard to take away.
-	now := time.Now()
 	binding := &models.TelegramBinding{
 		UserID: link.UserID, BotRef: botRef, TGUserID: tgUserID, TGDisplay: tgDisplay,
-		Generation: generation, Status: models.TelegramBindingActive, ReplyKBRemovedAt: &now,
+		Generation: generation, Status: models.TelegramBindingActive, ReplyKBRemovedAt: keyboardGone,
 	}
 	if _, err = tx.ModelContext(ctx, binding).Returning("*").Insert(); err != nil {
 		return LinkExpired, nil, err
