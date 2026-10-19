@@ -243,6 +243,13 @@ func BookError(bookID int64, err error) string {
 // book as sent. And the outcome starts out failed — only a send that reached
 // the relay's acceptance of the message says otherwise.
 func (s *Sender) Run(userID, bookID int64, check Check, done <-chan struct{}) (code string) {
+	return s.RunGuarded(userID, bookID, check, nil, done)
+}
+
+// RunGuarded is Run with one more check, beforeMail, made after the
+// conversion — itself a wait — right before the mail goes, which cannot be
+// taken back. nil skips it, as the site's sends do.
+func (s *Sender) RunGuarded(userID, bookID int64, check, beforeMail Check, done <-chan struct{}) (code string) {
 	started := time.Now()
 	size := 0
 	code = CodeSendFailed
@@ -258,7 +265,7 @@ func (s *Sender) Run(userID, bookID int64, check Check, done <-chan struct{}) (c
 		logging.Infof("Send to Kindle: user_id=%d book_id=%d bytes=%d outcome=%s elapsed=%s",
 			userID, bookID, size, outcome, time.Since(started).Round(time.Millisecond))
 	}()
-	code = s.Send(userID, bookID, check, done, &size)
+	code = s.send(userID, bookID, check, beforeMail, done, &size)
 	return code
 }
 
@@ -266,6 +273,10 @@ func (s *Sender) Run(userID, bookID int64, check Check, done <-chan struct{}) (c
 // message, a code otherwise, OutcomeDropped when done closed while the
 // request waited. size is filled in once the book is converted.
 func (s *Sender) Send(userID, bookID int64, check Check, done <-chan struct{}, size *int) string {
+	return s.send(userID, bookID, check, nil, done, size)
+}
+
+func (s *Sender) send(userID, bookID int64, check, beforeMail Check, done <-chan struct{}, size *int) string {
 	if code := check(); code != "" {
 		return code
 	}
@@ -297,6 +308,11 @@ func (s *Sender) Send(userID, bookID int64, check Check, done <-chan struct{}, s
 		return BookError(bookID, err)
 	}
 	*size = len(book.Data)
+	if beforeMail != nil {
+		if code := beforeMail(); code != "" {
+			return code
+		}
+	}
 
 	err = s.Mail(email.KindleDelivery{
 		From:  sender,

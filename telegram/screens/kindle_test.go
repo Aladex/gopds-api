@@ -13,7 +13,7 @@ func TestEveryKindleOutcomeHasWords(t *testing.T) {
 	seen := map[string]bool{}
 	for _, code := range []string{"", KindleSending, kindlesend.CodeNotConfigured, kindlesend.CodeNotFound,
 		kindlesend.CodeTooLarge, kindlesend.CodeConversionFailed, kindlesend.CodeSendFailed,
-		kindlesend.CodeInProgress, kindlesend.CodeBusy} {
+		kindlesend.CodeInProgress, kindlesend.CodeBusy, KindleUnavailable} {
 		text := KindleText(code)
 		assert.NotEmpty(t, text, code)
 		assert.False(t, seen[text], "%q shares its words", code)

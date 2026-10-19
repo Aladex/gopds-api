@@ -3,9 +3,11 @@ package telegram_test
 import (
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"gopds-api/database"
 	"gopds-api/email"
@@ -251,4 +253,71 @@ func rowsWithURLs(t *testing.T, c *tgtest.Call) []urlButton {
 		}
 	}
 	return out
+}
+
+// convertingThen holds the conversion until released, and says when it has
+// started: the send has passed its checks by then.
+func convertingThen(entered chan struct{}) func(*stack) {
+	return func(s *stack) {
+		book := s.kindle.Book
+		s.kindle.Book = func(id int64) (kindlesend.Book, error) { close(entered); return book(id) }
+	}
+}
+
+// A book withdrawn while it converts is not mailed: the reviewer's
+// TestReviewKindleRechecksVisibilityAfterConversion.
+func TestKindleRechecksTheBookBeforeMail(t *testing.T) {
+	relay := &kindleRelay{gate: make(chan struct{})}
+	var release sync.Once
+	letGo := func() { release.Do(func() { close(relay.gate) }) }
+	defer letGo()
+	entered := make(chan struct{})
+	v := newV2(t, withKindle(relay), convertingThen(entered))
+	v.setKindle()
+	results, card := v.openFixtureCard()
+	v.tap(&card, "Kindle")
+	confirm := v.latest(results.MessageID)
+	v.tap(&confirm, "Отправить")
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the conversion did not start")
+	}
+	_, err := v.db.Exec(`UPDATE opds_catalog_book SET approved = false WHERE id = ?`, v.books[scanfixture.EntryMultiAuthor])
+	require.NoError(t, err)
+	letGo()
+	v.bm.WaitSends()
+	assert.Empty(t, relay.mailed(), "a book withdrawn during its conversion is not mailed")
+	outcome := v.latest(results.MessageID)
+	assert.Contains(t, content(&outcome), "Эта книга больше недоступна.")
+}
+
+// A bot relinked while the book converts sends nothing for the old owner:
+// the reviewer's TestReviewKindleRechecksBindingAfterConversion.
+func TestKindleRechecksTheBindingBeforeMail(t *testing.T) {
+	relay := &kindleRelay{gate: make(chan struct{})}
+	var release sync.Once
+	letGo := func() { release.Do(func() { close(relay.gate) }) }
+	defer letGo()
+	entered := make(chan struct{})
+	v := newV2(t, withKindle(relay), convertingThen(entered))
+	v.setKindle()
+	_, card := v.openFixtureCard()
+	v.tap(&card, "Kindle")
+	confirm := v.latest(card.MessageID)
+	v.tap(&confirm, "Отправить")
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the conversion did not start")
+	}
+	secret, _ := v.connect(v.user, botToken1)
+	rec := v.hook(botToken1).Post(t, v.u.Text(ownerTG+1, "/start link_"+secret))
+	require.Equal(t, http.StatusOK, rec.Code)
+	v.bm.WaitIdle()
+	require.Equal(t, 1, v.count(`SELECT count(*) FROM telegram_binding
+		WHERE status = 'active' AND generation = 2 AND tg_user_id = ?`, ownerTG+1))
+	letGo()
+	v.bm.WaitSends()
+	assert.Empty(t, relay.mailed(), "a revoked binding does not authorize the mail once the book is converted")
 }

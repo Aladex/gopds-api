@@ -24,6 +24,7 @@ var kindleStatuses = []string{
 	screens.KindleSending, "",
 	kindlesend.CodeNotConfigured, kindlesend.CodeNotFound, kindlesend.CodeTooLarge,
 	kindlesend.CodeConversionFailed, kindlesend.CodeSendFailed, kindlesend.CodeInProgress, kindlesend.CodeBusy,
+	screens.KindleUnavailable,
 }
 
 // kindlePage is a status's page.
@@ -139,7 +140,8 @@ type kindleJob struct {
 
 // runKindle sends, then tells the outcome. The send no longer stands when
 // the bot was relinked meanwhile — nobody is left to tell — or the book is
-// no longer handed out.
+// no longer handed out. Both are checked before each wait and once more
+// after the conversion, right before the mail; a read that fails stops it.
 func (r *Router) runKindle(ctx context.Context, job *kindleJob) {
 	defer r.background.Done()
 	ctx = database.WithoutInboxLease(ctx)
@@ -154,13 +156,13 @@ func (r *Router) runKindle(ctx context.Context, job *kindleJob) {
 		book, err := database.GetBookCard(ctx, job.key.BookID)
 		switch {
 		case isNoRows(err) || err == nil && !visible(book):
-			return kindlesend.CodeNotFound
+			return screens.KindleUnavailable
 		case err != nil:
 			return kindlesend.CodeSendFailed
 		}
 		return ""
 	}
-	code := r.kindle.Run(job.key.UserID, job.key.BookID, check, nil)
+	code := r.kindle.RunGuarded(job.key.UserID, job.key.BookID, check, check, nil)
 	// Released before the outcome is told, as on the site: asked again the
 	// moment it is seen, the book is not still «on its way».
 	r.kindle.Queue.Leave(job.key)

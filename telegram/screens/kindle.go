@@ -18,14 +18,19 @@ const (
 	kindleNotSet      = "не настроен"
 )
 
-// KindleSending is the status shown while the book is on its way; it is not
-// one of kindlesend's codes.
-const KindleSending = "sending"
+// KindleSending is the status shown while the book is on its way, and
+// KindleUnavailable a send stopped because the book is no longer handed out;
+// neither is one of kindlesend's codes.
+const (
+	KindleSending     = "sending"
+	KindleUnavailable = "unavailable"
+)
 
 // kindleCopy is each outcome in words; "" is sent.
 var kindleCopy = map[string]string{
 	"":                              "Отправлено на Kindle. Книга появится на устройстве через несколько минут.",
 	KindleSending:                   "Отправляю на Kindle…",
+	KindleUnavailable:               CopyUnavailable,
 	kindlesend.CodeNotConfigured:    "Сначала укажи адрес Kindle на сайте.",
 	kindlesend.CodeNotFound:         "Файл книги не найден.",
 	kindlesend.CodeTooLarge:         "Книга слишком большая для Kindle — скачай EPUB.",
