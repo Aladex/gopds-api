@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"gopds-api/models"
@@ -26,7 +27,8 @@ var testCardKeys = &CardKeys{
 // worstBook is a catalog row at every column's limit: a 10 000-character
 // annotation of many short paragraphs, long names, many authors and genres.
 func worstBook() *models.Book {
-	b := &models.Book{ID: 1, Title: strings.Repeat("Очень длинное название ", 60), Lang: "ru", DocDate: "1999-01-01",
+	b := &models.Book{ID: 1, Title: strings.Repeat("Очень длинное название ", 60), Lang: "ru",
+		DocDate:    time.Now().AddDate(-25, 0, 0).Format(time.DateOnly),
 		Annotation: strings.Repeat("Абзац аннотации.\n", 588)}
 	for i := 0; i < 50; i++ {
 		b.Authors = append(b.Authors, models.Author{FullName: strings.Repeat("Имя ", 25)})
