@@ -16,6 +16,7 @@ import (
 	"gopds-api/commands"
 	"gopds-api/logging"
 	"gopds-api/services"
+	"gopds-api/telegram/tgapi"
 
 	"gopds-api/database"
 
@@ -75,6 +76,9 @@ type Bot struct {
 // Config contains settings for bots
 type Config struct {
 	BaseURL string // base URL for webhooks
+	// API is the Bot API server the bots call; the zero value is Telegram's
+	// cloud API. Tests point it at a tgtest fake.
+	API tgapi.Endpoint
 }
 
 // NewBotManager creates a new bot manager whose bots build command
@@ -166,13 +170,13 @@ func (bm *BotManager) createBotInstance(token string, userID int64) (*Bot, error
 
 	resultChan := make(chan botResult, 1)
 	go func() {
-		opts := []tgbotapi.Option{
+		opts := append(bm.config.API.Options(),
 			tgbotapi.WithMiddlewares(recoverMiddleware, privateChatMiddleware),
 			tgbotapi.WithWebhookSecretToken(webhookSecretFromToken(token)),
 			tgbotapi.WithDefaultHandler(func(ctx context.Context, b *tgbotapi.Bot, update *tgbot.Update) {
 				logging.Debugf("Unhandled update type in bot for user %d", userID)
 			}),
-		}
+		)
 		teleBot, err := tgbotapi.New(token, opts...)
 		resultChan <- botResult{bot: teleBot, err: err}
 	}()
@@ -676,6 +680,18 @@ func (bm *BotManager) HandleWebhook(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
+// rawClient is the client of the health check's direct calls: the endpoint's
+// own when it names one, otherwise a short-lived default.
+func (bm *BotManager) rawClient() *http.Client {
+	if bm.config.API.HTTPClient != nil {
+		return bm.config.API.HTTPClient
+	}
+	return &http.Client{Timeout: rawCallTimeout}
+}
+
+// rawCallTimeout bounds one direct health-check call.
+const rawCallTimeout = 8 * time.Second
+
 // checkWebhookStatus checks if webhook is already correctly configured
 func (bm *BotManager) checkWebhookStatus(token string) (bool, error) {
 	bm.mutex.RLock()
@@ -699,9 +715,9 @@ func (bm *BotManager) checkWebhookStatus(token string) (bool, error) {
 
 	resultChan := make(chan webhookInfoResult, 1)
 	go func() {
-		apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/getWebhookInfo", token)
+		apiURL := bm.config.API.MethodURL(token, "getWebhookInfo")
 
-		client := &http.Client{Timeout: 8 * time.Second}
+		client := bm.rawClient()
 		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 		if err != nil {
 			resultChan <- webhookInfoResult{ok: false, err: err}
@@ -981,9 +997,9 @@ func (bm *BotManager) validateBotToken(token string) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/getMe", token)
+	apiURL := bm.config.API.MethodURL(token, "getMe")
 
-	client := &http.Client{Timeout: 8 * time.Second}
+	client := bm.rawClient()
 	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
 		return false, fmt.Errorf("failed to create request: %v", err)
