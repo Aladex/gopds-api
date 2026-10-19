@@ -17,6 +17,7 @@ import (
 	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/services"
+	"gopds-api/telegram/delivery"
 	"gopds-api/telegram/secrets"
 	"gopds-api/telegram/tgapi"
 
@@ -54,6 +55,9 @@ type BotManager struct {
 	// newProcessor builds command processors on the one shared search
 	// service; there is no global default service to fall back to.
 	newProcessor func() *commands.CommandProcessor
+
+	// delivery sends book files as durable jobs; nil until SetDelivery.
+	delivery *delivery.Service
 
 	// process identifies this process as the holder of inbox leases.
 	process  uuid.UUID
@@ -402,6 +406,21 @@ func (bm *BotManager) botByRef(ctx context.Context, ref int64) (*Bot, error) {
 		return nil, nil
 	}
 	return bm.serve(model)
+}
+
+// SetDelivery gives the bots the service that sends their files.
+func (bm *BotManager) SetDelivery(d *delivery.Service) { bm.delivery = d }
+
+// Client is the SDK client of a served bot, for the delivery service.
+func (bm *BotManager) Client(ctx context.Context, botRef int64) (*tgbotapi.Bot, error) {
+	b, err := bm.botByRef(ctx, botRef)
+	if err != nil {
+		return nil, err
+	}
+	if b == nil {
+		return nil, fmt.Errorf("telegram bot %d is not served", botRef)
+	}
+	return b.bot, nil
 }
 
 // forget stops serving a bot in this process.

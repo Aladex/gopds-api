@@ -145,6 +145,13 @@ func (bp *BookProcessor) Epub() (io.ReadCloser, error) {
 // FB2 → EPUB → MOBI (using kindlegen)
 // Returns an io.ReadCloser containing the MOBI file.
 func (bp *BookProcessor) Mobi() (io.ReadCloser, error) {
+	return bp.MobiContext(context.Background())
+}
+
+// MobiContext is Mobi with kindlegen bound to ctx: a cancelled or expired
+// context kills the subprocess, so a hung conversion cannot hold its caller
+// forever.
+func (bp *BookProcessor) MobiContext(ctx context.Context) (io.ReadCloser, error) {
 	// Step 1: Generate EPUB from FB2
 	epubReader, err := bp.Epub()
 	if err != nil {
@@ -192,8 +199,11 @@ func (bp *BookProcessor) Mobi() (io.ReadCloser, error) {
 	// #nosec G204 -- kindlegenPath comes from findKindlegen, which only
 	// ever returns one of a fixed list of locations or a PATH lookup. The
 	// arguments are generated temporary filenames.
-	cmd := exec.Command(kindlegenPath, epubTmpFile, "-o", tmpFilename+".mobi")
+	cmd := exec.CommandContext(ctx, kindlegenPath, epubTmpFile, "-o", tmpFilename+".mobi")
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("kindlegen stopped: %w", ctx.Err())
+		}
 		// kindlegen returns exit code 1 even on successful conversion with warnings
 		// Check if MOBI file was actually created
 		if _, statErr := os.Stat(mobiTmpFile); os.IsNotExist(statErr) {

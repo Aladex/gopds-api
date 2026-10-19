@@ -18,6 +18,7 @@ import (
 	"gopds-api/sessions"
 	"gopds-api/tasks" // Import the tasks package for WatchDirectory
 	"gopds-api/telegram"
+	"gopds-api/telegram/delivery"
 	"gopds-api/telegram/secrets"
 
 	"github.com/gin-gonic/gin"
@@ -152,11 +153,23 @@ func initializeTelegram(
 	// Start periodic health checks for Telegram bots, and the sweeper that
 	// hands this process the updates a stopped one left unfinished.
 	healthCheckCtx, healthCheckCancel := context.WithCancel(context.Background())
+	var deliveries *delivery.Service
 	if telegramService != nil {
 		telegramService.GetBotManager().StartHealthCheck(healthCheckCtx, 24*time.Hour)
 		telegramService.GetBotManager().StartInboxSweeper(healthCheckCtx, inboxSweepInterval)
+		// Book files go out as durable jobs, from the bot and (later) the site.
+		deliveries = delivery.New(delivery.Config{SiteURL: cfg.GetServerBaseURL(), Redis: mainRedisClient},
+			telegramService.GetBotManager())
+		telegramService.GetBotManager().SetDelivery(deliveries)
+		deliveries.Start(healthCheckCtx)
 	}
-	return healthCheckCancel
+	return func() {
+		healthCheckCancel()
+		// Jobs in hand finish their send rather than turn uncertain.
+		if deliveries != nil {
+			deliveries.Stop()
+		}
+	}
 }
 
 // serveUntilShutdown serves HTTP until a shutdown signal arrives, then shuts

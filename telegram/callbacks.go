@@ -3,6 +3,7 @@ package telegram
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,10 +14,9 @@ import (
 	"gopds-api/commands"
 	"gopds-api/database"
 	"gopds-api/internal/posters"
-	"gopds-api/internal/safeio"
 	"gopds-api/logging"
 	"gopds-api/models"
-	"gopds-api/utils"
+	"gopds-api/telegram/delivery"
 
 	tgbotapi "github.com/go-telegram/bot"
 	tgbot "github.com/go-telegram/bot/models"
@@ -396,132 +396,55 @@ func (h *CallbackHandler) buildFormatSelectionKeyboard(bookID int64) *tgbot.Inli
 	}
 }
 
-// handleDownload handles download:format:ID callbacks
+// handleDownload asks the delivery service for the book in the tapped
+// format and answers the press at once; the file follows as a job. Each
+// press is its own request (keyed by the callback's id, so a redelivered
+// update finds its job), while a second press for the same file before the
+// first is done gets «already being prepared».
 func (h *CallbackHandler) handleDownload(ctx context.Context, b *tgbotapi.Bot, update *tgbot.Update, callbackData string) error {
 	q := update.CallbackQuery
-	telegramID := q.From.ID
-	logging.Infof("Processing download callback: %s for user %d", callbackData, telegramID)
-
 	parts := strings.Split(callbackData, ":")
 	if len(parts) != 3 {
-		logging.Warnf("Invalid download callback format: %s", callbackData)
-		h.answerCallbackText(ctx, b, q, "Invalid download request")
+		h.answerCallbackText(ctx, b, q, "Эта кнопка больше не поддерживается.")
 		return nil
 	}
-
-	format := parts[1]
+	format := strings.ToLower(parts[1])
 	bookID, err := strconv.ParseInt(parts[2], 10, 64)
-	if err != nil {
-		logging.Errorf("Invalid book ID in download callback: %s", parts[2])
-		h.answerCallbackText(ctx, b, q, "Invalid book ID")
+	if err != nil || h.bot.manager == nil || h.bot.manager.delivery == nil {
+		h.answerCallbackText(ctx, b, q, "Эта кнопка больше не поддерживается.")
 		return nil
 	}
-
-	book, err := database.GetBook(bookID)
-	if err != nil {
-		logging.Errorf("Failed to get book %d: %v", bookID, err)
-		h.answerCallbackText(ctx, b, q, "Book not found")
+	binding, err := database.GetActiveTelegramBinding(ctx, h.bot.ref)
+	if err != nil || binding == nil || binding.TGUserID != q.From.ID {
+		h.answerCallbackText(ctx, b, q, "Эта кнопка недоступна.")
 		return nil
 	}
-
-	h.answerCallbackText(ctx, b, q, "Готовим файл...")
-
-	if err := h.sendBookFile(ctx, b, telegramID, book, format); err != nil {
-		logging.Errorf("Failed to send book %d in format %s: %v", bookID, format, err)
-		_, _ = b.SendMessage(ctx, &tgbotapi.SendMessageParams{
-			ChatID: telegramID,
-			Text:   "Не удалось отправить книгу. Попробуйте другой формат или позже.",
-		})
+	chatID, messageID, ok := callbackMessageInfo(q)
+	if !ok {
+		chatID = q.From.ID
 	}
-
-	return nil
-}
-
-// sendBookFile sends the book file to user in specified format
-func (h *CallbackHandler) sendBookFile(ctx context.Context, b *tgbotapi.Bot, chatID int64, book models.Book, format string) error {
-	if !book.Approved {
-		return fmt.Errorf("book not approved for download")
-	}
-
-	format = strings.ToLower(format)
-	basePath := viper.GetString("app.files_path")
-	if basePath == "" {
-		return fmt.Errorf("files path not configured")
-	}
-
-	zipPath := basePath + book.Path
-	if !utils.FileExists(zipPath) {
-		return fmt.Errorf("book file not found at %s", zipPath)
-	}
-
-	bp := utils.NewBookProcessor(book.FileName, zipPath)
-
-	rc, fileName, err := h.getBookReader(bp, book, format)
-	if err != nil {
-		return err
-	}
-
-	// Buffer the entire file in memory: the SDK holds the whole multipart
-	// body in memory anyway (since v1.27.0, so a request can be replayed
-	// after an HTTP/2 GOAWAY), and the read cap bounds what a conversion
-	// may produce.
-	data, err := safeio.ReadAll(rc, safeio.MaxBookBytes)
-	if cerr := rc.Close(); cerr != nil {
-		logging.Errorf("Failed to close book reader: %v", cerr)
-	}
-	if err != nil {
-		return fmt.Errorf("read book content: %w", err)
-	}
-
-	_, err = b.SendDocument(ctx, &tgbotapi.SendDocumentParams{
-		ChatID: chatID,
-		Document: &tgbot.InputFileUpload{
-			Filename: fileName,
-			Data:     bytes.NewReader(data),
-		},
-		Caption:     fmt.Sprintf("📖 %s", book.Title),
-		ReplyMarkup: GetMainKeyboard(),
+	_, admission, err := h.bot.manager.delivery.Enqueue(ctx, delivery.Request{
+		UserID: binding.UserID, BindingID: binding.ID, BotRef: h.bot.ref, ChatID: chatID,
+		BookID: bookID, Format: format, Origin: models.DeliveryFromBot,
+		TapKey:          fmt.Sprintf("legacy:%d:%s", h.bot.ref, q.ID),
+		OriginMessageID: int64(messageID),
 	})
-	if err != nil {
-		return err
-	}
-
-	msg := fmt.Sprintf("Отправлена книга \"%s\" в формате %s", book.Title, strings.ToUpper(format))
-	h.processOutgoingMessage(chatID, msg)
-
-	return nil
-}
-
-// getBookReader returns reader and filename for specified format
-func (h *CallbackHandler) getBookReader(bp *utils.BookProcessor, book models.Book, format string) (io.ReadCloser, string, error) {
-	var (
-		rc       io.ReadCloser
-		err      error
-		fileName string
-	)
-
-	switch format {
-	case "fb2":
-		rc, err = bp.FB2()
-		fileName = fmt.Sprintf("%s.fb2", book.DownloadName())
-	case "epub":
-		rc, err = bp.Epub()
-		fileName = fmt.Sprintf("%s.epub", book.DownloadName())
-	case "mobi":
-		rc, err = bp.Mobi()
-		fileName = fmt.Sprintf("%s.mobi", book.DownloadName())
-	case "zip":
-		rc, err = bp.Zip(book.FileName)
-		fileName = fmt.Sprintf("%s.zip", book.DownloadName())
+	switch {
+	case errors.Is(err, delivery.ErrNotFound), errors.Is(err, delivery.ErrUnavailable):
+		h.answerCallbackText(ctx, b, q, delivery.ToastUnavailable)
+	case errors.Is(err, delivery.ErrUnknownFormat):
+		h.answerCallbackText(ctx, b, q, "Эта кнопка больше не поддерживается.")
+	case err != nil:
+		logging.Errorf("Telegram bot %d: enqueueing book %d as %s: %v", h.bot.ref, bookID, format, err)
+		h.answerCallbackText(ctx, b, q, "Библиотека временно недоступна. Попробуй ещё раз позже.")
+	case admission == database.Busy:
+		h.answerCallbackText(ctx, b, q, delivery.ToastBusy)
+	case admission == database.InProgress || admission == database.AlreadyTapped:
+		h.answerCallbackText(ctx, b, q, delivery.ToastInProgress)
 	default:
-		return nil, "", fmt.Errorf("unsupported format: %s", format)
+		h.answerCallbackText(ctx, b, q, fmt.Sprintf(delivery.ToastPreparing, strings.ToUpper(format)))
 	}
-
-	if err != nil {
-		return nil, "", err
-	}
-
-	return rc, fileName, nil
+	return nil
 }
 
 // updateSearchParamsInContext updates search params in conversation context

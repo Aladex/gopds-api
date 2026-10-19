@@ -99,3 +99,61 @@ type TelegramInboxUpdate struct {
 	ReceivedAt     time.Time `pg:"default:now()"`
 	FinishedAt     *time.Time
 }
+
+// States of telegram_delivery.state.
+const (
+	DeliveryQueued    = "queued"
+	DeliveryPreparing = "preparing"
+	DeliverySending   = "sending"
+	DeliverySent      = "sent"
+	DeliveryFailed    = "failed"
+	DeliveryUncertain = "uncertain"
+)
+
+// Outcomes of a finished delivery.
+const (
+	OutcomeSent             = "sent"
+	OutcomeNotFound         = "not_found"
+	OutcomeUnavailable      = "unavailable"
+	OutcomeTooLarge         = "too_large"
+	OutcomeConversionFailed = "conversion_failed"
+	OutcomeSendRejected     = "send_rejected"
+	OutcomeBotBlocked       = "bot_blocked"
+	OutcomeTokenRejected    = "token_rejected"
+	OutcomeUncertain        = "uncertain"
+)
+
+// Origins of a delivery.
+const (
+	DeliveryFromBot  = "bot"
+	DeliveryFromSite = "site"
+)
+
+// TelegramDelivery is one request to send a book file into a bound chat.
+type TelegramDelivery struct {
+	tableName       struct{} `pg:"telegram_delivery"`
+	ID              int64
+	UserID          int64
+	BindingID       int64
+	BotRef          int64
+	ChatID          int64
+	BookID          int64
+	Format          string
+	Origin          string
+	TapKey          *string
+	State           string
+	Outcome         *string
+	Attempt         int16
+	NextAttemptAt   time.Time  `pg:"default:now()"`
+	LeaseOwner      *uuid.UUID `pg:"type:uuid"`
+	LeaseExpiresAt  *time.Time
+	Fence           int64
+	OriginMessageID *int64
+	OriginRevision  *int32
+	StatusMessageID *int64
+	FileBytes       *int64
+	TGMessageID     *int64    `pg:"tg_message_id"`
+	CreatedAt       time.Time `pg:"default:now()"`
+	SendStartedAt   *time.Time
+	FinishedAt      *time.Time
+}

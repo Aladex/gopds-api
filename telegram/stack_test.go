@@ -15,6 +15,7 @@ import (
 	"gopds-api/internal/scanfixture"
 	"gopds-api/services"
 	"gopds-api/telegram"
+	"gopds-api/telegram/delivery"
 	"gopds-api/telegram/secrets"
 	"gopds-api/telegram/tgapi"
 	"gopds-api/telegram/tgtest"
@@ -23,6 +24,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-pg/pg/v10"
 	"github.com/go-redis/redis"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,8 +43,17 @@ type stack struct {
 	u     *tgtest.Updates
 
 	// The running "process". restart replaces it, as a new pod would.
-	bm     *telegram.BotManager
-	engine *gin.Engine
+	bm       *telegram.BotManager
+	engine   *gin.Engine
+	delivery *delivery.Service
+
+	// Set before start to change how the process is built.
+	deliveryCfg delivery.Config
+	// transport, when set, carries every call to the fake Telegram.
+	transport http.RoundTripper
+	// clientTimeout bounds every call to the fake Telegram; zero is the
+	// production default.
+	clientTimeout time.Duration
 }
 
 // secondPod is another process of the same service on the same database and
@@ -66,7 +77,12 @@ func newStack(t *testing.T) *stack {
 	db := scanfixture.ScratchDB(t)
 	scanner := services.NewBookScanService(t.TempDir(), t.TempDir(),
 		services.NewLanguageDetector(false, 5*time.Second), false, nil)
-	books := scanfixture.Ingest(t, t.TempDir(), time.Now(), scanner.ProcessBook)
+	// The archive the books live in is where delivery reads them from.
+	files := t.TempDir()
+	books := scanfixture.Ingest(t, files, time.Now(), scanner.ProcessBook)
+	previous := viper.GetString("app.files_path")
+	viper.Set("app.files_path", files+"/")
+	t.Cleanup(func() { viper.Set("app.files_path", previous) })
 
 	mr := miniredis.RunT(t)
 	rc := redis.NewClient(&redis.Options{Addr: mr.Addr()})
@@ -95,16 +111,42 @@ func (s *stack) start() *stack {
 			c.Set("user_id", id)
 		}
 	}))
-	bm := s.bm
+	cfg := s.deliveryCfg
+	cfg.SiteURL = stackSiteURL
+	cfg.Redis = s.rc
+	// Fast enough for tests, slow enough to be the same machinery.
+	setDefault := func(v *time.Duration, d time.Duration) {
+		if *v == 0 {
+			*v = d
+		}
+	}
+	setDefault(&cfg.Lease, 2*time.Second)
+	setDefault(&cfg.Heartbeat, 300*time.Millisecond)
+	setDefault(&cfg.Poll, 50*time.Millisecond)
+	setDefault(&cfg.StatusAfter, 5*time.Second)
+	setDefault(&cfg.NotSentBackoff, 100*time.Millisecond)
+	s.delivery = delivery.New(cfg, s.bm)
+	s.bm.SetDelivery(s.delivery)
+	s.delivery.Start(context.Background())
+
+	bm, deliveries := s.bm, s.delivery
 	s.t.Cleanup(bm.WaitIdle)
+	s.t.Cleanup(deliveries.Stop)
 	return s
 }
 
 func (s *stack) newManager() *telegram.BotManager {
+	endpoint := tgapi.Endpoint{ServerURL: s.fake.URL()}
+	if s.transport != nil || s.clientTimeout != 0 {
+		endpoint.HTTPClient = &http.Client{Transport: s.transport, Timeout: s.clientTimeout}
+		if endpoint.HTTPClient.Timeout == 0 {
+			endpoint.HTTPClient.Timeout = tgapi.DefaultTimeout
+		}
+	}
 	return telegram.NewBotManager(&telegram.Config{
 		BaseURL: stackBaseURL,
 		SiteURL: stackSiteURL,
-		API:     tgapi.Endpoint{ServerURL: s.fake.URL()},
+		API:     endpoint,
 		Secrets: s.box,
 	}, s.rc, services.NewSearchService(database.NewPGSearchRepository(s.db)), nil)
 }
