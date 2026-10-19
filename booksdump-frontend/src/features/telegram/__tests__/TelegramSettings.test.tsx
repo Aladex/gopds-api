@@ -301,3 +301,60 @@ describe('coming back from Telegram', () => {
         expect(open.className).toContain('h-auto');
     });
 });
+
+describe('answers that arrive out of order', () => {
+    const Live: React.FC = () => {
+        const { status, setStatus } = useTelegramConnection(true);
+        return <TelegramSettings status={status} onStatus={setStatus} />;
+    };
+
+    it('does not let an older "still waiting" undo a newer confirmation', async () => {
+        const pending: BotStatus = {
+            state: 'pending_link',
+            pending_bot_username: 'my_library_bot',
+        };
+        const connected: BotStatus = { state: 'connected', bot_username: 'my_library_bot' };
+        let releaseOld: (s: BotStatus) => void = () => {};
+        vi.mocked(telegramApi.getBotStatus)
+            .mockResolvedValueOnce(pending) // the opening read
+            .mockImplementationOnce(
+                () => new Promise<BotStatus>((resolve) => (releaseOld = resolve)), // parked
+            )
+            .mockResolvedValueOnce(connected); // a newer read
+        render(<Live />);
+        await screen.findByText('telegram.ready.title:my_library_bot');
+
+        window.dispatchEvent(new Event('focus')); // starts the read that parks
+        window.dispatchEvent(new Event('focus')); // starts the newer one
+        expect(await screen.findByText('@my_library_bot')).toBeInTheDocument();
+
+        releaseOld(pending);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(screen.getByText('@my_library_bot')).toBeInTheDocument();
+        expect(screen.queryByText('telegram.ready.title:my_library_bot')).not.toBeInTheDocument();
+    });
+
+    it('lets an action supersede reads still on their way', async () => {
+        const pending: BotStatus = {
+            state: 'pending_link',
+            pending_bot_username: 'my_library_bot',
+        };
+        let releaseOld: (s: BotStatus) => void = () => {};
+        vi.mocked(telegramApi.getBotStatus)
+            .mockResolvedValueOnce(pending)
+            .mockImplementationOnce(
+                () => new Promise<BotStatus>((resolve) => (releaseOld = resolve)),
+            );
+        vi.mocked(telegramApi.removeBotToken).mockResolvedValue({ state: 'none' });
+        render(<Live />);
+        await screen.findByText('telegram.ready.title:my_library_bot');
+
+        window.dispatchEvent(new Event('focus')); // a read parks
+        await userEvent.click(screen.getByRole('button', { name: 'telegram.ready.cancel' }));
+        expect(await screen.findByText('telegram.existing.title')).toBeInTheDocument();
+
+        releaseOld(pending);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(screen.getByText('telegram.existing.title')).toBeInTheDocument();
+    });
+});

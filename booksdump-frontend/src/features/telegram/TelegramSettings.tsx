@@ -36,6 +36,11 @@ export const useTelegramConnection = (open: boolean) => {
     const { t } = useTranslation();
     const [status, setStatus] = useState<BotStatus | null>(null);
     const last = useRef<BotStatus | null>(null);
+    // Reads overlap — a poll, a focus and a return can each start one — and
+    // answers arrive in any order. Each read and each action takes the next
+    // generation; an answer is applied only if nothing newer was asked since,
+    // so a slow "still waiting" cannot undo a confirmation already shown.
+    const generation = useRef(0);
     const apply = useCallback(
         (next: BotStatus) => {
             const before = last.current;
@@ -52,12 +57,23 @@ export const useTelegramConnection = (open: boolean) => {
         [t],
     );
     const refresh = useCallback(async () => {
+        const mine = ++generation.current;
         try {
-            apply(await telegramApi.getBotStatus());
+            const next = await telegramApi.getBotStatus();
+            if (mine === generation.current) apply(next);
         } catch {
             // Left as it was: the next reading tries again.
         }
     }, [apply]);
+    // An action's own answer (connect, new link, disconnect) supersedes every
+    // read still on its way.
+    const applyAction = useCallback(
+        (next: BotStatus) => {
+            generation.current += 1;
+            apply(next);
+        },
+        [apply],
+    );
     useEffect(() => {
         if (open) void refresh();
     }, [open, refresh]);
@@ -79,7 +95,7 @@ export const useTelegramConnection = (open: boolean) => {
         };
     }, [waiting, refresh]);
 
-    return { status, setStatus: apply };
+    return { status, setStatus: applyAction };
 };
 
 /** The badge beside the group's title: how the connection stands, in a word. */
