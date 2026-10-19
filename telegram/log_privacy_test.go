@@ -2,10 +2,13 @@ package telegram
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"gopds-api/logging"
+	"gopds-api/telegram/tgapi"
 
 	//nolint:depguard // asserting on emitted log output needs logrus' own test hook, and logging wraps logrus
 	logrustest "github.com/sirupsen/logrus/hooks/test"
@@ -71,4 +74,38 @@ func TestLogStatefulInputKeepsTheInputOut(t *testing.T) {
 	assert.NotContains(t, out, "Толстой", "part of the reader's input reached the log")
 	assert.Contains(t, out, "waiting_for_author", "the state is what makes the entry useful")
 	assert.Contains(t, out, "22 input runes")
+}
+
+// A bot token is a credential: whoever holds it controls the bot. Clearing a
+// conversation used to log it in full.
+func TestClearContextKeepsTheTokenOut(t *testing.T) {
+	redisClient, cleanup := setupTestRedis(t)
+	defer cleanup()
+	hook := captureLog(t)
+
+	const token = "123456789:AAH-secret-part-of-the-token-0123456789"
+	require.NoError(t, NewConversationManager(redisClient).ClearContext(token, 4242))
+
+	logged := loggedText(hook)
+	assert.Contains(t, logged, "Cleared conversation context for user 4242")
+	assert.NotContains(t, logged, "secret-part")
+}
+
+// net/http names the request URL in a transport error, and a Bot API URL
+// carries the token. The health check logs these errors.
+func TestHealthCheckErrorsKeepTheTokenOut(t *testing.T) {
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closed.Close() // every call now fails at dial, naming the URL
+
+	bm := &BotManager{config: &Config{API: tgapi.Endpoint{ServerURL: closed.URL}}}
+	const token = "123456789:AAH-secret-part-of-the-token-0123456789"
+
+	_, err := bm.validateBotToken(token)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "secret-part")
+
+	bm.bots = map[string]*Bot{token: {token: token}}
+	_, err = bm.checkWebhookStatus(token)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "secret-part")
 }

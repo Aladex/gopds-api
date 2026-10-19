@@ -726,7 +726,7 @@ func (bm *BotManager) checkWebhookStatus(token string) (bool, error) {
 
 		resp, err := client.Do(req)
 		if err != nil {
-			resultChan <- webhookInfoResult{ok: false, err: err}
+			resultChan <- webhookInfoResult{ok: false, err: tgapi.RedactURL(err)}
 			return
 		}
 		defer func() {
@@ -801,7 +801,6 @@ func (bm *BotManager) SetWebhook(token string) error {
 	logging.Infof("Setting webhook for user %d", bot.userID)
 	logging.Infof("BaseURL configured: %s", bm.config.BaseURL)
 	logging.Infof("Webhook URL: %s", webhookURL)
-	logging.Infof("Bot token (masked): %s...%s", token[:5], token[len(token)-5:])
 
 	// Note: no early-return on URL match — we cannot introspect the secret_token
 	// remotely (Telegram's getWebhookInfo doesn't expose it), so always rewrite
@@ -1007,7 +1006,7 @@ func (bm *BotManager) validateBotToken(token string) (bool, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return false, fmt.Errorf("failed to call getMe: %v", err)
+		return false, fmt.Errorf("failed to call getMe: %v", tgapi.RedactURL(err))
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {

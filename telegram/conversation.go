@@ -204,7 +204,7 @@ func (cm *ConversationManager) ClearContext(botToken string, userID int64) error
 		return fmt.Errorf("failed to clear context: %v", err)
 	}
 
-	logging.Infof("Cleared conversation context for user %d, bot %s", userID, botToken)
+	logging.Infof("Cleared conversation context for user %d", userID)
 	return nil
 }
 
