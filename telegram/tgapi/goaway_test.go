@@ -108,7 +108,7 @@ func TestSendSurvivesGoAwayAfterTheBodyWasWritten(t *testing.T) {
 	require.NoError(t, err, "a POST on a draining HTTP/2 connection must be replayed on a new one")
 
 	assert.Equal(t, int32(1), listener.goAways.Load(), "the first connection answered GOAWAY")
-	calls := fake.Calls("sendMessage")
+	calls := fake.WaitAnswered(t, "sendMessage", 1, 5*time.Second)
 	require.Len(t, calls, 1, "the replay reached the server once")
 	assert.Equal(t, "после GOAWAY", calls[0].Params["text"])
 	assert.Equal(t, calls[0].MessageID, int64(msg.ID))

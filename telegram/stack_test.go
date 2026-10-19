@@ -165,7 +165,8 @@ func (s *stack) count(query string, args ...any) int {
 	return n
 }
 
-// messagesTo returns the texts of the sendMessage calls to chatID.
+// messagesTo returns the texts of the sendMessage calls to chatID that
+// reached Telegram, answered or not.
 func (s *stack) messagesTo(chatID int64) []string {
 	var texts []string
 	for _, c := range s.fake.Calls("sendMessage") {
@@ -176,13 +177,14 @@ func (s *stack) messagesTo(chatID int64) []string {
 	return texts
 }
 
-// waitMessage waits for the n-th message to chatID and returns its call.
+// waitMessage waits until the n-th message to chatID has been answered —
+// the test may need its message id — and returns its call.
 func (s *stack) waitMessage(chatID int64, n int) tgtest.Call {
 	s.t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		var calls []tgtest.Call
-		for _, c := range s.fake.Calls("sendMessage") {
+		for _, c := range s.fake.AnsweredCalls("sendMessage") {
 			if c.Params["chat_id"] == strconv.FormatInt(chatID, 10) {
 				calls = append(calls, c)
 			}

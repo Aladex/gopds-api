@@ -151,6 +151,9 @@ func (u *Updates) Callback(userID int64, on *Call, data string) *models.Update {
 // sees it. It fails the test if the message has no such button.
 func (u *Updates) Tap(t testing.TB, userID int64, on *Call, text string) *models.Update {
 	t.Helper()
+	if on.MessageID == 0 {
+		t.Fatalf("message %s has no message id yet: wait for it with WaitAnswered", on.Method)
+	}
 	data, ok := ButtonData(t, on, text)
 	if !ok {
 		t.Fatalf("message %d has no button %q: %v", on.MessageID, text, ButtonTexts(t, on))

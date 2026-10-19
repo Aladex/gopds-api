@@ -13,6 +13,7 @@
 package tgtest
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -20,6 +21,7 @@ import (
 	"io"
 	"mime"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -44,9 +46,15 @@ type Call struct {
 	// Files holds the uploaded parts by field name.
 	Files map[string]UploadedFile
 	// MessageID is the message_id the fake answered with when the call
-	// created or edited a message, else 0.
+	// created or edited a message, else 0. It is set only once the call is
+	// answered.
 	MessageID int64
-	At        time.Time
+	// Answered says the fake finished writing its reply; Status is the HTTP
+	// status it wrote. A call whose reply hangs or drops the connection is
+	// received but never answered — for the bot, its outcome is unknown.
+	Answered bool
+	Status   int
+	At       time.Time
 }
 
 // UploadedFile is one multipart file part.
@@ -94,9 +102,12 @@ type Rule struct {
 type FakeBotAPI struct {
 	srv *httptest.Server
 
-	mu     sync.Mutex
-	cond   *sync.Cond
-	calls  []Call
+	mu   sync.Mutex
+	cond *sync.Cond
+	// calls is the journal: every call is entered when its body has been
+	// read, before any reply runs, so a reply that hangs or aborts cannot hide
+	// a request that reached the server.
+	calls  []*Call
 	rules  []*Rule
 	nextID int64
 }
@@ -138,27 +149,48 @@ func (f *FakeBotAPI) On(r Rule) {
 	f.rules = append(f.rules, &rule)
 }
 
-// Calls returns the recorded calls of method (all calls when method is
-// empty), oldest first.
+// Calls returns the received calls of method (all calls when method is
+// empty), oldest first — answered or not.
 func (f *FakeBotAPI) Calls(method string) []Call {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.matching(method)
+	return f.matching(method, false)
 }
 
-func (f *FakeBotAPI) matching(method string) []Call {
+// AnsweredCalls returns the calls of method the fake has finished answering.
+func (f *FakeBotAPI) AnsweredCalls(method string) []Call {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.matching(method, true)
+}
+
+func (f *FakeBotAPI) matching(method string, answeredOnly bool) []Call {
 	var out []Call
 	for _, c := range f.calls {
-		if method == "" || strings.EqualFold(c.Method, method) {
-			out = append(out, c)
+		if (method == "" || strings.EqualFold(c.Method, method)) && (!answeredOnly || c.Answered) {
+			out = append(out, *c)
 		}
 	}
 	return out
 }
 
-// WaitCalls waits until at least n calls of method were recorded and returns
-// all of them; it fails the test after timeout.
+// WaitCalls waits until at least n calls of method were received and
+// returns all received ones; it fails the test after timeout. A received
+// call may still be waiting for its answer: use WaitAnswered when the test
+// needs what the answer carries, such as the message id.
 func (f *FakeBotAPI) WaitCalls(t testing.TB, method string, n int, timeout time.Duration) []Call {
+	t.Helper()
+	return f.wait(t, method, n, timeout, false)
+}
+
+// WaitAnswered waits until at least n calls of method were answered and
+// returns the answered ones.
+func (f *FakeBotAPI) WaitAnswered(t testing.TB, method string, n int, timeout time.Duration) []Call {
+	t.Helper()
+	return f.wait(t, method, n, timeout, true)
+}
+
+func (f *FakeBotAPI) wait(t testing.TB, method string, n int, timeout time.Duration, answeredOnly bool) []Call {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	timer := time.AfterFunc(timeout, func() {
@@ -171,20 +203,22 @@ func (f *FakeBotAPI) WaitCalls(t testing.TB, method string, n int, timeout time.
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for {
-		got := f.matching(method)
+		got := f.matching(method, answeredOnly)
 		if len(got) >= n {
 			return got
 		}
 		if !time.Now().Before(deadline) {
-			t.Fatalf("waited %s for %d %s call(s), got %d: %s", timeout, n, method, len(got), f.summaryLocked())
+			t.Fatalf("waited %s for %d %s call(s) (answered only: %v), got %d: %s",
+				timeout, n, method, answeredOnly, len(got), f.summaryLocked())
 			return nil
 		}
 		f.cond.Wait()
 	}
 }
 
-// Quiet asserts that no call of method arrives within d beyond the want
-// already recorded. It is how a test says "and nothing else was sent".
+// Quiet asserts that exactly want calls of method were received after d —
+// answered or not. It is how a test says "and nothing else was sent": a
+// request still hanging on its reply counts, because it has reached Telegram.
 func (f *FakeBotAPI) Quiet(t testing.TB, method string, want int, d time.Duration) {
 	t.Helper()
 	time.Sleep(d)
@@ -202,7 +236,11 @@ func (f *FakeBotAPI) summary() string {
 func (f *FakeBotAPI) summaryLocked() string {
 	names := make([]string, 0, len(f.calls))
 	for _, c := range f.calls {
-		names = append(names, c.Method)
+		if c.Answered {
+			names = append(names, c.Method)
+		} else {
+			names = append(names, c.Method+"(unanswered)")
+		}
 	}
 	return "[" + strings.Join(names, " ") + "]"
 }
@@ -214,18 +252,65 @@ func (f *FakeBotAPI) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Into the journal first: the body has reached the server, whatever the
+	// reply does next.
+	entry := &call
 	f.mu.Lock()
-	reply := f.ruleFor(&call)
+	f.calls = append(f.calls, entry)
+	reply := f.ruleFor(entry)
+	f.cond.Broadcast()
 	f.mu.Unlock()
 	if reply == nil {
 		reply = f.defaultReply
 	}
-	reply(w, r, &call)
 
+	// The reply works on its own copy; the journal entry learns the outcome
+	// only when the reply returns. A reply that panics (an aborted HTTP/2
+	// stream) leaves the entry received and unanswered.
+	local := call
+	sw := &statusWriter{ResponseWriter: w}
+	reply(sw, r, &local)
+
+	// A reply that wrote nothing — it hung until the client gave up, or
+	// dropped the connection — did not answer.
 	f.mu.Lock()
-	f.calls = append(f.calls, call)
+	entry.MessageID = local.MessageID
+	entry.Status = sw.status()
+	entry.Answered = entry.Status != 0
 	f.cond.Broadcast()
 	f.mu.Unlock()
+}
+
+// statusWriter remembers the status a reply wrote, and still lets a reply
+// take over the connection.
+type statusWriter struct {
+	http.ResponseWriter
+	code int
+}
+
+func (w *statusWriter) WriteHeader(code int) {
+	if w.code == 0 {
+		w.code = code
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *statusWriter) Write(b []byte) (int, error) {
+	if w.code == 0 {
+		w.code = http.StatusOK
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *statusWriter) status() int { return w.code }
+
+// Hijack hands the connection to a reply that drops it (HTTP/1.1 only).
+func (w *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hj, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, http.ErrNotSupported
+	}
+	return hj.Hijack()
 }
 
 func (f *FakeBotAPI) ruleFor(c *Call) Reply {

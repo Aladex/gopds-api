@@ -74,6 +74,7 @@ func dropConnection(w http.ResponseWriter) {
 	}
 	conn, _, err := hj.Hijack()
 	if err != nil {
+		// HTTP/2 again: the writer supports Hijack, the connection does not.
 		panic(http.ErrAbortHandler)
 	}
 	_ = conn.Close()

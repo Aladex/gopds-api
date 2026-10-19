@@ -73,7 +73,7 @@ func TestLegacyBookSearchAndCard(t *testing.T) {
 	rec := b.hook.Post(t, b.u.Text(legacyOwnerTG, "/b мир"))
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	list := b.fake.WaitCalls(t, "sendMessage", 1, 5*time.Second)[0]
+	list := b.fake.WaitAnswered(t, "sendMessage", 1, 5*time.Second)[0]
 	assert.Equal(t, "4242", list.Params["chat_id"])
 	assert.Equal(t, "📚 Результаты поиска для \"мир\":\nСтраница 1 из 1 (всего найдено 1 книг)\n\n"+
 		"1. война и МИР — Толстой лев, пушкин Анна (серия: Эпопея)\n\n"+
@@ -85,7 +85,7 @@ func TestLegacyBookSearchAndCard(t *testing.T) {
 	rec = b.hook.Post(t, b.u.Tap(t, legacyOwnerTG, &list, "1"))
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	card := b.fake.WaitCalls(t, "sendMessage", 2, 5*time.Second)[1]
+	card := b.fake.WaitAnswered(t, "sendMessage", 2, 5*time.Second)[1]
 	assert.Equal(t, "<b>война и МИР</b>\n\nРоман-эпопея о войне и мире.\n\nВыберите формат для скачивания:",
 		card.Params["text"])
 	assert.Equal(t, "HTML", card.Params["parse_mode"])
