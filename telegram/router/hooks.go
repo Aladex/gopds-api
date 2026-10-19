@@ -72,7 +72,8 @@ func (r *Router) repaintChat(ctx context.Context, botRef, chatID int64, wait tim
 }
 
 // runRepaints runs the repaints owed in a chat its caller holds. One owed
-// under an older binding is dropped: its card belongs to the old owner.
+// under an older binding is dropped: its card belongs to the old owner. One
+// that could not be read through is kept for the next holder or sweep.
 func (r *Router) runRepaints(ctx context.Context, b *Bot, chatID int64) {
 	owed, err := database.TelegramRepaints(ctx, b.Ref, chatID)
 	if err != nil {
@@ -81,8 +82,8 @@ func (r *Router) runRepaints(ctx context.Context, b *Bot, chatID int64) {
 	}
 	for i := range owed {
 		job := &owed[i]
-		if b.Binding != nil && job.BindingID == b.Binding.ID {
-			r.repaintCard(ctx, b, job)
+		if b.Binding != nil && job.BindingID == b.Binding.ID && !r.repaintCard(ctx, b, job) {
+			continue
 		}
 		if err := database.DropTelegramRepaint(ctx, job.ID); err != nil {
 			logging.Warnf("Telegram bot %d: forgetting a repaint: %v", b.Ref, err)
@@ -90,17 +91,23 @@ func (r *Router) runRepaints(ctx context.Context, b *Bot, chatID int64) {
 	}
 }
 
-// repaintCard paints a card again if its panel still shows it.
-func (r *Router) repaintCard(ctx context.Context, b *Bot, job *models.TelegramPanelRepaint) {
+// repaintCard paints a card again if its panel still shows it. It reports
+// whether the repaint is done with: painted, or provably not wanted — the
+// panel or its node is gone, or shows something else. A read that failed is
+// not done.
+func (r *Router) repaintCard(ctx context.Context, b *Bot, job *models.TelegramPanelRepaint) bool {
 	panel, err := database.GetTelegramPanel(ctx, job.BotRef, job.ChatID, job.MessageID)
 	if err != nil {
-		return
+		return isNoRows(err)
 	}
 	node, err := database.GetTelegramNode(ctx, b.Binding.UserID, panel.NodeID)
-	if err != nil || Screen(node.Screen) != ScrBook || node.EntityID != job.BookID {
-		return
+	if err != nil {
+		return isNoRows(err)
 	}
-	r.show(ctx, b, panel, panel.Revision, node)
+	if Screen(node.Screen) != ScrBook || node.EntityID != job.BookID {
+		return true
+	}
+	return r.show(ctx, b, panel, panel.Revision, node) != screens.CopyLibraryDown
 }
 
 // repaintSweepAge is how long a repaint waits before the sweeper takes it;

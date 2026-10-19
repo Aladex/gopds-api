@@ -2,12 +2,16 @@ package telegram_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"gopds-api/database"
+	"gopds-api/models"
+	"gopds-api/telegram/router"
 	"gopds-api/telegram/tgtest"
 
 	"github.com/stretchr/testify/assert"
@@ -141,4 +145,61 @@ func TestACompletionSurvivesTheDefaultChatWait(t *testing.T) {
 	require.Eventually(t, func() bool { return finishedCard(t, v, card.MessageID) }, 5*time.Second, 10*time.Millisecond,
 		"a slow edit does not lose the completion repaint")
 	assert.Zero(t, v.count(`SELECT count(*) FROM telegram_chat_lock`))
+}
+
+// A repaint whose panel could not be read stays owed, and the next sweep
+// runs it: the reviewer's TestReviewRepaintSurvivesTemporaryPanelReadFailure
+// (notes-for-s2.md item 6), with its healthy control.
+func TestARepaintSurvivesAFailedPanelRead(t *testing.T) {
+	for name, fail := range map[string]bool{"read fails once": true, "healthy read": false} {
+		t.Run(name, func(t *testing.T) { repaintAfterPanelRead(t, fail) })
+	}
+}
+
+func repaintAfterPanelRead(t *testing.T, fail bool) {
+	var armed atomic.Bool
+	var failures atomic.Int32
+	var releasePrepare func()
+	v := newV2(t, func(s *stack) {
+		s.chatWait = 200 * time.Millisecond
+		releasePrepare = gatedPrepare(s)
+		s.db.AddQueryHook(queryHook(func(_ context.Context, q string) error {
+			if strings.Contains(q, `FROM "telegram_panel"`) && armed.CompareAndSwap(true, false) {
+				failures.Add(1)
+				return errors.New("one temporary panel read failure")
+			}
+			return nil
+		}))
+	})
+	defer releasePrepare()
+	_, card := v.openFixtureCard()
+	v.tap(&card, "EPUB")
+	ref := int64(v.count(`SELECT id FROM telegram_bot`))
+	unlock, err := database.LockTelegramChat(context.Background(), ref, ownerTG, time.Minute, time.Second)
+	require.NoError(t, err)
+	defer unlock()
+	releasePrepare()
+	v.waitJobSent()
+	v.delivery.WaitIdle()
+	unlock()
+	require.Equal(t, 1, v.count(`SELECT count(*) FROM telegram_panel_repaint`))
+	require.False(t, finishedCard(t, v, card.MessageID))
+	_, err = v.db.Exec(`UPDATE telegram_panel_repaint SET created_at = now() - interval '6 seconds'`)
+	require.NoError(t, err)
+
+	armed.Store(fail)
+	r := router.New(&router.Config{}, v.bm)
+	r.SweepRepaints(context.Background())
+	if fail {
+		require.EqualValues(t, 1, failures.Load(), "the fault fired")
+		assert.Equal(t, 1, v.count(`SELECT count(*) FROM telegram_panel_repaint`), "a failed read leaves the repaint owed")
+	} else {
+		assert.Zero(t, failures.Load())
+		assert.Zero(t, v.count(`SELECT count(*) FROM telegram_panel_repaint`))
+	}
+	r.SweepRepaints(context.Background())
+	assert.True(t, finishedCard(t, v, card.MessageID), "the next healthy sweep paints the card")
+	assert.Zero(t, v.count(`SELECT count(*) FROM telegram_panel_repaint`))
+	assert.Len(t, v.fake.Calls("sendDocument"), 1)
+	assert.Equal(t, 1, v.count(`SELECT count(*) FROM telegram_delivery WHERE state = ?`, models.DeliverySent))
 }
