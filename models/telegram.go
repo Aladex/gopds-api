@@ -163,3 +163,69 @@ type TelegramDelivery struct {
 	SendStartedAt   *time.Time
 	FinishedAt      *time.Time
 }
+
+// FromPanel reports a job pressed on a v2 panel: those carry the panel's
+// revision, 1 or more; the legacy card's is 0, the site's none.
+func (d *TelegramDelivery) FromPanel() bool {
+	return d.OriginRevision != nil && *d.OriginRevision >= 1
+}
+
+// The routers a bot can be served by.
+const (
+	TelegramRouterLegacy      = "legacy"
+	TelegramRouterV2          = "v2"
+	TelegramRouterMaintenance = "maintenance"
+)
+
+// How a v2 panel is rendered; fixed when it is sent.
+const (
+	TelegramPanelPlain = "plain"
+	TelegramPanelRich  = "rich"
+)
+
+// TelegramView is an immutable query scope of the v2 bot: what a list shows.
+type TelegramView struct {
+	tableName    struct{} `pg:"telegram_view"`
+	ID           int64
+	UserID       int64
+	Kind         int16
+	Query        string    `pg:",use_zero"`
+	Lang         string    `pg:",use_zero"`
+	AuthorID     int64     `pg:",use_zero"`
+	SeriesID     int64     `pg:",use_zero"`
+	CollectionID int64     `pg:",use_zero"`
+	Favorites    bool      `pg:",use_zero"`
+	CreatedAt    time.Time `pg:"default:now()"`
+	LastUsedAt   time.Time `pg:"default:now()"`
+}
+
+// TelegramNode is one screen of one view, with the screen it was opened from.
+type TelegramNode struct {
+	tableName  struct{} `pg:"telegram_node"`
+	ID         int64
+	UserID     int64
+	ViewID     int64 `pg:",use_zero"`
+	Screen     int16
+	EntityID   int64     `pg:",use_zero"`
+	Page       int32     `pg:",use_zero"`
+	ParentID   int64     `pg:",use_zero"`
+	CreatedAt  time.Time `pg:"default:now()"`
+	LastUsedAt time.Time `pg:"default:now()"`
+}
+
+// TelegramPanel is a bot message that shows nodes and is edited in place.
+type TelegramPanel struct {
+	tableName    struct{} `pg:"telegram_panel"`
+	BotRef       int64    `pg:",pk"`
+	ChatID       int64    `pg:",pk"`
+	MessageID    int64    `pg:",pk"`
+	UserID       int64
+	BindingID    int64
+	NodeID       int64 `pg:",use_zero"`
+	Revision     int32
+	Mode         string
+	IsHome       bool `pg:",use_zero"`
+	PinnedAt     *time.Time
+	PinCheckedAt *time.Time
+	UpdatedAt    time.Time `pg:"default:now()"`
+}

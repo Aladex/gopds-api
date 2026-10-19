@@ -386,7 +386,7 @@ func GetTelegramDefaultFormat(ctx context.Context, userID int64) (string, error)
 	_, err := db.QueryOneContext(ctx, pg.Scan(&format),
 		`SELECT default_format FROM telegram_user_settings WHERE user_id = ?`, userID)
 	if errors.Is(err, pg.ErrNoRows) {
-		return "epub", nil
+		return defaultTelegramFormat, nil
 	}
 	return format, err
 }
