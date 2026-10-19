@@ -276,7 +276,11 @@ func (bm *BotManager) handle(ctx context.Context, b *Bot, update *tgbot.Update) 
 			b.handleStart(ctx, update)
 			return nil
 		}
-		if bm.router.Handle(ctx, vb, update) {
+		handled, err := bm.router.Handle(ctx, vb, update)
+		if err != nil {
+			return err
+		}
+		if handled {
 			return nil
 		}
 	}

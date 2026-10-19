@@ -38,7 +38,8 @@ func (r *Router) File(
 }
 
 // JobEnded repaints the card a job was pressed on, without its «⏳» — if the
-// panel still shows that card. A panel that moved on is left alone.
+// panel still shows that card. A panel that moved on is left alone. Like an
+// update, it holds the chat: the press's own edit lands first.
 func (r *Router) JobEnded(ctx context.Context, job *models.TelegramDelivery) {
 	if job.OriginMessageID == nil {
 		return
@@ -47,6 +48,12 @@ func (r *Router) JobEnded(ctx context.Context, job *models.TelegramDelivery) {
 	if err != nil || b == nil || b.Binding == nil || b.Binding.ID != job.BindingID {
 		return
 	}
+	unlock, err := database.LockTelegramChat(ctx, job.BotRef, job.ChatID, r.cfg.ChatHold, r.cfg.ChatWait)
+	if err != nil {
+		logging.Warnf("Telegram bot %d: the card of job %d is left as it is: %v", job.BotRef, job.ID, err)
+		return
+	}
+	defer unlock()
 	panel, err := database.GetTelegramPanel(ctx, job.BotRef, job.ChatID, *job.OriginMessageID)
 	if err != nil {
 		return

@@ -41,6 +41,9 @@ type Config struct {
 	API tgapi.Endpoint
 	// Secrets seals the bots' tokens, webhook secrets and button keys.
 	Secrets *secrets.Box
+	// ChatWait is how long a v2 update waits for its chat, held by another
+	// transition, before it is handed back; zero is the router's default.
+	ChatWait time.Duration
 }
 
 // BotManager serves the personal bots: it knows them by webhook path, takes
@@ -430,6 +433,7 @@ func (bm *BotManager) SetDelivery(d *delivery.Service) {
 		Search:      bm.search,
 		Delivery:    d,
 		SiteURL:     bm.config.SiteURL,
+		ChatWait:    bm.config.ChatWait,
 		PostersPath: func() string { return viper.GetString("app.posters_path") },
 	}, bm)
 	d.SetCards(bm.router)

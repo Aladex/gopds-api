@@ -51,6 +51,8 @@ type stack struct {
 	deliveryCfg delivery.Config
 	// transport, when set, carries every call to the fake Telegram.
 	transport http.RoundTripper
+	// chatWait is how long an update waits for its chat; zero is the default.
+	chatWait time.Duration
 	// clientTimeout bounds every call to the fake Telegram; zero is the
 	// production default.
 	clientTimeout time.Duration
@@ -144,10 +146,11 @@ func (s *stack) newManager() *telegram.BotManager {
 		}
 	}
 	return telegram.NewBotManager(&telegram.Config{
-		BaseURL: stackBaseURL,
-		SiteURL: stackSiteURL,
-		API:     endpoint,
-		Secrets: s.box,
+		BaseURL:  stackBaseURL,
+		SiteURL:  stackSiteURL,
+		API:      endpoint,
+		Secrets:  s.box,
+		ChatWait: s.chatWait,
 	}, s.rc, services.NewSearchService(database.NewPGSearchRepository(s.db)), nil)
 }
 

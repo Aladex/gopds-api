@@ -512,7 +512,7 @@ func TestAFileFromTheCard(t *testing.T) {
 	assert.Equal(t, "⏳ Готовлю EPUB…", tgtest.ButtonTexts(t, &marked)[0][0])
 
 	release()
-	v.waitJobState(models.DeliverySent)
+	v.waitJobSent()
 	v.delivery.WaitIdle()
 	doc := v.fake.Calls("sendDocument")
 	require.Len(t, doc, 1)
@@ -536,15 +536,15 @@ func TestAMovedPanelIsNotRepainted(t *testing.T) {
 	v.tap(&marked, "← К результатам")
 	edits := len(v.edits(card.MessageID))
 	release()
-	v.waitJobState(models.DeliverySent)
+	v.waitJobSent()
 	v.delivery.WaitIdle()
 	assert.Len(t, v.edits(card.MessageID), edits)
 }
 
-func (v *v2Stack) waitJobState(state string) {
+func (v *v2Stack) waitJobSent() {
 	v.t.Helper()
 	require.Eventually(v.t, func() bool {
-		return v.count(`SELECT count(*) FROM telegram_delivery WHERE state = ?`, state) == 1
+		return v.count(`SELECT count(*) FROM telegram_delivery WHERE state = ?`, models.DeliverySent) == 1
 	}, 10*time.Second, 10*time.Millisecond)
 }
 
@@ -555,7 +555,7 @@ func TestTheDocumentOpensItsCard(t *testing.T) {
 	release()
 	_, card := v.openFixtureCard()
 	v.tap(&card, "FB2")
-	v.waitJobState(models.DeliverySent)
+	v.waitJobSent()
 	v.delivery.WaitIdle()
 	doc := v.fake.Calls("sendDocument")[0]
 	before := len(v.sends())

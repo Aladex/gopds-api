@@ -12,10 +12,12 @@ package router
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"gopds-api/database"
 	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/services"
@@ -48,6 +50,8 @@ const (
 	defaultTypingAfter    = 300 * time.Millisecond
 	defaultPinCheckEvery  = 15 * time.Minute
 	defaultRichRetryAfter = 7 * 24 * time.Hour
+	defaultChatHold       = 3 * time.Minute
+	defaultChatWait       = 30 * time.Second
 )
 
 // The old typed searches kept as silent aliases.
@@ -93,6 +97,10 @@ type Config struct {
 	// RichRetryAfter is how long a bot whose rich message Telegram refused is
 	// kept plain; zero is 7 days.
 	RichRetryAfter time.Duration
+	// ChatHold bounds how long one transition holds its chat (a holder that
+	// died is outlived) and outlasts a Telegram call; zero is 3 min. ChatWait is how long an update
+	// waits for its chat before it is handed back; zero is 30 s.
+	ChatHold, ChatWait time.Duration
 }
 
 // Router handles the updates of v2 bots.
@@ -116,6 +124,12 @@ func New(cfg *Config, bots Bots) *Router {
 	if c.RichRetryAfter == 0 {
 		c.RichRetryAfter = defaultRichRetryAfter
 	}
+	if c.ChatHold == 0 {
+		c.ChatHold = defaultChatHold
+	}
+	if c.ChatWait == 0 {
+		c.ChatWait = defaultChatWait
+	}
 	if c.PostersPath == nil {
 		c.PostersPath = func() string { return "" }
 	}
@@ -124,16 +138,38 @@ func New(cfg *Config, bots Bots) *Router {
 
 // Handle takes one update. It reports false for what the v2 router leaves to
 // the legacy handlers: buttons of the old interface, whose messages are still
-// in the chats.
-func (r *Router) Handle(ctx context.Context, b *Bot, update *tgbot.Update) bool {
+// in the chats. An error means nothing was done: the chat stayed busy.
+//
+// The whole update — panel reads, moves, renders and the Telegram calls —
+// runs holding its chat (plan-ui.md §5.1), so that two edits of one panel
+// never reach Telegram in the opposite order of their revisions, whichever
+// pod sends them.
+func (r *Router) Handle(ctx context.Context, b *Bot, update *tgbot.Update) (bool, error) {
+	if chatID, ok := chatOf(update); ok {
+		unlock, err := database.LockTelegramChat(ctx, b.Ref, chatID, r.cfg.ChatHold, r.cfg.ChatWait)
+		if err != nil {
+			return false, fmt.Errorf("holding chat %d: %w", chatID, err)
+		}
+		defer unlock()
+	}
 	switch {
 	case update.CallbackQuery != nil:
-		return r.callback(ctx, b, update.CallbackQuery)
+		return r.callback(ctx, b, update.CallbackQuery), nil
 	case update.Message != nil:
 		r.message(ctx, b, update.Message)
-		return true
 	}
-	return true
+	return true, nil
+}
+
+// chatOf is the chat an update happens in.
+func chatOf(update *tgbot.Update) (int64, bool) {
+	switch {
+	case update.Message != nil:
+		return update.Message.Chat.ID, true
+	case update.CallbackQuery != nil && update.CallbackQuery.Message.Message != nil:
+		return update.CallbackQuery.Message.Message.Chat.ID, true
+	}
+	return 0, false
 }
 
 // message handles what the owner wrote.
