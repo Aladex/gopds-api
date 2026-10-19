@@ -44,6 +44,11 @@ func AdoptLegacyTelegramBot(ctx context.Context, bot *models.TelegramBot, ownerT
 	adopted := false
 	err := db.RunInTransaction(ctx, func(tx *pg.Tx) error {
 		res, err := tx.ModelContext(ctx, bot).OnConflict("DO NOTHING").Returning("id").Insert()
+		if errors.Is(err, pg.ErrNoRows) {
+			// Adopted before: the conflict returns no id, and go-pg reports
+			// that as no rows.
+			return nil
+		}
 		if err != nil {
 			return err
 		}

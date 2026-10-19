@@ -7,9 +7,12 @@ import (
 	"time"
 
 	"gopds-api/internal/scanfixture"
+	"gopds-api/logging"
 	"gopds-api/telegram/tgtest"
 
 	"github.com/google/uuid"
+	//nolint:depguard // asserting on emitted log output needs logrus' own test hook, and logging wraps logrus
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -127,4 +130,19 @@ func TestLegacyWebhookRejectsAWrongSecret(t *testing.T) {
 	rec := forged.Post(t, b.u.Text(legacyOwnerTG, "/b мир"))
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 	b.fake.Quiet(t, "sendMessage", 0, 300*time.Millisecond)
+}
+
+// A restart adopts nothing twice and says nothing about it: the bot adopted
+// on the first start is simply served again (notes-for-s2.md item 4).
+func TestARestartDoesNotReadoptOrComplain(t *testing.T) {
+	b := startLegacyBot(t)
+	hook := logrustest.NewLocal(logging.GetLogger())
+	t.Cleanup(hook.Reset)
+	b.secondPod()
+	for _, entry := range hook.AllEntries() {
+		assert.NotContains(t, entry.Message, "Adopting the legacy telegram bot", "level %s", entry.Level)
+		assert.NotContains(t, []string{"panic", "fatal", "error"}, entry.Level.String(), "no error: %s", entry.Message)
+	}
+	assert.Equal(t, 1, b.count(`SELECT count(*) FROM telegram_bot`))
+	assert.Len(t, b.fake.Calls("setWebhook"), 2, "served again")
 }
