@@ -229,3 +229,15 @@ type TelegramPanel struct {
 	PinCheckedAt *time.Time
 	UpdatedAt    time.Time `pg:"default:now()"`
 }
+
+// TelegramPanelRepaint is a card's repaint owed after its job ended (migration 48).
+type TelegramPanelRepaint struct {
+	tableName struct{} `pg:"telegram_panel_repaint"`
+	ID        int64
+	BotRef    int64
+	ChatID    int64
+	MessageID int64
+	BindingID int64
+	BookID    int64
+	CreatedAt time.Time `pg:"default:now()"`
+}

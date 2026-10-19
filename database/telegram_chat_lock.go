@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"time"
+
+	"gopds-api/models"
 )
 
 // ErrChatBusy means a chat's lock was not free within the wait.
@@ -50,4 +52,43 @@ func LockTelegramChat(ctx context.Context, botRef, chatID int64, hold, wait time
 		case <-time.After(chatLockPoll):
 		}
 	}
+}
+
+// AddTelegramRepaint records a repaint owed.
+func AddTelegramRepaint(ctx context.Context, r *models.TelegramPanelRepaint) error {
+	_, err := db.ModelContext(ctx, r).Insert()
+	return err
+}
+
+// TelegramRepaints are the repaints owed in one chat, oldest first.
+func TelegramRepaints(ctx context.Context, botRef, chatID int64) ([]models.TelegramPanelRepaint, error) {
+	var out []models.TelegramPanelRepaint
+	err := db.ModelContext(ctx, &out).Where("bot_ref = ? AND chat_id = ?", botRef, chatID).Order("id").Select()
+	return out, err
+}
+
+// DropTelegramRepaint forgets a repaint that ran.
+func DropTelegramRepaint(ctx context.Context, id int64) error {
+	_, err := db.ExecContext(context.WithoutCancel(ctx), `DELETE FROM telegram_panel_repaint WHERE id = ?`, id)
+	return err
+}
+
+// TelegramChatRef names one bot's chat.
+type TelegramChatRef struct {
+	BotRef int64
+	ChatID int64
+}
+
+// StaleTelegramRepaintChats are the chats with a repaint owed for longer
+// than age, and forgets repaints older than drop.
+func StaleTelegramRepaintChats(ctx context.Context, age, drop time.Duration) ([]TelegramChatRef, error) {
+	if _, err := db.ExecContext(ctx, `DELETE FROM telegram_panel_repaint WHERE created_at < now() - make_interval(secs => ?)`,
+		drop.Seconds()); err != nil {
+		return nil, err
+	}
+	var out []TelegramChatRef
+	_, err := db.QueryContext(ctx, &out, `
+		SELECT DISTINCT bot_ref, chat_id FROM telegram_panel_repaint
+		WHERE created_at < now() - make_interval(secs => ?)`, age.Seconds())
+	return out, err
 }

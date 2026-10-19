@@ -163,6 +163,8 @@ func (r *Router) Handle(ctx context.Context, b *Bot, update *tgbot.Update) (bool
 			return false, nil
 		}
 		b = fresh
+		// Before the chat is let go: the repaints owed in it.
+		defer r.runRepaints(ctx, b, chatID)
 	}
 	switch {
 	case update.CallbackQuery != nil:
