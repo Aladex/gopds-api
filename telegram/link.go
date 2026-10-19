@@ -122,9 +122,9 @@ func (b *Bot) handleLink(ctx context.Context, msg *tgbot.Message, secret string)
 	switch outcome {
 	case database.LinkCreated:
 		logging.Infof("Telegram bot %d linked", b.ref)
-		b.sendLinked(ctx, msg.Chat.ID)
+		b.linked(ctx, msg.Chat.ID)
 	case database.LinkAlreadyLinked:
-		b.sendLinked(ctx, msg.Chat.ID)
+		b.linked(ctx, msg.Chat.ID)
 	case database.LinkUsedByOther:
 		b.sendScreen(ctx, msg.Chat.ID, copyLinkUsed, b.manager.profileButton())
 	case database.LinkTelegramTaken:
@@ -134,6 +134,17 @@ func (b *Bot) handleLink(ctx context.Context, msg *tgbot.Message, secret string)
 	case database.LinkExpired:
 		b.sendScreen(ctx, msg.Chat.ID, copyLinkExpired, b.manager.profileButton())
 	}
+}
+
+// linked greets a chat just bound: the v2 bot with its home panel, the
+// legacy one with its screen and keyboard.
+func (b *Bot) linked(ctx context.Context, chatID int64) {
+	vb, err := b.manager.v2Bot(ctx, b)
+	if err == nil && vb != nil {
+		b.manager.router.Linked(ctx, vb, chatID)
+		return
+	}
+	b.sendLinked(ctx, chatID)
 }
 
 // sendLinked says the bot is connected. Until the new menu exists the

@@ -59,7 +59,8 @@ func (n *notifier) start(ctx context.Context) {
 			case <-ticker.C:
 				n.chatAction(ctx)
 			case <-status.C:
-				if n.job.Origin == models.DeliveryFromBot {
+				// A card shows the job on its own button (plan-ui.md §1.8).
+				if n.job.Origin == models.DeliveryFromBot && !n.job.FromPanel() {
 					n.showStatus(ctx, statusPreparing(n.book, n.job.Format))
 				}
 			}

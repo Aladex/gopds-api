@@ -26,6 +26,8 @@ func rateLimitKey(botRef int64) string { return "tg2:ra:" + strconv.FormatInt(bo
 // run takes one claimed job to its end, or to the point where it is no longer
 // this holder's.
 func (s *Service) run(parent context.Context, job *models.TelegramDelivery) {
+	// Deferred first, so it runs last: after the job's own work.
+	defer s.cardEnded(parent, job.ID, job)
 	ctx, cancel := context.WithCancelCause(parent)
 	defer cancel(nil)
 	h := s.hold(ctx, cancel, database.LeaseOf(job))
@@ -135,11 +137,20 @@ func (s *Service) send(
 		if !s.startSend(ctx, job, h, n, len(file.Data)) {
 			return
 		}
-		msg, err := client.SendDocument(ctx, &bot.SendDocumentParams{
+		params := &bot.SendDocumentParams{
 			ChatID:   job.ChatID,
 			Document: &tgbot.InputFileUpload{Filename: file.Name, Data: bytes.NewReader(file.Data)},
 			Caption:  fileCaption(book, job.Format, len(file.Data)),
-		})
+		}
+		if s.cfg.Cards != nil && job.FromPanel() {
+			name, caption, markup := s.cfg.Cards.File(ctx, job, book, len(file.Data))
+			params.Document = &tgbot.InputFileUpload{Filename: name, Data: bytes.NewReader(file.Data)}
+			params.Caption = caption
+			if markup != nil {
+				params.ReplyMarkup = markup
+			}
+		}
+		msg, err := client.SendDocument(ctx, params)
 		class, wait := tgapi.Classify(err)
 		if class == tgapi.ClassRateLimited {
 			s.shareRateLimit(job.BotRef, wait)

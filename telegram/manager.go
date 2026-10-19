@@ -18,6 +18,7 @@ import (
 	"gopds-api/models"
 	"gopds-api/services"
 	"gopds-api/telegram/delivery"
+	"gopds-api/telegram/router"
 	"gopds-api/telegram/secrets"
 	"gopds-api/telegram/tgapi"
 
@@ -26,6 +27,7 @@ import (
 	tgbotapi "github.com/go-telegram/bot"
 	tgbot "github.com/go-telegram/bot/models"
 	"github.com/google/uuid"
+	"github.com/spf13/viper"
 )
 
 // Config contains settings for bots
@@ -58,6 +60,10 @@ type BotManager struct {
 
 	// delivery sends book files as durable jobs; nil until SetDelivery.
 	delivery *delivery.Service
+	// search is the one shared search service; router serves the bots whose
+	// router is v2, from SetDelivery on.
+	search services.PublicSearch
+	router *router.Router
 
 	// process identifies this process as the holder of inbox leases.
 	process  uuid.UUID
@@ -78,6 +84,10 @@ type Bot struct {
 	newProcessor  func() *commands.CommandProcessor
 	manager       *BotManager
 }
+
+// navigationRetention is how long an unused v2 view or node is kept
+// (plan.md §2.4).
+const navigationRetention = 90 * 24 * time.Hour
 
 // maxInflightUpdates bounds how many updates one process handles at once.
 const maxInflightUpdates = 16
@@ -112,6 +122,7 @@ func NewBotManager(config *Config, redisClient *redis.Client, search services.Pu
 		newProcessor: func() *commands.CommandProcessor {
 			return commands.NewCommandProcessor(search, lines)
 		},
+		search:   search,
 		process:  uuid.New(),
 		inflight: make(chan struct{}, maxInflightUpdates),
 	}
@@ -357,8 +368,11 @@ func (bm *BotManager) newBot(token string, model *models.TelegramBot) (*Bot, err
 		manager:      bm,
 	}
 	b.setupHandlers(bm.conversationManager)
-	if err := b.registerCommands(); err != nil {
-		logging.Warnf("Failed to register commands for telegram bot %d: %v", ref, err)
+	// The v2 bot has no commands; its menu is cleared by the router.
+	if model.Router == models.TelegramRouterLegacy {
+		if err := b.registerCommands(); err != nil {
+			logging.Warnf("Failed to register commands for telegram bot %d: %v", ref, err)
+		}
 	}
 	return b, nil
 }
@@ -408,8 +422,51 @@ func (bm *BotManager) botByRef(ctx context.Context, ref int64) (*Bot, error) {
 	return bm.serve(model)
 }
 
-// SetDelivery gives the bots the service that sends their files.
-func (bm *BotManager) SetDelivery(d *delivery.Service) { bm.delivery = d }
+// SetDelivery gives the bots the service that sends their files, and builds
+// the v2 router on it.
+func (bm *BotManager) SetDelivery(d *delivery.Service) {
+	bm.delivery = d
+	bm.router = router.New(&router.Config{
+		Search:      bm.search,
+		Delivery:    d,
+		SiteURL:     bm.config.SiteURL,
+		PostersPath: func() string { return viper.GetString("app.posters_path") },
+	}, bm)
+	d.SetCards(bm.router)
+}
+
+// V2Bot is a served bot as the v2 router knows it, or nil when the bot is
+// not served by the v2 router. The router, the navigation key and the
+// binding are read fresh: a bot is switched by its row, without a restart.
+func (bm *BotManager) V2Bot(ctx context.Context, ref int64) (*router.Bot, error) {
+	b, err := bm.botByRef(ctx, ref)
+	if err != nil || b == nil {
+		return nil, err
+	}
+	return bm.v2Bot(ctx, b)
+}
+
+func (bm *BotManager) v2Bot(ctx context.Context, b *Bot) (*router.Bot, error) {
+	if bm.router == nil {
+		return nil, nil
+	}
+	model, err := database.GetTelegramBot(ctx, b.ref)
+	if err != nil {
+		return nil, err
+	}
+	if model.Router != models.TelegramRouterV2 {
+		return nil, nil
+	}
+	navKey, err := bm.config.Secrets.Open(model.KeyID, secrets.PurposeNavKey, model.NavKeyEnc)
+	if err != nil {
+		return nil, err
+	}
+	binding, err := database.GetActiveTelegramBinding(ctx, b.ref)
+	if err != nil {
+		return nil, err
+	}
+	return &router.Bot{Client: b.bot, Ref: b.ref, TGBotID: b.tgBotID, NavKey: navKey, Binding: binding}, nil
+}
 
 // Client is the SDK client of a served bot, for the delivery service.
 func (bm *BotManager) Client(ctx context.Context, botRef int64) (*tgbotapi.Bot, error) {
@@ -520,6 +577,11 @@ func (bm *BotManager) StartHealthCheck(ctx context.Context, interval time.Durati
 				return
 			case <-ticker.C:
 				bm.runHealthCheck()
+				// The v2 bot's views and nodes: what was not used for
+				// navigationRetention is gone, and its old buttons say so.
+				if err := database.PruneTelegramNavigation(ctx, navigationRetention); err != nil {
+					logging.Warnf("Pruning telegram navigation: %v", err)
+				}
 			}
 		}
 	}()

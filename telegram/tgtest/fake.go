@@ -110,6 +110,9 @@ type FakeBotAPI struct {
 	calls  []*Call
 	rules  []*Rule
 	nextID int64
+	// pinned is each chat's most recent pinned message, as getChat reports
+	// it.
+	pinned map[int64]int64
 }
 
 // NewFakeBotAPI starts a fake on a local port; it stops when the test ends.
@@ -343,17 +346,22 @@ func (f *FakeBotAPI) defaultReply(w http.ResponseWriter, _ *http.Request, c *Cal
 	switch strings.ToLower(c.Method) {
 	case "getme":
 		writeResult(w, BotUser(c.Token))
-	case "sendmessage", "senddocument", "sendphoto", "copymessage":
+	case "sendmessage", "senddocument", "sendphoto", "copymessage", "sendrichmessage":
 		c.MessageID = f.newMessageID()
 		writeResult(w, messageFor(c))
 	case "editmessagetext", "editmessagecaption", "editmessagemedia", "editmessagereplymarkup":
 		c.MessageID = c.Int64("message_id")
 		writeResult(w, messageFor(c))
+	case "pinchatmessage":
+		f.pin(c.Int64("chat_id"), c.Int64("message_id"))
+		writeResult(w, true)
+	case "getchat":
+		writeResult(w, f.chatFor(c.Int64("chat_id")))
 	case "getwebhookinfo":
 		writeResult(w, map[string]any{"url": "", "has_custom_certificate": false, "pending_update_count": 0})
 	case "answercallbackquery", "setwebhook", "deletewebhook", "setmycommands", "deletemycommands",
 		"sendchataction", "deletemessage", "setmydescription", "setmyshortdescription", "setmyprofilephoto",
-		"removemyprofilephoto", "answerinlinequery", "sendmessagedraft":
+		"removemyprofilephoto", "answerinlinequery", "sendmessagedraft", "setchatmenubutton", "unpinchatmessage":
 		writeResult(w, true)
 	default:
 		writeError(w, http.StatusNotFound, "Not Found: method not found")
@@ -390,6 +398,9 @@ func messageFor(c *Call) map[string]any {
 	if markup, ok := c.Params["reply_markup"]; ok {
 		msg["reply_markup"] = json.RawMessage(markup)
 	}
+	if rich, ok := c.Params["rich_message"]; ok {
+		msg["rich_message"] = richMessageFor(rich, c.Files)
+	}
 	if doc, ok := c.Files["document"]; ok {
 		msg["document"] = map[string]any{
 			"file_id":        "doc-" + doc.SHA256[:16],
@@ -399,6 +410,70 @@ func messageFor(c *Call) map[string]any {
 		}
 	}
 	return msg
+}
+
+// The fake's rich photo blocks: their type, and the size it claims.
+const (
+	richPhoto   = "photo"
+	coverWidth  = 600
+	coverHeight = 900
+)
+
+// richMessageFor is the rich_message Telegram returns for one sent: the
+// same blocks, a photo block carrying a file_id — derived from the uploaded
+// part's hash, or the file_id it was sent with.
+func richMessageFor(raw string, files map[string]UploadedFile) map[string]any {
+	var sent struct {
+		Blocks []map[string]any `json:"blocks"`
+	}
+	_ = json.Unmarshal([]byte(raw), &sent)
+	blocks := make([]map[string]any, 0, len(sent.Blocks))
+	for _, block := range sent.Blocks {
+		if block["type"] != richPhoto {
+			blocks = append(blocks, block)
+			continue
+		}
+		photo, _ := block[richPhoto].(map[string]any)
+		media, _ := photo["media"].(string)
+		fileID := media
+		if name, ok := strings.CutPrefix(media, "attach://"); ok {
+			if part, ok := files[name]; ok {
+				fileID = "photo-" + part.SHA256[:16]
+			}
+		}
+		blocks = append(blocks, map[string]any{"type": richPhoto, richPhoto: []map[string]any{
+			{"file_id": fileID, "file_unique_id": "u" + fileID, "width": coverWidth, "height": coverHeight},
+		}})
+	}
+	return map[string]any{"blocks": blocks}
+}
+
+// pin records chat's pinned message.
+func (f *FakeBotAPI) pin(chat, message int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.pinned == nil {
+		f.pinned = map[int64]int64{}
+	}
+	f.pinned[chat] = message
+}
+
+// Unpin forgets chat's pinned message, as a reader unpinning it would.
+func (f *FakeBotAPI) Unpin(chat int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.pinned, chat)
+}
+
+// chatFor is what getChat answers.
+func (f *FakeBotAPI) chatFor(chat int64) map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := map[string]any{"id": chat, "type": "private"}
+	if id, ok := f.pinned[chat]; ok {
+		out["pinned_message"] = map[string]any{"message_id": id, "date": time.Now().Unix(), "chat": map[string]any{"id": chat, "type": "private"}}
+	}
+	return out
 }
 
 func parseCall(r *http.Request) (Call, error) {

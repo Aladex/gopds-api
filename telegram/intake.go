@@ -238,7 +238,7 @@ func (bm *BotManager) dispatch(parent context.Context, b *Bot, update *tgbot.Upd
 	}
 	defer func() { <-bm.inflight }()
 
-	b.bot.ProcessUpdate(ctx, update)
+	bm.handle(ctx, b, update)
 
 	if ledger.onlyUnsent() {
 		// Every call it tried provably never left: the update is handed back
@@ -253,6 +253,27 @@ func (bm *BotManager) dispatch(parent context.Context, b *Bot, update *tgbot.Upd
 		// Taken over, or past its lease: the next holder decides.
 		logging.Warnf("Inbox: closing update %d of telegram bot %d: %v", lease.UpdateID, lease.BotRef, err)
 	}
+}
+
+// handle runs one update through the bot's router: the v2 router for a bot
+// switched to it, the legacy handlers otherwise — and for the old
+// interface's buttons, still in the v2 bots' chats.
+func (bm *BotManager) handle(ctx context.Context, b *Bot, update *tgbot.Update) {
+	vb, err := bm.v2Bot(ctx, b)
+	if err != nil {
+		logging.Warnf("Inbox: reading telegram bot %d: %v", b.ref, err)
+		return
+	}
+	if vb != nil {
+		if msg := update.Message; msg != nil && isLinkStart(msg.Text) {
+			b.handleStart(ctx, update)
+			return
+		}
+		if bm.router.Handle(ctx, vb, update) {
+			return
+		}
+	}
+	b.bot.ProcessUpdate(ctx, update)
 }
 
 // replyLedger counts what a handler's outgoing calls may have done: calls

@@ -445,6 +445,11 @@ func (b *Bot) registerCommands() error {
 			return result.err
 		}
 		logging.Infof("Successfully registered %d commands for telegram bot %d", len(botCommands), b.ref)
+		// Back on the legacy router: if the bot is switched to v2 again, its
+		// menu must be cleared again.
+		if err := database.ResetTelegramCommandsCleared(ctx, b.ref); err != nil {
+			logging.Warnf("Telegram bot %d: resetting the cleared-menu mark: %v", b.ref, err)
+		}
 		return nil
 	case <-ctx.Done():
 		logging.Errorf("Timeout registering commands for telegram bot %d", b.ref)

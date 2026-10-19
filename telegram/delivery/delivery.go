@@ -32,6 +32,7 @@ import (
 	"github.com/go-pg/pg/v10"
 	"github.com/go-redis/redis"
 	"github.com/go-telegram/bot"
+	tgbot "github.com/go-telegram/bot/models"
 	"github.com/google/uuid"
 )
 
@@ -107,6 +108,9 @@ type Config struct {
 	// Redis shares a bot's 429 between processes and paces chat actions;
 	// optional.
 	Redis *redis.Client
+	// Cards dresses the files of jobs pressed on the v2 bot's cards and
+	// repaints the card when such a job ends; nil for none.
+	Cards CardHooks
 }
 
 func (c Config) withDefaults() Config { //nolint:gocritic // defaults fill a copy, never the caller's value
@@ -144,6 +148,29 @@ func (c Config) withDefaults() Config { //nolint:gocritic // defaults fill a cop
 		c.Prepare = PrepareFile
 	}
 	return c
+}
+
+// CardHooks is the v2 bot's part in a job pressed on one of its cards.
+type CardHooks interface {
+	// File names and captions the document, with its buttons.
+	File(
+		ctx context.Context, job *models.TelegramDelivery, book *models.Book, size int,
+	) (name, caption string, markup *tgbot.InlineKeyboardMarkup)
+	// JobEnded is told a job ended, to repaint the card it was pressed on.
+	JobEnded(ctx context.Context, job *models.TelegramDelivery)
+}
+
+// cardEnded tells the cards a job ended, once it has: job is the claimed row,
+// read again to see whether it is finished.
+func (s *Service) cardEnded(ctx context.Context, id int64, job *models.TelegramDelivery) {
+	if s.cfg.Cards == nil || !job.FromPanel() {
+		return
+	}
+	ended, err := database.GetTelegramDelivery(context.WithoutCancel(ctx), id)
+	if err != nil || ended.FinishedAt == nil {
+		return
+	}
+	s.cfg.Cards.JobEnded(context.WithoutCancel(ctx), ended)
 }
 
 // Bots gives the SDK client of a served bot.
@@ -284,6 +311,9 @@ func (s *Service) quitting() <-chan struct{} {
 	return s.quit
 }
 
+// SetCards gives the service the v2 bot's card hooks; call it before Start.
+func (s *Service) SetCards(c CardHooks) { s.cfg.Cards = c }
+
 // WaitIdle waits for the jobs in hand; for tests.
 func (s *Service) WaitIdle() { s.running.Wait() }
 
@@ -327,6 +357,7 @@ func (s *Service) sweep(ctx context.Context) {
 			job := &closed[i]
 			logging.Warnf("Delivery: job %d closed %s after its holder stopped", job.ID, job.State)
 			s.ended(job.ID)
+			s.cardEnded(context.WithoutCancel(ctx), job.ID, job)
 			s.tellClosed(context.WithoutCancel(ctx), job)
 		}
 		if time.Since(lastPrune) > time.Hour {

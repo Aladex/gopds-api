@@ -80,6 +80,7 @@ var (
 		"message can't be edited",
 		"message to delete not found",
 		"message can't be deleted",
+		"message to pin not found",
 	}
 )
 
