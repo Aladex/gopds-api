@@ -182,6 +182,7 @@ func RegisterManualTelegramBot(ctx context.Context, userID int64, bot *models.Te
 			return ErrTelegramBotTaken
 		}
 		existing.Username = bot.Username
+		existing.DisplayName = bot.DisplayName
 		existing.TokenEnc = bot.TokenEnc
 		existing.TokenSHA256 = bot.TokenSHA256
 		existing.KeyID = bot.KeyID
@@ -189,7 +190,7 @@ func RegisterManualTelegramBot(ctx context.Context, userID int64, bot *models.Te
 		existing.Status = models.TelegramBotActive
 		existing.UpdatedAt = time.Now()
 		_, err = tx.ModelContext(ctx, existing).
-			Column("username", "token_enc", "token_sha256", "key_id", "added_by_user_id", "status", "updated_at").
+			Column("username", "display_name", "token_enc", "token_sha256", "key_id", "added_by_user_id", "status", "updated_at").
 			WherePK().Update()
 		result = existing
 		return err
@@ -218,6 +219,25 @@ func LatestTelegramLinkExpiry(ctx context.Context, userID, botRef int64) (*time.
 	return expires, err
 }
 
+// TelegramLinkIsOpen reports, without writing anything, whether hash names a
+// link of botRef that nobody has used yet. Only such a link lets a stranger's
+// /start reach the bot.
+func TelegramLinkIsOpen(ctx context.Context, botRef int64, hash []byte) (bool, error) {
+	var n int
+	_, err := db.QueryOneContext(ctx, pg.Scan(&n), `
+		SELECT count(*) FROM telegram_link_token
+		WHERE secret_sha256 = ? AND bot_ref = ? AND consumed_at IS NULL`, hash, botRef)
+	return n > 0, err
+}
+
+// SetTelegramBotIdentity records the bot's public username and name.
+func SetTelegramBotIdentity(ctx context.Context, botRef int64, username, displayName string) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE telegram_bot SET username = ?, display_name = ?, updated_at = now() WHERE id = ?`,
+		username, displayName, botRef)
+	return err
+}
+
 // LinkOutcome is what a /start link_… did.
 type LinkOutcome int
 
@@ -233,6 +253,9 @@ const (
 	LinkUsedByOther
 	// LinkTelegramTaken: this Telegram user serves another library account.
 	LinkTelegramTaken
+	// LinkBotTaken: the bot serves another library account now. A link
+	// handed out before another account confirmed the bot does not move it.
+	LinkBotTaken
 )
 
 // ConsumeTelegramLinkToken binds botRef to the link's account and to tgUserID,
@@ -262,6 +285,17 @@ func ConsumeTelegramLinkToken(
 			return err
 		}
 		if !link.ExpiresAt.After(time.Now()) {
+			// Say what is true and useful: a link that stopped working because
+			// another account took the bot cannot be fixed by a new link.
+			var otherAccount int
+			if _, err = tx.QueryOneContext(ctx, pg.Scan(&otherAccount), `
+				SELECT count(*) FROM telegram_binding
+				WHERE bot_ref = ? AND status = 'active' AND user_id <> ?`, botRef, link.UserID); err != nil {
+				return err
+			}
+			if otherAccount > 0 {
+				outcome = LinkBotTaken
+			}
 			return nil
 		}
 
@@ -283,6 +317,15 @@ func bindByLink(
 	// The bot row first: it serializes every binding change of this bot.
 	if _, err := tx.ExecContext(ctx, `SELECT 1 FROM telegram_bot WHERE id = ? FOR UPDATE`, botRef); err != nil {
 		return LinkExpired, nil, err
+	}
+	var otherAccount int
+	if _, err := tx.QueryOneContext(ctx, pg.Scan(&otherAccount), `
+		SELECT count(*) FROM telegram_binding
+		WHERE bot_ref = ? AND status = 'active' AND user_id <> ?`, botRef, link.UserID); err != nil {
+		return LinkExpired, nil, err
+	}
+	if otherAccount > 0 {
+		return LinkBotTaken, nil, nil
 	}
 	var elsewhere int
 	if _, err := tx.QueryOneContext(ctx, pg.Scan(&elsewhere), `
@@ -313,6 +356,13 @@ func bindByLink(
 	if _, err = tx.ExecContext(ctx, `
 		UPDATE telegram_link_token SET consumed_at = now(), consumed_by_tg = ?, binding_id = ? WHERE id = ?`,
 		tgUserID, binding.ID, link.ID); err != nil {
+		return LinkExpired, nil, err
+	}
+	// The bot is this account's now: links other accounts still hold for it
+	// stop working.
+	if _, err = tx.ExecContext(ctx, `
+		UPDATE telegram_link_token SET expires_at = least(expires_at, now())
+		WHERE bot_ref = ? AND user_id <> ? AND consumed_at IS NULL`, botRef, link.UserID); err != nil {
 		return LinkExpired, nil, err
 	}
 	return LinkCreated, binding, nil
@@ -442,58 +492,106 @@ func SetTelegramBindingBlocked(ctx context.Context, botRef int64, blocked bool) 
 	return err
 }
 
+// InboxLease is a process's hold on one inbox row. Fence moves on with every
+// takeover, so a holder that lost the row cannot act on it any more.
+type InboxLease struct {
+	BotRef   int64
+	UpdateID int64
+	Owner    uuid.UUID
+	Fence    int64
+}
+
+// ErrInboxLeaseLost means the row is no longer held by this lease.
+var ErrInboxLeaseLost = errors.New("telegram inbox lease lost")
+
 // InsertTelegramInboxUpdate records an accepted update, leased to owner for
-// lease. It reports false when the update was already recorded — a
-// redelivery, which must not be handled again.
+// lease, and returns the lease. It reports false when the update was already
+// recorded — a redelivery, which must not be handled again.
 func InsertTelegramInboxUpdate(
 	ctx context.Context, botRef, updateID int64, kind, payload string, owner uuid.UUID, lease time.Duration,
-) (bool, error) {
+) (InboxLease, bool, error) {
 	res, err := db.ExecContext(ctx, `
-		INSERT INTO telegram_update_inbox (bot_ref, update_id, kind, payload, lease_owner, lease_expires_at, attempts)
-		VALUES (?, ?, ?, ?::jsonb, ?, now() + make_interval(secs => ?), 1)
+		INSERT INTO telegram_update_inbox (bot_ref, update_id, kind, payload, lease_owner, lease_expires_at, attempts, fence)
+		VALUES (?, ?, ?, ?::jsonb, ?, now() + make_interval(secs => ?), 1, 1)
 		ON CONFLICT DO NOTHING`, botRef, updateID, kind, payload, owner, lease.Seconds())
 	if err != nil {
-		return false, err
+		return InboxLease{}, false, err
 	}
-	return res.RowsAffected() == 1, nil
+	held := InboxLease{BotRef: botRef, UpdateID: updateID, Owner: owner, Fence: 1}
+	return held, res.RowsAffected() == 1, nil
 }
 
-// ExtendTelegramInboxLease keeps owner's lease alive; false when it was lost.
-func ExtendTelegramInboxLease(ctx context.Context, botRef, updateID int64, owner uuid.UUID, lease time.Duration) (bool, error) {
+// leaseHeld is the condition every step of a holder checks: its own owner,
+// fence and a live lease, on a row still pending.
+const leaseHeld = `bot_ref = ? AND update_id = ? AND lease_owner = ? AND fence = ?
+	AND state = 'pending' AND lease_expires_at > now()`
+
+// ExtendTelegramInboxLease renews a lease still held; ErrInboxLeaseLost when
+// it is not.
+func ExtendTelegramInboxLease(ctx context.Context, l InboxLease, lease time.Duration) error {
 	res, err := db.ExecContext(ctx, `
 		UPDATE telegram_update_inbox SET lease_expires_at = now() + make_interval(secs => ?)
-		WHERE bot_ref = ? AND update_id = ? AND lease_owner = ? AND state = 'pending'`,
-		lease.Seconds(), botRef, updateID, owner)
+		WHERE `+leaseHeld, lease.Seconds(), l.BotRef, l.UpdateID, l.Owner, l.Fence)
 	if err != nil {
-		return false, err
+		return err
 	}
-	return res.RowsAffected() == 1, nil
+	if res.RowsAffected() != 1 {
+		return ErrInboxLeaseLost
+	}
+	return nil
 }
 
-// FinishTelegramInboxUpdate closes owner's update as state and forgets its
-// payload.
-func FinishTelegramInboxUpdate(ctx context.Context, botRef, updateID int64, owner uuid.UUID, state string) error {
-	_, err := db.ExecContext(ctx, `
+// MarkTelegramInboxReplyStarted is called before every outgoing call of a
+// handler. In one statement it proves the lease is still held and records
+// that a reply may be on its way; ErrInboxLeaseLost when the lease is gone,
+// and then the call must not be made.
+func MarkTelegramInboxReplyStarted(ctx context.Context, l InboxLease) error {
+	res, err := db.ExecContext(ctx, `
+		UPDATE telegram_update_inbox SET reply_started_at = coalesce(reply_started_at, now())
+		WHERE `+leaseHeld, l.BotRef, l.UpdateID, l.Owner, l.Fence)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() != 1 {
+		return ErrInboxLeaseLost
+	}
+	return nil
+}
+
+// FinishTelegramInboxUpdate closes a held update as state and forgets its
+// payload; ErrInboxLeaseLost when the lease is gone.
+func FinishTelegramInboxUpdate(ctx context.Context, l InboxLease, state string) error {
+	res, err := db.ExecContext(ctx, `
 		UPDATE telegram_update_inbox
 		SET state = ?, payload = NULL, lease_owner = NULL, lease_expires_at = NULL, finished_at = now()
-		WHERE bot_ref = ? AND update_id = ? AND lease_owner = ? AND state = 'pending'`,
-		state, botRef, updateID, owner)
-	return err
+		WHERE bot_ref = ? AND update_id = ? AND lease_owner = ? AND fence = ? AND state = 'pending'`,
+		state, l.BotRef, l.UpdateID, l.Owner, l.Fence)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() != 1 {
+		return ErrInboxLeaseLost
+	}
+	return nil
 }
 
 // ClaimStaleTelegramInboxUpdates takes over updates whose lease ran out —
-// their process died or stalled — for owner. Updates older than maxAge, or
-// tried maxAttempts times, are closed instead: an answer that late is worse
-// than none. Rows another process is claiming are skipped, not waited for.
+// their process died, stalled or lost the database — for owner, moving each
+// fence on. An update whose holder had begun replying is closed 'uncertain'
+// rather than handled again: its reply may already be in the chat. Updates
+// older than maxAge, or tried maxAttempts times, are closed too: an answer
+// that late is worse than none. Rows another process is claiming are skipped,
+// not waited for.
 func ClaimStaleTelegramInboxUpdates(
 	ctx context.Context, owner uuid.UUID, lease, maxAge time.Duration, maxAttempts, limit int,
 ) ([]models.TelegramInboxUpdate, error) {
 	if _, err := db.ExecContext(ctx, `
 		UPDATE telegram_update_inbox
-		SET state = CASE WHEN attempts >= ? THEN 'failed' ELSE 'skipped' END,
-		    payload = NULL, lease_owner = NULL, lease_expires_at = NULL, finished_at = now()
+		SET state = CASE WHEN reply_started_at IS NOT NULL THEN 'uncertain'
+		                 WHEN attempts >= ? THEN 'failed' ELSE 'skipped' END,
+		    payload = NULL, lease_owner = NULL, lease_expires_at = NULL, finished_at = now(), fence = fence + 1
 		WHERE state = 'pending' AND lease_expires_at < now()
-		  AND (received_at < now() - make_interval(secs => ?) OR attempts >= ?)`,
+		  AND (reply_started_at IS NOT NULL OR received_at < now() - make_interval(secs => ?) OR attempts >= ?)`,
 		maxAttempts, maxAge.Seconds(), maxAttempts); err != nil {
 		return nil, err
 	}
@@ -501,11 +599,12 @@ func ClaimStaleTelegramInboxUpdates(
 	_, err := db.QueryContext(ctx, &claimed, `
 		WITH stale AS (
 			SELECT bot_ref, update_id FROM telegram_update_inbox
-			WHERE state = 'pending' AND lease_expires_at < now()
+			WHERE state = 'pending' AND lease_expires_at < now() AND reply_started_at IS NULL
 			ORDER BY received_at LIMIT ?
 			FOR UPDATE SKIP LOCKED)
 		UPDATE telegram_update_inbox i
-		SET lease_owner = ?, lease_expires_at = now() + make_interval(secs => ?), attempts = i.attempts + 1
+		SET lease_owner = ?, lease_expires_at = now() + make_interval(secs => ?),
+		    attempts = i.attempts + 1, fence = i.fence + 1
 		FROM stale WHERE i.bot_ref = stale.bot_ref AND i.update_id = stale.update_id
 		RETURNING i.*`, limit, owner, lease.Seconds())
 	return claimed, err

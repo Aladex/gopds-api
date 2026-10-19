@@ -3,6 +3,7 @@ package telegram
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -32,8 +33,16 @@ func (bm *BotManager) observedClient(ref int64) *observingClient {
 	}
 }
 
-// Do implements the SDK's HttpClient.
+// Do implements the SDK's HttpClient. A call made while handling an inbox
+// update first proves, in the database, that the update's lease is still
+// held — and marks that a reply may be on its way. A handler that lost its
+// lease to another process makes no call at all.
 func (c *observingClient) Do(req *http.Request) (*http.Response, error) {
+	if lease, ok := inboxLeaseOf(req.Context()); ok {
+		if err := database.MarkTelegramInboxReplyStarted(req.Context(), lease); err != nil {
+			return nil, fmt.Errorf("not sending for update %d: %w", lease.UpdateID, err)
+		}
+	}
 	resp, err := c.inner.Do(req) // #nosec G704 -- the request goes to the configured Bot API endpoint
 	if err != nil || resp.StatusCode != http.StatusForbidden {
 		return resp, err

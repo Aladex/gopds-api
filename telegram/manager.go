@@ -68,6 +68,7 @@ type Bot struct {
 	ref           int64 // telegram_bot.id
 	tgBotID       int64
 	username      string
+	addedBy       *int64 // the account that entered or owned it first, for logs
 	webhookPath   string
 	webhookSecret string
 	newProcessor  func() *commands.CommandProcessor
@@ -138,7 +139,69 @@ func (bm *BotManager) InitializeExistingBots() error {
 		served++
 	}
 	logging.Infof("Serving %d telegram bots", served)
+	go bm.refreshIdentities()
 	return nil
+}
+
+// identityWorkers bounds the getMe calls made at once to learn bot names.
+const identityWorkers = 4
+
+// identityTimeout bounds one getMe.
+const identityTimeout = 10 * time.Second
+
+// refreshIdentities learns the public username and name of every served bot
+// that has none — the adopted legacy bots: their rows were made from a token
+// alone. One getMe per bot, a few at a time; a bot that fails is logged and
+// tried again by the next health check, and never holds up the others.
+func (bm *BotManager) refreshIdentities() {
+	bm.mutex.RLock()
+	var nameless []*Bot
+	for _, b := range bm.byRef {
+		if b.username == "" {
+			nameless = append(nameless, b)
+		}
+	}
+	bm.mutex.RUnlock()
+
+	slots := make(chan struct{}, identityWorkers)
+	var wg sync.WaitGroup
+	for _, b := range nameless {
+		wg.Add(1)
+		slots <- struct{}{}
+		go func(b *Bot) {
+			defer wg.Done()
+			defer func() { <-slots }()
+			bm.refreshIdentity(b)
+		}(b)
+	}
+	wg.Wait()
+}
+
+// refreshIdentity asks Telegram for one bot's username and name and keeps
+// them.
+func (bm *BotManager) refreshIdentity(b *Bot) {
+	ctx, cancel := context.WithTimeout(context.Background(), identityTimeout)
+	defer cancel()
+	me, err := b.bot.GetMe(ctx)
+	if err != nil {
+		logging.Warnf("Telegram bot %d of user %s: reading its name: %v", b.ref, userOf(b.addedBy), tgapi.RedactURL(err))
+		return
+	}
+	if err := database.SetTelegramBotIdentity(ctx, b.ref, me.Username, me.FirstName); err != nil {
+		logging.Warnf("Telegram bot %d of user %s: storing its name: %v", b.ref, userOf(b.addedBy), err)
+		return
+	}
+	bm.mutex.Lock()
+	b.username = me.Username
+	bm.mutex.Unlock()
+}
+
+// userOf names an account id in logs.
+func userOf(id *int64) string {
+	if id == nil {
+		return "unknown"
+	}
+	return strconv.FormatInt(*id, 10)
 }
 
 // adoptLegacyBots copies every auth_user bot not yet in telegram_bot. Each
@@ -280,6 +343,7 @@ func (bm *BotManager) newBot(token string, model *models.TelegramBot) (*Bot, err
 		ref:          ref,
 		tgBotID:      model.TGBotID,
 		username:     model.Username,
+		addedBy:      model.AddedByUserID,
 		webhookPath:  model.WebhookPath.String(),
 		newProcessor: bm.newProcessor,
 		manager:      bm,
@@ -465,6 +529,13 @@ func (bm *BotManager) runHealthCheck() {
 			}
 			bm.forget(b.ref)
 			continue
+		}
+
+		bm.mutex.RLock()
+		nameless := b.username == ""
+		bm.mutex.RUnlock()
+		if nameless {
+			bm.refreshIdentity(b)
 		}
 
 		isCorrect, err := bm.checkWebhookStatus(b)

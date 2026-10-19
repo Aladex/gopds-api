@@ -48,7 +48,11 @@ func startLegacyBot(t *testing.T) legacyBot {
 func TestLegacyStartupRegistersTheBotWithTelegram(t *testing.T) {
 	b := startLegacyBot(t)
 
-	assert.Empty(t, b.fake.Calls("getMe"), "serving a stored bot makes no call before its webhook")
+	// The adopted bot is served without a call; its name is read afterwards,
+	// once, because adoption only had its token.
+	getMe := b.fake.WaitCalls(t, "getMe", 1, 5*time.Second)
+	require.Len(t, getMe, 1)
+	assert.True(t, getMe[0].At.After(b.fake.Calls("setWebhook")[0].At), "the name is read after the webhook is set")
 	commands := b.fake.Calls("setMyCommands")
 	require.Len(t, commands, 1)
 	var registered []struct{ Command string }

@@ -40,6 +40,8 @@ const (
 		"Открой профиль на сайте и получи новую ссылку."
 	copyTelegramTaken = "Этот аккаунт Telegram уже подключён к другому аккаунту библиотеки\n\n" +
 		"Сначала отключи его в профиле того аккаунта."
+	copyBotTaken = "Этот бот уже подключён к другому аккаунту библиотеки\n\n" +
+		"Своего бота можно подключить в профиле библиотеки."
 	copyStranger = "Это личный бот другого пользователя\n\n" +
 		"Своего бота можно подключить в профиле библиотеки."
 	copyButtonUnavailable  = "Эта кнопка недоступна."
@@ -58,6 +60,16 @@ func NewLinkSecret() (secret string, hash []byte) {
 // LinkURL is the deep link that opens username's chat with /start link_….
 func LinkURL(username, secret string) string {
 	return "https://t.me/" + username + "?start=" + linkPrefix + secret
+}
+
+// wellFormedLinkSecret reports whether secret has the shape NewLinkSecret
+// gives: unpadded base64url of linkSecretBytes.
+func wellFormedLinkSecret(secret string) bool {
+	if len(secret) != base64.RawURLEncoding.EncodedLen(linkSecretBytes) {
+		return false
+	}
+	_, err := base64.RawURLEncoding.DecodeString(secret)
+	return err == nil
 }
 
 func linkHash(secret string) []byte {
@@ -112,6 +124,8 @@ func (b *Bot) handleLink(ctx context.Context, msg *tgbot.Message, secret string)
 		b.sendScreen(ctx, msg.Chat.ID, copyLinkUsed, b.manager.profileButton())
 	case database.LinkTelegramTaken:
 		b.sendScreen(ctx, msg.Chat.ID, copyTelegramTaken, b.manager.siteButton())
+	case database.LinkBotTaken:
+		b.sendScreen(ctx, msg.Chat.ID, copyBotTaken, b.manager.siteButton())
 	case database.LinkExpired:
 		b.sendScreen(ctx, msg.Chat.ID, copyLinkExpired, b.manager.profileButton())
 	}

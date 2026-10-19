@@ -135,6 +135,7 @@ func (r *Routes) SetBotToken(c *gin.Context) {
 
 	model := bm.newBotModel(me.ID, token, uuid.New())
 	model.Username = me.Username
+	model.DisplayName = me.FirstName
 	registered, err := database.RegisterManualTelegramBot(ctx, userID, model)
 	if errors.Is(err, database.ErrTelegramBotTaken) {
 		c.JSON(http.StatusConflict, ErrorResponse{Error: errBotTaken})

@@ -150,7 +150,13 @@ func TestAnExpiredLinkDoesNotBind(t *testing.T) {
 	require.NoError(t, err)
 
 	s.linkVia(botToken1, ownerTG, secret)
-	assert.Equal(t, expiredText, s.waitMessage(ownerTG, 1).Params["text"])
+	expired := s.waitMessage(ownerTG, 1)
+	assert.Equal(t, expiredText, expired.Params["text"])
+	// The exact URL the site's app-router test opens (src/app/__tests__/ProfileLink.test.tsx).
+	keyboard := tgtest.Keyboard(t, &expired)
+	require.Len(t, keyboard, 1)
+	assert.Equal(t, "Открыть профиль", keyboard[0][0].Text)
+	assert.Equal(t, stackSiteURL+"/?profile=telegram", keyboard[0][0].URL)
 	s.linkVia(botToken1, ownerTG, "never-issued-secret-0123456789abc")
 	assert.Equal(t, expiredText, s.waitMessage(ownerTG, 2).Params["text"])
 	assert.Equal(t, 0, s.count(`SELECT count(*) FROM telegram_binding`))
@@ -162,19 +168,16 @@ func TestAnExpiredLinkDoesNotBind(t *testing.T) {
 
 	code, fresh := s.api(user, http.MethodPost, "/link", "")
 	require.Equal(t, http.StatusOK, code)
-	_, freshSecret, _ := cut(fresh["link_url"], "?start=link_")
+	freshSecret := linkSecretOf(fresh["link_url"])
 	s.linkVia(botToken1, ownerTG, freshSecret)
 	assert.Equal(t, linkedText, s.waitMessage(ownerTG, 3).Params["text"])
 }
 
-func cut(v any, sep string) (before, after string, found bool) {
-	str, _ := v.(string)
-	for i := 0; i+len(sep) <= len(str); i++ {
-		if str[i:i+len(sep)] == sep {
-			return str[:i], str[i+len(sep):], true
-		}
-	}
-	return str, "", false
+// linkSecretOf reads the secret from a link_url the site API returned.
+func linkSecretOf(v any) string {
+	link, _ := v.(string)
+	_, secret, _ := strings.Cut(link, "?start=link_")
+	return secret
 }
 
 // (e) Changing the bot: the old connection keeps working until the new bot

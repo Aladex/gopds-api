@@ -104,7 +104,13 @@ func (bm *BotManager) HandleWebhook(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: errUnavailable})
 		return
 	}
-	if !in.acceptedBy(binding) {
+	admitted, err := admits(ctx, b, in, binding)
+	if err != nil {
+		logging.Errorf("Webhook: checking a link for telegram bot %d: %v", b.ref, err)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: errUnavailable})
+		return
+	}
+	if !admitted {
 		go bm.answerStranger(context.WithoutCancel(ctx), b, in, binding)
 		answerStatus(c, statusOK)
 		return
@@ -115,7 +121,7 @@ func (bm *BotManager) HandleWebhook(c *gin.Context) {
 // accept records an accepted update in the inbox and hands it to a handler.
 func (bm *BotManager) accept(c *gin.Context, b *Bot, body []byte, update *tgbot.Update, in incoming, binding *models.TelegramBinding) {
 	ctx := c.Request.Context()
-	inserted, err := database.InsertTelegramInboxUpdate(ctx, b.ref, update.ID, in.kind, string(body), bm.process, inboxLease)
+	lease, inserted, err := database.InsertTelegramInboxUpdate(ctx, b.ref, update.ID, in.kind, string(body), bm.process, inboxLease)
 	if err != nil {
 		logging.Errorf("Webhook: recording update %d of telegram bot %d: %v", update.ID, b.ref, err)
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: errUnavailable})
@@ -132,7 +138,7 @@ func (bm *BotManager) accept(c *gin.Context, b *Bot, body []byte, update *tgbot.
 		}
 	}
 	bm.handling.Add(1)
-	go bm.dispatch(context.WithoutCancel(ctx), b, update)
+	go bm.dispatch(context.WithoutCancel(ctx), b, update, lease)
 	answerStatus(c, statusOK)
 }
 
@@ -179,13 +185,22 @@ func readIncoming(u *tgbot.Update) incoming {
 	return incoming{}
 }
 
-// acceptedBy reports whether the update may reach the bot's handlers: the
-// owner's, or anyone's /start with a link — that is how a bot gets an owner.
-func (in incoming) acceptedBy(binding *models.TelegramBinding) bool {
-	if in.kind == kindMessage && isLinkStart(in.text) {
-		return true
+// admits reports whether the update may reach the bot's handlers: the
+// owner's, or a /start carrying a link of this bot that nobody has used yet —
+// that is how a bot gets an owner. The link is looked up without writing
+// anything; a made-up or used link is a stranger's message like any other.
+func admits(ctx context.Context, b *Bot, in incoming, binding *models.TelegramBinding) (bool, error) {
+	if binding != nil && in.from.ID == binding.TGUserID {
+		return true, nil
 	}
-	return binding != nil && in.from.ID == binding.TGUserID
+	if in.kind != kindMessage || !isLinkStart(in.text) {
+		return false, nil
+	}
+	secret := strings.TrimPrefix(startPayload(in.text), linkPrefix)
+	if !wellFormedLinkSecret(secret) {
+		return false, nil
+	}
+	return database.TelegramLinkIsOpen(ctx, b.ref, linkHash(secret))
 }
 
 // isLinkStart reports whether text is "/start link_…", the deep link the
@@ -203,25 +218,35 @@ func isLinkStart(text string) bool {
 
 // dispatch runs one accepted update through the bot's handlers while holding
 // its inbox lease, and closes it. parent carries no cancellation: the update
-// is handled to the end even when what started it is gone.
-func (bm *BotManager) dispatch(parent context.Context, b *Bot, update *tgbot.Update) {
+// is handled to the end even when what started it is gone — unless the lease
+// is lost. Then the handler's context is canceled, and every outgoing call it
+// still tries is refused by the observing client, which checks the lease
+// (and its fence) in the database before the call starts.
+func (bm *BotManager) dispatch(parent context.Context, b *Bot, update *tgbot.Update, lease database.InboxLease) {
 	defer bm.handling.Done()
-	ctx, cancel := context.WithCancel(parent)
-	defer cancel()
-	go bm.keepLease(ctx, b.ref, update.ID)
+	ctx, cancel := context.WithCancelCause(withInboxLease(parent, lease))
+	defer cancel(nil)
+	go bm.keepLease(ctx, cancel, lease)
 
-	bm.inflight <- struct{}{}
+	select {
+	case bm.inflight <- struct{}{}:
+	case <-ctx.Done():
+		logging.Warnf("Inbox: update %d of telegram bot %d lost its lease while queued", lease.UpdateID, lease.BotRef)
+		return
+	}
 	defer func() { <-bm.inflight }()
 
 	b.bot.ProcessUpdate(ctx, update)
 
-	if err := database.FinishTelegramInboxUpdate(parent, b.ref, update.ID, bm.process, "done"); err != nil {
-		logging.Errorf("Inbox: closing update %d of telegram bot %d: %v", update.ID, b.ref, err)
+	if err := database.FinishTelegramInboxUpdate(parent, lease, "done"); err != nil {
+		logging.Warnf("Inbox: closing update %d of telegram bot %d: %v", lease.UpdateID, lease.BotRef, err)
 	}
 }
 
-// keepLease renews the lease until ctx ends.
-func (bm *BotManager) keepLease(ctx context.Context, ref, updateID int64) {
+// keepLease renews the lease until ctx ends. When a renewal fails — the row
+// was taken over, or the database did not answer — the lease cannot be
+// vouched for, and the handler is canceled.
+func (bm *BotManager) keepLease(ctx context.Context, cancel context.CancelCauseFunc, lease database.InboxLease) {
 	ticker := time.NewTicker(inboxLease / leaseRenewals)
 	defer ticker.Stop()
 	for {
@@ -229,13 +254,26 @@ func (bm *BotManager) keepLease(ctx context.Context, ref, updateID int64) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			ok, err := database.ExtendTelegramInboxLease(ctx, ref, updateID, bm.process, inboxLease)
-			if err != nil || !ok {
-				logging.Warnf("Inbox: lost the lease of update %d of telegram bot %d", updateID, ref)
+			if err := database.ExtendTelegramInboxLease(ctx, lease, inboxLease); err != nil {
+				logging.Warnf("Inbox: lost the lease of update %d of telegram bot %d: %v", lease.UpdateID, lease.BotRef, err)
+				cancel(database.ErrInboxLeaseLost)
 				return
 			}
 		}
 	}
+}
+
+// inboxLeaseKey carries the lease of the update a handler is working on.
+type inboxLeaseKey struct{}
+
+func withInboxLease(ctx context.Context, lease database.InboxLease) context.Context {
+	return context.WithValue(ctx, inboxLeaseKey{}, lease)
+}
+
+// inboxLeaseOf returns the lease a context carries, if it is a handler's.
+func inboxLeaseOf(ctx context.Context) (database.InboxLease, bool) {
+	lease, ok := ctx.Value(inboxLeaseKey{}).(database.InboxLease)
+	return lease, ok
 }
 
 // StartInboxSweeper hands updates whose process died to this one, every
@@ -272,18 +310,19 @@ func (bm *BotManager) sweepInbox(ctx context.Context) {
 	for i := range claimed {
 		row := &claimed[i]
 		b, err := bm.botByRef(ctx, row.BotRef)
+		lease := database.InboxLease{BotRef: row.BotRef, UpdateID: row.UpdateID, Owner: bm.process, Fence: row.Fence}
 		if err != nil || b == nil || row.Payload == nil {
-			_ = database.FinishTelegramInboxUpdate(ctx, row.BotRef, row.UpdateID, bm.process, "skipped")
+			_ = database.FinishTelegramInboxUpdate(ctx, lease, "skipped")
 			continue
 		}
 		var update tgbot.Update
 		if err := json.Unmarshal([]byte(*row.Payload), &update); err != nil {
-			_ = database.FinishTelegramInboxUpdate(ctx, row.BotRef, row.UpdateID, bm.process, "failed")
+			_ = database.FinishTelegramInboxUpdate(ctx, lease, "failed")
 			continue
 		}
 		logging.Infof("Inbox: resuming update %d of telegram bot %d", row.UpdateID, row.BotRef)
 		bm.handling.Add(1)
-		go bm.dispatch(context.WithoutCancel(ctx), b, &update)
+		go bm.dispatch(context.WithoutCancel(ctx), b, &update, lease)
 	}
 }
 

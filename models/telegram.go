@@ -33,6 +33,7 @@ type TelegramBot struct {
 	ID               int64
 	TGBotID          int64  `pg:"tg_bot_id"`
 	Username         string `pg:",use_zero"`
+	DisplayName      string `pg:",use_zero"`
 	Kind             string
 	AddedByUserID    *int64
 	TokenEnc         []byte
@@ -92,6 +93,8 @@ type TelegramInboxUpdate struct {
 	State          string
 	LeaseOwner     *uuid.UUID `pg:"type:uuid"`
 	LeaseExpiresAt *time.Time
+	Fence          int64
+	ReplyStartedAt *time.Time
 	Attempts       int16
 	ReceivedAt     time.Time `pg:"default:now()"`
 	FinishedAt     *time.Time

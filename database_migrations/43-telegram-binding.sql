@@ -16,8 +16,12 @@
 --   * telegram_update_inbox — every accepted update, written before the
 --     webhook answers 200, deduplicated by (bot, update_id). The process that
 --     inserts a row holds a short lease on it; another process takes over a
---     row only after the lease ran out, so two pods alive during a rollout
---     never handle one update twice. Processed rows drop their payload.
+--     row only after the lease ran out, and the takeover moves the fence on, so
+--     the old holder's later steps — renewing, replying, closing — all fail.
+--     Before its first outgoing call a holder marks reply_started_at, in the
+--     same statement that checks its fence; a row taken over with that mark
+--     set is closed as 'uncertain' instead of being handled again, since its
+--     reply may already have gone. Processed rows drop their payload.
 --
 -- The old auth_user columns (bot_token, webhook_uuid, telegram_id) stay; the
 -- application copies them in at start and stops reading them.
@@ -34,6 +38,7 @@ CREATE TABLE public.telegram_bot (
     id                 bigserial   PRIMARY KEY,
     tg_bot_id          bigint      NOT NULL UNIQUE,
     username           text        NOT NULL DEFAULT '',
+    display_name       text        NOT NULL DEFAULT '',
     kind               text        NOT NULL CHECK (kind IN ('manual', 'managed')),
     added_by_user_id   integer     REFERENCES public.auth_user (id) ON DELETE SET NULL,
     token_enc          bytea,
@@ -91,9 +96,11 @@ CREATE TABLE public.telegram_update_inbox (
     kind             text        NOT NULL,
     payload          jsonb,
     state            text        NOT NULL DEFAULT 'pending'
-                     CHECK (state IN ('pending', 'done', 'skipped', 'failed')),
+                     CHECK (state IN ('pending', 'done', 'skipped', 'failed', 'uncertain')),
     lease_owner      uuid,
     lease_expires_at timestamptz,
+    fence            bigint      NOT NULL DEFAULT 1,
+    reply_started_at timestamptz,
     attempts         smallint    NOT NULL DEFAULT 0,
     received_at      timestamptz NOT NULL DEFAULT now(),
     finished_at      timestamptz,
