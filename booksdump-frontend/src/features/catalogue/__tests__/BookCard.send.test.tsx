@@ -7,9 +7,8 @@ import BookCard, { type BookCardProps } from '@/features/catalogue/BookCard';
 import type { Book } from '@/api/books';
 
 // The card's two send buttons: each shown or hidden by the reader's switch,
-// the Telegram one a locked promise with a hint that has to reach a mouse, a
-// keyboard and a finger alike, and the Kindle one either sending or — muted —
-// asking for the setup.
+// each either sending or — muted — leading to its setup: the Kindle one
+// labelled, the Telegram one an icon with its hint.
 
 const translate = (key: string, fallback?: string) => fallback ?? key;
 const translation = { t: translate, i18n: { language: 'ru' } };
@@ -61,7 +60,8 @@ const renderCard = (props: Partial<BookCardProps> = {}) =>
 
 const kindleButton = () =>
     screen.queryByRole('button', { name: /sendToKindle\.(send|setup|sending)/ });
-const telegramButton = () => screen.queryByRole('button', { name: 'sendToTelegram.soon' });
+const telegramButton = () =>
+    screen.queryByRole('button', { name: /sendToTelegram\.(send|setup|sending)/ });
 
 describe('which send buttons the card shows', () => {
     it.each([
@@ -83,7 +83,7 @@ describe('which send buttons the card shows', () => {
             .map((button) => button.getAttribute('aria-label') ?? button.textContent);
         const read = names.indexOf('bookRead');
         const kindle = names.indexOf('sendToKindle.setup');
-        const telegram = names.indexOf('sendToTelegram.soon');
+        const telegram = names.indexOf('sendToTelegram.setup');
         const star = names.indexOf('bookFavAdd');
         expect([read, kindle, telegram, star].every((at) => at >= 0)).toBe(true);
         expect(read < kindle && kindle < telegram && telegram < star).toBe(true);
@@ -91,22 +91,54 @@ describe('which send buttons the card shows', () => {
 });
 
 describe('the Telegram button', () => {
-    it('is locked, and says why on hover, on focus and on a tap', async () => {
-        const user = userEvent.setup();
-        renderCard({ showTelegramButton: true });
+    it('looks muted and still answers when the bot is not connected', async () => {
+        const onSendToTelegram = vi.fn();
+        renderCard({ showTelegramButton: true, telegramConnected: false, onSendToTelegram });
         const button = telegramButton()!;
 
-        expect(button).toHaveAttribute('aria-disabled', 'true');
-        // Locked but not disabled: a disabled button could never show its hint.
+        expect(button).toHaveAccessibleName('sendToTelegram.setup');
+        expect(button.className).toMatch(/text-muted-foreground/);
         expect(button).not.toBeDisabled();
 
-        await user.tab();
+        await userEvent.click(button);
+        expect(onSendToTelegram).toHaveBeenCalledWith(book);
+    });
+
+    it('asks to send the book when the bot is connected', async () => {
+        const onSendToTelegram = vi.fn();
+        renderCard({ showTelegramButton: true, telegramConnected: true, onSendToTelegram });
+        const button = telegramButton()!;
+
+        expect(button).toHaveAccessibleName('sendToTelegram.send');
+        expect(button.className).not.toMatch(/text-muted-foreground/);
+        await userEvent.click(button);
+        expect(onSendToTelegram).toHaveBeenCalledWith(book);
+    });
+
+    it('says what it does on a Tab onto it and on a hover', async () => {
+        const user = userEvent.setup();
+        renderCard({ showTelegramButton: true, telegramConnected: true });
+        const button = telegramButton()!;
+
         while (document.activeElement !== button) await user.tab();
-        expect(await screen.findByRole('tooltip')).toHaveTextContent('sendToTelegram.soon');
+        expect(await screen.findByRole('tooltip')).toHaveTextContent('sendToTelegram.send');
 
         await user.click(document.body);
-        await user.click(button);
-        expect(await screen.findByRole('tooltip')).toHaveTextContent('sendToTelegram.soon');
+        await user.hover(button);
+        expect(await screen.findByRole('tooltip')).toHaveTextContent('sendToTelegram.send');
+    });
+
+    it('shows that the book is on its way', () => {
+        renderCard({
+            showTelegramButton: true,
+            telegramConnected: true,
+            isSendingToTelegram: true,
+        });
+        const button = telegramButton()!;
+
+        expect(button).toHaveAccessibleName('sendToTelegram.sending');
+        expect(button).toHaveAttribute('aria-busy', 'true');
+        expect(button.querySelector('svg')?.getAttribute('class')).toMatch(/animate-spin/);
     });
 });
 

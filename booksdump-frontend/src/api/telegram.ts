@@ -10,6 +10,8 @@ export interface BotStatus {
     /** The connected bot and the Telegram account it is bound to. */
     bot_username?: string;
     telegram_name?: string;
+    /** The format books are sent in from the site, while connected. */
+    default_format?: string;
     /** A bot entered and not yet confirmed from Telegram. */
     pending_bot_username?: string;
     /** The one-time link, only in the answer of the call that made it. */

@@ -326,16 +326,14 @@ describe('the reader’s switches', () => {
         await renderList();
 
         expect(screen.queryByRole('button', { name: /sendToKindle/ })).not.toBeInTheDocument();
-        expect(
-            screen.queryByRole('button', { name: 'sendToTelegram.soon' }),
-        ).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /sendToTelegram/ })).not.toBeInTheDocument();
     });
 
     it('show both when the profile says nothing about them', async () => {
         await renderList();
 
         expect(screen.getByRole('button', { name: 'sendToKindle.setup' })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'sendToTelegram.soon' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'sendToTelegram.setup' })).toBeInTheDocument();
     });
 });
 

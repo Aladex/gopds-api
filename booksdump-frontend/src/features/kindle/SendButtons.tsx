@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
 
@@ -11,10 +11,10 @@ import { cn } from '@/shared/lib/utils';
 /*
  * The two "send it somewhere" buttons of the book card. Kindle is labelled like
  * Read beside it — an icon alone was not recognised until pressed — and
- * Telegram, which only promises, stays an icon. Their hints are radix tooltips
- * rather than a title attribute: a title never shows on keyboard focus or on a
- * touch screen, and for the Telegram button the hint is the whole of what it
- * has to say.
+ * Telegram stays an icon, the narrow card having room for one label only.
+ * Their hints are radix tooltips rather than a title attribute: a title never
+ * shows on keyboard focus or on a touch screen, and for the Telegram button
+ * the hint is the only word it has.
  */
 
 type KindleButtonProps = {
@@ -66,40 +66,45 @@ export const KindleButton: React.FC<KindleButtonProps> = ({ configured, sending,
     );
 };
 
+type TelegramButtonProps = {
+    /** Whether the reader's bot is connected and may write to them. */
+    connected: boolean;
+    sending: boolean;
+    onClick: () => void;
+};
+
 /**
- * TelegramButton is a promise: sending to Telegram comes in a later version,
- * and the button is there so the reader knows where it will be.
- *
- * aria-disabled rather than disabled. A disabled button takes no focus and
- * swallows the pointer, so the hint that explains it could never be shown;
- * this one stays reachable and does nothing but show it — on hover, on focus,
- * and on a tap, which a tooltip does not otherwise answer.
+ * TelegramButton asks to send the book into the reader's Telegram chat, or —
+ * muted, for a reader without a working connection — opens the profile's
+ * Telegram tab, as Kindle's opens its setup. It stays an icon; its hint names
+ * what it does, and behaves as Kindle's: hover and keyboard focus, never the
+ * focus a closing question gives back.
  */
-export const TelegramButton: React.FC = () => {
+export const TelegramButton: React.FC<TelegramButtonProps> = ({ connected, sending, onClick }) => {
     const { t } = useTranslation();
-    const [open, setOpen] = useState(false);
+    const label = connected ? t('sendToTelegram.send') : t('sendToTelegram.setup');
 
     return (
         <TooltipProvider>
-            <Tooltip open={open} onOpenChange={setOpen}>
+            <Tooltip>
                 <TooltipTrigger asChild>
                     <Button
                         variant="ghost"
                         size="icon"
-                        aria-disabled="true"
-                        aria-label={t('sendToTelegram.soon')}
-                        onClick={(event) => {
-                            // Default prevented, the trigger skips its own
-                            // close-on-click: a tap opens the hint instead.
-                            event.preventDefault();
-                            setOpen(true);
-                        }}
-                        className="cursor-not-allowed opacity-40 hover:bg-transparent hover:text-current dark:hover:bg-transparent"
+                        aria-label={sending ? t('sendToTelegram.sending') : label}
+                        aria-busy={sending || undefined}
+                        data-connected={connected}
+                        onClick={onClick}
+                        className={cn(!connected && 'text-muted-foreground')}
                     >
-                        <TelegramIcon className="size-4" />
+                        {sending ? (
+                            <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+                        ) : (
+                            <TelegramIcon className="size-4" />
+                        )}
                     </Button>
                 </TooltipTrigger>
-                <TooltipContent>{t('sendToTelegram.soon')}</TooltipContent>
+                <TooltipContent>{sending ? t('sendToTelegram.sending') : label}</TooltipContent>
             </Tooltip>
         </TooltipProvider>
     );

@@ -152,6 +152,11 @@ export interface BookCardProps {
     isSendingToKindle?: boolean;
     /** Asks to send the book, or opens the setup when there is no Kindle yet. */
     onSendToKindle?: (book: Book) => void;
+    /** Whether the reader's Telegram bot is connected and may write to them. */
+    telegramConnected?: boolean;
+    isSendingToTelegram?: boolean;
+    /** Asks to send the book, or opens the Telegram tab when it cannot be sent. */
+    onSendToTelegram?: (book: Book) => void;
 }
 
 /** coverPath mirrors the sanitising the poster route expects. */
@@ -177,6 +182,9 @@ const BookCard: React.FC<BookCardProps> = ({
     kindleConfigured = false,
     isSendingToKindle = false,
     onSendToKindle,
+    telegramConnected = false,
+    isSendingToTelegram = false,
+    onSendToTelegram,
 }) => {
     const { t } = useTranslation();
     const { setSearchItem } = useSearchBar();
@@ -479,7 +487,13 @@ const BookCard: React.FC<BookCardProps> = ({
                             onClick={() => onSendToKindle?.(book)}
                         />
                     )}
-                    {showTelegramButton && <TelegramButton />}
+                    {showTelegramButton && (
+                        <TelegramButton
+                            connected={telegramConnected}
+                            sending={isSendingToTelegram}
+                            onClick={() => onSendToTelegram?.(book)}
+                        />
+                    )}
                     <Button
                         variant="ghost"
                         size="icon"

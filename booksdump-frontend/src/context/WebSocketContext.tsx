@@ -24,16 +24,32 @@ export interface WSMessage {
 export type WSMessageHandler = (message: WSMessage) => void;
 
 /**
- * KindleReply is how a send to the reader's Kindle went. "sent" means the mail
- * relay took the message, which is as far as anyone can see: Amazon says
- * nothing back. An error carries the server's code, or one of two of this
- * side's own — `unavailable` when there was no connection to ask over, and
+ * SendReply is how a send to the reader's Kindle or Telegram went. For Kindle
+ * "sent" means the mail relay took the message, which is as far as anyone can
+ * see: Amazon says nothing back; for Telegram it means the file is in the
+ * chat. An error carries the server's code, or one of two of this side's own
+ * — `unavailable` when there was no connection to ask over, and
  * `connection_lost` when it went away before the answer came.
  */
-export interface KindleReply {
+export interface SendReply {
     status: 'sent' | 'error';
     code?: string;
 }
+
+/** KindleReply and TelegramReply are SendReply, named for their channel. */
+export type KindleReply = SendReply;
+export type TelegramReply = SendReply;
+
+/** The places a book is sent to over the socket; each is also its frame type. */
+type SendChannel = 'kindle' | 'telegram';
+
+/** sendKey names one channel's request for one book. */
+const sendKey = (channel: SendChannel, bookID: number) => `${channel}:${bookID}`;
+
+const parseSendKey = (key: string): { channel: SendChannel; bookID: number } => {
+    const [channel, id] = key.split(':');
+    return { channel: channel as SendChannel, bookID: Number(id) };
+};
 
 interface WebSocketContextType {
     isConnected: boolean;
@@ -43,6 +59,9 @@ interface WebSocketContextType {
     // sendToKindle asks the server to mail the book to the reader's Kindle
     // and resolves with its answer. It never rejects.
     sendToKindle: (bookID: number) => Promise<KindleReply>;
+    // sendToTelegram asks the server to send the book into the reader's
+    // Telegram chat and resolves with its answer. It never rejects.
+    sendToTelegram: (bookID: number) => Promise<TelegramReply>;
 }
 
 const WebSocketContext = createContext<WebSocketContextType | undefined>(undefined);
@@ -82,9 +101,10 @@ const isConversionReplyFrame = (message: WSMessage): boolean => {
 /** How a renewal of an expired socket session ended. */
 type RenewalOutcome = 'renewed' | 'revoked' | 'unavailable';
 
-// isKindleReplyFrame recognizes the answer to a sendToKindle request.
-const isKindleReplyFrame = (message: WSMessage): boolean =>
-    message.type === 'kindle' &&
+// isSendReplyFrame recognizes the answer to a sendToKindle or sendToTelegram
+// request.
+const isSendReplyFrame = (message: WSMessage): boolean =>
+    (message.type === 'kindle' || message.type === 'telegram') &&
     typeof message.bookID === 'number' &&
     (message.status === 'sent' || message.status === 'error');
 
@@ -110,58 +130,57 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
     const openRef = useRef(false);
     const handlersRef = useRef(new Map<string, Set<WSMessageHandler>>());
     const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    // Kindle requests waiting for their reply, by book. More than one may wait
-    // on the same book; one reply answers them all.
-    const kindleWaitersRef = useRef(new Map<number, Array<(reply: KindleReply) => void>>());
+    // Send requests waiting for their reply, by channel and book. More than
+    // one may wait on the same book; one reply answers them all.
+    const sendWaitersRef = useRef(new Map<string, Array<(reply: SendReply) => void>>());
     const { state, dispatch } = useBookConversion();
 
     // A socket keeps the access token it was opened with, and that token lives
-    // fifteen minutes; the server then answers a Kindle request with
-    // session_expired and closes the socket. Such a request is not given up:
-    // the session is renewed through the ordinary HTTP refresh, and the book
-    // asked for once more on the next socket. kindleRetryRef holds those books
-    // — false while the renewal runs, true once it succeeded — and
-    // kindleRetriedRef the ones already asked a second time, which are not
+    // fifteen minutes; the server then answers a Kindle or Telegram request
+    // with session_expired and closes the socket. Such a request is not given
+    // up: the session is renewed through the ordinary HTTP refresh, and the
+    // book asked for once more on the next socket. sendRetryRef holds those
+    // requests — false while the renewal runs, true once it succeeded — and
+    // sendRetriedRef the ones already asked a second time, which are not
     // retried again. expiredSocketRef is the socket that said so, never used
     // for the retry even if its close has not arrived yet.
-    const kindleRetryRef = useRef(new Map<number, boolean>());
-    const kindleRetriedRef = useRef(new Set<number>());
+    const sendRetryRef = useRef(new Map<string, boolean>());
+    const sendRetriedRef = useRef(new Set<string>());
     const expiredSocketRef = useRef<WebSocket | null>(null);
 
-    // settleKindle answers the waiters on one book, or on every book with
+    // settleSend answers the waiters on one request, or on every request with
     // null — leaving out, unless everything is going away, the ones waiting
     // on a renewal, whose socket closing is part of the plan.
-    const settleKindle = useCallback(
-        (bookID: number | null, reply: KindleReply, everything = false) => {
-            const waiters = kindleWaitersRef.current;
-            const books =
-                bookID === null
-                    ? Array.from(waiters.keys()).filter(
-                          (id) => everything || !kindleRetryRef.current.has(id),
-                      )
-                    : [bookID];
-            for (const id of books) {
-                kindleRetryRef.current.delete(id);
-                kindleRetriedRef.current.delete(id);
-                waiters.get(id)?.forEach((resolve) => resolve(reply));
-                waiters.delete(id);
-            }
-        },
-        [],
-    );
+    const settleSend = useCallback((key: string | null, reply: SendReply, everything = false) => {
+        const waiters = sendWaitersRef.current;
+        const keys =
+            key === null
+                ? Array.from(waiters.keys()).filter(
+                      (k) => everything || !sendRetryRef.current.has(k),
+                  )
+                : [key];
+        for (const k of keys) {
+            sendRetryRef.current.delete(k);
+            sendRetriedRef.current.delete(k);
+            waiters.get(k)?.forEach((resolve) => resolve(reply));
+            waiters.delete(k);
+        }
+    }, []);
 
-    // resendKindle asks again for every book whose session was renewed, if a
-    // socket other than the expired one is open; otherwise the next open does.
-    const resendKindle = useCallback(() => {
+    // resendRenewed asks again for every request whose session was renewed,
+    // if a socket other than the expired one is open; otherwise the next open
+    // does.
+    const resendRenewed = useCallback(() => {
         const ws = wsRef.current;
         if (!ws || !openRef.current || ws === expiredSocketRef.current) {
             return;
         }
-        for (const [bookID, renewed] of kindleRetryRef.current) {
+        for (const [key, renewed] of sendRetryRef.current) {
             if (renewed) {
-                kindleRetryRef.current.delete(bookID);
-                kindleRetriedRef.current.add(bookID);
-                ws.send(JSON.stringify({ type: 'kindle', bookID }));
+                sendRetryRef.current.delete(key);
+                sendRetriedRef.current.add(key);
+                const { channel, bookID } = parseSendKey(key);
+                ws.send(JSON.stringify({ type: channel, bookID }));
             }
         }
     }, []);
@@ -173,18 +192,18 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
     // was revoked and logs out a session the winner had just renewed.
     const renewalRef = useRef<Promise<RenewalOutcome> | null>(null);
 
-    // renewAndRetry renews the session for a book whose send met an expired
-    // socket, joining the renewal already running if there is one, and asks
-    // for the book again once it succeeds. getCurrentUser goes through the
+    // renewAndRetry renews the session for a request whose send met an
+    // expired socket, joining the renewal already running if there is one,
+    // and asks for the book again once it succeeds. getCurrentUser goes through the
     // transport's refresh-and-replay. Only a 401 out of it is a verdict — the
     // transport has then already run the app's confirmed-logout path — and
     // the book is answered session_expired. Anything else (a 503, no network)
     // proves nothing about the session: it is kept, and the book answered
     // unavailable, to be sent again by hand.
     const renewAndRetry = useCallback(
-        (bookID: number, ws: WebSocket) => {
+        (key: string, ws: WebSocket) => {
             expiredSocketRef.current = ws;
-            kindleRetryRef.current.set(bookID, false);
+            sendRetryRef.current.set(key, false);
             let renewal = renewalRef.current;
             if (!renewal) {
                 const started: Promise<RenewalOutcome> = getCurrentUser().then(
@@ -201,21 +220,21 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
                 });
             }
             void renewal.then((outcome) => {
-                if (!kindleRetryRef.current.has(bookID)) {
+                if (!sendRetryRef.current.has(key)) {
                     return;
                 }
                 if (outcome === 'renewed') {
-                    kindleRetryRef.current.set(bookID, true);
-                    resendKindle();
+                    sendRetryRef.current.set(key, true);
+                    resendRenewed();
                     return;
                 }
-                settleKindle(bookID, {
+                settleSend(key, {
                     status: 'error',
                     code: outcome === 'revoked' ? 'session_expired' : 'unavailable',
                 });
             });
         },
-        [resendKindle, settleKindle],
+        [resendRenewed, settleSend],
     );
 
     const sendFrame = useCallback((frame: Record<string, unknown>) => {
@@ -312,7 +331,7 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
                 }
                 // And ask again for the books whose session was renewed while
                 // the socket was down.
-                resendKindle();
+                resendRenewed();
                 if (everOpened) {
                     // This open recovers from a dropped live connection, and
                     // events since the drop are lost: let views catch up.
@@ -339,18 +358,18 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
                     handleConversionReply(parsed);
                     return;
                 }
-                if (isKindleReplyFrame(parsed)) {
-                    const bookID = parsed.bookID as number;
+                if (isSendReplyFrame(parsed)) {
+                    const key = sendKey(parsed.type as SendChannel, parsed.bookID as number);
                     if (
                         parsed.code === 'session_expired' &&
-                        kindleWaitersRef.current.has(bookID) &&
-                        !kindleRetriedRef.current.has(bookID)
+                        sendWaitersRef.current.has(key) &&
+                        !sendRetriedRef.current.has(key)
                     ) {
-                        renewAndRetry(bookID, ws);
+                        renewAndRetry(key, ws);
                         return;
                     }
-                    settleKindle(bookID, {
-                        status: parsed.status as KindleReply['status'],
+                    settleSend(key, {
+                        status: parsed.status as SendReply['status'],
                         code: typeof parsed.code === 'string' ? parsed.code : undefined,
                     });
                     return;
@@ -370,7 +389,7 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
                 // A reply cannot arrive on a connection that is gone. The
                 // server may still have sent the book; the reader is told the
                 // answer was lost, not that it failed.
-                settleKindle(null, { status: 'error', code: 'connection_lost' });
+                settleSend(null, { status: 'error', code: 'connection_lost' });
                 if (wsRef.current === ws) {
                     wsRef.current = null;
                 }
@@ -415,16 +434,16 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
             }
             wsRef.current = null;
             openRef.current = false;
-            settleKindle(null, { status: 'error', code: 'connection_lost' }, true);
+            settleSend(null, { status: 'error', code: 'connection_lost' }, true);
             setIsConnected(false);
         };
     }, [
         isAuthenticated,
         handleConversionReply,
         onReconnect,
-        settleKindle,
+        settleSend,
         renewAndRetry,
-        resendKindle,
+        resendRenewed,
     ]);
 
     // Conversion requests ride the same socket, one per newly added book.
@@ -466,9 +485,9 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
         [sendFrame],
     );
 
-    const sendToKindle = useCallback(
-        (bookID: number) =>
-            new Promise<KindleReply>((resolve) => {
+    const sendTo = useCallback(
+        (channel: SendChannel, bookID: number) =>
+            new Promise<SendReply>((resolve) => {
                 if (!wsRef.current || !openRef.current) {
                     resolve({ status: 'error', code: 'unavailable' });
                     return;
@@ -478,21 +497,24 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
                 // the server reply in_progress, and that reply — answering
                 // every waiter on the book — settled the first request too,
                 // before its real outcome came.
-                const waiters = kindleWaitersRef.current;
-                const pending = waiters.get(bookID);
+                const key = sendKey(channel, bookID);
+                const waiters = sendWaitersRef.current;
+                const pending = waiters.get(key);
                 if (pending) {
                     pending.push(resolve);
                     return;
                 }
-                waiters.set(bookID, [resolve]);
-                sendFrame({ type: 'kindle', bookID });
+                waiters.set(key, [resolve]);
+                sendFrame({ type: channel, bookID });
             }),
         [sendFrame],
     );
+    const sendToKindle = useCallback((bookID: number) => sendTo('kindle', bookID), [sendTo]);
+    const sendToTelegram = useCallback((bookID: number) => sendTo('telegram', bookID), [sendTo]);
 
     const value = useMemo(
-        () => ({ isConnected, subscribe, sendToKindle }),
-        [isConnected, subscribe, sendToKindle],
+        () => ({ isConnected, subscribe, sendToKindle, sendToTelegram }),
+        [isConnected, subscribe, sendToKindle, sendToTelegram],
     );
 
     return <WebSocketContext.Provider value={value}>{children}</WebSocketContext.Provider>;

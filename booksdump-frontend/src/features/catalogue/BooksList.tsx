@@ -34,6 +34,8 @@ import BookCard from '@/features/catalogue/BookCard';
 import KindleSetupDialog from '@/features/kindle/KindleSetupDialog';
 import KindleSendConfirm from '@/features/kindle/KindleSendConfirm';
 import { useSendToKindle } from '@/features/kindle/useSendToKindle';
+import TelegramSendConfirm from '@/features/send/TelegramSendConfirm';
+import { useSendToTelegram } from '@/features/send/useSendToTelegram';
 import { useProfileOpener } from '@/features/profile/ProfileOpenerContext';
 import { ALL_LANGUAGES } from '@/shared/lib/languageUtils';
 
@@ -133,8 +135,10 @@ const BooksList: React.FC = () => {
     const notify = (message: string) => toast(message, { duration: 2000 });
 
     // One Kindle sender, one question before sending and one setup dialog for
-    // the whole page, not one per card.
+    // the whole page, not one per card; and the same for Telegram.
     const kindle = useSendToKindle();
+    const showTelegram = user?.show_telegram_button !== false;
+    const telegram = useSendToTelegram(showTelegram);
     const { openProfile } = useProfileOpener();
 
     const handleFavBook = useFavouriteToggle(dispatch, notify);
@@ -227,10 +231,13 @@ const BooksList: React.FC = () => {
                                 onRescan={handleRescanBook}
                                 onEdit={handleEditBook}
                                 showKindleButton={user?.show_kindle_button !== false}
-                                showTelegramButton={user?.show_telegram_button !== false}
+                                showTelegramButton={showTelegram}
                                 kindleConfigured={kindle.configured}
                                 isSendingToKindle={kindle.isSending(book.id)}
                                 onSendToKindle={kindle.request}
+                                telegramConnected={telegram.connected}
+                                isSendingToTelegram={telegram.isSending(book.id)}
+                                onSendToTelegram={telegram.request}
                             />
                         </div>
                     ))}
@@ -250,6 +257,15 @@ const BooksList: React.FC = () => {
                 address={kindle.address}
                 onConfirm={kindle.confirm}
                 onCancel={kindle.cancel}
+            />
+
+            <TelegramSendConfirm
+                open={telegram.confirmOpen}
+                book={telegram.pending}
+                botUsername={telegram.botUsername}
+                format={telegram.format}
+                onConfirm={telegram.confirm}
+                onCancel={telegram.cancel}
             />
 
             <KindleSetupDialog
