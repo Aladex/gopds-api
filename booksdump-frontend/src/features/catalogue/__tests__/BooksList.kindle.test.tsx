@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { toast } from 'sonner';
@@ -336,5 +336,77 @@ describe('the reader’s switches', () => {
 
         expect(screen.getByRole('button', { name: 'sendToKindle.setup' })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'sendToTelegram.soon' })).toBeInTheDocument();
+    });
+});
+
+// Closing the question gives the focus back to the card's Kindle button. That
+// focus is the script's: the button's hint must not open on it and stay over
+// the card — it opens for a Tab and for a hover only.
+describe('the Kindle hint after the question closes', () => {
+    beforeEach(() => {
+        authState.user.kindle_email = 'reader@kindle.com';
+        sendToKindle.mockResolvedValue({ status: 'sent' });
+    });
+
+    const ask = async () => {
+        await renderList();
+        const button = screen.getByRole('button', { name: 'sendToKindle.send' });
+        await userEvent.click(button);
+        return { button, question: await screen.findByRole('dialog') };
+    };
+    const closedWithFocusBack = async (button: HTMLElement) => {
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+        await waitFor(() => expect(button).toHaveFocus());
+        // Give a late open every chance to land.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    };
+
+    it('stays shut after Cancel', async () => {
+        const { button, question } = await ask();
+        await userEvent.click(within(question).getByRole('button', { name: 'cancel' }));
+        await closedWithFocusBack(button);
+    });
+
+    it('stays shut after Escape', async () => {
+        const { button } = await ask();
+        await userEvent.keyboard('{Escape}');
+        await closedWithFocusBack(button);
+    });
+
+    it('stays shut after a press outside the question', async () => {
+        const { button } = await ask();
+        const overlay = document.querySelector('[data-slot="dialog-overlay"]')!;
+        fireEvent.pointerDown(overlay);
+        fireEvent.pointerUp(overlay);
+        fireEvent.click(overlay);
+        await closedWithFocusBack(button);
+    });
+
+    it('stays shut after Send, by click and by Enter', async () => {
+        const first = await ask();
+        await userEvent.click(
+            within(first.question).getByRole('button', { name: 'sendToKindle.confirm' }),
+        );
+        await closedWithFocusBack(first.button);
+        await waitFor(() => expect(toast.success).toHaveBeenCalled());
+
+        await userEvent.click(first.button);
+        await screen.findByRole('dialog');
+        await userEvent.keyboard('{Enter}');
+        await closedWithFocusBack(first.button);
+    });
+
+    it('opens for a Tab onto the button and for a hover', async () => {
+        await renderList();
+        const button = screen.getByRole('button', { name: 'sendToKindle.send' });
+
+        while (document.activeElement !== button) await userEvent.tab();
+        expect(await screen.findByRole('tooltip')).toHaveTextContent('sendToKindle.send');
+
+        await userEvent.click(document.body);
+        await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeInTheDocument());
+        await userEvent.hover(button);
+        expect(await screen.findByRole('tooltip')).toHaveTextContent('sendToKindle.send');
     });
 });

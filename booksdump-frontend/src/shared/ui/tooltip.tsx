@@ -22,16 +22,97 @@ function TooltipProvider({
   )
 }
 
+/*
+ * A tooltip opens on hover and on keyboard focus — and on no other focus.
+ *
+ * Radix opens it on every focus that does not follow a press on the trigger.
+ * A dialog that closes gives the focus back to the button that opened it,
+ * and that focus is the script's, not the reader's: the hint opened on it and
+ * stayed over the card after the dialog had gone, until something else was
+ * pressed. So a focus opens the hint only when a Tab put it there. The focus
+ * itself still goes back to the trigger.
+ */
+let focusByTab = false
+if (typeof document !== "undefined") {
+  document.addEventListener(
+    "keydown",
+    (event) => {
+      focusByTab = event.key === "Tab"
+    },
+    true,
+  )
+  document.addEventListener(
+    "pointerdown",
+    () => {
+      focusByTab = false
+    },
+    true,
+  )
+}
+
+type TooltipFocusContextValue = { holdFocusOpen: () => void }
+
+const TooltipFocusContext =
+  React.createContext<TooltipFocusContextValue | null>(null)
+
 function Tooltip({
+  open: openProp,
+  defaultOpen = false,
+  onOpenChange,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Root>) {
-  return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(defaultOpen)
+  const open = openProp ?? uncontrolledOpen
+  // Set by the trigger for the length of one focus event: Radix asks to open
+  // from inside it, synchronously.
+  const focusHeld = React.useRef(false)
+  const setOpen = React.useCallback(
+    (next: boolean) => {
+      if (next && focusHeld.current) return
+      if (openProp === undefined) setUncontrolledOpen(next)
+      onOpenChange?.(next)
+    },
+    [openProp, onOpenChange],
+  )
+  const context = React.useMemo(
+    () => ({
+      holdFocusOpen: () => {
+        focusHeld.current = true
+        queueMicrotask(() => {
+          focusHeld.current = false
+        })
+      },
+    }),
+    [],
+  )
+  return (
+    <TooltipFocusContext.Provider value={context}>
+      <TooltipPrimitive.Root
+        data-slot="tooltip"
+        open={open}
+        onOpenChange={setOpen}
+        {...props}
+      />
+    </TooltipFocusContext.Provider>
+  )
 }
 
 function TooltipTrigger({
+  onFocus,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
+  const tooltip = React.useContext(TooltipFocusContext)
+  return (
+    <TooltipPrimitive.Trigger
+      data-slot="tooltip-trigger"
+      onFocus={(event) => {
+        onFocus?.(event)
+        // Runs before Radix's own focus handler, which opens the hint.
+        if (!focusByTab) tooltip?.holdFocusOpen()
+      }}
+      {...props}
+    />
+  )
 }
 
 function TooltipContent({
