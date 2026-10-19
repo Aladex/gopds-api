@@ -1,6 +1,8 @@
 package tgapi
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -162,18 +164,51 @@ func untypedAnswerCode(msg string) (int, bool) {
 }
 
 // neverLeft reports whether a transport error happened before any byte of
-// the request could reach Telegram: the connection was never opened. A
-// canceled or expired context is not such a case — it cannot be told apart
-// from one that ended while the body was in flight, so it stays unknown.
+// the request could reach Telegram: the connection was never opened, or the
+// TLS handshake failed — a certificate that does not verify, or a peer whose
+// very first record was not TLS. Clients never follow redirects (see
+// Endpoint.Client), so this is the only hop. A canceled or expired context is
+// not such a case — it cannot be told apart from one that ended while the
+// body was in flight, so it stays unknown; nor is a malformed record later in
+// the connection.
 func neverLeft(err error) bool {
 	var urlErr *url.Error
 	if !errors.As(err, &urlErr) {
 		return false
 	}
+	inner := urlErr.Err
 	var opErr *net.OpError
-	if errors.As(urlErr.Err, &opErr) && opErr.Op == "dial" {
+	if errors.As(inner, &opErr) && opErr.Op == "dial" {
 		return true
 	}
 	var dnsErr *net.DNSError
-	return errors.As(urlErr.Err, &dnsErr)
+	if errors.As(inner, &dnsErr) {
+		return true
+	}
+	return failedHandshake(inner)
 }
+
+// failedHandshake reports the TLS failures that can only happen before the
+// request is written.
+func failedHandshake(err error) bool {
+	var verify *tls.CertificateVerificationError
+	var unknownAuthority x509.UnknownAuthorityError
+	var hostname x509.HostnameError
+	var invalid x509.CertificateInvalidError
+	if errors.As(err, &verify) || errors.As(err, &unknownAuthority) ||
+		errors.As(err, &hostname) || errors.As(err, &invalid) {
+		return true
+	}
+	// Only "first record does not look like a TLS handshake" carries the
+	// connection; the other record-header errors can arrive mid-stream.
+	var header tls.RecordHeaderError
+	if errors.As(err, &header) && header.Conn != nil {
+		return true
+	}
+	// net/http turns that first-record error into an untyped one when the
+	// peer answered in plain HTTP.
+	return strings.Contains(err.Error(), httpToHTTPS)
+}
+
+// httpToHTTPS is net/http's message for a plain-HTTP answer to a TLS hello.
+const httpToHTTPS = "server gave HTTP response to HTTPS client"

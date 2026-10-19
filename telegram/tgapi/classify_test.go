@@ -2,10 +2,14 @@ package tgapi_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -165,4 +169,101 @@ func TestEndpointDefaults(t *testing.T) {
 
 	ep.ServerURL = "http://127.0.0.1:8081/"
 	assert.Equal(t, "http://127.0.0.1:8081/bot1:x/getMe", ep.MethodURL("1:x", "getMe"))
+}
+
+// A certificate that does not verify fails the handshake: no request was
+// written, so the call was not sent.
+func TestClassifyAFailedCertificateAsNotSent(t *testing.T) {
+	var served atomic.Int32
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { served.Add(1) }))
+	t.Cleanup(srv.Close)
+
+	// The default client does not trust the test server's certificate.
+	err := call(t, tgapi.Endpoint{ServerURL: srv.URL}, "sendMessage")
+	require.Error(t, err)
+	class, _ := tgapi.Classify(err)
+	assert.Equal(t, tgapi.ClassNotSent, class, "error: %v", err)
+	assert.Zero(t, served.Load())
+}
+
+// A peer that does not speak TLS at all answers the first record with
+// something else: the handshake never happened, nothing was sent.
+func TestClassifyANonTLSPeerAsNotSent(t *testing.T) {
+	var served atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { served.Add(1) }))
+	t.Cleanup(srv.Close)
+
+	err := call(t, tgapi.Endpoint{ServerURL: strings.Replace(srv.URL, "http://", "https://", 1)}, "sendMessage")
+	require.Error(t, err)
+	class, _ := tgapi.Classify(err)
+	assert.Equal(t, tgapi.ClassNotSent, class, "error: %v", err)
+	assert.Zero(t, served.Load())
+}
+
+// A server that accepts a POST and redirects it is answered as it is: the
+// client does not follow, so a failure on a second hop can never pass for
+// "not sent" after the first hop took the request.
+func TestRedirectsAreNotFollowed(t *testing.T) {
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closed.Close()
+	var accepted atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		accepted.Add(1)
+		http.Redirect(w, r, closed.URL+r.URL.Path, http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(srv.Close)
+
+	err := call(t, tgapi.Endpoint{ServerURL: srv.URL}, "sendMessage")
+	require.Error(t, err)
+	class, _ := tgapi.Classify(err)
+	assert.Equal(t, tgapi.ClassUnknown, class, "the first hop took the request; error: %v", err)
+	assert.Equal(t, int32(1), accepted.Load())
+
+	// The endpoint's own client is not changed by this.
+	own := &http.Client{}
+	_ = tgapi.Endpoint{HTTPClient: own}.Client()
+	assert.Nil(t, own.CheckRedirect)
+}
+
+// RedactURL is safe on an error someone already wrapped: the wrapper's text
+// was fixed when it was made, and still loses the token.
+func TestRedactURLCleansAWrappedError(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	srv.Close()
+	direct := httpGet(srv.URL + "/bot" + testToken + "/getMe")
+	require.Error(t, direct)
+	wrapped := fmt.Errorf("health check: %w", direct)
+	require.Contains(t, wrapped.Error(), "secret-part", "the probe must start with a leaking text")
+
+	redacted := tgapi.RedactURL(wrapped)
+	assert.NotContains(t, redacted.Error(), "secret-part")
+	assert.Contains(t, redacted.Error(), "health check: ")
+	var urlErr *url.Error
+	require.True(t, errors.As(redacted, &urlErr), "the chain is kept")
+	class, _ := tgapi.Classify(redacted)
+	assert.Equal(t, tgapi.ClassNotSent, class)
+	assert.Nil(t, tgapi.RedactURL(nil))
+}
+
+// A peer that answers the TLS hello with bytes that are not a TLS record at
+// all: the first record fails, typed, before any request.
+func TestClassifyAGarbagePeerAsNotSent(t *testing.T) {
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			conn, acceptErr := ln.Accept()
+			if acceptErr != nil {
+				return
+			}
+			_, _ = conn.Write([]byte("garbage, not a TLS record\r\n"))
+			_ = conn.Close()
+		}
+	}()
+
+	err = call(t, tgapi.Endpoint{ServerURL: "https://" + ln.Addr().String()}, "sendMessage")
+	require.Error(t, err)
+	class, _ := tgapi.Classify(err)
+	assert.Equal(t, tgapi.ClassNotSent, class, "error: %v", err)
 }

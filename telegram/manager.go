@@ -483,12 +483,14 @@ func (bm *BotManager) runHealthCheck() {
 }
 
 // rawClient is the client of the health check's direct calls: the endpoint's
-// own when it names one, otherwise a short-lived default.
+// own when it names one, otherwise a short-lived default; like every client
+// of the endpoint, it does not follow redirects.
 func (bm *BotManager) rawClient() *http.Client {
-	if bm.config.API.HTTPClient != nil {
-		return bm.config.API.HTTPClient
+	client := bm.config.API.Client()
+	if bm.config.API.HTTPClient == nil {
+		client.Timeout = rawCallTimeout
 	}
-	return &http.Client{Timeout: rawCallTimeout}
+	return client
 }
 
 // rawCallTimeout bounds one direct health-check call.
