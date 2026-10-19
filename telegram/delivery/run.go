@@ -181,11 +181,11 @@ func (s *Service) startSend(ctx context.Context, job *models.TelegramDelivery, h
 func (s *Service) waitOut(
 	ctx context.Context, job *models.TelegramDelivery, h *hold, n *notifier, wait time.Duration, waited *bool,
 ) bool {
-	if wait > longWaitNotice {
-		n.waiting(ctx)
-	}
 	if !h.requeue(ctx, wait) {
 		return false
+	}
+	if wait > longWaitNotice { // after the requeue: no Telegram call widens the window before it
+		n.waiting(ctx)
 	}
 	if wait > s.cfg.ShortWait || *waited {
 		return false
