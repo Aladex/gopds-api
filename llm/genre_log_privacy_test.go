@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -18,6 +19,19 @@ import (
 // lengths, and how many taken names were excluded — never the tag, the model's
 // title, the excluded names, the sample books or the API key: all of that is
 // prompt, response or credential content.
+
+// loggedText is everything the hook caught: messages and fields.
+func loggedText(hook *logrustest.Hook) string {
+	var b strings.Builder
+	for _, entry := range hook.AllEntries() {
+		b.WriteString(entry.Message)
+		b.WriteByte('\n')
+		for key, value := range entry.Data {
+			fmt.Fprintf(&b, "%s=%v\n", key, value)
+		}
+	}
+	return b.String()
+}
 
 func TestGenreTitleLogsCarryNoContent(t *testing.T) {
 	hook := logrustest.NewLocal(logging.GetLogger())
