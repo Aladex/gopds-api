@@ -20,7 +20,7 @@ import { cn } from '@/shared/lib/utils';
 import { useProfileForm } from '@/features/profile/useProfileForm';
 import { OpdsConnection } from '@/features/opds/OpdsInfo';
 import InterfaceLanguageToggle from '@/shared/layout/InterfaceLanguageToggle';
-import KindleSettings from '@/features/kindle/KindleSettings';
+import KindleSettings, { CardButtonSettings } from '@/features/kindle/KindleSettings';
 import type { ProfileSection } from '@/features/profile/ProfileOpenerContext';
 
 type ProfileContentProps = {
@@ -257,6 +257,13 @@ const ProfileContent: React.FC<ProfileContentProps> = ({
                         {/* It applies on click, like the books language does; the Save
                             at the foot is for the fields above it. */}
                         <InterfaceLanguageToggle />
+                    </Group>
+
+                    <Group title={t('profileSection.cardButtons')}>
+                        {/* Each switch applies as it flips, like the language
+                            above. They were under Connections → Kindle, and
+                            the Telegram one had no business there. */}
+                        <CardButtonSettings />
                     </Group>
                 </FadingTabPanel>
 

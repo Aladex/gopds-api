@@ -80,12 +80,11 @@ const SenderAddress: React.FC<{ address: string }> = ({ address }) => {
 
 /**
  * KindleSettings is the profile's Kindle group: the sender address to approve
- * on Amazon, the steps and the video, the reader's Kindle address, and the two
- * switches for the book card's send buttons.
+ * on Amazon, the steps and the video, and the reader's Kindle address.
  *
  * Like the Telegram block beside it, every part applies on its own button —
- * the address on Save and Remove, a switch the moment it is flipped. The
- * profile's own Save is for the account tab and never sees any of this.
+ * Save and Remove. The profile's own Save is for the account tab and never
+ * sees any of this.
  */
 const KindleSettings: React.FC = () => {
     const { t } = useTranslation();
@@ -94,10 +93,11 @@ const KindleSettings: React.FC = () => {
     const sender = user?.kindle_sender ?? '';
 
     const [address, setAddress] = useState(current);
-    // One change at a time, the address and the switches alike. Each answer
-    // is the whole user, and it replaces the one this page holds: two in
-    // flight could land out of order, and the older answer — or the rollback
-    // of a failed one — would put back what the newer one had just changed.
+    // One change at a time here. Each answer is the whole user, and it
+    // replaces the one this page holds: two in flight could land out of
+    // order, and the older answer would put back what the newer one had just
+    // changed. A change made meanwhile by the card-button switches, in another
+    // tab, is kept in order by the change counter above.
     const [busy, setBusy] = useState(false);
     const [showVideo, setShowVideo] = useState(false);
     const [copied, setCopied] = useState(false);
@@ -148,31 +148,6 @@ const KindleSettings: React.FC = () => {
             setTimeout(() => setCopied(false), 1500);
         } else {
             toast.error(t('kindle.copyFailed'));
-        }
-    };
-
-    const toggleButton = async (
-        field: (typeof BUTTON_SWITCHES)[number]['field'],
-        value: boolean,
-    ) => {
-        if (!user || busy) return;
-        setBusy(true);
-        const change = beginChange();
-        // Shown at once, and put back if the server disagrees. Nothing else
-        // here can change meanwhile, so the user as it was is still the one
-        // to go back to.
-        updateUser({ ...user, [field]: value });
-        try {
-            const updated = await authApi.updateCurrentUser({ [field]: value });
-            if (isLatest(change)) updateUser(updated);
-        } catch {
-            if (isLatest(change)) {
-                updateUser(user);
-                toast.error(t('kindle.buttonsSaveError'));
-            }
-        } finally {
-            setBusy(false);
-            void endChange(updateUser);
         }
     };
 
@@ -274,25 +249,71 @@ const KindleSettings: React.FC = () => {
                     )}
                 </div>
             </div>
+        </div>
+    );
+};
 
-            <div className="flex flex-col gap-2 border-t border-border pt-3">
-                {BUTTON_SWITCHES.map(({ field, labelKey }) => {
-                    const id = `profile-${field}`;
-                    return (
-                        <div key={field} className="flex items-center justify-between gap-3">
-                            <label htmlFor={id} className="text-sm">
-                                {t(labelKey)}
-                            </label>
-                            <Switch
-                                id={id}
-                                disabled={busy}
-                                checked={user?.[field] !== false}
-                                onCheckedChange={(value) => toggleButton(field, value)}
-                            />
-                        </div>
-                    );
-                })}
-            </div>
+/**
+ * CardButtonSettings is the pair of switches for the book card's Kindle and
+ * Telegram buttons. They are about the card, not about either connection, so
+ * they sit on the profile's own tab, where a reader looks for how the site
+ * looks; each applies the moment it is flipped.
+ *
+ * Here beside KindleSettings because the two share the change counter: a
+ * switch flipped while an address is being saved, or the other way round,
+ * must not let the older answer put the newer change back.
+ */
+export const CardButtonSettings: React.FC = () => {
+    const { t } = useTranslation();
+    const { user, updateUser } = useAuth();
+    // Both switches wait for the one being saved, so their answers cannot
+    // cross.
+    const [busy, setBusy] = useState(false);
+
+    const toggleButton = async (
+        field: (typeof BUTTON_SWITCHES)[number]['field'],
+        value: boolean,
+    ) => {
+        if (!user || busy) return;
+        setBusy(true);
+        const change = beginChange();
+        // Shown at once, and put back if the server disagrees. Going back to
+        // the user as it was is safe even if the address changed meanwhile:
+        // that change's answer is then the one set aside, and the user is
+        // read again once both have settled.
+        updateUser({ ...user, [field]: value });
+        try {
+            const updated = await authApi.updateCurrentUser({ [field]: value });
+            if (isLatest(change)) updateUser(updated);
+        } catch {
+            if (isLatest(change)) {
+                updateUser(user);
+                toast.error(t('kindle.buttonsSaveError'));
+            }
+        } finally {
+            setBusy(false);
+            void endChange(updateUser);
+        }
+    };
+
+    return (
+        <div className="flex flex-col gap-2">
+            {BUTTON_SWITCHES.map(({ field, labelKey }) => {
+                const id = `profile-${field}`;
+                return (
+                    <div key={field} className="flex items-center justify-between gap-3">
+                        <label htmlFor={id} className="text-sm">
+                            {t(labelKey)}
+                        </label>
+                        <Switch
+                            id={id}
+                            disabled={busy}
+                            checked={user?.[field] !== false}
+                            onCheckedChange={(value) => toggleButton(field, value)}
+                        />
+                    </div>
+                );
+            })}
         </div>
     );
 };

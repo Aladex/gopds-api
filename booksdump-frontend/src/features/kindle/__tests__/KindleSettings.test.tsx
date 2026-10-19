@@ -3,14 +3,16 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { toast } from 'sonner';
 
-import KindleSettings from '@/features/kindle/KindleSettings';
+import KindleSettings, { CardButtonSettings } from '@/features/kindle/KindleSettings';
 import { isKindleAddress, normalizeKindleAddress } from '@/features/kindle/kindleAddress';
 import * as kindleApi from '@/api/kindle';
 import * as authApi from '@/api/auth';
 import type { User } from '@/api/auth';
 
 // The profile's Kindle group: the address is checked before it is sent, saved
-// and removed on its own buttons, and the two switches apply as they flip.
+// and removed on its own buttons. And the card-button switches, on the
+// profile's own tab, which apply as they flip and share the address's count of
+// changes.
 
 const translate = (key: string, fallback?: string) => fallback ?? key;
 const translation = { t: translate, i18n: { language: 'ru' } };
@@ -152,7 +154,7 @@ describe('the sender address', () => {
 
 describe('the card button switches', () => {
     it('start on when the profile says nothing', () => {
-        render(<KindleSettings />);
+        render(<CardButtonSettings />);
 
         expect(screen.getByRole('switch', { name: 'kindle.showKindleButton' })).toBeChecked();
         expect(screen.getByRole('switch', { name: 'kindle.showTelegramButton' })).toBeChecked();
@@ -161,7 +163,7 @@ describe('the card button switches', () => {
     it('send just the one setting that flipped', async () => {
         const updated = { ...authState.user, show_telegram_button: false };
         vi.mocked(authApi.updateCurrentUser).mockResolvedValue(updated);
-        render(<KindleSettings />);
+        render(<CardButtonSettings />);
 
         await userEvent.click(screen.getByRole('switch', { name: 'kindle.showTelegramButton' }));
 
@@ -173,7 +175,7 @@ describe('the card button switches', () => {
         authState.user.show_kindle_button = false;
         const before = authState.user;
         vi.mocked(authApi.updateCurrentUser).mockRejectedValue(new Error('500'));
-        render(<KindleSettings />);
+        render(<CardButtonSettings />);
 
         await userEvent.click(screen.getByRole('switch', { name: 'kindle.showKindleButton' }));
 
@@ -189,7 +191,7 @@ describe('one change at a time', () => {
         vi.mocked(authApi.updateCurrentUser).mockReturnValue(
             new Promise((resolve) => (answer = resolve)),
         );
-        render(<KindleSettings />);
+        render(<CardButtonSettings />);
         const kindle = screen.getByRole('switch', { name: 'kindle.showKindleButton' });
         const telegram = screen.getByRole('switch', { name: 'kindle.showTelegramButton' });
 
@@ -203,20 +205,54 @@ describe('one change at a time', () => {
         await waitFor(() => expect(telegram).toBeEnabled());
     });
 
-    it('holds the switches while the address is being saved', async () => {
-        let answer: (user: User) => void = () => {};
-        vi.mocked(kindleApi.setKindleEmail).mockReturnValue(
-            new Promise((resolve) => (answer = resolve)),
-        );
+    it('are not among the Kindle settings any more', () => {
         render(<KindleSettings />);
+
+        expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+    });
+
+    // Both tabs stay mounted in the profile, so a switch can be flipped while
+    // the address is still being saved. Whichever answer is set aside, the
+    // user is read again once both have settled and keeps both changes.
+    it('keeps an address and a switch changed at the same time', async () => {
+        updateUser.mockImplementation((next: User) => {
+            authState.user = next;
+        });
+        let saved: (user: User) => void = () => {};
+        vi.mocked(kindleApi.setKindleEmail).mockReturnValue(
+            new Promise((resolve) => (saved = resolve)),
+        );
+        vi.mocked(authApi.updateCurrentUser).mockImplementation(async (patch) => ({
+            ...authState.user,
+            kindle_email: '',
+            ...patch,
+        }));
+        const stored = {
+            ...authState.user,
+            kindle_email: 'reader@kindle.com',
+            show_telegram_button: false,
+        };
+        vi.mocked(authApi.getCurrentUser).mockResolvedValue(stored);
+        render(
+            <>
+                <KindleSettings />
+                <CardButtonSettings />
+            </>,
+        );
 
         await userEvent.type(field(), 'reader@kindle.com');
         await userEvent.click(saveButton());
+        const telegram = screen.getByRole('switch', { name: 'kindle.showTelegramButton' });
+        expect(telegram).toBeEnabled();
+        await userEvent.click(telegram);
+        await waitFor(() => expect(authApi.updateCurrentUser).toHaveBeenCalledTimes(1));
 
-        expect(screen.getByRole('switch', { name: 'kindle.showKindleButton' })).toBeDisabled();
-        // Settled, as every change is: the count of changes running lives
-        // outside the component and outlives the test.
-        await act(async () => answer({ ...authState.user, kindle_email: 'reader@kindle.com' }));
+        // The address's answer is the older one, and is set aside.
+        await act(async () => saved({ ...authState.user, kindle_email: 'reader@kindle.com' }));
+
+        await waitFor(() => expect(authApi.getCurrentUser).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(authState.user).toEqual(stored));
+        updateUser.mockReset();
     });
 });
 
@@ -267,11 +303,11 @@ describe('a profile closed and opened again while a change is slow', () => {
                 .mockReturnValueOnce(first.promise)
                 .mockReturnValueOnce(second.promise);
 
-            const opening = render(<KindleSettings key="first" />);
+            const opening = render(<CardButtonSettings key="first" />);
             await userEvent.click(screen.getByRole('switch', { name: 'kindle.showKindleButton' }));
             opening.unmount();
 
-            render(<KindleSettings key="second" />);
+            render(<CardButtonSettings key="second" />);
             await userEvent.click(
                 screen.getByRole('switch', { name: 'kindle.showTelegramButton' }),
             );
@@ -319,10 +355,10 @@ describe('a profile closed and opened again while a change is slow', () => {
         };
         vi.mocked(authApi.getCurrentUser).mockResolvedValue(stored);
 
-        const opening = render(<KindleSettings key="first" />);
+        const opening = render(<CardButtonSettings key="first" />);
         await userEvent.click(screen.getByRole('switch', { name: 'kindle.showKindleButton' }));
         opening.unmount();
-        render(<KindleSettings key="second" />);
+        render(<CardButtonSettings key="second" />);
         await userEvent.click(screen.getByRole('switch', { name: 'kindle.showTelegramButton' }));
 
         // B committed first, before A's write: Kindle still on in its row.

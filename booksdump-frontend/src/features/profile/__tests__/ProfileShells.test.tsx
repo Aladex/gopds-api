@@ -38,7 +38,10 @@ vi.mock('@/features/profile/useProfileForm', () => ({
         resetFields: vi.fn(),
     }),
 }));
-vi.mock('@/features/kindle/KindleSettings', () => ({ default: () => null }));
+vi.mock('@/features/kindle/KindleSettings', () => ({
+    default: () => null,
+    CardButtonSettings: () => null,
+}));
 vi.mock('@/features/opds/OpdsInfo', () => ({ OpdsConnection: () => null }));
 vi.mock('@/shared/layout/InterfaceLanguageToggle', () => ({ default: () => null }));
 

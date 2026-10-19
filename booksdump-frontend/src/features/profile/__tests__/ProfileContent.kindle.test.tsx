@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import ProfileContent from '@/features/profile/ProfileContent';
@@ -37,7 +37,10 @@ vi.mock('@/features/profile/useProfileForm', () => ({
         resetFields: vi.fn(),
     }),
 }));
-vi.mock('@/features/kindle/KindleSettings', () => ({ default: () => <div>kindle-settings</div> }));
+vi.mock('@/features/kindle/KindleSettings', () => ({
+    default: () => <div>kindle-settings</div>,
+    CardButtonSettings: () => <div>card-button-settings</div>,
+}));
 vi.mock('@/features/opds/OpdsInfo', () => ({ OpdsConnection: () => <div>opds-connection</div> }));
 vi.mock('@/shared/layout/InterfaceLanguageToggle', () => ({ default: () => null }));
 
@@ -59,6 +62,25 @@ it('opens on the account tab otherwise', () => {
         'aria-selected',
         'true',
     );
+});
+
+// The card's button switches are about the card, not about a connection: they
+// are a group of the profile's own tab, and Kindle's tab no longer holds them.
+it('puts the card button switches on the profile tab, under their own heading', () => {
+    render(<ProfileContent open onClose={vi.fn()} />);
+
+    const panel = screen
+        .getByText('card-button-settings')
+        .closest('[data-slot="tabs-content"]') as HTMLElement;
+    expect(panel).toHaveAttribute('data-state', 'active');
+    expect(panel).toContainElement(screen.getByText('profileSection.personalData'));
+    const group = screen.getByText('card-button-settings').closest('section')!;
+    expect(within(group).getByRole('heading')).toHaveTextContent('profileSection.cardButtons');
+    // The same band, rule and spacing as the language group above it.
+    const language = screen.getByText('interfaceLanguage').closest('section')!;
+    expect(group.className).toBe(language.className);
+    expect(language.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByText('card-button-settings')).toHaveLength(1);
 });
 
 // On the connections tab the footer is not stuck over the content: it covered
