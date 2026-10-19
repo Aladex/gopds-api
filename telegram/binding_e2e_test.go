@@ -31,10 +31,8 @@ const (
 )
 
 const (
-	linkedText = "Бот подключён\n\n" +
-		"Теперь книги можно искать здесь. Напиши название или автора —\n" +
-		"например, «Основание» или «Айзек Азимов».\n\n" +
-		"Основной формат — EPUB. Остальные форматы тоже доступны в карточке."
+	// linkedText is the home panel a chat just bound gets (plan-ui.md §1.1).
+	linkedText  = "Бот подключён.\n\nНапиши название книги или имя автора — или выбери:"
 	expiredText = "Ссылка подключения истекла\n\nОткрой профиль на сайте и получи новую ссылку."
 	unlinked    = "Бот ещё не подключён к библиотеке\n\nОткрой свой профиль на сайте и заверши подключение."
 	strangerTxt = "Это личный бот другого пользователя\n\nСвоего бота можно подключить в профиле библиотеки."
@@ -371,6 +369,7 @@ func TestDisconnectForgetsTheBot(t *testing.T) {
 func TestABlockedBotShowsOnTheSite(t *testing.T) {
 	s := newStack(t).start()
 	user := s.seedUser("reader")
+	s.plainPanels(user)
 	secret, _ := s.connect(user, botToken1)
 	s.linkVia(botToken1, ownerTG, secret)
 	s.waitMessage(ownerTG, 1)

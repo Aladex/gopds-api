@@ -1,4 +1,4 @@
-package commands
+package searchparity
 
 import (
 	"context"
@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// One needle, three clients. REST, OPDS and Telegram each bind their own query
+// One needle, two clients. REST and OPDS each bind their own query
 // string, page in their own units and render their own format, so the only
 // thing that can keep them saying the same thing is that the ranking, the
 // filtering and the total all happen below them. These tests hold a recording
@@ -26,8 +26,9 @@ import (
 // request each client sends for equivalent input, and that each client shows
 // exactly the page it was handed, in the order it was handed.
 //
-// This file lives in commands because it is the one package that may import
-// all three adapters — api and opds do not depend on it, so there is no cycle.
+// The Telegram bot was the third client until S6 deleted its command
+// processor; the v2 bot sends its typed text to the service as the query, and
+// its own tests (telegram/router) cover that.
 
 // parityService records what each adapter asks for and answers with a fixed
 // page. It never ranks or filters: a difference between clients here is the
@@ -52,6 +53,7 @@ func (p *parityService) SearchAuthors(_ context.Context, req models.AuthorSearch
 	return p.authorPage, p.err
 }
 
+//nolint:gocritic // the port takes the request by value; this implements it
 func (p *parityService) Suggestions(_ context.Context, _ models.SuggestionRequest) (models.SuggestionResult, error) {
 	return models.SuggestionResult{}, nil
 }
@@ -147,14 +149,6 @@ func assertOrderedIn(t *testing.T, body string, needles []string) {
 	}
 }
 
-// telegramProcessor builds the bot on the same stand-in, with a reader whose
-// books language is set — the bot's only notion of scope.
-func telegramProcessor(svc *parityService, lang string) *CommandProcessor {
-	return newCommandProcessorWithDeps(svc, func(int64) (models.User, error) {
-		return models.User{ID: 42, BooksLang: lang}, nil
-	})
-}
-
 func TestSearchParityTitleAcrossClients(t *testing.T) {
 	const needle = "война и мир"
 	page := models.BookSearchPage{Books: parityBooks(), Total: 57, Limit: 10}
@@ -165,16 +159,11 @@ func TestSearchParityTitleAcrossClients(t *testing.T) {
 	feed := &parityService{bookPage: page}
 	body := opdsBody(t, feed, "books", "/opds/books?title="+strings.ReplaceAll(needle, " ", "+"))
 
-	bot := &parityService{bookPage: page}
-	result, err := telegramProcessor(bot, "").executeFindBook(context.Background(), needle, 999)
-	require.NoError(t, err)
-
 	// Every client asked for the same needle on behalf of the same reader.
 	require.Len(t, rest.bookReqs, 1)
 	require.Len(t, feed.bookReqs, 1)
-	require.Len(t, bot.bookReqs, 1)
 	for name, req := range map[string]models.BookSearchRequest{
-		"rest": rest.bookReqs[0], "opds": feed.bookReqs[0], "telegram": bot.bookReqs[0],
+		"rest": rest.bookReqs[0], "opds": feed.bookReqs[0],
 	} {
 		assert.Equal(t, needle, req.Query, "%s sent a different needle", name)
 		assert.Equal(t, int64(42), req.UserID, "%s lost the reader", name)
@@ -186,14 +175,10 @@ func TestSearchParityTitleAcrossClients(t *testing.T) {
 	// Every client showed the page it was handed, in the order it was handed.
 	want := bookIDs(page.Books)
 	assert.Equal(t, want, restBookIDs(got.Books), "REST reordered or dropped rows")
-	assert.Equal(t, want, bookIDs(result.Books), "Telegram reordered or dropped rows")
 	assertOrderedIn(t, body, []string{"Парити третья", "Парити первая", "Парити вторая"})
 
-	// And every client describes the same total in its own units: REST in
-	// pages of its limit, Telegram as the exact count it pages against.
+	// And REST describes the total in its own units: pages of its limit.
 	assert.Equal(t, 6, got.Length, "REST must page 57 rows by 10")
-	require.NotNil(t, result.SearchParams)
-	assert.Equal(t, 57, result.SearchParams.TotalCount, "Telegram must carry the exact total")
 }
 
 func TestSearchParityAuthorAcrossClients(t *testing.T) {
@@ -216,15 +201,10 @@ func TestSearchParityAuthorAcrossClients(t *testing.T) {
 	feed := &parityService{authorPage: page}
 	body := opdsBody(t, feed, "search-author", "/opds/search-author?name="+needle)
 
-	bot := &parityService{authorPage: page}
-	result, err := telegramProcessor(bot, "").executeFindAuthor(context.Background(), needle, 999)
-	require.NoError(t, err)
-
 	require.Len(t, rest.authorReqs, 1)
 	require.Len(t, feed.authorReqs, 1)
-	require.Len(t, bot.authorReqs, 1)
 	for name, req := range map[string]models.AuthorSearchRequest{
-		"rest": rest.authorReqs[0], "opds": feed.authorReqs[0], "telegram": bot.authorReqs[0],
+		"rest": rest.authorReqs[0], "opds": feed.authorReqs[0],
 	} {
 		assert.Equal(t, needle, req.Query, "%s sent a different needle", name)
 	}
@@ -235,18 +215,11 @@ func TestSearchParityAuthorAcrossClients(t *testing.T) {
 		gotNames = append(gotNames, a.FullName)
 	}
 	assert.Equal(t, wantNames, gotNames, "REST reordered or dropped authors")
-
-	botNames := make([]string, 0, len(result.Authors))
-	for _, a := range result.Authors {
-		botNames = append(botNames, a.FullName)
-	}
-	assert.Equal(t, wantNames, botNames, "Telegram reordered or dropped authors")
 	assertOrderedIn(t, body, wantNames)
 }
 
 // A language is expressed differently by each client — a query parameter, a
-// path segment, the reader's stored preference — and has to arrive as the same
-// field.
+// path segment — and has to arrive as the same field.
 func TestSearchParityLanguageReachesTheService(t *testing.T) {
 	page := models.BookSearchPage{Books: parityBooks(), Total: 3, Limit: 10}
 
@@ -256,12 +229,8 @@ func TestSearchParityLanguageReachesTheService(t *testing.T) {
 	feed := &parityService{bookPage: page}
 	opdsBody(t, feed, "lang", "/opds/lang/ru/search-books?title=война")
 
-	bot := &parityService{bookPage: page}
-	_, err := telegramProcessor(bot, "ru").executeFindBook(context.Background(), "война", 999)
-	require.NoError(t, err)
-
 	for name, reqs := range map[string][]models.BookSearchRequest{
-		"rest": rest.bookReqs, "opds": feed.bookReqs, "telegram": bot.bookReqs,
+		"rest": rest.bookReqs, "opds": feed.bookReqs,
 	} {
 		require.Len(t, reqs, 1, "%s made the wrong number of calls", name)
 		assert.Equal(t, "ru", reqs[0].Language, "%s lost the language", name)
@@ -280,18 +249,13 @@ func TestSearchParityTypoTravelsUnchanged(t *testing.T) {
 	feed := &parityService{bookPage: page}
 	body := opdsBody(t, feed, "books", "/opds/books?title="+strings.ReplaceAll(typo, " ", "+"))
 
-	bot := &parityService{bookPage: page}
-	result, err := telegramProcessor(bot, "").executeFindBook(context.Background(), typo, 999)
-	require.NoError(t, err)
-
 	for name, reqs := range map[string][]models.BookSearchRequest{
-		"rest": rest.bookReqs, "opds": feed.bookReqs, "telegram": bot.bookReqs,
+		"rest": rest.bookReqs, "opds": feed.bookReqs,
 	} {
 		require.Len(t, reqs, 1)
 		assert.Equal(t, typo, reqs[0].Query, "%s altered the typo before sending it", name)
 	}
 	assert.Equal(t, []int64{903}, restBookIDs(got.Books))
-	assert.Equal(t, []int64{903}, bookIDs(result.Books))
 	assert.Contains(t, body, "Парити третья")
 }
 
@@ -309,12 +273,6 @@ func TestSearchParityZeroResultAcrossClients(t *testing.T) {
 	feed := &parityService{bookPage: empty}
 	body := opdsBody(t, feed, "books", "/opds/books?title="+nonsense)
 	assert.NotContains(t, body, "Парити", "OPDS invented rows for a nonsense query")
-
-	bot := &parityService{bookPage: empty}
-	result, err := telegramProcessor(bot, "").executeFindBook(context.Background(), nonsense, 999)
-	require.NoError(t, err, "an empty result is not an error")
-	assert.Empty(t, result.Books, "Telegram invented rows for a nonsense query")
-	assert.Contains(t, result.Message, nonsense, "the reader should see what was not found")
 }
 
 // A repository failure is an outage, and every client has to say so rather
@@ -331,10 +289,4 @@ func TestSearchParityFailureIsNotAnEmptyPage(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/books/list?title=война", http.NoBody))
 	assert.GreaterOrEqual(t, rec.Code, 500, "REST answered an outage with %d", rec.Code)
-
-	bot := &parityService{err: boom}
-	result, err := telegramProcessor(bot, "").executeFindBook(context.Background(), "война", 999)
-	require.NoError(t, err)
-	assert.Empty(t, result.Books)
-	assert.NotEmpty(t, result.Message, "Telegram must tell the reader something went wrong")
 }

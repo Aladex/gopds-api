@@ -357,9 +357,11 @@ func bindByLink(
 		link.UserID, botRef, tgUserID); err != nil {
 		return LinkExpired, nil, err
 	}
+	// A chat linked now never had the old interface's keyboard to take away.
+	now := time.Now()
 	binding := &models.TelegramBinding{
 		UserID: link.UserID, BotRef: botRef, TGUserID: tgUserID, TGDisplay: tgDisplay,
-		Generation: generation, Status: models.TelegramBindingActive,
+		Generation: generation, Status: models.TelegramBindingActive, ReplyKBRemovedAt: &now,
 	}
 	if _, err = tx.ModelContext(ctx, binding).Returning("*").Insert(); err != nil {
 		return LinkExpired, nil, err
@@ -701,4 +703,28 @@ func PruneTelegramInbox(ctx context.Context, age time.Duration) error {
 	_, err := db.ExecContext(ctx, `
 		DELETE FROM telegram_link_token WHERE expires_at < now() - make_interval(secs => ?)`, age.Seconds())
 	return err
+}
+
+// FlipTelegramBotsToV2 serves every bot still on the legacy router with the
+// v2 one (S6). Run at every start; once done, it changes nothing.
+func FlipTelegramBotsToV2(ctx context.Context) (int, error) {
+	res, err := db.ExecContext(ctx, `UPDATE telegram_bot SET router = ? WHERE router = ?`,
+		models.TelegramRouterV2, models.TelegramRouterLegacy)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected(), nil
+}
+
+// MarkTelegramReplyKeyboardRemoved records that a binding's chat was told the
+// old interface's keyboard is gone, and had it taken away.
+func MarkTelegramReplyKeyboardRemoved(ctx context.Context, bindingID int64) error {
+	return db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		if err := guardInboxLease(ctx, tx); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `
+			UPDATE telegram_binding SET reply_kb_removed_at = now() WHERE id = ? AND reply_kb_removed_at IS NULL`, bindingID)
+		return err
+	})
 }

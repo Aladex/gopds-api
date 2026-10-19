@@ -131,6 +131,7 @@ func TestAProvablyUnsentReplyStaysReplayable(t *testing.T) {
 	s.transport = refuse
 	s.start()
 	user := s.seedUser("reader")
+	s.plainPanels(user)
 	secret, _ := s.connect(user, botToken1)
 	s.linkVia(botToken1, ownerTG, secret)
 	s.waitMessage(ownerTG, 1)
@@ -199,6 +200,7 @@ func TestAFailedMarkClearStillLeavesTheUpdateReplayable(t *testing.T) {
 	s.transport = refuse
 	s.start()
 	user := s.seedUser("reader")
+	s.plainPanels(user)
 	secret, _ := s.connect(user, botToken1)
 	s.linkVia(botToken1, ownerTG, secret)
 	s.waitMessage(ownerTG, 1)

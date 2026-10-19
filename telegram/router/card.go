@@ -39,6 +39,7 @@ func (r *Router) cardPainter(ctx context.Context, b *Bot, node *models.TelegramN
 	if !visible(book) {
 		return nil, screens.CopyUnavailable, false
 	}
+	r.creditBook(ctx, book)
 	paint, err := r.paintCard(ctx, b, node, book)
 	if err != nil {
 		return nil, screens.CopyLibraryDown, false

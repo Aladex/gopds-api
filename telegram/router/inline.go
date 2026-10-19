@@ -81,6 +81,7 @@ func (r *Router) inlineResults(ctx context.Context, b *Bot, q *tgbot.InlineQuery
 		logging.Warnf("Telegram bot %d: inline search: %v", b.Ref, err)
 		return results, ""
 	}
+	r.creditAuthors(ctx, books)
 	for i := range books {
 		results = append(results, screens.InlineArticle(&books[i], r.cfg.SiteURL, r.cfg.MediaBaseURL))
 	}

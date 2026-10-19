@@ -97,6 +97,9 @@ type Config struct {
 	SiteURL  string
 	// Donate is how the library may be supported; none hides the button.
 	Donate []config.DonateMethod
+	// AuthorLines names the authors of listed books from the author layer;
+	// nil names the catalog authors.
+	AuthorLines *services.AuthorLines
 	// Kindle sends books to Kindle; nil is kindlesend.Default().
 	Kindle *kindlesend.Sender
 	// MediaBaseURL is where Telegram can fetch covers from, for inline
@@ -163,15 +166,14 @@ func New(cfg *Config, bots Bots) *Router {
 	return &Router{cfg: c, bots: bots, kindle: kindle}
 }
 
-// Handle takes one update. It reports false for what the v2 router leaves to
-// the legacy handlers: buttons of the old interface, whose messages are still
-// in the chats. An error means nothing was done: the chat stayed busy.
+// Handle takes one update. An error means nothing was done: the chat stayed
+// busy.
 //
 // The whole update — panel reads, moves, renders and the Telegram calls —
 // runs holding its chat (plan-ui.md §5.1), so that two edits of one panel
 // never reach Telegram in the opposite order of their revisions, whichever
-// pod sends them. It reports false, too, for a bot no longer served by the
-// v2 router once the chat is held.
+// pod sends them. It reports false for a bot no longer served by the v2
+// router once the chat is held — switched to maintenance meanwhile.
 func (r *Router) Handle(ctx context.Context, b *Bot, update *tgbot.Update) (bool, error) {
 	if chatID, ok := chatOf(update); ok {
 		unlock, err := database.LockTelegramChat(ctx, b.Ref, chatID, r.cfg.ChatHold, r.cfg.ChatWait)
@@ -220,7 +222,7 @@ func (r *Router) message(ctx context.Context, b *Bot, msg *tgbot.Message) {
 	if msg.Chat.Type != tgbot.ChatTypePrivate || msg.From == nil || b.Binding == nil || msg.From.ID != b.Binding.TGUserID {
 		return
 	}
-	r.ensureNoCommands(ctx, b)
+	r.setupChat(ctx, b, msg.Chat.ID)
 	if msg.ViaBot != nil {
 		r.viaBot(ctx, b, msg)
 		return
@@ -277,7 +279,7 @@ func (r *Router) command(ctx context.Context, b *Bot, chatID int64, text string)
 
 // Linked greets a chat just bound to the library: its home panel.
 func (r *Router) Linked(ctx context.Context, b *Bot, chatID int64) {
-	r.ensureNoCommands(ctx, b)
+	r.setupChat(ctx, b, chatID)
 	r.start(ctx, b, chatID, true)
 }
 
@@ -296,4 +298,25 @@ func (r *Router) notice(ctx context.Context, b *Bot, chatID int64, text string, 
 	r.sendPanel(ctx, b, chatID, node, func(k *keys) screens.Screen {
 		return screens.Notice(text, k.home())
 	}, false)
+}
+
+// creditAuthors gives books their author lines, when the library names
+// authors from the author layer.
+func (r *Router) creditAuthors(ctx context.Context, books []models.Book) {
+	if r.cfg.AuthorLines == nil || len(books) == 0 {
+		return
+	}
+	lines := r.cfg.AuthorLines.Page(ctx, books)
+	for i := range books {
+		if i < len(lines) {
+			books[i].AuthorLine = lines[i]
+		}
+	}
+}
+
+// creditBook is creditAuthors for one book.
+func (r *Router) creditBook(ctx context.Context, book *models.Book) {
+	books := []models.Book{*book}
+	r.creditAuthors(ctx, books)
+	book.AuthorLine = books[0].AuthorLine
 }

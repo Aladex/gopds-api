@@ -86,7 +86,7 @@ func TestOneButtonIsOneRequest(t *testing.T) {
 	d.delivery.WaitIdle()
 	d.fake.Quiet(t, "sendDocument", 1, 200*time.Millisecond)
 	assert.Equal(t, 1, d.count(`SELECT count(*) FROM telegram_delivery`))
-	assert.Equal(t, "Файл уже отправлен", d.answers(t, 3)[2])
+	assert.Equal(t, "Файл уже отправлен", d.answers(t, 2)[1])
 
 	// The window is over: the same button now asks for the file again.
 	_, err := d.db.Exec(`UPDATE telegram_delivery SET finished_at = now() - interval '11 seconds'`)
@@ -207,7 +207,7 @@ func gatedStack(t *testing.T) (d *deliveryStack, release func()) {
 	t.Cleanup(release)
 	t.Cleanup(show)
 	d.tapEPUB(t)
-	d.waitMessage(ownerTG, 4)
+	d.told()
 	show()
 	select {
 	case <-edited:
@@ -346,7 +346,7 @@ func TestAGateThatCannotCheckTheBookSendsNothing(t *testing.T) {
 	assert.Equal(t, models.OutcomeLibraryFailed, *job.Outcome)
 	assert.Equal(t, int32(3), failures.Load(), "one check per attempt, MaxAttempts attempts")
 	assert.Empty(t, d.fake.Calls("sendDocument"))
-	told := d.waitMessage(ownerTG, 4).Params["text"]
+	told := d.told().Params["text"]
 	assert.True(t, strings.HasPrefix(told, "Не удалось отправить EPUB\n"), told)
 	assert.Contains(t, told, "Библиотека сейчас не отвечает")
 }
@@ -419,5 +419,5 @@ func TestAFullServiceSaysSo(t *testing.T) {
 		other, binding.ID, binding.BotRef, ownerTG)
 	require.NoError(t, err)
 	d.tapEPUB(t)
-	assert.Equal(t, "Сейчас много отправок, попробуй через минуту.", d.answers(t, 2)[1])
+	assert.Equal(t, "Сейчас много отправок, попробуй через минуту.", d.answers(t, 1)[0])
 }

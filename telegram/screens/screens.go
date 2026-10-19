@@ -364,16 +364,31 @@ func bookSubline(b *models.Book) string {
 
 // Authors names a book's authors, at most limit of them, then «и др.».
 func Authors(b *models.Book, limit int) string {
+	names := authorNames(b)
+	if len(names) > limit {
+		return strings.Join(names[:limit], ", ") + " и др."
+	}
+	return strings.Join(names, ", ")
+}
+
+// authorNames are the names a book is credited to: its author line when the
+// router read one, its catalog authors otherwise.
+func authorNames(b *models.Book) []string {
 	var names []string
+	if len(b.AuthorLine) > 0 {
+		for _, a := range b.AuthorLine {
+			if n := strings.TrimSpace(a.Name); n != "" {
+				names = append(names, n)
+			}
+		}
+		return names
+	}
 	for i := range b.Authors {
 		if n := strings.TrimSpace(b.Authors[i].FullName); n != "" {
 			names = append(names, n)
 		}
 	}
-	if len(names) > limit {
-		return strings.Join(names[:limit], ", ") + " и др."
-	}
-	return strings.Join(names, ", ")
+	return names
 }
 
 // SeriesLine is «Серия, кн. N», or the series alone without a number.
@@ -686,12 +701,7 @@ var unsafeName = regexp.MustCompile(`[/\\:*?"<>|\x00-\x1f]+`)
 // FileName is «Автор - Название.ext» (plan-ui.md §1.10).
 func FileName(b *models.Book, format string) string {
 	name := b.Title
-	var authors []string
-	for i := range b.Authors {
-		if n := strings.TrimSpace(b.Authors[i].FullName); n != "" {
-			authors = append(authors, n)
-		}
-	}
+	authors := authorNames(b)
 	switch {
 	case len(authors) == 1:
 		name = authors[0] + " - " + name

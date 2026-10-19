@@ -108,6 +108,7 @@ func (r *Router) searchPage(ctx context.Context, view *models.TelegramView, tab 
 		res.BookTotal = got.Total
 		if tab == 0 {
 			res.Books = got.Books
+			r.creditAuthors(bctx, res.Books)
 		}
 	}()
 	go func() {

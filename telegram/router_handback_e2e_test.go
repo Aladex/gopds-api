@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"gopds-api/internal/scanfixture"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -58,12 +60,9 @@ func TestATransientRouterReadDoesNotLoseALegacyDownload(t *testing.T) {
 	s.linkVia(botToken1, ownerTG, secret)
 	s.bm.WaitIdle()
 	hook := s.hook(botToken1)
-	hook.Post(t, s.u.Text(ownerTG, "/b мир"))
-	s.bm.WaitIdle()
-	list := s.waitMessage(ownerTG, 2)
-	hook.Post(t, s.u.Tap(t, ownerTG, &list, "1"))
-	s.bm.WaitIdle()
-	card := s.waitMessage(ownerTG, 3)
+	// An old card's file button, still in the chat.
+	home := s.waitMessage(ownerTG, 1)
+	card := oldCard(t, &home, s.books[scanfixture.EntryMultiAuthor])
 	update := s.u.Tap(t, ownerTG, &card, "📚 EPUB")
 	armed.Store(true)
 	rec := hook.Post(t, update)

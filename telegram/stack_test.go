@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -56,6 +57,9 @@ type stack struct {
 	chatWait time.Duration
 	// kindle is the bot's Kindle sender; nil is the real one.
 	kindle *kindlesend.Sender
+	// authorLines names listed books' authors from the author layer; nil is
+	// the catalog authors.
+	authorLines *services.AuthorLines
 	// clientTimeout bounds every call to the fake Telegram; zero is the
 	// production default.
 	clientTimeout time.Duration
@@ -155,7 +159,9 @@ func (s *stack) newManager() *telegram.BotManager {
 		Secrets:  s.box,
 		ChatWait: s.chatWait,
 		Kindle:   s.kindle,
-	}, s.rc, services.NewSearchService(database.NewPGSearchRepository(s.db)), nil)
+		// AuthorLines, when set, names authors from the author layer.
+		AuthorLines: s.authorLines,
+	}, s.rc, services.NewSearchService(database.NewPGSearchRepository(s.db)))
 }
 
 // seedUser adds a library account and returns its id.
@@ -173,6 +179,16 @@ func (s *stack) seedLegacyBot(userID int64, token, webhookUUID string, telegramI
 	s.t.Helper()
 	_, err := s.db.Exec(`UPDATE auth_user SET bot_token = ?, webhook_uuid = ?, telegram_id = ? WHERE id = ?`,
 		token, webhookUUID, telegramID, userID)
+	require.NoError(s.t, err)
+}
+
+// plainPanels makes userID's panels plain text: the tests that intercept a
+// reply by its text, as these S1 tests did with the legacy bot's, see it as
+// a sendMessage.
+func (s *stack) plainPanels(userID int64) {
+	s.t.Helper()
+	_, err := s.db.Exec(`INSERT INTO telegram_user_settings (user_id, card_style) VALUES (?, 'plain')
+		ON CONFLICT (user_id) DO UPDATE SET card_style = 'plain'`, userID)
 	require.NoError(s.t, err)
 }
 
@@ -214,14 +230,41 @@ func (s *stack) count(query string, args ...any) int {
 	return n
 }
 
-// messagesTo returns the texts of the sendMessage calls to chatID that
-// reached Telegram, answered or not.
+// sentMessages are the messages sent to chatID — plain or rich — that
+// reached Telegram, in order; answered only, if asked. A rich message's text
+// is its blocks' JSON, so a title can be looked for in either.
+func (s *stack) sentMessages(chatID int64, answered bool) []tgtest.Call {
+	var out []tgtest.Call
+	for _, method := range []string{"sendMessage", "sendRichMessage"} {
+		calls := s.fake.Calls(method)
+		if answered {
+			calls = s.fake.AnsweredCalls(method)
+		}
+		for _, c := range calls {
+			if c.Params["chat_id"] != strconv.FormatInt(chatID, 10) {
+				continue
+			}
+			if rich, ok := c.Params["rich_message"]; ok {
+				params := make(map[string]string, len(c.Params)+1)
+				for k, v := range c.Params {
+					params[k] = v
+				}
+				params["text"] = rich
+				c.Params = params
+			}
+			out = append(out, c)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].At.Before(out[j].At) })
+	return out
+}
+
+// messagesTo returns the texts of the messages sent to chatID that reached
+// Telegram, answered or not.
 func (s *stack) messagesTo(chatID int64) []string {
 	var texts []string
-	for _, c := range s.fake.Calls("sendMessage") {
-		if c.Params["chat_id"] == strconv.FormatInt(chatID, 10) {
-			texts = append(texts, c.Params["text"])
-		}
+	for _, c := range s.sentMessages(chatID, false) {
+		texts = append(texts, c.Params["text"])
 	}
 	return texts
 }
@@ -232,12 +275,7 @@ func (s *stack) waitMessage(chatID int64, n int) tgtest.Call {
 	s.t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		var calls []tgtest.Call
-		for _, c := range s.fake.AnsweredCalls("sendMessage") {
-			if c.Params["chat_id"] == strconv.FormatInt(chatID, 10) {
-				calls = append(calls, c)
-			}
-		}
+		calls := s.sentMessages(chatID, true)
 		if len(calls) >= n {
 			return calls[n-1]
 		}

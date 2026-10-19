@@ -29,7 +29,7 @@ func setupTestRouter(t *testing.T) (*gin.Engine, *BotManager, func()) {
 	config := &Config{
 		BaseURL: "https://test.example.com",
 	}
-	botManager := NewBotManager(config, redisClient, stubSearch{}, nil)
+	botManager := NewBotManager(config, redisClient, stubSearch{})
 
 	router := gin.New()
 
@@ -130,7 +130,7 @@ func TestHandleWebhook_UnknownBot(t *testing.T) {
 func TestNewBotModelGivesFreshSecrets(t *testing.T) {
 	box, err := secrets.NewBox("test secret key")
 	require.NoError(t, err)
-	bm := NewBotManager(&Config{Secrets: box}, nil, stubSearch{}, nil)
+	bm := NewBotManager(&Config{Secrets: box}, nil, stubSearch{})
 
 	a := bm.newBotModel(123, "123:abc", uuid.New())
 	b := bm.newBotModel(123, "123:abc", uuid.New())
@@ -285,7 +285,7 @@ func TestTelegramService_SetupRoutes(t *testing.T) {
 	config := &Config{
 		BaseURL: "https://test.example.com",
 	}
-	botManager := NewBotManager(config, redisClient, stubSearch{}, nil)
+	botManager := NewBotManager(config, redisClient, stubSearch{})
 
 	// Skip bot initialization by creating service without InitializeExistingBots
 	service := &TelegramService{
@@ -340,7 +340,7 @@ func TestTelegramService_Getters(t *testing.T) {
 	config := &Config{
 		BaseURL: "https://test.example.com",
 	}
-	botManager := NewBotManager(config, redisClient, stubSearch{}, nil)
+	botManager := NewBotManager(config, redisClient, stubSearch{})
 	routes := NewRoutes(botManager)
 
 	service := &TelegramService{

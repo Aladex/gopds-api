@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"gopds-api/commands"
 	"gopds-api/config"
 	"gopds-api/database"
 	"gopds-api/logging"
@@ -27,7 +26,6 @@ import (
 	"github.com/go-pg/pg/v10"
 	"github.com/go-redis/redis"
 	tgbotapi "github.com/go-telegram/bot"
-	tgbot "github.com/go-telegram/bot/models"
 	"github.com/google/uuid"
 	"github.com/spf13/viper"
 )
@@ -43,6 +41,9 @@ type Config struct {
 	API tgapi.Endpoint
 	// Secrets seals the bots' tokens, webhook secrets and button keys.
 	Secrets *secrets.Box
+	// AuthorLines names the authors of the books the bots list from the
+	// author layer (authors.display_source); nil names the catalog authors.
+	AuthorLines *services.AuthorLines
 	// Kindle sends books to Kindle from the bot; nil is the site's shared
 	// sender (kindlesend.Default). Tests put a fake relay here.
 	Kindle *kindlesend.Sender
@@ -64,12 +65,8 @@ type BotManager struct {
 	byRef  map[int64]*Bot  // telegram_bot.id -> Bot
 	mutex  sync.RWMutex
 
-	config              *Config
-	redis               *redis.Client
-	conversationManager *ConversationManager
-	// newProcessor builds command processors on the one shared search
-	// service; there is no global default service to fall back to.
-	newProcessor func() *commands.CommandProcessor
+	config *Config
+	redis  *redis.Client
 
 	// delivery sends book files as durable jobs; nil until SetDelivery.
 	delivery *delivery.Service
@@ -94,7 +91,6 @@ type Bot struct {
 	addedBy       *int64 // the account that entered or owned it first, for logs
 	webhookPath   string
 	webhookSecret string
-	newProcessor  func() *commands.CommandProcessor
 	manager       *BotManager
 }
 
@@ -121,20 +117,15 @@ const (
 	healthCallTimeout  = 10 * time.Second
 )
 
-// NewBotManager creates a new bot manager whose bots build command
-// processors on the one shared search service created in main, naming the
-// authors of the books they list by lines (nil: the legacy authors).
-func NewBotManager(config *Config, redisClient *redis.Client, search services.PublicSearch, lines *services.AuthorLines) *BotManager {
+// NewBotManager creates a new bot manager whose bots search through the one
+// shared search service created in main.
+func NewBotManager(cfg *Config, redisClient *redis.Client, search services.PublicSearch) *BotManager {
 	return &BotManager{
-		bots:                make(map[string]*Bot),
-		byPath:              make(map[string]*Bot),
-		byRef:               make(map[int64]*Bot),
-		config:              config,
-		redis:               redisClient,
-		conversationManager: NewConversationManager(redisClient),
-		newProcessor: func() *commands.CommandProcessor {
-			return commands.NewCommandProcessor(search, lines)
-		},
+		bots:     make(map[string]*Bot),
+		byPath:   make(map[string]*Bot),
+		byRef:    make(map[int64]*Bot),
+		config:   cfg,
+		redis:    redisClient,
 		search:   search,
 		process:  uuid.New(),
 		inflight: make(chan struct{}, maxInflightUpdates),
@@ -149,20 +140,25 @@ func (bm *BotManager) InitializeExistingBots() error {
 	}
 	ctx := context.Background()
 	bm.adoptLegacyBots(ctx)
+	// S6: every bot is served by the v2 router — only maintenance stays.
+	if flipped, err := database.FlipTelegramBotsToV2(ctx); err != nil {
+		logging.Errorf("Switching telegram bots to the v2 router: %v", err)
+	} else if flipped > 0 {
+		logging.Infof("Switched %d telegram bots to the v2 router", flipped)
+	}
+	bm.forgetConversations(ctx)
 
 	bots, err := database.ListServableTelegramBots(ctx)
 	if err != nil {
 		return fmt.Errorf("listing telegram bots: %w", err)
 	}
 	served := 0
-	v2 := map[int64]bool{}
 	for i := range bots {
 		b, err := bm.serve(&bots[i])
 		if err != nil {
 			logging.Errorf("Failed to serve telegram bot %d: %v", bots[i].ID, err)
 			continue
 		}
-		v2[b.ref] = bots[i].Router == models.TelegramRouterV2
 		if err := bm.setWebhook(b); err != nil {
 			logging.Errorf("Failed to set webhook for telegram bot %d: %v", bots[i].ID, err)
 		}
@@ -172,7 +168,7 @@ func (bm *BotManager) InitializeExistingBots() error {
 	bm.handling.Add(1)
 	go func() {
 		defer bm.handling.Done()
-		bm.refreshIdentities(v2)
+		bm.refreshIdentities()
 	}()
 	return nil
 }
@@ -183,24 +179,22 @@ const identityWorkers = 4
 // identityTimeout bounds one getMe.
 const identityTimeout = 10 * time.Second
 
-// refreshIdentities learns the public username and name of every served bot
-// that has none — the adopted legacy bots: their rows were made from a token
-// alone — and whether each v2 bot answers inline queries (plan-ui.md §3.1).
-// One getMe per bot, a few at a time; a bot that fails is logged and tried
-// again by the next health check, and never holds up the others.
-func (bm *BotManager) refreshIdentities(v2 map[int64]bool) {
+// refreshIdentities learns, for every served bot, its public username and
+// name — the adopted legacy bots' rows were made from a token alone — and
+// whether it answers inline queries (plan-ui.md §3.1). One getMe per bot, a
+// few at a time; a bot that fails is logged and tried again by the next
+// health check, and never holds up the others.
+func (bm *BotManager) refreshIdentities() {
 	bm.mutex.RLock()
-	var nameless []*Bot
+	served := make([]*Bot, 0, len(bm.byRef))
 	for _, b := range bm.byRef {
-		if b.username == "" || v2[b.ref] {
-			nameless = append(nameless, b)
-		}
+		served = append(served, b)
 	}
 	bm.mutex.RUnlock()
 
 	slots := make(chan struct{}, identityWorkers)
 	var wg sync.WaitGroup
-	for _, b := range nameless {
+	for _, b := range served {
 		wg.Add(1)
 		slots <- struct{}{}
 		go func(b *Bot) {
@@ -254,12 +248,6 @@ func (bm *BotManager) CheckInline(ctx context.Context, ref int64) (bool, error) 
 		return false, err
 	}
 	return me.SupportsInline, nil
-}
-
-// servedByV2 reports a bot switched to the v2 router; false when unknown.
-func (bm *BotManager) servedByV2(ctx context.Context, ref int64) bool {
-	model, err := database.GetTelegramBot(ctx, ref)
-	return err == nil && model.Router == models.TelegramRouterV2
 }
 
 // userOf names an account id in logs.
@@ -334,7 +322,7 @@ func (bm *BotManager) newBotModel(tgBotID int64, token string, path uuid.UUID) *
 		NavKeyEnc:        navEnc,
 		NextGeneration:   1,
 		Status:           models.TelegramBotActive,
-		Router:           "legacy",
+		Router:           models.TelegramRouterV2,
 	}
 }
 
@@ -392,36 +380,20 @@ func (bm *BotManager) serve(model *models.TelegramBot) (*Bot, error) {
 // needs to know when an update is done.
 func (bm *BotManager) newBot(token string, model *models.TelegramBot) (*Bot, error) {
 	ref := model.ID
-	teleBot, err := tgapi.New(token, bm.config.API,
-		tgbotapi.WithHTTPClient(time.Minute, bm.observedClient(ref)),
-		tgbotapi.WithNotAsyncHandlers(),
-		tgbotapi.WithMiddlewares(recoverMiddleware, privateChatMiddleware),
-		tgbotapi.WithDefaultHandler(func(ctx context.Context, b *tgbotapi.Bot, update *tgbot.Update) {
-			logging.Debugf("Unhandled update type in telegram bot %d", ref)
-		}),
-	)
+	teleBot, err := tgapi.New(token, bm.config.API, tgbotapi.WithHTTPClient(time.Minute, bm.observedClient(ref)))
 	if err != nil {
 		return nil, err
 	}
-	b := &Bot{
-		token:        token,
-		bot:          teleBot,
-		ref:          ref,
-		tgBotID:      model.TGBotID,
-		username:     model.Username,
-		addedBy:      model.AddedByUserID,
-		webhookPath:  model.WebhookPath.String(),
-		newProcessor: bm.newProcessor,
-		manager:      bm,
-	}
-	b.setupHandlers(bm.conversationManager)
-	// The v2 bot has no commands; its menu is cleared by the router.
-	if model.Router == models.TelegramRouterLegacy {
-		if err := b.registerCommands(); err != nil {
-			logging.Warnf("Failed to register commands for telegram bot %d: %v", ref, err)
-		}
-	}
-	return b, nil
+	return &Bot{
+		token:       token,
+		bot:         teleBot,
+		ref:         ref,
+		tgBotID:     model.TGBotID,
+		username:    model.Username,
+		addedBy:     model.AddedByUserID,
+		webhookPath: model.WebhookPath.String(),
+		manager:     bm,
+	}, nil
 }
 
 // botByPath finds a served bot by webhook path. A bot this process does not
@@ -481,6 +453,7 @@ func (bm *BotManager) SetDelivery(d *delivery.Service) {
 		Donate:       bm.config.Donate,
 		MediaBaseURL: bm.config.PublicMediaURL,
 		Kindle:       bm.config.Kindle,
+		AuthorLines:  bm.config.AuthorLines,
 		PostersPath:  func() string { return viper.GetString("app.posters_path") },
 	}, bm)
 	d.SetCards(bm.router)
@@ -505,7 +478,7 @@ func (bm *BotManager) v2Bot(ctx context.Context, b *Bot) (*router.Bot, error) {
 	if err != nil {
 		return nil, err
 	}
-	if model.Router != models.TelegramRouterV2 {
+	if model.Router == models.TelegramRouterMaintenance {
 		return nil, nil
 	}
 	navKey, err := bm.config.Secrets.Open(model.KeyID, secrets.PurposeNavKey, model.NavKeyEnc)
@@ -595,26 +568,6 @@ func (bm *BotManager) ListActiveBots() []string {
 	return tokens
 }
 
-// GetConversationManager returns the conversation manager instance
-func (bm *BotManager) GetConversationManager() *ConversationManager {
-	return bm.conversationManager
-}
-
-// GetConversationContext returns conversation context for a specific user and bot
-func (bm *BotManager) GetConversationContext(token string, userID int64) (*ConversationContext, error) {
-	return bm.conversationManager.GetContext(token, userID)
-}
-
-// GetConversationContextAsString returns conversation context as formatted string
-func (bm *BotManager) GetConversationContextAsString(token string, userID int64) (string, error) {
-	return bm.conversationManager.GetContextAsString(token, userID)
-}
-
-// ClearConversationContext clears conversation context for a specific user and bot
-func (bm *BotManager) ClearConversationContext(token string, userID int64) error {
-	return bm.conversationManager.ClearContext(token, userID)
-}
-
 // StartHealthCheck starts a periodic health check goroutine for all bots
 func (bm *BotManager) StartHealthCheck(ctx context.Context, interval time.Duration) {
 	go func() {
@@ -668,12 +621,7 @@ func (bm *BotManager) runHealthCheck() {
 			continue
 		}
 
-		bm.mutex.RLock()
-		nameless := b.username == ""
-		bm.mutex.RUnlock()
-		if nameless || bm.servedByV2(ctx, b.ref) {
-			bm.refreshIdentity(b)
-		}
+		bm.refreshIdentity(b)
 
 		isCorrect, err := bm.checkWebhookStatus(b)
 		if err != nil {
@@ -775,4 +723,49 @@ func maskToken(token string) string {
 		return hidden
 	}
 	return prefix + ":" + hidden
+}
+
+// The old interface kept each chat's conversation and state in Redis under
+// these prefixes: raw reader text, gone with the old interface (S6).
+var legacyRedisPrefixes = []string{"telegram_conversation:", "telegram_user_state:"}
+
+// forgetConversationsBatch is how many keys one SCAN step asks for.
+const forgetConversationsBatch = 500
+
+// forgetConversations deletes what the old interface kept in Redis. Run at
+// every start; once done, it finds nothing. A failure is logged: the keys
+// would expire within a week anyway.
+func (bm *BotManager) forgetConversations(ctx context.Context) {
+	if bm.redis == nil {
+		return
+	}
+	removed := 0
+	for _, prefix := range legacyRedisPrefixes {
+		var cursor uint64
+		for {
+			if ctx.Err() != nil {
+				return
+			}
+			keys, next, err := bm.redis.Scan(cursor, prefix+"*", forgetConversationsBatch).Result()
+			if err != nil {
+				logging.Warnf("Forgetting the old bot conversations: %v", err)
+				return
+			}
+			if len(keys) > 0 {
+				n, err := bm.redis.Del(keys...).Result()
+				if err != nil {
+					logging.Warnf("Forgetting the old bot conversations: %v", err)
+					return
+				}
+				removed += int(n)
+			}
+			if next == 0 {
+				break
+			}
+			cursor = next
+		}
+	}
+	if removed > 0 {
+		logging.Infof("Forgot %d old bot conversation keys", removed)
+	}
 }

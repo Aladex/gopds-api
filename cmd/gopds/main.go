@@ -142,8 +142,9 @@ func initializeTelegram(
 		Secrets:        box,
 		Donate:         cfg.Donate,
 		PublicMediaURL: cfg.TelegramPublicMediaURL,
+		AuthorLines:    lines,
 	}
-	telegramBotManager := telegram.NewBotManager(telegramConfig, mainRedisClient, searchService, lines)
+	telegramBotManager := telegram.NewBotManager(telegramConfig, mainRedisClient, searchService)
 
 	// Initialize Telegram service
 	telegramService, err = telegram.NewTelegramService(telegramBotManager)

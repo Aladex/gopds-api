@@ -52,8 +52,7 @@ func newV2(t *testing.T, configure ...func(*stack)) *v2Stack {
 	s.start()
 	user := s.seedUser("reader")
 	secret, _ := s.connect(user, botToken1)
-	_, err := s.db.Exec(`UPDATE telegram_bot SET router = 'v2'`)
-	require.NoError(t, err)
+	// A bot is v2 by default (S6): nothing to switch.
 	v := &v2Stack{stack: s, user: user, posters: dir}
 	v.post(s.u.Text(ownerTG, "/start link_"+secret))
 	return v

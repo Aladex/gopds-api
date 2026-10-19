@@ -22,6 +22,7 @@ var _ delivery.CardHooks = (*Router)(nil)
 func (r *Router) File(
 	ctx context.Context, job *models.TelegramDelivery, book *models.Book, size int,
 ) (name, caption string, markup *tgbot.InlineKeyboardMarkup) {
+	r.creditBook(ctx, book)
 	name = screens.FileName(book, job.Format)
 	caption = screens.FileCaption(book, job.Format, delivery.HumanSize(size))
 	b, err := r.bots.V2Bot(ctx, job.BotRef)

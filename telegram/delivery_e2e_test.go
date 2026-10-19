@@ -3,9 +3,11 @@ package telegram_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -29,24 +31,44 @@ type deliveryStack struct {
 	*stack
 	card   tgtest.Call
 	bookID int64
+	// base is how many messages the chat had before the first press.
+	base int
 }
 
-// openCard starts s (configured by the caller), binds the bot and opens the
-// card of the multi-author fixture book through the legacy search.
+// openCard starts s (configured by the caller), binds the bot and gives the
+// chat a card of the old interface for the multi-author fixture book: its
+// file buttons on a message of the chat, as the cards the legacy bot sent
+// stay in chats after S6. Their presses make the S2 delivery jobs these tests
+// are about (router.legacyDownload); the v2 card's own presses are the S4
+// tests'.
 func openCard(t *testing.T, s *stack) *deliveryStack {
 	t.Helper()
 	s.start()
 	user := s.seedUser("reader")
 	secret, _ := s.connect(user, botToken1)
 	s.linkVia(botToken1, ownerTG, secret)
-	s.waitMessage(ownerTG, 1)
-	s.hook(botToken1).Post(t, s.u.Text(ownerTG, "/b мир"))
-	list := s.waitMessage(ownerTG, 2)
-	s.hook(botToken1).Post(t, s.u.Tap(t, ownerTG, &list, "1"))
-	card := s.waitMessage(ownerTG, 3)
-	require.Contains(t, card.Params["text"], "война и МИР")
-	return &deliveryStack{stack: s, card: card, bookID: s.books[scanfixture.EntryMultiAuthor]}
+	home := s.waitMessage(ownerTG, 1)
+	bookID := s.books[scanfixture.EntryMultiAuthor]
+	return &deliveryStack{stack: s, card: oldCard(t, &home, bookID), bookID: bookID, base: 1}
 }
+
+// oldCard is message on, carrying the old interface's file buttons for
+// bookID.
+func oldCard(t *testing.T, on *tgtest.Call, bookID int64) tgtest.Call {
+	t.Helper()
+	id := strconv.FormatInt(bookID, 10)
+	markup, err := json.Marshal(map[string]any{"inline_keyboard": [][]map[string]string{
+		{{"text": "📄 FB2", "callback_data": "download:fb2:" + id}, {"text": "📚 EPUB", "callback_data": "download:epub:" + id}},
+		{{"text": "📱 MOBI", "callback_data": "download:mobi:" + id}, {"text": "🗂 ZIP", "callback_data": "download:zip:" + id}},
+	}})
+	require.NoError(t, err)
+	card := *on
+	card.Params = map[string]string{"chat_id": on.Params["chat_id"], "text": "война и МИР", "reply_markup": string(markup)}
+	return card
+}
+
+// told is the chat's first message after the card: what the job told.
+func (d *deliveryStack) told() tgtest.Call { return d.waitMessage(ownerTG, d.base+1) }
 
 // tapEPUB presses the card's EPUB button.
 func (d *deliveryStack) tapEPUB(t *testing.T) {
@@ -91,7 +113,7 @@ func TestATapDeliversTheFile(t *testing.T) {
 
 	doc := d.fake.WaitAnswered(t, "sendDocument", 1, 15*time.Second)[0]
 	job := d.waitJob(t, models.DeliverySent)
-	assert.Equal(t, "Готовлю EPUB…", d.answers(t, 2)[1])
+	assert.Equal(t, "Готовлю EPUB…", d.answers(t, 1)[0])
 	actions := d.fake.Calls("sendChatAction")
 	require.NotEmpty(t, actions)
 	assert.Equal(t, "upload_document", actions[0].Params["action"])
@@ -129,8 +151,7 @@ func TestTwoTapsMakeOneFile(t *testing.T) {
 	d.tapEPUB(t)
 	time.Sleep(10 * time.Millisecond)
 	d.tapEPUB(t)
-	answers := d.answers(t, 3)
-	assert.Equal(t, []string{"Готовлю EPUB…", "Файл уже готовится"}, answers[1:])
+	assert.Equal(t, []string{"Готовлю EPUB…", "Файл уже готовится"}, d.answers(t, 2))
 
 	release()
 	d.waitJob(t, models.DeliverySent)
@@ -168,7 +189,7 @@ func TestAnUnansweredSendIsNotRepeated(t *testing.T) {
 
 	job := d.waitJob(t, models.DeliveryUncertain)
 	assert.Equal(t, models.OutcomeUncertain, *job.Outcome)
-	told := d.waitMessage(ownerTG, 4)
+	told := d.told()
 	assert.Equal(t, uncertainText, told.Params["text"])
 	assert.Equal(t, [][]string{{"Отправить ещё раз"}}, tgtest.ButtonTexts(t, &told))
 
@@ -219,7 +240,7 @@ func TestAFileOverTheLimitIsNotUploaded(t *testing.T) {
 
 	job := d.waitJob(t, models.DeliveryFailed)
 	assert.Equal(t, models.OutcomeTooLarge, *job.Outcome)
-	told := d.waitMessage(ownerTG, 4)
+	told := d.told()
 	assert.Equal(t, "Этот файл слишком большой для отправки ботом\nвойна и МИР · EPUB · больше 50 МБ\n\n"+
 		"Его можно скачать на сайте библиотеки.", told.Params["text"])
 	assert.Equal(t, [][]string{{"FB2", "MOBI", "ZIP"}, {"Открыть на сайте"}}, tgtest.ButtonTexts(t, &told))
@@ -241,7 +262,7 @@ func TestABookWithdrawnMidwayIsNotSent(t *testing.T) {
 
 	job := d.waitJob(t, models.DeliveryFailed)
 	assert.Equal(t, models.OutcomeUnavailable, *job.Outcome)
-	assert.Equal(t, "Эта книга больше недоступна.", d.waitMessage(ownerTG, 4).Params["text"])
+	assert.Equal(t, "Эта книга больше недоступна.", d.told().Params["text"])
 	assert.Empty(t, d.fake.Calls("sendDocument"))
 }
 
@@ -261,7 +282,7 @@ func TestAnUnboundChatIsNotWrittenTo(t *testing.T) {
 	job := d.waitJob(t, models.DeliveryFailed)
 	assert.Equal(t, models.OutcomeUnavailable, *job.Outcome)
 	d.delivery.WaitIdle()
-	d.fake.Quiet(t, "sendMessage", 3, 200*time.Millisecond)
+	d.fake.Quiet(t, "sendMessage", d.base, 200*time.Millisecond)
 	assert.Empty(t, d.fake.Calls("sendDocument"))
 	assert.Empty(t, d.fake.Calls("editMessageText"))
 }
@@ -360,5 +381,5 @@ func TestABlockedBotFailsTheJob(t *testing.T) {
 	job := d.waitJob(t, models.DeliveryFailed)
 	assert.Equal(t, models.OutcomeBotBlocked, *job.Outcome)
 	assert.Equal(t, 1, d.count(`SELECT count(*) FROM telegram_binding WHERE status = 'active' AND blocked_at IS NOT NULL`))
-	d.settle(ownerTG, 3)
+	d.settle(ownerTG, d.base)
 }

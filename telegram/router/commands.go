@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"time"
 
 	"gopds-api/database"
 	"gopds-api/logging"
@@ -59,4 +60,35 @@ func (r *Router) ClearCommands(ctx context.Context, b *Bot) bool {
 		}
 	}
 	return ok
+}
+
+// copyKeyboardGone takes the old interface's keyboard away (plan.md S6).
+const copyKeyboardGone = "Клавиатура внизу больше не нужна — меню теперь в сообщениях."
+
+// setupChat is the bot's first-interaction setup, each step once: no command
+// menu, and no keyboard of the old interface in the chat.
+func (r *Router) setupChat(ctx context.Context, b *Bot, chatID int64) {
+	r.ensureNoCommands(ctx, b)
+	r.dropReplyKeyboard(ctx, b, chatID)
+}
+
+// dropReplyKeyboard sends, once per binding, the one message that can take a
+// reply keyboard away: a plain one with ReplyKeyboardRemove. A chat linked
+// since S6 never had the keyboard, and its binding comes marked.
+func (r *Router) dropReplyKeyboard(ctx context.Context, b *Bot, chatID int64) {
+	if b.Binding == nil || b.Binding.ReplyKBRemovedAt != nil {
+		return
+	}
+	if _, err := b.Client.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: chatID, Text: copyKeyboardGone, ReplyMarkup: &tgbot.ReplyKeyboardRemove{RemoveKeyboard: true},
+	}); err != nil {
+		logging.Warnf("Telegram bot %d: taking the old keyboard away: %v", b.Ref, tgapi.RedactURL(err))
+		return
+	}
+	if err := database.MarkTelegramReplyKeyboardRemoved(ctx, b.Binding.ID); err != nil {
+		logging.Warnf("Telegram bot %d: recording the old keyboard gone: %v", b.Ref, err)
+		return
+	}
+	now := time.Now()
+	b.Binding.ReplyKBRemovedAt = &now
 }

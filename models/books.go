@@ -157,6 +157,9 @@ type Book struct {
 	Covers          []*Cover  `pg:"covers,rel:has-many" json:"covers"`
 	FavoriteCount   int       `pg:"-" json:"favorite_count"`
 	Position        int       `pg:"-" json:"position"`
+	// AuthorLine is the book's author line as a surface outside the web list
+	// names it (services.AuthorLines); empty, the catalog authors are used.
+	AuthorLine []AuthorDisplay `pg:"-" json:"-"`
 }
 
 // BookSourceDetail is what the public book card shows from a book's current

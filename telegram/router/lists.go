@@ -182,6 +182,7 @@ func (r *Router) loadList(ctx context.Context, b *Bot, view *models.TelegramView
 	if err != nil {
 		return nil, err
 	}
+	r.creditAuthors(ctx, list.Books)
 	return out, nil
 }
 

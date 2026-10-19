@@ -1,4 +1,4 @@
-package commands
+package searchparity
 
 import (
 	"context"
@@ -31,16 +31,17 @@ import (
 // prove: a mistake in the request DTO, in the visibility flags or in the SQL
 // leaves it green, because the stand-in never looks at the request.
 //
-// These drive the same three adapters over the real service, repository and
+// These drive the same two adapters over the real service, repository and
 // catalog. What they compare is the canonical answer — the ordered book IDs
 // and the one exact total the repository computed — against what each client
 // actually rendered, through its own query string, its own page size and its
 // own format.
 //
 // Totals cannot be compared literally, and the plan asking for that was a
-// mistake: REST serializes a page count, Telegram an exact row count, and OPDS
-// no number at all, only whether a next page exists. Each is checked as a
-// function of the same underlying total instead.
+// mistake: REST serializes a page count, and OPDS no number at all, only
+// whether a next page exists. Each is checked as a function of the same
+// underlying total instead. (The Telegram bot's command processor was the
+// third client until S6 deleted it.)
 
 var parityDB *pg.DB
 
@@ -51,7 +52,7 @@ func TestMain(m *testing.M) {
 	if cfg, ok := testdb.Configured(); ok {
 		conn, err := testdb.Connect(cfg, database.DisableJIT)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "commands: %v\n", err)
+			fmt.Fprintf(os.Stderr, "searchparity: %v\n", err)
 			os.Exit(1)
 		}
 		parityDB = conn
@@ -234,65 +235,6 @@ func TestSearchParityOverTheRealCatalog(t *testing.T) {
 				assert.Equal(t, want.Total > parityPage, feed.hasNext(),
 					"OPDS promised the wrong next page for %d rows", want.Total)
 			})
-
-			t.Run("telegram", func(t *testing.T) {
-				bot := newCommandProcessorWithDeps(svc, func(int64) (models.User, error) {
-					return models.User{ID: 0, BooksLang: c.language}, nil
-				})
-				result, err := bot.ExecuteFindBookWithPagination(context.Background(), c.needle, 1, 0, parityPage)
-				require.NoError(t, err)
-
-				if len(wantIDs) == 0 {
-					assert.Empty(t, result.Books, "Telegram showed rows for a query that finds nothing")
-					return
-				}
-				assert.Equal(t, wantIDs, idsOf(result.Books), "Telegram rendered a different page")
-				require.NotNil(t, result.SearchParams)
-				// Telegram carries the exact total, unrounded.
-				assert.Equal(t, want.Total, result.SearchParams.TotalCount,
-					"Telegram carried a different total")
-			})
-		})
-	}
-}
-
-// TestSearchParityAcrossPageSizes is the other half of the claim. The clients
-// page differently — OPDS by ten, the bot by five — so equality of pages is
-// the wrong contract; what must hold is that they are windows onto one ordered
-// sequence.
-func TestSearchParityAcrossPageSizes(t *testing.T) {
-	svc := requireParityDB(t)
-
-	for _, c := range parityCases {
-		if c.name == "zero result" {
-			continue
-		}
-		t.Run(c.name, func(t *testing.T) {
-			want := canonical(t, svc, c, parityPage)
-			if len(want.Books) < parityPage {
-				t.Skipf("%q returns %d rows, too few to page", c.needle, len(want.Books))
-			}
-			wantIDs := idsOf(want.Books)
-
-			bot := newCommandProcessorWithDeps(svc, func(int64) (models.User, error) {
-				return models.User{ID: 0, BooksLang: c.language}, nil
-			})
-
-			// The bot's own page size takes the first five of the same ten.
-			first, err := bot.ExecuteFindBookWithPagination(context.Background(), c.needle, 1, 0, 5)
-			require.NoError(t, err)
-			assert.Equal(t, wantIDs[:5], idsOf(first.Books), "the bot's first page left the sequence")
-
-			// And its second page continues it, without repeating or skipping.
-			second, err := bot.ExecuteFindBookWithPagination(context.Background(), c.needle, 1, 5, 5)
-			require.NoError(t, err)
-			assert.Equal(t, wantIDs[5:10], idsOf(second.Books), "the bot's second page left the sequence")
-
-			// Both pages describe the same total, and it is the canonical one.
-			require.NotNil(t, first.SearchParams)
-			require.NotNil(t, second.SearchParams)
-			assert.Equal(t, want.Total, first.SearchParams.TotalCount)
-			assert.Equal(t, want.Total, second.SearchParams.TotalCount)
 		})
 	}
 }

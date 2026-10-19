@@ -15,8 +15,8 @@ import (
 	tgbot "github.com/go-telegram/bot/models"
 )
 
-// callback handles a button press. Buttons of the old interface go back to
-// the legacy handlers (false). Every v2 press is answered, on every path.
+// callback handles a button press; buttons of the old interface still in the
+// chats go to legacy (legacy.go). Every press is answered, on every path.
 //
 // The checks run in plan.md §2.5's order: shape and version, tag (which binds
 // the button to this bot, owner and chat), generation, the panel and its
@@ -30,7 +30,7 @@ func (r *Router) callback(ctx context.Context, b *Bot, q *tgbot.CallbackQuery) b
 		r.answer(ctx, b, q, screens.CopyButtonDenied)
 		return true
 	}
-	r.ensureNoCommands(ctx, b)
+	r.setupChat(ctx, b, msg.Chat.ID)
 	env, err := cbv2.Decode(q.Data, b.NavKey, cbv2.BindCtx{TGBotID: b.TGBotID, OwnerTGID: b.Binding.TGUserID, ChatID: msg.Chat.ID})
 	if err != nil {
 		r.answer(ctx, b, q, screens.CopyButtonDenied)

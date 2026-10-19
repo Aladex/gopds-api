@@ -29,11 +29,10 @@ const (
 // The bot's words for connecting. Russian, informal, as the concept's §C.3
 // screens have them; the first line is the screen's title.
 const (
-	copyLinked = "Бот подключён\n\n" +
-		"Теперь книги можно искать здесь. Напиши название или автора —\n" +
-		"например, «Основание» или «Айзек Азимов».\n\n" +
-		"Основной формат — EPUB. Остальные форматы тоже доступны в карточке."
-	copyUnlinked = "Бот ещё не подключён к библиотеке\n\n" +
+	// copyLinkedMaintenance greets a chat bound while the bot is in
+	// maintenance; otherwise the home panel does.
+	copyLinkedMaintenance = "Бот подключён.\n\n" + copyMaintenance
+	copyUnlinked          = "Бот ещё не подключён к библиотеке\n\n" +
 		"Открой свой профиль на сайте и заверши подключение."
 	copyLinkExpired = "Ссылка подключения истекла\n\n" +
 		"Открой профиль на сайте и получи новую ссылку."
@@ -99,7 +98,7 @@ func (b *Bot) handleStart(ctx context.Context, update *tgbot.Update) {
 		return
 	}
 	if binding != nil && binding.TGUserID == msg.From.ID {
-		b.sendLinked(ctx, msg.Chat.ID)
+		b.linked(ctx, msg.Chat.ID)
 		return
 	}
 	b.sendScreen(ctx, msg.Chat.ID, copyUnlinked, b.manager.profileButton())
@@ -136,25 +135,15 @@ func (b *Bot) handleLink(ctx context.Context, msg *tgbot.Message, secret string)
 	}
 }
 
-// linked greets a chat just bound: the v2 bot with its home panel, the
-// legacy one with its screen and keyboard.
+// linked greets a chat just bound with its home panel; a bot in maintenance
+// says it is connected, and that search is on the site for now.
 func (b *Bot) linked(ctx context.Context, chatID int64) {
 	vb, err := b.manager.v2Bot(ctx, b)
-	if err == nil && vb != nil {
+	if err == nil && vb != nil && b.manager.router != nil {
 		b.manager.router.Linked(ctx, vb, chatID)
 		return
 	}
-	b.sendLinked(ctx, chatID)
-}
-
-// sendLinked says the bot is connected. Until the new menu exists the
-// legacy keyboard comes with it, so the reader has a way on.
-func (b *Bot) sendLinked(ctx context.Context, chatID int64) {
-	if _, err := b.bot.SendMessage(ctx, &tgbotapi.SendMessageParams{
-		ChatID: chatID, Text: copyLinked, ReplyMarkup: GetMainKeyboard(),
-	}); err != nil {
-		logging.Warnf("Telegram bot %d: sending the linked screen: %v", b.ref, err)
-	}
+	b.sendScreen(ctx, chatID, copyLinkedMaintenance, b.manager.siteButton())
 }
 
 // sendScreen sends a text with an optional single URL button, link previews

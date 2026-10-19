@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -270,51 +271,57 @@ func (bm *BotManager) dispatch(parent context.Context, b *Bot, update *tgbot.Upd
 	}
 }
 
-// handle runs one update through the bot's router: the v2 router for a bot
-// switched to it, the legacy handlers otherwise — and for the old
-// interface's buttons, still in the v2 bots' chats. An error means no
-// handler could be chosen and none ran: the update is unread.
-func (bm *BotManager) handle(ctx context.Context, b *Bot, update *tgbot.Update) error {
+// handle runs one update through the v2 router, or answers it with the
+// maintenance message when the bot is switched to maintenance (or no router
+// was built). A /start with a link binds the bot either way. An error means
+// no handler could be chosen and none ran: the update is unread.
+func (bm *BotManager) handle(ctx context.Context, b *Bot, update *tgbot.Update) (err error) {
+	defer func() {
+		// One faulty update must not take the process down.
+		if r := recover(); r != nil {
+			logging.Errorf("Telegram bot %d: handling an update panicked: %v\n%s", b.ref, r, debug.Stack())
+			err = nil
+		}
+	}()
+	if msg := update.Message; msg != nil && isLinkStart(msg.Text) {
+		b.handleStart(ctx, update)
+		return nil
+	}
 	vb, err := bm.v2Bot(ctx, b)
 	if err != nil {
 		return fmt.Errorf("reading telegram bot %d: %w", b.ref, err)
 	}
-	if vb != nil {
-		if msg := update.Message; msg != nil && isLinkStart(msg.Text) {
-			b.handleStart(ctx, update)
-			return nil
-		}
+	if vb != nil && bm.router != nil {
 		handled, err := bm.router.Handle(ctx, vb, update)
-		if err != nil {
+		if err != nil || handled {
 			return err
 		}
-		if handled {
-			return nil
-		}
-	} else {
-		bm.ensureLegacyMenu(ctx, b)
 	}
-	b.bot.ProcessUpdate(ctx, update)
+	bm.maintenance(ctx, b, update)
 	return nil
 }
 
-// ensureLegacyMenu gives a bot served by the legacy handlers its command
-// menu back when the v2 router cleared it: a bot switched back by its row,
-// without a restart. Best effort: the update is handled either way.
-func (bm *BotManager) ensureLegacyMenu(ctx context.Context, b *Bot) {
-	if bm.router == nil {
-		return
-	}
-	ui, err := database.GetTelegramBotUI(ctx, b.ref)
-	if err != nil {
-		logging.Warnf("Telegram bot %d: reading its menu state: %v", b.ref, err)
-		return
-	}
-	if ui.CommandsClearedAt == nil {
-		return
-	}
-	if err := b.registerCommands(); err != nil {
-		logging.Warnf("Telegram bot %d: restoring its commands: %v", b.ref, err)
+// copyMaintenance is a bot switched to maintenance (plan-ui.md §5.4).
+const copyMaintenance = "Поиск в боте временно недоступен. Книги можно найти на сайте."
+
+// maintenance answers an update while the bot is in maintenance: a message
+// gets the notice with the site's address, a press the notice as a toast, an
+// inline query nothing. Its jobs and binding keep their state.
+func (bm *BotManager) maintenance(ctx context.Context, b *Bot, update *tgbot.Update) {
+	switch {
+	case update.Message != nil:
+		if update.Message.Chat.Type == tgbot.ChatTypePrivate {
+			b.sendScreen(ctx, update.Message.Chat.ID, copyMaintenance, bm.siteButton())
+		}
+	case update.CallbackQuery != nil:
+		_, _ = b.bot.AnswerCallbackQuery(ctx, &tgbotapi.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID, Text: copyMaintenance,
+		})
+	case update.InlineQuery != nil:
+		_, _ = b.bot.AnswerInlineQuery(ctx, &tgbotapi.AnswerInlineQueryParams{
+			InlineQueryID: update.InlineQuery.ID, Results: []tgbot.InlineQueryResult{},
+			CacheTime: inlineCacheSeconds, IsPersonal: true,
+		})
 	}
 }
 

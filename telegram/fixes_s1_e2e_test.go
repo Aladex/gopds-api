@@ -61,8 +61,12 @@ func TestAPendingLinkCannotTakeAnActiveBot(t *testing.T) {
 	// A relinking the same bot still works.
 	_, out := s.api(accountA, http.MethodPost, "/bot", fmt.Sprintf(`{"token":%q}`, botToken1))
 	again := linkSecretOf(out["link_url"])
+	pins := len(s.fake.Calls("pinChatMessage"))
 	s.linkVia(botToken1, ownerTG, again)
-	assert.Equal(t, linkedText, s.waitMessage(ownerTG, 2).Params["text"])
+	s.bm.WaitIdle()
+	// The chat has its home panel already: it is pinned again, not sent anew.
+	assert.Greater(t, len(s.fake.Calls("pinChatMessage")), pins)
+	assert.Len(t, s.messagesTo(ownerTG), 1)
 	assert.Equal(t, 1, s.count(`SELECT count(*) FROM telegram_binding WHERE user_id = ? AND status = 'active' AND generation = 2`,
 		accountA))
 }
@@ -73,6 +77,7 @@ func TestAPendingLinkCannotTakeAnActiveBot(t *testing.T) {
 func TestAReplyInFlightIsNotRepeatedOnTakeover(t *testing.T) {
 	a := newStack(t).start()
 	user := a.seedUser("reader")
+	a.plainPanels(user)
 	secret, _ := a.connect(user, botToken1)
 	a.linkVia(botToken1, ownerTG, secret)
 	a.waitMessage(ownerTG, 1)
@@ -196,10 +201,12 @@ func TestAdoptedBotsLearnTheirName(t *testing.T) {
 	assert.Equal(t, 1, s.count(`SELECT count(*) FROM telegram_bot WHERE display_name = 'Test Bot'`))
 	assert.Len(t, s.fake.Calls("getMe"), 1)
 
-	// Served again — another process, or the next start — nothing to ask.
+	// Served again — another process, or the next start — the name is
+	// known; getMe is asked once more, for whether the bot answers inline
+	// queries (S5b), now that every bot is v2 (S6).
 	s.secondPod()
-	time.Sleep(200 * time.Millisecond)
-	assert.Len(t, s.fake.Calls("getMe"), 1)
+	require.Eventually(t, func() bool { return len(s.fake.Calls("getMe")) == 2 }, 5*time.Second, 20*time.Millisecond)
+	assert.Equal(t, 1, s.count(`SELECT count(*) FROM telegram_bot WHERE display_name = 'Test Bot'`))
 }
 
 // F2: a bot whose name could not be read is tried again by the health check;
