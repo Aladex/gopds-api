@@ -251,29 +251,48 @@ func TestABookWithdrawnMidwayIsNotSent(t *testing.T) {
 func TestAStallWhilePreparingIsTakenOver(t *testing.T) {
 	s := newStack(t)
 	var calls atomic.Int32
-	stalled := make(chan struct{})
-	var stalledOnce sync.Once
-	wake := func() { stalledOnce.Do(func() { close(stalled) }) }
-	t.Cleanup(wake)
+	// Each holder's prepare stalls on its own gate: the first is a stuck
+	// converter, the second keeps the new holder preparing while the old one
+	// wakes and tries to send.
+	gates := [2]chan struct{}{make(chan struct{}), make(chan struct{})}
+	var onces [2]sync.Once
+	open := func(i int) { onces[i].Do(func() { close(gates[i]) }) }
+	// A defer, not a cleanup: it must run before the processes' Stop, which
+	// waits for the stalled holders.
+	defer func() { open(0); open(1) }()
 	s.deliveryCfg.Prepare = func(ctx context.Context, b *models.Book, f string, limit int64) (delivery.File, error) {
-		if calls.Add(1) == 1 {
-			<-stalled // ignores ctx on purpose: a stuck converter
+		if n := int(calls.Add(1)); n <= len(gates) {
+			<-gates[n-1] // ignores ctx on purpose
 		}
-		return delivery.PrepareFile(ctx, b, f, limit)
+		return delivery.PrepareFile(context.WithoutCancel(ctx), b, f, limit)
 	}
+	// The stalled holder must not notice it lost the lease before it tries
+	// to send — no heartbeat in time — so what stops it is the fence checked
+	// when the send starts, not its own cancellation.
+	s.deliveryCfg.Heartbeat = time.Hour
+	s.deliveryCfg.Lease = 10 * time.Second
+	// One worker per process: the takeover is the other process's, and the
+	// first process going idle means the old holder is done.
+	s.deliveryCfg.Workers = 1
 	d := openCard(t, s)
 	d.tapEPUB(t)
 	require.Eventually(t, func() bool { return calls.Load() == 1 }, 5*time.Second, 10*time.Millisecond)
 
-	// The holder's lease runs out; its heartbeats now fail.
+	// The holder's lease runs out; another process takes the job over and
+	// is still preparing it when the old holder wakes.
 	_, err := d.db.Exec(`UPDATE telegram_delivery SET lease_expires_at = now() - interval '1 second'`)
 	require.NoError(t, err)
-	d.secondPod()
+	other := d.secondPod()
+	require.Eventually(t, func() bool { return calls.Load() == 2 }, 5*time.Second, 10*time.Millisecond)
+	open(0)
+	d.delivery.WaitIdle()
+	d.fake.Quiet(t, "sendDocument", 0, 200*time.Millisecond)
+	assert.Equal(t, models.DeliveryPreparing, d.job(t).State, "the old holder left the job to the new one")
+
+	open(1)
 	d.waitJob(t, models.DeliverySent)
-	wake()
-	time.Sleep(500 * time.Millisecond)
+	other.delivery.WaitIdle()
 	d.fake.Quiet(t, "sendDocument", 1, 200*time.Millisecond)
-	assert.Equal(t, int32(2), calls.Load(), "prepared again by the new holder")
 }
 
 // (h) A process that stops while sending: the job is closed uncertain by the
