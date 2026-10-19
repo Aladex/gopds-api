@@ -7,11 +7,12 @@ import type { AuthorDisplay, Book } from '@/api/books';
 import { Button } from '@/shared/ui/button';
 import { BouncingDots } from '@/shared/ui/bouncing-dots';
 import { Expandable } from '@/shared/ui/expandable';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/shared/ui/tooltip';
 import BookCover from '@/features/catalogue/BookCover';
 import BookAdminMenu from '@/features/catalogue/BookAdminMenu';
 import { cn } from '@/shared/lib/utils';
 import { getLanguageDisplaySafe } from '@/shared/lib/languageUtils';
-import { KindleButton, TelegramButton } from '@/features/kindle/SendButtons';
+import { CARD_ACTION_CLASS, KindleButton, TelegramButton } from '@/features/kindle/SendButtons';
 
 import { API_URL } from '@/api/config';
 import { useAuthor } from '@/context/AuthorContext';
@@ -464,9 +465,22 @@ const BookCard: React.FC<BookCardProps> = ({
 
                 {!isWide && downloads}
 
+                {/*
+                  Every action labelled. Four labels do not fit one row of a
+                  phone — at 320px the row of two labels and two icons already
+                  ran past the card's padding — so below the card's wide layout
+                  they take a two-column grid, as the format buttons above them
+                  do, each a finger's height; from it up, one row on the right.
+                  A button switched off in the profile leaves no hole: the grid
+                  fills in order, and an odd one out takes the whole last row.
+                */}
                 <div
                     data-testid="book-actions"
-                    className={cn('flex items-center justify-end gap-0.5', 'pt-2', 'sm:pt-0')}
+                    className={cn(
+                        'grid grid-cols-2 gap-2 pt-2',
+                        '[&>:last-child:nth-child(odd)]:col-span-2',
+                        'sm:flex sm:items-center sm:justify-end sm:gap-0.5 sm:pt-0',
+                    )}
                 >
                     {book.format === PREVIEWABLE_FORMAT && (
                         <Button
@@ -474,7 +488,7 @@ const BookCard: React.FC<BookCardProps> = ({
                             size="sm"
                             title={t('bookRead')}
                             onClick={() => onPreview(book)}
-                            className="gap-1.5"
+                            className={CARD_ACTION_CLASS}
                         >
                             <BookOpen className="size-4" />
                             {t('bookRead')}
@@ -494,17 +508,29 @@ const BookCard: React.FC<BookCardProps> = ({
                             onClick={() => onSendToTelegram?.(book)}
                         />
                     )}
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        title={book.fav ? t('bookFavRemove') : t('bookFavAdd')}
-                        aria-label={book.fav ? t('bookFavRemove') : t('bookFavAdd')}
-                        aria-pressed={book.fav}
-                        onClick={() => onToggleFavourite(book)}
-                        className={book.fav ? 'text-amber-500' : undefined}
-                    >
-                        <Star className={cn('size-4', book.fav && 'fill-current')} />
-                    </Button>
+                    {/* One word in both states, as a toggle's name should be:
+                        the filled star and the pressed state say which, and
+                        the hint says what a press does. «В избранном» did not
+                        fit half a 320px card beside its star. */}
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    aria-pressed={book.fav}
+                                    onClick={() => onToggleFavourite(book)}
+                                    className={cn(CARD_ACTION_CLASS, book.fav && 'text-amber-500')}
+                                >
+                                    <Star className={cn('size-4', book.fav && 'fill-current')} />
+                                    {t('bookFav')}
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                {book.fav ? t('bookFavRemove') : t('bookFavAdd')}
+                            </TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
                 </div>
             </div>
         </article>

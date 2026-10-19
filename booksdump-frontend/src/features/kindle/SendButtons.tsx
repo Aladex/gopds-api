@@ -9,13 +9,19 @@ import TelegramIcon from '@/shared/icons/TelegramIcon';
 import { cn } from '@/shared/lib/utils';
 
 /*
- * The two "send it somewhere" buttons of the book card. Kindle is labelled like
- * Read beside it — an icon alone was not recognised until pressed — and
- * Telegram stays an icon, the narrow card having room for one label only.
- * Their hints are radix tooltips rather than a title attribute: a title never
- * shows on keyboard focus or on a touch screen, and for the Telegram button
- * the hint is the only word it has.
+ * The two "send it somewhere" buttons of the book card. Every button of the
+ * card's action row says what it is beside its icon — an icon alone was not
+ * recognised until pressed. Their hints are radix tooltips rather than a title
+ * attribute: a title never shows on keyboard focus or on a touch screen.
  */
+
+/**
+ * The size every button of the card's action row shares: the shared Button's
+ * small size, as tall as a finger needs on a phone — where the row becomes a
+ * two-column grid — and back to the small height from the card's wide layout
+ * up, where a pointer presses it.
+ */
+export const CARD_ACTION_CLASS = 'h-10 gap-1.5 sm:h-8';
 
 type KindleButtonProps = {
     /** Whether the reader has given a Kindle address to send to. */
@@ -50,7 +56,7 @@ export const KindleButton: React.FC<KindleButtonProps> = ({ configured, sending,
                         aria-busy={sending || undefined}
                         data-configured={configured}
                         onClick={onClick}
-                        className={cn('gap-1.5', !configured && 'text-muted-foreground')}
+                        className={cn(CARD_ACTION_CLASS, !configured && 'text-muted-foreground')}
                     >
                         {sending ? (
                             <Loader2 aria-hidden="true" className="size-4 animate-spin" />
@@ -76,9 +82,9 @@ type TelegramButtonProps = {
 /**
  * TelegramButton asks to send the book into the reader's Telegram chat, or —
  * muted, for a reader without a working connection — opens the profile's
- * Telegram tab, as Kindle's opens its setup. It stays an icon; its hint names
- * what it does, and behaves as Kindle's: hover and keyboard focus, never the
- * focus a closing question gives back.
+ * Telegram tab, as Kindle's opens its setup. Labelled as Kindle's is; its hint
+ * names what it does, and behaves as Kindle's: hover and keyboard focus, never
+ * the focus a closing question gives back.
  */
 export const TelegramButton: React.FC<TelegramButtonProps> = ({ connected, sending, onClick }) => {
     const { t } = useTranslation();
@@ -90,18 +96,19 @@ export const TelegramButton: React.FC<TelegramButtonProps> = ({ connected, sendi
                 <TooltipTrigger asChild>
                     <Button
                         variant="ghost"
-                        size="icon"
+                        size="sm"
                         aria-label={sending ? t('sendToTelegram.sending') : label}
                         aria-busy={sending || undefined}
                         data-connected={connected}
                         onClick={onClick}
-                        className={cn(!connected && 'text-muted-foreground')}
+                        className={cn(CARD_ACTION_CLASS, !connected && 'text-muted-foreground')}
                     >
                         {sending ? (
                             <Loader2 aria-hidden="true" className="size-4 animate-spin" />
                         ) : (
                             <TelegramIcon className="size-4" />
                         )}
+                        {t('sendToTelegram.button')}
                     </Button>
                 </TooltipTrigger>
                 <TooltipContent>{sending ? t('sendToTelegram.sending') : label}</TooltipContent>

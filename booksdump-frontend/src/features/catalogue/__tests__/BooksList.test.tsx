@@ -413,9 +413,9 @@ describe('BooksList moderation controls', () => {
 });
 
 describe('BooksList favourite toggle', () => {
-    /** The favourite control now carries an accessible name, so ask for it. */
+    /** The favourite control is named by its label, as any toggle is. */
     function favouriteButton() {
-        return screen.getByRole('button', { name: /bookFav(Add|Remove)/ });
+        return screen.getByRole('button', { name: 'bookFav' });
     }
 
     it('sends the new state and refreshes the reader', async () => {
