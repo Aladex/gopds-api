@@ -47,7 +47,9 @@ func (c *observingClient) Do(req *http.Request) (*http.Response, error) {
 	}
 	resp, err := c.inner.Do(req) // #nosec G704 -- the request goes to the configured Bot API endpoint
 	if handling {
-		c.reconcile(req.Context(), lease, err)
+		// A 429 is Telegram refusing the call before doing anything.
+		refused := err == nil && resp.StatusCode == http.StatusTooManyRequests
+		c.reconcile(req.Context(), lease, err, refused)
 	}
 	if err != nil || resp.StatusCode != http.StatusForbidden {
 		return resp, err
@@ -65,12 +67,12 @@ func (c *observingClient) Do(req *http.Request) (*http.Response, error) {
 var clearReplyMark = database.ClearTelegramInboxReplyStarted
 
 // reconcile records a handler's call in its ledger. A call that provably never
-// reached Telegram takes back the update's reply mark — unless an earlier call
+// reached Telegram — or that Telegram refused, with a 429 — takes back the update's reply mark — unless an earlier call
 // of the same update may have reached it — so the update stays safe to run
 // again instead of being closed as uncertain.
-func (c *observingClient) reconcile(ctx context.Context, lease database.InboxLease, err error) {
+func (c *observingClient) reconcile(ctx context.Context, lease database.InboxLease, err error, refused bool) {
 	class, _ := tgapi.Classify(err)
-	unsent := class == tgapi.ClassNotSent
+	unsent := refused || class == tgapi.ClassNotSent
 	ledger := replyLedgerOf(ctx)
 	if ledger == nil {
 		return

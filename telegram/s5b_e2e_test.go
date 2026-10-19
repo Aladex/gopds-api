@@ -1,6 +1,7 @@
 package telegram_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -282,4 +283,26 @@ func TestCheckingInlineModeFlipsTheHome(t *testing.T) {
 	v.tap(&settings, "Домой")
 	home = v.homePanel()
 	assert.False(t, hasButton(t, &home, "🔍 Найти с подсказками"), "off again, the row goes")
+}
+
+// Notes item 9 (review-s5b.md S2), the reviewer's
+// TestReviewPickKeepsInputWhenCardSendFails: Telegram refusing the card with
+// a 429 leaves the pick in the chat and the update unread; run again, it
+// becomes the card and the pick goes.
+func TestAPickRefusedWithA429IsKeptAndRunAgain(t *testing.T) {
+	v := newV2(t)
+	v.fake.On(tgtest.Rule{Method: "sendRichMessage", Times: 1, Reply: tgtest.TooManyRequests(1)})
+	panels := v.count(`SELECT count(*) FROM telegram_panel`)
+	update := v.pick(v.botID(), stackSiteURL+"/books/page/1?book_id="+strconv.FormatInt(v.books[scanfixture.EntryMultiAuthor], 10))
+	assert.Equal(t, panels, v.count(`SELECT count(*) FROM telegram_panel`), "no card was sent")
+	assert.Empty(t, v.fake.Calls("deleteMessage"), "the pick stays without its card")
+	assert.Equal(t, 1, v.count(`SELECT count(*) FROM telegram_update_inbox WHERE update_id = ? AND state = 'pending'`, update.ID),
+		"the update is kept for the next sweep")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stopped := v.bm.StartInboxSweeper(ctx, 100*time.Millisecond)
+	t.Cleanup(func() { cancel(); <-stopped })
+	require.Eventually(t, func() bool { return len(v.fake.Calls("deleteMessage")) == 1 }, 15*time.Second, 50*time.Millisecond,
+		"run again, the pick becomes a card")
+	assert.Equal(t, panels+1, v.count(`SELECT count(*) FROM telegram_panel`))
 }

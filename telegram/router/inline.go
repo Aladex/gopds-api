@@ -135,8 +135,13 @@ func (r *Router) viaBot(ctx context.Context, b *Bot, msg *tgbot.Message) {
 		r.sendPlainText(ctx, b, msg.Chat.ID, screens.CopyLibraryDown)
 		return
 	}
-	if toast := r.open(ctx, b, msg.Chat.ID, cardNode(b.Binding.UserID, 0, bookID, home.ID)); toast != "" {
-		r.sendPlainText(ctx, b, msg.Chat.ID, toast)
+	panel, toast := r.openPanel(ctx, b, msg.Chat.ID, cardNode(b.Binding.UserID, 0, bookID, home.ID))
+	if panel == nil {
+		// No card: the pick stays where it is. A send Telegram refused
+		// (a 429) left nothing sent, and the inbox runs the update again.
+		if toast != "" {
+			r.sendPlainText(ctx, b, msg.Chat.ID, toast)
+		}
 		return
 	}
 	if _, err := b.Client.DeleteMessage(ctx, &bot.DeleteMessageParams{ChatID: msg.Chat.ID, MessageID: msg.ID}); err != nil {

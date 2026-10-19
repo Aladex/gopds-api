@@ -113,15 +113,23 @@ func (r *Router) show(ctx context.Context, b *Bot, panel *models.TelegramPanel, 
 
 // open sends node as a new panel and returns the toast.
 func (r *Router) open(ctx context.Context, b *Bot, chatID int64, node *models.TelegramNode) string {
+	_, toast := r.openPanel(ctx, b, chatID, node)
+	return toast
+}
+
+// openPanel sends node as a new panel; it returns the panel, nil when none
+// was sent, and the toast.
+func (r *Router) openPanel(ctx context.Context, b *Bot, chatID int64, node *models.TelegramNode) (
+	panel *models.TelegramPanel, toast string) {
 	paint, toast, ok := r.painter(ctx, b, node)
 	if !ok {
-		return toast
+		return nil, toast
 	}
 	if err := upsertNode(ctx, node); err != nil {
-		return screens.CopyLibraryDown
+		return nil, screens.CopyLibraryDown
 	}
-	r.sendPanel(ctx, b, chatID, node, paint, false)
-	return toast
+	panel = r.sendPanel(ctx, b, chatID, node, paint, false)
+	return panel, toast
 }
 
 // backTo is the way back to a node, labeled by what the node is; it paints
