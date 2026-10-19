@@ -51,6 +51,10 @@ func (r *Router) settingsPainter(ctx context.Context, b *Bot, node *models.Teleg
 	}
 	plain := ui.CardStyle == models.TelegramPanelPlain
 	inline := r.inlineOn(ctx, b)
+	kindle, err := kindleAddress(b)
+	if err != nil {
+		return nil, screens.CopyLibraryDown, false
+	}
 	return func(k *keys) screens.Screen {
 		parent, self := uint64(node.ParentID), uint64(node.ID) // #nosec G115 -- serial ids
 		back := k.env(cbv2.Envelope{Op: cbv2.OpBack, ReturnID: parent})
@@ -91,11 +95,13 @@ func (r *Router) settingsPainter(ctx context.Context, b *Bot, node *models.Teleg
 			Style:    section(sectionCardStyle),
 			Inline:   section(sectionInline),
 			Home:     k.home(),
+			// The address is set on the site, where it is checked.
+			KindleURL: r.kindleSetupURL(),
 		}
 		if len(r.cfg.Donate) > 0 {
 			sk.Donate = section(sectionDonate)
 		}
-		return screens.SettingsScreen(ui.DefaultFormat, ui.SearchLang, plain, inline, sk)
+		return screens.SettingsScreen(ui.DefaultFormat, ui.SearchLang, plain, inline, kindle, sk)
 	}, "", true
 }
 

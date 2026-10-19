@@ -73,6 +73,10 @@ const (
 	OpInlineCheck
 	OpAnnotationPage
 	OpRetryBranch
+	// OpKindle asks to send the card's book to Kindle; OpKindleSend is the
+	// confirmation's «Отправить».
+	OpKindle
+	OpKindleSend
 	opEnd
 )
 

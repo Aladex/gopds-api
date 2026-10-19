@@ -446,6 +446,13 @@ func (bm *BotManager) sweepInbox(ctx context.Context) {
 // and the background naming of adopted bots has finished.
 func (bm *BotManager) WaitIdle() { bm.handling.Wait() }
 
+// WaitSends waits for the Kindle sends the updates started.
+func (bm *BotManager) WaitSends() {
+	if bm.router != nil {
+		bm.router.Wait()
+	}
+}
+
 // answerStranger answers someone who is not the bot's owner. A button gets
 // "unavailable"; a message in a private chat gets one explanation per hour —
 // that the bot is someone else's, or, for a bot nobody owns yet, that it is

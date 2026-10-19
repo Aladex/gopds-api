@@ -524,6 +524,12 @@ func WithInboxLease(ctx context.Context, lease InboxLease) context.Context {
 	return context.WithValue(ctx, inboxLeaseKey{}, lease)
 }
 
+// WithoutInboxLease is ctx no longer a handler's: work an update leaves
+// running past its end, whose lease is gone by then.
+func WithoutInboxLease(ctx context.Context) context.Context {
+	return context.WithValue(ctx, inboxLeaseKey{}, nil)
+}
+
 // InboxLeaseFrom returns the lease a context carries, if it is a handler's.
 func InboxLeaseFrom(ctx context.Context) (InboxLease, bool) {
 	lease, ok := ctx.Value(inboxLeaseKey{}).(InboxLease)

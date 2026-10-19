@@ -14,6 +14,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -22,6 +23,7 @@ import (
 	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/services"
+	"gopds-api/services/kindlesend"
 	"gopds-api/telegram/delivery"
 	"gopds-api/telegram/screens"
 
@@ -95,6 +97,8 @@ type Config struct {
 	SiteURL  string
 	// Donate is how the library may be supported; none hides the button.
 	Donate []config.DonateMethod
+	// Kindle sends books to Kindle; nil is kindlesend.Default().
+	Kindle *kindlesend.Sender
 	// MediaBaseURL is where Telegram can fetch covers from, for inline
 	// results; "" means none (plan-ui.md §3.4).
 	MediaBaseURL string
@@ -118,9 +122,15 @@ type Config struct {
 
 // Router handles the updates of v2 bots.
 type Router struct {
-	cfg  Config
-	bots Bots
+	cfg    Config
+	bots   Bots
+	kindle *kindlesend.Sender
+	// background counts the work an update leaves running: Kindle sends.
+	background sync.WaitGroup
 }
+
+// Wait waits for the work updates left running.
+func (r *Router) Wait() { r.background.Wait() }
 
 // New makes a router.
 func New(cfg *Config, bots Bots) *Router {
@@ -146,7 +156,11 @@ func New(cfg *Config, bots Bots) *Router {
 	if c.PostersPath == nil {
 		c.PostersPath = func() string { return "" }
 	}
-	return &Router{cfg: c, bots: bots}
+	kindle := c.Kindle
+	if kindle == nil {
+		kindle = kindlesend.Default()
+	}
+	return &Router{cfg: c, bots: bots, kindle: kindle}
 }
 
 // Handle takes one update. It reports false for what the v2 router leaves to

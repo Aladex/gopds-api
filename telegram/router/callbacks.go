@@ -128,6 +128,10 @@ func (r *Router) act(ctx context.Context, b *Bot, panel *models.TelegramPanel, e
 		return r.setCardStyle(ctx, b, panel, env)
 	case cbv2.OpInlineCheck:
 		return r.checkInline(ctx, b, panel, env)
+	case cbv2.OpKindle:
+		return show(&models.TelegramNode{UserID: userID, Screen: int16(ScrKindleConfirm), EntityID: entity, ParentID: parent})
+	case cbv2.OpKindleSend:
+		return r.sendKindle(ctx, b, panel, env)
 	}
 	return screens.CopyUnsupported
 }

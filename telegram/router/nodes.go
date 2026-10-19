@@ -31,6 +31,10 @@ const (
 	ScrDonate
 	ScrCardStyle
 	ScrInline
+	// ScrKindleConfirm asks before a book is mailed to Kindle; ScrKindleStatus
+	// is the send's progress or outcome, its page naming which (P1-8).
+	ScrKindleConfirm
+	ScrKindleStatus
 )
 
 // More view kinds (plan.md §2.4).
@@ -84,6 +88,10 @@ func (r *Router) painter(ctx context.Context, b *Bot, node *models.TelegramNode)
 		return r.languagePainter(ctx, b, node)
 	case ScrSettings, ScrFormat, ScrCardStyle, ScrInline, ScrDonate:
 		return r.settingsPainter(ctx, b, node)
+	case ScrKindleConfirm:
+		return r.kindleConfirmPainter(ctx, b, node)
+	case ScrKindleStatus:
+		return r.kindleStatusPainter(ctx, node)
 	}
 	return nil, screens.CopyExpired, false
 }

@@ -29,6 +29,8 @@ const (
 // methods.
 type SettingsKeys struct {
 	Format, Language, Style, Inline, Donate, Home *cbv2.Envelope
+	// KindleURL is the site's Kindle setup; "" leaves the button out.
+	KindleURL string
 }
 
 // StyleName is a card style in words.
@@ -39,8 +41,9 @@ func StyleName(plain bool) string {
 	return CardStyleRichName
 }
 
-// SettingsScreen is S-SETTINGS.
-func SettingsScreen(format, lang string, plain, inline bool, k *SettingsKeys) Screen {
+// SettingsScreen is S-SETTINGS. kindle is the account's Kindle address, ""
+// when none is set; it is set on the site.
+func SettingsScreen(format, lang string, plain, inline bool, kindle string, k *SettingsKeys) Screen {
 	language := allLanguages
 	if lang != "" {
 		language = ru.Language(lang)
@@ -52,6 +55,9 @@ func SettingsScreen(format, lang string, plain, inline bool, k *SettingsKeys) Sc
 		{{Text: "Вид карточек: " + StyleName(plain), Env: k.Style}},
 		{{Text: ButtonInline, Env: k.Inline}},
 	}
+	if k.KindleURL != "" {
+		keys = append(keys, []Button{{Text: ButtonKindleSetup, URL: k.KindleURL}})
+	}
 	if k.Donate != nil {
 		keys = append(keys, []Button{{Text: ButtonDonate, Env: k.Donate}})
 	}
@@ -61,6 +67,7 @@ func SettingsScreen(format, lang string, plain, inline bool, k *SettingsKeys) Sc
 		Line{Text: "Язык поиска: " + language},
 		Line{Text: "Вид карточек: " + StyleName(plain)},
 		Line{Text: "Подсказки при поиске: " + inlineName(inline)},
+		Line{Text: "Kindle: " + kindleName(kindle)},
 	}}, Keys: append(keys, []Button{{Text: ButtonHome, Env: k.Home}})}
 }
 

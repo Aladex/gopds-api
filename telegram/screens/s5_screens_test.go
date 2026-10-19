@@ -55,10 +55,11 @@ func TestTheLanguagePagerPages(t *testing.T) {
 // Settings name their values; «Поддержать проект» only with donation methods.
 func TestSettingsShowTheirValues(t *testing.T) {
 	k := &SettingsKeys{Format: env(), Language: env(), Style: env(), Inline: env(), Home: env()}
-	s := SettingsScreen("fb2", "", true, false, k)
+	s := SettingsScreen("fb2", "", true, false, "", k)
 	plain := s.Doc.Plain()
 	for _, want := range []string{
 		"Основной формат: FB2", "Язык поиска: все языки", "Вид карточек: простой", "Подсказки при поиске: выключены",
+		"Kindle: не настроен",
 	} {
 		assert.Contains(t, plain, want)
 	}
@@ -66,7 +67,7 @@ func TestSettingsShowTheirValues(t *testing.T) {
 		assert.NotContains(t, row, ButtonDonate)
 	}
 	k.Donate = env()
-	s = SettingsScreen("epub", "ru", false, true, k)
+	s = SettingsScreen("epub", "ru", false, true, "reader@kindle.com", k)
 	assert.Contains(t, s.Doc.Plain(), "Подсказки при поиске: включены")
 	assert.Contains(t, s.Doc.Plain(), "Язык поиска: русский")
 	assert.Contains(t, texts(&s), []string{ButtonDonate})

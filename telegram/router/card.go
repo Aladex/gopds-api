@@ -71,10 +71,14 @@ func (r *Router) paintCard(ctx context.Context, b *Bot, node *models.TelegramNod
 		preparing[f] = true
 	}
 	back := backLabel(ctx, b, node.ParentID)
+	kindle, err := kindleAddress(b)
+	if err != nil {
+		return nil, err
+	}
 	return func(k *keys) screens.Screen {
 		card := &screens.Card{
 			Book: book, Rich: k.rich, Favorite: fav, DefaultFormat: ui.DefaultFormat,
-			Preparing: preparing, SiteURL: r.cfg.SiteURL, BackText: back,
+			Preparing: preparing, SiteURL: r.cfg.SiteURL, BackText: back, Kindle: kindle != "",
 		}
 		if k.rich {
 			card.Cover = r.cover(ctx, b, book)
@@ -98,6 +102,7 @@ func (r *Router) paintCard(ctx context.Context, b *Bot, node *models.TelegramNod
 				return k.env(cbv2.Envelope{Op: cbv2.OpOpenAuthor, EntityID: uint64(id), ViewID: view, ReturnID: self}) // #nosec G115 -- serial ids
 			},
 			BookAuthors: k.env(cbv2.Envelope{Op: cbv2.OpBookAuthors, EntityID: entity, ViewID: view, ReturnID: self}),
+			Kindle:      k.env(cbv2.Envelope{Op: cbv2.OpKindle, EntityID: entity, ViewID: view, ReturnID: self}),
 			Series: func(id int64) *cbv2.Envelope {
 				return k.env(cbv2.Envelope{Op: cbv2.OpOpenSeries, EntityID: uint64(id), ViewID: view, ReturnID: self}) // #nosec G115 -- serial ids
 			},

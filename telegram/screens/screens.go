@@ -411,6 +411,8 @@ type Card struct {
 	SiteURL   string
 	// BackText labels the way back, "" for none.
 	BackText string
+	// Kindle offers «Kindle»: the account has a Kindle address.
+	Kindle bool
 }
 
 // CardKeys are the card's envelopes.
@@ -425,6 +427,8 @@ type CardKeys struct {
 	Author      func(id int64) *cbv2.Envelope
 	BookAuthors *cbv2.Envelope
 	Series      func(id int64) *cbv2.Envelope
+	// Kindle asks to send the book to the reader's Kindle.
+	Kindle *cbv2.Envelope
 }
 
 // Limits of the card (plan-ui.md §2.2, §2.6).
@@ -549,11 +553,15 @@ func cardKeys(c *Card, k *CardKeys, cut bool) [][]Button {
 		formats = append(formats, btn)
 	}
 	keys := [][]Button{formats}
+	favorite := Button{Text: ButtonNotFavorite, Env: k.Favorite(true)}
 	if c.Favorite {
-		keys = append(keys, []Button{{Text: ButtonFavorite, Env: k.Favorite(false)}})
-	} else {
-		keys = append(keys, []Button{{Text: ButtonNotFavorite, Env: k.Favorite(true)}})
+		favorite = Button{Text: ButtonFavorite, Env: k.Favorite(false)}
 	}
+	row := []Button{favorite}
+	if c.Kindle && k.Kindle != nil {
+		row = append(row, Button{Text: ButtonKindle, Env: k.Kindle})
+	}
+	keys = append(keys, row)
 	if row := relationsRow(c.Book, k); len(row) > 0 {
 		keys = append(keys, row)
 	}

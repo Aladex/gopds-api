@@ -18,6 +18,7 @@ import (
 	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/services"
+	"gopds-api/services/kindlesend"
 	"gopds-api/telegram/delivery"
 	"gopds-api/telegram/router"
 	"gopds-api/telegram/secrets"
@@ -42,6 +43,9 @@ type Config struct {
 	API tgapi.Endpoint
 	// Secrets seals the bots' tokens, webhook secrets and button keys.
 	Secrets *secrets.Box
+	// Kindle sends books to Kindle from the bot; nil is the site's shared
+	// sender (kindlesend.Default). Tests put a fake relay here.
+	Kindle *kindlesend.Sender
 	// PublicMediaURL is where Telegram can fetch covers from, for inline
 	// results; "" means none.
 	PublicMediaURL string
@@ -476,6 +480,7 @@ func (bm *BotManager) SetDelivery(d *delivery.Service) {
 		ChatWait:     bm.config.ChatWait,
 		Donate:       bm.config.Donate,
 		MediaBaseURL: bm.config.PublicMediaURL,
+		Kindle:       bm.config.Kindle,
 		PostersPath:  func() string { return viper.GetString("app.posters_path") },
 	}, bm)
 	d.SetCards(bm.router)

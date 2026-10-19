@@ -14,6 +14,7 @@ import (
 	"gopds-api/database"
 	"gopds-api/internal/scanfixture"
 	"gopds-api/services"
+	"gopds-api/services/kindlesend"
 	"gopds-api/telegram"
 	"gopds-api/telegram/delivery"
 	"gopds-api/telegram/secrets"
@@ -53,6 +54,8 @@ type stack struct {
 	transport http.RoundTripper
 	// chatWait is how long an update waits for its chat; zero is the default.
 	chatWait time.Duration
+	// kindle is the bot's Kindle sender; nil is the real one.
+	kindle *kindlesend.Sender
 	// clientTimeout bounds every call to the fake Telegram; zero is the
 	// production default.
 	clientTimeout time.Duration
@@ -151,6 +154,7 @@ func (s *stack) newManager() *telegram.BotManager {
 		API:      endpoint,
 		Secrets:  s.box,
 		ChatWait: s.chatWait,
+		Kindle:   s.kindle,
 	}, s.rc, services.NewSearchService(database.NewPGSearchRepository(s.db)), nil)
 }
 
