@@ -367,6 +367,7 @@
   "telegram.disconnect.body": "The bot will stop receiving new books. Favorites and files in the chat stay.",
   "telegram.disconnect.confirm": "Disconnect",
   "telegram.disconnected": "The bot is disconnected from the library",
+  "telegram.linked": "Bot @{{username}} is connected",
   "telegram.tokenError.title": "The bot cannot send messages",
   "telegram.tokenError.body": "Telegram rejected the token. The connection to the library is kept.",
   "telegram.tokenError.restore": "Restore the connection",

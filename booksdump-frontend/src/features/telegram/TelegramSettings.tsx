@@ -15,24 +15,71 @@ export const TELEGRAM_TOKEN_FIELD_ID = 'profile-bot-token';
 const DANGER_OUTLINE =
     'border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive';
 
+/** How often a waiting connection is read again while the profile is open. */
+export const PENDING_POLL_MS = 3000;
+
+/** waitsForTelegram: a bot was entered and its «Start» has not come yet. */
+const waitsForTelegram = (status: BotStatus | null) =>
+    status?.state === 'pending_link' || Boolean(status?.pending_bot_username);
+
 /**
  * useTelegramConnection reads the reader's Telegram connection whenever the
  * profile opens. The profile shows its state in the group's badge and the
  * settings below act on it, so both take it from here.
+ *
+ * The confirmation happens in Telegram, away from this page: while a bot
+ * waits for it, the connection is read again every few seconds and whenever
+ * the reader comes back to the page, and the moment it is confirmed the
+ * reader is told so.
  */
 export const useTelegramConnection = (open: boolean) => {
+    const { t } = useTranslation();
     const [status, setStatus] = useState<BotStatus | null>(null);
+    const last = useRef<BotStatus | null>(null);
+    const apply = useCallback(
+        (next: BotStatus) => {
+            const before = last.current;
+            last.current = next;
+            setStatus(next);
+            const confirmed =
+                waitsForTelegram(before) &&
+                !waitsForTelegram(next) &&
+                (next.state === 'connected' || next.state === 'blocked');
+            if (confirmed) {
+                toast.success(t('telegram.linked', { username: next.bot_username ?? '' }));
+            }
+        },
+        [t],
+    );
     const refresh = useCallback(async () => {
         try {
-            setStatus(await telegramApi.getBotStatus());
+            apply(await telegramApi.getBotStatus());
         } catch {
-            // Left as it was: the next opening reads it again.
+            // Left as it was: the next reading tries again.
         }
-    }, []);
+    }, [apply]);
     useEffect(() => {
         if (open) void refresh();
     }, [open, refresh]);
-    return { status, setStatus };
+
+    const waiting = open && waitsForTelegram(status);
+    useEffect(() => {
+        if (!waiting) return;
+        const poll = window.setInterval(() => void refresh(), PENDING_POLL_MS);
+        const onFocus = () => void refresh();
+        const onVisible = () => {
+            if (document.visibilityState === 'visible') void refresh();
+        };
+        window.addEventListener('focus', onFocus);
+        document.addEventListener('visibilitychange', onVisible);
+        return () => {
+            window.clearInterval(poll);
+            window.removeEventListener('focus', onFocus);
+            document.removeEventListener('visibilitychange', onVisible);
+        };
+    }, [waiting, refresh]);
+
+    return { status, setStatus: apply };
 };
 
 /** The badge beside the group's title: how the connection stands, in a word. */
@@ -89,7 +136,9 @@ const TelegramSettings: React.FC<TelegramSettingsProps> = ({ status, onStatus })
     const [confirmOpen, setConfirmOpen] = useState(false);
     // The link of the last call that made one. The server never gives it
     // again, so it is kept here for as long as the profile is open.
-    const [link, setLink] = useState<string | null>(null);
+    // It belongs to the bot it was made for: once that bot is confirmed — or
+    // another one entered — it is not shown any more.
+    const [link, setLink] = useState<{ url: string; bot: string } | null>(null);
     // Whether that link has run out; set by a timer at its expiry, so the
     // button turns into «get a new link» without a reload.
     const [linkExpired, setLinkExpired] = useState(false);
@@ -105,7 +154,7 @@ const TelegramSettings: React.FC<TelegramSettingsProps> = ({ status, onStatus })
     const apply = (next: BotStatus) => {
         onStatus(next);
         if (next.link_url) {
-            setLink(next.link_url);
+            setLink({ url: next.link_url, bot: next.pending_bot_username ?? '' });
             setLinkExpired(false);
         }
     };
@@ -159,7 +208,9 @@ const TelegramSettings: React.FC<TelegramSettingsProps> = ({ status, onStatus })
     const state = status.state;
     const bound = state === 'connected' || state === 'blocked' || state === 'token_rejected';
     const pending = status.pending_bot_username;
-    const linkLive = link !== null && !linkExpired;
+    const pendingBot = status.pending_bot_username ?? '';
+    const ownLink = link !== null && link.bot === pendingBot ? link : null;
+    const linkLive = ownLink !== null && !linkExpired;
 
     const tokenForm = (change: boolean) => (
         <div className="flex flex-col gap-2">
@@ -237,17 +288,26 @@ const TelegramSettings: React.FC<TelegramSettingsProps> = ({ status, onStatus })
     // The bot entered and waiting for «Start»: the link, or a way to a new one.
     const ready = (username: string, change: boolean) => (
         <div data-testid="telegram-ready" className="flex flex-col gap-2">
-            <p className="text-sm font-medium">{t('telegram.ready.title', { username })}</p>
+            <p className="text-sm font-medium [overflow-wrap:anywhere]">
+                {t('telegram.ready.title', { username })}
+            </p>
             <p className="text-xs text-muted-foreground">
                 {change ? t('telegram.change.pending') : t('telegram.ready.body')}
             </p>
-            {!linkLive && link !== null && (
+            {!linkLive && ownLink !== null && (
                 <p className="text-xs text-muted-foreground">{t('telegram.ready.expired')}</p>
             )}
             <div className="flex flex-wrap gap-2">
                 {linkLive ? (
-                    <Button size="sm" asChild>
-                        <a href={link} target="_blank" rel="noopener noreferrer">
+                    // The label names the bot, and a username runs to 32
+                    // characters: it wraps inside the shared button rather
+                    // than running past a phone's edge.
+                    <Button
+                        size="sm"
+                        asChild
+                        className="h-auto max-w-full py-1.5 text-left whitespace-normal [overflow-wrap:anywhere]"
+                    >
+                        <a href={ownLink?.url} target="_blank" rel="noopener noreferrer">
                             {t('telegram.ready.open', { username })}
                         </a>
                     </Button>

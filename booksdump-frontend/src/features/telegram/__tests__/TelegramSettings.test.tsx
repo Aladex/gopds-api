@@ -3,7 +3,11 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { toast } from 'sonner';
 
-import TelegramSettings, { telegramBadge } from '@/features/telegram/TelegramSettings';
+import TelegramSettings, {
+    PENDING_POLL_MS,
+    telegramBadge,
+    useTelegramConnection,
+} from '@/features/telegram/TelegramSettings';
 import * as telegramApi from '@/api/telegram';
 import type { BotStatus } from '@/api/telegram';
 import { ApiError } from '@/api/errors';
@@ -206,5 +210,94 @@ describe('the badge', () => {
         [null, false, 'telegram.badge.none'],
     ])('%o', (status, ok, key) => {
         expect(telegramBadge(status)).toEqual({ ok, key });
+    });
+});
+
+describe('coming back from Telegram', () => {
+    /** The profile's wiring: the hook reads, the settings act. */
+    const Live: React.FC<{ open: boolean }> = ({ open }) => {
+        const { status, setStatus } = useTelegramConnection(open);
+        return <TelegramSettings status={status} onStatus={setStatus} />;
+    };
+    const pending: BotStatus = { state: 'pending_link', pending_bot_username: 'my_library_bot' };
+    const connected: BotStatus = { state: 'connected', bot_username: 'my_library_bot' };
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('reads the connection again while it waits, and says when it is confirmed', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        vi.mocked(telegramApi.getBotStatus)
+            .mockResolvedValueOnce(pending)
+            .mockResolvedValue(connected);
+        vi.mocked(telegramApi.newLink).mockResolvedValue({
+            ...pending,
+            link_url: 'https://t.me/my_library_bot?start=link_abc',
+            link_expires_at: inMinutes(15),
+        });
+        render(<Live open />);
+
+        await userEvent.click(
+            await screen.findByRole('button', { name: 'telegram.ready.newLink' }),
+        );
+        expect(
+            await screen.findByRole('link', { name: 'telegram.ready.open:my_library_bot' }),
+        ).toBeInTheDocument();
+
+        await vi.advanceTimersByTimeAsync(PENDING_POLL_MS);
+        await waitFor(() =>
+            expect(toast.success).toHaveBeenCalledWith('telegram.linked:my_library_bot'),
+        );
+        expect(screen.getByText('@my_library_bot')).toBeInTheDocument();
+        expect(
+            screen.queryByRole('link', { name: 'telegram.ready.open:my_library_bot' }),
+            'the used link is gone',
+        ).not.toBeInTheDocument();
+
+        // Confirmed: no more reading.
+        const reads = vi.mocked(telegramApi.getBotStatus).mock.calls.length;
+        await vi.advanceTimersByTimeAsync(PENDING_POLL_MS * 3);
+        expect(telegramApi.getBotStatus).toHaveBeenCalledTimes(reads);
+    });
+
+    it('reads it again when the reader returns to the page', async () => {
+        vi.mocked(telegramApi.getBotStatus)
+            .mockResolvedValueOnce(pending)
+            .mockResolvedValue(connected);
+        render(<Live open />);
+        await screen.findByText('telegram.ready.title:my_library_bot');
+
+        window.dispatchEvent(new Event('focus'));
+        await waitFor(() =>
+            expect(toast.success).toHaveBeenCalledWith('telegram.linked:my_library_bot'),
+        );
+    });
+
+    it('stops reading when the profile closes', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        vi.mocked(telegramApi.getBotStatus).mockResolvedValue(pending);
+        const { rerender } = render(<Live open />);
+        await screen.findByText('telegram.ready.title:my_library_bot');
+        rerender(<Live open={false} />);
+        const reads = vi.mocked(telegramApi.getBotStatus).mock.calls.length;
+        await vi.advanceTimersByTimeAsync(PENDING_POLL_MS * 3);
+        expect(telegramApi.getBotStatus).toHaveBeenCalledTimes(reads);
+    });
+
+    it('lets a long bot name wrap inside the button', async () => {
+        const long = 'a_very_long_library_bot_name_bot';
+        render(<Harness initial={{ state: 'pending_link', pending_bot_username: long }} />);
+        vi.mocked(telegramApi.newLink).mockResolvedValue({
+            state: 'pending_link',
+            pending_bot_username: long,
+            link_url: `https://t.me/${long}?start=link_abc`,
+            link_expires_at: inMinutes(15),
+        });
+        await userEvent.click(screen.getByRole('button', { name: 'telegram.ready.newLink' }));
+        const open = await screen.findByRole('link', { name: `telegram.ready.open:${long}` });
+        expect(open.className).toContain('whitespace-normal');
+        expect(open.className).toContain('max-w-full');
+        expect(open.className).toContain('h-auto');
     });
 });

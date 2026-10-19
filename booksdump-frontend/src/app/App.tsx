@@ -9,15 +9,25 @@ import adminRoutes from '@/app/routes/adminRoutes';
 import notFoundRoutes from '@/app/routes/notFoundRoutes';
 import { InterfaceLanguageProvider } from '@/context/InterfaceLanguageContext';
 import { useAuth } from '@/context/AuthContext';
-import { Routes, Route, Navigate } from 'react-router';
+import { Routes, Route, Navigate, useLocation } from 'react-router';
 import { WebSocketProvider } from '@/context/WebSocketContext';
 import AppSkeleton from '@/shared/components/AppSkeleton';
 import { Toaster } from '@/shared/ui/sonner';
 
+/**
+ * RootRedirect sends the site's root to the first page of books, keeping the
+ * query: links from outside — the Telegram bot's «Open profile» is
+ * /?profile=telegram — say what to open there.
+ */
+export const RootRedirect: React.FC = () => {
+    const { search } = useLocation();
+    return <Navigate to={{ pathname: '/books/page/1', search }} replace />;
+};
+
 const App: React.FC<{ isAuthenticated: boolean }> = memo(() => {
     return (
         <Routes>
-            <Route path="/" element={<Navigate to="/books/page/1" />} />
+            <Route path="/" element={<RootRedirect />} />
             {publicRoutes}
             {privateRoutes}
             {adminRoutes}

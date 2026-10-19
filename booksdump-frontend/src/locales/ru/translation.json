@@ -368,6 +368,7 @@
   "telegram.disconnect.body": "Бот перестанет получать новые книги. Избранное и файлы в чате сохранятся.",
   "telegram.disconnect.confirm": "Отключить",
   "telegram.disconnected": "Бот отключён от библиотеки",
+  "telegram.linked": "Бот @{{username}} подключён",
   "telegram.tokenError.title": "Бот не может отправлять сообщения",
   "telegram.tokenError.body": "Telegram отклонил токен. Подключение к библиотеке сохранено.",
   "telegram.tokenError.restore": "Восстановить подключение",
