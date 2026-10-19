@@ -50,7 +50,9 @@ const (
 //
 // A request from a button is identified twice: by its press (tap_key), which
 // a redelivery repeats, and by its button — bot, chat, message, revision,
-// book and format — which another press of the same button repeats.
+// book and format — which another press of the same button repeats. A press
+// answered with an existing job is recorded with it (telegram_delivery_press),
+// in this transaction, so its own replay finds that job at any later time.
 func EnqueueTelegramDelivery(
 	ctx context.Context, d *models.TelegramDelivery, perUser, total int,
 ) (models.TelegramDelivery, Admission, error) {
@@ -66,19 +68,27 @@ func EnqueueTelegramDelivery(
 		if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(?, 0)`, deliveryAllLock); err != nil {
 			return err
 		}
-		repeated, err := findRepeat(ctx, tx, d, &job)
-		if err != nil || repeated {
-			if repeated {
+		pressed, err := findPress(ctx, tx, d, &job)
+		if err != nil || pressed {
+			if pressed {
 				admission = AlreadyTapped
 			}
 			return err
+		}
+		repeated, err := findRepeat(ctx, tx, d, &job)
+		if err != nil {
+			return err
+		}
+		if repeated {
+			admission = AlreadyTapped
+			return recordPress(ctx, tx, d, job.ID)
 		}
 		err = tx.ModelContext(ctx, &job).
 			Where("binding_id = ? AND book_id = ? AND format = ? AND finished_at IS NULL", d.BindingID, d.BookID, d.Format).
 			Select()
 		if err == nil {
 			admission = InProgress
-			return nil
+			return recordPress(ctx, tx, d, job.ID)
 		}
 		if !errors.Is(err, pg.ErrNoRows) {
 			return err
@@ -107,15 +117,37 @@ func EnqueueTelegramDelivery(
 	return job, admission, err
 }
 
-// findRepeat loads into job an earlier request d repeats: the same press, or
-// the same button while its job runs or within DeliveryRepeatWindow after.
-func findRepeat(ctx context.Context, tx *pg.Tx, d, job *models.TelegramDelivery) (bool, error) {
-	if d.TapKey != nil {
-		err := tx.ModelContext(ctx, job).Where("tap_key = ?", *d.TapKey).Select()
-		if !errors.Is(err, pg.ErrNoRows) {
-			return err == nil, err
-		}
+// findPress loads into job the job d's press was answered with before — the
+// job it made, or the one it was found to repeat — whenever that was: a
+// replayed update is the same press, not a new one.
+func findPress(ctx context.Context, tx *pg.Tx, d, job *models.TelegramDelivery) (bool, error) {
+	if d.TapKey == nil {
+		return false, nil
 	}
+	err := tx.ModelContext(ctx, job).
+		Where("tap_key = ? OR id = (SELECT job_id FROM telegram_delivery_press WHERE tap_key = ?)", *d.TapKey, *d.TapKey).
+		Limit(1).Select()
+	if errors.Is(err, pg.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// recordPress remembers that d's press was answered with job jobID, so a
+// replay of it finds that job after the repeat window too.
+func recordPress(ctx context.Context, tx *pg.Tx, d *models.TelegramDelivery, jobID int64) error {
+	if d.TapKey == nil {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO telegram_delivery_press (tap_key, job_id) VALUES (?, ?) ON CONFLICT (tap_key) DO NOTHING`,
+		*d.TapKey, jobID)
+	return err
+}
+
+// findRepeat loads into job an earlier request d repeats: the same button
+// while its job runs or within DeliveryRepeatWindow after.
+func findRepeat(ctx context.Context, tx *pg.Tx, d, job *models.TelegramDelivery) (bool, error) {
 	if d.OriginMessageID == nil {
 		return false, nil
 	}

@@ -3,6 +3,7 @@ package telegram_test
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -95,6 +96,58 @@ func TestOneButtonIsOneRequest(t *testing.T) {
 		return d.count(`SELECT count(*) FROM telegram_delivery WHERE state = 'sent'`) == 2
 	}, 10*time.Second, 10*time.Millisecond)
 	d.fake.Quiet(t, "sendDocument", 2, 200*time.Millisecond)
+}
+
+// refuseOneAnswer makes the next callback answer fail at dial, once armed.
+type refuseOneAnswer struct {
+	armed   atomic.Bool
+	refused atomic.Int32
+}
+
+func (h *refuseOneAnswer) RoundTrip(r *http.Request) (*http.Response, error) {
+	if strings.HasSuffix(r.URL.Path, "/answerCallbackQuery") && h.armed.CompareAndSwap(true, false) {
+		h.refused.Add(1)
+		return nil, &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("callback answer not sent")}
+	}
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+// B1, the reviewer's replay probe. A press repeating the first one is
+// answered with its job; its callback answer fails, so its update is replayed
+// — after the repeat window. The replay is the same press: no second job.
+func TestADedupedPressStaysDedupedWhenItsUpdateIsReplayed(t *testing.T) {
+	s := newStack(t)
+	fail := &refuseOneAnswer{}
+	s.transport = fail
+	s.deliveryCfg.Prepare = smallFile
+	d := openCard(t, s)
+	d.tapEPUB(t)
+	d.waitJob(t, models.DeliverySent)
+	d.bm.WaitIdle()
+	d.delivery.WaitIdle()
+
+	fail.armed.Store(true)
+	again := d.u.Tap(t, ownerTG, &d.card, "📚 EPUB")
+	d.hook(botToken1).Post(t, again)
+	d.bm.WaitIdle()
+	require.Equal(t, int32(1), fail.refused.Load())
+	require.Equal(t, 1, d.count(`SELECT count(*) FROM telegram_delivery`))
+	require.Equal(t, 1, d.count(`SELECT count(*) FROM telegram_update_inbox
+		WHERE update_id = ? AND state = 'pending' AND reply_started_at IS NULL`, again.ID),
+		"the unsent answer leaves the update to be replayed")
+
+	_, err := d.db.Exec(`UPDATE telegram_delivery SET finished_at = now() - interval '11 seconds'`)
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d.bm.StartInboxSweeper(ctx, time.Hour)
+	require.Eventually(t, func() bool {
+		return d.count(`SELECT count(*) FROM telegram_update_inbox WHERE update_id = ? AND state = 'done'`, again.ID) == 1
+	}, 5*time.Second, 10*time.Millisecond)
+	d.bm.WaitIdle()
+	d.delivery.WaitIdle()
+	assert.Equal(t, 1, d.count(`SELECT count(*) FROM telegram_delivery`))
+	d.fake.Quiet(t, "sendDocument", 1, 200*time.Millisecond)
 }
 
 // parkSendingEdit parks the «Отправляю…» status edit — the last thing a
