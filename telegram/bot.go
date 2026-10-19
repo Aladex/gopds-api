@@ -364,18 +364,6 @@ func (b *Bot) sendMessage(ctx context.Context, bot *tgbotapi.Bot, chatID int64, 
 	}
 }
 
-// sendMessageWithReplyKeyboard sends a text message with a reply keyboard.
-func (b *Bot) sendMessageWithReplyKeyboard(ctx context.Context, bot *tgbotapi.Bot, chatID int64, text string, keyboard *tgbot.ReplyKeyboardMarkup) {
-	params := &tgbotapi.SendMessageParams{
-		ChatID:      chatID,
-		Text:        text,
-		ReplyMarkup: keyboard,
-	}
-	if _, err := bot.SendMessage(ctx, params); err != nil {
-		logging.Errorf("Failed to send message with keyboard to chat %d: %v", chatID, err)
-	}
-}
-
 // processCommandResult processes the result from command processor and sends response
 func (b *Bot) processCommandResult(ctx context.Context, bot *tgbotapi.Bot, conversationManager *ConversationManager, result *commands.CommandResult, telegramID int64, chatID int64) {
 	if err := conversationManager.ProcessOutgoingMessage(b.token, telegramID, result.Message); err != nil {
