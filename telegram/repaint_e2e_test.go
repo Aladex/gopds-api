@@ -65,7 +65,9 @@ func TestARepaintThatCouldNotWaitIsRunByTheHolder(t *testing.T) {
 	letGo()
 	<-pressed
 	require.Eventually(t, func() bool { return finishedCard(t, v, card.MessageID) }, 5*time.Second, 10*time.Millisecond)
-	assert.Zero(t, v.count(`SELECT count(*) FROM telegram_panel_repaint`))
+	// The row goes right after the edit lands.
+	assert.Eventually(t, func() bool { return v.count(`SELECT count(*) FROM telegram_panel_repaint`) == 0 },
+		5*time.Second, 10*time.Millisecond)
 	assert.Len(t, v.fake.Calls("sendDocument"), 1)
 }
 
@@ -91,10 +93,13 @@ func TestTheSweeperRunsARepaintLeftBehind(t *testing.T) {
 	require.False(t, finishedCard(t, v, card.MessageID), "still «⏳»")
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	v.bm.StartInboxSweeper(ctx, 100*time.Millisecond)
+	stopped := v.bm.StartInboxSweeper(ctx, 100*time.Millisecond)
+	// The sweeper stops before the stack's database closes.
+	t.Cleanup(func() { cancel(); <-stopped })
 	require.Eventually(t, func() bool { return finishedCard(t, v, card.MessageID) }, 15*time.Second, 50*time.Millisecond)
-	assert.Zero(t, v.count(`SELECT count(*) FROM telegram_panel_repaint`))
+	// The row goes right after the edit lands.
+	assert.Eventually(t, func() bool { return v.count(`SELECT count(*) FROM telegram_panel_repaint`) == 0 },
+		5*time.Second, 10*time.Millisecond)
 }
 
 // R2, the reviewer's TestReviewCompletionSurvivesDefaultChatWait: two

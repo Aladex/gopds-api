@@ -378,9 +378,12 @@ func (bm *BotManager) keepLease(ctx context.Context, cancel context.CancelCauseF
 }
 
 // StartInboxSweeper hands updates whose process died to this one, every
-// interval, and prunes finished rows.
-func (bm *BotManager) StartInboxSweeper(ctx context.Context, interval time.Duration) {
+// interval, runs the repaints left behind, and prunes finished rows. The
+// returned channel closes once it has stopped, after ctx is done.
+func (bm *BotManager) StartInboxSweeper(ctx context.Context, interval time.Duration) <-chan struct{} {
+	stopped := make(chan struct{})
 	go func() {
+		defer close(stopped)
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		lastPrune := time.Time{}
@@ -402,6 +405,7 @@ func (bm *BotManager) StartInboxSweeper(ctx context.Context, interval time.Durat
 			}
 		}
 	}()
+	return stopped
 }
 
 // sweepInbox claims stale updates and dispatches them.
