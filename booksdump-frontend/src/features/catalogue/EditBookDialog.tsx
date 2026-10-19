@@ -260,6 +260,9 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState(false);
+    // The delayed close after a save, so an unmount can cancel it.
+    const closeTimer = useRef<number | undefined>(undefined);
+    useEffect(() => () => window.clearTimeout(closeTimer.current), []);
 
     // Form fields
     const [title, setTitle] = useState('');
@@ -516,8 +519,11 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
             // Backend returns data in format: { result: Book, error: null }
             onBookUpdated((data.result ?? data) as Book);
 
-            // Close dialog after a short delay to show success message
-            setTimeout(() => {
+            // Close dialog after a short delay to show success message. The
+            // timer is cleared if the dialog unmounts first: a close firing
+            // after teardown has no window to close.
+            closeTimer.current = window.setTimeout(() => {
+                closeTimer.current = undefined;
                 handleClose();
             }, 1000);
         } catch (err) {
