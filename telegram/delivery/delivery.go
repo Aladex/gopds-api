@@ -156,6 +156,7 @@ type Service struct {
 
 	mu      sync.Mutex
 	cancel  context.CancelFunc
+	quit    <-chan struct{}
 	loops   sync.WaitGroup
 	running sync.WaitGroup
 }
@@ -171,8 +172,12 @@ type Request struct {
 	Format                                    string
 	Origin                                    string
 	// TapKey identifies the press that asked, for requests from the bot.
-	TapKey          string
+	TapKey string
+	// OriginMessageID and OriginRevision identify the button pressed: the
+	// message that carries it and that message's revision (0 for the legacy
+	// card, which is never edited).
 	OriginMessageID int64
+	OriginRevision  int32
 }
 
 // Errors of Enqueue that the caller tells the reader about.
@@ -220,8 +225,8 @@ func (s *Service) Enqueue(ctx context.Context, r *Request) (models.TelegramDeliv
 		row.TapKey = &key
 	}
 	if r.OriginMessageID != 0 {
-		id := r.OriginMessageID
-		row.OriginMessageID = &id
+		id, rev := r.OriginMessageID, r.OriginRevision
+		row.OriginMessageID, row.OriginRevision = &id, &rev
 	}
 	job, admission, err := database.EnqueueTelegramDelivery(ctx, row, s.cfg.PerUser, s.cfg.Total)
 	if err == nil && admission == database.Admitted {
@@ -242,7 +247,7 @@ func visible(b *models.Book) bool {
 func (s *Service) Start(parent context.Context) {
 	ctx, cancel := context.WithCancel(parent)
 	s.mu.Lock()
-	s.cancel = cancel
+	s.cancel, s.quit = cancel, ctx.Done()
 	s.mu.Unlock()
 	for i := 0; i < s.cfg.Workers; i++ {
 		s.loops.Add(1)
@@ -262,6 +267,13 @@ func (s *Service) Stop() {
 	}
 	s.loops.Wait()
 	s.running.Wait()
+}
+
+// quitting is closed once the service stops; nil before Start.
+func (s *Service) quitting() <-chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.quit
 }
 
 // WaitIdle waits for the jobs in hand; for tests.

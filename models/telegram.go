@@ -121,6 +121,9 @@ const (
 	OutcomeBotBlocked       = "bot_blocked"
 	OutcomeTokenRejected    = "token_rejected"
 	OutcomeUncertain        = "uncertain"
+	// OutcomeLibraryFailed: the library could not read or check what it
+	// needed to send the file, attempt after attempt.
+	OutcomeLibraryFailed = "library_failed"
 )
 
 // Origins of a delivery.

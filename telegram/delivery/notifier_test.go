@@ -3,6 +3,7 @@ package delivery
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"gopds-api/models"
 
@@ -73,4 +74,21 @@ func labels(rows [][]tgbot.InlineKeyboardButton) [][]string {
 		out = append(out, texts)
 	}
 	return out
+}
+
+func TestAFailedLibraryIsSaidAsSuch(t *testing.T) {
+	text, markup := outcomeScreen("", &models.Book{ID: 7, Title: "Основание"}, "epub", models.OutcomeLibraryFailed)
+	assert.Equal(t, "Не удалось отправить EPUB\nОснование\n\nБиблиотека сейчас не отвечает. Попробуй ещё раз чуть позже.", text)
+	assert.Equal(t, [][]string{{"Повторить EPUB"}}, labels(markup.InlineKeyboard))
+
+	text, _ = outcomeScreen("", &models.Book{ID: 7}, "epub", models.OutcomeLibraryFailed)
+	assert.Equal(t, "Не удалось отправить EPUB\n\nБиблиотека сейчас не отвечает. Попробуй ещё раз чуть позже.", text,
+		"a book that could not be read has no title to name")
+}
+
+func TestARepeatedPressHearsWhereItsFileIs(t *testing.T) {
+	ended := time.Now()
+	assert.Equal(t, ToastInProgress, RepeatToast(&models.TelegramDelivery{State: models.DeliverySending}))
+	assert.Equal(t, ToastAlreadySent, RepeatToast(&models.TelegramDelivery{State: models.DeliverySent, FinishedAt: &ended}))
+	assert.Equal(t, ToastJustEnded, RepeatToast(&models.TelegramDelivery{State: models.DeliveryFailed, FinishedAt: &ended}))
 }

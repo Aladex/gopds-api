@@ -188,9 +188,23 @@ const (
 const (
 	ToastPreparing   = "Готовлю %s…"
 	ToastInProgress  = "Файл уже готовится"
-	ToastBusy        = "Уже готовлю три файла. Дождись их"
+	ToastAlreadySent = "Файл уже отправлен"
+	ToastJustEnded   = "Попробуй ещё раз через несколько секунд"
+	ToastBusyAccount = "Уже готовлю три файла. Дождись их"
+	ToastBusyService = "Сейчас много отправок, попробуй через минуту."
 	ToastUnavailable = "Эта книга больше недоступна."
 )
+
+// RepeatToast is the toast for a press that repeats the request of job.
+func RepeatToast(job *models.TelegramDelivery) string {
+	switch {
+	case job.FinishedAt == nil:
+		return ToastInProgress
+	case job.State == models.DeliverySent:
+		return ToastAlreadySent
+	}
+	return ToastJustEnded
+}
 
 func upper(format string) string { return strings.ToUpper(format) }
 
@@ -261,6 +275,13 @@ func outcomeScreen(siteURL string, b *models.Book, format, outcome string) (stri
 		text := fmt.Sprintf("Этот файл слишком большой для отправки ботом\n%s · %s · больше 50 МБ\n\nЕго можно скачать на сайте библиотеки.",
 			title, upper(format))
 		return text, keyboard(siteURL, b.ID, format, "", true)
+	case models.OutcomeLibraryFailed:
+		head := "Не удалось отправить " + upper(format)
+		if title != "" { // the book itself may be what could not be read
+			head += "\n" + title
+		}
+		return head + "\n\nБиблиотека сейчас не отвечает. Попробуй ещё раз чуть позже.",
+			keyboard("", b.ID, format, "Повторить "+upper(format), false)
 	case models.OutcomeNotFound, models.OutcomeUnavailable:
 		return ToastUnavailable, nil
 	}

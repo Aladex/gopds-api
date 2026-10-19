@@ -423,11 +423,12 @@ func (h *CallbackHandler) handleDownload(ctx context.Context, b *tgbotapi.Bot, u
 	if !ok {
 		chatID = q.From.ID
 	}
-	_, admission, err := h.bot.manager.delivery.Enqueue(ctx, &delivery.Request{
+	job, admission, err := h.bot.manager.delivery.Enqueue(ctx, &delivery.Request{
 		UserID: binding.UserID, BindingID: binding.ID, BotRef: h.bot.ref, ChatID: chatID,
 		BookID: bookID, Format: format, Origin: models.DeliveryFromBot,
 		TapKey:          fmt.Sprintf("legacy:%d:%s", h.bot.ref, q.ID),
 		OriginMessageID: int64(messageID),
+		OriginRevision:  0, // the legacy card is never edited
 	})
 	switch {
 	case errors.Is(err, database.ErrInboxLeaseLost):
@@ -439,10 +440,12 @@ func (h *CallbackHandler) handleDownload(ctx context.Context, b *tgbotapi.Bot, u
 	case err != nil:
 		logging.Errorf("Telegram bot %d: enqueueing book %d as %s: %v", h.bot.ref, bookID, format, err)
 		h.answerCallbackText(ctx, b, q, "Библиотека временно недоступна. Попробуй ещё раз позже.")
-	case admission == database.Busy:
-		h.answerCallbackText(ctx, b, q, delivery.ToastBusy)
+	case admission == database.BusyAccount:
+		h.answerCallbackText(ctx, b, q, delivery.ToastBusyAccount)
+	case admission == database.BusyService:
+		h.answerCallbackText(ctx, b, q, delivery.ToastBusyService)
 	case admission == database.InProgress || admission == database.AlreadyTapped:
-		h.answerCallbackText(ctx, b, q, delivery.ToastInProgress)
+		h.answerCallbackText(ctx, b, q, delivery.RepeatToast(&job))
 	default:
 		h.answerCallbackText(ctx, b, q, fmt.Sprintf(delivery.ToastPreparing, strings.ToUpper(format)))
 	}

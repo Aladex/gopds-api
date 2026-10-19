@@ -17,24 +17,40 @@ type Admission int
 const (
 	// Admitted: a new job was created.
 	Admitted Admission = iota
-	// AlreadyTapped: this very tap was recorded before; the job it made is
-	// returned.
+	// AlreadyTapped: this request was made before — the same press
+	// redelivered, or another press of the same button while its job runs or
+	// within DeliveryRepeatWindow after it ended; that job is returned.
 	AlreadyTapped
 	// InProgress: the same book in the same format is already on its way to
 	// this chat; that job is returned.
 	InProgress
-	// Busy: the account, or the service, has as many unfinished jobs as it
-	// may.
-	Busy
+	// BusyAccount: the account has as many unfinished jobs as it may.
+	BusyAccount
+	// BusyService: the whole service has as many unfinished jobs as it may.
+	BusyService
 )
 
-// deliveryUserLock namespaces the advisory lock that serializes one account's
-// admissions, so its limit holds with two processes enqueueing at once.
-const deliveryUserLock = 7_317_014
+// DeliveryRepeatWindow is how long after its job ended a press of the same
+// button still counts as the same request. A second press that only reached
+// the library late is not a second file; a deliberate request once the file
+// has arrived is.
+const DeliveryRepeatWindow = 10 * time.Second
 
-// EnqueueTelegramDelivery records a delivery request, unless this tap was
-// recorded already, the same file is already on its way, or a limit is
-// reached: at most perUser unfinished jobs per account and total overall.
+// The advisory locks that serialize admissions, so the limits hold with two
+// processes enqueueing at once: one account's, then the service's, always in
+// that order.
+const (
+	deliveryUserLock = 7_317_014
+	deliveryAllLock  = 7_317_015
+)
+
+// EnqueueTelegramDelivery records a delivery request, unless it was made
+// already (see AlreadyTapped), the same file is already on its way, or a limit
+// is reached: at most perUser unfinished jobs per account and total overall.
+//
+// A request from a button is identified twice: by its press (tap_key), which
+// a redelivery repeats, and by its button — bot, chat, message, revision,
+// book and format — which another press of the same button repeats.
 func EnqueueTelegramDelivery(
 	ctx context.Context, d *models.TelegramDelivery, perUser, total int,
 ) (models.TelegramDelivery, Admission, error) {
@@ -47,17 +63,17 @@ func EnqueueTelegramDelivery(
 		if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(?, ?)`, deliveryUserLock, d.UserID); err != nil {
 			return err
 		}
-		if d.TapKey != nil {
-			err := tx.ModelContext(ctx, &job).Where("tap_key = ?", *d.TapKey).Select()
-			if err == nil {
-				admission = AlreadyTapped
-				return nil
-			}
-			if !errors.Is(err, pg.ErrNoRows) {
-				return err
-			}
+		if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(?, 0)`, deliveryAllLock); err != nil {
+			return err
 		}
-		err := tx.ModelContext(ctx, &job).
+		repeated, err := findRepeat(ctx, tx, d, &job)
+		if err != nil || repeated {
+			if repeated {
+				admission = AlreadyTapped
+			}
+			return err
+		}
+		err = tx.ModelContext(ctx, &job).
 			Where("binding_id = ? AND book_id = ? AND format = ? AND finished_at IS NULL", d.BindingID, d.BookID, d.Format).
 			Select()
 		if err == nil {
@@ -73,8 +89,12 @@ func EnqueueTelegramDelivery(
 			FROM telegram_delivery WHERE finished_at IS NULL`, d.UserID); err != nil {
 			return err
 		}
-		if mine >= perUser || all >= total {
-			admission = Busy
+		if mine >= perUser {
+			admission = BusyAccount
+			return nil
+		}
+		if all >= total {
+			admission = BusyService
 			return nil
 		}
 		d.State = models.DeliveryQueued
@@ -85,6 +105,29 @@ func EnqueueTelegramDelivery(
 		return nil
 	})
 	return job, admission, err
+}
+
+// findRepeat loads into job an earlier request d repeats: the same press, or
+// the same button while its job runs or within DeliveryRepeatWindow after.
+func findRepeat(ctx context.Context, tx *pg.Tx, d, job *models.TelegramDelivery) (bool, error) {
+	if d.TapKey != nil {
+		err := tx.ModelContext(ctx, job).Where("tap_key = ?", *d.TapKey).Select()
+		if !errors.Is(err, pg.ErrNoRows) {
+			return err == nil, err
+		}
+	}
+	if d.OriginMessageID == nil {
+		return false, nil
+	}
+	err := tx.ModelContext(ctx, job).
+		Where("bot_ref = ? AND chat_id = ? AND origin_message_id = ?", d.BotRef, d.ChatID, *d.OriginMessageID).
+		Where("origin_revision IS NOT DISTINCT FROM ? AND book_id = ? AND format = ?", d.OriginRevision, d.BookID, d.Format).
+		Where("finished_at IS NULL OR finished_at > now() - make_interval(secs => ?)", DeliveryRepeatWindow.Seconds()).
+		Order("id DESC").Limit(1).Select()
+	if errors.Is(err, pg.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // DeliveryLease is a process's hold on one job. Fence moves on with every
@@ -156,15 +199,74 @@ func HeartbeatTelegramDelivery(ctx context.Context, l DeliveryLease, lease time.
 		` AND state IN ('preparing', 'sending')`, lease.Seconds())
 }
 
-// StartTelegramDeliverySend moves a prepared job to sending, committed before
-// the upload begins: from here on the job is never sent again automatically.
+// Why a send may not start, besides a lost lease.
+var (
+	ErrDeliveryUnbound   = errors.New("telegram delivery: the chat is no longer bound")
+	ErrDeliveryWithdrawn = errors.New("telegram delivery: the book is no longer available")
+)
+
+// StartTelegramDeliverySend is the gate every upload attempt passes right
+// before it begins. In one transaction it proves the job is still this
+// holder's, its binding still active and its book still visible, and moves
+// the job to sending: from here on it is never sent again automatically. When
+// a check fails nothing is recorded, and the error says which.
 func StartTelegramDeliverySend(ctx context.Context, l DeliveryLease, fileBytes int64) error {
-	return heldUpdate(ctx, `state = 'sending', send_started_at = now(), file_bytes = ?`, l,
-		` AND state = 'preparing'`, fileBytes)
+	return db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		var bindingID, bookID int64
+		_, err := tx.QueryOneContext(ctx, pg.Scan(&bindingID, &bookID), `
+			SELECT binding_id, book_id FROM telegram_delivery
+			WHERE `+deliveryHeld+` AND state = 'preparing' FOR UPDATE`, l.ID, l.Owner, l.Fence)
+		if errors.Is(err, pg.ErrNoRows) {
+			return ErrDeliveryLeaseLost
+		}
+		if err != nil {
+			return err
+		}
+		// FOR SHARE: an unbinding or a withdrawal waits for this transaction,
+		// rather than slipping in between the check and the start.
+		_, err = tx.ExecOneContext(ctx, `
+			SELECT 1 FROM telegram_binding WHERE id = ? AND status = 'active' FOR SHARE`, bindingID)
+		if errors.Is(err, pg.ErrNoRows) {
+			return ErrDeliveryUnbound
+		}
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecOneContext(ctx, `
+			SELECT 1 FROM opds_catalog_book WHERE id = ? AND approved AND NOT duplicate_hidden FOR SHARE`, bookID)
+		if errors.Is(err, pg.ErrNoRows) {
+			return ErrDeliveryWithdrawn
+		}
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `
+			UPDATE telegram_delivery SET state = 'sending', send_started_at = now(), file_bytes = ? WHERE id = ?`,
+			fileBytes, l.ID)
+		return err
+	})
+}
+
+// ResumeTelegramDelivery takes back a job its process put in the queue to
+// wait out a 429, once the wait is over — unless another process took it
+// first. The fence moves on, as with any claim.
+func ResumeTelegramDelivery(ctx context.Context, id int64, owner uuid.UUID, lease time.Duration) (DeliveryLease, error) {
+	l := DeliveryLease{ID: id, Owner: owner}
+	_, err := db.QueryOneContext(ctx, pg.Scan(&l.Fence), `
+		UPDATE telegram_delivery
+		SET state = 'preparing', lease_owner = ?, lease_expires_at = now() + make_interval(secs => ?), fence = fence + 1
+		WHERE id = ? AND state = 'queued' AND next_attempt_at <= now()
+		RETURNING fence`, owner, lease.Seconds(), id)
+	if errors.Is(err, pg.ErrNoRows) {
+		return l, ErrDeliveryLeaseLost
+	}
+	return l, err
 }
 
 // RequeueTelegramDelivery returns a held job to the queue, to run after
-// delay. It is only for jobs whose request provably did not reach Telegram.
+// delay, clearing the start of its send. It is only for jobs whose request
+// provably did not reach Telegram — none was made, the connection was
+// refused, or Telegram answered 429.
 func RequeueTelegramDelivery(ctx context.Context, l DeliveryLease, delay time.Duration) error {
 	return heldUpdate(ctx, `state = 'queued', lease_owner = NULL, lease_expires_at = NULL, send_started_at = NULL,
 		next_attempt_at = now() + make_interval(secs => ?)`, l, ` AND state IN ('preparing', 'sending')`, delay.Seconds())

@@ -26,54 +26,52 @@ func rateLimitKey(botRef int64) string { return "tg2:ra:" + strconv.FormatInt(bo
 // run takes one claimed job to its end, or to the point where it is no longer
 // this holder's.
 func (s *Service) run(parent context.Context, job *models.TelegramDelivery) {
-	lease := database.LeaseOf(job)
 	ctx, cancel := context.WithCancelCause(parent)
 	defer cancel(nil)
-	go s.heartbeat(ctx, cancel, lease)
+	h := s.hold(ctx, cancel, database.LeaseOf(job))
+	defer h.stopBeat()
 
 	client, err := s.bots.Client(ctx, job.BotRef)
 	if err != nil || client == nil {
 		// The bot is not served any more: disconnected, or its token refused.
-		s.finish(ctx, lease, nil, models.OutcomeUnavailable)
+		s.finish(ctx, h.lease, nil, models.OutcomeUnavailable)
 		return
 	}
 	book, err := database.GetBookWithAuthors(ctx, job.BookID)
 	if errors.Is(err, pg.ErrNoRows) {
-		s.finish(ctx, lease, s.notifierFor(client, job, &models.Book{ID: job.BookID}), models.OutcomeNotFound)
+		s.finish(ctx, h.lease, s.notifierFor(client, job, &models.Book{ID: job.BookID}), models.OutcomeNotFound)
 		return
 	}
 	if err != nil {
 		logging.Warnf("Delivery: job %d: reading book %d: %v", job.ID, job.BookID, err)
-		_ = database.RequeueTelegramDelivery(ctx, lease, s.cfg.NotSentBackoff)
+		s.retryLater(ctx, job, h, s.notifierFor(client, job, &models.Book{ID: job.BookID}))
 		return
 	}
 	n := s.notifierFor(client, job, book)
 	n.start(ctx)
 	defer n.stop()
 
-	if !s.stillDeliverable(ctx, job, book, lease, n) {
+	if !s.stillDeliverable(ctx, job, book, h.lease, n) {
 		return
 	}
-	file, ok := s.prepare(ctx, job, book, lease, n)
+	file, ok := s.prepare(ctx, job, book, h.lease, n)
 	if !ok {
 		return
 	}
-	// The book may have been withdrawn, or the chat unbound, while it was
-	// being prepared.
-	if fresh, freshErr := database.GetBookWithAuthors(ctx, job.BookID); freshErr == nil {
-		book = fresh
-	} else if errors.Is(freshErr, pg.ErrNoRows) {
-		s.finish(ctx, lease, n, models.OutcomeNotFound)
+	// The book is read again for the caption; what may be sent is decided by
+	// the gate in front of the upload, which a failed read never replaces.
+	fresh, err := database.GetBookWithAuthors(ctx, job.BookID)
+	if errors.Is(err, pg.ErrNoRows) {
+		s.finish(ctx, h.lease, n, models.OutcomeNotFound)
 		return
 	}
-	if !s.stillDeliverable(ctx, job, book, lease, n) {
-		return
-	}
-	if err := database.StartTelegramDeliverySend(ctx, lease, int64(len(file.Data))); err != nil {
+	if err != nil {
+		logging.Warnf("Delivery: job %d: reading book %d again: %v", job.ID, job.BookID, err)
+		s.retryLater(ctx, job, h, n)
 		return
 	}
 	n.sending(ctx)
-	s.send(ctx, client, job, book, file, lease, n)
+	s.send(ctx, client, job, fresh, file, h, n)
 }
 
 // prepare produces the job's file, closing the job when it cannot be made or
@@ -104,10 +102,10 @@ func (s *Service) prepare(
 	return File{}, false
 }
 
-// stillDeliverable re-checks the book and the chat's binding. A job that may
-// not go out is closed unavailable; its chat is told only while it is still
-// the reader's — an ended binding leaves a chat the library no longer writes
-// to.
+// stillDeliverable re-checks the book and the chat's binding before the work
+// of preparing. A job that may not go out is closed unavailable; its chat is
+// told only while it is still the reader's — an ended binding leaves a chat
+// the library no longer writes to.
 func (s *Service) stillDeliverable(
 	ctx context.Context, job *models.TelegramDelivery, book *models.Book, lease database.DeliveryLease, n *notifier,
 ) bool {
@@ -123,15 +121,18 @@ func (s *Service) stillDeliverable(
 	return true
 }
 
-// send uploads the file and records what Telegram's answer means. Only a
-// 429 short enough to wait out in place sends the same request again.
+// send uploads the file and records what Telegram's answer means. Every
+// attempt passes the gate first, after any wait, so an attempt never starts
+// on a lease, a binding or a book checked before the wait.
 func (s *Service) send(
-	ctx context.Context, client *bot.Bot, job *models.TelegramDelivery, book *models.Book, file File,
-	lease database.DeliveryLease, n *notifier,
+	ctx context.Context, client *bot.Bot, job *models.TelegramDelivery, book *models.Book, file File, h *hold, n *notifier,
 ) {
 	waited := false
 	for {
-		if wait := s.rateLimited(job.BotRef); wait > 0 && !s.waitOut(ctx, lease, n, wait, &waited) {
+		if wait := s.rateLimited(job.BotRef); wait > 0 && !s.waitOut(ctx, job, h, n, wait, &waited) {
+			return
+		}
+		if !s.startSend(ctx, job, h, n, len(file.Data)) {
 			return
 		}
 		msg, err := client.SendDocument(ctx, &bot.SendDocumentParams{
@@ -142,35 +143,72 @@ func (s *Service) send(
 		class, wait := tgapi.Classify(err)
 		if class == tgapi.ClassRateLimited {
 			s.shareRateLimit(job.BotRef, wait)
-			if !s.waitOut(ctx, lease, n, wait, &waited) {
+			if !s.waitOut(ctx, job, h, n, wait, &waited) {
 				return
 			}
 			continue
 		}
-		s.settle(ctx, job, lease, n, class, msg, err)
+		s.settle(ctx, job, h, n, class, msg, err)
 		return
 	}
 }
 
-// waitOut spends a 429 wait in place, once per job and only a short one;
-// otherwise it puts the job back in the queue. It reports whether to send
-// again now.
+// startSend passes the gate in front of an upload; false when the upload may
+// not begin, the job then closed, put back, or left to its new holder.
+func (s *Service) startSend(ctx context.Context, job *models.TelegramDelivery, h *hold, n *notifier, size int) bool {
+	err := database.StartTelegramDeliverySend(ctx, h.lease, int64(size))
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, database.ErrDeliveryLeaseLost):
+		logging.Warnf("Delivery: job %d is no longer ours to send", job.ID)
+	case errors.Is(err, database.ErrDeliveryUnbound):
+		s.finish(ctx, h.lease, nil, models.OutcomeUnavailable)
+	case errors.Is(err, database.ErrDeliveryWithdrawn):
+		s.finish(ctx, h.lease, n, models.OutcomeUnavailable)
+	default:
+		logging.Warnf("Delivery: job %d: checking it before the send: %v", job.ID, err)
+		s.retryLater(ctx, job, h, n)
+	}
+	return false
+}
+
+// waitOut handles a 429 — Telegram's own word that nothing was sent. The job
+// goes back to the queue for the wait first, so it stays retryable by any
+// process whatever happens to this one; then, once per job and only for a
+// short wait, this process waits and takes it back. It reports whether to
+// try again now.
 func (s *Service) waitOut(
-	ctx context.Context, lease database.DeliveryLease, n *notifier, wait time.Duration, waited *bool,
+	ctx context.Context, job *models.TelegramDelivery, h *hold, n *notifier, wait time.Duration, waited *bool,
 ) bool {
+	if wait > longWaitNotice {
+		n.waiting(ctx)
+	}
+	if !h.requeue(ctx, wait) {
+		return false
+	}
 	if wait > s.cfg.ShortWait || *waited {
-		s.requeue(ctx, lease, n, wait)
 		return false
 	}
 	*waited = true
-	return sleep(ctx, wait)
+	if !s.sleep(ctx, wait) {
+		return false // stopping: the queued job is any process's
+	}
+	lease, err := database.ResumeTelegramDelivery(ctx, job.ID, s.owner, s.cfg.Lease)
+	if err != nil {
+		logging.Warnf("Delivery: job %d: taking it back after the wait: %v", job.ID, err)
+		return false
+	}
+	h.beat(lease)
+	return true
 }
 
 // settle records what one answer of Telegram means for the job.
 func (s *Service) settle(
-	ctx context.Context, job *models.TelegramDelivery, lease database.DeliveryLease, n *notifier,
+	ctx context.Context, job *models.TelegramDelivery, h *hold, n *notifier,
 	class tgapi.Class, msg *tgbot.Message, err error,
 ) {
+	lease := h.lease
 	switch class {
 	case tgapi.ClassOK:
 		if markErr := database.MarkTelegramDeliverySent(context.WithoutCancel(ctx), lease, int64(msg.ID)); markErr != nil {
@@ -179,9 +217,9 @@ func (s *Service) settle(
 		n.sent(ctx)
 	case tgapi.ClassNotSent:
 		if int(job.Attempt) < s.cfg.MaxAttempts {
-			backoff := s.cfg.NotSentBackoff << (job.Attempt - 1)
+			backoff := s.backoff(job)
 			logging.Warnf("Delivery: job %d did not reach Telegram, again in %s: %v", job.ID, backoff, tgapi.RedactURL(err))
-			_ = database.RequeueTelegramDelivery(ctx, lease, backoff)
+			h.requeue(ctx, backoff)
 			return
 		}
 		s.finish(ctx, lease, n, models.OutcomeSendRejected)
@@ -201,15 +239,21 @@ func (s *Service) settle(
 	}
 }
 
-// requeue puts a job back for after a 429 wait, telling the chat when the
-// wait is long enough to notice.
-func (s *Service) requeue(ctx context.Context, lease database.DeliveryLease, n *notifier, wait time.Duration) {
-	if wait > longWaitNotice {
-		n.waiting(ctx)
+// backoff is the delay before the job's next attempt: NotSentBackoff,
+// doubling with each attempt made.
+func (s *Service) backoff(job *models.TelegramDelivery) time.Duration {
+	return s.cfg.NotSentBackoff << max(job.Attempt-1, 0)
+}
+
+// retryLater puts back a job the library could not check or read, a few
+// times; then it closes the job, saying the library failed. Nothing is sent
+// on what could not be checked.
+func (s *Service) retryLater(ctx context.Context, job *models.TelegramDelivery, h *hold, n *notifier) {
+	if int(job.Attempt) < s.cfg.MaxAttempts {
+		h.requeue(ctx, s.backoff(job))
+		return
 	}
-	if err := database.RequeueTelegramDelivery(ctx, lease, wait); err != nil {
-		logging.Warnf("Delivery: job %d: requeueing: %v", lease.ID, err)
-	}
+	s.finish(ctx, h.lease, n, models.OutcomeLibraryFailed)
 }
 
 // finish closes a job as failed with outcome and tells the chat; n may be nil
@@ -229,13 +273,63 @@ func (s *Service) finishAs(ctx context.Context, lease database.DeliveryLease, n 
 	}
 }
 
-// heartbeat renews the lease; a failed renewal cancels the job.
-func (s *Service) heartbeat(ctx context.Context, cancel context.CancelCauseFunc, lease database.DeliveryLease) {
+// hold is a running job's lease and the heartbeat that renews it. The lease
+// changes when the job is put back in the queue and taken again.
+type hold struct {
+	s      *Service
+	ctx    context.Context
+	cancel context.CancelCauseFunc
+	lease  database.DeliveryLease
+	stop   chan struct{}
+	done   chan struct{}
+}
+
+func (s *Service) hold(ctx context.Context, cancel context.CancelCauseFunc, lease database.DeliveryLease) *hold {
+	h := &hold{s: s, ctx: ctx, cancel: cancel}
+	h.beat(lease)
+	return h
+}
+
+// beat starts renewing lease; a failed renewal cancels the job.
+func (h *hold) beat(lease database.DeliveryLease) {
+	h.lease = lease
+	h.stop, h.done = make(chan struct{}), make(chan struct{})
+	go h.s.heartbeat(h.ctx, h.cancel, lease, h.stop, h.done)
+}
+
+// stopBeat stops the renewals and waits for the last one.
+func (h *hold) stopBeat() {
+	if h.stop == nil {
+		return
+	}
+	close(h.stop)
+	<-h.done
+	h.stop = nil
+}
+
+// requeue gives the job back to the queue, to run after delay; false when it
+// was no longer this holder's to give.
+func (h *hold) requeue(ctx context.Context, delay time.Duration) bool {
+	h.stopBeat()
+	if err := database.RequeueTelegramDelivery(context.WithoutCancel(ctx), h.lease, delay); err != nil {
+		logging.Warnf("Delivery: job %d: requeueing: %v", h.lease.ID, err)
+		return false
+	}
+	return true
+}
+
+// heartbeat renews the lease until stop; a failed renewal cancels the job.
+func (s *Service) heartbeat(
+	ctx context.Context, cancel context.CancelCauseFunc, lease database.DeliveryLease, stop <-chan struct{}, done chan<- struct{},
+) {
+	defer close(done)
 	ticker := time.NewTicker(s.cfg.Heartbeat)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
+			return
+		case <-stop:
 			return
 		case <-ticker.C:
 			if err := database.HeartbeatTelegramDelivery(ctx, lease, s.cfg.Lease); err != nil {
@@ -268,12 +362,15 @@ func (s *Service) shareRateLimit(botRef int64, wait time.Duration) {
 	_ = s.cfg.Redis.Set(rateLimitKey(botRef), until, wait).Err()
 }
 
-// sleep waits d or until ctx ends; false when ctx ended.
-func sleep(ctx context.Context, d time.Duration) bool {
+// sleep waits d; false when the job's context ended or the service is
+// stopping first.
+func (s *Service) sleep(ctx context.Context, d time.Duration) bool {
 	t := time.NewTimer(d)
 	defer t.Stop()
 	select {
 	case <-ctx.Done():
+		return false
+	case <-s.quitting():
 		return false
 	case <-t.C:
 		return true
