@@ -283,9 +283,31 @@ func (bm *BotManager) handle(ctx context.Context, b *Bot, update *tgbot.Update) 
 		if handled {
 			return nil
 		}
+	} else {
+		bm.ensureLegacyMenu(ctx, b)
 	}
 	b.bot.ProcessUpdate(ctx, update)
 	return nil
+}
+
+// ensureLegacyMenu gives a bot served by the legacy handlers its command
+// menu back when the v2 router cleared it: a bot switched back by its row,
+// without a restart. Best effort: the update is handled either way.
+func (bm *BotManager) ensureLegacyMenu(ctx context.Context, b *Bot) {
+	if bm.router == nil {
+		return
+	}
+	ui, err := database.GetTelegramBotUI(ctx, b.ref)
+	if err != nil {
+		logging.Warnf("Telegram bot %d: reading its menu state: %v", b.ref, err)
+		return
+	}
+	if ui.CommandsClearedAt == nil {
+		return
+	}
+	if err := b.registerCommands(); err != nil {
+		logging.Warnf("Telegram bot %d: restoring its commands: %v", b.ref, err)
+	}
 }
 
 // replyLedger counts what a handler's outgoing calls may have done: calls
