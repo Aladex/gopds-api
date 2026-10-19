@@ -51,22 +51,30 @@ const (
 	ButtonSeries        = "Серия"
 )
 
+// ButtonInlineSearch opens inline search from the home panel.
+const ButtonInlineSearch = "🔍 Найти с подсказками"
+
 // HomeKeys are the home panel's envelopes.
 type HomeKeys struct {
 	Favorites, Collections, Settings *cbv2.Envelope
 }
 
 // HomeScreen is the pinned home panel with its sections; linked greets a
-// chat just bound to the library.
-func HomeScreen(linked bool, k *HomeKeys) Screen {
+// chat just bound to the library. inline offers inline search first, while
+// the bot answers inline queries (plan-ui.md §3.6).
+func HomeScreen(linked, inline bool, k *HomeKeys) Screen {
 	blocks := []Block{Line{Text: CopyHomeChoose}}
 	if linked {
 		blocks = []Block{Line{Text: CopyLinked}, Gap{}, Line{Text: CopyHomeChoose}}
 	}
-	return Screen{Doc: Doc{Blocks: blocks}, Keys: [][]Button{
-		{{Text: ButtonFavorites, Env: k.Favorites}, {Text: ButtonCollections, Env: k.Collections}},
-		{{Text: ButtonSettings, Env: k.Settings}},
-	}}
+	var keys [][]Button
+	if inline {
+		keys = append(keys, []Button{{Text: ButtonInlineSearch, SwitchInline: true}})
+	}
+	return Screen{Doc: Doc{Blocks: blocks}, Keys: append(keys,
+		[]Button{{Text: ButtonFavorites, Env: k.Favorites}, {Text: ButtonCollections, Env: k.Collections}},
+		[]Button{{Text: ButtonSettings, Env: k.Settings}},
+	)}
 }
 
 // BookList is one page of a list of books: an author's, a series', a

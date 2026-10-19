@@ -5,9 +5,11 @@ import (
 	"strings"
 
 	"gopds-api/database"
+	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/telegram/cbv2"
 	"gopds-api/telegram/screens"
+	"gopds-api/telegram/tgapi"
 )
 
 // The settings (plan-ui.md §1.9): what OpSettings' Arg opens. The search
@@ -48,6 +50,7 @@ func (r *Router) settingsPainter(ctx context.Context, b *Bot, node *models.Teleg
 		return nil, screens.CopyLibraryDown, false
 	}
 	plain := ui.CardStyle == models.TelegramPanelPlain
+	inline := r.inlineOn(ctx, b)
 	return func(k *keys) screens.Screen {
 		parent, self := uint64(node.ParentID), uint64(node.ID) // #nosec G115 -- serial ids
 		back := k.env(cbv2.Envelope{Op: cbv2.OpBack, ReturnID: parent})
@@ -69,7 +72,16 @@ func (r *Router) settingsPainter(ctx context.Context, b *Bot, node *models.Teleg
 				return k.env(cbv2.Envelope{Op: cbv2.OpSetCardStyle, Arg: arg, ReturnID: parent})
 			}, back)
 		case ScrInline:
-			return screens.InlineScreen(b.Username, back)
+			state := screens.InlineOff
+			switch {
+			case inline && node.Page == inlineJustOn:
+				state = screens.InlineJustOn
+			case inline:
+				state = screens.InlineOn
+			}
+			return screens.InlineScreen(b.Username, state, &screens.InlineKeys{
+				Check: k.env(cbv2.Envelope{Op: cbv2.OpInlineCheck, ReturnID: parent}), Back: back, Home: k.home(),
+			})
 		case ScrDonate:
 			return screens.DonateScreen(r.cfg.Donate, back)
 		}
@@ -83,7 +95,7 @@ func (r *Router) settingsPainter(ctx context.Context, b *Bot, node *models.Teleg
 		if len(r.cfg.Donate) > 0 {
 			sk.Donate = section(sectionDonate)
 		}
-		return screens.SettingsScreen(ui.DefaultFormat, ui.SearchLang, plain, sk)
+		return screens.SettingsScreen(ui.DefaultFormat, ui.SearchLang, plain, inline, sk)
 	}, "", true
 }
 
@@ -122,4 +134,41 @@ func (r *Router) repaint(ctx context.Context, b *Bot, panel *models.TelegramPane
 		return
 	}
 	r.show(ctx, b, panel, panel.Revision, node)
+}
+
+// inlineJustOn is the page of S-INLINE that «Проверить» found inline mode on.
+const inlineJustOn = 1
+
+// checkInline is «Проверить»: getMe, then the screen that says it is on —
+// and the home panel offers inline search at once — or a toast that it is
+// not yet.
+func (r *Router) checkInline(ctx context.Context, b *Bot, panel *models.TelegramPanel, env *cbv2.Envelope) string {
+	on, err := r.bots.CheckInline(ctx, b.Ref)
+	if err != nil {
+		logging.Warnf("Telegram bot %d: checking inline mode: %v", b.Ref, tgapi.RedactURL(err))
+		return screens.CopyLibraryDown
+	}
+	if !on {
+		return screens.CopyInlineNotYet
+	}
+	node := &models.TelegramNode{UserID: b.Binding.UserID, Screen: int16(ScrInline), Page: inlineJustOn,
+		ParentID: int64(env.ReturnID)} // #nosec G115 -- decoded ids fit
+	toast := r.show(ctx, b, panel, panel.Revision, node)
+	if !panel.IsHome {
+		r.repaintHome(ctx, b, panel.ChatID)
+	}
+	return toast
+}
+
+// repaintHome paints the chat's home panel again, if it shows home.
+func (r *Router) repaintHome(ctx context.Context, b *Bot, chatID int64) {
+	home, err := database.GetTelegramHomePanel(ctx, b.Ref, chatID)
+	if err != nil || home == nil {
+		return
+	}
+	node, err := database.GetTelegramNode(ctx, b.Binding.UserID, home.NodeID)
+	if err != nil || Screen(node.Screen) != ScrHome {
+		return
+	}
+	r.show(ctx, b, home, home.Revision, node)
 }

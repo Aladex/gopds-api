@@ -126,6 +126,8 @@ func (r *Router) act(ctx context.Context, b *Bot, panel *models.TelegramPanel, e
 		return r.setFormat(ctx, b, panel, env)
 	case cbv2.OpSetCardStyle:
 		return r.setCardStyle(ctx, b, panel, env)
+	case cbv2.OpInlineCheck:
+		return r.checkInline(ctx, b, panel, env)
 	}
 	return screens.CopyUnsupported
 }
@@ -166,7 +168,7 @@ func (r *Router) goHome(ctx context.Context, b *Bot, panel *models.TelegramPanel
 	if err := upsertNode(ctx, node); err != nil {
 		return screens.CopyLibraryDown
 	}
-	if !r.movePanel(ctx, b, panel, panel.Revision, node, r.paintHome(false)) {
+	if !r.movePanel(ctx, b, panel, panel.Revision, node, r.paintHome(false, r.inlineOn(ctx, b))) {
 		return screens.CopyScreenChanged
 	}
 	r.checkPin(ctx, b, panel.ChatID)

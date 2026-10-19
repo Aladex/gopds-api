@@ -57,7 +57,11 @@ const (
 const (
 	kindMessage  = "message"
 	kindCallback = "callback_query"
+	kindInline   = "inline_query"
 )
+
+// inlineCacheSeconds is how long Telegram may keep an inline answer.
+const inlineCacheSeconds = 5
 
 // HandleWebhook takes one update from Telegram.
 //
@@ -132,8 +136,9 @@ func (bm *BotManager) accept(c *gin.Context, b *Bot, body []byte, update *tgbot.
 		answerStatus(c, statusDuplicate)
 		return
 	}
-	if binding != nil && binding.BlockedAt != nil && in.from.ID == binding.TGUserID {
-		// The owner wrote, so the bot is not blocked any more.
+	if binding != nil && binding.BlockedAt != nil && in.from.ID == binding.TGUserID && in.kind != kindInline {
+		// The owner wrote, so the bot is not blocked any more. An inline
+		// query does not say so: it can be typed to a blocked bot.
 		if clearErr := database.SetTelegramBindingBlocked(ctx, b.ref, false); clearErr != nil {
 			logging.Warnf("Webhook: clearing the blocked mark of telegram bot %d: %v", b.ref, clearErr)
 		}
@@ -172,6 +177,7 @@ type incoming struct {
 	chat       *tgbot.Chat
 	text       string
 	callbackID string
+	inlineID   string
 }
 
 // readIncoming reads the sender of the update kinds the bot handles. Any
@@ -182,6 +188,8 @@ func readIncoming(u *tgbot.Update) incoming {
 		return incoming{kind: kindMessage, from: u.Message.From, chat: &u.Message.Chat, text: u.Message.Text}
 	case u.CallbackQuery != nil:
 		return incoming{kind: kindCallback, from: &u.CallbackQuery.From, callbackID: u.CallbackQuery.ID}
+	case u.InlineQuery != nil && u.InlineQuery.From != nil:
+		return incoming{kind: kindInline, from: u.InlineQuery.From, inlineID: u.InlineQuery.ID}
 	}
 	return incoming{}
 }
@@ -446,9 +454,16 @@ func (bm *BotManager) answerStranger(parent context.Context, b *Bot, in incoming
 	ctx, cancel := context.WithTimeout(parent, strangerReplyTimeout)
 	defer cancel()
 
-	if in.kind == kindCallback {
+	switch in.kind {
+	case kindCallback:
 		_, _ = b.bot.AnswerCallbackQuery(ctx, &tgbotapi.AnswerCallbackQueryParams{
 			CallbackQueryID: in.callbackID, Text: copyButtonUnavailable,
+		})
+		return
+	case kindInline:
+		// Nothing for a stranger, and Telegram keeps that for them alone.
+		_, _ = b.bot.AnswerInlineQuery(ctx, &tgbotapi.AnswerInlineQueryParams{
+			InlineQueryID: in.inlineID, Results: []tgbot.InlineQueryResult{}, CacheTime: inlineCacheSeconds, IsPersonal: true,
 		})
 		return
 	}

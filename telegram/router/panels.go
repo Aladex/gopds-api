@@ -317,6 +317,10 @@ func (r *Router) markup(b *Bot, chatID int64, rows [][]screens.Button) (*tgbot.I
 			if button.CopyText != "" {
 				btn.CopyText = &tgbot.CopyTextButton{Text: button.CopyText}
 			}
+			if button.SwitchInline {
+				empty := ""
+				btn.SwitchInlineQueryCurrentChat = &empty
+			}
 			if button.Env != nil {
 				data, err := cbv2.Encode(button.Env, b.NavKey, bind)
 				if err != nil {

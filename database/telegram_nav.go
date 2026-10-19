@@ -184,14 +184,34 @@ func GetTelegramUserUI(ctx context.Context, userID int64) (TelegramUserUI, error
 type TelegramBotUI struct {
 	CommandsClearedAt *time.Time
 	RichRejectedAt    *time.Time
+	// SupportsInline is getMe's supports_inline_queries as last seen
+	// (migration 49).
+	SupportsInline  bool
+	InlineCheckedAt *time.Time
 }
 
 // GetTelegramBotUI reads a bot's interface facts; zero when none are known.
 func GetTelegramBotUI(ctx context.Context, botRef int64) (TelegramBotUI, error) {
 	var ui TelegramBotUI
-	_, err := db.QueryContext(ctx, pg.Scan(&ui.CommandsClearedAt, &ui.RichRejectedAt), `
-		SELECT commands_cleared_at, rich_rejected_at FROM telegram_bot_ui WHERE bot_ref = ?`, botRef)
+	_, err := db.QueryContext(ctx, pg.Scan(&ui.CommandsClearedAt, &ui.RichRejectedAt, &ui.SupportsInline, &ui.InlineCheckedAt), `
+		SELECT commands_cleared_at, rich_rejected_at, supports_inline, inline_checked_at
+		FROM telegram_bot_ui WHERE bot_ref = ?`, botRef)
 	return ui, err
+}
+
+// SetTelegramInline records whether the bot answers inline queries, and
+// reports whether that changed.
+func SetTelegramInline(ctx context.Context, botRef int64, on bool) (bool, error) {
+	var before *bool
+	_, err := db.QueryContext(ctx, pg.Scan(&before), `
+		WITH old AS (SELECT supports_inline FROM telegram_bot_ui WHERE bot_ref = ?)
+		INSERT INTO telegram_bot_ui (bot_ref, supports_inline, inline_checked_at) VALUES (?, ?, now())
+		ON CONFLICT (bot_ref) DO UPDATE SET supports_inline = EXCLUDED.supports_inline, inline_checked_at = now()
+		RETURNING (SELECT supports_inline FROM old)`, botRef, botRef, on)
+	if err != nil {
+		return false, err
+	}
+	return before == nil && on || before != nil && *before != on, nil
 }
 
 // MarkTelegramCommandsCleared records that the bot's command menu is empty.

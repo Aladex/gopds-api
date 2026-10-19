@@ -16,20 +16,24 @@ import (
 
 // Config represents the main configuration structure
 type Config struct {
-	Server             ServerConfig   `mapstructure:"server" yaml:"server"`
-	ProjectURL         string         `mapstructure:"project_url" yaml:"project_url"`
-	Domain             string         `mapstructure:"project_domain" yaml:"project_domain"`
-	TelegramWebhookURL string         `mapstructure:"telegram_webhook_url" yaml:"telegram_webhook_url"`
-	SecretKey          string         `mapstructure:"secret_key" yaml:"secret_key"`
-	Postgres           PostgresConfig `mapstructure:"postgres" yaml:"postgres"`
-	Database           DatabaseConfig `mapstructure:"database" yaml:"database"`
-	Redis              RedisConfig    `mapstructure:"redis" yaml:"redis"`
-	Sessions           SessionsConfig `mapstructure:"sessions" yaml:"sessions"`
-	App                AppConfig      `mapstructure:"app" yaml:"app"`
-	Scanning           ScanningConfig `mapstructure:"scanning" yaml:"scanning"`
-	Email              EmailConfig    `mapstructure:"email" yaml:"email"`
-	Preview            PreviewConfig  `mapstructure:"preview" yaml:"preview"`
-	LLM                LLMConfig      `mapstructure:"llm" yaml:"llm"`
+	Server             ServerConfig `mapstructure:"server" yaml:"server"`
+	ProjectURL         string       `mapstructure:"project_url" yaml:"project_url"`
+	Domain             string       `mapstructure:"project_domain" yaml:"project_domain"`
+	TelegramWebhookURL string       `mapstructure:"telegram_webhook_url" yaml:"telegram_webhook_url"`
+	// TelegramPublicMediaURL is a host Telegram can fetch the covers from,
+	// serving /books-posters/ as the site does; "" leaves inline results
+	// without covers.
+	TelegramPublicMediaURL string         `mapstructure:"telegram_public_media_url" yaml:"telegram_public_media_url"`
+	SecretKey              string         `mapstructure:"secret_key" yaml:"secret_key"`
+	Postgres               PostgresConfig `mapstructure:"postgres" yaml:"postgres"`
+	Database               DatabaseConfig `mapstructure:"database" yaml:"database"`
+	Redis                  RedisConfig    `mapstructure:"redis" yaml:"redis"`
+	Sessions               SessionsConfig `mapstructure:"sessions" yaml:"sessions"`
+	App                    AppConfig      `mapstructure:"app" yaml:"app"`
+	Scanning               ScanningConfig `mapstructure:"scanning" yaml:"scanning"`
+	Email                  EmailConfig    `mapstructure:"email" yaml:"email"`
+	Preview                PreviewConfig  `mapstructure:"preview" yaml:"preview"`
+	LLM                    LLMConfig      `mapstructure:"llm" yaml:"llm"`
 
 	AuthorMetadata AuthorMetadataConfig `mapstructure:"author_metadata" yaml:"author_metadata"`
 	Authors        AuthorsConfig        `mapstructure:"authors" yaml:"authors"`

@@ -42,6 +42,9 @@ type Config struct {
 	API tgapi.Endpoint
 	// Secrets seals the bots' tokens, webhook secrets and button keys.
 	Secrets *secrets.Box
+	// PublicMediaURL is where Telegram can fetch covers from, for inline
+	// results; "" means none.
+	PublicMediaURL string
 	// ChatWait is how long a v2 update waits for its chat, held by another
 	// transition, before it is handed back; zero is the router's default.
 	ChatWait time.Duration
@@ -148,12 +151,14 @@ func (bm *BotManager) InitializeExistingBots() error {
 		return fmt.Errorf("listing telegram bots: %w", err)
 	}
 	served := 0
+	v2 := map[int64]bool{}
 	for i := range bots {
 		b, err := bm.serve(&bots[i])
 		if err != nil {
 			logging.Errorf("Failed to serve telegram bot %d: %v", bots[i].ID, err)
 			continue
 		}
+		v2[b.ref] = bots[i].Router == models.TelegramRouterV2
 		if err := bm.setWebhook(b); err != nil {
 			logging.Errorf("Failed to set webhook for telegram bot %d: %v", bots[i].ID, err)
 		}
@@ -163,7 +168,7 @@ func (bm *BotManager) InitializeExistingBots() error {
 	bm.handling.Add(1)
 	go func() {
 		defer bm.handling.Done()
-		bm.refreshIdentities()
+		bm.refreshIdentities(v2)
 	}()
 	return nil
 }
@@ -176,13 +181,14 @@ const identityTimeout = 10 * time.Second
 
 // refreshIdentities learns the public username and name of every served bot
 // that has none — the adopted legacy bots: their rows were made from a token
-// alone. One getMe per bot, a few at a time; a bot that fails is logged and
-// tried again by the next health check, and never holds up the others.
-func (bm *BotManager) refreshIdentities() {
+// alone — and whether each v2 bot answers inline queries (plan-ui.md §3.1).
+// One getMe per bot, a few at a time; a bot that fails is logged and tried
+// again by the next health check, and never holds up the others.
+func (bm *BotManager) refreshIdentities(v2 map[int64]bool) {
 	bm.mutex.RLock()
 	var nameless []*Bot
 	for _, b := range bm.byRef {
-		if b.username == "" {
+		if b.username == "" || v2[b.ref] {
 			nameless = append(nameless, b)
 		}
 	}
@@ -202,12 +208,12 @@ func (bm *BotManager) refreshIdentities() {
 	wg.Wait()
 }
 
-// refreshIdentity asks Telegram for one bot's username and name and keeps
-// them.
+// refreshIdentity asks Telegram for one bot's username and name, and whether
+// it answers inline queries, and keeps them.
 func (bm *BotManager) refreshIdentity(b *Bot) {
 	ctx, cancel := context.WithTimeout(context.Background(), identityTimeout)
 	defer cancel()
-	me, err := b.bot.GetMe(ctx)
+	me, err := tgapi.GetMe(ctx, b.token, bm.config.API)
 	if err != nil {
 		logging.Warnf("Telegram bot %d of user %s: reading its name: %v", b.ref, userOf(b.addedBy), tgapi.RedactURL(err))
 		return
@@ -219,6 +225,37 @@ func (bm *BotManager) refreshIdentity(b *Bot) {
 	bm.mutex.Lock()
 	b.username = me.Username
 	bm.mutex.Unlock()
+	if _, err := database.SetTelegramInline(ctx, b.ref, me.SupportsInline); err != nil {
+		logging.Warnf("Telegram bot %d: storing whether it answers inline queries: %v", b.ref, err)
+	}
+}
+
+// CheckInline asks Telegram whether a served bot answers inline queries, and
+// keeps the answer: «Проверить» on the bot's inline instructions.
+func (bm *BotManager) CheckInline(ctx context.Context, ref int64) (bool, error) {
+	b, err := bm.botByRef(ctx, ref)
+	if err != nil {
+		return false, err
+	}
+	if b == nil {
+		return false, fmt.Errorf("telegram bot %d is not served", ref)
+	}
+	cctx, cancel := context.WithTimeout(ctx, identityTimeout)
+	defer cancel()
+	me, err := tgapi.GetMe(cctx, b.token, bm.config.API)
+	if err != nil {
+		return false, err
+	}
+	if _, err := database.SetTelegramInline(ctx, ref, me.SupportsInline); err != nil {
+		return false, err
+	}
+	return me.SupportsInline, nil
+}
+
+// servedByV2 reports a bot switched to the v2 router; false when unknown.
+func (bm *BotManager) servedByV2(ctx context.Context, ref int64) bool {
+	model, err := database.GetTelegramBot(ctx, ref)
+	return err == nil && model.Router == models.TelegramRouterV2
 }
 
 // userOf names an account id in logs.
@@ -433,12 +470,13 @@ func (bm *BotManager) botByRef(ctx context.Context, ref int64) (*Bot, error) {
 func (bm *BotManager) SetDelivery(d *delivery.Service) {
 	bm.delivery = d
 	bm.router = router.New(&router.Config{
-		Search:      bm.search,
-		Delivery:    d,
-		SiteURL:     bm.config.SiteURL,
-		ChatWait:    bm.config.ChatWait,
-		Donate:      bm.config.Donate,
-		PostersPath: func() string { return viper.GetString("app.posters_path") },
+		Search:       bm.search,
+		Delivery:     d,
+		SiteURL:      bm.config.SiteURL,
+		ChatWait:     bm.config.ChatWait,
+		Donate:       bm.config.Donate,
+		MediaBaseURL: bm.config.PublicMediaURL,
+		PostersPath:  func() string { return viper.GetString("app.posters_path") },
 	}, bm)
 	d.SetCards(bm.router)
 }
@@ -473,7 +511,8 @@ func (bm *BotManager) v2Bot(ctx context.Context, b *Bot) (*router.Bot, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &router.Bot{Client: b.bot, Ref: b.ref, TGBotID: b.tgBotID, Username: b.username, NavKey: navKey, Binding: binding}, nil
+	return &router.Bot{Client: b.bot, Ref: b.ref, TGBotID: b.tgBotID, Username: b.username,
+		Active: model.Status == models.TelegramBotActive, NavKey: navKey, Binding: binding}, nil
 }
 
 // Client is the SDK client of a served bot, for the delivery service.
@@ -627,7 +666,7 @@ func (bm *BotManager) runHealthCheck() {
 		bm.mutex.RLock()
 		nameless := b.username == ""
 		bm.mutex.RUnlock()
-		if nameless {
+		if nameless || bm.servedByV2(ctx, b.ref) {
 			bm.refreshIdentity(b)
 		}
 

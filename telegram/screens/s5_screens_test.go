@@ -55,23 +55,26 @@ func TestTheLanguagePagerPages(t *testing.T) {
 // Settings name their values; «Поддержать проект» only with donation methods.
 func TestSettingsShowTheirValues(t *testing.T) {
 	k := &SettingsKeys{Format: env(), Language: env(), Style: env(), Inline: env(), Home: env()}
-	s := SettingsScreen("fb2", "", true, k)
+	s := SettingsScreen("fb2", "", true, false, k)
 	plain := s.Doc.Plain()
-	for _, want := range []string{"Основной формат: FB2", "Язык поиска: все языки", "Вид карточек: простой"} {
+	for _, want := range []string{
+		"Основной формат: FB2", "Язык поиска: все языки", "Вид карточек: простой", "Подсказки при поиске: выключены",
+	} {
 		assert.Contains(t, plain, want)
 	}
 	for _, row := range texts(&s) {
 		assert.NotContains(t, row, ButtonDonate)
 	}
 	k.Donate = env()
-	s = SettingsScreen("epub", "ru", false, k)
+	s = SettingsScreen("epub", "ru", false, true, k)
+	assert.Contains(t, s.Doc.Plain(), "Подсказки при поиске: включены")
 	assert.Contains(t, s.Doc.Plain(), "Язык поиска: русский")
 	assert.Contains(t, texts(&s), []string{ButtonDonate})
 }
 
 // The inline instructions keep the command inside code.
 func TestTheInlineInstructionsKeepTheCommandInCode(t *testing.T) {
-	s := InlineScreen("my_library_bot", env())
+	s := InlineScreen("my_library_bot", InlineOff, &InlineKeys{Check: env(), Back: env(), Home: env()})
 	plain := s.Doc.Plain()
 	assert.Contains(t, plain, "<code>/setinline</code>")
 	assert.Contains(t, plain, "@my_library_bot")
@@ -84,4 +87,31 @@ func TestWithBackPrependsToTheLastRow(t *testing.T) {
 	assert.Equal(t, [][]string{{ButtonToCollections, ButtonHome}}, texts(&s))
 	same := Notice(CopyCollectionGone, env()).WithBack(nil)
 	assert.Equal(t, [][]string{{ButtonHome}}, texts(&same))
+}
+
+// With inline mode off: the steps and «Проверить»; on: how to use it; just
+// found on: that, and the way home.
+func TestTheInlineScreenFollowsTheMode(t *testing.T) {
+	k := &InlineKeys{Check: env(), Back: env(), Home: env()}
+	off := InlineScreen("lib_bot", InlineOff, k)
+	assert.Contains(t, texts(&off), []string{ButtonCheckInline})
+	assert.Contains(t, off.Doc.Plain(), "нажми «Проверить»")
+	on := InlineScreen("lib_bot", InlineOn, k)
+	assert.Contains(t, on.Doc.Plain(), "Подсказки при поиске включены")
+	assert.Contains(t, on.Doc.Plain(), "@lib_bot")
+	assert.Equal(t, [][]string{{ButtonToSettings}}, texts(&on))
+	just := InlineScreen("lib_bot", InlineJustOn, k)
+	assert.Equal(t, CopyInlineJustOn, strings.TrimSpace(just.Doc.Plain()))
+	assert.Equal(t, [][]string{{ButtonHome}}, texts(&just))
+}
+
+// The home offers inline search first, only while it is on.
+func TestTheHomeOffersInlineSearchWhenOn(t *testing.T) {
+	k := &HomeKeys{Favorites: env(), Collections: env(), Settings: env()}
+	off := HomeScreen(false, false, k)
+	assert.Equal(t, []string{ButtonFavorites, ButtonCollections}, texts(&off)[0])
+	on := HomeScreen(false, true, k)
+	require.True(t, on.Keys[0][0].SwitchInline)
+	assert.Equal(t, ButtonInlineSearch, on.Keys[0][0].Text)
+	assert.Nil(t, on.Keys[0][0].Env)
 }

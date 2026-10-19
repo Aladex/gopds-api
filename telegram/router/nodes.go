@@ -67,7 +67,7 @@ func (r *Router) painter(ctx context.Context, b *Bot, node *models.TelegramNode)
 	//exhaustive:ignore // a notice is never shown again
 	switch Screen(node.Screen) {
 	case ScrHome:
-		return r.paintHome(false), "", true
+		return r.paintHome(false, r.inlineOn(ctx, b)), "", true
 	case ScrResultsBooks, ScrResultsAuthors:
 		return r.resultsPainter(ctx, b, node)
 	case ScrBook:

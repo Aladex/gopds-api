@@ -235,6 +235,8 @@ type Button struct {
 	URL      string
 	Style    string
 	CopyText string
+	// SwitchInline puts «@bot » in the chat's input field: inline search.
+	SwitchInline bool
 }
 
 // Screen is a rendered screen: content and keyboard.

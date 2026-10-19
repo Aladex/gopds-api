@@ -47,7 +47,7 @@ func (r *Router) newHome(ctx context.Context, b *Bot, chatID int64, linked bool)
 		logging.Warnf("Telegram bot %d: recording the home node: %v", b.Ref, err)
 		return
 	}
-	panel := r.sendPanel(ctx, b, chatID, node, r.paintHome(linked), true)
+	panel := r.sendPanel(ctx, b, chatID, node, r.paintHome(linked, r.inlineOn(ctx, b)), true)
 	if panel != nil {
 		r.pin(ctx, b, panel)
 	}
@@ -102,11 +102,17 @@ func pinnedIs(chat *tgbot.ChatFullInfo, messageID int64) bool {
 	return chat != nil && chat.PinnedMessage != nil && int64(chat.PinnedMessage.ID) == messageID
 }
 
+// inlineOn reports whether the bot answers inline queries, as last seen.
+func (r *Router) inlineOn(ctx context.Context, b *Bot) bool {
+	ui, err := database.GetTelegramBotUI(ctx, b.Ref)
+	return err == nil && ui.SupportsInline
+}
+
 // paintHome paints the home screen with its sections; linked greets a chat
-// just bound to the library.
-func (r *Router) paintHome(linked bool) render {
+// just bound to the library, inline offers inline search.
+func (r *Router) paintHome(linked, inline bool) render {
 	return func(k *keys) screens.Screen {
-		return screens.HomeScreen(linked, &screens.HomeKeys{
+		return screens.HomeScreen(linked, inline, &screens.HomeKeys{
 			Favorites:   k.env(cbv2.Envelope{Op: cbv2.OpFavorites}),
 			Collections: k.env(cbv2.Envelope{Op: cbv2.OpCollections}),
 			Settings:    k.env(cbv2.Envelope{Op: cbv2.OpSettings}),

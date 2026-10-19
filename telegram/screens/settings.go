@@ -39,9 +39,8 @@ func StyleName(plain bool) string {
 	return CardStyleRichName
 }
 
-// SettingsScreen is S-SETTINGS. Whether inline mode is on is not known
-// before S5b, so its line is left out.
-func SettingsScreen(format, lang string, plain bool, k *SettingsKeys) Screen {
+// SettingsScreen is S-SETTINGS.
+func SettingsScreen(format, lang string, plain, inline bool, k *SettingsKeys) Screen {
 	language := allLanguages
 	if lang != "" {
 		language = ru.Language(lang)
@@ -61,7 +60,16 @@ func SettingsScreen(format, lang string, plain bool, k *SettingsKeys) Screen {
 		Line{Text: "Основной формат: " + format},
 		Line{Text: "Язык поиска: " + language},
 		Line{Text: "Вид карточек: " + StyleName(plain)},
+		Line{Text: "Подсказки при поиске: " + inlineName(inline)},
 	}}, Keys: append(keys, []Button{{Text: ButtonHome, Env: k.Home}})}
+}
+
+// inlineName is inline mode's state in words.
+func inlineName(on bool) string {
+	if on {
+		return "включены"
+	}
+	return "выключены"
 }
 
 // FormatScreen is S-FORMAT.
@@ -104,12 +112,45 @@ func CardStyleScreen(plain bool, set func(plain bool) *cbv2.Envelope, back *cbv2
 // Code is text shown as code: a command inside it is not a tappable command.
 type Code struct{ Prefix, Code, Suffix string }
 
-// InlineScreen is S-INLINE: how to turn inline mode on in BotFather. The
-// «Проверить» button comes with S5b, which can tell whether it is on.
-func InlineScreen(botUsername string, back *cbv2.Envelope) Screen {
+// InlineState is what S-INLINE knows about the bot's inline mode.
+type InlineState uint8
+
+// The states of inline mode.
+const (
+	InlineOff InlineState = iota
+	InlineOn
+	// InlineJustOn is «Проверить» finding it on.
+	InlineJustOn
+)
+
+// The inline instructions' words (plan-ui.md §1.9).
+const (
+	ButtonCheckInline = "Проверить"
+	CopyInlineNotYet  = "Пока не включено. Проверь шаги выше."
+	CopyInlineJustOn  = "Подсказки включены. Кнопка «Найти с подсказками» появилась на главной."
+)
+
+// InlineKeys are S-INLINE's envelopes.
+type InlineKeys struct {
+	Check, Back, Home *cbv2.Envelope
+}
+
+// InlineScreen is S-INLINE: how to turn inline mode on in BotFather, or that
+// it is on.
+func InlineScreen(botUsername string, state InlineState, k *InlineKeys) Screen {
 	bot := "@" + botUsername
 	if botUsername == "" {
 		bot = "своего бота"
+	}
+	switch state {
+	case InlineJustOn:
+		return Screen{Doc: Doc{Blocks: []Block{Line{Text: CopyInlineJustOn}}}, Keys: [][]Button{{{Text: ButtonHome, Env: k.Home}}}}
+	case InlineOn:
+		return Screen{Doc: Doc{Blocks: []Block{
+			Title{Text: "Подсказки при поиске включены"}, Gap{},
+			Line{Text: "Нажми «Найти с подсказками» на главной или набери " + bot + " и название в поле ввода."},
+		}}, Keys: [][]Button{{{Text: ButtonToSettings, Env: k.Back}}}}
+	case InlineOff:
 	}
 	return Screen{Doc: Doc{Blocks: []Block{
 		Title{Text: "Подсказки при поиске"}, Gap{},
@@ -118,11 +159,13 @@ func InlineScreen(botUsername string, back *cbv2.Envelope) Screen {
 		Line{Text: "1. Открой @BotFather."},
 		Code{Prefix: "2. Отправь ему ", Code: setInlineCommand, Suffix: "."},
 		Line{Text: "3. Выбери " + bot + "."},
-		Line{Text: "4. Отправь подсказку для поля ввода, например: Название или автор"},
+		Line{Text: "4. Отправь подсказку для поля ввода, например: Название или автор"}, Gap{},
+		Line{Text: "После этого нажми «Проверить»."},
 	}}, Keys: [][]Button{
 		{{Text: ButtonOpenFather, URL: botFatherURL}},
 		{{Text: ButtonCopyInline, CopyText: setInlineCommand}},
-		{{Text: ButtonToSettings, Env: back}},
+		{{Text: ButtonCheckInline, Env: k.Check}},
+		{{Text: ButtonToSettings, Env: k.Back}},
 	}}
 }
 

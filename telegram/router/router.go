@@ -71,7 +71,9 @@ type Bot struct {
 	TGBotID int64
 	// Username is the bot's @name, without the @; "" when not known.
 	Username string
-	NavKey   []byte
+	// Active is the bot's row status being active.
+	Active bool
+	NavKey []byte
 	// Binding is the bot's active binding: whose library it serves and who
 	// owns it in Telegram.
 	Binding *models.TelegramBinding
@@ -81,6 +83,9 @@ type Bot struct {
 // an update: delivery jobs ending.
 type Bots interface {
 	V2Bot(ctx context.Context, botRef int64) (*Bot, error)
+	// CheckInline asks Telegram whether the bot answers inline queries, and
+	// keeps the answer.
+	CheckInline(ctx context.Context, botRef int64) (bool, error)
 }
 
 // Config sets the router up.
@@ -90,6 +95,9 @@ type Config struct {
 	SiteURL  string
 	// Donate is how the library may be supported; none hides the button.
 	Donate []config.DonateMethod
+	// MediaBaseURL is where Telegram can fetch covers from, for inline
+	// results; "" means none (plan-ui.md §3.4).
+	MediaBaseURL string
 	// PostersPath is where cover files live; "" means no covers.
 	PostersPath func() string
 	// SearchTimeout bounds each search branch; zero is 3 s.
@@ -172,6 +180,8 @@ func (r *Router) Handle(ctx context.Context, b *Bot, update *tgbot.Update) (bool
 		defer r.runRepaints(ctx, b, chatID)
 	}
 	switch {
+	case update.InlineQuery != nil:
+		r.inline(ctx, b, update.InlineQuery)
 	case update.CallbackQuery != nil:
 		return r.callback(ctx, b, update.CallbackQuery), nil
 	case update.Message != nil:
@@ -197,6 +207,10 @@ func (r *Router) message(ctx context.Context, b *Bot, msg *tgbot.Message) {
 		return
 	}
 	r.ensureNoCommands(ctx, b)
+	if msg.ViaBot != nil {
+		r.viaBot(ctx, b, msg)
+		return
+	}
 	if msg.PinnedMessage != nil {
 		// The reader pinned something of their own: theirs to keep.
 		return
