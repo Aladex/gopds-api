@@ -141,7 +141,11 @@ func BookListScreen(l *BookList, k *ListKeys) Screen {
 		last = append(last, *k.Back)
 	}
 	last = append(last, Button{Text: ButtonHome, Env: k.Home})
-	return Screen{Doc: Doc{Blocks: blocks}, Keys: append(keys, last)}
+	s := Screen{Doc: Doc{Blocks: blocks}, Keys: append(keys, last)}
+	if l.Total > 0 {
+		s.Rich = richBookList(l, k)
+	}
+	return s
 }
 
 // CountLine is «N книг · язык: …», the language only when one is set.
@@ -324,7 +328,7 @@ func CollectionsScreen(collections []models.BookCollection, total, page int,
 	if total == 0 {
 		return Screen{Doc: Doc{Blocks: []Block{Line{Text: CopyNoCollections}}}, Keys: [][]Button{{{Text: ButtonHome, Env: home}}}}
 	}
-	blocks := []Block{Title{Text: "Подборки"}, Gap{}}
+	blocks := []Block{Title{Text: ButtonCollections}, Gap{}}
 	var keys [][]Button
 	for i := range collections {
 		c := &collections[i]
@@ -338,7 +342,8 @@ func CollectionsScreen(collections []models.BookCollection, total, page int,
 	if row := pagingRow(page, pages, pageEnv); len(row) > 0 {
 		keys = append(keys, row)
 	}
-	return Screen{Doc: Doc{Blocks: blocks}, Keys: append(keys, []Button{{Text: ButtonHome, Env: home}})}
+	return Screen{Doc: Doc{Blocks: blocks}, Keys: append(keys, []Button{{Text: ButtonHome, Env: home}}),
+		Rich: richCollections(collections, total, page, open, pageEnv, home)}
 }
 
 // BookAuthorsScreen lists the authors of a book.
@@ -363,5 +368,9 @@ func (s Screen) WithBack(back *Button) Screen {
 	last := len(keys) - 1
 	keys[last] = append([]Button{*back}, keys[last]...)
 	s.Keys = keys
+	if s.Rich != nil {
+		rich := s.Rich.WithBack(back)
+		s.Rich = &rich
+	}
 	return s
 }

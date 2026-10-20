@@ -1,0 +1,110 @@
+{
+  "keyboard": [
+    [
+      "Искать у автора"
+    ],
+    [
+      "← К книге",
+      "Домой"
+    ]
+  ],
+  "rich_message": {
+    "blocks": [
+      {
+        "type": "heading",
+        "text": "Серия «Звёздные дневники»",
+        "size": 2
+      },
+      {
+        "type": "footer",
+        "text": "3 книги"
+      },
+      {
+        "type": "list",
+        "items": [
+          {
+            "blocks": [
+              {
+                "type": "paragraph",
+                "text": {
+                  "type": "button",
+                  "button": {
+                    "text": "Очень длинное название, которое не помещается в одну строку Очень длинное название, которое не помещается в одну строку Очень длинное название, которое не помещается в одну строку Очень длинное назва…",
+                    "style": "link",
+                    "callback_data": "2/12/0/0"
+                  }
+                }
+              },
+              {
+                "type": "paragraph",
+                "text": [
+                  {
+                    "type": "italic",
+                    "text": "Станислав Лем · YEAR"
+                  }
+                ]
+              }
+            ],
+            "value": 1,
+            "type": "1"
+          },
+          {
+            "blocks": [
+              {
+                "type": "paragraph",
+                "text": {
+                  "type": "button",
+                  "button": {
+                    "text": "Основание",
+                    "style": "link",
+                    "callback_data": "2/13/0/0"
+                  }
+                }
+              },
+              {
+                "type": "paragraph",
+                "text": [
+                  {
+                    "type": "italic",
+                    "text": "Айзек Азимов · YEAR"
+                  }
+                ]
+              }
+            ],
+            "value": 2,
+            "type": "1"
+          }
+        ]
+      },
+      {
+        "type": "list",
+        "items": [
+          {
+            "blocks": [
+              {
+                "type": "paragraph",
+                "text": {
+                  "type": "button",
+                  "button": {
+                    "text": "Без автора",
+                    "style": "link",
+                    "callback_data": "2/14/0/0"
+                  }
+                }
+              },
+              {
+                "type": "paragraph",
+                "text": [
+                  {
+                    "type": "italic",
+                    "text": "без номера · YEAR"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

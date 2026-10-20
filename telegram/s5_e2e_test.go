@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -64,27 +65,18 @@ func (v *v2Stack) homePanel() tgtest.Call { return v.latest(v.home()) }
 
 // hasButton reports a button labeled text.
 func hasButton(t *testing.T, c *tgtest.Call, text string) bool {
-	for _, row := range tgtest.ButtonTexts(t, c) {
-		for _, b := range row {
-			if b == text {
-				return true
-			}
-		}
-	}
-	return false
+	return slices.Contains(tgtest.Labels(t, c), text)
 }
 
 // buttonStartingWith is the first button whose label starts with prefix.
 func buttonStartingWith(t *testing.T, c *tgtest.Call, prefix string) string {
 	t.Helper()
-	for _, row := range tgtest.ButtonTexts(t, c) {
-		for _, b := range row {
-			if strings.HasPrefix(b, prefix) {
-				return b
-			}
+	for _, b := range tgtest.Labels(t, c) {
+		if strings.HasPrefix(b, prefix) {
+			return b
 		}
 	}
-	t.Fatalf("no button starting with %q in %v", prefix, tgtest.ButtonTexts(t, c))
+	t.Fatalf("no button starting with %q in %v", prefix, tgtest.Labels(t, c))
 	return ""
 }
 
@@ -198,7 +190,7 @@ func TestAllLanguagesIsANewViewAndBackKeepsTheOldOne(t *testing.T) {
 	results := v.lastSend()
 	assert.Contains(t, content(&results), "Язык: русский")
 	assert.NotContains(t, content(&results), "english")
-	v.tap(&results, "Вперёд →")
+	v.tap(&results, "→")
 	page2 := v.latest(results.MessageID)
 	require.Contains(t, content(&page2), "Страница 2 из 3")
 
@@ -404,7 +396,7 @@ func TestACardOpensItsAuthorAndSeries(t *testing.T) {
 	}
 	v.say("Солярис")
 	results := v.lastSend()
-	v.tap(&results, buttonStartingWith(t, &results, "1. Солярис"))
+	v.tap(&results, buttonStartingWith(t, &results, "Солярис"))
 	card := v.latest(results.MessageID)
 	v.tap(&card, "Книги автора")
 	list := v.latest(results.MessageID)
@@ -420,10 +412,11 @@ func TestACardOpensItsAuthorAndSeries(t *testing.T) {
 	card = v.latest(results.MessageID)
 	v.tap(&card, "Серия")
 	shelf := v.latest(results.MessageID)
-	text = content(&shelf)
-	assert.Contains(t, text, "Серия «Космос»")
-	assert.Less(t, strings.Index(text, "1. Эдем"), strings.Index(text, "2. Солярис"))
-	assert.Less(t, strings.Index(text, "2. Солярис"), strings.Index(text, "без номера. Возвращение"))
+	assert.Contains(t, content(&shelf), "Серия «Космос»")
+	// A rich list numbers a series' books by their number in it; one
+	// without a number comes last, bulleted, and says so.
+	assert.Equal(t, []listItem{{1, "Эдем", "Станислав Лем"}, {2, "Солярис", "Станислав Лем"}, {0, "Возвращение со звёзд", "без номера"}},
+		listItems(t, &shelf))
 }
 
 // «Искать у автора» and «Найти в избранном» answer on the list they came
@@ -433,7 +426,7 @@ func TestSearchesWithinAnAuthorAndTheFavorites(t *testing.T) {
 	v.seedAuthor("Кир Булычёв", "Девочка с Земли", "Сто лет тому вперёд")
 	v.say("Девочка")
 	results := v.lastSend()
-	v.tap(&results, buttonStartingWith(t, &results, "1. Девочка"))
+	v.tap(&results, buttonStartingWith(t, &results, "Девочка"))
 	card := v.latest(results.MessageID)
 	v.tap(&card, "☆ В избранное")
 	card = v.latest(results.MessageID)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -165,7 +166,7 @@ func (u *Updates) Tap(t testing.TB, userID int64, on *Call, text string) *models
 	}
 	data, ok := ButtonData(t, on, text)
 	if !ok {
-		t.Fatalf("message %d has no button %q: %v", on.MessageID, text, ButtonTexts(t, on))
+		t.Fatalf("message %d has no button %q: %v %v", on.MessageID, text, ButtonTexts(t, on), RichButtons(t, on))
 	}
 	return u.Callback(userID, on, data)
 }
@@ -197,15 +198,110 @@ func ButtonTexts(t testing.TB, c *Call) [][]string {
 	return rows
 }
 
-// ButtonData returns the callback data of the button labeled text.
+// ButtonData returns the callback data of the button labeled text, in the
+// keyboard or inside the rich message. A label that two buttons with
+// different actions share fails the test: the press would be a guess.
 func ButtonData(t testing.TB, c *Call, text string) (string, bool) {
 	t.Helper()
+	var found []string
 	for _, row := range Keyboard(t, c) {
 		for i := range row {
-			if row[i].Text == text {
-				return row[i].CallbackData, true
+			if row[i].Text == text && row[i].CallbackData != "" {
+				found = append(found, row[i].CallbackData)
 			}
 		}
 	}
-	return "", false
+	for _, b := range RichButtons(t, c) {
+		if b.Text == text && b.Data != "" {
+			found = append(found, b.Data)
+		}
+	}
+	if len(found) == 0 {
+		return "", false
+	}
+	for _, data := range found[1:] {
+		if data != found[0] {
+			t.Fatalf("message %d has %d buttons labeled %q", c.MessageID, len(found), text)
+		}
+	}
+	return found[0], true
+}
+
+// Labels are the labels of every button of a call: the keyboard's, row by
+// row, then those inside the rich message.
+func Labels(t testing.TB, c *Call) []string {
+	t.Helper()
+	var out []string
+	for _, row := range ButtonTexts(t, c) {
+		out = append(out, row...)
+	}
+	for _, b := range RichButtons(t, c) {
+		out = append(out, b.Text)
+	}
+	return out
+}
+
+// RichButton is a button inside a rich message: in a row of buttons, or a
+// link in the text.
+type RichButton struct {
+	Text     string
+	Data     string
+	URL      string
+	Style    string
+	Disabled bool
+}
+
+// RichButtons lists the buttons inside the rich message of a call, in the
+// order they are shown.
+func RichButtons(t testing.TB, c *Call) []RichButton {
+	t.Helper()
+	raw, ok := c.Params["rich_message"]
+	if !ok {
+		return nil
+	}
+	var doc any
+	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+		t.Fatalf("decoding rich_message of %s: %v", c.Method, err)
+	}
+	var out []RichButton
+	var walk func(v any)
+	walk = func(v any) {
+		switch v := v.(type) {
+		case []any:
+			for _, e := range v {
+				walk(e)
+			}
+		case map[string]any:
+			if b, ok := richButton(v); ok {
+				out = append(out, b)
+				return
+			}
+			keys := make([]string, 0, len(v))
+			for k := range v {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				walk(v[k])
+			}
+		}
+	}
+	walk(doc)
+	return out
+}
+
+// richButton reads a RichMessageButton: a text and an action, or disabled.
+func richButton(v map[string]any) (RichButton, bool) {
+	label, ok := v["text"].(string)
+	if !ok {
+		return RichButton{}, false
+	}
+	data, hasData := v["callback_data"].(string)
+	link, hasURL := v["url"].(string)
+	_, disabled := v["disabled"]
+	if !hasData && !hasURL && !disabled {
+		return RichButton{}, false
+	}
+	style, _ := v["style"].(string)
+	return RichButton{Text: label, Data: data, URL: link, Style: style, Disabled: disabled}, true
 }

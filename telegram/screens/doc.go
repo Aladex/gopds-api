@@ -191,13 +191,51 @@ func (d Doc) Plain() string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// Rich is the Doc as a rich message.
-func (d Doc) Rich() models.InputRichMessage {
+// Encoder turns a button's envelope into its callback_data.
+type Encoder func(*cbv2.Envelope) (string, error)
+
+// pressable is a block holding buttons: rendered rich, it needs their
+// callback_data.
+type pressable interface {
+	richWith(enc *encoding) []models.InputRichBlock
+}
+
+// encoding encodes the buttons of one rich rendering and keeps the first
+// error.
+type encoding struct {
+	enc Encoder
+	err error
+}
+
+// button is b as a rich message's button.
+func (e *encoding) button(b *Button) models.RichMessageButton {
+	if b.Disabled {
+		// A disabled button carries no action and no style.
+		return models.RichMessageButton{Text: text(b.Text), Disabled: &models.DisabledButton{}}
+	}
+	out := models.RichMessageButton{Text: text(b.Text), Style: b.Style, URL: b.URL}
+	if b.Env != nil {
+		data, err := e.enc(b.Env)
+		if err != nil && e.err == nil {
+			e.err = err
+		}
+		out.CallbackData = data
+	}
+	return out
+}
+
+// Rich is the Doc as a rich message; enc encodes the buttons in it.
+func (d Doc) Rich(enc Encoder) (models.InputRichMessage, error) {
+	e := &encoding{enc: enc}
 	var blocks []models.InputRichBlock
 	for _, block := range d.Blocks {
+		if p, ok := block.(pressable); ok {
+			blocks = append(blocks, p.richWith(e)...)
+			continue
+		}
 		blocks = append(blocks, block.rich()...)
 	}
-	return models.InputRichMessage{Blocks: blocks}
+	return models.InputRichMessage{Blocks: blocks}, e.err
 }
 
 // PlainLength is how long the plain text is after entity parsing — what
@@ -247,6 +285,18 @@ type Button struct {
 type Screen struct {
 	Doc  Doc
 	Keys [][]Button
+	// Rich is how a rich message shows the screen when that differs: a list
+	// whose items, tabs and pages are buttons in the message, and a keyboard
+	// left with the rest. nil shows Doc and Keys either way.
+	Rich *Screen
+}
+
+// In is the screen as a panel of the given kind shows it.
+func (s *Screen) In(rich bool) *Screen {
+	if rich && s.Rich != nil {
+		return s.Rich
+	}
+	return s
 }
 
 // Cover is the screen's cover, if it has one.

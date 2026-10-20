@@ -1,0 +1,112 @@
+{
+  "keyboard": [
+    [
+      "Язык"
+    ],
+    [
+      "← Назад",
+      "Домой"
+    ]
+  ],
+  "rich_message": {
+    "blocks": [
+      {
+        "type": "heading",
+        "text": "Поиск: «стругацкий»",
+        "size": 2
+      },
+      {
+        "type": "footer",
+        "text": "Язык книг: все языки"
+      },
+      {
+        "type": "buttons",
+        "buttons": [
+          {
+            "text": "Книги · 120",
+            "callback_data": "9/0/0/0"
+          },
+          {
+            "text": "Авторы · 3",
+            "style": "primary",
+            "callback_data": "9/0/0/1"
+          }
+        ]
+      },
+      {
+        "type": "list",
+        "items": [
+          {
+            "blocks": [
+              {
+                "type": "paragraph",
+                "text": {
+                  "type": "button",
+                  "button": {
+                    "text": "Аркадий Стругацкий",
+                    "style": "link",
+                    "callback_data": "3/1/0/0"
+                  }
+                }
+              },
+              {
+                "type": "paragraph",
+                "text": [
+                  {
+                    "type": "italic",
+                    "text": "41 книга"
+                  }
+                ]
+              }
+            ],
+            "value": 1,
+            "type": "1"
+          },
+          {
+            "blocks": [
+              {
+                "type": "paragraph",
+                "text": {
+                  "type": "button",
+                  "button": {
+                    "text": "Борис Стругацкий",
+                    "style": "link",
+                    "callback_data": "3/2/0/0"
+                  }
+                }
+              },
+              {
+                "type": "paragraph",
+                "text": [
+                  {
+                    "type": "italic",
+                    "text": "1 книга"
+                  }
+                ]
+              }
+            ],
+            "value": 2,
+            "type": "1"
+          },
+          {
+            "blocks": [
+              {
+                "type": "paragraph",
+                "text": {
+                  "type": "button",
+                  "button": {
+                    "text": "С. Ярославцев",
+                    "style": "link",
+                    "callback_data": "3/3/0/0"
+                  }
+                }
+              }
+            ],
+            "value": 3,
+            "type": "1"
+          }
+        ]
+      }
+    ]
+  }
+}

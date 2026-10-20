@@ -1,0 +1,176 @@
+{
+  "keyboard": [
+    [
+      "Искать у автора"
+    ],
+    [
+      "← К книге",
+      "Домой"
+    ]
+  ],
+  "rich_message": {
+    "blocks": [
+      {
+        "type": "heading",
+        "text": "Аркадий Стругацкий",
+        "size": 2
+      },
+      {
+        "type": "footer",
+        "text": "12 книг · язык: русский"
+      },
+      {
+        "type": "list",
+        "items": [
+          {
+            "blocks": [
+              {
+                "type": "paragraph",
+                "text": {
+                  "type": "button",
+                  "button": {
+                    "text": "Пикник на обочине",
+                    "style": "link",
+                    "callback_data": "2/11/0/0"
+                  }
+                }
+              },
+              {
+                "type": "paragraph",
+                "text": [
+                  {
+                    "type": "italic",
+                    "text": "YEAR"
+                  }
+                ]
+              }
+            ],
+            "value": 1,
+            "type": "1"
+          },
+          {
+            "blocks": [
+              {
+                "type": "paragraph",
+                "text": {
+                  "type": "button",
+                  "button": {
+                    "text": "Очень длинное название, которое не помещается в одну строку Очень длинное название, которое не помещается в одну строку Очень длинное название, которое не помещается в одну строку Очень длинное назва…",
+                    "style": "link",
+                    "callback_data": "2/12/0/0"
+                  }
+                }
+              },
+              {
+                "type": "paragraph",
+                "text": [
+                  {
+                    "type": "italic",
+                    "text": "Звёздные дневники, кн. 2 · YEAR"
+                  }
+                ]
+              }
+            ],
+            "value": 2,
+            "type": "1"
+          },
+          {
+            "blocks": [
+              {
+                "type": "paragraph",
+                "text": {
+                  "type": "button",
+                  "button": {
+                    "text": "Основание",
+                    "style": "link",
+                    "callback_data": "2/13/0/0"
+                  }
+                }
+              },
+              {
+                "type": "paragraph",
+                "text": [
+                  {
+                    "type": "italic",
+                    "text": "Основание, кн. 1 · YEAR"
+                  }
+                ]
+              }
+            ],
+            "value": 3,
+            "type": "1"
+          },
+          {
+            "blocks": [
+              {
+                "type": "paragraph",
+                "text": {
+                  "type": "button",
+                  "button": {
+                    "text": "Без автора",
+                    "style": "link",
+                    "callback_data": "2/14/0/0"
+                  }
+                }
+              },
+              {
+                "type": "paragraph",
+                "text": [
+                  {
+                    "type": "italic",
+                    "text": "YEAR"
+                  }
+                ]
+              }
+            ],
+            "value": 4,
+            "type": "1"
+          },
+          {
+            "blocks": [
+              {
+                "type": "paragraph",
+                "text": {
+                  "type": "button",
+                  "button": {
+                    "text": "Трудно быть богом",
+                    "style": "link",
+                    "callback_data": "2/15/0/0"
+                  }
+                }
+              },
+              {
+                "type": "paragraph",
+                "text": [
+                  {
+                    "type": "italic",
+                    "text": "Мир Полудня · YEAR"
+                  }
+                ]
+              }
+            ],
+            "value": 5,
+            "type": "1"
+          }
+        ]
+      },
+      {
+        "type": "buttons",
+        "buttons": [
+          {
+            "text": "←",
+            "disabled": {}
+          },
+          {
+            "text": "Страница 1 из 3",
+            "disabled": {}
+          },
+          {
+            "text": "→",
+            "callback_data": "8/0/1/0"
+          }
+        ]
+      }
+    ]
+  }
+}

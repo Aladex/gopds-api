@@ -1,0 +1,38 @@
+{
+  "keyboard": [
+    [
+      "Автор",
+      "Язык"
+    ],
+    [
+      "← Назад",
+      "Домой"
+    ]
+  ],
+  "rich_message": {
+    "blocks": [
+      {
+        "type": "heading",
+        "text": "Поиск: «пикник»",
+        "size": 2
+      },
+      {
+        "type": "buttons",
+        "buttons": [
+          {
+            "text": "Книги: повторить",
+            "callback_data": "38/0/0/0"
+          },
+          {
+            "text": "Авторы · 1",
+            "callback_data": "9/0/0/1"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "text": "Книги временно недоступны."
+      }
+    ]
+  }
+}

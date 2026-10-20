@@ -277,11 +277,12 @@ func TestTypedTextOpensAResultsPanel(t *testing.T) {
 	v.say("Мир")
 	results := v.lastSend()
 	assert.NotEqual(t, home, results.MessageID)
-	rows := tgtest.ButtonTexts(t, &results)
-	require.NotEmpty(t, rows)
-	require.Len(t, rows[0], 2)
-	assert.True(t, strings.HasPrefix(rows[0][0], "✓ Книги · "), rows[0][0])
-	assert.True(t, strings.HasPrefix(rows[0][1], "Авторы · "), rows[0][1])
+	tabs := tgtest.RichButtons(t, &results)
+	require.GreaterOrEqual(t, len(tabs), 2)
+	assert.True(t, strings.HasPrefix(tabs[0].Text, "Книги · "), tabs[0].Text)
+	assert.Equal(t, "primary", tabs[0].Style, "the open tab")
+	assert.True(t, strings.HasPrefix(tabs[1].Text, "Авторы · "), tabs[1].Text)
+	assert.Empty(t, tabs[1].Style)
 	assert.Contains(t, content(&results), "Поиск: «Мир»")
 	assert.Empty(t, v.edits(home), "the home panel stays as it is")
 }
@@ -298,7 +299,7 @@ func TestPagingKeepsItsOwnQuery(t *testing.T) {
 	second := v.lastSend()
 	require.NotEqual(t, first.MessageID, second.MessageID)
 
-	v.tap(&first, "Вперёд →")
+	v.tap(&first, "→")
 	edits := v.edits(first.MessageID)
 	require.Len(t, edits, 1)
 	page := content(&edits[0])
@@ -338,8 +339,8 @@ func TestADoublePressEditsOnce(t *testing.T) {
 	v.say("Основание")
 	panel := v.lastSend()
 	target.Store(panel.MessageID)
-	first := v.u.Tap(t, ownerTG, &panel, "Вперёд →")
-	second := v.u.Tap(t, ownerTG, &panel, "Вперёд →")
+	first := v.u.Tap(t, ownerTG, &panel, "→")
+	second := v.u.Tap(t, ownerTG, &panel, "→")
 	var wg sync.WaitGroup
 	for _, u := range []*tgbot.Update{first, second} {
 		wg.Add(1)
@@ -365,14 +366,12 @@ func (v *v2Stack) openFixtureCard() (results, card tgtest.Call) {
 	v.say("мир")
 	results = v.lastSend()
 	var label string
-	for _, row := range tgtest.ButtonTexts(v.t, &results) {
-		for _, text := range row {
-			if strings.Contains(text, "война и МИР") {
-				label = text
-			}
+	for _, text := range tgtest.Labels(v.t, &results) {
+		if strings.Contains(text, "война и МИР") {
+			label = text
 		}
 	}
-	require.NotEmpty(v.t, label, "the fixture book is listed: %v", tgtest.ButtonTexts(v.t, &results))
+	require.NotEmpty(v.t, label, "the fixture book is listed: %v", tgtest.Labels(v.t, &results))
 	v.tap(&results, label)
 	return results, v.latest(results.MessageID)
 }
@@ -411,15 +410,13 @@ func TestARichCardUploadsItsCoverOnce(t *testing.T) {
 // openFixtureCardFrom opens the fixture book from a results panel.
 func (v *v2Stack) openFixtureCardFrom(results *tgtest.Call) tgtest.Call {
 	v.t.Helper()
-	for _, row := range tgtest.ButtonTexts(v.t, results) {
-		for _, text := range row {
-			if strings.Contains(text, "война и МИР") {
-				v.tap(results, text)
-				return v.latest(results.MessageID)
-			}
+	for _, text := range tgtest.Labels(v.t, results) {
+		if strings.Contains(text, "война и МИР") {
+			v.tap(results, text)
+			return v.latest(results.MessageID)
 		}
 	}
-	v.t.Fatalf("no fixture book in %v", tgtest.ButtonTexts(v.t, results))
+	v.t.Fatalf("no fixture book in %v", tgtest.Labels(v.t, results))
 	return tgtest.Call{}
 }
 
@@ -648,7 +645,7 @@ func TestAForgedButtonIsRefused(t *testing.T) {
 	v.addBooks("Основание")
 	v.say("Основание")
 	panel := v.lastSend()
-	data, ok := tgtest.ButtonData(t, &panel, "Вперёд →")
+	data, ok := tgtest.ButtonData(t, &panel, "→")
 	require.True(t, ok)
 	revision := v.count(`SELECT revision FROM telegram_panel WHERE message_id = ?`, panel.MessageID)
 
@@ -677,10 +674,10 @@ func TestTheOldSearchCommandsStillSearch(t *testing.T) {
 	v.say("/b Мир")
 	books := v.lastSend()
 	assert.Contains(t, content(&books), "Поиск: «Мир»")
-	assert.True(t, strings.HasPrefix(tgtest.ButtonTexts(t, &books)[0][0], "✓ Книги"))
+	assert.Equal(t, "primary", tgtest.RichButtons(t, &books)[0].Style, "the books tab is open")
 	v.say("/a Толстой")
 	authors := v.lastSend()
-	assert.True(t, strings.HasPrefix(tgtest.ButtonTexts(t, &authors)[0][1], "✓ Авторы"))
+	assert.Equal(t, "primary", tgtest.RichButtons(t, &authors)[1].Style, "the authors tab is open")
 }
 
 // assertDisabled checks that the button with text on c is a disabled one

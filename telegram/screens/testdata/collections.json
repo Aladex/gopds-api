@@ -1,0 +1,72 @@
+{
+  "keyboard": [
+    [
+      "Домой"
+    ]
+  ],
+  "rich_message": {
+    "blocks": [
+      {
+        "type": "heading",
+        "text": "Подборки",
+        "size": 2
+      },
+      {
+        "type": "list",
+        "items": [
+          {
+            "blocks": [
+              {
+                "type": "paragraph",
+                "text": {
+                  "type": "button",
+                  "button": {
+                    "text": "Лучшая фантастика века",
+                    "style": "link",
+                    "callback_data": "5/5/0/0"
+                  }
+                }
+              }
+            ],
+            "value": 6,
+            "type": "1"
+          },
+          {
+            "blocks": [
+              {
+                "type": "paragraph",
+                "text": {
+                  "type": "button",
+                  "button": {
+                    "text": "Летнее чтение",
+                    "style": "link",
+                    "callback_data": "5/6/0/0"
+                  }
+                }
+              }
+            ],
+            "value": 7,
+            "type": "1"
+          }
+        ]
+      },
+      {
+        "type": "buttons",
+        "buttons": [
+          {
+            "text": "←",
+            "callback_data": "6/0/0/0"
+          },
+          {
+            "text": "Страница 2 из 2",
+            "disabled": {}
+          },
+          {
+            "text": "→",
+            "disabled": {}
+          }
+        ]
+      }
+    ]
+  }
+}

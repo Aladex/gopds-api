@@ -2,6 +2,7 @@ package screens
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,12 @@ import (
 )
 
 func env() *cbv2.Envelope { return &cbv2.Envelope{Op: cbv2.OpHome} }
+
+// testEncoder writes an envelope out as «op/entity/page/arg», readable in a
+// golden file.
+func testEncoder(e *cbv2.Envelope) (string, error) {
+	return fmt.Sprintf("%d/%d/%d/%d", e.Op, e.EntityID, e.Page, e.Arg), nil
+}
 
 var testCardKeys = &CardKeys{
 	Download:   func(string) *cbv2.Envelope { return env() },
@@ -46,7 +53,8 @@ func TestTheWorstBookFitsBothRenderings(t *testing.T) {
 
 	rich, _ := CardScreen(&Card{Book: worstBook(), Rich: true, DefaultFormat: "epub", SiteURL: "https://x",
 		Cover: &Photo{BookID: 1, Data: []byte("jpg")}}, testCardKeys)
-	msg := rich.Doc.Rich()
+	msg, err := rich.Doc.Rich(testEncoder)
+	require.NoError(t, err)
 	assert.Less(t, countBlocks(t, msg.Blocks), 60)
 	raw, err := json.Marshal(msg)
 	require.NoError(t, err)

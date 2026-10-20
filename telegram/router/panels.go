@@ -147,14 +147,20 @@ type richRefusedError struct{ err error }
 func (e richRefusedError) Error() string { return e.err.Error() }
 
 // send sends a screen, rich or plain, and reports the mode it went out in.
+// A screen refused rich goes out as its plain self, with its plain keyboard.
 func (r *Router) send(ctx context.Context, b *Bot, chatID int64, screen *screens.Screen, rich bool) (*tgbot.Message, string, error) {
-	markup, err := r.markup(b, chatID, screen.Keys)
-	if err != nil {
-		return nil, "", err
-	}
 	if rich {
-		msg, richErr := r.withCoverRetry(ctx, b, screen, func(s *screens.Screen) (*tgbot.Message, error) {
-			return b.Client.SendRichMessage(ctx, &bot.SendRichMessageParams{ChatID: chatID, RichMessage: s.Doc.Rich(), ReplyMarkup: markup})
+		shown := screen.In(true)
+		markup, err := r.markup(b, chatID, shown.Keys)
+		if err != nil {
+			return nil, "", err
+		}
+		msg, richErr := r.withCoverRetry(ctx, b, shown, func(s *screens.Screen) (*tgbot.Message, error) {
+			content, err := s.Doc.Rich(r.encoder(b, chatID))
+			if err != nil {
+				return nil, err
+			}
+			return b.Client.SendRichMessage(ctx, &bot.SendRichMessageParams{ChatID: chatID, RichMessage: content, ReplyMarkup: markup})
 		})
 		if richErr == nil {
 			return msg, models.TelegramPanelRich, nil
@@ -165,6 +171,10 @@ func (r *Router) send(ctx context.Context, b *Bot, chatID int64, screen *screens
 		}
 		r.richRefused(ctx, b, richErr)
 	}
+	markup, err := r.markup(b, chatID, screen.Keys)
+	if err != nil {
+		return nil, "", err
+	}
 	msg, err := b.Client.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: chatID, Text: screen.Doc.Plain(), ParseMode: tgbot.ParseModeHTML,
 		LinkPreviewOptions: noPreview(), ReplyMarkup: markup,
@@ -174,15 +184,20 @@ func (r *Router) send(ctx context.Context, b *Bot, chatID int64, screen *screens
 
 // edit replaces a panel's content with screen, in the panel's mode.
 func (r *Router) edit(ctx context.Context, b *Bot, panel *models.TelegramPanel, screen *screens.Screen) error {
+	rich := panel.Mode == models.TelegramPanelRich
+	screen = screen.In(rich)
 	markup, err := r.markup(b, panel.ChatID, screen.Keys)
 	if err != nil {
 		return err
 	}
-	if panel.Mode == models.TelegramPanelRich {
+	if rich {
 		_, err = r.withCoverRetry(ctx, b, screen, func(s *screens.Screen) (*tgbot.Message, error) {
-			rich := s.Doc.Rich()
+			content, encErr := s.Doc.Rich(r.encoder(b, panel.ChatID))
+			if encErr != nil {
+				return nil, encErr
+			}
 			return b.Client.EditMessageText(ctx, &bot.EditMessageTextParams{
-				ChatID: panel.ChatID, MessageID: int(panel.MessageID), RichMessage: &rich, ReplyMarkup: markup,
+				ChatID: panel.ChatID, MessageID: int(panel.MessageID), RichMessage: &content, ReplyMarkup: markup,
 			})
 		})
 		var refused richRefusedError
@@ -303,12 +318,19 @@ func (r *Router) cover(ctx context.Context, b *Bot, book *models.Book) *screens.
 	return &screens.Photo{BookID: book.ID, FileID: fileID, Data: data}
 }
 
+// encoder encodes the envelopes of buttons shown in chatID: bound to the
+// bot, its owner and the chat, signed with the bot's key.
+func (r *Router) encoder(b *Bot, chatID int64) screens.Encoder {
+	bind := cbv2.BindCtx{TGBotID: b.TGBotID, OwnerTGID: b.Binding.TGUserID, ChatID: chatID}
+	return func(e *cbv2.Envelope) (string, error) { return cbv2.Encode(e, b.NavKey, bind) }
+}
+
 // markup encodes a screen's buttons.
 func (r *Router) markup(b *Bot, chatID int64, rows [][]screens.Button) (*tgbot.InlineKeyboardMarkup, error) {
 	if len(rows) == 0 {
 		return nil, nil
 	}
-	bind := cbv2.BindCtx{TGBotID: b.TGBotID, OwnerTGID: b.Binding.TGUserID, ChatID: chatID}
+	encode := r.encoder(b, chatID)
 	out := &tgbot.InlineKeyboardMarkup{InlineKeyboard: make([][]tgbot.InlineKeyboardButton, 0, len(rows))}
 	for _, row := range rows {
 		line := make([]tgbot.InlineKeyboardButton, 0, len(row))
@@ -326,7 +348,7 @@ func (r *Router) markup(b *Bot, chatID int64, rows [][]screens.Button) (*tgbot.I
 				btn.SwitchInlineQueryCurrentChat = &empty
 			}
 			if button.Env != nil {
-				data, err := cbv2.Encode(button.Env, b.NavKey, bind)
+				data, err := encode(button.Env)
 				if err != nil {
 					return nil, err
 				}

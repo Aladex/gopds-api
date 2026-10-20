@@ -154,7 +154,7 @@ func TestAQueuedCallbackIsCheckedAgainstTheBindingAfterItsWait(t *testing.T) {
 			defer unlock()
 			armed.Store(true)
 			done := make(chan struct{})
-			go func() { v.tap(&panel, "Вперёд →"); close(done) }()
+			go func() { v.tap(&panel, "→"); close(done) }()
 			select {
 			case <-waiting:
 			case <-time.After(5 * time.Second):

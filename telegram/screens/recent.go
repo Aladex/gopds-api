@@ -89,7 +89,8 @@ func RecentScreen(items []RecentItem, total, page int, keep bool, k *RecentKeys)
 	if row := pagingRow(page, pages, k.Page); len(row) > 0 {
 		keys = append(keys, row)
 	}
-	return Screen{Doc: Doc{Blocks: blocks}, Keys: append(keys, []Button{{Text: ButtonHome, Env: k.Home}})}
+	return Screen{Doc: Doc{Blocks: blocks}, Keys: append(keys, []Button{{Text: ButtonHome, Env: k.Home}}),
+		Rich: richRecent(items, total, page, k)}
 }
 
 // RecentName is the keeping of recent sends in words, for the settings.

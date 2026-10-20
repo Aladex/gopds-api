@@ -110,7 +110,7 @@ func (r *Router) loadList(ctx context.Context, b *Bot, view *models.TelegramView
 		}
 		filters.Author, filters.Sort = int(view.AuthorID), models.BookSortTitle
 		list.Books, list.Total, err = database.GetBooks(userID, filters)
-		list.Header = []screens.Block{screens.Title{Text: author.FullName}, screens.Line{Text: screens.CountLine(list.Total, view.Lang)}}
+		list.Header = []screens.Block{screens.Title{Text: author.FullName}, screens.Footer{Text: screens.CountLine(list.Total, view.Lang)}}
 		list.Sub, list.Empty = screens.SeriesSub, emptyIn(view.Lang, copyNoAuthorBooks)
 		out.extra = func(k *keys, self, viewID uint64) [][]screens.Button {
 			row := []screens.Button{{Text: screens.ButtonSearchAuthor,
@@ -124,8 +124,8 @@ func (r *Router) loadList(ctx context.Context, b *Bot, view *models.TelegramView
 		}
 		err = r.searchList(ctx, list, &models.BookSearchRequest{Query: view.Query, AuthorID: view.AuthorID, Language: view.Lang,
 			Limit: filters.Limit, Offset: filters.Offset})
-		list.Header = []screens.Block{screens.Line{Text: "Поиск у автора: " + author.FullName + " — «" + view.Query + "»"},
-			screens.Line{Text: screens.CountLine(list.Total, view.Lang)}}
+		list.Header = []screens.Block{screens.Heading{Text: "Поиск у автора: " + author.FullName + " — «" + view.Query + "»"},
+			screens.Footer{Text: screens.CountLine(list.Total, view.Lang)}}
 		list.Sub, list.Empty = screens.SeriesSub, emptyIn(view.Lang, copyNoMatches)
 	case ViewSeriesBooks:
 		series, serr := database.GetTelegramSeries(ctx, view.SeriesID)
@@ -135,7 +135,7 @@ func (r *Router) loadList(ctx context.Context, b *Bot, view *models.TelegramView
 		filters.Series, filters.Sort = int(view.SeriesID), models.BookSortSeries
 		list.Books, list.Total, err = database.GetBooks(userID, filters)
 		list.Header = []screens.Block{screens.Title{Text: "Серия «" + series.Ser + "»"},
-			screens.Line{Text: screens.CountLine(list.Total, view.Lang)}}
+			screens.Footer{Text: screens.CountLine(list.Total, view.Lang)}}
 		list.Number, list.Sub, list.Empty = screens.SeriesNumber(view.SeriesID), screens.AuthorsLine, emptyIn(view.Lang, copyNoSeriesBooks)
 	case ViewCollectionBooks:
 		c, cerr := database.GetPublicCuratedCollection(ctx, view.CollectionID)
@@ -147,7 +147,7 @@ func (r *Router) loadList(ctx context.Context, b *Bot, view *models.TelegramView
 		}
 		filters.CuratedCollection = view.CollectionID
 		list.Books, list.Total, err = database.GetBooks(userID, filters)
-		list.Header = []screens.Block{screens.Title{Text: c.Name}, screens.Line{Text: screens.CountLine(list.Total, view.Lang)}}
+		list.Header = []screens.Block{screens.Title{Text: c.Name}, screens.Footer{Text: screens.CountLine(list.Total, view.Lang)}}
 		list.Sub, list.Empty = screens.AuthorsLine, emptyIn(view.Lang, screens.CopyNoCollectionBooks)
 		out.extra = func(k *keys, self, viewID uint64) [][]screens.Button {
 			rows := withLanguage(k, self, viewID)
@@ -159,7 +159,7 @@ func (r *Router) loadList(ctx context.Context, b *Bot, view *models.TelegramView
 	case ViewFavorites:
 		filters.Fav, filters.Lang = true, ""
 		list.Books, list.Total, err = database.GetBooks(userID, filters)
-		list.Header = []screens.Block{screens.Title{Text: "Избранное"}, screens.Line{Text: ru.Books(list.Total)}}
+		list.Header = []screens.Block{screens.Title{Text: "Избранное"}, screens.Footer{Text: ru.Books(list.Total)}}
 		list.Sub = screens.AuthorsLine
 		list.Header, list.Empty = favoritesHeader(list.Total, list.Header)
 		out.extra = func(k *keys, self, _ uint64) [][]screens.Button {
@@ -171,7 +171,8 @@ func (r *Router) loadList(ctx context.Context, b *Bot, view *models.TelegramView
 	case ViewFavoritesSearch:
 		err = r.searchList(ctx, list, &models.BookSearchRequest{Query: view.Query, Favorites: true, UserID: userID,
 			Limit: filters.Limit, Offset: filters.Offset})
-		list.Header = []screens.Block{screens.Line{Text: "Поиск в избранном: «" + view.Query + "»"}, screens.Line{Text: ru.Books(list.Total)}}
+		list.Header = []screens.Block{screens.Heading{Text: "Поиск в избранном: «" + view.Query + "»"},
+			screens.Footer{Text: ru.Books(list.Total)}}
 		list.Sub, list.Empty = screens.AuthorsLine, []screens.Block{screens.Line{Text: copyNoMatches}}
 		out.extra = func(k *keys, _, _ uint64) [][]screens.Button {
 			return [][]screens.Button{{{Text: screens.ButtonAllFavorites, Env: k.env(cbv2.Envelope{Op: cbv2.OpFavorites})}}}

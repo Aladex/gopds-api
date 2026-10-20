@@ -47,6 +47,14 @@ const (
 	ButtonNotFavorite = "☆ В избранное"
 )
 
+// The words of a results tab that has no list to show.
+const (
+	copyBooksDown   = "Книги временно недоступны."
+	copyOnlyAuthors = "Книг по этому запросу нет. Найдены авторы — открой вкладку выше."
+	copyAuthorsDown = "Авторы временно недоступны."
+	copyNoAuthors   = "Авторов по этому запросу нет."
+)
+
 // MaxQuery is the longest search a reader may type, in characters.
 const MaxQuery = 200
 
@@ -196,7 +204,7 @@ func ResultsScreen(r *Results, k *ResultsKeys) Screen {
 	if row := filterRow(r, k); len(row) > 0 {
 		keys = append(keys, row)
 	}
-	return Screen{Doc: Doc{Blocks: blocks}, Keys: append(keys, lastRow(k.Back, k.Home))}
+	return Screen{Doc: Doc{Blocks: blocks}, Keys: append(keys, lastRow(k.Back, k.Home)), Rich: richResults(r, k)}
 }
 
 // filterLine names the filters in force: «Язык: русский · Автор: Азимов».
@@ -276,9 +284,9 @@ func bookList(r *Results, k *ResultsKeys) ([]Block, [][]Button) {
 	blocks := []Block{Gap{}}
 	switch {
 	case r.BooksFailed:
-		return append(blocks, Line{Text: "Книги временно недоступны."}), nil
+		return append(blocks, Line{Text: copyBooksDown}), nil
 	case r.BookTotal == 0:
-		return append(blocks, Line{Text: "Книг по этому запросу нет. Найдены авторы — открой вкладку выше."}), nil
+		return append(blocks, Line{Text: copyOnlyAuthors}), nil
 	}
 	var buttons [][]Button
 	for i := range r.Books {
@@ -302,9 +310,9 @@ func authorList(r *Results, k *ResultsKeys) ([]Block, [][]Button) {
 	blocks := []Block{Line{Text: "Авторы по запросу. Язык книг: " + lang + "."}, Gap{}}
 	switch {
 	case r.AuthorsFailed:
-		return append(blocks, Line{Text: "Авторы временно недоступны."}), nil
+		return append(blocks, Line{Text: copyAuthorsDown}), nil
 	case r.AuthorTotal == 0:
-		return append(blocks, Line{Text: "Авторов по этому запросу нет."}), nil
+		return append(blocks, Line{Text: copyNoAuthors}), nil
 	}
 	var buttons [][]Button
 	for i := range r.Authors {

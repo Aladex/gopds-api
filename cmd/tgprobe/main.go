@@ -8,6 +8,20 @@
 //
 //	go run ./cmd/tgprobe -secrets /path/to/file [-cover-url https://proxy/books-posters/x.jpg]
 //
+// With -preview lists it asks nothing: it sends the list screens as the bot
+// lays them out in rich messages, from fixture data, and answers their
+// buttons for -wait (10 minutes by default) or until Ctrl+C:
+//
+//	go run ./cmd/tgprobe -secrets /path/to/file -preview lists [-wait 30m]
+//
+// A bot with a webhook — one that serves something else — gets -send-only:
+// the lists, then each again as a press would leave it (the results' next
+// page and authors tab, the author's next page), as messages of their own.
+// It reads no updates and does not touch the webhook; the buttons go
+// unanswered:
+//
+//	go run ./cmd/tgprobe -secrets /path/to/file -preview lists -send-only
+//
 // The file holds two lines, TG_TEST_TOKEN=… and TG_TEST_CHAT=… (the private
 // chat of the person looking at the result). The token is never printed:
 // every error passes through tgapi.RedactURL before it is shown. The probe
@@ -26,6 +40,7 @@ import (
 	"image/jpeg"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"time"
@@ -60,10 +75,31 @@ type result struct {
 func main() {
 	secretsPath := flag.String("secrets", "", "file with TG_TEST_TOKEN=… and TG_TEST_CHAT=… lines")
 	coverURL := flag.String("cover-url", "", "optional: a cover URL on the proxy host, fetched from here")
+	preview := flag.String("preview", "", `"lists": send the list screens as rich messages and answer their buttons`)
+	wait := flag.Duration("wait", previewWait, "with -preview: how long the buttons keep working")
+	sendOnly := flag.Bool("send-only", false,
+		"with -preview: send the lists and their next states, read no updates, leave the webhook alone")
 	flag.Parse()
 	token, chat, err := readSecrets(*secretsPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "tgprobe:", err)
+		os.Exit(exitUsage)
+	}
+	switch *preview {
+	case "":
+	case "lists":
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		ctx, cancel := context.WithTimeout(ctx, *wait)
+		previewErr := runPreview(ctx, token, chat, *sendOnly)
+		cancel()
+		stop()
+		if previewErr != nil {
+			fmt.Fprintln(os.Stderr, "tgprobe:", previewErr)
+			os.Exit(1)
+		}
+		return
+	default:
+		fmt.Fprintln(os.Stderr, "tgprobe: -preview knows only \"lists\"")
 		os.Exit(exitUsage)
 	}
 	client, err := tgapi.New(token, tgapi.Endpoint{})
