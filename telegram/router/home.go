@@ -16,41 +16,61 @@ import (
 )
 
 // The home panel and its pin (plan-ui.md §4.1). A pin is restored only on
-// explicit triggers — /start, «Домой», a home message found gone — never on
-// every message: there is no update for an unpin, and each pin leaves a
-// service line in the chat.
+// explicit triggers — «Домой», a home message found gone — never on every
+// message: there is no update for an unpin, and each pin leaves a service
+// line in the chat. /start sends a new home panel instead.
 
-// start answers /start: the home panel, pinned. A chat that has one gets it
-// pinned again, and nothing new is sent.
+// start answers /start — the bot's one command, «Главное меню» — and greets
+// a chat just linked: a new home panel at the bottom of the chat, pinned, so
+// the reader need not scroll up to it. The one before is retired (retireHome):
+// one home panel at a time, however many /start.
 func (r *Router) start(ctx context.Context, b *Bot, chatID int64, linked bool) {
-	home, err := database.GetTelegramHomePanel(ctx, b.Ref, chatID)
+	old, err := database.GetTelegramHomePanel(ctx, b.Ref, chatID)
 	if err != nil {
 		logging.Warnf("Telegram bot %d: reading the home panel: %v", b.Ref, err)
 		r.sendPlainText(ctx, b, chatID, screens.CopyLibraryDown)
 		return
 	}
-	if home != nil {
-		if r.pin(ctx, b, home) {
-			return
-		}
-		if err := database.DropTelegramHome(ctx, home); err != nil {
-			logging.Warnf("Telegram bot %d: forgetting a home panel: %v", b.Ref, err)
-		}
+	if r.newHome(ctx, b, chatID, linked) == nil || old == nil {
+		// Without a new home the old one stays the home.
+		return
 	}
-	r.newHome(ctx, b, chatID, linked)
+	r.retireHome(ctx, b, old)
 }
 
-// newHome sends a home panel and pins it.
-func (r *Router) newHome(ctx context.Context, b *Bot, chatID int64, linked bool) {
+// retireHome takes a home panel a new one replaced out of the chat: unpinned
+// and deleted, or — when Telegram will not delete it, older than 48 hours —
+// left without its keyboard. Either way it is retired at a new revision, so
+// a button still on it is refused as an old screen's.
+func (r *Router) retireHome(ctx context.Context, b *Bot, old *models.TelegramPanel) {
+	if err := database.RetireTelegramHome(ctx, old); err != nil {
+		logging.Warnf("Telegram bot %d: retiring the old home panel: %v", b.Ref, err)
+	}
+	if _, err := b.Client.UnpinChatMessage(ctx, &bot.UnpinChatMessageParams{
+		ChatID: old.ChatID, MessageID: int(old.MessageID),
+	}); err != nil {
+		logging.Debugf("Telegram bot %d: unpinning the old home panel: %v", b.Ref, tgapi.RedactURL(err))
+	}
+	if _, err := b.Client.DeleteMessage(ctx, &bot.DeleteMessageParams{
+		ChatID: old.ChatID, MessageID: int(old.MessageID),
+	}); err != nil {
+		logging.Debugf("Telegram bot %d: deleting the old home panel, its buttons go instead: %v", b.Ref, tgapi.RedactURL(err))
+		r.stripKeyboard(ctx, b, old)
+	}
+}
+
+// newHome sends a home panel and pins it; nil when it could not be sent.
+func (r *Router) newHome(ctx context.Context, b *Bot, chatID int64, linked bool) *models.TelegramPanel {
 	node := &models.TelegramNode{UserID: b.Binding.UserID, Screen: int16(ScrHome)}
 	if err := upsertNode(ctx, node); err != nil {
 		logging.Warnf("Telegram bot %d: recording the home node: %v", b.Ref, err)
-		return
+		return nil
 	}
 	panel := r.sendPanel(ctx, b, chatID, node, r.paintHome(linked, r.inlineOn(ctx, b)), true)
 	if panel != nil {
 		r.pin(ctx, b, panel)
 	}
+	return panel
 }
 
 // pin pins the home panel. It reports false only when the message is gone;

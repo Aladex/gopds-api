@@ -469,7 +469,49 @@ func (bm *BotManager) SetDelivery(d *delivery.Service) {
 		PostersPath:  func() string { return viper.GetString("app.posters_path") },
 	}, bm)
 	d.SetCards(bm.router)
+	bm.handling.Add(1)
+	go func() {
+		defer bm.handling.Done()
+		bm.ensureCommands()
+	}()
 }
+
+// ensureCommands gives every served v2 bot its command menu, /start, if it
+// does not have it yet (router.EnsureCommands): the startup reconcile. A few
+// bots at a time; one that fails is tried again at its chat's next update.
+func (bm *BotManager) ensureCommands() {
+	bm.mutex.RLock()
+	served := make([]*Bot, 0, len(bm.byRef))
+	for _, b := range bm.byRef {
+		served = append(served, b)
+	}
+	bm.mutex.RUnlock()
+
+	slots := make(chan struct{}, identityWorkers)
+	var wg sync.WaitGroup
+	for _, b := range served {
+		wg.Add(1)
+		slots <- struct{}{}
+		go func(b *Bot) {
+			defer wg.Done()
+			defer func() { <-slots }()
+			ctx, cancel := context.WithTimeout(context.Background(), commandsTimeout)
+			defer cancel()
+			v2, err := bm.v2Bot(ctx, b)
+			if err != nil {
+				logging.Warnf("Telegram bot %d: reading it for its command menu: %v", b.ref, err)
+				return
+			}
+			if v2 != nil {
+				bm.router.EnsureCommands(ctx, v2)
+			}
+		}(b)
+	}
+	wg.Wait()
+}
+
+// commandsTimeout bounds setting one bot's command menu: a dozen calls.
+const commandsTimeout = time.Minute
 
 // V2Bot is a served bot as the v2 router knows it, or nil when the bot is
 // not served by the v2 router. The router, the navigation key and the

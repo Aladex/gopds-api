@@ -220,36 +220,64 @@ func (v *v2Stack) home() int64 {
 	return id
 }
 
-// (a) A v2 bot's command menu is cleared — every scope and language — and a
-// process serving it registers none.
-func TestTheV2BotHasNoCommands(t *testing.T) {
+// (a) A v2 bot has one command, /start, in its menu: set on the default
+// scope, in no language and in Russian; what the narrower scopes and English
+// may hold is deleted; the menu button shows the commands. Once per bot.
+func TestTheV2BotHasOneCommand(t *testing.T) {
 	v := newV2(t)
-	deletes := v.fake.Calls("deleteMyCommands")
-	require.Len(t, deletes, 9)
-	seen := map[string]bool{}
-	for _, c := range deletes {
-		seen[c.Params["scope"]+"|"+c.Params["language_code"]] = true
-	}
-	for _, scope := range []string{`{"type":"default"}`, `{"type":"all_private_chats"}`,
-		`{"type":"chat","chat_id":` + strconv.FormatInt(ownerTG, 10) + `}`} {
-		for _, lang := range []string{"", "ru", "en"} {
-			assert.True(t, seen[scope+"|"+lang], "deleteMyCommands %s %q", scope, lang)
-		}
-	}
-	menus := v.fake.Calls("setChatMenuButton")
-	require.Len(t, menus, 2)
-	assert.Contains(t, menus[1].Params["chat_id"], strconv.FormatInt(ownerTG, 10))
+	assertOneCommand(t, v.fake, ownerTG)
 
-	registered := len(v.fake.Calls("setMyCommands"))
 	v.secondPod() // a process that serves the bot as v2 from its start
 	v.say("/start")
-	assert.Len(t, v.fake.Calls("setMyCommands"), registered, "no commands registered for a v2 bot")
-	assert.Len(t, v.fake.Calls("deleteMyCommands"), 9, "cleared once")
+	assert.Len(t, v.fake.Calls("setMyCommands"), 2, "set once per bot")
+	assert.Len(t, v.fake.Calls("deleteMyCommands"), 7)
+	assert.Len(t, v.fake.Calls("setChatMenuButton"), 2)
 }
 
-// (b) The link opens the home panel, pinned; /start again sends nothing new
-// and pins the same message.
-func TestStartPinsTheHomePanel(t *testing.T) {
+// assertOneCommand checks the calls that give a bot its one command, the
+// owner's chat included when owner is not 0.
+func assertOneCommand(t *testing.T, fake *tgtest.FakeBotAPI, owner int64) {
+	t.Helper()
+	sets := fake.Calls("setMyCommands")
+	require.Len(t, sets, 2)
+	langs := map[string]bool{}
+	for _, c := range sets {
+		assert.JSONEq(t, `[{"command":"start","description":"Главное меню"}]`, c.Params["commands"])
+		assert.JSONEq(t, `{"type":"default"}`, c.Params["scope"])
+		langs[c.Params["language_code"]] = true
+	}
+	assert.Equal(t, map[string]bool{"": true, "ru": true}, langs)
+
+	deleted := map[string]bool{}
+	for _, c := range fake.Calls("deleteMyCommands") {
+		deleted[c.Params["scope"]+"|"+c.Params["language_code"]] = true
+	}
+	want := map[string]bool{`{"type":"default"}|en`: true}
+	scopes := []string{`{"type":"all_private_chats"}`}
+	if owner != 0 {
+		scopes = append(scopes, `{"type":"chat","chat_id":`+strconv.FormatInt(owner, 10)+`}`)
+	}
+	for _, scope := range scopes {
+		for _, lang := range []string{"", "ru", "en"} {
+			want[scope+"|"+lang] = true
+		}
+	}
+	assert.Equal(t, want, deleted)
+
+	menus := fake.Calls("setChatMenuButton")
+	require.NotEmpty(t, menus)
+	for _, c := range menus {
+		assert.JSONEq(t, `{"type":"commands"}`, c.Params["menu_button"])
+	}
+	if owner != 0 {
+		require.Len(t, menus, 2)
+		assert.Contains(t, menus[1].Params["chat_id"], strconv.FormatInt(owner, 10))
+	}
+}
+
+// (b) The link opens the home panel, pinned; a message is not a pin
+// trigger. /start is (start_command_e2e_test.go).
+func TestTheLinkPinsTheHomePanel(t *testing.T) {
 	v := newV2(t)
 	home := v.home()
 	require.Len(t, v.sends(), 1)
@@ -259,14 +287,8 @@ func TestStartPinsTheHomePanel(t *testing.T) {
 	require.Len(t, pins, 1)
 	assert.Equal(t, home, pins[0].Int64("message_id"))
 
-	v.say("/start")
-	assert.Len(t, v.sends(), 1, "nothing new")
-	pins = v.fake.Calls("pinChatMessage")
-	require.Len(t, pins, 2)
-	assert.Equal(t, home, pins[1].Int64("message_id"))
-
 	v.say("Мир")
-	assert.Len(t, v.fake.Calls("pinChatMessage"), 2, "a message is not a pin trigger")
+	assert.Len(t, v.fake.Calls("pinChatMessage"), 1, "a message is not a pin trigger")
 }
 
 // (c) Typed text opens a new results panel with both tabs; the pinned home
@@ -584,14 +606,19 @@ func TestAGoneHomeIsSentAgain(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = w.Write([]byte(`{"ok":false,"error_code":400,"description":"Bad Request: message to pin not found"}`))
 		}})
-	v.say("/start")
+	v.fake.Unpin(ownerTG)
+	_, err := v.db.Exec(`UPDATE telegram_panel SET pin_checked_at = now() - interval '1 hour'`)
+	require.NoError(t, err)
+	v.say("мир")
+	gone := v.lastSend()
+	v.tap(&gone, "Домой")
 	fresh := v.home()
 	assert.NotEqual(t, old, fresh)
 	pins := v.fake.Calls("pinChatMessage")
 	assert.Equal(t, fresh, pins[len(pins)-1].Int64("message_id"))
 
 	v.fake.Unpin(ownerTG)
-	_, err := v.db.Exec(`UPDATE telegram_panel SET pin_checked_at = now() - interval '1 hour'`)
+	_, err = v.db.Exec(`UPDATE telegram_panel SET pin_checked_at = now() - interval '1 hour'`)
 	require.NoError(t, err)
 	v.say("мир")
 	results := v.lastSend()
@@ -605,7 +632,7 @@ func TestWhatIsNotASearch(t *testing.T) {
 	v := newV2(t)
 	views := v.count(`SELECT count(*) FROM telegram_view`)
 	v.say("/foo")
-	assert.Equal(t, "Команды здесь не нужны. Напиши название книги или имя автора.", lastText(v))
+	assert.Equal(t, "Такой команды нет. Напиши название книги или имя автора.", lastText(v))
 	v.say(strings.Repeat("я", 201))
 	assert.Contains(t, lastText(v), "Запрос слишком длинный.")
 	v.say("   ")

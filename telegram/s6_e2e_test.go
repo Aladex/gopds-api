@@ -69,9 +69,8 @@ func TestTheOldKeyboardGoesOnTheFirstUpdate(t *testing.T) {
 	assert.True(t, markup.RemoveKeyboard)
 	results := v.lastSend()
 	assert.Contains(t, content(&results), "Поиск: «мир»", "the update is handled as usual")
-	assert.Len(t, v.fake.Calls("deleteMyCommands"), 9, "every scope and language cleared")
+	assertOneCommand(t, v.fake, ownerTG)
 	menus := len(v.fake.Calls("setChatMenuButton"))
-	assert.Positive(t, menus, "the menu button reset")
 	assert.Equal(t, 1, v.count(`SELECT count(*) FROM telegram_binding WHERE reply_kb_removed_at IS NOT NULL`))
 
 	v.say("/start")
@@ -83,7 +82,7 @@ func TestTheOldKeyboardGoesOnTheFirstUpdate(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, count, "once per binding")
-	assert.Len(t, v.fake.Calls("deleteMyCommands"), 9, "once per bot")
+	assert.Len(t, v.fake.Calls("setMyCommands"), 2, "once per bot")
 	assert.Len(t, v.fake.Calls("setChatMenuButton"), menus)
 }
 

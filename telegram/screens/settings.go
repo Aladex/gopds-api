@@ -70,8 +70,13 @@ func SettingsScreen(format, lang string, plain, inline, keepRecent bool, kindle 
 		Line{Text: "Подсказки при поиске: " + inlineName(inline)},
 		Line{Text: "Недавние отправки: " + RecentName(keepRecent)},
 		Line{Text: "Kindle: " + kindleName(kindle)},
+		Gap{},
+		Line{Text: CopyStartCommand},
 	}}, Keys: append(keys, []Button{{Text: ButtonHome, Env: k.Home}})}
 }
+
+// CopyStartCommand is the bot's one command, told once, in the settings.
+const CopyStartCommand = "/start — главное меню"
 
 // inlineName is inline mode's state in words.
 func inlineName(on bool) string {

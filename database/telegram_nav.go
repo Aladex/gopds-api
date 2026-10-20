@@ -115,6 +115,17 @@ func SetTelegramPanelMode(ctx context.Context, p *models.TelegramPanel, mode str
 	return err
 }
 
+// RetireTelegramHome makes a home panel a new one replaced an old screen:
+// not home, not pinned, showing nothing, at a new revision — a button still
+// on it is refused like any old screen's.
+func RetireTelegramHome(ctx context.Context, p *models.TelegramPanel) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE telegram_panel
+		SET is_home = false, pinned_at = NULL, node_id = 0, revision = LEAST(revision + 1, ?), updated_at = now()
+		WHERE bot_ref = ? AND chat_id = ? AND message_id = ?`, maxPanelRevision, p.BotRef, p.ChatID, p.MessageID)
+	return err
+}
+
 // GetTelegramHomePanel loads the chat's home panel; nil when there is none.
 func GetTelegramHomePanel(ctx context.Context, botRef, chatID int64) (*models.TelegramPanel, error) {
 	p := new(models.TelegramPanel)
@@ -193,8 +204,10 @@ func GetTelegramUserUI(ctx context.Context, userID int64) (TelegramUserUI, error
 
 // TelegramBotUI is a bot's interface facts.
 type TelegramBotUI struct {
-	CommandsClearedAt *time.Time
-	RichRejectedAt    *time.Time
+	// CommandsSetAt is when the command menu was set to /start (migration
+	// 55).
+	CommandsSetAt  *time.Time
+	RichRejectedAt *time.Time
 	// SupportsInline is getMe's supports_inline_queries as last seen
 	// (migration 49).
 	SupportsInline  bool
@@ -204,8 +217,8 @@ type TelegramBotUI struct {
 // GetTelegramBotUI reads a bot's interface facts; zero when none are known.
 func GetTelegramBotUI(ctx context.Context, botRef int64) (TelegramBotUI, error) {
 	var ui TelegramBotUI
-	_, err := db.QueryContext(ctx, pg.Scan(&ui.CommandsClearedAt, &ui.RichRejectedAt, &ui.SupportsInline, &ui.InlineCheckedAt), `
-		SELECT commands_cleared_at, rich_rejected_at, supports_inline, inline_checked_at
+	_, err := db.QueryContext(ctx, pg.Scan(&ui.CommandsSetAt, &ui.RichRejectedAt, &ui.SupportsInline, &ui.InlineCheckedAt), `
+		SELECT commands_set_at, rich_rejected_at, supports_inline, inline_checked_at
 		FROM telegram_bot_ui WHERE bot_ref = ?`, botRef)
 	return ui, err
 }
@@ -225,18 +238,11 @@ func SetTelegramInline(ctx context.Context, botRef int64, on bool) (bool, error)
 	return before == nil && on || before != nil && *before != on, nil
 }
 
-// MarkTelegramCommandsCleared records that the bot's command menu is empty.
-func MarkTelegramCommandsCleared(ctx context.Context, botRef int64) error {
+// MarkTelegramCommandsSet records that the bot's command menu is /start.
+func MarkTelegramCommandsSet(ctx context.Context, botRef int64) error {
 	_, err := db.ExecContext(ctx, `
-		INSERT INTO telegram_bot_ui (bot_ref, commands_cleared_at) VALUES (?, now())
-		ON CONFLICT (bot_ref) DO UPDATE SET commands_cleared_at = now()`, botRef)
-	return err
-}
-
-// ResetTelegramCommandsCleared forgets that the bot's menu was cleared: the
-// legacy router has just registered its commands again.
-func ResetTelegramCommandsCleared(ctx context.Context, botRef int64) error {
-	_, err := db.ExecContext(ctx, `UPDATE telegram_bot_ui SET commands_cleared_at = NULL WHERE bot_ref = ?`, botRef)
+		INSERT INTO telegram_bot_ui (bot_ref, commands_set_at) VALUES (?, now())
+		ON CONFLICT (bot_ref) DO UPDATE SET commands_set_at = now()`, botRef)
 	return err
 }
 
