@@ -9,12 +9,16 @@ import (
 	"testing"
 	"time"
 
+	"gopds-api/database"
+	"gopds-api/telegram"
 	"gopds-api/telegram/profile"
 	"gopds-api/telegram/tgapi"
 	"gopds-api/telegram/tgtest"
 
+	"github.com/go-pg/pg/v10"
 	"github.com/go-telegram/bot"
 	tgbot "github.com/go-telegram/bot/models"
+	"github.com/google/uuid"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -205,4 +209,85 @@ func TestTwoChecksSetTheLookUpOnce(t *testing.T) {
 	code, _ = s.api(user, http.MethodPost, "/managed/check", "")
 	assert.Equal(t, http.StatusOK, code)
 	assert.Equal(t, own, s.fake.ProfileOf(botToken1).Photo.SHA256, "the owner's avatar stays")
+}
+
+// A setup slower than its claim gives up before the claim runs out: the next
+// check takes it and finishes, and nothing the slow one sent later changes
+// the owner's look (review-p1-2-fixes B2, the slow recheck).
+func TestASlowSetUpGivesUpBeforeItsClaimRunsOut(t *testing.T) {
+	defer telegram.ProfileTimings(3*time.Second, time.Second)()
+	s := newManaged(t)
+	user := s.seedUser("slow-telegram")
+	username := s.startManaged(user)
+	s.fake.On(tgtest.Rule{Method: "setMyProfilePhoto", Times: 1, Reply: tgtest.Error(http.StatusBadRequest, "Bad Request: PHOTO_INVALID")})
+	s.createBot(creatorTG, botToken1, username)
+	require.Equal(t, "not_ready", s.managedState(user))
+
+	stuck := make(chan struct{})
+	var release sync.Once
+	defer release.Do(func() { close(stuck) })
+	s.fake.On(tgtest.Rule{Method: "setMyDescription", Times: 1, Reply: s.fake.Gate(stuck)})
+	started := time.Now()
+	code, _ := s.api(user, http.MethodPost, "/managed/check", "")
+	assert.Equal(t, http.StatusOK, code)
+	assert.Less(t, time.Since(started), 3*time.Second, "cut off before the claim runs out")
+	assert.Equal(t, "not_ready", s.managedState(user))
+	assert.Zero(t, s.count(`SELECT count(*) FROM telegram_bot_profile WHERE claimed_until IS NOT NULL OR applied_at IS NOT NULL`),
+		"the claim is given up, nothing recorded")
+
+	code, _ = s.api(user, http.MethodPost, "/managed/check", "")
+	assert.Equal(t, http.StatusOK, code)
+	require.Equal(t, "ready", s.managedState(user))
+
+	client, err := tgapi.New(botToken1, tgapi.Endpoint{ServerURL: s.fake.URL()})
+	require.NoError(t, err)
+	_, err = client.SetMyProfilePhoto(context.Background(), &bot.SetMyProfilePhotoParams{Photo: &tgbot.InputProfilePhotoStatic{
+		Photo: "attach://owner", MediaAttachment: bytes.NewReader([]byte("owner's own photo")),
+	}})
+	require.NoError(t, err)
+	own := s.fake.ProfileOf(botToken1).Photo.SHA256
+	release.Do(func() { close(stuck) })
+	code, _ = s.api(user, http.MethodPost, "/managed/check", "")
+	assert.Equal(t, http.StatusOK, code)
+	assert.Equal(t, own, s.fake.ProfileOf(botToken1).Photo.SHA256, "the owner's avatar stays")
+}
+
+// Only the claim's holder records the look applied, or lets the claim go: a
+// setup whose claim was taken over records nothing.
+func TestOnlyTheClaimsHolderRecordsTheLook(t *testing.T) {
+	s := newManaged(t)
+	user := s.seedUser("fenced")
+	username := s.startManaged(user)
+	s.createBot(creatorTG, botToken1, username)
+	var ref int64
+	_, err := s.db.QueryOne(pg.Scan(&ref), `SELECT id FROM telegram_bot WHERE tg_bot_id = 987654321`)
+	require.NoError(t, err)
+	_, err = s.db.Exec(`DELETE FROM telegram_bot_profile`)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	stale, current := uuid.New(), uuid.New()
+	claimed, err := database.ClaimTelegramBotProfile(ctx, ref, stale, time.Minute)
+	require.NoError(t, err)
+	require.True(t, claimed)
+	again, err := database.ClaimTelegramBotProfile(ctx, ref, current, time.Minute)
+	require.NoError(t, err)
+	assert.False(t, again, "a live claim is not taken")
+	_, err = s.db.Exec(`UPDATE telegram_bot_profile SET claimed_until = now() - interval '1 second'`)
+	require.NoError(t, err)
+	claimed, err = database.ClaimTelegramBotProfile(ctx, ref, current, time.Minute)
+	require.NoError(t, err)
+	require.True(t, claimed, "a run-out claim is taken over")
+
+	done, err := database.CompleteTelegramBotProfile(ctx, ref, stale)
+	require.NoError(t, err)
+	assert.False(t, done, "the stale setup records nothing")
+	require.NoError(t, database.ReleaseTelegramBotProfile(ctx, ref, stale))
+	assert.Equal(t, 1, s.count(`SELECT count(*) FROM telegram_bot_profile WHERE claim_token = ?`, current), "nor lets the new claim go")
+	done, err = database.CompleteTelegramBotProfile(ctx, ref, current)
+	require.NoError(t, err)
+	assert.True(t, done)
+	profiled, err := database.TelegramBotProfiled(ctx, ref)
+	require.NoError(t, err)
+	assert.True(t, profiled)
 }

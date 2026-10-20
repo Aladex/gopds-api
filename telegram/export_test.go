@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"errors"
+	"time"
 
 	"gopds-api/database"
 
@@ -26,4 +27,12 @@ func FailReplyMarkClears() (restore func()) {
 	previous := clearReplyMark
 	clearReplyMark = func(context.Context, database.InboxLease) error { return errors.New("injected failure") }
 	return func() { clearReplyMark = previous }
+}
+
+// ProfileTimings sets how long a bot's look setup holds its claim and how
+// long the setup may run, until the returned function restores them.
+func ProfileTimings(lease, setup time.Duration) (restore func()) {
+	previousLease, previousSetup := profileClaimLease, profileSetupTimeout
+	profileClaimLease, profileSetupTimeout = lease, setup
+	return func() { profileClaimLease, profileSetupTimeout = previousLease, previousSetup }
 }

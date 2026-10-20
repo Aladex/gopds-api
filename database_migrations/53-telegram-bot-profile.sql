@@ -5,8 +5,9 @@
 --     up (its readiness waits for it), to a bot connected by its token only
 --     when its owner asked on the site. A bot given them is never given them
 --     again by itself: an owner who changed them keeps the change. The
---     manager claims the setup first (claimed_until), so two checks at once
---     never both apply it, nor apply it after it was applied.
+--     manager claims the setup first (claimed_until, claim_token), so two
+--     checks at once never both apply it, nor apply it after it was applied;
+--     only the claim's holder records it applied, or lets it go.
 --
 -- Locks: the foreign key takes SHARE ROW EXCLUSIVE on telegram_bot, up front,
 -- NOWAIT, like 28-52.
@@ -18,5 +19,6 @@ LOCK TABLE public.telegram_bot IN SHARE ROW EXCLUSIVE MODE NOWAIT;
 CREATE TABLE public.telegram_bot_profile (
     bot_ref       bigint      PRIMARY KEY REFERENCES public.telegram_bot (id) ON DELETE CASCADE,
     applied_at    timestamptz,
-    claimed_until timestamptz
+    claimed_until timestamptz,
+    claim_token   uuid
 );

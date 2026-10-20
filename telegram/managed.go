@@ -42,6 +42,15 @@ const managedLinkTTL = 15 * time.Minute
 // managedSetupTimeout bounds one event's work with Telegram.
 const managedSetupTimeout = 45 * time.Second
 
+// The automatic setup of a bot's look: its claim lasts profileClaimLease,
+// and the setup itself — every call to Telegram it makes — is cut off at
+// profileSetupTimeout, well before: a setup never goes on once another may
+// have taken its claim. Variables, for tests.
+var (
+	profileClaimLease   = 45 * time.Second
+	profileSetupTimeout = 30 * time.Second
+)
+
 // managedBotName is the name the creation window suggests; the reader may
 // change it.
 const managedBotName = "Мои книги"
@@ -374,7 +383,8 @@ func (m *Manager) profiled(ctx context.Context, b *Bot) bool {
 	// Claimed before any call to Telegram: a check running at the same time,
 	// in this process or another, applies nothing — not now, and not after
 	// this one applied it and the owner changed it.
-	claimed, err := database.ClaimTelegramBotProfile(ctx, b.ref, managedSetupTimeout)
+	token := uuid.New()
+	claimed, err := database.ClaimTelegramBotProfile(ctx, b.ref, token, profileClaimLease)
 	if err != nil {
 		logging.Warnf("Telegram manager: claiming bot %d's profile: %v", b.ref, err)
 		return false
@@ -383,18 +393,27 @@ func (m *Manager) profiled(ctx context.Context, b *Bot) bool {
 		done, err = database.TelegramBotProfiled(ctx, b.ref)
 		return err == nil && done
 	}
-	if err := profile.Apply(ctx, b.bot); err != nil {
+	// The setup ends before its claim does, however slow Telegram is.
+	sctx, cancel := context.WithTimeout(ctx, profileSetupTimeout)
+	err = profile.Apply(sctx, b.bot)
+	cancel()
+	if err != nil {
 		logging.Warnf("Telegram manager: giving bot %d its profile: %v", b.ref, tgapi.RedactURL(err))
-		if relErr := database.ReleaseTelegramBotProfile(context.WithoutCancel(ctx), b.ref); relErr != nil {
+		if relErr := database.ReleaseTelegramBotProfile(context.WithoutCancel(ctx), b.ref, token); relErr != nil {
 			logging.Warnf("Telegram manager: letting bot %d's profile go: %v", b.ref, relErr)
 		}
 		return false
 	}
-	if err := database.MarkTelegramBotProfiled(ctx, b.ref); err != nil {
+	// Recorded only while the claim is still this setup's.
+	done, err = database.CompleteTelegramBotProfile(context.WithoutCancel(ctx), b.ref, token)
+	if err != nil {
 		logging.Warnf("Telegram manager: recording bot %d's profile: %v", b.ref, err)
 		return false
 	}
-	return true
+	if !done {
+		logging.Warnf("Telegram manager: bot %d's profile claim ran out before its setup ended", b.ref)
+	}
+	return done
 }
 
 // restrict lets only the bot's owner use it, and reports whether Telegram
