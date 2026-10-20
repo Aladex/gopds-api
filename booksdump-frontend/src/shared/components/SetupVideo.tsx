@@ -53,6 +53,63 @@ export const PLYR_LABEL_KEYS = [
     'frameTitle',
 ] as const;
 
+/**
+ * Where a mounted player can no longer be seen: in a panel or a dialog kept
+ * mounted while it is away — the profile's FadingTabPanels go inert — or in
+ * anything hidden outright.
+ */
+export const CONCEALED =
+    '[inert], [hidden], [role="tabpanel"][data-state="inactive"], [role="dialog"][data-state="closed"]';
+
+/**
+ * stopWhenUnseen pauses the video whenever the reader can no longer see it:
+ * its panel or dialog goes away, the page is hidden or loses focus, or the
+ * player scrolls out of view. It never starts it again — the reader presses
+ * play. Returns the cleanup.
+ */
+const stopWhenUnseen = (video: HTMLVideoElement, box: HTMLElement): (() => void) => {
+    const stop = () => {
+        if (!video.paused) video.pause();
+    };
+
+    const onVisibility = () => {
+        if (document.visibilityState === 'hidden') stop();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('blur', stop);
+
+    // A panel kept mounted is still laid out, so only its own attributes say
+    // it went away; they are watched on every element the box sits in.
+    const concealment = new MutationObserver(() => {
+        if (box.closest(CONCEALED)) stop();
+    });
+    for (let node: Element | null = box; node; node = node.parentElement) {
+        concealment.observe(node, {
+            attributes: true,
+            attributeFilter: ['inert', 'hidden', 'data-state'],
+        });
+    }
+
+    let view: IntersectionObserver | null = null;
+    if (typeof IntersectionObserver !== 'undefined') {
+        view = new IntersectionObserver(
+            (entries) => {
+                if (entries.some((entry) => !entry.isIntersecting)) stop();
+            },
+            { threshold: 0 },
+        );
+        view.observe(box);
+    }
+
+    return () => {
+        stop();
+        document.removeEventListener('visibilitychange', onVisibility);
+        window.removeEventListener('blur', stop);
+        concealment.disconnect();
+        view?.disconnect();
+    };
+};
+
 /** The language a how-to video is recorded in, for an interface language. */
 export type VideoLanguage = 'ru' | 'en';
 
@@ -173,8 +230,10 @@ const SetupVideo: React.FC<SetupVideoProps> = ({
         } catch {
             // A browser Plyr does not support keeps the native player.
         }
+        const stopWatching = stopWhenUnseen(video, box);
 
         return () => {
+            stopWatching();
             video.removeEventListener('error', onError);
             video.removeEventListener('loadedmetadata', onLoaded);
             player?.destroy();
