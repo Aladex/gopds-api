@@ -400,6 +400,7 @@
   "telegram.profile.applied": "Оформление библиотеки применено.",
   "telegram.profile.done": "Бот оформлен",
   "telegram.profile.noBot": "Бот больше не подключён. Обновите страницу.",
+  "telegram.profile.botChanged": "Бот уже сменился. Проверьте нового бота и подтвердите оформление заново.",
   "telegram.error.invalid_token": "Telegram не принял токен. Проверьте, что он скопирован целиком.",
   "telegram.error.bot_taken": "Этот бот уже подключён к другому аккаунту библиотеки.",
   "telegram.error.telegram_unavailable": "Telegram сейчас не отвечает. Попробуйте ещё раз.",

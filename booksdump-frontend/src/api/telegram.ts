@@ -57,6 +57,7 @@ export type TelegramErrorCode =
     | 'no_pending_bot'
     | 'managed_unavailable'
     | 'managed_not_found'
+    | 'bot_changed'
     | 'internal';
 
 const KNOWN_ERRORS: readonly TelegramErrorCode[] = [
@@ -67,6 +68,7 @@ const KNOWN_ERRORS: readonly TelegramErrorCode[] = [
     'no_pending_bot',
     'managed_unavailable',
     'managed_not_found',
+    'bot_changed',
 ];
 
 /** telegramErrorCode reads the server's code from a failed request. */
@@ -109,6 +111,8 @@ export const restoreManaged = () => http.post<BotStatus>('/telegram/managed/rest
 
 /**
  * applyProfile gives the connected bot the library's avatar and descriptions,
- * replacing the owner's own.
+ * replacing the owner's own. It names the bot the page showed: the server
+ * refuses with bot_changed when the account's bot is another one by now.
  */
-export const applyProfile = () => http.post<BotStatus>('/telegram/profile', {});
+export const applyProfile = (botUsername: string) =>
+    http.post<BotStatus>('/telegram/profile', { bot_username: botUsername });

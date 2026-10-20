@@ -399,6 +399,7 @@
   "telegram.profile.applied": "The library's look is applied.",
   "telegram.profile.done": "The bot has the library's look",
   "telegram.profile.noBot": "The bot is no longer connected. Reload the page.",
+  "telegram.profile.botChanged": "The bot has changed. Check the new bot and confirm the look again.",
   "telegram.error.invalid_token": "Telegram did not accept the token. Check that it was copied in full.",
   "telegram.error.bot_taken": "This bot is already connected to another library account.",
   "telegram.error.telegram_unavailable": "Telegram is not answering right now. Try again.",

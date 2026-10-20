@@ -88,6 +88,8 @@ describe("the library's look for an entered bot", () => {
 
         expect(await screen.findByText('telegram.profile.applied')).toBeInTheDocument();
         expect(telegramApi.applyProfile).toHaveBeenCalledTimes(1);
+        // The request names the bot the tick was given for.
+        expect(telegramApi.applyProfile).toHaveBeenCalledWith(BOT);
         expect(toast.success).toHaveBeenCalledWith('telegram.profile.done');
         // Applying again takes the same deliberate tick.
         expect(box()).not.toBeChecked();
@@ -123,6 +125,27 @@ describe("the library's look for an entered bot", () => {
         expect(screen.queryByText('telegram.profile.applied')).not.toBeInTheDocument();
         // Left ticked: the owner already chose, and may press again.
         expect(box()).toBeChecked();
+    });
+
+    it('drops the tick and shows the bot there is now when the bot changed', async () => {
+        vi.mocked(telegramApi.applyProfile).mockRejectedValue(
+            new ApiError('bot_changed', 409, { body: { error: 'bot_changed' } }),
+        );
+        vi.mocked(telegramApi.getBotStatus).mockResolvedValue(
+            manual({ bot_username: 'another_bot' }),
+        );
+        render(<Harness initial={manual()} />);
+
+        await userEvent.click(box());
+        await userEvent.click(applyButton());
+
+        await waitFor(() =>
+            expect(toast.error).toHaveBeenCalledWith('telegram.profile.botChanged'),
+        );
+        expect(telegramApi.getBotStatus).toHaveBeenCalledTimes(1);
+        expect(await screen.findByText('another_bot', { exact: false })).toBeInTheDocument();
+        expect(box()).not.toBeChecked();
+        expect(applyButton()).toBeDisabled();
     });
 
     it('starts unticked for another bot connected meanwhile', async () => {

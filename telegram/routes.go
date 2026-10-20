@@ -37,7 +37,8 @@ type SetBotTokenRequest struct {
 
 // ErrorResponse error structure. Error is a stable code the site translates:
 // invalid_token, bot_taken, telegram_unavailable, webhook_failed,
-// no_pending_bot, managed_unavailable, managed_not_found, internal.
+// no_pending_bot, managed_unavailable, managed_not_found, bot_changed,
+// internal.
 type ErrorResponse struct {
 	Error string `json:"error"`
 }
@@ -101,6 +102,9 @@ const (
 	errManagedUnavailable  = "managed_unavailable"
 	errManagedNotFound     = "managed_not_found"
 	errInternal            = "internal"
+	// errBotChanged: «Оформить бота» named a bot the account is no longer
+	// connected to.
+	errBotChanged = "bot_changed"
 )
 
 // Answers to a webhook call that is not Telegram's: an unknown path, or a
@@ -612,14 +616,22 @@ func (r *Routes) RestoreManaged(c *gin.Context) {
 	r.respondWithStatus(c, userID)
 }
 
+// ApplyProfileRequest names the bot the owner agreed to style: the one the
+// page showed.
+type ApplyProfileRequest struct {
+	BotUsername string `json:"bot_username"`
+}
+
 // ApplyProfile is «Оформить бота»: the connected bot gets the library's
 // avatar and descriptions, replacing its owner's — so only on the owner's
-// own request, never by itself.
+// own request, never by itself, and only for the bot the request names: a
+// page left open while another bot was connected gets bot_changed.
 // @Summary Give the connected bot the library's look
 // @Tags telegram
 // @Produce json
 // @Success 200 {object} BotStatusResponse
 // @Failure 401 {object} ErrorResponse
+// @Param request body ApplyProfileRequest true "The bot shown"
 // @Failure 409 {object} ErrorResponse
 // @Failure 502 {object} ErrorResponse
 // @Router /api/telegram/profile [post]
@@ -637,6 +649,12 @@ func (r *Routes) ApplyProfile(c *gin.Context) {
 	}
 	if state.Binding == nil || state.Bot.Status != models.TelegramBotActive {
 		c.JSON(http.StatusConflict, ErrorResponse{Error: errNoPendingBot})
+		return
+	}
+	var req ApplyProfileRequest
+	if bindErr := c.ShouldBindJSON(&req); bindErr != nil || req.BotUsername == "" ||
+		!strings.EqualFold(strings.TrimPrefix(req.BotUsername, "@"), state.Bot.Username) {
+		c.JSON(http.StatusConflict, ErrorResponse{Error: errBotChanged})
 		return
 	}
 	b, err := r.botManager.botByRef(ctx, state.Bot.ID)

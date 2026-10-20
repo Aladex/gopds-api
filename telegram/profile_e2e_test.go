@@ -1,11 +1,20 @@
 package telegram_test
 
 import (
+	"bytes"
+	"context"
 	"net/http"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"gopds-api/telegram/profile"
+	"gopds-api/telegram/tgapi"
 	"gopds-api/telegram/tgtest"
+
+	"github.com/go-telegram/bot"
+	tgbot "github.com/go-telegram/bot/models"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -104,7 +113,7 @@ func TestAManualBotIsStyledOnlyOnRequest(t *testing.T) {
 	assert.Nil(t, s.fake.ProfileOf(botToken1), "nothing set by itself")
 	assert.Equal(t, false, s.status(user)["profile_applied"])
 
-	code, out := s.api(user, http.MethodPost, "/profile", "")
+	code, out := s.api(user, http.MethodPost, "/profile", `{"bot_username":"`+botName1+`"}`)
 	require.Equal(t, http.StatusOK, code, "%v", out)
 	assert.Equal(t, true, out["profile_applied"])
 	assertLibraryLook(t, s.fake, botToken1)
@@ -123,9 +132,77 @@ func TestStylingAManualBotCanFail(t *testing.T) {
 	s.linkVia(botToken1, ownerTG, secret)
 	s.waitMessage(ownerTG, 1)
 	s.fake.On(tgtest.Rule{Method: "setMyProfilePhoto", Reply: tgtest.Error(http.StatusBadRequest, "Bad Request: PHOTO_INVALID"), Times: 1})
-	code, out = s.api(user, http.MethodPost, "/profile", "")
+	code, out = s.api(user, http.MethodPost, "/profile", `{"bot_username":"`+botName1+`"}`)
 	assert.Equal(t, http.StatusBadGateway, code)
 	assert.Equal(t, "telegram_unavailable", out["error"])
 	assert.Equal(t, false, s.status(user)["profile_applied"])
 	assert.Zero(t, s.count(`SELECT count(*) FROM telegram_bot_profile`))
+}
+
+// The owner's consent is for the bot the page showed: a page left open while
+// another bot was connected styles neither (review-p1-2 B1).
+func TestStylingNamesTheBotShown(t *testing.T) {
+	s := newStack(t).start()
+	user := s.seedUser("two-tabs")
+	secret, _ := s.connect(user, botToken1)
+	s.linkVia(botToken1, ownerTG, secret)
+	s.waitMessage(ownerTG, 1)
+	secret, _ = s.connect(user, botToken2)
+	s.linkVia(botToken2, ownerTG, secret)
+	s.bm.WaitIdle()
+	require.Equal(t, botName2, s.status(user)["bot_username"])
+
+	for _, body := range []string{`{"bot_username":"` + botName1 + `"}`, `{}`, ``} {
+		code, out := s.api(user, http.MethodPost, "/profile", body)
+		assert.Equal(t, http.StatusConflict, code, "body %q: %v", body, out)
+		assert.Equal(t, "bot_changed", out["error"])
+	}
+	assert.Nil(t, s.fake.ProfileOf(botToken2), "the new bot's owner did not agree to it")
+	assert.Nil(t, s.fake.ProfileOf(botToken1))
+
+	code, out := s.api(user, http.MethodPost, "/profile", `{"bot_username":"@`+strings.ToUpper(botName2)+`"}`)
+	require.Equal(t, http.StatusOK, code, "%v", out)
+	assertLibraryLook(t, s.fake, botToken2)
+}
+
+// Two checks at once set the look up once: the second, holding no claim,
+// calls Telegram for nothing — so an owner's change after the bot got ready
+// stays (review-p1-2 B2).
+func TestTwoChecksSetTheLookUpOnce(t *testing.T) {
+	s := newManaged(t)
+	user := s.seedUser("two-checks")
+	username := s.startManaged(user)
+	s.fake.On(tgtest.Rule{Method: "setMyProfilePhoto", Times: 1, Reply: tgtest.Error(http.StatusBadRequest, "Bad Request: PHOTO_INVALID")})
+	s.createBot(creatorTG, botToken1, username)
+	require.Equal(t, "not_ready", s.managedState(user))
+	require.Equal(t, 1, countFor(s.fake, "setMyDescription", botToken1))
+
+	gate := make(chan struct{})
+	var release sync.Once
+	defer release.Do(func() { close(gate) })
+	s.fake.On(tgtest.Rule{Method: "setMyDescription", Times: 1, Reply: s.fake.Gate(gate)})
+	first := make(chan int, 1)
+	go func() { code, _ := s.api(user, http.MethodPost, "/managed/check", ""); first <- code }()
+	s.fake.WaitCalls(t, "setMyDescription", 2, 5*time.Second)
+
+	code, _ := s.api(user, http.MethodPost, "/managed/check", "")
+	assert.Equal(t, http.StatusOK, code)
+	assert.Equal(t, "not_ready", s.managedState(user), "not ready while the first still sets it up")
+	assert.Equal(t, 2, countFor(s.fake, "setMyDescription", botToken1), "the second calls Telegram for nothing")
+
+	release.Do(func() { close(gate) })
+	require.Equal(t, http.StatusOK, <-first)
+	require.Equal(t, "ready", s.managedState(user))
+
+	// The owner changes the avatar of the ready bot; a later check keeps it.
+	client, err := tgapi.New(botToken1, tgapi.Endpoint{ServerURL: s.fake.URL()})
+	require.NoError(t, err)
+	_, err = client.SetMyProfilePhoto(context.Background(), &bot.SetMyProfilePhotoParams{Photo: &tgbot.InputProfilePhotoStatic{
+		Photo: "attach://owner", MediaAttachment: bytes.NewReader([]byte("owner's own photo")),
+	}})
+	require.NoError(t, err)
+	own := s.fake.ProfileOf(botToken1).Photo.SHA256
+	code, _ = s.api(user, http.MethodPost, "/managed/check", "")
+	assert.Equal(t, http.StatusOK, code)
+	assert.Equal(t, own, s.fake.ProfileOf(botToken1).Photo.SHA256, "the owner's avatar stays")
 }

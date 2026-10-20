@@ -371,11 +371,25 @@ const TelegramSettings: React.FC<TelegramSettingsProps> = ({ status, onStatus })
     const applyLook = async () => {
         setBusy(true);
         try {
-            apply(await telegramApi.applyProfile());
+            // The tick names the bot it was given for.
+            apply(await telegramApi.applyProfile(lookFor ?? ''));
             setLookFor(null);
             toast.success(t('telegram.profile.done'));
         } catch (error) {
             const code = telegramApi.telegramErrorCode(error);
+            if (code === 'bot_changed') {
+                // Another tab connected another bot: the tick was for the
+                // one this page showed, so it is dropped and the page shows
+                // the bot there is now.
+                setLookFor(null);
+                toast.error(t('telegram.profile.botChanged'));
+                try {
+                    onStatus(await telegramApi.getBotStatus());
+                } catch {
+                    // Left as it was: the profile reads it again when reopened.
+                }
+                return;
+            }
             // The shared copy for this code asks for a token, which is not
             // what went wrong here: the bot is gone from under the page.
             toast.error(

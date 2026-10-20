@@ -371,8 +371,23 @@ func (m *Manager) profiled(ctx context.Context, b *Bot) bool {
 	if done {
 		return true
 	}
+	// Claimed before any call to Telegram: a check running at the same time,
+	// in this process or another, applies nothing — not now, and not after
+	// this one applied it and the owner changed it.
+	claimed, err := database.ClaimTelegramBotProfile(ctx, b.ref, managedSetupTimeout)
+	if err != nil {
+		logging.Warnf("Telegram manager: claiming bot %d's profile: %v", b.ref, err)
+		return false
+	}
+	if !claimed {
+		done, err = database.TelegramBotProfiled(ctx, b.ref)
+		return err == nil && done
+	}
 	if err := profile.Apply(ctx, b.bot); err != nil {
 		logging.Warnf("Telegram manager: giving bot %d its profile: %v", b.ref, tgapi.RedactURL(err))
+		if relErr := database.ReleaseTelegramBotProfile(context.WithoutCancel(ctx), b.ref); relErr != nil {
+			logging.Warnf("Telegram manager: letting bot %d's profile go: %v", b.ref, relErr)
+		}
 		return false
 	}
 	if err := database.MarkTelegramBotProfiled(ctx, b.ref); err != nil {
