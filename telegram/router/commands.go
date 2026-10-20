@@ -25,21 +25,31 @@ const (
 var commandLanguages = []string{"", commandsLanguage, "en"}
 
 // EnsureCommands sets the bot's command menu to /start and its menu button
-// to the commands, once per bot, and records it: at startup for every served
-// bot, and at a chat's first interaction. The commands are those of the
-// default scope, in no language and in Russian; whatever the legacy bot or
-// BotFather left on the narrower scopes, or in English, would show instead,
-// so it is deleted. Every call is idempotent: a failed run is run whole
-// again next time.
+// to the commands, once per bot: at startup for every served bot, and at a
+// chat's first interaction. The commands are those of the default scope, in
+// no language and in Russian; whatever the legacy bot or BotFather left on
+// the narrower scopes, or in English, would show instead, so it is deleted.
+//
+// The setting is claimed first (database.ClaimTelegramCommands), so only one
+// caller makes the calls; one whose calls failed lets the claim go, and the
+// next update runs them whole again — each is idempotent.
 func (r *Router) EnsureCommands(ctx context.Context, b *Bot) {
 	if ui, err := database.GetTelegramBotUI(ctx, b.Ref); err == nil && ui.CommandsSetAt != nil {
 		return
 	}
-	if !r.setCommands(ctx, b) {
+	claimed, err := database.ClaimTelegramCommands(ctx, b.Ref)
+	if err != nil {
+		logging.Warnf("Telegram bot %d: claiming the command menu: %v", b.Ref, err)
 		return
 	}
-	if err := database.MarkTelegramCommandsSet(ctx, b.Ref); err != nil {
-		logging.Warnf("Telegram bot %d: recording the command menu: %v", b.Ref, err)
+	if !claimed {
+		return
+	}
+	if r.setCommands(ctx, b) {
+		return
+	}
+	if err := database.ReleaseTelegramCommands(context.WithoutCancel(ctx), b.Ref); err != nil {
+		logging.Warnf("Telegram bot %d: letting the command menu go: %v", b.Ref, err)
 	}
 }
 

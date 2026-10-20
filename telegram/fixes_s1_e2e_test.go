@@ -61,14 +61,32 @@ func TestAPendingLinkCannotTakeAnActiveBot(t *testing.T) {
 	// A relinking the same bot still works.
 	_, out := s.api(accountA, http.MethodPost, "/bot", fmt.Sprintf(`{"token":%q}`, botToken1))
 	again := linkSecretOf(out["link_url"])
-	pins := len(s.fake.Calls("pinChatMessage"))
+	old := int64(s.count(`SELECT message_id FROM telegram_panel WHERE is_home`))
 	s.linkVia(botToken1, ownerTG, again)
 	s.bm.WaitIdle()
-	// The chat has its home panel already: it is pinned again, not sent anew.
-	assert.Greater(t, len(s.fake.Calls("pinChatMessage")), pins)
-	assert.Len(t, s.messagesTo(ownerTG), 1)
+	// The relinked chat is greeted with a fresh home panel at its bottom, as
+	// /start sends one (df5fd13); the old home is retired, unpinned and
+	// deleted, and stays the only one.
+	greetings := s.messagesTo(ownerTG)
+	require.Len(t, greetings, 2)
+	assert.Contains(t, greetings[1], "Бот подключён.")
+	fresh := int64(s.count(`SELECT message_id FROM telegram_panel WHERE is_home`))
+	assert.NotEqual(t, old, fresh)
+	assert.Equal(t, 1, s.count(`SELECT count(*) FROM telegram_panel WHERE is_home`))
+	assert.Equal(t, 1, s.count(`SELECT count(*) FROM telegram_panel WHERE message_id = ? AND NOT is_home AND node_id = 0`, old))
+	pins := s.fake.Calls("pinChatMessage")
+	assert.Equal(t, fresh, pins[len(pins)-1].Int64("message_id"))
+	for _, method := range []string{"unpinChatMessage", "deleteMessage"} {
+		gone := false
+		for _, c := range s.fake.Calls(method) {
+			gone = gone || c.Int64("message_id") == old
+		}
+		assert.True(t, gone, "the old home: %s", method)
+	}
 	assert.Equal(t, 1, s.count(`SELECT count(*) FROM telegram_binding WHERE user_id = ? AND status = 'active' AND generation = 2`,
 		accountA))
+	assert.Zero(t, s.count(`SELECT count(*) FROM telegram_binding WHERE user_id = ? AND status = 'active'`, accountB),
+		"the other account still has no bot")
 }
 
 // B2, the reviewer's probe: the first holder's reply is in flight when its

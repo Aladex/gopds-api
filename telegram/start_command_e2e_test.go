@@ -1,15 +1,19 @@
 package telegram_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"gopds-api/telegram/screens"
 	"gopds-api/telegram/tgtest"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -185,4 +189,92 @@ func TestThePinLineOfTheHomePanelIsDeleted(t *testing.T) {
 	assert.Empty(t, v.callsFor("deleteMessage", paused), "not a v2 bot's: left alone")
 
 	assert.Equal(t, inbox, v.count(`SELECT count(*) FROM telegram_update_inbox`), "no pin line is recorded")
+}
+
+// (g) The startup's command setup and a chat's first update do not both set
+// the menu: the one that claims it does, while it is still on its way to
+// Telegram.
+func TestTheCommandMenuIsSetOnceWhileStartupSetsIt(t *testing.T) {
+	s := newStack(t)
+	user := s.seedUser("old-reader")
+	owner := ownerTG
+	s.seedLegacyBot(user, botToken1, uuid.NewString(), &owner)
+	gate := make(chan struct{})
+	s.fake.On(tgtest.Rule{Method: "setMyCommands", Times: 1, Reply: s.fake.Gate(gate)})
+	s.start()
+	v := &v2Stack{stack: s, user: user}
+	require.Eventually(t, func() bool { return len(v.fake.Calls("setMyCommands")) == 1 },
+		5*time.Second, 10*time.Millisecond, "the startup sets the menu")
+
+	// Not v.say: idle waits for the startup, held at the gate.
+	rec := v.hook(botToken1).Post(t, v.u.Text(ownerTG, "мир"))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Eventually(t, func() bool {
+		for _, c := range v.calls() {
+			if strings.Contains(content(&c), "Поиск: «мир»") {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 10*time.Millisecond, "the update is handled")
+	assert.Len(t, v.fake.Calls("setMyCommands"), 1, "the update finds the menu claimed")
+	close(gate)
+	v.bm.WaitIdle()
+	assertOneCommand(t, v.fake, ownerTG)
+}
+
+// (h) The race the review found (B2): the startup and a chat's first update
+// both read the menu as not set before either claims it. The claim lets one
+// of them through.
+func TestTwoSetupsThatBothReadTheMenuUnsetSetItOnce(t *testing.T) {
+	var reads atomic.Int32
+	var met atomic.Bool // the second read came while the first waited
+	both := make(chan struct{})
+	s := newStack(t)
+	// Installed before the service starts: go-pg's hooks are not to be added
+	// while queries run.
+	s.db.AddQueryHook(queryHook(func(_ context.Context, q string) error {
+		if !strings.Contains(q, "SELECT commands_set_at") {
+			return nil
+		}
+		switch reads.Add(1) {
+		case 1:
+			select { // the first read waits for the second
+			case <-both:
+				met.Store(true)
+			case <-time.After(3 * time.Second):
+			}
+		case 2:
+			close(both)
+		}
+		return nil
+	}))
+	user := s.seedUser("old-reader")
+	owner := ownerTG
+	s.seedLegacyBot(user, botToken1, uuid.NewString(), &owner)
+	s.start()
+	v := &v2Stack{stack: s, user: user}
+	v.say("мир")
+	v.bm.WaitIdle()
+	require.True(t, met.Load(), "both read the menu unset before either claimed it")
+	assertOneCommand(t, v.fake, ownerTG)
+}
+
+// (i) A setup Telegram refused lets its claim go: the next update sets the
+// menu, and the one after finds it set.
+func TestARefusedCommandSetupIsRetried(t *testing.T) {
+	v := newV2(t, func(s *stack) {
+		s.fake.On(tgtest.Rule{Method: "setMyCommands", Times: 1, Reply: tgtest.Error(http.StatusBadRequest, "Bad Request: refused")})
+	})
+	v.bm.WaitIdle()
+	refused := len(v.fake.Calls("setMyCommands"))
+	require.Positive(t, refused)
+	assert.Zero(t, v.count(`SELECT count(*) FROM telegram_bot_ui WHERE commands_set_at IS NOT NULL`), "the claim let go")
+
+	v.say("мир")
+	assert.Equal(t, 1, v.count(`SELECT count(*) FROM telegram_bot_ui WHERE commands_set_at IS NOT NULL`))
+	retried := len(v.fake.Calls("setMyCommands"))
+	assert.Equal(t, refused+2, retried, "set whole on the next update")
+	v.say("война")
+	assert.Len(t, v.fake.Calls("setMyCommands"), retried, "then left alone")
 }

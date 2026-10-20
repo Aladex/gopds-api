@@ -545,8 +545,16 @@ func (bm *BotManager) v2Bot(ctx context.Context, b *Bot) (*router.Bot, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &router.Bot{Client: b.bot, Ref: b.ref, TGBotID: b.tgBotID, Username: b.username,
+	return &router.Bot{Client: b.bot, Ref: b.ref, TGBotID: b.tgBotID, Username: bm.usernameOf(b),
 		Active: model.Status == models.TelegramBotActive, NavKey: navKey, Binding: binding}, nil
+}
+
+// usernameOf is a served bot's username, read under the lock refreshIdentity
+// writes it under.
+func (bm *BotManager) usernameOf(b *Bot) string {
+	bm.mutex.RLock()
+	defer bm.mutex.RUnlock()
+	return b.username
 }
 
 // Client is the SDK client of a served bot, for the delivery service.

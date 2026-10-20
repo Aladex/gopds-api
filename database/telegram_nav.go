@@ -238,11 +238,25 @@ func SetTelegramInline(ctx context.Context, botRef int64, on bool) (bool, error)
 	return before == nil && on || before != nil && *before != on, nil
 }
 
-// MarkTelegramCommandsSet records that the bot's command menu is /start.
-func MarkTelegramCommandsSet(ctx context.Context, botRef int64) error {
-	_, err := db.ExecContext(ctx, `
+// ClaimTelegramCommands claims setting the bot's command menu to /start: it
+// marks the menu set, if no one had, and reports whether this caller did. The
+// claim comes before the calls to Telegram, so a startup and a chat's first
+// update — or two pods — never both make them; a caller whose calls failed
+// lets it go (ReleaseTelegramCommands).
+func ClaimTelegramCommands(ctx context.Context, botRef int64) (bool, error) {
+	res, err := db.ExecContext(ctx, `
 		INSERT INTO telegram_bot_ui (bot_ref, commands_set_at) VALUES (?, now())
-		ON CONFLICT (bot_ref) DO UPDATE SET commands_set_at = now()`, botRef)
+		ON CONFLICT (bot_ref) DO UPDATE SET commands_set_at = now()
+		WHERE telegram_bot_ui.commands_set_at IS NULL`, botRef)
+	if err != nil {
+		return false, err
+	}
+	return res.RowsAffected() == 1, nil
+}
+
+// ReleaseTelegramCommands lets a claim go: the menu is to be set again.
+func ReleaseTelegramCommands(ctx context.Context, botRef int64) error {
+	_, err := db.ExecContext(ctx, `UPDATE telegram_bot_ui SET commands_set_at = NULL WHERE bot_ref = ?`, botRef)
 	return err
 }
 
