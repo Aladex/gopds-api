@@ -18,6 +18,7 @@ const KNOWN_ERRORS = new Set([
     'uncertain',
     'bot_blocked',
     'token_rejected',
+    'owner_changed',
     'in_progress',
     'busy',
     'session_expired',
@@ -26,7 +27,12 @@ const KNOWN_ERRORS = new Set([
 ]);
 
 /** The codes that mean the connection itself needs the reader: the profile shows how. */
-const CONNECTION_ERRORS = new Set(['not_connected', 'bot_blocked', 'token_rejected']);
+const CONNECTION_ERRORS = new Set([
+    'not_connected',
+    'bot_blocked',
+    'token_rejected',
+    'owner_changed',
+]);
 
 /**
  * useSendToTelegram is the "Telegram" button's behaviour for a whole list of

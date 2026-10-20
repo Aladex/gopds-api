@@ -23,6 +23,7 @@ const (
 	SiteUncertain        = "uncertain"
 	SiteBotBlocked       = "bot_blocked"
 	SiteTokenRejected    = "token_rejected"
+	SiteOwnerChanged     = "owner_changed"
 	SiteInProgress       = "in_progress"
 	SiteBusy             = "busy"
 )
@@ -84,6 +85,8 @@ func (s *Service) siteBinding(ctx context.Context, userID int64) (binding *model
 		return nil, SiteNotConnected
 	case state.Bot.Status == models.TelegramBotTokenRejected:
 		return nil, SiteTokenRejected
+	case state.Bot.Status == models.TelegramBotOwnerChanged:
+		return nil, SiteOwnerChanged
 	case state.Bot.Status != models.TelegramBotActive:
 		return nil, SiteNotConnected
 	case state.Binding.BlockedAt != nil:
@@ -113,6 +116,8 @@ func (s *Service) siteOutcome(ctx context.Context, job *models.TelegramDelivery)
 		return SiteBotBlocked
 	case models.OutcomeTokenRejected:
 		return SiteTokenRejected
+	case models.OutcomeOwnerChanged:
+		return SiteOwnerChanged
 	case models.OutcomeUnavailable:
 		// The book was withdrawn, or the chat unbound: the binding says which.
 		binding, err := database.GetActiveTelegramBindingOfUser(ctx, job.UserID)

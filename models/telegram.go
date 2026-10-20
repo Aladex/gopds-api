@@ -127,6 +127,9 @@ const (
 	// OutcomeLibraryFailed: the library could not read or check what it
 	// needed to send the file, attempt after attempt.
 	OutcomeLibraryFailed = "library_failed"
+	// OutcomeOwnerChanged: the bot was given to another owner in Telegram
+	// before the file went out; nothing was sent.
+	OutcomeOwnerChanged = "owner_changed"
 )
 
 // Origins of a delivery.
@@ -289,17 +292,20 @@ type TelegramManagedBot struct {
 	tableName        struct{} `pg:"telegram_managed_bot"`
 	BotRef           int64    `pg:",pk"`
 	AccessRestricted bool     `pg:",use_zero"`
+	LastUpdateID     int64    `pg:",use_zero"`
 	ReadyAt          *time.Time
 	CheckedAt        time.Time `pg:"default:now()"`
 }
 
 // TelegramManagedEvent is one managed_bot update the manager got.
 type TelegramManagedEvent struct {
-	tableName   struct{}  `pg:"telegram_managed_event"`
-	UpdateID    int64     `pg:",pk"`
-	BotTGID     int64     `pg:"bot_tg_id"`
-	CreatorTGID int64     `pg:"creator_tg_id"`
-	BotUsername string    `pg:",use_zero"`
-	ReceivedAt  time.Time `pg:"default:now()"`
-	ProcessedAt *time.Time
+	tableName      struct{}  `pg:"telegram_managed_event"`
+	UpdateID       int64     `pg:",pk"`
+	BotTGID        int64     `pg:"bot_tg_id"`
+	CreatorTGID    int64     `pg:"creator_tg_id"`
+	BotUsername    string    `pg:",use_zero"`
+	ReceivedAt     time.Time `pg:"default:now()"`
+	ClaimedBy      *uuid.UUID
+	ClaimExpiresAt *time.Time
+	ProcessedAt    *time.Time
 }

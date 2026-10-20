@@ -235,6 +235,9 @@ func HeartbeatTelegramDelivery(ctx context.Context, l DeliveryLease, lease time.
 var (
 	ErrDeliveryUnbound   = errors.New("telegram delivery: the chat is no longer bound")
 	ErrDeliveryWithdrawn = errors.New("telegram delivery: the book is no longer available")
+	// ErrDeliveryBotSuspended: the binding stands, but its bot may not send
+	// now — its owner changed in Telegram, or its token was refused.
+	ErrDeliveryBotSuspended = errors.New("telegram delivery: the bot is suspended")
 )
 
 // StartTelegramDeliverySend is the gate every upload attempt passes right
@@ -254,15 +257,21 @@ func StartTelegramDeliverySend(ctx context.Context, l DeliveryLease, fileBytes i
 		if err != nil {
 			return err
 		}
-		// FOR SHARE: an unbinding or a withdrawal waits for this transaction,
-		// rather than slipping in between the check and the start.
-		_, err = tx.ExecOneContext(ctx, `
-			SELECT 1 FROM telegram_binding WHERE id = ? AND status = 'active' FOR SHARE`, bindingID)
+		// FOR SHARE: an unbinding, a change of the bot's owner or a
+		// withdrawal waits for this transaction, rather than slipping in
+		// between the check and the start.
+		var botStatus string
+		_, err = tx.QueryOneContext(ctx, pg.Scan(&botStatus), `
+			SELECT t.status FROM telegram_binding b JOIN telegram_bot t ON t.id = b.bot_ref
+			WHERE b.id = ? AND b.status = 'active' FOR SHARE OF b, t`, bindingID)
 		if errors.Is(err, pg.ErrNoRows) {
 			return ErrDeliveryUnbound
 		}
 		if err != nil {
 			return err
+		}
+		if botStatus != models.TelegramBotActive {
+			return ErrDeliveryBotSuspended
 		}
 		_, err = tx.ExecOneContext(ctx, `
 			SELECT 1 FROM opds_catalog_book WHERE id = ? AND approved AND NOT duplicate_hidden FOR SHARE`, bookID)

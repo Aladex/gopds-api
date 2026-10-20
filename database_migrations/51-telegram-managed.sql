@@ -8,10 +8,15 @@
 --     state: waiting (no bot yet), found (a bot is the reader's candidate),
 --     canceled, linked.
 --   * telegram_managed_event — every managed_bot update the manager got,
---     once per update_id: a repeated or late delivery changes nothing.
+--     once per update_id: a repeated delivery changes nothing. One process
+--     handles an event at a time: it claims it for a while (claimed_by,
+--     claim_expires_at); an event whose claim ran out unhandled is taken up
+--     again.
 --   * telegram_managed_bot — what the manager confirmed about a bot it
 --     manages: when it was found ready (token, restricted access, webhook
---     answered), and whether its access is restricted.
+--     answered), and whether its access is restricted. last_update_id is the
+--     newest event applied to the bot: an older one, delivered late, never
+--     changes its owner back.
 --
 -- Locks: the foreign keys take SHARE ROW EXCLUSIVE on auth_user and
 -- telegram_bot, up front, NOWAIT, like 28-50.
@@ -41,12 +46,17 @@ CREATE TABLE public.telegram_managed_event (
     creator_tg_id bigint      NOT NULL,
     bot_username  text        NOT NULL DEFAULT '',
     received_at   timestamptz NOT NULL DEFAULT now(),
+    claimed_by       uuid,
+    claim_expires_at timestamptz,
     processed_at  timestamptz
 );
+CREATE INDEX telegram_managed_event_open ON public.telegram_managed_event (received_at)
+    WHERE processed_at IS NULL;
 
 CREATE TABLE public.telegram_managed_bot (
     bot_ref           bigint      PRIMARY KEY REFERENCES public.telegram_bot (id) ON DELETE CASCADE,
     access_restricted boolean     NOT NULL DEFAULT false,
+    last_update_id    bigint      NOT NULL DEFAULT 0,
     ready_at          timestamptz,
     checked_at        timestamptz NOT NULL DEFAULT now()
 );

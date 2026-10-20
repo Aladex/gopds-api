@@ -359,6 +359,23 @@ func bindByLink(
 	if bot.Kind == models.TelegramBotManaged && (bot.CreatorTGID == nil || *bot.CreatorTGID != tgUserID) {
 		return LinkNotCreator, nil, nil
 	}
+	// A managed bot's link stands only while the bot is still the account's
+	// choice: the candidate of its connection in progress, or its bound bot.
+	// A connection canceled or replaced since leaves its links dead.
+	if bot.Kind == models.TelegramBotManaged {
+		var chosen bool
+		if _, err := tx.QueryOneContext(ctx, pg.Scan(&chosen), `
+			SELECT EXISTS (SELECT 1 FROM telegram_pending_connection
+				WHERE user_id = ?0 AND bot_ref = ?1 AND state = ?2)
+			    OR EXISTS (SELECT 1 FROM telegram_binding
+				WHERE user_id = ?0 AND bot_ref = ?1 AND status = 'active')`,
+			link.UserID, botRef, models.PendingConnectionFound); err != nil {
+			return LinkExpired, nil, err
+		}
+		if !chosen {
+			return LinkExpired, nil, nil
+		}
+	}
 	var otherAccount int
 	if _, err := tx.QueryOneContext(ctx, pg.Scan(&otherAccount), `
 		SELECT count(*) FROM telegram_binding

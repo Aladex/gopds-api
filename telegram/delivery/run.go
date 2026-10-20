@@ -116,11 +116,33 @@ func (s *Service) stillDeliverable(
 		s.finish(ctx, lease, nil, models.OutcomeUnavailable)
 		return false
 	}
+	if outcome := s.suspended(ctx, job); outcome != "" {
+		s.finish(ctx, lease, nil, outcome)
+		return false
+	}
 	if !visible(book) {
 		s.finish(ctx, lease, n, models.OutcomeUnavailable)
 		return false
 	}
 	return true
+}
+
+// suspended is the outcome of a job whose bot may not send now, or "" when
+// it may: a bot given to another owner, or with a refused token. The chat is
+// not written to — it may be the new owner's now; the site is told.
+func (s *Service) suspended(ctx context.Context, job *models.TelegramDelivery) string {
+	model, err := database.GetTelegramBot(ctx, job.BotRef)
+	switch {
+	case err != nil:
+		return "" // the gate in front of the send decides
+	case model.Status == models.TelegramBotOwnerChanged:
+		return models.OutcomeOwnerChanged
+	case model.Status == models.TelegramBotTokenRejected:
+		return models.OutcomeTokenRejected
+	case model.Status != models.TelegramBotActive:
+		return models.OutcomeUnavailable
+	}
+	return ""
 }
 
 // send uploads the file and records what Telegram's answer means. Every
@@ -177,6 +199,12 @@ func (s *Service) startSend(ctx context.Context, job *models.TelegramDelivery, h
 		s.finish(ctx, h.lease, nil, models.OutcomeUnavailable)
 	case errors.Is(err, database.ErrDeliveryWithdrawn):
 		s.finish(ctx, h.lease, n, models.OutcomeUnavailable)
+	case errors.Is(err, database.ErrDeliveryBotSuspended):
+		outcome := s.suspended(ctx, job)
+		if outcome == "" {
+			outcome = models.OutcomeUnavailable
+		}
+		s.finish(ctx, h.lease, nil, outcome)
 	default:
 		logging.Warnf("Delivery: job %d: checking it before the send: %v", job.ID, err)
 		s.retryLater(ctx, job, h, n)

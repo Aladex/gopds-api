@@ -799,6 +799,7 @@
   "sendToTelegram.error.uncertain": "Could not confirm the send — check the chat with your bot, the book may have arrived",
   "sendToTelegram.error.bot_blocked": "The bot cannot message you — allow it to send messages in Telegram",
   "sendToTelegram.error.token_rejected": "Telegram rejected the bot's token — restore the connection in your profile",
+  "sendToTelegram.error.owner_changed": "The bot was given to another owner — connect it again in your profile",
   "sendToTelegram.error.in_progress": "This book is already on its way to Telegram",
   "sendToTelegram.error.busy": "The server is busy, try again in a minute",
   "sendToTelegram.error.session_expired": "Your session has expired — sign in again to send the book",

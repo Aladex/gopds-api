@@ -175,9 +175,18 @@ func labelOf(username string) (string, bool) {
 // maxManagerUpdateBytes bounds one update to the manager.
 const maxManagerUpdateBytes = 1 << 20
 
+// managedEventLease is how long a process holds an event it handles: past
+// it, the event is another process's to handle (sweepEvents).
+const managedEventLease = 2 * managedSetupTimeout
+
+// managedSweepBatch bounds the events one sweep takes up.
+const managedSweepBatch = 20
+
 // HandleManagerWebhook takes the manager's updates: managed_bot ones, each
-// handled once whatever Telegram repeats. A failed handling answers 500, so
-// Telegram delivers the update again and it is tried again.
+// handled once, by one process, whatever Telegram repeats. A failed handling
+// answers 500 and lets the event go, so Telegram delivers it again and it is
+// tried again; one a stopped process left half done is taken up by the
+// sweep.
 func (bm *BotManager) HandleManagerWebhook(c *gin.Context) {
 	m := bm.managerOf()
 	if m == nil || subtle.ConstantTimeCompare([]byte(c.Param("path")), []byte(m.path)) != 1 {
@@ -202,44 +211,77 @@ func (bm *BotManager) HandleManagerWebhook(c *gin.Context) {
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), managedSetupTimeout)
 	defer cancel()
-	fresh, err := database.RecordTelegramManagedEvent(ctx, &models.TelegramManagedEvent{
+	event := &models.TelegramManagedEvent{
 		UpdateID: update.ID, BotTGID: ev.Bot.ID, CreatorTGID: ev.User.ID, BotUsername: ev.Bot.Username,
-	})
+	}
+	claimed, err := database.ClaimTelegramManagedEvent(ctx, event, bm.process, managedEventLease)
 	if err != nil {
 		logging.Errorf("Telegram manager: recording update %d: %v", update.ID, err)
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: errUnavailable})
 		return
 	}
-	if !fresh {
+	if !claimed {
+		// Handled already, or being handled by another process, which
+		// answers for it.
 		answerStatus(c, statusDuplicate)
 		return
 	}
-	if err := m.handle(ctx, ev); err != nil {
-		logging.Errorf("Telegram manager: handling update %d (bot %d): %v", update.ID, ev.Bot.ID, tgapi.RedactURL(err))
+	if err := m.run(ctx, event); err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: errUnavailable})
 		return
-	}
-	if err := database.MarkTelegramManagedEventProcessed(ctx, update.ID); err != nil {
-		logging.Warnf("Telegram manager: marking update %d handled: %v", update.ID, err)
 	}
 	answerStatus(c, statusOK)
 }
 
+// run handles a claimed event: marked handled when done, let go when not.
+func (m *Manager) run(ctx context.Context, event *models.TelegramManagedEvent) error {
+	if err := m.handle(ctx, event); err != nil {
+		logging.Errorf("Telegram manager: handling update %d (bot %d): %v", event.UpdateID, event.BotTGID, tgapi.RedactURL(err))
+		if relErr := database.ReleaseTelegramManagedEvent(context.WithoutCancel(ctx), event.UpdateID, m.bm.process); relErr != nil {
+			logging.Warnf("Telegram manager: letting update %d go: %v", event.UpdateID, relErr)
+		}
+		return err
+	}
+	if err := database.MarkTelegramManagedEventProcessed(ctx, event.UpdateID); err != nil {
+		logging.Warnf("Telegram manager: marking update %d handled: %v", event.UpdateID, err)
+	}
+	return nil
+}
+
+// sweepEvents handles the events a stopped process left unhandled.
+func (m *Manager) sweepEvents(ctx context.Context) {
+	events, err := database.ClaimStaleTelegramManagedEvents(ctx, m.bm.process, managedEventLease, managedSweepBatch)
+	if err != nil {
+		logging.Warnf("Telegram manager: sweeping events: %v", err)
+		return
+	}
+	for i := range events {
+		ectx, cancel := context.WithTimeout(ctx, managedSetupTimeout)
+		_ = m.run(ectx, &events[i])
+		cancel()
+	}
+}
+
 // handle acts on one managed_bot event: a new bot is taken on, a known one
-// looked at again (handleKnown).
-func (m *Manager) handle(ctx context.Context, ev *tgbot.ManagedBotUpdated) error {
-	known, err := database.GetTelegramBotByTGID(ctx, ev.Bot.ID)
+// looked at again (handleKnown). Events of one bot apply in update_id
+// order: an older one delivered late changes nothing.
+func (m *Manager) handle(ctx context.Context, event *models.TelegramManagedEvent) error {
+	known, err := database.GetTelegramBotByTGID(ctx, event.BotTGID)
 	if err != nil {
 		return err
 	}
 	if known != nil {
-		return m.handleKnown(ctx, known, ev.User.ID)
+		return m.handleKnown(ctx, known, event)
 	}
-	bot, err := m.takeOn(ctx, ev)
+	bot, applied, err := m.takeOn(ctx, event)
+	if err != nil || !applied || bot.Status != models.TelegramBotActive {
+		return err
+	}
+	err = m.setUp(ctx, bot)
 	if err != nil {
 		return err
 	}
-	label, ok := labelOf(ev.Bot.Username)
+	label, ok := labelOf(event.BotUsername)
 	if !ok {
 		return nil
 	}
@@ -255,17 +297,24 @@ func (m *Manager) handle(ctx context.Context, ev *tgbot.ManagedBotUpdated) error
 // token change, or a repeat) is set up again only if it never got ready. A
 // changed token is not taken by itself: restoring is the owner's click
 // (concept §C.3, W-TOKEN-ERROR).
-func (m *Manager) handleKnown(ctx context.Context, known *models.TelegramBot, creatorTG int64) error {
+func (m *Manager) handleKnown(ctx context.Context, known *models.TelegramBot, event *models.TelegramManagedEvent) error {
 	if known.Kind != models.TelegramBotManaged {
 		// A bot connected by its token before is not the manager's to take.
 		logging.Warnf("Telegram manager: bot %d is connected by token, not taken over", known.ID)
 		return nil
 	}
-	if known.CreatorTGID != nil && *known.CreatorTGID != creatorTG {
+	applied, changed, err := database.ApplyTelegramManagedOwner(ctx, known.ID, event.UpdateID, event.CreatorTGID)
+	switch {
+	case err != nil:
+		return err
+	case !applied:
+		logging.Infof("Telegram manager: update %d about bot %d is older than one applied; ignored", event.UpdateID, known.ID)
+		return nil
+	case changed:
 		logging.Infof("Telegram manager: bot %d changed owner, suspended until linked again", known.ID)
-		return database.SetTelegramBotOwnerChanged(ctx, known.ID, creatorTG)
+		return nil
 	}
-	if known.TokenEnc == nil {
+	if known.TokenEnc == nil || known.Status != models.TelegramBotActive {
 		return nil
 	}
 	state, err := database.GetTelegramManagedBot(ctx, known.ID)
@@ -276,23 +325,20 @@ func (m *Manager) handleKnown(ctx context.Context, known *models.TelegramBot, cr
 }
 
 // takeOn registers a bot the manager has just been told of, with the token
-// Telegram gives the manager, and sets it up.
-func (m *Manager) takeOn(ctx context.Context, ev *tgbot.ManagedBotUpdated) (*models.TelegramBot, error) {
-	token, err := m.client.GetManagedBotToken(ctx, &tgbotapi.GetManagedBotTokenParams{UserID: ev.Bot.ID})
+// Telegram gives the manager. applied is false when an event newer than
+// this one registered the bot meanwhile.
+func (m *Manager) takeOn(ctx context.Context, event *models.TelegramManagedEvent) (*models.TelegramBot, bool, error) {
+	token, err := m.client.GetManagedBotToken(ctx, &tgbotapi.GetManagedBotTokenParams{UserID: event.BotTGID})
 	if err != nil {
-		return nil, fmt.Errorf("getting the token: %w", tgapi.RedactURL(err))
+		return nil, false, fmt.Errorf("getting the token: %w", tgapi.RedactURL(err))
 	}
-	model := m.bm.newBotModel(ev.Bot.ID, token, uuid.New())
+	model := m.bm.newBotModel(event.BotTGID, token, uuid.New())
 	model.Kind = models.TelegramBotManaged
-	creator := ev.User.ID
+	creator := event.CreatorTGID
 	model.CreatorTGID = &creator
-	model.Username = ev.Bot.Username
-	model.DisplayName = ev.Bot.FirstName
-	bot, err := database.RegisterManagedTelegramBot(ctx, model)
-	if err != nil {
-		return nil, err
-	}
-	return bot, m.setUp(ctx, bot)
+	model.Username = event.BotUsername
+	model.DisplayName = managedBotName
+	return database.RegisterManagedTelegramBot(ctx, model, event.UpdateID)
 }
 
 // setUp makes a managed bot ready: access restricted to its owner, the

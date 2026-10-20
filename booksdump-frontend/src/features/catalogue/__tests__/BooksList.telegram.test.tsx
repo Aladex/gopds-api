@@ -254,7 +254,7 @@ describe('a reader with a connected bot', () => {
         );
     });
 
-    it.each([['not_connected'], ['bot_blocked'], ['token_rejected']])(
+    it.each([['not_connected'], ['bot_blocked'], ['token_rejected'], ['owner_changed']])(
         'names %s and shows the Telegram tab',
         async (code) => {
             sendToTelegram.mockResolvedValue({ status: 'error', code });

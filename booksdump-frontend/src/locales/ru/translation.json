@@ -803,6 +803,7 @@
   "sendToTelegram.error.uncertain": "Не удалось подтвердить отправку — проверьте чат с ботом, книга могла прийти",
   "sendToTelegram.error.bot_blocked": "Бот не может написать вам — разрешите ему сообщения в Telegram",
   "sendToTelegram.error.token_rejected": "Telegram отклонил токен бота — восстановите подключение в профиле",
+  "sendToTelegram.error.owner_changed": "Бот передан другому владельцу — подключите его заново в профиле",
   "sendToTelegram.error.in_progress": "Эта книга уже отправляется в Telegram",
   "sendToTelegram.error.busy": "Сервер занят, попробуйте через минуту",
   "sendToTelegram.error.session_expired": "Сессия закончилась — войдите снова, чтобы отправить книгу",

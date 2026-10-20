@@ -415,6 +415,9 @@ func (bm *BotManager) StartInboxSweeper(ctx context.Context, interval time.Durat
 			if bm.router != nil {
 				bm.router.SweepRepaints(ctx)
 			}
+			if m := bm.managerOf(); m != nil {
+				m.sweepEvents(ctx)
+			}
 			if time.Since(lastPrune) > time.Hour {
 				if err := database.PruneTelegramInbox(ctx, inboxRetention); err != nil {
 					logging.Warnf("Inbox: pruning: %v", err)
