@@ -53,6 +53,8 @@ func (s *TelegramService) SetupApiRoutes(group *gin.RouterGroup) {
 	group.POST("/managed/claim", s.routes.ClaimManaged)
 	group.POST("/managed/check", s.routes.CheckManaged)
 	group.POST("/managed/restore", s.routes.RestoreManaged)
+	// «Оформить бота»: the library's look, on the owner's request
+	group.POST("/profile", s.routes.ApplyProfile)
 }
 
 // GetBotManager returns the bot manager instance

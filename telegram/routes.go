@@ -10,6 +10,7 @@ import (
 	"gopds-api/database"
 	"gopds-api/logging"
 	"gopds-api/models"
+	"gopds-api/telegram/profile"
 	"gopds-api/telegram/secrets"
 	"gopds-api/telegram/tgapi"
 
@@ -61,6 +62,9 @@ type BotStatusResponse struct {
 	LinkURL string `json:"link_url,omitempty"`
 	// LinkExpiresAt is when the newest link of the pending bot stops working.
 	LinkExpiresAt *time.Time `json:"link_expires_at,omitempty"`
+	// ProfileApplied, while there is a binding, is the library's avatar and
+	// descriptions given to the bound bot (plan.md P1-2).
+	ProfileApplied *bool `json:"profile_applied,omitempty"`
 	// ManagedAvailable is the Managed path on: a bot can be created here.
 	ManagedAvailable bool `json:"managed_available"`
 	// Managed is a Managed connection in progress.
@@ -328,6 +332,11 @@ func (r *Routes) statusOf(ctx context.Context, userID int64) (BotStatusResponse,
 	if state.Binding != nil {
 		status.BotUsername = state.Bot.Username
 		status.BotKind = state.Bot.Kind
+		var applied bool
+		if applied, err = database.TelegramBotProfiled(ctx, state.Bot.ID); err != nil {
+			return BotStatusResponse{}, err
+		}
+		status.ProfileApplied = &applied
 		status.TelegramName = state.Binding.TGDisplay
 		if status.DefaultFormat, err = database.GetTelegramDefaultFormat(ctx, userID); err != nil {
 			return BotStatusResponse{}, err
@@ -600,5 +609,51 @@ func (r *Routes) RestoreManaged(c *gin.Context) {
 		return
 	}
 	logging.Infof("User %d restored managed bot %d", userID, state.Bot.ID)
+	r.respondWithStatus(c, userID)
+}
+
+// ApplyProfile is «Оформить бота»: the connected bot gets the library's
+// avatar and descriptions, replacing its owner's — so only on the owner's
+// own request, never by itself.
+// @Summary Give the connected bot the library's look
+// @Tags telegram
+// @Produce json
+// @Success 200 {object} BotStatusResponse
+// @Failure 401 {object} ErrorResponse
+// @Failure 409 {object} ErrorResponse
+// @Failure 502 {object} ErrorResponse
+// @Router /api/telegram/profile [post]
+func (r *Routes) ApplyProfile(c *gin.Context) {
+	userID, ok := userIDOf(c)
+	if !ok {
+		return
+	}
+	ctx := c.Request.Context()
+	state, err := database.GetTelegramUserState(ctx, userID)
+	if err != nil {
+		logging.Errorf("User %d: reading the telegram status: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: errInternal})
+		return
+	}
+	if state.Binding == nil || state.Bot.Status != models.TelegramBotActive {
+		c.JSON(http.StatusConflict, ErrorResponse{Error: errNoPendingBot})
+		return
+	}
+	b, err := r.botManager.botByRef(ctx, state.Bot.ID)
+	if err != nil || b == nil {
+		c.JSON(http.StatusConflict, ErrorResponse{Error: errNoPendingBot})
+		return
+	}
+	if err := profile.Apply(ctx, b.bot); err != nil {
+		logging.Warnf("User %d: giving bot %d the library's profile: %v", userID, b.ref, tgapi.RedactURL(err))
+		c.JSON(http.StatusBadGateway, ErrorResponse{Error: errTelegramUnavailable})
+		return
+	}
+	if err := database.MarkTelegramBotProfiled(ctx, b.ref); err != nil {
+		logging.Errorf("User %d: recording bot %d's profile: %v", userID, b.ref, err)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: errInternal})
+		return
+	}
+	logging.Infof("User %d gave bot %d the library's profile", userID, b.ref)
 	r.respondWithStatus(c, userID)
 }

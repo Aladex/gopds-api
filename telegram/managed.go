@@ -17,6 +17,7 @@ import (
 	"gopds-api/database"
 	"gopds-api/logging"
 	"gopds-api/models"
+	"gopds-api/telegram/profile"
 	"gopds-api/telegram/secrets"
 	"gopds-api/telegram/tgapi"
 
@@ -351,11 +352,34 @@ func (m *Manager) setUp(ctx context.Context, bot *models.TelegramBot) error {
 	if err != nil {
 		return err
 	}
-	ready := restricted && m.bm.setWebhook(b) == nil && m.answers(ctx, b)
+	ready := restricted && m.profiled(ctx, b) && m.bm.setWebhook(b) == nil && m.answers(ctx, b)
 	if !ready {
 		logging.Warnf("Telegram manager: bot %d is not ready yet", bot.ID)
 	}
 	return database.SetTelegramManagedBot(ctx, bot.ID, restricted, ready)
+}
+
+// profiled gives a new managed bot the library's avatar and descriptions,
+// once (plan.md P1-2), and reports whether it has them. A bot that has them
+// is not given them again: its owner may have changed them since.
+func (m *Manager) profiled(ctx context.Context, b *Bot) bool {
+	done, err := database.TelegramBotProfiled(ctx, b.ref)
+	if err != nil {
+		logging.Warnf("Telegram manager: reading bot %d's profile: %v", b.ref, err)
+		return false
+	}
+	if done {
+		return true
+	}
+	if err := profile.Apply(ctx, b.bot); err != nil {
+		logging.Warnf("Telegram manager: giving bot %d its profile: %v", b.ref, tgapi.RedactURL(err))
+		return false
+	}
+	if err := database.MarkTelegramBotProfiled(ctx, b.ref); err != nil {
+		logging.Warnf("Telegram manager: recording bot %d's profile: %v", b.ref, err)
+		return false
+	}
+	return true
 }
 
 // restrict lets only the bot's owner use it, and reports whether Telegram

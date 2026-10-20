@@ -118,6 +118,9 @@ type FakeBotAPI struct {
 	// files are the documents' file_ids each bot was given, by token
 	// (documents.go).
 	files map[string]map[string]bool
+	// profiles are what each bot was given as its look, by token
+	// (profile.go).
+	profiles map[string]*Profile
 	// The Managed Bots side (managed.go).
 	managed
 }
@@ -376,12 +379,15 @@ func (f *FakeBotAPI) defaultReply(w http.ResponseWriter, _ *http.Request, c *Cal
 	case "setwebhook", "deletewebhook":
 		f.setWebhookOf(c.Token, c.Params["url"])
 		writeResult(w, true)
+	case methodSetMyDescription, methodSetMyShortDescription, methodSetMyProfilePhoto, methodGetMyDescription,
+		methodGetMyShortDescription:
+		f.profileReply(w, c)
 	case methodGetManagedBotToken, methodReplaceManagedBotToken, methodSetManagedBotAccessSettings,
 		methodGetManagedBotAccessSettings:
 		f.managedReply(w, c)
 	case "answercallbackquery", "setmycommands", "deletemycommands",
-		"sendchataction", "deletemessage", "setmydescription", "setmyshortdescription", "setmyprofilephoto",
-		"removemyprofilephoto", "answerinlinequery", "sendmessagedraft", "setchatmenubutton", "unpinchatmessage":
+		"sendchataction", "deletemessage", "removemyprofilephoto", "answerinlinequery", "sendmessagedraft",
+		"setchatmenubutton", "unpinchatmessage":
 		writeResult(w, true)
 	default:
 		writeError(w, http.StatusNotFound, "Not Found: method not found")
