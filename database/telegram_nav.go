@@ -106,6 +106,15 @@ func MoveTelegramPanel(ctx context.Context, p *models.TelegramPanel, expected in
 	return rev, err
 }
 
+// SetTelegramPanelMode records the kind of message a panel is now: the home
+// panel switches between plain and rich in place.
+func SetTelegramPanelMode(ctx context.Context, p *models.TelegramPanel, mode string) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE telegram_panel SET mode = ?, updated_at = now()
+		WHERE bot_ref = ? AND chat_id = ? AND message_id = ?`, mode, p.BotRef, p.ChatID, p.MessageID)
+	return err
+}
+
 // GetTelegramHomePanel loads the chat's home panel; nil when there is none.
 func GetTelegramHomePanel(ctx context.Context, botRef, chatID int64) (*models.TelegramPanel, error) {
 	p := new(models.TelegramPanel)

@@ -9,6 +9,7 @@ import (
 
 	"gopds-api/telegram/tgtest"
 
+	"github.com/go-pg/pg/v10"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -229,4 +230,81 @@ func TestARefusedRichListGoesOutWithItsPlainKeyboard(t *testing.T) {
 	require.Equal(t, "sendMessage", results.Method)
 	assert.Len(t, bookRows(t, &results), 5)
 	assert.Contains(t, tgtest.ButtonTexts(t, &results), []string{"Вперёд →"})
+}
+
+// favoriteFixture puts the fixture book in the favorites and returns the
+// home panel as it is then.
+func (v *v2Stack) favoriteFixture() tgtest.Call {
+	v.t.Helper()
+	_, card := v.openFixtureCard()
+	v.tap(&card, "☆ В избранное")
+	return v.homeAgain()
+}
+
+// homeMode is how the chat's home panel is recorded: its kind, and whether
+// it is still the home panel.
+func (v *v2Stack) homeMode(messageID int64) string {
+	v.t.Helper()
+	var mode string
+	_, err := v.db.QueryOne(pg.Scan(&mode), `SELECT mode FROM telegram_panel WHERE message_id = ? AND is_home`, messageID)
+	require.NoError(v.t, err)
+	return mode
+}
+
+// (f) The home panel switches its kind in place: a list it opens is rich,
+// home again is plain — the same pinned message all along.
+func TestTheHomePanelGoesRichForAListAndPlainForHome(t *testing.T) {
+	v := newV2(t)
+	home := v.favoriteFixture()
+	require.Equal(t, "plain", v.homeMode(home.MessageID))
+	v.tap(&home, "★ Избранное")
+	favs := v.latest(home.MessageID)
+	require.Equal(t, "editMessageText", favs.Method)
+	require.Contains(t, favs.Params, "rich_message", "the plain home message edited into a rich one")
+	assert.Equal(t, []string{"heading", "footer", "list"}, richBlockTypes(t, &favs))
+	assert.Len(t, links(t, &favs), 1)
+	assert.Empty(t, bookRows(t, &favs))
+	assert.Equal(t, "rich", v.homeMode(home.MessageID))
+
+	v.tap(&favs, links(t, &favs)[0])
+	card := v.latest(home.MessageID)
+	assert.Contains(t, card.Params, "rich_message", "a card opened from it is rich too")
+	v.tap(&card, "Домой")
+	back := v.latest(home.MessageID)
+	assert.NotContains(t, back.Params, "rich_message")
+	assert.Contains(t, back.Params["text"], "Напиши название книги")
+	assert.Equal(t, "plain", v.homeMode(home.MessageID), "home is plain again")
+	assert.Equal(t, home.MessageID, v.home(), "still the pinned home")
+}
+
+// (g) With plain cards the home panel never goes rich.
+func TestTheHomePanelStaysPlainWithPlainCards(t *testing.T) {
+	v := newV2(t)
+	home := v.favoriteFixture()
+	v.plainCards()
+	v.tap(&home, "★ Избранное")
+	favs := v.latest(home.MessageID)
+	assert.NotContains(t, favs.Params, "rich_message")
+	assert.Equal(t, []string{"1. война и МИР"}, bookRows(t, &favs))
+	assert.Equal(t, "plain", v.homeMode(home.MessageID))
+}
+
+// (h) Telegram refusing the rich edit, the list is shown plain in the same
+// message, which stays the home panel.
+func TestARefusedRichHomeEditShowsTheListPlainInPlace(t *testing.T) {
+	v := newV2(t)
+	home := v.favoriteFixture()
+	v.fake.On(tgtest.Rule{Method: "editMessageText", Times: 1, Reply: func(w http.ResponseWriter, _ *http.Request, c *tgtest.Call) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"ok":false,"error_code":400,"description":"Bad Request: rich messages are not supported"}`))
+	}})
+	sends := len(v.sends())
+	v.tap(&home, "★ Избранное")
+	favs := v.latest(home.MessageID)
+	assert.NotContains(t, favs.Params, "rich_message")
+	assert.Equal(t, []string{"1. война и МИР"}, bookRows(t, &favs))
+	assert.Equal(t, "plain", v.homeMode(home.MessageID))
+	assert.Len(t, v.sends(), sends, "no new message: the home panel moved in place")
+	assert.Equal(t, 1, v.count(`SELECT count(*) FROM telegram_bot_ui WHERE rich_rejected_at IS NOT NULL`))
 }

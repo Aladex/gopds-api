@@ -60,8 +60,9 @@ func (r *Router) richFor(ctx context.Context, b *Bot) bool {
 func (r *Router) sendPanel(
 	ctx context.Context, b *Bot, chatID int64, node *models.TelegramNode, paint render, home bool,
 ) *models.TelegramPanel {
-	// The home panel is plain in both modes (plan-ui.md §1.1): there is
-	// nothing on it for a rich message to add.
+	// The home panel is sent plain in both modes (plan-ui.md §1.1): there
+	// is nothing on it for a rich message to add. moveHome makes it rich
+	// for what it opens.
 	rich := !home && r.richFor(ctx, b)
 	screen := paint(&keys{b: b, rev: 1, rich: rich})
 	msg, mode, err := r.send(ctx, b, chatID, &screen, rich)
@@ -103,6 +104,10 @@ func (r *Router) movePanel(
 		return false
 	}
 	panel.Revision, panel.NodeID = rev, node.ID
+	if panel.IsHome {
+		r.moveHome(ctx, b, panel, node, paint)
+		return true
+	}
 	rich := panel.Mode == models.TelegramPanelRich
 	if rich && !panel.IsHome && !r.richFor(ctx, b) {
 		// The reader chose plain cards (or Telegram refuses rich ones): a
@@ -124,6 +129,43 @@ func (r *Router) movePanel(
 		logging.Warnf("Telegram bot %d: editing a panel: %v", b.Ref, tgapi.RedactURL(err))
 	}
 	return true
+}
+
+// moveHome edits the home panel to node. The pinned panel stays the same
+// message and switches its kind in place: plain while it shows home
+// (plan-ui.md §1.1), rich for what it opens while the account's panels are
+// rich. Telegram refusing rich, node is shown plain, in place all the same.
+func (r *Router) moveHome(ctx context.Context, b *Bot, panel *models.TelegramPanel, node *models.TelegramNode, paint render) {
+	mode := models.TelegramPanelPlain
+	if Screen(node.Screen) != ScrHome && r.richFor(ctx, b) {
+		mode = models.TelegramPanelRich
+	}
+	err := r.editAs(ctx, b, panel, mode, paint)
+	var refused richRefusedError
+	if errors.As(err, &refused) {
+		mode = models.TelegramPanelPlain
+		err = r.editAs(ctx, b, panel, mode, paint)
+	}
+	if err != nil {
+		logging.Warnf("Telegram bot %d: editing the home panel: %v", b.Ref, tgapi.RedactURL(err))
+		return
+	}
+	if mode == panel.Mode {
+		return
+	}
+	if setErr := database.SetTelegramPanelMode(ctx, panel, mode); setErr != nil {
+		logging.Warnf("Telegram bot %d: recording the home panel's kind: %v", b.Ref, setErr)
+		return
+	}
+	panel.Mode = mode
+}
+
+// editAs paints the panel's screen for mode and edits the message into it.
+func (r *Router) editAs(ctx context.Context, b *Bot, panel *models.TelegramPanel, mode string, paint render) error {
+	screen := paint(&keys{b: b, rev: uint16(panel.Revision), rich: mode == models.TelegramPanelRich}) // #nosec G115 -- revisions are 1..65534
+	as := *panel
+	as.Mode = mode
+	return r.edit(ctx, b, &as, &screen)
 }
 
 // replacePanel sends node as a new panel in place of one that cannot show

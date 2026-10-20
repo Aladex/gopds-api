@@ -293,7 +293,7 @@ func TestAWithdrawnCollectionSaysSo(t *testing.T) {
 	collection := v.homePanel()
 	_, err := v.db.Exec(`UPDATE book_collections SET is_public = false WHERE id = ?`, id)
 	require.NoError(t, err)
-	v.tap(&collection, "1. Книга")
+	v.tap(&collection, "Книга")
 	card := v.homePanel()
 	v.tap(&card, "← К подборке")
 	gone := v.homePanel()
@@ -473,7 +473,7 @@ func TestTheInlineInstructions(t *testing.T) {
 	settings := v.homePanel()
 	v.tap(&settings, "Подсказки при поиске")
 	inline := v.homePanel()
-	assert.Contains(t, content(&inline), "<code>/setinline</code>")
+	assert.Contains(t, content(&inline), `{"type":"code","text":"/setinline"}`, "rich, as what the home panel opens")
 	var markup struct {
 		InlineKeyboard [][]struct {
 			Text     string `json:"text"`

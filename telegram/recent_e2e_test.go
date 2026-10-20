@@ -91,8 +91,12 @@ func TestASentBookIsInTheRecentSends(t *testing.T) {
 	assert.Equal(t, fixture, rows[0].BookID)
 	assert.Equal(t, "epub", rows[0].Format)
 
-	recent := content(new(v.openRecent()))
-	assert.Contains(t, recent, "1. война и МИР")
+	opened := v.openRecent()
+	recent := content(&opened)
+	items := listItems(t, &opened)
+	require.Len(t, items, 1)
+	assert.Equal(t, 1, items[0].Value)
+	assert.Equal(t, "война и МИР", items[0].Title, "the title opens the card")
 	assert.Contains(t, recent, "EPUB · ")
 	assert.Contains(t, recent, " UTC", "the time says its zone")
 
@@ -111,8 +115,10 @@ func TestASentBookIsInTheRecentSends(t *testing.T) {
 	require.Len(t, rows, 2)
 	assert.Equal(t, other, rows[0].BookID, "the newest first")
 	list := v.openRecent()
-	assert.Equal(t, [][]string{{"1. Отправить EPUB", "О книге 1"}, {"2. Отправить FB2", "О книге 2"}, {screens.ButtonHome}},
-		tgtest.ButtonTexts(t, &list))
+	assert.Equal(t, [][]string{{screens.ButtonHome}}, tgtest.ButtonTexts(t, &list))
+	sends := links(t, &list)
+	require.Len(t, sends, 4, "a title and its «Отправить» per send: %v", sends)
+	assert.Equal(t, []string{"Отправить EPUB", "Отправить FB2"}, []string{sends[1], sends[3]})
 }
 
 // «Отправить» sends the book again in its last format, as a new job from the
@@ -125,7 +131,7 @@ func TestResendFromTheRecentSends(t *testing.T) {
 	first := v.recentRows()[0].SentAt
 
 	list := v.openRecent()
-	v.tap(&list, "1. Отправить MOBI")
+	v.tap(&list, "Отправить MOBI")
 	assert.Equal(t, "Отправляю MOBI…", v.lastAnswer(), "the bot has the file: nothing to prepare")
 	v.waitSentJobs(2)
 	assert.Equal(t, 1, v.count(`SELECT count(*) FROM telegram_delivery WHERE origin = 'recent' AND format = 'mobi'`))
@@ -133,7 +139,7 @@ func TestResendFromTheRecentSends(t *testing.T) {
 	assert.True(t, v.recentRows()[0].SentAt.After(first), "sent again, moved up")
 
 	list = v.latest(list.MessageID)
-	v.tap(&list, "О книге 1")
+	v.tap(&list, "война и МИР")
 	opened := v.latest(list.MessageID)
 	assert.Contains(t, content(&opened), "война и МИР")
 	assert.Contains(t, tgtest.ButtonTexts(t, &opened)[len(tgtest.ButtonTexts(t, &opened))-1], screens.ButtonToRecent)
@@ -148,7 +154,7 @@ func TestResendChecksAccessNow(t *testing.T) {
 	list := v.openRecent()
 	_, err := v.db.Exec(`UPDATE opds_catalog_book SET approved = false WHERE id = ?`, v.books[scanfixture.EntryMultiAuthor])
 	require.NoError(t, err)
-	v.tap(&list, "1. Отправить EPUB")
+	v.tap(&list, "Отправить EPUB")
 	assert.Equal(t, screens.CopyUnavailable, v.lastAnswer())
 	assert.Equal(t, 1, v.count(`SELECT count(*) FROM telegram_delivery`), "no new job")
 }
@@ -260,7 +266,7 @@ func TestTheRecentSendsAreTrimmed(t *testing.T) {
 	list := v.openRecent()
 	assert.Contains(t, content(&list), "Страница 1 из 10")
 	assert.Contains(t, content(&list), "Книга больше недоступна", "a book gone from the catalog")
-	v.tap(&list, screens.ButtonNext)
+	v.tap(&list, "→")
 	list = v.latest(list.MessageID)
 	assert.Contains(t, content(&list), "Страница 2 из 10")
 
@@ -279,7 +285,7 @@ func TestAFailedResendIsToldInTheChat(t *testing.T) {
 	list := v.openRecent()
 	v.fake.On(tgtest.Rule{Method: "sendDocument", Reply: tgtest.Error(http.StatusBadRequest, "Bad Request: chat not found")})
 	before := len(v.fake.Calls("sendMessage"))
-	v.tap(&list, "1. Отправить EPUB")
+	v.tap(&list, "Отправить EPUB")
 	require.Eventually(t, func() bool {
 		return v.count(`SELECT count(*) FROM telegram_delivery WHERE origin = 'recent' AND finished_at IS NOT NULL`) == 1
 	}, 10*time.Second, 20*time.Millisecond)
