@@ -1,8 +1,11 @@
 package telegram_test
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"gopds-api/telegram/screens"
 	"gopds-api/telegram/tgtest"
@@ -129,4 +132,57 @@ func TestAManagedBotGetsItsCommand(t *testing.T) {
 	for _, c := range s.fake.Calls("setMyCommands") {
 		assert.Equal(t, botToken1, c.Token, "the manager has no commands")
 	}
+}
+
+// pinLine is the service update of a pin of messageID in the owner's chat,
+// sent by sender (raw JSON); it returns the update and the service message's
+// id.
+func (v *v2Stack) pinLine(sender string, messageID int64) (body []byte, lineID int64) {
+	pinned := fmt.Sprintf(`"pinned_message":{"message_id":%d,"from":%s,`+
+		`"chat":{"id":%d,"first_name":"Reader","type":"private"},"date":%d,"text":"Напиши название книги"}`,
+		messageID, sender, ownerTG, time.Now().Unix())
+	body = v.serviceUpdate(ownerTG, sender, pinned)
+	var u struct {
+		Message struct {
+			MessageID int64 `json:"message_id"`
+		} `json:"message"`
+	}
+	require.NoError(v.t, json.Unmarshal(body, &u))
+	return body, u.Message.MessageID
+}
+
+// (f) The line «… закрепил сообщение» of the bot's own pin of its home panel
+// is deleted; no other message is: not a pin of another message, not the
+// reader's own pin, not a pin while the bot is in maintenance.
+func TestThePinLineOfTheHomePanelIsDeleted(t *testing.T) {
+	v := newV2(t)
+	v.say("мир")
+	results := v.lastSend()
+	v.say("/start")
+	home := v.home()
+	self := fmt.Sprintf(`{"id":%d,"is_bot":true,"first_name":"Мои книги","username":"my_books_bot"}`, v.botID())
+	inbox := v.count(`SELECT count(*) FROM telegram_update_inbox`)
+
+	body, line := v.pinLine(self, home)
+	v.postSkipped(body)
+	require.Len(t, v.callsFor("deleteMessage", line), 1, "the home's pin line goes")
+
+	body, other := v.pinLine(self, results.MessageID)
+	v.postSkipped(body)
+	assert.Empty(t, v.callsFor("deleteMessage", other), "a pin of another message stays")
+
+	reader := fmt.Sprintf(`{"id":%d,"is_bot":false,"first_name":"Reader"}`, ownerTG)
+	body, own := v.pinLine(reader, home)
+	rec := v.hook(botToken1).PostRaw(t, body)
+	require.Equal(t, http.StatusOK, rec.Code)
+	v.bm.WaitIdle()
+	assert.Empty(t, v.callsFor("deleteMessage", own), "the reader's own pin stays")
+
+	_, err := v.db.Exec(`UPDATE telegram_bot SET router = 'maintenance'`)
+	require.NoError(t, err)
+	body, paused := v.pinLine(self, home)
+	v.postSkipped(body)
+	assert.Empty(t, v.callsFor("deleteMessage", paused), "not a v2 bot's: left alone")
+
+	assert.Equal(t, inbox, v.count(`SELECT count(*) FROM telegram_update_inbox`), "no pin line is recorded")
 }

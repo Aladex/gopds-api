@@ -16,6 +16,7 @@ import (
 	"gopds-api/database"
 	"gopds-api/logging"
 	"gopds-api/models"
+	"gopds-api/telegram/tgapi"
 
 	"github.com/gin-gonic/gin"
 	tgbotapi "github.com/go-telegram/bot"
@@ -101,6 +102,10 @@ func (bm *BotManager) HandleWebhook(c *gin.Context) {
 	}
 	in := readIncoming(update)
 	if in.kind == "" || fromABot(b, in.from) {
+		if pinOfHome(b, update) {
+			bm.handling.Add(1)
+			go bm.dropPinLine(context.WithoutCancel(ctx), b, update.Message)
+		}
 		answerStatus(c, statusSkipped)
 		return
 	}
@@ -195,6 +200,45 @@ func readIncoming(u *tgbot.Update) incoming {
 		return incoming{kind: kindInline, from: u.InlineQuery.From, inlineID: u.InlineQuery.ID}
 	}
 	return incoming{}
+}
+
+// pinOfHome reports a service message of this bot pinning something in a
+// private chat: the line «… закрепил сообщение» each home panel's pin
+// leaves (dropPinLine checks it is the home panel).
+func pinOfHome(b *Bot, u *tgbot.Update) bool {
+	msg := u.Message
+	return msg != nil && msg.From != nil && msg.From.ID == b.tgBotID && msg.Chat.Type == tgbot.ChatTypePrivate &&
+		msg.PinnedMessage != nil && pinnedID(msg.PinnedMessage) != 0
+}
+
+// pinnedID is the id of a pinned message, 0 when unknown.
+func pinnedID(m *tgbot.MaybeInaccessibleMessage) int64 {
+	switch {
+	case m.Message != nil:
+		return int64(m.Message.ID)
+	case m.InaccessibleMessage != nil:
+		return int64(m.InaccessibleMessage.MessageID)
+	}
+	return 0
+}
+
+// dropPinLine deletes the service line of a v2 bot's pin of the chat's
+// current home panel: every /start pins a new one, and the lines would pile
+// up under it. Only that line — no other message of the chat — and best
+// effort.
+func (bm *BotManager) dropPinLine(ctx context.Context, b *Bot, msg *tgbot.Message) {
+	defer bm.handling.Done()
+	model, err := database.GetTelegramBot(ctx, b.ref)
+	if err != nil || model.Router != models.TelegramRouterV2 {
+		return
+	}
+	home, err := database.GetTelegramHomePanel(ctx, b.ref, msg.Chat.ID)
+	if err != nil || home == nil || home.MessageID != pinnedID(msg.PinnedMessage) {
+		return
+	}
+	if _, err := b.bot.DeleteMessage(ctx, &tgbotapi.DeleteMessageParams{ChatID: msg.Chat.ID, MessageID: msg.ID}); err != nil {
+		logging.Debugf("Telegram bot %d: deleting the pin's service line: %v", b.ref, tgapi.RedactURL(err))
+	}
 }
 
 // fromABot reports whether the update was sent by a bot, this one included.
