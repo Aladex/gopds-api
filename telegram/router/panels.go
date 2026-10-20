@@ -313,6 +313,10 @@ func (r *Router) markup(b *Bot, chatID int64, rows [][]screens.Button) (*tgbot.I
 	for _, row := range rows {
 		line := make([]tgbot.InlineKeyboardButton, 0, len(row))
 		for _, button := range row {
+			if button.Disabled {
+				line = append(line, tgbot.InlineKeyboardButton{Text: button.Text, Disabled: &tgbot.DisabledButton{}})
+				continue
+			}
 			btn := tgbot.InlineKeyboardButton{Text: button.Text, Style: button.Style, URL: button.URL}
 			if button.CopyText != "" {
 				btn.CopyText = &tgbot.CopyTextButton{Text: button.CopyText}

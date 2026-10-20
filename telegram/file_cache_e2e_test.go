@@ -235,9 +235,8 @@ func TestACachedSendNeverSaysPreparing(t *testing.T) {
 	marked := v.latest(card.MessageID)
 	assert.Equal(t, "⏳ Отправляю EPUB…", tgtest.ButtonTexts(t, &marked)[0][0])
 	assert.Equal(t, "Отправляю EPUB…", v.lastAnswer())
+	assertDisabled(t, &marked, "⏳ Отправляю EPUB…")
 	v.fake.WaitCalls(t, "sendDocument", 2, 5*time.Second)
-	v.tap(&marked, "⏳ Отправляю EPUB…")
-	assert.Equal(t, delivery.ToastOnItsWay, v.lastAnswer())
 }
 
 // An old card's slow cached send shows «sending» in its status message.

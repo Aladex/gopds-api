@@ -237,6 +237,10 @@ type Button struct {
 	CopyText string
 	// SwitchInline puts «@bot » in the chat's input field: inline search.
 	SwitchInline bool
+	// Disabled is a button that does nothing when pressed: a state shown in
+	// the keyboard, like a file on its way (plan.md P1-6). It carries no
+	// action and no style.
+	Disabled bool
 }
 
 // Screen is a rendered screen: content and keyboard.

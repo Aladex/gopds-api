@@ -518,6 +518,7 @@ func TestAFileFromTheCard(t *testing.T) {
 	v.tap(&card, "EPUB")
 	marked := v.latest(card.MessageID)
 	assert.Equal(t, "⏳ Готовлю EPUB…", tgtest.ButtonTexts(t, &marked)[0][0])
+	assertDisabled(t, &marked, "⏳ Готовлю EPUB…")
 
 	release()
 	v.waitJobSent()
@@ -680,4 +681,24 @@ func TestTheOldSearchCommandsStillSearch(t *testing.T) {
 	v.say("/a Толстой")
 	authors := v.lastSend()
 	assert.True(t, strings.HasPrefix(tgtest.ButtonTexts(t, &authors)[0][1], "✓ Авторы"))
+}
+
+// assertDisabled checks that the button with text on c is a disabled one
+// (plan.md P1-6): no callback, no link, no style — a press does nothing.
+func assertDisabled(t *testing.T, c *tgtest.Call, text string) {
+	t.Helper()
+	for _, row := range tgtest.Keyboard(t, c) {
+		for i := range row {
+			b := &row[i]
+			if b.Text != text {
+				continue
+			}
+			assert.NotNil(t, b.Disabled, "%q is disabled", text)
+			assert.Empty(t, b.CallbackData, "%q carries no callback", text)
+			assert.Empty(t, b.URL)
+			assert.Empty(t, b.Style)
+			return
+		}
+	}
+	t.Fatalf("no button %q: %v", text, tgtest.ButtonTexts(t, c))
 }

@@ -86,6 +86,9 @@ func TestTheCardsKeyboard(t *testing.T) {
 	}
 	assert.Equal(t, []string{"MOBI", "EPUB", "⏳ Готовлю FB2…", "ZIP"}, labels[0])
 	assert.Equal(t, "primary", screen.Keys[0][0].Style)
+	assert.True(t, screen.Keys[0][2].Disabled, "a file on its way is shown, not pressed")
+	assert.Nil(t, screen.Keys[0][2].Env)
+	assert.False(t, screen.Keys[0][1].Disabled)
 	assert.Equal(t, []string{"★ В избранном"}, labels[1])
 	assert.Equal(t, []string{ButtonToResults, ButtonHome}, labels[len(labels)-1])
 }

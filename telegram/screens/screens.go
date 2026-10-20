@@ -561,15 +561,16 @@ func cardKeys(c *Card, k *CardKeys, cut bool) [][]Button {
 	var formats []Button
 	for i, f := range order {
 		label := strings.ToUpper(f)
-		switch {
-		case c.Sending[f]:
-			label = "⏳ Отправляю " + label + "…"
-		case c.Preparing[f]:
-			label = "⏳ Готовлю " + label + "…"
-		}
 		btn := Button{Text: label, Env: k.Download(f)}
 		if i == 0 {
 			btn.Style = "primary"
+		}
+		// A file on its way is shown, not pressed again.
+		switch {
+		case c.Sending[f]:
+			btn = Button{Text: "⏳ Отправляю " + label + "…", Disabled: true}
+		case c.Preparing[f]:
+			btn = Button{Text: "⏳ Готовлю " + label + "…", Disabled: true}
 		}
 		formats = append(formats, btn)
 	}
