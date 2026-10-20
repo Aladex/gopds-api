@@ -289,3 +289,60 @@ func TestAFailedResendIsToldInTheChat(t *testing.T) {
 	told := calls[len(calls)-1]
 	assert.Contains(t, tgtest.ButtonTexts(t, &told), []string{"Повторить EPUB"})
 }
+
+// The janitor trims by the list as it ranked it: a book whose send is
+// confirmed while the trim waits on its row is kept, at the top
+// (review-p1-3 B1, with the real runner and two sent jobs).
+func TestTheJanitorKeepsASendConfirmedMeanwhile(t *testing.T) {
+	d := openCard(t, newStack(t))
+	d.pressEPUB(t)
+	d.waitSentJobs(1)
+	var initial models.TelegramRecent
+	require.NoError(t, d.db.Model(&initial).Select())
+	_, err := d.db.Exec(`UPDATE telegram_recent SET sent_at = now() - interval '1 hour' WHERE user_id = ? AND book_id = ?`,
+		initial.UserID, d.bookID)
+	require.NoError(t, err)
+	// 50 newer sends: the book is the 51st, the janitor's to trim.
+	_, err = d.db.Exec(`INSERT INTO telegram_recent (user_id, book_id, format, sent_at)
+		SELECT ?, 100000 + n, 'epub', now() - make_interval(secs => n) FROM generate_series(1, 50) n`, initial.UserID)
+	require.NoError(t, err)
+
+	// A lock on the book's row only orders the two transactions: the send's
+	// confirmation waits on it first, then the janitor's delete.
+	blocker, err := d.db.Begin()
+	require.NoError(t, err)
+	defer func() { _ = blocker.Rollback() }()
+	_, err = blocker.Exec(`SELECT 1 FROM telegram_recent WHERE user_id = ? AND book_id = ? FOR UPDATE`, initial.UserID, d.bookID)
+	require.NoError(t, err)
+	waiting := func(query string) func() bool {
+		return func() bool {
+			return d.count(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()
+				AND state = 'active' AND wait_event_type = 'Lock' AND query LIKE ?`, "%"+query+"%") > 0
+		}
+	}
+	d.pressEPUB(t)
+	require.Eventually(t, waiting("INSERT INTO telegram_recent"), 5*time.Second, 10*time.Millisecond,
+		"the confirmed send waits on its row")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	pruned := make(chan error, 1)
+	go func() { pruned <- database.PruneTelegramRecent(ctx) }()
+	require.Eventually(t, waiting("DELETE FROM telegram_recent r"), 5*time.Second, 10*time.Millisecond,
+		"the janitor ranked the book 51st and waits on its row")
+	require.NoError(t, blocker.Commit())
+	d.waitSentJobs(2)
+	select {
+	case err := <-pruned:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the janitor never finished")
+	}
+	require.Len(t, d.fake.Calls("sendDocument"), 2)
+	assert.Equal(t, 1, d.count(`SELECT count(*) FROM telegram_recent WHERE user_id = ? AND book_id = ?`, initial.UserID, d.bookID),
+		"the book just sent again stays")
+	// The next trim ranks the book first, and the oldest of the others goes.
+	require.NoError(t, database.PruneTelegramRecent(context.Background()))
+	assert.Equal(t, database.TelegramRecentLimit, d.count(`SELECT count(*) FROM telegram_recent WHERE user_id = ?`, initial.UserID))
+	assert.Equal(t, 1, d.count(`SELECT count(*) FROM telegram_recent WHERE user_id = ? AND book_id = ?`, initial.UserID, d.bookID))
+	assert.Zero(t, d.count(`SELECT count(*) FROM telegram_recent WHERE book_id = 100050`))
+}

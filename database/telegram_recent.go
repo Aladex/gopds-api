@@ -80,14 +80,17 @@ func SetTelegramKeepRecent(ctx context.Context, userID int64, keep bool) error {
 }
 
 // PruneTelegramRecent is the janitor's part: sends older than the list's age,
-// and every account's sends past its newest TelegramRecentLimit, go.
+// and every account's sends past its newest TelegramRecentLimit, go. A row is
+// deleted only as it was ranked: one a send refreshed meanwhile has another
+// sent_at, and the delete, checking the row again once it may proceed, leaves
+// it — the age cut too is checked against the row as it is then.
 func PruneTelegramRecent(ctx context.Context) error {
 	_, err := db.ExecContext(ctx, `
 		DELETE FROM telegram_recent r
 		WHERE r.sent_at < now() - make_interval(secs => ?)
-		   OR (r.user_id, r.book_id) IN (
-			SELECT user_id, book_id FROM (
-				SELECT user_id, book_id,
+		   OR (r.user_id, r.book_id, r.sent_at) IN (
+			SELECT user_id, book_id, sent_at FROM (
+				SELECT user_id, book_id, sent_at,
 				       row_number() OVER (PARTITION BY user_id ORDER BY sent_at DESC, book_id DESC) AS n
 				FROM telegram_recent) ranked
 			WHERE n > ?)`, TelegramRecentAge.Seconds(), TelegramRecentLimit)
