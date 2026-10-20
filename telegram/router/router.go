@@ -176,11 +176,13 @@ func New(cfg *Config, bots Bots) *Router {
 // router once the chat is held — switched to maintenance meanwhile.
 func (r *Router) Handle(ctx context.Context, b *Bot, update *tgbot.Update) (bool, error) {
 	if chatID, ok := chatOf(update); ok {
+		asked := time.Now()
 		unlock, err := database.LockTelegramChat(ctx, b.Ref, chatID, r.cfg.ChatHold, r.cfg.ChatWait)
 		if err != nil {
 			return false, fmt.Errorf("holding chat %d: %w", chatID, err)
 		}
 		defer unlock()
+		ctx = context.WithValue(ctx, chatWaitKey{}, time.Since(asked))
 		// What b says was read before the wait: the bot may have been
 		// relinked — a new owner, a new generation — or switched back
 		// meanwhile. Only what holds now authorizes the update.
@@ -204,6 +206,15 @@ func (r *Router) Handle(ctx context.Context, b *Bot, update *tgbot.Update) (bool
 		r.message(ctx, b, update.Message)
 	}
 	return true, nil
+}
+
+// chatWaitKey keys how long an update waited for its chat.
+type chatWaitKey struct{}
+
+// heldFor is how long the update in ctx waited for its chat.
+func heldFor(ctx context.Context) time.Duration {
+	d, _ := ctx.Value(chatWaitKey{}).(time.Duration)
+	return d
 }
 
 // chatOf is the chat an update happens in.

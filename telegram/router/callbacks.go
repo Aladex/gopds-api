@@ -57,6 +57,10 @@ func (r *Router) callback(ctx context.Context, b *Bot, q *tgbot.CallbackQuery) b
 		r.answer(ctx, b, q, screens.CopyScreenChanged)
 		return true
 	}
+	if env.Op == cbv2.OpOpenBook {
+		r.openCard(ctx, b, q, panel, &env)
+		return true
+	}
 	if env.Op == cbv2.OpDownload {
 		toast, answer := r.download(ctx, b, q, panel, &env)
 		if answer {
@@ -84,8 +88,6 @@ func (r *Router) act(ctx context.Context, b *Bot, panel *models.TelegramPanel, e
 			Page: int32(env.Page), ParentID: parent}) // #nosec G115 -- pages are small
 	case cbv2.OpPage:
 		return r.page(ctx, b, panel, env)
-	case cbv2.OpOpenBook:
-		return show(cardNode(userID, viewID, entity, parent))
 	case cbv2.OpSetFavorite:
 		return r.setFavorite(ctx, b, panel, env)
 	case cbv2.OpAnnotation, cbv2.OpAnnotationPage:

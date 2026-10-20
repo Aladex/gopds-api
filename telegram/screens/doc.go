@@ -60,6 +60,9 @@ type Photo struct {
 	BookID int64
 	FileID string
 	Data   []byte
+	// Path is where the bytes are, for a FileID Telegram refuses: a cover it
+	// already has is not read from disk.
+	Path string
 }
 
 // How rich blocks are laid out: the title a level-2 heading, table cells

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"gopds-api/database"
 	"gopds-api/logging"
@@ -28,22 +29,130 @@ func cardNode(userID, viewID, bookID, parent int64) *models.TelegramNode {
 
 // cardPainter reads a book's card.
 func (r *Router) cardPainter(ctx context.Context, b *Bot, node *models.TelegramNode) (render, string, bool) {
-	book, err := database.GetBookCard(ctx, node.EntityID)
-	if err != nil {
-		if errors.Is(err, errNoRows) {
-			return nil, screens.CopyUnavailable, false
-		}
-		return nil, screens.CopyLibraryDown, false
+	book, toast := r.readCard(ctx, node)
+	if book == nil {
+		return nil, toast, false
 	}
-	if !visible(book) {
-		return nil, screens.CopyUnavailable, false
-	}
-	r.creditBook(ctx, book)
 	paint, err := r.paintCard(ctx, b, node, book)
 	if err != nil {
 		return nil, screens.CopyLibraryDown, false
 	}
 	return paint, "", true
+}
+
+// cardSlow is an open the log tells at info, not only at debug: slow enough
+// for the reader to wait on it.
+const cardSlow = 300 * time.Millisecond
+
+// openCard is a title pressed: the card in the panel. The press is answered
+// as soon as the book is read — before the card is drawn — so its spinner
+// stops at once. A card whose cover Telegram does not have yet for this bot
+// is shown first without it («⏳ Открываю карточку…»), since the upload is
+// the slow part, then in full.
+func (r *Router) openCard(ctx context.Context, b *Bot, q *tgbot.CallbackQuery, panel *models.TelegramPanel, env *cbv2.Envelope) {
+	clock := cardClock{start: time.Now(), wait: heldFor(ctx)}
+	node := cardNode(b.Binding.UserID, int64(env.ViewID), int64(env.EntityID), int64(env.ReturnID)) // #nosec G115 -- decoded ids fit
+	book, toast := r.readCard(ctx, node)
+	var paint render
+	if book != nil {
+		var err error
+		if paint, err = r.paintCard(ctx, b, node, book); err != nil {
+			toast = screens.CopyLibraryDown
+		}
+	}
+	if paint == nil {
+		r.answer(ctx, b, q, toast)
+		return
+	}
+	clock.read = time.Now()
+	r.answer(ctx, b, q, "")
+	clock.answered = time.Now()
+	if err := upsertNode(ctx, node); err != nil {
+		return
+	}
+	var opening render
+	if r.richFor(ctx, b) && (panel.IsHome || panel.Mode == models.TelegramPanelRich) && r.coldCover(ctx, b, book) {
+		clock.cold = true
+		opening = r.paintOpening(ctx, b, node, book, &clock)
+	}
+	full := func(k *keys) screens.Screen {
+		clock.painting = time.Now()
+		return paint(k)
+	}
+	r.moveOpening(ctx, b, panel, panel.Revision, node, opening, full)
+	clock.log(b.Ref, book.ID)
+}
+
+// readCard reads the book of a card node, or the toast saying why not.
+func (r *Router) readCard(ctx context.Context, node *models.TelegramNode) (book *models.Book, toast string) {
+	book, err := database.GetBookCard(ctx, node.EntityID)
+	if err != nil {
+		if errors.Is(err, errNoRows) {
+			return nil, screens.CopyUnavailable
+		}
+		return nil, screens.CopyLibraryDown
+	}
+	if !visible(book) {
+		return nil, screens.CopyUnavailable
+	}
+	r.creditBook(ctx, book)
+	return book, ""
+}
+
+// paintOpening paints the card being made: the book's title and authors,
+// the card's way back and «Домой».
+func (r *Router) paintOpening(
+	ctx context.Context, b *Bot, node *models.TelegramNode, book *models.Book, clock *cardClock,
+) render {
+	label := backLabel(ctx, b, node.ParentID)
+	return func(k *keys) screens.Screen {
+		clock.opening = time.Now()
+		var back *screens.Button
+		if label != "" {
+			parent := uint64(node.ParentID) // #nosec G115 -- serial ids
+			back = &screens.Button{Text: label, Env: k.env(cbv2.Envelope{Op: cbv2.OpBack, ReturnID: parent})}
+		}
+		return screens.CardOpeningScreen(book, back, k.home())
+	}
+}
+
+// cardClock times one open of a card: how long the update waited for its
+// chat, read the card, answered the press, got the panel ready (its node,
+// its kind, the cover's state, the move), showed the card opening (with the
+// chat action), and drew it (with the cover's upload, when cold).
+type cardClock struct {
+	start, read, answered, opening, painting time.Time
+	wait                                     time.Duration
+	cold                                     bool
+}
+
+// log tells the open's times, at info when it was slow.
+func (c *cardClock) log(ref, bookID int64) {
+	end := time.Now()
+	total := end.Sub(c.start) + c.wait
+	opening := time.Duration(0)
+	if c.cold && !c.opening.IsZero() && !c.painting.IsZero() {
+		opening = c.painting.Sub(c.opening)
+	}
+	draw, prepare := time.Duration(0), time.Duration(0)
+	if !c.painting.IsZero() {
+		draw = end.Sub(c.painting)
+		first := c.painting
+		if c.cold && !c.opening.IsZero() {
+			first = c.opening
+		}
+		prepare = first.Sub(c.answered)
+	}
+	ms := func(d time.Duration) time.Duration { return d.Round(time.Millisecond) }
+	line := fmt.Sprintf("Telegram bot %d: card of book %d opened in %s "+
+		"(chat wait %s, read %s, answer %s, prepare %s, opening %s, card %s, cold cover %t)",
+		ref, bookID, ms(total), ms(c.wait), ms(c.read.Sub(c.start)), ms(c.answered.Sub(c.read)),
+		ms(prepare), ms(opening), ms(draw), c.cold)
+	if total > cardSlow {
+		logging.Info(line)
+		return
+	}
+	logging.Debug(line)
 }
 
 // sendCard opens a book's card in a new panel: from a document's «Открыть

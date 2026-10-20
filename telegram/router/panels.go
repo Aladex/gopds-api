@@ -96,6 +96,17 @@ func (r *Router) sendPanel(
 func (r *Router) movePanel(
 	ctx context.Context, b *Bot, panel *models.TelegramPanel, expected int32, node *models.TelegramNode, paint render,
 ) bool {
+	return r.moveOpening(ctx, b, panel, expected, node, nil, paint)
+}
+
+// moveOpening is movePanel showing opening first, when it is set: a card
+// whose cover Telegram does not have yet is shown at once without it, then
+// edited into the card while the chat says a photo is on its way. Both edits
+// carry the move's one revision, so the opening's buttons stay good: a press
+// on them waits for the chat, then wins.
+func (r *Router) moveOpening(
+	ctx context.Context, b *Bot, panel *models.TelegramPanel, expected int32, node *models.TelegramNode, opening, paint render,
+) bool {
 	rev, err := database.MoveTelegramPanel(ctx, panel, expected, node.ID)
 	if err != nil {
 		if !errors.Is(err, database.ErrPanelMoved) && !errors.Is(err, database.ErrInboxLeaseLost) {
@@ -105,7 +116,7 @@ func (r *Router) movePanel(
 	}
 	panel.Revision, panel.NodeID = rev, node.ID
 	if panel.IsHome {
-		r.moveHome(ctx, b, panel, node, paint)
+		r.moveHome(ctx, b, panel, node, opening, paint)
 		return true
 	}
 	rich := panel.Mode == models.TelegramPanelRich
@@ -116,9 +127,21 @@ func (r *Router) movePanel(
 		r.replacePanel(ctx, b, panel, node, paint)
 		return true
 	}
+	var refused richRefusedError
+	if opening != nil {
+		first := opening(&keys{b: b, rev: uint16(rev), rich: rich}) // #nosec G115 -- revisions are 1..65534
+		err = r.edit(ctx, b, panel, &first)
+		if errors.As(err, &refused) {
+			r.replacePanel(ctx, b, panel, node, paint)
+			return true
+		}
+		if err != nil {
+			logging.Warnf("Telegram bot %d: editing a panel: %v", b.Ref, tgapi.RedactURL(err))
+		}
+		r.photoComing(ctx, b, panel.ChatID)
+	}
 	screen := paint(&keys{b: b, rev: uint16(rev), rich: rich}) // #nosec G115 -- revisions are 1..65534
 	err = r.edit(ctx, b, panel, &screen)
-	var refused richRefusedError
 	switch {
 	case err == nil:
 	case errors.As(err, &refused):
@@ -135,13 +158,25 @@ func (r *Router) movePanel(
 // message and switches its kind in place: plain while it shows home
 // (plan-ui.md §1.1), rich for what it opens while the account's panels are
 // rich. Telegram refusing rich, node is shown plain, in place all the same.
-func (r *Router) moveHome(ctx context.Context, b *Bot, panel *models.TelegramPanel, node *models.TelegramNode, paint render) {
+// opening, when set, is shown first (moveOpening).
+func (r *Router) moveHome(ctx context.Context, b *Bot, panel *models.TelegramPanel, node *models.TelegramNode, opening, paint render) {
 	mode := models.TelegramPanelPlain
 	if Screen(node.Screen) != ScrHome && r.richFor(ctx, b) {
 		mode = models.TelegramPanelRich
 	}
-	err := r.editAs(ctx, b, panel, mode, paint)
 	var refused richRefusedError
+	if opening != nil {
+		err := r.editAs(ctx, b, panel, mode, opening)
+		switch {
+		case errors.As(err, &refused):
+			mode = models.TelegramPanelPlain
+		case err != nil:
+			logging.Warnf("Telegram bot %d: editing the home panel: %v", b.Ref, tgapi.RedactURL(err))
+		default:
+			r.photoComing(ctx, b, panel.ChatID)
+		}
+	}
+	err := r.editAs(ctx, b, panel, mode, paint)
 	if errors.As(err, &refused) {
 		mode = models.TelegramPanelPlain
 		err = r.editAs(ctx, b, panel, mode, paint)
@@ -166,6 +201,13 @@ func (r *Router) editAs(ctx context.Context, b *Bot, panel *models.TelegramPanel
 	as := *panel
 	as.Mode = mode
 	return r.edit(ctx, b, &as, &screen)
+}
+
+// photoComing shows «sending a photo» in the chat while a cover uploads.
+func (r *Router) photoComing(ctx context.Context, b *Bot, chatID int64) {
+	if _, err := b.Client.SendChatAction(ctx, &bot.SendChatActionParams{ChatID: chatID, Action: tgbot.ChatActionUploadPhoto}); err != nil {
+		logging.Debugf("Telegram bot %d: the chat action: %v", b.Ref, tgapi.RedactURL(err))
+	}
 }
 
 // replacePanel sends node as a new panel in place of one that cannot show
@@ -282,10 +324,14 @@ func (r *Router) withCoverRetry(
 		switch {
 		case hasCover && isPhotoError(err) && cover.FileID != "":
 			_ = database.DropTelegramCoverFile(ctx, b.Ref, cover.BookID)
-			if len(cover.Data) == 0 {
+			data := cover.Data
+			if len(data) == 0 && cover.Path != "" {
+				data = readCover(cover.Path)
+			}
+			if len(data) == 0 {
 				current = current.WithoutPhoto()
 			} else {
-				current = current.WithCover(screens.Photo{BookID: cover.BookID, Data: cover.Data})
+				current = current.WithCover(screens.Photo{BookID: cover.BookID, Data: data})
 			}
 		case hasCover && isPhotoError(err):
 			logging.Warnf("Telegram bot %d: the cover of book %d was refused: %v", b.Ref, cover.BookID, tgapi.RedactURL(err))
@@ -334,30 +380,59 @@ func (r *Router) rememberCover(ctx context.Context, b *Bot, bookID int64, msg *t
 	}
 }
 
-// cover is a book's cover for a rich card: the remembered file_id with the
-// bytes kept for a retry, or the bytes alone; nil without a cover file.
+// cover is a book's cover for a rich card: the remembered file_id, with
+// where to read the bytes should Telegram refuse it, or the bytes to upload;
+// nil without a cover file. A cover Telegram has is not read from disk.
 func (r *Router) cover(ctx context.Context, b *Bot, book *models.Book) *screens.Photo {
-	if !book.Cover {
+	path := r.coverPath(book)
+	if path == "" {
 		return nil
+	}
+	fileID, err := database.GetTelegramCoverFile(ctx, b.Ref, book.ID)
+	if err == nil && fileID != "" {
+		return &screens.Photo{BookID: book.ID, FileID: fileID, Path: path}
+	}
+	data := readCover(path)
+	if len(data) == 0 {
+		return nil
+	}
+	return &screens.Photo{BookID: book.ID, Data: data}
+}
+
+// coldCover reports a cover the card would upload: one on disk that this bot
+// has no file_id of.
+func (r *Router) coldCover(ctx context.Context, b *Bot, book *models.Book) bool {
+	if r.coverPath(book) == "" {
+		return false
+	}
+	fileID, err := database.GetTelegramCoverFile(ctx, b.Ref, book.ID)
+	return err != nil || fileID == ""
+}
+
+// coverPath is where a book's cover file is, "" for none fit to send.
+func (r *Router) coverPath(book *models.Book) string {
+	if !book.Cover {
+		return ""
 	}
 	base := r.cfg.PostersPath()
 	if base == "" {
-		return nil
+		return ""
 	}
 	path := posters.FilePath(base, book.Path, book.FileName)
 	info, err := os.Stat(path)
 	if err != nil || info.Size() == 0 || info.Size() > maxCoverBytes {
-		return nil
+		return ""
 	}
+	return path
+}
+
+// readCover reads a cover file; nil when it cannot.
+func readCover(path string) []byte {
 	data, err := os.ReadFile(path) // #nosec G304 -- built from the posters directory and the book's own path
 	if err != nil {
 		return nil
 	}
-	fileID, err := database.GetTelegramCoverFile(ctx, b.Ref, book.ID)
-	if err != nil {
-		fileID = ""
-	}
-	return &screens.Photo{BookID: book.ID, FileID: fileID, Data: data}
+	return data
 }
 
 // encoder encodes the envelopes of buttons shown in chatID: bound to the

@@ -420,6 +420,22 @@ func Year(b *models.Book) string {
 	return yearOf.FindString(b.DocDate)
 }
 
+// CopyOpeningCard is the card while it is being made: its cover is on its way
+// to Telegram.
+const CopyOpeningCard = "⏳ Открываю карточку…"
+
+// CardOpeningScreen is a book's card before it is ready: its title and
+// authors, and a way out (plan.md: the card opens at once, the cover after).
+// back is the card's way back, nil for none.
+func CardOpeningScreen(b *models.Book, back *Button, home *cbv2.Envelope) Screen {
+	blocks := []Block{Title{Text: ru.Truncate(b.Title, titleRunes)}}
+	if a := Authors(b, cardAuthors); a != "" {
+		blocks = append(blocks, Line{Text: a, Italic: true})
+	}
+	blocks = append(blocks, Gap{}, Line{Text: CopyOpeningCard})
+	return Screen{Doc: Doc{Blocks: blocks}, Keys: [][]Button{lastRow(back, home)}}
+}
+
 // Card is what a book card needs besides the book.
 type Card struct {
 	Book *models.Book
