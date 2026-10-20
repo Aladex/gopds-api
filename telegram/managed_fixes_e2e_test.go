@@ -217,6 +217,9 @@ func TestManagedAnUnfinishedEventIsTakenUpAgain(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	stopped := s.bm.StartInboxSweeper(ctx, time.Hour)
 	defer func() { cancel(); <-stopped }()
-	require.Eventually(t, func() bool { return s.managedState(late) == "ready" }, 10*time.Second, 50*time.Millisecond)
-	assert.Equal(t, 1, s.count(`SELECT count(*) FROM telegram_managed_event WHERE update_id = 99999 AND processed_at IS NOT NULL`))
+	// Marked handled only after its work: wait for the mark, then look.
+	require.Eventually(t, func() bool {
+		return s.count(`SELECT count(*) FROM telegram_managed_event WHERE update_id = 99999 AND processed_at IS NOT NULL`) == 1
+	}, 10*time.Second, 50*time.Millisecond)
+	assert.Equal(t, "ready", s.managedState(late))
 }
