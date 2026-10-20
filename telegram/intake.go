@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -99,7 +100,7 @@ func (bm *BotManager) HandleWebhook(c *gin.Context) {
 		return
 	}
 	in := readIncoming(update)
-	if in.kind == "" {
+	if in.kind == "" || fromABot(b, in.from) {
 		answerStatus(c, statusSkipped)
 		return
 	}
@@ -182,10 +183,11 @@ type incoming struct {
 }
 
 // readIncoming reads the sender of the update kinds the bot handles. Any
-// other kind comes back with an empty kind and is acknowledged unread.
+// other kind, and a service message, comes back with an empty kind and is
+// acknowledged unread.
 func readIncoming(u *tgbot.Update) incoming {
 	switch {
-	case u.Message != nil && u.Message.From != nil:
+	case u.Message != nil && u.Message.From != nil && !isServiceMessage(u.Message):
 		return incoming{kind: kindMessage, from: u.Message.From, chat: &u.Message.Chat, text: u.Message.Text}
 	case u.CallbackQuery != nil:
 		return incoming{kind: kindCallback, from: &u.CallbackQuery.From, callbackID: u.CallbackQuery.ID}
@@ -193,6 +195,77 @@ func readIncoming(u *tgbot.Update) incoming {
 		return incoming{kind: kindInline, from: u.InlineQuery.From, inlineID: u.InlineQuery.ID}
 	}
 	return incoming{}
+}
+
+// fromABot reports whether the update was sent by a bot, this one included.
+// Telegram delivers the service message of the bot's own pin with the bot as
+// its sender; no bot is ever the owner, nor a stranger to answer.
+func fromABot(b *Bot, from *tgbot.User) bool {
+	return from.IsBot || from.ID == b.tgBotID
+}
+
+// isServiceMessage reports whether msg is a service message — something that
+// happened in the chat (a pin, a new background, a member joining) rather
+// than something a person wrote. The bot answers none of them.
+func isServiceMessage(msg *tgbot.Message) bool {
+	return slices.Contains([]bool{
+		msg.PinnedMessage != nil,
+		len(msg.NewChatMembers) > 0,
+		msg.LeftChatMember != nil,
+		msg.NewChatTitle != "",
+		len(msg.NewChatPhoto) > 0,
+		msg.DeleteChatPhoto,
+		msg.GroupChatCreated,
+		msg.SupergroupChatCreated,
+		msg.ChannelChatCreated,
+		msg.MessageAutoDeleteTimerChanged != nil,
+		msg.MigrateToChatID != 0,
+		msg.MigrateFromChatID != 0,
+		msg.SuccessfulPayment != nil,
+		msg.RefundedPayment != nil,
+		msg.UsersShared != nil,
+		msg.ChatShared != nil,
+		msg.Gift != nil,
+		msg.UniqueGift != nil,
+		msg.GiftUpgradeSent != nil,
+		msg.ConnectedWebsite != "",
+		msg.WriteAccessAllowed != nil,
+		msg.PassportData != nil,
+		msg.ProximityAlertTriggered != nil,
+		msg.BoostAdded != nil,
+		msg.ChatBackgroundSet != nil,
+		msg.ChecklistTasksDone != nil,
+		msg.ChecklistTasksAdded != nil,
+		msg.DirectMessagePriceChanged != nil,
+		msg.PaidMessagePriceChanged != nil,
+		msg.ForumTopicCreated != nil,
+		msg.ForumTopicEdited != nil,
+		msg.ForumTopicClosed != nil,
+		msg.ForumTopicReopened != nil,
+		msg.GeneralForumTopicHidden != nil,
+		msg.GeneralForumTopicUnhidden != nil,
+		msg.GiveawayCreated != nil,
+		msg.GiveawayWinners != nil,
+		msg.GiveawayCompleted != nil,
+		msg.ChatOwnerLeft != nil,
+		msg.ChatOwnerChanged != nil,
+		msg.CommunityChatAdded != nil,
+		msg.CommunityChatJoined != nil,
+		msg.CommunityChatRemoved != nil,
+		msg.SuggestedPostApproved != nil,
+		msg.SuggestedPostApprovalFailed != nil,
+		msg.SuggestedPostDeclined != nil,
+		msg.SuggestedPostPaid != nil,
+		msg.SuggestedPostRefunded != nil,
+		msg.VideoChatScheduled != nil,
+		msg.VideoChatStarted != nil,
+		msg.VideoChatEnded != nil,
+		msg.VideoChatParticipantsInvited != nil,
+		msg.WebAppData != nil,
+		msg.ManagedBotCreated != nil,
+		msg.PollOptionAdded != nil,
+		msg.PollOptionDeleted != nil,
+	}, true)
 }
 
 // admits reports whether the update may reach the bot's handlers: the
