@@ -107,12 +107,13 @@ func (r *Router) legacyDownload(
 		OriginMessageID: int64(msg.ID),
 		OriginRevision:  0, // the old card is never edited
 	})
-	return enqueueToast(b, bookID, format, &job, admission, err)
+	return enqueueToast(b, bookID, format, &job, admission, err, r.cfg.Delivery.Cached(ctx, b.Ref, bookID, format))
 }
 
 // enqueueToast is the answer to a press that asked for a file.
+// cached is the bot sending a file it has: nothing is prepared.
 func enqueueToast(b *Bot, bookID int64, format string, job *models.TelegramDelivery, admission database.Admission,
-	err error) (toast string, answer bool) {
+	err error, cached bool) (toast string, answer bool) {
 	switch {
 	case errors.Is(err, database.ErrInboxLeaseLost):
 		return "", false
@@ -128,7 +129,7 @@ func enqueueToast(b *Bot, bookID int64, format string, job *models.TelegramDeliv
 	case admission == database.BusyService:
 		return delivery.ToastBusyService, true
 	case admission == database.InProgress || admission == database.AlreadyTapped:
-		return delivery.RepeatToast(job), true
+		return delivery.RepeatToast(job, cached), true
 	}
-	return fmt.Sprintf(delivery.ToastPreparing, strings.ToUpper(format)), true
+	return delivery.StartToast(format, cached), true
 }

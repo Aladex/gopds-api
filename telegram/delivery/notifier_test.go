@@ -88,7 +88,10 @@ func TestAFailedLibraryIsSaidAsSuch(t *testing.T) {
 
 func TestARepeatedPressHearsWhereItsFileIs(t *testing.T) {
 	ended := time.Now()
-	assert.Equal(t, ToastInProgress, RepeatToast(&models.TelegramDelivery{State: models.DeliverySending}))
-	assert.Equal(t, ToastAlreadySent, RepeatToast(&models.TelegramDelivery{State: models.DeliverySent, FinishedAt: &ended}))
-	assert.Equal(t, ToastJustEnded, RepeatToast(&models.TelegramDelivery{State: models.DeliveryFailed, FinishedAt: &ended}))
+	assert.Equal(t, ToastInProgress, RepeatToast(&models.TelegramDelivery{State: models.DeliverySending}, false))
+	assert.Equal(t, ToastOnItsWay, RepeatToast(&models.TelegramDelivery{State: models.DeliverySending}, true))
+	assert.Equal(t, "Готовлю EPUB…", StartToast("epub", false))
+	assert.Equal(t, "Отправляю EPUB…", StartToast("epub", true))
+	assert.Equal(t, ToastAlreadySent, RepeatToast(&models.TelegramDelivery{State: models.DeliverySent, FinishedAt: &ended}, true))
+	assert.Equal(t, ToastJustEnded, RepeatToast(&models.TelegramDelivery{State: models.DeliveryFailed, FinishedAt: &ended}, true))
 }

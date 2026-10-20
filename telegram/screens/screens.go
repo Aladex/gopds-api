@@ -423,7 +423,10 @@ type Card struct {
 	DefaultFormat string
 	// Preparing are the formats whose files are on their way.
 	Preparing map[string]bool
-	SiteURL   string
+	// Sending are those of them the bot sends from its own copy: nothing is
+	// prepared, and the button does not say so.
+	Sending map[string]bool
+	SiteURL string
 	// BackText labels the way back, "" for none.
 	BackText string
 	// Kindle offers «Kindle»: the account has a Kindle address.
@@ -558,7 +561,10 @@ func cardKeys(c *Card, k *CardKeys, cut bool) [][]Button {
 	var formats []Button
 	for i, f := range order {
 		label := strings.ToUpper(f)
-		if c.Preparing[f] {
+		switch {
+		case c.Sending[f]:
+			label = "⏳ Отправляю " + label + "…"
+		case c.Preparing[f]:
 			label = "⏳ Готовлю " + label + "…"
 		}
 		btn := Button{Text: label, Env: k.Download(f)}

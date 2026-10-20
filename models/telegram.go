@@ -309,3 +309,19 @@ type TelegramManagedEvent struct {
 	ClaimExpiresAt *time.Time
 	ProcessedAt    *time.Time
 }
+
+// TelegramFileCache is a bot's file_id for a book in a format: sent again,
+// the file is not uploaded again. FileID is the bot's alone and never leaves
+// it.
+type TelegramFileCache struct {
+	tableName    struct{} `pg:"telegram_file_cache"`
+	BotRef       int64    `pg:",pk"`
+	BookID       int64    `pg:",pk"`
+	Format       string   `pg:",pk"`
+	SourceRev    string
+	ConverterRev int       `pg:",use_zero"`
+	FileID       string    `json:"-"`
+	FileUniqueID string    `json:"-" pg:",use_zero"`
+	Bytes        int64     `pg:",use_zero"`
+	CreatedAt    time.Time `pg:"default:now()"`
+}

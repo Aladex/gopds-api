@@ -60,6 +60,19 @@ func (f *FakeBotAPI) Hang(d time.Duration) Reply {
 	}
 }
 
+// Gate holds the answer until gate is closed, then answers like a healthy
+// Telegram — for a test to look at what happens while a call is in flight.
+func (f *FakeBotAPI) Gate(gate <-chan struct{}) Reply {
+	return func(w http.ResponseWriter, r *http.Request, c *Call) {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-gate:
+		}
+		f.defaultReply(w, r, c)
+	}
+}
+
 // CloseAfterRead reads the request and drops the connection without an
 // answer: the body was delivered, the outcome is unknown.
 func CloseAfterRead() Reply {

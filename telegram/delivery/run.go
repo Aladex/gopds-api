@@ -50,30 +50,124 @@ func (s *Service) run(parent context.Context, job *models.TelegramDelivery) {
 		return
 	}
 	n := s.notifierFor(client, job, book)
+	cached := s.cachedFile(ctx, job, book)
+	n.cached = cached != nil
 	n.start(ctx)
 	defer n.stop()
 
 	if !s.stillDeliverable(ctx, job, book, h.lease, n) {
 		return
 	}
+	if cached != nil {
+		// The bot has the file: it is sent by its file_id, through the same
+		// gate as an upload. A file_id Telegram refuses is forgotten, and
+		// the file uploaded instead — once.
+		if !s.sendCached(ctx, client, job, cached, h, n) {
+			return
+		}
+	}
 	file, ok := s.prepare(ctx, job, book, h.lease, n)
 	if !ok {
 		return
 	}
-	// The book is read again for the caption; what may be sent is decided by
-	// the gate in front of the upload, which a failed read never replaces.
+	fresh, ok := s.reread(ctx, job, h, n)
+	if !ok {
+		return
+	}
+	n.sending(ctx)
+	s.send(ctx, client, job, fresh, document{file: &file, sourceRev: book.MD5}, h, n)
+}
+
+// reread reads the book again for the caption; what may be sent is decided
+// by the gate in front of the send, which a failed read never replaces.
+func (s *Service) reread(ctx context.Context, job *models.TelegramDelivery, h *hold, n *notifier) (*models.Book, bool) {
 	fresh, err := database.GetBookWithAuthors(ctx, job.BookID)
 	if errors.Is(err, pg.ErrNoRows) {
 		s.finish(ctx, h.lease, n, models.OutcomeNotFound)
-		return
+		return nil, false
 	}
 	if err != nil {
 		logging.Warnf("Delivery: job %d: reading book %d again: %v", job.ID, job.BookID, err)
 		s.retryLater(ctx, job, h, n)
-		return
+		return nil, false
+	}
+	return fresh, true
+}
+
+// cachedFile is the bot's file_id for the job's file, if it has a current
+// one. A failed read only costs an upload.
+func (s *Service) cachedFile(ctx context.Context, job *models.TelegramDelivery, book *models.Book) *models.TelegramFileCache {
+	entry, err := database.GetTelegramFileCache(ctx, job.BotRef, job.BookID, job.Format, book.MD5, ConverterRev)
+	if err != nil {
+		logging.Warnf("Delivery: job %d: reading the file cache: %v", job.ID, err)
+		return nil
+	}
+	return entry
+}
+
+// sendCached sends the job's file by the bot's file_id. It reports whether
+// the job goes on to upload the file: Telegram refused the file_id, which
+// is then forgotten, and the job is back to preparing.
+func (s *Service) sendCached(
+	ctx context.Context, client *bot.Bot, job *models.TelegramDelivery, cached *models.TelegramFileCache, h *hold, n *notifier,
+) bool {
+	fresh, ok := s.reread(ctx, job, h, n)
+	if !ok {
+		return false
 	}
 	n.sending(ctx)
-	s.send(ctx, client, job, fresh, file, h, n)
+	if !s.send(ctx, client, job, fresh, document{cached: cached}, h, n) {
+		return false
+	}
+	logging.Infof("Delivery: job %d: bot %d's file of book %d as %s was refused; uploading it", job.ID, job.BotRef, job.BookID, job.Format)
+	if err := database.DropTelegramFileCache(context.WithoutCancel(ctx), job.BotRef, job.BookID, job.Format, cached.FileID); err != nil {
+		logging.Warnf("Delivery: job %d: forgetting a refused file: %v", job.ID, err)
+	}
+	if err := database.ReopenTelegramDeliverySend(ctx, h.lease); err != nil {
+		logging.Warnf("Delivery: job %d is no longer ours to upload: %v", job.ID, err)
+		return false
+	}
+	n.uncache()
+	return true
+}
+
+// document is what a send carries: a prepared file, uploaded, or the bot's
+// file_id of one.
+type document struct {
+	file *File
+	// sourceRev is the md5 the file was prepared from.
+	sourceRev string
+	cached    *models.TelegramFileCache
+}
+
+func (d document) size() int {
+	if d.cached != nil {
+		return int(d.cached.Bytes)
+	}
+	return len(d.file.Data)
+}
+
+// input is the document for one attempt: an upload reads its bytes afresh.
+func (d document) input(name string) tgbot.InputFile {
+	if d.cached != nil {
+		return &tgbot.InputFileString{Data: d.cached.FileID}
+	}
+	return &tgbot.InputFileUpload{Filename: name, Data: bytes.NewReader(d.file.Data)}
+}
+
+// remember keeps the file_id Telegram gave an upload, for the next send of
+// the same file by this bot.
+func (s *Service) remember(ctx context.Context, job *models.TelegramDelivery, doc document, msg *tgbot.Message) {
+	if doc.file == nil || msg == nil || msg.Document == nil {
+		return
+	}
+	err := database.PutTelegramFileCache(context.WithoutCancel(ctx), &models.TelegramFileCache{
+		BotRef: job.BotRef, BookID: job.BookID, Format: job.Format, SourceRev: doc.sourceRev, ConverterRev: ConverterRev,
+		FileID: msg.Document.FileID, FileUniqueID: msg.Document.FileUniqueID, Bytes: int64(len(doc.file.Data)),
+	})
+	if err != nil {
+		logging.Warnf("Delivery: job %d: remembering the sent file: %v", job.ID, err)
+	}
 }
 
 // prepare produces the job's file, closing the job when it cannot be made or
@@ -145,44 +239,55 @@ func (s *Service) suspended(ctx context.Context, job *models.TelegramDelivery) s
 	return ""
 }
 
-// send uploads the file and records what Telegram's answer means. Every
+// send sends the document and records what Telegram's answer means. Every
 // attempt passes the gate first, after any wait, so an attempt never starts
-// on a lease, a binding or a book checked before the wait.
+// on a lease, a binding or a book checked before the wait. It reports a
+// cached file_id Telegram refused, leaving that job to the caller; every
+// other answer settles the job.
 func (s *Service) send(
-	ctx context.Context, client *bot.Bot, job *models.TelegramDelivery, book *models.Book, file File, h *hold, n *notifier,
-) {
+	ctx context.Context, client *bot.Bot, job *models.TelegramDelivery, book *models.Book, doc document, h *hold, n *notifier,
+) (refused bool) {
 	waited := false
 	for {
 		if wait := s.rateLimited(job.BotRef); wait > 0 && !s.waitOut(ctx, job, h, n, wait, &waited) {
-			return
+			return false
 		}
-		if !s.startSend(ctx, job, h, n, len(file.Data)) {
-			return
+		size := doc.size()
+		if !s.startSend(ctx, job, h, n, size) {
+			return false
 		}
-		params := &bot.SendDocumentParams{
-			ChatID:   job.ChatID,
-			Document: &tgbot.InputFileUpload{Filename: file.Name, Data: bytes.NewReader(file.Data)},
-			Caption:  fileCaption(book, job.Format, len(file.Data)),
+		params := &bot.SendDocumentParams{ChatID: job.ChatID, Caption: fileCaption(book, job.Format, size)}
+		name := ""
+		if doc.file != nil {
+			name = doc.file.Name
 		}
 		if s.cfg.Cards != nil && job.FromPanel() {
-			name, caption, markup := s.cfg.Cards.File(ctx, job, book, len(file.Data))
-			params.Document = &tgbot.InputFileUpload{Filename: name, Data: bytes.NewReader(file.Data)}
+			var caption string
+			var markup *tgbot.InlineKeyboardMarkup
+			name, caption, markup = s.cfg.Cards.File(ctx, job, book, size)
 			params.Caption = caption
 			if markup != nil {
 				params.ReplyMarkup = markup
 			}
 		}
+		params.Document = doc.input(name)
 		msg, err := client.SendDocument(ctx, params)
 		class, wait := tgapi.Classify(err)
 		if class == tgapi.ClassRateLimited {
 			s.shareRateLimit(job.BotRef, wait)
 			if !s.waitOut(ctx, job, h, n, wait, &waited) {
-				return
+				return false
 			}
 			continue
 		}
+		if doc.cached != nil && tgapi.FileIDRejected(err) {
+			return true
+		}
 		s.settle(ctx, job, h, n, class, msg, err)
-		return
+		if class == tgapi.ClassOK {
+			s.remember(ctx, job, doc, msg)
+		}
+		return false
 	}
 }
 

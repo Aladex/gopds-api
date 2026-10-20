@@ -273,6 +273,16 @@ func (s *Service) Enqueue(ctx context.Context, r *Request) (models.TelegramDeliv
 	return job, admission, err
 }
 
+// Cached reports whether the bot sends the book in format by a file_id it
+// has: nothing to prepare. A failed read says no — the slower word.
+func (s *Service) Cached(ctx context.Context, botRef, bookID int64, format string) bool {
+	cached, err := database.TelegramFileCached(ctx, botRef, bookID, format, ConverterRev)
+	if err != nil {
+		logging.Warnf("Delivery: reading the file cache of bot %d: %v", botRef, err)
+	}
+	return cached
+}
+
 // visible is the library's rule for handing a book out.
 func visible(b *models.Book) bool {
 	return b.Approved && !b.DuplicateHidden

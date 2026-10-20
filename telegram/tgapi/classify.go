@@ -144,6 +144,25 @@ func classifyBadRequest(msg string) Class {
 	return ClassBadRequest
 }
 
+// fileIDDescriptions are Telegram's words for a file_id it does not know for
+// this bot: one of another bot, or one it no longer keeps.
+var fileIDDescriptions = []string{"wrong file identifier", "wrong remote file identifier"}
+
+// FileIDRejected reports a send Telegram refused because of the file_id it
+// was given. Nothing was sent: the file can be uploaded instead.
+func FileIDRejected(err error) bool {
+	if err == nil || !errors.Is(err, bot.ErrorBadRequest) {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	for _, d := range fileIDDescriptions {
+		if strings.Contains(lower, d) {
+			return true
+		}
+	}
+	return false
+}
+
 // untypedAnswerCode reads the HTTP-like code from the SDK's error for an
 // answered call it does not type: "error response from telegram for method
 // sendDocument, 413 Request Entity Too Large".

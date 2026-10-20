@@ -19,6 +19,12 @@ type File struct {
 	Data []byte
 }
 
+// ConverterRev is the revision of what PrepareFile makes of a book. A bot's
+// cached file_id stands for the file of one revision: bump it whenever the
+// converters (utils.BookProcessor's FB2, ZIP, EPUB or MOBI output, or the
+// file name) change, and every bot uploads its files afresh.
+const ConverterRev = 1
+
 // PrepareFunc produces the file of book in format, reading at most limit
 // bytes: a larger file fails with ErrTooLarge, never read past the limit.
 type PrepareFunc func(ctx context.Context, book *models.Book, format string, limit int64) (File, error)

@@ -38,8 +38,11 @@ type notifier struct {
 	mu       sync.Mutex
 	statusID int64
 	stopped  bool
-	done     chan struct{}
-	once     sync.Once
+	// cached is a job sending the bot's file_id: nothing is prepared, and
+	// nothing says so.
+	cached bool
+	done   chan struct{}
+	once   sync.Once
 }
 
 // start begins the chat action and arms the status message.
@@ -61,11 +64,30 @@ func (n *notifier) start(ctx context.Context) {
 			case <-status.C:
 				// A card shows the job on its own button (plan-ui.md §1.8).
 				if n.job.Origin == models.DeliveryFromBot && !n.job.FromPanel() {
-					n.showStatus(ctx, statusPreparing(n.book, n.job.Format))
+					n.showStatus(ctx, n.statusNow())
 				}
 			}
 		}
 	}()
+}
+
+// statusNow is the status of a job still on its way: preparing, unless the
+// bot has the file already.
+func (n *notifier) statusNow() string {
+	n.mu.Lock()
+	cached := n.cached
+	n.mu.Unlock()
+	if cached {
+		return statusSending(n.book, n.job.Format)
+	}
+	return statusPreparing(n.book, n.job.Format)
+}
+
+// uncache is a job whose file_id was refused: its file is prepared now.
+func (n *notifier) uncache() {
+	n.mu.Lock()
+	n.cached = false
+	n.mu.Unlock()
 }
 
 // stop ends the chat action and the pending status message.
@@ -189,7 +211,9 @@ const (
 // ScreenText is a toast for the press that asked for a file.
 const (
 	ToastPreparing   = "Готовлю %s…"
+	ToastSending     = "Отправляю %s…"
 	ToastInProgress  = "Файл уже готовится"
+	ToastOnItsWay    = "Файл уже отправляется"
 	ToastAlreadySent = "Файл уже отправлен"
 	ToastJustEnded   = "Попробуй ещё раз через несколько секунд"
 	ToastBusyAccount = "Уже готовлю три файла. Дождись их"
@@ -197,9 +221,21 @@ const (
 	ToastUnavailable = "Эта книга больше недоступна."
 )
 
-// RepeatToast is the toast for a press that repeats the request of job.
-func RepeatToast(job *models.TelegramDelivery) string {
+// StartToast is the toast for a press that started a job: a file the bot
+// has already is not prepared, and is not said to be.
+func StartToast(format string, cached bool) string {
+	if cached {
+		return fmt.Sprintf(ToastSending, upper(format))
+	}
+	return fmt.Sprintf(ToastPreparing, upper(format))
+}
+
+// RepeatToast is the toast for a press that repeats the request of job;
+// cached is a job sending a file the bot has already.
+func RepeatToast(job *models.TelegramDelivery, cached bool) string {
 	switch {
+	case job.FinishedAt == nil && cached:
+		return ToastOnItsWay
 	case job.FinishedAt == nil:
 		return ToastInProgress
 	case job.State == models.DeliverySent:

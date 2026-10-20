@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"gopds-api/database"
 	"gopds-api/logging"
@@ -71,6 +70,17 @@ func (r *Router) paintCard(ctx context.Context, b *Bot, node *models.TelegramNod
 	for _, f := range formats {
 		preparing[f] = true
 	}
+	// A format on its way from the bot's own file is being sent, not prepared.
+	sending := map[string]bool{}
+	if len(formats) > 0 {
+		var cached []string
+		if cached, err = database.CachedTelegramFormats(ctx, b.Ref, book.ID, book.MD5, delivery.ConverterRev); err != nil {
+			return nil, err
+		}
+		for _, f := range cached {
+			sending[f] = preparing[f]
+		}
+	}
 	back := backLabel(ctx, b, node.ParentID)
 	kindle, err := kindleAddress(b)
 	if err != nil {
@@ -79,7 +89,7 @@ func (r *Router) paintCard(ctx context.Context, b *Bot, node *models.TelegramNod
 	return func(k *keys) screens.Screen {
 		card := &screens.Card{
 			Book: book, Rich: k.rich, Favorite: fav, DefaultFormat: ui.DefaultFormat,
-			Preparing: preparing, SiteURL: r.cfg.SiteURL, BackText: back, Kindle: kindle != "",
+			Preparing: preparing, Sending: sending, SiteURL: r.cfg.SiteURL, BackText: back, Kindle: kindle != "",
 		}
 		if k.rich {
 			card.Cover = r.cover(ctx, b, book)
@@ -145,11 +155,11 @@ func (r *Router) download(
 	case admission == database.BusyService:
 		return delivery.ToastBusyService, true
 	case admission == database.InProgress || admission == database.AlreadyTapped:
-		return delivery.RepeatToast(&job), true
+		return delivery.RepeatToast(&job, r.cfg.Delivery.Cached(ctx, b.Ref, job.BookID, format)), true
 	}
 	node := cardNode(b.Binding.UserID, int64(env.ViewID), int64(env.EntityID), int64(env.ReturnID)) // #nosec G115 -- decoded ids fit
 	r.show(ctx, b, panel, panel.Revision, node)
-	return fmt.Sprintf(delivery.ToastPreparing, strings.ToUpper(format)), true
+	return delivery.StartToast(format, r.cfg.Delivery.Cached(ctx, b.Ref, int64(env.EntityID), format)), true // #nosec G115 -- decoded ids fit
 }
 
 // setFavorite puts the book in or out of favorites — the state the button

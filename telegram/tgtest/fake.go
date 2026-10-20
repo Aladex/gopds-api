@@ -115,6 +115,9 @@ type FakeBotAPI struct {
 	pinned map[int64]int64
 	// webhooks is each token's webhook URL, as getWebhookInfo reports it.
 	webhooks map[string]string
+	// files are the documents' file_ids each bot was given, by token
+	// (documents.go).
+	files map[string]map[string]bool
 	// The Managed Bots side (managed.go).
 	managed
 }
@@ -350,7 +353,14 @@ func (f *FakeBotAPI) defaultReply(w http.ResponseWriter, _ *http.Request, c *Cal
 	switch strings.ToLower(c.Method) {
 	case "getme":
 		writeResult(w, f.meFor(c.Token))
-	case "sendmessage", "senddocument", "sendphoto", "copymessage", "sendrichmessage":
+	case "senddocument":
+		if !f.document(c) {
+			writeError(w, http.StatusBadRequest, "Bad Request: wrong file identifier/HTTP URL specified")
+			return
+		}
+		c.MessageID = f.newMessageID()
+		writeResult(w, messageFor(c))
+	case "sendmessage", "sendphoto", "copymessage", "sendrichmessage":
 		c.MessageID = f.newMessageID()
 		writeResult(w, messageFor(c))
 	case "editmessagetext", "editmessagecaption", "editmessagemedia", "editmessagereplymarkup":
@@ -413,14 +423,20 @@ func messageFor(c *Call) map[string]any {
 	}
 	if doc, ok := c.Files["document"]; ok {
 		msg["document"] = map[string]any{
-			"file_id":        "doc-" + doc.SHA256[:16],
+			fieldFileID:      documentFileID(c.Token, doc),
 			"file_unique_id": doc.SHA256[:16],
 			"file_name":      doc.Filename,
 			"file_size":      doc.Size,
 		}
+	} else if id, ok := c.Params["document"]; ok {
+		msg["document"] = map[string]any{fieldFileID: id, "file_unique_id": strings.TrimPrefix(id, "doc-")}
 	}
 	return msg
 }
+
+// fieldFileID is the Bot API's name of a file's id in the objects the fake
+// answers with.
+const fieldFileID = "file_id"
 
 // The fake's rich photo blocks: their type, and the size it claims.
 const (
@@ -452,7 +468,7 @@ func richMessageFor(raw string, files map[string]UploadedFile) map[string]any {
 			}
 		}
 		blocks = append(blocks, map[string]any{"type": richPhoto, richPhoto: []map[string]any{
-			{"file_id": fileID, "file_unique_id": "u" + fileID, "width": coverWidth, "height": coverHeight},
+			{fieldFileID: fileID, "file_unique_id": "u" + fileID, "width": coverWidth, "height": coverHeight},
 		}})
 	}
 	return map[string]any{"blocks": blocks}

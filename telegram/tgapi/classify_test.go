@@ -267,3 +267,33 @@ func TestClassifyAGarbagePeerAsNotSent(t *testing.T) {
 	class, _ := tgapi.Classify(err)
 	assert.Equal(t, tgapi.ClassNotSent, class, "error: %v", err)
 }
+
+// A file_id Telegram does not know for this bot is told apart from any other
+// refusal: the file is uploaded instead.
+func TestFileIDRejected(t *testing.T) {
+	cases := map[string]struct {
+		reply tgtest.Reply
+		want  bool
+	}{
+		"wrong file identifier": {tgtest.Error(http.StatusBadRequest, "Bad Request: wrong file identifier/HTTP URL specified"), true},
+		"wrong remote file identifier": {
+			tgtest.Error(http.StatusBadRequest, "Bad Request: wrong remote file identifier specified: Wrong padding length"), true},
+		"another bad request": {tgtest.Error(http.StatusBadRequest, "Bad Request: chat not found"), false},
+		"server error":        {tgtest.Error(http.StatusInternalServerError, "Internal Server Error: wrong file identifier"), false},
+		"success":             {nil, false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			fake := tgtest.NewFakeBotAPI(t)
+			if tc.reply != nil {
+				fake.On(tgtest.Rule{Method: "sendMessage", Reply: tc.reply})
+			}
+			err := call(t, tgapi.Endpoint{ServerURL: fake.URL()}, "sendMessage")
+			assert.Equal(t, tc.want, tgapi.FileIDRejected(err))
+			if tc.want {
+				class, _ := tgapi.Classify(err)
+				assert.Equal(t, tgapi.ClassBadRequest, class, "still a refusal: never uncertain")
+			}
+		})
+	}
+}
