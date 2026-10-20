@@ -40,6 +40,12 @@ export interface BotStatus {
     managed_available?: boolean;
     /** A personal bot on its way from Telegram. */
     managed?: ManagedConnection;
+    /**
+     * Whether the bound bot wears the library's avatar and descriptions:
+     * always so for a created bot, for an entered one only once its owner
+     * asked for it.
+     */
+    profile_applied?: boolean;
 }
 
 /** The codes the server answers a refused request with. */
@@ -100,3 +106,9 @@ export const cancelManaged = () => http.delete<BotStatus>('/telegram/managed');
 
 /** restoreManaged gets a personal bot a new token after Telegram rejected the old one. */
 export const restoreManaged = () => http.post<BotStatus>('/telegram/managed/restore', {});
+
+/**
+ * applyProfile gives the connected bot the library's avatar and descriptions,
+ * replacing the owner's own.
+ */
+export const applyProfile = () => http.post<BotStatus>('/telegram/profile', {});

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
+import { Check } from 'lucide-react';
 import { toast } from 'sonner';
 
 import * as telegramApi from '@/api/telegram';
@@ -11,11 +12,13 @@ import SetupVideo, {
     videoLanguage,
 } from '@/shared/components/SetupVideo';
 import { Button } from '@/shared/ui/button';
+import { Checkbox } from '@/shared/ui/checkbox';
 import { Expandable } from '@/shared/ui/expandable';
 import { Input } from '@/shared/ui/input';
 
 export const TELEGRAM_TOKEN_FIELD_ID = 'profile-bot-token';
 export const TELEGRAM_CLAIM_FIELD_ID = 'profile-bot-claim';
+export const TELEGRAM_PROFILE_FIELD_ID = 'profile-bot-look';
 
 /** The outline-and-red look the profile gives its irreversible buttons. */
 const DANGER_OUTLINE =
@@ -240,6 +243,9 @@ const TelegramSettings: React.FC<TelegramSettingsProps> = ({ status, onStatus })
         return () => window.clearTimeout(timer);
     }, [link, expiresAt]);
     const disconnectRef = useRef<HTMLButtonElement>(null);
+    // The bot whose owner ticked «give it the library's look». The tick
+    // belongs to that bot: another bot connected meanwhile starts unticked.
+    const [lookFor, setLookFor] = useState<string | null>(null);
 
     const apply = useCallback(
         (next: BotStatus) => {
@@ -354,6 +360,27 @@ const TelegramSettings: React.FC<TelegramSettingsProps> = ({ status, onStatus })
             apply(await telegramApi.newLink());
         } catch (error) {
             fail(error);
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    // applyLook replaces the bot's own avatar and descriptions with the
+    // library's. It is asked for only by a tick and a press, and every press
+    // needs a fresh tick.
+    const applyLook = async () => {
+        setBusy(true);
+        try {
+            apply(await telegramApi.applyProfile());
+            setLookFor(null);
+            toast.success(t('telegram.profile.done'));
+        } catch (error) {
+            const code = telegramApi.telegramErrorCode(error);
+            // The shared copy for this code asks for a token, which is not
+            // what went wrong here: the bot is gone from under the page.
+            toast.error(
+                t(code === 'no_pending_bot' ? 'telegram.profile.noBot' : `telegram.error.${code}`),
+            );
         } finally {
             setBusy(false);
         }
@@ -650,6 +677,56 @@ const TelegramSettings: React.FC<TelegramSettingsProps> = ({ status, onStatus })
 
     const botLink = status.bot_username ? `https://t.me/${status.bot_username}` : undefined;
 
+    // The library's look for a bot entered by its token. A created bot gets it
+    // at creation, so it has nothing to offer here. Not while the bot is being
+    // changed either: the look would go to the bot being left.
+    const offerLook =
+        state === 'connected' && status.bot_kind === 'manual' && !entering && !pending;
+    const lookTicked = lookFor !== null && lookFor === (status.bot_username ?? '');
+    const look = offerLook && (
+        <div data-testid="telegram-profile" className="flex flex-col gap-2">
+            {status.profile_applied && (
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Check className="size-3.5 shrink-0 text-primary" aria-hidden />
+                    {t('telegram.profile.applied')}
+                </p>
+            )}
+            <div className="flex items-start gap-2">
+                <Checkbox
+                    id={TELEGRAM_PROFILE_FIELD_ID}
+                    className="mt-0.5"
+                    disabled={busy}
+                    checked={lookTicked}
+                    aria-describedby={`${TELEGRAM_PROFILE_FIELD_ID}-hint`}
+                    onCheckedChange={(checked) =>
+                        setLookFor(checked === true ? (status.bot_username ?? '') : null)
+                    }
+                />
+                <div className="flex flex-col gap-0.5">
+                    <label htmlFor={TELEGRAM_PROFILE_FIELD_ID} className="text-sm font-medium">
+                        {t('telegram.profile.label')}
+                    </label>
+                    <p
+                        id={`${TELEGRAM_PROFILE_FIELD_ID}-hint`}
+                        className="text-xs text-muted-foreground"
+                    >
+                        {t('telegram.profile.hint')}
+                    </p>
+                </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+                <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy || !lookTicked}
+                    onClick={applyLook}
+                >
+                    {t('telegram.profile.apply')}
+                </Button>
+            </div>
+        </div>
+    );
+
     return (
         <div className="flex flex-col gap-4">
             {state === 'none' &&
@@ -736,6 +813,8 @@ const TelegramSettings: React.FC<TelegramSettingsProps> = ({ status, onStatus })
                     {!entering && pending && ready(pending, true)}
                 </div>
             )}
+
+            {look}
 
             <ResponsiveSheet
                 data-testid="telegram-disconnect"
