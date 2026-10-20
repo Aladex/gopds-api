@@ -321,22 +321,28 @@ func FinishTelegramDelivery(ctx context.Context, l DeliveryLease, state, outcome
 
 // MarkTelegramDeliverySent records Telegram's confirmation. It holds even when
 // the job was meanwhile closed uncertain — the confirmation is the truth — but
-// never for a job some other holder runs now.
+// never for a job some other holder runs now. The book goes to the top of
+// the account's recent sends (P1-3) in the same transaction.
 func MarkTelegramDeliverySent(ctx context.Context, l DeliveryLease, tgMessageID int64) error {
-	res, err := db.ExecContext(ctx, `
-		UPDATE telegram_delivery
-		SET state = 'sent', outcome = 'sent', tg_message_id = ?, lease_owner = NULL, lease_expires_at = NULL,
-		    finished_at = now()
-		WHERE id = ? AND (
-			(state = 'sending' AND lease_owner = ? AND fence = ?)
-			OR (state = 'uncertain' AND fence = ? + 1))`, tgMessageID, l.ID, l.Owner, l.Fence, l.Fence)
-	if err != nil {
-		return err
-	}
-	if res.RowsAffected() != 1 {
-		return ErrDeliveryLeaseLost
-	}
-	return nil
+	return db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		var userID, bookID int64
+		var format string
+		_, err := tx.QueryOneContext(ctx, pg.Scan(&userID, &bookID, &format), `
+			UPDATE telegram_delivery
+			SET state = 'sent', outcome = 'sent', tg_message_id = ?, lease_owner = NULL, lease_expires_at = NULL,
+			    finished_at = now()
+			WHERE id = ? AND (
+				(state = 'sending' AND lease_owner = ? AND fence = ?)
+				OR (state = 'uncertain' AND fence = ? + 1))
+			RETURNING user_id, book_id, format`, tgMessageID, l.ID, l.Owner, l.Fence, l.Fence)
+		if errors.Is(err, pg.ErrNoRows) {
+			return ErrDeliveryLeaseLost
+		}
+		if err != nil {
+			return err
+		}
+		return recordRecentInTx(ctx, tx, userID, bookID, format)
+	})
 }
 
 // SetTelegramDeliveryStatusMessage remembers the job's status message.

@@ -136,6 +136,8 @@ const (
 const (
 	DeliveryFromBot  = "bot"
 	DeliveryFromSite = "site"
+	// DeliveryFromRecent is «Отправить» on the recent sends.
+	DeliveryFromRecent = "recent"
 )
 
 // TelegramDelivery is one request to send a book file into a bound chat.
@@ -324,4 +326,20 @@ type TelegramFileCache struct {
 	FileUniqueID string    `json:"-" pg:",use_zero"`
 	Bytes        int64     `pg:",use_zero"`
 	CreatedAt    time.Time `pg:"default:now()"`
+}
+
+// TelegramRecent is a book Telegram confirmed it delivered to an account's
+// chat: its last format, and when (plan.md P1-3).
+type TelegramRecent struct {
+	tableName struct{} `pg:"telegram_recent"`
+	UserID    int64    `pg:",pk"`
+	BookID    int64    `pg:",pk"`
+	Format    string
+	SentAt    time.Time
+}
+
+// FromChat is a job asked for in the chat — from a card, an old button or
+// the recent sends — rather than from the site: the chat hears how it went.
+func (d *TelegramDelivery) FromChat() bool {
+	return d.Origin == DeliveryFromBot || d.Origin == DeliveryFromRecent
 }

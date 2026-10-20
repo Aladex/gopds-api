@@ -114,6 +114,7 @@ func (r *Router) paintHome(linked, inline bool) render {
 	return func(k *keys) screens.Screen {
 		return screens.HomeScreen(linked, inline, &screens.HomeKeys{
 			Favorites:   k.env(cbv2.Envelope{Op: cbv2.OpFavorites}),
+			Recent:      k.env(cbv2.Envelope{Op: cbv2.OpRecent}),
 			Collections: k.env(cbv2.Envelope{Op: cbv2.OpCollections}),
 			Settings:    k.env(cbv2.Envelope{Op: cbv2.OpSettings}),
 		})

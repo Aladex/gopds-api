@@ -374,6 +374,10 @@ func (s *Service) sweep(ctx context.Context) {
 			if err := database.PruneTelegramDeliveries(ctx, s.cfg.Retention); err != nil && ctx.Err() == nil {
 				logging.Warnf("Delivery: pruning: %v", err)
 			}
+			// The recent sends keep their last 50 books within 90 days.
+			if err := database.PruneTelegramRecent(ctx); err != nil && ctx.Err() == nil {
+				logging.Warnf("Delivery: pruning the recent sends: %v", err)
+			}
 			lastPrune = time.Now()
 		}
 		select {

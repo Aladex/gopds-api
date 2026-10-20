@@ -54,12 +54,12 @@ func TestTheLanguagePagerPages(t *testing.T) {
 
 // Settings name their values; «Поддержать проект» only with donation methods.
 func TestSettingsShowTheirValues(t *testing.T) {
-	k := &SettingsKeys{Format: env(), Language: env(), Style: env(), Inline: env(), Home: env()}
-	s := SettingsScreen("fb2", "", true, false, "", k)
+	k := &SettingsKeys{Format: env(), Language: env(), Style: env(), Inline: env(), Recent: env(), Home: env()}
+	s := SettingsScreen("fb2", "", true, false, true, "", k)
 	plain := s.Doc.Plain()
 	for _, want := range []string{
 		"Основной формат: FB2", "Язык поиска: все языки", "Вид карточек: простой", "Подсказки при поиске: выключены",
-		"Kindle: не настроен",
+		"Kindle: не настроен", "Недавние отправки: сохранять",
 	} {
 		assert.Contains(t, plain, want)
 	}
@@ -67,8 +67,10 @@ func TestSettingsShowTheirValues(t *testing.T) {
 		assert.NotContains(t, row, ButtonDonate)
 	}
 	k.Donate = env()
-	s = SettingsScreen("epub", "ru", false, true, "reader@kindle.com", k)
+	s = SettingsScreen("epub", "ru", false, true, false, "reader@kindle.com", k)
 	assert.Contains(t, s.Doc.Plain(), "Подсказки при поиске: включены")
+	assert.Contains(t, s.Doc.Plain(), "Недавние отправки: не сохранять")
+	assert.Contains(t, texts(&s), []string{ButtonRecent})
 	assert.Contains(t, s.Doc.Plain(), "Язык поиска: русский")
 	assert.Contains(t, texts(&s), []string{ButtonDonate})
 }
@@ -108,9 +110,9 @@ func TestTheInlineScreenFollowsTheMode(t *testing.T) {
 
 // The home offers inline search first, only while it is on.
 func TestTheHomeOffersInlineSearchWhenOn(t *testing.T) {
-	k := &HomeKeys{Favorites: env(), Collections: env(), Settings: env()}
+	k := &HomeKeys{Favorites: env(), Recent: env(), Collections: env(), Settings: env()}
 	off := HomeScreen(false, false, k)
-	assert.Equal(t, []string{ButtonFavorites, ButtonCollections}, texts(&off)[0])
+	assert.Equal(t, [][]string{{ButtonFavorites, ButtonRecent}, {ButtonCollections, ButtonSettings}}, texts(&off))
 	on := HomeScreen(false, true, k)
 	require.True(t, on.Keys[0][0].SwitchInline)
 	assert.Equal(t, ButtonInlineSearch, on.Keys[0][0].Text)

@@ -56,7 +56,7 @@ const ButtonInlineSearch = "🔍 Найти с подсказками"
 
 // HomeKeys are the home panel's envelopes.
 type HomeKeys struct {
-	Favorites, Collections, Settings *cbv2.Envelope
+	Favorites, Recent, Collections, Settings *cbv2.Envelope
 }
 
 // HomeScreen is the pinned home panel with its sections; linked greets a
@@ -72,8 +72,8 @@ func HomeScreen(linked, inline bool, k *HomeKeys) Screen {
 		keys = append(keys, []Button{{Text: ButtonInlineSearch, SwitchInline: true}})
 	}
 	return Screen{Doc: Doc{Blocks: blocks}, Keys: append(keys,
-		[]Button{{Text: ButtonFavorites, Env: k.Favorites}, {Text: ButtonCollections, Env: k.Collections}},
-		[]Button{{Text: ButtonSettings, Env: k.Settings}},
+		[]Button{{Text: ButtonFavorites, Env: k.Favorites}, {Text: ButtonRecent, Env: k.Recent}},
+		[]Button{{Text: ButtonCollections, Env: k.Collections}, {Text: ButtonSettings, Env: k.Settings}},
 	)}
 }
 

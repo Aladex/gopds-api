@@ -77,6 +77,13 @@ const (
 	// confirmation's «Отправить».
 	OpKindle
 	OpKindleSend
+	// The recent sends (P1-3): the list and its pages, a send again (the
+	// book in EntityID, the format in Arg), keeping on or off (Arg 1 or 0),
+	// and the confirmed clearing.
+	OpRecent
+	OpResend
+	OpSetKeepRecent
+	OpClearRecent
 	opEnd
 )
 

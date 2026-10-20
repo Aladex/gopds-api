@@ -63,7 +63,7 @@ func (n *notifier) start(ctx context.Context) {
 				n.chatAction(ctx)
 			case <-status.C:
 				// A card shows the job on its own button (plan-ui.md §1.8).
-				if n.job.Origin == models.DeliveryFromBot && !n.job.FromPanel() {
+				if n.job.FromChat() && !n.job.FromPanel() {
 					n.showStatus(ctx, n.statusNow())
 				}
 			}
@@ -139,7 +139,7 @@ func (n *notifier) sending(ctx context.Context) {
 
 // waiting tells the reader Telegram asked for a pause.
 func (n *notifier) waiting(ctx context.Context) {
-	if n.job.Origin == models.DeliveryFromBot {
+	if n.job.FromChat() {
 		n.showStatus(ctx, copyRateLimited)
 	}
 }
@@ -166,7 +166,7 @@ func (n *notifier) finish(ctx context.Context, outcome string, _ int) {
 		n.stop()
 	}
 	text, markup := outcomeScreen(n.s.cfg.SiteURL, n.book, n.job.Format, outcome)
-	if text == "" || n.job.Origin != models.DeliveryFromBot {
+	if text == "" || !n.job.FromChat() {
 		return
 	}
 	n.mu.Lock()

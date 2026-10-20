@@ -21,6 +21,8 @@ const (
 	sectionCardStyle
 	sectionInline
 	sectionDonate
+	sectionRecent
+	sectionClearRecent
 )
 
 // sectionScreens are the settings' screens by section.
@@ -30,6 +32,9 @@ var sectionScreens = map[uint8]Screen{
 	sectionCardStyle: ScrCardStyle,
 	sectionInline:    ScrInline,
 	sectionDonate:    ScrDonate,
+	// The recent sends' settings, and the clearing's confirmation.
+	sectionRecent:      ScrRecentSettings,
+	sectionClearRecent: ScrClearRecent,
 }
 
 // openSettings moves a panel to a settings screen.
@@ -88,12 +93,27 @@ func (r *Router) settingsPainter(ctx context.Context, b *Bot, node *models.Teleg
 			})
 		case ScrDonate:
 			return screens.DonateScreen(r.cfg.Donate, back)
+		case ScrRecentSettings:
+			return screens.RecentSettingsScreen(ui.KeepRecent, &screens.RecentSettingsKeys{
+				Keep: func(keep bool) *cbv2.Envelope {
+					arg := uint8(0)
+					if keep {
+						arg = 1
+					}
+					return k.env(cbv2.Envelope{Op: cbv2.OpSetKeepRecent, Arg: arg, ReturnID: parent})
+				},
+				Clear: section(sectionClearRecent),
+				Back:  back,
+			})
+		case ScrClearRecent:
+			return screens.ClearRecentScreen(k.env(cbv2.Envelope{Op: cbv2.OpClearRecent, ReturnID: parent}), back)
 		}
 		sk := &screens.SettingsKeys{
 			Format:   section(sectionFormat),
 			Language: k.env(cbv2.Envelope{Op: cbv2.OpLanguagePicker, ReturnID: self}),
 			Style:    section(sectionCardStyle),
 			Inline:   section(sectionInline),
+			Recent:   section(sectionRecent),
 			Home:     k.home(),
 			// The address is set on the site, where it is checked.
 			KindleURL: r.kindleSetupURL(),
@@ -101,7 +121,7 @@ func (r *Router) settingsPainter(ctx context.Context, b *Bot, node *models.Teleg
 		if len(r.cfg.Donate) > 0 {
 			sk.Donate = section(sectionDonate)
 		}
-		return screens.SettingsScreen(ui.DefaultFormat, ui.SearchLang, plain, inline, kindle, sk)
+		return screens.SettingsScreen(ui.DefaultFormat, ui.SearchLang, plain, inline, ui.KeepRecent, kindle, sk)
 	}, "", true
 }
 

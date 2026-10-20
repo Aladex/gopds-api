@@ -35,6 +35,11 @@ const (
 	// is the send's progress or outcome, its page naming which (P1-8).
 	ScrKindleConfirm
 	ScrKindleStatus
+	// ScrRecent is S-RECENT, its page in the node; ScrRecentSettings and
+	// ScrClearRecent its settings and the clearing's confirmation (P1-3).
+	ScrRecent
+	ScrRecentSettings
+	ScrClearRecent
 )
 
 // More view kinds (plan.md §2.4).
@@ -86,8 +91,10 @@ func (r *Router) painter(ctx context.Context, b *Bot, node *models.TelegramNode)
 		return r.bookAuthorsPainter(ctx, node)
 	case ScrLanguage, ScrDefaultLanguage:
 		return r.languagePainter(ctx, b, node)
-	case ScrSettings, ScrFormat, ScrCardStyle, ScrInline, ScrDonate:
+	case ScrSettings, ScrFormat, ScrCardStyle, ScrInline, ScrDonate, ScrRecentSettings, ScrClearRecent:
 		return r.settingsPainter(ctx, b, node)
+	case ScrRecent:
+		return r.recentPainter(ctx, b, node)
 	case ScrKindleConfirm:
 		return r.kindleConfirmPainter(ctx, b, node)
 	case ScrKindleStatus:
@@ -175,6 +182,8 @@ func backLabel(ctx context.Context, b *Bot, parentID int64) string {
 		return screens.ButtonToAuthors
 	case ScrSettings:
 		return screens.ButtonToSettings
+	case ScrRecent:
+		return screens.ButtonToRecent
 	}
 	return screens.ButtonBack
 }

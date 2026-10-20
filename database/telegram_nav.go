@@ -151,6 +151,8 @@ type TelegramUserUI struct {
 	// SearchLang is the search language: the bot setting, else the site
 	// profile's books language, else "" for all languages.
 	SearchLang string
+	// KeepRecent is «Сохранять» for the recent sends (P1-3).
+	KeepRecent bool
 }
 
 // GetTelegramUserUI reads the account's preferences, with their defaults.
@@ -158,8 +160,8 @@ func GetTelegramUserUI(ctx context.Context, userID int64) (TelegramUserUI, error
 	ui := TelegramUserUI{DefaultFormat: defaultTelegramFormat, CardStyle: models.TelegramPanelRich}
 	var format, style, lang *string
 	var booksLang string
-	_, err := db.QueryOneContext(ctx, pg.Scan(&format, &style, &lang, &booksLang), `
-		SELECT s.default_format, s.card_style, s.search_lang, COALESCE(u.books_lang, '')
+	_, err := db.QueryOneContext(ctx, pg.Scan(&format, &style, &lang, &booksLang, &ui.KeepRecent), `
+		SELECT s.default_format, s.card_style, s.search_lang, COALESCE(u.books_lang, ''), COALESCE(s.keep_recent, true)
 		FROM auth_user u LEFT JOIN telegram_user_settings s ON s.user_id = u.id
 		WHERE u.id = ?`, userID)
 	if err != nil {

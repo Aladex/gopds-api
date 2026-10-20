@@ -132,6 +132,15 @@ func (r *Router) act(ctx context.Context, b *Bot, panel *models.TelegramPanel, e
 		return show(&models.TelegramNode{UserID: userID, Screen: int16(ScrKindleConfirm), EntityID: entity, ParentID: parent})
 	case cbv2.OpKindleSend:
 		return r.sendKindle(ctx, b, panel, env)
+	case cbv2.OpRecent:
+		page := int32(env.Page) // #nosec G115 -- pages are small
+		return show(&models.TelegramNode{UserID: userID, Screen: int16(ScrRecent), Page: page, ParentID: parent})
+	case cbv2.OpResend:
+		return r.resend(ctx, b, panel, env)
+	case cbv2.OpSetKeepRecent:
+		return r.setKeepRecent(ctx, b, panel, env)
+	case cbv2.OpClearRecent:
+		return r.clearRecent(ctx, b, panel, parent)
 	}
 	return screens.CopyUnsupported
 }
