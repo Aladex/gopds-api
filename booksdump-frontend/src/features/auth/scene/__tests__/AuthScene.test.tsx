@@ -22,7 +22,7 @@ function sceneResolvesAtOnce() {
         live++;
         const dispose = vi.fn(() => void live--);
         disposals.push(dispose);
-        return { dispose, setTorn };
+        return { dispose, setTorn, hold: vi.fn(), stats: vi.fn() };
     });
 }
 
@@ -40,10 +40,12 @@ function withWebGL(available: boolean) {
     }
 }
 
-function mediaQueries(reducedMotion: boolean) {
+function mediaQueries(reducedMotion: boolean, coarsePointer = false) {
     window.matchMedia = (query: string) =>
         ({
-            matches: query.includes('prefers-reduced-motion') && reducedMotion,
+            matches:
+                (query.includes('prefers-reduced-motion') && reducedMotion) ||
+                (query === '(pointer: coarse)' && coarsePointer),
             media: query,
             addEventListener: () => {},
             removeEventListener: () => {},
@@ -184,7 +186,7 @@ describe('AuthScene with WebGL', () => {
                     live++;
                     const dispose = vi.fn(() => void live--);
                     disposals.push(dispose);
-                    resolve = () => done({ dispose, setTorn });
+                    resolve = () => done({ dispose, setTorn, hold: vi.fn(), stats: vi.fn() });
                     void o;
                 }),
         );
@@ -225,6 +227,52 @@ describe('AuthScene with WebGL', () => {
         await waitFor(() => expect(live).toBe(1));
     });
 
+    it('does not rebuild when the on-screen keyboard shrinks a phone’s viewport', async () => {
+        // A touch device, the reader in the login field: the keyboard is up.
+        mediaQueries(false, true);
+        act(() => viewport(390, 844));
+        const field = document.body.appendChild(document.createElement('input'));
+        render(<AuthScene onGolden={vi.fn()} />);
+        await waitFor(() => expect(live).toBe(1));
+        field.focus();
+
+        // Firefox for Android shrinks the layout viewport for the keyboard:
+        // read naively, 390 × 420 is a desktop and the room was rebuilt.
+        const settle = () => act(() => new Promise((r) => setTimeout(r, 50)));
+        act(() => viewport(390, 420));
+        await settle();
+        act(() => viewport(390, 844));
+        await settle();
+
+        expect(create).toHaveBeenCalledTimes(1);
+        expect((create.mock.calls[0][0] as SceneOptions).phone).toBe(true);
+        field.remove();
+    });
+
+    it('follows a desktop window made taller and back: phone, then desktop again', async () => {
+        // The reviewer's round trip, with a text field focused as it would be
+        // on the sign-in screen: on a desktop that says nothing about a keyboard.
+        act(() => viewport(600, 600));
+        const field = document.body.appendChild(document.createElement('input'));
+        field.focus();
+        render(<AuthScene onGolden={vi.fn()} />);
+        await waitFor(() => expect(live).toBe(1));
+        const settle = () => act(() => new Promise((r) => setTimeout(r, 50)));
+
+        act(() => viewport(600, 1000));
+        await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+        act(() => viewport(600, 600));
+        await waitFor(() => expect(create).toHaveBeenCalledTimes(3));
+        await settle();
+
+        expect(create.mock.calls.map((c) => (c[0] as SceneOptions).phone)).toEqual([
+            false,
+            true,
+            false,
+        ]);
+        field.remove();
+    });
+
     it('does not rebuild for a resize that keeps the orientation', async () => {
         render(<AuthScene onGolden={vi.fn()} />);
         await waitFor(() => expect(live).toBe(1));
@@ -252,5 +300,13 @@ describe('AuthScene with WebGL', () => {
         (create.mock.calls[0][0] as SceneOptions).onGolden();
 
         expect(onGolden).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('AuthScene as the room host’s child', () => {
+    it('is memoised, so the host re-rendering on every navigation leaves it alone', () => {
+        expect((AuthScene as unknown as { $$typeof: symbol }).$$typeof).toBe(
+            Symbol.for('react.memo'),
+        );
     });
 });

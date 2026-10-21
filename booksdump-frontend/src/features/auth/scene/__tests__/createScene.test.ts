@@ -1,6 +1,7 @@
 import { Matrix4, type BufferGeometry } from 'three';
 
 import { blockHeight } from '@/features/auth/scene/book';
+import { LEVELS, LOWEST_MOVING, STILL, startLevel } from '@/features/auth/scene/quality';
 
 import createScene, {
     CONTEXT_ATTRIBUTES,
@@ -21,7 +22,17 @@ import createScene, {
 const reg = vi.hoisted(() => ({
     created: [] as object[],
     released: new Set<object>(),
-    renderers: [] as { params: Record<string, unknown>; dispose: () => void }[],
+    renderers: [] as {
+        params: Record<string, unknown>;
+        dispose: () => void;
+        pixelRatio: number;
+        sizes: number;
+        shadowMap: { autoUpdate: boolean; needsUpdate: boolean };
+        compiled: number;
+        uploaded: number;
+    }[],
+    /** The scale each page canvas was asked for. */
+    pageScales: [] as number[],
     order: [] as string[],
     /** Runs on every composer render; a test can make it throw or look around. */
     onRender: null as null | (() => void),
@@ -50,7 +61,9 @@ vi.mock('three', async (importOriginal) => {
     class FakeRenderer {
         params: Record<string, unknown>;
         capabilities = { getMaxAnisotropy: () => 8 };
-        shadowMap = { enabled: false, type: 0 };
+        shadowMap = { enabled: false, type: 0, autoUpdate: true, needsUpdate: false };
+        pixelRatio = 1;
+        sizes = 0;
         outputColorSpace = '';
         toneMapping = 0;
         toneMappingExposure = 1;
@@ -58,11 +71,29 @@ vi.mock('three', async (importOriginal) => {
             this.params = params;
             reg.renderers.push(this);
         }
-        setPixelRatio() {}
-        getPixelRatio() {
-            return 1;
+        setPixelRatio(r: number) {
+            this.pixelRatio = r;
         }
-        setSize() {}
+        getPixelRatio() {
+            return this.pixelRatio;
+        }
+        setSize(w: number, h: number) {
+            this.sizes++;
+            reg.order.push('size');
+            const canvas = this.params.canvas as HTMLCanvasElement;
+            canvas.width = Math.floor(w * this.pixelRatio);
+            canvas.height = Math.floor(h * this.pixelRatio);
+        }
+        compiled = 0;
+        uploaded = 0;
+        compileAsync() {
+            this.compiled++;
+            return Promise.resolve();
+        }
+        initTexture() {
+            this.uploaded++;
+            reg.order.push('upload');
+        }
         dispose() {
             reg.order.push('renderer');
             reg.released.add(this);
@@ -141,11 +172,22 @@ vi.mock('three/examples/jsm/postprocessing/EffectComposer.js', () => ({
 vi.mock('three/examples/jsm/postprocessing/RenderPass.js', () => ({ RenderPass: fakePass }));
 vi.mock('three/examples/jsm/postprocessing/ShaderPass.js', () => ({ ShaderPass: fakePass }));
 vi.mock('three/examples/jsm/postprocessing/OutputPass.js', () => ({ OutputPass: fakePass }));
-vi.mock('three/examples/jsm/postprocessing/BokehPass.js', () => ({ BokehPass: fakePass }));
-vi.mock('three/examples/jsm/postprocessing/UnrealBloomPass.js', () => ({
-    UnrealBloomPass: fakePass,
+// The passes the quality ladder switches carry a name, to find them by.
+vi.mock('three/examples/jsm/postprocessing/BokehPass.js', () => ({
+    BokehPass: class extends fakePass {
+        kind = 'bokeh';
+    },
 }));
-vi.mock('three/examples/jsm/postprocessing/GTAOPass.js', () => ({ GTAOPass: fakePass }));
+vi.mock('three/examples/jsm/postprocessing/UnrealBloomPass.js', () => ({
+    UnrealBloomPass: class extends fakePass {
+        kind = 'bloom';
+    },
+}));
+vi.mock('three/examples/jsm/postprocessing/GTAOPass.js', () => ({
+    GTAOPass: class extends fakePass {
+        kind = 'gtao';
+    },
+}));
 vi.mock('three/examples/jsm/loaders/RGBELoader.js', async () => {
     const { DataTexture } = await vi.importActual<typeof import('three')>('three');
     return {
@@ -164,8 +206,10 @@ vi.mock('@/features/auth/scene/textures', async (importOriginal) => {
     const blank = () => document.createElement('canvas');
     return {
         ...real,
-        paperCanvas: () => {
+        paperCanvas: (...args: unknown[]) => {
             reg.onPaper?.();
+            reg.order.push('page');
+            reg.pageScales.push((args[6] as number | undefined) ?? 1);
             return blank();
         },
         edgeCanvas: blank,
@@ -175,7 +219,40 @@ vi.mock('@/features/auth/scene/textures', async (importOriginal) => {
 
 const lose = vi.fn(() => reg.order.push('context'));
 const gl = {
-    getExtension: (name: string) => (name === 'WEBGL_lose_context' ? { loseContext: lose } : null),
+    getExtension: (name: string) =>
+        name === 'WEBGL_lose_context'
+            ? { loseContext: lose }
+            : name === 'WEBGL_debug_renderer_info'
+              ? { UNMASKED_RENDERER_WEBGL: 0x9246 }
+              : null,
+    getParameter: (p: number) => (p === 0x9246 ? 'Fake GPU 9000' : 'masked'),
+    // Fences: the GPU is done with a frame when the test says so.
+    SYNC_GPU_COMMANDS_COMPLETE: 0x9117,
+    SYNC_STATUS: 0x9114,
+    SIGNALED: 0x9119,
+    UNSIGNALED: 0x9118,
+    gpuBusy: false,
+    fences: 0,
+    /** The context is gone: fences are invalid and their status reads null. */
+    lost: false,
+    /** A context without fences: fenceSync gives nothing back. */
+    noFences: false,
+    isContextLost() {
+        return gl.lost;
+    },
+    /** Fences made before this generation are no longer fences. */
+    generation: 0,
+    fenceSync() {
+        if (gl.noFences || gl.lost) return null;
+        gl.fences++;
+        return { generation: gl.generation };
+    },
+    getSyncParameter(fence: { generation: number }) {
+        if (gl.lost || fence.generation !== gl.generation) return null;
+        return gl.gpuBusy ? gl.UNSIGNALED : gl.SIGNALED;
+    },
+    deleteSync() {},
+    flush() {},
 };
 
 /** Frames requested and not yet run or cancelled. */
@@ -207,8 +284,13 @@ beforeEach(() => {
     reg.onRender = null;
     reg.onPaper = null;
     reg.meshes.length = 0;
+    reg.pageScales.length = 0;
     reg.renders = 0;
     lose.mockClear();
+    gl.gpuBusy = false;
+    gl.lost = false;
+    gl.noFences = false;
+    gl.generation = 0;
     frames.clear();
 
     vi.stubGlobal(
@@ -307,7 +389,10 @@ describe('createScene: a finished scene', () => {
 
         expect(leaked()).toEqual([]);
         expect(lose).toHaveBeenCalledTimes(1);
-        expect(reg.order).toEqual(['renderer', 'context']);
+        expect(reg.order.filter((x) => x === 'renderer' || x === 'context')).toEqual([
+            'renderer',
+            'context',
+        ]);
         expect(frames.size).toBe(0);
         expect(listenersLeft()).toEqual([]);
     });
@@ -505,5 +590,429 @@ describe('createScene: tearing and mending the live book', () => {
         scene.setTorn(true);
 
         expect(reg.created).toHaveLength(made);
+    });
+});
+
+describe('createScene: fitting the device', () => {
+    /** Run every frame scheduled now, at time `now`. */
+    const tick = (now: number) => {
+        const due = [...frames.values()];
+        frames.clear();
+        due.forEach((cb) => cb(now));
+    };
+    const pass = (kind: string) =>
+        reg.created.find((x) => (x as { kind?: string }).kind === kind) as
+            { enabled?: boolean } | undefined;
+
+    it('keeps the full room on a device that holds sixty frames a second', async () => {
+        const scene = await createScene(options());
+        for (let i = 1; i <= 600; i++) tick(i * (1000 / 60));
+
+        expect(scene.stats().level).toBe('full');
+        expect(pass('gtao')?.enabled).not.toBe(false);
+        expect(pass('bloom')?.enabled).not.toBe(false);
+        scene.dispose();
+    });
+
+    it('steps down a slow device level by level and ends on a still frame', async () => {
+        const levels: number[] = [];
+        const scene = await createScene(options({ quality: { onChange: (l) => levels.push(l) } }));
+        let now = 0;
+        for (let i = 0; i < 20 && frames.size > 0; i++) tick((now += 3000));
+
+        expect(scene.stats().level).toBe('still');
+        // The room went through cheaper levels on the way down…
+        expect(levels.at(-1)).toBe(STILL);
+        expect(pass('gtao')?.enabled).toBe(false);
+        expect(pass('bokeh')?.enabled).toBe(false);
+        expect(pass('bloom')?.enabled).toBe(false);
+        expect(reg.renderers[0].pixelRatio).toBeLessThanOrEqual(0.75);
+        // …and stopped asking for frames: the last one stays on screen.
+        expect(frames.size).toBe(0);
+        scene.dispose();
+        expect(leaked()).toEqual([]);
+    });
+
+    it('starts where the last room in this tab settled', async () => {
+        const scene = await createScene(options({ quality: { start: STILL } }));
+
+        expect(scene.stats().level).toBe('still');
+        // A still room draws once and asks for nothing more.
+        expect(reg.renders).toBe(1);
+        expect(frames.size).toBe(0);
+        scene.dispose();
+    });
+
+    it('never starts a phone above its own composition’s level', async () => {
+        const scene = await createScene(options({ phone: true, quality: { start: 0 } }));
+
+        expect(scene.stats().level).toBe(LEVELS[startLevel(true)].name);
+        scene.dispose();
+    });
+
+    it('refreshes shadows less often on the lower levels', async () => {
+        const full = await createScene(options({ quality: { start: 0 } }));
+        expect(reg.renderers[0].shadowMap.autoUpdate).toBe(true);
+        full.dispose();
+
+        const low = await createScene(options({ quality: { start: LOWEST_MOVING } }));
+        const shadowMap = reg.renderers[1].shadowMap;
+        expect(shadowMap.autoUpdate).toBe(false);
+        let updates = 0;
+        for (let i = 1; i <= 30; i++) {
+            shadowMap.needsUpdate = false;
+            tick(i * (1000 / 60));
+            if (shadowMap.needsUpdate) updates++;
+        }
+        expect(updates).toBeGreaterThan(5);
+        expect(updates).toBeLessThan(20);
+        low.dispose();
+    });
+
+    it('draws nothing for the frames after a hold, then carries on', async () => {
+        const scene = await createScene(options());
+        tick(16);
+        const before = reg.renders;
+
+        scene.hold();
+        tick(33);
+        tick(50);
+        expect(reg.renders).toBe(before);
+
+        tick(67);
+        expect(reg.renders).toBe(before + 1);
+        scene.dispose();
+    });
+
+    it('typesets smaller pages on a phone', async () => {
+        (await createScene(options({ phone: true }))).dispose();
+        expect(reg.pageScales.length).toBeGreaterThan(10);
+        expect(new Set(reg.pageScales)).toEqual(new Set([0.5]));
+
+        reg.pageScales.length = 0;
+        (await createScene(options())).dispose();
+        expect(new Set(reg.pageScales)).toEqual(new Set([1]));
+    });
+
+    it('lets the page breathe while it typesets: other tasks run before the room is ready', async () => {
+        let ranBeforeReady: boolean | null = null;
+        let ran = false;
+        const pending = createScene(options());
+        setTimeout(() => (ran = true), 0);
+        const scene = await pending.then((s) => {
+            ranBeforeReady = ran;
+            return s;
+        });
+
+        expect(ranBeforeReady).toBe(true);
+        scene.dispose();
+    });
+
+    it('reports what the debug overlay shows', async () => {
+        const scene = await createScene(options());
+        tick(16);
+        tick(33);
+
+        const stats = scene.stats();
+        expect(LEVELS.map((l) => l.name)).toContain(stats.level);
+        expect(stats.renderer).toBe('Fake GPU 9000');
+        expect(stats.layout).toBe('desktop');
+        expect(stats.buildMs).toBeGreaterThanOrEqual(0);
+        expect(stats.pixelRatio).toBeGreaterThan(0);
+        expect(stats.fps).toBeGreaterThan(0);
+        scene.dispose();
+    });
+});
+
+describe('createScene: the viewport changing under it', () => {
+    const resize = (width: number, height: number) => {
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+        Object.defineProperty(window, 'innerHeight', { configurable: true, value: height });
+        window.dispatchEvent(new Event('resize'));
+    };
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+    it('does not reallocate for the URL bar sliding, and reallocates once for a real change', async () => {
+        resize(390, 844);
+        const scene = await createScene(options({ phone: true }));
+        const renderer = reg.renderers[0];
+        const before = renderer.sizes;
+
+        // The URL bar, sliding in and out in a burst, and in the end gone.
+        for (const h of [820, 800, 844, 800, 790]) resize(390, h);
+        await wait(250);
+        expect(renderer.sizes).toBe(before);
+
+        // The keyboard: a large change, also in a burst — one resize for it.
+        for (const h of [700, 560, 420]) resize(390, h);
+        await wait(250);
+        expect(renderer.sizes).toBe(before + 1);
+        scene.dispose();
+    });
+});
+
+describe('createScene: a device this tab has not seen', () => {
+    const tick = (now: number) => {
+        const due = [...frames.values()];
+        frames.clear();
+        due.forEach((cb) => cb(now));
+    };
+
+    it('starts below the full room and climbs to it while the canvas fades in', async () => {
+        const scene = await createScene(options());
+        expect(scene.stats().level).not.toBe('full');
+
+        let now = 0;
+        while (scene.stats().level !== 'full' && now < 3000) tick((now += 1000 / 60));
+
+        expect(scene.stats().level).toBe('full');
+        expect(now).toBeLessThan(1200);
+        scene.dispose();
+    });
+});
+
+describe('createScene: one frame in flight', () => {
+    const tick = (now: number) => {
+        const due = [...frames.values()];
+        frames.clear();
+        due.forEach((cb) => cb(now));
+    };
+
+    it('queues no new frame while the GPU is still busy with the last one', async () => {
+        const scene = await createScene(options({ quality: { start: 0 } }));
+        tick(16);
+        const drawn = reg.renders;
+
+        // The GPU falls behind: the main thread must not pile more work on
+        // it — that backlog is what froze the page for seconds.
+        gl.gpuBusy = true;
+        for (let i = 2; i < 30; i++) tick(i * 16);
+        expect(reg.renders).toBe(drawn);
+        expect(frames.size).toBe(1);
+
+        gl.gpuBusy = false;
+        tick(30 * 16);
+        expect(reg.renders).toBe(drawn + 1);
+        scene.dispose();
+    });
+
+    it('judges the device by how long the GPU took, not by how fast frames were handed over', async () => {
+        const levels: number[] = [];
+        const scene = await createScene(
+            options({ quality: { start: 0, onChange: (l) => levels.push(l) } }),
+        );
+        // Ticks every 16 ms, but the GPU finishes a frame only every 3 s:
+        // the old interval measure saw sixty frames a second here.
+        let now = 0;
+        for (let frame = 0; frame < 6 && frames.size > 0; frame++) {
+            gl.gpuBusy = false;
+            tick((now += 16));
+            gl.gpuBusy = true;
+            for (let i = 0; i < 187; i++) tick((now += 16));
+        }
+
+        expect(levels.at(-1)).toBe(STILL);
+        scene.dispose();
+    });
+});
+
+describe('createScene: the first frame, prepared ahead', () => {
+    it('compiles its programs and uploads every texture before drawing anything', async () => {
+        let atFirstRender: { compiled: number; uploaded: number } | null = null;
+        reg.onRender = () => {
+            atFirstRender ??= { ...reg.renderers[0] };
+        };
+        const scene = await createScene(options({ still: true }));
+
+        expect(atFirstRender!.compiled).toBe(1);
+        const textures = reg.created.filter((x) => (x as { isTexture?: boolean }).isTexture);
+        // Every texture the scene made, the environment's render target aside.
+        expect(atFirstRender!.uploaded).toBeGreaterThanOrEqual(textures.length - 2);
+        scene.dispose();
+    });
+});
+
+describe('createScene: waiting for the GPU without blocking', () => {
+    it('lets the GPU finish its heavy build steps before carrying on, without holding the page', async () => {
+        // The GPU is busy (generating the environment map, say) for a while.
+        gl.gpuBusy = true;
+        let ready = false;
+        const pending = createScene(options()).then((s) => {
+            ready = true;
+            return s;
+        });
+
+        // The page keeps getting turns meanwhile, and the scene is not ready.
+        // Well past what the build itself needs to finish on its own.
+        let turns = 0;
+        for (let i = 0; i < 400; i++) {
+            await new Promise((r) => setTimeout(r, 0));
+            turns++;
+        }
+        expect(turns).toBe(400);
+        expect(ready).toBe(false);
+
+        gl.gpuBusy = false;
+        const scene = await pending;
+        expect(ready).toBe(true);
+        scene.dispose();
+        expect(leaked()).toEqual([]);
+    });
+
+    it('gives up, and releases everything, if the context is lost while it waits', async () => {
+        gl.gpuBusy = true;
+        const pending = createScene(options());
+        await new Promise((r) => setTimeout(r, 30));
+
+        // A lost context's fence never signals; its status reads null. Read
+        // as "still busy", the build would wait for ever with the room half
+        // made. It has to fail, so the screen keeps its static backdrop.
+        gl.lost = true;
+
+        await expect(pending).rejects.toThrow(/lost/);
+        expect(leaked()).toEqual([]);
+        expect(listenersLeft()).toEqual([]);
+    });
+
+    it('stops waiting, and releases everything, if the screen goes meanwhile', async () => {
+        gl.gpuBusy = true;
+        const ctrl = new AbortController();
+        const pending = createScene(options({ signal: ctrl.signal }));
+        await new Promise((r) => setTimeout(r, 30));
+
+        ctrl.abort();
+
+        await expect(pending).rejects.toThrow();
+        expect(leaked()).toEqual([]);
+        expect(lose).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('createScene: no needless trips to the GPU', () => {
+    it('sizes the drawing buffer before it typesets a single page', async () => {
+        const scene = await createScene(options());
+
+        // Resizing the canvas makes the browser finish all queued GPU work —
+        // the page canvases' included, seconds of it on a slow GPU.
+        expect(reg.order.indexOf('size')).toBeGreaterThanOrEqual(0);
+        expect(reg.order.indexOf('size')).toBeLessThan(reg.order.indexOf('page'));
+        scene.dispose();
+    });
+
+    it('never touches the drawing buffer again while nothing has changed', async () => {
+        const scene = await createScene(options());
+
+        expect(reg.renderers[0].sizes).toBe(1);
+        scene.dispose();
+    });
+});
+
+describe('createScene: page textures', () => {
+    it('uploads each page as soon as it is drawn, so no upload waits on the pages after it', async () => {
+        const scene = await createScene(options());
+
+        // Between two pages there is always the first one's upload: the GPU
+        // draws page canvases in order, and an upload made after all of them
+        // would wait for every one.
+        const pagesAndUploads = reg.order.filter((x) => x === 'page' || x === 'upload');
+        const firstPage = pagesAndUploads.indexOf('page');
+        const lastPage = pagesAndUploads.lastIndexOf('page');
+        for (let i = firstPage; i < lastPage; i++)
+            if (pagesAndUploads[i] === 'page') expect(pagesAndUploads[i + 1]).toBe('upload');
+        scene.dispose();
+    });
+});
+
+describe('createScene: typesetting without holding the page', () => {
+    it('gives the page a turn between one page and the next', async () => {
+        const turns = setInterval(() => reg.order.push('turn'), 0);
+        const scene = await createScene(options());
+        clearInterval(turns);
+
+        const first = reg.order.indexOf('page');
+        const last = reg.order.lastIndexOf('page');
+        const between = reg.order.slice(first, last).filter((x) => x === 'turn').length;
+        // Twenty-odd pages; drawn in one go there would be no turn at all.
+        expect(between).toBeGreaterThan(5);
+        scene.dispose();
+    });
+});
+
+describe('createScene: the environment map first', () => {
+    it('typesets no page while the GPU is still generating the environment map', async () => {
+        gl.gpuBusy = true;
+        const pending = createScene(options());
+        for (let i = 0; i < 100; i++) await new Promise((r) => setTimeout(r, 0));
+
+        // The pages wait: anything that syncs with the GPU meanwhile would
+        // hold the page for as long as the GPU takes.
+        expect(reg.order).not.toContain('page');
+
+        gl.gpuBusy = false;
+        (await pending).dispose();
+        expect(reg.order).toContain('page');
+    });
+});
+
+describe('createScene: a context that goes away, or has no fences', () => {
+    const tick = (now: number) => {
+        const due = [...frames.values()];
+        frames.clear();
+        due.forEach((cb) => cb(now));
+    };
+
+    it('drops the frame in flight when the context is lost, and draws again once it is restored', async () => {
+        const o = options({ quality: { start: 0 } });
+        const scene = await createScene(o);
+        tick(16);
+        gl.gpuBusy = true;
+        tick(32);
+        const drawn = reg.renders;
+
+        gl.lost = true;
+        for (let i = 3; i < 10; i++) tick(i * 16);
+        expect(reg.renders).toBe(drawn);
+        expect(frames.size).toBe(1);
+
+        // Restored: the fence from before the loss means nothing now.
+        gl.lost = false;
+        o.canvas.dispatchEvent(new Event('webglcontextrestored'));
+        tick(10 * 16);
+        expect(reg.renders).toBe(drawn + 1);
+        scene.dispose();
+    });
+
+    it('drops a fence that has stopped being one, rather than waiting on it for ever', async () => {
+        const scene = await createScene(options({ quality: { start: 0 } }));
+        tick(16);
+        gl.gpuBusy = true;
+        tick(32);
+        const drawn = reg.renders;
+
+        // The context went and came back between two frames, unseen: the
+        // fence in flight now reads as nothing at all, not as busy.
+        gl.generation++;
+        tick(48);
+        expect(reg.renders).toBe(drawn + 1);
+        scene.dispose();
+    });
+
+    it('paces by animation frames and still judges the device when it cannot make fences', async () => {
+        gl.noFences = true;
+        const levels: number[] = [];
+        const scene = await createScene(
+            options({ quality: { start: 0, onChange: (l) => levels.push(l) } }),
+        );
+
+        // Every frame is drawn — nothing to wait on — and the governor reads
+        // the frame interval instead: three seconds a frame is still too slow.
+        let now = 0;
+        for (let i = 0; i < 10 && frames.size > 0; i++) tick((now += 3000));
+
+        expect(reg.renders).toBeGreaterThan(1);
+        expect(levels.at(-1)).toBe(STILL);
+        expect(scene.stats().buildMs).not.toBeNull();
+        scene.dispose();
+        expect(leaked()).toEqual([]);
     });
 });

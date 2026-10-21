@@ -20,38 +20,71 @@ const browserFrames: FrameSource = {
 
 export interface Loop {
     start(): void;
+    /**
+     * Draw nothing for the next `frames` refreshes. The room host asks for
+     * this when the reader moves to another screen, so the new card paints
+     * before the scene takes the main thread again.
+     */
+    hold(frames: number): void;
+    /** Stop for good, leaving the last frame on screen. */
+    stop(): void;
     dispose(): void;
 }
+
+/**
+ * The shortest interval between two drawn frames: a 60 Hz frame, less a
+ * little for timer jitter, so a 60 Hz display still draws every refresh.
+ * Faster displays skip refreshes — 120 Hz draws every other one — because a
+ * backdrop drawn at 144 frames a second is power spent on nothing anyone can
+ * see, and main-thread time taken from the interface.
+ */
+export const MIN_FRAME_MS = 1000 / 60 - 2;
 
 /**
  * A requestAnimationFrame loop that stops asking for frames while the tab is
  * hidden. Browsers already throttle a hidden tab, but throttled is not
  * stopped: the scene would keep simulating paper nobody can see.
  *
+ * Each frame is told how long it has been since the last drawn one, which is
+ * what the quality ladder judges the device by — or null when the gap was the
+ * loop's own doing (the first frame, a hold, a hidden tab), since such a gap
+ * says nothing about how long a frame takes.
+ *
  * `still` is for a reader who asked for reduced motion: start() draws one
  * frame there and then, and nothing is ever scheduled after it.
  */
 export function createLoop(
-    frame: (now: number) => void,
+    frame: (now: number, interval: number | null) => void,
     frames: FrameSource = browserFrames,
     { still = false }: { still?: boolean } = {},
 ): Loop {
     let id = 0;
     let started = false;
+    let stopped = false;
     let disposed = false;
+    let held = 0;
+    let lastDrawn: number | null = null;
 
     const tick = (now: number) => {
         id = 0;
-        frame(now);
+        if (held > 0) {
+            held--;
+            lastDrawn = null;
+        } else if (lastDrawn === null || now - lastDrawn >= MIN_FRAME_MS) {
+            const interval = lastDrawn === null ? null : now - lastDrawn;
+            lastDrawn = now;
+            frame(now, interval);
+        }
         schedule();
     };
     const schedule = () => {
-        if (still || disposed || !started || id || document.hidden) return;
+        if (still || stopped || disposed || !started || id || document.hidden) return;
         id = frames.raf(tick);
     };
     const cancel = () => {
         if (id) frames.caf(id);
         id = 0;
+        lastDrawn = null;
     };
     const onVisibility = () => (document.hidden ? cancel() : schedule());
     document.addEventListener('visibilitychange', onVisibility);
@@ -59,12 +92,19 @@ export function createLoop(
     return {
         start() {
             if (still) {
-                if (!started && !disposed) frame(performance.now());
+                if (!started && !disposed) frame(performance.now(), null);
                 started = true;
                 return;
             }
             started = true;
             schedule();
+        },
+        hold(count) {
+            held = Math.max(held, count);
+        },
+        stop() {
+            stopped = true;
+            cancel();
         },
         dispose() {
             disposed = true;

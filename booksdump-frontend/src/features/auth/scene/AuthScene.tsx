@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
-import { isPhoneViewport } from '@/features/auth/scene/viewport';
+import { createCompositionTracker, keyboardMayBeOpen } from '@/features/auth/scene/viewport';
 import type { SceneHandle } from '@/features/auth/scene/createScene';
+import type { RoomControl } from '@/features/auth/scene/roomControl';
 
 /**
  * The reading room behind the screens a reader meets before signing in.
@@ -39,11 +40,30 @@ function hasWebGL2(): boolean {
     }
 }
 
+// The composition is decided once per resize, when it happens, and kept: the
+// keyboard check depends on focus, which can change between a resize and the
+// next render, and a render in that gap must not flip the room. The keyboard
+// and the URL bar change a phone's height in place; see createCompositionTracker.
+const composition = createCompositionTracker();
+let phoneNow: boolean | null = null;
+let listening = 0;
+const readComposition = () =>
+    (phoneNow = composition.phone(window.innerWidth, window.innerHeight, keyboardMayBeOpen()));
 const subscribeResize = (onChange: () => void) => {
-    window.addEventListener('resize', onChange);
-    return () => window.removeEventListener('resize', onChange);
+    const onResize = () => {
+        readComposition();
+        onChange();
+    };
+    listening++;
+    window.addEventListener('resize', onResize);
+    return () => {
+        window.removeEventListener('resize', onResize);
+        // Nobody is following resizes any more, so the kept answer would go
+        // stale: the next scene reads the viewport afresh.
+        if (--listening === 0) phoneNow = null;
+    };
 };
-const phoneSnapshot = () => isPhoneViewport(window.innerWidth, window.innerHeight);
+const phoneSnapshot = () => phoneNow ?? readComposition();
 
 const REDUCED_MOTION = '(prefers-reduced-motion: reduce)';
 const subscribeMotion = (onChange: () => void) => {
@@ -58,9 +78,11 @@ type AuthSceneProps = {
     onGolden: () => void;
     /** The error page's book, with a page torn out. */
     torn?: boolean;
+    /** The room host's line to the live scene; see roomControl.ts. */
+    control?: RoomControl;
 };
 
-const AuthScene: React.FC<AuthSceneProps> = ({ onGolden, torn = false }) => {
+const AuthScene: React.FC<AuthSceneProps> = ({ onGolden, torn = false, control }) => {
     const [supported] = useState(hasWebGL2);
     const phone = useSyncExternalStore(subscribeResize, phoneSnapshot);
     const still = useSyncExternalStore(subscribeMotion, motionSnapshot);
@@ -110,6 +132,7 @@ const AuthScene: React.FC<AuthSceneProps> = ({ onGolden, torn = false }) => {
                     torn: tornRef.current,
                     onGolden: () => goldenRef.current(),
                     signal: ctrl.signal,
+                    quality: control?.quality,
                 }),
             )
             .then((scene) => {
@@ -120,6 +143,7 @@ const AuthScene: React.FC<AuthSceneProps> = ({ onGolden, torn = false }) => {
                 }
                 handle = scene;
                 handleRef.current = scene;
+                control?.attach(scene);
                 // The book may have changed while the scene was being built.
                 scene.setTorn(tornRef.current);
                 setReadyKey(key);
@@ -134,10 +158,13 @@ const AuthScene: React.FC<AuthSceneProps> = ({ onGolden, torn = false }) => {
 
         return () => {
             ctrl.abort();
-            if (handleRef.current === handle) handleRef.current = null;
+            if (handleRef.current === handle) {
+                handleRef.current = null;
+                control?.attach(null);
+            }
             handle?.dispose();
         };
-    }, [canvas, key, phone, still, supported, failed]);
+    }, [canvas, key, phone, still, supported, failed, control]);
 
     return (
         <>
@@ -166,4 +193,5 @@ const AuthScene: React.FC<AuthSceneProps> = ({ onGolden, torn = false }) => {
     );
 };
 
-export default AuthScene;
+// The room host re-renders on every navigation; the scene must not.
+export default React.memo(AuthScene);

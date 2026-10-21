@@ -22,6 +22,19 @@ function canvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContex
     return [c, c.getContext('2d')!];
 }
 
+/**
+ * A page canvas at `scale` of the full page texture, drawn in full-size page
+ * units: everything below is laid out for 768 × 1086 and simply comes out
+ * smaller. A phone draws its pages at half size — a quarter of the pixels to
+ * typeset, upload and mipmap, on a screen where a page is a few hundred pixels
+ * tall anyway.
+ */
+function page(scale: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
+    const [c, g] = canvas(Math.round(TEX_W * scale), Math.round(TEX_H * scale));
+    g.scale(scale, scale);
+    return [c, g];
+}
+
 /** Where the library stamp sits on the verso of the first passage: x, y, radius, rotation. */
 export const STAMP = { x: 515, y: 830, r: 140, rot: -0.21 };
 
@@ -94,9 +107,9 @@ const GILT = 38;
  * Metalness and roughness maps for a gilt-edged sheet: gold leaf on the edges,
  * plain paper inside. The shine comes from these, not from the colour.
  */
-export function giltMaps(): { metal: HTMLCanvasElement; rough: HTMLCanvasElement } {
+export function giltMaps(scale = 1): { metal: HTMLCanvasElement; rough: HTMLCanvasElement } {
     const make = (inside: string, edge: string) => {
-        const [c, g] = canvas(TEX_W, TEX_H);
+        const [c, g] = page(scale);
         g.fillStyle = edge;
         g.fillRect(0, 0, TEX_W, TEX_H);
         g.fillStyle = inside;
@@ -160,8 +173,9 @@ export function paperCanvas(
     isBack: boolean,
     mirror: boolean,
     opts: SideOptions = {},
+    scale = 1,
 ): HTMLCanvasElement {
-    const [c, g] = canvas(TEX_W, TEX_H);
+    const [c, g] = page(scale);
     if (mirror) {
         g.translate(TEX_W, 0);
         g.scale(-1, 1);
@@ -219,14 +233,14 @@ export function paperCanvas(
     // Show-through: the print on the other side, mirrored, faintly visible.
     // Plates were printed on one side only, so nothing shows through them.
     if (!opts.plate) {
-        const [st, sg] = canvas(TEX_W, TEX_H);
+        const [st, sg] = page(scale);
         sg.fillStyle = 'rgb(60,45,32)';
         typeset(sg, passage, folio, !isBack);
         g.save();
         g.globalAlpha = 0.09;
         g.translate(TEX_W, 0);
         g.scale(-1, 1);
-        g.drawImage(st, 0, 0);
+        g.drawImage(st, 0, 0, TEX_W, TEX_H);
         g.restore();
     }
 

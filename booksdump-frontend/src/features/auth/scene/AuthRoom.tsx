@@ -1,9 +1,20 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
+import React, {
+    createContext,
+    useCallback,
+    useContext,
+    useEffect,
+    useLayoutEffect,
+    useMemo,
+    useRef,
+    useState,
+} from 'react';
+import { useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
 import AuthScene from '@/features/auth/scene/AuthScene';
+import RoomDebug, { wantsRoomDebug } from '@/features/auth/scene/RoomDebug';
+import { createRoomControl } from '@/features/auth/scene/roomControl';
 
 /**
  * One reading room for every public screen.
@@ -47,6 +58,13 @@ const AuthRoomContext = createContext<RoomRegistry | null>(null);
 export const AuthRoomProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
     const { t } = useTranslation();
     const navigate = useNavigate();
+    const location = useLocation();
+    // One line to the live scene for the host's whole life; see roomControl.ts.
+    const control = useMemo(() => createRoomControl(), []);
+    // Asked for once, by the address the page was opened with, and kept while
+    // the reader moves between screens.
+    const [debug] = useState(() => wantsRoomDebug(location.search));
+    const lastSwitch = useRef<number | null>(null);
     // Somebody wants the room: it is on show.
     const [wanted, setWanted] = useState(false);
     // The scene exists: wanted, or still inside the grace.
@@ -106,12 +124,34 @@ export const AuthRoomProvider: React.FC<React.PropsWithChildren> = ({ children }
         };
     }, []);
 
-    const onGolden = () => {
+    // The interface first. A new screen is committed by now and about to
+    // paint; the scene draws nothing for the next couple of frames, so on a
+    // device where a frame of the room is slow the card does not wait behind
+    // it. A layout effect, so the hold is in place before the browser's next
+    // animation frame, which comes before that paint.
+    useLayoutEffect(() => {
+        control.hold();
+        if (!debug) return;
+        const began = performance.now();
+        requestAnimationFrame(() =>
+            requestAnimationFrame(() => (lastSwitch.current = performance.now() - began)),
+        );
+    }, [control, debug, location.pathname]);
+
+    // Stable, like everything else handed to the scene: the host re-renders
+    // on every navigation, and the scene is memoised so it does not. The
+    // router hands out a new navigate function per location, so the handler
+    // reads the current one through a ref instead of depending on it.
+    const latest = useRef({ navigate, t });
+    useEffect(() => {
+        latest.current = { navigate, t };
+    }, [navigate, t]);
+    const onGolden = useCallback(() => {
         // The golden post is worth an invite: it opens registration, with a
         // line saying why.
-        toast(t('goldenPost'));
-        navigate('/registration');
-    };
+        toast(latest.current.t('goldenPost'));
+        latest.current.navigate('/registration');
+    }, []);
 
     return (
         <AuthRoomContext.Provider value={registry}>
@@ -121,9 +161,10 @@ export const AuthRoomProvider: React.FC<React.PropsWithChildren> = ({ children }
             */}
             {alive && (
                 <div data-auth-room hidden={!wanted}>
-                    <AuthScene onGolden={onGolden} torn={torn} />
+                    <AuthScene onGolden={onGolden} torn={torn} control={control} />
                 </div>
             )}
+            {debug && wanted && <RoomDebug control={control} lastSwitch={lastSwitch} />}
             {children}
         </AuthRoomContext.Provider>
     );

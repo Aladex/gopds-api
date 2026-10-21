@@ -201,3 +201,84 @@ describe('createOwner', () => {
         expect(resource.dispose).toHaveBeenCalledTimes(1);
     });
 });
+
+describe('createLoop: pacing', () => {
+    it('draws every refresh of a 60 Hz display', () => {
+        const frames = fakeFrames();
+        const drawn: number[] = [];
+        const loop = createLoop((now) => drawn.push(now), frames);
+        loop.start();
+        for (let i = 1; i <= 60; i++) frames.tick(i * (1000 / 60));
+
+        expect(drawn).toHaveLength(60);
+        loop.dispose();
+    });
+
+    it('caps a 144 Hz display at 60 frames a second', () => {
+        const frames = fakeFrames();
+        const drawn: number[] = [];
+        const loop = createLoop((now) => drawn.push(now), frames);
+        loop.start();
+        for (let i = 1; i <= 144; i++) frames.tick(i * (1000 / 144));
+
+        // One second of refreshes: about sixty drawn, never two closer than a 60 Hz frame.
+        expect(drawn.length).toBeGreaterThanOrEqual(45);
+        expect(drawn.length).toBeLessThanOrEqual(61);
+        for (let i = 1; i < drawn.length; i++)
+            expect(drawn[i] - drawn[i - 1]).toBeGreaterThanOrEqual(1000 / 60 - 2);
+        loop.dispose();
+    });
+
+    it('reports the interval since the last drawn frame, and none after a gap it caused', () => {
+        const frames = fakeFrames();
+        const intervals: (number | null)[] = [];
+        const loop = createLoop((_, interval) => intervals.push(interval), frames);
+        loop.start();
+        frames.tick(100);
+        frames.tick(120);
+        frames.tick(140);
+        loop.hold(1);
+        frames.tick(160);
+        frames.tick(180);
+        frames.tick(200);
+
+        // The first frame has nothing before it; the one after a hold has a
+        // gap that says nothing about how long a frame takes.
+        expect(intervals).toEqual([null, 20, 20, null, 20]);
+        loop.dispose();
+    });
+
+    it('holds off drawing for the frames it is asked to, then carries on', () => {
+        const frames = fakeFrames();
+        const drawn: number[] = [];
+        const loop = createLoop((now) => drawn.push(now), frames);
+        loop.start();
+        frames.tick(20);
+
+        loop.hold(2);
+        frames.tick(40);
+        frames.tick(60);
+        frames.tick(80);
+
+        expect(drawn).toEqual([20, 80]);
+        loop.dispose();
+    });
+
+    it('stops for good when told to, keeping whatever was drawn last', () => {
+        const frames = fakeFrames();
+        const frame = vi.fn();
+        const loop = createLoop(frame, frames);
+        loop.start();
+        frames.tick(20);
+
+        loop.stop();
+        frames.tick(40);
+        setHidden(true);
+        setHidden(false);
+        frames.tick(60);
+
+        expect(frame).toHaveBeenCalledTimes(1);
+        expect(frames.pending).toBe(0);
+        loop.dispose();
+    });
+});

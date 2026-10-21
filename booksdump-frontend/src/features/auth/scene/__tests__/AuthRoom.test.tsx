@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 
 import CenteredBox from '@/features/auth/CenteredBox';
 import { AuthRoomProvider, ROOM_GRACE_MS } from '@/features/auth/scene/AuthRoom';
-import createScene, { type SceneOptions } from '@/features/auth/scene/createScene';
+import createScene, { type SceneOptions, type SceneStats } from '@/features/auth/scene/createScene';
 
 /*
  * One reading room for every screen that shows it. Going from the sign-in
@@ -29,6 +29,8 @@ vi.mock('sonner', () => ({ toast: vi.fn() }));
 interface FakeScene {
     dispose: ReturnType<typeof vi.fn>;
     setTorn: ReturnType<typeof vi.fn>;
+    hold: ReturnType<typeof vi.fn>;
+    stats: () => SceneStats;
 }
 let scenes: FakeScene[] = [];
 
@@ -87,7 +89,21 @@ beforeEach(() => {
     scenes = [];
     create.mockReset();
     create.mockImplementation(async () => {
-        const scene = { dispose: vi.fn(), setTorn: vi.fn() };
+        const scene = {
+            dispose: vi.fn(),
+            setTorn: vi.fn(),
+            hold: vi.fn(),
+            stats: (): SceneStats => ({
+                fps: 59.9,
+                level: 'ratio-1',
+                buildMs: 1234,
+                phases: { assets: 200, pages: 300, gpu: 734 },
+                renderer: 'Fake GPU 9000',
+                pixelRatio: 1,
+                canvas: '1440×900',
+                layout: 'phone',
+            }),
+        };
         scenes.push(scene);
         return scene;
     });
@@ -95,7 +111,7 @@ beforeEach(() => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
         () => ({ getExtension: () => ({ loseContext() {} }) }) as never,
     );
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
 });
 
 afterEach(() => {
@@ -278,5 +294,54 @@ describe('AuthRoomProvider counting screens', () => {
         expect(document.querySelector('[data-auth-room]')).not.toHaveAttribute('hidden');
         expect(live()).toBe(1);
         expect(scenes[0].setTorn).toHaveBeenLastCalledWith(true);
+    });
+});
+
+describe('AuthRoomProvider: the interface first', () => {
+    it('holds the scene off for every screen change, so the new card paints first', async () => {
+        renderApp('/login');
+        await settle();
+        const before = scenes[0].hold.mock.calls.length;
+
+        await navigate('/forgot-password');
+        await navigate('/registration');
+        await navigate('/no/such/page');
+
+        expect(scenes[0].hold.mock.calls.length - before).toBeGreaterThanOrEqual(3);
+    });
+
+    it('remembers the level the room settled on for the next room in this tab', async () => {
+        renderApp('/login');
+        await settle();
+        (create.mock.calls[0][0] as SceneOptions).quality!.onChange!(3);
+
+        await navigate('/books');
+        act(() => vi.advanceTimersByTime(ROOM_GRACE_MS));
+        await navigate('/login');
+
+        expect((create.mock.calls[1][0] as SceneOptions).quality!.start).toBe(3);
+    });
+});
+
+describe('AuthRoomProvider: the diagnostics overlay', () => {
+    it('is not there unless asked for', async () => {
+        renderApp('/login');
+        await settle();
+
+        expect(document.querySelector('[data-room-debug]')).toBeNull();
+    });
+
+    it('shows what the scene reports when the address asks for it, and keeps it across screens', async () => {
+        renderApp('/login?roomdebug=1');
+        await settle();
+        act(() => vi.advanceTimersByTime(600));
+
+        const overlay = () => document.querySelector('[data-room-debug]') as HTMLElement;
+        expect(overlay()).not.toBeNull();
+        for (const text of ['59.9', 'ratio-1', '1234', 'Fake GPU 9000', '1440×900', 'phone'])
+            expect(overlay().textContent).toContain(text);
+
+        await navigate('/forgot-password');
+        expect(overlay()).not.toBeNull();
     });
 });

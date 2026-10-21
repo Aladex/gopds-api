@@ -84,6 +84,8 @@ import {
     sceneLayout,
 } from '@/features/auth/scene/layout';
 import { createLoop, createOwner, listenerBag } from '@/features/auth/scene/lifecycle';
+import { LEVELS, createGovernor, startLevel } from '@/features/auth/scene/quality';
+import { needsResize } from '@/features/auth/scene/viewport';
 import {
     deform,
     makeGust,
@@ -91,14 +93,22 @@ import {
     separate,
     stepSwarm,
     type Gust,
+    type Sheet,
     type View,
 } from '@/features/auth/scene/physics';
-import { GOLDEN_FOLIO, GOLDEN_POST, PASSAGES, folioOf } from '@/features/auth/scene/text';
+import {
+    GOLDEN_FOLIO,
+    GOLDEN_POST,
+    PASSAGES,
+    folioOf,
+    type Passage,
+} from '@/features/auth/scene/text';
 import {
     edgeCanvas,
     giltMaps,
     paperCanvas,
     type PrintSources,
+    type SideOptions,
 } from '@/features/auth/scene/textures';
 import logoMeta from '@/features/auth/scene/logo_meta.json';
 import ptSerifRegular from '@/features/auth/scene/fonts/PTSerif-Regular-subset.woff2?url';
@@ -134,6 +144,33 @@ export interface SceneOptions {
     /** The golden post was caught. */
     onGolden: () => void;
     signal: AbortSignal;
+    /**
+     * Where on the quality ladder to start — the level the last room in this
+     * tab settled on, or none for a device not seen yet, which is then probed
+     * from below — and who to tell when it moves. A phone never starts above
+     * its own composition's level.
+     */
+    quality?: { start?: number; onChange?: (level: number) => void };
+}
+
+/** What the opt-in diagnostics overlay (?roomdebug=1) shows. */
+export interface SceneStats {
+    fps: number;
+    /** Name of the quality level. */
+    level: string;
+    /** From asking for the assets to the first frame drawn; null until then. */
+    buildMs: number | null;
+    /**
+     * Where the build went, in milliseconds: fetching and decoding the
+     * assets, typesetting the pages, and the rest up to the first frame —
+     * geometry, post-processing, shader compiles and uploads.
+     */
+    phases: { assets: number; pages: number; gpu: number | null };
+    renderer: string;
+    pixelRatio: number;
+    canvas: string;
+    /** Which composition the scene was built for. */
+    layout: 'phone' | 'desktop';
 }
 
 export interface SceneHandle {
@@ -144,7 +181,19 @@ export interface SceneHandle {
      * error page shows the torn book.
      */
     setTorn(torn: boolean): void;
+    /**
+     * Draw nothing for the next couple of frames, so a screen the reader has
+     * just opened paints before the scene takes the main thread again.
+     */
+    hold(): void;
+    stats(): SceneStats;
 }
+
+/** Give the rest of the page a turn: input, layout and paint run between our tasks. */
+const nextTask = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+/** Resize events arrive in bursts — the URL bar, the keyboard sliding in. */
+const RESIZE_DEBOUNCE_MS = 150;
 
 const ASSETS = '/auth-scene/';
 
@@ -215,6 +264,7 @@ let announced = false;
 
 /** Throws if WebGL cannot be had; resolves once the first frame is on screen. */
 export default async function createScene(o: SceneOptions): Promise<SceneHandle> {
+    const buildStart = performance.now();
     const [
         tableColorImg,
         tableNormalImg,
@@ -254,6 +304,7 @@ export default async function createScene(o: SceneOptions): Promise<SceneHandle>
         loadFonts(),
     ]);
     if (o.signal.aborted) throw new DOMException('unmounted', 'AbortError');
+    const assetsAt = performance.now();
 
     // Everything from here on belongs to this owner, which exists before the
     // first allocation: whether construction finishes or fails half-way, one
@@ -274,10 +325,67 @@ export default async function createScene(o: SceneOptions): Promise<SceneHandle>
         // has removed three's own context-lost handler, so nothing is logged.
         owner.add(() => gl.getExtension('WEBGL_lose_context')?.loseContext());
         const renderer = own(new WebGLRenderer({ canvas, context: gl, antialias: true }));
+
+        // Wait until the GPU has finished everything handed to it so far,
+        // without blocking: a fence, checked between tasks. Anything that
+        // would otherwise sync with the GPU — a resize, a read — then finds
+        // it idle instead of holding the main thread until it is.
+        //
+        // A fence has three answers, not two. Signalled, unsignalled, and —
+        // once the context is lost — nothing at all: read as "still busy",
+        // that waited for ever with the room half built. A lost context fails
+        // the build instead, through the owner, and the screen keeps its
+        // static backdrop.
+        //
+        // Some contexts cannot make fences at all. Then there is nothing to
+        // wait on here, and the frame loop paces itself by animation frames
+        // and judges the device by their intervals (see step).
+        let fenceless = false;
+        const lostError = () => new Error('auth scene: the WebGL context was lost');
+        const gpuDone = async () => {
+            if (gl.isContextLost()) throw lostError();
+            const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+            if (!sync) {
+                fenceless = true;
+                return;
+            }
+            gl.flush();
+            try {
+                for (;;) {
+                    const status = gl.getSyncParameter(sync, gl.SYNC_STATUS);
+                    if (status === gl.SIGNALED) return;
+                    if (status !== gl.UNSIGNALED || gl.isContextLost()) throw lostError();
+                    await new Promise((resolve) => setTimeout(resolve, 16));
+                    if (o.signal.aborted) throw new DOMException('unmounted', 'AbortError');
+                }
+            } finally {
+                if (!gl.isContextLost()) gl.deleteSync(sync);
+            }
+        };
         const bag = listenerBag();
         owner.add(() => bag.clear());
 
-        renderer.setPixelRatio(Math.min(devicePixelRatio, layout.pixelRatioCap));
+        // A device this tab has not seen yet is probed from below; one it has
+        // starts where the last room settled. Decided before anything is sized,
+        // so the canvas starts at its level's pixel ratio.
+        const top = startLevel(o.phone);
+        const remembered = o.quality?.start;
+        const governor = createGovernor(Math.max(top, remembered ?? top), {
+            top,
+            probe: remembered === undefined,
+        });
+        renderer.setPixelRatio(
+            Math.min(
+                devicePixelRatio,
+                layout.pixelRatioCap,
+                LEVELS[governor.level].pixelRatio ?? Infinity,
+            ),
+        );
+        // Sized now, before a single page is typeset. Resizing the canvas makes
+        // the browser finish all GPU work queued so far — the page canvases'
+        // drawing included, which a slow GPU takes seconds over — and holds the
+        // main thread until it has.
+        renderer.setSize(innerWidth, innerHeight, false);
         renderer.outputColorSpace = SRGBColorSpace;
         renderer.toneMapping = AgXToneMapping;
         renderer.toneMappingExposure = 1.15;
@@ -285,6 +393,8 @@ export default async function createScene(o: SceneOptions): Promise<SceneHandle>
         renderer.shadowMap.type = VSMShadowMap;
         const maxAniso = renderer.capabilities.getMaxAnisotropy();
 
+        // Every texture this scene makes, to upload ahead of the first frame.
+        const uploads: Texture[] = [];
         const texture = (
             img: HTMLImageElement,
             srgb: boolean,
@@ -296,13 +406,24 @@ export default async function createScene(o: SceneOptions): Promise<SceneHandle>
             if (repeat) t.repeat.set(repeat[0], repeat[1]);
             t.needsUpdate = true;
             own(t);
+            uploads.push(t);
             return t;
         };
         const canvasTexture = (c: HTMLCanvasElement, srgb = true): CanvasTexture => {
             const t = new CanvasTexture(c);
             t.colorSpace = srgb ? SRGBColorSpace : NoColorSpace;
             t.anisotropy = maxAniso;
+            // Every canvas here is opaque, and a 2D canvas keeps its pixels
+            // premultiplied; saying so spares the upload a conversion of each.
+            t.premultiplyAlpha = true;
             own(t);
+            uploads.push(t);
+            // Uploaded straight away. The browser draws page canvases on the
+            // GPU, in order, and uploading one waits for its drawing to finish;
+            // done now, that is this page's drawing alone, and the next page
+            // starts in a task of its own. Left to the first frame, the first
+            // upload would wait for every page at once.
+            renderer.initTexture(t);
             return t;
         };
 
@@ -346,6 +467,11 @@ export default async function createScene(o: SceneOptions): Promise<SceneHandle>
             envHdr.dispose();
             pmrem.dispose();
         }
+        // The environment map is a few dozen render passes of blur. Let the
+        // GPU get through them before anything forces a sync: the next canvas
+        // resize would otherwise wait for all of it with the page frozen —
+        // seven seconds on a software renderer.
+        await gpuDone();
 
         const camera = new PerspectiveCamera(layout.fov, 1, 0.1, 100);
         camera.position.set(0, CAMERA_Y, CAMERA_Z);
@@ -477,28 +603,46 @@ export default async function createScene(o: SceneOptions): Promise<SceneHandle>
             /** The back's content lying face up, for the left page of the open book. */
             verso: Material;
         }
-        const materials: Leaf[] = PASSAGES.map((passage, i) => {
+        // Typesetting the pages is the costliest thing the build does on the
+        // main thread — two dozen full pages of text — so they are drawn one
+        // at a time with a turn for the rest of the page in between: the form
+        // stays responsive while the room is being built. A phone draws them at
+        // half size; at the size a page is shown there, nobody can tell.
+        const pageScale = o.phone ? 0.5 : 1;
+        const pageCanvas = async (
+            passage: Passage,
+            folio: number,
+            isBack: boolean,
+            mirror: boolean,
+            sideOpts: SideOptions = {},
+        ) => {
+            await nextTask();
+            if (o.signal.aborted) throw new DOMException('unmounted', 'AbortError');
+            return paperCanvas(print, passage, folio, isBack, mirror, sideOpts, pageScale);
+        };
+        const materials: Leaf[] = [];
+        for (const [i, passage] of PASSAGES.entries()) {
             // The library stamp sits on the verso of the first passage, which is
             // the left page of the open book.
             const stamp = i === 0;
             const folio = folioOf(i);
-            return {
+            materials.push({
                 front: paperMat(
-                    canvasTexture(paperCanvas(print, passage, folio, false, false)),
+                    canvasTexture(await pageCanvas(passage, folio, false, false)),
                     FrontSide,
                 ),
                 back: paperMat(
-                    canvasTexture(paperCanvas(print, passage, folio, true, true, { stamp })),
+                    canvasTexture(await pageCanvas(passage, folio, true, true, { stamp })),
                     BackSide,
                 ),
                 verso: paperMat(
-                    canvasTexture(paperCanvas(print, passage, folio, true, false, { stamp })),
+                    canvasTexture(await pageCanvas(passage, folio, true, false, { stamp })),
                     FrontSide,
                 ),
-            };
-        });
+            });
+        }
         // The golden post: the one sheet worth an invite.
-        const gilt = giltMaps();
+        const gilt = giltMaps(pageScale);
         const metal = canvasTexture(gilt.metal, false);
         const rough = canvasTexture(gilt.rough, false);
         const giltMat = (c: HTMLCanvasElement, side: Side) =>
@@ -518,19 +662,19 @@ export default async function createScene(o: SceneOptions): Promise<SceneHandle>
             );
         const gold = {
             front: giltMat(
-                paperCanvas(print, GOLDEN_POST, GOLDEN_FOLIO, false, false, { gilt: true }),
+                await pageCanvas(GOLDEN_POST, GOLDEN_FOLIO, false, false, { gilt: true }),
                 FrontSide,
             ),
             back: giltMat(
-                paperCanvas(print, GOLDEN_POST, GOLDEN_FOLIO, true, true, { gilt: true }),
+                await pageCanvas(GOLDEN_POST, GOLDEN_FOLIO, true, true, { gilt: true }),
                 BackSide,
             ),
         };
         // Plates were printed on one side only: a blank verso, nothing showing through.
-        const plateSide = (isBack: boolean, mirror: boolean, side: Side) =>
+        const plateSide = async (isBack: boolean, mirror: boolean, side: Side) =>
             paperMat(
                 canvasTexture(
-                    paperCanvas(print, PASSAGES[2], folioOf(2), isBack, mirror, {
+                    await pageCanvas(PASSAGES[2], folioOf(2), isBack, mirror, {
                         plate: true,
                         blank: isBack,
                     }),
@@ -538,10 +682,11 @@ export default async function createScene(o: SceneOptions): Promise<SceneHandle>
                 side,
             );
         const plate: Leaf = {
-            front: plateSide(false, false, FrontSide),
-            back: plateSide(true, true, BackSide),
-            verso: plateSide(true, false, FrontSide),
+            front: await plateSide(false, false, FrontSide),
+            back: await plateSide(true, true, BackSide),
+            verso: await plateSide(true, false, FrontSide),
         };
+        const pagesAt = performance.now();
 
         // --- Open book ----------------------------------------------------------
         const book = new Group();
@@ -940,7 +1085,11 @@ export default async function createScene(o: SceneOptions): Promise<SceneHandle>
         const resize = () => {
             const w = innerWidth;
             const h = innerHeight;
-            renderer.setSize(w, h, false);
+            // Only when the drawing buffer really changes: setting it, even to
+            // the same size, reallocates it and waits for the GPU.
+            const ratio = renderer.getPixelRatio();
+            if (canvas.width !== Math.floor(w * ratio) || canvas.height !== Math.floor(h * ratio))
+                renderer.setSize(w, h, false);
             camera.aspect = w / h;
             camera.updateProjectionMatrix();
             if (composer && film) {
@@ -957,6 +1106,8 @@ export default async function createScene(o: SceneOptions): Promise<SceneHandle>
         resize();
 
         const sheets = placeSheets(layout.sheetCount, view, layout.obstacles);
+        // The sheets in flight; the quality ladder flies fewer.
+        let active: Sheet[] = sheets;
         const sheetMeshes = sheets.map((s, i) => {
             const leaf =
                 s.kind === 'gold'
@@ -1000,7 +1151,7 @@ export default async function createScene(o: SceneOptions): Promise<SceneHandle>
         // Hand the turning sheet over to the free swarm, using a sheet that is
         // currently out of sight.
         const tearOff = (t: number): boolean => {
-            const spare = pickSpare(sheets, offscreen);
+            const spare = pickSpare(active, offscreen);
             if (!spare) return false;
             const handOff = tearHandOff(flipPos, book.matrixWorld);
             // Tearing next to another sheet would make the separation shove it;
@@ -1268,6 +1419,8 @@ export default async function createScene(o: SceneOptions): Promise<SceneHandle>
         };
         composer = own(new EffectComposer(renderer));
         composer.addPass(own(new RenderPass(scene, camera)));
+        // The passes the quality ladder switches off and on again.
+        const heavy: Pass[] = [];
         if (layout.heavyPost) {
             const gtao = own(new GTAOPass(scene, camera, innerWidth, innerHeight));
             gtao.updateGtaoMaterial({
@@ -1280,6 +1433,7 @@ export default async function createScene(o: SceneOptions): Promise<SceneHandle>
             gtao.blendIntensity = 0.85;
             hideDuring(gtao, [beamCone, dust]);
             composer.addPass(gtao);
+            heavy.push(gtao);
             const bokeh = own(
                 new BokehPass(scene, camera, {
                     focus: 9.8,
@@ -1289,24 +1443,74 @@ export default async function createScene(o: SceneOptions): Promise<SceneHandle>
             );
             hideDuring(bokeh, [beamCone, dust]);
             composer.addPass(bokeh);
+            heavy.push(bokeh);
         }
-        composer.addPass(
-            own(new UnrealBloomPass(new Vector2(innerWidth, innerHeight), 0.2, 0.7, 0.92)),
+        const bloom = own(
+            new UnrealBloomPass(new Vector2(innerWidth, innerHeight), 0.2, 0.7, 0.92),
         );
+        composer.addPass(bloom);
         composer.addPass(own(new OutputPass()));
         film = own(new ShaderPass(FilmShader));
         composer.addPass(film);
         resize();
+        // Resized once a burst of events has settled, and not at all for the
+        // URL bar sliding: every resize reallocates every render target of the
+        // post-processing, and a phone fires these by the dozen.
+        let applied = { width: innerWidth, height: innerHeight };
+        let resizeTimer: ReturnType<typeof setTimeout> | undefined;
+        owner.add(() => clearTimeout(resizeTimer));
         bag.on(window, 'resize', () => {
-            resize();
-            // A still scene has no loop to pick the new size up.
-            if (o.still) still();
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                const now = { width: innerWidth, height: innerHeight };
+                if (!needsResize(applied, now)) return;
+                applied = now;
+                resize();
+                // A scene that is not moving has no loop to pick the new size up.
+                if (stopped) still();
+            }, RESIZE_DEBOUNCE_MS);
         });
 
         // --- The frame -------------------------------------------------------------------
         let last = performance.now();
         let maskGlow = 0;
-        const step = (now: number) => {
+        const step = (now: number, interval: number | null) => {
+            // One frame in flight. While the GPU has not finished the last
+            // frame, draw nothing and queue nothing: commands handed over
+            // faster than the GPU runs them pile up, and once the queue is
+            // full the main thread waits on it — seconds on a slow device,
+            // every one of them a second the form cannot answer a click.
+            let cost: number | null = null;
+            // A lost context draws nothing until three restores it, and a
+            // fence from before the loss means nothing after it.
+            if (gl.isContextLost()) {
+                fence = null;
+                return;
+            }
+            // No fences on this context: pace by animation frames, and judge
+            // the device by their intervals — coarser than the GPU's own
+            // time, but a measure, which silence is not.
+            if (fenceless && interval !== null) cost = interval;
+            if (fence) {
+                const status = gl.getSyncParameter(fence, gl.SYNC_STATUS);
+                if (status === gl.UNSIGNALED) return;
+                if (status !== gl.SIGNALED) {
+                    // Not a fence any more: drop it and draw.
+                    fence = null;
+                }
+            }
+            if (fence) {
+                gl.deleteSync(fence);
+                fence = null;
+                // The build is over when the GPU has finished the first frame.
+                firstFrameAt ??= performance.now();
+                // How long the last frame really took, GPU included — unless
+                // the loop itself paused in between (a hold, a hidden tab).
+                // Measured on the animation-frame clock, from the frame that
+                // issued it to the first one that finds it done.
+                if (interval !== null) cost = now - issuedAt;
+            }
+            const began = performance.now();
             const dt = Math.min(0.05, (now - last) / 1000);
             last = now;
             const t = now / 1000;
@@ -1324,8 +1528,8 @@ export default async function createScene(o: SceneOptions): Promise<SceneHandle>
             }
             pointer.vel.multiplyScalar(Math.exp(-dt * 4));
 
-            stepSwarm(sheets, dt, t, gust, view, layout.obstacles);
-            for (let i = 0; i < sheets.length; i++) redraw(i, t);
+            stepSwarm(active, dt, t, gust, view, layout.obstacles);
+            for (let i = 0; i < active.length; i++) redraw(i, t);
 
             // Is the hand hovering over the book? Then pages turn faster.
             projV.copy(layout.bookCenter).project(camera);
@@ -1346,21 +1550,111 @@ export default async function createScene(o: SceneOptions): Promise<SceneHandle>
             updateDust(dt, t, gust);
 
             film!.uniforms.uTime.value = t;
+            if (shadowEvery > 1 && frameNo % shadowEvery === 0)
+                renderer.shadowMap.needsUpdate = true;
+            frameNo++;
             composer!.render(dt);
+            if (!fenceless) {
+                fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+                if (fence) gl.flush();
+                else fenceless = !gl.isContextLost();
+            }
+            // Without a fence to say when the GPU finished it, the first frame
+            // handed over is the end of the build.
+            if (fenceless) firstFrameAt ??= performance.now();
+            const spent = performance.now() - began;
+            if (issuedAt > 0 && now > issuedAt) {
+                const sinceLast = now - issuedAt;
+                fps = fps === 0 ? 1000 / sinceLast : fps + (1000 / sinceLast - fps) * 0.1;
+            }
+            issuedAt = now;
+            // How the device is coping: the previous frame's whole cost, from
+            // handing it over to the GPU being done with it, and this frame's
+            // script time, which is ours alone.
+            if (cost === null) return;
+            const next = governor.sample(cost, spent);
+            if (next !== null) {
+                applyLevel(next);
+                o.quality?.onChange?.(next);
+            }
         };
 
         // No motion: the book open at its first spread, the swarm where it was
         // scattered, drawn once.
         const still = () => {
-            for (let i = 0; i < sheets.length; i++) redraw(i, 0);
+            for (let i = 0; i < active.length; i++) redraw(i, 0);
             composer!.render(0);
+            firstFrameAt ??= performance.now();
         };
         const loop = createLoop(o.still ? still : step, undefined, { still: o.still });
         owner.add(() => loop.dispose());
 
+        // --- Fitting the device -----------------------------------------------------------
+        // The quality ladder: see quality.ts. Each level is applied in place,
+        // without rebuilding anything.
+        let stopped = o.still;
+        let shadowEvery = 1;
+        let frameNo = 0;
+        let fps = 0;
+        let firstFrameAt: number | null = null;
+        let fence: WebGLSync | null = null;
+        let issuedAt = 0;
+        owner.add(() => {
+            if (fence && !gl.isContextLost()) gl.deleteSync(fence);
+        });
+        // Whatever was in flight is gone with the context, lost or restored.
+        bag.on(canvas, 'webglcontextlost', () => (fence = null));
+        bag.on(canvas, 'webglcontextrestored', () => (fence = null));
+        const applyLevel = (index: number) => {
+            const level = LEVELS[index];
+            for (const pass of heavy) pass.enabled = level.heavyPost;
+            bloom.enabled = level.bloom;
+            const ratio = Math.min(
+                devicePixelRatio,
+                layout.pixelRatioCap,
+                level.pixelRatio ?? Infinity,
+            );
+            if (ratio !== renderer.getPixelRatio()) {
+                renderer.setPixelRatio(ratio);
+                dustMat.uniforms.uPR.value = ratio;
+                resize();
+            }
+            dustGeo.setDrawRange(0, Math.round(layout.dustCount * level.share));
+            farMesh.count = Math.round(layout.farCount * level.share);
+            // Fewer free sheets: the first ones — the golden post and the plate
+            // among them — keep flying, the rest are put away.
+            active = sheets.slice(0, Math.max(2, Math.round(sheets.length * level.share)));
+            sheets.forEach((_, i) => (sheetMeshes[i].group.visible = i < active.length));
+            shadowEvery = level.shadowEvery;
+            renderer.shadowMap.autoUpdate = shadowEvery === 1;
+            renderer.shadowMap.needsUpdate = true;
+            if (!level.moving && !stopped) {
+                // The last resort: no more frames. The one drawn now, at the
+                // cheaper settings, stays on screen.
+                stopped = true;
+                loop.stop();
+                if (firstFrameAt !== null) still();
+            }
+        };
+        applyLevel(governor.level);
+
+        // The first frame's cost is mostly the GPU's: compiling a few dozen
+        // shader programs and uploading two dozen page textures. Both are done
+        // ahead of it, so the main thread is not held for all of it in one go:
+        // the programs through the browser's parallel compile where it has one,
+        // the textures one per task, with the page given a turn in between.
+        await renderer.compileAsync(scene, camera);
+        for (const t of uploads) {
+            if (o.signal.aborted) throw new DOMException('unmounted', 'AbortError');
+            renderer.initTexture(t);
+            await nextTask();
+        }
+        await gpuDone();
+
         if (o.signal.aborted) throw new DOMException('unmounted', 'AbortError');
 
-        loop.start();
+        if (stopped) still();
+        else loop.start();
 
         if (!announced) {
             announced = true;
@@ -1376,10 +1670,30 @@ export default async function createScene(o: SceneOptions): Promise<SceneHandle>
             if (owner.disposed) return;
             if (torn && !tornPage) tornPage = buildTornPage();
             if (tornPage) tornPage.visible = torn;
-            // A still scene draws only when asked to.
-            if (o.still) still();
+            // A scene that is not moving draws only when asked to.
+            if (stopped) still();
         };
-        return { dispose: () => owner.dispose(), setTorn };
+        const stats = (): SceneStats => ({
+            // A room that has stopped draws nothing; its last rate would mislead.
+            fps: stopped ? 0 : Math.round(fps * 10) / 10,
+            level: LEVELS[governor.level].name,
+            buildMs: firstFrameAt === null ? null : Math.round(firstFrameAt - buildStart),
+            phases: {
+                assets: Math.round(assetsAt - buildStart),
+                pages: Math.round(pagesAt - assetsAt),
+                gpu: firstFrameAt === null ? null : Math.round(firstFrameAt - pagesAt),
+            },
+            renderer: rendererName(gl),
+            pixelRatio: renderer.getPixelRatio(),
+            canvas: `${canvas.width}×${canvas.height}`,
+            layout: o.phone ? 'phone' : 'desktop',
+        });
+        return {
+            dispose: () => owner.dispose(),
+            setTorn,
+            hold: () => loop.hold(2),
+            stats,
+        };
     } catch (error) {
         owner.dispose();
         throw error;
@@ -1411,4 +1725,16 @@ function disposeGraph(root: Object3D): void {
         }
         if (obj instanceof InstancedMesh) drop(obj);
     });
+}
+
+/**
+ * The GPU's name, for the diagnostics overlay. Asked for only when the overlay
+ * is open: Firefox warns on the console about the extension that unmasks it,
+ * and Chromium needs that extension to say anything useful.
+ */
+function rendererName(gl: WebGL2RenderingContext): string {
+    const plain = String(gl.getParameter(gl.RENDERER));
+    if (!/^(WebKit WebGL|Mozilla|undefined|masked)$/.test(plain)) return plain;
+    const info = gl.getExtension('WEBGL_debug_renderer_info');
+    return info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : plain;
 }
