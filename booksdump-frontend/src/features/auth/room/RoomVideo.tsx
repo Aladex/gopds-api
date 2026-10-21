@@ -12,6 +12,7 @@ import {
     createCompositionTracker,
     keyboardMayBeOpen,
     touchFirst,
+    type Composition,
 } from '@/features/auth/room/viewport';
 
 /**
@@ -46,10 +47,14 @@ import {
 // next render, and a render in that gap must not flip the room. The keyboard
 // and the URL bar change a phone's height in place; see createCompositionTracker.
 const composition = createCompositionTracker();
-let phoneNow: boolean | null = null;
+let compositionNow: Composition | null = null;
 let listening = 0;
 const readComposition = () =>
-    (phoneNow = composition.phone(window.innerWidth, window.innerHeight, keyboardMayBeOpen()));
+    (compositionNow = composition.composition(
+        window.innerWidth,
+        window.innerHeight,
+        keyboardMayBeOpen(),
+    ));
 const subscribeResize = (onChange: () => void) => {
     const onResize = () => {
         readComposition();
@@ -61,10 +66,10 @@ const subscribeResize = (onChange: () => void) => {
         window.removeEventListener('resize', onResize);
         // Nobody is following resizes any more, so the kept answer would go
         // stale: the next room reads the viewport afresh.
-        if (--listening === 0) phoneNow = null;
+        if (--listening === 0) compositionNow = null;
     };
 };
-const phoneSnapshot = () => phoneNow ?? readComposition();
+const compositionSnapshot = () => compositionNow ?? readComposition();
 
 const REDUCED_MOTION = '(prefers-reduced-motion: reduce)';
 const subscribeMotion = (onChange: () => void) => {
@@ -104,14 +109,14 @@ type RoomVideoProps = {
 };
 
 const RoomVideo: React.FC<RoomVideoProps> = ({ onGolden, torn = false }) => {
-    const phone = useSyncExternalStore(subscribeResize, phoneSnapshot);
+    const framing = useSyncExternalStore(subscribeResize, compositionSnapshot);
     const reduced = useSyncExternalStore(subscribeMotion, motionSnapshot);
     const size = useSyncExternalStore(subscribeResize, sizeSnapshot);
     // Reduced motion follows the setting live; data saver is read once.
     const [saveData] = useState(savesData);
     const still = reduced || saveData;
     const [fine] = useState(() => window.matchMedia('(pointer: fine)').matches && !touchFirst());
-    const variant = variantFor(phone, torn);
+    const variant = variantFor(framing, torn);
     const sources = sourcesFor(variant);
     const videoRef = useRef<HTMLVideoElement>(null);
     const freezeRef = useRef<HTMLCanvasElement>(null);

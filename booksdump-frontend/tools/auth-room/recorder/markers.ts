@@ -1,6 +1,6 @@
 /**
  * The Easter eggs' positions the app bundles (src/features/auth/room/
- * markers.json): one entry per composition, desktop and phone. The torn book
+ * markers.json): one entry per composition: desktop, phone, ultrawide. The torn book
  * is the same camera on the same room, so its eggs are where the whole book's
  * are — checked here, not assumed.
  *
@@ -18,7 +18,7 @@ export interface Markers {
     mask: { x: number; y: number; w: number; h: number };
 }
 
-export const COMPOSITIONS = ['desktop', 'phone'] as const;
+export const COMPOSITIONS = ['desktop', 'phone', 'ultrawide'] as const;
 export type Composition = (typeof COMPOSITIONS)[number];
 
 /** How far, in pixels, two recordings of one composition may disagree. */

@@ -47,6 +47,8 @@ export interface Obstacle {
 
 export interface Layout {
     phone: boolean;
+    /** The ultrawide composition: the desktop one, with life across the extra width. */
+    wide: boolean;
     fov: number;
     /** Where the camera aims; phones aim higher so the desk sits below the card. */
     lookAtY: number;
@@ -56,6 +58,8 @@ export interface Layout {
     heavyPost: boolean;
     sheetCount: number;
     farCount: number;
+    /** The far layer spans x in ±farHalfX, wrapping at the edges. */
+    farHalfX: number;
     dustCount: number;
     bookPos: Vector3;
     bookYaw: number;
@@ -72,7 +76,24 @@ export interface Layout {
     lyingSpots: [number, number, number][];
 }
 
-export function sceneLayout(phone: boolean): Layout {
+/**
+ * Pages lying on the table out at the sides, seen only in the ultrawide
+ * frame: the desktop frame ends at about x = ±5 at the front of the table.
+ */
+const WIDE_LYING_SPOTS: [number, number, number][] = [
+    [-8.6, -0.4, 0.9],
+    [8.9, 0.6, 2.0],
+    [-12.5, -6.5, 0.4],
+    [13.5, -7.5, 1.6],
+];
+
+/**
+ * The ultrawide frame keeps the desktop camera — the same lens, aim and
+ * height — so its middle is the desktop picture exactly and nothing on the
+ * desk moves; the width beyond it is filled, not stretched.
+ */
+export function sceneLayout(phone: boolean, wide = false): Layout {
+    if (wide && phone) throw new Error('a phone is never ultrawide');
     const bookPos = phone ? new Vector3(-1.15, TABLE_Y, 2.1) : new Vector3(-3.0, TABLE_Y, 0.9);
     const bookCenter = bookPos.clone().add(new Vector3(0, 0.3, 0));
     const bookR = 1.3;
@@ -94,13 +115,17 @@ export function sceneLayout(phone: boolean): Layout {
 
     return {
         phone,
+        wide,
         fov: phone ? 52 : 35,
         lookAtY: phone ? 0.2 : -0.2,
         pixelRatioCap: phone ? 1.25 : 1.5,
         shadowMapSize: phone ? 1024 : 2048,
         heavyPost: !phone,
-        sheetCount: phone ? 10 : 16,
-        farCount: phone ? 90 : 170,
+        // Free sheets are scattered across the visible width already; the
+        // wider frame gets more of them to keep the same density.
+        sheetCount: phone ? 10 : wide ? 30 : 16,
+        farCount: phone ? 90 : wide ? 380 : 170,
+        farHalfX: wide ? 44 : 20,
         dustCount: phone ? 350 : 700,
         bookPos,
         bookYaw: phone ? 0.5 : 0.32,
@@ -131,6 +156,7 @@ export function sceneLayout(phone: boolean): Layout {
                   [0.6, 2.4, 0.6],
                   [-5.6, -2.5, 1.1],
                   [3.4, -5.5, 2.3],
+                  ...(wide ? WIDE_LYING_SPOTS : []),
               ],
     };
 }

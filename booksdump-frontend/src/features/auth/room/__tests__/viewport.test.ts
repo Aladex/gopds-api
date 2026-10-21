@@ -1,4 +1,8 @@
-import { createCompositionTracker, keyboardMayBeOpen } from '@/features/auth/room/viewport';
+import {
+    createCompositionTracker,
+    keyboardMayBeOpen,
+    ULTRAWIDE_ASPECT,
+} from '@/features/auth/room/viewport';
 
 /*
  * A phone's viewport changes height all the time without the phone turning:
@@ -8,6 +12,66 @@ import { createCompositionTracker, keyboardMayBeOpen } from '@/features/auth/roo
  * room must not rebuild itself for that, and must not reallocate its
  * post-processing for every few pixels of URL bar.
  */
+
+describe('which composition a screen gets', () => {
+    // Viewports as a browser really has them: full screen, and maximised with
+    // its own chrome (tabs, address bar, bookmarks) and the taskbar taken off.
+    it.each([
+        ['16:10 1920 × 1200, maximised', 'desktop', 1920, 1089],
+        ['16:10 2560 × 1600, full screen', 'desktop', 2560, 1600],
+        ['16:9 1920 × 1080, full screen', 'desktop', 1920, 1080],
+        ['16:9 1920 × 1080, maximised', 'desktop', 1920, 969],
+        ['16:9 1920 × 1080, maximised with bookmarks', 'desktop', 1920, 937],
+        ['16:9 2560 × 1440, maximised', 'desktop', 2560, 1297],
+        ['21:9 2560 × 1080, full screen', 'ultrawide', 2560, 1080],
+        ['21:9 2560 × 1080, maximised', 'ultrawide', 2560, 950],
+        ['21:9 3440 × 1440, full screen', 'ultrawide', 3440, 1440],
+        ['21:9 3440 × 1440, maximised', 'ultrawide', 3440, 1300],
+        ['32:10 3840 × 1200, maximised', 'ultrawide', 3840, 1090],
+        ['32:9 5120 × 1440, full screen', 'ultrawide', 5120, 1440],
+        ['32:9 5120 × 1440, maximised', 'ultrawide', 5120, 1300],
+        ['phone 390 × 844', 'phone', 390, 844],
+        ['tablet 1024 × 768', 'desktop', 1024, 768],
+    ] as const)('%s → %s', (_, expected, w, h) => {
+        expect(createCompositionTracker().composition(w, h)).toBe(expected);
+    });
+
+    it('draws the ultrawide line where it says, on both sides of it', () => {
+        expect(ULTRAWIDE_ASPECT).toBe(2.2);
+        expect(createCompositionTracker().composition(2200, 1000)).toBe('ultrawide');
+        expect(createCompositionTracker().composition(2199, 1000)).toBe('desktop');
+        // The phone line is unchanged.
+        expect(createCompositionTracker().composition(799, 1000)).toBe('phone');
+        expect(createCompositionTracker().composition(800, 1000)).toBe('desktop');
+    });
+
+    it.each([
+        ['a landscape phone', 844, 390, 180],
+        ['a landscape tablet', 1024, 768, 400],
+    ] as const)(
+        'keeps %s on the desktop recording while its keyboard opens and closes',
+        (_, w, h, shortened) => {
+            const tracker = createCompositionTracker();
+            expect(tracker.composition(w, h)).toBe('desktop');
+            expect(tracker.composition(w, shortened, true)).toBe('desktop');
+            expect(tracker.composition(w, h, true)).toBe('desktop');
+        },
+    );
+
+    it('still follows a desktop window made genuinely wide by shortening it', () => {
+        const tracker = createCompositionTracker();
+        expect(tracker.composition(1024, 768)).toBe('desktop');
+        expect(tracker.composition(1024, 400)).toBe('ultrawide');
+        expect(tracker.composition(1024, 768)).toBe('desktop');
+    });
+
+    it('keeps a phone a phone while its keyboard squeezes it into a wide strip', () => {
+        const tracker = createCompositionTracker();
+        tracker.composition(390, 844);
+        // 390 × 160 is wider than 2.2 : 1, read naively.
+        expect(tracker.composition(390, 160, true)).toBe('phone');
+    });
+});
 
 describe('createCompositionTracker', () => {
     it('reads a portrait phone as a phone and a desktop window as a desktop', () => {

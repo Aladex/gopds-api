@@ -11,6 +11,20 @@ export function isPhoneViewport(width: number, height: number): boolean {
     return width / height < 0.8;
 }
 
+export type Composition = 'phone' | 'desktop' | 'ultrawide';
+
+/**
+ * From this aspect up a screen gets the ultrawide recording (32:9, see
+ * tools/auth-room). It is the same camera as the desktop one, so on any screen
+ * wider than 16:9 it only loses its sides, never the desk; the desktop video
+ * there loses top and bottom, and the golden post lies at the very bottom.
+ * The line sits in the gap between real browser viewports: 16:9 and 16:10
+ * monitors, maximised with their chrome, come to 1.76–2.05; 21:9 ones to
+ * 2.37–2.69, and 32:9 beyond. A desktop that is not wide keeps the lighter
+ * desktop recording.
+ */
+export const ULTRAWIDE_ASPECT = 2.2;
+
 /**
  * Which composition the viewport calls for, without being fooled by a phone
  * changing height in place.
@@ -31,10 +45,19 @@ export function createCompositionTracker() {
     let width = -1;
     let tallest = 0;
     return {
-        phone(w: number, h: number, keyboard = false): boolean {
+        /**
+         * The composition for the viewport. The keyboard rule applies to the
+         * whole decision, the ultrawide line included: a landscape phone or
+         * tablet squeezed by its keyboard is not a wide screen either.
+         */
+        composition(w: number, h: number, keyboard = false): Composition {
             tallest = w === width && keyboard ? Math.max(tallest, h) : h;
             width = w;
-            return isPhoneViewport(w, tallest);
+            if (isPhoneViewport(w, tallest)) return 'phone';
+            return w / tallest >= ULTRAWIDE_ASPECT ? 'ultrawide' : 'desktop';
+        },
+        phone(w: number, h: number, keyboard = false): boolean {
+            return this.composition(w, h, keyboard) === 'phone';
         },
     };
 }

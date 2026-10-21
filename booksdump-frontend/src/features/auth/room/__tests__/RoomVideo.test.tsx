@@ -112,6 +112,51 @@ describe('RoomVideo: the recording it plays', () => {
         expect(video(container).getAttribute('src')).toBe('/auth-room/phone.mp4');
     });
 
+    it('plays the ultrawide room on a 21:9 screen, and its torn book on the error page', () => {
+        viewport(3440, 1440);
+        const { container, rerender } = render(<RoomVideo onGolden={vi.fn()} />);
+        const v = video(container);
+        expect(v.getAttribute('src')).toBe('/auth-room/ultrawide.mp4');
+        expect(v.getAttribute('poster')).toBe('/auth-room/ultrawide.webp');
+
+        rerender(<RoomVideo onGolden={vi.fn()} torn />);
+        expect(v.getAttribute('src')).toBe('/auth-room/ultrawide-torn.mp4');
+    });
+
+    it('moves to the ultrawide room on the same element when the window is made wide', () => {
+        const { container } = render(<RoomVideo onGolden={vi.fn()} />);
+        const first = video(container);
+        expect(first.getAttribute('src')).toBe('/auth-room/desktop.mp4');
+
+        act(() => viewport(3440, 1300));
+
+        expect(video(container)).toBe(first);
+        expect(first.getAttribute('src')).toBe('/auth-room/ultrawide.mp4');
+    });
+
+    it('keeps a landscape tablet on its recording while the keyboard opens and closes', () => {
+        media({ fine: false });
+        viewport(1024, 768);
+        const field = document.body.appendChild(document.createElement('input'));
+        field.focus();
+        try {
+            const { container } = render(<RoomVideo onGolden={vi.fn()} />);
+            const v = video(container);
+            expect(v.getAttribute('src')).toBe('/auth-room/desktop.mp4');
+            const play = vi.mocked(HTMLMediaElement.prototype.play);
+            const plays = play.mock.calls.length;
+
+            act(() => viewport(1024, 400));
+            expect(v.getAttribute('src')).toBe('/auth-room/desktop.mp4');
+            act(() => viewport(1024, 768));
+            expect(v.getAttribute('src')).toBe('/auth-room/desktop.mp4');
+            // No source swap, so nothing restarted either.
+            expect(play.mock.calls.length).toBe(plays);
+        } finally {
+            field.remove();
+        }
+    });
+
     it('tears the book on the same element, without making a new one', () => {
         const { container, rerender } = render(<RoomVideo onGolden={vi.fn()} />);
         const first = video(container);

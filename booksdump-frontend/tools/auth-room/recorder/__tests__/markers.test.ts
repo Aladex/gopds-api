@@ -17,27 +17,32 @@ const at = (dx: number, width = 1920, height = 1080): Markers => ({
 });
 const desktop = at(0);
 const phone = at(0, 1080, 1920);
+const ultrawide = at(0, 5120, 1440);
 
 describe('mergeMarkers', () => {
     it('keeps the desktop entry when only a phone variant is re-rendered', () => {
-        const merged = mergeMarkers({ desktop, phone }, { phone: at(1, 1080, 1920) });
+        const merged = mergeMarkers({ desktop, phone, ultrawide }, { phone: at(1, 1080, 1920) });
 
         expect(merged.desktop).toBe(desktop);
         expect(merged.phone).toEqual(at(1, 1080, 1920));
     });
 
     it('keeps the whole book’s entry when only the torn one is re-rendered', () => {
-        const merged = mergeMarkers({ desktop, phone }, { 'phone-torn': at(1, 1080, 1920) });
+        const merged = mergeMarkers(
+            { desktop, phone, ultrawide },
+            { 'phone-torn': at(1, 1080, 1920) },
+        );
 
         expect(merged.phone).toBe(phone);
         expect(merged.desktop).toBe(desktop);
     });
 
     it('keeps the phone entry on a markers-only run for desktop', () => {
-        const merged = mergeMarkers({ desktop, phone }, { desktop: at(0) });
+        const merged = mergeMarkers({ desktop, phone, ultrawide }, { desktop: at(0) });
 
-        expect(Object.keys(merged).sort()).toEqual(['desktop', 'phone']);
+        expect(Object.keys(merged).sort()).toEqual(['desktop', 'phone', 'ultrawide']);
         expect(merged.phone).toBe(phone);
+        expect(merged.ultrawide).toBe(ultrawide);
     });
 
     it('takes every composition from a full run', () => {
@@ -48,26 +53,47 @@ describe('mergeMarkers', () => {
                 desktop: at(0),
                 phone: at(0, 1080, 1920),
                 'phone-torn': at(0, 1080, 1920),
+                'ultrawide-torn': at(1, 5120, 1440),
+                ultrawide: at(0, 5120, 1440),
             },
         );
 
         // The whole book is the reference, whichever variant came first.
-        expect(merged).toEqual({ desktop: at(0), phone: at(0, 1080, 1920) });
+        expect(merged).toEqual({
+            desktop: at(0),
+            phone: at(0, 1080, 1920),
+            ultrawide: at(0, 5120, 1440),
+        });
     });
 
     it('refuses two variants of one composition that disagree', () => {
-        expect(() => mergeMarkers({}, { 'desktop-torn': at(5), desktop: at(0), phone })).toThrow(
-            /desktop-torn: Easter eggs moved by 5px from desktop/,
-        );
+        expect(() =>
+            mergeMarkers({}, { 'desktop-torn': at(5), desktop: at(0), phone, ultrawide }),
+        ).toThrow(/desktop-torn: Easter eggs moved by 5px from desktop/);
     });
 
     it('refuses a variant rendered alone that no longer agrees with the kept entry', () => {
-        expect(() => mergeMarkers({ desktop, phone }, { 'desktop-torn': at(4) })).toThrow(
-            /re-render both desktop variants/,
-        );
+        expect(() =>
+            mergeMarkers({ desktop, phone, ultrawide }, { 'desktop-torn': at(4) }),
+        ).toThrow(/re-render both desktop variants/);
     });
 
     it('refuses to leave a composition without markers', () => {
-        expect(() => mergeMarkers({}, { phone })).toThrow(/markers for desktop missing/);
+        expect(() => mergeMarkers({}, { phone })).toThrow(/markers for desktop, ultrawide missing/);
+    });
+
+    it('adds a new composition to a file that did not have it yet', () => {
+        const merged = mergeMarkers(
+            { desktop, phone },
+            { ultrawide: at(0, 5120, 1440), 'ultrawide-torn': at(0, 5120, 1440) },
+        );
+
+        expect(merged).toEqual({ desktop, phone, ultrawide: at(0, 5120, 1440) });
+    });
+
+    it('refuses to leave out a composition the app now expects', () => {
+        expect(() => mergeMarkers({ desktop, phone }, { desktop })).toThrow(
+            /markers for ultrawide missing/,
+        );
     });
 });

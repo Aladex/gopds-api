@@ -1,16 +1,17 @@
 import markers from '@/features/auth/room/markers.json';
 import type { Point } from '@/features/auth/room/cover';
+import type { Composition } from '@/features/auth/room/viewport';
 
 /**
- * The four recordings of the reading room (see tools/auth-room): the desktop
- * and the phone composition, each with the book whole and with its page torn
- * out for the error page.
+ * The six recordings of the reading room (see tools/auth-room): the desktop,
+ * phone and ultrawide compositions, each with the book whole and with its page
+ * torn out for the error page.
  */
 
-export type Variant = 'desktop' | 'desktop-torn' | 'phone' | 'phone-torn';
+export type Variant = Composition | `${Composition}-torn`;
 
-export const variantFor = (phone: boolean, torn: boolean): Variant =>
-    `${phone ? 'phone' : 'desktop'}${torn ? '-torn' : ''}` as Variant;
+export const variantFor = (composition: Composition, torn: boolean): Variant =>
+    torn ? `${composition}-torn` : composition;
 
 export interface Sources {
     webm: string;
@@ -43,12 +44,10 @@ export interface Markers {
     mask: { x: number; y: number; w: number; h: number };
 }
 
-// Both compositions, always: one missing from the file fails the type check
+// Every composition, always: one missing from the file fails the type check
 // here instead of silently losing that screen's Easter eggs.
-const byComposition: Record<'desktop' | 'phone', unknown> = markers;
+const byComposition: Record<Composition, unknown> = markers;
 
 // The torn book is the same camera on the same room: one set per composition.
 export const markersFor = (v: Variant): Markers =>
-    (byComposition as Record<'desktop' | 'phone', Markers>)[
-        v.startsWith('phone') ? 'phone' : 'desktop'
-    ];
+    (byComposition as Record<Composition, Markers>)[v.replace(/-torn$/, '') as Composition];

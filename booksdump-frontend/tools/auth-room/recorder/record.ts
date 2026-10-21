@@ -27,6 +27,7 @@ const canvas = document.querySelector('canvas')!;
 const scene = await createScene({
     canvas,
     phone: params.get('phone') === '1',
+    wide: params.get('wide') === '1',
     still: false,
     torn: params.get('torn') === '1',
     onGolden: () => {},

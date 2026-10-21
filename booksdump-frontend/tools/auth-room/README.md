@@ -29,11 +29,11 @@ AUTH_ROOM_MARKERS_ONLY=1 node tools/auth-room/record.mjs                       #
 ```
 
 It writes, per variant (`desktop`, `desktop-torn` at 1920×1080; `phone`,
-`phone-torn` at 1080×1920):
+`phone-torn` at 1080×1920; `ultrawide`, `ultrawide-torn` at 5120×1440):
 
 - `public/auth-room/<variant>.webm` (VP9, two-pass) and `.mp4` (H.264 High,
   `+faststart`), each at the lowest CRF that stays under the budget (3 MB
-  desktop, 2.5 MB phone);
+  desktop, 2.5 MB phone, 4 MB ultrawide);
 - `public/auth-room/<variant>.webp`, the poster — the loop's first frame;
 - the Easter eggs' positions in the frame (golden post on the table, the
   pupils, the mask's box) into `src/features/auth/room/markers.json`, one
@@ -45,6 +45,21 @@ It writes, per variant (`desktop`, `desktop-torn` at 1920×1080; `phone`,
 Frames, the lossless master and a report (sizes, CRF, bitrates, SSIM of the
 loop seam against neighbouring frames) go to `tools/auth-room/work/`, which is
 not committed.
+
+## The ultrawide recording
+
+The app plays it from an aspect of 2.2 : 1 up (`ULTRAWIDE_ASPECT` in
+`src/features/auth/room/viewport.ts`). It is the desktop camera — same lens,
+aim and height, same desk — with a 32:9 frame, so its middle is the desktop
+picture and the width beyond is filled: more free sheets (they scatter across
+whatever width the frame has), a far layer as wide as the frame, and loose
+pages out at the sides of the table.
+
+Why 5120×1440: its height is a 1440p ultrawide's, so on 3440×1440 (21:9, the
+common one) it plays pixel for pixel with only the sides cropped, and on
+5120×1440 (32:9) it fills the screen whole. A 21:9 recording would have to be
+blown up and cropped top and bottom on 32:9 — the desk sits at the bottom of
+the frame and would go first.
 
 ## How the loop closes
 

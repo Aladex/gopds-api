@@ -121,6 +121,8 @@ export interface SceneOptions {
     canvas: HTMLCanvasElement;
     /** Portrait-phone composition and the lighter pipeline. */
     phone: boolean;
+    /** The ultrawide composition (desktop only; see sceneLayout). */
+    wide?: boolean;
     /** prefers-reduced-motion: render one frame and no loop. */
     still: boolean;
     /**
@@ -186,7 +188,7 @@ export interface SceneStats {
     pixelRatio: number;
     canvas: string;
     /** Which composition the scene was built for. */
-    layout: 'phone' | 'desktop';
+    layout: 'phone' | 'desktop' | 'ultrawide';
 }
 
 export interface SceneHandle {
@@ -332,7 +334,7 @@ export default async function createScene(o: SceneOptions): Promise<SceneHandle>
     const owner = createOwner();
     const own = <T extends { dispose(): void }>(resource: T): T => owner.track(resource);
     try {
-        const layout = sceneLayout(o.phone);
+        const layout = sceneLayout(o.phone, Boolean(o.wide));
         const { canvas } = o;
         // The probe in AuthScene only says a context could be had a moment ago;
         // this is the one the renderer will use. Asked for here, a refusal is an
@@ -1241,7 +1243,11 @@ export default async function createScene(o: SceneOptions): Promise<SceneHandle>
         );
         scene.add(farMesh);
         const farItems = Array.from({ length: layout.farCount }, () => ({
-            pos: new Vector3(rand(-20, 20), rand(TABLE_Y + 0.6, 10), rand(-30, -13)),
+            pos: new Vector3(
+                rand(-layout.farHalfX, layout.farHalfX),
+                rand(TABLE_Y + 0.6, 10),
+                rand(-30, -13),
+            ),
             rot: new Euler(rand(0, 6.3), rand(0, 6.3), rand(0, 6.3)),
             w: new Vector3(rand(-0.6, 0.6), rand(-0.9, 0.9), rand(-0.4, 0.4)),
             phase: rand(0, 6.3),
@@ -1253,7 +1259,7 @@ export default async function createScene(o: SceneOptions): Promise<SceneHandle>
             farItems.forEach((it, i) => {
                 it.pos.x += (0.25 + 0.12 * Math.sin(t * 0.21 + it.phase)) * dt;
                 it.pos.y += 0.08 * Math.cos(t * 0.3 + it.phase) * dt;
-                if (it.pos.x > 20) it.pos.x = -20;
+                if (it.pos.x > layout.farHalfX) it.pos.x = -layout.farHalfX;
                 it.rot.x += it.w.x * dt;
                 it.rot.y += it.w.y * dt;
                 it.rot.z += it.w.z * dt;
@@ -1719,7 +1725,7 @@ export default async function createScene(o: SceneOptions): Promise<SceneHandle>
             renderer: rendererName(gl),
             pixelRatio: renderer.getPixelRatio(),
             canvas: `${canvas.width}×${canvas.height}`,
-            layout: o.phone ? 'phone' : 'desktop',
+            layout: o.phone ? 'phone' : o.wide ? 'ultrawide' : 'desktop',
         });
         // --- Recording -----------------------------------------------------------------
         let recordStarted = false;

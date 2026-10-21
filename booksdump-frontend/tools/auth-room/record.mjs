@@ -48,6 +48,26 @@ const VARIANTS = {
     },
     phone: { width: 1080, height: 1920, phone: true, torn: false, level: 1, budget: 2.5e6 },
     'phone-torn': { width: 1080, height: 1920, phone: true, torn: true, level: 1, budget: 2.5e6 },
+    // 32:9 at the height of a 1440p ultrawide: pixel for pixel on 3440 × 1440
+    // (the sides cropped) and on 5120 × 1440 (whole). See README.md.
+    ultrawide: {
+        width: 5120,
+        height: 1440,
+        phone: false,
+        wide: true,
+        torn: false,
+        level: 0,
+        budget: 4.0e6,
+    },
+    'ultrawide-torn': {
+        width: 5120,
+        height: 1440,
+        phone: false,
+        wide: true,
+        torn: true,
+        level: 0,
+        budget: 4.0e6,
+    },
 };
 
 /**
@@ -136,7 +156,8 @@ async function record(browser, server, name, v) {
     });
     page.on('pageerror', (e) => console.error(`[${name}] ${e.message}`));
     await page.goto(
-        `${server.url}/?phone=${+v.phone}&torn=${+v.torn}&level=${v.level}&seed=${SEED}`,
+        `${server.url}/?phone=${+v.phone}&wide=${+Boolean(v.wide)}&torn=${+v.torn}` +
+            `&level=${v.level}&seed=${SEED}`,
     );
     await page.waitForFunction(() => document.title === 'ready', null, { timeout: 120000 });
     const markers = await page.evaluate(() => window.recorder.markers());
@@ -196,7 +217,7 @@ function assemble(dir, framesDir) {
 }
 
 /** Encode under the variant's budget: the lowest CRF that fits. */
-function encode(master, out, budget) {
+function encode(master, out, budget, width) {
     const results = {};
     for (const [ext, crfs, args] of [
         [
@@ -212,7 +233,9 @@ function encode(master, out, budget) {
                 '-row-mt',
                 '1',
                 '-tile-columns',
-                '2',
+                // More columns on the widest frames, so decoding spreads
+                // across cores.
+                String(width >= 3840 ? 3 : 2),
                 '-g',
                 '240',
                 '-pix_fmt',
@@ -222,7 +245,7 @@ function encode(master, out, budget) {
         ],
         [
             'mp4',
-            [19, 22, 25, 28, 31],
+            [19, 22, 25, 28, 31, 34],
             (crf) => [
                 '-c:v',
                 'libx264',
@@ -337,7 +360,7 @@ async function main() {
             if (process.env.AUTH_ROOM_MARKERS_ONLY) continue;
             const master = assemble(r.dir, r.framesDir);
             const L = LOOP_S * FPS;
-            const sizes = encode(master, path.join(outDir, name), v.budget);
+            const sizes = encode(master, path.join(outDir, name), v.budget, v.width);
             const neighbours = [1, 300, 600, L - 2].map((k) => ssim(master, k - 1, k, r.dir));
             report[name] = {
                 sizes,
