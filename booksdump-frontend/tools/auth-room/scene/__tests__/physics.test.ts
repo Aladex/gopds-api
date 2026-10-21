@@ -224,6 +224,11 @@ describe('deform', () => {
         let maxBend = 0;
         let maxTwist = 0;
         let maxFlutter = 0;
+        // How far any vertex moved in the plane: a count kept in plain
+        // numbers, not an assertion per vertex per frame — two hundred
+        // thousand of those made the test slow enough to time out on a
+        // loaded machine.
+        let maxInPlane = 0;
         for (let frame = 0; frame < 600; frame++) {
             const t = frame / 60;
             const gust = makeGust(
@@ -242,12 +247,16 @@ describe('deform', () => {
             maxFlutter = Math.max(maxFlutter, Math.abs(s.flutter));
             deform(s, pos, t);
             for (let i = 0; i < pos.length; i += 3) {
-                // In the plane the grid never moves: paper does not stretch.
-                expect(pos[i]).toBe(s.base[i]);
-                expect(pos[i + 1]).toBe(s.base[i + 1]);
+                maxInPlane = Math.max(
+                    maxInPlane,
+                    Math.abs(pos[i] - s.base[i]),
+                    Math.abs(pos[i + 1] - s.base[i + 1]),
+                );
                 maxDepth = Math.max(maxDepth, Math.abs(pos[i + 2]));
             }
         }
+        // In the plane the grid never moves: paper does not stretch.
+        expect(maxInPlane).toBe(0);
         expect(maxDepth).toBeLessThanOrEqual(0.5);
         expect(Math.hypot(PAGE_W / 2, PAGE_H / 2, maxDepth)).toBeLessThanOrEqual(BOUND_R);
         // The ranges the shape is driven within: a curl of at most the

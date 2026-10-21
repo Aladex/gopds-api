@@ -321,6 +321,66 @@ describe('RoomVideo: parallax', () => {
     });
 });
 
+describe('RoomVideo: framing', () => {
+    it('anchors the desktop recording at the bottom, the desk, and its overlay with it', () => {
+        viewport(1920, 945);
+        const { container } = render(<RoomVideo onGolden={vi.fn()} />);
+        expect(video(container).style.objectPosition).toBe('50% 100%');
+
+        const fit = coverFit(
+            { width: 1920, height: 1080 },
+            { width: 1920, height: 945 },
+            { x: 0.5, y: 1 },
+        );
+        const expected = markersFor('desktop')
+            .goldenPost.map((p) =>
+                toBox(p, fit)
+                    .map((n) => n.toFixed(1))
+                    .join(','),
+            )
+            .join(' ');
+        expect(container.querySelector('[data-golden-post]')!.getAttribute('points')).toBe(
+            expected,
+        );
+    });
+
+    it('keeps the ultrawide recording centred', () => {
+        viewport(3440, 1440);
+        const { container } = render(<RoomVideo onGolden={vi.fn()} />);
+        expect(video(container).style.objectPosition).toBe('50% 50%');
+    });
+
+    it('holds the old frame where it was when the window crosses into the ultrawide band', () => {
+        viewport(1920, 945);
+        const { container } = render(<RoomVideo onGolden={vi.fn()} />);
+        const v = video(container);
+        Object.defineProperty(v, 'readyState', { configurable: true, value: 4 });
+        Object.defineProperty(v, 'videoWidth', { configurable: true, value: 1920 });
+        Object.defineProperty(v, 'videoHeight', { configurable: true, value: 1080 });
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+            drawImage: vi.fn(),
+        } as never);
+
+        act(() => viewport(3440, 1440));
+
+        const freeze = container.querySelector('canvas') as HTMLCanvasElement;
+        expect(freeze.style.opacity).toBe('1');
+        // The held frame is the desktop one, anchored as it was shown…
+        expect(freeze.style.objectPosition).toBe('50% 100%');
+        // …while the new recording comes in centred.
+        expect(v.style.objectPosition).toBe('50% 50%');
+    });
+
+    it('anchors the poster the same way as the video', () => {
+        media({ reduced: true });
+        viewport(1920, 945);
+        const { container } = render(<RoomVideo onGolden={vi.fn()} />);
+        expect((container.querySelector('img') as HTMLElement).style.objectPosition).toBe(
+            '50% 100%',
+        );
+    });
+});
+
 describe('RoomVideo: the Easter eggs', () => {
     const fit = () => coverFit({ width: 1920, height: 1080 }, { width: 1440, height: 900 });
 

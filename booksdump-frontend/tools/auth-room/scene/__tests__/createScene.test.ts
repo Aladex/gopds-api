@@ -1,7 +1,7 @@
 import { Matrix4, type BufferGeometry } from 'three';
 
 import { blockHeight } from '../book';
-import { LEVELS, LOWEST_MOVING, STILL, startLevel } from '../quality';
+import { BUDGET, LEVELS, LOWEST_MOVING, STILL, startLevel } from '../quality';
 
 import createScene, { CONTEXT_ATTRIBUTES, type SceneOptions } from '../createScene';
 
@@ -273,7 +273,18 @@ function options(over: Partial<SceneOptions> = {}): SceneOptions {
 /** Everything recorded as made that was not released. */
 const leaked = () => reg.created.filter((x) => !reg.released.has(x));
 
+/**
+ * The clock the scene times its own script work with. Every read moves it on
+ * by `perRead` milliseconds, so a frame's script time is a number the test
+ * chooses — not whatever a loaded machine happens to take, which once made a
+ * sixty-frames-a-second device look slow and lose its depth of field.
+ */
+const scriptClock = { ms: 0, perRead: 1 };
+
 beforeEach(() => {
+    scriptClock.ms = 0;
+    scriptClock.perRead = 1;
+    vi.spyOn(performance, 'now').mockImplementation(() => (scriptClock.ms += scriptClock.perRead));
     reg.created.length = 0;
     reg.released.clear();
     reg.renderers.length = 0;
@@ -608,6 +619,31 @@ describe('createScene: fitting the device', () => {
         expect(scene.stats().level).toBe('full');
         expect(pass('gtao')?.enabled).not.toBe(false);
         expect(pass('bloom')?.enabled).not.toBe(false);
+        scene.dispose();
+    });
+
+    it('judges the device by the clocks it is given, however long the frames really take', async () => {
+        // Every frame takes 25 ms of real time — two and a half times the
+        // script budget — the way a loaded machine stretches them. The thread
+        // sleeps rather than spins, so nothing else is slowed by this test.
+        const sleeper = new Int32Array(new SharedArrayBuffer(4));
+        reg.onRender = () => void Atomics.wait(sleeper, 0, 0, 25);
+        // Starting on the full room, so forty frames are enough to judge it.
+        const scene = await createScene(options({ quality: { start: 0 } }));
+        for (let i = 1; i <= 40; i++) tick(i * (1000 / 60));
+
+        // Measured by the wall clock this device would have gone down a level;
+        // by the clocks the test owns it held sixty frames a second.
+        expect(scene.stats().level).toBe('full');
+        scene.dispose();
+    });
+
+    it('steps down a device whose own script time is over budget, at sixty frames a second', async () => {
+        scriptClock.perRead = BUDGET.downStepMs * 2;
+        const scene = await createScene(options());
+        for (let i = 1; i <= 600; i++) tick(i * (1000 / 60));
+
+        expect(scene.stats().level).not.toBe('full');
         scene.dispose();
     });
 

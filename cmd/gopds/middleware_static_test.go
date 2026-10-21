@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	assets "gopds-api"
 
@@ -63,5 +64,60 @@ func TestServeStaticFilesMiddlewarePassesThroughUnknownPath(t *testing.T) {
 	}
 	if rec.Body.Len() != 0 {
 		t.Fatalf("middleware wrote %d bytes for a non-static path, want 0", rec.Body.Len())
+	}
+}
+
+// TestServeStaticFilesMiddlewareServesWebMAsVideo pins the media types of the
+// reading-room recordings. Go's own table maps .webm to audio/webm (and the
+// production image has no /etc/mime.types to say otherwise); a browser asked
+// to play an audio/webm resource in a <video> may refuse or misjudge it.
+func TestServeStaticFilesMiddlewareServesWebMAsVideo(t *testing.T) {
+	distFolders = []string{"/auth-room/"}
+	t.Cleanup(func() { distFolders = nil })
+	files := fstest.MapFS{
+		"booksdump-frontend/build/auth-room/desktop.webm": {Data: []byte("\x1a\x45\xdf\xa3webm")},
+		"booksdump-frontend/build/auth-room/desktop.mp4":  {Data: []byte("\x00\x00\x00\x18ftypmp42")},
+		"booksdump-frontend/build/auth-room/desktop.webp": {Data: []byte("RIFF\x00\x00\x00\x00WEBPVP8 ")},
+	}
+
+	for target, want := range map[string]string{
+		"/auth-room/desktop.webm": "video/webm",
+		"/auth-room/desktop.mp4":  "video/mp4",
+		"/auth-room/desktop.webp": "image/webp",
+	} {
+		c, rec := newStaticTestContext(t, target)
+
+		serveStaticFilesMiddleware(http.FS(files))(c)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want %d", target, rec.Code, http.StatusOK)
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != want {
+			t.Errorf("%s: Content-Type = %q, want %q", target, ct, want)
+		}
+	}
+}
+
+// TestServeStaticFilesMiddlewareServesWebMRanges keeps byte ranges working for
+// the recording with its type set: browsers fetch video in ranges.
+func TestServeStaticFilesMiddlewareServesWebMRanges(t *testing.T) {
+	distFolders = []string{"/auth-room/"}
+	t.Cleanup(func() { distFolders = nil })
+	files := fstest.MapFS{
+		"booksdump-frontend/build/auth-room/desktop.webm": {Data: []byte("0123456789")},
+	}
+	c, rec := newStaticTestContext(t, "/auth-room/desktop.webm")
+	c.Request.Header.Set("Range", "bytes=2-4")
+
+	serveStaticFilesMiddleware(http.FS(files))(c)
+
+	if rec.Code != http.StatusPartialContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusPartialContent)
+	}
+	if got := rec.Body.String(); got != "234" {
+		t.Fatalf("body = %q, want %q", got, "234")
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "video/webm" {
+		t.Fatalf("Content-Type = %q, want %q", ct, "video/webm")
 	}
 }

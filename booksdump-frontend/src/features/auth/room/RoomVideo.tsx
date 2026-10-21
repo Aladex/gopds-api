@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
-import { coverFit, toBox } from '@/features/auth/room/cover';
+import { coverFit, objectPosition, toBox, type Anchor } from '@/features/auth/room/cover';
 import {
+    alignFor,
     markersFor,
     pickSource,
     sourcesFor,
@@ -118,6 +119,10 @@ const RoomVideo: React.FC<RoomVideoProps> = ({ onGolden, torn = false }) => {
     const [fine] = useState(() => window.matchMedia('(pointer: fine)').matches && !touchFirst());
     const variant = variantFor(framing, torn);
     const sources = sourcesFor(variant);
+    const position = objectPosition(alignFor(variant));
+    // The recording on screen, whose frame a swap holds: its anchor, not the
+    // next one's, places that frame.
+    const shownRef = useRef(variant);
     const videoRef = useRef<HTMLVideoElement>(null);
     const freezeRef = useRef<HTMLCanvasElement>(null);
     const layerRef = useRef<HTMLDivElement>(null);
@@ -140,12 +145,14 @@ const RoomVideo: React.FC<RoomVideoProps> = ({ onGolden, torn = false }) => {
             freeze.width = video.videoWidth;
             freeze.height = video.videoHeight;
             freeze.getContext('2d')?.drawImage(video, 0, 0);
+            freeze.style.objectPosition = objectPosition(alignFor(shownRef.current));
             freeze.style.opacity = '1';
             video.addEventListener('playing', () => (freeze.style.opacity = '0'), { once: true });
         }
         video.poster = sources.poster;
         video.muted = true;
         video.src = url;
+        shownRef.current = variant;
         video.play()?.catch(() => {
             // Autoplay refused or the source unplayable: the poster stays,
             // which is a perfectly good room.
@@ -206,6 +213,7 @@ const RoomVideo: React.FC<RoomVideoProps> = ({ onGolden, torn = false }) => {
                         alt=""
                         onLoad={announce}
                         className="absolute inset-0 h-full w-full object-cover"
+                        style={{ objectPosition: position }}
                     />
                 ) : (
                     <video
@@ -217,6 +225,7 @@ const RoomVideo: React.FC<RoomVideoProps> = ({ onGolden, torn = false }) => {
                         playsInline
                         preload="auto"
                         className="absolute inset-0 h-full w-full object-cover"
+                        style={{ objectPosition: position }}
                     />
                 )}
                 <canvas
@@ -224,7 +233,12 @@ const RoomVideo: React.FC<RoomVideoProps> = ({ onGolden, torn = false }) => {
                     className="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-300"
                 />
                 {markers && (
-                    <Eggs markers={markers} box={{ width: w, height: h }} onGolden={onGolden} />
+                    <Eggs
+                        markers={markers}
+                        box={{ width: w, height: h }}
+                        anchor={alignFor(variant)}
+                        onGolden={onGolden}
+                    />
                 )}
             </div>
             {/* Film grain, laid over the video instead of baked into it: noise
@@ -238,12 +252,14 @@ const RoomVideo: React.FC<RoomVideoProps> = ({ onGolden, torn = false }) => {
 type EggsProps = {
     markers: Markers;
     box: { width: number; height: number };
+    /** The recording's object-position, which the overlay follows. */
+    anchor: Anchor;
     onGolden: () => void;
 };
 
 /** The golden post's hotspot and the mask's glowing pupils, over the video. */
-const Eggs: React.FC<EggsProps> = ({ markers, box, onGolden }) => {
-    const fit = coverFit({ width: markers.width, height: markers.height }, box);
+const Eggs: React.FC<EggsProps> = ({ markers, box, anchor, onGolden }) => {
+    const fit = coverFit({ width: markers.width, height: markers.height }, box, anchor);
     const [near, setNear] = useState(false);
     const m = markers.mask;
     const [mx0, my0] = toBox([m.x, m.y], fit);

@@ -47,6 +47,25 @@ func setStaticCacheHeaders(c *gin.Context, filePath string) {
 	}
 }
 
+// staticContentTypes overrides the media type Go would pick for a static
+// file's extension. Go's built-in table maps .webm to audio/webm, and the
+// production image has no /etc/mime.types to correct it; the frontend's .webm
+// files are the reading-room videos. Set here, for the frontend's own files,
+// rather than with mime.AddExtensionType, which would change it for the whole
+// process.
+var staticContentTypes = map[string]string{
+	".webm": "video/webm",
+}
+
+// setStaticContentType sets Content-Type for the extensions in
+// staticContentTypes; http.ServeContent keeps a type that is already set and
+// infers the rest itself.
+func setStaticContentType(c *gin.Context, filePath string) {
+	if ct, ok := staticContentTypes[strings.ToLower(path.Ext(filePath))]; ok {
+		c.Header("Content-Type", ct)
+	}
+}
+
 // setupMiddleware configures global middleware for the gin.Engine instance.
 // It includes a custom logger and, if in development mode, a CORS middleware.
 func setupMiddleware(route *gin.Engine) {
@@ -119,6 +138,7 @@ func serveStaticFilesMiddleware(fs http.FileSystem) gin.HandlerFunc {
 				if err == nil {
 					defer file.Close()
 					setStaticCacheHeaders(c, requestPath)
+					setStaticContentType(c, requestPath)
 					http.ServeContent(c.Writer, c.Request, filePath, buildTime, file)
 					c.Abort()
 					return
