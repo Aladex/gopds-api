@@ -32,7 +32,7 @@ vi.mock('@/shared/ui/sonner', () => ({ Toaster: () => null }));
 vi.mock('@/shared/layout/InterfaceLanguageToggle', () => ({ default: () => null }));
 
 let mounts = 0;
-vi.mock('@/features/auth/scene/AuthScene', async () => {
+vi.mock('@/features/auth/room/RoomVideo', async () => {
     const { useEffect } = await vi.importActual<typeof import('react')>('react');
     function FakeScene() {
         useEffect(() => {
@@ -52,7 +52,7 @@ const Navigator = () => {
     return null;
 };
 
-it('keeps one reading room behind the public screens, from the application shell', () => {
+it('keeps one reading room behind the public screens, from the application shell', async () => {
     mounts = 0;
     render(
         <MemoryRouter initialEntries={['/login']}>
@@ -60,7 +60,7 @@ it('keeps one reading room behind the public screens, from the application shell
             <AppWrapper />
         </MemoryRouter>,
     );
-    expect(screen.getByTestId('auth-scene')).toBeInTheDocument();
+    expect(await screen.findByTestId('auth-scene')).toBeInTheDocument();
 
     act(() => nav.go('/forgot-password'));
     act(() => nav.go('/registration'));

@@ -5,3 +5,4 @@ yarn.lock
 
 # Vendored: a Twemoji subset carried as a binary, nothing to format.
 src/assets
+tools/auth-room/work

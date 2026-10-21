@@ -2,7 +2,7 @@ import React from 'react';
 
 import { Card } from '@/shared/ui/card';
 import InterfaceLanguageToggle from '@/shared/layout/InterfaceLanguageToggle';
-import { useAuthRoom } from '@/features/auth/scene/AuthRoom';
+import { useAuthRoom } from '@/features/auth/room/AuthRoom';
 
 /**
  * CenteredBox is the frame every authentication screen sits in: one card in

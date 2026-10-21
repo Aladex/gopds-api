@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 
 import ErrorPage from '@/shared/components/ErrorPage';
-import { AuthRoomProvider } from '@/features/auth/scene/AuthRoom';
+import { AuthRoomProvider } from '@/features/auth/room/AuthRoom';
 
 // t must keep a stable identity across renders: a mock that returns a fresh
 // function every call spins any component with an effect keyed on t.
@@ -15,7 +15,7 @@ vi.mock('@/shared/layout/InterfaceLanguageToggle', () => ({ default: () => null 
 
 // The scene needs a GPU; what the page owes it is the right book.
 const sceneProps = vi.fn();
-vi.mock('@/features/auth/scene/AuthScene', () => ({
+vi.mock('@/features/auth/room/RoomVideo', () => ({
     default: (props: { torn?: boolean }) => {
         sceneProps(props);
         return <div data-testid="auth-scene" />;

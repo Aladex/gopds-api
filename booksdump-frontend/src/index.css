@@ -528,3 +528,66 @@
         text-decoration: underline;
     }
 }
+
+/*
+ * The reading room's film grain, over its video rather than baked into it:
+ * per-frame noise is what a video encoder can least afford, and a grain laid
+ * on top also breaks up any banding the encoder leaves in the dark. One tile
+ * of noise, drawn once, moved in a few steps: compositor work only.
+ */
+.room-grain {
+    position: absolute;
+    inset: -50%;
+    pointer-events: none;
+    opacity: 0.08;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    animation: room-grain 0.8s steps(5) infinite;
+}
+
+@keyframes room-grain {
+    0% {
+        transform: translate(0, 0);
+    }
+    20% {
+        transform: translate(-3%, 2%);
+    }
+    40% {
+        transform: translate(2%, -3%);
+    }
+    60% {
+        transform: translate(-2%, -1%);
+    }
+    80% {
+        transform: translate(3%, 3%);
+    }
+}
+
+/* The mask's pupils: faintly lit always, as on the logo; brighter when the hand is near. */
+.room-eye {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    border-radius: 9999px;
+    background: radial-gradient(
+        circle,
+        rgb(255 70 40 / 0.85),
+        rgb(255 40 20 / 0.35) 35%,
+        transparent 70%
+    );
+    mix-blend-mode: screen;
+    opacity: 0.35;
+    transition: opacity 0.6s ease;
+}
+
+.room-eyes[data-near='true'] .room-eye {
+    opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .room-grain {
+        animation: none;
+    }
+    .room-eye {
+        transition: none;
+    }
+}

@@ -13,7 +13,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router';
 import { WebSocketProvider } from '@/context/WebSocketContext';
 import AppSkeleton from '@/shared/components/AppSkeleton';
 import { Toaster } from '@/shared/ui/sonner';
-import { AuthRoomProvider } from '@/features/auth/scene/AuthRoom';
+import { AuthRoomProvider } from '@/features/auth/room/AuthRoom';
 
 /**
  * RootRedirect sends the site's root to the first page of books, keeping the

@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 
 import CenteredBox from '@/features/auth/CenteredBox';
-import { AuthRoomProvider } from '@/features/auth/scene/AuthRoom';
+import { AuthRoomProvider } from '@/features/auth/room/AuthRoom';
 
 // t must keep a stable identity across renders: a mock that returns a fresh
 // function every call spins any component with an effect keyed on t.
@@ -20,7 +20,7 @@ vi.mock('@/shared/layout/InterfaceLanguageToggle', () => ({
 // the routes does, and its own tests cover that — but the frame is what asks
 // for it, and for which book.
 let torn: boolean | undefined;
-vi.mock('@/features/auth/scene/AuthScene', () => ({
+vi.mock('@/features/auth/room/RoomVideo', () => ({
     default: ({ torn: t }: { torn?: boolean }) => {
         torn = t;
         return <div data-testid="auth-scene" />;

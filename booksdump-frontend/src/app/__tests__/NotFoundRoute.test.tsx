@@ -2,14 +2,14 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes } from 'react-router';
 
 import notFoundRoutes from '@/app/routes/notFoundRoutes';
-import { AuthRoomProvider } from '@/features/auth/scene/AuthRoom';
+import { AuthRoomProvider } from '@/features/auth/room/AuthRoom';
 
 const translate = (key: string) => key;
 const translation = { t: translate };
 vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 
 vi.mock('@/shared/layout/InterfaceLanguageToggle', () => ({ default: () => null }));
-vi.mock('@/features/auth/scene/AuthScene', () => ({
+vi.mock('@/features/auth/room/RoomVideo', () => ({
     default: () => <div data-testid="auth-scene" />,
 }));
 
@@ -24,7 +24,7 @@ describe('NotFoundRoute', () => {
         );
 
         expect(screen.getByRole('heading', { name: 'errorPage.title' })).toBeInTheDocument();
-        expect(screen.getByTestId('auth-scene')).toBeInTheDocument();
+        expect(await screen.findByTestId('auth-scene')).toBeInTheDocument();
         await waitFor(() => expect(document.title).toBe('routeTitles.error'));
     });
 });
