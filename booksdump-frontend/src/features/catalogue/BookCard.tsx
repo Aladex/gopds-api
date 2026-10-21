@@ -286,7 +286,12 @@ const BookCard: React.FC<BookCardProps> = ({
                 </div>
 
                 <div className="col-start-2 row-start-1 flex min-w-0 flex-col gap-1.5">
-                    <h3 className={cn('text-lg font-medium text-balance [overflow-wrap:anywhere]', isSuperuser && 'pr-8')}>
+                    <h3
+                        className={cn(
+                            'text-lg font-medium text-balance [overflow-wrap:anywhere]',
+                            isSuperuser && 'pr-8',
+                        )}
+                    >
                         {book.title}
                     </h3>
                     {/*
