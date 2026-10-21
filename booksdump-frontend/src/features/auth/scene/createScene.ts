@@ -127,7 +127,8 @@ export interface SceneOptions {
     still: boolean;
     /**
      * The error page: the open book has its right-hand page torn out, a
-     * ragged stub left at the gutter.
+     * ragged stub left at the gutter. Only the starting state; the live
+     * scene changes it with setTorn().
      */
     torn?: boolean;
     /** The golden post was caught. */
@@ -137,6 +138,12 @@ export interface SceneOptions {
 
 export interface SceneHandle {
     dispose(): void;
+    /**
+     * Tear the right-hand page out of the open book, or put it back, on the
+     * live scene: the room is shared by every public screen and only the
+     * error page shows the torn book.
+     */
+    setTorn(torn: boolean): void;
 }
 
 const ASSETS = '/auth-scene/';
@@ -611,7 +618,13 @@ export default async function createScene(o: SceneOptions): Promise<SceneHandle>
         // block's curve — a flat triangulation would cut under the arched
         // page — and kept below the turning sheet, which lifts off at +0.006,
         // so pages still turn over it.
-        if (o.torn) {
+        // Built the first time it is wanted, then only shown or hidden: the
+        // reader can go from the error page to the sign-in screen and back
+        // without the scene being rebuilt.
+        let tornPage: Group | null = null;
+        const buildTornPage = (): Group => {
+            const page = new Group();
+            book.add(page);
             const edge = tornStub().slice(1, -1);
             const K = 6;
             const pos: number[] = [];
@@ -640,7 +653,7 @@ export default async function createScene(o: SceneOptions): Promise<SceneHandle>
             stubGeo.computeVertexNormals();
             const stub = new Mesh(stubGeo, materials[3].front);
             stub.castShadow = stub.receiveShadow = true;
-            book.add(stub);
+            page.add(stub);
 
             // Cream on cream, a stub alone does not read as torn at the size the
             // book is drawn. What the eye takes a tear by is its edge: the paler
@@ -685,8 +698,10 @@ export default async function createScene(o: SceneOptions): Promise<SceneHandle>
                     new MeshStandardMaterial({ color: 0xfbf3e2, vertexColors: true, roughness: 1 }),
                 ),
             );
-            book.add(shadow, fibre);
-        }
+            page.add(shadow, fibre);
+            return page;
+        };
+        if (o.torn) tornPage = buildTornPage();
 
         const flipGeo = own(new PlaneGeometry(PAGE_W, PAGE_H, FLIP_S, FLIP_Z));
         const flipPos = flipGeo.attributes.position.array as Float32Array;
@@ -1357,7 +1372,14 @@ export default async function createScene(o: SceneOptions): Promise<SceneHandle>
             );
         }
 
-        return { dispose: () => owner.dispose() };
+        const setTorn = (torn: boolean) => {
+            if (owner.disposed) return;
+            if (torn && !tornPage) tornPage = buildTornPage();
+            if (tornPage) tornPage.visible = torn;
+            // A still scene draws only when asked to.
+            if (o.still) still();
+        };
+        return { dispose: () => owner.dispose(), setTorn };
     } catch (error) {
         owner.dispose();
         throw error;

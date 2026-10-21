@@ -1,8 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import { toast } from 'sonner';
 
 import CenteredBox from '@/features/auth/CenteredBox';
+import { AuthRoomProvider } from '@/features/auth/scene/AuthRoom';
 
 // t must keep a stable identity across renders: a mock that returns a fresh
 // function every call spins any component with an effect keyed on t.
@@ -16,38 +16,36 @@ vi.mock('@/shared/layout/InterfaceLanguageToggle', () => ({
     default: () => <div data-testid="interface-language-toggle" />,
 }));
 
-// The scene needs a GPU; what the frame owes it is a place and a way to say
-// the golden post was caught.
-let caught: (() => void) | null = null;
+// The scene needs a GPU. The frame no longer builds it — the room host above
+// the routes does, and its own tests cover that — but the frame is what asks
+// for it, and for which book.
 let torn: boolean | undefined;
 vi.mock('@/features/auth/scene/AuthScene', () => ({
-    default: ({ onGolden, torn: t }: { onGolden: () => void; torn?: boolean }) => {
-        caught = onGolden;
+    default: ({ torn: t }: { torn?: boolean }) => {
         torn = t;
         return <div data-testid="auth-scene" />;
     },
 }));
 
-const navigate = vi.fn();
-vi.mock('react-router', async () => {
-    const actual = await vi.importActual<typeof import('react-router')>('react-router');
-    return { ...actual, useNavigate: () => navigate };
-});
-
 vi.mock('sonner', () => ({ toast: vi.fn() }));
 
 beforeEach(() => {
-    caught = null;
+    torn = undefined;
     vi.clearAllMocks();
 });
 
 function renderBox(children: React.ReactNode = <p>content</p>) {
     return render(
         <MemoryRouter>
-            <CenteredBox>{children}</CenteredBox>
+            <AuthRoomProvider>
+                <CenteredBox>{children}</CenteredBox>
+            </AuthRoomProvider>
         </MemoryRouter>,
     );
 }
+
+/** The frame itself, not the room drawn beside it. */
+const frame = (container: HTMLElement) => container.querySelector('.auth-room') as HTMLElement;
 
 describe('CenteredBox', () => {
     it('renders whatever screen it wraps', () => {
@@ -61,7 +59,7 @@ describe('CenteredBox', () => {
 
         // Pixels are the browser's business; what the wrapper owes the screens
         // is a centred card that stops widening at some point.
-        const wrapper = container.firstElementChild as HTMLElement;
+        const wrapper = frame(container);
         expect(wrapper.className).toContain('items-center');
         expect(wrapper.className).toContain('justify-center');
 
@@ -93,16 +91,18 @@ describe('CenteredBox', () => {
     it('is dark whatever the theme: the room is at night', () => {
         const { container } = renderBox();
 
-        expect(container.firstElementChild).toHaveAttribute('data-theme', 'dark');
+        expect(frame(container)).toHaveAttribute('data-theme', 'dark');
     });
 
-    it('sends whoever catches the golden post to registration, and says why', () => {
-        renderBox();
+    it('lets the pointer through to the room, except over the card and the toggle', () => {
+        const { container } = renderBox();
 
-        caught!();
-
-        expect(navigate).toHaveBeenCalledWith('/registration');
-        expect(toast).toHaveBeenCalledWith('goldenPost');
+        // The canvas lies under the frame now, not inside it: without this the
+        // frame would swallow every hover and click meant for the golden post.
+        expect(frame(container).className).toContain('pointer-events-none');
+        expect(container.querySelector('[data-slot="card"]')!.className).toContain(
+            'pointer-events-auto',
+        );
     });
 
     it('no longer pins a picture to the corner', () => {

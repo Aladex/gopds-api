@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes } from 'react-router';
 
 import notFoundRoutes from '@/app/routes/notFoundRoutes';
+import { AuthRoomProvider } from '@/features/auth/scene/AuthRoom';
 
 const translate = (key: string) => key;
 const translation = { t: translate };
@@ -16,7 +17,9 @@ describe('NotFoundRoute', () => {
     it('answers any unknown path with the error page in the reading room, titled as an error', async () => {
         render(
             <MemoryRouter initialEntries={['/no/such/page']}>
-                <Routes>{notFoundRoutes}</Routes>
+                <AuthRoomProvider>
+                    <Routes>{notFoundRoutes}</Routes>
+                </AuthRoomProvider>
             </MemoryRouter>,
         );
 

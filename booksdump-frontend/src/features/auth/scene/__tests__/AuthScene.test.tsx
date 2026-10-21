@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { act, render, waitFor } from '@testing-library/react';
 
 import AuthScene from '@/features/auth/scene/AuthScene';
@@ -21,9 +22,11 @@ function sceneResolvesAtOnce() {
         live++;
         const dispose = vi.fn(() => void live--);
         disposals.push(dispose);
-        return { dispose };
+        return { dispose, setTorn };
     });
 }
+
+const setTorn = vi.fn();
 
 /** What the browser can draw with: WebGL 2 or nothing. */
 function withWebGL(available: boolean) {
@@ -58,6 +61,7 @@ const originalMatchMedia = window.matchMedia;
 beforeEach(() => {
     live = 0;
     disposals = [];
+    setTorn.mockClear();
     create.mockReset();
     sceneResolvesAtOnce();
     mediaQueries(false);
@@ -97,6 +101,21 @@ describe('AuthScene where WebGL 2 exists but no context is given', () => {
 describe('AuthScene with WebGL', () => {
     beforeEach(() => withWebGL(true));
 
+    it('builds a scene under React’s development double-mount too', async () => {
+        // The development build mounts every effect twice. The first scene is
+        // abandoned; the second must still be built on the canvas.
+        const { container } = render(
+            <StrictMode>
+                <AuthScene onGolden={vi.fn()} />
+            </StrictMode>,
+        );
+
+        await waitFor(() => expect(live).toBe(1));
+        const last = create.mock.calls.at(-1)![0] as SceneOptions;
+        expect(last.canvas).toBe(container.querySelector('canvas'));
+        expect(last.signal.aborted).toBe(false);
+    });
+
     it('builds the scene on its canvas, animated, for the desktop composition', async () => {
         const { container } = render(<AuthScene onGolden={vi.fn()} />);
 
@@ -116,6 +135,19 @@ describe('AuthScene with WebGL', () => {
         render(<AuthScene onGolden={vi.fn()} torn />);
         await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
         expect((create.mock.calls[1][0] as SceneOptions).torn).toBe(true);
+    });
+
+    it('tears and mends the live scene instead of building another', async () => {
+        const { rerender } = render(<AuthScene onGolden={vi.fn()} />);
+        await waitFor(() => expect(live).toBe(1));
+
+        rerender(<AuthScene onGolden={vi.fn()} torn />);
+        await waitFor(() => expect(setTorn).toHaveBeenLastCalledWith(true));
+        rerender(<AuthScene onGolden={vi.fn()} />);
+        await waitFor(() => expect(setTorn).toHaveBeenLastCalledWith(false));
+
+        expect(create).toHaveBeenCalledTimes(1);
+        expect(disposals[0]).not.toHaveBeenCalled();
     });
 
     it('asks for a still frame when the reader prefers reduced motion', async () => {
@@ -152,7 +184,7 @@ describe('AuthScene with WebGL', () => {
                     live++;
                     const dispose = vi.fn(() => void live--);
                     disposals.push(dispose);
-                    resolve = () => done({ dispose });
+                    resolve = () => done({ dispose, setTorn });
                     void o;
                 }),
         );

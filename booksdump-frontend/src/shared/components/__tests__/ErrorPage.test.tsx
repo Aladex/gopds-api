@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 
 import ErrorPage from '@/shared/components/ErrorPage';
+import { AuthRoomProvider } from '@/features/auth/scene/AuthRoom';
 
 // t must keep a stable identity across renders: a mock that returns a fresh
 // function every call spins any component with an effect keyed on t.
@@ -30,7 +31,9 @@ vi.mock('react-router', async () => {
 function renderPage() {
     return render(
         <MemoryRouter>
-            <ErrorPage />
+            <AuthRoomProvider>
+                <ErrorPage />
+            </AuthRoomProvider>
         </MemoryRouter>,
     );
 }
@@ -51,7 +54,7 @@ describe('ErrorPage', () => {
         expect(screen.getByTestId('auth-scene')).toBeInTheDocument();
         expect(sceneProps).toHaveBeenCalledWith(expect.objectContaining({ torn: true }));
         // The same frame as the sign-in screens: dark, one card.
-        expect(container.firstElementChild).toHaveAttribute('data-theme', 'dark');
+        expect(container.querySelector('.auth-room')).toHaveAttribute('data-theme', 'dark');
         expect(container.querySelectorAll('[data-slot="card"]')).toHaveLength(1);
     });
 

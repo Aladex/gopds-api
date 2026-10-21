@@ -27,6 +27,9 @@ const reg = vi.hoisted(() => ({
     onRender: null as null | (() => void),
     /** Runs on every page canvas drawn; a test can make it throw. */
     onPaper: null as null | (() => void),
+    /** Every mesh made, to see what is on show. */
+    meshes: [] as import('three').Mesh[],
+    renders: 0,
 }));
 
 vi.mock('three', async (importOriginal) => {
@@ -97,6 +100,13 @@ vi.mock('three', async (importOriginal) => {
         MeshPhysicalMaterial: tracked(three.MeshPhysicalMaterial),
         ShaderMaterial: tracked(three.ShaderMaterial),
         InstancedMesh: tracked(three.InstancedMesh),
+        Mesh: class extends three.Mesh {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            constructor(...args: any[]) {
+                super(...args);
+                reg.meshes.push(this);
+            }
+        },
     };
 });
 
@@ -114,6 +124,7 @@ const fakePass = vi.hoisted(
                 this.passes.push(p);
             }
             render() {
+                reg.renders++;
                 reg.onRender?.();
             }
             setSize() {}
@@ -195,6 +206,8 @@ beforeEach(() => {
     reg.order.length = 0;
     reg.onRender = null;
     reg.onPaper = null;
+    reg.meshes.length = 0;
+    reg.renders = 0;
     lose.mockClear();
     frames.clear();
 
@@ -421,5 +434,76 @@ describe('createScene: the error page', () => {
             }
         }
         scene.dispose();
+    });
+});
+
+describe('createScene: tearing and mending the live book', () => {
+    /** Geometry lying on the right page by the gutter, as in the error page tests. */
+    const tornParts = () =>
+        reg.created.filter((x): x is BufferGeometry => {
+            const g = x as BufferGeometry;
+            if (!g.isBufferGeometry || !g.index) return false;
+            const p = g.attributes.position;
+            for (let i = 0; i < p.count; i++)
+                if (p.getX(i) < -0.01 || p.getX(i) > 0.2 || p.getY(i) < 0.04) return false;
+            return true;
+        });
+    /** Is the torn stub on show: every mesh of it and every ancestor visible? */
+    const tornShown = () => {
+        const parts = new Set<object>(tornParts());
+        const meshes = reg.meshes.filter((m) => parts.has(m.geometry));
+        if (meshes.length === 0) return false;
+        return meshes.every((m) => {
+            for (let o: import('three').Object3D | null = m; o; o = o.parent)
+                if (!o.visible) return false;
+            return true;
+        });
+    };
+
+    it('tears a whole book on request, without building a new scene', async () => {
+        const scene = await createScene(options());
+        const renderers = reg.renderers.length;
+        expect(tornShown()).toBe(false);
+
+        scene.setTorn(true);
+
+        expect(tornShown()).toBe(true);
+        expect(reg.renderers).toHaveLength(renderers);
+        scene.dispose();
+        expect(leaked()).toEqual([]);
+    });
+
+    it('mends it again, and tears it again, reusing the same stub', async () => {
+        const scene = await createScene(options({ torn: true }));
+        const made = tornParts().length;
+
+        scene.setTorn(false);
+        expect(tornShown()).toBe(false);
+        scene.setTorn(true);
+        expect(tornShown()).toBe(true);
+
+        expect(tornParts()).toHaveLength(made);
+        scene.dispose();
+        expect(leaked()).toEqual([]);
+    });
+
+    it('redraws the still frame when the book changes, since nothing else will', async () => {
+        const scene = await createScene(options({ still: true }));
+        const before = reg.renders;
+
+        scene.setTorn(true);
+
+        expect(reg.renders).toBe(before + 1);
+        scene.dispose();
+    });
+
+    it('does nothing once disposed', async () => {
+        const scene = await createScene(options());
+        scene.dispose();
+        const made = reg.created.length;
+
+        scene.setTorn(true);
+
+        expect(reg.created).toHaveLength(made);
     });
 });

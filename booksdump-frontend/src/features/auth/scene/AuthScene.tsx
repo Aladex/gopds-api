@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import { isPhoneViewport } from '@/features/auth/scene/viewport';
 import type { SceneHandle } from '@/features/auth/scene/createScene';
@@ -69,26 +69,45 @@ const AuthScene: React.FC<AuthSceneProps> = ({ onGolden, torn = false }) => {
     const key = `${phone ? 'phone' : 'desk'}-${still ? 'still' : 'moving'}`;
     const [readyKey, setReadyKey] = useState<string | null>(null);
     const [failed, setFailed] = useState(false);
-    const canvasRef = useRef<HTMLCanvasElement>(null);
+    // The canvas as state, through a callback ref, not an object ref: the
+    // effect has to run again when the node arrives. Under React's development
+    // double-mount the object ref was still empty when the effect re-ran, so
+    // the second scene was never built and the room stayed a flat backdrop.
+    // It carries the composition it was made for: when the phone turns, the
+    // effect runs once before the new canvas is attached, and must not build
+    // on the old one, whose context is about to be given back.
+    const [canvas, setCanvas] = useState<{ node: HTMLCanvasElement; key: string } | null>(null);
+    const attach = useCallback(
+        (node: HTMLCanvasElement | null) => setCanvas(node ? { node, key } : null),
+        [key],
+    );
     const goldenRef = useRef(onGolden);
+    const handleRef = useRef<SceneHandle | null>(null);
+    // The book a new scene starts with. Later changes go to the live scene:
+    // tearing a page out is not a reason to rebuild the room.
+    const tornRef = useRef(torn);
 
     useEffect(() => {
         goldenRef.current = onGolden;
     }, [onGolden]);
 
     useEffect(() => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
+        tornRef.current = torn;
+        handleRef.current?.setTorn(torn);
+    }, [torn]);
+
+    useEffect(() => {
+        if (!canvas || canvas.key !== key) return;
         const ctrl = new AbortController();
         let handle: SceneHandle | null = null;
 
         import('@/features/auth/scene/createScene')
             .then(({ default: createScene }) =>
                 createScene({
-                    canvas,
+                    canvas: canvas.node,
                     phone,
                     still,
-                    torn,
+                    torn: tornRef.current,
                     onGolden: () => goldenRef.current(),
                     signal: ctrl.signal,
                 }),
@@ -100,6 +119,9 @@ const AuthScene: React.FC<AuthSceneProps> = ({ onGolden, torn = false }) => {
                     return;
                 }
                 handle = scene;
+                handleRef.current = scene;
+                // The book may have changed while the scene was being built.
+                scene.setTorn(tornRef.current);
                 setReadyKey(key);
             })
             .catch((error: unknown) => {
@@ -112,9 +134,10 @@ const AuthScene: React.FC<AuthSceneProps> = ({ onGolden, torn = false }) => {
 
         return () => {
             ctrl.abort();
+            if (handleRef.current === handle) handleRef.current = null;
             handle?.dispose();
         };
-    }, [key, phone, still, torn, supported, failed]);
+    }, [canvas, key, phone, still, supported, failed]);
 
     return (
         <>
@@ -131,7 +154,7 @@ const AuthScene: React.FC<AuthSceneProps> = ({ onGolden, torn = false }) => {
             {supported && !failed && (
                 <canvas
                     key={key}
-                    ref={canvasRef}
+                    ref={attach}
                     aria-hidden
                     data-ready={readyKey === key}
                     // touch-none: on a phone a finger on the scene is wind, not a
