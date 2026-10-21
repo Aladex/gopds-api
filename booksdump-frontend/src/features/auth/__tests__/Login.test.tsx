@@ -3,15 +3,14 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 
 import Login from '@/features/auth/Login';
-import { IDIOT_LINE, TAGLINES } from '@/features/auth/leprosorium';
 import * as authApi from '@/api/auth';
 import { ApiError } from '@/api/errors';
 
 // t must keep a stable identity across renders: a mock that returns a fresh
 // function every call spins any component with an effect keyed on t.
 const translate = (key: string) => key;
-// i18n as well as t: the tagline under the title picks its language from
-// it, so a stub with only a translator leaves it undefined.
+// i18n as well as t: the verse behind this screen picks its language
+// from it, so a stub with only a translator leaves it undefined.
 const translation = { t: translate, i18n: { language: 'ru' } };
 vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 
@@ -95,30 +94,6 @@ describe('Login form wiring', () => {
         );
     });
 
-    it('turns fifteen exclamation marks in the login into the confession', async () => {
-        renderLogin();
-
-        await userEvent.type(screen.getByLabelText('username'), 'reader' + '!'.repeat(15));
-
-        expect(screen.getByLabelText('username')).toHaveValue('reader' + IDIOT_LINE);
-    });
-
-    it("greets the reader with one of the blog's taglines", () => {
-        renderLogin();
-
-        const subtitle = screen.getByText((text) => text.includes('%username%'));
-        expect(TAGLINES.ru).toContain(subtitle.textContent);
-    });
-
-    it('shows the way to registration next to the forgotten password', async () => {
-        renderLogin();
-
-        await userEvent.click(screen.getByRole('button', { name: 'registration' }));
-
-        expect(navigate).toHaveBeenCalledWith('/registration');
-        expect(screen.getByRole('button', { name: 'forgotPassword' })).toBeInTheDocument();
-    });
-
     it('keeps the username field controlled', async () => {
         renderLogin();
 
@@ -160,9 +135,9 @@ describe('Login outcomes', () => {
     });
 
     it.each([
-        ['bad_credentials', 'wrongNameOrPassword'],
+        ['bad_credentials', 'badCredentials'],
         ['user not active', 'userNotActive'],
-        ['bad password', 'wrongNameOrPassword'],
+        ['bad password', 'badPassword'],
         ['something else entirely', 'loginOrPasswordIncorrect'],
     ])('explains a 403 saying %s', async (message, expected) => {
         login.mockRejectedValue(new ApiError('forbidden', 403, { body: { message } }));

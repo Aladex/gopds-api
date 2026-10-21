@@ -13,7 +13,6 @@ import { Routes, Route, Navigate, useLocation } from 'react-router';
 import { WebSocketProvider } from '@/context/WebSocketContext';
 import AppSkeleton from '@/shared/components/AppSkeleton';
 import { Toaster } from '@/shared/ui/sonner';
-import { AuthRoomProvider } from '@/features/auth/scene/AuthRoom';
 
 /**
  * RootRedirect sends the site's root to the first page of books, keeping the
@@ -69,12 +68,7 @@ const AppWrapper: React.FC = () => {
               application already waits on.
             */}
             <InterfaceLanguageProvider>
-                {/*
-                  The reading room behind the public screens lives here, above
-                  the routes and outside the providers that are rebuilt on
-                  sign-in, so moving between those screens keeps one scene.
-                */}
-                <AuthRoomProvider>{!isLoaded ? <AppSkeleton /> : providers}</AuthRoomProvider>
+                {!isLoaded ? <AppSkeleton /> : providers}
             </InterfaceLanguageProvider>
             {/* One toaster for the whole application; anything can call toast(). */}
             <Toaster position="bottom-right" />
