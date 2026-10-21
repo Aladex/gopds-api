@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
+import { toast } from 'sonner';
 
 import CenteredBox from '@/features/auth/CenteredBox';
 
@@ -14,6 +15,31 @@ vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 vi.mock('@/shared/layout/InterfaceLanguageToggle', () => ({
     default: () => <div data-testid="interface-language-toggle" />,
 }));
+
+// The scene needs a GPU; what the frame owes it is a place and a way to say
+// the golden post was caught.
+let caught: (() => void) | null = null;
+let torn: boolean | undefined;
+vi.mock('@/features/auth/scene/AuthScene', () => ({
+    default: ({ onGolden, torn: t }: { onGolden: () => void; torn?: boolean }) => {
+        caught = onGolden;
+        torn = t;
+        return <div data-testid="auth-scene" />;
+    },
+}));
+
+const navigate = vi.fn();
+vi.mock('react-router', async () => {
+    const actual = await vi.importActual<typeof import('react-router')>('react-router');
+    return { ...actual, useNavigate: () => navigate };
+});
+
+vi.mock('sonner', () => ({ toast: vi.fn() }));
+
+beforeEach(() => {
+    caught = null;
+    vi.clearAllMocks();
+});
 
 function renderBox(children: React.ReactNode = <p>content</p>) {
     return render(
@@ -52,14 +78,36 @@ describe('CenteredBox', () => {
         expect(screen.getByTestId('interface-language-toggle')).toBeInTheDocument();
     });
 
-    it('keeps the registration shortcut reachable', () => {
+    it('puts the reading room behind every screen in the frame', () => {
         renderBox();
 
-        // The decoration in the corner is the only route to registration from
-        // any auth screen, so it has to carry a name and a destination.
-        expect(screen.getByRole('link', { name: 'registration' })).toHaveAttribute(
-            'href',
-            '/registration',
-        );
+        expect(screen.getByTestId('auth-scene')).toBeInTheDocument();
+    });
+
+    it('keeps the book whole behind the sign-in screens: only the error page tears it', () => {
+        renderBox();
+
+        expect(torn).toBe(false);
+    });
+
+    it('is dark whatever the theme: the room is at night', () => {
+        const { container } = renderBox();
+
+        expect(container.firstElementChild).toHaveAttribute('data-theme', 'dark');
+    });
+
+    it('sends whoever catches the golden post to registration, and says why', () => {
+        renderBox();
+
+        caught!();
+
+        expect(navigate).toHaveBeenCalledWith('/registration');
+        expect(toast).toHaveBeenCalledWith('goldenPost');
+    });
+
+    it('no longer pins a picture to the corner', () => {
+        const { container } = renderBox();
+
+        expect(container.querySelector('img')).toBeNull();
     });
 });
