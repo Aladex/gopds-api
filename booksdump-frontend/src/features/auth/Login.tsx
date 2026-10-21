@@ -9,19 +9,14 @@ import * as authApi from '@/api/auth';
 import { isApiError } from '@/api/errors';
 import CenteredBox from '@/features/auth/CenteredBox';
 import { AuthField, AuthForm } from '@/features/auth/AuthForm';
-import { loginErrorKey, pickTagline, replaceExclamations } from '@/features/auth/leprosorium';
 
 const Login: React.FC = () => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
-    const { t, i18n } = useTranslation();
+    const { t } = useTranslation();
     const { setUser, isAuthenticated, isLoaded } = useAuth();
     const navigate = useNavigate();
     const [loginError, setLoginError] = useState('');
-    // One tagline per visit. The draw is kept rather than the line, so
-    // switching the interface language mid-visit gives the same line in the
-    // other language instead of a new one.
-    const [draw] = useState(Math.random);
 
     // Redirect if user is already authenticated
     useEffect(() => {
@@ -64,7 +59,19 @@ const Login: React.FC = () => {
         } catch (error) {
             if (isApiError(error) && error.status === 403) {
                 const message = (error.body as { message?: string } | undefined)?.message;
-                setLoginError(t(loginErrorKey(message)));
+                switch (message) {
+                    case 'bad_credentials':
+                        setLoginError(t('badCredentials'));
+                        break;
+                    case 'user not active':
+                        setLoginError(t('userNotActive'));
+                        break;
+                    case 'bad password':
+                        setLoginError(t('badPassword'));
+                        break;
+                    default:
+                        setLoginError(t('loginOrPasswordIncorrect'));
+                }
                 return;
             }
             console.error('Error logging in:', error);
@@ -72,37 +79,23 @@ const Login: React.FC = () => {
     };
 
     return (
-        <CenteredBox>
+        <CenteredBox moment="returning">
             <AuthForm
                 title={t('welcomeBack')}
-                subtitle={pickTagline(i18n.language, () => draw)}
+                subtitle={t('loginSubtitle')}
                 error={loginError}
                 onSubmit={handleLogin}
                 submitLabel={t('loginButton')}
                 secondaryAction={
-                    // Registration is invite-only, but it is no secret: the
-                    // way there sits beside the forgotten password, in the
-                    // same quiet style, rather than behind an easter egg.
-                    <div className="flex w-full justify-between">
-                        <Button
-                            type="button"
-                            variant="link"
-                            size="sm"
-                            onClick={() => navigate('/forgot-password')}
-                            className="h-auto p-0 text-xs text-muted-foreground hover:text-foreground"
-                        >
-                            {t('forgotPassword')}
-                        </Button>
-                        <Button
-                            type="button"
-                            variant="link"
-                            size="sm"
-                            onClick={() => navigate('/registration')}
-                            className="h-auto p-0 text-xs text-muted-foreground hover:text-foreground"
-                        >
-                            {t('registration')}
-                        </Button>
-                    </div>
+                    <Button
+                        type="button"
+                        variant="link"
+                        size="sm"
+                        onClick={() => navigate('/forgot-password')}
+                        className="h-auto p-0 text-xs text-muted-foreground hover:text-foreground"
+                    >
+                        {t('forgotPassword')}
+                    </Button>
                 }
             >
                 <AuthField
@@ -112,8 +105,7 @@ const Login: React.FC = () => {
                     icon={User}
                     autoComplete="username"
                     value={username}
-                    // The blog's parser, applied as the reader types.
-                    onChange={(value) => setUsername(replaceExclamations(value))}
+                    onChange={setUsername}
                 />
                 <AuthField
                     id="login-password"

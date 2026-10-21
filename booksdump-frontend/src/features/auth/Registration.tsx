@@ -49,7 +49,7 @@ const Registration: React.FC = () => {
     // than sitting there inviting a second account.
     if (isRegistered) {
         return (
-            <CenteredBox>
+            <CenteredBox moment="beginning">
                 <div className="flex flex-col gap-4">
                     <p className="text-center">{t('registrationSuccess')}</p>
                     <div className="flex items-center">
@@ -61,7 +61,7 @@ const Registration: React.FC = () => {
     }
 
     return (
-        <CenteredBox>
+        <CenteredBox moment="beginning">
             <AuthForm
                 title={t('registration')}
                 error={regError}
