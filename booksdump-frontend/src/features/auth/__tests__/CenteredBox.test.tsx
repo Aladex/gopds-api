@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 
 import CenteredBox from '@/features/auth/CenteredBox';
+import { AuthRoomProvider } from '@/features/auth/scene/AuthRoom';
 
 // t must keep a stable identity across renders: a mock that returns a fresh
 // function every call spins any component with an effect keyed on t.
@@ -15,13 +16,36 @@ vi.mock('@/shared/layout/InterfaceLanguageToggle', () => ({
     default: () => <div data-testid="interface-language-toggle" />,
 }));
 
+// The scene needs a GPU. The frame no longer builds it — the room host above
+// the routes does, and its own tests cover that — but the frame is what asks
+// for it, and for which book.
+let torn: boolean | undefined;
+vi.mock('@/features/auth/scene/AuthScene', () => ({
+    default: ({ torn: t }: { torn?: boolean }) => {
+        torn = t;
+        return <div data-testid="auth-scene" />;
+    },
+}));
+
+vi.mock('sonner', () => ({ toast: vi.fn() }));
+
+beforeEach(() => {
+    torn = undefined;
+    vi.clearAllMocks();
+});
+
 function renderBox(children: React.ReactNode = <p>content</p>) {
     return render(
         <MemoryRouter>
-            <CenteredBox>{children}</CenteredBox>
+            <AuthRoomProvider>
+                <CenteredBox>{children}</CenteredBox>
+            </AuthRoomProvider>
         </MemoryRouter>,
     );
 }
+
+/** The frame itself, not the room drawn beside it. */
+const frame = (container: HTMLElement) => container.querySelector('.auth-room') as HTMLElement;
 
 describe('CenteredBox', () => {
     it('renders whatever screen it wraps', () => {
@@ -35,7 +59,7 @@ describe('CenteredBox', () => {
 
         // Pixels are the browser's business; what the wrapper owes the screens
         // is a centred card that stops widening at some point.
-        const wrapper = container.firstElementChild as HTMLElement;
+        const wrapper = frame(container);
         expect(wrapper.className).toContain('items-center');
         expect(wrapper.className).toContain('justify-center');
 
@@ -52,14 +76,38 @@ describe('CenteredBox', () => {
         expect(screen.getByTestId('interface-language-toggle')).toBeInTheDocument();
     });
 
-    it('keeps the registration shortcut reachable', () => {
+    it('puts the reading room behind every screen in the frame', () => {
         renderBox();
 
-        // The decoration in the corner is the only route to registration from
-        // any auth screen, so it has to carry a name and a destination.
-        expect(screen.getByRole('link', { name: 'registration' })).toHaveAttribute(
-            'href',
-            '/registration',
+        expect(screen.getByTestId('auth-scene')).toBeInTheDocument();
+    });
+
+    it('keeps the book whole behind the sign-in screens: only the error page tears it', () => {
+        renderBox();
+
+        expect(torn).toBe(false);
+    });
+
+    it('is dark whatever the theme: the room is at night', () => {
+        const { container } = renderBox();
+
+        expect(frame(container)).toHaveAttribute('data-theme', 'dark');
+    });
+
+    it('lets the pointer through to the room, except over the card and the toggle', () => {
+        const { container } = renderBox();
+
+        // The canvas lies under the frame now, not inside it: without this the
+        // frame would swallow every hover and click meant for the golden post.
+        expect(frame(container).className).toContain('pointer-events-none');
+        expect(container.querySelector('[data-slot="card"]')!.className).toContain(
+            'pointer-events-auto',
         );
+    });
+
+    it('no longer pins a picture to the corner', () => {
+        const { container } = renderBox();
+
+        expect(container.querySelector('img')).toBeNull();
     });
 });
