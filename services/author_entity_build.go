@@ -247,7 +247,7 @@ func NewAuthorEntityAdmin(db *pg.DB) *AuthorEntityAdmin { return &AuthorEntityAd
 // progress, and the report of the newest completed one.
 type AuthorEntityStatus struct {
 	Run    *database.AuthorEntityBuildRun `json:"run"`
-	Report json.RawMessage                `json:"report"`
+	Report json.RawMessage                `json:"report" swaggertype:"object"`
 }
 
 // Status reads the card's status.

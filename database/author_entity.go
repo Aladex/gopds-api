@@ -509,7 +509,7 @@ type AuthorEntityBuildRun struct {
 	UnitsDone       int             `pg:"units_done,use_zero" json:"units_done"`
 	UnitsSkipped    int             `pg:"units_skipped,use_zero" json:"units_skipped"`
 	Changes         int64           `pg:"changes,use_zero" json:"changes"`
-	Report          json.RawMessage `pg:"report,type:jsonb" json:"report,omitempty"`
+	Report          json.RawMessage `pg:"report,type:jsonb" json:"report,omitempty" swaggertype:"object"`
 	LastErrorClass  *string         `pg:"last_error_class" json:"last_error_class,omitempty"`
 	CreatedByUserID *int64          `pg:"created_by_user_id" json:"-"`
 	CreatedAt       time.Time       `pg:"created_at" json:"created_at"`
