@@ -146,10 +146,13 @@ func initializeAuthorMetadata(db *pg.DB, archivesDir string, c *config.AuthorMet
 
 	// The acceptance pass and the author display read model run whatever
 	// the switch says: the policy ships with the code, and search and sorting
-	// read the model, which the scan and the admin's edits keep marking.
+	// read the model, which the scan and the admin's edits keep marking. The
+	// author entity build runs only the passes an administrator starts.
+	api.SetAuthorEntityAdminService(services.NewAuthorEntityAdmin(db))
 	workers := []services.AuthorMetadataStageWorker{
 		services.NewAuthorAcceptancePass(db),
 		services.NewAuthorDisplayModelLoop(db, services.AuthorDisplayModelConfig{}),
+		services.NewAuthorEntityBuildLoop(db, services.AuthorEntityBuildConfig{}),
 	}
 	if c.Enabled {
 		// Workers that cannot be built do not stop the acceptance pass.

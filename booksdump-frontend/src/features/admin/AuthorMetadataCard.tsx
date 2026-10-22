@@ -20,6 +20,7 @@ import type {
     AuthorMetadataRun,
 } from '@/api/admin';
 import { closedErrorCode } from '@/api/admin';
+import AuthorEntityBlock from '@/features/admin/AuthorEntityBlock';
 import AuthorLLMBlock from '@/features/admin/AuthorLLMBlock';
 
 /**
@@ -709,6 +710,7 @@ const AuthorMetadataCard: React.FC = () => {
                 </div>
 
                 <AuthorLLMBlock />
+                <AuthorEntityBlock />
             </CardContent>
 
             <Dialog

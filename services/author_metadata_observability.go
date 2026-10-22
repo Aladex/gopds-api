@@ -105,6 +105,17 @@ const (
 	// AuthorMetadataEventLLMReportRecomputed: an administrator recomputed a
 	// completed eval run's report and a new version was stored.
 	AuthorMetadataEventLLMReportRecomputed AuthorMetadataEventName = "author_metadata.llm_report_recomputed"
+
+	// Author entity build (design E, phase E1). Started: an administrator
+	// started a pass; Planned: the pass is planned, Count units to write;
+	// UnitSkipped: the database refused one unit (Fingerprint is its first
+	// fingerprint), the pass went on; Completed: Count rows written;
+	// StepFailed: a step failed and is retried.
+	AuthorMetadataEventEntityBuildStarted     AuthorMetadataEventName = "author_metadata.entity_build_started"
+	AuthorMetadataEventEntityBuildPlanned     AuthorMetadataEventName = "author_metadata.entity_build_planned"
+	AuthorMetadataEventEntityBuildUnitSkipped AuthorMetadataEventName = "author_metadata.entity_build_unit_skipped"
+	AuthorMetadataEventEntityBuildCompleted   AuthorMetadataEventName = "author_metadata.entity_build_completed"
+	AuthorMetadataEventEntityBuildStepFailed  AuthorMetadataEventName = "author_metadata.entity_build_step_failed"
 )
 
 // AuthorMetadataEventNames lists every event.
@@ -132,6 +143,9 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventLLMParticipantsResumed, AuthorMetadataEventLLMResolveStarted,
 		AuthorMetadataEventLLMResolveApplyFailed, AuthorMetadataEventLLMRelearnStarted,
 		AuthorMetadataEventLLMReportRecomputed,
+		AuthorMetadataEventEntityBuildStarted, AuthorMetadataEventEntityBuildPlanned,
+		AuthorMetadataEventEntityBuildUnitSkipped, AuthorMetadataEventEntityBuildCompleted,
+		AuthorMetadataEventEntityBuildStepFailed,
 	}
 }
 
@@ -144,6 +158,8 @@ const (
 	AuthorMetadataStageAcceptance AuthorMetadataStage = "acceptance"
 	// AuthorMetadataStageDisplayModel is the author display read-model worker.
 	AuthorMetadataStageDisplayModel AuthorMetadataStage = "display_model"
+	// AuthorMetadataStageEntityBuild is the author entity build.
+	AuthorMetadataStageEntityBuild AuthorMetadataStage = "entity_build"
 )
 
 // AuthorMetadataEvent is one log record. Every field is an identifier, a
@@ -211,7 +227,7 @@ var (
 	knownStages     = closedSet(
 		AuthorMetadataStageExtraction, AuthorMetadataStageLocalNormalization,
 		AuthorMetadataStageDualWrite, AuthorMetadataStageReview, AuthorMetadataStageRunner,
-		AuthorMetadataStageAcceptance, AuthorMetadataStageDisplayModel,
+		AuthorMetadataStageAcceptance, AuthorMetadataStageDisplayModel, AuthorMetadataStageEntityBuild,
 	)
 	knownClasses  = closedSet(database.AuthorMetadataAttemptErrorClasses()...)
 	knownStatuses = authorMetadataEventStatuses()
@@ -299,13 +315,13 @@ func closedEventName(name AuthorMetadataEventName) AuthorMetadataEventName {
 }
 
 // closedWorkerLabel accepts the labels the runner's stages carry: the
-// extraction stage's, the acceptance pass's, the LLM worker's and the author display
-// model's own labels,
+// extraction stage's, the acceptance pass's, the LLM worker's, the author display
+// model's and the entity build's own labels,
 // and a local normalization loop's label with its index.
 func closedWorkerLabel(label string) string {
 	if label == string(AuthorMetadataStageExtraction) || label == string(AuthorMetadataStageAcceptance) ||
 		label == authorLLMWorkerName || label == authorLLMEvalDriverName ||
-		label == string(AuthorMetadataStageDisplayModel) {
+		label == string(AuthorMetadataStageDisplayModel) || label == string(AuthorMetadataStageEntityBuild) {
 		return label
 	}
 	index, ok := strings.CutPrefix(label, string(AuthorMetadataStageLocalNormalization)+"-")

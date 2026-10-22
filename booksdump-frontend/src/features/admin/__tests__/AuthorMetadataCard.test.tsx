@@ -52,6 +52,8 @@ vi.mock('@/api/admin', async (importOriginal) => {
         deleteAuthorMetadataArchive: vi.fn(),
         // The card's LLM block has its own tests; here it reads a switched-off layer.
         getAuthorLLMStatus: vi.fn(),
+        // So has the entity block; here it reads no pass yet.
+        getAuthorEntityStatus: vi.fn(),
     };
 });
 
@@ -162,6 +164,7 @@ beforeEach(() => {
             spent_tokens: 0,
         },
     });
+    api.getAuthorEntityStatus.mockResolvedValue({ status: { run: null, report: null } });
     api.startAuthorMetadataRun.mockResolvedValue({ run: run({ status: 'running' }) });
     api.approveAuthorMetadataFullRun.mockResolvedValue({ run: run({ approved_for_full: true }) });
     api.pauseAuthorMetadataRun.mockResolvedValue({ run: run({ status: 'paused' }) });

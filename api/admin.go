@@ -69,6 +69,12 @@ func SetupAdminRoutes(r *gin.RouterGroup) {
 
 	// The LLM block of the card (the LLM admin comes from its wiring point)
 	SetupAuthorLLMRoutes(r.Group("/author-metadata/llm"), authorLLMAdminService())
+
+	// The author entity step of the card (the entity admin comes from its
+	// wiring point)
+	SetupAuthorEntityRoutes(r.Group("/author-metadata/entities"), func() AuthorEntityAdminService {
+		return authorEntityAdminService()
+	})
 }
 
 // UsersAnswer struct for users list in admin space

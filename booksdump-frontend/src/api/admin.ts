@@ -468,6 +468,79 @@ export interface AuthorLLMStatus {
     price_unit?: string;
 }
 
+/** A distribution row of the author entity report. */
+export interface AuthorEntitySize {
+    label: string;
+    entities: number;
+    books: number;
+}
+
+/** The stored report of an author entity build pass: counts and IDs only. */
+export interface AuthorEntityReport {
+    credits: number;
+    books: number;
+    fingerprints: number;
+    entities: number;
+    initials_entities: number;
+    sizes: AuthorEntitySize[];
+    top: { id: string; books: number }[];
+    typo_merges: number;
+    no_entity: Record<string, number>;
+    buckets: {
+        buckets: number;
+        books: number;
+        with_full_names: number;
+        with_full_names_books: number;
+        moved: number;
+        moved_by: Record<string, number>;
+        conflicting: number;
+        samizdat_books: number;
+        samizdat_kept: number;
+        remaining: number;
+        emptied: number;
+        entities: number;
+    };
+    ids: { inherited: number; new: number; merged: number; orphaned: number };
+    legacy: {
+        authors: number;
+        entities_per_author: AuthorEntitySize[];
+        shared_entities: number;
+    };
+    unselected_credits: number;
+    units_skipped: number;
+    changes: number;
+    timings: { load_ms: number; plan_ms: number; apply_ms: number };
+}
+
+/** An author entity build pass. */
+export interface AuthorEntityRun {
+    id: number;
+    status: 'pending' | 'running' | 'completed' | 'failed';
+    stage?: 'plan' | 'apply' | 'report';
+    units_total: number;
+    units_done: number;
+    units_skipped: number;
+    changes: number;
+    last_error_class?: string;
+    created_at: string;
+    started_at?: string;
+    finished_at?: string;
+}
+
+/** The entity step of the card: the newest pass and the newest report. */
+export interface AuthorEntityStatus {
+    run: AuthorEntityRun | null;
+    report: AuthorEntityReport | null;
+}
+
+const entityBase = '/admin/author-metadata/entities';
+
+export const getAuthorEntityStatus = () =>
+    http.get<{ status: AuthorEntityStatus }>(`${entityBase}/status`);
+
+/** startAuthorEntityBuild answers at once; the pass goes on in the background. */
+export const startAuthorEntityBuild = () => http.post<{ run: AuthorEntityRun }>(`${entityBase}/build`);
+
 const llmBase = '/admin/author-metadata/llm';
 
 export const getAuthorLLMStatus = () => http.get<{ status: AuthorLLMStatus }>(`${llmBase}/status`);
