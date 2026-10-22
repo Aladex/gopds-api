@@ -133,14 +133,14 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                       it is before the colour does.
 
                       No dark: variant, because the header has no light one. It
-                      is neutral-900 under both themes — a dark band across a
+                      is the chrome colour under both themes — a dark band across a
                       light page or a dark one — so this is the same button
                       either way.
                     */
                     'flex items-center gap-1.5 rounded-full font-medium uppercase',
                     'bg-green-400 text-green-950 hover:bg-green-300',
                     'focus-visible:ring-2 focus-visible:ring-green-300 focus-visible:ring-offset-2',
-                    'focus-visible:ring-offset-neutral-900 focus-visible:outline-none',
+                    'focus-visible:ring-offset-chrome focus-visible:outline-none',
                     isMobile ? 'h-8 px-2.5 text-[0.7rem]' : 'h-9 px-3 text-sm',
                 )}
             >
@@ -152,7 +152,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
     return (
         <header
             className={cn(
-                'w-full bg-neutral-900 text-white',
+                'w-full bg-chrome text-chrome-foreground',
                 isMobile
                     ? 'fixed inset-x-0 top-0 z-chrome-top transition-transform duration-300'
                     : 'static',
@@ -192,8 +192,8 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                                     className={cn(
                                         'flex size-8 items-center justify-center rounded',
                                         current?.id === 'admin'
-                                            ? 'text-white'
-                                            : 'text-neutral-400 hover:text-white',
+                                            ? 'text-chrome-foreground'
+                                            : 'text-chrome-muted hover:text-chrome-foreground',
                                     )}
                                 >
                                     <ShieldUser className="size-5" />
@@ -228,8 +228,8 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                                         'text-sm font-medium uppercase tracking-wide',
                                         'transition-colors duration-200 motion-reduce:transition-none',
                                         current?.id === item.id
-                                            ? 'text-white'
-                                            : 'text-neutral-400 hover:text-white',
+                                            ? 'text-chrome-foreground'
+                                            : 'text-chrome-muted hover:text-chrome-foreground',
                                     )}
                                 >
                                     {item.id === 'books' && (
@@ -238,7 +238,11 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                                     {item.label}
                                 </Link>
                             ))}
-                            <NavUnderline box={underline} placed={placed} className="bg-white" />
+                            <NavUnderline
+                                box={underline}
+                                placed={placed}
+                                className="bg-chrome-foreground"
+                            />
                             <div className="ml-4 flex items-center">{donateButton}</div>
                         </nav>
 
@@ -249,7 +253,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                             <Button
                                 variant="ghost"
                                 onClick={() => onOpenProfile?.()}
-                                className="text-white hover:bg-white/10 hover:text-white"
+                                className="text-chrome-foreground hover:bg-chrome-foreground/10 hover:text-chrome-foreground focus-visible:ring-chrome-muted"
                             >
                                 {user?.username}
                             </Button>
@@ -259,7 +263,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
                                 onClick={handleLogout}
                                 title={t('logout', 'Выход')}
                                 aria-label={t('logout', 'Выход')}
-                                className="text-white hover:bg-white/10 hover:text-white"
+                                className="text-chrome-foreground hover:bg-chrome-foreground/10 hover:text-chrome-foreground focus-visible:ring-chrome-muted"
                             >
                                 <LogOut className="size-5" />
                             </Button>

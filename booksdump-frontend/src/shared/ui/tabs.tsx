@@ -98,7 +98,7 @@ function TabsTrigger({
         // Labels never shorten: a tab whose name is cut is a tab nobody can
         // tell from its neighbour.
         "inline-flex items-center justify-center gap-1.5 text-sm font-medium whitespace-nowrap transition-colors",
-        "outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+        "outline-none focus-visible:ring-[3px] focus-visible:ring-focus",
         "disabled:pointer-events-none disabled:opacity-50",
         "data-[state=active]:text-foreground",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",

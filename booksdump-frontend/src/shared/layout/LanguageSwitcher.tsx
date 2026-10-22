@@ -102,7 +102,7 @@ const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
                         'flex min-h-12 w-full items-center justify-between gap-3 rounded px-4 text-left text-base',
                         'sm:min-h-10 sm:px-3 sm:text-sm',
                         'hover:bg-accent',
-                        'outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+                        'outline-none focus-visible:ring-[3px] focus-visible:ring-focus',
                         selected === ALL_LANGUAGES && 'font-medium',
                     )}
                 >
@@ -123,7 +123,7 @@ const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
                             // The dialog focuses its first row on opening, and
                             // the browser's own ring is the one blue thing left
                             // on the screen.
-                            'outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+                            'outline-none focus-visible:ring-[3px] focus-visible:ring-focus',
                             // The tick marks the current one; text-primary here
                             // would read as dimmer, not chosen.
                             selected === lang && 'font-medium',

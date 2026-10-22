@@ -132,7 +132,7 @@ const AdminSpace: React.FC = () => {
                                 // border was the mark; the bar below draws it.
                                 'inline-flex h-9 items-center border-b-2 border-transparent px-2 text-sm font-medium whitespace-nowrap no-underline sm:px-3 sm:text-[13px]',
                                 'transition-colors motion-reduce:transition-none',
-                                'outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+                                'outline-none focus-visible:ring-[3px] focus-visible:ring-focus',
                                 active
                                     ? 'text-foreground'
                                     : 'text-muted-foreground hover:text-foreground',

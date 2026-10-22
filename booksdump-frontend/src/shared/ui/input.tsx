@@ -16,10 +16,10 @@ const inputFrame =
 
 /** The ring is drawn on whatever element owns the frame. */
 const inputFocusRing =
-  "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+  "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-focus"
 
 const inputInvalid =
-  "aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40"
+  "aria-invalid:border-destructive aria-invalid:ring-focus-destructive"
 
 function Input({ className, type, ...props }: React.ComponentProps<"input">) {
   return (

@@ -34,7 +34,7 @@ const InterfaceLanguageToggle: React.FC<{ className?: string }> = ({ className }
                     aria-pressed={language === option}
                     className={cn(
                         'rounded px-2 py-1 uppercase transition-colors',
-                        'outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+                        'outline-none focus-visible:ring-[3px] focus-visible:ring-focus',
                         language === option
                             ? 'bg-accent font-medium text-accent-foreground'
                             : 'text-muted-foreground hover:text-foreground',

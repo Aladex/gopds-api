@@ -106,7 +106,7 @@ const LanguagePrompt: React.FC = () => {
                                     'flex min-h-12 w-full items-center gap-3 rounded px-4 text-left text-base',
                                     'sm:min-h-10 sm:px-3 sm:text-sm',
                                     'hover:bg-accent',
-                                    'outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+                                    'outline-none focus-visible:ring-[3px] focus-visible:ring-focus',
                                 )}
                             >
                                 {getLanguageDisplaySafe(lang)}

@@ -103,11 +103,12 @@ const QrCode: React.FC<{ value: string }> = ({ value }) => {
             margin: 2,
             // Drawn in the theme's colours, which is the reason this stays on
             // the client: a code rendered by the server would have to be told
-            // them, and cached per colour.
+            // them, and cached per colour. They are the card and its text from
+            // index.css (the palette test keeps the two in step).
             color:
                 mode === 'dark'
-                    ? { dark: '#ffffff', light: '#1e1e1e' }
-                    : { dark: '#000000', light: '#ffffff' },
+                    ? { dark: '#f1ebe0', light: '#1e1a16' }
+                    : { dark: '#2b2118', light: '#fbf8f2' },
         })
             .then((url) => {
                 if (!cancelled) setDataUrl(url);
@@ -173,7 +174,7 @@ const PaymentCard: React.FC<{ value: string; label: string }> = ({ value, label 
             className={cn(
                 'relative flex aspect-[1.586] w-full max-w-80 flex-col justify-between rounded-xl p-4 text-left',
                 'border border-border bg-gradient-to-br from-muted to-accent',
-                'outline-none transition-shadow hover:shadow-md focus-visible:ring-[3px] focus-visible:ring-ring/50',
+                'outline-none transition-shadow hover:shadow-md focus-visible:ring-[3px] focus-visible:ring-focus',
             )}
         >
             <span className="text-xs tracking-wide text-muted-foreground uppercase">{label}</span>

@@ -18,7 +18,7 @@ const ThemeToggle: React.FC = () => {
             onClick={toggleTheme}
             title={label}
             aria-label={label}
-            className="text-white hover:bg-white/10 hover:text-white"
+            className="text-chrome-foreground hover:bg-chrome-foreground/10 hover:text-chrome-foreground focus-visible:ring-chrome-muted"
         >
             {mode === 'light' ? <Moon className="size-5" /> : <Sun className="size-5" />}
         </Button>

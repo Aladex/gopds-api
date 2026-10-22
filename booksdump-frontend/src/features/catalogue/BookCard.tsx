@@ -455,7 +455,7 @@ const BookCard: React.FC<BookCardProps> = ({
                         'absolute left-1/2 -translate-x-1/2',
                         '-top-4 py-1.5 sm:-top-3 sm:py-0',
                         'flex items-center gap-1 rounded bg-card px-3 text-[13px] text-primary sm:px-2',
-                        'hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none',
+                        'hover:underline focus-visible:ring-[3px] focus-visible:ring-focus focus-visible:outline-none',
                     )}
                 >
                     <ChevronDown

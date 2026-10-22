@@ -166,7 +166,7 @@ const TokenField: React.FC<{
                 <div
                     className={cn(
                         'flex min-h-9 w-full flex-wrap items-center gap-1 rounded-md border border-input bg-transparent px-2 py-1 shadow-xs dark:bg-input/10',
-                        'focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50',
+                        'focus-within:border-ring focus-within:ring-[3px] focus-within:ring-focus',
                         disabled && 'pointer-events-none opacity-50',
                     )}
                 >
@@ -658,7 +658,7 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
                                 className={cn(
                                     'w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs outline-none transition-[color,box-shadow] md:text-sm dark:bg-input/10',
                                     'placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50',
-                                    'focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50',
+                                    'focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-focus',
                                     'scrollbar-thin',
                                 )}
                             />
@@ -816,7 +816,7 @@ const EditBookDialog: React.FC<EditBookDialogProps> = ({ open, onClose, book, on
                                     htmlFor="edit-book-cover"
                                     className={cn(
                                         buttonVariants({ variant: 'outline', size: 'sm' }),
-                                        'cursor-pointer peer-focus-visible:border-ring peer-focus-visible:ring-[3px] peer-focus-visible:ring-ring/50',
+                                        'cursor-pointer peer-focus-visible:border-ring peer-focus-visible:ring-[3px] peer-focus-visible:ring-focus',
                                         (loading || coverUploading) &&
                                             'pointer-events-none opacity-50',
                                     )}

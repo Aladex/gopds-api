@@ -14,7 +14,7 @@ const Footer: React.FC = () => {
     }, []);
 
     return (
-        <footer className="mt-auto flex w-full items-center justify-center bg-neutral-800 px-2.5 py-0.5 text-[10px] text-white">
+        <footer className="mt-auto flex w-full items-center justify-center bg-chrome-raised px-2.5 py-0.5 text-[10px] text-chrome-foreground">
             App Version: {appVersion}
         </footer>
     );

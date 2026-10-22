@@ -9,10 +9,10 @@ import { Dialog, DialogContent, DialogTitle } from "@/shared/ui/dialog"
 import { Button } from "@/shared/ui/button"
 import { Switch } from "@/shared/ui/switch"
 
-// In the light theme the page background is the grey desk (#b3b3b3) and the
-// card/popover colour is the paper. Everything raised over the page — sheets,
-// dialogs, their footers and the controls on them — is made of paper; a sheet
-// of desk grey made its fields look switched off.
+// In the light theme the page background is the desk and the card/popover
+// colour is the lighter paper laid on it. Everything raised over the page —
+// sheets, dialogs, their footers and the controls on them — is made of paper;
+// a sheet of the desk's colour made its fields look switched off.
 
 const css = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "../../../index.css"),
@@ -63,53 +63,16 @@ it("lets outline buttons and switch thumbs take the surface they sit on", () => 
   expect(thumb.className).toMatch(/\bbg-card\b/)
 })
 
-// sRGB relative luminance and contrast, as WCAG defines them.
-const luminance = (channel: number) => {
-  const c = channel / 255
-  return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
-}
-const contrast = (a: number, b: number) => {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
-  return (hi + 0.05) / (lo + 0.05)
-}
-
-it("draws a field’s outline at 3:1 or more on paper and on the desk", () => {
-  // The light palette is the block that sets the desk grey; the dark one
-  // follows it, so the light block ends where that one begins.
-  const from = css.indexOf("--background: #b3b3b3")
-  expect(from).toBeGreaterThan(-1)
-  const light = css.slice(from, css.indexOf("--background: #121212"))
-  const alpha = Number(
-    light.match(/--input:\s*rgba\(0,\s*0,\s*0,\s*([\d.]+)\)/)![1],
-  )
-  const over = (base: number) => Math.round(base * (1 - alpha))
-
-  expect(contrast(over(255), 255)).toBeGreaterThanOrEqual(3)
-  expect(contrast(over(0xb3), 0xb3)).toBeGreaterThanOrEqual(3)
-  // The page background itself is not this change's to touch.
-  expect(light).toMatch(/--background:\s*#b3b3b3/)
-})
-
-it("draws a dark field's outline at 3:1 or more on a dark sheet and the dark page", () => {
-  const dark = css.slice(css.indexOf("--background: #121212"))
-  const alpha = Number(
-    dark.match(/--input:\s*rgba\(255,\s*255,\s*255,\s*([\d.]+)\)/)![1],
-  )
-  const over = (base: number) => Math.round(base + (255 - base) * alpha)
-
-  // #1e1e1e is the dark card/popover — every sheet and dialog — and #121212
-  // the dark page.
-  expect(contrast(over(0x1e), 0x1e)).toBeGreaterThanOrEqual(3)
-  expect(contrast(over(0x12), 0x12)).toBeGreaterThanOrEqual(3)
-})
+// A field's outline at 3:1 on every surface, in both themes, is checked with
+// the rest of the palette in src/__tests__/palette.
 
 // The fills made from the dark input token were rescaled with it: a field, a
 // checkbox, an outline button and a switch track keep the shades they had at
 // 0.12 with /30, /50 and /80. Only the outlines were meant to change.
 it("keeps the dark fills made from the input token at their old shades", () => {
-  const dark = css.slice(css.indexOf("--background: #121212"))
+  const dark = css.slice(css.indexOf("[data-theme='dark'] {"))
   const alpha = Number(
-    dark.match(/--input:\s*rgba\(255,\s*255,\s*255,\s*([\d.]+)\)/)![1],
+    dark.match(/--input:\s*rgba\(255,\s*240,\s*210,\s*([\d.]+)\)/)![1],
   )
   const sources = [
     "input",

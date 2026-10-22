@@ -4,7 +4,7 @@
         <meta charset="utf-8" />
         <link rel="icon" href="/favicon.ico" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta name="theme-color" content="#000000" />
+        <meta name="theme-color" content="#1a1612" />
         <meta
             name="description"
             content="Booksdump is a platform where you can download books for free."
@@ -52,7 +52,15 @@
                 justify-content: center;
                 align-items: center;
                 height: 100vh;
-                background-color: #b3b3b3;
+                /* The page colours from src/index.css, before it has loaded. */
+                background-color: #d6ccbb;
+                color: #2b2118;
+            }
+            @media (prefers-color-scheme: dark) {
+                .app-loading {
+                    background-color: #120e0b;
+                    color: #f1ebe0;
+                }
             }
         </style>
     </head>

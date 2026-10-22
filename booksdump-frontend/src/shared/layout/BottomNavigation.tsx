@@ -52,13 +52,13 @@ const BottomNavigation: React.FC<BottomNavigationProps> = ({ isProfileOpen, onOp
     const itemClass = (active: boolean) =>
         cn(
             'flex min-w-0 flex-1 flex-col items-center gap-0.5 px-1 py-1.5 text-[11px]',
-            active ? 'text-white' : 'text-neutral-400 hover:text-white',
+            active ? 'text-chrome-foreground' : 'text-chrome-muted hover:text-chrome-foreground',
         );
 
     return (
         <nav
             aria-label={t('user')}
-            className="fixed inset-x-0 bottom-0 z-chrome flex bg-neutral-800 shadow-[0_-2px_8px_rgba(0,0,0,0.4)]"
+            className="fixed inset-x-0 bottom-0 z-chrome flex bg-chrome-raised shadow-[0_-2px_8px_rgba(0,0,0,0.4)]"
         >
             {navItems.map((item) => {
                 const Icon = ICONS[item.id];

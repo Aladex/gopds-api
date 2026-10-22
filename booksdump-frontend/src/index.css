@@ -100,105 +100,169 @@
 /*
  * The palette.
  *
- * These values were MUI's until the last of it was removed; they are set out
- * here now, once, in the two themes the interface offers. They are the same
- * colours it has always shown — the definitions moved, nothing was repainted.
+ * Both themes are the reading room's: the warm dark of the sign-in screens,
+ * and a light pair made in the same logic — paper instead of grey, dark brown
+ * instead of black, cream and terracotta darkened until they read on paper.
  *
  * The names below are shadcn's, because every component in this application
  * uses them. Anything wanting a colour reaches for a token, never a literal.
+ *
+ * Every ratio quoted here is WCAG's, and src/__tests__/palette checks each
+ * pair against index.css itself: a tweak that drops one under 4.5:1 for text
+ * or 3:1 for an outline fails a test. Surfaces in the app are opaque; only
+ * the sign-in card is glass, in .auth-room below.
  */
 :root {
-    --background: #b3b3b3;
-    --foreground: #000000;
+    /*
+     * The page is paper and the cards are a lighter sheet laid on it, at
+     * 1.5:1 from the page: the card still stands off the desk as the white
+     * did on the grey. The text is dark brown, 9.9:1 on the page and 14.9:1
+     * on a card.
+     */
+    --background: #d6ccbb;
+    --foreground: #2b2118;
 
-    --card: #ffffff;
-    --card-foreground: #000000;
-    --popover: #ffffff;
-    --popover-foreground: #000000;
+    --card: #fbf8f2;
+    --card-foreground: #2b2118;
+    --popover: #fbf8f2;
+    --popover-foreground: #2b2118;
 
-    --primary: #616161;
-    --primary-foreground: #ffffff;
-    --secondary: rgba(0, 0, 0, 0.08);
-    --secondary-foreground: #000000;
+    /*
+     * The cream of the dark theme, darkened to read on paper: as a link 5.6:1
+     * on the page and 8.4:1 on a card; its paper-coloured label 8.4:1.
+     */
+    --primary: #5a4630;
+    --primary-foreground: #fbf8f2;
+    --secondary: rgba(43, 33, 24, 0.08);
+    --secondary-foreground: #2b2118;
 
     /*
      * Secondary text sits on three surfaces, and the page is the worst of
-     * them: at 0.6 it read 4.36:1 on #b3b3b3, under the 4.5:1 that normal text
-     * is meant to clear, and much of it is set at 12px. 0.68 brings that to
-     * 5.5:1 and leaves it plainly lighter than the body text beside it.
+     * them, with much of it set at 12px: 5.7:1 on the page, 7.4:1 on a card,
+     * 5.1:1 on a muted tab list on the page — still plainly lighter than the
+     * body text beside it.
      */
-    --muted: rgba(0, 0, 0, 0.1);
-    --muted-foreground: rgba(0, 0, 0, 0.68);
-    --accent: rgba(0, 0, 0, 0.07);
-    --accent-foreground: #000000;
-
-    --destructive: #ff5252;
-    --destructive-foreground: #ffffff;
+    --muted: rgba(43, 33, 24, 0.1);
+    --muted-foreground: rgba(43, 33, 24, 0.78);
+    --accent: rgba(43, 33, 24, 0.07);
+    --accent-foreground: #2b2118;
 
     /*
-     * Measured rather than eyeballed, as contrast ratios against the white a
-     * card is painted in.
-     *
-     * A divider at 0.12 renders #e0e0e0, which is 1.32:1 — a line you have to
-     * look for to find. 0.26 gives #bdbdbd at 1.88:1: still a hairline, now
-     * one that separates.
-     *
-     * The two are set apart because they are asked different things. A field's
-     * outline is a control boundary, which WCAG wants at 3:1, and at 0.12 it
-     * was less than half of that: an input was a rectangle of the same white as
-     * the card behind it. 0.42 rendered #949494 at 3.03:1 — a pass by a
-     * hair, and on the grey the sheets used to be, a field looked switched
-     * off. 0.5 renders #808080: 3.95:1 on the white of a card, a dialog or a
-     * sheet, and 3.3:1 still on the page grey.
+     * Terracotta, dark enough for an error message on the page (4.9:1), a
+     * card (7.3:1) and its own tinted alert (6.3:1); a destructive button's
+     * label is 7.3:1 on it.
      */
-    --border: rgba(0, 0, 0, 0.26);
-    --input: rgba(0, 0, 0, 0.5);
-    --ring: #616161;
+    --destructive: #8f3520;
+    --destructive-foreground: #fbf8f2;
+
+    /*
+     * A divider and a field's outline are asked different things. A divider
+     * is a hairline that separates: 1.7:1 on a card. A field's outline is a
+     * control boundary, which WCAG wants at 3:1: 3.9:1 on a card, a dialog
+     * or a sheet, and 3.4:1 still on the page.
+     */
+    --border: rgba(43, 33, 24, 0.26);
+    --input: rgba(43, 33, 24, 0.58);
+    --ring: #5a4630;
+
+    /*
+     * The focus ring as it is drawn: a 3px halo around a control, at the
+     * 3:1 a focus indicator needs. The ring colour at 50%, which is what the
+     * controls drew, was 2.4:1 on a card; at 80% it is 3.7:1 on the page and
+     * 4.9:1 on a card. An invalid field's ring is the error colour at 80%:
+     * 3.5:1 and 4.7:1. The header's controls ring in --chrome-muted instead,
+     * since a ring for paper vanishes on the dark bar.
+     */
+    --focus: rgba(90, 70, 48, 0.8);
+    --focus-destructive: rgba(143, 53, 32, 0.8);
+
+    /*
+     * The header, the footer and the bottom bar are dark in both themes: the
+     * room's own dark, a step apart from each other. Their text is paper,
+     * 15.2:1 and 13.3:1; an inactive link the room's secondary, 7.8:1 and
+     * 6.8:1.
+     */
+    --chrome: #1a1612;
+    --chrome-raised: #28221c;
+    --chrome-foreground: #f1ebe0;
+    --chrome-muted: #b3a998;
 
     --radius: 0.5rem;
 }
 
 [data-theme='dark'] {
-    --background: #121212;
-    --foreground: #ffffff;
-
-    --card: #1e1e1e;
-    --card-foreground: #ffffff;
-    --popover: #1e1e1e;
-    --popover-foreground: #ffffff;
-
-    --primary: #9e9e9e;
-    --primary-foreground: #121212;
-    --secondary: rgba(255, 255, 255, 0.16);
-    --secondary-foreground: #ffffff;
-
-    --muted: rgba(255, 255, 255, 0.16);
-    --muted-foreground: rgba(255, 255, 255, 0.7);
-    --accent: rgba(255, 255, 255, 0.08);
-    --accent-foreground: #ffffff;
-
-    --destructive: #ff5252;
-    --destructive-foreground: #ffffff;
-
-    --border: rgba(255, 255, 255, 0.12);
     /*
-     * A field's outline, at the 3:1 a control boundary needs: 0.36 renders
-     * #6f6f6f on the #1e1e1e of a sheet or dialog (3.3:1) and #676767 on the
-     * #121212 page (3.3:1). At 0.12 it was 1.45:1, a field drawn as a faint
-     * rectangle. The fills made from this token (bg-input/10, /17, /27 in
-     * src/shared/ui) were rescaled with it, so they stay the shades they were
-     * at 0.12 with /30, /50 and /80: only the outlines change.
+     * The reading room at night. A card is the room's smoked glass made
+     * solid, lifted to #1e1a16 so it stands off the page by the step the
+     * neutral #1e1e1e did on #121212 (1.11:1). Body text is paper: 16.2:1 on
+     * the page, 14.6:1 on a card.
      */
-    --input: rgba(255, 255, 255, 0.36);
-    --ring: #9e9e9e;
+    --background: #120e0b;
+    --foreground: #f1ebe0;
+
+    --card: #1e1a16;
+    --card-foreground: #f1ebe0;
+    --popover: #1e1a16;
+    --popover-foreground: #f1ebe0;
+
+    /* Cream: 12.8:1 as a link on a card, 13.2:1 under its own label. */
+    --primary: #e9dcc3;
+    --primary-foreground: #1a1714;
+    --secondary: rgba(255, 240, 210, 0.16);
+    --secondary-foreground: #f1ebe0;
+
+    /* Warm grey: 8.3:1 on the page, 7.5:1 on a card, 4.7:1 on a muted panel. */
+    --muted: rgba(255, 240, 210, 0.16);
+    --muted-foreground: #b3a998;
+    --accent: rgba(255, 240, 210, 0.08);
+    --accent-foreground: #f1ebe0;
+
+    /*
+     * Terracotta: 8.1:1 as an error on a card.
+     *
+     * A destructive button or badge is not filled with it: white on the
+     * terracotta itself is 1.9:1. It is filled with the solid below, which is
+     * what the terracotta looked like laid at 60% over a card, made opaque —
+     * at 60% it took on whatever was under it, and in a hovered table row
+     * the label fell to 4.2:1. Opaque, the label is 4.8:1 on any surface.
+     * Under the pointer it darkens (5.8:1) rather than brightening as the
+     * light theme's does: brighter, white fell to 2.5:1. White is kept here,
+     * as no warmer white clears 4.5:1 on these.
+     */
+    --destructive: #e8a08a;
+    --destructive-foreground: #ffffff;
+    --destructive-solid: #946759;
+    --destructive-solid-hover: #835d50;
+
+    --border: rgba(255, 240, 210, 0.12);
+    /*
+     * A field's outline, at the 3:1 a control boundary needs: 0.36 is 3.1:1
+     * on a card, a sheet or a dialog and on the page. The fills made from
+     * this token (bg-input/10, /17, /27 in src/shared/ui) were rescaled with
+     * it, so they stay the shades they were at 0.12 with /30, /50 and /80:
+     * only the outlines change.
+     */
+    --input: rgba(255, 240, 210, 0.36);
+    --ring: #e9dcc3;
+
+    /*
+     * Focus rings as drawn: cream at 50% is 4.2:1 on the page and 4.1:1 on a
+     * card; an invalid field's ring, the error at 60%, is 3.9:1 and 3.8:1
+     * (at the 40% it used to be drawn with, 2.4:1).
+     */
+    --focus: rgba(233, 220, 195, 0.5);
+    --focus-destructive: rgba(232, 160, 138, 0.6);
 }
 
 /*
  * The reading room behind the sign-in screens is dark whatever theme the
  * reader has chosen — it is a room at night, not a surface — so the frame
- * carries data-theme="dark" and, on top of it, these warmer tokens: the
- * card is smoked glass over the scene, and its text takes the paper's
- * colour rather than a neutral white.
+ * carries data-theme="dark" and, on top of it, these tokens. The room set
+ * the palette the app now wears, but it keeps a full set of its own, so the
+ * sign-in screens stay exactly as they shipped whatever the app's palette
+ * does next: the card is smoked glass over the scene, and the fills it never
+ * warmed (the active language, a hovered button) stay the neutral ones they
+ * were drawn with.
  *
  * Contrast, computed for the card as it composites over the bare room
  * (#171310) and over the lit table behind it (#272019): body text #f1ebe0
@@ -217,6 +281,23 @@
     --primary-foreground: #1a1714;
     --ring: #e9dcc3;
     --destructive: #e8a08a;
+    --destructive-foreground: #ffffff;
+    --destructive-solid: #946759;
+    --destructive-solid-hover: #835d50;
+    --popover: #1e1e1e;
+    --popover-foreground: #ffffff;
+    --secondary: rgba(255, 255, 255, 0.16);
+    --secondary-foreground: #ffffff;
+    --muted: rgba(255, 255, 255, 0.16);
+    --accent: rgba(255, 255, 255, 0.08);
+    --accent-foreground: #ffffff;
+    /*
+     * Focus rings over the glass, on the bare room and the lit table: 4.2:1
+     * and 4.2:1; an invalid field's ring 3.8:1 and 3.8:1. It was drawn at
+     * 40% (2.4:1) before the app's rings were measured.
+     */
+    --focus: rgba(233, 220, 195, 0.5);
+    --focus-destructive: rgba(232, 160, 138, 0.6);
 }
 
 @theme inline {
@@ -236,9 +317,17 @@
     --color-accent-foreground: var(--accent-foreground);
     --color-destructive: var(--destructive);
     --color-destructive-foreground: var(--destructive-foreground);
+    --color-destructive-solid: var(--destructive-solid);
+    --color-destructive-solid-hover: var(--destructive-solid-hover);
     --color-border: var(--border);
     --color-input: var(--input);
     --color-ring: var(--ring);
+    --color-focus: var(--focus);
+    --color-focus-destructive: var(--focus-destructive);
+    --color-chrome: var(--chrome);
+    --color-chrome-raised: var(--chrome-raised);
+    --color-chrome-foreground: var(--chrome-foreground);
+    --color-chrome-muted: var(--chrome-muted);
 
     --radius-sm: calc(var(--radius) - 4px);
     --radius-md: calc(var(--radius) - 2px);

@@ -20,15 +20,15 @@ const CARD_COUNT = 4;
 const COVER_WIDTH = 104;
 
 /** Header is dark in both themes, so its placeholders are too. */
-const barBlock = 'animate-pulse rounded bg-white/15';
+const barBlock = 'animate-pulse rounded bg-chrome-foreground/15';
 
 const bodyBlock = 'animate-pulse rounded bg-muted';
 
 const AppSkeleton: React.FC = () => (
     <div aria-hidden="true" className="min-h-screen animate-in fade-in duration-300 bg-background">
         {/* Header: logo and section links on the left, controls on the right. */}
-        <div className="flex h-12 w-full items-center gap-4 bg-neutral-900 px-4 sm:h-16">
-            <div className="size-6 flex-none animate-pulse rounded-full bg-white/15" />
+        <div className="flex h-12 w-full items-center gap-4 bg-chrome px-4 sm:h-16">
+            <div className="size-6 flex-none animate-pulse rounded-full bg-chrome-foreground/15" />
             <div className="hidden items-center gap-6 sm:flex">
                 <div className={`h-4 w-20 ${barBlock}`} />
                 <div className={`h-4 w-24 ${barBlock}`} />
@@ -37,7 +37,7 @@ const AppSkeleton: React.FC = () => (
             <div className="flex-1" />
             <div className="flex items-center gap-2">
                 <div className={`h-4 w-14 ${barBlock}`} />
-                <div className="size-5 animate-pulse rounded-full bg-white/15" />
+                <div className="size-5 animate-pulse rounded-full bg-chrome-foreground/15" />
                 <div className={`hidden h-4 w-20 sm:block ${barBlock}`} />
             </div>
         </div>
