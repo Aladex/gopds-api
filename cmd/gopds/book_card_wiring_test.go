@@ -49,7 +49,7 @@ func TestSetupApiRoutesWiresBookSourceDetails(t *testing.T) {
 		c.Set("is_superuser", false)
 		c.Next()
 	})
-	setupApiRoutes(group, services.NewSearchService(database.NewPGSearchRepository(db)), db, false)
+	setupApiRoutes(group, services.NewSearchService(database.NewPGSearchRepository(db)), db, legacyAuthors)
 
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet,
@@ -73,6 +73,10 @@ func TestSetupApiRoutesWiresBookSourceDetails(t *testing.T) {
 // listAuthorLines lists one book through the production routes and returns
 // the raw authors_display of it, nil when the field is absent.
 func listAuthorLines(t *testing.T, db *pg.DB, layer bool, book int64) json.RawMessage {
+	authors := legacyAuthors
+	if layer {
+		authors = layerAuthors
+	}
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -81,7 +85,7 @@ func listAuthorLines(t *testing.T, db *pg.DB, layer bool, book int64) json.RawMe
 		c.Set("is_superuser", false)
 		c.Next()
 	})
-	setupApiRoutes(group, services.NewSearchService(database.NewPGSearchRepository(db)), db, layer)
+	setupApiRoutes(group, services.NewSearchService(database.NewPGSearchRepository(db)), db, authors)
 
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet,

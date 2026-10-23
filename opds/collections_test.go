@@ -97,7 +97,7 @@ func TestCollectionsLinkInRootFeed(t *testing.T) {
 	// It requires a full router with all OPDS routes.
 	r := gin.New()
 	opdsGroup := r.Group("/opds")
-	SetupOpdsRoutes(opdsGroup, &fakePublicSearch{}, nil)
+	SetupOpdsRoutes(opdsGroup, &fakePublicSearch{}, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/opds/new/0/0", nil)
 	rec := httptest.NewRecorder()

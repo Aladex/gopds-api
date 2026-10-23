@@ -44,6 +44,9 @@ type Config struct {
 	// AuthorLines names the authors of the books the bots list from the
 	// author layer (authors.display_source); nil names the catalog authors.
 	AuthorLines *services.AuthorLines
+	// AuthorEntities names authors by their entities (authors.identity): the
+	// bots' author buttons and lists go by the entities' handles.
+	AuthorEntities bool
 	// Kindle sends books to Kindle from the bot; nil is the site's shared
 	// sender (kindlesend.Default). Tests put a fake relay here.
 	Kindle *kindlesend.Sender
@@ -466,6 +469,7 @@ func (bm *BotManager) SetDelivery(d *delivery.Service) {
 		MediaBaseURL: bm.config.PublicMediaURL,
 		Kindle:       bm.config.Kindle,
 		AuthorLines:  bm.config.AuthorLines,
+		Entities:     bm.config.AuthorEntities,
 		PostersPath:  func() string { return viper.GetString("app.posters_path") },
 	}, bm)
 	d.SetCards(bm.router)

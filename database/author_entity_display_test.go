@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -275,40 +276,116 @@ func TestTheEntitySearchFindsEntitiesByTheirNames(t *testing.T) {
 	f.drain()
 	ctx := context.Background()
 
-	hits, err := SearchAuthorEntities(ctx, f.tx, "Лев Толстойский", "", 10, 0)
+	page, err := SearchAuthorEntities(ctx, f.tx, "Лев Толстойский", "", 10, 0)
 	require.NoError(t, err)
+	hits := page.Hits
 	require.NotEmpty(t, hits)
 	assert.Equal(t, p.EntityOf(c1), hits[0].ID)
 	assert.Equal(t, 2, hits[0].Books)
 
-	hits, err = SearchAuthorEntities(ctx, f.tx, "Великий Старец", "", 10, 0)
+	page, err = SearchAuthorEntities(ctx, f.tx, "Великий Старец", "", 10, 0)
 	require.NoError(t, err)
+	hits = page.Hits
 	require.NotEmpty(t, hits)
 	assert.Equal(t, p.EntityOf(c1), hits[0].ID, "found by the nickname")
 
 	// A book the list hides is not counted; an entity left with none is not
 	// offered at all.
 	f.exec(`UPDATE opds_catalog_book SET approved = false WHERE id = ?`, b1)
-	hits, err = SearchAuthorEntities(ctx, f.tx, "Лев Толстойский", "", 10, 0)
+	page, err = SearchAuthorEntities(ctx, f.tx, "Лев Толстойский", "", 10, 0)
 	require.NoError(t, err)
+	hits = page.Hits
 	require.NotEmpty(t, hits)
 	assert.Equal(t, 1, hits[0].Books)
 	var annaBook int64
 	_, err = f.tx.QueryOne(pg.Scan(&annaBook), `SELECT book_id FROM book_metadata_snapshot WHERE id = ?`, s3)
 	require.NoError(t, err)
 	f.exec(`UPDATE opds_catalog_book SET approved = false WHERE id = ?`, annaBook)
-	hits, err = SearchAuthorEntities(ctx, f.tx, "Анна Толстойская", "", 10, 0)
+	page, err = SearchAuthorEntities(ctx, f.tx, "Анна Толстойская", "", 10, 0)
 	require.NoError(t, err)
+	hits = page.Hits
 	for _, h := range hits {
 		assert.NotEqual(t, p.EntityOf(other), h.ID, "an entity whose books are all hidden")
 	}
 	f.exec(`DELETE FROM author_entity_assignment WHERE source_fingerprint = ?`, fingerprint(32, 0x79))
 	f.drain()
-	hits, err = SearchAuthorEntities(ctx, f.tx, "Анна Толстойская", "", 10, 0)
+	page, err = SearchAuthorEntities(ctx, f.tx, "Анна Толстойская", "", 10, 0)
 	require.NoError(t, err)
+	hits = page.Hits
 	for _, h := range hits {
 		assert.NotEqual(t, p.EntityOf(other), h.ID, "an entity no row carries")
 	}
+}
+
+// The entity search ranks first and counts only what the page needs, yet
+// pages exactly as counting every candidate would: six entities tie on
+// distance (one surname, six given names) with 1-6 books, two match farther,
+// one holds only hidden books, one only books in another language and one
+// seven books in the reader's language and three in another. Every page,
+// also one that ends inside the tie or starts past it, is the slice of the
+// full order, the books are those in the reader's language, and the total
+// counts only the entities with a book the list shows.
+func TestTheEntitySearchPagesAsIfItCountedEveryCandidate(t *testing.T) {
+	f := entitySchema(t)
+	var fill byte = 0x80
+	entity := func(family, given string, books int) int64 {
+		var credit int64
+		for i := range books {
+			_, s := f.entityBook(fmt.Sprintf("%s %s %d", family, given, i))
+			credit = f.entityCredit(s, fill, family, given)
+		}
+		fill++
+		return credit
+	}
+	tied := []int64{
+		entity("Сидоровский", "Пётр", 3), entity("Сидоровский", "Иван", 6), entity("Сидоровский", "Олег", 1),
+		entity("Сидоровский", "Глеб", 5), entity("Сидоровский", "Юрий", 2), entity("Сидоровский", "Лев", 4),
+	}
+	far := []int64{entity("Сидоровскийский", "Пётр", 2), entity("Сидоровскийский", "Иван", 1)}
+	hidden := entity("Сидоровский", "Марк", 7)
+	english := entity("Сидоровский", "Карл", 8)
+	mixed := entity("Сидоровский", "Марат", 10)
+	f.exec(`UPDATE opds_catalog_book SET approved = true`)
+	p, _, _ := f.pass()
+	f.drain()
+	f.exec(`UPDATE opds_catalog_book b SET approved = false FROM book_author_display d
+		WHERE d.book_id = b.id AND ? = ANY (d.entity_ids)`, p.EntityOf(hidden))
+	f.exec(`UPDATE opds_catalog_book b SET lang = 'en' FROM book_author_display d
+		WHERE d.book_id = b.id AND ? = ANY (d.entity_ids)`, p.EntityOf(english))
+	f.exec(`UPDATE opds_catalog_book SET lang = 'en' WHERE id IN (SELECT b.id FROM opds_catalog_book b
+		JOIN book_author_display d ON d.book_id = b.id AND ? = ANY (d.entity_ids) ORDER BY b.id LIMIT 3)`,
+		p.EntityOf(mixed))
+
+	// The tie orders by books in the reader's language: Марат 7, Иван 6,
+	// Глеб 5, Лев 4, Пётр 3, Юрий 2, Олег 1; the farther pair by books after it.
+	var want []uuid.UUID
+	for _, c := range []int64{mixed, tied[1], tied[3], tied[5], tied[0], tied[4], tied[2], far[0], far[1]} {
+		want = append(want, p.EntityOf(c))
+	}
+	ctx := context.Background()
+	for _, pg := range []struct{ limit, offset int }{{20, 0}, {3, 0}, {2, 2}, {4, 4}, {2, 6}, {1, 7}, {5, 8}, {3, 20}} {
+		page, err := SearchAuthorEntities(ctx, f.tx, "Сидоровский", "ru", pg.limit, pg.offset)
+		require.NoError(t, err)
+		assert.Equal(t, len(want), page.Total, "limit %d offset %d: the total", pg.limit, pg.offset)
+		got := []uuid.UUID{}
+		for _, h := range page.Hits {
+			got = append(got, h.ID)
+		}
+		end := min(pg.offset+pg.limit, len(want))
+		assert.Equal(t, want[min(pg.offset, end):end], got, "limit %d offset %d", pg.limit, pg.offset)
+		if pg.offset == 0 {
+			assert.Equal(t, 7, page.Hits[0].Books, "the reader's language only")
+		}
+	}
+	page, err := SearchAuthorEntities(ctx, f.tx, "Сидоровский", "", 3, 0)
+	require.NoError(t, err)
+	assert.Equal(t, len(want)+1, page.Total, "without a language the other language's entity counts")
+	require.NotEmpty(t, page.Hits)
+	require.Len(t, page.Hits, 3)
+	assert.Equal(t, p.EntityOf(mixed), page.Hits[0].ID)
+	assert.Equal(t, 10, page.Hits[0].Books, "every language")
+	assert.Equal(t, p.EntityOf(english), page.Hits[1].ID, "with its eight books")
+	assert.Equal(t, 8, page.Hits[1].Books)
 }
 
 // A new book the scan adds with a credit of a fingerprint the build already

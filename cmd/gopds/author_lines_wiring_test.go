@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"gopds-api/config"
 	"gopds-api/database"
 	"gopds-api/internal/scanfixture"
 	"gopds-api/models"
@@ -63,19 +64,31 @@ func TestTheAuthorSwitchGovernsTheOpdsFeeds(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	off := gin.New()
-	setupRoutes(off, nil, search, db, false)
+	setupRoutes(off, nil, search, db, legacyAuthors)
 	assert.Equal(t, []string{"Толстой лев", "пушкин Анна"}, opdsEntryAuthors(t, off, multi))
 
 	on := gin.New()
-	setupRoutes(on, nil, search, db, true)
+	setupRoutes(on, nil, search, db, layerAuthors)
 	assert.Equal(t, []string{"лев Николаевич Толстой", "пушкин", "Анна", "Аноним"}, opdsEntryAuthors(t, on, multi))
 }
 
 // The bot reads the same switch: off, its processors name legacy authors;
 // on, they read the author layer of the same database.
 func TestTheAuthorSwitchReachesTheBot(t *testing.T) {
-	assert.Nil(t, authorLinesOf(nil, false))
-	lines := authorLinesOf(nil, true)
+	assert.Nil(t, authorLinesOf(nil, legacyAuthors))
+	lines := authorLinesOf(nil, layerAuthors)
 	require.NotNil(t, lines)
 	assert.IsType(t, &database.PGBookSourceRepository{}, lines.Lookup)
+	assert.Nil(t, lines.Entities, "the legacy identity links to legacy authors")
+
+	lines = authorLinesOf(nil, entityAuthors)
+	require.NotNil(t, lines)
+	assert.IsType(t, &database.PGBookSourceRepository{}, lines.Entities, "the entity identity links to entities")
 }
+
+// The switch positions the wiring tests run under.
+var (
+	legacyAuthors = config.AuthorsConfig{DisplaySource: config.AuthorsDisplayLegacy, Identity: config.AuthorsIdentityLegacy}
+	layerAuthors  = config.AuthorsConfig{DisplaySource: config.AuthorsDisplayLayer, Identity: config.AuthorsIdentityLegacy}
+	entityAuthors = config.AuthorsConfig{DisplaySource: config.AuthorsDisplayLayer, Identity: config.AuthorsIdentityEntity}
+)

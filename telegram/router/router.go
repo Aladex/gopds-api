@@ -100,6 +100,8 @@ type Config struct {
 	// AuthorLines names the authors of listed books from the author layer;
 	// nil names the catalog authors.
 	AuthorLines *services.AuthorLines
+	// Entities names authors by their entities (authors.identity, authors.go).
+	Entities bool
 	// Kindle sends books to Kindle; nil is kindlesend.Default().
 	Kindle *kindlesend.Sender
 	// MediaBaseURL is where Telegram can fetch covers from, for inline
@@ -321,13 +323,22 @@ func (r *Router) creditAuthors(ctx context.Context, books []models.Book) {
 	for i := range books {
 		if i < len(lines) {
 			books[i].AuthorLine = lines[i]
+			// Under the entity identity the line alone names the authors:
+			// the catalog's are the legacy identity's.
+			books[i].AuthorLineOnly = r.cfg.Entities
 		}
 	}
 }
 
-// creditBook is creditAuthors for one book.
+// creditBook is creditAuthors for one book, whose card opens its authors:
+// under the entity identity, its entities (entityBookAuthors).
 func (r *Router) creditBook(ctx context.Context, book *models.Book) {
 	books := []models.Book{*book}
 	r.creditAuthors(ctx, books)
-	book.AuthorLine = books[0].AuthorLine
+	book.AuthorLine, book.AuthorLineOnly = books[0].AuthorLine, books[0].AuthorLineOnly
+	if r.cfg.Entities {
+		if err := r.entityBookAuthors(ctx, book); err != nil {
+			logging.Warnf("Telegram v2: the authors of book %d: %v", book.ID, err)
+		}
+	}
 }

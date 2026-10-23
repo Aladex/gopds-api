@@ -233,7 +233,7 @@ func resolveAuthorDisplay(s *bookAuthorSources) models.BookAuthorDisplay {
 		if !c.Selected {
 			name = displayCase(name)
 		}
-		authors[i] = models.AuthorDisplay{Name: name, LegacyAuthorID: links[i]}
+		authors[i] = models.AuthorDisplay{Name: name, LegacyAuthorID: links[i], EntityIDs: c.EntityIDs}
 	}
 	return models.BookAuthorDisplay{Source: models.AuthorDisplayLayer, Authors: authors}
 }

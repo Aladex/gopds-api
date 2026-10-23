@@ -6,19 +6,43 @@ import (
 	"gopds-api/models"
 
 	"github.com/go-pg/pg/v10"
+	"github.com/google/uuid"
 )
 
 // PGSearchRepository owns the lexical search SQL: normalization, candidate
 // lanes, ranking, deduplication and exact totals all happen in PostgreSQL.
 // The pg.DBI boundary lets production share the pool while tests run inside
 // the rollback fixture transaction.
+//
+// Under the entity identity (authors.identity, design E §4.2) authors are
+// author entities: the author search and the picker's author shelf find
+// entities by their names, and a book search by author text matches the
+// names of the entities a book's line links to and its names that link to
+// none. Scoping a search to an author works under either identity: the
+// request names a legacy author or an entity.
 type PGSearchRepository struct {
-	db pg.DBI
+	db       pg.DBI
+	entities bool
 }
 
-// NewPGSearchRepository wires the repository to a database handle.
+// NewPGSearchRepository wires the repository to a database handle, naming
+// authors by their legacy IDs.
 func NewPGSearchRepository(db pg.DBI) *PGSearchRepository {
 	return &PGSearchRepository{db: db}
+}
+
+// NewPGSearchRepositoryFor wires the repository to a database handle under
+// an author identity: entities names authors by their entities.
+func NewPGSearchRepositoryFor(db pg.DBI, entities bool) *PGSearchRepository {
+	return &PGSearchRepository{db: db, entities: entities}
+}
+
+// entityParam is an entity scope as a statement parameter: NULL for none.
+func entityParam(id uuid.UUID) any {
+	if id == uuid.Nil {
+		return nil
+	}
+	return id.String()
 }
 
 // bookSearchSQL ranks candidates lexicographically and returns one page of
@@ -83,6 +107,9 @@ visible AS NOT MATERIALIZED (
         AND (? = 0 OR EXISTS (
             SELECT 1 FROM opds_catalog_bauthor ba
             WHERE ba.book_id = b.id AND ba.author_id = ?))
+        AND (?::uuid IS NULL OR EXISTS (
+            SELECT 1 FROM book_author_display d
+            WHERE d.book_id = b.id AND d.entity_ids @> ARRAY[?::uuid]))
         AND (? = 0 OR EXISTS (
             SELECT 1 FROM opds_catalog_bseries bs
             WHERE bs.book_id = b.id AND bs.ser_id = ?))
@@ -108,7 +135,13 @@ visible AS NOT MATERIALIZED (
         -- (book_author_display) that can say more than them: a patronymic or
         -- a given name the catalog lacks, a name the catalog never linked.
         -- The rest carry only their legacy author's words.
-        AND ((SELECT q.author_needle FROM q) IS NULL OR EXISTS (
+        --
+        -- Under the entity identity it matches the names of the entities the
+        -- line links to — every name variant of each (author_entity_name), so
+        -- "Лев Николаевич Толстой" finds his books signed "Л. Толстой" — and
+        -- the names of the line that link to no entity.
+        AND ((SELECT q.author_needle FROM q) IS NULL
+            OR (NOT ?::bool AND (EXISTS (
             SELECT 1 FROM opds_catalog_bauthor ba
             JOIN opds_catalog_author a ON a.id = ba.author_id
             WHERE ba.book_id = b.id
@@ -123,7 +156,22 @@ visible AS NOT MATERIALIZED (
                 AND (d.search_key = (SELECT q.author_needle FROM q)
                     OR d.search_key LIKE (SELECT q.author_needle FROM q) || '%'
                     OR (char_length((SELECT q.author_needle FROM q)) >= 3
-                        AND d.search_key %> (SELECT q.author_needle FROM q)))))
+                        AND d.search_key %> (SELECT q.author_needle FROM q))))))
+            OR (?::bool AND EXISTS (
+            SELECT 1 FROM book_author_display d
+            WHERE d.book_id = b.id
+                AND (EXISTS (
+                    SELECT 1 FROM author_entity_name n
+                    WHERE n.entity_id = ANY (d.entity_ids)
+                        AND (n.search_key = (SELECT q.author_needle FROM q)
+                            OR n.search_key LIKE (SELECT q.author_needle FROM q) || '%'
+                            OR (char_length((SELECT q.author_needle FROM q)) >= 3
+                                AND n.search_key %> (SELECT q.author_needle FROM q))))
+                    OR (d.entity_ids IS NULL AND d.source <> 'none'
+                        AND (d.search_key = (SELECT q.author_needle FROM q)
+                            OR d.search_key LIKE (SELECT q.author_needle FROM q) || '%'
+                            OR (char_length((SELECT q.author_needle FROM q)) >= 3
+                                AND d.search_key %> (SELECT q.author_needle FROM q))))))))
 ),
 anchor AS (
     -- The longest needle word, used as the word-coverage lane's index qual.
@@ -375,10 +423,12 @@ func (r *PGSearchRepository) SearchBooks(ctx context.Context, req models.BookSea
 			req.Language, req.Language, req.Language,
 			req.Favorites, req.UserID,
 			req.AuthorID, req.AuthorID,
+			entityParam(req.AuthorEntityID), entityParam(req.AuthorEntityID),
 			req.SeriesID, req.SeriesID,
 			req.GenreID, req.GenreID,
 			req.CollectionID, req.CollectionID,
 			req.CuratedCollectionID, req.CuratedCollectionID,
+			r.entities, r.entities,
 			req.Limit, req.Offset)
 		return err
 	}
@@ -603,6 +653,9 @@ type searchAuthorRow struct {
 // exact pre-pagination total.
 func (r *PGSearchRepository) SearchAuthors(ctx context.Context, req models.AuthorSearchRequest) (models.AuthorSearchPage, error) {
 	page := models.AuthorSearchPage{Limit: req.Limit, Offset: req.Offset}
+	if r.entities {
+		return r.searchAuthorEntities(ctx, req, page)
+	}
 
 	var rows []searchAuthorRow
 	if _, err := r.db.QueryContext(ctx, &rows, authorSearchRepositorySQL,
@@ -625,6 +678,46 @@ func (r *PGSearchRepository) SearchAuthors(ctx context.Context, req models.Autho
 		}
 	}
 	return page, nil
+}
+
+// searchAuthorEntities is SearchAuthors under the entity identity: one row
+// per entity, labeled when it has a namesake.
+//
+//nolint:gocritic // carries the port's request and page by value, as SearchAuthors does
+func (r *PGSearchRepository) searchAuthorEntities(
+	ctx context.Context, req models.AuthorSearchRequest, page models.AuthorSearchPage,
+) (models.AuthorSearchPage, error) {
+	found, err := SearchAuthorEntities(ctx, r.db, req.Query, req.Language, req.Limit, req.Offset)
+	if err != nil {
+		return page, preferContextError(ctx, err)
+	}
+	page.Total, page.QueryHash = found.Total, found.QueryHash
+	page.Entities, err = r.labeled(ctx, found.Hits)
+	return page, preferContextError(ctx, err)
+}
+
+// labeled is the hits as readers are shown them, in their order, each with
+// its namesake label; a hit merged away since it was found is left out.
+func (r *PGSearchRepository) labeled(ctx context.Context, hits []AuthorEntityHit) ([]models.AuthorEntity, error) {
+	if len(hits) == 0 {
+		return nil, nil
+	}
+	ids := make([]uuid.UUID, len(hits))
+	for i := range hits {
+		ids[i] = hits[i].ID
+	}
+	live, err := LiveAuthorEntities(ctx, r.db, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]models.AuthorEntity, 0, len(hits))
+	for _, h := range hits {
+		if e, ok := live[h.ID]; ok {
+			e.BooksCount = h.Books
+			out = append(out, e)
+		}
+	}
+	return out, nil
 }
 
 // Autocomplete geometry: a single kind answers up to defaultSuggestionLimit
@@ -700,6 +793,10 @@ visible_books AS NOT MATERIALIZED (
         AND (? = 0 OR EXISTS (
             SELECT 1 FROM opds_catalog_bauthor AS ba
             WHERE ba.book_id = b.id AND ba.author_id = ?
+        ))
+        AND (?::uuid IS NULL OR EXISTS (
+            SELECT 1 FROM book_author_display AS d
+            WHERE d.book_id = b.id AND d.entity_ids @> ARRAY[?::uuid]
         ))
         AND (? = 0 OR EXISTS (
             SELECT 1 FROM opds_catalog_bseries AS bs
@@ -917,6 +1014,12 @@ func (r *PGSearchRepository) Suggestions(ctx context.Context, req models.Suggest
 	result := models.SuggestionResult{Suggestions: []models.AutocompleteSuggestion{}}
 	bookLimit, authorLimit := suggestionLaneLimits(req.Kind, req.Limit)
 	kind := string(req.Kind)
+	// Under the entity identity the statement fills the book shelf only, and
+	// the entities' shelf follows it (suggestEntities).
+	authorKind := kind
+	if r.entities {
+		authorKind = string(models.SuggestionBook)
+	}
 
 	var rows []suggestionRow
 	query := func(q pg.DBI) error {
@@ -925,13 +1028,14 @@ func (r *PGSearchRepository) Suggestions(ctx context.Context, req models.Suggest
 			req.Language, req.Language, req.Language,
 			req.Favorites, req.UserID,
 			req.AuthorID, req.AuthorID,
+			entityParam(req.AuthorEntityID), entityParam(req.AuthorEntityID),
 			req.SeriesID, req.SeriesID,
 			req.GenreID, req.GenreID,
 			req.CollectionID, req.CollectionID,
 			req.CuratedCollectionID, req.CuratedCollectionID,
 			kind, kind, kind,
 			bookLimit,
-			kind, kind,
+			authorKind, authorKind,
 			req.Language, req.Language, req.Language,
 			req.Language, req.Language, req.Language,
 			authorLimit)
@@ -963,5 +1067,34 @@ func (r *PGSearchRepository) Suggestions(ctx context.Context, req models.Suggest
 		}
 		result.Suggestions = append(result.Suggestions, suggestion)
 	}
+	if r.entities && authorKind != kind {
+		authors, err := r.suggestEntities(ctx, req, authorLimit)
+		if err != nil {
+			return result, preferContextError(ctx, err)
+		}
+		result.Suggestions = append(result.Suggestions, authors...)
+	}
 	return result, nil
+}
+
+// suggestEntities is the picker's author shelf under the entity identity.
+//
+//nolint:gocritic // reads the port's request by value, as Suggestions does
+func (r *PGSearchRepository) suggestEntities(
+	ctx context.Context, req models.SuggestionRequest, limit int,
+) ([]models.AutocompleteSuggestion, error) {
+	hits, err := SuggestAuthorEntities(ctx, r.db, req.Query, req.Language, limit)
+	if err != nil {
+		return nil, err
+	}
+	entities, err := r.labeled(ctx, hits)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]models.AutocompleteSuggestion, len(entities))
+	for i, e := range entities {
+		out[i] = models.AutocompleteSuggestion{Value: e.FullName, Type: suggestionTypeAuthor, EntityID: e.ID,
+			BooksCount: e.BooksCount, Label: e.Label, LabelBooks: e.LabelBooks}
+	}
+	return out, nil
 }

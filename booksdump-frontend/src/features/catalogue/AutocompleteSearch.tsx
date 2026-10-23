@@ -237,6 +237,14 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
         inputRef.current?.focus();
     };
 
+    /**
+     * What a row adds after its text: a book's author, or an author entity's
+     * genre label. A namesake of the same genre is told apart by the count the
+     * row ends with, the books it opens.
+     */
+    const asideOf = (suggestion: AutocompleteSuggestion) =>
+        suggestion.secondary || suggestion.label;
+
     const pick = (suggestion: AutocompleteSuggestion) => {
         onChange(suggestion.value);
         setDismissed(true);
@@ -402,9 +410,9 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
                                     )}
                                     <span className="min-w-0 flex-1 truncate">
                                         {suggestion.value}
-                                        {suggestion.secondary && (
+                                        {asideOf(suggestion) && (
                                             <span className="ml-1.5 text-xs text-muted-foreground">
-                                                {suggestion.secondary}
+                                                {asideOf(suggestion)}
                                             </span>
                                         )}
                                     </span>

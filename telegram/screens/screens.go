@@ -380,10 +380,11 @@ func Authors(b *models.Book, limit int) string {
 }
 
 // authorNames are the names a book is credited to: its author line when the
-// router read one, its catalog authors otherwise.
+// router read one, its catalog authors otherwise — never when the line is the
+// book's whole say (models.Book.AuthorLineOnly).
 func authorNames(b *models.Book) []string {
 	var names []string
-	if len(b.AuthorLine) > 0 {
+	if len(b.AuthorLine) > 0 || b.AuthorLineOnly {
 		for _, a := range b.AuthorLine {
 			if n := strings.TrimSpace(a.Name); n != "" {
 				names = append(names, n)

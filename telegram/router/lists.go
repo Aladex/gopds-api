@@ -56,6 +56,10 @@ func (r *Router) listPainter(ctx context.Context, b *Bot, node *models.TelegramN
 		return func(k *keys) screens.Screen {
 			return screens.Notice(screens.CopyCollectionGone, k.home()).WithBack(back(k))
 		}, "", true
+	case errors.Is(err, errAuthorGone):
+		return func(k *keys) screens.Screen {
+			return screens.Notice(screens.CopyAuthorGone, k.home()).WithBack(back(k))
+		}, "", true
 	case err != nil:
 		return nil, expiredOrDown(err), false
 	}
@@ -104,13 +108,13 @@ func (r *Router) loadList(ctx context.Context, b *Bot, view *models.TelegramView
 	//exhaustive:ignore // a typed search is a results page, not a list
 	switch view.Kind {
 	case ViewAuthorBooks:
-		author, aerr := database.GetTelegramAuthor(ctx, view.AuthorID)
+		author, aerr := r.authorOf(ctx, view.AuthorID)
 		if aerr != nil {
 			return nil, aerr
 		}
-		filters.Author, filters.Sort = int(view.AuthorID), models.BookSortTitle
+		filters.Author, filters.AuthorEntity, filters.Sort = int(author.legacy), author.entity, models.BookSortTitle
 		list.Books, list.Total, err = database.GetBooks(userID, filters)
-		list.Header = []screens.Block{screens.Title{Text: author.FullName}, screens.Footer{Text: screens.CountLine(list.Total, view.Lang)}}
+		list.Header = []screens.Block{screens.Title{Text: author.name}, screens.Footer{Text: screens.CountLine(list.Total, view.Lang)}}
 		list.Sub, list.Empty = screens.SeriesSub, emptyIn(view.Lang, copyNoAuthorBooks)
 		out.extra = func(k *keys, self, viewID uint64) [][]screens.Button {
 			row := []screens.Button{{Text: screens.ButtonSearchAuthor,
@@ -118,13 +122,13 @@ func (r *Router) loadList(ctx context.Context, b *Bot, view *models.TelegramView
 			return [][]screens.Button{append(row, languageRow(k, self, viewID, view.Lang)...)}
 		}
 	case ViewAuthorSearch:
-		author, aerr := database.GetTelegramAuthor(ctx, view.AuthorID)
+		author, aerr := r.authorOf(ctx, view.AuthorID)
 		if aerr != nil {
 			return nil, aerr
 		}
-		err = r.searchList(ctx, list, &models.BookSearchRequest{Query: view.Query, AuthorID: view.AuthorID, Language: view.Lang,
-			Limit: filters.Limit, Offset: filters.Offset})
-		list.Header = []screens.Block{screens.Heading{Text: "Поиск у автора: " + author.FullName + " — «" + view.Query + "»"},
+		err = r.searchList(ctx, list, &models.BookSearchRequest{Query: view.Query, AuthorID: author.legacy,
+			AuthorEntityID: author.entity, Language: view.Lang, Limit: filters.Limit, Offset: filters.Offset})
+		list.Header = []screens.Block{screens.Heading{Text: "Поиск у автора: " + author.name + " — «" + view.Query + "»"},
 			screens.Footer{Text: screens.CountLine(list.Total, view.Lang)}}
 		list.Sub, list.Empty = screens.SeriesSub, emptyIn(view.Lang, copyNoMatches)
 	case ViewSeriesBooks:
@@ -248,6 +252,9 @@ func (r *Router) bookAuthorsPainter(ctx context.Context, node *models.TelegramNo
 	book, err := database.GetBookCard(ctx, node.EntityID)
 	if err != nil || !visible(book) {
 		return nil, screens.CopyUnavailable, false
+	}
+	if r.cfg.Entities {
+		r.creditBook(ctx, book)
 	}
 	return func(k *keys) screens.Screen {
 		viewID, parent, self := uint64(node.ViewID), uint64(node.ParentID), uint64(node.ID) // #nosec G115 -- serial ids

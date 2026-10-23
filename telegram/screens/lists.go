@@ -20,6 +20,10 @@ const (
 	CopyOldList         = "Этот список создан до обновления. Повтори поиск."
 	CopyNoCollections   = "Подборок пока нет."
 	CopyCollectionGone  = "Эта подборка больше недоступна."
+	// CopyAuthorGone is an author a button or a list names that the library
+	// no longer knows by that name: an old button after authors were moved
+	// to their new pages.
+	CopyAuthorGone = "Автор не найден."
 	// CopyNoCollectionBooks is a collection none of whose books is in the
 	// library (or in the chosen language).
 	CopyNoCollectionBooks = "В этой подборке пока нет книг."

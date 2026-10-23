@@ -28,10 +28,12 @@ type Link struct {
 }
 
 // Author is a name of an entry's author line; ID is the catalog author it
-// links to, nil when it links to none.
+// links to, Entity the author entity (its UUID) under the entity identity;
+// neither when it links to none.
 type Author struct {
-	Name string
-	ID   *int64
+	Name   string
+	ID     *int64
+	Entity string
 }
 
 type Item struct {

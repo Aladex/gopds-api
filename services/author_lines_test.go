@@ -7,6 +7,7 @@ import (
 
 	"gopds-api/models"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -86,4 +87,59 @@ func TestAuthorLinesOfAnEmptyPageAskNothing(t *testing.T) {
 	lookup := &recordingAuthorLookup{}
 	assert.Empty(t, (&AuthorLines{Lookup: lookup}).Page(context.Background(), nil))
 	assert.Empty(t, lookup.calls)
+}
+
+// fakeEntityLinks links every name to one entity per entity ID it carries.
+type fakeEntityLinks struct {
+	calls int
+	err   error
+}
+
+func (f *fakeEntityLinks) EntityLines(_ context.Context, lines [][]models.AuthorDisplay) ([][]models.AuthorDisplay, error) {
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	live := map[uuid.UUID]models.AuthorEntity{}
+	for _, line := range lines {
+		for _, a := range line {
+			for _, raw := range a.EntityIDs {
+				id := uuid.MustParse(raw)
+				live[id] = models.AuthorEntity{ID: id, FullName: "entity " + raw[:4]}
+			}
+		}
+	}
+	out := make([][]models.AuthorDisplay, len(lines))
+	for i, line := range lines {
+		out[i] = models.WithEntities(line, live)
+	}
+	return out, nil
+}
+
+// Under the entity identity every line of the page links to entities, in
+// one call for the page, and never to a legacy author — not even a book's
+// legacy fallback, and not when the entities cannot be read: its names are
+// then plain.
+func TestAuthorLinesLinkToEntitiesUnderTheEntityIdentity(t *testing.T) {
+	id := uuid.New()
+	lookup := &recordingAuthorLookup{lines: map[int64]models.BookAuthorDisplay{
+		1: {Source: models.AuthorDisplayLayer, Authors: []models.AuthorDisplay{
+			{Name: "Анна Сидорова", LegacyAuthorID: ptr(11), EntityIDs: []string{id.String()}}, {Name: "Мастер"},
+		}},
+	}}
+	links := &fakeEntityLinks{}
+	got := (&AuthorLines{Lookup: lookup, Entities: links}).Page(context.Background(), pageOfTwo)
+	assert.Equal(t, 1, links.calls)
+	assert.Equal(t, [][]models.AuthorDisplay{
+		{{Name: "Анна Сидорова", EntityIDs: []string{id.String()},
+			Entities: []models.AuthorEntity{{ID: id, FullName: "entity " + id.String()[:4]}}}, {Name: "Мастер"}},
+		{{Name: "Гоголь Николай"}},
+	}, got)
+
+	failing := &AuthorLines{Lookup: lookup, Entities: &fakeEntityLinks{err: errors.New("connection refused")}}
+	got = failing.Page(context.Background(), pageOfTwo)
+	assert.Equal(t, [][]models.AuthorDisplay{
+		{{Name: "Анна Сидорова", EntityIDs: []string{id.String()}}, {Name: "Мастер"}},
+		{{Name: "Гоголь Николай"}},
+	}, got)
 }

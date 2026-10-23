@@ -21,6 +21,7 @@ import useSearchScope, {
 } from '@/features/catalogue/hooks/useSearchScope';
 import type { AutocompleteSuggestion } from '@/api/autocomplete';
 import AutocompleteSearch from '@/features/catalogue/AutocompleteSearch';
+import { authorTitle } from '@/shared/lib/authorTitle';
 
 /**
  * SearchBar turns a query into a route. Nothing here fetches: the list route it
@@ -140,7 +141,16 @@ const SearchBar: React.FC = () => {
                 return;
             }
             setAuthorId(String(suggestion.id));
-            setAuthorName(suggestion.value);
+            setAuthorName(
+                authorTitle(
+                    {
+                        full_name: suggestion.value,
+                        label: suggestion.label,
+                        label_books: suggestion.label_books,
+                    },
+                    t,
+                ),
+            );
             setSearchItem('');
             navigate(`/books/find/author/${suggestion.id}/1`);
             return;

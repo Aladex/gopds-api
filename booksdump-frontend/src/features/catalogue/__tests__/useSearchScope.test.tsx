@@ -229,6 +229,22 @@ describe('useSearchScope', () => {
         );
     });
 
+    it('reads an entity author list from its UUID, and names it as its page does', async () => {
+        const id = '01a168d0-a113-741a-b69d-53b91f3c7eb9';
+        authorState.authorId = id;
+        getAuthor.mockResolvedValue({ id, full_name: 'Стивен Кинг', label: 'Ужасы' });
+
+        const { result } = renderAt(`/books/find/author/${id}/1`);
+
+        expect(result.current.kind).toBe('author');
+        expect(result.current.id).toBe(id);
+        expect(result.current.firstPagePath).toBe(`/books/find/author/${id}/1`);
+        await waitFor(() => expect(getAuthor).toHaveBeenCalledWith(id));
+        await waitFor(() =>
+            expect(authorState.setAuthorName).toHaveBeenCalledWith('Стивен Кинг · Ужасы'),
+        );
+    });
+
     it('still scopes the search when the name cannot be fetched', async () => {
         authorState.authorId = '42';
         getAuthor.mockRejectedValue(new Error('nope'));

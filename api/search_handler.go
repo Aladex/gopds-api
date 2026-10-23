@@ -15,6 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
+	"github.com/google/uuid"
 )
 
 // SearchHandler is the REST adapter of the search service. It binds query
@@ -30,6 +31,18 @@ type SearchHandler struct {
 	// AuthorLines supplies each listed book's author line. It is set only when
 	// the author line is switched on; without it no book carries one.
 	AuthorLines AuthorDisplayLookup
+	// Entities switches the handler to the entity identity (authors.identity,
+	// design E §4.2): authors are named by their entity IDs — the list's
+	// author parameter, the author lines' links, the author search, the
+	// picker and the author heading — and a legacy author ID is not found.
+	// nil keeps the legacy identity.
+	Entities AuthorEntityReader
+}
+
+// AuthorEntityReader reads what the entity identity shows of authors.
+type AuthorEntityReader interface {
+	services.AuthorEntityLinks
+	AuthorEntity(ctx context.Context, id uuid.UUID) (models.AuthorEntity, error)
 }
 
 // AuthorDisplayLookup reads the author line of a page of books in one call;
@@ -77,10 +90,58 @@ func (h *SearchHandler) listedBooks(ctx context.Context, books []models.Book) ([
 		}
 		out[i] = ListedBook{Book: books[i], Publisher: detail.Publisher, ISBN: isbn}
 		if h.AuthorLines != nil {
-			out[i].AuthorsDisplay = authorLineOf(&books[i], lines)
+			if line := authorLineOf(&books[i], lines); len(line) > 0 {
+				out[i].AuthorsDisplay = &line
+			}
 		}
 	}
+	if h.Entities != nil {
+		h.linkEntities(ctx, out)
+	}
 	return out, nil
+}
+
+// linkEntities puts the listed books' lines under the entity identity: each
+// name links to its entities and to no legacy author, and a line that names
+// no one is sent empty rather than left out. The catalog's own author list
+// stays as it is: the administrator's book editor starts from it.
+func (h *SearchHandler) linkEntities(ctx context.Context, out []ListedBook) {
+	lines := make([][]models.AuthorDisplay, len(out))
+	for i := range out {
+		if out[i].AuthorsDisplay != nil {
+			lines[i] = *out[i].AuthorsDisplay
+		}
+	}
+	linked := services.EntityLinesOf(ctx, h.Entities, lines)
+	for i := range out {
+		line := linked[i]
+		out[i].AuthorsDisplay = &line
+	}
+}
+
+// authorRef reads an author ID from a client under the handler's identity
+// and checks that an entity it names is live. It answers the request itself
+// when the ID is not one: 400 with malformed for no ID at all, 404 for an
+// author that is not there — another identity's ID or a gone entity, never
+// another author.
+func (h *SearchHandler) authorRef(c *gin.Context, raw string, malformed error) (services.AuthorRef, bool) {
+	ref, err := services.ParseAuthorRef(raw, h.Entities != nil)
+	if err == nil && ref.Entity != uuid.Nil {
+		if _, err = h.Entities.AuthorEntity(c.Request.Context(), ref.Entity); errors.Is(err, database.ErrAuthorEntityNotFound) {
+			err = services.ErrAuthorNotFound
+		}
+	}
+	switch {
+	case err == nil:
+		return ref, true
+	case errors.Is(err, services.ErrInvalidAuthorID):
+		httputil.NewError(c, http.StatusBadRequest, malformed)
+	case errors.Is(err, services.ErrAuthorNotFound):
+		httputil.NewError(c, http.StatusNotFound, errors.New("author_not_found"))
+	default:
+		httputil.NewError(c, http.StatusInternalServerError, err)
+	}
+	return services.AuthorRef{}, false
 }
 
 // authorLineOf is the book's line from the lookup, or its legacy authors
@@ -98,6 +159,10 @@ func authorLineOf(book *models.Book, lines map[int64]models.BookAuthorDisplay) [
 type bookListQuery struct {
 	models.BookFilters
 	BookID int64 `form:"book_id"`
+	// Author is read here rather than into BookFilters: it is a legacy
+	// number or an entity UUID, whichever the identity in force names
+	// authors by (authorRef).
+	Author string `form:"author"`
 }
 
 // maxListLimit is the ordinary list's own page-size clamp, mirrored here
@@ -113,7 +178,7 @@ const maxListLimit = 100
 // @Param  limit query int true "Limit"
 // @Param  offset query int true "Offset"
 // @Param  title query string false "Title of the book"
-// @Param  author query int false "Author ID"
+// @Param  author query string false "Author ID: a legacy number, or an entity UUID under authors.identity=entity"
 // @Param  book_id query int false "Exact book ID"
 // @Param  sort query string false "Ordinary list order: empty for the newest first, author for by author"
 // @Tags books
@@ -121,6 +186,7 @@ const maxListLimit = 100
 // @Produce  json
 // @Success 200 {object} ExportAnswer "List of books and length"
 // @Failure 400 {object} httputil.HTTPError "Bad request"
+// @Failure 404 {object} httputil.HTTPError "No such author under the identity in force"
 // @Failure 500 {object} httputil.HTTPError "Internal server error"
 // @Failure 403 {object} httputil.HTTPError "Forbidden"
 // @Router /api/books/list [get]
@@ -145,6 +211,11 @@ func (h *SearchHandler) Books(c *gin.Context) {
 	// not why it was safe.
 	moderator := c.GetBool("is_superuser")
 	userID := c.GetInt64("user_id")
+	author, ok := h.authorRef(c, q.Author, errors.New("bad_request"))
+	if !ok {
+		return
+	}
+	q.BookFilters.Author, q.AuthorEntity = int(author.Legacy), author.Entity
 
 	if strings.TrimSpace(q.Title) != "" || q.BookID > 0 {
 		page, err := h.Search.SearchBooks(c.Request.Context(), models.BookSearchRequest{
@@ -152,7 +223,8 @@ func (h *SearchHandler) Books(c *gin.Context) {
 			ExactBookID:         q.BookID,
 			UserID:              userID,
 			Language:            q.Lang,
-			AuthorID:            int64(q.Author),
+			AuthorID:            author.Legacy,
+			AuthorEntityID:      author.Entity,
 			SeriesID:            int64(q.Series),
 			GenreID:             int64(q.Genre),
 			CollectionID:        q.Collection,
@@ -211,7 +283,7 @@ func (h *SearchHandler) Books(c *gin.Context) {
 // @Param  author query string false "Author name"
 // @Accept  json
 // @Produce  json
-// @Success 200 {object} AuthorAnswer
+// @Success 200 {object} AuthorAnswer "Under authors.identity=entity: AuthorEntityAnswer"
 // @Failure 400 {object} httputil.HTTPError "Bad request"
 // @Failure 500 {object} httputil.HTTPError
 // @Failure 403 {object} httputil.HTTPError
@@ -231,6 +303,13 @@ func (h *SearchHandler) Authors(c *gin.Context) {
 	})
 	if err != nil {
 		mapSearchError(c, err)
+		return
+	}
+	if h.Entities != nil {
+		if page.Entities == nil {
+			page.Entities = []models.AuthorEntity{}
+		}
+		c.JSON(http.StatusOK, AuthorEntityAnswer{Authors: page.Entities, Length: pageCount(page.Total, page.Limit)})
 		return
 	}
 	if page.Authors == nil {
@@ -281,14 +360,14 @@ const (
 	paramFavorite = "fav"
 )
 
-// suggestionScope reads the reader's current list off the query string.
+// suggestionScope reads the reader's current list off the query string; the
+// author is read by authorRef.
 func suggestionScope(c *gin.Context) (models.SuggestionRequest, error) {
 	req := models.SuggestionRequest{Favorites: c.Query(paramFavorite) == paramTrue}
 	for _, field := range []struct {
 		param string
 		into  *int64
 	}{
-		{paramAuthor, &req.AuthorID},
 		{paramSeries, &req.SeriesID},
 		{paramGenre, &req.GenreID},
 		{paramShelf, &req.CollectionID},
@@ -346,6 +425,15 @@ func (h *SearchHandler) Autocomplete(c *gin.Context) {
 		httputil.NewError(c, http.StatusBadRequest, err)
 		return
 	}
+	malformed := fmt.Errorf("%s must be a numeric id", paramAuthor)
+	if h.Entities != nil {
+		malformed = fmt.Errorf("%s must be an author id", paramAuthor)
+	}
+	author, ok := h.authorRef(c, c.Query(paramAuthor), malformed)
+	if !ok {
+		return
+	}
+	scope.AuthorID, scope.AuthorEntityID = author.Legacy, author.Entity
 	scope.Query = query
 	scope.Kind = models.SuggestionKind(searchType)
 	scope.Language = c.Query("lang")

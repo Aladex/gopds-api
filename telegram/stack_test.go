@@ -60,6 +60,9 @@ type stack struct {
 	// authorLines names listed books' authors from the author layer; nil is
 	// the catalog authors.
 	authorLines *services.AuthorLines
+	// entities names authors by their entities (authors.identity = entity),
+	// over the author layer's lines.
+	entities bool
 	// clientTimeout bounds every call to the fake Telegram; zero is the
 	// production default.
 	clientTimeout time.Duration
@@ -155,6 +158,11 @@ func (s *stack) newManager() *telegram.BotManager {
 			endpoint.HTTPClient.Timeout = tgapi.DefaultTimeout
 		}
 	}
+	lines := s.authorLines
+	if s.entities {
+		repo := database.NewPGBookSourceRepository(s.db)
+		lines = &services.AuthorLines{Lookup: repo, Entities: repo}
+	}
 	return telegram.NewBotManager(&telegram.Config{
 		BaseURL:  stackBaseURL,
 		SiteURL:  stackSiteURL,
@@ -163,8 +171,9 @@ func (s *stack) newManager() *telegram.BotManager {
 		ChatWait: s.chatWait,
 		Kindle:   s.kindle,
 		// AuthorLines, when set, names authors from the author layer.
-		AuthorLines: s.authorLines,
-	}, s.rc, services.NewSearchService(database.NewPGSearchRepository(s.db)))
+		AuthorLines:    lines,
+		AuthorEntities: s.entities,
+	}, s.rc, services.NewSearchService(database.NewPGSearchRepositoryFor(s.db, s.entities)))
 }
 
 // seedUser adds a library account and returns its id.

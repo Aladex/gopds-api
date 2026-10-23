@@ -101,8 +101,14 @@ redis:
 # Where the book list's author line comes from: "legacy" (the default) keeps
 # the catalogue authors; "layer" sends each listed book an authors_display
 # line read from the author metadata layer, in the file's order.
+# identity names authors on every surface (site, OPDS, bot) at once: "legacy"
+# (the default) by the catalogue's author IDs, "entity" by the author
+# entities' UUIDs — links, author pages, author search and the bot's buttons;
+# an old legacy author link then finds no author. "entity" needs
+# display_source "layer". Env: GOPDS_AUTHORS_IDENTITY.
 # authors:
 #   display_source: legacy
+#   identity: legacy
 
 # The single LLM provider every model-backed feature reads — search query
 # parsing, genre titles, curated-collection matching, language detection.

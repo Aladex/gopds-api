@@ -30,7 +30,7 @@ func (l *pageLookup) BookAuthorDisplay(_ context.Context, ids []int64) (map[int6
 func routerWithLines(search services.PublicSearch, lookup services.AuthorDisplayLookup) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	SetupOpdsRoutes(r.Group("/opds"), search, &services.AuthorLines{Lookup: lookup})
+	SetupOpdsRoutes(r.Group("/opds"), search, &services.AuthorLines{Lookup: lookup}, nil)
 	return r
 }
 

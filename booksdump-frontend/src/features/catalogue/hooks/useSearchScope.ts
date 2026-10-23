@@ -3,6 +3,7 @@ import { useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
 
 import * as booksApi from '@/api/books';
+import { authorTitle } from '@/shared/lib/authorTitle';
 import { useAuthor } from '@/context/AuthorContext';
 import { useSearchBar } from '@/context/SearchBarContext';
 
@@ -45,7 +46,8 @@ interface RouteScope {
 // cannot use useParams, hence plain pathname matching.
 const SCOPED_ROUTES: Array<{ match: RegExp; build: (id: string) => RouteScope }> = [
     {
-        match: /^\/books\/find\/author\/(\d+)(?:\/|$)/,
+        // A legacy author's number, or an author entity's UUID.
+        match: /^\/books\/find\/author\/(\d+|[0-9a-fA-F]{8}-[0-9a-fA-F-]{27})(?:\/|$)/,
         build: (id) => ({ kind: 'author', id, firstPagePath: `/books/find/author/${id}/1` }),
     },
     {
@@ -197,7 +199,7 @@ const useSearchScope = (onEnter?: OnEnter): SearchScope => {
         booksApi
             .getAuthor(id)
             .then((author) => {
-                if (!cancelled && author?.full_name) setAuthorName(author.full_name);
+                if (!cancelled && author?.full_name) setAuthorName(authorTitle(author, t));
             })
             .catch(() => {
                 // Without a name the scope simply says less; it still works.
@@ -205,7 +207,7 @@ const useSearchScope = (onEnter?: OnEnter): SearchScope => {
         return () => {
             cancelled = true;
         };
-    }, [kind, id, authorId, authorName, setAuthorName]);
+    }, [kind, id, authorId, authorName, setAuthorName, t]);
 
     const label = (() => {
         switch (kind) {

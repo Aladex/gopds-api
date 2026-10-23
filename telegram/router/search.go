@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-telegram/bot"
 	tgbot "github.com/go-telegram/bot/models"
+	"github.com/google/uuid"
 )
 
 // search answers typed text: a new view, and a new results panel for it
@@ -68,21 +69,23 @@ func tabScreen(tab uint8) Screen {
 // runSearch runs both branches of a view's search for one page of tab: the
 // tab's page, and the other tab's total. A page left empty by a catalog
 // change is replaced by the last page; the second result says so.
-func (r *Router) runSearch(ctx context.Context, view *models.TelegramView, tab uint8, page int) (*screens.Results, bool) {
-	res := r.searchPage(ctx, view, tab, page)
+func (r *Router) runSearch(ctx context.Context, view *models.TelegramView, scope botAuthor, tab uint8, page int) (*screens.Results, bool) {
+	res := r.searchPage(ctx, view, scope, tab, page)
 	moved := false
 	shown, total := len(res.Books), res.BookTotal
 	if tab == 1 {
 		shown, total = len(res.Authors), res.AuthorTotal
 	}
 	if page > 0 && shown == 0 && total > 0 {
-		res = r.searchPage(ctx, view, tab, screens.Pages(total)-1)
+		res = r.searchPage(ctx, view, scope, tab, screens.Pages(total)-1)
 		moved = true
 	}
 	return res, moved
 }
 
-func (r *Router) searchPage(ctx context.Context, view *models.TelegramView, tab uint8, page int) *screens.Results {
+// searchPage runs the search of a view, its books confined to the author
+// scope names (none when it names none).
+func (r *Router) searchPage(ctx context.Context, view *models.TelegramView, scope botAuthor, tab uint8, page int) *screens.Results {
 	res := &screens.Results{Query: view.Query, Lang: view.Lang, Tab: tab, Page: page}
 	bookLimit, bookOffset := 1, 0
 	authorLimit, authorOffset := 1, 0
@@ -98,7 +101,8 @@ func (r *Router) searchPage(ctx context.Context, view *models.TelegramView, tab 
 		bctx, cancel := context.WithTimeout(ctx, r.cfg.SearchTimeout)
 		defer cancel()
 		got, err := r.cfg.Search.SearchBooks(bctx, models.BookSearchRequest{
-			Query: view.Query, Language: view.Lang, AuthorID: view.AuthorID, Limit: bookLimit, Offset: bookOffset,
+			Query: view.Query, Language: view.Lang, AuthorID: scope.legacy, AuthorEntityID: scope.entity,
+			Limit: bookLimit, Offset: bookOffset,
 		})
 		if err != nil {
 			logging.Warnf("Telegram v2: book search failed: %v", err)
@@ -126,6 +130,12 @@ func (r *Router) searchPage(ctx context.Context, view *models.TelegramView, tab 
 		res.AuthorTotal = got.Total
 		if tab == 1 {
 			res.Authors = got.Authors
+			if r.cfg.Entities {
+				if res.Authors, err = r.entityAuthors(actx, got.Entities); err != nil {
+					logging.Warnf("Telegram v2: author handles failed: %v", err)
+					res.AuthorsFailed = true
+				}
+			}
 		}
 	}()
 	wg.Wait()
@@ -142,8 +152,24 @@ func (r *Router) resultsPainter(ctx context.Context, b *Bot, node *models.Telegr
 	if Screen(node.Screen) == ScrResultsAuthors {
 		tab = 1
 	}
-	res, moved := r.runSearch(ctx, view, tab, int(node.Page))
+	var scope botAuthor
+	if view.AuthorID != 0 {
+		var err error
+		scope, err = r.authorOf(ctx, view.AuthorID)
+		switch {
+		case errors.Is(err, errAuthorGone):
+			back := r.backTo(ctx, b, node.ParentID)
+			return func(k *keys) screens.Screen {
+				return screens.Notice(screens.CopyAuthorGone, k.home()).WithBack(back(k))
+			}, "", true
+		case err != nil:
+			// The name only titles the page; the search keeps its scope.
+			scope = botAuthor{legacy: view.AuthorID}
+		}
+	}
+	res, moved := r.runSearch(ctx, view, scope, tab, int(node.Page))
 	node.Page = int32(res.Page) // #nosec G115 -- pages are small
+	res.AuthorName = scope.name
 	r.decorate(ctx, view, res)
 	if moved {
 		toast = screens.CopyListChanged
@@ -157,11 +183,6 @@ const suggestionMinRunes = 3
 // decorate adds what a results page shows besides its lists: the filtering
 // author's name, and suggestions when nothing was found.
 func (r *Router) decorate(ctx context.Context, view *models.TelegramView, res *screens.Results) {
-	if view.AuthorID != 0 {
-		if author, err := database.GetTelegramAuthor(ctx, view.AuthorID); err == nil {
-			res.AuthorName = author.FullName
-		}
-	}
 	empty := !res.BooksFailed && !res.AuthorsFailed && res.BookTotal == 0 && res.AuthorTotal == 0
 	if !empty || utf8.RuneCountInString(view.Query) < suggestionMinRunes {
 		return
@@ -175,11 +196,42 @@ func (r *Router) decorate(ctx context.Context, view *models.TelegramView, res *s
 		logging.Debugf("Telegram v2: suggestions failed: %v", err)
 		return
 	}
-	for _, s := range got.Suggestions {
+	suggestions := got.Suggestions
+	if r.cfg.Entities {
+		suggestions = r.entitySuggestions(ctx, suggestions)
+	}
+	for _, s := range suggestions {
 		if s.ID != 0 && (s.Type == suggestionAuthor || s.Type == suggestionBook) && len(res.Suggestions) < suggestionMinRunes {
 			res.Suggestions = append(res.Suggestions, s)
 		}
 	}
+}
+
+// entitySuggestions gives the entities among suggestions their handles, the
+// bot's IDs of them, and their names their labels; an entity left without a
+// handle keeps no ID and is not offered.
+func (r *Router) entitySuggestions(ctx context.Context, suggestions []models.AutocompleteSuggestion) []models.AutocompleteSuggestion {
+	var ids []uuid.UUID
+	for i := range suggestions {
+		if suggestions[i].EntityID != uuid.Nil {
+			ids = append(ids, suggestions[i].EntityID)
+		}
+	}
+	handles, err := database.TelegramAuthorHandles(ctx, ids)
+	if err != nil {
+		logging.Warnf("Telegram v2: author handles failed: %v", err)
+	}
+	out := make([]models.AutocompleteSuggestion, len(suggestions))
+	copy(out, suggestions)
+	for i := range out {
+		s := &out[i]
+		if s.EntityID == uuid.Nil {
+			continue
+		}
+		e := models.AuthorEntity{FullName: s.Value, Label: s.Label, LabelBooks: s.LabelBooks}
+		s.ID, s.Value, s.EntityID, s.Label, s.LabelBooks = handles[s.EntityID], e.Title(), uuid.Nil, "", 0
+	}
+	return out
 }
 
 // The kinds of suggestion a results page offers.

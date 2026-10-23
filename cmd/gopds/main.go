@@ -79,7 +79,7 @@ func run() (code int) {
 
 	// One search service for every adapter, built on the same pool the
 	// package-global database helpers use.
-	searchService := services.NewSearchService(database.NewPGSearchRepository(db))
+	searchService := services.NewSearchService(database.NewPGSearchRepositoryFor(db, cfg.Authors.EntityIdentity()))
 
 	mainRedisClient, tokenRedisClient := initializeSessionManagement()
 	sessions.SetRedisConnections(mainRedisClient, tokenRedisClient)
@@ -94,7 +94,7 @@ func run() (code int) {
 
 	// Telegram: bot manager, service and its periodic health checks.
 	stopTelegramHealthCheck := initializeTelegram(mainRedisClient, searchService,
-		authorLinesOf(db, cfg.Authors.DisplayFromLayer()))
+		authorLinesOf(db, cfg.Authors))
 	defer stopTelegramHealthCheck()
 
 	// Set the Gin mode based on the application configuration.
@@ -114,7 +114,7 @@ func run() (code int) {
 
 	route := gin.New()
 	setupMiddleware(route)
-	setupRoutes(route, cfg.Donate, searchService, db, cfg.Authors.DisplayFromLayer())
+	setupRoutes(route, cfg.Donate, searchService, db, cfg.Authors)
 
 	return serveUntilShutdown(route)
 }
@@ -143,6 +143,7 @@ func initializeTelegram(
 		Donate:         cfg.Donate,
 		PublicMediaURL: cfg.TelegramPublicMediaURL,
 		AuthorLines:    lines,
+		AuthorEntities: cfg.Authors.EntityIdentity(),
 	}
 	telegramBotManager := telegram.NewBotManager(telegramConfig, mainRedisClient, searchService)
 

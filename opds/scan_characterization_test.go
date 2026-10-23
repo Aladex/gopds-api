@@ -87,7 +87,7 @@ func (ch *characterization) router(lines *services.AuthorLines) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) { c.Set("user_id", int64(0)); c.Next() })
-	SetupOpdsRoutes(r.Group("/opds"), services.NewSearchService(database.NewPGSearchRepository(ch.db)), lines)
+	SetupOpdsRoutes(r.Group("/opds"), services.NewSearchService(database.NewPGSearchRepository(ch.db)), lines, nil)
 	return r
 }
 

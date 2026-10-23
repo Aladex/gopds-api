@@ -94,6 +94,22 @@ func TestAggregate(t *testing.T) {
 	assert.InDelta(t, 1.0/3.0, agg.ZeroResultRate, 1e-9)
 }
 
+// Under the entity identity an author query is scored by entities: its
+// relevant entities make it scoreable, and a result is matched by its UUID.
+func TestAnEntityRunScoresByEntities(t *testing.T) {
+	agg := aggregate([]queryReport{
+		{RelevantIDs: []int64{}, RelevantEntities: []string{"e1"}, RecallAtK: 1, ReciprocalRank: 1, Total: 2},
+	})
+	assert.Equal(t, 1, agg.ScoredQueries)
+	assert.InDelta(t, 1.0, agg.RecallAtK, 1e-9)
+
+	assert.Equal(t, "01a168d0-a113-741a-b69d-53b91f3c7eb9",
+		resultKey(&capturedResult{Entity: "01a168d0-a113-741a-b69d-53b91f3c7eb9"}))
+	assert.Equal(t, "42", resultKey(&capturedResult{ID: 42}))
+	assert.True(t, knownIdentity("entity"))
+	assert.False(t, knownIdentity("Entity"))
+}
+
 func TestPercentile(t *testing.T) {
 	tests := []struct {
 		name   string

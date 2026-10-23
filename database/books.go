@@ -190,6 +190,11 @@ func applyListFilters(query *orm.Query, filters models.BookFilters, userID int64
 		}
 	}
 
+	query, err := narrowByAuthorEntity(query, filters.AuthorEntity)
+	if err != nil {
+		return nil, err
+	}
+
 	if filters.CuratedCollection != 0 {
 		booksIds, err := collectionBookIDsOrdered(filters.CuratedCollection)
 		if err != nil {

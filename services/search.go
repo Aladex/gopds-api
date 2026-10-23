@@ -9,6 +9,8 @@ import (
 
 	"gopds-api/logging"
 	"gopds-api/models"
+
+	"github.com/google/uuid"
 )
 
 // Structured log field names, and the closed vocabularies two of them carry.
@@ -152,7 +154,8 @@ func (s *SearchService) SearchAuthors(ctx context.Context, req models.AuthorSear
 		return models.AuthorSearchPage{}, err
 	}
 	page, err := s.repo.SearchAuthors(ctx, req)
-	logCompletion(modeAuthors, req.Query, req.Language, scopeNone, len(page.Authors), page.Total, page.QueryHash, err, start)
+	logCompletion(modeAuthors, req.Query, req.Language, scopeNone, len(page.Authors)+len(page.Entities), page.Total,
+		page.QueryHash, err, start)
 	return page, err
 }
 
@@ -275,7 +278,7 @@ func bookScope(req models.BookSearchRequest) string {
 	switch {
 	case req.ExactBookID > 0:
 		return "exact_book_id"
-	case req.AuthorID > 0:
+	case req.AuthorID > 0, req.AuthorEntityID != uuid.Nil:
 		return scopeAuthor
 	case req.SeriesID > 0:
 		return "series"

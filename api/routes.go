@@ -25,7 +25,7 @@ func SetupBookRoutes(r *gin.RouterGroup, search *SearchHandler) {
 	r.DELETE("/kindle", middlewares.CSRFMiddleware(), ClearKindleEmail)
 	r.POST("/theme", middlewares.CSRFMiddleware(), SetThemePreference)
 	r.GET("/authors", search.Authors)
-	r.POST("/author", GetAuthor)
+	r.POST("/author", search.Author)
 	r.POST("/file", GetBookFile)
 	r.POST("/fav", middlewares.CSRFMiddleware(), FavBook)
 }

@@ -561,10 +561,27 @@ const (
 	AuthorsDisplayLayer = "layer"
 )
 
+// Which IDs the surfaces readers use name authors by.
+const (
+	// AuthorsIdentityLegacy names authors by the legacy catalog's IDs.
+	AuthorsIdentityLegacy = "legacy"
+	// AuthorsIdentityEntity names authors by the author entities' IDs
+	// (design E, §4.2): every surface switches at once.
+	AuthorsIdentityEntity = "entity"
+)
+
 // AuthorsConfig switches what readers are shown of a book's authors.
 type AuthorsConfig struct {
 	// DisplaySource is AuthorsDisplayLegacy or AuthorsDisplayLayer.
 	DisplaySource string `mapstructure:"display_source" yaml:"display_source"`
+	// Identity is AuthorsIdentityLegacy or AuthorsIdentityEntity.
+	Identity string `mapstructure:"identity" yaml:"identity"`
+}
+
+// EntityIdentity reports whether the surfaces name authors by their entity
+// IDs.
+func (c AuthorsConfig) EntityIdentity() bool {
+	return c.Identity == AuthorsIdentityEntity
 }
 
 // DisplayFromLayer reports whether the book list shows the author line from
@@ -576,10 +593,24 @@ func (c AuthorsConfig) DisplayFromLayer() bool {
 func (c AuthorsConfig) validate() error {
 	switch c.DisplaySource {
 	case AuthorsDisplayLegacy, AuthorsDisplayLayer:
-		return nil
+	default:
+		return fmt.Errorf("authors.display_source must be %q or %q, got %q",
+			AuthorsDisplayLegacy, AuthorsDisplayLayer, c.DisplaySource)
 	}
-	return fmt.Errorf("authors.display_source must be %q or %q, got %q",
-		AuthorsDisplayLegacy, AuthorsDisplayLayer, c.DisplaySource)
+	switch c.Identity {
+	case AuthorsIdentityLegacy:
+	case AuthorsIdentityEntity:
+		// A book links to its entities from its author line in the layer;
+		// the legacy line links to legacy authors only.
+		if !c.DisplayFromLayer() {
+			return fmt.Errorf("authors.identity %q needs authors.display_source %q, got %q",
+				AuthorsIdentityEntity, AuthorsDisplayLayer, c.DisplaySource)
+		}
+	default:
+		return fmt.Errorf("authors.identity must be %q or %q, got %q",
+			AuthorsIdentityLegacy, AuthorsIdentityEntity, c.Identity)
+	}
+	return nil
 }
 
 // setDefaults sets default configuration values
@@ -650,6 +681,9 @@ func setDefaults() {
 	// The book list's author line stays on the legacy catalog until the
 	// operator switches it.
 	viper.SetDefault("authors.display_source", AuthorsDisplayLegacy)
+	// Readers' surfaces name authors by their legacy IDs until the operator
+	// switches them to the author entities.
+	viper.SetDefault("authors.identity", AuthorsIdentityLegacy)
 
 	// The LLM provider section — one endpoint and one key for every
 	// model-backed feature.

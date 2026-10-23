@@ -3,9 +3,10 @@ import { useLocation, useNavigate, useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 
 import { cn } from '@/shared/lib/utils';
+import { authorTitle } from '@/shared/lib/authorTitle';
 import { CONTENT_COLUMN, listColumn } from '@/shared/layout/breakpoints';
 import * as booksApi from '@/api/books';
-import type { Author } from '@/api/books';
+import type { AuthorHit } from '@/api/books';
 import { useAuth } from '@/context/AuthContext';
 import { useAuthor } from '@/context/AuthorContext';
 import { useSearchBar } from '@/context/SearchBarContext';
@@ -30,7 +31,7 @@ const AuthorSearch: React.FC = () => {
     const { t } = useTranslation();
     const { page } = useParams<{ page: string }>();
     const { author } = useParams<{ author: string }>();
-    const [authors, setAuthors] = useState<Author[]>([]);
+    const [authors, setAuthors] = useState<AuthorHit[]>([]);
     const [loading, setLoading] = useState(true);
     const location = useLocation();
     const [totalPages, setTotalPages] = useState(0);
@@ -79,7 +80,7 @@ const AuthorSearch: React.FC = () => {
     }, [author, location.search, page, user?.books_lang]);
 
     /** Clicking through leaves the search box empty so the filter, not a stale query, applies. */
-    const handleAuthorClick = (authorId: number, fullName: string) => {
+    const handleAuthorClick = (authorId: number | string, fullName: string) => {
         setSearchItem('');
         // Carried over so the scope beside the search box can name the author
         // without asking the server for what was just on screen.
@@ -122,11 +123,22 @@ const AuthorSearch: React.FC = () => {
                                         <button
                                             type="button"
                                             onClick={() =>
-                                                handleAuthorClick(author.id, author.full_name)
+                                                handleAuthorClick(author.id, authorTitle(author, t))
                                             }
                                             className="flex w-full items-baseline justify-between gap-3 rounded px-3 py-2 text-left hover:bg-accent hover:text-accent-foreground"
                                         >
-                                            <span>{author.full_name}</span>
+                                            <span>
+                                                {author.full_name}
+                                                {/* An entity with a namesake says which one it is. */}
+                                                {/* A namesake of another genre says which one it is; one of
+                                                    the same genre is told apart by the count
+                                                    beside it, the books the row opens. */}
+                                                {author.label && (
+                                                    <span className="ml-1.5 text-sm text-muted-foreground">
+                                                        · {author.label}
+                                                    </span>
+                                                )}
+                                            </span>
                                             {author.books_count ? (
                                                 /* Kept off the name's baseline
                                                    run so a long name wraps

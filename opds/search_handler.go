@@ -29,6 +29,9 @@ type SearchHandler struct {
 	// AuthorLines gives each listed book its author line; nil shows the
 	// legacy authors.
 	AuthorLines *services.AuthorLines
+	// Entities: the author search answers author entities, whose feeds go
+	// by their UUIDs (SetupOpdsRoutes).
+	Entities bool
 }
 
 // Feed link rels, content types and hrefs. Named here so the search feeds
@@ -180,6 +183,30 @@ func authorItems(authors []models.Author, browseHref func(id int64) string) []*o
 	return items
 }
 
+// foundAuthors is a search page's authors as navigation entries pointing
+// at each one's books, at href(id) — the legacy authors' or, under the
+// entity identity, the entities' — and how many it holds.
+func (h *SearchHandler) foundAuthors(
+	page *models.AuthorSearchPage, href func(id string) string,
+) (items []*opdsutils.Item, found int) {
+	if !h.Entities {
+		return authorItems(page.Authors, func(id int64) string { return href(strconv.FormatInt(id, 10)) }),
+			len(page.Authors)
+	}
+	items = []*opdsutils.Item{}
+	for i := range page.Entities {
+		e := &page.Entities[i]
+		items = append(items, &opdsutils.Item{
+			Title:   e.Title(),
+			Link:    []opdsutils.Link{{Href: href(e.ID.String()), Type: typeOpdsCatalog}},
+			Id:      "tag:author:" + e.ID.String(),
+			Updated: time.Now(),
+			Content: e.Title(),
+		})
+	}
+	return items, len(page.Entities)
+}
+
 // Books serves the global book search feed: /opds/books?title=&page=.
 func (h *SearchHandler) Books(c *gin.Context) {
 	var filters OpdsBooksSearch
@@ -238,13 +265,14 @@ func (h *SearchHandler) Authors(c *gin.Context) {
 		mapOpdsSearchError(c, err)
 		return
 	}
-	if len(result.Authors) == 0 {
+	items, found := h.foundAuthors(&result, func(id string) string { return "/opds/new/0/" + id })
+	if found == 0 {
 		c.Data(http.StatusOK, atomContentType, []byte(notFound))
 		return
 	}
 
 	links := globalSearchLinks()
-	if hasNextSearchPage(offset, len(result.Authors), result.Total) {
+	if hasNextSearchPage(offset, found, result.Total) {
 		links = nextSearchLink(links, nextSearchHref("/opds/search-author", "name", filters.Name, page), true)
 	}
 
@@ -253,9 +281,7 @@ func (h *SearchHandler) Authors(c *gin.Context) {
 		Id:      fmt.Sprintf("tag:search:authors:%s:%d", url.QueryEscape(filters.Name), page),
 		Links:   links,
 		Updated: time.Now(),
-		Items: authorItems(result.Authors, func(id int64) string {
-			return fmt.Sprintf("/opds/new/0/%d", id)
-		}),
+		Items:   items,
 	})
 }
 
@@ -324,13 +350,16 @@ func (h *SearchHandler) AuthorsByLanguage(c *gin.Context) {
 		mapOpdsSearchError(c, err)
 		return
 	}
-	if len(result.Authors) == 0 {
+	items, found := h.foundAuthors(&result, func(id string) string {
+		return fmt.Sprintf("/opds/lang/%s/author/%s/0", lang, id)
+	})
+	if found == 0 {
 		c.Data(http.StatusOK, atomContentType, []byte(notFound))
 		return
 	}
 
 	links := langLinks(lang)
-	if hasNextSearchPage(offset, len(result.Authors), result.Total) {
+	if hasNextSearchPage(offset, found, result.Total) {
 		path := fmt.Sprintf("/opds/lang/%s/search-authors", lang)
 		links = nextSearchLink(links, nextSearchHref(path, "name", filters.Name, page), false)
 	}
@@ -340,8 +369,6 @@ func (h *SearchHandler) AuthorsByLanguage(c *gin.Context) {
 		Id:      fmt.Sprintf("tag:lang:%s:search:authors:%s:%d", lang, url.QueryEscape(filters.Name), page),
 		Links:   links,
 		Updated: time.Now(),
-		Items: authorItems(result.Authors, func(id int64) string {
-			return fmt.Sprintf("/opds/lang/%s/author/%d/0", lang, id)
-		}),
+		Items:   items,
 	})
 }

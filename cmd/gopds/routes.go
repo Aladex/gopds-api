@@ -20,20 +20,22 @@ import (
 
 // setupRoutes defines all route handlers and groups them by their functionality.
 // It includes routes for Swagger UI, file handling, default operations, OPDS feed, API, admin, and Telegram bot interactions.
-// authorLines switches the author line of listed books on, for the web list
-// and the OPDS feeds alike.
-func setupRoutes(route *gin.Engine, donate []config.DonateMethod, search services.PublicSearch, db pg.DBI, authorLines bool) {
+// authors switches the author line of listed books on, for the web list
+// and the OPDS feeds alike, and the identity every surface names authors by.
+func setupRoutes(
+	route *gin.Engine, donate []config.DonateMethod, search services.PublicSearch, db pg.DBI, authors config.AuthorsConfig,
+) {
 	route.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	setupFileRoutes(route.Group("/files", middlewares.AuthMiddleware()))
 	setupFileRoutes(route.Group("/api/files", middlewares.AuthMiddleware()))
 	setupDefaultRoutes(route, donate)
-	setupOpdsRoutes(route.Group("/opds", middlewares.BasicAuth()), search, authorLinesOf(db, authorLines))
+	setupOpdsRoutes(route.Group("/opds", middlewares.BasicAuth()), search, db, authors)
 	// Add public auth routes (no auth middleware)
 	setupPublicAuthRoutes(route.Group("/api"))
 	// WebSocket: Origin check BEFORE auth, so evil origins get 403 not 401
 	route.GET("/api/ws", api.OriginCheckMiddleware(), middlewares.AuthMiddleware(), api.UnifiedWebSocketHandler)
 	// Add authenticated API routes with CSRF protection for state-changing operations
-	setupApiRoutes(route.Group("/api", middlewares.AuthMiddleware()), search, db, authorLines)
+	setupApiRoutes(route.Group("/api", middlewares.AuthMiddleware()), search, db, authors)
 	setupLogoutRoutes(route.Group("/api", middlewares.AuthMiddleware()))
 	// Add Telegram webhook routes (public, no auth required)
 	setupTelegramWebhookRoutes(route.Group("/telegram"))
@@ -112,20 +114,31 @@ func setupDefaultRoutes(route *gin.Engine, donate []config.DonateMethod) {
 	route.POST("/api/token", api.TokenValidation)
 }
 
-// setupOpdsRoutes configures routes for OPDS feed interactions; lines gives
-// the listed books their author lines, nil their legacy authors.
-func setupOpdsRoutes(group *gin.RouterGroup, search services.PublicSearch, lines *services.AuthorLines) {
-	opds.SetupOpdsRoutes(group, search, lines)
+// setupOpdsRoutes configures routes for OPDS feed interactions; authors
+// gives the listed books their author lines (the legacy authors when the
+// layer is off) and names authors by the identity in force.
+func setupOpdsRoutes(group *gin.RouterGroup, search services.PublicSearch, db pg.DBI, authors config.AuthorsConfig) {
+	var entities opds.AuthorEntityReader
+	if authors.EntityIdentity() {
+		entities = database.NewPGBookSourceRepository(db)
+	}
+	opds.SetupOpdsRoutes(group, search, authorLinesOf(db, authors), entities)
 }
 
 // authorLinesOf is the author lines of listed books for the surfaces outside
 // the web list — OPDS and the bot — read from the author layer on db when
-// layer is on, and nil, the legacy authors, when it is off.
-func authorLinesOf(db pg.DBI, layer bool) *services.AuthorLines {
-	if !layer {
+// the layer is on, and nil, the legacy authors, when it is off; under the
+// entity identity they link to entities.
+func authorLinesOf(db pg.DBI, authors config.AuthorsConfig) *services.AuthorLines {
+	if !authors.DisplayFromLayer() {
 		return nil
 	}
-	return &services.AuthorLines{Lookup: database.NewPGBookSourceRepository(db)}
+	repo := database.NewPGBookSourceRepository(db)
+	lines := &services.AuthorLines{Lookup: repo}
+	if authors.EntityIdentity() {
+		lines.Entities = repo
+	}
+	return lines
 }
 
 func setupLogoutRoutes(group *gin.RouterGroup) {
@@ -134,13 +147,17 @@ func setupLogoutRoutes(group *gin.RouterGroup) {
 
 // setupApiRoutes configures API routes for book operations and other functionalities.
 // The book list reads the card's publisher and ISBN from the source layer on db,
-// and the author line too when authorLines is on.
-func setupApiRoutes(group *gin.RouterGroup, search services.PublicSearch, db pg.DBI, authorLines bool) {
+// and the author line too when the layer is on; under the entity identity
+// the book routes name authors by their entities.
+func setupApiRoutes(group *gin.RouterGroup, search services.PublicSearch, db pg.DBI, authors config.AuthorsConfig) {
 	booksGroup := group.Group("/books")
 	sources := database.NewPGBookSourceRepository(db)
 	books := &api.SearchHandler{Search: search, Sources: sources}
-	if authorLines {
+	if authors.DisplayFromLayer() {
 		books.AuthorLines = sources
+	}
+	if authors.EntityIdentity() {
+		books.Entities = sources
 	}
 	api.SetupBookRoutes(booksGroup, books)
 	// Preview routes are registered separately: they need the service, and

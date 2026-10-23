@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-pg/pg/v10/orm"
+	"github.com/google/uuid"
 )
 
 func init() {
@@ -158,8 +159,12 @@ type Book struct {
 	FavoriteCount   int       `pg:"-" json:"favorite_count"`
 	Position        int       `pg:"-" json:"position"`
 	// AuthorLine is the book's author line as a surface outside the web list
-	// names it (services.AuthorLines); empty, the catalog authors are used.
-	AuthorLine []AuthorDisplay `pg:"-" json:"-"`
+	// names it (services.AuthorLines); empty, the catalog authors are used —
+	// unless AuthorLineOnly says the line is the book's whole say on its
+	// authors (the entity identity, where the catalog's are legacy), and an
+	// empty line then names no one.
+	AuthorLine     []AuthorDisplay `pg:"-" json:"-"`
+	AuthorLineOnly bool            `pg:"-" json:"-"`
 }
 
 // BookSourceDetail is what the public book card shows from a book's current
@@ -260,16 +265,20 @@ type OrderToSeries struct {
 
 // BookFilters params for filtering books list
 type BookFilters struct {
-	Limit          int    `form:"limit" json:"limit"`
-	Offset         int    `form:"offset" json:"offset"`
-	Title          string `form:"title" json:"title"`
-	Author         int    `form:"author" json:"author"`
-	Series         int    `form:"series" json:"series"`
-	Lang           string `form:"lang" json:"lang"`
-	Fav            bool   `form:"fav" json:"fav"`
-	UnApproved     bool   `form:"unapproved" json:"unapproved"`
-	UsersFavorites bool   `form:"users_favorites" json:"users_favorites"`
-	Collection     int64  `form:"collection" json:"collection"`
+	Limit  int    `form:"limit" json:"limit"`
+	Offset int    `form:"offset" json:"offset"`
+	Title  string `form:"title" json:"title"`
+	// Author is a legacy catalog author, AuthorEntity an author entity: the
+	// identity in force decides which one a surface fills. The list
+	// endpoint reads its author parameter itself, since it can be either.
+	Author         int       `form:"-" json:"author"`
+	AuthorEntity   uuid.UUID `form:"-" json:"-"`
+	Series         int       `form:"series" json:"series"`
+	Lang           string    `form:"lang" json:"lang"`
+	Fav            bool      `form:"fav" json:"fav"`
+	UnApproved     bool      `form:"unapproved" json:"unapproved"`
+	UsersFavorites bool      `form:"users_favorites" json:"users_favorites"`
+	Collection     int64     `form:"collection" json:"collection"`
 	// CuratedCollection filters books by membership in a published curated
 	// collection (book_collection_items + match_status IN auto_matched/manual).
 	// The query also enforces is_curated=true AND is_public=true so non-admin
@@ -335,6 +344,27 @@ type AutocompleteSuggestion struct {
 	Type       string `json:"type"` // "book" or "author"
 	ID         int64  `json:"id,omitempty"`
 	BooksCount int    `json:"books_count,omitempty"`
+	// EntityID is the author entity an author suggestion names when authors
+	// go by their entities; the suggestion's id is then this UUID.
+	EntityID uuid.UUID `json:"-"`
+	// Label and LabelBooks tell an entity from a namesake (AuthorEntity).
+	Label      string `json:"label,omitempty"`
+	LabelBooks int    `json:"label_books,omitempty"`
+}
+
+// MarshalJSON writes an entity's suggestion with the entity's UUID as its
+// id, and every other suggestion as it always was.
+//
+//nolint:gocritic // a value receiver, so a suggestion marshals the same however it is held
+func (s AutocompleteSuggestion) MarshalJSON() ([]byte, error) {
+	type plain AutocompleteSuggestion
+	if s.EntityID == uuid.Nil {
+		return json.Marshal(plain(s))
+	}
+	return json.Marshal(struct {
+		plain
+		ID uuid.UUID `json:"id"`
+	}{plain(s), s.EntityID})
 }
 
 // Language struct for language information

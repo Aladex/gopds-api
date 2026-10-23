@@ -231,12 +231,15 @@ func (r *Router) askAuthorSearch(ctx context.Context, b *Bot, panel *models.Tele
 	if !ok {
 		return toast
 	}
-	author, err := database.GetTelegramAuthor(ctx, view.AuthorID)
+	author, err := r.authorOf(ctx, view.AuthorID)
+	if errors.Is(err, errAuthorGone) {
+		return screens.CopyAuthorGone
+	}
 	if err != nil {
 		return expiredOrDown(err)
 	}
 	return r.ask(ctx, b, panel, promptAuthorSearch, func(cancel *cbv2.Envelope) screens.Screen {
-		return screens.PromptAuthorSearch(author.FullName, cancel)
+		return screens.PromptAuthorSearch(author.name, cancel)
 	})
 }
 
@@ -410,6 +413,9 @@ func (r *Router) pickAuthor(ctx context.Context, b *Bot, p *models.TelegramPromp
 	sctx, cancel := context.WithTimeout(ctx, r.cfg.SearchTimeout)
 	defer cancel()
 	got, err := r.cfg.Search.SearchAuthors(sctx, models.AuthorSearchRequest{Query: name, Limit: authorPicks})
+	if err == nil && r.cfg.Entities {
+		got.Authors, err = r.entityAuthors(sctx, got.Entities)
+	}
 	if err != nil {
 		logging.Warnf("Telegram v2: author search failed: %v", err)
 		r.sendPlainText(ctx, b, p.ChatID, screens.CopySearchFailed)

@@ -14,6 +14,7 @@ import (
 	"gopds-api/logging"
 	"gopds-api/models"
 	"gopds-api/opdsutils"
+	"gopds-api/services"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/text/language"
@@ -289,9 +290,12 @@ func SearchByLanguage(c *gin.Context) {
 // GetAuthorBooksByLanguage returns books by author filtered by language
 func (f *Feeds) GetAuthorBooksByLanguage(c *gin.Context) {
 	lang := c.Param("lang")
-	authorID, err := strconv.Atoi(c.Param("author"))
-	if err != nil {
+	if _, err := services.ParseAuthorRef(c.Param("author"), f.Entities != nil); errors.Is(err, services.ErrInvalidAuthorID) {
 		httputil.NewError(c, http.StatusBadRequest, errors.New("invalid author id"))
+		return
+	}
+	authorID, author, entity, ok := f.feedAuthor(c, c.Param("author"))
+	if !ok {
 		return
 	}
 
@@ -303,10 +307,11 @@ func (f *Feeds) GetAuthorBooksByLanguage(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 
 	filters := models.BookFilters{
-		Limit:  10,
-		Offset: 0,
-		Lang:   lang,
-		Author: authorID,
+		Limit:        opdsPageSize,
+		Offset:       0,
+		Lang:         lang,
+		Author:       int(author.Legacy),
+		AuthorEntity: author.Entity,
 	}
 
 	if pageNum > 0 {
@@ -324,17 +329,20 @@ func (f *Feeds) GetAuthorBooksByLanguage(c *gin.Context) {
 
 	if hasNextPage(filters.Limit, pageNum, tc) {
 		rootLinks = append(rootLinks, opdsutils.Link{
-			Href: fmt.Sprintf("/opds/lang/%s/author/%d/%d", lang, authorID, pageNum+1),
+			Href: fmt.Sprintf("/opds/lang/%s/author/%s/%d", lang, authorID, pageNum+1),
 			Rel:  "next",
 			Type: "application/atom+xml;profile=opds-catalog",
 		})
 	}
 
-	authorName := legacyAuthorName(books, authorID)
+	authorName := legacyAuthorName(books, filters.Author)
+	if entity != nil {
+		authorName = entity.Title()
+	}
 
 	feed := &opdsutils.Feed{
 		Title:   fmt.Sprintf("%s (%s)", authorName, getLangName(lang)),
-		Id:      fmt.Sprintf("tag:lang:%s:author:%d:%d", lang, authorID, pageNum),
+		Id:      fmt.Sprintf("tag:lang:%s:author:%s:%d", lang, authorID, pageNum),
 		Links:   rootLinks,
 		Updated: time.Now(),
 	}

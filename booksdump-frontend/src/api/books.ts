@@ -13,6 +13,21 @@ export interface Author {
     books_count?: number;
 }
 
+/**
+ * AuthorHit is an author as the author search and the author heading name
+ * one: a catalogue author, or under the entity identity an author entity —
+ * its UUID, and a label when another entity has the same name.
+ */
+export interface AuthorHit {
+    id: number | string;
+    full_name: string;
+    /** A namesake's label: its dominant genre, or else (label_books) its book count. */
+    label?: string;
+    label_books?: number;
+    /** How many books the author holds under the filters being browsed with. */
+    books_count?: number;
+}
+
 export interface Genre {
     id: number;
     genre: string;
@@ -72,6 +87,20 @@ export interface AuthorDisplay {
     name: string;
     /** The catalogue author the name links to; absent when it is none of them. */
     legacy_author_id?: number;
+    /**
+     * Under the entity identity, the author entities the name links to
+     * instead: one, or every person of a name of several. Absent when it
+     * links to none.
+     */
+    entities?: AuthorEntityRef[];
+}
+
+/** An author entity a name links to, as its page names it. */
+export interface AuthorEntityRef {
+    id: string;
+    full_name: string;
+    label?: string;
+    label_books?: number;
 }
 
 export interface BooksPage {
@@ -134,15 +163,19 @@ export const listAuthors = (query: {
      * the two disagreeing would make it a promise the next page breaks.
      */
     lang?: string;
-}) => http.get<{ authors: Author[]; length: number }>('/books/authors', { query });
+}) => http.get<{ authors: AuthorHit[]; length: number }>('/books/authors', { query });
 
 /**
  * getAuthor names a single author, which the search panel needs when a reader
  * arrives on an author's list by URL rather than by following a link — there is
- * no name in `/books/find/author/42/1` to put on screen.
+ * no name in `/books/find/author/42/1` to put on screen. Under the entity
+ * identity the id is the entity's UUID and the answer carries its label.
  */
 export const getAuthor = (id: number | string) =>
-    http.post<Author>('/books/author', { author_id: Number(id) });
+    http.post<AuthorHit>('/books/author', {
+        // A legacy author goes as the number it is, an entity as its UUID.
+        author_id: /^\d+$/.test(String(id)) ? Number(id) : String(id),
+    });
 
 export const listLanguages = () => http.get<{ langs: Language[] }>('/books/langs');
 

@@ -3,14 +3,21 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { BookOpen, ChevronDown, Star } from 'lucide-react';
 
-import type { AuthorDisplay, Book } from '@/api/books';
+import type { AuthorDisplay, AuthorEntityRef, Book } from '@/api/books';
 import { Button } from '@/shared/ui/button';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from '@/shared/ui/dropdown-menu';
 import { BouncingDots } from '@/shared/ui/bouncing-dots';
 import { Expandable } from '@/shared/ui/expandable';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/shared/ui/tooltip';
 import BookCover from '@/features/catalogue/BookCover';
 import BookAdminMenu from '@/features/catalogue/BookAdminMenu';
 import { cn } from '@/shared/lib/utils';
+import { authorTitle } from '@/shared/lib/authorTitle';
 import { getLanguageDisplaySafe } from '@/shared/lib/languageUtils';
 import { CARD_ACTION_CLASS, KindleButton, TelegramButton } from '@/features/kindle/SendButtons';
 
@@ -96,6 +103,50 @@ const MetaItem: React.FC<
         )}
     </>
 );
+
+/**
+ * AuthorPeople is a name of several people (several author entities, under
+ * the entity identity): the name as the book writes it, opening a short menu
+ * of each of them — the card's admin menu is the pattern. Its trigger is not
+ * a <button> for the reason MetaRow's values are links: a clamped row drops
+ * a button whole.
+ */
+const AuthorPeople: React.FC<{
+    first: boolean;
+    name: string;
+    people: AuthorEntityRef[];
+    onGo: (person: AuthorEntityRef) => void;
+}> = ({ first, name, people, onGo }) => {
+    const { t } = useTranslation();
+    return (
+        <>
+            {!first && <span className="mx-1.5 text-muted-foreground">·</span>}
+            <DropdownMenu modal={false}>
+                <DropdownMenuTrigger asChild>
+                    <span
+                        role="button"
+                        tabIndex={0}
+                        className="cursor-pointer border-b border-dashed border-border hover:border-current"
+                    >
+                        {name}
+                    </span>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                    {people.map((person) => (
+                        <DropdownMenuItem key={person.id} asChild>
+                            <Link
+                                to={`/books/find/author/${person.id}/1`}
+                                onClick={() => onGo(person)}
+                            >
+                                {authorTitle(person, t)}
+                            </Link>
+                        </DropdownMenuItem>
+                    ))}
+                </DropdownMenuContent>
+            </DropdownMenu>
+        </>
+    );
+};
 
 /**
  * authorLine is what the authors row shows: the book's author line when the
@@ -334,7 +385,26 @@ const BookCard: React.FC<BookCardProps> = ({
                     {authors.length > 0 && (
                         <MetaRow label={t('authors')} open={open}>
                             {authors.map((author, index) => {
-                                const id = author.legacy_author_id;
+                                const people = author.entities ?? [];
+                                if (people.length > 1) {
+                                    return (
+                                        <AuthorPeople
+                                            key={index}
+                                            first={index === 0}
+                                            name={author.name}
+                                            people={people}
+                                            onGo={(person) => {
+                                                leaveScope();
+                                                setAuthorName(authorTitle(person, t));
+                                            }}
+                                        />
+                                    );
+                                }
+                                // Under the entity identity a name links to its
+                                // entity, and the scope is named as the entity's
+                                // page names it, so a reload says the same.
+                                const entity = people[0];
+                                const id = entity ? entity.id : author.legacy_author_id;
                                 return (
                                     <MetaItem
                                         // Two credits may share a name, and an
@@ -352,7 +422,9 @@ const BookCard: React.FC<BookCardProps> = ({
                                             // The name is on screen already, so the
                                             // search panel need not fetch it to say
                                             // whose books it is scoped to.
-                                            setAuthorName(author.name);
+                                            setAuthorName(
+                                                entity ? authorTitle(entity, t) : author.name,
+                                            );
                                         }}
                                     >
                                         {author.name}

@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +32,11 @@ import (
 const (
 	modeCapture = "capture"
 	modeCompare = "compare"
+
+	// The author identities a run can search under; comparing an entity run
+	// against a legacy baseline is the identity switch's relevance gate.
+	identityLegacy = "legacy"
+	identityEntity = "entity"
 
 	kindBooks   = "books"
 	kindAuthors = "authors"
@@ -77,6 +83,10 @@ func main() {
 	}
 }
 
+func knownIdentity(identity string) bool {
+	return identity == identityLegacy || identity == identityEntity
+}
+
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: search-eval capture -input <queries.json> -out <report.json> [db flags]")
 	fmt.Fprintln(os.Stderr, "       search-eval compare -input <queries.json> -baseline <baseline.json> -out <report.json> [db flags]")
@@ -104,9 +114,11 @@ type evalQuery struct {
 	ExpectedAuthor string `json:"expected_normalized_author,omitempty"`
 }
 
-// capturedResult is one returned item as a user would see it.
+// capturedResult is one returned item as a user would see it. Entity is an
+// author entity's UUID, under the entity identity (ID is then zero).
 type capturedResult struct {
 	ID         int64    `json:"id"`
+	Entity     string   `json:"entity,omitempty"`
 	Title      string   `json:"title,omitempty"`
 	Authors    []string `json:"authors,omitempty"`
 	FullName   string   `json:"full_name,omitempty"`
@@ -131,10 +143,13 @@ type queryReport struct {
 	P95Millis       int64            `json:"p95_ms"`
 	CaptureNote     string           `json:"capture_note,omitempty"`
 
-	RelevantIDs    []int64 `json:"relevant_ids"`
-	RecallAtK      float64 `json:"recall_at_k"`
-	ReciprocalRank float64 `json:"reciprocal_rank"`
-	ZeroResult     bool    `json:"zero_result"`
+	RelevantIDs []int64 `json:"relevant_ids"`
+	// RelevantEntities are the relevant author entities of an author query
+	// under the entity identity.
+	RelevantEntities []string `json:"relevant_entities,omitempty"`
+	RecallAtK        float64  `json:"recall_at_k"`
+	ReciprocalRank   float64  `json:"reciprocal_rank"`
+	ZeroResult       bool     `json:"zero_result"`
 }
 
 // catalogFingerprint pins the data the baseline was measured on, so a later
@@ -161,10 +176,13 @@ type aggregateReport struct {
 	ZeroResultRate float64 `json:"zero_result_rate"`
 }
 
-// evalReport is the written artifact of a capture run.
+// evalReport is the written artifact of a capture run. Identity is the
+// author identity the run searched under (authors.identity): authors are
+// legacy catalog authors or author entities.
 type evalReport struct {
 	CapturedAt time.Time          `json:"captured_at"`
 	Mode       string             `json:"mode"`
+	Identity   string             `json:"identity,omitempty"`
 	Database   string             `json:"database"`
 	Catalog    catalogFingerprint `json:"catalog"`
 	Queries    []queryReport      `json:"queries"`
@@ -227,7 +245,7 @@ func connectEval(addr, user, pass, name string) *pg.DB {
 // baseline is one frozen sample of code that no longer exists, taken under
 // conditions nothing here can reproduce, and no amount of repetition now can
 // fix its side of the subtraction.
-func runSet(repo *database.PGSearchRepository, db *pg.DB, set querySet, rounds int) []queryReport {
+func runSet(repo *database.PGSearchRepository, db *pg.DB, set querySet, rounds int, entities bool) []queryReport {
 	reports := make([]queryReport, len(set.Queries))
 	for i := range set.Queries {
 		reports[i] = queryReport{evalQuery: set.Queries[i]}
@@ -259,21 +277,22 @@ func runSet(repo *database.PGSearchRepository, db *pg.DB, set querySet, rounds i
 	}
 
 	for i := range reports {
-		if err := scoreQuery(db, &reports[i]); err != nil {
+		if err := scoreQuery(db, &reports[i], entities); err != nil {
 			fatalf("query %q: %v", reports[i].Name, err)
 		}
 		rep := &reports[i]
 		fmt.Fprintf(os.Stderr,
 			"%-36s total=%-6d relevant=%-5d recall=%.3f rr=%.2f min=%dms p50=%dms p95=%dms\n",
-			rep.Name, rep.Total, len(rep.RelevantIDs), rep.RecallAtK, rep.ReciprocalRank,
+			rep.Name, rep.Total, len(rep.RelevantIDs)+len(rep.RelevantEntities), rep.RecallAtK, rep.ReciprocalRank,
 			rep.MinMillis, rep.P50Millis, rep.P95Millis)
 	}
 	return reports
 }
 
 // scoreQuery turns one query's collected rounds into its metrics and resolves
-// which catalog rows the reviewed rule calls relevant.
-func scoreQuery(db *pg.DB, rep *queryReport) error {
+// which catalog rows the reviewed rule calls relevant. Under the entity
+// identity an author query's results and relevant rows are author entities.
+func scoreQuery(db *pg.DB, rep *queryReport, entities bool) error {
 	rep.MinMillis = minDuration(rep.DurationsMillis)
 	rep.P50Millis = percentile(rep.DurationsMillis, p50)
 	rep.P95Millis = percentile(rep.DurationsMillis, p95)
@@ -281,23 +300,33 @@ func scoreQuery(db *pg.DB, rep *queryReport) error {
 	if rep.Results == nil {
 		rep.Results = []capturedResult{}
 	}
-	ids := make([]int64, 0, len(rep.Results))
+	ids := make([]string, 0, len(rep.Results))
 	for _, r := range rep.Results {
-		ids = append(ids, r.ID)
+		ids = append(ids, resultKey(&r))
 	}
 
-	relevant, err := resolveRelevant(context.Background(), db, &rep.evalQuery)
-	if err != nil {
-		return fmt.Errorf("resolving relevance: %w", err)
-	}
-	if relevant == nil {
-		relevant = []int64{}
-	}
-	rep.RelevantIDs = relevant
-
-	want := make(map[int64]struct{}, len(relevant))
-	for _, id := range relevant {
-		want[id] = struct{}{}
+	want := map[string]struct{}{}
+	if entities && rep.Kind == kindAuthors {
+		relevant, err := resolveRelevantEntities(context.Background(), db, &rep.evalQuery)
+		if err != nil {
+			return fmt.Errorf("resolving relevance: %w", err)
+		}
+		rep.RelevantIDs, rep.RelevantEntities = []int64{}, relevant
+		for _, id := range relevant {
+			want[id] = struct{}{}
+		}
+	} else {
+		relevant, err := resolveRelevant(context.Background(), db, &rep.evalQuery)
+		if err != nil {
+			return fmt.Errorf("resolving relevance: %w", err)
+		}
+		if relevant == nil {
+			relevant = []int64{}
+		}
+		rep.RelevantIDs = relevant
+		for _, id := range relevant {
+			want[strconv.FormatInt(id, 10)] = struct{}{}
+		}
 	}
 	rep.RecallAtK = recallAt(ids, want, rep.TopK)
 	rep.ReciprocalRank = reciprocalRank(ids, want)
@@ -306,6 +335,15 @@ func scoreQuery(db *pg.DB, rep *queryReport) error {
 }
 
 // minDuration is the fastest recorded round, or zero when nothing was measured.
+// resultKey names a result for scoring: an entity by its UUID, anything else
+// by its ID.
+func resultKey(r *capturedResult) string {
+	if r.Entity != "" {
+		return r.Entity
+	}
+	return strconv.FormatInt(r.ID, 10)
+}
+
 func minDuration(durations []int64) int64 {
 	if len(durations) == 0 {
 		return 0
@@ -334,17 +372,18 @@ func writeReport(path string, report *evalReport) {
 func capture(args []string) {
 	fs := flag.NewFlagSet("capture", flag.ExitOnError)
 	var (
-		input  = fs.String("input", "", "reviewed query set JSON (required)")
-		out    = fs.String("out", "", "report output path (required)")
-		repeat = fs.Int("repeat", defaultRepeat, "measured rounds over the whole set, after one unrecorded warm-up round")
-		addr   = fs.String("host", envOr("GOPDS_POSTGRES_DBHOST", "127.0.0.1:5432"), "database host:port")
-		user   = fs.String("user", envOr("GOPDS_POSTGRES_DBUSER", "gopds"), "database user")
-		pass   = fs.String("password", os.Getenv("GOPDS_POSTGRES_DBPASS"), "database password")
-		name   = fs.String("database", envOr("GOPDS_POSTGRES_DBNAME", "gopds"), "database name")
+		input    = fs.String("input", "", "reviewed query set JSON (required)")
+		out      = fs.String("out", "", "report output path (required)")
+		repeat   = fs.Int("repeat", defaultRepeat, "measured rounds over the whole set, after one unrecorded warm-up round")
+		identity = fs.String("identity", identityLegacy, "authors.identity to search under: legacy or entity")
+		addr     = fs.String("host", envOr("GOPDS_POSTGRES_DBHOST", "127.0.0.1:5432"), "database host:port")
+		user     = fs.String("user", envOr("GOPDS_POSTGRES_DBUSER", "gopds"), "database user")
+		pass     = fs.String("password", os.Getenv("GOPDS_POSTGRES_DBPASS"), "database password")
+		name     = fs.String("database", envOr("GOPDS_POSTGRES_DBNAME", "gopds"), "database name")
 	)
 	_ = fs.Parse(args)
 
-	if *input == "" || *out == "" || *repeat < 1 {
+	if *input == "" || *out == "" || *repeat < 1 || !knownIdentity(*identity) {
 		usage()
 		os.Exit(exitUsage)
 	}
@@ -357,13 +396,15 @@ func capture(args []string) {
 	db := connectEval(*addr, *user, *pass, *name)
 	defer func() { _ = db.Close() }()
 
+	entities := *identity == identityEntity
 	report := evalReport{
 		CapturedAt: time.Now().UTC(),
 		Mode:       modeCapture,
+		Identity:   *identity,
 		Database:   fmt.Sprintf("%s@%s/%s", *user, *addr, *name),
 		Catalog:    fingerprint(context.Background(), db),
 	}
-	report.Queries = runSet(database.NewPGSearchRepository(db), db, set, *repeat)
+	report.Queries = runSet(database.NewPGSearchRepositoryFor(db, entities), db, set, *repeat, entities)
 	report.Aggregate = aggregate(report.Queries)
 	writeReport(*out, &report)
 }
@@ -383,6 +424,7 @@ func compare(args []string) int {
 		baseline = fs.String("baseline", "", "capture-mode baseline report JSON (required)")
 		out      = fs.String("out", "", "report output path (required)")
 		repeat   = fs.Int("repeat", defaultRepeat, "measured rounds over the whole set, after one unrecorded warm-up round")
+		identity = fs.String("identity", identityLegacy, "authors.identity to search under: legacy or entity")
 		addr     = fs.String("host", envOr("GOPDS_POSTGRES_DBHOST", "127.0.0.1:5432"), "database host:port")
 		user     = fs.String("user", envOr("GOPDS_POSTGRES_DBUSER", "gopds"), "database user")
 		pass     = fs.String("password", os.Getenv("GOPDS_POSTGRES_DBPASS"), "database password")
@@ -390,7 +432,7 @@ func compare(args []string) int {
 	)
 	_ = fs.Parse(args)
 
-	if *input == "" || *baseline == "" || *out == "" || *repeat < 1 {
+	if *input == "" || *baseline == "" || *out == "" || *repeat < 1 || !knownIdentity(*identity) {
 		usage()
 		os.Exit(exitUsage)
 	}
@@ -407,9 +449,11 @@ func compare(args []string) int {
 	db := connectEval(*addr, *user, *pass, *name)
 	defer func() { _ = db.Close() }()
 
+	entities := *identity == identityEntity
 	report := evalReport{
 		CapturedAt: time.Now().UTC(),
 		Mode:       modeCompare,
+		Identity:   *identity,
 		Database:   fmt.Sprintf("%s@%s/%s", *user, *addr, *name),
 		Catalog:    fingerprint(context.Background(), db),
 	}
@@ -421,7 +465,7 @@ func compare(args []string) int {
 			report.Catalog, base.Catalog)
 	}
 
-	report.Queries = runSet(database.NewPGSearchRepository(db), db, set, *repeat)
+	report.Queries = runSet(database.NewPGSearchRepositoryFor(db, entities), db, set, *repeat, entities)
 	report.Aggregate = aggregate(report.Queries)
 	cmp := compareAggregates(report.Queries, base.Queries)
 	report.Comparison = &cmp
@@ -616,9 +660,13 @@ func runQuery(repo *database.PGSearchRepository, q *evalQuery) (results []captur
 		if err != nil {
 			return nil, 0, "", err
 		}
-		results := make([]capturedResult, 0, len(page.Authors))
+		results := make([]capturedResult, 0, len(page.Authors)+len(page.Entities))
 		for _, a := range page.Authors {
 			results = append(results, capturedResult{ID: a.ID, FullName: a.FullName, BooksCount: a.BooksCount})
+		}
+		for i := range page.Entities {
+			e := &page.Entities[i]
+			results = append(results, capturedResult{Entity: e.ID.String(), FullName: e.Title(), BooksCount: e.BooksCount})
 		}
 		return results, page.Total, "", nil
 	}
@@ -682,6 +730,31 @@ func resolveRelevant(ctx context.Context, db *pg.DB, q *evalQuery) ([]int64, err
 	return nil, fmt.Errorf("unknown kind %q", q.Kind)
 }
 
+// resolveRelevantEntities is resolveRelevant's author rule under the entity
+// identity: every live entity whose display name — the name on its page —
+// contains every word of the rule, with a visible book in the query's
+// language. Word by word rather than as one string: the rules were written
+// against catalog names, "Фамилия Имя" ("толстой лев"), and an entity is
+// named as its books name it, "Имя Фамилия" ("Лев Николаевич Толстой"). For
+// a one-word rule the two readings are the same.
+func resolveRelevantEntities(ctx context.Context, db *pg.DB, q *evalQuery) ([]string, error) {
+	var ids []string
+	_, err := db.WithContext(ctx).Query(&ids, fmt.Sprintf(`
+		SELECT e.id::text FROM author_entity e
+		WHERE e.merged_into IS NULL
+			AND NOT EXISTS (
+				SELECT 1 FROM unnest(string_to_array(?, ' ')) AS w(word)
+				WHERE w.word <> '' AND strpos(%s, w.word) = 0)
+			AND EXISTS (
+				SELECT 1 FROM book_author_display d
+				JOIN opds_catalog_book b ON b.id = d.book_id
+				WHERE d.entity_ids @> ARRAY[e.id] AND b.approved AND NOT b.duplicate_hidden
+					AND (? = '' OR b.lang = ?))
+		ORDER BY e.id`, fmt.Sprintf(normalizedExpr, "e.display_name")),
+		q.ExpectedAuthor, q.Language, q.Language)
+	return ids, err
+}
+
 // aggregate averages per-query metrics into the run summary.
 func aggregate(reports []queryReport) aggregateReport {
 	agg := aggregateReport{TotalQueries: len(reports)}
@@ -690,7 +763,7 @@ func aggregate(reports []queryReport) aggregateReport {
 	for i := range reports {
 		r := &reports[i]
 		totals = append(totals, r.Total)
-		if len(r.RelevantIDs) == 0 {
+		if len(r.RelevantIDs)+len(r.RelevantEntities) == 0 {
 			continue
 		}
 		agg.ScoredQueries++
@@ -761,7 +834,7 @@ func fatalf(format string, args ...interface{}) {
 // recallAt reports which fraction of the relevant IDs appears in the first k
 // results. An empty relevance set yields 0: such a query is not scoreable and
 // the caller is expected to exclude it from aggregates.
-func recallAt(got []int64, want map[int64]struct{}, k int) float64 {
+func recallAt[K comparable](got []K, want map[K]struct{}, k int) float64 {
 	if len(want) == 0 || k <= 0 {
 		return 0
 	}
@@ -779,7 +852,7 @@ func recallAt(got []int64, want map[int64]struct{}, k int) float64 {
 
 // reciprocalRank scores the position of the first relevant result: 1 for rank
 // 1, 1/2 for rank 2, and 0 when no relevant ID appears at all.
-func reciprocalRank(got []int64, want map[int64]struct{}) float64 {
+func reciprocalRank[K comparable](got []K, want map[K]struct{}) float64 {
 	if len(want) == 0 {
 		return 0
 	}

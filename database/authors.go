@@ -5,9 +5,9 @@ import (
 )
 
 // GetAuthor returns an object of author with full_name
-func GetAuthor(filter models.AuthorRequest) (models.Author, error) {
+func GetAuthor(id int64) (models.Author, error) {
 	var author models.Author
-	err := db.Model(&author).Where("id = ?", filter.ID).Select()
+	err := db.Model(&author).Where("id = ?", id).Select()
 	if err != nil {
 		return models.Author{}, err
 	}

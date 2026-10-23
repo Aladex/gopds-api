@@ -1,15 +1,20 @@
 package models
 
+import "github.com/google/uuid"
+
 // BookSearchRequest carries a validated book search from an adapter to the
 // repository. Adapters never pass gin.Context, URL params or Telegram objects
 // past this boundary.
 type BookSearchRequest struct {
-	Query               string
-	AuthorQuery         string
-	ExactBookID         int64
-	UserID              int64
-	Language            string
-	AuthorID            int64
+	Query       string
+	AuthorQuery string
+	ExactBookID int64
+	UserID      int64
+	Language    string
+	AuthorID    int64
+	// AuthorEntityID scopes the search to an author entity's books, as
+	// AuthorID does to a legacy author's; the identity in force sets one.
+	AuthorEntityID      uuid.UUID
 	SeriesID            int64
 	GenreID             int64
 	CollectionID        int64
@@ -45,9 +50,12 @@ type AuthorSearchRequest struct {
 	Offset   int
 }
 
-// AuthorSearchPage is one author page plus the exact total.
+// AuthorSearchPage is one author page plus the exact total. Authors are
+// legacy catalog authors; under the entity identity the page holds Entities
+// instead.
 type AuthorSearchPage struct {
 	Authors   []Author
+	Entities  []AuthorEntity
 	Total     int
 	Limit     int
 	Offset    int
@@ -76,6 +84,7 @@ type SuggestionRequest struct {
 	UserID              int64
 	Favorites           bool
 	AuthorID            int64
+	AuthorEntityID      uuid.UUID
 	SeriesID            int64
 	GenreID             int64
 	CollectionID        int64

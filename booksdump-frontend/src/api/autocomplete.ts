@@ -5,11 +5,15 @@ export interface AutocompleteSuggestion {
     value: string;
     /** What the suggestion opens. */
     type: 'book' | 'author';
-    id?: number;
+    /** A book's number; an author's number, or an author entity's UUID. */
+    id?: number | string;
     /** Book lane only: the author, telling identical titles apart. */
     secondary?: string;
     /** Author lane only: how many visible books the author holds. */
     books_count?: number;
+    /** Author lane only: an entity's namesake label, or its book count. */
+    label?: string;
+    label_books?: number;
 }
 
 export interface AutocompleteResponse {

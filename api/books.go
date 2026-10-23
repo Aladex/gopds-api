@@ -30,8 +30,11 @@ type ListedBook struct {
 	Publisher *string  `json:"publisher"`
 	ISBN      []string `json:"isbn"`
 	// AuthorsDisplay is the book's author line, present only while the
-	// author line is switched on.
-	AuthorsDisplay []models.AuthorDisplay `json:"authors_display,omitempty"`
+	// author line is switched on. Under the legacy identity a line that names
+	// no one is left out and the card shows the catalog's authors; under the
+	// entity identity it is sent empty, since those authors' links are legacy
+	// and name no author there (linkEntities).
+	AuthorsDisplay *[]models.AuthorDisplay `json:"authors_display,omitempty"`
 }
 
 // langsAnswer struct for languages list response

@@ -80,16 +80,23 @@ func CreateItem(book *models.Book, authors []models.AuthorDisplay, isKoreader bo
 			Name: author.Name,
 			ID:   author.LegacyAuthorID,
 		})
-		if author.LegacyAuthorID == nil {
-			continue
+		switch {
+		case len(author.Entities) == 1:
+			// Under the entity identity a name links to its entity's books.
+			itemAuthors[len(itemAuthors)-1].Entity = author.Entities[0].ID.String()
+			links = append(links, allBooksLink("/opds/new/0/"+author.Entities[0].ID.String(), author.Name))
+		case len(author.Entities) > 1:
+			// A name of several people (design E, §6 item 5): an <author> has
+			// one address, so the name has none, and each person's books get
+			// a link of their own, under the person's name.
+			for i := range author.Entities {
+				links = append(links, allBooksLink("/opds/new/0/"+author.Entities[i].ID.String(),
+					author.Entities[i].Title()))
+			}
+		case author.LegacyAuthorID != nil:
+			// Link to browse all books by this author
+			links = append(links, allBooksLink(fmt.Sprintf("/opds/new/0/%d", *author.LegacyAuthorID), author.Name))
 		}
-		// Link to browse all books by this author
-		links = append(links, Link{
-			Href:  fmt.Sprintf("/opds/new/0/%d", *author.LegacyAuthorID),
-			Rel:   "related",
-			Type:  "application/atom+xml;profile=opds-catalog",
-			Title: fmt.Sprintf("Все книги: %s", author.Name),
-		})
 	}
 
 	annotation := book.Annotation
@@ -118,4 +125,14 @@ func nonBlankAuthors(authors []models.AuthorDisplay) []models.AuthorDisplay {
 		}
 	}
 	return out
+}
+
+// allBooksLink is an entry's link to all the books of one of its authors.
+func allBooksLink(href, name string) Link {
+	return Link{
+		Href:  href,
+		Rel:   "related",
+		Type:  "application/atom+xml;profile=opds-catalog",
+		Title: fmt.Sprintf("Все книги: %s", name),
+	}
 }

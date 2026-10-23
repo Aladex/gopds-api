@@ -470,3 +470,70 @@ func TestLoadAuthorsDisplaySource(t *testing.T) {
 		})
 	}
 }
+
+// Which IDs readers' surfaces name authors by: the legacy catalog's until
+// the operator switches every surface to the author entities at once,
+// through the file or GOPDS_AUTHORS_IDENTITY. Entities link from the author
+// line of the layer, so they need it; anything else is refused at load.
+func TestLoadAuthorsIdentity(t *testing.T) {
+	layer := map[string]string{"GOPDS_AUTHORS_DISPLAY_SOURCE": AuthorsDisplayLayer}
+	for _, tc := range []struct {
+		name string
+		file string
+		env  map[string]string
+		want string
+	}{
+		{name: "default", want: AuthorsIdentityLegacy},
+		{name: "file", file: "authors:\n  display_source: layer\n  identity: entity\n", want: AuthorsIdentityEntity},
+		{name: "env", env: map[string]string{"GOPDS_AUTHORS_IDENTITY": "entity"}, want: AuthorsIdentityEntity},
+		{name: "env over file", file: "authors:\n  identity: entity\n",
+			env: map[string]string{"GOPDS_AUTHORS_IDENTITY": "legacy"}, want: AuthorsIdentityLegacy},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			isolate(t)
+			setEnv(t, requiredEnv)
+			setEnv(t, layer)
+			setEnv(t, tc.env)
+			if tc.file != "" {
+				writeConfigFile(t, tc.file)
+			}
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() = %v, want nil", err)
+			}
+			if cfg.Authors.Identity != tc.want {
+				t.Errorf("Authors.Identity = %q, want %q", cfg.Authors.Identity, tc.want)
+			}
+			if cfg.Authors.EntityIdentity() != (tc.want == AuthorsIdentityEntity) {
+				t.Errorf("EntityIdentity() = %v for %q", cfg.Authors.EntityIdentity(), tc.want)
+			}
+		})
+	}
+
+	for _, value := range []string{"Entity", "both", " "} {
+		t.Run("refuses "+value, func(t *testing.T) {
+			isolate(t)
+			setEnv(t, requiredEnv)
+			setEnv(t, layer)
+			setEnv(t, map[string]string{"GOPDS_AUTHORS_IDENTITY": value})
+
+			_, err := Load()
+			if err == nil || !strings.Contains(err.Error(), "authors.identity") {
+				t.Fatalf("Load() = %v, want an error naming authors.identity", err)
+			}
+		})
+	}
+
+	t.Run("refuses entities over the legacy author line", func(t *testing.T) {
+		isolate(t)
+		setEnv(t, requiredEnv)
+		setEnv(t, map[string]string{"GOPDS_AUTHORS_IDENTITY": AuthorsIdentityEntity})
+
+		_, err := Load()
+		if err == nil || !strings.Contains(err.Error(), "authors.identity") ||
+			!strings.Contains(err.Error(), "authors.display_source") {
+			t.Fatalf("Load() = %v, want an error naming authors.identity and authors.display_source", err)
+		}
+	})
+}
