@@ -395,6 +395,7 @@ func TestNormalizationHistoryIsImmutable(t *testing.T) {
 			"book_contributor_credit_selection_audited":         "book_contributor_credit_selection_record()",
 			"book_contributor_credit_selection_audit_immutable": "author_metadata_reject_mutation()",
 			"contributor_normalization_job_updated_at":          "update_updated_at_column()",
+			"contributor_normalization_job_waiting":             "contributor_normalization_job_waiting()",
 			"contributor_normalization_job_attempt_immutable": "author_metadata_reject_mutation(" +
 				"finished_at,outcome,error_class)",
 			"contributor_normalization_job_attempt_closed": "author_metadata_reject_finished()",
@@ -962,14 +963,14 @@ func TestNormalizationModelEnumsMatchSchema(t *testing.T) {
 		"llm_disagreement", "llm_refused", "llm_invalid", "llm_failed", "llm_judge_disagreement", "llm_judge_refused",
 		"llm_judge_invalid", "llm_judge_failed", "llm_not_registered", "llm_context_unavailable"),
 		enumStrings(models.UnresolvedReasons()))
-	assert.ElementsMatch(t, strs("pending", "completed", "failed"), enumStrings(models.NormalizationJobStatuses()))
+	assert.ElementsMatch(t, strs("pending", "queued", "completed", "failed"), enumStrings(models.NormalizationJobStatuses()))
 	assert.ElementsMatch(t, strs("ambiguous_decision", "incompatible_manual_schema"), enumStrings(models.ReviewReasons()))
 	assert.ElementsMatch(t, strs("open", "closed"), enumStrings(models.ReviewStatuses()))
 	assert.ElementsMatch(t, strs("accepted", "edited", "classified", "left_unresolved", "retried", "automatic"),
 		enumStrings(models.ReviewResolutions()))
 
 	for _, s := range models.NormalizationJobStatuses() {
-		assert.Equal(t, s != models.NormalizationJobPending, s.IsTerminal(), string(s))
+		assert.Equal(t, s != models.NormalizationJobPending && s != models.NormalizationJobQueued, s.IsTerminal(), string(s))
 	}
 	for _, unknown := range []string{"", "running", "Completed"} {
 		assert.False(t, models.NormalizationJobStatus(unknown).IsTerminal(), "%q", unknown)
@@ -1094,7 +1095,9 @@ func TestNormalizationModelsRoundTrip(t *testing.T) {
 	}
 	_, err = f.tx.Model(job).Returning("*").Insert()
 	require.NoError(t, err)
-	assert.Equal(t, models.NormalizationJobPending, job.Status)
+	// The column default is the v1 binary's pending; a job of any other
+	// version is written as queued (migration 59).
+	assert.Equal(t, models.NormalizationJobQueued, job.Status)
 	assert.Zero(t, job.AttemptCount)
 
 	attempt := &models.ContributorNormalizationJobAttempt{JobID: job.ID, AttemptNo: 1, LeaseOwner: ownerToken}

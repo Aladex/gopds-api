@@ -237,7 +237,7 @@ func TestAuthorMetadataRunnerRestartReclaimsExpiredJobs(t *testing.T) {
 	require.NoError(t, awaitSignal(t, shutdownDone, "the shutdown"))
 
 	assert.Equal(t, 1, f.count(`SELECT count(*) FROM contributor_normalization_job
-		WHERE status = 'pending' AND lease_owner = ?::uuid`, first.owner), "the interrupted job keeps only its lease")
+		WHERE status = 'queued' AND lease_owner = ?::uuid`, first.owner), "the interrupted job keeps only its lease")
 	assert.Nil(t, f.selection(credits[0]))
 
 	// The lease runs out — on the database clock, now.

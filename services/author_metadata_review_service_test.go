@@ -154,6 +154,14 @@ func TestAuthorMetadataReviewConfigFromServerConfig(t *testing.T) {
 	assert.Equal(t, DefaultAuthorMetadataReviewConfig().ResultSchemaVersion, cfg.ResultSchemaVersion)
 }
 
+// A review retry re-queues an input under the normalizer the workers run:
+// the service's own copy of the version follows the shipped one.
+func TestAuthorMetadataReviewConfigMatchesTheNormalizer(t *testing.T) {
+	cfg := DefaultAuthorMetadataReviewConfig()
+	assert.Equal(t, authornorm.NormalizerVersion, cfg.NormalizerVersion)
+	assert.Equal(t, authornorm.ResultSchemaVersion, cfg.ResultSchemaVersion)
+}
+
 func TestAuthorMetadataReviewService(t *testing.T) {
 	f := newReviewFixture(t)
 	item, credit := f.seedItem("first", "И.", "last", "Петров")
@@ -257,7 +265,7 @@ func TestAuthorMetadataReviewServiceRetryUsesConfiguredVersion(t *testing.T) {
 		assert.True(t, report.JobQueued, "a new version is a new key, so a new job")
 		var jobs int
 		_, err = f.s.QueryOne(pg.Scan(&jobs), `SELECT count(*) FROM contributor_normalization_job
-			WHERE normalizer_version = 'authornorm-local-v9' AND status = 'pending'`)
+			WHERE normalizer_version = 'authornorm-local-v9' AND status = 'queued'`)
 		require.NoError(t, err)
 		assert.Equal(t, 1, jobs)
 		var decided models.ContributorReviewItem

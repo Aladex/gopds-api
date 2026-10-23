@@ -93,8 +93,11 @@ const authorLLMFoldEvery = 100
 
 // Classes of a job that is not sent at all.
 const (
-	authorLLMInputUnreadable  = "input_unreadable"
-	authorLLMInputTooLong     = "input_too_long"
+	authorLLMInputUnreadable = "input_unreadable"
+	authorLLMInputTooLong    = "input_too_long"
+	// authorLLMMalformedBatch is the class of every item of a reply that is
+	// not the batch envelope.
+	authorLLMMalformedBatch   = "malformed_batch"
 	authorLLMRequestOverBound = "request_over_bound"
 	// authorLLMItemPanic: preparing or judging the item panicked; the item
 	// fails alone, its batch goes on.
@@ -466,7 +469,7 @@ func (w *AuthorLLMWorker) judgeReplies(items []*preparedItem, content []byte) []
 		case it.skip != "":
 			s.ValidatorClass = it.skip
 		case splitErr != nil:
-			s.ValidatorClass = "malformed_batch"
+			s.ValidatorClass = authorLLMMalformedBatch
 		default:
 			if err := isolateItem(func() error {
 				w.judgeReply(it, replies[it.item.Key], &s)
@@ -483,6 +486,16 @@ func (w *AuthorLLMWorker) judgeReplies(items []*preparedItem, content []byte) []
 }
 
 func (w *AuthorLLMWorker) judgeReply(it *preparedItem, r llmreq.ItemReply, s *database.AuthorLLMItemSettlement) {
+	judgeItemReply(&it.input, r, it.job.ExtractorVersion, w.cfg.ConfigVersion, s)
+}
+
+// judgeItemReply settles one item's reply under this build's validators:
+// answered with its canonical form and tier, refused, or invalid with the
+// closed class of what it broke. The eval re-score preview judges stored
+// replies with it too, so both read a reply the same way.
+func judgeItemReply(
+	input *llmres.Input, r llmreq.ItemReply, extractorVersion *string, configVersion string, s *database.AuthorLLMItemSettlement,
+) {
 	if r.Err != nil {
 		var ie *llmreq.ItemError
 		if errors.As(r.Err, &ie) {
@@ -500,10 +513,10 @@ func (w *AuthorLLMWorker) judgeReply(it *preparedItem, r llmreq.ItemReply, s *da
 		return
 	}
 	extractor := "eval"
-	if it.job.ExtractorVersion != nil {
-		extractor = *it.job.ExtractorVersion
+	if extractorVersion != nil {
+		extractor = *extractorVersion
 	}
-	outcome, err := llmres.Assemble(&it.input, rep, extractor, w.cfg.ConfigVersion, authorLLMTierClass)
+	outcome, err := llmres.Assemble(input, rep, extractor, configVersion, authorLLMTierClass)
 	if err != nil {
 		s.ValidatorClass = violationClass(err)
 		return

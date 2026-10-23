@@ -248,8 +248,8 @@ func (f *workerFixture) seedJob(fp [32]byte, normalizerVersion string) int64 {
 	require.NoError(f.t, err)
 	var id int64
 	_, err = f.db.QueryOne(pg.Scan(&id), `INSERT INTO contributor_normalization_job
-		(normalization_key, source_fingerprint, extractor_version, normalizer_version)
-		VALUES (?, ?, ?, ?) RETURNING id`, key[:], fp[:], workerExtractor, normalizerVersion)
+		(normalization_key, source_fingerprint, extractor_version, normalizer_version, status)
+		VALUES (?, ?, ?, ?, 'queued') RETURNING id`, key[:], fp[:], workerExtractor, normalizerVersion)
 	require.NoError(f.t, err)
 	return id
 }
@@ -332,12 +332,28 @@ func (f *workerFixture) drain(w *AuthorMetadataLocalWorker) {
 		if report.Claimed > 0 {
 			continue
 		}
-		if f.count(`SELECT count(*) FROM contributor_normalization_job WHERE status = 'pending'`) == 0 {
+		if f.count(`SELECT count(*) FROM contributor_normalization_job WHERE status = 'queued'`) == 0 {
 			return
 		}
 		time.Sleep(2 * time.Millisecond)
 	}
 	f.t.Fatal("local jobs still pending after the drain limit")
+}
+
+// drainVersion is drain for a worker of another version than the shipped
+// one: it waits only for that version's jobs, the only ones it claims.
+func (f *workerFixture) drainVersion(w *AuthorMetadataLocalWorker, version string) {
+	f.t.Helper()
+	for i := 0; i < 200; i++ {
+		report, err := w.RunOnce(context.Background())
+		require.NoError(f.t, err)
+		if report.Claimed == 0 && f.count(`SELECT count(*) FROM contributor_normalization_job
+			WHERE status = 'queued' AND normalizer_version = ?`, version) == 0 {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	f.t.Fatal("local jobs of the version still queued after the drain limit")
 }
 
 func (f *workerFixture) accounting() database.CreditAccounting {
@@ -709,7 +725,8 @@ func workerAbandonedLastAttemptAccounted(t *testing.T, f *workerFixture) {
 
 // RED 7: a new normalizer version creates a new automatic result under a new
 // key; a manual source override survives it, a credit without one moves to
-// the new result, and a job of another version is refused, not applied.
+// the new result, and a job of another version is never claimed: it waits,
+// untried, for a worker of its own version.
 func workerNormalizerVersionChange(t *testing.T, f *workerFixture) {
 	const v2 = "authornorm-local-v2-test"
 	credits := f.persistBook(author(tolstoy(t)), author(chekhov(t)))
@@ -731,7 +748,7 @@ func workerNormalizerVersionChange(t *testing.T, f *workerFixture) {
 		c.Normalize = versioned(v2)
 		c.Retry.MaxAttempts = 2
 	})
-	f.drain(v2Worker)
+	f.drainVersion(v2Worker, v2)
 
 	assert.Equal(t, 2, f.resultsFor(tolstoyFP), "one automatic result per normalizer version")
 	assert.Equal(t, 2, f.resultsFor(chekhovFP))
@@ -750,7 +767,9 @@ func workerNormalizerVersionChange(t *testing.T, f *workerFixture) {
 	_, err := f.db.QueryOne(pg.Scan(&staleJob), `SELECT id FROM contributor_normalization_job
 		WHERE source_fingerprint = ?`, authornorm.SourceFingerprint(initialed(t)))
 	require.NoError(t, err)
-	assert.Equal(t, []string{"normalizer_version_mismatch", "max_attempts_exceeded"}, f.attemptClasses(staleJob))
+	assert.Empty(t, f.attemptClasses(staleJob), "another version's job is not claimed")
+	assert.Equal(t, 1, f.count(`SELECT count(*) FROM contributor_normalization_job WHERE id = ? AND status = 'queued'`,
+		staleJob))
 	assert.Nil(t, f.selection(stale[0]), "another version's job resolves nothing")
 	assert.Equal(t, 0, f.resultsFor(authornorm.SourceFingerprint(initialed(t))))
 }

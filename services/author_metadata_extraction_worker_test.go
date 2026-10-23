@@ -348,7 +348,7 @@ func TestExtractionWorkerHappyArchive(t *testing.T) {
 
 		var pendingJobs int
 		_, err := db.QueryOne(pg.Scan(&pendingJobs), `
-			SELECT count(*) FROM contributor_normalization_job WHERE status = 'pending'`)
+			SELECT count(*) FROM contributor_normalization_job WHERE status = 'queued'`)
 		require.NoError(t, err)
 		assert.Equal(t, 3, pendingJobs, "one local job per author normalization key; translators get none")
 	})

@@ -53,14 +53,14 @@ func (f *authorSchemaFixture) entityCredit(snapshot int64, fill byte, family, gi
 			fp, keyFor(string(fp), "extractor-v1", "normalizer-v1"), family, given, pg.Array(additional),
 			display, display, authornorm.SearchKey(display))
 	}
-	f.exec(selectionInsert, credit, fp, "selected", result, "automatic", nil, "3", nil, nil)
+	f.exec(selectionInsert, credit, fp, "selected", result, "automatic", nil, "4", nil, nil)
 	return credit
 }
 
 // entitySchema is a fixture with the selection policy the credits rest on.
 func entitySchema(t *testing.T) *authorSchemaFixture {
 	f := withAuthorSchemaTx(t)
-	f.registerPair("3", "structured_person", "normalizer-v1")
+	f.registerPair("4", "structured_person", "normalizer-v1")
 	// The tables hold what other tests committed: the build reads them all.
 	f.exec(`TRUNCATE author_entity_credit_assignment, author_entity_assignment, author_entity_name,
 		author_entity_merge_log, author_entity_build_run, author_entity CASCADE`)
@@ -117,7 +117,7 @@ func TestTheBuildReadsTheSelectedAuthorCreditsOfCurrentSnapshots(t *testing.T) {
 	_, err := f.tx.QueryOne(pg.Scan(&result), `SELECT id FROM contributor_normalization_result WHERE source_fingerprint = ?`,
 		fingerprint(32, 0xe2))
 	require.NoError(t, err)
-	f.exec(selectionInsert, tagged, fingerprint(32, 0xe2), "selected", result, "automatic", nil, "3", nil, nil)
+	f.exec(selectionInsert, tagged, fingerprint(32, 0xe2), "selected", result, "automatic", nil, "4", nil, nil)
 	review := f.displayCredit(snap, "author", 2, "Коллектив авторов", 0xe3)
 	f.exec(selectionInsert, review, fingerprint(32, 0xe3), "review", nil, nil, nil, nil, nil, nil)
 	f.displayCredit(snap, "translator", 3, "Переводчик Тот", 0xe4)
@@ -351,7 +351,7 @@ func TestASelectedCollectiveIsBuiltFromTheDatabase(t *testing.T) {
 		VALUES (?, ?, 'extractor-v1', 'normalizer-v1', 'result-v1', 'rules', 'collective', 'normalized',
 		 'structured_person', 'Журнал Наука', 'Журнал Наука', 'журнал наука', 'Cyrl') RETURNING id`,
 		fingerprint(32, 0x81), keyFor(string(fingerprint(32, 0x81)), "extractor-v1", "normalizer-v1"))
-	f.exec(selectionInsert, credit, fingerprint(32, 0x81), "selected", result, "automatic", nil, "3", nil, nil)
+	f.exec(selectionInsert, credit, fingerprint(32, 0x81), "selected", result, "automatic", nil, "4", nil, nil)
 
 	p, _, skipped := f.pass()
 	require.Empty(t, skipped)

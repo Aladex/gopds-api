@@ -251,6 +251,8 @@ func TestAuthorLLMEvalRunsEveryStageWithPausesAndRestarts(t *testing.T) {
 	e.fake.setRespond(byFields(distinctLabs))
 	ctx := context.Background()
 	settings := services.DefaultAuthorLLMEvalSettings()
+	// Both arms: the excerpt arm stays measurable when a run asks for it.
+	settings.NoExcerpt = false
 	run, err := services.StartAuthorLLMEval(ctx, e.db, e.version, models.AuthorLLMEvalModeFull, &settings, nil)
 	require.NoError(t, err)
 

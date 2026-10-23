@@ -402,6 +402,7 @@ func SetAuthorLLMRunLearned(
 
 // AuthorLLMEvalAnswer is one job's final answer as the report reads it.
 type AuthorLLMEvalAnswer struct {
+	JobID           int64   `pg:"job_id"`
 	EvalItemID      int64   `pg:"eval_item_id"`
 	Purpose         string  `pg:"purpose"`
 	Slot            string  `pg:"slot"`
@@ -427,7 +428,7 @@ type AuthorLLMEvalAnswer struct {
 func AuthorLLMEvalAnswers(ctx context.Context, db pg.DBI, runID int64) ([]AuthorLLMEvalAnswer, error) {
 	var rows []AuthorLLMEvalAnswer
 	_, err := db.QueryContext(ctx, &rows, `
-		SELECT j.eval_item_id, j.purpose, j.slot, j.arm, j.batch_size, j.repeat_no, j.status, j.with_context,
+		SELECT j.id AS job_id, j.eval_item_id, j.purpose, j.slot, j.arm, j.batch_size, j.repeat_no, j.status, j.with_context,
 			j.context_state, a.canonical_sha256, j.last_error_class, j.output_mode, a.refused, a.tier, c.response_model, c.prompt_tokens,
 			c.completion_tokens, c.reasoning_tokens
 		FROM author_llm_job j

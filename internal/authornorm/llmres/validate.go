@@ -2,6 +2,7 @@ package llmres
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -55,7 +56,10 @@ func ValidateModelID(model string, expectedIDs []string) error {
 type Input struct {
 	Tokens []Token
 
-	source  authornorm.SourceValue
+	source authornorm.SourceValue
+	// words is the white-space word of the source display each token was
+	// cut from, so a form other than person rebuilds the source as written.
+	words   []int
 	defects map[int]authornorm.QualityFlag
 	// particles marks the letter-carrying tokens of the words the local
 	// normalizer classifies as name particles.
@@ -72,8 +76,9 @@ func (in *Input) SourceFingerprint() [32]byte {
 
 // NewInput builds the request side from the source fields in document order:
 // it tokenizes, and for every token that is the letter-carrying core of a
-// white-space word it records the case defect (all_caps / lowercase) the
-// local normalizer contract observes on that word.
+// white-space word it records the case defect a case fix may repair: all_caps
+// on the words the local normalizer flags, lowercase on every name word that
+// starts lowercase (authornorm.NameWordCaseDefects).
 func NewInput(fields []FieldValue) (Input, error) {
 	for _, f := range fields {
 		if !f.Field.valid() {
@@ -101,10 +106,12 @@ func NewInput(fields []FieldValue) (Input, error) {
 	}
 
 	var tokens []Token
+	var words []int
 	defects := map[int]authornorm.QualityFlag{}
 	particles := map[int]bool{}
+	wordNo := 0
 	for _, f := range fields {
-		wordDefects := authornorm.WordCaseDefects(f.Text, displayWordCount)
+		wordDefects := authornorm.NameWordCaseDefects(f.Text, displayWordCount)
 		for wi, word := range strings.Fields(f.Text) {
 			parts := splitWord(word)
 			if authornorm.ParticleWord(word, displayWordCount) {
@@ -125,10 +132,12 @@ func NewInput(fields []FieldValue) (Input, error) {
 			}
 			for _, part := range parts {
 				tokens = append(tokens, Token{I: len(tokens), Text: part, Field: f.Field})
+				words = append(words, wordNo)
 			}
+			wordNo++
 		}
 	}
-	return Input{Tokens: tokens, source: v, defects: defects, particles: particles}, nil
+	return Input{Tokens: tokens, source: v, words: words, defects: defects, particles: particles}, nil
 }
 
 // Source returns the canonical source value the input was built from.
@@ -158,8 +167,14 @@ func (r *Reply) roleByIndex() map[int]Role {
 	return out
 }
 
-// checkV2: roles cover every input index exactly once.
+// checkV2: a person's roles cover every input index exactly once. A form
+// other than person is answered by its form: its roles are not part of the
+// answer (its canonical form stores none, and the resolve applies an answer
+// from that form), so V2 does not read them.
 func (r *Reply) checkV2(in *Input) error {
+	if r.Form != FormPerson {
+		return nil
+	}
 	seen := make([]bool, len(in.Tokens))
 	for _, ra := range r.Roles {
 		if ra.I < 0 || ra.I >= len(in.Tokens) {
@@ -201,9 +216,103 @@ func isPlaceholderToken(text string) bool {
 	return false
 }
 
-// checkV3: filler is admitted only for tokens from the closed placeholder
-// dictionary, and separator only for tokens without letters.
+// labelWords is the closed vocabulary of contributor-role labels written into
+// a person's name ("Сергей переводчик Смирнов", "Ю. Томашевский Составитель"),
+// compared as search keys. A word that is also a given name ("Пер") is left
+// out: dropping it would drop a name.
+var labelWords = vocabulary("составитель|составители|сост|автор составитель|авт сост|" +
+	"редактор|ред|переводчик|иллюстратор|сценарист|самиздат|псевдоним|" +
+	"translator|editor|illustrator|compiler|aka")
+
+// labelPhrases are the label phrases whose words are filler only together:
+// "под" or "by" alone is an ordinary word.
+var labelPhrases = vocabulary("под редакцией|под ред|гл ред|гл редактор|главный редактор|" +
+	"отв ред|ответственный редактор|translated by|edited by|illustrated by|compiled by")
+
+// vocabulary is the set of search keys listed in one '|'-separated string.
+func vocabulary(list string) map[string]bool {
+	set := map[string]bool{}
+	for _, key := range strings.Split(list, "|") {
+		set[key] = true
+	}
+	return set
+}
+
+// addressPatterns match an e-mail address or a web address written into a
+// name. A domain needs a lower-case top-level part, so a glued initial
+// ("A.Smith") is no address.
+var addressPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$`),
+	regexp.MustCompile(`(?i)^(https?://|www\.)\S+$`),
+	regexp.MustCompile(`^[\p{L}\p{N}-]+(\.[\p{L}\p{N}-]+)*\.[a-z]{2,6}/?$`),
+}
+
+// isFillerToken reports a token the closed dictionaries admit as filler on
+// its own: a placeholder word, a role label or an address.
+func isFillerToken(text string) bool {
+	if isPlaceholderToken(text) || labelWords[authornorm.SearchKey(text)] {
+		return true
+	}
+	for _, p := range addressPatterns {
+		if p.MatchString(text) {
+			return true
+		}
+	}
+	return false
+}
+
+// maxPhraseTokens bounds the windows a filler phrase is looked for in: the
+// longest placeholder key or label phrase has three words, and a separator
+// token may sit between two of them.
+const maxPhraseTokens = 5
+
+// isFillerPhrase reports whether the tokens from..to read, as a search key,
+// as a whole placeholder key ("неизвестный автор") or a label phrase ("под
+// редакцией").
+func isFillerPhrase(in *Input, from, to int) bool {
+	texts := make([]string, 0, to-from+1)
+	for i := from; i <= to; i++ {
+		texts = append(texts, in.Tokens[i].Text)
+	}
+	key := authornorm.SearchKey(strings.Join(texts, " "))
+	keys, _ := placeholderVocab()
+	return labelPhrases[key] || slices.Contains(keys, key)
+}
+
+// fillerInPhrase reports whether filler token i lies in a phrase whose every
+// letter-carrying token is filler too: the words of "Неизвестный автор" are
+// filler together, never one of them alone.
+func fillerInPhrase(in *Input, roleBy map[int]Role, i int) bool {
+	for from := max(0, i-maxPhraseTokens+1); from <= i; from++ {
+		for to := i; to < len(in.Tokens) && to-from < maxPhraseTokens; to++ {
+			if from == to || !isFillerPhrase(in, from, to) {
+				continue
+			}
+			whole := true
+			for j := from; j <= to; j++ {
+				if roleBy[j] != RoleFiller && strings.IndexFunc(in.Tokens[j].Text, unicode.IsLetter) >= 0 {
+					whole = false
+					break
+				}
+			}
+			if whole {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// checkV3: in a person, filler is admitted only for what the closed
+// dictionaries name — a placeholder word, a role label, an address, or a word
+// of a whole placeholder key or label phrase that is filler throughout — and
+// separator only for tokens without letters. A form other than person is
+// answered by its form: its roles build nothing, so V3 does not read them.
 func (r *Reply) checkV3(in *Input) error {
+	if r.Form != FormPerson {
+		return nil
+	}
+	roleBy := r.roleByIndex()
 	for _, ra := range r.Roles {
 		if ra.I < 0 || ra.I >= len(in.Tokens) {
 			continue // coverage is V2's call
@@ -211,8 +320,8 @@ func (r *Reply) checkV3(in *Input) error {
 		text := in.Tokens[ra.I].Text
 		switch ra.Role {
 		case RoleFiller:
-			if !isPlaceholderToken(text) {
-				return &Violation{Validator: validatorV3, Detail: fmt.Sprintf("filler on token %d outside the placeholder dictionary", ra.I)}
+			if !isFillerToken(text) && !fillerInPhrase(in, roleBy, ra.I) {
+				return &Violation{Validator: validatorV3, Detail: fmt.Sprintf("filler on token %d outside the closed dictionaries", ra.I)}
 			}
 		case RoleSeparator:
 			if strings.IndexFunc(text, unicode.IsLetter) >= 0 {
@@ -226,10 +335,12 @@ func (r *Reply) checkV3(in *Input) error {
 	return nil
 }
 
-// checkV4: a case fix is admitted only for a token where the local normalizer
-// observed all_caps or lowercase, it is unique per token, in range, and the
-// fixed text folds back to the source token — a fix changes case, never
-// letters.
+// checkV4: a case fix is admitted only for a token with a case defect
+// (NewInput), it is unique per token, in range, and the fixed text folds back
+// to the source token: a fix changes case, never letters. The prompt asks for
+// no case fix on the nickname field; V4 does not enforce it, so an answer
+// that capitalizes a pen name lands in the case tier, which the gate judges
+// on its own, instead of counting against its model's invalid share.
 func (r *Reply) checkV4(in *Input) error {
 	seen := make(map[int]bool, len(r.CaseFix))
 	fold := cases.Fold()
@@ -309,10 +420,13 @@ func capitalizePart(text string) string {
 	return b.String()
 }
 
-// checkV5: the role grammar of a person — at least one name role; the first
-// name token given, family or single_name (the order follows from it); family
-// tokens in one contiguous segment (particles aside); prefix only before and
-// suffix only after the name tokens.
+// checkV5: the role grammar of a person — at least one name role, or a pen
+// name alone (only nickname tokens name the person); the first name token
+// given, family or single_name (the order follows from it); family tokens in
+// one contiguous segment (particles aside); prefix only before the first name
+// token, suffix only after it — a title after or inside the name ("Иоанн
+// Святитель Златоуст", "Фалассий авва") — and never inside the family
+// segment, which contiguity already forbids.
 func (r *Reply) checkV5(in *Input) error {
 	if r.Form != FormPerson {
 		return nil
@@ -320,7 +434,10 @@ func (r *Reply) checkV5(in *Input) error {
 	roleBy := r.roleByIndex()
 	nameIdx, familyIdx, single := r.nameIndexes()
 	if len(nameIdx) == 0 {
-		return &Violation{Validator: validatorV5, Detail: "a person needs at least one given, family or single_name role"}
+		nameIdx = roleIndexes(RoleNickname, roleBy)
+	}
+	if len(nameIdx) == 0 {
+		return &Violation{Validator: validatorV5, Detail: "a person needs a given, family, single_name or nickname role"}
 	}
 	slices.Sort(nameIdx)
 	if single {
@@ -384,15 +501,15 @@ func checkFamilyContiguous(familyIdx []int, roleBy map[int]Role) error {
 }
 
 // checkAffixPositions: prefix only before the first name token, suffix only
-// after the last one.
+// after it.
 func (r *Reply) checkAffixPositions(nameIdx []int) error {
-	first, last := nameIdx[0], nameIdx[len(nameIdx)-1]
+	first := nameIdx[0]
 	for _, ra := range r.Roles {
 		if ra.Role == RolePrefix && ra.I >= first {
 			return &Violation{Validator: validatorV5, Detail: "prefix after the first name token"}
 		}
-		if ra.Role == RoleSuffix && ra.I <= last {
-			return &Violation{Validator: validatorV5, Detail: "suffix before the last name token"}
+		if ra.Role == RoleSuffix && ra.I <= first {
+			return &Violation{Validator: validatorV5, Detail: "suffix before the first name token"}
 		}
 	}
 	return nil

@@ -92,12 +92,12 @@ func TestRun4CannotTellIsItsFormAlone(t *testing.T) {
 	if Agree(&a, &b) {
 		t.Error("two person answers with different roles agree")
 	}
-	// A collective's roles still matter (filler and separator shape its
-	// display): only a refusal is its form alone.
+	// Since the R1 contract a collective is its form too: its roles build
+	// nothing, the display is the source as written.
 	c := parseValid(t, in, `{"form":"collective","roles":[{"i":0,"role":"single_name"}],"case_fix":[]}`)
 	d := parseValid(t, in, `{"form":"collective","roles":[{"i":0,"role":"given"}],"case_fix":[]}`)
-	if Agree(&c, &d) {
-		t.Error("two collective answers with different roles agree")
+	if !Agree(&c, &d) {
+		t.Error("two collective answers with different roles disagree")
 	}
 }
 

@@ -262,9 +262,11 @@ const insertCreditSQL = `INSERT INTO book_contributor_credit
 	 source_nickname, source_id, source_display_name, source_fingerprint, quality_flags, xml_provenance)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)`
 
+// insertJobSQL queues the job as queued: the column default, pending, is the
+// v1 binary's waiting state (migration 59).
 const insertJobSQL = `INSERT INTO contributor_normalization_job
-	(normalization_key, source_fingerprint, extractor_version, normalizer_version)
-VALUES (?, ?, ?, ?)
+	(normalization_key, source_fingerprint, extractor_version, normalizer_version, status)
+VALUES (?, ?, ?, ?, 'queued')
 ON CONFLICT (normalization_key) DO NOTHING`
 
 // snapshotKey identifies the row behind an extraction key.

@@ -414,7 +414,7 @@ func reviewTransitionsClosed(t *testing.T) {
 
 		var job models.ContributorNormalizationJob
 		require.NoError(t, f.tx.Model(&job).Where("normalization_key = ?", r.NormalizationKey[:]).Select())
-		assert.Equal(t, models.NormalizationJobPending, job.Status, "the completed job is re-queued")
+		assert.Equal(t, models.NormalizationJobQueued, job.Status, "the completed job is re-queued")
 		assert.Nil(t, job.ResultID)
 		assert.Nil(t, job.FinishedAt)
 
@@ -438,10 +438,10 @@ func reviewTransitionsClosed(t *testing.T) {
 		freshItems := f.openReviewItems(freshR.SourceFingerprint)
 		require.Len(t, freshItems, 1)
 
-		nextKey, keyErr := authornorm.NormalizationKey(freshR.SourceFingerprint, resolverExtractor, "authornorm-local-v2")
+		nextKey, keyErr := authornorm.NormalizationKey(freshR.SourceFingerprint, resolverExtractor, "authornorm-local-v3")
 		require.NoError(t, keyErr)
 		_, err = ApplyReviewAction(ctx, f.tx, freshItems[0].ID, 1, ReviewDecision{
-			Action: ReviewRetry, RetryNormalizerVersion: "authornorm-local-v2", RetryMaxAttempts: testRetryBudget})
+			Action: ReviewRetry, RetryNormalizerVersion: "authornorm-local-v3", RetryMaxAttempts: testRetryBudget})
 		require.NoError(t, err)
 		assert.Equal(t, 1, f.jobCountByKey(nextKey), "a changed version queues a new job")
 		_ = ids
@@ -923,19 +923,19 @@ func TestReviewRetryAndWorkerCompletionDoNotDeadlock(t *testing.T) {
 	// the retry will target it. The extraction's own v1 job steps aside so
 	// the claim below is exactly the v2 one.
 	fp := r.SourceFingerprint
-	v2 := "authornorm-local-v2"
+	v2 := "authornorm-local-v3"
 	key, err := authornorm.NormalizationKey(fp, resolverExtractor, v2)
 	require.NoError(t, err)
 	_, err = s.Exec(`INSERT INTO contributor_normalization_job
-		(normalization_key, source_fingerprint, extractor_version, normalizer_version)
-		VALUES (?, ?, ?, ?)`, key[:], fp[:], resolverExtractor, v2)
+		(normalization_key, source_fingerprint, extractor_version, normalizer_version, status)
+		VALUES (?, ?, ?, ?, 'queued')`, key[:], fp[:], resolverExtractor, v2)
 	require.NoError(t, err)
 	_, err = s.Exec(`UPDATE contributor_normalization_job SET next_attempt_at = now() + interval '1 hour'
 		WHERE normalizer_version = ?`, authornorm.NormalizerVersion)
 	require.NoError(t, err)
 
 	claims, err := ClaimLocalNormalizationJobs(ctx, s, reviewerProbeOwner,
-		LeaseClaimOptions{Limit: 10, Lease: time.Minute, MaxAttempts: 5})
+		LeaseClaimOptions{Limit: 10, Lease: time.Minute, MaxAttempts: 5, NormalizerVersion: v2})
 	require.NoError(t, err)
 	require.Len(t, claims, 1)
 

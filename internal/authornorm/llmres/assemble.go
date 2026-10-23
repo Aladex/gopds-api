@@ -59,7 +59,7 @@ func Assemble(in *Input, rep *Reply, extractorVersion, configVersion string, cla
 	roleBy := rep.roleByIndex()
 	commaIdx := commaBoundary(in, rep, roleBy)
 
-	display := buildDisplay(rep, roleBy, commaIdx, emitted)
+	display := buildDisplay(in, rep, roleBy, commaIdx, emitted)
 
 	var kind authornorm.Kind
 	switch rep.Form {
@@ -168,40 +168,142 @@ func givenIndexes(roleBy map[int]Role) []int {
 	return out
 }
 
-// buildDisplay renders the display name: the source tokens without filler
-// (and without the nickname for a person — it moves to its own field), with
-// the comma form inverted to "Имя Фамилия" when the source wrote
-// "Фамилия, Имя".
-func buildDisplay(rep *Reply, roleBy map[int]Role, commaIdx int, emitted []string) string {
-	keep := func(i int) bool {
-		if i == commaIdx {
-			return false
-		}
+// buildDisplay renders the display name. A form other than person is the
+// source as written (case fixes and homoglyph repairs applied): its roles
+// build nothing. A person is the source tokens without filler and without the
+// nickname — it moves to its own field, unless the pen name is all that names
+// the person — with the comma form inverted to "Имя Фамилия" when the source
+// wrote "Фамилия, Имя", and without the separators the dropped tokens leave
+// behind (an emptied "( )", the ", " before a dropped label).
+func buildDisplay(in *Input, rep *Reply, roleBy map[int]Role, commaIdx int, emitted []string) string {
+	if rep.Form != FormPerson {
+		return sourceDisplay(in, emitted)
+	}
+	penName := penNameOnly(roleBy)
+	dropped := func(i int) bool {
 		switch roleBy[i] {
 		case RoleFiller:
-			return false
+			return true
 		case RoleNickname:
-			return rep.Form != FormPerson
+			return !penName
 		case RoleGiven, RoleAdditional, RoleFamily, RoleParticle, RolePrefix,
 			RoleSuffix, RoleSingleName, RoleSeparator:
-			return true
 		}
-		return true
+		return false
 	}
-	var parts []string
+	var order []int
 	if commaIdx >= 0 {
 		for i := commaIdx + 1; i < len(emitted); i++ {
-			if keep(i) {
-				parts = append(parts, emitted[i])
-			}
+			order = append(order, i)
 		}
 	}
 	for i := 0; i < len(emitted) && (commaIdx < 0 || i < commaIdx); i++ {
-		if keep(i) {
-			parts = append(parts, emitted[i])
-		}
+		order = append(order, i)
+	}
+	kept := dropOrphanSeparators(order, roleBy, dropped, emitted)
+	parts := make([]string, 0, len(kept))
+	for _, i := range kept {
+		parts = append(parts, emitted[i])
 	}
 	return joinTokens(parts)
+}
+
+// sourceDisplay is the source display as written: the emitted tokens joined
+// back into their white-space words.
+func sourceDisplay(in *Input, emitted []string) string {
+	var b strings.Builder
+	for i, text := range emitted {
+		if i > 0 && in.words[i] != in.words[i-1] {
+			b.WriteByte(' ')
+		}
+		b.WriteString(text)
+	}
+	return b.String()
+}
+
+// penNameOnly reports a person named by a pen name alone: nickname tokens and
+// no given, additional, family or single_name token.
+func penNameOnly(roleBy map[int]Role) bool {
+	nickname := false
+	for _, role := range roleBy {
+		if role.nameRole() || role == RoleAdditional {
+			return false
+		}
+		nickname = nickname || role == RoleNickname
+	}
+	return nickname
+}
+
+// dropOrphanSeparators returns the display order without the dropped tokens
+// and without the separators they orphan: a separator run at either edge of
+// the display when a dropped token lies beyond it ("Петров, сост." →
+// "Петров"), and an opening bracket left directly before its closing one
+// ("Дашнер (Дэшнер)" → "Дашнер"). Separators the source wrote around kept
+// tokens stay.
+func dropOrphanSeparators(order []int, roleBy map[int]Role, dropped func(int) bool, emitted []string) []int {
+	kept, droppedAt := dropEmptiedBrackets(order, roleBy, dropped, emitted)
+	separator := func(p int) bool { return roleBy[kept[p]] == RoleSeparator }
+	// The separators after the last kept word, when a dropped token lies
+	// among or before them.
+	end := len(kept)
+	for end > 0 && separator(end-1) {
+		end--
+	}
+	if end > 0 && end < len(kept) && droppedBetween(droppedAt, end, len(kept)) {
+		kept = kept[:end]
+	}
+	// The separators before the first kept word, likewise.
+	start := 0
+	for start < len(kept) && separator(start) {
+		start++
+	}
+	if start > 0 && start < len(kept) && droppedBetween(droppedAt, 0, start) {
+		kept = kept[start:]
+	}
+	return kept
+}
+
+// dropEmptiedBrackets keeps the tokens that are not dropped, without an
+// opening bracket left directly before its closing one by a dropped token
+// between them. droppedAt marks each position of the kept list that a
+// dropped token stood before.
+func dropEmptiedBrackets(
+	order []int, roleBy map[int]Role, dropped func(int) bool, emitted []string,
+) (kept []int, droppedAt map[int]bool) {
+	droppedAt = map[int]bool{}
+	for _, i := range order {
+		if dropped(i) {
+			droppedAt[len(kept)] = true
+			continue
+		}
+		if n := len(kept); n > 0 && droppedAt[n] && roleBy[kept[n-1]] == RoleSeparator && openingToken(emitted[kept[n-1]]) &&
+			roleBy[i] == RoleSeparator && closingBracket(emitted[i]) {
+			kept = kept[:n-1]
+			droppedAt[n-1] = true
+			continue
+		}
+		kept = append(kept, i)
+	}
+	return kept, droppedAt
+}
+
+// droppedBetween reports a dropped token before any kept position from..to.
+func droppedBetween(droppedAt map[int]bool, from, to int) bool {
+	for p := from; p <= to; p++ {
+		if droppedAt[p] {
+			return true
+		}
+	}
+	return false
+}
+
+// closingBracket reports a punctuation-only token that closes a bracket.
+func closingBracket(s string) bool {
+	if !punctOnly(s) {
+		return false
+	}
+	r, _ := utf8.DecodeRuneInString(s)
+	return unicode.Is(unicode.Pe, r) || unicode.Is(unicode.Pf, r)
 }
 
 // joinTokens renders token texts back to a string: single spaces between
@@ -258,6 +360,9 @@ func joinRole(target Role, roleBy map[int]Role, emitted []string) string {
 // itself. Without a family there is no safe sort form and none is invented.
 func buildSortName(in *Input, rep *Reply, roleBy map[int]Role, emitted []string, commaIdx int) string {
 	if rep.Order == OrderSingleName {
+		if penNameOnly(roleBy) {
+			return joinRole(RoleNickname, roleBy, emitted)
+		}
 		return joinRole(RoleSingleName, roleBy, emitted)
 	}
 
@@ -302,11 +407,20 @@ func buildSortName(in *Input, rep *Reply, roleBy map[int]Role, emitted []string,
 
 // familyParts splits the emitted tokens into the family part and the particle
 // tail: capitalized particles stay with the family, lowercase ones move to
-// the tail.
+// the tail. Under V8 a particle word of the family name takes the family
+// role, so a lowercase particle that leads the family name ("Мигель де
+// Сервантес Сааведра") moves to the tail as the particle role did; one
+// inside it ("Мартен дю Гар") stays where it is.
 func familyParts(in *Input, roleBy map[int]Role, emitted []string) (familyPart, tail []string) {
+	leading := true
 	for i := range emitted {
 		switch roleBy[i] {
 		case RoleFamily:
+			if leading && in.particles[i] && !particleCapitalized(in.Tokens[i].Text) {
+				tail = append(tail, emitted[i])
+				continue
+			}
+			leading = false
 			familyPart = append(familyPart, emitted[i])
 		case RoleParticle:
 			if particleCapitalized(in.Tokens[i].Text) {

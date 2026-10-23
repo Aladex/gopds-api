@@ -62,7 +62,7 @@ func (f *authorSchemaFixture) rebuild(books ...int64) int {
 
 func TestRebuildAuthorDisplayRewritesOnlyTheBooksWhoseLineChanged(t *testing.T) {
 	f := withAuthorSchemaTx(t)
-	f.registerPair("3", "structured_person", "normalizer-v1")
+	f.registerPair("4", "structured_person", "normalizer-v1")
 
 	layered := f.book()
 	petrov := f.legacyAuthorOf(layered, "Петров Иван")
@@ -238,7 +238,7 @@ func (f *authorSchemaFixture) nameIndex(author int64) map[string]int {
 
 func TestRebuildKeepsTheNameIndexOfNamesThatSayMore(t *testing.T) {
 	f := withAuthorSchemaTx(t)
-	f.registerPair("3", "structured_person", "normalizer-v1")
+	f.registerPair("4", "structured_person", "normalizer-v1")
 	author := f.returningID(`INSERT INTO opds_catalog_author (full_name) VALUES ('Петров Иван') RETURNING id`)
 	book := func(name string, fill byte) (int64, int64) {
 		b := f.book()

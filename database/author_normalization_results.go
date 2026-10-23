@@ -359,6 +359,9 @@ func ResolveCredits(
 	if err != nil {
 		return ResolveReport{}, fmt.Errorf("listing the credits of an input: %w", err)
 	}
+	if supersedeErr := supersedeReviewItems(ctx, db, fingerprint, credits, out); supersedeErr != nil {
+		return ResolveReport{}, supersedeErr
+	}
 	report := ResolveReport{States: map[models.CreditSelectionState]int{}}
 	var marks creditMarks
 	for i := range credits {
@@ -369,6 +372,61 @@ func ResolveCredits(
 		report.States[state]++
 	}
 	return report, marks.flush(ctx, db)
+}
+
+// supersedeStaleReviewSQL closes the input's open ambiguous review item when
+// its proposal is a local result of the same input under the version ?2 that
+// the version ?3 of ?1, the local result now being applied, replaced: that
+// item asks about a reading the normalizer no longer gives. Only that pair:
+// a binary of the replaced version never closes the newer one's items, so
+// two binaries running side by side never take an item back and forth. It closes as retried, without an
+// actor — exactly what an administrator's retry under the new version would
+// have done — and the resolver opens a new item for the new proposal when it
+// is ambiguous. Doing it here, in the transaction that applies the new
+// result, means an item never closes before its replacement is decided: a
+// re-normalization still waiting (or a rollback to a binary that never runs
+// it) leaves the old item open, with its credits.
+const supersedeStaleReviewSQL = `UPDATE contributor_review_item i
+	SET status = 'closed', resolution = 'retried', finished_at = now()
+	FROM ` + staleReviewItemsFrom
+
+// staleReviewItemsFrom is the review items (alias i) supersedeStaleReviewSQL
+// closes.
+const staleReviewItemsFrom = `contributor_normalization_result o, contributor_normalization_result n
+	WHERE i.scope_fingerprint = ?0 AND i.reason = 'ambiguous_decision' AND i.status = 'open'
+		AND n.id = ?1 AND o.id = i.proposal_result_id
+		AND o.method IN ` + localMethods + ` AND n.method IN ` + localMethods + `
+		AND o.source_fingerprint = n.source_fingerprint AND o.extractor_version = n.extractor_version
+		AND o.normalizer_version = ?2 AND n.normalizer_version = ?3`
+
+// supersedeReviewItems applies supersedeStaleReviewSQL for a local outcome
+// with a result. When there is an item to close, every credit of the input is
+// locked first, in ascending ID order: the resolver's lock order puts credits
+// before review items. The look before the locks takes none.
+func supersedeReviewItems(
+	ctx context.Context, db ResolutionTx, fingerprint []byte, credits []resolvableCredit, out *AutomaticOutcome,
+) error {
+	if out.LLM || out.Failed || out.ResultID <= 0 || len(credits) == 0 {
+		return nil
+	}
+	versions := []interface{}{fingerprint, out.ResultID, authornorm.PreviousNormalizerVersion, authornorm.NormalizerVersion}
+	var stale bool
+	if _, err := db.QueryOneContext(ctx, pg.Scan(&stale), `SELECT EXISTS (SELECT 1 FROM contributor_review_item i, `+
+		staleReviewItemsFrom+`)`, versions...); err != nil {
+		return fmt.Errorf("looking for a review item of an older reading: %w", err)
+	}
+	if !stale {
+		return nil
+	}
+	for i := range credits {
+		if _, err := db.ExecContext(ctx, resolutionLockSQL, credits[i].ID); err != nil {
+			return fmt.Errorf("locking the credit: %w", err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, supersedeStaleReviewSQL, versions...); err != nil {
+		return fmt.Errorf("closing a review item of an older reading: %w", err)
+	}
+	return nil
 }
 
 // ResolveCreditSelection re-resolves one author credit. With out nil — the
@@ -552,6 +610,16 @@ const completedInputsToReconcileSQL = `SELECT DISTINCT j.id
 	LEFT JOIN book_contributor_credit_selection sel ON sel.credit_id = c.id
 	WHERE j.status = 'completed' AND j.normalizer_version = ?0
 		AND (sel.credit_id IS NULL
+			-- The credit still rests on another normalizer version's local
+			-- result of the input — a v1 binary resolved the input after
+			-- this version's job did, in a rolling update — or is in review
+			-- on one: the stored result of this version decides it now.
+			-- Only a result of the version this one replaced (?4) is taken
+			-- over, so two binaries never take an input back and forth.
+			OR (sel.override_id IS NULL AND sel.decided_by_user_id IS NULL AND EXISTS (
+				SELECT 1 FROM contributor_normalization_result o
+				WHERE o.id = sel.result_id AND o.method IN ` + localMethods + `
+					AND o.normalizer_version = ?4 AND o.normalizer_version <> j.normalizer_version))
 			OR (sel.state <> 'review' AND sel.override_id IS NULL AND sel.decided_by_user_id IS NULL
 				AND NOT (?1 = ANY (r.quality_flags))
 				AND EXISTS (SELECT 1 FROM book_contributor_credit d
@@ -574,7 +642,8 @@ const completedInputsToReconcileSQL = `SELECT DISTINCT j.id
 func CompletedInputsToReconcile(ctx context.Context, db pg.DBI, normalizerVersion string, limit int) ([]int64, error) {
 	var ids []int64
 	if _, err := db.QueryContext(ctx, &ids, completedInputsToReconcileSQL,
-		normalizerVersion, duplicateComponentFlag, limit, pg.In(models.AuthorLLMUndecidedOutcomes())); err != nil {
+		normalizerVersion, duplicateComponentFlag, limit, pg.In(models.AuthorLLMUndecidedOutcomes()),
+		authornorm.PreviousNormalizerVersion); err != nil {
 		return nil, fmt.Errorf("listing completed inputs to reconcile: %w", err)
 	}
 	return ids, nil
@@ -628,8 +697,10 @@ func deref(s *string) string {
 
 // CreditAccounting is where the current author credits of a run (or of the
 // whole catalog) stand. Pending counts every credit that is not accounted:
-// no resolution yet, a local job of its input still pending, or a review
-// state without an open review item.
+// no resolution yet, a local job of its input still queued, or a review
+// state without an open review item. A v1 binary's pending job counts
+// through its credit's missing resolution only: nothing here claims it, and
+// the worker re-queues its input (RenormalizeRereadInputs).
 type CreditAccounting struct {
 	Credits    int
 	Selected   int
@@ -669,7 +740,7 @@ const (
 )`
 	accountingVerdictsSQL = `, pending_inputs AS (
 	SELECT DISTINCT source_fingerprint, extractor_version
-	FROM contributor_normalization_job WHERE status = 'pending'
+	FROM contributor_normalization_job WHERE status = 'queued'
 ), judged AS (
 	SELECT sel.state, sel.unresolved_reason,
 		(sel.credit_id IS NULL

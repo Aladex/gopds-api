@@ -120,11 +120,40 @@ type AuthorLLMEvalSettings struct {
 	// BatchSizes are the items-per-request values the candidates are
 	// compared at.
 	BatchSizes []int `json:"batch_sizes"`
+	// NoExcerpt leaves the excerpt arm (B) out: the candidates answer only
+	// without the book excerpt, and the gate measures arm A alone. Run 14
+	// chose arm B in none of its strata, so a new run skips it; a run stored
+	// before this setting existed has no key and keeps both arms
+	// (storedEvalSettings).
+	NoExcerpt bool `json:"no_excerpt"`
 }
 
-// DefaultAuthorLLMEvalSettings compares one item per request with ten.
+// storedEvalSettings reads a run's stored settings over the defaults. A key
+// the run did not store keeps its default, except the excerpt arm: a run
+// stored before no_excerpt existed measured both arms, and reading it again
+// must measure what it asked.
+func storedEvalSettings(raw json.RawMessage) (AuthorLLMEvalSettings, error) {
+	s := DefaultAuthorLLMEvalSettings()
+	s.NoExcerpt = false
+	if len(raw) == 0 {
+		return s, nil
+	}
+	err := json.Unmarshal(raw, &s)
+	return s, err
+}
+
+// DefaultAuthorLLMEvalSettings compares one item per request with ten,
+// without the excerpt arm.
 func DefaultAuthorLLMEvalSettings() AuthorLLMEvalSettings {
-	return AuthorLLMEvalSettings{OutputModes: map[string]string{}, BatchSizes: []int{1, 10}}
+	return AuthorLLMEvalSettings{OutputModes: map[string]string{}, BatchSizes: []int{1, 10}, NoExcerpt: true}
+}
+
+// arms are the excerpt-ablation arms the run's candidates answer in.
+func (s *AuthorLLMEvalSettings) arms() []string {
+	if s.NoExcerpt {
+		return []string{llmeval.ArmA}
+	}
+	return []string{llmeval.ArmA, llmeval.ArmB}
 }
 
 // mode is the output mode the run's settings name for a slot, or "" when
@@ -207,6 +236,9 @@ type AuthorLLMEvalDriver struct {
 	archivesDir string
 	archives    ArchiveSource
 	poll        time.Duration
+	// rejudged, when set, replaces the stored answers of these jobs: the
+	// re-score preview's answers under this build's validators.
+	rejudged map[int64]rejudgedAnswer
 }
 
 // NewAuthorLLMEvalDriver builds the driver of a configuration.
@@ -276,14 +308,12 @@ func (d *AuthorLLMEvalDriver) runningEval(ctx context.Context) (*evalRun, error)
 	if err != nil {
 		return nil, fmt.Errorf("reading the running eval run: %w", err)
 	}
-	run := &evalRun{ID: row.ID, Mode: row.Mode, Settings: DefaultAuthorLLMEvalSettings()}
+	run := &evalRun{ID: row.ID, Mode: row.Mode}
 	if row.Stage != nil {
 		run.Stage = *row.Stage
 	}
-	if len(row.Settings) > 0 {
-		if err := json.Unmarshal(row.Settings, &run.Settings); err != nil {
-			return nil, fmt.Errorf("reading an eval run's settings: %w", err)
-		}
+	if run.Settings, err = storedEvalSettings(row.Settings); err != nil {
+		return nil, fmt.Errorf("reading an eval run's settings: %w", err)
 	}
 	if len(row.Reference) > 0 && string(row.Reference) != "null" {
 		if err := json.Unmarshal(row.Reference, &run.Reference); err != nil {
@@ -563,7 +593,8 @@ func (d *AuthorLLMEvalDriver) enqueueJudges(ctx context.Context, tx *pg.Tx, run 
 
 // enqueueCandidates asks the production pair for every combo: arm A without
 // the excerpt, arm B with it (only items with a relevant excerpt — elsewhere B
-// is A), at every batch size of the run.
+// is A) unless the run leaves the excerpt arm out, at every batch size of the
+// run.
 func (d *AuthorLLMEvalDriver) enqueueCandidates(ctx context.Context, tx *pg.Tx, run *evalRun) error {
 	items, err := d.scopeItems(ctx, run)
 	if err != nil {
@@ -577,7 +608,7 @@ func (d *AuthorLLMEvalDriver) enqueueCandidates(ctx context.Context, tx *pg.Tx, 
 	}
 	for _, slot := range []llmreq.Slot{llmreq.SlotProductionA, llmreq.SlotProductionB} {
 		for _, batch := range run.Settings.BatchSizes {
-			for _, arm := range []string{llmeval.ArmA, llmeval.ArmB} {
+			for _, arm := range run.Settings.arms() {
 				ids := itemIDs(items)
 				if arm == llmeval.ArmB {
 					ids = itemIDs(withContext)
@@ -747,6 +778,11 @@ func (d *AuthorLLMEvalDriver) readEvalAnswers(ctx context.Context, runID int64) 
 	if err != nil {
 		return nil, err
 	}
+	for i := range answers {
+		if r, ok := d.rejudged[answers[i].JobID]; ok {
+			r.apply(&answers[i])
+		}
+	}
 	out := &evalAnswers{byItem: map[int64]map[evalAnswerKey]*database.AuthorLLMEvalAnswer{},
 		invalid: map[string]*llmeval.ParticipantCount{}, rejected: map[string]*llmeval.ParticipantCount{},
 		modes: map[string]string{}, noMode: map[string]bool{}}
@@ -844,7 +880,9 @@ func (d *AuthorLLMEvalDriver) collect(ctx context.Context, run *evalRun) (*evalD
 	}
 	combos := make([]llmeval.Combo, 0, evalArms*len(run.Settings.BatchSizes))
 	for _, b := range run.Settings.BatchSizes {
-		combos = append(combos, llmeval.Combo{Arm: llmeval.ArmA, Batch: b}, llmeval.Combo{Arm: llmeval.ArmB, Batch: b})
+		for _, arm := range run.Settings.arms() {
+			combos = append(combos, llmeval.Combo{Arm: arm, Batch: b})
+		}
 	}
 	repeat := map[string]*llmeval.ParticipantCount{}
 	for i := range items {
@@ -1188,11 +1226,9 @@ func storedEvalReport(
 	if err = json.Unmarshal([]byte(prev.Report), &stored); err != nil {
 		return nil, nil, fingerprint, fmt.Errorf("reading an eval report: %w", err)
 	}
-	run = &evalRun{ID: row.ID, Mode: row.Mode, Settings: DefaultAuthorLLMEvalSettings(), reportSets: []string{}}
-	if len(row.Settings) > 0 {
-		if err = json.Unmarshal(row.Settings, &run.Settings); err != nil {
-			return nil, nil, fingerprint, fmt.Errorf("reading an eval run's settings: %w", err)
-		}
+	run = &evalRun{ID: row.ID, Mode: row.Mode, reportSets: []string{}}
+	if run.Settings, err = storedEvalSettings(row.Settings); err != nil {
+		return nil, nil, fingerprint, fmt.Errorf("reading an eval run's settings: %w", err)
 	}
 	for _, set := range stored.Sets {
 		if strings.HasPrefix(set.SetVersion, authorLLMEvalStratumSet) {
@@ -1776,7 +1812,7 @@ func (d *AuthorLLMEvalDriver) estimate(ctx context.Context, run *evalRun) error 
 	}
 	withContext := 0
 	for i := range items {
-		if len(items[i].ContextSHA256) > 0 {
+		if len(items[i].ContextSHA256) > 0 && !run.Settings.NoExcerpt {
 			withContext++
 		}
 	}

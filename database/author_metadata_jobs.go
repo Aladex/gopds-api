@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"gopds-api/internal/authornorm"
@@ -83,6 +84,10 @@ type LeaseClaimOptions struct {
 	// MaxAttempts is how many attempts a row gets. A row whose last attempt
 	// was abandoned is ended on its stream's terminal path instead of claimed.
 	MaxAttempts int
+	// NormalizerVersion is the version whose local jobs a local claim takes:
+	// a worker never claims, or ends, another version's job. Empty means the
+	// shipped authornorm.NormalizerVersion; the extraction stream ignores it.
+	NormalizerVersion string
 }
 
 // LeaseClaim is one claimed row.
@@ -121,7 +126,10 @@ type leaseSpec struct {
 	table        string
 	attemptTable string
 	attemptFK    string
-	// claimable is the stream's pause rule, a predicate over row j.
+	// waiting is the status of a row that waits for a claim.
+	waiting string
+	// claimable is the stream's pause rule, a predicate over row j; %[1]s in
+	// it is the placeholder of the claimer's normalizer version.
 	claimable string
 	// exhaust sets the stream's terminal status for a row out of attempts.
 	exhaust string
@@ -137,6 +145,7 @@ var extractionLeaseSpec = &leaseSpec{
 	table:        runItemTable,
 	attemptTable: runItemAttemptTable,
 	attemptFK:    runItemAttemptFK,
+	waiting:      string(models.AuthorMetadataRunItemPending),
 	// Only items of a running run: pending has not started, paused stopped.
 	claimable:      `j.run_id IN (SELECT id FROM author_metadata_run WHERE status = 'running')`,
 	exhaust:        `status = 'metadata_parse_failed'`,
@@ -149,12 +158,21 @@ var localLeaseSpec = &leaseSpec{
 	table:        localJobTable,
 	attemptTable: localJobAttempts,
 	attemptFK:    localJobAttemptFK,
+	// A local job waits as queued, which the v1 binary's claim never reads
+	// (migration 59): it claimed every pending row of any version.
+	waiting: string(models.NormalizationJobQueued),
 	// Local jobs belong to no run; pausing the active run pauses the whole
-	// pipeline.
-	claimable:      `NOT EXISTS (SELECT 1 FROM author_metadata_run WHERE status = 'paused')`,
+	// pipeline. A worker takes only the jobs of its own normalizer version.
+	claimable:      `NOT EXISTS (SELECT 1 FROM author_metadata_run WHERE status = 'paused') AND j.normalizer_version = %[1]s`,
 	exhaust:        `status = 'failed', last_error_class = '` + LeaseErrorMaxAttemptsExceeded + `'`,
 	exhaustOutcome: string(models.NormalizationJobFailed),
 	retry:          `, last_error_class = ?4`,
+}
+
+// claimableAt is the stream's pause rule with param standing for the
+// claimer's normalizer version, where the rule names one.
+func (s *leaseSpec) claimableAt(param string) string {
+	return strings.ReplaceAll(s.claimable, "%[1]s", param)
 }
 
 func leaseSpecFor(stream LeaseStream) (*leaseSpec, error) {
@@ -271,6 +289,14 @@ func claim(ctx context.Context, db *pg.DB, stream LeaseStream, owner string, opt
 	return claims, nil
 }
 
+// claimVersion is the normalizer version a claim takes local jobs of.
+func claimVersion(opts LeaseClaimOptions) string {
+	if opts.NormalizerVersion == "" {
+		return authornorm.NormalizerVersion
+	}
+	return opts.NormalizerVersion
+}
+
 func validClaim(owner string, opts LeaseClaimOptions) error {
 	if opts.Limit <= 0 {
 		return authornorm.ErrInvalidClaimLimit
@@ -300,14 +326,15 @@ func claimLeases(
 	if err := validClaim(owner, opts); err != nil {
 		return nil, err
 	}
-	if err := endExhausted(ctx, tx, spec, opts.MaxAttempts, at); err != nil {
+	version := claimVersion(opts)
+	if err := endExhausted(ctx, tx, spec, opts.MaxAttempts, version, at); err != nil {
 		return nil, err
 	}
 
 	query := fmt.Sprintf(`
 		WITH %[6]s, ready AS (
 			SELECT j.id FROM %[1]s j, clock c
-			WHERE j.status = 'pending'
+			WHERE j.status = '%[7]s'
 				AND j.next_attempt_at <= c.at
 				AND (j.lease_expires_at IS NULL OR j.lease_expires_at <= c.at)
 				AND j.attempt_count < ?0
@@ -336,11 +363,12 @@ func claimLeases(
 		SELECT cl.id, cl.attempt_count AS attempt_no, cl.lease_expires_at
 		FROM claimed cl
 		ORDER BY cl.next_attempt_at, cl.id`,
-		spec.table, spec.attemptTable, spec.claimable, spec.attemptFK, LeaseErrorLeaseExpired, clockCTE(claimClockParam))
+		spec.table, spec.attemptTable, spec.claimableAt("?5"), spec.attemptFK, LeaseErrorLeaseExpired,
+		clockCTE(claimClockParam), spec.waiting)
 
 	var claims []LeaseClaim
 	if _, err := tx.QueryContext(ctx, &claims, query,
-		opts.MaxAttempts, opts.Limit, owner, micros(opts.Lease), at); err != nil {
+		opts.MaxAttempts, opts.Limit, owner, micros(opts.Lease), at, version); err != nil {
 		return nil, fmt.Errorf("claiming %s rows: %w", spec.stream, err)
 	}
 	return claims, nil
@@ -354,7 +382,7 @@ func claimLeases(
 // A row out of attempts with no open attempt (the limit was lowered after its
 // last attempt failed and closed) is ended as well: its history is already
 // complete, and leaving it pending would hide it.
-func endExhausted(ctx context.Context, tx *pg.Tx, spec *leaseSpec, maxAttempts int, at *time.Time) error {
+func endExhausted(ctx context.Context, tx *pg.Tx, spec *leaseSpec, maxAttempts int, version string, at *time.Time) error {
 	exhaust := fmt.Sprintf(`
 		WITH %[8]s, exhausted AS (
 			UPDATE %[1]s j
@@ -362,7 +390,7 @@ func endExhausted(ctx context.Context, tx *pg.Tx, spec *leaseSpec, maxAttempts i
 			FROM clock c
 			WHERE j.id IN (
 				SELECT j.id FROM %[1]s j, clock c
-				WHERE j.status = 'pending'
+				WHERE j.status = '%[9]s'
 					AND j.attempt_count >= ?0
 					AND (j.lease_expires_at IS NULL OR j.lease_expires_at <= c.at)
 					AND %[7]s
@@ -374,8 +402,8 @@ func endExhausted(ctx context.Context, tx *pg.Tx, spec *leaseSpec, maxAttempts i
 		FROM exhausted e, clock c
 		WHERE a.%[4]s = e.id AND a.finished_at IS NULL`,
 		spec.table, spec.attemptTable, spec.exhaust, spec.attemptFK, spec.exhaustOutcome, LeaseErrorMaxAttemptsExceeded,
-		spec.claimable, clockCTE(exhaustClockParam))
-	if _, err := tx.ExecContext(ctx, exhaust, maxAttempts, at); err != nil {
+		spec.claimableAt("?2"), clockCTE(exhaustClockParam), spec.waiting)
+	if _, err := tx.ExecContext(ctx, exhaust, maxAttempts, at, version); err != nil {
 		return fmt.Errorf("ending %s rows out of attempts: %w", spec.stream, err)
 	}
 	return nil
@@ -403,8 +431,8 @@ func heartbeat(
 		UPDATE %[1]s j
 		SET lease_expires_at = c.at + ?0 * interval '1 microsecond'
 		FROM clock c
-		WHERE j.id = ?1 AND j.status = 'pending' AND j.lease_owner = ?2::uuid AND j.lease_expires_at >= c.at`,
-		spec.table, clockCTE(heartbeatClockParam)),
+		WHERE j.id = ?1 AND j.status = '%[3]s' AND j.lease_owner = ?2::uuid AND j.lease_expires_at >= c.at`,
+		spec.table, clockCTE(heartbeatClockParam), spec.waiting),
 		micros(lease), id, owner, at)
 	if err != nil {
 		return fmt.Errorf("extending a %s lease: %w", spec.stream, err)
@@ -416,7 +444,7 @@ func heartbeat(
 }
 
 // leaseHold is the shared head of fail and complete: the operation clock, and
-// the fenced row — owner, pending, lease not yet expired on that clock —
+// the fenced row — owner, waiting, lease not yet expired on that clock —
 // locked, with its open attempt if there is one. The fence sits on the locked
 // row itself, so a concurrent reclaim is re-checked after the lock wait. ?0 is
 // the row ID, ?1 the owner.
@@ -426,7 +454,7 @@ const leaseHold = `%[3]s, held AS (
 			CROSS JOIN clock c
 			LEFT JOIN %[2]s a
 				ON a.%[4]s = j.id AND a.attempt_no = j.attempt_count AND a.finished_at IS NULL
-			WHERE j.id = ?0 AND j.status = 'pending' AND j.lease_owner = ?1::uuid AND j.lease_expires_at >= c.at
+			WHERE j.id = ?0 AND j.status = '%[5]s' AND j.lease_owner = ?1::uuid AND j.lease_expires_at >= c.at
 			FOR UPDATE OF j
 		), moving AS (
 			SELECT * FROM held WHERE attempt_id IS NOT NULL
@@ -470,7 +498,7 @@ func fail(
 		return false, ErrInvalidLeaseOwner
 	}
 
-	head := fmt.Sprintf(leaseHold, spec.table, spec.attemptTable, clockCTE(failClockParam), spec.attemptFK)
+	head := fmt.Sprintf(leaseHold, spec.table, spec.attemptTable, clockCTE(failClockParam), spec.attemptFK, spec.waiting)
 	query := fmt.Sprintf(`
 		WITH %[1]s, retried AS (
 			UPDATE %[2]s j
@@ -554,7 +582,7 @@ func complete(
 		return ErrInvalidLeaseOwner
 	}
 	clockParam := completeStreamParams + len(params)
-	head := fmt.Sprintf(leaseHold, spec.table, spec.attemptTable, clockCTE(clockParam), spec.attemptFK)
+	head := fmt.Sprintf(leaseHold, spec.table, spec.attemptTable, clockCTE(clockParam), spec.attemptFK, spec.waiting)
 	query := fmt.Sprintf(`
 		WITH %[1]s, done AS (
 			UPDATE %[2]s j

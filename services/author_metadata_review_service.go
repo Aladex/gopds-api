@@ -416,6 +416,6 @@ func strOrEmpty[T ~string](s *T) string {
 // service's default configuration in step with the shipped normalizer
 // without importing its internals here.
 const (
-	authornormNormalizerVersion   = "authornorm-local-v1"
+	authornormNormalizerVersion   = "authornorm-local-v2"
 	authornormResultSchemaVersion = 1
 )

@@ -1,5 +1,5 @@
 {
-  "description": "Local normalizer v1 golden cases. Shapes are taken from the legacy catalog (initials, particles, affixes, hyphens, apostrophes, placeholders, collectives, homoglyph mixed script, all-caps and lower-case defects, mojibake, digit and punctuation garbage); the names themselves are public figures or synthetic. Every field of want is compared exactly: an absent field means the empty string, an absent quality_flags means no flags.",
+  "description": "Local normalizer v2 golden cases. Shapes are taken from the legacy catalog (initials, particles, affixes, hyphens, apostrophes, placeholders, collectives, homoglyph mixed script, all-caps and lower-case defects, mojibake, digit and punctuation garbage); the names themselves are public figures or synthetic. Every field of want is compared exactly: an absent field means the empty string, an absent quality_flags means no flags.",
   "cases": [
     {
       "name": "structured complete person keeps source order and builds a separate sort name",
@@ -242,7 +242,7 @@
       "components": [
         {
           "kind": "first",
-          "value": "Анна\u00a0Мария"
+          "value": "Анна Мария"
         },
         {
           "kind": "last",
@@ -935,9 +935,9 @@
         "search_key": "коллектив авторов",
         "script": "Cyrl",
         "kind": "collective",
-        "status": "unresolved",
+        "status": "normalized",
         "method": "rules",
-        "decision_class": "collective_candidate",
+        "decision_class": "collective",
         "quality_flags": [
           "unstructured",
           "collective_marker"
@@ -961,9 +961,9 @@
         "search_key": "сказки народные",
         "script": "Cyrl",
         "kind": "collective",
-        "status": "unresolved",
+        "status": "normalized",
         "method": "rules",
-        "decision_class": "collective_candidate",
+        "decision_class": "collective",
         "quality_flags": [
           "lowercase",
           "collective_marker"
@@ -983,9 +983,9 @@
         "search_key": "various authors",
         "script": "Latn",
         "kind": "collective",
-        "status": "unresolved",
+        "status": "normalized",
         "method": "rules",
-        "decision_class": "collective_candidate",
+        "decision_class": "collective",
         "quality_flags": [
           "unstructured",
           "nickname",
@@ -1318,7 +1318,7 @@
       "components": [
         {
           "kind": "first",
-          "value": "\ufffd\ufffd\ufffd"
+          "value": "���"
         },
         {
           "kind": "last",
@@ -1326,8 +1326,8 @@
         }
       ],
       "want": {
-        "display_name": "\ufffd\ufffd\ufffd Иван",
-        "search_key": "\ufffd\ufffd\ufffd иван",
+        "display_name": "��� Иван",
+        "search_key": "��� иван",
         "script": "Cyrl",
         "kind": "malformed",
         "status": "invalid",
@@ -1336,6 +1336,411 @@
         "quality_flags": [
           "unusual_characters",
           "replacement_character"
+        ]
+      }
+    },
+    {
+      "name": "placeholder nickname is dropped and the name is normalized as usual",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Микал"
+        },
+        {
+          "kind": "last",
+          "value": "Хем"
+        },
+        {
+          "kind": "nickname",
+          "value": "Неизвестный автор"
+        }
+      ],
+      "want": {
+        "given_name": "Микал",
+        "family_name": "Хем",
+        "display_name": "Микал Хем",
+        "sort_name": "Хем, Микал",
+        "search_key": "микал хем",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "normalized",
+        "method": "structured",
+        "decision_class": "structured_person",
+        "quality_flags": [
+          "placeholder_nickname"
+        ]
+      }
+    },
+    {
+      "name": "latin placeholder nickname is dropped too",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Dan"
+        },
+        {
+          "kind": "last",
+          "value": "Brown"
+        },
+        {
+          "kind": "nickname",
+          "value": "Unknown Author"
+        }
+      ],
+      "want": {
+        "given_name": "Dan",
+        "family_name": "Brown",
+        "display_name": "Dan Brown",
+        "sort_name": "Brown, Dan",
+        "search_key": "dan brown",
+        "script": "Latn",
+        "kind": "person",
+        "status": "normalized",
+        "method": "structured",
+        "decision_class": "structured_person",
+        "quality_flags": [
+          "placeholder_nickname"
+        ]
+      }
+    },
+    {
+      "name": "the rest after a dropped placeholder nickname keeps its own ambiguity",
+      "components": [
+        {
+          "kind": "first",
+          "value": "И."
+        },
+        {
+          "kind": "last",
+          "value": "Петров"
+        },
+        {
+          "kind": "nickname",
+          "value": "Неизвестный автор"
+        }
+      ],
+      "want": {
+        "given_name": "И.",
+        "family_name": "Петров",
+        "display_name": "И. Петров",
+        "sort_name": "Петров, И.",
+        "search_key": "и петров",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "structured",
+        "decision_class": "initials",
+        "quality_flags": [
+          "initials",
+          "placeholder_nickname"
+        ]
+      }
+    },
+    {
+      "name": "a placeholder nickname alone is the placeholder, not a dropped nickname",
+      "components": [
+        {
+          "kind": "nickname",
+          "value": "Неизвестный автор"
+        }
+      ],
+      "want": {
+        "display_name": "Неизвестный автор",
+        "search_key": "неизвестный автор",
+        "script": "Cyrl",
+        "kind": "unknown",
+        "status": "normalized",
+        "method": "rules",
+        "decision_class": "placeholder",
+        "quality_flags": [
+          "unstructured",
+          "nickname",
+          "placeholder"
+        ]
+      }
+    },
+    {
+      "name": "a placeholder nickname repeating another component is not dropped",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Неизвестный автор"
+        },
+        {
+          "kind": "nickname",
+          "value": "Неизвестный автор"
+        }
+      ],
+      "want": {
+        "display_name": "Неизвестный автор Неизвестный автор",
+        "search_key": "неизвестный автор неизвестный автор",
+        "script": "Cyrl",
+        "kind": "unknown",
+        "status": "unresolved",
+        "method": "rules",
+        "decision_class": "placeholder_fragment",
+        "quality_flags": [
+          "partial_structure",
+          "nickname",
+          "placeholder_fragment"
+        ]
+      }
+    },
+    {
+      "name": "a nickname that only contains a placeholder word is not a placeholder nickname",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Эрнст"
+        },
+        {
+          "kind": "last",
+          "value": "Вейс"
+        },
+        {
+          "kind": "nickname",
+          "value": "Неизвестный солдат"
+        }
+      ],
+      "want": {
+        "display_name": "Эрнст Вейс Неизвестный солдат",
+        "search_key": "эрнст вейс неизвестный солдат",
+        "script": "Cyrl",
+        "kind": "unknown",
+        "status": "unresolved",
+        "method": "rules",
+        "decision_class": "placeholder_fragment",
+        "quality_flags": [
+          "nickname",
+          "placeholder_fragment"
+        ]
+      }
+    },
+    {
+      "name": "an anthology label is a collective",
+      "components": [
+        {
+          "kind": "last",
+          "value": "Сборник статей"
+        }
+      ],
+      "want": {
+        "display_name": "Сборник статей",
+        "search_key": "сборник статей",
+        "script": "Cyrl",
+        "kind": "collective",
+        "status": "normalized",
+        "method": "rules",
+        "decision_class": "collective",
+        "quality_flags": [
+          "unstructured",
+          "collective_marker"
+        ]
+      }
+    },
+    {
+      "name": "brothers stay a collective candidate",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Братья"
+        },
+        {
+          "kind": "last",
+          "value": "Гримм"
+        }
+      ],
+      "want": {
+        "display_name": "Братья Гримм",
+        "search_key": "братья гримм",
+        "script": "Cyrl",
+        "kind": "collective",
+        "status": "unresolved",
+        "method": "rules",
+        "decision_class": "collective_candidate",
+        "quality_flags": [
+          "collective_marker"
+        ]
+      }
+    },
+    {
+      "name": "a literary agent label before a full name stays a collective candidate",
+      "components": [
+        {
+          "kind": "last",
+          "value": "Литагент Щепетнов Евгений"
+        }
+      ],
+      "want": {
+        "display_name": "Литагент Щепетнов Евгений",
+        "search_key": "литагент щепетнов евгений",
+        "script": "Cyrl",
+        "kind": "collective",
+        "status": "unresolved",
+        "method": "rules",
+        "decision_class": "collective_candidate",
+        "quality_flags": [
+          "unstructured",
+          "collective_marker"
+        ]
+      }
+    },
+    {
+      "name": "a literary agent label before a publisher is a collective",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Литагент"
+        },
+        {
+          "kind": "last",
+          "value": "Альпина"
+        }
+      ],
+      "want": {
+        "display_name": "Литагент Альпина",
+        "search_key": "литагент альпина",
+        "script": "Cyrl",
+        "kind": "collective",
+        "status": "normalized",
+        "method": "rules",
+        "decision_class": "collective",
+        "quality_flags": [
+          "collective_marker"
+        ]
+      }
+    },
+    {
+      "name": "under the editorship of someone stays a collective candidate",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Под редакцией"
+        },
+        {
+          "kind": "last",
+          "value": "Павла Иванова"
+        }
+      ],
+      "want": {
+        "display_name": "Под редакцией Павла Иванова",
+        "search_key": "под редакцией павла иванова",
+        "script": "Cyrl",
+        "kind": "collective",
+        "status": "unresolved",
+        "method": "rules",
+        "decision_class": "collective_candidate",
+        "quality_flags": [
+          "collective_marker"
+        ]
+      }
+    },
+    {
+      "name": "a marker next to a conjunction stays a collective candidate",
+      "components": [
+        {
+          "kind": "last",
+          "value": "Русские народные сказки и легенды"
+        }
+      ],
+      "want": {
+        "display_name": "Русские народные сказки и легенды",
+        "search_key": "русские народные сказки и легенды",
+        "script": "Cyrl",
+        "kind": "collective",
+        "status": "unresolved",
+        "method": "rules",
+        "decision_class": "collective_candidate",
+        "quality_flags": [
+          "unstructured",
+          "collective_marker"
+        ]
+      }
+    },
+    {
+      "name": "a marker next to an initial stays a collective candidate",
+      "components": [
+        {
+          "kind": "first",
+          "value": "М"
+        },
+        {
+          "kind": "middle",
+          "value": "Фоменко"
+        },
+        {
+          "kind": "last",
+          "value": "Антология"
+        }
+      ],
+      "want": {
+        "display_name": "М Фоменко Антология",
+        "search_key": "м фоменко антология",
+        "script": "Cyrl",
+        "kind": "collective",
+        "status": "unresolved",
+        "method": "rules",
+        "decision_class": "collective_candidate",
+        "quality_flags": [
+          "initials",
+          "collective_marker"
+        ]
+      }
+    },
+    {
+      "name": "a capital И between name words is an initial, not a conjunction",
+      "components": [
+        {
+          "kind": "first",
+          "value": "Виктор"
+        },
+        {
+          "kind": "middle",
+          "value": "И"
+        },
+        {
+          "kind": "last",
+          "value": "Черкашин"
+        }
+      ],
+      "want": {
+        "given_name": "Виктор",
+        "additional_names": "И",
+        "family_name": "Черкашин",
+        "display_name": "Виктор И Черкашин",
+        "sort_name": "Черкашин, Виктор И",
+        "search_key": "виктор и черкашин",
+        "script": "Cyrl",
+        "kind": "person",
+        "status": "unresolved",
+        "method": "structured",
+        "decision_class": "initials",
+        "quality_flags": [
+          "initials"
+        ]
+      }
+    },
+    {
+      "name": "an all-caps value keeps its capital И as a conjunction",
+      "components": [
+        {
+          "kind": "last",
+          "value": "ИЛЬФ И ПЕТРОВ"
+        }
+      ],
+      "want": {
+        "display_name": "ИЛЬФ И ПЕТРОВ",
+        "search_key": "ильф и петров",
+        "script": "Cyrl",
+        "kind": "collective",
+        "status": "unresolved",
+        "method": "rules",
+        "decision_class": "collective_candidate",
+        "quality_flags": [
+          "initials",
+          "unstructured",
+          "all_caps",
+          "collective_marker"
         ]
       }
     }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 
+	"gopds-api/internal/authornorm"
 	"gopds-api/models"
 
 	"github.com/go-pg/pg/v10"
@@ -267,12 +268,14 @@ WHERE i.run_id = ?0 AND i.status <> 'pending' AND i.snapshot_id IS NULL
 // stats' run_jobs, so a retry reopens exactly the jobs the status counts:
 // the run's sources under its extractor and normalizer versions — that
 // failed with the class on any attempt and that the workers' budget still
-// allows a claim of. ?0 run, ?1 class, ?2 budget.
+// allows a claim of. ?0 run, ?1 class, ?2 budget, ?3 the shipped normalizer
+// version: a job of another version reopens to nothing this worker claims.
 const reopenLocalSQL = runJobsCTE + `
 UPDATE contributor_normalization_job j
-SET status = 'pending', last_error_class = NULL, lease_owner = NULL, lease_expires_at = NULL,
+SET status = 'queued', last_error_class = NULL, lease_owner = NULL, lease_expires_at = NULL,
 	next_attempt_at = clock_timestamp(), finished_at = NULL
 WHERE j.id IN (SELECT id FROM run_jobs) AND j.status = 'failed' AND j.attempt_count < ?2
+	AND j.normalizer_version = ?3
 	AND (j.last_error_class = ?1 OR EXISTS (SELECT 1 FROM contributor_normalization_job_attempt a
 		WHERE a.job_id = j.id AND a.error_class = ?1))`
 
@@ -320,7 +323,7 @@ func ReopenRunRows(
 		return 0, fmt.Errorf("%w: unknown retry stream", ErrInvalidLeaseFailure)
 	}
 	return reopenRunRowsWith(ctx, db, runID, stream, func(tx *pg.Tx) (pg.Result, error) {
-		return tx.ExecContext(ctx, query, runID, errorClass, maxAttempts)
+		return tx.ExecContext(ctx, query, runID, errorClass, maxAttempts, authornorm.NormalizerVersion)
 	})
 }
 

@@ -278,7 +278,7 @@ func TestStatsLocalStreamIsTheRunsExtractorVersion(t *testing.T) {
 		return persistErr
 	}))
 	require.Equal(t, 2, f.count(`SELECT count(*) FROM contributor_normalization_job
-		WHERE status = 'pending' AND extractor_version = 'other-extractor'`))
+		WHERE status = 'queued' AND extractor_version = 'other-extractor'`))
 
 	stats, err := database.AuthorMetadataStatsForRun(ctx, s, run.ID)
 	require.NoError(t, err)
@@ -353,7 +353,7 @@ func TestStatsLeasedIsALiveLease(t *testing.T) {
 	assert.Zero(t, stats.Extraction.Leased, "an expired lease is not a lease, whatever owner it names")
 
 	drainExtraction(t, ctx, privacyExtraction(t, s, dir, ZipArchiveSource{}, productionExtractor()))
-	jobs := int64(f.count(`SELECT count(*) FROM contributor_normalization_job WHERE status = 'pending'`))
+	jobs := int64(f.count(`SELECT count(*) FROM contributor_normalization_job WHERE status = 'queued'`))
 	require.Positive(t, jobs)
 	local, err := database.ClaimLocalNormalizationJobs(ctx, s, owner, database.LeaseClaimOptions{Limit: 1, Lease: time.Minute, MaxAttempts: 3})
 	require.NoError(t, err)

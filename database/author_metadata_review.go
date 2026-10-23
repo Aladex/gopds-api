@@ -541,8 +541,8 @@ func retryLocalJob(
 		return false, err
 	}
 	res, err := tx.ExecContext(ctx, `INSERT INTO contributor_normalization_job
-		(normalization_key, source_fingerprint, extractor_version, normalizer_version)
-		VALUES (?, ?, ?, ?)
+		(normalization_key, source_fingerprint, extractor_version, normalizer_version, status)
+		VALUES (?, ?, ?, ?, 'queued')
 		ON CONFLICT (normalization_key) DO NOTHING`, key[:], fingerprint, extractor, normalizerVersion)
 	if err != nil {
 		return false, fmt.Errorf("queueing the retry: %w", err)
@@ -562,11 +562,11 @@ func retryLocalJob(
 	if job.AttemptCount >= maxAttempts {
 		return false, ErrReviewRetryExhausted
 	}
-	if job.Status == models.NormalizationJobPending {
+	if job.Status == models.NormalizationJobQueued || job.Status == models.NormalizationJobPending {
 		return false, nil
 	}
 	if _, err = tx.ExecContext(ctx, `UPDATE contributor_normalization_job
-		SET status = 'pending', result_id = NULL, last_error_class = NULL,
+		SET status = 'queued', result_id = NULL, last_error_class = NULL,
 			lease_owner = NULL, lease_expires_at = NULL,
 			next_attempt_at = now(), finished_at = NULL
 		WHERE id = ?`, job.ID); err != nil {

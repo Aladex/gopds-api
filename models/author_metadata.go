@@ -399,14 +399,20 @@ func LLMUnresolvedReasons() []UnresolvedReason {
 type NormalizationJobStatus string
 
 const (
-	NormalizationJobPending   NormalizationJobStatus = "pending"
+	// NormalizationJobPending is the waiting state the authornorm-local-v1
+	// binary writes and claims; a later binary never claims it (migration 59).
+	NormalizationJobPending NormalizationJobStatus = "pending"
+	// NormalizationJobQueued is the waiting state of a job written from
+	// authornorm-local-v2 on, claimed only by a worker of the job's version.
+	NormalizationJobQueued    NormalizationJobStatus = "queued"
 	NormalizationJobCompleted NormalizationJobStatus = "completed"
 	NormalizationJobFailed    NormalizationJobStatus = "failed"
 )
 
 // NormalizationJobStatuses lists every job status the schema accepts.
 func NormalizationJobStatuses() []NormalizationJobStatus {
-	return []NormalizationJobStatus{NormalizationJobPending, NormalizationJobCompleted, NormalizationJobFailed}
+	return []NormalizationJobStatus{NormalizationJobPending, NormalizationJobQueued, NormalizationJobCompleted,
+		NormalizationJobFailed}
 }
 
 // IsTerminal reports whether the job has finished. Values the schema would

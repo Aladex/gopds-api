@@ -46,6 +46,12 @@ const (
 	AuthorMetadataEventLocalInputsResolved AuthorMetadataEventName = "author_metadata.local_inputs_reconciled"
 	// The credits an acceptance pass selected under the newest policy.
 	AuthorMetadataEventAcceptanceApplied AuthorMetadataEventName = "author_metadata.acceptance_applied"
+	// AuthorMetadataEventRenormalizeQueued: the start-up pass queued the
+	// inputs a new normalizer version reads differently.
+	AuthorMetadataEventRenormalizeQueued AuthorMetadataEventName = "author_metadata.renormalize_queued"
+	// AuthorMetadataEventRenormalizeSkipped: one input could not be queued;
+	// the sweep went on past it.
+	AuthorMetadataEventRenormalizeSkipped AuthorMetadataEventName = "author_metadata.renormalize_skipped"
 
 	// Live dual write.
 	AuthorMetadataEventSourcePersisted AuthorMetadataEventName = "author_metadata.source_persisted"
@@ -128,7 +134,7 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventLocalJobCompleted, AuthorMetadataEventLocalAttemptFailed,
 		AuthorMetadataEventLocalLeaseLost, AuthorMetadataEventLocalUndecidable,
 		AuthorMetadataEventLocalInputsSettled, AuthorMetadataEventLocalInputsResolved,
-		AuthorMetadataEventAcceptanceApplied,
+		AuthorMetadataEventAcceptanceApplied, AuthorMetadataEventRenormalizeQueued, AuthorMetadataEventRenormalizeSkipped,
 		AuthorMetadataEventSourcePersisted, AuthorMetadataEventSourceSkipped, AuthorMetadataEventSourceRefreshFailed,
 		AuthorMetadataEventReviewAction, AuthorMetadataEventReviewActionFailed,
 		AuthorMetadataEventReviewAPINotWired,

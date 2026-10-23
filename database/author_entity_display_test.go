@@ -418,7 +418,7 @@ func TestAnEntityNameCountsABookOnce(t *testing.T) {
 	var result int64
 	_, err := f.tx.QueryOne(pg.Scan(&result), `SELECT result_id FROM book_contributor_credit_selection WHERE credit_id = ?`, first)
 	require.NoError(t, err)
-	f.exec(selectionInsert, second, fingerprint(32, 0x7c), "selected", result, "automatic", nil, "3", nil, nil)
+	f.exec(selectionInsert, second, fingerprint(32, 0x7c), "selected", result, "automatic", nil, "4", nil, nil)
 	p, _, _ := f.pass()
 	f.drain()
 	require.Len(t, f.entityIDsOf(book), 2)

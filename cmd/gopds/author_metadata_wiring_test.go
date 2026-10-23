@@ -298,15 +298,16 @@ func persistAuthor(t *testing.T, db *pg.DB, book int64, parts ...string) {
 	}))
 }
 
-// shippedPolicyInsert is migration 25's own INSERT of the shipped
-// registrations, so a test can replay exactly what a release adds.
+// shippedPolicyInsert is migration 59's own INSERT of the shipped
+// registrations of the normalizer in force, so a test can replay exactly what
+// a release adds. On an emptied class table it registers version 2.
 func shippedPolicyInsert(t *testing.T) string {
 	t.Helper()
-	body, err := os.ReadFile("../../database_migrations/25-author-acceptance-by-script.sql")
+	body, err := os.ReadFile("../../database_migrations/59-author-normalizer-v2.sql")
 	require.NoError(t, err)
 	sql := string(body)
 	at := strings.Index(sql, "INSERT INTO public.author_acceptance_class")
-	require.Positive(t, at, "migration 25 no longer inserts the shipped policy")
+	require.Positive(t, at, "migration 59 no longer inserts the shipped policy")
 	return sql[at:]
 }
 

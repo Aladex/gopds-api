@@ -11,7 +11,7 @@ import (
 // NormalizerVersion; any change to the Result shape is a new
 // ResultSchemaVersion.
 const (
-	NormalizerVersion   = "authornorm-local-v1"
+	NormalizerVersion   = "authornorm-local-v2"
 	ResultSchemaVersion = 1
 )
 
@@ -192,12 +192,13 @@ var knownScriptCodes = func() map[Script]struct{} {
 // closed property (Ambiguous, Kind, Status) so callers never match strings.
 type DecisionClass string
 
-// Closed set of decision classes of NormalizerVersion v1, in precedence
+// Closed set of decision classes of NormalizerVersion v2, in precedence
 // order: when several properties hold, the earliest class names the result
-// and the rest stay visible as quality flags.
+// and the rest stay visible as quality flags. v2 added ClassCollective.
 const (
 	ClassMalformed           DecisionClass = "malformed"
 	ClassPlaceholder         DecisionClass = "placeholder"
+	ClassCollective          DecisionClass = "collective"
 	ClassCollectiveCandidate DecisionClass = "collective_candidate"
 	ClassPlaceholderFragment DecisionClass = "placeholder_fragment"
 	ClassDuplicateComponent  DecisionClass = "duplicate_component"
@@ -221,7 +222,7 @@ type classRouting struct {
 
 // decisionClassOrder is the closed list in precedence order.
 var decisionClassOrder = []DecisionClass{
-	ClassMalformed, ClassPlaceholder, ClassCollectiveCandidate, ClassPlaceholderFragment,
+	ClassMalformed, ClassPlaceholder, ClassCollective, ClassCollectiveCandidate, ClassPlaceholderFragment,
 	ClassDuplicateComponent, ClassMixedScript, ClassUnusualCharacters, ClassInitials,
 	ClassParticle, ClassAffix, ClassSingleField, ClassMononym, ClassPartialStructure,
 	ClassNicknameWithName, ClassCaseDefect, ClassStructuredPerson,
@@ -234,6 +235,7 @@ var decisionClassOrder = []DecisionClass{
 var decisionClassRouting = map[DecisionClass]classRouting{
 	ClassMalformed:           {ambiguous: false, kind: KindMalformed},
 	ClassPlaceholder:         {ambiguous: false, kind: KindUnknown},
+	ClassCollective:          {ambiguous: false, kind: KindCollective},
 	ClassStructuredPerson:    {ambiguous: false, kind: KindPerson},
 	ClassCollectiveCandidate: {ambiguous: true, kind: KindCollective},
 	ClassPlaceholderFragment: {ambiguous: true, kind: KindUnknown},
@@ -254,6 +256,19 @@ var decisionClassRouting = map[DecisionClass]classRouting{
 // order.
 func DecisionClasses() []DecisionClass {
 	return append([]DecisionClass(nil), decisionClassOrder...)
+}
+
+// PreviousNormalizerVersion is the version NormalizerVersion replaced.
+const PreviousNormalizerVersion = "authornorm-local-v1"
+
+// RereadClasses returns the decision classes of PreviousNormalizerVersion
+// whose inputs NormalizerVersion may read differently: an input the previous
+// version gave any other class normalizes exactly as before. v2 changed
+// placeholder_fragment (rule D2) and collective_candidate (rules D2-D4), and
+// registered placeholder (rule D1), whose waiting inputs need a result of
+// this version to be selected.
+func RereadClasses() []DecisionClass {
+	return []DecisionClass{ClassPlaceholder, ClassCollectiveCandidate, ClassPlaceholderFragment}
 }
 
 // ClassSwap names the inputs of a swap run (design K, phase 7): selected
@@ -338,21 +353,24 @@ type QualityFlag string
 
 // Closed set of quality flags, in their canonical output order.
 const (
-	FlagDuplicateComponent   QualityFlag = "duplicate_component"
-	FlagMixedScript          QualityFlag = "mixed_script"
-	FlagUnusualCharacters    QualityFlag = "unusual_characters"
-	FlagInitials             QualityFlag = "initials"
-	FlagParticle             QualityFlag = "particle"
-	FlagAffix                QualityFlag = "affix"
-	FlagUnstructured         QualityFlag = "unstructured"
-	FlagSingleToken          QualityFlag = "single_token"
-	FlagPartialStructure     QualityFlag = "partial_structure"
-	FlagNickname             QualityFlag = "nickname"
-	FlagAllCaps              QualityFlag = "all_caps"
-	FlagLowercase            QualityFlag = "lowercase"
-	FlagCollectiveMarker     QualityFlag = "collective_marker"
-	FlagPlaceholder          QualityFlag = "placeholder"
-	FlagPlaceholderFragment  QualityFlag = "placeholder_fragment"
+	FlagDuplicateComponent  QualityFlag = "duplicate_component"
+	FlagMixedScript         QualityFlag = "mixed_script"
+	FlagUnusualCharacters   QualityFlag = "unusual_characters"
+	FlagInitials            QualityFlag = "initials"
+	FlagParticle            QualityFlag = "particle"
+	FlagAffix               QualityFlag = "affix"
+	FlagUnstructured        QualityFlag = "unstructured"
+	FlagSingleToken         QualityFlag = "single_token"
+	FlagPartialStructure    QualityFlag = "partial_structure"
+	FlagNickname            QualityFlag = "nickname"
+	FlagAllCaps             QualityFlag = "all_caps"
+	FlagLowercase           QualityFlag = "lowercase"
+	FlagCollectiveMarker    QualityFlag = "collective_marker"
+	FlagPlaceholder         QualityFlag = "placeholder"
+	FlagPlaceholderFragment QualityFlag = "placeholder_fragment"
+	// FlagPlaceholderNickname marks a nickname component that was exactly a
+	// placeholder and was dropped before the rest was normalized (v2).
+	FlagPlaceholderNickname  QualityFlag = "placeholder_nickname"
 	FlagNoLetters            QualityFlag = "no_letters"
 	FlagReplacementCharacter QualityFlag = "replacement_character"
 	FlagHyphen               QualityFlag = "hyphen"
@@ -365,7 +383,7 @@ var qualityFlagOrder = []QualityFlag{
 	FlagDuplicateComponent, FlagMixedScript, FlagUnusualCharacters, FlagInitials,
 	FlagParticle, FlagAffix, FlagUnstructured, FlagSingleToken, FlagPartialStructure,
 	FlagNickname, FlagAllCaps, FlagLowercase, FlagCollectiveMarker, FlagPlaceholder,
-	FlagPlaceholderFragment, FlagNoLetters, FlagReplacementCharacter, FlagHyphen,
+	FlagPlaceholderFragment, FlagPlaceholderNickname, FlagNoLetters, FlagReplacementCharacter, FlagHyphen,
 	FlagApostrophe, FlagWhitespaceCollapsed, FlagEmptyComponent,
 }
 

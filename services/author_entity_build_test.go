@@ -38,7 +38,7 @@ func newEntityCatalog(t *testing.T) *entityCatalog {
 	c := &entityCatalog{t: t, db: db, next: 1000}
 	c.exec(`INSERT INTO author_acceptance_class
 		(policy_version, decision_class, script, config_version, evidence_report_sha256, evidence_ref, source)
-		VALUES ('3', 'structured_person', 'Cyrl', 'normalizer-v1', ?, 'internal/authornorm/policy_evidence/fixture.json',
+		VALUES ('4', 'structured_person', 'Cyrl', 'normalizer-v1', ?, 'internal/authornorm/policy_evidence/fixture.json',
 		 'shipped')`, bytes.Repeat([]byte{0xee}, 32))
 	return c
 }
@@ -97,7 +97,7 @@ func (c *entityCatalog) credit(snap int64, fill byte, family, given string, addi
 	}
 	c.exec(`INSERT INTO book_contributor_credit_selection
 		(credit_id, source_fingerprint, state, result_id, basis, policy_version)
-		VALUES (?, ?, 'selected', ?, 'automatic', '3')`, credit, fp, result)
+		VALUES (?, ?, 'selected', ?, 'automatic', '4')`, credit, fp, result)
 }
 
 // seedBucket is a full name, a short-name book that moves to it by series

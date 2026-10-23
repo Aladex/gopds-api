@@ -120,7 +120,7 @@ func TestPersistExtractionWritesSnapshotCreditsAndJobs(t *testing.T) {
 	assert.Equal(t, one[:], job.SourceFingerprint)
 	assert.Equal(t, "extractor-v1", job.ExtractorVersion)
 	assert.Equal(t, "normalizer-v1", job.NormalizerVersion)
-	assert.Equal(t, models.NormalizationJobPending, job.Status)
+	assert.Equal(t, models.NormalizationJobQueued, job.Status)
 	assert.Nil(t, job.ResultID)
 	translatorKey, err := authornorm.NormalizationKey(
 		authornorm.SourceFingerprint(translator.Source), "extractor-v1", "normalizer-v1")

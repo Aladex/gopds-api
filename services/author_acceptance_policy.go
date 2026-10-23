@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"time"
 
 	"gopds-api/database"
 	"gopds-api/internal/authornorm"
@@ -186,9 +187,11 @@ func logAcceptanceApplied(selected, version int) {
 	}
 }
 
-// AuthorAcceptancePass is the runner stage that applies the policy once at
-// start: the credits that waited for a pair a new release registered are
-// selected without an administrator, whether or not the workers run.
+// AuthorAcceptancePass is the runner stage that brings the shipped normalizer
+// and policy into force once at start: the inputs a new normalizer version
+// reads differently are queued again under it, and the credits that waited
+// for a pair a new release registered are selected without an
+// administrator, whether or not the workers run.
 type AuthorAcceptancePass struct {
 	db *pg.DB
 }
@@ -199,9 +202,92 @@ func NewAuthorAcceptancePass(db *pg.DB) *AuthorAcceptancePass { return &AuthorAc
 // Name is the stage's fixed label.
 func (p *AuthorAcceptancePass) Name() string { return string(AuthorMetadataStageAcceptance) }
 
-// Run applies the newest policy once and returns; a canceled ctx stops it at
-// the next input.
+// Run queues the re-read inputs, then applies the newest policy once and
+// returns; a canceled ctx stops it at the next input.
 func (p *AuthorAcceptancePass) Run(ctx context.Context) error {
+	if _, err := RenormalizeRereadInputs(ctx, p.db, acceptanceApplyBatch); err != nil {
+		return err
+	}
 	_, err := ApplyAcceptancePolicy(ctx, p.db, authornorm.NormalizerVersion, acceptanceApplyBatch)
 	return err
+}
+
+// RenormalizeRereadInputs queues under authornorm.NormalizerVersion every
+// input still waiting on authornorm.PreviousNormalizerVersion: an open review
+// item or a credit unresolved for want of a registration on a result of a
+// class the new version reads differently (authornorm.RereadClasses), and
+// every previous-version job the new worker will never claim — waiting,
+// failed, or written since the release by a v1 binary still running
+// (database.RenormalizeLists). It only queues: the local worker normalizes
+// the inputs, and its resolver closes an old reading's review item when the
+// new one is applied. The start-up pass runs it, and so does every local
+// worker batch, which is what catches a v1 binary's late writes in a rolling
+// update.
+//
+// Each input is queued on its own: one that fails is logged by its
+// fingerprint and SQLSTATE and skipped, and the sweep goes on past it, so it
+// can neither stop the sweep nor starve the inputs after it at the next
+// start. It returns how many jobs it queued; only a list that cannot be read
+// is an error. A repeated sweep queues nothing: an input with a job of the
+// new version is not listed again.
+func RenormalizeRereadInputs(ctx context.Context, db *pg.DB, batch int) (int, error) {
+	if batch <= 0 {
+		return 0, ErrInvalidAuthorAcceptanceConfig
+	}
+	target := database.RenormalizeTarget{
+		Previous: authornorm.PreviousNormalizerVersion, Current: authornorm.NormalizerVersion,
+		Classes: authornorm.RereadClasses(),
+	}
+	released, err := database.ReleaseTime(ctx, db, target.Current)
+	if err != nil {
+		return 0, err
+	}
+	if !released.IsZero() {
+		// A v1 transaction that began before the release may commit its job
+		// after it with an earlier created_at: look back a margin.
+		target.Since = released.Add(-renormalizeLateMargin)
+	}
+	queued := 0
+	defer func() { logRenormalizeQueued(queued) }()
+	for _, list := range database.RenormalizeLists() {
+		var after *database.RenormalizeInput
+		for {
+			inputs, listErr := database.RenormalizeInputs(ctx, db, list, &target, after, batch)
+			if listErr != nil {
+				return queued, listErr
+			}
+			for i := range inputs {
+				fresh, queueErr := database.QueueRenormalization(ctx, db, inputs[i], target.Current)
+				if queueErr != nil {
+					if ctx.Err() != nil {
+						return queued, ctx.Err()
+					}
+					LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{
+						Name: AuthorMetadataEventRenormalizeSkipped, Stage: AuthorMetadataStageAcceptance,
+						Fingerprint: inputs[i].SourceFingerprint, SQLState: AuthorMetadataSQLState(queueErr),
+					})
+					continue
+				}
+				if fresh {
+					queued++
+				}
+			}
+			if len(inputs) < batch {
+				break
+			}
+			after = &inputs[len(inputs)-1]
+		}
+	}
+	return queued, nil
+}
+
+// renormalizeLateMargin is how far before the release the late list looks.
+const renormalizeLateMargin = time.Hour
+
+func logRenormalizeQueued(queued int) {
+	if queued > 0 {
+		LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{
+			Name: AuthorMetadataEventRenormalizeQueued, Stage: AuthorMetadataStageAcceptance, Count: queued,
+		})
+	}
 }

@@ -187,26 +187,62 @@ func ParseReply(raw []byte) (Reply, error) {
 	if rep.Roles == nil {
 		rep.Roles = []RoleAssignment{}
 	}
+	normalizeAffixes(rep.Form, rep.Roles)
 	rep.Order = OrderOf(rep.Form, rep.Roles)
 	return rep, nil
 }
 
+// normalizeAffixes gives a person's titles the role their position says: an
+// affix before the first name token is a prefix, one after it a suffix. A
+// title after the given name ("Иоанн Святитель Златоуст", "Фалассий авва")
+// is written either way by the models; its place, not the label, is the
+// answer, so two answers that differ only there agree. A reply without a
+// name token is left as it is, for V5 to refuse.
+func normalizeAffixes(form Form, roles []RoleAssignment) {
+	if form != FormPerson {
+		return
+	}
+	first, found := firstIndex(roles, Role.nameRole)
+	if !found {
+		first, found = firstIndex(roles, func(r Role) bool { return r == RoleNickname })
+	}
+	if !found {
+		return
+	}
+	for i := range roles {
+		if roles[i].Role != RolePrefix && roles[i].Role != RoleSuffix {
+			continue
+		}
+		switch {
+		case roles[i].I < first:
+			roles[i].Role = RolePrefix
+		case roles[i].I > first:
+			roles[i].Role = RoleSuffix
+		}
+	}
+}
+
 // OrderOf is the written order the roles say: for a person, given_first,
-// family_first or single_name by the role of the first name token; for every
-// other form not_applicable. A person whose first name token is additional
-// (or who has no name token) has no order, and V5 refuses it.
+// family_first or single_name by the role of the first name token, and
+// single_name for a person named by a pen name alone (only nickname tokens);
+// for every other form not_applicable. A person whose first name token is
+// additional (or who has no name token at all) has no order, and V5 refuses
+// it.
 func OrderOf(form Form, roles []RoleAssignment) Order {
 	if form != FormPerson {
 		return OrderNotApplicable
 	}
-	first, found := 0, false
+	first, found, penName := 0, false, false
 	var role Role
 	for _, ra := range roles {
 		if ra.Role.nameRole() && (!found || ra.I < first) {
 			first, role, found = ra.I, ra.Role, true
 		}
+		penName = penName || ra.Role == RoleNickname
 	}
 	switch {
+	case !found && penName:
+		return OrderSingleName
 	case !found:
 		return ""
 	case role == RoleGiven:
@@ -217,6 +253,16 @@ func OrderOf(form Form, roles []RoleAssignment) Order {
 		return OrderSingleName
 	}
 	return ""
+}
+
+// firstIndex is the lowest token index whose role matches.
+func firstIndex(roles []RoleAssignment, match func(Role) bool) (first int, found bool) {
+	for _, ra := range roles {
+		if match(ra.Role) && (!found || ra.I < first) {
+			first, found = ra.I, true
+		}
+	}
+	return first, found
 }
 
 // ParseStoredReply reads an answer this service stored itself — the expected

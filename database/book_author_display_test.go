@@ -43,12 +43,12 @@ func (f *authorSchemaFixture) selectAs(credit int64, fill byte, name string) {
 	row := autoRow(fingerprint(32, fill), "structured_person", "normalizer-v1")
 	row.display = &name
 	result := f.result(row)
-	f.exec(selectionInsert, credit, fingerprint(32, fill), "selected", result, "automatic", nil, "3", nil, nil)
+	f.exec(selectionInsert, credit, fingerprint(32, fill), "selected", result, "automatic", nil, "4", nil, nil)
 }
 
 func TestBookAuthorDisplayReadsTheCurrentCreditsInFileOrder(t *testing.T) {
 	f := withAuthorSchemaTx(t)
-	f.registerPair("3", "structured_person", "normalizer-v1")
+	f.registerPair("4", "structured_person", "normalizer-v1")
 	repo := NewPGBookSourceRepository(f.tx)
 
 	// Two authors, linked in the legacy catalog in the opposite order, and
@@ -114,7 +114,7 @@ func TestBookAuthorDisplayReadsTheCurrentCreditsInFileOrder(t *testing.T) {
 // where the next window starts until the catalog is read to its end.
 func TestCompareAuthorDisplayWalksTheCatalogInWindows(t *testing.T) {
 	f := withAuthorSchemaTx(t)
-	f.registerPair("3", "structured_person", "normalizer-v1")
+	f.registerPair("4", "structured_person", "normalizer-v1")
 
 	same := f.book()
 	f.legacyAuthorOf(same, "Иванов Иван")

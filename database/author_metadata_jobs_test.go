@@ -232,9 +232,10 @@ func seedLocalJobs(t *testing.T, s *pg.DB, n int) []int64 {
 		fp := keyFor("fingerprint", fmt.Sprint(i))
 		_, err := s.QueryOne(pg.Scan(&ids[i]), `
 			INSERT INTO contributor_normalization_job
-				(normalization_key, source_fingerprint, extractor_version, normalizer_version, next_attempt_at)
-			VALUES (?, ?, 'extractor-v1', 'normalizer-v1', now() - (? - ?) * interval '1 second')
-			RETURNING id`, keyFor(string(fp), "extractor-v1", "normalizer-v1"), fp, n+1, i)
+				(normalization_key, source_fingerprint, extractor_version, normalizer_version, status, next_attempt_at)
+			VALUES (?, ?, 'extractor-v1', ?, 'queued', now() - (? - ?) * interval '1 second')
+			RETURNING id`, keyFor(string(fp), "extractor-v1", authornorm.NormalizerVersion), fp, authornorm.NormalizerVersion,
+			n+1, i)
 		require.NoError(t, err)
 	}
 	return ids
@@ -555,7 +556,7 @@ func leaseStaleOwnerCannotFinish(t *testing.T, s *pg.DB) {
 		assert.ErrorIs(t, c.heartbeat(ctx, s, id, first, time.Hour), authornorm.ErrLeaseLost, "stale heartbeat")
 
 		r := c.row(t, s, id)
-		assert.Equal(t, "pending", r.Status, "the stale owner changed the status")
+		assert.Equal(t, c.spec.waiting, r.Status, "the stale owner changed the status")
 		require.NotNil(t, r.LeaseOwner)
 		assert.Equal(t, second, *r.LeaseOwner, "the stale owner took the lease back")
 		attempts := c.attempts(t, s, id)
@@ -636,7 +637,7 @@ func leaseTransientFailureSchedulesRetry(t *testing.T, s *pg.DB) {
 		assert.False(t, exhausted)
 
 		r := c.row(t, s, id)
-		assert.Equal(t, "pending", r.Status)
+		assert.Equal(t, c.spec.waiting, r.Status)
 		assert.Nil(t, r.LeaseOwner, "the lease is released")
 		assert.InDelta(t, 300, r.ReadyInSeconds, 10, "retry scheduled five minutes ahead on the database clock")
 		if c.table == "contributor_normalization_job" {
@@ -843,7 +844,7 @@ func leaseFencingUsesFreshClock(t *testing.T, s *pg.DB) {
 		t.Run("complete", func(t *testing.T) {
 			tx := c.expiredSinceTxStart(t, s, ids[1])
 			assert.ErrorIs(t, c.completeIn(t, tx, ids[1], owner), authornorm.ErrLeaseLost)
-			assert.Equal(t, "pending", c.row(t, tx, ids[1]).Status)
+			assert.Equal(t, c.spec.waiting, c.row(t, tx, ids[1]).Status)
 		})
 		t.Run("complete and fail fence inclusively at the operation instant", func(t *testing.T) {
 			more := ids[3:]

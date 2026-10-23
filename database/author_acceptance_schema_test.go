@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -109,16 +110,17 @@ func TestAutomaticSelectionNeedsTheScriptRegisteredByItsVersion(t *testing.T) {
 	latinRow.key = keyFor(string(fp), "extractor-v1", "normalizer-v1", "latin")
 	latinRow.script = ptr("Latn")
 	latin := f.result(latinRow)
-	f.registerPair("3", "structured_person", "normalizer-v1")
+	// Versions 2 and 3 are the shipped registrations (migrations 25 and 59).
+	f.registerPair("4", "structured_person", "normalizer-v1")
 
 	automatic := func(result int64, version string) []interface{} {
 		return []interface{}{credit, fp, "selected", result, "automatic", nil, version, nil, nil}
 	}
-	f.accept(selectionInsert, automatic(cyrillic, "3")...)
+	f.accept(selectionInsert, automatic(cyrillic, "4")...)
 	f.accept(selectionInsert, automatic(cyrillic, "7")...)
-	f.reject(sqlstateCheck, "not registered", selectionInsert, automatic(cyrillic, "2")...)
-	f.reject(sqlstateCheck, "not registered", selectionInsert, automatic(latin, "3")...)
-	f.reject(sqlstateCheck, "integer policy version", selectionInsert, automatic(cyrillic, "policy-3")...)
+	f.reject(sqlstateCheck, "not registered", selectionInsert, automatic(cyrillic, "3")...)
+	f.reject(sqlstateCheck, "not registered", selectionInsert, automatic(latin, "4")...)
+	f.reject(sqlstateCheck, "integer policy version", selectionInsert, automatic(cyrillic, "policy-4")...)
 }
 
 // Migration 25 refuses to guess a script for a registration made before it:
@@ -182,28 +184,74 @@ func filesUpTo(t *testing.T, last string) fs.FS {
 }
 
 // The policy ships with the code: every migrated database holds exactly the
-// shipped registrations of migration 25, and their evidence hash is the
-// SHA-256 of the frozen report checked in at evidence_ref.
+// shipped registrations of migrations 25 and 59, and their evidence hash is
+// the SHA-256 of the frozen report checked in at evidence_ref. Migration 59's
+// report names exactly the pairs the migration registers, for the normalizer
+// version in force, and every check in it passed.
 func TestShippedPolicyIsTheEvidenceFile(t *testing.T) {
 	f := withAuthorSchemaTx(t)
 	var rows []models.AuthorAcceptanceClass
-	require.NoError(t, f.tx.Model(&rows).Where("source = 'shipped'").Order("script").Select())
-	require.Len(t, rows, 2)
-	const ref = "internal/authornorm/policy_evidence/structured-person-v2.json"
-	report, err := os.ReadFile("../" + ref)
+	require.NoError(t, f.tx.Model(&rows).Where("source = 'shipped'").Order("config_version", "decision_class", "script").Select())
+	require.Len(t, rows, 7)
+
+	const v1Ref = "internal/authornorm/policy_evidence/structured-person-v2.json"
+	v1Report, err := os.ReadFile("../" + v1Ref)
 	require.NoError(t, err)
-	sum := sha256.Sum256(report)
+	v1Sum := sha256.Sum256(v1Report)
 	for i, script := range []string{"Cyrl", "Latn"} {
 		r := rows[i]
 		assert.Equal(t, "2", r.PolicyVersion)
 		assert.Equal(t, "structured_person", r.DecisionClass)
 		assert.Equal(t, script, r.Script)
-		assert.Equal(t, authornorm.NormalizerVersion, r.ConfigVersion)
-		assert.Equal(t, ref, r.EvidenceRef)
-		assert.Equal(t, sum[:], r.EvidenceReportSHA256, "the hash is of the checked-in report")
+		assert.Equal(t, authornorm.PreviousNormalizerVersion, r.ConfigVersion)
+		assert.Equal(t, v1Ref, r.EvidenceRef)
+		assert.Equal(t, v1Sum[:], r.EvidenceReportSHA256, "the hash is of the checked-in report")
 		assert.Nil(t, r.RegisteredByUserID)
 	}
+
+	const v2Ref = "internal/authornorm/policy_evidence/local-v2.json"
+	v2Report, err := os.ReadFile("../" + v2Ref)
+	require.NoError(t, err)
+	v2Sum := sha256.Sum256(v2Report)
+	var evidence struct {
+		NormalizerVersion string `json:"normalizer_version"`
+		Pairs             []struct {
+			DecisionClass string `json:"decision_class"`
+			Script        string `json:"script"`
+		} `json:"pairs"`
+		Strata []struct {
+			DecisionClass string            `json:"decision_class"`
+			Script        string            `json:"script"`
+			Passed        string            `json:"passed"`
+			Rows          []json.RawMessage `json:"rows"`
+		} `json:"strata"`
+	}
+	require.NoError(t, json.Unmarshal(v2Report, &evidence))
+	assert.Equal(t, authornorm.NormalizerVersion, evidence.NormalizerVersion)
+	registered := map[string]bool{}
+	for _, r := range rows[2:] {
+		assert.Equal(t, "3", r.PolicyVersion, "the next version after migration 25's on a fresh database")
+		assert.Equal(t, authornorm.NormalizerVersion, r.ConfigVersion)
+		assert.Equal(t, v2Ref, r.EvidenceRef)
+		assert.Equal(t, v2Sum[:], r.EvidenceReportSHA256, "the hash is of the checked-in report")
+		assert.Nil(t, r.RegisteredByUserID)
+		assert.True(t, authornorm.DecisionClass(r.DecisionClass).Selectable(), r.DecisionClass)
+		registered[r.DecisionClass+"/"+r.Script] = true
+	}
+	named, sampled := map[string]bool{}, map[string]bool{}
+	for _, p := range evidence.Pairs {
+		named[p.DecisionClass+"/"+p.Script] = true
+	}
+	for _, s := range evidence.Strata {
+		sampled[s.DecisionClass+"/"+s.Script] = true
+		assert.Equal(t, fmt.Sprintf("%d of %d", len(s.Rows), len(s.Rows)), s.Passed, "%s/%s", s.DecisionClass, s.Script)
+		assert.NotEmpty(t, s.Rows)
+	}
+	assert.Equal(t, registered, named, "the report names exactly the registered pairs")
+	assert.Equal(t, registered, sampled, "every registered pair has a checked sample")
+
 	p, err := LoadCurrentAcceptancePolicy(context.Background(), f.tx, authornorm.NormalizerVersion)
 	require.NoError(t, err)
-	assert.Equal(t, 2, p.Version())
+	assert.Equal(t, 3, p.Version())
+	assert.False(t, p.Empty())
 }

@@ -1,0 +1,3556 @@
+{
+  "format": "gopds.author-acceptance-evidence.v1",
+  "normalizer_version": "authornorm-local-v2",
+  "policy_version": "the next after the newest registration when migration 59 runs",
+  "pairs": [
+    {
+      "decision_class": "structured_person",
+      "script": "Cyrl"
+    },
+    {
+      "decision_class": "structured_person",
+      "script": "Latn"
+    },
+    {
+      "decision_class": "placeholder",
+      "script": "Cyrl"
+    },
+    {
+      "decision_class": "placeholder",
+      "script": "Latn"
+    },
+    {
+      "decision_class": "collective",
+      "script": "Cyrl"
+    }
+  ],
+  "drawn_from": "current author credits of a read-only production copy, every input normalized under authornorm-local-v2",
+  "seed": 20261023,
+  "strata": [
+    {
+      "decision_class": "structured_person",
+      "script": "Cyrl",
+      "stratum": "as in v1",
+      "population": {
+        "inputs": 132586,
+        "credits": 546403
+      },
+      "sample": "25 random inputs",
+      "check": "display_name equals the source display with white space collapsed; family_name is the source last-name field and leads sort_name",
+      "passed": "25 of 25",
+      "rows": [
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Михаил",
+            "middle": null,
+            "last": "Драгунов",
+            "nickname": null,
+            "display": "Михаил Драгунов"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Михаил Драгунов",
+            "sort_name": "Драгунов, Михаил",
+            "given_name": "Михаил",
+            "additional_names": "",
+            "family_name": "Драгунов",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Эмиль",
+            "middle": null,
+            "last": "Голуб",
+            "nickname": null,
+            "display": "Эмиль Голуб"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Эмиль Голуб",
+            "sort_name": "Голуб, Эмиль",
+            "given_name": "Эмиль",
+            "additional_names": "",
+            "family_name": "Голуб",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Франсиско  Мартин",
+            "middle": null,
+            "last": "Касальдеррей",
+            "nickname": null,
+            "display": "Франсиско  Мартин Касальдеррей"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Франсиско Мартин Касальдеррей",
+            "sort_name": "Касальдеррей, Франсиско Мартин",
+            "given_name": "Франсиско Мартин",
+            "additional_names": "",
+            "family_name": "Касальдеррей",
+            "quality_flags": [
+              "whitespace_collapsed"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Айсен",
+            "middle": null,
+            "last": "Николаев",
+            "nickname": null,
+            "display": "Айсен Николаев"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Айсен Николаев",
+            "sort_name": "Николаев, Айсен",
+            "given_name": "Айсен",
+            "additional_names": "",
+            "family_name": "Николаев",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Розмари",
+            "middle": null,
+            "last": "Эджхилл",
+            "nickname": null,
+            "display": "Розмари Эджхилл"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Розмари Эджхилл",
+            "sort_name": "Эджхилл, Розмари",
+            "given_name": "Розмари",
+            "additional_names": "",
+            "family_name": "Эджхилл",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Нина",
+            "middle": null,
+            "last": "Новолодская",
+            "nickname": null,
+            "display": "Нина Новолодская"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Нина Новолодская",
+            "sort_name": "Новолодская, Нина",
+            "given_name": "Нина",
+            "additional_names": "",
+            "family_name": "Новолодская",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Жак",
+            "middle": null,
+            "last": "Павио",
+            "nickname": null,
+            "display": "Жак Павио"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Жак Павио",
+            "sort_name": "Павио, Жак",
+            "given_name": "Жак",
+            "additional_names": "",
+            "family_name": "Павио",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Кирстен",
+            "middle": null,
+            "last": "Миллер",
+            "nickname": null,
+            "display": "Кирстен Миллер"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Кирстен Миллер",
+            "sort_name": "Миллер, Кирстен",
+            "given_name": "Кирстен",
+            "additional_names": "",
+            "family_name": "Миллер",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Александр",
+            "middle": "Соломонович",
+            "last": "Бланк",
+            "nickname": null,
+            "display": "Александр Соломонович Бланк"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Александр Соломонович Бланк",
+            "sort_name": "Бланк, Александр Соломонович",
+            "given_name": "Александр",
+            "additional_names": "Соломонович",
+            "family_name": "Бланк",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Люси",
+            "middle": null,
+            "last": "Уорд",
+            "nickname": null,
+            "display": "Люси Уорд"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Люси Уорд",
+            "sort_name": "Уорд, Люси",
+            "given_name": "Люси",
+            "additional_names": "",
+            "family_name": "Уорд",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Наталия",
+            "middle": "Геннадьевна",
+            "last": "Волкова",
+            "nickname": null,
+            "display": "Наталия Геннадьевна Волкова"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Наталия Геннадьевна Волкова",
+            "sort_name": "Волкова, Наталия Геннадьевна",
+            "given_name": "Наталия",
+            "additional_names": "Геннадьевна",
+            "family_name": "Волкова",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Камиль",
+            "middle": null,
+            "last": "Юлаев",
+            "nickname": null,
+            "display": "Камиль Юлаев"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Камиль Юлаев",
+            "sort_name": "Юлаев, Камиль",
+            "given_name": "Камиль",
+            "additional_names": "",
+            "family_name": "Юлаев",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Артем",
+            "middle": null,
+            "last": "Чунихин",
+            "nickname": null,
+            "display": "Артем Чунихин"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Артем Чунихин",
+            "sort_name": "Чунихин, Артем",
+            "given_name": "Артем",
+            "additional_names": "",
+            "family_name": "Чунихин",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Василий",
+            "middle": "Степанович",
+            "last": "Карасев",
+            "nickname": null,
+            "display": "Василий Степанович Карасев"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Василий Степанович Карасев",
+            "sort_name": "Карасев, Василий Степанович",
+            "given_name": "Василий",
+            "additional_names": "Степанович",
+            "family_name": "Карасев",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Александр",
+            "middle": null,
+            "last": "Ермаков",
+            "nickname": null,
+            "display": "Александр Ермаков"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Александр Ермаков",
+            "sort_name": "Ермаков, Александр",
+            "given_name": "Александр",
+            "additional_names": "",
+            "family_name": "Ермаков",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Мусагит",
+            "middle": null,
+            "last": "Хабибулин",
+            "nickname": null,
+            "display": "Мусагит Хабибулин"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Мусагит Хабибулин",
+            "sort_name": "Хабибулин, Мусагит",
+            "given_name": "Мусагит",
+            "additional_names": "",
+            "family_name": "Хабибулин",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Сергей",
+            "middle": null,
+            "last": "Мазюк",
+            "nickname": null,
+            "display": "Сергей Мазюк"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Сергей Мазюк",
+            "sort_name": "Мазюк, Сергей",
+            "given_name": "Сергей",
+            "additional_names": "",
+            "family_name": "Мазюк",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Анастасия",
+            "middle": null,
+            "last": "Лёвушкина",
+            "nickname": null,
+            "display": "Анастасия Лёвушкина"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Анастасия Лёвушкина",
+            "sort_name": "Лёвушкина, Анастасия",
+            "given_name": "Анастасия",
+            "additional_names": "",
+            "family_name": "Лёвушкина",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Франц",
+            "middle": null,
+            "last": "Роттенштайнер",
+            "nickname": null,
+            "display": "Франц Роттенштайнер"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Франц Роттенштайнер",
+            "sort_name": "Роттенштайнер, Франц",
+            "given_name": "Франц",
+            "additional_names": "",
+            "family_name": "Роттенштайнер",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Александр",
+            "middle": "Сергеевич",
+            "last": "Конторович",
+            "nickname": null,
+            "display": "Александр Сергеевич Конторович"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Александр Сергеевич Конторович",
+            "sort_name": "Конторович, Александр Сергеевич",
+            "given_name": "Александр",
+            "additional_names": "Сергеевич",
+            "family_name": "Конторович",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Илья",
+            "middle": "Александрович",
+            "last": "Огородников",
+            "nickname": null,
+            "display": "Илья Александрович Огородников"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Илья Александрович Огородников",
+            "sort_name": "Огородников, Илья Александрович",
+            "given_name": "Илья",
+            "additional_names": "Александрович",
+            "family_name": "Огородников",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Тимур",
+            "middle": "Рашидович",
+            "last": "Вильданов",
+            "nickname": null,
+            "display": "Тимур Рашидович Вильданов"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Тимур Рашидович Вильданов",
+            "sort_name": "Вильданов, Тимур Рашидович",
+            "given_name": "Тимур",
+            "additional_names": "Рашидович",
+            "family_name": "Вильданов",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Николай",
+            "middle": "Петрович",
+            "last": "Варягов",
+            "nickname": null,
+            "display": "Николай Петрович Варягов"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Николай Петрович Варягов",
+            "sort_name": "Варягов, Николай Петрович",
+            "given_name": "Николай",
+            "additional_names": "Петрович",
+            "family_name": "Варягов",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Василь",
+            "middle": null,
+            "last": "Стефаник",
+            "nickname": null,
+            "display": "Василь Стефаник"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Василь Стефаник",
+            "sort_name": "Стефаник, Василь",
+            "given_name": "Василь",
+            "additional_names": "",
+            "family_name": "Стефаник",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Дарья",
+            "middle": null,
+            "last": "Грацевич",
+            "nickname": null,
+            "display": "Дарья Грацевич"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Дарья Грацевич",
+            "sort_name": "Грацевич, Дарья",
+            "given_name": "Дарья",
+            "additional_names": "",
+            "family_name": "Грацевич",
+            "quality_flags": []
+          }
+        }
+      ]
+    },
+    {
+      "decision_class": "structured_person",
+      "script": "Cyrl",
+      "stratum": "placeholder nickname dropped (rule D2)",
+      "population": {
+        "inputs": 1042,
+        "credits": 1201
+      },
+      "sample": "25 random inputs",
+      "check": "display_name equals the source display without the placeholder nickname, white space collapsed; family_name is the source last-name field and leads sort_name",
+      "passed": "25 of 25",
+      "rows": [
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Инна",
+            "middle": "Михайловна",
+            "last": "Ромащук",
+            "nickname": "Неизвестный автор",
+            "display": "Инна Михайловна Ромащук Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Инна Михайловна Ромащук",
+            "sort_name": "Ромащук, Инна Михайловна",
+            "given_name": "Инна",
+            "additional_names": "Михайловна",
+            "family_name": "Ромащук",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Елена",
+            "middle": "Николаевна",
+            "last": "Верейская",
+            "nickname": "Неизвестный автор",
+            "display": "Елена Николаевна Верейская Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Елена Николаевна Верейская",
+            "sort_name": "Верейская, Елена Николаевна",
+            "given_name": "Елена",
+            "additional_names": "Николаевна",
+            "family_name": "Верейская",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Мария Елена",
+            "middle": null,
+            "last": "Вальч",
+            "nickname": "Неизвестный автор",
+            "display": "Мария Елена Вальч Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Мария Елена Вальч",
+            "sort_name": "Вальч, Мария Елена",
+            "given_name": "Мария Елена",
+            "additional_names": "",
+            "family_name": "Вальч",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Кристиан",
+            "middle": null,
+            "last": "Либенс",
+            "nickname": "Неизвестный автор",
+            "display": "Кристиан Либенс Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Кристиан Либенс",
+            "sort_name": "Либенс, Кристиан",
+            "given_name": "Кристиан",
+            "additional_names": "",
+            "family_name": "Либенс",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Джеймс",
+            "middle": "Фенимор",
+            "last": "Купер",
+            "nickname": "Неизвестный автор",
+            "display": "Джеймс Фенимор Купер Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Джеймс Фенимор Купер",
+            "sort_name": "Купер, Джеймс Фенимор",
+            "given_name": "Джеймс",
+            "additional_names": "Фенимор",
+            "family_name": "Купер",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Валентин",
+            "middle": "Иванович",
+            "last": "Горянский",
+            "nickname": "Неизвестный автор",
+            "display": "Валентин Иванович Горянский Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Валентин Иванович Горянский",
+            "sort_name": "Горянский, Валентин Иванович",
+            "given_name": "Валентин",
+            "additional_names": "Иванович",
+            "family_name": "Горянский",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Уолтер",
+            "middle": null,
+            "last": "Гратцер",
+            "nickname": "Неизвестный автор",
+            "display": "Уолтер Гратцер Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Уолтер Гратцер",
+            "sort_name": "Гратцер, Уолтер",
+            "given_name": "Уолтер",
+            "additional_names": "",
+            "family_name": "Гратцер",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Николай",
+            "middle": "Андреевич",
+            "last": "Силис",
+            "nickname": "Неизвестный автор",
+            "display": "Николай Андреевич Силис Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Николай Андреевич Силис",
+            "sort_name": "Силис, Николай Андреевич",
+            "given_name": "Николай",
+            "additional_names": "Андреевич",
+            "family_name": "Силис",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Рудольф",
+            "middle": null,
+            "last": "Кальчик",
+            "nickname": "Неизвестный автор",
+            "display": "Рудольф Кальчик Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Рудольф Кальчик",
+            "sort_name": "Кальчик, Рудольф",
+            "given_name": "Рудольф",
+            "additional_names": "",
+            "family_name": "Кальчик",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Виталий",
+            "middle": "Олегович",
+            "last": "Мальков",
+            "nickname": "Неизвестный автор",
+            "display": "Виталий Олегович Мальков Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Виталий Олегович Мальков",
+            "sort_name": "Мальков, Виталий Олегович",
+            "given_name": "Виталий",
+            "additional_names": "Олегович",
+            "family_name": "Мальков",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Андрей",
+            "middle": "Петрович",
+            "last": "Шмульян",
+            "nickname": "Неизвестный автор",
+            "display": "Андрей Петрович Шмульян Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Андрей Петрович Шмульян",
+            "sort_name": "Шмульян, Андрей Петрович",
+            "given_name": "Андрей",
+            "additional_names": "Петрович",
+            "family_name": "Шмульян",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Фёдор",
+            "middle": "Григорьевич",
+            "last": "Сухов",
+            "nickname": "Неизвестный автор",
+            "display": "Фёдор Григорьевич Сухов Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Фёдор Григорьевич Сухов",
+            "sort_name": "Сухов, Фёдор Григорьевич",
+            "given_name": "Фёдор",
+            "additional_names": "Григорьевич",
+            "family_name": "Сухов",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Федор",
+            "middle": "Федорович",
+            "last": "Майский",
+            "nickname": "Неизвестный автор",
+            "display": "Федор Федорович Майский Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Федор Федорович Майский",
+            "sort_name": "Майский, Федор Федорович",
+            "given_name": "Федор",
+            "additional_names": "Федорович",
+            "family_name": "Майский",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Цзи",
+            "middle": null,
+            "last": "Чэн",
+            "nickname": "Неизвестный автор",
+            "display": "Цзи Чэн Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Цзи Чэн",
+            "sort_name": "Чэн, Цзи",
+            "given_name": "Цзи",
+            "additional_names": "",
+            "family_name": "Чэн",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Владимир",
+            "middle": "Оттович",
+            "last": "Дайнес",
+            "nickname": "Неизвестный автор",
+            "display": "Владимир Оттович Дайнес Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Владимир Оттович Дайнес",
+            "sort_name": "Дайнес, Владимир Оттович",
+            "given_name": "Владимир",
+            "additional_names": "Оттович",
+            "family_name": "Дайнес",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Иван",
+            "middle": "Иванович",
+            "last": "Демьянов",
+            "nickname": "Неизвестный автор",
+            "display": "Иван Иванович Демьянов Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Иван Иванович Демьянов",
+            "sort_name": "Демьянов, Иван Иванович",
+            "given_name": "Иван",
+            "additional_names": "Иванович",
+            "family_name": "Демьянов",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Светлана",
+            "middle": "Георгиевна",
+            "last": "Гончаренко",
+            "nickname": "Неизвестный автор",
+            "display": "Светлана Георгиевна Гончаренко Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Светлана Георгиевна Гончаренко",
+            "sort_name": "Гончаренко, Светлана Георгиевна",
+            "given_name": "Светлана",
+            "additional_names": "Георгиевна",
+            "family_name": "Гончаренко",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Алексей",
+            "middle": "Константинович",
+            "last": "Крутецкий",
+            "nickname": "Неизвестный автор",
+            "display": "Алексей Константинович Крутецкий Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Алексей Константинович Крутецкий",
+            "sort_name": "Крутецкий, Алексей Константинович",
+            "given_name": "Алексей",
+            "additional_names": "Константинович",
+            "family_name": "Крутецкий",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Виктор",
+            "middle": null,
+            "last": "Титов",
+            "nickname": "Неизвестный автор",
+            "display": "Виктор Титов Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Виктор Титов",
+            "sort_name": "Титов, Виктор",
+            "given_name": "Виктор",
+            "additional_names": "",
+            "family_name": "Титов",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Наталья",
+            "middle": "Иосифовна",
+            "last": "Грудинина",
+            "nickname": "Неизвестный автор",
+            "display": "Наталья Иосифовна Грудинина Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Наталья Иосифовна Грудинина",
+            "sort_name": "Грудинина, Наталья Иосифовна",
+            "given_name": "Наталья",
+            "additional_names": "Иосифовна",
+            "family_name": "Грудинина",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Галактион",
+            "middle": null,
+            "last": "Табидзе",
+            "nickname": "Неизвестный автор",
+            "display": "Галактион Табидзе Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Галактион Табидзе",
+            "sort_name": "Табидзе, Галактион",
+            "given_name": "Галактион",
+            "additional_names": "",
+            "family_name": "Табидзе",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Клеман",
+            "middle": null,
+            "last": "Маро",
+            "nickname": "Неизвестный автор",
+            "display": "Клеман Маро Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Клеман Маро",
+            "sort_name": "Маро, Клеман",
+            "given_name": "Клеман",
+            "additional_names": "",
+            "family_name": "Маро",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Аскольд",
+            "middle": "Львович",
+            "last": "Шейкин",
+            "nickname": "Неизвестный автор",
+            "display": "Аскольд Львович Шейкин Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Аскольд Львович Шейкин",
+            "sort_name": "Шейкин, Аскольд Львович",
+            "given_name": "Аскольд",
+            "additional_names": "Львович",
+            "family_name": "Шейкин",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Михаил",
+            "middle": "Львович",
+            "last": "Кантор",
+            "nickname": "Неизвестный автор",
+            "display": "Михаил Львович Кантор Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Михаил Львович Кантор",
+            "sort_name": "Кантор, Михаил Львович",
+            "given_name": "Михаил",
+            "additional_names": "Львович",
+            "family_name": "Кантор",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Кёка",
+            "middle": null,
+            "last": "Идзуми",
+            "nickname": "Неизвестный автор",
+            "display": "Кёка Идзуми Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Кёка Идзуми",
+            "sort_name": "Идзуми, Кёка",
+            "given_name": "Кёка",
+            "additional_names": "",
+            "family_name": "Идзуми",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "decision_class": "placeholder",
+      "script": "Cyrl",
+      "stratum": "whole value is a dictionary placeholder (rule D1)",
+      "population": {
+        "inputs": 42,
+        "credits": 1104
+      },
+      "sample": "25 random inputs",
+      "check": "kind unknown; display_name equals the source display with white space collapsed; no person fields",
+      "passed": "25 of 25",
+      "rows": [
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "",
+            "middle": null,
+            "last": "Анонимус",
+            "nickname": null,
+            "display": "Анонимус"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Анонимус",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "single_token",
+              "placeholder",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Неизвестный",
+            "middle": null,
+            "last": "",
+            "nickname": null,
+            "display": "Неизвестный"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Неизвестный",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "single_token",
+              "placeholder",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Автор",
+            "middle": null,
+            "last": "Неизвестен",
+            "nickname": null,
+            "display": "Автор Неизвестен"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Автор Неизвестен",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "placeholder"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Неизвестен",
+            "middle": null,
+            "last": "",
+            "nickname": null,
+            "display": "Неизвестен"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Неизвестен",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "single_token",
+              "placeholder",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "",
+            "middle": null,
+            "last": "Автор неизвестен",
+            "nickname": null,
+            "display": "Автор неизвестен"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Автор неизвестен",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "unstructured",
+              "placeholder",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Без автора",
+            "middle": null,
+            "last": "",
+            "nickname": null,
+            "display": "Без автора"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Без автора",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "unstructured",
+              "placeholder",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": null,
+            "middle": null,
+            "last": "Автор неизвестен",
+            "nickname": null,
+            "display": "Автор неизвестен"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Автор неизвестен",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "unstructured",
+              "placeholder"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Неизвестный",
+            "middle": null,
+            "last": "Автор",
+            "nickname": null,
+            "display": "Неизвестный Автор"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Неизвестный Автор",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "placeholder"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "",
+            "middle": "",
+            "last": "Неизвестно",
+            "nickname": null,
+            "display": "Неизвестно"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Неизвестно",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "single_token",
+              "placeholder",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Аноним",
+            "middle": null,
+            "last": "--",
+            "nickname": null,
+            "display": "Аноним --"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Аноним --",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "placeholder",
+              "hyphen"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": null,
+            "middle": null,
+            "last": null,
+            "nickname": "Автор неизвестен",
+            "display": "Автор неизвестен"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Автор неизвестен",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "unstructured",
+              "nickname",
+              "placeholder"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "неизвестен",
+            "middle": null,
+            "last": "",
+            "nickname": null,
+            "display": "неизвестен"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "неизвестен",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "single_token",
+              "lowercase",
+              "placeholder",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "",
+            "middle": null,
+            "last": "Неизвестный автор",
+            "nickname": null,
+            "display": "Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Неизвестный автор",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "unstructured",
+              "placeholder",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "",
+            "middle": null,
+            "last": "",
+            "nickname": "Неизвестный автор",
+            "display": "Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Неизвестный автор",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "unstructured",
+              "nickname",
+              "placeholder",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "",
+            "middle": null,
+            "last": "неизвестен",
+            "nickname": null,
+            "display": "неизвестен"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "неизвестен",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "single_token",
+              "lowercase",
+              "placeholder",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Автор",
+            "middle": null,
+            "last": "неизвестен",
+            "nickname": null,
+            "display": "Автор неизвестен"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Автор неизвестен",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "lowercase",
+              "placeholder"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "",
+            "middle": null,
+            "last": "Аноним",
+            "nickname": null,
+            "display": "Аноним"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Аноним",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "single_token",
+              "placeholder",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "",
+            "middle": null,
+            "last": "Неизвестный",
+            "nickname": null,
+            "display": "Неизвестный"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Неизвестный",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "single_token",
+              "placeholder",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "АВТОР",
+            "middle": null,
+            "last": "НЕИЗВЕСТЕН",
+            "nickname": null,
+            "display": "АВТОР НЕИЗВЕСТЕН"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "АВТОР НЕИЗВЕСТЕН",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "all_caps",
+              "placeholder"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": null,
+            "middle": null,
+            "last": "Анонимный автор",
+            "nickname": null,
+            "display": "Анонимный автор"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Анонимный автор",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "unstructured",
+              "placeholder"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": null,
+            "middle": null,
+            "last": "Анонимус",
+            "nickname": null,
+            "display": "Анонимус"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Анонимус",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "single_token",
+              "placeholder"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "автор",
+            "middle": null,
+            "last": "неизвестен",
+            "nickname": null,
+            "display": "автор неизвестен"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "автор неизвестен",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "lowercase",
+              "placeholder"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Неизвестный",
+            "middle": null,
+            "last": "автор",
+            "nickname": null,
+            "display": "Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Неизвестный автор",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "lowercase",
+              "placeholder"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Автор неизвестен",
+            "middle": "",
+            "last": "",
+            "nickname": null,
+            "display": "Автор неизвестен"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Автор неизвестен",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "unstructured",
+              "placeholder",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "",
+            "middle": null,
+            "last": "Анонимный автор",
+            "nickname": null,
+            "display": "Анонимный автор"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Анонимный автор",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "unstructured",
+              "placeholder",
+              "empty_component"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "decision_class": "structured_person",
+      "script": "Latn",
+      "stratum": "as in v1",
+      "population": {
+        "inputs": 17814,
+        "credits": 56382
+      },
+      "sample": "25 random inputs",
+      "check": "display_name equals the source display with white space collapsed; family_name is the source last-name field and leads sort_name",
+      "passed": "25 of 25",
+      "rows": [
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Paul",
+            "middle": null,
+            "last": "Brickhill",
+            "nickname": null,
+            "display": "Paul Brickhill"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Paul Brickhill",
+            "sort_name": "Brickhill, Paul",
+            "given_name": "Paul",
+            "additional_names": "",
+            "family_name": "Brickhill",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Hall",
+            "middle": null,
+            "last": "Caine",
+            "nickname": null,
+            "display": "Hall Caine"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Hall Caine",
+            "sort_name": "Caine, Hall",
+            "given_name": "Hall",
+            "additional_names": "",
+            "family_name": "Caine",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Gregory",
+            "middle": null,
+            "last": "Mason",
+            "nickname": null,
+            "display": "Gregory Mason"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Gregory Mason",
+            "sort_name": "Mason, Gregory",
+            "given_name": "Gregory",
+            "additional_names": "",
+            "family_name": "Mason",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Wilhelm",
+            "middle": null,
+            "last": "Hauff",
+            "nickname": null,
+            "display": "Wilhelm Hauff"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Wilhelm Hauff",
+            "sort_name": "Hauff, Wilhelm",
+            "given_name": "Wilhelm",
+            "additional_names": "",
+            "family_name": "Hauff",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Dani",
+            "middle": null,
+            "last": "Harper",
+            "nickname": null,
+            "display": "Dani Harper"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Dani Harper",
+            "sort_name": "Harper, Dani",
+            "given_name": "Dani",
+            "additional_names": "",
+            "family_name": "Harper",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Jack",
+            "middle": null,
+            "last": "Benjamin",
+            "nickname": null,
+            "display": "Jack Benjamin"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Jack Benjamin",
+            "sort_name": "Benjamin, Jack",
+            "given_name": "Jack",
+            "additional_names": "",
+            "family_name": "Benjamin",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Džeremijs",
+            "middle": null,
+            "last": "Rifkins",
+            "nickname": null,
+            "display": "Džeremijs Rifkins"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Džeremijs Rifkins",
+            "sort_name": "Rifkins, Džeremijs",
+            "given_name": "Džeremijs",
+            "additional_names": "",
+            "family_name": "Rifkins",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Žans Batists",
+            "middle": null,
+            "last": "Moljērs",
+            "nickname": null,
+            "display": "Žans Batists Moljērs"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Žans Batists Moljērs",
+            "sort_name": "Moljērs, Žans Batists",
+            "given_name": "Žans Batists",
+            "additional_names": "",
+            "family_name": "Moljērs",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Aloizijs",
+            "middle": null,
+            "last": "Broks",
+            "nickname": null,
+            "display": "Aloizijs Broks"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Aloizijs Broks",
+            "sort_name": "Broks, Aloizijs",
+            "given_name": "Aloizijs",
+            "additional_names": "",
+            "family_name": "Broks",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Anne",
+            "middle": "Marie",
+            "last": "Winston",
+            "nickname": null,
+            "display": "Anne Marie Winston"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Anne Marie Winston",
+            "sort_name": "Winston, Anne Marie",
+            "given_name": "Anne",
+            "additional_names": "Marie",
+            "family_name": "Winston",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Gary",
+            "middle": null,
+            "last": "Bush",
+            "nickname": null,
+            "display": "Gary Bush"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Gary Bush",
+            "sort_name": "Bush, Gary",
+            "given_name": "Gary",
+            "additional_names": "",
+            "family_name": "Bush",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Francisco",
+            "middle": "González",
+            "last": "Ledesma",
+            "nickname": null,
+            "display": "Francisco González Ledesma"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Francisco González Ledesma",
+            "sort_name": "Ledesma, Francisco González",
+            "given_name": "Francisco",
+            "additional_names": "González",
+            "family_name": "Ledesma",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "George",
+            "middle": null,
+            "last": "MacDonald",
+            "nickname": null,
+            "display": "George MacDonald"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "George MacDonald",
+            "sort_name": "MacDonald, George",
+            "given_name": "George",
+            "additional_names": "",
+            "family_name": "MacDonald",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Steven",
+            "middle": null,
+            "last": "Becker",
+            "nickname": null,
+            "display": "Steven Becker"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Steven Becker",
+            "sort_name": "Becker, Steven",
+            "given_name": "Steven",
+            "additional_names": "",
+            "family_name": "Becker",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Glebs",
+            "middle": null,
+            "last": "AnfiIovs",
+            "nickname": null,
+            "display": "Glebs AnfiIovs"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Glebs AnfiIovs",
+            "sort_name": "AnfiIovs, Glebs",
+            "given_name": "Glebs",
+            "additional_names": "",
+            "family_name": "AnfiIovs",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Catherine",
+            "middle": null,
+            "last": "Mulvany",
+            "nickname": null,
+            "display": "Catherine Mulvany"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Catherine Mulvany",
+            "sort_name": "Mulvany, Catherine",
+            "given_name": "Catherine",
+            "additional_names": "",
+            "family_name": "Mulvany",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Bruce",
+            "middle": null,
+            "last": "Bagemihlv",
+            "nickname": null,
+            "display": "Bruce Bagemihlv"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Bruce Bagemihlv",
+            "sort_name": "Bagemihlv, Bruce",
+            "given_name": "Bruce",
+            "additional_names": "",
+            "family_name": "Bagemihlv",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Māris",
+            "middle": null,
+            "last": "Rungulis",
+            "nickname": null,
+            "display": "Māris Rungulis"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Māris Rungulis",
+            "sort_name": "Rungulis, Māris",
+            "given_name": "Māris",
+            "additional_names": "",
+            "family_name": "Rungulis",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Jerry",
+            "middle": null,
+            "last": "Nelson",
+            "nickname": null,
+            "display": "Jerry Nelson"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Jerry Nelson",
+            "sort_name": "Nelson, Jerry",
+            "given_name": "Jerry",
+            "additional_names": "",
+            "family_name": "Nelson",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Federico",
+            "middle": "García",
+            "last": "Lorca",
+            "nickname": null,
+            "display": "Federico García Lorca"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Federico García Lorca",
+            "sort_name": "Lorca, Federico García",
+            "given_name": "Federico",
+            "additional_names": "García",
+            "family_name": "Lorca",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Kathy",
+            "middle": null,
+            "last": "Oltion",
+            "nickname": null,
+            "display": "Kathy Oltion"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Kathy Oltion",
+            "sort_name": "Oltion, Kathy",
+            "given_name": "Kathy",
+            "additional_names": "",
+            "family_name": "Oltion",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Egons",
+            "middle": null,
+            "last": "Līvs",
+            "nickname": null,
+            "display": "Egons Līvs"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Egons Līvs",
+            "sort_name": "Līvs, Egons",
+            "given_name": "Egons",
+            "additional_names": "",
+            "family_name": "Līvs",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Cristina",
+            "middle": "Peri",
+            "last": "Rossi",
+            "nickname": null,
+            "display": "Cristina Peri Rossi"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Cristina Peri Rossi",
+            "sort_name": "Rossi, Cristina Peri",
+            "given_name": "Cristina",
+            "additional_names": "Peri",
+            "family_name": "Rossi",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Michael",
+            "middle": "Jonh",
+            "last": "Moorcock",
+            "nickname": null,
+            "display": "Michael Jonh Moorcock"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Michael Jonh Moorcock",
+            "sort_name": "Moorcock, Michael Jonh",
+            "given_name": "Michael",
+            "additional_names": "Jonh",
+            "family_name": "Moorcock",
+            "quality_flags": []
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Jaclyn",
+            "middle": null,
+            "last": "Dolamore",
+            "nickname": null,
+            "display": "Jaclyn Dolamore"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Jaclyn Dolamore",
+            "sort_name": "Dolamore, Jaclyn",
+            "given_name": "Jaclyn",
+            "additional_names": "",
+            "family_name": "Dolamore",
+            "quality_flags": []
+          }
+        }
+      ]
+    },
+    {
+      "decision_class": "structured_person",
+      "script": "Latn",
+      "stratum": "placeholder nickname dropped (rule D2)",
+      "population": {
+        "inputs": 82,
+        "credits": 97
+      },
+      "sample": "25 random inputs",
+      "check": "display_name equals the source display without the placeholder nickname, white space collapsed; family_name is the source last-name field and leads sort_name",
+      "passed": "25 of 25",
+      "rows": [
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Aleksandrs",
+            "middle": null,
+            "last": "Grīns",
+            "nickname": "Неизвестный автор",
+            "display": "Aleksandrs Grīns Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Aleksandrs Grīns",
+            "sort_name": "Grīns, Aleksandrs",
+            "given_name": "Aleksandrs",
+            "additional_names": "",
+            "family_name": "Grīns",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Fausta",
+            "middle": null,
+            "last": "Čalente",
+            "nickname": "Неизвестный автор",
+            "display": "Fausta Čalente Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Fausta Čalente",
+            "sort_name": "Čalente, Fausta",
+            "given_name": "Fausta",
+            "additional_names": "",
+            "family_name": "Čalente",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Moriss",
+            "middle": null,
+            "last": "Mendelsons",
+            "nickname": "Неизвестный автор",
+            "display": "Moriss Mendelsons Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Moriss Mendelsons",
+            "sort_name": "Mendelsons, Moriss",
+            "given_name": "Moriss",
+            "additional_names": "",
+            "family_name": "Mendelsons",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Klaivs Steiplzs",
+            "middle": null,
+            "last": "Lūiss",
+            "nickname": "Неизвестный автор",
+            "display": "Klaivs Steiplzs Lūiss Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Klaivs Steiplzs Lūiss",
+            "sort_name": "Lūiss, Klaivs Steiplzs",
+            "given_name": "Klaivs Steiplzs",
+            "additional_names": "",
+            "family_name": "Lūiss",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Anuars",
+            "middle": null,
+            "last": "Alimžanovs",
+            "nickname": "Неизвестный автор",
+            "display": "Anuars Alimžanovs Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Anuars Alimžanovs",
+            "sort_name": "Alimžanovs, Anuars",
+            "given_name": "Anuars",
+            "additional_names": "",
+            "family_name": "Alimžanovs",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Dmitrijs",
+            "middle": null,
+            "last": "Urnovs",
+            "nickname": "Неизвестный автор",
+            "display": "Dmitrijs Urnovs Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Dmitrijs Urnovs",
+            "sort_name": "Urnovs, Dmitrijs",
+            "given_name": "Dmitrijs",
+            "additional_names": "",
+            "family_name": "Urnovs",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Jānis",
+            "middle": null,
+            "last": "Kalniņš",
+            "nickname": "Неизвестный автор",
+            "display": "Jānis Kalniņš Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Jānis Kalniņš",
+            "sort_name": "Kalniņš, Jānis",
+            "given_name": "Jānis",
+            "additional_names": "",
+            "family_name": "Kalniņš",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Stefans",
+            "middle": null,
+            "last": "Cveigs",
+            "nickname": "Неизвестный автор",
+            "display": "Stefans Cveigs Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Stefans Cveigs",
+            "sort_name": "Cveigs, Stefans",
+            "given_name": "Stefans",
+            "additional_names": "",
+            "family_name": "Cveigs",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Viktor",
+            "middle": null,
+            "last": "Pelevin -",
+            "nickname": "Неизвестный автор",
+            "display": "Viktor Pelevin - Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Viktor Pelevin -",
+            "sort_name": "Pelevin -, Viktor",
+            "given_name": "Viktor",
+            "additional_names": "",
+            "family_name": "Pelevin -",
+            "quality_flags": [
+              "placeholder_nickname",
+              "hyphen"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Boriss",
+            "middle": null,
+            "last": "Gribanovs",
+            "nickname": "Неизвестный автор",
+            "display": "Boriss Gribanovs Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Boriss Gribanovs",
+            "sort_name": "Gribanovs, Boriss",
+            "given_name": "Boriss",
+            "additional_names": "",
+            "family_name": "Gribanovs",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Leopolds",
+            "middle": null,
+            "last": "Infelds",
+            "nickname": "Неизвестный автор",
+            "display": "Leopolds Infelds Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Leopolds Infelds",
+            "sort_name": "Infelds, Leopolds",
+            "given_name": "Leopolds",
+            "additional_names": "",
+            "family_name": "Infelds",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Aleksandrs",
+            "middle": null,
+            "last": "Čakovskis",
+            "nickname": "Неизвестный автор",
+            "display": "Aleksandrs Čakovskis Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Aleksandrs Čakovskis",
+            "sort_name": "Čakovskis, Aleksandrs",
+            "given_name": "Aleksandrs",
+            "additional_names": "",
+            "family_name": "Čakovskis",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Edīte",
+            "middle": null,
+            "last": "Nesbita",
+            "nickname": "Неизвестный автор",
+            "display": "Edīte Nesbita Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Edīte Nesbita",
+            "sort_name": "Nesbita, Edīte",
+            "given_name": "Edīte",
+            "additional_names": "",
+            "family_name": "Nesbita",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Eduards",
+            "middle": null,
+            "last": "Hruckis",
+            "nickname": "Неизвестный автор",
+            "display": "Eduards Hruckis Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Eduards Hruckis",
+            "sort_name": "Hruckis, Eduards",
+            "given_name": "Eduards",
+            "additional_names": "",
+            "family_name": "Hruckis",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Andrē",
+            "middle": null,
+            "last": "Moruā",
+            "nickname": "Неизвестный автор",
+            "display": "Andrē Moruā Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Andrē Moruā",
+            "sort_name": "Moruā, Andrē",
+            "given_name": "Andrē",
+            "additional_names": "",
+            "family_name": "Moruā",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Heinz",
+            "middle": null,
+            "last": "Konsalik",
+            "nickname": "Неизвестный автор",
+            "display": "Heinz Konsalik Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Heinz Konsalik",
+            "sort_name": "Konsalik, Heinz",
+            "given_name": "Heinz",
+            "additional_names": "",
+            "family_name": "Konsalik",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Toms",
+            "middle": "Kirila dēls",
+            "last": "Belaščenko",
+            "nickname": "Неизвестный автор",
+            "display": "Toms Kirila dēls Belaščenko Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Toms Kirila dēls Belaščenko",
+            "sort_name": "Belaščenko, Toms Kirila dēls",
+            "given_name": "Toms",
+            "additional_names": "Kirila dēls",
+            "family_name": "Belaščenko",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Havjērs",
+            "middle": null,
+            "last": "Sjerra",
+            "nickname": "Неизвестный автор",
+            "display": "Havjērs Sjerra Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Havjērs Sjerra",
+            "sort_name": "Sjerra, Havjērs",
+            "given_name": "Havjērs",
+            "additional_names": "",
+            "family_name": "Sjerra",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Minjona",
+            "middle": null,
+            "last": "Janovska",
+            "nickname": "Неизвестный автор",
+            "display": "Minjona Janovska Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Minjona Janovska",
+            "sort_name": "Janovska, Minjona",
+            "given_name": "Minjona",
+            "additional_names": "",
+            "family_name": "Janovska",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Irina",
+            "middle": null,
+            "last": "Muravjova",
+            "nickname": "Неизвестный автор",
+            "display": "Irina Muravjova Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Irina Muravjova",
+            "sort_name": "Muravjova, Irina",
+            "given_name": "Irina",
+            "additional_names": "",
+            "family_name": "Muravjova",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Ričards",
+            "middle": null,
+            "last": "Pļavnieks",
+            "nickname": "Неизвестный автор",
+            "display": "Ričards Pļavnieks Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Ričards Pļavnieks",
+            "sort_name": "Pļavnieks, Ričards",
+            "given_name": "Ričards",
+            "additional_names": "",
+            "family_name": "Pļavnieks",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Ervings",
+            "middle": null,
+            "last": "Stons",
+            "nickname": "Неизвестный автор",
+            "display": "Ervings Stons Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Ervings Stons",
+            "sort_name": "Stons, Ervings",
+            "given_name": "Ervings",
+            "additional_names": "",
+            "family_name": "Stons",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Valentīns",
+            "middle": null,
+            "last": "Zorins",
+            "nickname": "Неизвестный автор",
+            "display": "Valentīns Zorins Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Valentīns Zorins",
+            "sort_name": "Zorins, Valentīns",
+            "given_name": "Valentīns",
+            "additional_names": "",
+            "family_name": "Zorins",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Victor",
+            "middle": null,
+            "last": "Milan",
+            "nickname": "Неизвестный автор",
+            "display": "Victor Milan Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Victor Milan",
+            "sort_name": "Milan, Victor",
+            "given_name": "Victor",
+            "additional_names": "",
+            "family_name": "Milan",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Mihails",
+            "middle": null,
+            "last": "Bragins",
+            "nickname": "Неизвестный автор",
+            "display": "Mihails Bragins Неизвестный автор"
+          },
+          "proposal": {
+            "kind": "person",
+            "display_name": "Mihails Bragins",
+            "sort_name": "Bragins, Mihails",
+            "given_name": "Mihails",
+            "additional_names": "",
+            "family_name": "Bragins",
+            "quality_flags": [
+              "placeholder_nickname"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "decision_class": "placeholder",
+      "script": "Latn",
+      "stratum": "whole value is a dictionary placeholder (rule D1)",
+      "population": {
+        "inputs": 13,
+        "credits": 697
+      },
+      "sample": "all 13 inputs",
+      "check": "kind unknown; display_name equals the source display with white space collapsed; no person fields",
+      "passed": "13 of 13",
+      "rows": [
+        {
+          "script": "Latn",
+          "source": {
+            "first": "",
+            "middle": null,
+            "last": "No-Name",
+            "nickname": null,
+            "display": "No-Name"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "No-Name",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "single_token",
+              "placeholder",
+              "hyphen",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "",
+            "middle": null,
+            "last": "unknown",
+            "nickname": null,
+            "display": "unknown"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "unknown",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "single_token",
+              "lowercase",
+              "placeholder",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "",
+            "middle": null,
+            "last": "Unknown",
+            "nickname": null,
+            "display": "Unknown"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Unknown",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "single_token",
+              "placeholder",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "No",
+            "middle": null,
+            "last": "Name",
+            "nickname": null,
+            "display": "No Name"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "No Name",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "placeholder"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "",
+            "middle": null,
+            "last": "Anonymous",
+            "nickname": null,
+            "display": "Anonymous"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Anonymous",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "single_token",
+              "placeholder",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": null,
+            "middle": null,
+            "last": null,
+            "nickname": "unknown",
+            "display": "unknown"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "unknown",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "single_token",
+              "nickname",
+              "lowercase",
+              "placeholder"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Unknown",
+            "middle": null,
+            "last": "",
+            "nickname": null,
+            "display": "Unknown"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Unknown",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "single_token",
+              "placeholder",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "",
+            "middle": "",
+            "last": "Unknown",
+            "nickname": null,
+            "display": "Unknown"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Unknown",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "single_token",
+              "placeholder",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Author",
+            "middle": null,
+            "last": "Unknown",
+            "nickname": null,
+            "display": "Author Unknown"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Author Unknown",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "placeholder"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": null,
+            "middle": null,
+            "last": null,
+            "nickname": "Unknown Author",
+            "display": "Unknown Author"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Unknown Author",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "unstructured",
+              "nickname",
+              "placeholder"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": null,
+            "middle": null,
+            "last": null,
+            "nickname": "Anonymous",
+            "display": "Anonymous"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Anonymous",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "single_token",
+              "nickname",
+              "placeholder"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "Anonymous",
+            "middle": null,
+            "last": "",
+            "nickname": null,
+            "display": "Anonymous"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "Anonymous",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "single_token",
+              "placeholder",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Latn",
+          "source": {
+            "first": "anonymous",
+            "middle": null,
+            "last": "",
+            "nickname": null,
+            "display": "anonymous"
+          },
+          "proposal": {
+            "kind": "unknown",
+            "display_name": "anonymous",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "single_token",
+              "lowercase",
+              "placeholder",
+              "empty_component"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "decision_class": "collective",
+      "script": "Cyrl",
+      "stratum": "collective word, no conjunction, no person label (rule D3)",
+      "population": {
+        "inputs": 161,
+        "credits": 3061
+      },
+      "sample": "25 random inputs",
+      "check": "kind collective; display_name equals the source display with white space collapsed; no person fields",
+      "passed": "25 of 25",
+      "rows": [
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "",
+            "middle": null,
+            "last": "Коллектмв авторов",
+            "nickname": null,
+            "display": "Коллектмв авторов"
+          },
+          "proposal": {
+            "kind": "collective",
+            "display_name": "Коллектмв авторов",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "unstructured",
+              "collective_marker",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Авторов",
+            "middle": null,
+            "last": "Коллектив",
+            "nickname": "Сборник",
+            "display": "Авторов Коллектив Сборник"
+          },
+          "proposal": {
+            "kind": "collective",
+            "display_name": "Авторов Коллектив Сборник",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "nickname",
+              "collective_marker"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Коллектив авторов",
+            "middle": "--",
+            "last": "История",
+            "nickname": null,
+            "display": "Коллектив авторов -- История"
+          },
+          "proposal": {
+            "kind": "collective",
+            "display_name": "Коллектив авторов -- История",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "collective_marker",
+              "hyphen"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "коллектив",
+            "middle": null,
+            "last": "авторов",
+            "nickname": null,
+            "display": "коллектив авторов"
+          },
+          "proposal": {
+            "kind": "collective",
+            "display_name": "коллектив авторов",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "lowercase",
+              "collective_marker"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Коллектив Авторов",
+            "middle": null,
+            "last": "",
+            "nickname": null,
+            "display": "Коллектив Авторов"
+          },
+          "proposal": {
+            "kind": "collective",
+            "display_name": "Коллектив Авторов",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "unstructured",
+              "collective_marker",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Сборник рецептов",
+            "middle": null,
+            "last": "",
+            "nickname": null,
+            "display": "Сборник рецептов"
+          },
+          "proposal": {
+            "kind": "collective",
+            "display_name": "Сборник рецептов",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "unstructured",
+              "collective_marker",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "",
+            "middle": null,
+            "last": "Автор неизвестен--народные сказки",
+            "nickname": null,
+            "display": "Автор неизвестен--народные сказки"
+          },
+          "proposal": {
+            "kind": "collective",
+            "display_name": "Автор неизвестен--народные сказки",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "unstructured",
+              "collective_marker",
+              "hyphen",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Сборник",
+            "middle": "--",
+            "last": "Коллектив авторов",
+            "nickname": null,
+            "display": "Сборник -- Коллектив авторов"
+          },
+          "proposal": {
+            "kind": "collective",
+            "display_name": "Сборник -- Коллектив авторов",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "collective_marker",
+              "hyphen"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "народное",
+            "middle": "",
+            "last": "",
+            "nickname": null,
+            "display": "народное"
+          },
+          "proposal": {
+            "kind": "collective",
+            "display_name": "народное",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "single_token",
+              "lowercase",
+              "collective_marker",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Авторов",
+            "middle": null,
+            "last": "Коллектив",
+            "nickname": null,
+            "display": "Авторов Коллектив"
+          },
+          "proposal": {
+            "kind": "collective",
+            "display_name": "Авторов Коллектив",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "collective_marker"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Коллектив авторов",
+            "middle": "--",
+            "last": "Психология",
+            "nickname": null,
+            "display": "Коллектив авторов -- Психология"
+          },
+          "proposal": {
+            "kind": "collective",
+            "display_name": "Коллектив авторов -- Психология",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "collective_marker",
+              "hyphen"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Коллектив авторов",
+            "middle": "--",
+            "last": "Юриспруденция",
+            "nickname": null,
+            "display": "Коллектив авторов -- Юриспруденция"
+          },
+          "proposal": {
+            "kind": "collective",
+            "display_name": "Коллектив авторов -- Юриспруденция",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "collective_marker",
+              "hyphen"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Коллектив авторов",
+            "middle": "--",
+            "last": "Медицина",
+            "nickname": null,
+            "display": "Коллектив авторов -- Медицина"
+          },
+          "proposal": {
+            "kind": "collective",
+            "display_name": "Коллектив авторов -- Медицина",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "collective_marker",
+              "hyphen"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Коллективный",
+            "middle": null,
+            "last": "сборник",
+            "nickname": null,
+            "display": "Коллективный сборник"
+          },
+          "proposal": {
+            "kind": "collective",
+            "display_name": "Коллективный сборник",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "lowercase",
+              "collective_marker"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Русская",
+            "middle": "Народная",
+            "last": "Сказка",
+            "nickname": null,
+            "display": "Русская Народная Сказка"
+          },
+          "proposal": {
+            "kind": "collective",
+            "display_name": "Русская Народная Сказка",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "collective_marker"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "коллектив",
+            "middle": null,
+            "last": "Авторский",
+            "nickname": null,
+            "display": "коллектив Авторский"
+          },
+          "proposal": {
+            "kind": "collective",
+            "display_name": "коллектив Авторский",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "lowercase",
+              "collective_marker"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Народные",
+            "middle": null,
+            "last": "сказки",
+            "nickname": null,
+            "display": "Народные сказки"
+          },
+          "proposal": {
+            "kind": "collective",
+            "display_name": "Народные сказки",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "lowercase",
+              "collective_marker"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Редакционная",
+            "middle": null,
+            "last": "коллегия",
+            "nickname": null,
+            "display": "Редакционная коллегия"
+          },
+          "proposal": {
+            "kind": "collective",
+            "display_name": "Редакционная коллегия",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "lowercase",
+              "collective_marker"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": null,
+            "middle": null,
+            "last": "Антология",
+            "nickname": null,
+            "display": "Антология"
+          },
+          "proposal": {
+            "kind": "collective",
+            "display_name": "Антология",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "single_token",
+              "collective_marker"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Коллектив авторов",
+            "middle": "--",
+            "last": "Детская литература",
+            "nickname": null,
+            "display": "Коллектив авторов -- Детская литература"
+          },
+          "proposal": {
+            "kind": "collective",
+            "display_name": "Коллектив авторов -- Детская литература",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "collective_marker",
+              "hyphen"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "",
+            "middle": null,
+            "last": "коллектив авторов",
+            "nickname": null,
+            "display": "коллектив авторов"
+          },
+          "proposal": {
+            "kind": "collective",
+            "display_name": "коллектив авторов",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "unstructured",
+              "lowercase",
+              "collective_marker",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Коллектив авторов",
+            "middle": "--",
+            "last": "Фантастика",
+            "nickname": null,
+            "display": "Коллектив авторов -- Фантастика"
+          },
+          "proposal": {
+            "kind": "collective",
+            "display_name": "Коллектив авторов -- Фантастика",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "collective_marker",
+              "hyphen"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "Коллектив авторов",
+            "middle": "--",
+            "last": "Шпаргалки",
+            "nickname": null,
+            "display": "Коллектив авторов -- Шпаргалки"
+          },
+          "proposal": {
+            "kind": "collective",
+            "display_name": "Коллектив авторов -- Шпаргалки",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "collective_marker",
+              "hyphen"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": "",
+            "middle": null,
+            "last": "Фольклор",
+            "nickname": null,
+            "display": "Фольклор"
+          },
+          "proposal": {
+            "kind": "collective",
+            "display_name": "Фольклор",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "single_token",
+              "collective_marker",
+              "empty_component"
+            ]
+          }
+        },
+        {
+          "script": "Cyrl",
+          "source": {
+            "first": null,
+            "middle": null,
+            "last": null,
+            "nickname": "Группа авторов",
+            "display": "Группа авторов"
+          },
+          "proposal": {
+            "kind": "collective",
+            "display_name": "Группа авторов",
+            "sort_name": "",
+            "given_name": "",
+            "additional_names": "",
+            "family_name": "",
+            "quality_flags": [
+              "unstructured",
+              "nickname",
+              "collective_marker"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

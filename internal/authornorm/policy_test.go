@@ -360,9 +360,9 @@ func TestOneClassMayBeRegisteredForSeveralScripts(t *testing.T) {
 }
 
 // Selectable is stated here independently of the routing table: exactly the
-// two non-ambiguous classes of well-formed input may be registered.
+// three non-ambiguous classes of well-formed input may be registered.
 func TestSelectableClasses(t *testing.T) {
-	want := map[DecisionClass]bool{ClassPlaceholder: true, ClassStructuredPerson: true}
+	want := map[DecisionClass]bool{ClassPlaceholder: true, ClassCollective: true, ClassStructuredPerson: true}
 	for _, class := range DecisionClasses() {
 		if class.Selectable() != want[class] {
 			t.Errorf("%q.Selectable() = %v, want %v", class, class.Selectable(), want[class])

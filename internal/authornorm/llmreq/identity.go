@@ -18,7 +18,7 @@ import (
 // excerpt reader's version itself; the validators and the tokenizer are
 // versioned here, and a change to either must bump its constant.
 const (
-	ValidatorVersion = "authornorm-llmres-validators-v1"
+	ValidatorVersion = "authornorm-llmres-validators-v2"
 	// #nosec G101 -- a version label of the tokenizer, not a credential
 	TokenizerVersion = "authornorm-llmres-tokens-v1"
 )

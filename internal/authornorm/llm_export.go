@@ -82,3 +82,28 @@ func IsInitialToken(token string) bool {
 func ParticleWord(word string, displayWordCount int) bool {
 	return classifyToken(word, displayWordCount).particle
 }
+
+// NameWordCaseDefects is the LLM layer's case-fix view of one component
+// value: FlagAllCaps exactly where WordCaseDefects reports it, and
+// FlagLowercase on every name word of two or more cased letters that starts
+// lowercase, not only the component's first. A later lowercase word of a
+// phrase is no defect of the source the local normalizer flags; it is only a
+// word a model may ask to capitalize ("Исидор севильский"). Particles,
+// affixes and initials are never name words, so their case stays as written.
+// The local normalizer's flags do not use this view.
+func NameWordCaseDefects(value string, displayWordCount int) map[int]QualityFlag {
+	defects := WordCaseDefects(value, displayWordCount)
+	for i, word := range strings.Fields(value) {
+		if _, ok := defects[i]; ok || !classifyToken(word, displayWordCount).nameWord() {
+			continue
+		}
+		first, _ := utf8.DecodeRuneInString(word)
+		if upper, lower := casedLetters(word); unicode.IsLower(first) && upper+lower >= minCaseDefectLetters {
+			if defects == nil {
+				defects = make(map[int]QualityFlag)
+			}
+			defects[i] = FlagLowercase
+		}
+	}
+	return defects
+}

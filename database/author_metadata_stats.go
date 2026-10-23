@@ -318,12 +318,12 @@ func localStats(ctx context.Context, db pg.DBI, runID int64) (AuthorMetadataLoca
 	var stats AuthorMetadataLocalStats
 	_, err := db.QueryOneContext(ctx, &stats, runJobsCTE+`
 		SELECT
-			count(*) FILTER (WHERE status = 'pending'
+			count(*) FILTER (WHERE status IN ('pending', 'queued')
 				AND (lease_expires_at IS NULL OR lease_expires_at <= clock_timestamp())) AS pending,
-			count(*) FILTER (WHERE status = 'pending' AND lease_expires_at > clock_timestamp()) AS leased,
+			count(*) FILTER (WHERE status IN ('pending', 'queued') AND lease_expires_at > clock_timestamp()) AS leased,
 			count(*) FILTER (WHERE status = 'completed') AS completed,
 			count(*) FILTER (WHERE status = 'failed') AS failed,
-			greatest(0, coalesce(extract(epoch FROM clock_timestamp() - min(created_at) FILTER (WHERE status = 'pending')), 0))::float8
+			greatest(0, coalesce(extract(epoch FROM clock_timestamp() - min(created_at) FILTER (WHERE status IN ('pending', 'queued'))), 0))::float8
 				AS oldest_pending_age_s
 		FROM run_jobs`, runID)
 	if err != nil {

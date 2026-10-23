@@ -1,6 +1,7 @@
 package authornorm
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -26,10 +27,14 @@ func Normalize(v SourceValue, extractorVersion string) (Result, error) {
 		return Result{}, err
 	}
 
-	display := collapseWhitespace(v.displayName)
+	// The fingerprint and key stay those of the whole source; only the
+	// reading drops a placeholder nickname.
+	input, dropped := withoutPlaceholderNickname(v)
+	display := collapseWhitespace(input.displayName)
 	searchKey := SearchKey(display)
 	script := DetectScript(display)
-	shape := inspect(v, display, searchKey, script)
+	shape := inspect(input, display, searchKey, script)
+	shape.flags[FlagPlaceholderNickname] = dropped
 	class := shape.classify()
 
 	r := Result{
@@ -47,8 +52,41 @@ func Normalize(v SourceValue, extractorVersion string) (Result, error) {
 		NormalizerVersion: NormalizerVersion,
 		SchemaVersion:     ResultSchemaVersion,
 	}
-	r.transferExplicitFields(v, shape)
+	r.transferExplicitFields(input, shape)
 	return r, nil
+}
+
+// withoutPlaceholderNickname is the source read without its nickname when
+// that nickname is exactly a placeholder ("Неизвестный автор", "Unknown
+// Author") next to a name in the other components: the label names no one,
+// so the rest is normalized as if it were absent. The display loses the
+// nickname's own words and nothing else. A duplicated component, or a
+// nickname whose text is not one unambiguous part of the display, keeps the
+// whole source; so does a nickname alone, which is the whole display and no
+// part of it: that is the placeholder class.
+func withoutPlaceholderNickname(v SourceValue) (SourceValue, bool) {
+	nickname := deref(v.nickname)
+	if v.duplicateComponent || nickname == "" || !placeholders[SearchKey(nickname)] {
+		return v, false
+	}
+	if strings.Count(v.displayName, nickname) != 1 {
+		return v, false
+	}
+	var rest string
+	switch {
+	case strings.HasSuffix(v.displayName, " "+nickname):
+		rest = strings.TrimSuffix(v.displayName, " "+nickname)
+	case strings.HasPrefix(v.displayName, nickname+" "):
+		rest = strings.TrimPrefix(v.displayName, nickname+" ")
+	case strings.Contains(v.displayName, " "+nickname+" "):
+		rest = strings.Replace(v.displayName, " "+nickname+" ", " ", 1)
+	default:
+		return v, false
+	}
+	reduced := v
+	reduced.nickname = nil
+	reduced.displayName = rest
+	return reduced, true
 }
 
 // transferExplicitFields copies the explicit FB2 components of a person into
@@ -215,34 +253,47 @@ func (f flagSet) list() []QualityFlag {
 var classPrecedence = []struct {
 	class DecisionClass
 	flags []QualityFlag
+	// match, when set, names the class instead of flags: a property no single
+	// flag records.
+	match func(shape) bool
 }{
-	{ClassMalformed, []QualityFlag{FlagNoLetters, FlagReplacementCharacter}},
-	{ClassPlaceholder, []QualityFlag{FlagPlaceholder}},
-	{ClassCollectiveCandidate, []QualityFlag{FlagCollectiveMarker}},
-	{ClassPlaceholderFragment, []QualityFlag{FlagPlaceholderFragment}},
-	{ClassDuplicateComponent, []QualityFlag{FlagDuplicateComponent}},
-	{ClassMixedScript, []QualityFlag{FlagMixedScript}},
-	{ClassUnusualCharacters, []QualityFlag{FlagUnusualCharacters}},
-	{ClassInitials, []QualityFlag{FlagInitials}},
-	{ClassParticle, []QualityFlag{FlagParticle}},
-	{ClassAffix, []QualityFlag{FlagAffix}},
-	{ClassSingleField, []QualityFlag{FlagUnstructured}},
-	{ClassMononym, []QualityFlag{FlagSingleToken}},
-	{ClassPartialStructure, []QualityFlag{FlagPartialStructure}},
-	{ClassNicknameWithName, []QualityFlag{FlagNickname}},
-	{ClassCaseDefect, []QualityFlag{FlagAllCaps, FlagLowercase}},
+	{ClassMalformed, []QualityFlag{FlagNoLetters, FlagReplacementCharacter}, nil},
+	{ClassPlaceholder, []QualityFlag{FlagPlaceholder}, nil},
+	{ClassCollective, nil, func(s shape) bool { return s.collectiveWord }},
+	{ClassCollectiveCandidate, []QualityFlag{FlagCollectiveMarker}, nil},
+	{ClassPlaceholderFragment, []QualityFlag{FlagPlaceholderFragment}, nil},
+	{ClassDuplicateComponent, []QualityFlag{FlagDuplicateComponent}, nil},
+	{ClassMixedScript, []QualityFlag{FlagMixedScript}, nil},
+	{ClassUnusualCharacters, []QualityFlag{FlagUnusualCharacters}, nil},
+	{ClassInitials, []QualityFlag{FlagInitials}, nil},
+	{ClassParticle, []QualityFlag{FlagParticle}, nil},
+	{ClassAffix, []QualityFlag{FlagAffix}, nil},
+	{ClassSingleField, []QualityFlag{FlagUnstructured}, nil},
+	{ClassMononym, []QualityFlag{FlagSingleToken}, nil},
+	{ClassPartialStructure, []QualityFlag{FlagPartialStructure}, nil},
+	{ClassNicknameWithName, []QualityFlag{FlagNickname}, nil},
+	{ClassCaseDefect, []QualityFlag{FlagAllCaps, FlagLowercase}, nil},
 }
 
 // shape is everything the classifier observed about one source value.
 type shape struct {
 	flags       flagSet
 	personParts int
+	// collectiveWord: a collective word names the value, with no conjunction
+	// joining two credits and no label in front of a person's name.
+	collectiveWord bool
 }
 
 func (s shape) classify() DecisionClass {
 	ambiguous := hasStructuralAmbiguity(func(f QualityFlag) bool { return s.flags[f] })
 	for _, rule := range classPrecedence {
 		if ambiguous && rule.class.Selectable() {
+			continue
+		}
+		if rule.match != nil {
+			if rule.match(s) {
+				return rule.class
+			}
 			continue
 		}
 		for _, flag := range rule.flags {
@@ -372,7 +423,7 @@ func classifyToken(token string, tokenCount int) tokenClass {
 // lone capital is an initial, a lone lower-case letter is a conjunction.
 const minCaseDefectLetters = 2
 
-// inspectVocabulary matches the closed v1 vocabularies: placeholders and
+// inspectVocabulary matches the closed vocabularies: placeholders and
 // collective words against the folded search tokens, conjunctions against
 // the white-space display tokens.
 func (s *shape) inspectVocabulary(displayTokens []string, searchKey string) {
@@ -382,8 +433,32 @@ func (s *shape) inspectVocabulary(displayTokens []string, searchKey string) {
 	} else if anyTokenHasPrefix(searchTokens, placeholderFragmentPrefixes) {
 		s.flags[FlagPlaceholderFragment] = true
 	}
-	s.flags[FlagCollectiveMarker] = anyTokenHasPrefix(searchTokens, collectivePrefixes) || hasInnerConjunction(displayTokens)
+	conjunction := hasInnerConjunction(displayTokens)
+	s.flags[FlagCollectiveMarker] = anyTokenHasPrefix(searchTokens, collectivePrefixes) || conjunction
+	s.collectiveWord = !conjunction && anyTokenHasPrefix(searchTokens, collectiveWordPrefixes) &&
+		!labelsAPerson(searchTokens)
 }
+
+// labelsAPerson spots a collective word that is only a label in front of a
+// person's name: a literary agent followed by a given and a family name
+// ("Литагент Щепетнов Евгений"), or "под редакцией" (edited by) anywhere.
+// Such a value stays a collective candidate; "Литагент Альпина" names the
+// agent itself.
+func labelsAPerson(searchTokens []string) bool {
+	for i, token := range searchTokens {
+		if strings.HasPrefix(token, "литагент") && len(searchTokens)-i > minLabelledNameWords {
+			return true
+		}
+		if token == "под" && i+1 < len(searchTokens) && strings.HasPrefix(searchTokens[i+1], "редакци") {
+			return true
+		}
+	}
+	return false
+}
+
+// minLabelledNameWords is how many words after a literary agent label read
+// as a person's given and family name.
+const minLabelledNameWords = 2
 
 func anyTokenHasPrefix(tokens, prefixes []string) bool {
 	for _, token := range tokens {
@@ -398,10 +473,29 @@ func anyTokenHasPrefix(tokens, prefixes []string) bool {
 
 // hasInnerConjunction spots "A и B" / "A and B" — two credits in one value —
 // over white-space display tokens, so that a hyphenated "Сеспедес-и-Менесес"
-// or an initial "И." is not mistaken for a conjunction.
+// or an initial "И." is not mistaken for a conjunction. A capital "И" is an
+// initial too ("Виктор И Черкашин"), unless the whole value is written in
+// capitals, where a conjunction is capital like everything else.
 func hasInnerConjunction(displayTokens []string) bool {
+	capitalIsInitial := anyLowercaseLetter(displayTokens)
 	for i := 1; i < len(displayTokens)-1; i++ {
+		if displayTokens[i] == capitalCyrillicI && capitalIsInitial {
+			continue
+		}
 		if conjunctions[cases.Fold().String(displayTokens[i])] {
+			return true
+		}
+	}
+	return false
+}
+
+// capitalCyrillicI is the conjunction "и" written as a capital, which in a
+// mixed-case name is an initial.
+const capitalCyrillicI = "И"
+
+func anyLowercaseLetter(tokens []string) bool {
+	for _, token := range tokens {
+		if strings.IndexFunc(token, unicode.IsLower) >= 0 {
 			return true
 		}
 	}
@@ -504,7 +598,7 @@ func hasParticlePrefix(folded string) bool {
 	return false
 }
 
-// The vocabularies below are part of NormalizerVersion v1. They are matched
+// The vocabularies below are part of NormalizerVersion v2. They are matched
 // against case-folded tokens; editing them is a new normalizer version.
 var (
 	// placeholders are whole search keys that name no one in particular.
@@ -524,6 +618,11 @@ var (
 		"редколлег", "фольклор", "братья", "авторов",
 		"various", "collective", "anthology", "folklore", "editorial", "brothers", "authors",
 	}
+	// collectiveWordPrefixes are the collective prefixes that name a
+	// collective on their own: brothers are several people, left to review.
+	collectiveWordPrefixes = slices.DeleteFunc(slices.Clone(collectivePrefixes), func(p string) bool {
+		return p == "братья" || p == "brothers"
+	})
 	conjunctions = setOf("и", "and", "und", "et")
 	// particles are standalone name particles; they mark ambiguity only next
 	// to another token.

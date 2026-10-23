@@ -10,7 +10,10 @@ import (
 // case_fix[]) with the lists sorted by index, serialized deterministically.
 // The order is not in it: it follows from the roles. A cannot_tell answer is
 // its form alone — a refusal whose roles mean nothing, so two refusals agree
-// whatever roles they guessed. Two models agree iff the canonical forms are
+// whatever roles they guessed. Every other form but person is its form and
+// its case fixes: its roles build nothing (the display is the source as
+// written), so two answers that name the same collective agree whatever roles
+// they gave its words. Two models agree iff the canonical forms are
 // byte-equal; there is no partial agreement.
 
 // canonicalWire is the canonical serialization shape: fixed field order,
@@ -28,7 +31,7 @@ func (r *Reply) CanonicalBytes() []byte {
 	slices.SortStableFunc(roles, func(a, b RoleAssignment) int { return a.I - b.I })
 	fixes := slices.Clone(r.CaseFix)
 	slices.SortStableFunc(fixes, func(a, b CaseFix) int { return a.I - b.I })
-	if roles == nil || r.Form == FormCannotTell {
+	if roles == nil || r.Form != FormPerson {
 		roles = []RoleAssignment{}
 	}
 	if fixes == nil || r.Form == FormCannotTell {

@@ -104,7 +104,7 @@ func TestTheBookListOfAnEntityIsTheBooksNamingIt(t *testing.T) {
 	require.NoError(t, err)
 	next := authorSchemaIDBase
 	f := &authorSchemaFixture{t: t, tx: tx, next: &next}
-	f.registerPair("3", "structured_person", "normalizer-v1")
+	f.registerPair("4", "structured_person", "normalizer-v1")
 	credit, books := f.entityWithBooks(0x95, "Списковый", "Иван", "e3_sf", "e3_sf", "e3_sf")
 	_, others := f.entityWithBooks(0x96, "Чужой", "Иван", "e3_sf")
 	f.exec(`UPDATE opds_catalog_book SET approved = true`)

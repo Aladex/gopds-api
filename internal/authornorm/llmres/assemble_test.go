@@ -297,8 +297,9 @@ func TestAssembleCaseFix(t *testing.T) {
 	}
 }
 
-func TestAssemblePlaceholderDropsFiller(t *testing.T) {
-	// A placeholder word the dictionary owns is filler and leaves the display.
+func TestAssemblePlaceholderKeepsTheSource(t *testing.T) {
+	// A placeholder is its form: the display is the source as written, the
+	// way the local normalizer's placeholder class keeps it.
 	out := assembleOne(t,
 		[]FieldValue{{FieldFirst, "Аноним"}},
 		&Reply{Form: FormPlaceholder, Order: OrderNotApplicable, CaseFix: []CaseFix{}, Roles: []RoleAssignment{
@@ -306,8 +307,8 @@ func TestAssemblePlaceholderDropsFiller(t *testing.T) {
 	if out.Result.Kind != authornorm.KindUnknown {
 		t.Errorf("kind = %q, want unknown", out.Result.Kind)
 	}
-	if out.Result.DisplayName != "" {
-		t.Errorf("display = %q, want empty after dropping the filler", out.Result.DisplayName)
+	if out.Result.DisplayName != "Аноним" {
+		t.Errorf("display = %q, want the source", out.Result.DisplayName)
 	}
 	if out.Tier != TierReclassify {
 		t.Errorf("tier = %s, want reclassify", out.Tier)

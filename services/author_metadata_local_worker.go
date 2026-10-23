@@ -157,6 +157,10 @@ type LocalBatchReport struct {
 	Reconciled int
 	// Accepted counts credits the acceptance pass selected.
 	Accepted int
+	// Requeued counts inputs queued again under this version: another
+	// version's job this worker never claims, or an input waiting on another
+	// version's reading (RenormalizeRereadInputs).
+	Requeued int
 }
 
 // RunOnce loads the newest policy, claims one batch, processes every claimed
@@ -171,6 +175,7 @@ func (w *AuthorMetadataLocalWorker) RunOnce(ctx context.Context) (LocalBatchRepo
 	}
 	claims, err := database.ClaimLocalNormalizationJobs(ctx, w.db, w.owner, database.LeaseClaimOptions{
 		Limit: w.cfg.ClaimLimit, Lease: w.cfg.Lease, MaxAttempts: w.cfg.Retry.MaxAttempts,
+		NormalizerVersion: w.cfg.NormalizerVersion,
 	})
 	if err != nil {
 		return report, err
@@ -203,6 +208,13 @@ func (w *AuthorMetadataLocalWorker) RunOnce(ctx context.Context) (LocalBatchRepo
 	// previous version left its credits unresolved; so did a registration's
 	// own pass cut short. Either way they wait here.
 	report.Accepted, err = ApplyAcceptancePolicy(ctx, w.db, w.cfg.NormalizerVersion, w.cfg.ClaimLimit)
+	if err != nil || w.cfg.NormalizerVersion != authornorm.NormalizerVersion {
+		return report, err
+	}
+	// A v1 binary still running in a rolling update writes jobs this worker
+	// never claims; they are queued again under this version for the next
+	// batch, whenever they were written.
+	report.Requeued, err = RenormalizeRereadInputs(ctx, w.db, w.cfg.ClaimLimit)
 	return report, err
 }
 

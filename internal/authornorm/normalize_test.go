@@ -203,6 +203,35 @@ func TestNormalizeCarriesFingerprintKeyAndVersions(t *testing.T) {
 	}
 }
 
+// A dropped placeholder nickname changes only the reading: the result still
+// names the whole source by its fingerprint and key, so every credit of the
+// source shares it, and the nickname's own words appear nowhere.
+func TestDroppedPlaceholderNicknameKeepsTheWholeSourceIdentity(t *testing.T) {
+	v := mustSource(t,
+		SourceComponent{Kind: ComponentFirst, Value: "Петер"},
+		SourceComponent{Kind: ComponentLast, Value: "Силс"},
+		SourceComponent{Kind: ComponentNickname, Value: "Неизвестный автор"},
+	)
+	r := mustNormalize(t, v)
+	if r.SourceFingerprint != SourceFingerprint(v) {
+		t.Error("SourceFingerprint is not the fingerprint of the whole source")
+	}
+	wantKey, err := NormalizationKey(SourceFingerprint(v), testExtractorVersion, NormalizerVersion)
+	if err != nil {
+		t.Fatalf("NormalizationKey: %v", err)
+	}
+	if r.NormalizationKey != wantKey {
+		t.Error("NormalizationKey is not the key of the whole source")
+	}
+	if r.Nickname != "" || r.DisplayName != "Петер Силс" || r.SearchKey != "петер силс" {
+		t.Errorf("nickname, display, search key = %q, %q, %q; the placeholder must be gone",
+			r.Nickname, r.DisplayName, r.SearchKey)
+	}
+	if !slices.Contains(r.QualityFlags, FlagPlaceholderNickname) || slices.Contains(r.QualityFlags, FlagNickname) {
+		t.Errorf("quality_flags = %q, want placeholder_nickname and no nickname", flagNames(r.QualityFlags))
+	}
+}
+
 func TestNormalizeRejectsEmptyExtractorVersionAndZeroSource(t *testing.T) {
 	v := mustSource(t, SourceComponent{Kind: ComponentLast, Value: "Толстой"})
 	if _, err := Normalize(v, " "); !errors.Is(err, ErrEmptyVersion) {
@@ -302,6 +331,7 @@ func TestDecisionClassRoutingIsClosed(t *testing.T) {
 	want := map[DecisionClass]routing{
 		ClassStructuredPerson:    {false, KindPerson, StatusNormalized},
 		ClassPlaceholder:         {false, KindUnknown, StatusNormalized},
+		ClassCollective:          {false, KindCollective, StatusNormalized},
 		ClassMalformed:           {false, KindMalformed, StatusInvalid},
 		ClassCollectiveCandidate: {true, KindCollective, StatusUnresolved},
 		ClassPlaceholderFragment: {true, KindUnknown, StatusUnresolved},
