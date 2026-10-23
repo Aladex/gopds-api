@@ -374,7 +374,8 @@ export const deleteAuthorMetadataArchive = (runID: number, archive: string) =>
 // --- Author LLM block -----------------------------------------------------
 //
 // The LLM block of the author metadata card. The chain is fixed on the
-// server: check quality (eval pilot) → check everything (eval full) →
+// server: check quality (eval pilot) → check everything (eval full), or one
+// of the four stage checks (eval stage0..3, each a fixed set of strata) →
 // resolve pilot → resolve everything → check the swaps (eval swap) → swaps
 // pilot → swap everything; each step says whether it is built, enabled and
 // done, and why it is not enabled.
@@ -382,6 +383,10 @@ export const deleteAuthorMetadataArchive = (runID: number, archive: string) =>
 export type AuthorLLMStepKey =
     | 'eval_pilot'
     | 'eval_full'
+    | 'eval_stage0'
+    | 'eval_stage1'
+    | 'eval_stage2'
+    | 'eval_stage3'
     | 'resolve_pilot'
     | 'resolve_full'
     | 'swap_eval'
@@ -396,6 +401,9 @@ export interface AuthorLLMStep {
     enabled: boolean;
     done: boolean;
     blocked?: 'not_configured' | 'not_available' | 'prerequisite' | 'active_run';
+    // A stage eval's strata and its token estimate before it starts.
+    strata?: string[];
+    estimate_tokens?: number;
 }
 
 export interface AuthorLLMReportSummary {
@@ -539,7 +547,8 @@ export const getAuthorEntityStatus = () =>
     http.get<{ status: AuthorEntityStatus }>(`${entityBase}/status`);
 
 /** startAuthorEntityBuild answers at once; the pass goes on in the background. */
-export const startAuthorEntityBuild = () => http.post<{ run: AuthorEntityRun }>(`${entityBase}/build`);
+export const startAuthorEntityBuild = () =>
+    http.post<{ run: AuthorEntityRun }>(`${entityBase}/build`);
 
 const llmBase = '/admin/author-metadata/llm';
 

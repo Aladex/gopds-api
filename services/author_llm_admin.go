@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"gopds-api/config"
@@ -49,8 +50,14 @@ var (
 
 // The chain's steps.
 const (
-	AuthorLLMStepEvalPilot    = "eval_pilot"
-	AuthorLLMStepEvalFull     = "eval_full"
+	AuthorLLMStepEvalPilot = "eval_pilot"
+	AuthorLLMStepEvalFull  = "eval_full"
+	// The stage evals: one fixed set of strata each, an alternative to the
+	// full eval for evaluating the review backlog in stages.
+	AuthorLLMStepEvalStage0   = "eval_stage0"
+	AuthorLLMStepEvalStage1   = "eval_stage1"
+	AuthorLLMStepEvalStage2   = "eval_stage2"
+	AuthorLLMStepEvalStage3   = "eval_stage3"
 	AuthorLLMStepResolvePilot = "resolve_pilot"
 	AuthorLLMStepResolveFull  = "resolve_full"
 	// The swaps: their own eval (the swap strata alone), then the pilot and
@@ -80,6 +87,11 @@ type AuthorLLMStep struct {
 	Done bool `json:"done"`
 	// Blocked says why a step is not enabled.
 	Blocked string `json:"blocked,omitempty"`
+	// Strata are the strata a stage eval measures.
+	Strata []string `json:"strata,omitempty"`
+	// EstimateTokens is a stage eval's token estimate before it starts: the
+	// run's own estimator over the sets it would measure.
+	EstimateTokens int64 `json:"estimate_tokens,omitempty"`
 }
 
 // AuthorLLMProgress is how far the current stage is: its jobs that ended
@@ -220,20 +232,40 @@ func NewAuthorLLMAdminFromConfig(
 // so no LLM run would ever move.
 const AuthorLLMDisabledWorkersOff = "workers_disabled"
 
-// authorLLMChain is the chain's steps in order; a step's prerequisite is the
-// step before it.
+// authorLLMChain is the chain's steps in the order the card draws them, each
+// with the completed runs (kind/mode) any one of which it follows. The stage
+// evals are alternatives to the full eval: each follows the pilot, and a
+// resolve run follows whichever of them, or the full eval, is the latest
+// (authorLLMResolvable).
 var authorLLMChain = []struct {
 	key, kind, mode string
 	available       bool
+	after           []string
 }{
-	{AuthorLLMStepEvalPilot, string(models.AuthorLLMRunEval), models.AuthorLLMEvalModePilot, true},
-	{AuthorLLMStepEvalFull, string(models.AuthorLLMRunEval), models.AuthorLLMEvalModeFull, true},
-	{AuthorLLMStepResolvePilot, string(models.AuthorLLMRunResolve), models.AuthorLLMEvalModePilot, true},
-	{AuthorLLMStepResolveFull, string(models.AuthorLLMRunResolve), models.AuthorLLMEvalModeFull, true},
-	{AuthorLLMStepSwapEval, string(models.AuthorLLMRunEval), models.AuthorLLMEvalModeSwap, true},
-	{AuthorLLMStepSwapPilot, string(models.AuthorLLMRunSwap), models.AuthorLLMEvalModePilot, true},
-	{AuthorLLMStepSwapFull, string(models.AuthorLLMRunSwap), models.AuthorLLMEvalModeFull, true},
+	{AuthorLLMStepEvalPilot, string(models.AuthorLLMRunEval), models.AuthorLLMEvalModePilot, true, nil},
+	{AuthorLLMStepEvalFull, string(models.AuthorLLMRunEval), models.AuthorLLMEvalModeFull, true, []string{evalPilotDone}},
+	{AuthorLLMStepEvalStage0, string(models.AuthorLLMRunEval), models.AuthorLLMEvalModeStage0, true, []string{evalPilotDone}},
+	{AuthorLLMStepEvalStage1, string(models.AuthorLLMRunEval), models.AuthorLLMEvalModeStage1, true, []string{evalPilotDone}},
+	{AuthorLLMStepEvalStage2, string(models.AuthorLLMRunEval), models.AuthorLLMEvalModeStage2, true, []string{evalPilotDone}},
+	{AuthorLLMStepEvalStage3, string(models.AuthorLLMRunEval), models.AuthorLLMEvalModeStage3, true, []string{evalPilotDone}},
+	{AuthorLLMStepResolvePilot, string(models.AuthorLLMRunResolve), models.AuthorLLMEvalModePilot, true,
+		[]string{authorLLMResolvable}},
+	{AuthorLLMStepResolveFull, string(models.AuthorLLMRunResolve), models.AuthorLLMEvalModeFull, true,
+		[]string{string(models.AuthorLLMRunResolve) + "/" + models.AuthorLLMEvalModePilot}},
+	{AuthorLLMStepSwapEval, string(models.AuthorLLMRunEval), models.AuthorLLMEvalModeSwap, true,
+		[]string{string(models.AuthorLLMRunResolve) + "/" + models.AuthorLLMEvalModeFull}},
+	{AuthorLLMStepSwapPilot, string(models.AuthorLLMRunSwap), models.AuthorLLMEvalModePilot, true,
+		[]string{string(models.AuthorLLMRunEval) + "/" + models.AuthorLLMEvalModeSwap}},
+	{AuthorLLMStepSwapFull, string(models.AuthorLLMRunSwap), models.AuthorLLMEvalModeFull, true,
+		[]string{string(models.AuthorLLMRunSwap) + "/" + models.AuthorLLMEvalModePilot}},
 }
+
+// evalPilotDone is the completed eval pilot.
+const evalPilotDone = string(models.AuthorLLMRunEval) + "/" + models.AuthorLLMEvalModePilot
+
+// authorLLMResolvable is the condition a resolve run follows: the latest full
+// or stage eval's report registers a stratum.
+const authorLLMResolvable = "resolvable"
 
 // Status is the LLM block.
 func (a *AuthorLLMAdmin) Status(ctx context.Context) (*AuthorLLMStatus, error) {
@@ -257,14 +289,14 @@ func (a *AuthorLLMAdmin) Status(ctx context.Context) (*AuthorLLMStatus, error) {
 			return nil, err
 		}
 	}
-	if completed[string(models.AuthorLLMRunEval)+"/"+models.AuthorLLMEvalModeFull] {
-		// The resolve pilot rests on the full eval's report: a report that
-		// registers no stratum is no ground for it.
+	if st.Enabled {
+		// The resolve pilot rests on the full and stage evals: evidence that
+		// plans no stratum is no ground for it.
 		registrable, regErr := a.evalRegistersAStratum(ctx)
 		if regErr != nil {
 			return nil, regErr
 		}
-		completed[string(models.AuthorLLMRunEval)+"/"+models.AuthorLLMEvalModeFull] = registrable
+		completed[authorLLMResolvable] = registrable
 	}
 	if completed[string(models.AuthorLLMRunEval)+"/"+models.AuthorLLMEvalModeSwap] {
 		// Likewise the swap pilot rests on the swap eval's report.
@@ -278,6 +310,9 @@ func (a *AuthorLLMAdmin) Status(ctx context.Context) (*AuthorLLMStatus, error) {
 	if !st.Enabled {
 		return st, nil
 	}
+	if err := a.stageEstimates(ctx, st.Steps); err != nil {
+		return nil, err
+	}
 	if err := a.participants(ctx, st); err != nil {
 		return nil, err
 	}
@@ -289,15 +324,15 @@ func (a *AuthorLLMAdmin) Status(ctx context.Context) (*AuthorLLMStatus, error) {
 // no run is active.
 func authorLLMSteps(enabled, active bool, completed map[string]bool) []AuthorLLMStep {
 	steps := make([]AuthorLLMStep, 0, len(authorLLMChain))
-	for i, step := range authorLLMChain {
+	for _, step := range authorLLMChain {
 		s := AuthorLLMStep{Key: step.key, Kind: step.kind, Mode: step.mode, Available: step.available,
-			Done: completed[step.kind+"/"+step.mode]}
+			Done: completed[step.kind+"/"+step.mode], Strata: AuthorLLMEvalStageStrata(step.mode)}
 		switch {
 		case !enabled:
 			s.Blocked = AuthorLLMStepNotConfigured
 		case !step.available:
 			s.Blocked = AuthorLLMStepNotAvailable
-		case i > 0 && !completed[authorLLMChain[i-1].kind+"/"+authorLLMChain[i-1].mode]:
+		case len(step.after) > 0 && !slices.ContainsFunc(step.after, func(k string) bool { return completed[k] }):
 			s.Blocked = AuthorLLMStepPrerequisite
 		case active:
 			s.Blocked = AuthorLLMStepActiveRun
@@ -307,6 +342,21 @@ func authorLLMSteps(enabled, active bool, completed map[string]bool) []AuthorLLM
 		steps = append(steps, s)
 	}
 	return steps
+}
+
+// stageEstimates fills each stage eval step's token estimate.
+func (a *AuthorLLMAdmin) stageEstimates(ctx context.Context, steps []AuthorLLMStep) error {
+	for i := range steps {
+		if !models.IsAuthorLLMEvalStageMode(steps[i].Mode) || steps[i].Kind != string(models.AuthorLLMRunEval) {
+			continue
+		}
+		est, err := EstimateAuthorLLMEvalStage(ctx, a.db, steps[i].Mode, DefaultAuthorLLMEvalSizes())
+		if err != nil {
+			return err
+		}
+		steps[i].EstimateTokens = est.Tokens
+	}
+	return nil
 }
 
 // participants fills the participants and the endpoint's pause.
@@ -351,7 +401,8 @@ var authorLLMStagePurpose = map[string]models.AuthorLLMJobPurpose{
 // runState is a run as the card shows it.
 func (a *AuthorLLMAdmin) runState(ctx context.Context, run *models.AuthorLLMRun) (*AuthorLLMRunState, error) {
 	rs := &AuthorLLMRunState{ID: run.ID, Kind: string(run.Kind), Mode: run.Mode, Status: string(run.Status),
-		Stage: deref(run.Stage), PausedReason: deref(run.PausedReason), LastErrorClass: deref(run.LastErrorClass),
+		Stage:        models.AuthorLLMEvalStageOf(run.Mode, deref(run.Stage)),
+		PausedReason: deref(run.PausedReason), LastErrorClass: deref(run.LastErrorClass),
 		CurrentConfig: run.ConfigVersion == a.version, EstimateTokens: run.EstimateTokens,
 		LimitTokens: int64(float64(run.EstimateTokens) * a.settings.Budget.RunOverrun)}
 	purpose, ok := authorLLMStagePurpose[rs.Stage]
@@ -474,18 +525,19 @@ func (a *AuthorLLMAdmin) Start(ctx context.Context, kind, mode string, actor int
 	}
 	switch mode {
 	case models.AuthorLLMEvalModeDev, models.AuthorLLMEvalModePilot:
-	case models.AuthorLLMEvalModeFull, models.AuthorLLMEvalModeSwap:
-		// The full eval follows the pilot; the swap eval the full one, whose
-		// anchor and fingerprints it measures again.
-		before := models.AuthorLLMEvalModePilot
+	case models.AuthorLLMEvalModeFull, models.AuthorLLMEvalModeSwap, models.AuthorLLMEvalModeStage0,
+		models.AuthorLLMEvalModeStage1, models.AuthorLLMEvalModeStage2, models.AuthorLLMEvalModeStage3:
+		// The full and the stage evals follow the eval pilot; the swap eval
+		// follows the full resolve, on either route — the card's chain.
+		before := evalPilotDone
 		if mode == models.AuthorLLMEvalModeSwap {
-			before = models.AuthorLLMEvalModeFull
+			before = string(models.AuthorLLMRunResolve) + "/" + models.AuthorLLMEvalModeFull
 		}
 		completed, err := database.AuthorLLMCompletedRuns(ctx, a.db, a.version)
 		if err != nil {
 			return nil, err
 		}
-		if !completed[kind+"/"+before] {
+		if !completed[before] {
 			return nil, ErrAuthorLLMPrerequisite
 		}
 	default:
@@ -498,14 +550,10 @@ func (a *AuthorLLMAdmin) Start(ctx context.Context, kind, mode string, actor int
 	return a.get(ctx, id)
 }
 
-// evalRegistersAStratum reports whether the latest full eval's report
-// registers a stratum of the configuration.
+// evalRegistersAStratum reports whether the configuration's full and stage
+// evals register a stratum: whether a resolve run would plan one.
 func (a *AuthorLLMAdmin) evalRegistersAStratum(ctx context.Context) (bool, error) {
-	ev, err := database.LatestAuthorLLMFullEval(ctx, a.db, a.version)
-	if err != nil || ev == nil {
-		return false, err
-	}
-	plan, err := PlanAuthorLLMResolve(ev.Report)
+	_, plan, err := productionPlan(ctx, a.db, models.AuthorLLMRunResolve, a.version)
 	if err != nil {
 		return false, err
 	}

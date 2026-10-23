@@ -60,7 +60,8 @@ const step = (key: AuthorLLMStep['key'], overrides: Partial<AuthorLLMStep> = {})
     // The swaps' check is an eval of mode swap.
     const eval_ = key.startsWith('eval') || key === 'swap_eval';
     const kind = eval_ ? 'eval' : key.startsWith('swap') ? 'swap' : 'resolve';
-    const mode = key === 'swap_eval' ? 'swap' : key.endsWith('pilot') ? 'pilot' : 'full';
+    const stage = key.match(/^eval_(stage\d)$/)?.[1];
+    const mode = stage ?? (key === 'swap_eval' ? 'swap' : key.endsWith('pilot') ? 'pilot' : 'full');
     return {
         key,
         kind,
@@ -174,6 +175,52 @@ describe('AuthorLLMBlock', () => {
         expect(screen.getByRole('button', { name: /✓ Check quality/ })).toBeInTheDocument();
         fireEvent.click(full);
         await waitFor(() => expect(api.startAuthorLLMRun).toHaveBeenCalledWith('eval', 'full'));
+    });
+
+    it('offers the stage checks with their strata and estimate, and starts one', async () => {
+        show(
+            status({
+                steps: [
+                    step('eval_pilot', { done: true, blocked: undefined }),
+                    step('eval_full', { enabled: true, blocked: undefined }),
+                    step('eval_stage0', {
+                        enabled: true,
+                        blocked: undefined,
+                        strata: ['initials.cyrl', 'initials.latn'],
+                        estimate_tokens: 56_000_000,
+                    }),
+                    step('eval_stage1', {
+                        enabled: true,
+                        blocked: undefined,
+                        strata: ['nickname_with_name.cyrl', 'particle.cyrl', 'particle.latn'],
+                        estimate_tokens: 96_412_000,
+                    }),
+                    step('resolve_pilot'),
+                ],
+            }),
+        );
+        render(<AuthorLLMBlock />);
+        const stage1 = await screen.findByRole('button', {
+            name: 'Check stage 1: particles, nicknames',
+        });
+        expect(stage1).toHaveAttribute(
+            'title',
+            'nickname_with_name.cyrl, particle.cyrl, particle.latn',
+        );
+        expect(screen.getByText(`~${n(96_412_000)} tokens`)).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Check stage 0: initials' })).toHaveAttribute(
+            'title',
+            'initials.cyrl, initials.latn',
+        );
+        expect(screen.getByText(`~${n(56_000_000)} tokens`)).toBeInTheDocument();
+        fireEvent.click(stage1);
+        await waitFor(() => expect(api.startAuthorLLMRun).toHaveBeenCalledWith('eval', 'stage1'));
+    });
+
+    it('names a running stage check', async () => {
+        show(status({ run: llmRun({ mode: 'stage2' }) }));
+        render(<AuthorLLMBlock />);
+        expect(await screen.findByText(/^Stage 2 check: judges/)).toBeInTheDocument();
     });
 
     it('shows a running run: stage, progress, tokens, and pauses it', async () => {

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strconv"
@@ -108,19 +109,163 @@ func planAuthorLLMRun(report []byte, kind models.AuthorLLMRunKind) (database.Aut
 			}
 			continue
 		}
-		class, script, ok := registrablePair(d.Stratum)
+		st, ok := stratumPlan(&doc.Evaluation, &d)
 		if !ok {
 			plan.NotRegistrable = append(plan.NotRegistrable, d.Stratum)
 			continue
 		}
-		batch := max(d.ItemsPerRequest, 1)
-		armA := doc.Evaluation.Strata[d.Stratum].Combos[llmeval.ArmA+strconv.Itoa(batch)]
-		plan.Strata[d.Stratum] = database.AuthorLLMResolveStratum{Class: string(class), Script: script, Arm: d.Arm,
-			ItemsPerRequest: batch, Tiers: d.Tiers, ArmAPassed: armA.Passed, ArmATiers: armA.AllowedTiers}
+		plan.Strata[d.Stratum] = st
 	}
 	slices.Sort(plan.NotRegistrable)
 	slices.Sort(plan.NotPassed)
 	return plan, nil
+}
+
+// stratumPlan is how a resolve run asks a stratum a report passed; ok is
+// false when no pair can be registered for it.
+func stratumPlan(r *llmeval.Report, d *llmeval.StratumDecision) (database.AuthorLLMResolveStratum, bool) {
+	class, script, ok := registrablePair(d.Stratum)
+	if !ok {
+		return database.AuthorLLMResolveStratum{}, false
+	}
+	batch := max(d.ItemsPerRequest, 1)
+	armA := r.Strata[d.Stratum].Combos[llmeval.ArmA+strconv.Itoa(batch)]
+	return database.AuthorLLMResolveStratum{Class: string(class), Script: script, Arm: d.Arm,
+		ItemsPerRequest: batch, Tiers: d.Tiers, ArmAPassed: armA.Passed, ArmATiers: armA.AllowedTiers}, true
+}
+
+// PlanAuthorLLMResolveFrom plans a resolve run from the configuration's
+// completed full and stage evals, newest first: every stratum is decided by
+// the newest report that measured it, so a stage eval decides its own strata
+// and leaves every other to the full or stage eval that measured it before.
+// Only a registrable report is evidence; one that is not (a run-wide gate
+// failed) decides nothing and hides nothing. The newest registrable report is
+// the primary one: the run carries its participants' model ids and
+// references. A stratum whose deciding report measured other participants
+// than the primary — other model ids, or the same ids with another
+// fingerprint reference (fixed-request prompt tokens, reasoning floor or
+// output mode), which the worker's fingerprint check refuses as drift — is
+// not planned (Stale): its measurement is of other models.
+// Each planned stratum names its own report. primary is nil when no report is
+// evidence.
+func PlanAuthorLLMResolveFrom(
+	evs []database.AuthorLLMEvalEvidence,
+) (plan database.AuthorLLMResolveSettings, primary *database.AuthorLLMEvalEvidence, err error) {
+	plan = database.AuthorLLMResolveSettings{Strata: map[string]database.AuthorLLMResolveStratum{},
+		NotRegistrable: []string{}, Sources: database.ResolveSources(evs)}
+	seen := map[string]bool{}
+	for i := range evs {
+		ev := &evs[i]
+		var doc struct {
+			Evaluation llmeval.Report `json:"evaluation"`
+		}
+		if err = json.Unmarshal(ev.Report, &doc); err != nil {
+			return plan, nil, fmt.Errorf("reading an eval report: %w", err)
+		}
+		if !doc.Evaluation.Decision.Registrable {
+			continue
+		}
+		if primary == nil {
+			primary = ev
+			plan.ReportID, plan.ReportSHA256 = ev.ReportID, hex.EncodeToString(ev.ReportSHA256)
+		}
+		same, sameErr := sameParticipants(ev, primary)
+		if sameErr != nil {
+			return plan, nil, sameErr
+		}
+		for j := range doc.Evaluation.Decision.Strata {
+			d := &doc.Evaluation.Decision.Strata[j]
+			if isSwapStratum(d.Stratum) || seen[d.Stratum] {
+				continue
+			}
+			seen[d.Stratum] = true
+			if !d.Passed {
+				continue
+			}
+			st, ok := stratumPlan(&doc.Evaluation, d)
+			switch {
+			case !ok:
+				plan.NotRegistrable = append(plan.NotRegistrable, d.Stratum)
+			case !same:
+				plan.Stale = append(plan.Stale, d.Stratum)
+			default:
+				st.ReportID, st.ReportSHA256 = ev.ReportID, hex.EncodeToString(ev.ReportSHA256)
+				plan.Strata[d.Stratum] = st
+			}
+		}
+	}
+	slices.Sort(plan.NotRegistrable)
+	slices.Sort(plan.Stale)
+	return plan, primary, nil
+}
+
+// sameParticipants reports whether two evals measured the same participants:
+// the same model ids and the same fingerprint reference for every one.
+func sameParticipants(a, b *database.AuthorLLMEvalEvidence) (bool, error) {
+	if same, err := sameModels(a.ExpectedModels, b.ExpectedModels); err != nil || !same {
+		return false, err
+	}
+	return sameReferences(a.Reference, b.Reference)
+}
+
+// sameReferences reports whether two evals learned the same fingerprint
+// reference — prompt tokens, reasoning floor and output mode — for every
+// participant.
+func sameReferences(a, b json.RawMessage) (bool, error) {
+	read := func(raw json.RawMessage) (map[string]database.AuthorLLMFingerprintReference, error) {
+		out := map[string]database.AuthorLLMFingerprintReference{}
+		if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+			return out, nil
+		}
+		if err := json.Unmarshal(raw, &out); err != nil {
+			return nil, fmt.Errorf("reading an eval's references: %w", err)
+		}
+		return out, nil
+	}
+	x, err := read(a)
+	if err != nil {
+		return false, err
+	}
+	y, err := read(b)
+	if err != nil {
+		return false, err
+	}
+	return maps.Equal(x, y), nil
+}
+
+// sameModels reports whether two evals learned the same model ids for every
+// participant.
+func sameModels(a, b json.RawMessage) (bool, error) {
+	read := func(raw json.RawMessage) (map[string][]string, error) {
+		out := map[string][]string{}
+		if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+			return out, nil
+		}
+		if err := json.Unmarshal(raw, &out); err != nil {
+			return nil, fmt.Errorf("reading an eval's model ids: %w", err)
+		}
+		for slot := range out {
+			slices.Sort(out[slot])
+		}
+		return out, nil
+	}
+	x, err := read(a)
+	if err != nil {
+		return false, err
+	}
+	y, err := read(b)
+	if err != nil {
+		return false, err
+	}
+	if len(x) != len(y) {
+		return false, nil
+	}
+	for slot, ids := range x {
+		if !slices.Equal(ids, y[slot]) {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // isSwapStratum reports a (swap, script) stratum.
@@ -170,21 +315,13 @@ func StartAuthorLLMSwap(ctx context.Context, db *pg.DB, version, mode string, ad
 func startAuthorLLMProduction(
 	ctx context.Context, db *pg.DB, kind models.AuthorLLMRunKind, version, mode string, admin int64,
 ) (int64, error) {
-	ev, err := database.LatestAuthorLLMEvidence(ctx, db, version, kind)
+	ev, plan, err := productionPlan(ctx, db, kind, version)
 	if err != nil {
 		return 0, err
 	}
-	if ev == nil {
+	if ev == nil || len(plan.Strata) == 0 {
 		return 0, ErrAuthorLLMPrerequisite
 	}
-	plan, err := planAuthorLLMRun(ev.Report, kind)
-	if err != nil {
-		return 0, err
-	}
-	if len(plan.Strata) == 0 {
-		return 0, ErrAuthorLLMPrerequisite
-	}
-	plan.ReportID, plan.ReportSHA256 = ev.ReportID, hex.EncodeToString(ev.ReportSHA256)
 	if resolveStartPlannedHook != nil {
 		resolveStartPlannedHook()
 	}
@@ -199,6 +336,30 @@ func startAuthorLLMProduction(
 	LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{Name: AuthorMetadataEventLLMResolveStarted,
 		Stage: AuthorMetadataStageRunner, RunID: id, Count: registered, Worker: authorLLMResolveDriverName})
 	return id, nil
+}
+
+// productionPlan is the evidence and the plan a production run of kind would
+// start on now: for a swap run its latest swap eval, for a resolve run every
+// completed full and stage eval (PlanAuthorLLMResolveFrom). The evidence is
+// nil when there is none.
+func productionPlan(
+	ctx context.Context, db pg.DBI, kind models.AuthorLLMRunKind, version string,
+) (*database.AuthorLLMEvalEvidence, database.AuthorLLMResolveSettings, error) {
+	if kind == models.AuthorLLMRunSwap {
+		ev, err := database.LatestAuthorLLMSwapEval(ctx, db, version)
+		if err != nil || ev == nil {
+			return nil, database.AuthorLLMResolveSettings{}, err
+		}
+		plan, err := planAuthorLLMRun(ev.Report, kind)
+		plan.ReportID, plan.ReportSHA256 = ev.ReportID, hex.EncodeToString(ev.ReportSHA256)
+		return ev, plan, err
+	}
+	evs, err := database.AuthorLLMResolveEvals(ctx, db, version)
+	if err != nil {
+		return nil, database.AuthorLLMResolveSettings{}, err
+	}
+	plan, primary, err := PlanAuthorLLMResolveFrom(evs)
+	return primary, plan, err
 }
 
 // resolveEnqueuePlannedHook is called, when set, once an enqueue has planned

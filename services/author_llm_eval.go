@@ -79,6 +79,50 @@ const (
 	authorLLMEvalTokensPerJob = 4000
 )
 
+// authorLLMEvalStages are the strata each stage eval measures: the backlog
+// plan of the review analysis (R0), in its order, after stage 0 — the
+// initials, so that a configuration whose initials pairs are not registered
+// (a new one) can register them again without a full eval. Stage 1 are the strata
+// closest to passing; stage 2 the single names, case defects and single
+// fields; stage 3 the unusual characters and the affixes. mixed_script.mixed
+// is in none: a stratum of no single script is never registered, so its
+// measurement would buy nothing.
+var authorLLMEvalStages = map[string][]string{
+	models.AuthorLLMEvalModeStage0: {
+		evalStratum(authornorm.ClassInitials, cyrl), evalStratum(authornorm.ClassInitials, latn),
+	},
+	models.AuthorLLMEvalModeStage1: {
+		evalStratum(authornorm.ClassNicknameWithName, cyrl),
+		evalStratum(authornorm.ClassParticle, cyrl), evalStratum(authornorm.ClassParticle, latn),
+	},
+	models.AuthorLLMEvalModeStage2: {
+		evalStratum(authornorm.ClassCaseDefect, cyrl), evalStratum(authornorm.ClassCaseDefect, latn),
+		evalStratum(authornorm.ClassMononym, cyrl), evalStratum(authornorm.ClassMononym, latn),
+		evalStratum(authornorm.ClassSingleField, cyrl), evalStratum(authornorm.ClassSingleField, latn),
+	},
+	models.AuthorLLMEvalModeStage3: {
+		evalStratum(authornorm.ClassAffix, cyrl),
+		evalStratum(authornorm.ClassUnusualCharacters, cyrl), evalStratum(authornorm.ClassUnusualCharacters, latn),
+	},
+}
+
+// The scripts of the stage strata, as a stratum name spells them.
+const (
+	cyrl = "cyrl"
+	latn = "latn"
+)
+
+// evalStratum is the stratum name of a local class in a script.
+func evalStratum(class authornorm.DecisionClass, script string) string {
+	return string(class) + "." + script
+}
+
+// AuthorLLMEvalStageStrata returns the strata a stage eval mode measures, in
+// order; nil for any other mode.
+func AuthorLLMEvalStageStrata(mode string) []string {
+	return slices.Clone(authorLLMEvalStages[mode])
+}
+
 // AuthorLLMEvalSizes are the sizes of the method (design K, section 8).
 type AuthorLLMEvalSizes struct {
 	Holdout, Dev, Anchor, Canary, Repeat, FingerprintRepeats int
@@ -201,7 +245,8 @@ func StartAuthorLLMEval(
 ) (int64, error) {
 	switch mode {
 	case models.AuthorLLMEvalModeDev, models.AuthorLLMEvalModePilot, models.AuthorLLMEvalModeFull,
-		models.AuthorLLMEvalModeSwap:
+		models.AuthorLLMEvalModeSwap, models.AuthorLLMEvalModeStage0, models.AuthorLLMEvalModeStage1,
+		models.AuthorLLMEvalModeStage2, models.AuthorLLMEvalModeStage3:
 	default:
 		return 0, fmt.Errorf("services: unknown eval mode %q", mode)
 	}
@@ -310,7 +355,7 @@ func (d *AuthorLLMEvalDriver) runningEval(ctx context.Context) (*evalRun, error)
 	}
 	run := &evalRun{ID: row.ID, Mode: row.Mode}
 	if row.Stage != nil {
-		run.Stage = *row.Stage
+		run.Stage = models.AuthorLLMEvalStageOf(row.Mode, *row.Stage)
 	}
 	if run.Settings, err = storedEvalSettings(row.Settings); err != nil {
 		return nil, fmt.Errorf("reading an eval run's settings: %w", err)
@@ -363,7 +408,8 @@ func (d *AuthorLLMEvalDriver) Step(ctx context.Context) (bool, error) {
 	if next == "" {
 		return false, nil
 	}
-	return database.SetAuthorLLMRunStage(ctx, d.db, run.ID, run.Stage, next)
+	return database.SetAuthorLLMRunStage(ctx, d.db, run.ID, models.AuthorLLMEvalStoredStage(run.Mode, run.Stage),
+		models.AuthorLLMEvalStoredStage(run.Mode, next))
 }
 
 // stageImpossible reports an error the database raises for the data itself
@@ -504,17 +550,35 @@ func (d *AuthorLLMEvalDriver) scope(ctx context.Context, run *evalRun) ([]string
 	if err != nil {
 		return nil, nil, err
 	}
-	// A swap eval measures the swap strata alone; every other run measures
-	// every other stratum, never the swap ones again.
-	swap := run.Mode == models.AuthorLLMEvalModeSwap
+	return scopedStratumSets(run.Mode, frozen), sets, nil
+}
+
+// scopedStratumSets is the frozen stratum set versions an eval run of mode
+// measures. A stage eval measures its stage's strata alone; a swap eval the
+// swap strata alone; every other run every other stratum, never the swap ones
+// again.
+func scopedStratumSets(mode string, frozen map[string]bool) []string {
+	stage := authorLLMEvalStages[mode]
+	swap := mode == models.AuthorLLMEvalModeSwap
 	var versions []string
 	for v := range frozen {
-		if name, ok := strings.CutPrefix(v, authorLLMEvalStratumSet); ok && isSwapStratum(name) == swap {
-			versions = append(versions, v)
+		name, ok := strings.CutPrefix(v, authorLLMEvalStratumSet)
+		if !ok || !inScope(mode, stage, swap, name) {
+			continue
 		}
+		versions = append(versions, v)
 	}
 	slices.Sort(versions)
-	return versions, sets, nil
+	return versions
+}
+
+// inScope reports whether an eval run of mode measures a stratum: a stage
+// eval its stage's strata, a swap eval the swap ones, any other run the rest.
+func inScope(mode string, stage []string, swap bool, name string) bool {
+	if models.IsAuthorLLMEvalStageMode(mode) {
+		return slices.Contains(stage, name)
+	}
+	return isSwapStratum(name) == swap
 }
 
 func (d *AuthorLLMEvalDriver) scopeItems(ctx context.Context, run *evalRun) ([]database.AuthorLLMEvalItemRow, error) {
@@ -901,9 +965,14 @@ func (d *AuthorLLMEvalDriver) collect(ctx context.Context, run *evalRun) (*evalD
 	data.input.Repeat = sortedCounts(repeat)
 	data.input.Invalid = sortedCounts(answers.invalid)
 	data.input.ProviderRejected = sortedCounts(answers.rejected)
-	data.input.Registrable = run.Mode != models.AuthorLLMEvalModeDev
+	data.input.Registrable = evalRegistrable(run.Mode)
 	return data, nil
 }
+
+// evalRegistrable reports whether a report of an eval run of mode may back a
+// registration once its gates pass: every mode but dev — a stage eval as
+// much as a full one.
+func evalRegistrable(mode string) bool { return mode != models.AuthorLLMEvalModeDev }
 
 // evalItem is one measured item with its judges' and candidates' answers.
 func evalItem(
@@ -1556,8 +1625,8 @@ type populationItem struct {
 }
 
 // freezeStrata freezes every stratum the run needs that is not frozen yet:
-// the pilot's one stratum, the swap strata for a swap eval, or all the
-// others.
+// the pilot's one stratum, a stage's strata for a stage eval, the swap strata
+// for a swap eval, or all the others.
 func (d *AuthorLLMEvalDriver) freezeStrata(ctx context.Context, run *evalRun, frozen map[string]bool) error {
 	swap := run.Mode == models.AuthorLLMEvalModeSwap
 	var rows []database.AuthorLLMPopulationRow
@@ -1583,7 +1652,7 @@ func (d *AuthorLLMEvalDriver) freezeStrata(ctx context.Context, run *evalRun, fr
 		if run.Mode == models.AuthorLLMEvalModePilot && name != authorLLMEvalPilotStratum {
 			continue
 		}
-		if isSwapStratum(name) != swap {
+		if !inScope(run.Mode, authorLLMEvalStages[run.Mode], swap, name) {
 			continue
 		}
 		if !frozen[authorLLMEvalStratumSet+name] {
@@ -1812,15 +1881,81 @@ func (d *AuthorLLMEvalDriver) estimate(ctx context.Context, run *evalRun) error 
 	}
 	withContext := 0
 	for i := range items {
-		if len(items[i].ContextSHA256) > 0 && !run.Settings.NoExcerpt {
+		if len(items[i].ContextSHA256) > 0 {
 			withContext++
 		}
 	}
-	batches := len(run.Settings.BatchSizes)
+	return database.SetAuthorLLMRunEstimate(ctx, d.db, run.ID,
+		evalEstimateTokens(len(items), withContext, len(anchors), &run.Settings, &d.sizes))
+}
+
+// evalEstimateTokens is an eval run's token estimate: every job it asks at
+// authorLLMEvalTokensPerJob — the fingerprint checks and the anchor items of
+// every participant, every measured item of each judge and, at each batch
+// size, of each candidate (once more with the excerpt, where an item has one
+// and the run asks the excerpt arm), and the repeats.
+func evalEstimateTokens(items, withContext, anchors int, settings *AuthorLLMEvalSettings, sizes *AuthorLLMEvalSizes) int64 {
+	if settings.NoExcerpt {
+		withContext = 0
+	}
+	batches := len(settings.BatchSizes)
 	judges, production := evalJudges, evalParticipants-evalJudges
-	jobs := evalParticipants*d.sizes.FingerprintRepeats + evalParticipants*len(anchors) + judges*len(items) +
-		production*batches*(len(items)+withContext) + evalParticipants*min(len(items), d.sizes.Repeat)
-	return database.SetAuthorLLMRunEstimate(ctx, d.db, run.ID, int64(jobs)*authorLLMEvalTokensPerJob)
+	jobs := evalParticipants*sizes.FingerprintRepeats + evalParticipants*anchors + judges*items +
+		production*batches*(items+withContext) + evalParticipants*min(items, sizes.Repeat)
+	return int64(jobs) * authorLLMEvalTokensPerJob
+}
+
+// AuthorLLMEvalStageEstimate is a stage eval's token estimate before it
+// starts, by the run's own estimator over the sets it would measure with the
+// default settings. A stage stratum not frozen yet counts at the most items
+// its freeze could take (Upper).
+type AuthorLLMEvalStageEstimate struct {
+	Tokens int64
+	Items  int
+	Upper  bool
+	// FrozenTokens is the estimate over the frozen sets alone: the figure the
+	// run records after its freeze when none of its strata is left to freeze.
+	FrozenTokens int64
+}
+
+// EstimateAuthorLLMEvalStage estimates a stage eval of mode.
+func EstimateAuthorLLMEvalStage(
+	ctx context.Context, db pg.DBI, mode string, sizes AuthorLLMEvalSizes,
+) (AuthorLLMEvalStageEstimate, error) {
+	var est AuthorLLMEvalStageEstimate
+	stage := authorLLMEvalStages[mode]
+	if stage == nil {
+		return est, fmt.Errorf("services: %q is not a stage eval mode", mode)
+	}
+	frozen, err := database.FrozenAuthorLLMEvalSets(ctx, db)
+	if err != nil {
+		return est, err
+	}
+	sets := []models.AuthorLLMEvalItemSet{models.AuthorLLMEvalHoldout, models.AuthorLLMEvalDev}
+	count, err := database.CountAuthorLLMEvalItems(ctx, db, scopedStratumSets(mode, frozen), sets)
+	if err != nil {
+		return est, err
+	}
+	anchors, err := database.CountAuthorLLMEvalItems(ctx, db, []string{authorLLMEvalAnchorSet},
+		[]models.AuthorLLMEvalItemSet{models.AuthorLLMEvalAnchor})
+	if err != nil {
+		return est, err
+	}
+	settings := DefaultAuthorLLMEvalSettings()
+	est.FrozenTokens = evalEstimateTokens(count.Items, count.WithContext, anchors.Items, &settings, &sizes)
+	for _, name := range stage {
+		if !frozen[authorLLMEvalStratumSet+name] {
+			count.Items += sizes.Holdout + sizes.Dev
+			est.Upper = true
+		}
+	}
+	if !frozen[authorLLMEvalAnchorSet] {
+		anchors.Items = sizes.Anchor
+		est.Upper = true
+	}
+	est.Items = count.Items
+	est.Tokens = evalEstimateTokens(count.Items, count.WithContext, anchors.Items, &settings, &sizes)
+	return est, nil
 }
 
 // AuthorLLMSamplingReport is what the freeze would sample from the current

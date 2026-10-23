@@ -186,7 +186,7 @@ type startLLMRunRequest struct {
 // @Description Instant; the stages go on in the background. 409: layer off, a run active, previous step incomplete, kind unavailable.
 // @Tags admin
 // @Param Authorization header string true "Token without 'Bearer' prefix"
-// @Param body body startLLMRunRequest true "kind (eval|resolve|swap) and mode (dev|pilot|full; eval also swap: the swap strata alone)"
+// @Param body body startLLMRunRequest true "kind (eval|resolve|swap), mode (dev|pilot|full; eval also swap, stage0..stage3)"
 // @Produce json
 // @Success 201 {object} map[string]services.AuthorLLMRunState
 // @Router /api/admin/author-metadata/llm/runs [post]

@@ -45,6 +45,10 @@ const formatShare = (changed: number, total: number) =>
 const stepLabels = (t: T): Record<string, string> => ({
     eval_pilot: t('authorLLM.step.eval_pilot', 'Check quality'),
     eval_full: t('authorLLM.step.eval_full', 'Check everything'),
+    eval_stage0: t('authorLLM.step.eval_stage0', 'Check stage 0: initials'),
+    eval_stage1: t('authorLLM.step.eval_stage1', 'Check stage 1: particles, nicknames'),
+    eval_stage2: t('authorLLM.step.eval_stage2', 'Check stage 2: single names, case, one field'),
+    eval_stage3: t('authorLLM.step.eval_stage3', 'Check stage 3: unusual characters, titles'),
     resolve_pilot: t('authorLLM.step.resolve_pilot', 'Resolve: pilot 500'),
     resolve_full: t('authorLLM.step.resolve_full', 'Resolve everything'),
     swap_eval: t('authorLLM.step.swap_eval', 'Swaps: check'),
@@ -69,6 +73,11 @@ const runLabel = (t: T, run: AuthorLLMRun): string => {
         if (run.mode === 'dev') return t('authorLLM.run.eval_dev', 'Model settings check');
         if (run.mode === 'full') return t('authorLLM.run.eval_full', 'Full check');
         if (run.mode === 'swap') return t('authorLLM.run.eval_swap', 'Swaps check');
+        if (run.mode.startsWith('stage'))
+            return t('authorLLM.run.eval_stage', {
+                defaultValue: 'Stage {{stage}} check',
+                stage: run.mode.slice('stage'.length),
+            });
         return t('authorLLM.run.eval_pilot', 'Quality check');
     }
     if (run.kind === 'resolve') {
@@ -558,14 +567,23 @@ const AuthorLLMBlock: React.FC = () => {
 
             <ol className="flex flex-wrap gap-2">
                 {steps.map((s) => (
-                    <li key={s.key}>
+                    <li key={s.key} className="flex flex-col gap-1">
                         <Button
                             variant={s.enabled ? 'default' : 'outline'}
                             disabled={busy || !s.enabled}
+                            title={s.strata?.join(', ')}
                             onClick={() => act(() => adminApi.startAuthorLLMRun(s.kind, s.mode))}
                         >
                             {s.done ? `✓ ${labels[s.key]}` : labels[s.key]}
                         </Button>
+                        {s.estimate_tokens ? (
+                            <span className="text-xs tabular-nums text-muted-foreground">
+                                {t('authorLLM.step.estimate', {
+                                    defaultValue: '~{{tokens}} tokens',
+                                    tokens: formatNumber(s.estimate_tokens),
+                                })}
+                            </span>
+                        ) : null}
                     </li>
                 ))}
             </ol>

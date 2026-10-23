@@ -274,6 +274,35 @@ func AuthorLLMEvalItems(
 	return rows, nil
 }
 
+// AuthorLLMEvalItemCount is how many frozen items of some sets there are, and
+// how many of them carry an excerpt.
+type AuthorLLMEvalItemCount struct {
+	Items       int `pg:"items"`
+	WithContext int `pg:"with_context"`
+}
+
+// CountAuthorLLMEvalItems counts the items AuthorLLMEvalItems would read,
+// without reading them.
+func CountAuthorLLMEvalItems(
+	ctx context.Context, db pg.DBI, versions []string, sets []models.AuthorLLMEvalItemSet,
+) (AuthorLLMEvalItemCount, error) {
+	var c AuthorLLMEvalItemCount
+	if len(versions) == 0 || len(sets) == 0 {
+		return c, nil
+	}
+	names := make([]string, len(sets))
+	for i, s := range sets {
+		names[i] = string(s)
+	}
+	if _, err := db.QueryOneContext(ctx, &c, `
+		SELECT count(*) AS items, count(*) FILTER (WHERE context_sha256 IS NOT NULL) AS with_context
+		FROM author_llm_eval_item WHERE set_version IN (?0) AND item_set IN (?1)`,
+		pg.In(versions), pg.In(names)); err != nil {
+		return c, fmt.Errorf("counting the eval items: %w", err)
+	}
+	return c, nil
+}
+
 // AuthorLLMEvalSetRow is a frozen set version.
 type AuthorLLMEvalSetRow struct {
 	SetVersion string `pg:"set_version" json:"set_version"`
@@ -769,6 +798,9 @@ func CreateAuthorLLMEvalRun(ctx context.Context, db *pg.DB, version, mode string
 	return id, err
 }
 
+// authorLLMEvalFirstStage is the stage an eval run starts in.
+const authorLLMEvalFirstStage = "freeze"
+
 // StartAuthorLLMEvalRun is an explicit start of an eval run: it creates the
 // run, and in the same transaction lifts the participants' bad_request
 // pauses of the configuration — a previous run's request the provider
@@ -786,8 +818,9 @@ func StartAuthorLLMEvalRun(
 		if _, insertErr := tx.QueryOneContext(ctx, pg.Scan(&id), `
 			INSERT INTO author_llm_run (kind, mode, status, config_version, stage, settings, created_by_user_id,
 				started_at)
-			VALUES ('eval', ?0, 'running', ?1, 'freeze', ?2::jsonb, ?3, now())
-			RETURNING id`, mode, version, string(settings), createdBy); insertErr != nil {
+			VALUES ('eval', ?0, 'running', ?1, ?4, ?2::jsonb, ?3, now())
+			RETURNING id`, mode, version, string(settings), createdBy,
+			models.AuthorLLMEvalStoredStage(mode, authorLLMEvalFirstStage)); insertErr != nil {
 			return insertErr
 		}
 		resumed, err = liftRunBoundPauses(ctx, tx, version)

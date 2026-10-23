@@ -59,7 +59,7 @@ func TestAuthorLLMAdminSwitchedOff(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, st.Enabled)
 	assert.Equal(t, config.AuthorLLMDisabledNotConfigured, st.Reason)
-	require.Len(t, st.Steps, 7)
+	require.Len(t, st.Steps, 11)
 	for _, s := range st.Steps {
 		assert.False(t, s.Enabled, s.Key)
 	}
@@ -86,15 +86,16 @@ func TestAuthorLLMAdminChainAndTransitions(t *testing.T) {
 	for _, step := range st.Steps {
 		keys = append(keys, step.Key)
 	}
-	assert.Equal(t, []string{"eval_pilot", "eval_full", "resolve_pilot", "resolve_full", "swap_eval", "swap_pilot",
-		"swap_full"}, keys)
+	assert.Equal(t, []string{"eval_pilot", "eval_full", "eval_stage0", "eval_stage1", "eval_stage2", "eval_stage3",
+		"resolve_pilot", "resolve_full", "swap_eval", "swap_pilot", "swap_full"}, keys)
 	steps := stepsByKey(st)
 	assert.True(t, steps["eval_pilot"].Enabled)
 	assert.False(t, steps["eval_full"].Enabled)
 	assert.Equal(t, services.AuthorLLMStepPrerequisite, steps["eval_full"].Blocked)
 	// Resolve (phase 6) and the swaps (phase 7) are built and wait for
 	// their prerequisites.
-	for _, k := range []string{"resolve_pilot", "resolve_full", "swap_eval", "swap_pilot", "swap_full"} {
+	for _, k := range []string{"eval_stage0", "eval_stage1", "eval_stage2", "eval_stage3", "resolve_pilot", "resolve_full",
+		"swap_eval", "swap_pilot", "swap_full"} {
 		assert.True(t, steps[k].Available, k)
 		assert.False(t, steps[k].Enabled, k)
 		assert.Equal(t, services.AuthorLLMStepPrerequisite, steps[k].Blocked, k)

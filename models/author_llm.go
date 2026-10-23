@@ -2,6 +2,8 @@ package models
 
 import (
 	"encoding/json"
+	"slices"
+	"strings"
 	"time"
 )
 
@@ -281,4 +283,46 @@ const (
 	// alone (migration 41): their registration needs its own measurement,
 	// and the other strata are not paid for again.
 	AuthorLLMEvalModeSwap = "swap"
+	// The stage evals measure one fixed set of strata each (migration 61),
+	// so the review backlog is evaluated and resolved in stages without
+	// paying again for the strata already registered.
+	AuthorLLMEvalModeStage0 = "stage0"
+	AuthorLLMEvalModeStage1 = "stage1"
+	AuthorLLMEvalModeStage2 = "stage2"
+	AuthorLLMEvalModeStage3 = "stage3"
 )
+
+// AuthorLLMEvalStageModes lists the stage eval modes in order.
+func AuthorLLMEvalStageModes() []string {
+	return []string{AuthorLLMEvalModeStage0, AuthorLLMEvalModeStage1, AuthorLLMEvalModeStage2, AuthorLLMEvalModeStage3}
+}
+
+// IsAuthorLLMEvalStageMode reports a stage eval mode.
+func IsAuthorLLMEvalStageMode(mode string) bool {
+	return slices.Contains(AuthorLLMEvalStageModes(), mode)
+}
+
+// authorLLMEvalScopedStage prefixes the stored stage of a stage eval. A
+// binary that does not know stage evals (v0.72.0 and before) steps an eval
+// run only through the stage names it knows and passes over any other, so it
+// leaves a stage eval to the binary that started it instead of reading it as
+// a full one.
+const authorLLMEvalScopedStage = "scoped_"
+
+// AuthorLLMEvalStoredStage is the stage column value of an eval run of mode
+// in stage.
+func AuthorLLMEvalStoredStage(mode, stage string) string {
+	if IsAuthorLLMEvalStageMode(mode) {
+		return authorLLMEvalScopedStage + stage
+	}
+	return stage
+}
+
+// AuthorLLMEvalStageOf is the stage an eval run of mode is in, read from its
+// stage column.
+func AuthorLLMEvalStageOf(mode, stored string) string {
+	if IsAuthorLLMEvalStageMode(mode) {
+		return strings.TrimPrefix(stored, authorLLMEvalScopedStage)
+	}
+	return stored
+}

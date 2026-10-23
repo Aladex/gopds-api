@@ -207,7 +207,7 @@ func TestAuthorLLMFullEvalRelearnHandsItsEvidenceToResolve(t *testing.T) {
 		return status == string(models.AuthorLLMRunCompleted)
 	})
 
-	ev, err := database.LatestAuthorLLMFullEval(ctx, e.db, e.version)
+	ev, err := database.LatestAuthorLLMResolveEval(ctx, e.db, e.version)
 	require.NoError(t, err)
 	require.NotNil(t, ev)
 	var reference map[string]database.AuthorLLMFingerprintReference

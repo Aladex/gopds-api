@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -52,6 +53,12 @@ type AuthorLLMResolveStratum struct {
 	Tiers           []string `json:"tiers"`
 	ArmAPassed      bool     `json:"arm_a_passed"`
 	ArmATiers       []string `json:"arm_a_tiers"`
+	// ReportID and ReportSHA256 are the eval report the stratum's plan comes
+	// from, which its registration cites: the latest report that measured
+	// it. Zero in a run planned before strata had their own evidence: the
+	// run's ReportID is theirs.
+	ReportID     int64  `json:"report_id,omitempty"`
+	ReportSHA256 string `json:"report_sha256,omitempty"`
 }
 
 // AuthorLLMResolveSettings are a resolve run's settings: the eval report it
@@ -62,14 +69,21 @@ type AuthorLLMResolveSettings struct {
 	ReportSHA256   string                             `json:"report_sha256"`
 	Strata         map[string]AuthorLLMResolveStratum `json:"strata"`
 	NotRegistrable []string                           `json:"not_registrable"`
+	// Sources are every eval report a resolve run was planned from, newest
+	// first: the start refuses when that set changed under it.
+	Sources []AuthorLLMResolveSource `json:"sources,omitempty"`
+	// Stale are passed strata of an older report whose participants' model
+	// ids are not the newest report's: that measurement is of other models,
+	// so they are not planned.
+	Stale []string `json:"stale,omitempty"`
 	// NotPassed are the swap strata the swap eval measured and did not pass
 	// (swap.latn has too few candidates to reach the gate): reported, never
 	// registered.
 	NotPassed []string `json:"not_passed,omitempty"`
 }
 
-// AuthorLLMEvalEvidence is the latest completed full eval of a
-// configuration: its report and what it learned of the participants.
+// AuthorLLMEvalEvidence is the latest completed eval a production run of a
+// configuration rests on: its report and what it learned of the participants.
 type AuthorLLMEvalEvidence struct {
 	RunID          int64           `pg:"run_id"`
 	ReportID       int64           `pg:"report_id"`
@@ -79,11 +93,12 @@ type AuthorLLMEvalEvidence struct {
 	Reference      json.RawMessage `pg:"reference"`
 }
 
-// LatestAuthorLLMFullEval reads the latest completed full eval run of the
-// configuration with its latest report version; nil when there is none. A
-// resolve run rests on it.
-func LatestAuthorLLMFullEval(ctx context.Context, db pg.DBI, version string) (*AuthorLLMEvalEvidence, error) {
-	return latestAuthorLLMEval(ctx, db, version, models.AuthorLLMEvalModeFull)
+// LatestAuthorLLMResolveEval reads the latest completed full or stage eval run
+// of the configuration with its latest report version; nil when there is
+// none. A resolve run rests on all of them (AuthorLLMResolveEvals): this one
+// is the newest.
+func LatestAuthorLLMResolveEval(ctx context.Context, db pg.DBI, version string) (*AuthorLLMEvalEvidence, error) {
+	return latestAuthorLLMEval(ctx, db, version, resolveEvalModes()...)
 }
 
 // LatestAuthorLLMSwapEval reads the latest completed eval run of mode swap of
@@ -93,17 +108,63 @@ func LatestAuthorLLMSwapEval(ctx context.Context, db pg.DBI, version string) (*A
 	return latestAuthorLLMEval(ctx, db, version, models.AuthorLLMEvalModeSwap)
 }
 
+// AuthorLLMResolveSource is one eval report a resolve run's plan was built
+// from.
+type AuthorLLMResolveSource struct {
+	ReportID     int64  `json:"report_id"`
+	ReportSHA256 string `json:"report_sha256"`
+}
+
+// AuthorLLMResolveEvals reads every completed full or stage eval run of the
+// configuration, newest first, each with its latest report version and its
+// effective participants (withRelearns). A resolve run plans each stratum
+// from the newest of them that measured it.
+func AuthorLLMResolveEvals(ctx context.Context, db pg.DBI, version string) ([]AuthorLLMEvalEvidence, error) {
+	var evs []AuthorLLMEvalEvidence
+	if _, err := db.QueryContext(ctx, &evs, `
+		SELECT r.id AS run_id, e.id AS report_id, e.report_sha256, e.report::text AS report, r.expected_models,
+			r.reference
+		FROM author_llm_run r
+		JOIN LATERAL (SELECT id, report_sha256, report FROM author_llm_eval_report
+			WHERE run_id = r.id ORDER BY version DESC LIMIT 1) e ON true
+		WHERE r.config_version = ?0 AND r.kind = 'eval' AND r.mode IN (?1) AND r.status = 'completed'
+		ORDER BY r.finished_at DESC, r.id DESC`, version, pg.In(resolveEvalModes())); err != nil {
+		return nil, fmt.Errorf("reading the eval reports: %w", err)
+	}
+	for i := range evs {
+		if err := evs[i].withRelearns(ctx, db); err != nil {
+			return nil, err
+		}
+	}
+	return evs, nil
+}
+
+// resolveEvalModes are the eval modes a resolve run rests on.
+func resolveEvalModes() []string {
+	return append([]string{models.AuthorLLMEvalModeFull}, models.AuthorLLMEvalStageModes()...)
+}
+
+// ResolveSources are the sources of evs, in their order.
+func ResolveSources(evs []AuthorLLMEvalEvidence) []AuthorLLMResolveSource {
+	out := make([]AuthorLLMResolveSource, 0, len(evs))
+	for i := range evs {
+		out = append(out, AuthorLLMResolveSource{ReportID: evs[i].ReportID,
+			ReportSHA256: hex.EncodeToString(evs[i].ReportSHA256)})
+	}
+	return out
+}
+
 // LatestAuthorLLMEvidence is the evidence a production run of kind rests on:
-// the latest full eval for a resolve run, the latest swap eval for a swap
-// run.
+// the latest full or stage eval for a resolve run, the latest swap eval for a
+// swap run.
 func LatestAuthorLLMEvidence(ctx context.Context, db pg.DBI, version string, kind models.AuthorLLMRunKind) (*AuthorLLMEvalEvidence, error) {
 	if kind == models.AuthorLLMRunSwap {
 		return LatestAuthorLLMSwapEval(ctx, db, version)
 	}
-	return LatestAuthorLLMFullEval(ctx, db, version)
+	return LatestAuthorLLMResolveEval(ctx, db, version)
 }
 
-func latestAuthorLLMEval(ctx context.Context, db pg.DBI, version, mode string) (*AuthorLLMEvalEvidence, error) {
+func latestAuthorLLMEval(ctx context.Context, db pg.DBI, version string, modes ...string) (*AuthorLLMEvalEvidence, error) {
 	var ev AuthorLLMEvalEvidence
 	_, err := db.QueryOneContext(ctx, &ev, `
 		SELECT r.id AS run_id, e.id AS report_id, e.report_sha256, e.report::text AS report, r.expected_models,
@@ -111,14 +172,14 @@ func latestAuthorLLMEval(ctx context.Context, db pg.DBI, version, mode string) (
 		FROM author_llm_run r
 		JOIN LATERAL (SELECT id, report_sha256, report FROM author_llm_eval_report
 			WHERE run_id = r.id ORDER BY version DESC LIMIT 1) e ON true
-		WHERE r.config_version = ?0 AND r.kind = 'eval' AND r.mode = ?1 AND r.status = 'completed'
+		WHERE r.config_version = ?0 AND r.kind = 'eval' AND r.mode IN (?1) AND r.status = 'completed'
 		ORDER BY r.finished_at DESC, r.id DESC
-		LIMIT 1`, version, mode)
+		LIMIT 1`, version, pg.In(modes))
 	if errors.Is(err, pg.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("reading the latest full eval: %w", err)
+		return nil, fmt.Errorf("reading the latest eval: %w", err)
 	}
 	if relearnErr := ev.withRelearns(ctx, db); relearnErr != nil {
 		return nil, relearnErr
@@ -205,15 +266,11 @@ func StartAuthorLLMResolveRun(ctx context.Context, db *pg.DB, s *AuthorLLMResolv
 			TestHookResolveStartLocked()
 		}
 		// The plan was built from evidence read before the lock; a
-		// recomputation publishes under the same lock, so the latest
-		// report read now is the one the registrations may rest on.
-		latest, readErr := LatestAuthorLLMEvidence(ctx, tx, s.ConfigVersion, kind)
-		if readErr != nil {
-			return readErr
-		}
-		if latest == nil || latest.ReportID != s.Evidence.ReportID ||
-			!bytes.Equal(latest.ReportSHA256, s.Evidence.ReportSHA256) {
-			return ErrAuthorLLMEvidenceChanged
+		// recomputation publishes under the same lock, so the evidence read
+		// now is what the registrations may rest on: the latest report for a
+		// swap run, every source report for a resolve run.
+		if fenceErr := evidenceStillCurrent(ctx, tx, s, kind); fenceErr != nil {
+			return fenceErr
 		}
 		if _, liftErr := liftRunBoundPauses(ctx, tx, s.ConfigVersion); liftErr != nil {
 			return liftErr
@@ -239,14 +296,23 @@ func StartAuthorLLMResolveRun(ctx context.Context, db *pg.DB, s *AuthorLLMResolv
 			return fmt.Errorf("reading the policy version: %w", readErr)
 		}
 		for _, st := range s.Settings.Strata {
+			reportID, reportSHA := st.ReportID, s.Evidence.ReportSHA256
+			if reportID == 0 {
+				reportID = s.Evidence.ReportID
+			} else {
+				var decodeErr error
+				if reportSHA, decodeErr = hex.DecodeString(st.ReportSHA256); decodeErr != nil {
+					return fmt.Errorf("reading a stratum's report digest: %w", decodeErr)
+				}
+			}
 			res, regErr := tx.ExecContext(ctx, `
 				INSERT INTO author_acceptance_class (policy_version, decision_class, script, config_version,
 					evidence_report_sha256, evidence_report_id, evidence_ref, source, registered_by_user_id)
 				VALUES (?0, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
 				ON CONFLICT (config_version, decision_class, script) DO NOTHING`,
 				strconv.Itoa(policy), string(authornorm.LLMClass(authornorm.DecisionClass(st.Class))), st.Script,
-				s.ConfigVersion, s.Evidence.ReportSHA256, s.Evidence.ReportID,
-				"author_llm_eval_report/"+strconv.FormatInt(s.Evidence.ReportID, 10)+".json", llmEvalSource,
+				s.ConfigVersion, reportSHA, reportID,
+				"author_llm_eval_report/"+strconv.FormatInt(reportID, 10)+".json", llmEvalSource,
 				s.CreatedBy)
 			if regErr != nil {
 				return fmt.Errorf("registering an LLM pair: %w", regErr)
@@ -265,6 +331,33 @@ func StartAuthorLLMResolveRun(ctx context.Context, db *pg.DB, s *AuthorLLMResolv
 		return 0, 0, fmt.Errorf("starting a %s run: %w", kind, err)
 	}
 	return id, registered, nil
+}
+
+// evidenceStillCurrent refuses, with ErrAuthorLLMEvidenceChanged, a start
+// whose evidence is no longer the configuration's: for a swap run its one
+// report is no longer the latest, for a resolve run the reports it was
+// planned from are no longer exactly the completed full and stage evals'
+// latest versions.
+func evidenceStillCurrent(ctx context.Context, tx pg.DBI, s *AuthorLLMResolveStart, kind models.AuthorLLMRunKind) error {
+	if kind == models.AuthorLLMRunSwap || len(s.Settings.Sources) == 0 {
+		latest, err := LatestAuthorLLMEvidence(ctx, tx, s.ConfigVersion, kind)
+		if err != nil {
+			return err
+		}
+		if latest == nil || latest.ReportID != s.Evidence.ReportID ||
+			!bytes.Equal(latest.ReportSHA256, s.Evidence.ReportSHA256) {
+			return ErrAuthorLLMEvidenceChanged
+		}
+		return nil
+	}
+	evs, err := AuthorLLMResolveEvals(ctx, tx, s.ConfigVersion)
+	if err != nil {
+		return err
+	}
+	if !slices.Equal(ResolveSources(evs), s.Settings.Sources) {
+		return ErrAuthorLLMEvidenceChanged
+	}
+	return nil
 }
 
 // AuthorLLMResolveRun is the running production run (resolve or swap) of a
