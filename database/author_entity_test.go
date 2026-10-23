@@ -76,7 +76,7 @@ func (f *authorSchemaFixture) pass() (*authorentity.Plan, int, []AuthorEntityUni
 	in.Old, err = LoadAuthorEntityState(ctx, f.tx)
 	require.NoError(f.t, err)
 	p := authorentity.Build(in)
-	changes, skipped, err := ApplyAuthorEntityUnits(ctx, f.tx, 1, p.Units)
+	changes, skipped, err := ApplyAuthorEntityUnits(ctx, f.tx, 1, p.Components())
 	require.NoError(f.t, err)
 	return p, changes, skipped
 }
@@ -168,7 +168,6 @@ func TestABuildPassIsIdempotentOverTheDatabase(t *testing.T) {
 
 	for _, id := range []uuid.UUID{first.EntityOf(full), first.EntityOf(bucket)} {
 		assert.Equal(t, 1, f.count(`SELECT count(*) FROM author_entity WHERE id = ?`, id))
-		assert.Positive(t, f.count(`SELECT count(*) FROM author_entity_name WHERE entity_id = ?`, id))
 	}
 	assert.Equal(t, 2, f.count(`SELECT count(*) FROM author_entity_assignment
 		WHERE source_fingerprint IN (?, ?) AND method = 'deterministic' AND rule = 'D1'`,
@@ -189,8 +188,8 @@ func TestABuildPassIsIdempotentOverTheDatabase(t *testing.T) {
 	}
 }
 
-// One unit the database refuses is skipped alone, by its ID and SQLSTATE;
-// the rest of the batch is written.
+// A component the database refuses (here a one-unit one) is skipped alone,
+// by its ID and SQLSTATE; the rest of the batch is written.
 func TestAUnitTheDatabaseRefusesIsSkippedAlone(t *testing.T) {
 	f := entitySchema(t)
 	_, s1 := f.entityBook("Мост")
@@ -228,7 +227,7 @@ func TestAUnitNeverReplacesAManualRow(t *testing.T) {
 		DeleteFingerprints: []authorentity.FPKey{{Fingerprint: string(fingerprint(32, 0xb1)), ExtractorVersion: "extractor-v1"}},
 	}
 	unit.Fingerprints[0].EntityID = unit.EntityID
-	_, skipped, err := ApplyAuthorEntityUnits(context.Background(), f.tx, 1, []authorentity.Unit{unit})
+	_, skipped, err := ApplyAuthorEntityUnits(context.Background(), f.tx, 1, [][]authorentity.Unit{{unit}})
 	require.NoError(t, err)
 	require.Empty(t, skipped)
 	var row struct {
@@ -242,8 +241,8 @@ func TestAUnitNeverReplacesAManualRow(t *testing.T) {
 	assert.Equal(t, "manual", row.Method)
 }
 
-// A merge marks the absorbed entity, drops its names and logs it with the
-// pass and the shared books.
+// A merge marks the absorbed entity and logs it with the pass and the
+// shared books.
 func TestAMergeIsMarkedAndLogged(t *testing.T) {
 	f := entitySchema(t)
 	_, s1 := f.entityBook("А")
@@ -267,7 +266,6 @@ func TestAMergeIsMarkedAndLogged(t *testing.T) {
 	_, err := f.tx.QueryOne(pg.Scan(&merged), `SELECT coalesce(merged_into::text, '') FROM author_entity WHERE id = ?`, absorbed)
 	require.NoError(t, err)
 	assert.Equal(t, survivor.String(), merged)
-	assert.Zero(t, f.count(`SELECT count(*) FROM author_entity_name WHERE entity_id = ?`, absorbed))
 	var shared int
 	_, err = f.tx.QueryOne(pg.Scan(&shared), `SELECT (evidence->>'shared_books')::int FROM author_entity_merge_log
 		WHERE from_id = ? AND to_id = ? AND method = 'deterministic' AND (evidence->>'build_run_id')::bigint = 1`,
@@ -317,14 +315,17 @@ func TestTheBuildRunLifecycle(t *testing.T) {
 	err = RecordAuthorEntityProgress(ctx, f.tx, run.ID, other, time.Minute, AuthorEntityProgress{Stage: AuthorEntityStageApply})
 	require.ErrorIs(t, err, ErrAuthorEntityLeaseLost)
 
-	require.NoError(t, CompleteAuthorEntityBuild(ctx, f.tx, run.ID, owner, []byte(`{"entities": 3}`)))
+	require.NoError(t, CompleteAuthorEntityBuild(ctx, f.tx, run.ID, owner,
+		AuthorEntityProgress{Stage: AuthorEntityStageReport, UnitsTotal: 10, UnitsDone: 10, Changes: 9},
+		[]byte(`{"entities": 3}`)))
 	latest, completed, err := LatestAuthorEntityBuilds(ctx, f.tx)
 	require.NoError(t, err)
 	require.NotNil(t, latest)
 	require.NotNil(t, completed)
 	assert.Equal(t, run.ID, latest.ID)
 	assert.Equal(t, run.ID, completed.ID)
-	assert.Equal(t, 5, latest.UnitsDone)
+	assert.Equal(t, 10, latest.UnitsDone)
+	assert.Equal(t, int64(9), latest.Changes)
 	assert.JSONEq(t, `{"entities": 3}`, string(completed.Report))
 
 	next, err := StartAuthorEntityBuild(ctx, f.tx, 0)

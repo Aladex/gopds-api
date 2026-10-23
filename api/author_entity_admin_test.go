@@ -108,7 +108,8 @@ func TestAuthorEntityStatusAndStart(t *testing.T) {
 	rec := runsRequest(t, r, http.MethodGet, entityBase+"/status", "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.JSONEq(t, `{"status":{"run":{"id":3,"status":"running","stage":"apply","units_total":10,"units_done":4,
-		"units_skipped":0,"changes":0,"created_at":"0001-01-01T00:00:00Z"},"report":{"entities":7}}}`, rec.Body.String())
+		"units_skipped":0,"changes":0,"attempts":0,"created_at":"0001-01-01T00:00:00Z"},"report":{"entities":7}}}`,
+		rec.Body.String())
 
 	rec = runsRequest(t, r, http.MethodPost, entityBase+"/build", "")
 	require.Equal(t, http.StatusCreated, rec.Code)

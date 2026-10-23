@@ -1,9 +1,6 @@
 package authorentity
 
 import (
-	"slices"
-	"strings"
-
 	"github.com/google/uuid"
 )
 
@@ -141,12 +138,6 @@ type CreditRow struct {
 	Rule     string
 }
 
-// Name is a name variant of an entity: a search key and its books.
-type Name struct {
-	SearchKey string
-	Books     int
-}
-
 // MergeRow is a logged merge.
 type MergeRow struct {
 	From, To uuid.UUID
@@ -161,47 +152,37 @@ type State struct {
 	Entities     map[uuid.UUID]EntityRow
 	Fingerprints map[FPKey]AssignmentRow
 	Credits      map[CreditKey]CreditRow
-	Names        map[uuid.UUID][]Name
 	Merges       []MergeRow
 }
 
 // NewState is an empty store.
 func NewState() *State {
 	return &State{Entities: map[uuid.UUID]EntityRow{}, Fingerprints: map[FPKey]AssignmentRow{},
-		Credits: map[CreditKey]CreditRow{}, Names: map[uuid.UUID][]Name{}}
-}
-
-// sortNames orders name variants by search key, the stored order.
-func sortNames(names []Name) {
-	slices.SortFunc(names, func(a, b Name) int { return strings.Compare(a.SearchKey, b.SearchKey) })
+		Credits: map[CreditKey]CreditRow{}}
 }
 
 // Unit is the writes of one entity, applied together or not at all: the
-// entity row, the entities it absorbs, its assignments and its names. A unit
-// the database refuses is skipped alone (§1.5).
+// entity row, the entities it absorbs and its assignments. The entity's
+// names are the read-model worker's (migration 57). A unit the database
+// refuses is skipped with the units it depends on, its component
+// (Plan.Components), and nothing else (§1.5).
 type Unit struct {
 	EntityID uuid.UUID
 	// Entity is the row to insert or update; nil when it is stored as is.
 	Entity *EntityRow
 	// Absorb are the old entities this one takes over: each gets
-	// merged_into, loses its names and is logged.
+	// merged_into and is logged.
 	Absorb             []MergeRow
 	Fingerprints       []AssignmentRow
 	DeleteFingerprints []FPKey
 	Credits            []CreditRow
 	DeleteCredits      []CreditKey
-	// Names replace the entity's stored names when NamesChanged.
-	Names        []Name
-	NamesChanged bool
 }
 
 // Changes counts the rows the unit writes.
 func (u *Unit) Changes() int {
 	n := len(u.Absorb) + len(u.Fingerprints) + len(u.DeleteFingerprints) + len(u.Credits) + len(u.DeleteCredits)
 	if u.Entity != nil {
-		n++
-	}
-	if u.NamesChanged {
 		n++
 	}
 	return n
@@ -221,18 +202,10 @@ func (u *Unit) Apply(s *State) {
 		to := m.To
 		row.MergedInto = &to
 		s.Entities[m.From] = row
-		delete(s.Names, m.From)
 		s.Merges = append(s.Merges, m)
 	}
 	u.applyFingerprints(s)
 	u.applyCredits(s)
-	if u.NamesChanged {
-		if len(u.Names) == 0 {
-			delete(s.Names, u.EntityID)
-		} else {
-			s.Names[u.EntityID] = slices.Clone(u.Names)
-		}
-	}
 }
 
 func (u *Unit) applyFingerprints(s *State) {

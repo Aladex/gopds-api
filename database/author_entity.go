@@ -201,7 +201,7 @@ func CountUnselectedAuthorCredits(ctx context.Context, db pg.DBI) (int, error) {
 func LoadAuthorEntityState(ctx context.Context, db pg.DBI) (*authorentity.State, error) {
 	s := authorentity.NewState()
 	for _, load := range []func(context.Context, pg.DBI, *authorentity.State) error{
-		loadStoredEntities, loadStoredFingerprints, loadStoredCredits, loadStoredNames,
+		loadStoredEntities, loadStoredFingerprints, loadStoredCredits,
 	} {
 		if err := load(ctx, db, s); err != nil {
 			return nil, err
@@ -271,22 +271,6 @@ func loadStoredCredits(ctx context.Context, db pg.DBI, s *authorentity.State) er
 	return nil
 }
 
-func loadStoredNames(ctx context.Context, db pg.DBI, s *authorentity.State) error {
-	var names []struct {
-		EntityID  uuid.UUID `pg:"entity_id,type:uuid"`
-		SearchKey string    `pg:"search_key"`
-		Books     int       `pg:"books,use_zero"`
-	}
-	if _, err := db.QueryContext(ctx, &names, `
-		SELECT entity_id, search_key, books FROM public.author_entity_name ORDER BY entity_id, search_key`); err != nil {
-		return fmt.Errorf("reading the entity names: %w", err)
-	}
-	for _, n := range names {
-		s.Names[n.EntityID] = append(s.Names[n.EntityID], authorentity.Name{SearchKey: n.SearchKey, Books: n.Books})
-	}
-	return nil
-}
-
 // AuthorEntityUnitSkip is a unit the database refused, by an identifier and
 // the SQLSTATE: the entity's ID and its first fingerprint, never a name.
 type AuthorEntityUnitSkip struct {
@@ -295,14 +279,20 @@ type AuthorEntityUnitSkip struct {
 	SQLState    string
 }
 
-// ApplyAuthorEntityUnits writes the units in the caller's transaction and
-// returns how many rows it wrote. The batch is written under a savepoint;
-// when the database refuses it for the data (SQLSTATE class 23) it is
-// written again a unit at a time, each under its own savepoint, and a unit
-// refused alone is skipped (§1.5). Any other error ends the batch.
+// ApplyAuthorEntityUnits writes components of units (Plan.Components) in
+// the caller's transaction and returns how many rows it wrote. The batch is
+// written under a savepoint; when the database refuses it (unitRefused) it
+// is written again a component at a time, each under its own savepoint, and
+// a component refused is skipped whole — every unit of it, so a split or a
+// merge is never written in part — while the other components land (§1.5).
+// Any other error ends the batch.
 func ApplyAuthorEntityUnits(
-	ctx context.Context, tx pg.DBI, runID int64, units []authorentity.Unit,
+	ctx context.Context, tx pg.DBI, runID int64, components [][]authorentity.Unit,
 ) (changes int, skipped []AuthorEntityUnitSkip, err error) {
+	var units []authorentity.Unit
+	for _, comp := range components {
+		units = append(units, comp...)
+	}
 	if len(units) == 0 {
 		return 0, nil, nil
 	}
@@ -313,22 +303,32 @@ func ApplyAuthorEntityUnits(
 		}
 		return changes, nil, nil
 	}
-	if !isIntegrityViolation(err) {
+	if !unitRefused(err) {
 		return 0, nil, err
 	}
-	for i := range units {
-		one := units[i : i+1]
-		err = underSavepoint(ctx, tx, "author_entity_unit", func() error { return writeEntityUnits(ctx, tx, runID, one) })
+	for _, comp := range components {
+		err = underSavepoint(ctx, tx, "author_entity_component", func() error { return writeEntityUnits(ctx, tx, runID, comp) })
 		switch {
 		case err == nil:
-			changes += units[i].Changes()
-		case isIntegrityViolation(err):
-			skipped = append(skipped, unitSkip(&units[i], sqlState(err)))
+			for i := range comp {
+				changes += comp[i].Changes()
+			}
+		case unitRefused(err):
+			for i := range comp {
+				skipped = append(skipped, unitSkip(&comp[i], sqlState(err)))
+			}
 		default:
 			return 0, nil, err
 		}
 	}
 	return changes, skipped, nil
+}
+
+// unitRefused tells a unit the database refused — for its data (SQLSTATE
+// class 23), or a row another writer holds past the lock timeout (55P03) —
+// from a failure of the pass.
+func unitRefused(err error) bool {
+	return isIntegrityViolation(err) || sqlState(err) == "55P03"
 }
 
 func unitSkip(u *authorentity.Unit, state string) AuthorEntityUnitSkip {
@@ -362,9 +362,6 @@ type entityUnitColumns struct {
 	crEntity, crMethod, crRule []string
 	delCrID                    []int64
 	delCrOrdinal               []int
-	nameOwners                 []string
-	nameEntity, nameKey        []string
-	nameBooks                  []int
 }
 
 func (c *entityUnitColumns) add(u *authorentity.Unit) {
@@ -405,14 +402,6 @@ func (c *entityUnitColumns) add(u *authorentity.Unit) {
 	for _, k := range u.DeleteCredits {
 		c.delCrID = append(c.delCrID, k.CreditID)
 		c.delCrOrdinal = append(c.delCrOrdinal, k.Ordinal)
-	}
-	if u.NamesChanged {
-		c.nameOwners = append(c.nameOwners, u.EntityID.String())
-		for _, n := range u.Names {
-			c.nameEntity = append(c.nameEntity, u.EntityID.String())
-			c.nameKey = append(c.nameKey, n.SearchKey)
-			c.nameBooks = append(c.nameBooks, n.Books)
-		}
 	}
 }
 
@@ -458,8 +447,7 @@ func (c *entityUnitColumns) steps(runID int64) []entityWriteStep {
 			marked AS (
 				UPDATE public.author_entity e SET merged_into = m.to_id FROM m
 				WHERE e.id = m.from_id AND e.merged_into IS NULL
-				RETURNING e.id),
-			dropped AS (DELETE FROM public.author_entity_name WHERE entity_id IN (SELECT id FROM marked))
+				RETURNING e.id)
 			INSERT INTO public.author_entity_merge_log (from_id, to_id, method, evidence)
 			SELECT m.from_id, m.to_id, m.method, jsonb_build_object('build_run_id', ?::bigint, 'shared_books', m.shared)
 			FROM m WHERE m.from_id IN (SELECT id FROM marked)`,
@@ -491,24 +479,20 @@ func (c *entityUnitColumns) steps(runID int64) []entityWriteStep {
 			USING unnest(?::bigint[], ?::smallint[]) AS d(id, o)
 			WHERE a.credit_id = d.id AND a.ordinal = d.o AND a.method <> 'manual'`,
 			[]interface{}{pg.Array(c.delCrID), pg.Array(c.delCrOrdinal)}},
-		{len(c.nameOwners) == 0, `DELETE FROM public.author_entity_name WHERE entity_id = ANY (?::uuid[])`,
-			[]interface{}{pg.Array(c.nameOwners)}},
-		{len(c.nameEntity) == 0, `
-			INSERT INTO public.author_entity_name (entity_id, search_key, books)
-			SELECT * FROM unnest(?::uuid[], ?::text[], ?::int[])`,
-			[]interface{}{pg.Array(c.nameEntity), pg.Array(c.nameKey), pg.Array(c.nameBooks)}},
 	}
 }
 
 // AuthorEntityBuildRun is one build pass.
 type AuthorEntityBuildRun struct {
-	ID              int64           `pg:"id" json:"id"`
-	Status          string          `pg:"status" json:"status"`
-	Stage           *string         `pg:"stage" json:"stage,omitempty"`
-	UnitsTotal      int             `pg:"units_total,use_zero" json:"units_total"`
-	UnitsDone       int             `pg:"units_done,use_zero" json:"units_done"`
-	UnitsSkipped    int             `pg:"units_skipped,use_zero" json:"units_skipped"`
-	Changes         int64           `pg:"changes,use_zero" json:"changes"`
+	ID           int64   `pg:"id" json:"id"`
+	Status       string  `pg:"status" json:"status"`
+	Stage        *string `pg:"stage" json:"stage,omitempty"`
+	UnitsTotal   int     `pg:"units_total,use_zero" json:"units_total"`
+	UnitsDone    int     `pg:"units_done,use_zero" json:"units_done"`
+	UnitsSkipped int     `pg:"units_skipped,use_zero" json:"units_skipped"`
+	Changes      int64   `pg:"changes,use_zero" json:"changes"`
+	// Attempts is how many times the pass was planned.
+	Attempts        int             `pg:"attempts,use_zero" json:"attempts"`
 	Report          json.RawMessage `pg:"report,type:jsonb" json:"report,omitempty" swaggertype:"object"`
 	LastErrorClass  *string         `pg:"last_error_class" json:"last_error_class,omitempty"`
 	CreatedByUserID *int64          `pg:"created_by_user_id" json:"-"`
@@ -517,7 +501,7 @@ type AuthorEntityBuildRun struct {
 	FinishedAt      *time.Time      `pg:"finished_at" json:"finished_at,omitempty"`
 }
 
-const authorEntityRunColumns = `id, status, stage, units_total, units_done, units_skipped, changes, report,
+const authorEntityRunColumns = `id, status, stage, units_total, units_done, units_skipped, changes, attempts, report,
 	last_error_class, created_by_user_id, created_at, started_at, finished_at`
 
 // Build run statuses and stages.
@@ -592,6 +576,27 @@ type AuthorEntityProgress struct {
 	Changes      int64
 }
 
+// BeginAuthorEntityAttempt starts owner's planning of the pass: one more
+// attempt, the plan stage, the counters of an attempt that did not land
+// cleared.
+// A worker whose lease another took gets ErrAuthorEntityLeaseLost.
+func BeginAuthorEntityAttempt(
+	ctx context.Context, db pg.DBI, runID int64, owner uuid.UUID, lease time.Duration,
+) (*AuthorEntityBuildRun, error) {
+	var runs []AuthorEntityBuildRun
+	if _, err := db.QueryContext(ctx, &runs, `
+		UPDATE public.author_entity_build_run SET attempts = attempts + 1, stage = 'plan', units_total = 0,
+			units_done = 0, units_skipped = 0, changes = 0, lease_expires_at = now() + ? * interval '1 millisecond'
+		WHERE id = ? AND status = 'running' AND lease_owner = ?
+		RETURNING `+authorEntityRunColumns, lease.Milliseconds(), runID, owner); err != nil {
+		return nil, fmt.Errorf("beginning an author entity build attempt: %w", err)
+	}
+	if len(runs) == 0 {
+		return nil, ErrAuthorEntityLeaseLost
+	}
+	return &runs[0], nil
+}
+
 // RecordAuthorEntityProgress writes a pass's progress and renews owner's
 // lease, in the caller's transaction (with the units it counts). The run row
 // is locked: a worker whose lease another took gets ErrAuthorEntityLeaseLost.
@@ -612,12 +617,40 @@ func RecordAuthorEntityProgress(
 	return nil
 }
 
-// CompleteAuthorEntityBuild stores the report and completes owner's pass.
-func CompleteAuthorEntityBuild(ctx context.Context, db pg.DBI, runID int64, owner uuid.UUID, report []byte) error {
-	res, err := db.ExecContext(ctx, `
-		UPDATE public.author_entity_build_run SET status = 'completed', stage = 'report', report = ?::jsonb,
-			finished_at = now(), lease_owner = NULL, lease_expires_at = NULL
-		WHERE id = ? AND status = 'running' AND lease_owner = ?`, string(report), runID, owner)
+// LockAuthorEntityBuild locks owner's running pass in the caller's
+// transaction, NOWAIT: a worker whose lease another took gets
+// ErrAuthorEntityLeaseLost, and while the lock is held no other worker can
+// claim the pass (ClaimAuthorEntityBuild skips locked rows). It then takes
+// the author layer shared, like a source writer: the pass's assignments
+// reference credits, and a book's layer deletion — which takes the layer
+// exclusively before it locks any credit — waits for the pass to commit
+// instead of deadlocking with it on credit rows. A deletion already running
+// is waited for.
+func LockAuthorEntityBuild(ctx context.Context, tx pg.DBI, runID int64, owner uuid.UUID) error {
+	var ids []int64
+	if _, err := tx.QueryContext(ctx, &ids, `
+		SELECT id FROM public.author_entity_build_run
+		WHERE id = ? AND status = 'running' AND lease_owner = ? FOR UPDATE NOWAIT`, runID, owner); err != nil {
+		return fmt.Errorf("locking the author entity build: %w", err)
+	}
+	if len(ids) == 0 {
+		return ErrAuthorEntityLeaseLost
+	}
+	return lockAuthorLayerShared(ctx, tx)
+}
+
+// CompleteAuthorEntityBuild stores the final counters and the report and
+// completes owner's pass, in the caller's transaction (the one that wrote
+// the pass).
+func CompleteAuthorEntityBuild(
+	ctx context.Context, tx pg.DBI, runID int64, owner uuid.UUID, p AuthorEntityProgress, report []byte,
+) error {
+	res, err := tx.ExecContext(ctx, `
+		UPDATE public.author_entity_build_run SET status = 'completed', stage = ?, units_total = ?, units_done = ?,
+			units_skipped = ?, changes = ?, report = ?::jsonb, finished_at = now(),
+			lease_owner = NULL, lease_expires_at = NULL
+		WHERE id = ? AND status = 'running' AND lease_owner = ?`,
+		p.Stage, p.UnitsTotal, p.UnitsDone, p.UnitsSkipped, p.Changes, string(report), runID, owner)
 	if err != nil {
 		return fmt.Errorf("completing the author entity build: %w", err)
 	}

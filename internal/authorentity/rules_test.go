@@ -249,23 +249,14 @@ func TestPlaceholdersAndEmptyNamesGetNoEntity(t *testing.T) {
 	}
 }
 
-// D4: the nickname of a result is a name variant of the entity, not an
-// entity of its own; every credit name is a variant too, with its books.
-func TestNicknameIsANameVariant(t *testing.T) {
+// D4: the nickname of a result does not split the entity: one credit, one
+// person. The nickname is a name variant the read-model worker counts
+// (database TestTheEntityNamesFollowTheRows).
+func TestANicknameDoesNotSplitTheEntity(t *testing.T) {
 	p := newCatalog(t).book(1, "Мост").book(2, "Река").
 		credit(10, 1, "fp-a", person("Петров", "Иван", "Сергеевич").withNickname("Капитан")).
 		credit(11, 2, "fp-b", person("ПЕТРОВ", "Иван", "Сергеевич")).build()
 	same(t, p, 10, 11)
-	names := p.NamesOf(p.EntityOf(10))
-	want := map[string]int{"иван сергеевич петров": 2, "капитан": 1}
-	if len(names) != len(want) {
-		t.Fatalf("names: want %v, got %v", want, names)
-	}
-	for _, n := range names {
-		if want[n.SearchKey] != n.Books {
-			t.Errorf("name %q: want %d books, got %d", n.SearchKey, want[n.SearchKey], n.Books)
-		}
-	}
 }
 
 // The entity's name is the display name of its credits with the most books,
@@ -408,5 +399,114 @@ func TestACollectiveStubGetsNoEntity(t *testing.T) {
 	}
 	if p.Report.NoEntity[authorentity.NoEntityPlaceholder] != 2 {
 		t.Errorf("no entity: got %v", p.Report.NoEntity)
+	}
+}
+
+// E2 §0: a placeholder followed by a genre label, the shapes the production
+// build made entities of — the placeholder in the given name, "--" or "-" in
+// the source, the genre as the family, once glued three times over, once with
+// no separator at all, once in reversed order — gets no entity.
+func TestAPlaceholderWithAGenreLabelGetsNoEntity(t *testing.T) {
+	label := func(given, additional, family, display string) *name {
+		n := person(family, given)
+		if additional != "" {
+			n.additional = []string{additional}
+		}
+		n.displayAs = display
+		return n
+	}
+	p := newCatalog(t).book(1, "А").book(2, "Б").book(3, "В").book(4, "Г").book(5, "Д").book(6, "Е").
+		credit(10, 1, "fp-1", label("Автор неизвестен", "--", "Древневосточная литература",
+			"Автор неизвестен -- Древневосточная литература")).
+		credit(11, 2, "fp-2", label("Автор неизвестен -", "", "Кулинария", "Автор неизвестен - Кулинария")).
+		credit(12, 3, "fp-3", label("Автор неизвестен", "--",
+			"Европейская старинная литератураЕвропейская старинная литератураЕвропейская старинная литература",
+			"Автор неизвестен -- Европейская старинная литератураЕвропейская старинная литератураЕвропейская старинная литература")).
+		credit(13, 4, "fp-4", label("Автор неизвестен", "", "Древневосточная литература",
+			"Автор неизвестен Древневосточная литература")).
+		credit(14, 5, "fp-5", label("Неизвестен", "", "Автор", "Неизвестен Автор")).
+		credit(15, 6, "fp-6", label("Аноним", "", "Сказки", "Аноним: Сказки")).build()
+	for _, id := range []int64{10, 11, 12, 13, 14, 15} {
+		none(t, p, id)
+	}
+	if got := p.Report.NoEntity[authorentity.NoEntityPlaceholder]; got != 6 {
+		t.Errorf("placeholders: want 6, got %d (%v)", got, p.Report.NoEntity)
+	}
+}
+
+// A real person whose name merely holds such words keeps the entity: the
+// sculptor Эрнст Неизвестный, a hyphenated family, a name that only ends in a
+// placeholder word.
+func TestARealNameWithPlaceholderWordsKeepsItsEntity(t *testing.T) {
+	p := newCatalog(t).book(1, "А").book(2, "Б").book(3, "В").
+		credit(10, 1, "fp-1", person("Неизвестный", "Эрнст", "Иосифович")).
+		credit(11, 2, "fp-2", person("Неизвестный-Сказочник", "Иван")).
+		credit(12, 3, "fp-3", person("Аноним", "Пётр", "Иванович")).build()
+	for _, id := range []int64{10, 11, 12} {
+		if p.EntityOf(id).String() == "00000000-0000-0000-0000-000000000000" {
+			t.Errorf("credit %d lost its entity", id)
+		}
+	}
+}
+
+// Review E2 r1, finding 2: punctuation inside the placeholder itself —
+// «Автор-неизвестен — Кулинария», and the normalizer's output for the
+// source last name «no-name: Cooking» — still marks a placeholder with a
+// label; every boundary is checked, not only the first.
+func TestAPlaceholderWithPunctuationInsideIsStillAPlaceholder(t *testing.T) {
+	label := func(given, family, display string) *name {
+		n := person(family, given)
+		n.displayAs = display
+		return n
+	}
+	p := newCatalog(t).book(1, "А").book(2, "Б").
+		credit(10, 1, "fp-1", label("Автор-неизвестен", "Кулинария", "Автор-неизвестен — Кулинария")).
+		credit(11, 2, "fp-2", label("", "no-name: Cooking", "no-name: Cooking").latin()).build()
+	none(t, p, 10)
+	none(t, p, 11)
+}
+
+// The guards hold with a hyphenated family written first: a one-word
+// placeholder glued into a compound family by a plain hyphen is a name.
+func TestAHyphenatedFamilyWrittenFirstKeepsItsEntity(t *testing.T) {
+	label := func(given, family, display string) *name {
+		n := person(family, given)
+		n.displayAs = display
+		return n
+	}
+	p := newCatalog(t).book(1, "А").book(2, "Б").
+		credit(10, 1, "fp-1", label("Иван", "Неизвестный-Сказочник", "Неизвестный-Сказочник Иван")).
+		credit(11, 2, "fp-2", label("Пётр", "Аноним", "Аноним Пётр Иванович")).build()
+	for _, id := range []int64{10, 11} {
+		if p.EntityOf(id).String() == "00000000-0000-0000-0000-000000000000" {
+			t.Errorf("credit %d lost its entity", id)
+		}
+	}
+}
+
+// Review E2 r2, finding 4: the placeholder at the end — «Кулинария — автор
+// неизвестен», a selected person with no name parts — is a placeholder with
+// a label too; so is one between labels. A one-word placeholder glued into
+// a compound by a plain hyphen at the end of a name stays a name.
+func TestATrailingPlaceholderIsAPlaceholderToo(t *testing.T) {
+	bare := func(display string) *name { return &name{script: "Cyrl", displayAs: display} }
+	label := func(given, family, display string) *name {
+		n := person(family, given)
+		n.displayAs = display
+		return n
+	}
+	p := newCatalog(t).book(1, "А").book(2, "Б").book(3, "В").book(4, "Г").book(5, "Д").
+		credit(10, 1, "fp-1", bare("Кулинария — автор неизвестен")).
+		credit(11, 2, "fp-2", bare("Сказки: Аноним")).
+		credit(12, 3, "fp-3", bare("Кулинария — неизвестный автор — 1999")).
+		credit(13, 4, "fp-4", label("Иван", "Петров-Неизвестный", "Иван Петров-Неизвестный")).
+		credit(14, 5, "fp-5", label("Иван", "Сказочник-Неизвестный", "Сказочник-Неизвестный Иван")).build()
+	none(t, p, 10)
+	none(t, p, 11)
+	none(t, p, 12)
+	for _, id := range []int64{13, 14} {
+		if p.EntityOf(id).String() == "00000000-0000-0000-0000-000000000000" {
+			t.Errorf("credit %d lost its entity", id)
+		}
 	}
 }

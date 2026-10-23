@@ -39,6 +39,9 @@ type name struct {
 	nickname      string
 	tag           int
 	script        string
+	// displayAs is the display name as the source spells it, when it is not
+	// the parts in order.
+	displayAs string
 }
 
 func person(family, given string, additional ...string) *name {
@@ -54,6 +57,9 @@ func (n *name) latin() *name                   { n.script = "Latn"; return n }
 func nickOnly(nick string) *name { return &name{nickname: nick, script: "Cyrl"} }
 
 func (n *name) display() string {
+	if n.displayAs != "" {
+		return n.displayAs
+	}
 	if n.family == "" && n.given == "" && len(n.additional) == 0 {
 		return n.nickname
 	}

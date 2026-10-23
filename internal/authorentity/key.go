@@ -144,11 +144,74 @@ var collectiveStubKeys = map[string]bool{
 	"various": true, "various authors": true, "collective": true, "anthology": true,
 }
 
-// isPlaceholder reports a credit whose name is a placeholder, or a
-// collective that is only a stub.
+// isPlaceholder reports a credit whose name is a placeholder, a placeholder
+// with a label after it, or a collective that is only a stub.
 func isPlaceholder(c *Credit) bool {
 	key := authornorm.SearchKey(c.DisplayName)
-	return placeholderKeys[key] || (c.Kind == KindCollective && collectiveStubKeys[key])
+	return placeholderKeys[key] || (c.Kind == KindCollective && collectiveStubKeys[key]) || labelledPlaceholder(c)
+}
+
+// labelSeparator finds every separator run of a display name: a dash of any
+// kind, a colon, a bar or a slash, with the white space around it.
+var labelSeparator = regexp.MustCompile(`\s*[-‐‑‒–—―:|/]+\s*`)
+
+// placeholderRun reports a display name with a run of pieces between its
+// separators that is a whole placeholder (the whole name too: a placeholder
+// spelled with a hyphen of its own).
+func placeholderRun(display string) bool {
+	seps := labelSeparator.FindAllStringIndex(display, -1)
+	if len(seps) == 0 {
+		return false
+	}
+	// Piece i runs from the end of separator i-1 to the start of separator i.
+	starts := []int{0}
+	ends := []int{}
+	for _, sep := range seps {
+		ends = append(ends, sep[0])
+		starts = append(starts, sep[1])
+	}
+	ends = append(ends, len(display))
+	strong := func(sep []int) bool {
+		text := display[sep[0]:sep[1]]
+		return strings.TrimSpace(text) != "-" || text != strings.TrimSpace(text)
+	}
+	for i := range starts {
+		for j := i; j < len(starts); j++ {
+			key := authornorm.SearchKey(display[starts[i]:ends[j]])
+			if !placeholderKeys[key] {
+				continue
+			}
+			if strings.Contains(key, " ") || (i > 0 && strong(seps[i-1])) || (j < len(seps) && strong(seps[j])) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// labelledPlaceholder reports a placeholder with a label, the shapes the
+// sources give a genre collection: a run of the display name's pieces
+// between separators — at its start («Автор неизвестен -- Кулинария», with
+// a hyphen of its own: «Автор-неизвестен — Кулинария», «no-name: Cooking»),
+// at its end («Кулинария — автор неизвестен») or between labels — that is a
+// whole placeholder, with some other piece beside it; a name part that is a
+// placeholder of several words («Автор неизвестен» as the given name,
+// whatever follows); or the placeholder with its words the other way round
+// («Неизвестен Автор»). A one-word placeholder counts only next to a strong
+// separator — a dash, a colon, a bar, a slash or a spaced hyphen — never as
+// the end of a compound glued by a plain hyphen: «Неизвестный-Сказочник»,
+// «Петров-Неизвестный» and Эрнст Неизвестный are names.
+func labelledPlaceholder(c *Credit) bool {
+	if placeholderRun(c.DisplayName) {
+		return true
+	}
+	for _, part := range []string{c.Given, c.Family, c.Nickname} {
+		if key := authornorm.SearchKey(part); strings.Contains(key, " ") && placeholderKeys[key] {
+			return true
+		}
+	}
+	return len(c.Additional) == 0 && c.Family != "" && c.Given != "" &&
+		placeholderKeys[authornorm.SearchKey(c.Family+" "+c.Given)]
 }
 
 // samizdatMark is the samizdat mark of a title, "[СИ]" (§2.0, decision 3b).

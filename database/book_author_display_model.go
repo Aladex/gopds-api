@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,6 +27,10 @@ type authorDisplayRow struct {
 	// ExtendsLegacy: a name from the layer, linked to a legacy author, with a
 	// word that author's catalog name lacks.
 	ExtendsLegacy bool
+	// EntityIDs are the entities a layer row's credit names; Nickname its
+	// selected result's nickname (migration 57).
+	EntityIDs []string
+	Nickname  string
 }
 
 // authorDisplayRows is the read model of one book: its author line as
@@ -43,6 +48,7 @@ func authorDisplayRows(bookID int64, s *bookAuthorSources) []authorDisplayRow {
 			id := c.ID
 			row.CreditID = &id
 			row.SortKey = foldSortKey(creditSortKey(&c, a.Name))
+			row.EntityIDs, row.Nickname = c.EntityIDs, c.Nickname
 			if a.LegacyAuthorID != nil {
 				row.ExtendsLegacy = !wordsWithin(nameWords(a.Name), nameWords(legacyNameOf(s.legacy, *a.LegacyAuthorID)))
 			}
@@ -149,21 +155,23 @@ func (m creditMarks) flush(ctx context.Context, conn pg.DBI) error {
 // storedAuthorDisplayRow is a read-model row as stored, with whether its
 // search key still follows from its name.
 type storedAuthorDisplayRow struct {
-	BookID         int64  `pg:"book_id"`
-	Position       int    `pg:"position"`
-	Display        string `pg:"display"`
-	SortKey        string `pg:"sort_key"`
-	Source         string `pg:"source"`
-	LegacyAuthorID *int64 `pg:"legacy_author_id"`
-	CreditID       *int64 `pg:"credit_id"`
-	ExtendsLegacy  bool   `pg:"extends_legacy"`
-	KeyFresh       bool   `pg:"key_fresh"`
+	BookID         int64    `pg:"book_id"`
+	Position       int      `pg:"position"`
+	Display        string   `pg:"display"`
+	SortKey        string   `pg:"sort_key"`
+	Source         string   `pg:"source"`
+	LegacyAuthorID *int64   `pg:"legacy_author_id"`
+	CreditID       *int64   `pg:"credit_id"`
+	ExtendsLegacy  bool     `pg:"extends_legacy"`
+	KeyFresh       bool     `pg:"key_fresh"`
+	EntityIDs      []string `pg:"entity_ids,array"`
+	Nickname       string   `pg:"nickname"`
 }
 
 func (s *storedAuthorDisplayRow) matches(r *authorDisplayRow) bool {
 	return s.KeyFresh && s.Position == r.Position && s.Display == r.Display && s.SortKey == r.SortKey &&
 		s.Source == r.Source && equalID(s.LegacyAuthorID, r.LegacyAuthorID) && equalID(s.CreditID, r.CreditID) &&
-		s.ExtendsLegacy == r.ExtendsLegacy
+		s.ExtendsLegacy == r.ExtendsLegacy && slices.Equal(s.EntityIDs, r.EntityIDs) && s.Nickname == r.Nickname
 }
 
 func equalID(a, b *int64) bool {
@@ -173,33 +181,66 @@ func equalID(a, b *int64) bool {
 // deleteAuthorDisplaySQL deletes the books' rows and takes the names among
 // them that extend their legacy author off the name index's counts; it
 // returns the legacy authors whose counts it lowered.
-const deleteAuthorDisplaySQL = `WITH gone AS (
+var deleteAuthorDisplaySQL = `WITH gone AS (
 	DELETE FROM book_author_display WHERE book_id IN (?)
-	RETURNING legacy_author_id, search_key, extends_legacy
+	RETURNING book_id, legacy_author_id, search_key, extends_legacy, entity_ids, nickname
 ), names AS (
 	SELECT legacy_author_id, search_key, count(*)::int AS books FROM gone WHERE extends_legacy GROUP BY 1, 2
+), legacy AS (
+	UPDATE book_author_display_name n SET books = n.books - names.books
+	FROM names WHERE n.legacy_author_id = names.legacy_author_id AND n.search_key = names.search_key
+	RETURNING n.legacy_author_id
+), entity_names AS (
+	SELECT entity_id, search_key, count(*)::int AS books FROM (` + entityNameKeysSQL("gone") + `) k GROUP BY 1, 2
+), entities AS (
+	UPDATE author_entity_name n SET books = n.books - e.books
+	FROM entity_names e WHERE n.entity_id = e.entity_id AND n.search_key = e.search_key
+	RETURNING n.entity_id
 )
-UPDATE book_author_display_name n SET books = n.books - names.books
-FROM names WHERE n.legacy_author_id = names.legacy_author_id AND n.search_key = names.search_key
-RETURNING n.legacy_author_id`
+SELECT legacy_author_id::text AS id, false AS entity FROM legacy
+UNION ALL
+SELECT entity_id::text, true FROM entities`
+
+// entityNameKeysSQL are the entity names a set of rows carries: per book,
+// each entity of its rows with the row's search key and with its nickname's.
+// A book counts once per name — two credits of one book naming the same
+// entity by the same name are one book — so a name's count is its books.
+// The worker rewrites a book's rows all at once, so the rows of a book are
+// always together in the set.
+func entityNameKeysSQL(rows string) string {
+	return `SELECT DISTINCT book_id, entity_id, search_key FROM (
+		SELECT book_id, unnest(entity_ids) AS entity_id, search_key
+		FROM ` + rows + ` WHERE entity_ids IS NOT NULL
+		UNION ALL
+		SELECT book_id, unnest(entity_ids), public.search_normalize(nickname)
+		FROM ` + rows + ` WHERE entity_ids IS NOT NULL AND nickname IS NOT NULL) named
+	WHERE search_key <> ''`
+}
 
 // insertAuthorDisplaySQL writes rows column by column; 0 stands for a NULL
 // ID, which no legacy author or credit has, and an empty sort key for the
 // NULL of a line that names no one. The search key is computed here,
 // by the normalization every search uses, and the names among the rows that
 // extend their legacy author are counted into the name index.
-const insertAuthorDisplaySQL = `WITH added AS (
+var insertAuthorDisplaySQL = `WITH added AS (
 	INSERT INTO book_author_display
-		(book_id, position, display, sort_key, search_key, source, legacy_author_id, credit_id, extends_legacy)
-	SELECT b, p, d, nullif(s, ''), public.search_normalize(d), src, nullif(l, 0), nullif(c, 0), e
-	FROM unnest(?::bigint[], ?::smallint[], ?::text[], ?::text[], ?::text[], ?::bigint[], ?::bigint[], ?::boolean[])
-		AS t(b, p, d, s, src, l, c, e)
-	RETURNING legacy_author_id, search_key, extends_legacy
+		(book_id, position, display, sort_key, search_key, source, legacy_author_id, credit_id, extends_legacy,
+		 entity_ids, nickname)
+	SELECT b, p, d, nullif(s, ''), public.search_normalize(d), src, nullif(l, 0), nullif(c, 0), e,
+		string_to_array(nullif(ents, ''), ',')::uuid[], nullif(nick, '')
+	FROM unnest(?::bigint[], ?::smallint[], ?::text[], ?::text[], ?::text[], ?::bigint[], ?::bigint[], ?::boolean[],
+		?::text[], ?::text[])
+		AS t(b, p, d, s, src, l, c, e, ents, nick)
+	RETURNING book_id, legacy_author_id, search_key, extends_legacy, entity_ids, nickname
+), legacy AS (
+	INSERT INTO book_author_display_name (legacy_author_id, search_key, books)
+	SELECT legacy_author_id, search_key, count(*) FROM added WHERE extends_legacy GROUP BY 1, 2
+	ON CONFLICT (legacy_author_id, search_key) DO UPDATE
+	SET books = book_author_display_name.books + EXCLUDED.books
 )
-INSERT INTO book_author_display_name (legacy_author_id, search_key, books)
-SELECT legacy_author_id, search_key, count(*) FROM added WHERE extends_legacy GROUP BY 1, 2
-ON CONFLICT (legacy_author_id, search_key) DO UPDATE
-SET books = book_author_display_name.books + EXCLUDED.books`
+INSERT INTO author_entity_name (entity_id, search_key, books)
+SELECT entity_id, search_key, count(*) FROM (` + entityNameKeysSQL("added") + `) k GROUP BY 1, 2
+ON CONFLICT (entity_id, search_key) DO UPDATE SET books = author_entity_name.books + EXCLUDED.books`
 
 // RebuildAuthorDisplay brings the read model of the books in line with their
 // author lines and returns how many books it had to rewrite. A book whose
@@ -322,7 +363,8 @@ func storedAuthorDisplay(ctx context.Context, tx pg.DBI, bookIDs []int64) (map[i
 	var stored []storedAuthorDisplayRow
 	if _, err := tx.QueryContext(ctx, &stored, `SELECT book_id, position, display,
 			coalesce(sort_key, '') AS sort_key, source, legacy_author_id, credit_id, extends_legacy,
-			search_key = public.search_normalize(display) AS key_fresh
+			search_key = public.search_normalize(display) AS key_fresh,
+			entity_ids::text[] AS entity_ids, coalesce(nickname, '') AS nickname
 		FROM book_author_display WHERE book_id IN (?) ORDER BY book_id, position`, pg.In(bookIDs)); err != nil {
 		return nil, err
 	}
@@ -359,29 +401,69 @@ func (w *authorDisplayWrite) apply(ctx context.Context, tx pg.DBI) error {
 		changed[i] = w.books[i].id
 		cols.add(w.books[i].rows)
 	}
-	var lowered []int64
-	if _, err := tx.QueryContext(ctx, &lowered, deleteAuthorDisplaySQL, pg.In(changed)); err != nil {
+	lowered, err := deleteAuthorDisplayRows(ctx, tx, changed)
+	if err != nil {
 		return err
 	}
 	if c := &cols; len(c.book) > 0 {
 		if _, err := tx.ExecContext(ctx, insertAuthorDisplaySQL, pg.Array(c.book), pg.Array(c.position),
 			pg.Array(c.display), pg.Array(c.sortKey), pg.Array(c.source),
-			pg.Array(c.legacy), pg.Array(c.credit), pg.Array(c.extends)); err != nil {
+			pg.Array(c.legacy), pg.Array(c.credit), pg.Array(c.extends),
+			pg.Array(c.entities), pg.Array(c.nickname)); err != nil {
 			return err
 		}
 	}
 	return dropUncarriedNames(ctx, tx, lowered)
 }
 
-// dropUncarriedNames removes from the name index the names of these legacy
-// authors that no book carries any more.
-func dropUncarriedNames(ctx context.Context, tx pg.DBI, authors []int64) error {
-	if len(authors) == 0 {
-		return nil
+// loweredNames are the name-index owners a deletion lowered the counts of:
+// legacy authors and entities.
+type loweredNames struct {
+	legacy   []int64
+	entities []string
+}
+
+// deleteAuthorDisplayRows deletes the books' rows and lowers both name
+// indexes by the names they carried.
+func deleteAuthorDisplayRows(ctx context.Context, tx pg.DBI, bookIDs []int64) (loweredNames, error) {
+	var rows []struct {
+		ID     string `pg:"id"`
+		Entity bool   `pg:"entity,use_zero"`
 	}
-	_, err := tx.ExecContext(ctx, `DELETE FROM book_author_display_name
-		WHERE books = 0 AND legacy_author_id IN (?)`, pg.In(distinctIDs(authors)))
-	return err
+	var out loweredNames
+	if _, err := tx.QueryContext(ctx, &rows, deleteAuthorDisplaySQL, pg.In(bookIDs)); err != nil {
+		return out, err
+	}
+	for _, r := range rows {
+		if r.Entity {
+			out.entities = append(out.entities, r.ID)
+			continue
+		}
+		id, err := strconv.ParseInt(r.ID, 10, 64)
+		if err != nil {
+			return out, err
+		}
+		out.legacy = append(out.legacy, id)
+	}
+	return out, nil
+}
+
+// dropUncarriedNames removes from the name indexes the names of these legacy
+// authors and entities that no book carries any more.
+func dropUncarriedNames(ctx context.Context, tx pg.DBI, lowered loweredNames) error {
+	if len(lowered.legacy) > 0 {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM book_author_display_name
+			WHERE books = 0 AND legacy_author_id IN (?)`, pg.In(distinctIDs(lowered.legacy))); err != nil {
+			return err
+		}
+	}
+	if len(lowered.entities) > 0 {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM author_entity_name
+			WHERE books = 0 AND entity_id = ANY (?::uuid[])`, pg.Array(lowered.entities)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // deleteAuthorDisplayOf takes deleted books out of the read model inside the
@@ -396,8 +478,8 @@ func deleteAuthorDisplayOf(ctx context.Context, tx pg.DBI, bookIDs []int64) erro
 	if err := lockAuthorDisplayModel(ctx, tx); err != nil {
 		return err
 	}
-	var lowered []int64
-	if _, err := tx.QueryContext(ctx, &lowered, deleteAuthorDisplaySQL, pg.In(bookIDs)); err != nil {
+	lowered, err := deleteAuthorDisplayRows(ctx, tx, bookIDs)
+	if err != nil {
 		return err
 	}
 	return dropUncarriedNames(ctx, tx, lowered)
@@ -421,6 +503,8 @@ type authorDisplayColumns struct {
 	position                 []int
 	display, sortKey, source []string
 	extends                  []bool
+	// entities are a row's entity IDs joined by commas, "" for none.
+	entities, nickname []string
 }
 
 func (c *authorDisplayColumns) add(rows []authorDisplayRow) {
@@ -434,6 +518,8 @@ func (c *authorDisplayColumns) add(rows []authorDisplayRow) {
 		c.legacy = append(c.legacy, idOrZero(r.LegacyAuthorID))
 		c.credit = append(c.credit, idOrZero(r.CreditID))
 		c.extends = append(c.extends, r.ExtendsLegacy)
+		c.entities = append(c.entities, strings.Join(r.EntityIDs, ","))
+		c.nickname = append(c.nickname, r.Nickname)
 	}
 }
 
@@ -520,6 +606,29 @@ func recountAuthorDisplayNames(ctx context.Context, tx pg.DBI) (int, error) {
 	return stray.RowsAffected() + fixed.RowsAffected(), nil
 }
 
+// recountAuthorEntityNames brings the entity name index in line with the
+// model — every name a row carries for each of its entities, with its rows —
+// and returns how many index rows it had to correct: an entity no row
+// carries any more ends with no names.
+func recountAuthorEntityNames(ctx context.Context, tx pg.DBI) (int, error) {
+	want := `SELECT entity_id, search_key, count(*)::int AS books FROM (` +
+		entityNameKeysSQL("book_author_display") + `) k GROUP BY 1, 2`
+	stray, err := tx.ExecContext(ctx, `WITH want AS (`+want+`)
+		DELETE FROM author_entity_name n
+		WHERE NOT EXISTS (SELECT 1 FROM want w WHERE w.entity_id = n.entity_id AND w.search_key = n.search_key)`)
+	if err != nil {
+		return 0, err
+	}
+	fixed, err := tx.ExecContext(ctx, `INSERT INTO author_entity_name (entity_id, search_key, books)
+		`+want+`
+		ON CONFLICT (entity_id, search_key) DO UPDATE SET books = EXCLUDED.books
+		WHERE author_entity_name.books <> EXCLUDED.books`)
+	if err != nil {
+		return 0, err
+	}
+	return stray.RowsAffected() + fixed.RowsAffected(), nil
+}
+
 // AuthorDisplayReconcileStep is what one step of the daily walk did. Ran is
 // false when no walk was due; Started marks the step that began a walk and
 // Finished the one that ended it, with the walk's totals.
@@ -597,6 +706,11 @@ func ReconcileAuthorDisplayStep(ctx context.Context, tx pg.DBI, batch int, every
 		if out.NamesDiffered, err = recountAuthorDisplayNames(ctx, tx); err != nil {
 			return out, err
 		}
+		entityNames, recountErr := recountAuthorEntityNames(ctx, tx)
+		if recountErr != nil {
+			return out, recountErr
+		}
+		out.NamesDiffered += entityNames
 		_, err = tx.ExecContext(ctx, `UPDATE book_author_display_reconcile SET walk_cursor = NULL,
 			walk_started = NULL, walk_differed = 0, walk_read = 0, finished_at = now(),
 			books_differed = ?, books_read = ?, names_differed = ?`, out.WalkDiffered, out.WalkRead, out.NamesDiffered)

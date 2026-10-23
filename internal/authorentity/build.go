@@ -23,15 +23,16 @@ const (
 
 // Plan is one pass: the units to write and the report. Build makes it.
 type Plan struct {
-	// Units are the units with something to write; the last one, with a
-	// nil EntityID, removes the automatic rows no entity carries any more.
+	// Units are the units with something to write; the last ones, with a
+	// nil EntityID, remove the automatic rows no entity carries any more,
+	// one per old entity of those rows.
 	Units  []Unit
 	Report Report
 
-	entityOf map[int64]uuid.UUID
-	ruleOf   map[int64]string
-	entities map[uuid.UUID]EntityRow
-	names    map[uuid.UUID][]Name
+	components [][]int
+	entityOf   map[int64]uuid.UUID
+	ruleOf     map[int64]string
+	entities   map[uuid.UUID]EntityRow
 }
 
 // EntityOf is the entity a credit belongs to after the pass, uuid.Nil when
@@ -50,8 +51,19 @@ func (p *Plan) Entity(id uuid.UUID) *EntityRow {
 	return &e
 }
 
-// NamesOf are an entity's name variants after the pass.
-func (p *Plan) NamesOf(id uuid.UUID) []Name { return p.names[id] }
+// Components are the units grouped by dependence (see components): each
+// group is written or refused as a whole, groups independently of each
+// other.
+func (p *Plan) Components() [][]Unit {
+	out := make([][]Unit, len(p.components))
+	for i, idx := range p.components {
+		out[i] = make([]Unit, len(idx))
+		for j, k := range idx {
+			out[i][j] = p.Units[k]
+		}
+	}
+	return out
+}
 
 // Changes counts the rows the plan writes.
 func (p *Plan) Changes() int {
@@ -642,29 +654,4 @@ func (b *builder) display(credits []int) EntityRow {
 	}
 	return EntityRow{Kind: kind, DisplayName: best.c.DisplayName, SortName: best.c.SortName,
 		SearchKey: authornorm.SearchKey(best.c.DisplayName)}
-}
-
-// namesOf are the name variants of an entity's credits (D4): every credit's
-// name and every nickname, each with its books.
-func (b *builder) namesOf(credits []int) []Name {
-	books := map[string]map[int64]bool{}
-	add := func(key string, book int64) {
-		if key == "" {
-			return
-		}
-		if books[key] == nil {
-			books[key] = map[int64]bool{}
-		}
-		books[key][book] = true
-	}
-	for _, ci := range credits {
-		c := &b.in.Credits[ci]
-		add(authornorm.SearchKey(c.DisplayName), c.BookID)
-		add(authornorm.SearchKey(c.Nickname), c.BookID)
-	}
-	out := make([]Name, 0, len(books))
-	for _, k := range sortedKeys(books) {
-		out = append(out, Name{SearchKey: k, Books: len(books[k])})
-	}
-	return out
 }

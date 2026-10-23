@@ -186,13 +186,16 @@ func (b *builder) overlaps(groups []*group) []overlap {
 func (b *builder) absorbUnmatched(pairs []overlap, taken map[uuid.UUID]bool) map[uuid.UUID][]MergeRow {
 	anchored := b.anchored()
 	absorb := map[uuid.UUID][]MergeRow{}
+	merge := func(from uuid.UUID, g *group, shared int) {
+		taken[from] = true
+		absorb[g.id] = append(absorb[g.id], MergeRow{From: from, To: g.id, Method: MethodDeterministic, SharedBooks: shared})
+		b.rep.IDs.Merged++
+	}
 	for _, p := range pairs {
 		if taken[p.old] || anchored[p.old] {
 			continue
 		}
-		taken[p.old] = true
-		absorb[p.g.id] = append(absorb[p.g.id], MergeRow{From: p.old, To: p.g.id, Method: MethodDeterministic, SharedBooks: p.shared})
-		b.rep.IDs.Merged++
+		merge(p.old, p.g, p.shared)
 	}
 	for id, e := range b.old.Entities {
 		if e.MergedInto == nil && !taken[id] && !anchored[id] {
@@ -221,7 +224,7 @@ func (b *builder) plan() *Plan {
 	groups := b.groups()
 	absorb := b.assignIDs(groups)
 	pl := &planner{b: b, p: &Plan{entityOf: map[int64]uuid.UUID{}, ruleOf: map[int64]string{},
-		entities: map[uuid.UUID]EntityRow{}, names: map[uuid.UUID][]Name{}},
+		entities: map[uuid.UUID]EntityRow{}},
 		members: map[uuid.UUID][]int{}, rootEntity: map[int]uuid.UUID{}, units: map[uuid.UUID]*Unit{}}
 	pl.collectMembers(groups)
 	pl.wantRows()
@@ -234,9 +237,8 @@ func (b *builder) plan() *Plan {
 			p.Units = append(p.Units, *u)
 		}
 	}
-	if pl.cleanup.Changes() > 0 {
-		p.Units = append(p.Units, pl.cleanup)
-	}
+	p.Units = append(p.Units, pl.cleanupUnits()...)
+	p.components = b.components(p.Units)
 	b.report(p, groups, pl.members, pl.wantFP)
 	p.Report = b.rep
 	p.Report.Changes = p.Changes()
@@ -311,8 +313,8 @@ func (pl *planner) wantRows() {
 	}
 }
 
-// entityUnits start a unit per entity: its row and its names when they
-// differ from the stored ones, and the entities it absorbs.
+// entityUnits start a unit per entity: its row when it differs from the
+// stored one, and the entities it absorbs.
 func (pl *planner) entityUnits(absorb map[uuid.UUID][]MergeRow) {
 	b := pl.b
 	for _, id := range pl.order {
@@ -329,11 +331,6 @@ func (pl *planner) entityUnits(absorb map[uuid.UUID][]MergeRow) {
 			u.Entity = &r
 		}
 		pl.p.entities[id] = row
-		names := b.namesOf(pl.members[id])
-		pl.p.names[id] = names
-		if !sameNames(b.old.Names[id], names) {
-			u.Names, u.NamesChanged = names, true
-		}
 		pl.units[id] = u
 	}
 }
@@ -383,15 +380,172 @@ func (pl *planner) diffCredits() {
 	}
 }
 
-// sameNames compares stored name variants with planned ones whatever order
-// the store returned them in (the database sorts by its collation).
-func sameNames(stored, planned []Name) bool {
-	if len(stored) != len(planned) {
-		return false
+// cleanupUnits split the cleanup by the old entity of each removed row, in
+// entity order: removing the rows of one old entity depends on what the
+// pass does with that entity, not on the other entities' units.
+func (pl *planner) cleanupUnits() []Unit {
+	old := pl.b.old
+	byEntity := map[uuid.UUID]*Unit{}
+	unitOf := func(id uuid.UUID) *Unit {
+		if byEntity[id] == nil {
+			byEntity[id] = &Unit{}
+		}
+		return byEntity[id]
 	}
-	sorted := slices.Clone(stored)
-	sortNames(sorted)
-	return slices.Equal(sorted, planned)
+	for _, fp := range pl.cleanup.DeleteFingerprints {
+		u := unitOf(old.Fingerprints[fp].EntityID)
+		u.DeleteFingerprints = append(u.DeleteFingerprints, fp)
+	}
+	for _, key := range pl.cleanup.DeleteCredits {
+		var id uuid.UUID
+		if e := old.Credits[key].EntityID; e != nil {
+			id = *e
+		}
+		u := unitOf(id)
+		u.DeleteCredits = append(u.DeleteCredits, key)
+	}
+	ids := make([]uuid.UUID, 0, len(byEntity))
+	for id := range byEntity {
+		ids = append(ids, id)
+	}
+	slices.SortFunc(ids, func(x, y uuid.UUID) int { return strings.Compare(x.String(), y.String()) })
+	out := make([]Unit, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, *byEntity[id])
+	}
+	return out
+}
+
+// components group the units that depend on each other, by index into
+// units: units that touch one entity — as their own, as one they absorb, or
+// as the stored owner of a fingerprint or credit row they rewrite, or of
+// the fingerprint row a credit they override is linked through — or one
+// fingerprint (a credit's override depends on its fingerprint's row even
+// when nothing was stored yet). A split or a merge is several units: the
+// database writes or refuses them together, never a part (a bucket's
+// fingerprint moved to another entity while the unit that takes its books
+// over, and the merge, are refused, would lose the merge and link the
+// books wrongly). Components are in the order of their first unit, units
+// in plan order within each.
+func (b *builder) components(units []Unit) [][]int {
+	d := b.newDeps(len(units))
+	for i := range units {
+		d.unit(i, &units[i])
+	}
+	var out [][]int
+	at := map[int]int{}
+	for i := range units {
+		r := d.find(i)
+		if _, ok := at[r]; !ok {
+			at[r] = len(out)
+			out = append(out, nil)
+		}
+		out[at[r]] = append(out[at[r]], i)
+	}
+	return out
+}
+
+// deps joins units into components (union-find) by the keys they touch:
+// entities and fingerprints.
+type deps struct {
+	parent []int
+	// holder is the first unit to touch each key; a later one joins it.
+	holder map[string]int
+	// creditFP is each input credit's fingerprint; fpOwners and
+	// creditOwners are the stored owners of every fingerprint (whatever the
+	// ordinal) and of every credit.
+	creditFP     map[int64]FPKey
+	fpOwners     map[FPKey][]uuid.UUID
+	creditOwners map[int64][]uuid.UUID
+}
+
+func (b *builder) newDeps(n int) *deps {
+	d := &deps{parent: make([]int, n), holder: map[string]int{}, creditFP: make(map[int64]FPKey, len(b.in.Credits)),
+		fpOwners: map[FPKey][]uuid.UUID{}, creditOwners: map[int64][]uuid.UUID{}}
+	for i := range d.parent {
+		d.parent[i] = i
+	}
+	for i := range b.in.Credits {
+		c := &b.in.Credits[i]
+		d.creditFP[c.ID] = fpKeyOf(c)
+	}
+	for k, row := range b.old.Fingerprints {
+		base := baseFP(k)
+		d.fpOwners[base] = append(d.fpOwners[base], row.EntityID)
+	}
+	for k, row := range b.old.Credits {
+		if row.EntityID != nil {
+			d.creditOwners[k.CreditID] = append(d.creditOwners[k.CreditID], *row.EntityID)
+		}
+	}
+	return d
+}
+
+func baseFP(k FPKey) FPKey {
+	return FPKey{Fingerprint: k.Fingerprint, ExtractorVersion: k.ExtractorVersion}
+}
+
+func (d *deps) find(i int) int {
+	for d.parent[i] != i {
+		d.parent[i] = d.parent[d.parent[i]]
+		i = d.parent[i]
+	}
+	return i
+}
+
+func (d *deps) touch(i int, key string) {
+	j, ok := d.holder[key]
+	if !ok {
+		d.holder[key] = i
+		return
+	}
+	if ri, rj := d.find(i), d.find(j); ri != rj {
+		d.parent[max(ri, rj)] = min(ri, rj)
+	}
+}
+
+func (d *deps) entity(i int, id uuid.UUID) {
+	if id != uuid.Nil {
+		d.touch(i, "e"+id.String())
+	}
+}
+
+func (d *deps) fingerprint(i int, k FPKey) {
+	base := baseFP(k)
+	d.touch(i, "f"+base.Fingerprint+"\x00"+base.ExtractorVersion)
+	for _, id := range d.fpOwners[base] {
+		d.entity(i, id)
+	}
+}
+
+func (d *deps) credit(i int, id int64) {
+	for _, owner := range d.creditOwners[id] {
+		d.entity(i, owner)
+	}
+	if fp, ok := d.creditFP[id]; ok {
+		d.fingerprint(i, fp)
+	}
+}
+
+// unit joins unit i with every unit it depends on.
+func (d *deps) unit(i int, u *Unit) {
+	d.entity(i, u.EntityID)
+	for _, m := range u.Absorb {
+		d.entity(i, m.From)
+		d.entity(i, m.To)
+	}
+	for _, row := range u.Fingerprints {
+		d.fingerprint(i, row.Key)
+	}
+	for _, k := range u.DeleteFingerprints {
+		d.fingerprint(i, k)
+	}
+	for _, row := range u.Credits {
+		d.credit(i, row.Key.CreditID)
+	}
+	for _, k := range u.DeleteCredits {
+		d.credit(i, k.CreditID)
+	}
 }
 
 func sameCreditRow(a, b *CreditRow) bool {

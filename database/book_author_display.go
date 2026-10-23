@@ -29,6 +29,10 @@ type creditName struct {
 	ID                  int64
 	SortName            string
 	First, Middle, Last string
+	// EntityIDs are the entities the credit names, in segment order (empty
+	// when it names none); Nickname the selected result's nickname.
+	EntityIDs []string
+	Nickname  string
 }
 
 // bookAuthorSources is everything a book's author line is decided from: its
@@ -48,39 +52,62 @@ type bookAuthorSources struct {
 // rules SQL's btrim does not have.
 const bookAuthorRowsSQL = `
 	SELECT book_id, legacy_id, chosen_name, chosen_sort_name, source_name,
-	       credit_id, first_name, middle_name, last_name FROM (
+	       credit_id, first_name, middle_name, last_name, entity_ids, nickname FROM (
 	SELECT ba.book_id, a.id AS legacy_id, NULL::text AS chosen_name, NULL::text AS chosen_sort_name,
 	       a.full_name AS source_name, min(ba.id) AS ord,
-	       NULL::bigint AS credit_id, NULL::text AS first_name, NULL::text AS middle_name, NULL::text AS last_name
+	       NULL::bigint AS credit_id, NULL::text AS first_name, NULL::text AS middle_name, NULL::text AS last_name,
+	       NULL::text[] AS entity_ids, NULL::text AS nickname
 	FROM opds_catalog_bauthor ba
 	JOIN opds_catalog_author a ON a.id = ba.author_id
 	WHERE ba.book_id IN (?0)
 	GROUP BY ba.book_id, a.id, a.full_name
 	UNION ALL
 	SELECT s.book_id, NULL, chosen.display_name, chosen.sort_name, c.source_display_name, c.position,
-	       c.id, c.source_first_name, c.source_middle_name, c.source_last_name
+	       c.id, c.source_first_name, c.source_middle_name, c.source_last_name,
+	       linked.entity_ids::text[], chosen.nickname
 	FROM book_metadata_snapshot s
 	JOIN book_contributor_credit c ON c.snapshot_id = s.id AND c.role = 'author'
 	LEFT JOIN LATERAL (
-		SELECT r.display_name, r.sort_name
+		SELECT r.display_name, r.sort_name, r.nickname
 		FROM book_contributor_credit_selection sel
 		JOIN contributor_normalization_result r ON r.id = sel.result_id
 		WHERE sel.credit_id = c.id AND sel.state = 'selected') chosen ON true
+	LEFT JOIN LATERAL (` + creditEntitiesSQL + `) linked ON true
 	WHERE s.is_current AND s.book_id IN (?0)) author_rows
 	ORDER BY book_id, legacy_id IS NULL, ord`
+
+// creditEntitiesSQL is the entities a credit names (design E, §1.2): per
+// segment (ordinal) the credit's own decision, else its fingerprint's
+// assignment; the list in segment order only when every segment from 0 on
+// has an entity — a credit of several people one of whom has none links to
+// no one (§6 item 5) — else NULL.
+//
+// #nosec G101 -- a query naming assignment columns, not a credential
+const creditEntitiesSQL = `
+		SELECT CASE WHEN count(*) > 0 AND bool_and(seg.entity_id IS NOT NULL) AND max(seg.ordinal) = count(*) - 1
+			THEN array_agg(seg.entity_id ORDER BY seg.ordinal) END AS entity_ids
+		FROM (
+			SELECT coalesce(own.ordinal, fp.ordinal) AS ordinal,
+			       CASE WHEN own.ordinal IS NOT NULL THEN own.entity_id ELSE fp.entity_id END AS entity_id
+			FROM (SELECT ordinal, entity_id FROM author_entity_credit_assignment WHERE credit_id = c.id) own
+			FULL JOIN (SELECT ordinal, entity_id FROM author_entity_assignment
+			           WHERE source_fingerprint = c.source_fingerprint AND extractor_version = s.extractor_version) fp
+			ON fp.ordinal = own.ordinal) seg`
 
 // authorRow is one row of bookAuthorRowsSQL: a legacy author (LegacyID set,
 // its name in SourceName) or an author credit.
 type authorRow struct {
-	BookID         int64   `pg:"book_id"`
-	LegacyID       *int64  `pg:"legacy_id"`
-	ChosenName     *string `pg:"chosen_name"`
-	ChosenSortName string  `pg:"chosen_sort_name"`
-	SourceName     string  `pg:"source_name"`
-	CreditID       int64   `pg:"credit_id"`
-	FirstName      string  `pg:"first_name"`
-	MiddleName     string  `pg:"middle_name"`
-	LastName       string  `pg:"last_name"`
+	BookID         int64    `pg:"book_id"`
+	LegacyID       *int64   `pg:"legacy_id"`
+	ChosenName     *string  `pg:"chosen_name"`
+	ChosenSortName string   `pg:"chosen_sort_name"`
+	SourceName     string   `pg:"source_name"`
+	CreditID       int64    `pg:"credit_id"`
+	FirstName      string   `pg:"first_name"`
+	MiddleName     string   `pg:"middle_name"`
+	LastName       string   `pg:"last_name"`
+	EntityIDs      []string `pg:"entity_ids,array"`
+	Nickname       *string  `pg:"nickname"`
 }
 
 // hasWords reports whether a name has a letter or a digit: a name of
@@ -96,7 +123,11 @@ func hasWords(name string) bool {
 // listed it: the line falls back to the next name, the legacy authors, or
 // nobody.
 func creditFromRow(row *authorRow) (creditName, bool) {
-	c := creditName{ID: row.CreditID, First: row.FirstName, Middle: row.MiddleName, Last: row.LastName}
+	c := creditName{ID: row.CreditID, First: row.FirstName, Middle: row.MiddleName, Last: row.LastName,
+		EntityIDs: row.EntityIDs}
+	if row.ChosenName != nil && row.Nickname != nil && hasWords(*row.Nickname) {
+		c.Nickname = strings.TrimSpace(*row.Nickname)
+	}
 	switch {
 	case row.ChosenName != nil && hasWords(*row.ChosenName):
 		c.Name, c.Selected, c.SortName = strings.TrimSpace(*row.ChosenName), true, row.ChosenSortName
