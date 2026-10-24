@@ -62,8 +62,10 @@ type Input struct {
 	words   []int
 	defects map[int]authornorm.QualityFlag
 	// particles marks the letter-carrying tokens of the words the local
-	// normalizer classifies as name particles.
+	// normalizer classifies as name particles; bare marks those of them whose
+	// word is the particle alone ("де", not "д'Артаньян").
 	particles map[int]bool
+	bare      map[int]bool
 }
 
 // SourceFingerprint is the fingerprint of the source the request's fields
@@ -109,15 +111,18 @@ func NewInput(fields []FieldValue) (Input, error) {
 	var words []int
 	defects := map[int]authornorm.QualityFlag{}
 	particles := map[int]bool{}
+	bare := map[int]bool{}
 	wordNo := 0
 	for _, f := range fields {
 		wordDefects := authornorm.NameWordCaseDefects(f.Text, displayWordCount)
 		for wi, word := range strings.Fields(f.Text) {
 			parts := splitWord(word)
 			if authornorm.ParticleWord(word, displayWordCount) {
+				standalone := authornorm.BareParticleWord(word, displayWordCount)
 				for pi, part := range parts {
 					if strings.IndexFunc(part, unicode.IsLetter) >= 0 {
 						particles[len(tokens)+pi] = true
+						bare[len(tokens)+pi] = standalone
 					}
 				}
 			}
@@ -137,7 +142,7 @@ func NewInput(fields []FieldValue) (Input, error) {
 			wordNo++
 		}
 	}
-	return Input{Tokens: tokens, source: v, words: words, defects: defects, particles: particles}, nil
+	return Input{Tokens: tokens, source: v, words: words, defects: defects, particles: particles, bare: bare}, nil
 }
 
 // Source returns the canonical source value the input was built from.
@@ -229,6 +234,13 @@ var labelWords = vocabulary("составитель|составители|со�
 var labelPhrases = vocabulary("под редакцией|под ред|гл ред|гл редактор|главный редактор|" +
 	"отв ред|ответственный редактор|translated by|edited by|illustrated by|compiled by")
 
+// regionalPlaceholders are the Bulgarian and Ukrainian spellings of "unknown
+// author" the local normalizer's placeholder dictionary does not hold
+// ("Неизвестен автор", "Невідомий автор"), compared as search keys. Like the
+// dictionary's own keys, a one-word key is filler on its own and a phrase is
+// filler only as a whole.
+var regionalPlaceholders = vocabulary("невідомий|неизвестен автор|невідомий автор|автор невідомий")
+
 // vocabulary is the set of search keys listed in one '|'-separated string.
 func vocabulary(list string) map[string]bool {
 	set := map[string]bool{}
@@ -250,7 +262,8 @@ var addressPatterns = []*regexp.Regexp{
 // isFillerToken reports a token the closed dictionaries admit as filler on
 // its own: a placeholder word, a role label or an address.
 func isFillerToken(text string) bool {
-	if isPlaceholderToken(text) || labelWords[authornorm.SearchKey(text)] {
+	key := authornorm.SearchKey(text)
+	if isPlaceholderToken(text) || labelWords[key] || regionalPlaceholders[key] {
 		return true
 	}
 	for _, p := range addressPatterns {
@@ -276,7 +289,7 @@ func isFillerPhrase(in *Input, from, to int) bool {
 	}
 	key := authornorm.SearchKey(strings.Join(texts, " "))
 	keys, _ := placeholderVocab()
-	return labelPhrases[key] || slices.Contains(keys, key)
+	return labelPhrases[key] || regionalPlaceholders[key] || slices.Contains(keys, key)
 }
 
 // fillerInPhrase reports whether filler token i lies in a phrase whose every
@@ -423,7 +436,8 @@ func capitalizePart(text string) string {
 // checkV5: the role grammar of a person — at least one name role, or a pen
 // name alone (only nickname tokens name the person); the first name token
 // given, family or single_name (the order follows from it); family tokens in
-// one contiguous segment (particles aside); prefix only before the first name
+// one contiguous segment (particles aside, and the particles FB2 cut off to
+// the end of a family-first name, detachedParticles); prefix only before the first name
 // token, suffix only after it — a title after or inside the name ("Иоанн
 // Святитель Златоуст", "Фалассий авва") — and never inside the family
 // segment, which contiguity already forbids.
@@ -445,6 +459,8 @@ func (r *Reply) checkV5(in *Input) error {
 			return err
 		}
 	}
+	detached := detachedParticles(in, roleBy)
+	familyIdx = slices.DeleteFunc(familyIdx, func(i int) bool { return slices.Contains(detached, i) })
 	if err := checkFamilyContiguous(familyIdx, roleBy); err != nil {
 		return err
 	}
@@ -483,6 +499,52 @@ func (r *Reply) checkSingleNameGrammar() error {
 		}
 	}
 	return nil
+}
+
+// detachedParticles returns the particle tokens FB2 cut off to the end of a
+// family-first name: "Дю Морье, Дафна" written first=Морье, middle=Дафна,
+// last=Дю. They are the run of family tokens of standalone particle words
+// that closes the name tokens, after the given names (a given one among
+// them), while the root of the family (a word that is no particle among it)
+// opens the name before them; they belong in front of the root. A glued word
+// ("д'Артаньян") is a whole surname, never cut off from another root. Any
+// other split of the family detaches nothing, and V5 refuses it.
+func detachedParticles(in *Input, roleBy map[int]Role) []int {
+	familyIdx := roleIndexes(RoleFamily, roleBy)
+	start := len(familyIdx)
+	for start > 0 && in.bare[familyIdx[start-1]] &&
+		(start == len(familyIdx) || familyIdx[start] == familyIdx[start-1]+1) {
+		start--
+	}
+	if start == 0 || start == len(familyIdx) {
+		return nil
+	}
+	root, run := familyIdx[:start], familyIdx[start:]
+	if !slices.ContainsFunc(root, func(i int) bool { return !in.particles[i] }) ||
+		!givenNamesOnlyBetween(roleBy, root[len(root)-1], run[0]) {
+		return nil
+	}
+	return run
+}
+
+// givenNamesOnlyBetween reports whether the tokens strictly between from and
+// to are all given or additional, a given one among them, and no given,
+// additional or single_name token lies outside: the run after to closes a
+// family-first name.
+func givenNamesOnlyBetween(roleBy map[int]Role, from, to int) bool {
+	given := false
+	for i, role := range roleBy {
+		switch {
+		case i > from && i < to:
+			if role != RoleGiven && role != RoleAdditional {
+				return false
+			}
+			given = given || role == RoleGiven
+		case role == RoleGiven || role == RoleAdditional || role == RoleSingleName:
+			return false
+		}
+	}
+	return given
 }
 
 // checkFamilyContiguous: family tokens form one contiguous segment, particles
@@ -532,7 +594,9 @@ var TestHookSkipV8 atomic.Bool
 // particle role puts the token in no component at all — "Le" of "Le Guin"
 // would vanish from the family name — so it is invalid for such a token, and
 // so is any other move. A word that only looks like a particle and is a
-// given name ("Ben" in the first field) keeps its own field's role.
+// given name ("Ben" in the first field) keeps its own field's role. One
+// narrow shape keeps the token in a name component another way
+// (particleNameRole): a glued word as a mononym.
 func (r *Reply) checkV8(in *Input) error {
 	if r.Form != FormPerson || TestHookSkipV8.Load() {
 		return nil
@@ -547,11 +611,28 @@ func (r *Reply) checkV8(in *Input) error {
 		if ra.I < 0 || ra.I >= len(in.Tokens) || !in.particles[ra.I] {
 			continue
 		}
-		if ra.Role != RoleFamily && ra.Role != own[in.Tokens[ra.I].Field] {
+		if ra.Role != RoleFamily && ra.Role != own[in.Tokens[ra.I].Field] && !r.particleNameRole(in, ra) {
 			return &Violation{Validator: validatorV8, Detail: fmt.Sprintf("particle token %d left out of the family and its own field", ra.I)}
 		}
 	}
 	return nil
+}
+
+// particleNameRole reports the one shape where a particle token keeps a name
+// component other than the family and its own field's: single_name for a
+// glued word that is the person's only name token ("Аль-Фараздак" — a laqab
+// with its article). A split name is no mononym ("Мигель де Сервантес").
+func (r *Reply) particleNameRole(in *Input, ra RoleAssignment) bool {
+	if ra.Role != RoleSingleName || in.bare[ra.I] {
+		return false
+	}
+	names := 0
+	for _, other := range r.Roles {
+		if other.Role.nameRole() {
+			names++
+		}
+	}
+	return names == 1
 }
 
 // CheckTokenInvariant is validator V7: the emitted form of a token keeps the

@@ -120,3 +120,23 @@ func TestIsInitialToken(t *testing.T) {
 func words(s string) []string {
 	return strings.Fields(s)
 }
+
+func TestBareParticleWordIsTheStandaloneParticleOnly(t *testing.T) {
+	cases := []struct {
+		word  string
+		words int
+		want  bool
+	}{
+		{"Ле", 2, true},
+		{"ибн", 3, true},
+		{"Ле", 1, false},           // a one-word name is no particle
+		{"д'Артаньян", 2, false},   // glued: a whole surname
+		{"Аль-Фараздак", 2, false}, // glued
+		{"Морье", 2, false},
+	}
+	for _, c := range cases {
+		if got := BareParticleWord(c.word, c.words); got != c.want {
+			t.Errorf("BareParticleWord(%q, %d) = %v", c.word, c.words, got)
+		}
+	}
+}

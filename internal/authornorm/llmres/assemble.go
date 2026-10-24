@@ -58,8 +58,9 @@ func Assemble(in *Input, rep *Reply, extractorVersion, configVersion string, cla
 
 	roleBy := rep.roleByIndex()
 	commaIdx := commaBoundary(in, rep, roleBy)
+	detached := detachedParticles(in, roleBy)
 
-	display := buildDisplay(in, rep, roleBy, commaIdx, emitted)
+	display := buildDisplay(in, rep, roleBy, commaIdx, emitted, detached)
 
 	var kind authornorm.Kind
 	switch rep.Form {
@@ -96,11 +97,11 @@ func Assemble(in *Input, rep *Reply, extractorVersion, configVersion string, cla
 	if rep.Form == FormPerson {
 		r.GivenName = joinRole(RoleGiven, roleBy, emitted)
 		r.AdditionalNames = joinRole(RoleAdditional, roleBy, emitted)
-		r.FamilyName = joinRole(RoleFamily, roleBy, emitted)
+		r.FamilyName = joinFamily(roleBy, emitted, detached)
 		r.Prefix = joinRole(RolePrefix, roleBy, emitted)
 		r.Suffix = joinRole(RoleSuffix, roleBy, emitted)
 		r.Nickname = joinRole(RoleNickname, roleBy, emitted)
-		r.SortName = buildSortName(in, rep, roleBy, emitted, commaIdx)
+		r.SortName = buildSortName(in, rep, roleBy, emitted, commaIdx, detached)
 	}
 
 	return Outcome{Result: r, Tier: computeTier(in, rep), HomoglyphRepaired: repairedAny}, nil
@@ -173,9 +174,11 @@ func givenIndexes(roleBy map[int]Role) []int {
 // build nothing. A person is the source tokens without filler and without the
 // nickname — it moves to its own field, unless the pen name is all that names
 // the person — with the comma form inverted to "Имя Фамилия" when the source
-// wrote "Фамилия, Имя", and without the separators the dropped tokens leave
-// behind (an emptied "( )", the ", " before a dropped label).
-func buildDisplay(in *Input, rep *Reply, roleBy map[int]Role, commaIdx int, emitted []string) string {
+// wrote "Фамилия, Имя", with the particles FB2 cut off to the end moved back
+// in front of the family ("Морье Дафна Дю" → "Дю Морье Дафна"), and without
+// the separators the dropped tokens leave behind (an emptied "( )", the ", "
+// before a dropped label).
+func buildDisplay(in *Input, rep *Reply, roleBy map[int]Role, commaIdx int, emitted []string, detached []int) string {
 	if rep.Form != FormPerson {
 		return sourceDisplay(in, emitted)
 	}
@@ -200,6 +203,7 @@ func buildDisplay(in *Input, rep *Reply, roleBy map[int]Role, commaIdx int, emit
 	for i := 0; i < len(emitted) && (commaIdx < 0 || i < commaIdx); i++ {
 		order = append(order, i)
 	}
+	order = frontParticles(order, detached, roleBy)
 	kept := dropOrphanSeparators(order, roleBy, dropped, emitted)
 	parts := make([]string, 0, len(kept))
 	for _, i := range kept {
@@ -342,6 +346,49 @@ func openingToken(s string) bool {
 	return unicode.Is(unicode.Ps, r) || unicode.Is(unicode.Pi, r)
 }
 
+// frontParticles moves the detached particles (detachedParticles) of an
+// order of token indexes back in front of the family root, where the name
+// has them. Without detached particles the order is unchanged.
+func frontParticles(order, detached []int, roleBy map[int]Role) []int {
+	if len(detached) == 0 {
+		return order
+	}
+	out := make([]int, 0, len(order))
+	moved := false
+	for _, i := range order {
+		if slices.Contains(detached, i) {
+			continue
+		}
+		if !moved && roleBy[i] == RoleFamily {
+			out = append(out, detached...)
+			moved = true
+		}
+		out = append(out, i)
+	}
+	return out
+}
+
+// sourceOrder is the token indexes 0..n-1.
+func sourceOrder(n int) []int {
+	order := make([]int, n)
+	for i := range order {
+		order[i] = i
+	}
+	return order
+}
+
+// joinFamily renders the family tokens in source order, the detached
+// particles in front of the root ("Дю Морье").
+func joinFamily(roleBy map[int]Role, emitted []string, detached []int) string {
+	var parts []string
+	for _, i := range frontParticles(sourceOrder(len(emitted)), detached, roleBy) {
+		if roleBy[i] == RoleFamily {
+			parts = append(parts, emitted[i])
+		}
+	}
+	return joinTokens(parts)
+}
+
 // joinRole renders the tokens of one role in source order.
 func joinRole(target Role, roleBy map[int]Role, emitted []string) string {
 	var parts []string
@@ -358,7 +405,7 @@ func joinRole(target Role, roleBy map[int]Role, emitted []string) string {
 // the end, capitalized ones stay with the family; an eastern family-first
 // order without a comma keeps the source order; a single name sorts as
 // itself. Without a family there is no safe sort form and none is invented.
-func buildSortName(in *Input, rep *Reply, roleBy map[int]Role, emitted []string, commaIdx int) string {
+func buildSortName(in *Input, rep *Reply, roleBy map[int]Role, emitted []string, commaIdx int, detached []int) string {
 	if rep.Order == OrderSingleName {
 		if penNameOnly(roleBy) {
 			return joinRole(RoleNickname, roleBy, emitted)
@@ -368,8 +415,8 @@ func buildSortName(in *Input, rep *Reply, roleBy map[int]Role, emitted []string,
 
 	// The family part is the family tokens plus the capitalized particles in
 	// source order ("Ле Гуин"); lowercase particles go to the tail
-	// ("Сервантес Сааведра, Мигель де").
-	familyPart, tail := familyParts(in, roleBy, emitted)
+	// ("Сервантес Сааведра, Мигель де"). Detached particles lead the family.
+	familyPart, tail := familyParts(in, roleBy, emitted, frontParticles(sourceOrder(len(emitted)), detached, roleBy))
 
 	var givenPart []string
 	for i := range emitted {
@@ -410,10 +457,11 @@ func buildSortName(in *Input, rep *Reply, roleBy map[int]Role, emitted []string,
 // the tail. Under V8 a particle word of the family name takes the family
 // role, so a lowercase particle that leads the family name ("Мигель де
 // Сервантес Сааведра") moves to the tail as the particle role did; one
-// inside it ("Мартен дю Гар") stays where it is.
-func familyParts(in *Input, roleBy map[int]Role, emitted []string) (familyPart, tail []string) {
+// inside it ("Мартен дю Гар") stays where it is. The tokens are read in the
+// given order of indexes.
+func familyParts(in *Input, roleBy map[int]Role, emitted []string, order []int) (familyPart, tail []string) {
 	leading := true
-	for i := range emitted {
+	for _, i := range order {
 		switch roleBy[i] {
 		case RoleFamily:
 			if leading && in.particles[i] && !particleCapitalized(in.Tokens[i].Text) {

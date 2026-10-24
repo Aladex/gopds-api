@@ -51,3 +51,23 @@ func TestSystemPromptStatesTheBacklogContract(t *testing.T) {
 		}
 	}
 }
+
+// The R3 contract rules: the stage-1 shapes of eval run 24 that every
+// participant answered alike and the validators now accept.
+func TestSystemPromptStatesTheStage1Contract(t *testing.T) {
+	prose := strings.Join(strings.Fields(SystemPrompt), " ")
+	for _, rule := range []string{
+		// P3: the Bulgarian and Ukrainian placeholder phrases are filler.
+		`Неизвестен автор, Невідомий автор`,
+		// P1: a particle cut off to the end of a family-first name is family.
+		`cut off to the end of a family-first name, "Морье Дафна Дю": "Морье" and "Дю" are "family"`,
+		// V8: a first-field particle word is given, even as a second given name.
+		`"given", even after another given name: "Джей Ди Кирк", "Абу Мухаммед аль-Касим"`,
+		// P2: a glued one-word mononym.
+		`A one-word name with a glued particle ("Аль-Фараздак") is "single_name".`,
+	} {
+		if !strings.Contains(prose, rule) {
+			t.Errorf("the system prompt does not state %q", rule)
+		}
+	}
+}

@@ -5,6 +5,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"golang.org/x/text/cases"
 )
 
 // This file is the narrow exported view of the NormalizerVersion v1 contract
@@ -81,6 +83,15 @@ func IsInitialToken(token string) bool {
 // word count of the whole display, as in WordCaseDefects.
 func ParticleWord(word string, displayWordCount int) bool {
 	return classifyToken(word, displayWordCount).particle
+}
+
+// BareParticleWord reports whether NormalizerVersion v1 classifies a
+// white-space word as a standalone particle ("Le", "фон", "ибн") when the
+// display has more than one word — the part of ParticleWord that is not a
+// particle glued to a name ("d'Artagnan", "аль-Фараздак"), which is a whole
+// name word.
+func BareParticleWord(word string, displayWordCount int) bool {
+	return displayWordCount > 1 && particles[cases.Fold().String(word)]
 }
 
 // NameWordCaseDefects is the LLM layer's case-fix view of one component

@@ -29,7 +29,8 @@ Every result has exactly these keys, all required, no others:
   keeps the role of the name it abbreviates by position; never expand it. Label the tokens in the order
   they are written; the order of the name follows from the roles and is not part of the answer.
   - "filler" is only for words of these closed lists, which are not part of the name: placeholder words
-    (Неизвестный автор, Автор неизвестен, Аноним, Anonymous, Unknown Author, Noname); the role labels
+    (Неизвестный автор, Автор неизвестен, Неизвестен автор, Невідомий автор, Аноним, Anonymous, Unknown
+    Author, Noname); the role labels
     составитель, сост., автор-составитель, авт.-сост., редактор, ред., гл. редактор, главный редактор,
     отв. ред., ответственный редактор, под редакцией, переводчик, иллюстратор, сценарист, самиздат,
     псевдоним, translator, editor, illustrator, compiler, aka, translated by, edited by, illustrated by,
@@ -42,7 +43,9 @@ Every result has exactly these keys, all required, no others:
     "family").
   - A name particle (de, du, von, van, ibn, де, дю, фон, ван, ибн, ...) never takes the role "particle":
     it is "family" when it belongs to the family name ("Мигель де Сервантес", "Роже Мартен дю Гар": "де",
-    "дю" are "family"), otherwise it keeps the role of its FB2 field ("Ди" in the first field is "given").
+    "дю" are "family"; also when it was cut off to the end of a family-first name, "Морье Дафна Дю":
+    "Морье" and "Дю" are "family"), otherwise it keeps the role of its FB2 field ("Ди" in the first field is
+    "given", even after another given name: "Джей Ди Кирк", "Абу Мухаммед аль-Касим"). A one-word name with a glued particle ("Аль-Фараздак") is "single_name".
   - Every token of the nickname field is "nickname", whatever it looks like — even a full name with
     initials ("Князев К. Милослав", "Ли В.Б."): never relabel it as given or family (a word of the "filler"
     lists is "filler" there too). A person written only as a pen name has only "nickname" tokens
