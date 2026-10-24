@@ -51,6 +51,8 @@ type Input struct {
 	Old *State
 	// NewID makes the ID of a new entity; nil is uuid.NewV7.
 	NewID func() uuid.UUID
+	// Reference is the Wikidata evidence (E4w); nil is none.
+	Reference *Reference
 }
 
 // Methods of the stored rows (§3).
@@ -142,9 +144,31 @@ type CreditRow struct {
 type MergeRow struct {
 	From, To uuid.UUID
 	Method   string
+	// Rule is the evidence's rule of a merge on evidence: the Wikidata
+	// item and extract; empty for a deterministic merge.
+	Rule string
 	// SharedBooks is how many books of the absorbed entity the survivor
 	// took.
 	SharedBooks int
+}
+
+// SourceWikidata is the source of an entity's Wikidata item.
+const SourceWikidata = "wikidata"
+
+// RefKey names an entity's reference to one source.
+type RefKey struct {
+	EntityID uuid.UUID
+	Source   string
+}
+
+// ReferenceRow is a stored author_entity_reference row: the entity's item in
+// a source, the extract it was read from, and whether an administrator
+// pinned it (the build never touches a pinned row).
+type ReferenceRow struct {
+	Key     RefKey
+	Ref     string
+	Extract string
+	Pinned  bool
 }
 
 // State is what is stored: the rows of the entity tables.
@@ -152,13 +176,14 @@ type State struct {
 	Entities     map[uuid.UUID]EntityRow
 	Fingerprints map[FPKey]AssignmentRow
 	Credits      map[CreditKey]CreditRow
+	References   map[RefKey]ReferenceRow
 	Merges       []MergeRow
 }
 
 // NewState is an empty store.
 func NewState() *State {
 	return &State{Entities: map[uuid.UUID]EntityRow{}, Fingerprints: map[FPKey]AssignmentRow{},
-		Credits: map[CreditKey]CreditRow{}}
+		Credits: map[CreditKey]CreditRow{}, References: map[RefKey]ReferenceRow{}}
 }
 
 // Unit is the writes of one entity, applied together or not at all: the
@@ -177,11 +202,16 @@ type Unit struct {
 	DeleteFingerprints []FPKey
 	Credits            []CreditRow
 	DeleteCredits      []CreditKey
+	// References are the entity's references to write; DeleteReferences
+	// the ones it, or an entity it absorbs, no longer has.
+	References       []ReferenceRow
+	DeleteReferences []RefKey
 }
 
 // Changes counts the rows the unit writes.
 func (u *Unit) Changes() int {
-	n := len(u.Absorb) + len(u.Fingerprints) + len(u.DeleteFingerprints) + len(u.Credits) + len(u.DeleteCredits)
+	n := len(u.Absorb) + len(u.Fingerprints) + len(u.DeleteFingerprints) + len(u.Credits) + len(u.DeleteCredits) +
+		len(u.References) + len(u.DeleteReferences)
 	if u.Entity != nil {
 		n++
 	}
@@ -206,6 +236,24 @@ func (u *Unit) Apply(s *State) {
 	}
 	u.applyFingerprints(s)
 	u.applyCredits(s)
+	u.applyReferences(s)
+}
+
+func (u *Unit) applyReferences(s *State) {
+	if s.References == nil {
+		s.References = map[RefKey]ReferenceRow{}
+	}
+	for _, r := range u.References {
+		if old, ok := s.References[r.Key]; ok && old.Pinned {
+			continue
+		}
+		s.References[r.Key] = r
+	}
+	for _, k := range u.DeleteReferences {
+		if old, ok := s.References[k]; ok && !old.Pinned {
+			delete(s.References, k)
+		}
+	}
 }
 
 func (u *Unit) applyFingerprints(s *State) {

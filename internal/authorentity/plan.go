@@ -32,8 +32,10 @@ func (b *builder) groups() []*group {
 		}
 	}
 	for _, kg := range b.keys {
-		// A bucket every book moved out of disappears (§2.0).
-		if kg.key.short() && kg.key.evidenceEligible() && len(kg.credits) > 0 && byRoot[kg.idx] == nil {
+		// A bucket every book moved out of disappears (§2.0); one merged
+		// into another component is no bucket of its own any more.
+		if kg.key.short() && kg.key.evidenceEligible() && len(kg.credits) > 0 && byRoot[kg.idx] == nil &&
+			b.find(kg.idx) == kg.idx {
 			b.rep.Buckets.Emptied++
 		}
 	}
@@ -107,6 +109,9 @@ type overlap struct {
 	order  int
 	old    uuid.UUID
 	shared int
+	// rule is the Wikidata rule that brought the stored entity's credits
+	// into the group, if one did.
+	rule string
 }
 
 // assignIDs gives every group an ID (§3, ID stability): each inherits the
@@ -143,17 +148,22 @@ func (b *builder) assignIDs(groups []*group) map[uuid.UUID][]MergeRow {
 // larger group, then by ID and group order.
 func (b *builder) overlaps(groups []*group) []overlap {
 	oldOf, oldBooks := b.oldMembership()
+	wdRule := b.wikidataCreditRules()
 	var pairs []overlap
 	for order, g := range groups {
 		// Shared books count only through the group's own credits that
 		// belonged to the stored entity: a co-author on the same book is
 		// no member of it.
 		shared := map[uuid.UUID]int{}
+		rule := map[uuid.UUID]string{}
 		seen := map[sharedBook]bool{}
 		for _, ci := range g.credits {
 			id, ok := oldOf[ci]
 			if !ok {
 				continue
+			}
+			if r := wdRule[ci]; r != "" && rule[id] == "" {
+				rule[id] = r
 			}
 			if sb := (sharedBook{id, b.in.Credits[ci].BookID}); !seen[sb] {
 				seen[sb] = true
@@ -161,7 +171,7 @@ func (b *builder) overlaps(groups []*group) []overlap {
 			}
 		}
 		for id, n := range shared {
-			pairs = append(pairs, overlap{g: g, order: order, old: id, shared: n})
+			pairs = append(pairs, overlap{g: g, order: order, old: id, shared: n, rule: rule[id]})
 		}
 	}
 	slices.SortFunc(pairs, func(x, y overlap) int {
@@ -186,16 +196,18 @@ func (b *builder) overlaps(groups []*group) []overlap {
 func (b *builder) absorbUnmatched(pairs []overlap, taken map[uuid.UUID]bool) map[uuid.UUID][]MergeRow {
 	anchored := b.anchored()
 	absorb := map[uuid.UUID][]MergeRow{}
-	merge := func(from uuid.UUID, g *group, shared int) {
-		taken[from] = true
-		absorb[g.id] = append(absorb[g.id], MergeRow{From: from, To: g.id, Method: MethodDeterministic, SharedBooks: shared})
-		b.rep.IDs.Merged++
-	}
 	for _, p := range pairs {
 		if taken[p.old] || anchored[p.old] {
 			continue
 		}
-		merge(p.old, p.g, p.shared)
+		taken[p.old] = true
+		m := MergeRow{From: p.old, To: p.g.id, Method: MethodDeterministic, SharedBooks: p.shared}
+		if p.rule != "" {
+			// The stored entity's credits came in on Wikidata evidence.
+			m.Method, m.Rule = MethodEvidence, p.rule
+		}
+		absorb[p.g.id] = append(absorb[p.g.id], m)
+		b.rep.IDs.Merged++
 	}
 	for id, e := range b.old.Entities {
 		if e.MergedInto == nil && !taken[id] && !anchored[id] {
@@ -203,6 +215,21 @@ func (b *builder) absorbUnmatched(pairs []overlap, taken map[uuid.UUID]bool) map
 		}
 	}
 	return absorb
+}
+
+// wikidataCreditRules are the Wikidata rules credits are in their group by,
+// by credit index: those of a key merged on the evidence and not moved by
+// D3.
+func (b *builder) wikidataCreditRules() map[int]string {
+	out := map[int]string{}
+	for _, kg := range b.keys {
+		for _, ci := range kg.credits {
+			if _, moved := b.movedTo[ci]; !moved && b.wdRule[kg.idx] != "" {
+				out[ci] = b.wdRule[kg.idx]
+			}
+		}
+	}
+	return out
 }
 
 // planner turns the groups of one pass into its plan.
@@ -224,11 +251,12 @@ func (b *builder) plan() *Plan {
 	groups := b.groups()
 	absorb := b.assignIDs(groups)
 	pl := &planner{b: b, p: &Plan{entityOf: map[int64]uuid.UUID{}, ruleOf: map[int64]string{},
-		entities: map[uuid.UUID]EntityRow{}},
+		entities: map[uuid.UUID]EntityRow{}, refs: map[uuid.UUID]string{}},
 		members: map[uuid.UUID][]int{}, rootEntity: map[int]uuid.UUID{}, units: map[uuid.UUID]*Unit{}}
 	pl.collectMembers(groups)
 	pl.wantRows()
 	pl.entityUnits(absorb)
+	pl.diffReferences(groups, absorb)
 	pl.diffFingerprints()
 	pl.diffCredits()
 	p := pl.p
@@ -239,6 +267,7 @@ func (b *builder) plan() *Plan {
 	}
 	p.Units = append(p.Units, pl.cleanupUnits()...)
 	p.components = b.components(p.Units)
+	p.decisions = b.wdDecisions
 	b.report(p, groups, pl.members, pl.wantFP)
 	p.Report = b.rep
 	p.Report.Changes = p.Changes()
@@ -277,9 +306,10 @@ func (pl *planner) collectMembers(groups []*group) {
 // every book D3 moved.
 func (pl *planner) wantRows() {
 	b := pl.b
+	// A typo merge is told by the components before the Wikidata merge.
 	keysPerRoot := map[int]int{}
 	for _, kg := range b.keys {
-		keysPerRoot[b.find(kg.idx)]++
+		keysPerRoot[b.typoRoot[kg.idx]]++
 	}
 	pl.wantFP = map[FPKey]AssignmentRow{}
 	for _, kg := range b.keys {
@@ -288,15 +318,17 @@ func (pl *planner) wantRows() {
 		if !ok {
 			continue
 		}
-		rule := RuleD1
+		rule, method := RuleD1, MethodDeterministic
 		switch {
-		case keysPerRoot[root] > 1:
+		case b.wdRule[kg.idx] != "":
+			rule, method = b.wdRule[kg.idx], MethodEvidence
+		case keysPerRoot[b.typoRoot[kg.idx]] > 1:
 			rule = RuleTypo
 		case len(kg.fps) > 1:
 			rule = RuleD2
 		}
 		for _, fp := range kg.fps {
-			pl.wantFP[fp] = AssignmentRow{Key: fp, EntityID: id, Method: MethodDeterministic, Rule: rule}
+			pl.wantFP[fp] = AssignmentRow{Key: fp, EntityID: id, Method: method, Rule: rule}
 		}
 		for _, ci := range kg.credits {
 			c := &b.in.Credits[ci]
@@ -332,6 +364,54 @@ func (pl *planner) entityUnits(absorb map[uuid.UUID][]MergeRow) {
 		}
 		pl.p.entities[id] = row
 		pl.units[id] = u
+	}
+}
+
+// diffReferences gives every entity its Wikidata item (entityQID) and drops
+// the items of the entities it absorbs: the survivor of a merge has its
+// group's item, each piece of a split its own. A pinned row is an
+// administrator's and stays as it is.
+func (pl *planner) diffReferences(groups []*group, absorb map[uuid.UUID][]MergeRow) {
+	b := pl.b
+	rootOf := map[uuid.UUID]int{}
+	for _, g := range groups {
+		rootOf[g.id] = g.root
+	}
+	extract := ""
+	if b.in.Reference != nil {
+		extract = b.in.Reference.Extract
+	}
+	for _, id := range pl.order {
+		u := pl.units[id]
+		key := RefKey{EntityID: id, Source: SourceWikidata}
+		old, stored := b.old.References[key]
+		root, ok := rootOf[id]
+		if !ok {
+			// An entity of manual credits alone.
+			root = -1
+		}
+		// A pinned item is the administrator's; the absorbed entities'
+		// unpinned items go all the same.
+		if stored && old.Pinned {
+			pl.p.refs[id] = old.Ref
+		} else {
+			want := b.entityQID(root, pl.members[id])
+			switch {
+			case want != "":
+				pl.p.refs[id] = want
+				if !stored || old.Ref != want || old.Extract != extract {
+					u.References = append(u.References, ReferenceRow{Key: key, Ref: want, Extract: extract})
+				}
+			case stored:
+				u.DeleteReferences = append(u.DeleteReferences, key)
+			}
+		}
+		for _, m := range absorb[id] {
+			gone := RefKey{EntityID: m.From, Source: SourceWikidata}
+			if r, ok := b.old.References[gone]; ok && !r.Pinned {
+				u.DeleteReferences = append(u.DeleteReferences, gone)
+			}
+		}
 	}
 }
 

@@ -201,7 +201,7 @@ func CountUnselectedAuthorCredits(ctx context.Context, db pg.DBI) (int, error) {
 func LoadAuthorEntityState(ctx context.Context, db pg.DBI) (*authorentity.State, error) {
 	s := authorentity.NewState()
 	for _, load := range []func(context.Context, pg.DBI, *authorentity.State) error{
-		loadStoredEntities, loadStoredFingerprints, loadStoredCredits,
+		loadStoredEntities, loadStoredFingerprints, loadStoredCredits, loadStoredReferences,
 	} {
 		if err := load(ctx, db, s); err != nil {
 			return nil, err
@@ -267,6 +267,25 @@ func loadStoredCredits(ctx context.Context, db pg.DBI, s *authorentity.State) er
 	for _, r := range credits {
 		k := authorentity.CreditKey{CreditID: r.CreditID, Ordinal: r.Ordinal}
 		s.Credits[k] = authorentity.CreditRow{Key: k, EntityID: r.EntityID, Method: r.Method, Rule: r.Rule}
+	}
+	return nil
+}
+
+func loadStoredReferences(ctx context.Context, db pg.DBI, s *authorentity.State) error {
+	var refs []struct {
+		EntityID uuid.UUID `pg:"entity_id,type:uuid"`
+		Source   string    `pg:"source"`
+		Ref      string    `pg:"ref"`
+		Extract  string    `pg:"extract"`
+		Pinned   bool      `pg:"pinned,use_zero"`
+	}
+	if _, err := db.QueryContext(ctx, &refs, `
+		SELECT entity_id, source, ref, extract, pinned FROM public.author_entity_reference`); err != nil {
+		return fmt.Errorf("reading the entity references: %w", err)
+	}
+	for _, r := range refs {
+		k := authorentity.RefKey{EntityID: r.EntityID, Source: r.Source}
+		s.References[k] = authorentity.ReferenceRow{Key: k, Ref: r.Ref, Extract: r.Extract, Pinned: r.Pinned}
 	}
 	return nil
 }
@@ -348,8 +367,8 @@ type entityUnitColumns struct {
 	entID, entKind, entDisplay, entSort, entSearch []string
 	entPinned                                      []bool
 
-	mergeFrom, mergeTo, mergeMethod []string
-	mergeShared                     []int
+	mergeFrom, mergeTo, mergeMethod, mergeRule []string
+	mergeShared                                []int
 
 	fpHex, fpVersion, fpEntity, fpMethod, fpRule []string
 	fpOrdinal                                    []int
@@ -362,6 +381,9 @@ type entityUnitColumns struct {
 	crEntity, crMethod, crRule []string
 	delCrID                    []int64
 	delCrOrdinal               []int
+
+	refEntity, refSource, refRef, refExtract []string
+	delRefEntity, delRefSource               []string
 }
 
 func (c *entityUnitColumns) add(u *authorentity.Unit) {
@@ -377,6 +399,7 @@ func (c *entityUnitColumns) add(u *authorentity.Unit) {
 		c.mergeFrom = append(c.mergeFrom, m.From.String())
 		c.mergeTo = append(c.mergeTo, m.To.String())
 		c.mergeMethod = append(c.mergeMethod, m.Method)
+		c.mergeRule = append(c.mergeRule, m.Rule)
 		c.mergeShared = append(c.mergeShared, m.SharedBooks)
 	}
 	for _, a := range u.Fingerprints {
@@ -402,6 +425,16 @@ func (c *entityUnitColumns) add(u *authorentity.Unit) {
 	for _, k := range u.DeleteCredits {
 		c.delCrID = append(c.delCrID, k.CreditID)
 		c.delCrOrdinal = append(c.delCrOrdinal, k.Ordinal)
+	}
+	for _, r := range u.References {
+		c.refEntity = append(c.refEntity, r.Key.EntityID.String())
+		c.refSource = append(c.refSource, r.Key.Source)
+		c.refRef = append(c.refRef, r.Ref)
+		c.refExtract = append(c.refExtract, r.Extract)
+	}
+	for _, k := range u.DeleteReferences {
+		c.delRefEntity = append(c.delRefEntity, k.EntityID.String())
+		c.delRefSource = append(c.delRefSource, k.Source)
 	}
 }
 
@@ -443,15 +476,18 @@ func (c *entityUnitColumns) steps(runID int64) []entityWriteStep {
 			[]interface{}{pg.Array(c.entID), pg.Array(c.entKind), pg.Array(c.entDisplay), pg.Array(c.entSort),
 				pg.Array(c.entSearch), pg.Array(c.entPinned)}},
 		{len(c.mergeFrom) == 0, `
-			WITH m AS (SELECT * FROM unnest(?::uuid[], ?::uuid[], ?::text[], ?::int[]) AS m(from_id, to_id, method, shared)),
+			WITH m AS (SELECT * FROM unnest(?::uuid[], ?::uuid[], ?::text[], ?::int[], ?::text[])
+				AS m(from_id, to_id, method, shared, rule)),
 			marked AS (
 				UPDATE public.author_entity e SET merged_into = m.to_id FROM m
 				WHERE e.id = m.from_id AND e.merged_into IS NULL
 				RETURNING e.id)
 			INSERT INTO public.author_entity_merge_log (from_id, to_id, method, evidence)
 			SELECT m.from_id, m.to_id, m.method, jsonb_build_object('build_run_id', ?::bigint, 'shared_books', m.shared)
+				|| CASE WHEN m.rule <> '' THEN jsonb_build_object('rule', m.rule) ELSE '{}'::jsonb END
 			FROM m WHERE m.from_id IN (SELECT id FROM marked)`,
-			[]interface{}{pg.Array(c.mergeFrom), pg.Array(c.mergeTo), pg.Array(c.mergeMethod), pg.Array(c.mergeShared), runID}},
+			[]interface{}{pg.Array(c.mergeFrom), pg.Array(c.mergeTo), pg.Array(c.mergeMethod), pg.Array(c.mergeShared),
+				pg.Array(c.mergeRule), runID}},
 		{len(c.fpHex) == 0, `
 			INSERT INTO public.author_entity_assignment (source_fingerprint, extractor_version, ordinal, entity_id, method, rule)
 			SELECT decode(f, 'hex'), v, o, e, m, r
@@ -479,6 +515,18 @@ func (c *entityUnitColumns) steps(runID int64) []entityWriteStep {
 			USING unnest(?::bigint[], ?::smallint[]) AS d(id, o)
 			WHERE a.credit_id = d.id AND a.ordinal = d.o AND a.method <> 'manual'`,
 			[]interface{}{pg.Array(c.delCrID), pg.Array(c.delCrOrdinal)}},
+		{len(c.refEntity) == 0, `
+			INSERT INTO public.author_entity_reference (entity_id, source, ref, extract)
+			SELECT * FROM unnest(?::uuid[], ?::text[], ?::text[], ?::text[])
+			ON CONFLICT (entity_id, source) DO UPDATE
+			SET ref = EXCLUDED.ref, extract = EXCLUDED.extract, updated_at = now()
+			WHERE NOT author_entity_reference.pinned`,
+			[]interface{}{pg.Array(c.refEntity), pg.Array(c.refSource), pg.Array(c.refRef), pg.Array(c.refExtract)}},
+		{len(c.delRefEntity) == 0, `
+			DELETE FROM public.author_entity_reference r
+			USING unnest(?::uuid[], ?::text[]) AS d(e, s)
+			WHERE r.entity_id = d.e AND r.source = d.s AND NOT r.pinned`,
+			[]interface{}{pg.Array(c.delRefEntity), pg.Array(c.delRefSource)}},
 	}
 }
 

@@ -12,16 +12,18 @@ import (
 )
 
 // The author entity step of the «Сканирование» card (design E, phase E1):
-// its status — the newest pass with its progress and the newest report — and
-// the start of a pass, which goes on in the background. Admin only: the
-// group is mounted behind AdminMiddleware. A second pass while one is active
-// is a 409 active_run_exists.
+// its status — the newest pass with its progress, the newest report and the
+// Wikidata reference — the start of a pass and the fetch of the Wikidata
+// reference (E4w), both going on in the background. Admin only: the group
+// is mounted behind AdminMiddleware. A second pass or fetch while one is
+// active is a 409 active_run_exists.
 
 // AuthorEntityAdminService is what the entity handlers need;
 // services.AuthorEntityAdmin is one.
 type AuthorEntityAdminService interface {
 	Status(ctx context.Context) (*services.AuthorEntityStatus, error)
 	Start(ctx context.Context, actor int64) (*database.AuthorEntityBuildRun, error)
+	StartWikidataFetch(ctx context.Context, actor int64) (*database.WikidataExtract, error)
 }
 
 // codeEntityServiceUnavailable: the entity admin is not wired.
@@ -48,6 +50,10 @@ func (unavailableAuthorEntityAdmin) Start(context.Context, int64) (*database.Aut
 	return nil, errAuthorEntityServiceUnavailable
 }
 
+func (unavailableAuthorEntityAdmin) StartWikidataFetch(context.Context, int64) (*database.WikidataExtract, error) {
+	return nil, errAuthorEntityServiceUnavailable
+}
+
 // authorEntityHandler serves the entity routes.
 type authorEntityHandler struct {
 	svc func() AuthorEntityAdminService
@@ -60,13 +66,14 @@ func SetupAuthorEntityRoutes(r *gin.RouterGroup, svc func() AuthorEntityAdminSer
 	h := &authorEntityHandler{svc: svc}
 	r.GET("/status", h.status)
 	r.POST("/build", h.start)
+	r.POST("/wikidata", h.fetchWikidata)
 }
 
 // abortEntityError answers an error with its closed code; anything unknown
 // is internal_error, its text never shown.
 func abortEntityError(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, database.ErrAuthorEntityBuildActive):
+	case errors.Is(err, database.ErrAuthorEntityBuildActive), errors.Is(err, database.ErrWikidataFetchActive):
 		abortRun(c, http.StatusConflict, codeActiveRunExists)
 	case errors.Is(err, errAuthorEntityServiceUnavailable):
 		abortRun(c, http.StatusInternalServerError, codeEntityServiceUnavailable)
@@ -113,3 +120,29 @@ func (h *authorEntityHandler) start(c *gin.Context) {
 	}
 	c.JSON(http.StatusCreated, gin.H{jsonKeyRun: run})
 }
+
+// fetchWikidata godoc
+// @Summary Fetch the Wikidata reference of the author entity build
+// @Description Instant; the fetch goes on in the background, from QLever; a failed one goes on from its chunks.
+// @Description 409: a fetch is already active.
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Produce json
+// @Success 201 {object} map[string]database.WikidataExtract
+// @Router /api/admin/author-metadata/entities/wikidata [post]
+func (h *authorEntityHandler) fetchWikidata(c *gin.Context) {
+	actor, err := actorID(c)
+	if err != nil {
+		abortRun(c, http.StatusInternalServerError, codeInternalError)
+		return
+	}
+	ext, err := h.svc().StartWikidataFetch(c.Request.Context(), actor)
+	if err != nil {
+		abortEntityError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{jsonKeyExtract: ext})
+}
+
+// jsonKeyExtract wraps a Wikidata extract.
+const jsonKeyExtract = "extract"

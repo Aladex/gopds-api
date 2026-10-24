@@ -862,5 +862,17 @@
   "authorEntity.report.legacy": "Against the old catalog: {{authors}} authors, split into two entities {{two}}, into three or more {{more}}; entities gathering several old authors: {{shared}}",
   "authorEntity.report.pass": "Pass: {{changes}} rows written, {{skipped}} refused, {{seconds}} s",
   "authorEntity.details": "Sizes and the largest entities",
-  "authorEntity.size": "{{label}} books: {{entities}} entities"
+  "authorEntity.size": "{{label}} books: {{entities}} entities",
+  "authorEntity.wikidata.title": "Wikidata",
+  "authorEntity.wikidata.hint": "A reference of writers the build reads as evidence: an author's main names in two scripts. Fetched from QLever by the server; fetching the same data again changes nothing.",
+  "authorEntity.wikidata.published": "Extract {{extract}}: {{people}} writers, {{names}} names, {{works}} notable works",
+  "authorEntity.wikidata.none": "No extract yet: the build goes without Wikidata.",
+  "authorEntity.wikidata.progress": "Fetch {{id}}: {{done}} of {{total}} parts",
+  "authorEntity.wikidata.failed": "The fetch stopped: {{error}}. The {{done}} parts fetched are kept.",
+  "authorEntity.wikidata.duplicate": "The last fetch is the same as the extract: nothing changed.",
+  "authorEntity.wikidata.resume": "Continue the fetch",
+  "authorEntity.wikidata.fetch": "Fetch Wikidata",
+  "authorEntity.wikidata.error.active": "A fetch is already running.",
+  "authorEntity.wikidata.report.merges": "Wikidata {{extract}}: {{total}} merged — the same name {{same}}, another script {{cross}}; entities named by one writer's main label {{named}}, writers with two or more {{groups}}, entities given their writer {{references}} (short names beside a full one left without {{withheld}})",
+  "authorEntity.wikidata.report.apart": "Kept apart: the writer has pseudonyms {{pseudonym}} · initials {{initials}} · a short name beside its full name {{short}} · a namesake tag {{namesake}} · two names in one script {{scripts}} · on one book {{shared}}"
 }

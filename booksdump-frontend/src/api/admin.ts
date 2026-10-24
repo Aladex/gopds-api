@@ -514,10 +514,47 @@ export interface AuthorEntityReport {
         entities_per_author: AuthorEntitySize[];
         shared_entities: number;
     };
+    /** What the Wikidata evidence did (E4w); absent in a report from before it. */
+    wikidata?: AuthorEntityWikidataReport;
     unselected_credits: number;
     units_skipped: number;
     changes: number;
     timings: { load_ms: number; plan_ms: number; apply_ms: number };
+}
+
+/** The Wikidata part of a build report: what the main-label rule merged and kept apart. */
+export interface AuthorEntityWikidataReport {
+    extract: string;
+    named?: number;
+    excluded?: Record<string, number>;
+    groups: number;
+    merges: Record<string, number>;
+    script_conflicts?: number;
+    shared_book: number;
+    references?: number;
+    references_withheld?: number;
+}
+
+/** One fetch of the Wikidata reference. */
+export interface WikidataExtract {
+    id: number;
+    content_id?: string;
+    status: 'fetching' | 'failed' | 'published' | 'duplicate' | 'superseded';
+    source: string;
+    people: number;
+    names: number;
+    works: number;
+    last_error?: string;
+    started_at: string;
+    finished_at?: string;
+    chunks_done: number;
+    chunks_total: number;
+}
+
+/** The newest fetch and the published extract the build reads. */
+export interface WikidataStatus {
+    latest: WikidataExtract | null;
+    published: WikidataExtract | null;
 }
 
 /** An author entity build pass. */
@@ -539,6 +576,7 @@ export interface AuthorEntityRun {
 export interface AuthorEntityStatus {
     run: AuthorEntityRun | null;
     report: AuthorEntityReport | null;
+    wikidata?: WikidataStatus | null;
 }
 
 const entityBase = '/admin/author-metadata/entities';
@@ -549,6 +587,10 @@ export const getAuthorEntityStatus = () =>
 /** startAuthorEntityBuild answers at once; the pass goes on in the background. */
 export const startAuthorEntityBuild = () =>
     http.post<{ run: AuthorEntityRun }>(`${entityBase}/build`);
+
+/** startWikidataFetch answers at once; the fetch goes on in the background. */
+export const startWikidataFetch = () =>
+    http.post<{ extract: WikidataExtract }>(`${entityBase}/wikidata`);
 
 const llmBase = '/admin/author-metadata/llm';
 

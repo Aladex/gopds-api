@@ -30,6 +30,8 @@ type Plan struct {
 	Report Report
 
 	components [][]int
+	decisions  []WikidataDecision
+	refs       map[uuid.UUID]string
 	entityOf   map[int64]uuid.UUID
 	ruleOf     map[int64]string
 	entities   map[uuid.UUID]EntityRow
@@ -41,6 +43,14 @@ func (p *Plan) EntityOf(creditID int64) uuid.UUID { return p.entityOf[creditID] 
 
 // RuleOf is the rule that put a credit in its entity.
 func (p *Plan) RuleOf(creditID int64) string { return p.ruleOf[creditID] }
+
+// WikidataDecisions are the merges and moves the Wikidata evidence made,
+// for the hand check.
+func (p *Plan) WikidataDecisions() []WikidataDecision { return p.decisions }
+
+// WikidataOf is the Wikidata item a live entity of the pass has after it:
+// the pass's, or a pinned one; empty when none.
+func (p *Plan) WikidataOf(id uuid.UUID) string { return p.refs[id] }
 
 // Entity is a live entity of the pass, nil when there is none.
 func (p *Plan) Entity(id uuid.UUID) *EntityRow {
@@ -112,13 +122,21 @@ type builder struct {
 
 	movedTo   map[int]int // credit index → root of the full name it moved to
 	movedRule map[int]string
+
+	// typoRoot is each key's root before the Wikidata merge; wdRule the
+	// rule of every key a Wikidata merge put into another component;
+	// fullBases the bases of the catalog's full names, once read.
+	typoRoot    []int
+	wdRule      map[int]string
+	wdDecisions []WikidataDecision
+	fullBases   map[string]bool
 }
 
 // Build computes one pass over the input.
 func Build(in *Input) *Plan {
 	b := &builder{in: in, old: in.Old, fixed: map[int]*uuid.UUID{}, byKey: map[string]*keyGroup{},
 		bookKeys: map[int64][]int{}, titleOf: map[int64]string{}, titleKeys: map[string][]titleHit{},
-		movedTo: map[int]int{}, movedRule: map[int]string{}}
+		movedTo: map[int]int{}, movedRule: map[int]string{}, wdRule: map[int]string{}}
 	if b.old == nil {
 		b.old = NewState()
 	}
@@ -126,6 +144,7 @@ func Build(in *Input) *Plan {
 	b.classify()
 	b.indexEvidence()
 	b.mergeTypos()
+	b.mergeWikidata()
 	b.moveShortNameBooks()
 	return b.plan()
 }

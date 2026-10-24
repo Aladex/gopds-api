@@ -866,5 +866,17 @@
   "authorEntity.report.legacy": "Против старого каталога: {{authors}} авторов, разошлись на две сущности {{two}}, на три и больше {{more}}; сущностей с книгами нескольких старых авторов: {{shared}}",
   "authorEntity.report.pass": "Проход: записано строк {{changes}}, отказано {{skipped}}, {{seconds}} с",
   "authorEntity.details": "Размеры и самые большие сущности",
-  "authorEntity.size": "{{label}} книг: {{entities}} сущностей"
+  "authorEntity.size": "{{label}} книг: {{entities}} сущностей",
+  "authorEntity.wikidata.title": "Справочник Wikidata",
+  "authorEntity.wikidata.hint": "Справочник писателей, который сборка читает как свидетельство: главные имена автора в двух алфавитах. Сервер загружает его с QLever; повторная загрузка тех же данных ничего не меняет.",
+  "authorEntity.wikidata.published": "Выгрузка {{extract}}: писателей {{people}}, имён {{names}}, известных произведений {{works}}",
+  "authorEntity.wikidata.none": "Выгрузки ещё нет: сборка идёт без Wikidata.",
+  "authorEntity.wikidata.progress": "Загрузка {{id}}: {{done}} из {{total}} частей",
+  "authorEntity.wikidata.failed": "Загрузка остановилась: {{error}}. Загруженные части ({{done}}) сохранены.",
+  "authorEntity.wikidata.duplicate": "Последняя загрузка совпала с выгрузкой: ничего не изменилось.",
+  "authorEntity.wikidata.resume": "Продолжить загрузку",
+  "authorEntity.wikidata.fetch": "Загрузить Wikidata",
+  "authorEntity.wikidata.error.active": "Загрузка уже идёт.",
+  "authorEntity.wikidata.report.merges": "Wikidata {{extract}}: склеено {{total}} — одно имя {{same}}, другой алфавит {{cross}}; сущностей с главной меткой одного писателя {{named}}, писателей с двумя и более {{groups}}, сущностей со ссылкой на писателя {{references}} (коротких имён рядом с полным оставлено без ссылки {{withheld}})",
+  "authorEntity.wikidata.report.apart": "Оставлено отдельно: у писателя есть псевдонимы {{pseudonym}} · инициалы {{initials}} · короткое имя рядом с полным {{short}} · тег тёзки {{namesake}} · два имени в одном алфавите {{scripts}} · на одной книге {{shared}}"
 }

@@ -193,6 +193,10 @@ func (l *AuthorEntityBuildLoop) planRun(ctx context.Context, run *database.Autho
 	if in.Old, err = database.LoadAuthorEntityState(ctx, l.db); err != nil {
 		return nil, err
 	}
+	// The published Wikidata extract is evidence (E4w); none is none.
+	if in.Reference, err = database.LoadWikidataReference(ctx, l.db, in); err != nil {
+		return nil, err
+	}
 	loaded := time.Now()
 	plan := authorentity.Build(in)
 	planned := time.Now()
@@ -306,10 +310,13 @@ type AuthorEntityAdmin struct {
 func NewAuthorEntityAdmin(db *pg.DB) *AuthorEntityAdmin { return &AuthorEntityAdmin{db: db} }
 
 // AuthorEntityStatus is what the card shows: the newest pass with its
-// progress, and the report of the newest completed one.
+// progress, the report of the newest completed one and the Wikidata
+// reference.
 type AuthorEntityStatus struct {
 	Run    *database.AuthorEntityBuildRun `json:"run"`
 	Report json.RawMessage                `json:"report" swaggertype:"object"`
+	// Wikidata is the reference the build reads (E4w).
+	Wikidata *WikidataStatus `json:"wikidata"`
 }
 
 // Status reads the card's status.
@@ -318,7 +325,11 @@ func (a *AuthorEntityAdmin) Status(ctx context.Context) (*AuthorEntityStatus, er
 	if err != nil {
 		return nil, err
 	}
-	st := &AuthorEntityStatus{Run: latest}
+	wd, err := a.WikidataStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	st := &AuthorEntityStatus{Run: latest, Wikidata: wd}
 	if completed != nil {
 		st.Report = completed.Report
 	}

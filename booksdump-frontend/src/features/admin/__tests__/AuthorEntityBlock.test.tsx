@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 
 import AuthorEntityBlock from '@/features/admin/AuthorEntityBlock';
 import * as adminApi from '@/api/admin';
-import type { AuthorEntityReport, AuthorEntityRun } from '@/api/admin';
+import type { AuthorEntityReport, AuthorEntityRun, WikidataExtract } from '@/api/admin';
 import { ApiError } from '@/api/errors';
 import enTranslation from '@/locales/en/translation.json';
 import ruTranslation from '@/locales/ru/translation.json';
@@ -37,6 +37,7 @@ vi.mock('@/api/admin', async (importOriginal) => {
         ...actual,
         getAuthorEntityStatus: vi.fn(),
         startAuthorEntityBuild: vi.fn(),
+        startWikidataFetch: vi.fn(),
     };
 });
 
@@ -99,9 +100,40 @@ const report = (): AuthorEntityReport => ({
     timings: { load_ms: 2420, plan_ms: 6620, apply_ms: 8288 },
 });
 
+const extract = (overrides: Partial<WikidataExtract> = {}): WikidataExtract => ({
+    id: 3,
+    content_id: 'wd-0123456789abcdef',
+    status: 'published',
+    source: 'https://qlever.dev/api/wikidata',
+    people: 755521,
+    names: 4361015,
+    works: 71801,
+    started_at: new Date().toISOString(),
+    chunks_done: 28,
+    chunks_total: 28,
+    ...overrides,
+});
+
+const wikidataReport = (): AuthorEntityReport['wikidata'] => ({
+    extract: 'wd-0123456789abcdef',
+    named: 31204,
+    excluded: { pseudonym: 2410, initials: 388, short_name: 1702, namesake: 61 },
+    groups: 2610,
+    merges: { same_name: 190, cross_script: 2401 },
+    script_conflicts: 17,
+    shared_book: 12,
+    references: 26890,
+    references_withheld: 690,
+});
+
 beforeEach(() => {
     vi.clearAllMocks();
-    api.startAuthorEntityBuild.mockResolvedValue({ run: entityRun({ status: 'pending', stage: undefined }) });
+    api.startWikidataFetch.mockResolvedValue({
+        extract: extract({ status: 'fetching', chunks_done: 0 }),
+    });
+    api.startAuthorEntityBuild.mockResolvedValue({
+        run: entityRun({ status: 'pending', stage: undefined }),
+    });
 });
 
 afterEach(cleanup);
@@ -113,7 +145,9 @@ describe('AuthorEntityBlock', () => {
         });
         render(<AuthorEntityBlock />);
         expect(
-            await screen.findByText(`Entities: ${n(159604)} for ${n(517439)} books (${n(632742)} credits)`),
+            await screen.findByText(
+                `Entities: ${n(159604)} for ${n(517439)} books (${n(632742)} credits)`,
+            ),
         ).toBeInTheDocument();
         expect(
             screen.getByText(
@@ -125,7 +159,9 @@ describe('AuthorEntityBlock', () => {
                 `Against the old catalog: ${n(144101)} authors, split into two entities ${n(10628)}, into three or more ${n(2079)}; entities gathering several old authors: ${n(1973)}`,
             ),
         ).toBeInTheDocument();
-        expect(screen.getByText(`Pass: ${n(509129)} rows written, ${n(0)} refused, ${n(17)} s`)).toBeInTheDocument();
+        expect(
+            screen.getByText(`Pass: ${n(509129)} rows written, ${n(0)} refused, ${n(17)} s`),
+        ).toBeInTheDocument();
         expect(screen.getByText('01a163ad-4511-71e5-91b3-7c1e4de8eb47')).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Build author entities' })).toBeEnabled();
     });
@@ -133,7 +169,9 @@ describe('AuthorEntityBlock', () => {
     it('shows a running pass with its progress and does not start another', async () => {
         api.getAuthorEntityStatus.mockResolvedValue({ status: { run: entityRun(), report: null } });
         render(<AuthorEntityBlock />);
-        expect(await screen.findByText(`Pass 7: writing · ${n(50)} of ${n(200)}`)).toBeInTheDocument();
+        expect(
+            await screen.findByText(`Pass 7: writing · ${n(50)} of ${n(200)}`),
+        ).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Build author entities' })).toBeDisabled();
     });
 
@@ -155,6 +193,91 @@ describe('AuthorEntityBlock', () => {
         expect(await screen.findByText('A pass is already running.')).toBeInTheDocument();
     });
 
+    it('shows the published Wikidata extract and what its evidence merged', async () => {
+        api.getAuthorEntityStatus.mockResolvedValue({
+            status: {
+                run: entityRun({ status: 'completed', stage: 'report' }),
+                report: { ...report(), wikidata: wikidataReport() },
+                wikidata: { latest: extract(), published: extract() },
+            },
+        });
+        render(<AuthorEntityBlock />);
+        expect(
+            await screen.findByText(
+                `Extract wd-0123456789abcdef: ${n(755521)} writers, ${n(4361015)} names, ${n(71801)} notable works`,
+            ),
+        ).toBeInTheDocument();
+        expect(
+            screen.getByText(
+                `Wikidata wd-0123456789abcdef: ${n(2591)} merged — the same name ${n(190)}, another script ${n(2401)}; entities named by one writer's main label ${n(31204)}, writers with two or more ${n(2610)}, entities given their writer ${n(26890)} (short names beside a full one left without ${n(690)})`,
+            ),
+        ).toBeInTheDocument();
+        expect(
+            screen.getByText(
+                `Kept apart: the writer has pseudonyms ${n(2410)} · initials ${n(388)} · a short name beside its full name ${n(1702)} · a namesake tag ${n(61)} · two names in one script ${n(17)} · on one book ${n(12)}`,
+            ),
+        ).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Fetch Wikidata' })).toBeEnabled();
+    });
+
+    it('shows a running fetch with its parts and does not start another', async () => {
+        api.getAuthorEntityStatus.mockResolvedValue({
+            status: {
+                run: null,
+                report: null,
+                wikidata: {
+                    latest: extract({ status: 'fetching', chunks_done: 7 }),
+                    published: null,
+                },
+            },
+        });
+        render(<AuthorEntityBlock />);
+        expect(await screen.findByText(`Fetch 3: ${n(7)} of ${n(28)} parts`)).toBeInTheDocument();
+        expect(
+            screen.getByText('No extract yet: the build goes without Wikidata.'),
+        ).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Fetch Wikidata' })).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'Build author entities' })).toBeEnabled();
+    });
+
+    it('continues a failed fetch and reads the state again', async () => {
+        api.getAuthorEntityStatus.mockResolvedValue({
+            status: {
+                run: null,
+                report: null,
+                wikidata: {
+                    latest: extract({
+                        status: 'failed',
+                        chunks_done: 5,
+                        last_error: 'fetching chunk label_en: 503',
+                    }),
+                    published: null,
+                },
+            },
+        });
+        render(<AuthorEntityBlock />);
+        expect(
+            await screen.findByText(
+                `The fetch stopped: fetching chunk label_en: 503. The ${n(5)} parts fetched are kept.`,
+            ),
+        ).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Continue the fetch' }));
+        await waitFor(() => expect(api.startWikidataFetch).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(api.getAuthorEntityStatus).toHaveBeenCalledTimes(2));
+    });
+
+    it('says when a fetch is already running', async () => {
+        api.getAuthorEntityStatus.mockResolvedValue({
+            status: { run: null, report: null, wikidata: { latest: null, published: null } },
+        });
+        api.startWikidataFetch.mockRejectedValue(
+            new ApiError('conflict', 409, { body: { error: 'active_run_exists' } }),
+        );
+        render(<AuthorEntityBlock />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Fetch Wikidata' }));
+        expect(await screen.findByText('A fetch is already running.')).toBeInTheDocument();
+    });
+
     it('keeps both locales complete', () => {
         const en = enTranslation as Record<string, string>;
         const ru = ruTranslation as Record<string, string>;
@@ -169,5 +292,6 @@ describe('AuthorEntityBlock', () => {
             }
         }
         expect(ru['authorEntity.build']).toBe('Собрать сущности авторов');
+        expect(ru['authorEntity.wikidata.fetch']).toBe('Загрузить Wikidata');
     });
 });

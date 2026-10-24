@@ -5,7 +5,13 @@ import { Alert, AlertDescription } from '@/shared/ui/alert';
 import { Button } from '@/shared/ui/button';
 import { Progress } from '@/shared/ui/progress';
 import * as adminApi from '@/api/admin';
-import type { AuthorEntityReport, AuthorEntityRun, AuthorEntityStatus } from '@/api/admin';
+import type {
+    AuthorEntityReport,
+    AuthorEntityRun,
+    AuthorEntityStatus,
+    AuthorEntityWikidataReport,
+    WikidataStatus,
+} from '@/api/admin';
 import { closedErrorCode } from '@/api/admin';
 
 /**
@@ -16,6 +22,10 @@ import { closedErrorCode } from '@/api/admin';
  *
  * The start answers at once; the block re-reads after it and every few
  * seconds while a pass is active.
+ *
+ * Its Wikidata section (phase E4w) fetches the reference the build reads as
+ * evidence — from QLever, in the background, a failed fetch going on from
+ * the parts it has — and the report says what the evidence merged.
  */
 
 /** How often the block re-reads while a pass is active. */
@@ -44,6 +54,147 @@ const describeError = (t: T, error: unknown): string =>
     closedErrorCode(error) === 'active_run_exists'
         ? t('authorEntity.error.active', 'A pass is already running.')
         : t('authorEntity.error.other', 'The action failed.');
+
+const describeFetchError = (t: T, error: unknown): string =>
+    closedErrorCode(error) === 'active_run_exists'
+        ? t('authorEntity.wikidata.error.active', 'A fetch is already running.')
+        : t('authorEntity.error.other', 'The action failed.');
+
+/** The Wikidata lines of a report. */
+const wikidataLines = (t: T, w: AuthorEntityWikidataReport): string[] => {
+    const kind = (k: string) => w.merges[k] ?? 0;
+    const excluded = (k: string) => w.excluded?.[k] ?? 0;
+    const total = Object.values(w.merges).reduce((sum, v) => sum + v, 0);
+    return [
+        t('authorEntity.wikidata.report.merges', {
+            defaultValue:
+                "Wikidata {{extract}}: {{total}} merged — the same name {{same}}, another script {{cross}}; entities named by one writer's main label {{named}}, writers with two or more {{groups}}, entities given their writer {{references}} (short names beside a full one left without {{withheld}})",
+            extract: w.extract,
+            total: formatNumber(total),
+            same: formatNumber(kind('same_name')),
+            cross: formatNumber(kind('cross_script')),
+            named: formatNumber(w.named ?? 0),
+            groups: formatNumber(w.groups),
+            references: formatNumber(w.references ?? 0),
+            withheld: formatNumber(w.references_withheld ?? 0),
+        }),
+        t('authorEntity.wikidata.report.apart', {
+            defaultValue:
+                'Kept apart: the writer has pseudonyms {{pseudonym}} · initials {{initials}} · a short name beside its full name {{short}} · a namesake tag {{namesake}} · two names in one script {{scripts}} · on one book {{shared}}',
+            pseudonym: formatNumber(excluded('pseudonym')),
+            initials: formatNumber(excluded('initials')),
+            short: formatNumber(excluded('short_name')),
+            namesake: formatNumber(excluded('namesake')),
+            scripts: formatNumber(w.script_conflicts ?? 0),
+            shared: formatNumber(w.shared_book),
+        }),
+    ];
+};
+
+/** The Wikidata section: the published extract, the newest fetch, the start. */
+const WikidataSection: React.FC<{
+    wikidata: WikidataStatus | null;
+    onChanged: () => Promise<void>;
+}> = ({ wikidata, onChanged }) => {
+    const { t } = useTranslation();
+    const [busy, setBusy] = useState(false);
+    const [errorText, setErrorText] = useState<string | null>(null);
+    const latest = wikidata?.latest ?? null;
+    const published = wikidata?.published ?? null;
+    const fetching = latest?.status === 'fetching';
+    const failed = latest?.status === 'failed';
+
+    const start = async () => {
+        setBusy(true);
+        setErrorText(null);
+        try {
+            await adminApi.startWikidataFetch();
+        } catch (error) {
+            setErrorText(describeFetchError(t, error));
+        } finally {
+            await onChanged();
+            setBusy(false);
+        }
+    };
+
+    return (
+        <div className="flex flex-col gap-2">
+            <h5 className="text-sm font-medium">{t('authorEntity.wikidata.title', 'Wikidata')}</h5>
+            <p className="text-sm text-muted-foreground">
+                {t(
+                    'authorEntity.wikidata.hint',
+                    'A reference of writers the build reads as evidence: spellings and scripts of one author. Fetched from QLever by the server; fetching the same data again changes nothing.',
+                )}
+            </p>
+            {errorText !== null && (
+                <Alert variant="destructive">
+                    <AlertDescription>{errorText}</AlertDescription>
+                </Alert>
+            )}
+            {published !== null ? (
+                <p className="text-sm tabular-nums">
+                    {t('authorEntity.wikidata.published', {
+                        defaultValue:
+                            'Extract {{extract}}: {{people}} writers, {{names}} names, {{works}} notable works',
+                        extract: published.content_id ?? '',
+                        people: formatNumber(published.people),
+                        names: formatNumber(published.names),
+                        works: formatNumber(published.works),
+                    })}
+                </p>
+            ) : (
+                <p className="text-sm text-muted-foreground">
+                    {t(
+                        'authorEntity.wikidata.none',
+                        'No extract yet: the build goes without Wikidata.',
+                    )}
+                </p>
+            )}
+            {latest !== null && fetching && (
+                <div className="flex flex-col gap-1">
+                    <p className="text-sm tabular-nums">
+                        {t('authorEntity.wikidata.progress', {
+                            defaultValue: 'Fetch {{id}}: {{done}} of {{total}} parts',
+                            id: latest.id,
+                            done: formatNumber(latest.chunks_done),
+                            total: formatNumber(latest.chunks_total),
+                        })}
+                    </p>
+                    <Progress
+                        value={(latest.chunks_done * 100) / Math.max(latest.chunks_total, 1)}
+                    />
+                </div>
+            )}
+            {latest !== null && failed && (
+                <p className="text-sm text-destructive">
+                    {t('authorEntity.wikidata.failed', {
+                        defaultValue:
+                            'The fetch stopped: {{error}}. The {{done}} parts fetched are kept.',
+                        error: latest.last_error ?? '',
+                        done: formatNumber(latest.chunks_done),
+                    })}
+                </p>
+            )}
+            {latest !== null && latest.status === 'duplicate' && (
+                <p className="text-sm text-muted-foreground">
+                    {t(
+                        'authorEntity.wikidata.duplicate',
+                        'The last fetch is the same as the extract: nothing changed.',
+                    )}
+                </p>
+            )}
+            {wikidata !== null && (
+                <div>
+                    <Button variant="outline" disabled={busy || fetching} onClick={start}>
+                        {failed
+                            ? t('authorEntity.wikidata.resume', 'Continue the fetch')
+                            : t('authorEntity.wikidata.fetch', 'Fetch Wikidata')}
+                    </Button>
+                </div>
+            )}
+        </div>
+    );
+};
 
 /** The report's summary lines. */
 const reportLines = (t: T, r: AuthorEntityReport): string[] => {
@@ -126,7 +277,9 @@ const AuthorEntityBlock: React.FC = () => {
     }, [load]);
 
     const run = status?.run ?? null;
-    const active = run !== null && ACTIVE.has(run.status);
+    const active =
+        (run !== null && ACTIVE.has(run.status)) || status?.wikidata?.latest?.status === 'fetching';
+    const building = run !== null && ACTIVE.has(run.status);
     useEffect(() => {
         if (!active) return undefined;
         const timer = window.setInterval(load, POLL_INTERVAL_MS);
@@ -175,7 +328,7 @@ const AuthorEntityBlock: React.FC = () => {
                 </Alert>
             )}
 
-            {run !== null && active && (
+            {run !== null && building && (
                 <div className="flex flex-col gap-1">
                     <p className="text-sm tabular-nums">
                         {total > 0
@@ -203,10 +356,14 @@ const AuthorEntityBlock: React.FC = () => {
 
             {status !== null && (
                 <div>
-                    <Button variant="outline" disabled={busy || active} onClick={start}>
+                    <Button variant="outline" disabled={busy || building} onClick={start}>
                         {t('authorEntity.build', 'Build author entities')}
                     </Button>
                 </div>
+            )}
+
+            {status !== null && (
+                <WikidataSection wikidata={status.wikidata ?? null} onChanged={load} />
             )}
 
             {report !== null && (
@@ -216,6 +373,13 @@ const AuthorEntityBlock: React.FC = () => {
                             {line}
                         </p>
                     ))}
+                    {report.wikidata !== undefined &&
+                        report.wikidata.extract !== '' &&
+                        wikidataLines(t, report.wikidata).map((line) => (
+                            <p key={line} className="text-sm tabular-nums">
+                                {line}
+                            </p>
+                        ))}
                     <details className="text-sm">
                         <summary className="cursor-pointer text-muted-foreground">
                             {t('authorEntity.details', 'Sizes and the largest entities')}

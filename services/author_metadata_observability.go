@@ -122,6 +122,18 @@ const (
 	AuthorMetadataEventEntityBuildUnitSkipped AuthorMetadataEventName = "author_metadata.entity_build_unit_skipped"
 	AuthorMetadataEventEntityBuildCompleted   AuthorMetadataEventName = "author_metadata.entity_build_completed"
 	AuthorMetadataEventEntityBuildStepFailed  AuthorMetadataEventName = "author_metadata.entity_build_step_failed"
+
+	// Wikidata reference of the entity build (phase E4w). Started: an
+	// administrator started a fetch (RunID is the extract); ChunkImported:
+	// Count rows of one chunk written; Published: the extract is published
+	// (Status published) or the same as the published one (Status
+	// duplicate); Failed: the fetch stopped, its chunks stay for the next
+	// start; StepFailed: a step failed and is retried.
+	AuthorMetadataEventWikidataFetchStarted    AuthorMetadataEventName = "author_metadata.wikidata_fetch_started"
+	AuthorMetadataEventWikidataChunkImported   AuthorMetadataEventName = "author_metadata.wikidata_chunk_imported"
+	AuthorMetadataEventWikidataPublished       AuthorMetadataEventName = "author_metadata.wikidata_published"
+	AuthorMetadataEventWikidataFetchFailed     AuthorMetadataEventName = "author_metadata.wikidata_fetch_failed"
+	AuthorMetadataEventWikidataFetchStepFailed AuthorMetadataEventName = "author_metadata.wikidata_fetch_step_failed"
 )
 
 // AuthorMetadataEventNames lists every event.
@@ -152,6 +164,9 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventEntityBuildStarted, AuthorMetadataEventEntityBuildPlanned,
 		AuthorMetadataEventEntityBuildUnitSkipped, AuthorMetadataEventEntityBuildCompleted,
 		AuthorMetadataEventEntityBuildStepFailed,
+		AuthorMetadataEventWikidataFetchStarted, AuthorMetadataEventWikidataChunkImported,
+		AuthorMetadataEventWikidataPublished, AuthorMetadataEventWikidataFetchFailed,
+		AuthorMetadataEventWikidataFetchStepFailed,
 	}
 }
 
@@ -166,6 +181,9 @@ const (
 	AuthorMetadataStageDisplayModel AuthorMetadataStage = "display_model"
 	// AuthorMetadataStageEntityBuild is the author entity build.
 	AuthorMetadataStageEntityBuild AuthorMetadataStage = "entity_build"
+	// AuthorMetadataStageWikidata is the fetch of the entity build's
+	// Wikidata reference.
+	AuthorMetadataStageWikidata AuthorMetadataStage = "wikidata"
 )
 
 // AuthorMetadataEvent is one log record. Every field is an identifier, a
@@ -234,6 +252,7 @@ var (
 		AuthorMetadataStageExtraction, AuthorMetadataStageLocalNormalization,
 		AuthorMetadataStageDualWrite, AuthorMetadataStageReview, AuthorMetadataStageRunner,
 		AuthorMetadataStageAcceptance, AuthorMetadataStageDisplayModel, AuthorMetadataStageEntityBuild,
+		AuthorMetadataStageWikidata,
 	)
 	knownClasses  = closedSet(database.AuthorMetadataAttemptErrorClasses()...)
 	knownStatuses = authorMetadataEventStatuses()
@@ -303,6 +322,7 @@ func authorMetadataEventStatuses() map[string]bool {
 	for _, reason := range AuthorLLMEvalSkipReasons() {
 		set[reason] = true
 	}
+	set[database.WikidataPublished], set[database.WikidataDuplicate] = true, true
 	return set
 }
 
@@ -322,12 +342,13 @@ func closedEventName(name AuthorMetadataEventName) AuthorMetadataEventName {
 
 // closedWorkerLabel accepts the labels the runner's stages carry: the
 // extraction stage's, the acceptance pass's, the LLM worker's, the author display
-// model's and the entity build's own labels,
+// model's, the entity build's and the Wikidata fetch's own labels,
 // and a local normalization loop's label with its index.
 func closedWorkerLabel(label string) string {
 	if label == string(AuthorMetadataStageExtraction) || label == string(AuthorMetadataStageAcceptance) ||
 		label == authorLLMWorkerName || label == authorLLMEvalDriverName ||
-		label == string(AuthorMetadataStageDisplayModel) || label == string(AuthorMetadataStageEntityBuild) {
+		label == string(AuthorMetadataStageDisplayModel) || label == string(AuthorMetadataStageEntityBuild) ||
+		label == string(AuthorMetadataStageWikidata) {
 		return label
 	}
 	index, ok := strings.CutPrefix(label, string(AuthorMetadataStageLocalNormalization)+"-")

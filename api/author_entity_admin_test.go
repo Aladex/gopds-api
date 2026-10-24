@@ -55,6 +55,15 @@ func (f *fakeEntityAdmin) Start(_ context.Context, actor int64) (*database.Autho
 	return &database.AuthorEntityBuildRun{ID: 4, Status: database.AuthorEntityRunPending}, nil
 }
 
+func (f *fakeEntityAdmin) StartWikidataFetch(_ context.Context, actor int64) (*database.WikidataExtract, error) {
+	f.record("wikidata")
+	f.actor = actor
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &database.WikidataExtract{ID: 5, Status: database.WikidataFetching, ChunksTotal: 28}, nil
+}
+
 const entityBase = "/api/admin/author-metadata/entities"
 
 func entityRouter(svc AuthorEntityAdminService) *gin.Engine {
@@ -81,7 +90,8 @@ func TestAuthorEntityRoutesRequireAnAdministrator(t *testing.T) {
 	userToken := adminSession(t, false)
 	adminToken := adminSession(t, true)
 
-	routes := []struct{ method, path string }{{http.MethodGet, entityBase + "/status"}, {http.MethodPost, entityBase + "/build"}}
+	routes := []struct{ method, path string }{{http.MethodGet, entityBase + "/status"}, {http.MethodPost, entityBase + "/build"},
+		{http.MethodPost, entityBase + "/wikidata"}}
 	for _, route := range routes {
 		assert.Equal(t, http.StatusUnauthorized, runsRequest(t, r, route.method, route.path, "").Code)
 		req := httptest.NewRequestWithContext(context.Background(), route.method, route.path, strings.NewReader(""))
@@ -108,7 +118,8 @@ func TestAuthorEntityStatusAndStart(t *testing.T) {
 	rec := runsRequest(t, r, http.MethodGet, entityBase+"/status", "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.JSONEq(t, `{"status":{"run":{"id":3,"status":"running","stage":"apply","units_total":10,"units_done":4,
-		"units_skipped":0,"changes":0,"attempts":0,"created_at":"0001-01-01T00:00:00Z"},"report":{"entities":7}}}`,
+		"units_skipped":0,"changes":0,"attempts":0,"created_at":"0001-01-01T00:00:00Z"},"report":{"entities":7},
+		"wikidata":null}}`,
 		rec.Body.String())
 
 	rec = runsRequest(t, r, http.MethodPost, entityBase+"/build", "")
@@ -118,6 +129,30 @@ func TestAuthorEntityStatusAndStart(t *testing.T) {
 
 	svc.err = database.ErrAuthorEntityBuildActive
 	rec = runsRequest(t, r, http.MethodPost, entityBase+"/build", "")
+	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.JSONEq(t, `{"error":"active_run_exists"}`, rec.Body.String())
+}
+
+func TestTheWikidataFetchStartsAndOneAtATime(t *testing.T) {
+	svc := &fakeEntityAdmin{}
+	r := entityRouter(svc)
+	rec := runsRequest(t, r, http.MethodPost, entityBase+"/wikidata", "")
+	require.Equal(t, http.StatusCreated, rec.Code)
+	assert.Equal(t, adminActorID, svc.actor)
+	var body struct {
+		Extract struct {
+			ID          int64  `json:"id"`
+			Status      string `json:"status"`
+			ChunksTotal int    `json:"chunks_total"`
+		} `json:"extract"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, int64(5), body.Extract.ID)
+	assert.Equal(t, database.WikidataFetching, body.Extract.Status)
+	assert.Equal(t, 28, body.Extract.ChunksTotal)
+
+	svc.err = database.ErrWikidataFetchActive
+	rec = runsRequest(t, r, http.MethodPost, entityBase+"/wikidata", "")
 	assert.Equal(t, http.StatusConflict, rec.Code)
 	assert.JSONEq(t, `{"error":"active_run_exists"}`, rec.Body.String())
 }

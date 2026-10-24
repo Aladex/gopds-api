@@ -28,6 +28,7 @@ type Report struct {
 	Buckets    BucketReport   `json:"buckets"`
 	IDs        IDReport       `json:"ids"`
 	Legacy     LegacyReport   `json:"legacy"`
+	Wikidata   WikidataReport `json:"wikidata"`
 	// Changes counts the rows the pass writes.
 	Changes int `json:"changes"`
 }
@@ -113,7 +114,7 @@ const topN = 20
 
 func newReport() Report {
 	return Report{EntitiesByKind: map[string]int{}, Rules: map[string]int{}, NoEntity: map[string]int{},
-		Buckets: BucketReport{MovedBy: map[string]int{}}}
+		Buckets: BucketReport{MovedBy: map[string]int{}}, Wikidata: newWikidataReport()}
 }
 
 // bookSizes are the distribution rows by books (P8 of the design).
@@ -152,7 +153,12 @@ func distribution(sizes []struct {
 func (b *builder) report(p *Plan, groups []*group, members map[uuid.UUID][]int, wantFP map[FPKey]AssignmentRow) {
 	r := &b.rep
 	for _, row := range wantFP {
-		r.Rules[row.Rule]++
+		rule := row.Rule
+		if IsWikidataRule(rule) {
+			// One rule per item: counted together.
+			rule = strings.TrimSuffix(ruleWikidata, ":")
+		}
+		r.Rules[rule]++
 	}
 	bucketOf := map[uuid.UUID]bool{}
 	initialsOf := map[uuid.UUID]bool{}
