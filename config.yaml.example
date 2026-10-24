@@ -83,6 +83,8 @@ redis:
 #     concurrency_max: 16
 #     concurrency_total: 32         # all models together, every replica
 #     max_attempts: 5
+#     timeout_escalation: [300s, 600s]  # one-name call after each further timeout
+#     item_timeout_limit: 2         # timeouts at the last step that end the name
 #     fingerprint_every: 500        # answers between two model checks
 #     max_output:                   # output ceiling every request carries,
 #       per_call_tokens: 1000       # reasoning included; with the request's

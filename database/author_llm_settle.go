@@ -109,7 +109,16 @@ type AuthorLLMSettlement struct {
 	// it fails once it has MaxAttempts of them and the window since the
 	// first has passed.
 	TransientWindow time.Duration
-	At              *time.Time
+	// TimeoutStep is the call's timeout escalation step (AuthorLLMClaim);
+	// TimeoutSteps how many steps there are beyond the first. A job that
+	// timed out alone TimeoutSteps + ItemTimeoutLimit times in a row — the
+	// last ItemTimeoutLimit at the last step — while the participant
+	// answered other calls fails at once (authorLLMItemStuck); a limit of 0
+	// never fails it.
+	TimeoutStep      int
+	TimeoutSteps     int
+	ItemTimeoutLimit int
+	At               *time.Time
 }
 
 // AuthorLLMSettleReport counts what a settle did.
@@ -148,7 +157,7 @@ func SettleAuthorLLMCall(ctx context.Context, db *pg.DB, s *AuthorLLMSettlement)
 		return nil, ErrInvalidLeaseOwner
 	}
 	if s.MaxAttempts < 1 || s.ConcurrencyMax < 1 || s.BaseBackoff <= 0 || s.MaxBackoff < s.BaseBackoff ||
-		s.TransientWindow < 0 {
+		s.TransientWindow < 0 || s.ItemTimeoutLimit < 0 || s.TimeoutSteps < 0 || s.TimeoutStep < 0 {
 		return nil, ErrInvalidLeaseOptions
 	}
 	if s.ErrorClass != "" && !ValidLeaseErrorClass(s.ErrorClass) {
@@ -364,7 +373,7 @@ func settleAuthorLLMJobs(
 		)
 		switch {
 		case s.Outcome != models.AuthorLLMCallAnswered:
-			done, err = failAuthorLLMAttempt(ctx, tx, a.ID, a.JobID, s, now, report)
+			done, err = failAuthorLLMAttempt(ctx, tx, call, a.ID, a.JobID, s, now, report)
 		case s.ModelMismatch:
 			err = voidAuthorLLMAttempt(ctx, tx, a.ID, a.JobID, models.AuthorLLMAttemptModelMismatch,
 				AuthorLLMClassModelMismatch, now, report)
@@ -710,9 +719,11 @@ func attemptOutcomeOf(o models.AuthorLLMCallOutcome) models.AuthorLLMAttemptOutc
 // and backs off exponentially with jitter, capped at MaxBackoff, and the job
 // fails only once it has MaxAttempts failures and the transient window since
 // its first one has passed — a gateway's burst of 503 outlasts five quick
-// attempts (run 15). A malformed body counts like an invalid reply.
-func failAuthorLLMAttempt(ctx context.Context, tx *pg.Tx, attemptID, jobID int64, s *AuthorLLMSettlement,
-	now time.Time, report *AuthorLLMSettleReport) (bool, error) {
+// attempts (run 15). A malformed body counts like an invalid reply. A job
+// whose item itself hangs the model ends at once as item_timeout
+// (authorLLMItemStuck), so the window does not hold its run for a day.
+func failAuthorLLMAttempt(ctx context.Context, tx *pg.Tx, call *settledCall, attemptID, jobID int64,
+	s *AuthorLLMSettlement, now time.Time, report *AuthorLLMSettleReport) (bool, error) {
 	outcome := attemptOutcomeOf(s.Outcome)
 	switch {
 	case s.Outcome == models.AuthorLLMCallMalformed:
@@ -740,6 +751,9 @@ func failAuthorLLMAttempt(ctx context.Context, tx *pg.Tx, attemptID, jobID int64
 	if class == "" {
 		class = string(outcome)
 	}
+	if stuck, err := failStuckAuthorLLMJob(ctx, tx, call, jobID, s, now, report); err != nil || stuck {
+		return stuck, err
+	}
 	var status string
 	if _, err := tx.QueryOneContext(ctx, pg.Scan(&status), `
 		UPDATE author_llm_job
@@ -762,6 +776,83 @@ func failAuthorLLMAttempt(ctx context.Context, tx *pg.Tx, attemptID, jobID int64
 	report.Requeued++
 	return false, nil
 }
+
+// failStuckAuthorLLMJob ends the job as item_timeout when its item itself
+// hangs the model (authorLLMItemStuck), and reports whether it did.
+func failStuckAuthorLLMJob(ctx context.Context, tx *pg.Tx, call *settledCall, jobID int64, s *AuthorLLMSettlement,
+	now time.Time, report *AuthorLLMSettleReport) (bool, error) {
+	stuck, err := authorLLMItemStuck(ctx, tx, call, jobID, s, now)
+	if err != nil || !stuck {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE author_llm_job
+		SET failure_count = failure_count + 1, call_id = NULL, last_error_class = ?2,
+			transient_since = coalesce(transient_since, ?1::timestamptz), status = 'failed', finished_at = ?1
+		WHERE id = ?0`, jobID, now, AuthorLLMClassItemTimeout); err != nil {
+		return false, fmt.Errorf("ending a stuck LLM job: %w", err)
+	}
+	report.Failed++
+	return true, nil
+}
+
+// AuthorLLMClassItemTimeout: the job's item itself timed out the model call
+// after call (authorLLMItemStuck); the job failed.
+const AuthorLLMClassItemTimeout = "item_timeout"
+
+// authorLLMItemStuck reports, for a timeout of a one-item call, whether the
+// job's item itself hangs the model while the endpoint works: the job's last
+// TimeoutSteps + ItemTimeoutLimit attempts of its current run of transient
+// failures — this one included, the last ItemTimeoutLimit of them at the
+// last escalation step — are all timeouts of one-item calls; within each of them
+// (since the job's previous attempt, or its creation) the participant's other
+// jobs calls failed transiently no more often than they were answered — none
+// at all when the job is the last one left, as run 25's was; and the
+// participant answered another jobs call after the first of them ended. An
+// endpoint outage fails the other calls, or answers nothing after the first
+// timeout, and fails no item; a batch's timeout says nothing about one of its
+// items.
+func authorLLMItemStuck(ctx context.Context, tx *pg.Tx, call *settledCall, jobID int64, s *AuthorLLMSettlement,
+	now time.Time) (bool, error) {
+	if s.ItemTimeoutLimit < 1 || s.Outcome != models.AuthorLLMCallTimeout || call.Items != 1 {
+		return false, nil
+	}
+	var stuck bool
+	if _, err := tx.QueryOneContext(ctx, pg.Scan(&stuck), `
+		WITH attempts AS (
+			SELECT a.attempt_no, a.outcome, c.items, a.finished_at, j.transient_since,
+				coalesce(lag(a.finished_at) OVER (ORDER BY a.attempt_no), j.created_at) AS since
+			FROM author_llm_attempt a
+			JOIN author_llm_call c ON c.id = a.call_id
+			JOIN author_llm_job j ON j.id = a.job_id
+			WHERE a.job_id = ?0 AND a.finished_at IS NOT NULL
+		), last AS (
+			SELECT * FROM attempts
+			WHERE finished_at >= coalesce(transient_since, ?1::timestamptz)
+			ORDER BY attempt_no DESC
+			LIMIT ?2
+		), others AS (
+			SELECT o.outcome, o.error_class, o.finished_at FROM author_llm_call o
+			WHERE o.config_version = ?3 AND o.slot = ?4 AND o.kind = ?6 AND o.finished_at IS NOT NULL
+				AND o.id NOT IN (SELECT call_id FROM author_llm_attempt WHERE job_id = ?0)
+		)
+		SELECT count(*) = ?2
+			AND coalesce(bool_and(l.outcome = ?5 AND l.items = 1 AND (
+				SELECT count(*) FILTER (WHERE o.outcome = ?7) >= count(*) FILTER (WHERE `+authorLLMTransientCall+`)
+				FROM others o WHERE o.finished_at > l.since AND o.finished_at <= l.finished_at)), false)
+			AND EXISTS (SELECT 1 FROM others o WHERE o.outcome = ?7
+				AND o.finished_at > (SELECT min(finished_at) FROM last))
+		FROM last l`,
+		jobID, now, s.TimeoutSteps+s.ItemTimeoutLimit, call.ConfigVersion, call.Slot, string(models.AuthorLLMAttemptTimeout),
+		string(models.AuthorLLMCallJobs), string(models.AuthorLLMCallAnswered)); err != nil {
+		return false, fmt.Errorf("checking a stuck LLM job: %w", err)
+	}
+	return stuck, nil
+}
+
+// authorLLMTransientCall is the condition, on a call o, that it failed
+// transiently: a timeout, a broken transport or a server error.
+const authorLLMTransientCall = `o.outcome IN ('timeout', 'transport_error') OR o.error_class = 'server_error'`
 
 // authorLLMTransientExhausted is the condition, in a job update, that a
 // transient failure ends the job: it is the MaxAttempts-th (?3) or later, and
@@ -827,6 +918,16 @@ func adjustAuthorLLMParticipant(ctx context.Context, tx *pg.Tx, call *settledCal
 		return pauseAuthorLLMParticipant(ctx, tx, call, models.AuthorLLMPausedAuth, now, report)
 	case authorLLMClassBadRequest:
 		return pauseAuthorLLMParticipant(ctx, tx, call, models.AuthorLLMPausedBadRequest, now, report)
+	}
+	if isTransientCall(s) && s.Outcome == models.AuthorLLMCallTimeout && s.TimeoutStep > 0 {
+		// The job's item timed out before: its long call says nothing new
+		// about the participant, and halving the window for it would leave
+		// the participant to the long calls of one name.
+		return execAuthorLLM(ctx, tx, `
+			UPDATE author_llm_provider_state
+			SET success_streak = 0,
+				throttled_until = greatest(throttled_until, ?2::timestamptz + ?3 * interval '1 microsecond')
+			WHERE config_version = ?0 AND slot = ?1`, call.ConfigVersion, call.Slot, now, micros(s.BaseBackoff))
 	}
 	if isTransientCall(s) {
 		return execAuthorLLM(ctx, tx, `

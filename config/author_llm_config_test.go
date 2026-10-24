@@ -42,11 +42,28 @@ func TestLoadAuthorLLMDefaults(t *testing.T) {
 		got.OutputLimitField != AuthorLLMOutputMaxCompletionTokens {
 		t.Errorf("output ceiling = %+v in %q", got.MaxOutput, got.OutputLimitField)
 	}
-	if got.FingerprintEvery != 500 || got.MaxAttempts != 5 {
-		t.Errorf("fingerprint every/max attempts = %d/%d", got.FingerprintEvery, got.MaxAttempts)
+	if got.FingerprintEvery != 500 || got.MaxAttempts != 5 || got.ItemTimeoutLimit != 2 {
+		t.Errorf("fingerprint every/max attempts/item timeouts = %d/%d/%d", got.FingerprintEvery, got.MaxAttempts,
+			got.ItemTimeoutLimit)
 	}
 	if got.Params.JudgeB.Temperature != nil {
 		t.Error("a temperature is set by default")
+	}
+}
+
+func TestAuthorLLMTimeoutEscalatesForOneItem(t *testing.T) {
+	c := DefaultAuthorLLMConfig()
+	for step, want := range []time.Duration{120 * time.Second, 300 * time.Second, 600 * time.Second, 600 * time.Second} {
+		if got := c.EscalatedCallTimeout(1, step); got != want {
+			t.Errorf("one item at step %d: %v, want %v", step, got, want)
+		}
+	}
+	if got := c.EscalatedCallTimeout(10, 2); got != c.CallTimeout(10) {
+		t.Errorf("a batch escalated: %v", got)
+	}
+	c.TimeoutEscalation = nil
+	if got := c.EscalatedCallTimeout(1, 2); got != c.CallTimeout(1) {
+		t.Errorf("no escalation configured: %v", got)
 	}
 }
 
@@ -80,6 +97,8 @@ func TestLoadAuthorLLMEnvOverridesParticipants(t *testing.T) {
 		"GOPDS_AUTHOR_METADATA_LLM_REQUEST_TIMEOUT_PER_ITEM":             "45s",
 		"GOPDS_AUTHOR_METADATA_LLM_CONCURRENCY_TOTAL":                    "8",
 		"GOPDS_AUTHOR_METADATA_LLM_OUTPUT_LIMIT_FIELD":                   "max_tokens",
+		"GOPDS_AUTHOR_METADATA_LLM_ITEM_TIMEOUT_LIMIT":                   "5",
+		"GOPDS_AUTHOR_METADATA_LLM_TIMEOUT_ESCALATION":                   "200s,400s,800s",
 		"GOPDS_AUTHOR_METADATA_LLM_PARAMS_PRODUCTION_A_REASONING_EFFORT": lowEffort,
 	})
 	cfg, err := Load()
@@ -97,7 +116,8 @@ func TestLoadAuthorLLMEnvOverridesParticipants(t *testing.T) {
 		t.Errorf("efforts = %q/%q", got.Params.JudgeA.ReasoningEffort, got.Params.ProductionA.ReasoningEffort)
 	}
 	if got.ItemsPerRequest != 10 || got.Budget.OneOffTokens != 1000 || got.RequestTimeoutPerItem != 45*time.Second ||
-		got.ConcurrencyTotal != 8 || got.OutputLimitField != AuthorLLMOutputMaxTokens {
+		got.ConcurrencyTotal != 8 || got.OutputLimitField != AuthorLLMOutputMaxTokens || got.ItemTimeoutLimit != 5 ||
+		len(got.TimeoutEscalation) != 3 || got.TimeoutEscalation[2] != 800*time.Second {
 		t.Errorf("overrides = %+v", got)
 	}
 }
@@ -140,6 +160,8 @@ func TestLoadAuthorLLMRefusesBadLimits(t *testing.T) {
 		"GOPDS_AUTHOR_METADATA_LLM_REQUEST_TIMEOUT":            "0s",
 		"GOPDS_AUTHOR_METADATA_LLM_REQUEST_TIMEOUT_PER_ITEM":   "-1s",
 		"GOPDS_AUTHOR_METADATA_LLM_MAX_ATTEMPTS":               "0",
+		"GOPDS_AUTHOR_METADATA_LLM_ITEM_TIMEOUT_LIMIT":         "0",
+		"GOPDS_AUTHOR_METADATA_LLM_TIMEOUT_ESCALATION":         "300s,200s",
 		"GOPDS_AUTHOR_METADATA_LLM_FINGERPRINT_EVERY":          "0",
 		"GOPDS_AUTHOR_METADATA_LLM_BUDGET_RUN_OVERRUN":         "0.9",
 		"GOPDS_AUTHOR_METADATA_LLM_MAX_OUTPUT_PER_ITEM_TOKENS": "0",

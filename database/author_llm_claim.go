@@ -40,8 +40,12 @@ type AuthorLLMClaimOptions struct {
 	Slot          llmreq.Slot
 	// Owner is a lease token from NewLeaseOwner.
 	Owner string
-	// Lease is the lease of a call carrying n items: longer than its timeout.
-	Lease func(items int) time.Duration
+	// Lease is the lease of a call carrying n items at a timeout escalation
+	// step: longer than its timeout.
+	Lease func(items, step int) time.Duration
+	// TimeoutSteps is how many escalation steps a one-item call's timeout
+	// has beyond the first (AuthorLLMClaim.TimeoutStep).
+	TimeoutSteps int
 	// ConcurrencyTotal bounds the open calls at the endpoint, of every
 	// configuration that calls it.
 	ConcurrencyTotal int
@@ -125,6 +129,10 @@ type AuthorLLMClaim struct {
 	PromptBoundBytes int
 	OutputCeiling    int
 	LeaseExpiresAt   time.Time
+	// TimeoutStep is the timeout escalation step of a one-item call: how
+	// many timeouts of one-item calls in a row its job has had in its current
+	// run of transient failures, at most TimeoutSteps; 0 for any other call.
+	TimeoutStep int
 	// Now is the operation clock the claim ran at.
 	Now  time.Time
 	Jobs []AuthorLLMClaimedJob
@@ -383,8 +391,16 @@ func claimAuthorLLMJobs(
 	if refusal, err := authorLLMBudgetRefusal(ctx, tx, opts, run, bound.reserve); err != nil || refusal != "" {
 		return nil, refusal, err
 	}
+	step := 0
+	if len(jobIDs) == 1 && opts.TimeoutSteps > 0 {
+		timeouts, err := authorLLMItemTimeouts(ctx, tx, jobIDs[0], nil)
+		if err != nil {
+			return nil, "", err
+		}
+		step = min(timeouts, opts.TimeoutSteps)
+	}
 	callID, leaseExpires, err := insertAuthorLLMCall(ctx, tx, opts, now, run.ID, models.AuthorLLMCallJobs,
-		len(jobIDs), head.OutputMode, &bound, opts.Lease(len(jobIDs)))
+		len(jobIDs), head.OutputMode, &bound, opts.Lease(len(jobIDs), step))
 	if err != nil {
 		return nil, "", err
 	}
@@ -395,8 +411,31 @@ func claimAuthorLLMJobs(
 	return &AuthorLLMClaim{
 		CallID: callID, Kind: models.AuthorLLMCallJobs, RunID: run.ID, OutputMode: head.OutputMode,
 		PromptBoundBytes: bound.promptBytes, OutputCeiling: bound.ceiling,
-		LeaseExpiresAt: leaseExpires, Now: now, Jobs: jobs, ExpectedModels: expected, Reference: ref,
+		LeaseExpiresAt: leaseExpires, TimeoutStep: step, Now: now, Jobs: jobs, ExpectedModels: expected, Reference: ref,
 	}, "", nil
+}
+
+// authorLLMItemTimeouts counts a job's latest attempts, in a row, that timed
+// out alone in their call, within its current run of transient failures —
+// the attempts finished since its transient_since, or since current when the
+// run starts with the attempt being settled (nil when none is).
+func authorLLMItemTimeouts(ctx context.Context, tx *pg.Tx, jobID int64, current *time.Time) (int, error) {
+	var n int
+	if _, err := tx.QueryOneContext(ctx, pg.Scan(&n), `
+		WITH attempts AS (
+			SELECT a.attempt_no, a.outcome = ?2 AND c.items = 1 AS item_timeout
+			FROM author_llm_attempt a
+			JOIN author_llm_call c ON c.id = a.call_id
+			JOIN author_llm_job j ON j.id = a.job_id
+			WHERE a.job_id = ?0 AND a.finished_at IS NOT NULL
+				AND a.finished_at >= coalesce(j.transient_since, ?1::timestamptz, 'infinity')
+		)
+		SELECT count(*) FROM attempts
+		WHERE item_timeout AND attempt_no > coalesce((SELECT max(attempt_no) FROM attempts WHERE NOT item_timeout), 0)`,
+		jobID, current, string(models.AuthorLLMAttemptTimeout)); err != nil {
+		return 0, fmt.Errorf("counting an LLM job's timeouts: %w", err)
+	}
+	return n, nil
 }
 
 // authorLLMCallBound is the hard bound of one call.
@@ -632,7 +671,7 @@ func claimAuthorLLMFingerprint(
 		mode = AuthorLLMDefaultOutputMode
 	}
 	callID, leaseExpires, err := insertAuthorLLMCall(ctx, tx, opts, now, run.ID, models.AuthorLLMCallFingerprint,
-		1, mode, &bound, opts.Lease(1))
+		1, mode, &bound, opts.Lease(1, 0))
 	if err != nil {
 		return nil, "", err
 	}

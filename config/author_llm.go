@@ -90,6 +90,17 @@ type AuthorLLMConfig struct {
 	ConcurrencyTotal int `mapstructure:"concurrency_total" yaml:"concurrency_total"`
 	// MaxAttempts is how many calls one job gets before it fails.
 	MaxAttempts int `mapstructure:"max_attempts" yaml:"max_attempts"`
+	// TimeoutEscalation is the timeout of a one-item call after each further
+	// timeout of the same job, in order: a name the model thinks long about
+	// gets more time (120 s, then 300 s, then 600 s) instead of the same
+	// timeout until the transient window ends. The request is otherwise the
+	// same; the timeout is no part of the configuration identity.
+	TimeoutEscalation []time.Duration `mapstructure:"timeout_escalation" yaml:"timeout_escalation"`
+	// ItemTimeoutLimit is how many timeouts at the last step of the
+	// escalation fail the job while the participant answers other calls: the
+	// item itself hangs the model, and retrying it through the transient
+	// window would hold the run for a day.
+	ItemTimeoutLimit int `mapstructure:"item_timeout_limit" yaml:"item_timeout_limit"`
 	// FingerprintEvery is how many answered jobs of a participant pass
 	// between two tokenizer fingerprint checks.
 	FingerprintEvery int `mapstructure:"fingerprint_every" yaml:"fingerprint_every"`
@@ -133,6 +144,7 @@ const (
 	authorLLMConcurrencyMax        = 16
 	authorLLMConcurrencyTotal      = 32
 	authorLLMMaxAttempts           = 5
+	authorLLMItemTimeoutLimit      = 2
 	authorLLMFingerprintEvery      = 500
 	authorLLMOutputPerCall         = 1000
 	authorLLMOutputPerItem         = 3000
@@ -174,6 +186,8 @@ func DefaultAuthorLLMConfig() AuthorLLMConfig {
 		ConcurrencyMax:        authorLLMConcurrencyMax,
 		ConcurrencyTotal:      authorLLMConcurrencyTotal,
 		MaxAttempts:           authorLLMMaxAttempts,
+		TimeoutEscalation:     []time.Duration{5 * time.Minute, 10 * time.Minute},
+		ItemTimeoutLimit:      authorLLMItemTimeoutLimit,
 		FingerprintEvery:      authorLLMFingerprintEvery,
 		MaxOutput:             AuthorLLMMaxOutput{PerCallTokens: authorLLMOutputPerCall, PerItemTokens: authorLLMOutputPerItem},
 		OutputLimitField:      AuthorLLMOutputMaxCompletionTokens,
@@ -196,6 +210,8 @@ func setAuthorLLMDefaults() {
 	viper.SetDefault(p+"concurrency_max", d.ConcurrencyMax)
 	viper.SetDefault(p+"concurrency_total", d.ConcurrencyTotal)
 	viper.SetDefault(p+"max_attempts", d.MaxAttempts)
+	viper.SetDefault(p+"timeout_escalation", d.TimeoutEscalation)
+	viper.SetDefault(p+"item_timeout_limit", d.ItemTimeoutLimit)
 	viper.SetDefault(p+"fingerprint_every", d.FingerprintEvery)
 	viper.SetDefault(p+"max_output.per_call_tokens", d.MaxOutput.PerCallTokens)
 	viper.SetDefault(p+"max_output.per_item_tokens", d.MaxOutput.PerItemTokens)
@@ -212,6 +228,17 @@ func (c *AuthorLLMConfig) CallTimeout(items int) time.Duration {
 	return c.RequestTimeout + time.Duration(items-1)*c.RequestTimeoutPerItem
 }
 
+// EscalatedCallTimeout is the timeout of a call carrying items names at
+// escalation step step: a one-item call at step k > 0 waits
+// TimeoutEscalation[k-1] (the last step past the list), any other call
+// CallTimeout.
+func (c *AuthorLLMConfig) EscalatedCallTimeout(items, step int) time.Duration {
+	if items != 1 || step < 1 || len(c.TimeoutEscalation) == 0 {
+		return c.CallTimeout(items)
+	}
+	return c.TimeoutEscalation[min(step, len(c.TimeoutEscalation))-1]
+}
+
 // validate refuses limits that would make a claim unbounded, a lease
 // endless or the budget meaningless, naming the key. The participants are
 // not checked here: a bad participant switches the layer off (Status)
@@ -223,6 +250,7 @@ func (c *AuthorLLMConfig) validate() error {
 		{p + "concurrency_total", int64(c.ConcurrencyTotal)},
 		{p + "request_timeout", int64(c.RequestTimeout)},
 		{p + "max_attempts", int64(c.MaxAttempts)},
+		{p + "item_timeout_limit", int64(c.ItemTimeoutLimit)},
 		{p + "fingerprint_every", int64(c.FingerprintEvery)},
 		{p + "max_output.per_item_tokens", int64(c.MaxOutput.PerItemTokens)},
 		{p + "budget.one_off_tokens", c.Budget.OneOffTokens},
@@ -231,6 +259,13 @@ func (c *AuthorLLMConfig) validate() error {
 		if l.value <= 0 {
 			return limitError(l.key, l.value)
 		}
+	}
+	last := c.RequestTimeout
+	for _, step := range c.TimeoutEscalation {
+		if step <= last {
+			return rangeError(p+"timeout_escalation", "each step longer than request_timeout and the step before")
+		}
+		last = step
 	}
 	switch {
 	case c.ItemsPerRequest < 1 || c.ItemsPerRequest > AuthorLLMMaxItemsPerRequest:

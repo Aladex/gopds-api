@@ -321,7 +321,7 @@ func (e *llmEnv) state(slot llmreq.Slot) *models.AuthorLLMProviderState {
 func (e *llmEnv) claimOptions(slot llmreq.Slot, owner string, at *time.Time) *database.AuthorLLMClaimOptions {
 	s := e.settings
 	return &database.AuthorLLMClaimOptions{ConfigVersion: e.version, Slot: slot, Owner: owner,
-		Lease:            func(items int) time.Duration { return s.CallTimeout(items) + time.Minute },
+		Lease:            func(items, step int) time.Duration { return s.EscalatedCallTimeout(items, step) + time.Minute },
 		ConcurrencyTotal: s.ConcurrencyTotal, FingerprintEvery: s.FingerprintEvery, MaxAttempts: s.MaxAttempts,
 		Output: testOutput, OneOffTokens: s.Budget.OneOffTokens, RunOverrun: s.Budget.RunOverrun, At: at}
 }

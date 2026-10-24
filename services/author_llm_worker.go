@@ -161,10 +161,13 @@ func (w *AuthorLLMWorker) now() *time.Time {
 func (w *AuthorLLMWorker) claimOptions(slot llmreq.Slot) *database.AuthorLLMClaimOptions {
 	s := w.cfg.Settings
 	return &database.AuthorLLMClaimOptions{
-		ConfigVersion:    w.cfg.ConfigVersion,
-		Slot:             slot,
-		Owner:            w.owner,
-		Lease:            func(items int) time.Duration { return s.CallTimeout(items) + w.cfg.LeaseMargin },
+		ConfigVersion: w.cfg.ConfigVersion,
+		Slot:          slot,
+		Owner:         w.owner,
+		Lease: func(items, step int) time.Duration {
+			return s.EscalatedCallTimeout(items, step) + w.cfg.LeaseMargin
+		},
+		TimeoutSteps:     len(s.TimeoutEscalation),
 		ConcurrencyTotal: s.ConcurrencyTotal,
 		FingerprintEvery: s.FingerprintEvery,
 		MaxAttempts:      s.MaxAttempts,
@@ -300,6 +303,8 @@ func (w *AuthorLLMWorker) Process(ctx context.Context, slot llmreq.Slot, claim *
 		CallID: claim.CallID, Owner: w.owner,
 		MaxAttempts: w.cfg.Settings.MaxAttempts, ConcurrencyMax: w.cfg.Settings.ConcurrencyMax,
 		BaseBackoff: w.cfg.BaseBackoff, MaxBackoff: w.cfg.MaxBackoff, TransientWindow: w.cfg.TransientWindow,
+		TimeoutStep: claim.TimeoutStep, TimeoutSteps: len(w.cfg.Settings.TimeoutEscalation),
+		ItemTimeoutLimit: w.cfg.Settings.ItemTimeoutLimit,
 	}
 	items, err := w.callItems(ctx, claim)
 	if err != nil {
@@ -380,7 +385,7 @@ func (w *AuthorLLMWorker) send(
 		Model: participant.Model, System: llmreq.SystemPrompt, User: string(user),
 		Mode: llm.OutputMode(claim.OutputMode), SchemaName: llmreq.SchemaName, Schema: llmreq.BatchSchema(),
 		Temperature: participant.Temperature, ReasoningEffort: participant.ReasoningEffort,
-		Timeout:         w.cfg.Settings.CallTimeout(len(items)),
+		Timeout:         w.cfg.Settings.EscalatedCallTimeout(len(items), claim.TimeoutStep),
 		MaxOutputTokens: claim.OutputCeiling, OutputLimitField: w.cfg.Identity.Output.Field,
 	}
 	reqSHA := sha256.Sum256(append(append([]byte(req.System), 0), user...))
