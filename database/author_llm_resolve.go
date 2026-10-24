@@ -230,8 +230,21 @@ type AuthorLLMResolveStart struct {
 	Mode          string
 	Evidence      *AuthorLLMEvalEvidence
 	Settings      AuthorLLMResolveSettings
-	CreatedBy     int64
+	// CreatedBy is the administrator who started it; zero for the
+	// autopilot, which only starts a run on registered strata.
+	CreatedBy int64
+	// RegisteredOnly starts the run on pairs the configuration registered
+	// already, and registers none: a planned stratum without its pair
+	// refuses the start with ErrAuthorLLMNotRegistered.
+	RegisteredOnly bool
+	// Within, when set, runs in the start's transaction once the run is
+	// written: an error it returns undoes the start.
+	Within func(tx *pg.Tx, runID int64) error
 }
+
+// ErrAuthorLLMNotRegistered refuses a start on registered pairs only whose
+// plan holds a stratum the configuration has not registered.
+var ErrAuthorLLMNotRegistered = errors.New("database: a planned LLM stratum is not registered")
 
 // llmEvalSource is the acceptance source of a pair the service registers
 // from an eval report (migration 29).
@@ -257,6 +270,10 @@ func StartAuthorLLMResolveRun(ctx context.Context, db *pg.DB, s *AuthorLLMResolv
 	if kind == "" {
 		kind = models.AuthorLLMRunResolve
 	}
+	var by interface{}
+	if s.CreatedBy > 0 {
+		by = s.CreatedBy
+	}
 	err = RunAuthorLLMTx(ctx, db, func(tx *pg.Tx) error {
 		registered = 0
 		if _, lockErr := lockAuthorLLM(ctx, tx, nil); lockErr != nil {
@@ -280,8 +297,16 @@ func StartAuthorLLMResolveRun(ctx context.Context, db *pg.DB, s *AuthorLLMResolv
 				reference, created_by_user_id, started_at)
 			VALUES (?6, ?0, 'running', ?1, 'enqueue', ?2::jsonb, ?3::jsonb, ?4::jsonb, ?5, now())
 			RETURNING id`, s.Mode, s.ConfigVersion, string(settings), string(s.Evidence.ExpectedModels),
-			string(s.Evidence.Reference), s.CreatedBy, string(kind)); insertErr != nil {
+			string(s.Evidence.Reference), by, string(kind)); insertErr != nil {
 			return insertErr
+		}
+		if s.Within != nil {
+			if withinErr := s.Within(tx, id); withinErr != nil {
+				return withinErr
+			}
+		}
+		if s.RegisteredOnly {
+			return plannedPairsRegistered(ctx, tx, s)
 		}
 		// The acceptance table is small and written only here and by
 		// migrations; the lock keeps the new policy version one per start.
@@ -331,6 +356,82 @@ func StartAuthorLLMResolveRun(ctx context.Context, db *pg.DB, s *AuthorLLMResolv
 		return 0, 0, fmt.Errorf("starting a %s run: %w", kind, err)
 	}
 	return id, registered, nil
+}
+
+// plannedPairsRegistered refuses, with ErrAuthorLLMNotRegistered, a plan
+// holding a stratum whose pair the configuration has not registered.
+func plannedPairsRegistered(ctx context.Context, tx *pg.Tx, s *AuthorLLMResolveStart) error {
+	registered, err := AuthorLLMRegisteredPairs(ctx, tx, s.ConfigVersion)
+	if err != nil {
+		return err
+	}
+	for name := range s.Settings.Strata {
+		st := s.Settings.Strata[name]
+		if !registered[AuthorLLMPair(authornorm.DecisionClass(st.Class), st.Script)] {
+			return ErrAuthorLLMNotRegistered
+		}
+	}
+	return nil
+}
+
+// AuthorLLMPair names a local class and a script as AuthorLLMRegisteredPairs
+// keys them.
+func AuthorLLMPair(class authornorm.DecisionClass, script string) string {
+	return string(class) + "/" + script
+}
+
+// AuthorLLMRegisteredPairs are the pairs the configuration registered from
+// its eval reports, by AuthorLLMPair of the local class.
+func AuthorLLMRegisteredPairs(ctx context.Context, db pg.DBI, version string) (map[string]bool, error) {
+	var rows []struct {
+		Class  string `pg:"decision_class"`
+		Script string `pg:"script"`
+	}
+	if _, err := db.QueryContext(ctx, &rows, `
+		SELECT decision_class, script FROM author_acceptance_class WHERE config_version = ?0 AND source = 'llm_eval'`,
+		version); err != nil {
+		return nil, fmt.Errorf("reading the registered LLM pairs: %w", err)
+	}
+	out := make(map[string]bool, len(rows))
+	for _, r := range rows {
+		if local, ok := authornorm.DecisionClass(r.Class).LLMBase(); ok {
+			out[AuthorLLMPair(local, r.Script)] = true
+		}
+	}
+	return out, nil
+}
+
+// AuthorLLMReviewInput is an input a production run would ask: its
+// fingerprint and extractor version.
+type AuthorLLMReviewInput struct {
+	SourceFingerprint []byte
+	ExtractorVersion  string
+}
+
+// AuthorLLMInputsNeverAsked counts the inputs among the given ones the
+// configuration has never asked with purpose (no review job of either
+// participant).
+func AuthorLLMInputsNeverAsked(
+	ctx context.Context, db pg.DBI, version string, purpose models.AuthorLLMJobPurpose, inputs []AuthorLLMReviewInput,
+) (int, error) {
+	if len(inputs) == 0 {
+		return 0, nil
+	}
+	fingerprints := make([][]byte, len(inputs))
+	extractors := make([]string, len(inputs))
+	for i := range inputs {
+		fingerprints[i], extractors[i] = inputs[i].SourceFingerprint, inputs[i].ExtractorVersion
+	}
+	var n int
+	if _, err := db.QueryOneContext(ctx, pg.Scan(&n), `
+		SELECT count(*) FROM (SELECT DISTINCT u.fp, u.extractor FROM unnest(?0::bytea[], ?1::text[]) AS u(fp, extractor)) i
+		WHERE NOT EXISTS (SELECT 1 FROM author_llm_job j
+			WHERE j.source_fingerprint = i.fp AND j.extractor_version = i.extractor
+				AND j.config_version = ?2 AND j.purpose = ?3 AND j.eval_item_id IS NULL)`,
+		pg.Array(fingerprints), pg.Array(extractors), version, string(purpose)); err != nil {
+		return 0, fmt.Errorf("counting the LLM inputs never asked: %w", err)
+	}
+	return n, nil
 }
 
 // evidenceStillCurrent refuses, with ErrAuthorLLMEvidenceChanged, a start
@@ -470,18 +571,7 @@ func EnqueueAuthorLLMReviewJobs(ctx context.Context, db *pg.DB, runID int64, job
 				FROM jsonb_to_recordset(?1::jsonb) AS r(fp text, extractor text, config text, again boolean)
 				GROUP BY 1, 2, 3
 			), again AS (
-				SELECT i.* FROM inputs i
-				JOIN LATERAL (SELECT v.settled_at, v.outcome_reason FROM author_llm_verdict v
-					WHERE v.source_fingerprint = i.fp AND v.extractor_version = i.extractor
-						AND v.purpose = ?5 AND v.config_version = i.config AND v.verdict <> 'held_drift'
-					ORDER BY v.id DESC
-					LIMIT 1) latest ON true
-				WHERE latest.settled_at IS NOT NULL
-					AND (latest.outcome_reason IN (?2) OR (i.again AND latest.outcome_reason = ?4))
-					AND NOT EXISTS (SELECT 1 FROM author_llm_verdict v
-						WHERE v.source_fingerprint = i.fp AND v.extractor_version = i.extractor
-							AND v.purpose = ?5 AND v.config_version = i.config AND v.verdict <> 'held_drift'
-							AND (v.outcome_reason IS NULL OR v.outcome_reason NOT IN (?2, ?4)))
+				SELECT i.* FROM inputs i WHERE `+authorLLMAskAgainSQL+`
 			)
 			UPDATE author_llm_job j
 			SET run_id = ?0, status = 'pending', answer_attempt_id = NULL, finished_at = NULL, call_id = NULL,
@@ -501,6 +591,24 @@ func EnqueueAuthorLLMReviewJobs(ctx context.Context, db *pg.DB, runID int64, job
 	})
 	return inserted, err
 }
+
+// authorLLMAskAgainSQL is true for an input (alias i: fp, extractor, config,
+// again) already asked under the configuration that a production run asks
+// again: its latest verdict (the newest one that is not held_drift) is
+// settled and failed transiently (?2), or failed to apply (?4) when the
+// input is marked again; and no verdict of it under the configuration
+// (purpose ?5) is current or final otherwise.
+const authorLLMAskAgainSQL = `EXISTS (SELECT 1 FROM (SELECT v.settled_at, v.outcome_reason FROM author_llm_verdict v
+			WHERE v.source_fingerprint = i.fp AND v.extractor_version = i.extractor
+				AND v.purpose = ?5 AND v.config_version = i.config AND v.verdict <> 'held_drift'
+			ORDER BY v.id DESC
+			LIMIT 1) latest
+		WHERE latest.settled_at IS NOT NULL
+			AND (latest.outcome_reason IN (?2) OR (i.again AND latest.outcome_reason = ?4)))
+	AND NOT EXISTS (SELECT 1 FROM author_llm_verdict v
+		WHERE v.source_fingerprint = i.fp AND v.extractor_version = i.extractor
+			AND v.purpose = ?5 AND v.config_version = i.config AND v.verdict <> 'held_drift'
+			AND (v.outcome_reason IS NULL OR v.outcome_reason NOT IN (?2, ?4)))`
 
 // authorLLMClassAskedAgain marks a review job a later run asks again after
 // its input's verdict failed transiently.

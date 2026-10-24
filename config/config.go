@@ -204,6 +204,16 @@ type AuthorMetadataConfig struct {
 	// LLM is the author layer's own part of the LLM settings; the endpoint
 	// and the key are the shared llm section's.
 	LLM AuthorLLMConfig `mapstructure:"llm" yaml:"llm"`
+	// Autopilot is the author autopilot's part: how long a scan stays
+	// quiet before its books go through the remaining author layers.
+	Autopilot AuthorAutopilotConfig `mapstructure:"autopilot" yaml:"autopilot"`
+}
+
+// AuthorAutopilotConfig is the author autopilot's settings. QuietPeriod is
+// how long after the newest snapshot a scan counts as settled; the switch
+// itself is the card's.
+type AuthorAutopilotConfig struct {
+	QuietPeriod time.Duration `mapstructure:"quiet_period" yaml:"quiet_period"`
 }
 
 // AuthorMetadataStageConfig bounds one leased stream: how many workers run
@@ -226,6 +236,7 @@ const AuthorMetadataMaxBytes = 4 << 20
 const (
 	authorMetadataMaxBytesKey     = "author_metadata.metadata_max_bytes"
 	authorMetadataPollIntervalKey = "author_metadata.poll_interval"
+	authorAutopilotQuietKey       = "author_metadata.autopilot.quiet_period"
 )
 
 // Defaults of the author metadata streams. Extraction runs one worker by
@@ -239,6 +250,9 @@ const (
 	authorMetadataLocalLease       = time.Minute
 	authorMetadataStageMaxAttempts = 5
 	authorMetadataStageConcurrency = 1
+	// A scan's books are written minutes apart at most; half an hour of
+	// quiet is a scan that ended.
+	authorAutopilotQuietPeriod = 30 * time.Minute
 )
 
 // PreviewRedisConfig is the separate Redis destination for the preview
@@ -676,6 +690,7 @@ func setDefaults() {
 	viper.SetDefault("author_metadata.local_normalization.claim_size", authorMetadataLocalClaim)
 	viper.SetDefault("author_metadata.local_normalization.lease", authorMetadataLocalLease)
 	viper.SetDefault("author_metadata.local_normalization.max_attempts", authorMetadataStageMaxAttempts)
+	viper.SetDefault(authorAutopilotQuietKey, authorAutopilotQuietPeriod)
 	setAuthorLLMDefaults()
 
 	// The book list's author line stays on the legacy catalog until the
@@ -771,6 +786,7 @@ func (c *AuthorMetadataConfig) validate() error {
 	limits := []configLimit{
 		{authorMetadataMaxBytesKey, c.MetadataMaxBytes},
 		{authorMetadataPollIntervalKey, int64(c.PollInterval)},
+		{authorAutopilotQuietKey, int64(c.Autopilot.QuietPeriod)},
 	}
 	limits = append(limits, c.Extraction.limits("author_metadata.extraction.")...)
 	limits = append(limits, c.LocalNormalization.limits("author_metadata.local_normalization.")...)

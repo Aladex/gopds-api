@@ -303,7 +303,8 @@ func TestLoadAuthorMetadataDefaults(t *testing.T) {
 		LocalNormalization: AuthorMetadataStageConfig{
 			Concurrency: 1, ClaimSize: 100, Lease: time.Minute, MaxAttempts: 5,
 		},
-		LLM: DefaultAuthorLLMConfig(),
+		LLM:       DefaultAuthorLLMConfig(),
+		Autopilot: AuthorAutopilotConfig{QuietPeriod: 30 * time.Minute},
 	}
 	if !reflect.DeepEqual(cfg.AuthorMetadata, want) {
 		t.Errorf("AuthorMetadata = %+v, want %+v", cfg.AuthorMetadata, want)
@@ -361,6 +362,7 @@ func TestLoadAuthorMetadataRejectsNonPositiveValues(t *testing.T) {
 		{"GOPDS_AUTHOR_METADATA_LOCAL_NORMALIZATION_CLAIM_SIZE", "author_metadata.local_normalization.claim_size", false},
 		{"GOPDS_AUTHOR_METADATA_LOCAL_NORMALIZATION_LEASE", "author_metadata.local_normalization.lease", true},
 		{"GOPDS_AUTHOR_METADATA_LOCAL_NORMALIZATION_MAX_ATTEMPTS", "author_metadata.local_normalization.max_attempts", false},
+		{"GOPDS_AUTHOR_METADATA_AUTOPILOT_QUIET_PERIOD", "author_metadata.autopilot.quiet_period", true},
 	}
 	for _, k := range keys {
 		values := []string{"0", "-1"}

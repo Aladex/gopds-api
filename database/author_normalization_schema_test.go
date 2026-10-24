@@ -392,10 +392,14 @@ func TestNormalizationHistoryIsImmutable(t *testing.T) {
 			"contributor_normalization_job_identity": "author_metadata_reject_mutation(" +
 				"status,result_id,last_error_class,lease_owner,lease_expires_at,attempt_count,next_attempt_at," +
 				"updated_at,finished_at)",
-			"book_contributor_credit_selection_audited":         "book_contributor_credit_selection_record()",
-			"book_contributor_credit_selection_audit_immutable": "author_metadata_reject_mutation()",
-			"contributor_normalization_job_updated_at":          "update_updated_at_column()",
-			"contributor_normalization_job_waiting":             "contributor_normalization_job_waiting()",
+			"book_contributor_credit_selection_audited": "book_contributor_credit_selection_record()",
+			// The autopilot's selection marks (migration 62).
+			"book_contributor_credit_selection_autopilot_delete": "author_autopilot_mark()",
+			"book_contributor_credit_selection_autopilot_insert": "author_autopilot_mark()",
+			"book_contributor_credit_selection_autopilot_update": "author_autopilot_mark()",
+			"book_contributor_credit_selection_audit_immutable":  "author_metadata_reject_mutation()",
+			"contributor_normalization_job_updated_at":           "update_updated_at_column()",
+			"contributor_normalization_job_waiting":              "contributor_normalization_job_waiting()",
 			"contributor_normalization_job_attempt_immutable": "author_metadata_reject_mutation(" +
 				"finished_at,outcome,error_class)",
 			"contributor_normalization_job_attempt_closed": "author_metadata_reject_finished()",

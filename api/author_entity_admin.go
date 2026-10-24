@@ -12,9 +12,10 @@ import (
 )
 
 // The author entity step of the «Сканирование» card (design E, phase E1):
-// its status — the newest pass with its progress, the newest report and the
-// Wikidata reference — the start of a pass and the fetch of the Wikidata
-// reference (E4w), both going on in the background. Admin only: the group
+// its status — the newest pass with its progress, the newest report, the
+// Wikidata reference and the autopilot — the start of a pass and the fetch
+// of the Wikidata reference (E4w), both going on in the background, and the
+// autopilot's switch. Admin only: the group
 // is mounted behind AdminMiddleware. A second pass or fetch while one is
 // active is a 409 active_run_exists.
 
@@ -24,6 +25,7 @@ type AuthorEntityAdminService interface {
 	Status(ctx context.Context) (*services.AuthorEntityStatus, error)
 	Start(ctx context.Context, actor int64) (*database.AuthorEntityBuildRun, error)
 	StartWikidataFetch(ctx context.Context, actor int64) (*database.WikidataExtract, error)
+	SetAutopilot(ctx context.Context, enabled bool, actor int64) (*services.AuthorAutopilotStatus, error)
 }
 
 // codeEntityServiceUnavailable: the entity admin is not wired.
@@ -54,6 +56,10 @@ func (unavailableAuthorEntityAdmin) StartWikidataFetch(context.Context, int64) (
 	return nil, errAuthorEntityServiceUnavailable
 }
 
+func (unavailableAuthorEntityAdmin) SetAutopilot(context.Context, bool, int64) (*services.AuthorAutopilotStatus, error) {
+	return nil, errAuthorEntityServiceUnavailable
+}
+
 // authorEntityHandler serves the entity routes.
 type authorEntityHandler struct {
 	svc func() AuthorEntityAdminService
@@ -67,6 +73,7 @@ func SetupAuthorEntityRoutes(r *gin.RouterGroup, svc func() AuthorEntityAdminSer
 	r.GET("/status", h.status)
 	r.POST("/build", h.start)
 	r.POST("/wikidata", h.fetchWikidata)
+	r.POST("/autopilot", h.setAutopilot)
 }
 
 // abortEntityError answers an error with its closed code; anything unknown
@@ -146,3 +153,41 @@ func (h *authorEntityHandler) fetchWikidata(c *gin.Context) {
 
 // jsonKeyExtract wraps a Wikidata extract.
 const jsonKeyExtract = "extract"
+
+// autopilotRequest is the autopilot's switch.
+type autopilotRequest struct {
+	Enabled *bool `json:"enabled"`
+}
+
+// setAutopilot godoc
+// @Summary Switch the author autopilot on or off
+// @Description Once a scan has settled, the autopilot starts a resolve run over the registered strata and then an
+// @Description entity build on its own. Switched off it starts nothing; a run it started goes on.
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param body body autopilotRequest true "The switch"
+// @Accept json
+// @Produce json
+// @Success 200 {object} map[string]services.AuthorAutopilotStatus
+// @Router /api/admin/author-metadata/entities/autopilot [post]
+func (h *authorEntityHandler) setAutopilot(c *gin.Context) {
+	var req autopilotRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.Enabled == nil {
+		abortRun(c, http.StatusBadRequest, codeInvalidRequest)
+		return
+	}
+	actor, err := actorID(c)
+	if err != nil {
+		abortRun(c, http.StatusInternalServerError, codeInternalError)
+		return
+	}
+	st, err := h.svc().SetAutopilot(c.Request.Context(), *req.Enabled, actor)
+	if err != nil {
+		abortEntityError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{jsonKeyAutopilot: st})
+}
+
+// jsonKeyAutopilot wraps the autopilot's block.
+const jsonKeyAutopilot = "autopilot"

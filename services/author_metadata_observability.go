@@ -134,6 +134,18 @@ const (
 	AuthorMetadataEventWikidataPublished       AuthorMetadataEventName = "author_metadata.wikidata_published"
 	AuthorMetadataEventWikidataFetchFailed     AuthorMetadataEventName = "author_metadata.wikidata_fetch_failed"
 	AuthorMetadataEventWikidataFetchStepFailed AuthorMetadataEventName = "author_metadata.wikidata_fetch_step_failed"
+
+	// The author autopilot (migration 62). State: what a tick found changed
+	// (Status: the state, ItemID: the run it waits for or started);
+	// ResolveStarted: it started a resolve run (RunID, Count: the inputs never
+	// asked); BuildStarted: it started an entity pass (RunID); StepFailed: a
+	// tick failed and is retried after a backoff; Switched: an administrator
+	// switched it (Status: on or off).
+	AuthorMetadataEventAutopilotState          AuthorMetadataEventName = "author_metadata.autopilot_state"
+	AuthorMetadataEventAutopilotResolveStarted AuthorMetadataEventName = "author_metadata.autopilot_resolve_started"
+	AuthorMetadataEventAutopilotBuildStarted   AuthorMetadataEventName = "author_metadata.autopilot_build_started"
+	AuthorMetadataEventAutopilotStepFailed     AuthorMetadataEventName = "author_metadata.autopilot_step_failed"
+	AuthorMetadataEventAutopilotSwitched       AuthorMetadataEventName = "author_metadata.autopilot_switched"
 )
 
 // AuthorMetadataEventNames lists every event.
@@ -167,6 +179,8 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventWikidataFetchStarted, AuthorMetadataEventWikidataChunkImported,
 		AuthorMetadataEventWikidataPublished, AuthorMetadataEventWikidataFetchFailed,
 		AuthorMetadataEventWikidataFetchStepFailed,
+		AuthorMetadataEventAutopilotState, AuthorMetadataEventAutopilotResolveStarted,
+		AuthorMetadataEventAutopilotBuildStarted, AuthorMetadataEventAutopilotStepFailed, AuthorMetadataEventAutopilotSwitched,
 	}
 }
 
@@ -184,6 +198,8 @@ const (
 	// AuthorMetadataStageWikidata is the fetch of the entity build's
 	// Wikidata reference.
 	AuthorMetadataStageWikidata AuthorMetadataStage = "wikidata"
+	// AuthorMetadataStageAutopilot is the author autopilot.
+	AuthorMetadataStageAutopilot AuthorMetadataStage = "autopilot"
 )
 
 // AuthorMetadataEvent is one log record. Every field is an identifier, a
@@ -252,7 +268,7 @@ var (
 		AuthorMetadataStageExtraction, AuthorMetadataStageLocalNormalization,
 		AuthorMetadataStageDualWrite, AuthorMetadataStageReview, AuthorMetadataStageRunner,
 		AuthorMetadataStageAcceptance, AuthorMetadataStageDisplayModel, AuthorMetadataStageEntityBuild,
-		AuthorMetadataStageWikidata,
+		AuthorMetadataStageWikidata, AuthorMetadataStageAutopilot,
 	)
 	knownClasses  = closedSet(database.AuthorMetadataAttemptErrorClasses()...)
 	knownStatuses = authorMetadataEventStatuses()
@@ -323,6 +339,9 @@ func authorMetadataEventStatuses() map[string]bool {
 		set[reason] = true
 	}
 	set[database.WikidataPublished], set[database.WikidataDuplicate] = true, true
+	for _, v := range AuthorAutopilotStatuses() {
+		set[v] = true
+	}
 	return set
 }
 
@@ -342,13 +361,13 @@ func closedEventName(name AuthorMetadataEventName) AuthorMetadataEventName {
 
 // closedWorkerLabel accepts the labels the runner's stages carry: the
 // extraction stage's, the acceptance pass's, the LLM worker's, the author display
-// model's, the entity build's and the Wikidata fetch's own labels,
-// and a local normalization loop's label with its index.
+// model's, the entity build's, the Wikidata fetch's and the autopilot's own
+// labels, and a local normalization loop's label with its index.
 func closedWorkerLabel(label string) string {
 	if label == string(AuthorMetadataStageExtraction) || label == string(AuthorMetadataStageAcceptance) ||
 		label == authorLLMWorkerName || label == authorLLMEvalDriverName ||
 		label == string(AuthorMetadataStageDisplayModel) || label == string(AuthorMetadataStageEntityBuild) ||
-		label == string(AuthorMetadataStageWikidata) {
+		label == string(AuthorMetadataStageWikidata) || label == authorAutopilotName {
 		return label
 	}
 	index, ok := strings.CutPrefix(label, string(AuthorMetadataStageLocalNormalization)+"-")

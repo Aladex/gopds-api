@@ -1,9 +1,14 @@
 import { readFileSync } from 'node:fs';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import AuthorEntityBlock from '@/features/admin/AuthorEntityBlock';
 import * as adminApi from '@/api/admin';
-import type { AuthorEntityReport, AuthorEntityRun, WikidataExtract } from '@/api/admin';
+import type {
+    AuthorAutopilotStatus,
+    AuthorEntityReport,
+    AuthorEntityRun,
+    WikidataExtract,
+} from '@/api/admin';
 import { ApiError } from '@/api/errors';
 import enTranslation from '@/locales/en/translation.json';
 import ruTranslation from '@/locales/ru/translation.json';
@@ -38,6 +43,7 @@ vi.mock('@/api/admin', async (importOriginal) => {
         getAuthorEntityStatus: vi.fn(),
         startAuthorEntityBuild: vi.fn(),
         startWikidataFetch: vi.fn(),
+        setAuthorAutopilot: vi.fn(),
     };
 });
 
@@ -125,6 +131,27 @@ const wikidataReport = (): AuthorEntityReport['wikidata'] => ({
     references: 26890,
     references_withheld: 690,
 });
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const time = (value: string) => new Date(value).toLocaleString();
+
+const autopilot = (overrides: Partial<AuthorAutopilotStatus> = {}): AuthorAutopilotStatus => ({
+    enabled: true,
+    resolve_inputs: 0,
+    failures: 0,
+    updated_at: new Date().toISOString(),
+    quiet_seconds: 1800,
+    waiting_jobs: 0,
+    build_pending: false,
+    skipped_units: 0,
+    ...overrides,
+});
+
+const showAutopilot = (a: AuthorAutopilotStatus) =>
+    api.getAuthorEntityStatus.mockResolvedValue({
+        status: { run: null, report: null, autopilot: a },
+    });
 
 beforeEach(() => {
     vi.clearAllMocks();
@@ -278,6 +305,213 @@ describe('AuthorEntityBlock', () => {
         expect(await screen.findByText('A fetch is already running.')).toBeInTheDocument();
     });
 
+    it('says how old the published extract is', async () => {
+        const fetched = new Date(Date.now() - 3 * DAY_MS - 60_000).toISOString();
+        api.getAuthorEntityStatus.mockResolvedValue({
+            status: {
+                run: null,
+                report: null,
+                wikidata: { latest: null, published: extract({ finished_at: fetched }) },
+            },
+        });
+        render(<AuthorEntityBlock />);
+        expect(await screen.findByText(`Fetched ${time(fetched)}, 3 d ago`)).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Fetch Wikidata' })).toBeEnabled();
+    });
+
+    it('shows the autopilot on and what its last check found', async () => {
+        const until = new Date(Date.now() + 20 * 60_000).toISOString();
+        const cases: [Partial<AuthorAutopilotStatus>, string][] = [
+            [{}, 'Not checked yet.'],
+            [
+                { state: 'not_quiet', quiet_until: until },
+                `Waiting for the scan to be quiet, until ${time(until)}.`,
+            ],
+            [
+                { state: 'normalizing', waiting_jobs: 1250 },
+                `Local normalization is at work (${n(1250)} names waiting).`,
+            ],
+            [{ state: 'llm_run_active', state_run_id: 57 }, 'Waiting for LLM run 57 to end.'],
+            [
+                { state: 'entity_build_active', state_run_id: 9 },
+                'Waiting for entity pass 9 to end.',
+            ],
+            [
+                { state: 'resolve_started', state_run_id: 31, resolve_inputs: 40 },
+                `Started resolve run 31 for ${n(40)} names.`,
+            ],
+            [{ state: 'build_started', state_run_id: 12 }, 'Started entity pass 12.'],
+            [{ state: 'idle' }, 'Nothing to do.'],
+        ];
+        for (const [overrides, line] of cases) {
+            showAutopilot(autopilot(overrides));
+            render(<AuthorEntityBlock />);
+            expect(await screen.findByText(line)).toBeInTheDocument();
+            expect(screen.getByRole('switch', { name: 'Autopilot after a scan' })).toBeChecked();
+            cleanup();
+        }
+    });
+
+    it('says how the resolve check came out, a pass due and the last run it started', async () => {
+        const at = new Date(Date.now() - 60_000).toISOString();
+        showAutopilot(
+            autopilot({
+                state: 'idle',
+                resolve_note: 'no_resolve_pilot',
+                build_pending: true,
+                last_action: 'build',
+                last_action_run_id: 12,
+                last_action_at: at,
+            }),
+        );
+        render(<AuthorEntityBlock />);
+        expect(
+            await screen.findByText(
+                'Resolve: the resolve pilot has not run under this configuration.',
+            ),
+        ).toBeInTheDocument();
+        expect(
+            screen.getByText('The selections changed since the last pass: a pass is due.'),
+        ).toBeInTheDocument();
+        expect(screen.getByText(`Last started: entity pass 12, ${time(at)}.`)).toBeInTheDocument();
+        cleanup();
+
+        showAutopilot(
+            autopilot({
+                state: 'resolve_started',
+                state_run_id: 31,
+                resolve_note: 'started',
+                build_pending: true,
+                last_action: 'resolve',
+                last_action_run_id: 31,
+                last_action_at: at,
+            }),
+        );
+        render(<AuthorEntityBlock />);
+        expect(
+            await screen.findByText(`Last started: resolve run 31, ${time(at)}.`),
+        ).toBeInTheDocument();
+        expect(screen.queryByText(/^Resolve:/)).toBeNull();
+        cleanup();
+
+        showAutopilot(autopilot({ state: 'build_started', state_run_id: 13, build_pending: true }));
+        render(<AuthorEntityBlock />);
+        await screen.findByText('Started entity pass 13.');
+        expect(screen.queryByText(/a pass is due/)).toBeNull();
+    });
+
+    it('says a pass skipped units and when they are retried', async () => {
+        const retry = new Date(Date.now() + 300_000).toISOString();
+        showAutopilot(autopilot({ state: 'idle', skipped_units: 2, skipped_retry_at: retry }));
+        render(<AuthorEntityBlock />);
+        expect(
+            await screen.findByText(
+                `The last pass skipped ${n(2)} units whose rows were held; another pass is due ${time(retry)}.`,
+            ),
+        ).toBeInTheDocument();
+        cleanup();
+
+        showAutopilot(
+            autopilot({
+                state: 'entity_build_active',
+                state_run_id: 5,
+                skipped_units: 2,
+                skipped_retry_at: retry,
+            }),
+        );
+        render(<AuthorEntityBlock />);
+        await screen.findByText('Waiting for entity pass 5 to end.');
+        expect(screen.queryByText(/skipped/)).toBeNull();
+    });
+
+    it('shows a failed check with its next attempt', async () => {
+        const next = new Date(Date.now() + 120_000).toISOString();
+        showAutopilot(
+            autopilot({
+                state: 'idle',
+                failures: 2,
+                last_error_class: 'sqlstate_40p01',
+                next_attempt_at: next,
+            }),
+        );
+        render(<AuthorEntityBlock />);
+        expect(
+            await screen.findByText(
+                `The last check failed 2 times in a row (sqlstate_40p01); next attempt ${time(next)}.`,
+            ),
+        ).toBeInTheDocument();
+    });
+
+    it('re-reads every 15 s while the autopilot is on, so what it starts shows up', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        try {
+            const next = async (ms: number) => {
+                await act(async () => {
+                    await vi.advanceTimersByTimeAsync(ms);
+                });
+            };
+            showAutopilot(autopilot({ state: 'idle' }));
+            render(<AuthorEntityBlock />);
+            await screen.findByText('Nothing to do.');
+
+            showAutopilot(autopilot({ state: 'normalizing', waiting_jobs: 3 }));
+            await next(15000);
+            expect(
+                screen.getByText(`Local normalization is at work (${n(3)} names waiting).`),
+            ).toBeInTheDocument();
+
+            showAutopilot(
+                autopilot({ state: 'resolve_started', state_run_id: 31, resolve_inputs: 2 }),
+            );
+            await next(15000);
+            expect(
+                screen.getByText(`Started resolve run 31 for ${n(2)} names.`),
+            ).toBeInTheDocument();
+
+            showAutopilot(autopilot({ state: 'build_started', state_run_id: 12 }));
+            await next(15000);
+            expect(screen.getByText('Started entity pass 12.')).toBeInTheDocument();
+
+            showAutopilot(autopilot({ state: 'idle' }));
+            await next(10000);
+            expect(screen.getByText('Started entity pass 12.')).toBeInTheDocument();
+            await next(5000);
+            expect(screen.getByText('Nothing to do.')).toBeInTheDocument();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('does not re-read while the autopilot is off and nothing runs', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        try {
+            showAutopilot(autopilot({ enabled: false, state: 'not_quiet' }));
+            render(<AuthorEntityBlock />);
+            await screen.findByText(
+                'Off: new books wait for the buttons; a run it started goes on.',
+            );
+            expect(screen.queryByText(/Waiting for the scan/)).toBeNull();
+            expect(
+                screen.getByRole('switch', { name: 'Autopilot after a scan' }),
+            ).not.toBeChecked();
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(60000);
+            });
+            expect(api.getAuthorEntityStatus).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('switches the autopilot off and reads the state again', async () => {
+        showAutopilot(autopilot());
+        api.setAuthorAutopilot.mockResolvedValue({ autopilot: autopilot({ enabled: false }) });
+        render(<AuthorEntityBlock />);
+        fireEvent.click(await screen.findByRole('switch', { name: 'Autopilot after a scan' }));
+        await waitFor(() => expect(api.setAuthorAutopilot).toHaveBeenCalledWith(false));
+        await waitFor(() => expect(api.getAuthorEntityStatus).toHaveBeenCalledTimes(2));
+    });
+
     it('keeps both locales complete', () => {
         const en = enTranslation as Record<string, string>;
         const ru = ruTranslation as Record<string, string>;
@@ -293,5 +527,9 @@ describe('AuthorEntityBlock', () => {
         }
         expect(ru['authorEntity.build']).toBe('Собрать сущности авторов');
         expect(ru['authorEntity.wikidata.fetch']).toBe('Загрузить Wikidata');
+        expect(ru['authorEntity.autopilot.title']).toBe('Автопилот после сканирования');
+        for (const key of Object.keys(en).filter((k) => k.startsWith('authorEntity.autopilot.'))) {
+            expect(used, `${key} is unused`).toContain(key);
+        }
     });
 });

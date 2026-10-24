@@ -97,6 +97,12 @@ redis:
 #       production_b: 0
 #       judge_a: 0
 #       judge_b: 0
+#   # The autopilot: once a scan has been quiet this long (no new book) and
+#   # the local normalization queue is empty, the new books go through a
+#   # resolve run over the registered strata and an entity build on their
+#   # own. Switched on and off on the «Сканирование» card.
+#   autopilot:
+#     quiet_period: 30m
 
 # Where the book list's author line comes from: "legacy" (the default) keeps
 # the catalogue authors; "layer" sends each listed book an authors_display

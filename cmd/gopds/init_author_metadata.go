@@ -104,6 +104,24 @@ func initializeAuthorLLMAdminAPI(db *pg.DB, c *config.AuthorMetadataConfig, shar
 	api.SetAuthorLLMAdminService(admin)
 }
 
+// authorAutopilotLLM gives the autopilot the LLM block's admin of the
+// configuration the workers run, built on its first step (the database
+// answers by then) and kept once built.
+func authorAutopilotLLM(db *pg.DB, c *config.AuthorMetadataConfig) services.AuthorAutopilotLLM {
+	var admin *services.AuthorLLMAdmin
+	return func(ctx context.Context) (*services.AuthorLLMAdmin, error) {
+		if admin != nil {
+			return admin, nil
+		}
+		built, err := services.NewAuthorLLMAdminFromConfig(ctx, db, c, config.LLM())
+		if err != nil {
+			return nil, err
+		}
+		admin = built
+		return admin, nil
+	}
+}
+
 // errNoDatabase refuses to start the runner without a pool.
 var errNoDatabase = errors.New("no database pool")
 
@@ -147,14 +165,17 @@ func initializeAuthorMetadata(db *pg.DB, archivesDir string, c *config.AuthorMet
 	// The acceptance pass and the author display read model run whatever
 	// the switch says: the policy ships with the code, and search and sorting
 	// read the model, which the scan and the admin's edits keep marking. The
-	// author entity build runs only the passes an administrator starts, and
-	// the Wikidata fetch only the fetches.
-	api.SetAuthorEntityAdminService(services.NewAuthorEntityAdmin(db))
+	// author entity build runs the passes an administrator or the autopilot
+	// starts, and the Wikidata fetch only the fetches. The autopilot starts
+	// its resolve runs only when the LLM workers run (its admin says so).
+	api.SetAuthorEntityAdminService(services.NewAuthorEntityAdmin(db).WithAutopilotQuiet(c.Autopilot.QuietPeriod))
 	workers := []services.AuthorMetadataStageWorker{
 		services.NewAuthorAcceptancePass(db),
 		services.NewAuthorDisplayModelLoop(db, services.AuthorDisplayModelConfig{}),
 		services.NewAuthorEntityBuildLoop(db, services.AuthorEntityBuildConfig{}),
 		services.NewWikidataFetchLoop(db, services.NewQLeverSource(), services.WikidataFetchConfig{}),
+		services.NewAuthorAutopilot(db, authorAutopilotLLM(db, c),
+			services.AuthorAutopilotConfig{Quiet: c.Autopilot.QuietPeriod}),
 	}
 	if c.Enabled {
 		// Workers that cannot be built do not stop the acceptance pass.

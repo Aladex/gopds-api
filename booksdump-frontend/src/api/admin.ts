@@ -572,11 +572,42 @@ export interface AuthorEntityRun {
     finished_at?: string;
 }
 
+/** The autopilot: the switch, what its last check found and did, and the scan. */
+export interface AuthorAutopilotStatus {
+    enabled: boolean;
+    state?:
+        | 'not_quiet'
+        | 'normalizing'
+        | 'llm_run_active'
+        | 'entity_build_active'
+        | 'resolve_started'
+        | 'build_started'
+        | 'idle';
+    state_run_id?: number;
+    resolve_note?: string;
+    resolve_inputs: number;
+    last_action?: 'resolve' | 'build';
+    last_action_run_id?: number;
+    last_action_at?: string;
+    failures: number;
+    last_error_class?: string;
+    next_attempt_at?: string;
+    updated_at: string;
+    quiet_seconds: number;
+    quiet_until?: string;
+    waiting_jobs: number;
+    build_pending: boolean;
+    /** Units the newest completed pass skipped (a row was held), retried at the time given. */
+    skipped_units: number;
+    skipped_retry_at?: string;
+}
+
 /** The entity step of the card: the newest pass and the newest report. */
 export interface AuthorEntityStatus {
     run: AuthorEntityRun | null;
     report: AuthorEntityReport | null;
     wikidata?: WikidataStatus | null;
+    autopilot?: AuthorAutopilotStatus | null;
 }
 
 const entityBase = '/admin/author-metadata/entities';
@@ -591,6 +622,10 @@ export const startAuthorEntityBuild = () =>
 /** startWikidataFetch answers at once; the fetch goes on in the background. */
 export const startWikidataFetch = () =>
     http.post<{ extract: WikidataExtract }>(`${entityBase}/wikidata`);
+
+/** setAuthorAutopilot switches the autopilot on or off. */
+export const setAuthorAutopilot = (enabled: boolean) =>
+    http.post<{ autopilot: AuthorAutopilotStatus }>(`${entityBase}/autopilot`, { enabled });
 
 const llmBase = '/admin/author-metadata/llm';
 

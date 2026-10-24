@@ -304,10 +304,23 @@ func (l *AuthorEntityBuildLoop) complete(
 // status and the start of a pass.
 type AuthorEntityAdmin struct {
 	db *pg.DB
+	// quiet is the autopilot's quiet period, as the card shows it.
+	quiet time.Duration
 }
 
 // NewAuthorEntityAdmin builds the admin.
-func NewAuthorEntityAdmin(db *pg.DB) *AuthorEntityAdmin { return &AuthorEntityAdmin{db: db} }
+func NewAuthorEntityAdmin(db *pg.DB) *AuthorEntityAdmin {
+	return &AuthorEntityAdmin{db: db, quiet: DefaultAuthorAutopilotQuiet}
+}
+
+// WithAutopilotQuiet sets the autopilot's quiet period the card shows; a
+// non-positive one keeps the default.
+func (a *AuthorEntityAdmin) WithAutopilotQuiet(quiet time.Duration) *AuthorEntityAdmin {
+	if quiet > 0 {
+		a.quiet = quiet
+	}
+	return a
+}
 
 // AuthorEntityStatus is what the card shows: the newest pass with its
 // progress, the report of the newest completed one and the Wikidata
@@ -317,6 +330,8 @@ type AuthorEntityStatus struct {
 	Report json.RawMessage                `json:"report" swaggertype:"object"`
 	// Wikidata is the reference the build reads (E4w).
 	Wikidata *WikidataStatus `json:"wikidata"`
+	// Autopilot is the author autopilot's block.
+	Autopilot *AuthorAutopilotStatus `json:"autopilot"`
 }
 
 // Status reads the card's status.
@@ -329,7 +344,11 @@ func (a *AuthorEntityAdmin) Status(ctx context.Context) (*AuthorEntityStatus, er
 	if err != nil {
 		return nil, err
 	}
-	st := &AuthorEntityStatus{Run: latest, Wikidata: wd}
+	pilot, err := ReadAuthorAutopilotStatus(ctx, a.db, a.quiet)
+	if err != nil {
+		return nil, err
+	}
+	st := &AuthorEntityStatus{Run: latest, Wikidata: wd, Autopilot: pilot}
 	if completed != nil {
 		st.Report = completed.Report
 	}
@@ -340,6 +359,14 @@ func (a *AuthorEntityAdmin) Status(ctx context.Context) (*AuthorEntityStatus, er
 		st.Run = &run
 	}
 	return st, nil
+}
+
+// SetAutopilot switches the autopilot on or off and returns its block.
+func (a *AuthorEntityAdmin) SetAutopilot(ctx context.Context, enabled bool, actor int64) (*AuthorAutopilotStatus, error) {
+	if err := SetAuthorAutopilot(ctx, a.db, enabled, actor); err != nil {
+		return nil, err
+	}
+	return ReadAuthorAutopilotStatus(ctx, a.db, a.quiet)
 }
 
 // Start records a new pass; the worker picks it up.

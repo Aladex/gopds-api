@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"gopds-api/config"
 	"gopds-api/database"
 	"gopds-api/internal/authornorm"
 	"gopds-api/internal/scanfixture"
@@ -742,37 +743,127 @@ func TestABookDeletionDuringTheBuildWaitsForIt(t *testing.T) {
 // credit a review locks while the pass writes that credit's own decision —
 // is skipped with the units it depends on (the full name's unit takes a
 // book from the bucket's, so both go); the unrelated author lands, and the
-// next pass writes the component once the row is free.
+// pass completes owing the component. Whoever started that pass, the
+// autopilot pays the debt once the row is free: not on the next tick, but
+// once the retry's backoff has run out, and then the three entities are
+// there and nothing more is owed.
 func TestAUnitWhoseRowIsHeldIsSkippedWithItsComponent(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		byAdmin bool
+	}{{"an administrator's pass", true}, {"the autopilot's pass", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newEntityCatalog(t)
+			c.seedBucket()
+			ctx := context.Background()
+			clock := &autopilotClock{at: time.Now().Add(2 * time.Second)}
+			pilot := entityAutopilot(c.db, clock.now)
+			review := c.holdMovedCredit()
+			loop := services.NewAuthorEntityBuildLoop(c.db, services.AuthorEntityBuildConfig{LockTimeout: 200 * time.Millisecond})
+			if tc.byAdmin {
+				_, err := services.NewAuthorEntityAdmin(c.db).Start(ctx, 0)
+				require.NoError(t, err)
+			} else {
+				started, err := pilot.RunOnce(ctx)
+				require.NoError(t, err)
+				require.True(t, started, "the autopilot built nothing of a new catalog")
+			}
+			_, err := loop.RunOnce(ctx)
+			require.NoError(t, review.Rollback())
+			require.NoError(t, err)
+			done, _, err := database.LatestAuthorEntityBuilds(ctx, c.db)
+			require.NoError(t, err)
+			require.Equal(t, database.AuthorEntityRunCompleted, done.Status)
+			assert.Equal(t, 2, done.UnitsSkipped, "the held unit's component was skipped")
+			assert.Equal(t, 1, liveEntities(t, c.db), "the unrelated author landed")
+
+			st, err := services.ReadAuthorAutopilotStatus(ctx, c.db, time.Second)
+			require.NoError(t, err)
+			assert.Equal(t, 2, st.SkippedUnits)
+			require.NotNil(t, st.SkippedRetryAt)
+			assert.WithinDuration(t, done.FinishedAt.Add(5*time.Minute), *st.SkippedRetryAt, time.Millisecond)
+
+			clock.set(done.FinishedAt.Add(5*time.Minute - time.Second))
+			started, err := pilot.RunOnce(ctx)
+			require.NoError(t, err)
+			assert.False(t, started, "the retry did not wait for its backoff")
+			clock.set(done.FinishedAt.Add(5 * time.Minute))
+			started, err = pilot.RunOnce(ctx)
+			require.NoError(t, err)
+			require.True(t, started, "the skipped component was never built again")
+			retry, _, err := database.LatestAuthorEntityBuilds(ctx, c.db)
+			require.NoError(t, err)
+			assert.Zero(t, runToCompletion(t, loop, c.db, retry.ID).UnitsSkipped)
+			assert.Equal(t, 3, liveEntities(t, c.db))
+
+			clock.set(clock.now().Add(24 * time.Hour))
+			started, err = pilot.RunOnce(ctx)
+			require.NoError(t, err)
+			assert.False(t, started, "a paid debt started another pass")
+		})
+	}
+}
+
+// A refusal that persists is retried after a backoff that doubles with
+// every pass in a row that skipped units: not a full pass every minute.
+func TestAPersistentlyHeldRowIsRetriedLessAndLessOften(t *testing.T) {
 	c := newEntityCatalog(t)
 	c.seedBucket()
 	ctx := context.Background()
-	admin := services.NewAuthorEntityAdmin(c.db)
-	run, err := admin.Start(ctx, 0)
-	require.NoError(t, err)
-	var moved int64 // the short-name credit a series moves to the full name
-	_, err = c.db.QueryOne(pg.Scan(&moved), `SELECT c.id FROM book_contributor_credit c
+	clock := &autopilotClock{at: time.Now().Add(2 * time.Second)}
+	pilot := entityAutopilot(c.db, clock.now)
+	review := c.holdMovedCredit()
+	defer func() { _ = review.Rollback() }()
+	loop := services.NewAuthorEntityBuildLoop(c.db, services.AuthorEntityBuildConfig{LockTimeout: 200 * time.Millisecond})
+	pass := func() *database.AuthorEntityBuildRun {
+		t.Helper()
+		started, err := pilot.RunOnce(ctx)
+		require.NoError(t, err)
+		require.True(t, started)
+		run, _, err := database.LatestAuthorEntityBuilds(ctx, c.db)
+		require.NoError(t, err)
+		done := runToCompletion(t, loop, c.db, run.ID)
+		require.Equal(t, 2, done.UnitsSkipped)
+		return done
+	}
+	idle := func(at time.Time) {
+		t.Helper()
+		clock.set(at)
+		started, err := pilot.RunOnce(ctx)
+		require.NoError(t, err)
+		require.False(t, started, "a pass started before its retry was due")
+	}
+	first := pass()
+	idle(first.FinishedAt.Add(5*time.Minute - time.Second))
+	clock.set(first.FinishedAt.Add(5 * time.Minute))
+	second := pass()
+	idle(second.FinishedAt.Add(10*time.Minute - time.Second))
+	clock.set(second.FinishedAt.Add(10 * time.Minute))
+	third := pass()
+	idle(third.FinishedAt.Add(20*time.Minute - time.Second))
+}
+
+// holdMovedCredit locks the short-name credit a series moves to the full
+// name, as a review would, and returns the transaction holding it.
+func (c *entityCatalog) holdMovedCredit() *pg.Tx {
+	c.t.Helper()
+	var moved int64
+	_, err := c.db.QueryOne(pg.Scan(&moved), `SELECT c.id FROM book_contributor_credit c
 		JOIN book_metadata_snapshot s ON s.id = c.snapshot_id JOIN opds_catalog_book b ON b.id = s.book_id
 		WHERE b.title = 'Золото бунта'`)
-	require.NoError(t, err)
+	require.NoError(c.t, err)
 	review, err := c.db.Begin()
-	require.NoError(t, err)
+	require.NoError(c.t, err)
 	_, err = review.Exec(`SELECT 1 FROM book_contributor_credit WHERE id = ? FOR UPDATE`, moved)
-	require.NoError(t, err)
+	require.NoError(c.t, err)
+	return review
+}
 
-	loop := services.NewAuthorEntityBuildLoop(c.db, services.AuthorEntityBuildConfig{LockTimeout: 200 * time.Millisecond})
-	_, err = loop.RunOnce(ctx)
-	require.NoError(t, review.Rollback())
-	require.NoError(t, err)
-	done, _, err := database.LatestAuthorEntityBuilds(ctx, c.db)
-	require.NoError(t, err)
-	require.Equal(t, run.ID, done.ID)
-	require.Equal(t, database.AuthorEntityRunCompleted, done.Status)
-	assert.Equal(t, 2, done.UnitsSkipped, "the held unit's component was skipped")
-	assert.Equal(t, 1, liveEntities(t, c.db), "the unrelated author landed")
-
-	next, err := admin.Start(ctx, 0)
-	require.NoError(t, err)
-	assert.Zero(t, runToCompletion(t, loop, c.db, next.ID).UnitsSkipped)
-	assert.Equal(t, 3, liveEntities(t, c.db))
+// entityAutopilot is an autopilot over a catalog without the LLM layer, a
+// second of quiet, on clock.
+func entityAutopilot(db *pg.DB, now func() time.Time) *services.AuthorAutopilot {
+	settings := config.DefaultAuthorLLMConfig()
+	return services.NewAuthorAutopilot(db, func(context.Context) (*services.AuthorLLMAdmin, error) {
+		return services.NewAuthorLLMAdmin(db, "", services.AuthorLLMDisabledWorkersOff, &settings), nil
+	}, services.AuthorAutopilotConfig{Quiet: time.Second, Now: now})
 }

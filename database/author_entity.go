@@ -573,7 +573,8 @@ var ErrAuthorEntityBuildActive = errors.New("database: an author entity build is
 var ErrAuthorEntityLeaseLost = errors.New("database: the author entity build lease was lost")
 
 // StartAuthorEntityBuild records a new pending pass; one already pending or
-// running refuses it.
+// running refuses it. In the same statement the pass takes every autopilot
+// mark visible then (migration 62): the selection changes it is to build.
 func StartAuthorEntityBuild(ctx context.Context, db pg.DBI, actor int64) (*AuthorEntityBuildRun, error) {
 	var by interface{}
 	if actor > 0 {
@@ -581,9 +582,15 @@ func StartAuthorEntityBuild(ctx context.Context, db pg.DBI, actor int64) (*Autho
 	}
 	var runs []AuthorEntityBuildRun
 	if _, err := db.QueryContext(ctx, &runs, `
-		INSERT INTO public.author_entity_build_run (created_by_user_id) VALUES (?)
-		ON CONFLICT ((true)) WHERE status IN ('pending', 'running') DO NOTHING
-		RETURNING `+authorEntityRunColumns, by); err != nil {
+		WITH run AS (
+			INSERT INTO public.author_entity_build_run (created_by_user_id) VALUES (?)
+			ON CONFLICT ((true)) WHERE status IN ('pending', 'running') DO NOTHING
+			RETURNING `+authorEntityRunColumns+`
+		), taken AS (
+			UPDATE public.author_autopilot_mark SET build_run_id = (SELECT id FROM run)
+			WHERE build_run_id IS NULL AND EXISTS (SELECT 1 FROM run)
+		)
+		SELECT * FROM run`, by); err != nil {
 		return nil, fmt.Errorf("starting an author entity build: %w", err)
 	}
 	if len(runs) == 0 {
