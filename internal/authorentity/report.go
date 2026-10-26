@@ -22,6 +22,8 @@ type Report struct {
 	Sizes []SizeBucket   `json:"sizes"`
 	Top   []TopEntity    `json:"top"`
 	Rules map[string]int `json:"fingerprints_by_rule"`
+	// D2b is the field-split merge's components.
+	D2b D2bReport `json:"d2b"`
 	// TypoMerges counts the patronymic typos merged on evidence.
 	TypoMerges int            `json:"typo_merges"`
 	NoEntity   map[string]int `json:"no_entity"`
@@ -31,6 +33,57 @@ type Report struct {
 	Wikidata   WikidataReport `json:"wikidata"`
 	// Changes counts the rows the pass writes.
 	Changes int `json:"changes"`
+}
+
+// D2bReport is the field-split merge (E4·D2b): the word-sequence components
+// by size, with their pair edges and unions — a component of n keys has
+// n(n-1)/2 edges and, joined, n-1 unions, refused none — and the components
+// left apart.
+type D2bReport struct {
+	Sizes []D2bSize `json:"sizes"`
+	// EdgesByClass are the pair edges by the shape of their two keys.
+	EdgesByClass map[string]int `json:"pair_edges_by_class"`
+	// Refused are the components left apart by reason; RefusedEntities the
+	// entities of the first ones after the pass.
+	Refused         map[string]int `json:"refused"`
+	RefusedEntities [][]uuid.UUID  `json:"refused_entities"`
+}
+
+// D2bSize is one row of the D2b components by their number of keys.
+type D2bSize struct {
+	Label      string `json:"label"`
+	Components int    `json:"components"`
+	Groups     int    `json:"groups"`
+	PairEdges  int    `json:"pair_edges"`
+	Unions     int    `json:"unions"`
+	Refused    int    `json:"refused"`
+}
+
+// The classes of a D2b pair edge: either key of initials, else either key
+// without a family or a given name, else plain.
+const (
+	D2bClassPlain     = "plain"
+	D2bClassInitials  = "initials"
+	D2bClassEmptyPart = "empty_part"
+)
+
+// D2bRefusedCoCredited is a component two of whose keys share a book.
+const D2bRefusedCoCredited = "co_credited"
+
+// d2bSizes are the rows of the D2b report by component size.
+var d2bSizes = []struct {
+	label    string
+	min, max int
+}{{"2", 2, 2}, {"3", 3, 3}, {"4+", 4, 1 << 31}}
+
+func newD2bReport() D2bReport {
+	r := D2bReport{Sizes: make([]D2bSize, len(d2bSizes)), RefusedEntities: [][]uuid.UUID{},
+		EdgesByClass: map[string]int{D2bClassPlain: 0, D2bClassInitials: 0, D2bClassEmptyPart: 0},
+		Refused:      map[string]int{D2bRefusedCoCredited: 0}}
+	for i, s := range d2bSizes {
+		r.Sizes[i].Label = s.label
+	}
+	return r
 }
 
 // BucketReport is the short names' buckets (§2.0). A bucket book is one
@@ -114,7 +167,7 @@ const topN = 20
 
 func newReport() Report {
 	return Report{EntitiesByKind: map[string]int{}, Rules: map[string]int{}, NoEntity: map[string]int{},
-		Buckets: BucketReport{MovedBy: map[string]int{}}, Wikidata: newWikidataReport()}
+		Buckets: BucketReport{MovedBy: map[string]int{}}, Wikidata: newWikidataReport(), D2b: newD2bReport()}
 }
 
 // bookSizes are the distribution rows by books (P8 of the design).
@@ -193,6 +246,30 @@ func (b *builder) report(p *Plan, groups []*group, members map[uuid.UUID][]int, 
 	r.Top = topEntities(top)
 
 	r.Legacy = b.legacyReport(p, entityBooks)
+	r.D2b.RefusedEntities = b.d2bRefusedEntities(p)
+}
+
+// d2bRefusedEntities are the entities after the pass of the first
+// components D2b left apart, for the hand check.
+func (b *builder) d2bRefusedEntities(p *Plan) [][]uuid.UUID {
+	out := [][]uuid.UUID{}
+	for _, keys := range b.d2bRefused[:min(topN, len(b.d2bRefused))] {
+		seen := map[uuid.UUID]bool{}
+		for _, k := range keys {
+			for _, ci := range b.keys[k].credits {
+				if id := p.entityOf[b.in.Credits[ci].ID]; id != uuid.Nil {
+					seen[id] = true
+				}
+			}
+		}
+		ids := make([]uuid.UUID, 0, len(seen))
+		for id := range seen {
+			ids = append(ids, id)
+		}
+		slices.SortFunc(ids, func(x, y uuid.UUID) int { return strings.Compare(x.String(), y.String()) })
+		out = append(out, ids)
+	}
+	return out
 }
 
 // legacyReport compares the entities with the legacy authors (§4.1): per

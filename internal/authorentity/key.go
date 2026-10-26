@@ -114,6 +114,22 @@ func keyOf(c *Credit) nameKey {
 	return k
 }
 
+// wordSequence is the D2b key of a person's name: its script, its suffix
+// and its given, additional and family words in that order, the field
+// boundaries dropped. ok is false for a key D2b leaves alone: a collective,
+// a tagged namesake, a name without person parts or of fewer words than
+// minD2bWords.
+func (k *nameKey) wordSequence() (seq string, ok bool) {
+	if k.kind != KindPerson || k.tagged != "" {
+		return "", false
+	}
+	words := authornorm.SearchKey(k.given + " " + k.additional + " " + k.family)
+	if len(strings.Fields(words)) < minD2bWords {
+		return "", false
+	}
+	return k.script + "|" + k.suffix + "|" + words, true
+}
+
 // hasLetterOrDigit reports a key with something to name: a credit whose
 // parts are punctuation only gets no entity (the J3 hotfix rule).
 func (k *nameKey) hasLetterOrDigit() bool {

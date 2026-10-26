@@ -1,0 +1,1866 @@
+[
+  {
+    "units": [
+      {
+        "EntityID": "00000000-0000-7000-8000-000000000001",
+        "Entity": {
+          "ID": "00000000-0000-7000-8000-000000000001",
+          "Kind": "collective",
+          "DisplayName": "Журнал Наука",
+          "SortName": "Журнал Наука",
+          "SearchKey": "журнал наука",
+          "NamePinned": false,
+          "MergedInto": null
+        },
+        "Absorb": null,
+        "Fingerprints": [
+          {
+            "Key": {
+              "Fingerprint": "fp-nauka",
+              "ExtractorVersion": "v1",
+              "Ordinal": 0
+            },
+            "EntityID": "00000000-0000-7000-8000-000000000001",
+            "Method": "deterministic",
+            "Rule": "D1"
+          }
+        ],
+        "DeleteFingerprints": null,
+        "Credits": null,
+        "DeleteCredits": null,
+        "References": null,
+        "DeleteReferences": null
+      },
+      {
+        "EntityID": "00000000-0000-7000-8000-000000000002",
+        "Entity": {
+          "ID": "00000000-0000-7000-8000-000000000002",
+          "Kind": "person",
+          "DisplayName": "Капитан",
+          "SortName": "Капитан",
+          "SearchKey": "капитан",
+          "NamePinned": false,
+          "MergedInto": null
+        },
+        "Absorb": null,
+        "Fingerprints": [
+          {
+            "Key": {
+              "Fingerprint": "fp-captain",
+              "ExtractorVersion": "v1",
+              "Ordinal": 0
+            },
+            "EntityID": "00000000-0000-7000-8000-000000000002",
+            "Method": "deterministic",
+            "Rule": "D1"
+          }
+        ],
+        "DeleteFingerprints": null,
+        "Credits": null,
+        "DeleteCredits": null,
+        "References": null,
+        "DeleteReferences": null
+      },
+      {
+        "EntityID": "00000000-0000-7000-8000-000000000003",
+        "Entity": {
+          "ID": "00000000-0000-7000-8000-000000000003",
+          "Kind": "person",
+          "DisplayName": "Алексей Иванов",
+          "SortName": "Алексей Иванов",
+          "SearchKey": "алексей иванов",
+          "NamePinned": false,
+          "MergedInto": null
+        },
+        "Absorb": null,
+        "Fingerprints": [
+          {
+            "Key": {
+              "Fingerprint": "fp-short",
+              "ExtractorVersion": "v1",
+              "Ordinal": 0
+            },
+            "EntityID": "00000000-0000-7000-8000-000000000003",
+            "Method": "deterministic",
+            "Rule": "D1"
+          }
+        ],
+        "DeleteFingerprints": null,
+        "Credits": null,
+        "DeleteCredits": null,
+        "References": null,
+        "DeleteReferences": null
+      },
+      {
+        "EntityID": "00000000-0000-7000-8000-000000000004",
+        "Entity": {
+          "ID": "00000000-0000-7000-8000-000000000004",
+          "Kind": "person",
+          "DisplayName": "Алексей Александрович Иванов",
+          "SortName": "Алексей Александрович Иванов",
+          "SearchKey": "алексей александрович иванов",
+          "NamePinned": false,
+          "MergedInto": null
+        },
+        "Absorb": null,
+        "Fingerprints": [
+          {
+            "Key": {
+              "Fingerprint": "fp-ivanov-other",
+              "ExtractorVersion": "v1",
+              "Ordinal": 0
+            },
+            "EntityID": "00000000-0000-7000-8000-000000000004",
+            "Method": "deterministic",
+            "Rule": "D1"
+          }
+        ],
+        "DeleteFingerprints": null,
+        "Credits": null,
+        "DeleteCredits": null,
+        "References": null,
+        "DeleteReferences": null
+      },
+      {
+        "EntityID": "00000000-0000-7000-8000-000000000005",
+        "Entity": {
+          "ID": "00000000-0000-7000-8000-000000000005",
+          "Kind": "person",
+          "DisplayName": "Алексей Иванов",
+          "SortName": "Алексей Иванов",
+          "SearchKey": "алексей иванов",
+          "NamePinned": false,
+          "MergedInto": null
+        },
+        "Absorb": null,
+        "Fingerprints": [
+          {
+            "Key": {
+              "Fingerprint": "fp-right",
+              "ExtractorVersion": "v1",
+              "Ordinal": 0
+            },
+            "EntityID": "00000000-0000-7000-8000-000000000005",
+            "Method": "deterministic",
+            "Rule": "typo"
+          },
+          {
+            "Key": {
+              "Fingerprint": "fp-typo",
+              "ExtractorVersion": "v1",
+              "Ordinal": 0
+            },
+            "EntityID": "00000000-0000-7000-8000-000000000005",
+            "Method": "deterministic",
+            "Rule": "typo"
+          }
+        ],
+        "DeleteFingerprints": null,
+        "Credits": [
+          {
+            "Key": {
+              "CreditID": 5,
+              "Ordinal": 0
+            },
+            "EntityID": "00000000-0000-7000-8000-000000000005",
+            "Method": "evidence",
+            "Rule": "D3:title"
+          },
+          {
+            "Key": {
+              "CreditID": 6,
+              "Ordinal": 0
+            },
+            "EntityID": "00000000-0000-7000-8000-000000000005",
+            "Method": "evidence",
+            "Rule": "D3:series"
+          },
+          {
+            "Key": {
+              "CreditID": 9,
+              "Ordinal": 0
+            },
+            "EntityID": "00000000-0000-7000-8000-000000000005",
+            "Method": "evidence",
+            "Rule": "D3:coauthor"
+          }
+        ],
+        "DeleteCredits": null,
+        "References": null,
+        "DeleteReferences": null
+      },
+      {
+        "EntityID": "00000000-0000-7000-8000-000000000006",
+        "Entity": {
+          "ID": "00000000-0000-7000-8000-000000000006",
+          "Kind": "person",
+          "DisplayName": "Стивен Кинг",
+          "SortName": "Стивен Кинг",
+          "SearchKey": "стивен кинг",
+          "NamePinned": false,
+          "MergedInto": null
+        },
+        "Absorb": null,
+        "Fingerprints": [
+          {
+            "Key": {
+              "Fingerprint": "fp-king",
+              "ExtractorVersion": "v1",
+              "Ordinal": 0
+            },
+            "EntityID": "00000000-0000-7000-8000-000000000006",
+            "Method": "deterministic",
+            "Rule": "D1"
+          }
+        ],
+        "DeleteFingerprints": null,
+        "Credits": null,
+        "DeleteCredits": null,
+        "References": null,
+        "DeleteReferences": null
+      },
+      {
+        "EntityID": "00000000-0000-7000-8000-000000000007",
+        "Entity": {
+          "ID": "00000000-0000-7000-8000-000000000007",
+          "Kind": "person",
+          "DisplayName": "Стивен Кинг",
+          "SortName": "Стивен Кинг",
+          "SearchKey": "стивен кинг",
+          "NamePinned": false,
+          "MergedInto": null
+        },
+        "Absorb": null,
+        "Fingerprints": [
+          {
+            "Key": {
+              "Fingerprint": "fp-king-tagged",
+              "ExtractorVersion": "v1",
+              "Ordinal": 0
+            },
+            "EntityID": "00000000-0000-7000-8000-000000000007",
+            "Method": "deterministic",
+            "Rule": "D1"
+          }
+        ],
+        "DeleteFingerprints": null,
+        "Credits": null,
+        "DeleteCredits": null,
+        "References": null,
+        "DeleteReferences": null
+      },
+      {
+        "EntityID": "00000000-0000-7000-8000-000000000008",
+        "Entity": {
+          "ID": "00000000-0000-7000-8000-000000000008",
+          "Kind": "person",
+          "DisplayName": "Сергей Петрович Михайлов",
+          "SortName": "Сергей Петрович Михайлов",
+          "SearchKey": "сергей петрович михайлов",
+          "NamePinned": false,
+          "MergedInto": null
+        },
+        "Absorb": null,
+        "Fingerprints": [
+          {
+            "Key": {
+              "Fingerprint": "fp-co",
+              "ExtractorVersion": "v1",
+              "Ordinal": 0
+            },
+            "EntityID": "00000000-0000-7000-8000-000000000008",
+            "Method": "deterministic",
+            "Rule": "D1"
+          }
+        ],
+        "DeleteFingerprints": null,
+        "Credits": null,
+        "DeleteCredits": null,
+        "References": null,
+        "DeleteReferences": null
+      },
+      {
+        "EntityID": "00000000-0000-7000-8000-000000000009",
+        "Entity": {
+          "ID": "00000000-0000-7000-8000-000000000009",
+          "Kind": "person",
+          "DisplayName": "Иван Петров",
+          "SortName": "Иван Петров",
+          "SearchKey": "иван петров",
+          "NamePinned": false,
+          "MergedInto": null
+        },
+        "Absorb": null,
+        "Fingerprints": [
+          {
+            "Key": {
+              "Fingerprint": "fp-petrov",
+              "ExtractorVersion": "v1",
+              "Ordinal": 0
+            },
+            "EntityID": "00000000-0000-7000-8000-000000000009",
+            "Method": "deterministic",
+            "Rule": "D1"
+          }
+        ],
+        "DeleteFingerprints": null,
+        "Credits": null,
+        "DeleteCredits": null,
+        "References": null,
+        "DeleteReferences": null
+      },
+      {
+        "EntityID": "00000000-0000-7000-8000-000000000010",
+        "Entity": {
+          "ID": "00000000-0000-7000-8000-000000000010",
+          "Kind": "person",
+          "DisplayName": "Иван Петрович Петров",
+          "SortName": "Иван Петрович Петров",
+          "SearchKey": "иван петрович петров",
+          "NamePinned": false,
+          "MergedInto": null
+        },
+        "Absorb": null,
+        "Fingerprints": [
+          {
+            "Key": {
+              "Fingerprint": "fp-petrov-p",
+              "ExtractorVersion": "v1",
+              "Ordinal": 0
+            },
+            "EntityID": "00000000-0000-7000-8000-000000000010",
+            "Method": "deterministic",
+            "Rule": "D1"
+          }
+        ],
+        "DeleteFingerprints": null,
+        "Credits": null,
+        "DeleteCredits": null,
+        "References": null,
+        "DeleteReferences": null
+      },
+      {
+        "EntityID": "00000000-0000-7000-8000-000000000011",
+        "Entity": {
+          "ID": "00000000-0000-7000-8000-000000000011",
+          "Kind": "person",
+          "DisplayName": "Иван Сергеевич Петров",
+          "SortName": "Иван Сергеевич Петров",
+          "SearchKey": "иван сергеевич петров",
+          "NamePinned": false,
+          "MergedInto": null
+        },
+        "Absorb": null,
+        "Fingerprints": [
+          {
+            "Key": {
+              "Fingerprint": "fp-petrov-s",
+              "ExtractorVersion": "v1",
+              "Ordinal": 0
+            },
+            "EntityID": "00000000-0000-7000-8000-000000000011",
+            "Method": "deterministic",
+            "Rule": "D1"
+          }
+        ],
+        "DeleteFingerprints": null,
+        "Credits": null,
+        "DeleteCredits": null,
+        "References": null,
+        "DeleteReferences": null
+      },
+      {
+        "EntityID": "00000000-0000-7000-8000-000000000012",
+        "Entity": {
+          "ID": "00000000-0000-7000-8000-000000000012",
+          "Kind": "person",
+          "DisplayName": "Аркадий Натанович Стругацкий",
+          "SortName": "Аркадий Натанович Стругацкий",
+          "SearchKey": "аркадий натанович стругацкий",
+          "NamePinned": false,
+          "MergedInto": null
+        },
+        "Absorb": null,
+        "Fingerprints": [
+          {
+            "Key": {
+              "Fingerprint": "fp-strugatsky",
+              "ExtractorVersion": "v1",
+              "Ordinal": 0
+            },
+            "EntityID": "00000000-0000-7000-8000-000000000012",
+            "Method": "deterministic",
+            "Rule": "D1"
+          }
+        ],
+        "DeleteFingerprints": null,
+        "Credits": null,
+        "DeleteCredits": null,
+        "References": null,
+        "DeleteReferences": null
+      },
+      {
+        "EntityID": "00000000-0000-7000-8000-000000000013",
+        "Entity": {
+          "ID": "00000000-0000-7000-8000-000000000013",
+          "Kind": "person",
+          "DisplayName": "Л. Н. Толстой",
+          "SortName": "Л. Н. Толстой",
+          "SearchKey": "л н толстой",
+          "NamePinned": false,
+          "MergedInto": null
+        },
+        "Absorb": null,
+        "Fingerprints": [
+          {
+            "Key": {
+              "Fingerprint": "fp-initials",
+              "ExtractorVersion": "v1",
+              "Ordinal": 0
+            },
+            "EntityID": "00000000-0000-7000-8000-000000000013",
+            "Method": "deterministic",
+            "Rule": "D1"
+          }
+        ],
+        "DeleteFingerprints": null,
+        "Credits": null,
+        "DeleteCredits": null,
+        "References": null,
+        "DeleteReferences": null
+      },
+      {
+        "EntityID": "00000000-0000-7000-8000-000000000014",
+        "Entity": {
+          "ID": "00000000-0000-7000-8000-000000000014",
+          "Kind": "person",
+          "DisplayName": "Лев Николаевич Толстой",
+          "SortName": "Лев Николаевич Толстой",
+          "SearchKey": "лев николаевич толстой",
+          "NamePinned": false,
+          "MergedInto": null
+        },
+        "Absorb": null,
+        "Fingerprints": [
+          {
+            "Key": {
+              "Fingerprint": "fp-tolstoy",
+              "ExtractorVersion": "v1",
+              "Ordinal": 0
+            },
+            "EntityID": "00000000-0000-7000-8000-000000000014",
+            "Method": "deterministic",
+            "Rule": "D2"
+          },
+          {
+            "Key": {
+              "Fingerprint": "fp-tolstoy-upper",
+              "ExtractorVersion": "v1",
+              "Ordinal": 0
+            },
+            "EntityID": "00000000-0000-7000-8000-000000000014",
+            "Method": "deterministic",
+            "Rule": "D2"
+          }
+        ],
+        "DeleteFingerprints": null,
+        "Credits": null,
+        "DeleteCredits": null,
+        "References": null,
+        "DeleteReferences": null
+      },
+      {
+        "EntityID": "00000000-0000-7000-8000-000000000015",
+        "Entity": {
+          "ID": "00000000-0000-7000-8000-000000000015",
+          "Kind": "person",
+          "DisplayName": "Stephen King",
+          "SortName": "Stephen King",
+          "SearchKey": "stephen king",
+          "NamePinned": false,
+          "MergedInto": null
+        },
+        "Absorb": null,
+        "Fingerprints": [
+          {
+            "Key": {
+              "Fingerprint": "fp-king-en",
+              "ExtractorVersion": "v1",
+              "Ordinal": 0
+            },
+            "EntityID": "00000000-0000-7000-8000-000000000015",
+            "Method": "deterministic",
+            "Rule": "D1"
+          }
+        ],
+        "DeleteFingerprints": null,
+        "Credits": null,
+        "DeleteCredits": null,
+        "References": null,
+        "DeleteReferences": null
+      },
+      {
+        "EntityID": "00000000-0000-7000-8000-000000000016",
+        "Entity": {
+          "ID": "00000000-0000-7000-8000-000000000016",
+          "Kind": "person",
+          "DisplayName": "J. R. R. Tolkien",
+          "SortName": "J. R. R. Tolkien",
+          "SearchKey": "j r r tolkien",
+          "NamePinned": false,
+          "MergedInto": null
+        },
+        "Absorb": null,
+        "Fingerprints": [
+          {
+            "Key": {
+              "Fingerprint": "fp-tolkien",
+              "ExtractorVersion": "v1",
+              "Ordinal": 0
+            },
+            "EntityID": "00000000-0000-7000-8000-000000000016",
+            "Method": "deterministic",
+            "Rule": "D1"
+          }
+        ],
+        "DeleteFingerprints": null,
+        "Credits": null,
+        "DeleteCredits": null,
+        "References": null,
+        "DeleteReferences": null
+      },
+      {
+        "EntityID": "00000000-0000-7000-8000-000000000017",
+        "Entity": {
+          "ID": "00000000-0000-7000-8000-000000000017",
+          "Kind": "person",
+          "DisplayName": "Kurt Vonnegut Jr.",
+          "SortName": "Kurt Vonnegut Jr.",
+          "SearchKey": "kurt vonnegut jr",
+          "NamePinned": false,
+          "MergedInto": null
+        },
+        "Absorb": null,
+        "Fingerprints": [
+          {
+            "Key": {
+              "Fingerprint": "fp-vonnegut-jr",
+              "ExtractorVersion": "v1",
+              "Ordinal": 0
+            },
+            "EntityID": "00000000-0000-7000-8000-000000000017",
+            "Method": "deterministic",
+            "Rule": "D1"
+          }
+        ],
+        "DeleteFingerprints": null,
+        "Credits": null,
+        "DeleteCredits": null,
+        "References": null,
+        "DeleteReferences": null
+      },
+      {
+        "EntityID": "00000000-0000-7000-8000-000000000018",
+        "Entity": {
+          "ID": "00000000-0000-7000-8000-000000000018",
+          "Kind": "person",
+          "DisplayName": "Kurt Vonnegut",
+          "SortName": "Kurt Vonnegut",
+          "SearchKey": "kurt vonnegut",
+          "NamePinned": false,
+          "MergedInto": null
+        },
+        "Absorb": null,
+        "Fingerprints": [
+          {
+            "Key": {
+              "Fingerprint": "fp-vonnegut",
+              "ExtractorVersion": "v1",
+              "Ordinal": 0
+            },
+            "EntityID": "00000000-0000-7000-8000-000000000018",
+            "Method": "deterministic",
+            "Rule": "D1"
+          }
+        ],
+        "DeleteFingerprints": null,
+        "Credits": null,
+        "DeleteCredits": null,
+        "References": null,
+        "DeleteReferences": null
+      }
+    ],
+    "credits": {
+      "1": "00000000-0000-7000-8000-000000000014 D2",
+      "10": "00000000-0000-7000-8000-000000000008 D1",
+      "11": "00000000-0000-7000-8000-000000000003 D1",
+      "12": "00000000-0000-7000-8000-000000000011 D1",
+      "13": "00000000-0000-7000-8000-000000000010 D1",
+      "14": "00000000-0000-7000-8000-000000000009 D1",
+      "15": "00000000-0000-7000-8000-000000000009 D1",
+      "16": "00000000-0000-7000-8000-000000000013 D1",
+      "17": "00000000-0000-7000-8000-000000000006 D1",
+      "18": "00000000-0000-7000-8000-000000000015 D1",
+      "19": "00000000-0000-7000-8000-000000000007 D1",
+      "2": "00000000-0000-7000-8000-000000000014 D2",
+      "20": "00000000-0000-7000-8000-000000000017 D1",
+      "21": "00000000-0000-7000-8000-000000000018 D1",
+      "22": "00000000-0000-7000-8000-000000000001 D1",
+      "23": "00000000-0000-0000-0000-000000000000 ",
+      "24": "00000000-0000-7000-8000-000000000002 D1",
+      "25": "00000000-0000-7000-8000-000000000012 D1",
+      "26": "00000000-0000-7000-8000-000000000016 D1",
+      "27": "00000000-0000-7000-8000-000000000004 D1",
+      "3": "00000000-0000-7000-8000-000000000005 typo",
+      "4": "00000000-0000-7000-8000-000000000005 typo",
+      "5": "00000000-0000-7000-8000-000000000005 D3:title",
+      "6": "00000000-0000-7000-8000-000000000005 D3:series",
+      "7": "00000000-0000-7000-8000-000000000005 typo",
+      "8": "00000000-0000-7000-8000-000000000008 D1",
+      "9": "00000000-0000-7000-8000-000000000005 D3:coauthor"
+    },
+    "report": {
+      "books": 25,
+      "buckets": {
+        "buckets": 6,
+        "books": 10,
+        "with_full_names": 2,
+        "with_full_names_books": 6,
+        "moved": 3,
+        "moved_by": {
+          "coauthor": 1,
+          "series": 1,
+          "title": 1
+        },
+        "moved_title_only": 1,
+        "conflicting": 1,
+        "samizdat_books": 1,
+        "samizdat_kept": 1,
+        "remaining": 7,
+        "emptied": 0,
+        "entities": 6,
+        "sizes": [
+          {
+            "label": "1",
+            "entities": 5,
+            "books": 5
+          },
+          {
+            "label": "2-5",
+            "entities": 1,
+            "books": 2
+          },
+          {
+            "label": "6-20",
+            "entities": 0,
+            "books": 0
+          },
+          {
+            "label": "21-100",
+            "entities": 0,
+            "books": 0
+          },
+          {
+            "label": "100+",
+            "entities": 0,
+            "books": 0
+          }
+        ]
+      },
+      "changes": 41,
+      "credits": 27,
+      "entities": 18,
+      "entities_by_kind": {
+        "collective": 1,
+        "person": 17
+      },
+      "fingerprints": 21,
+      "fingerprints_by_rule": {
+        "D1": 16,
+        "D2": 2,
+        "typo": 2
+      },
+      "ids": {
+        "inherited": 0,
+        "new": 18,
+        "merged": 0,
+        "orphaned": 0
+      },
+      "initials_entities": 2,
+      "legacy": {
+        "authors": 5,
+        "entities_per_author": [
+          {
+            "label": "1",
+            "entities": 5,
+            "books": 7
+          },
+          {
+            "label": "2",
+            "entities": 0,
+            "books": 0
+          },
+          {
+            "label": "3+",
+            "entities": 0,
+            "books": 0
+          }
+        ],
+        "top_split": [
+          {
+            "id": 100,
+            "entities": 1,
+            "books": 2
+          },
+          {
+            "id": 200,
+            "entities": 1,
+            "books": 2
+          },
+          {
+            "id": 201,
+            "entities": 1,
+            "books": 1
+          },
+          {
+            "id": 300,
+            "entities": 1,
+            "books": 1
+          },
+          {
+            "id": 301,
+            "entities": 1,
+            "books": 1
+          }
+        ],
+        "shared_entities": 1,
+        "authors_per_entity": [
+          {
+            "label": "1",
+            "entities": 3,
+            "books": 4
+          },
+          {
+            "label": "2",
+            "entities": 1,
+            "books": 6
+          },
+          {
+            "label": "3+",
+            "entities": 0,
+            "books": 0
+          }
+        ],
+        "top_shared": [
+          {
+            "id": "00000000-0000-7000-8000-000000000005",
+            "books": 6,
+            "legacy_authors": 2
+          }
+        ]
+      },
+      "no_entity": {
+        "placeholder": 1
+      },
+      "sizes": [
+        {
+          "label": "1",
+          "entities": 14,
+          "books": 14
+        },
+        {
+          "label": "2-5",
+          "entities": 3,
+          "books": 6
+        },
+        {
+          "label": "6-20",
+          "entities": 1,
+          "books": 6
+        },
+        {
+          "label": "21-100",
+          "entities": 0,
+          "books": 0
+        },
+        {
+          "label": "100+",
+          "entities": 0,
+          "books": 0
+        }
+      ],
+      "top": [
+        {
+          "id": "00000000-0000-7000-8000-000000000005",
+          "books": 6
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000008",
+          "books": 2
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000009",
+          "books": 2
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000014",
+          "books": 2
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000001",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000002",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000003",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000004",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000006",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000007",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000010",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000011",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000012",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000013",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000015",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000016",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000017",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000018",
+          "books": 1
+        }
+      ],
+      "typo_merges": 1,
+      "wikidata": {
+        "extract": "",
+        "named": 0,
+        "excluded": {},
+        "groups": 0,
+        "merges": {},
+        "script_conflicts": 0,
+        "shared_book": 0,
+        "references": 0,
+        "references_withheld": 0
+      }
+    },
+    "state": "credit {5 0} 00000000-0000-7000-8000-000000000005 D3:title\ncredit {6 0} 00000000-0000-7000-8000-000000000005 D3:series\ncredit {9 0} 00000000-0000-7000-8000-000000000005 D3:coauthor\nentity 00000000-0000-7000-8000-000000000001 Журнал Наука merged=-\nentity 00000000-0000-7000-8000-000000000002 Капитан merged=-\nentity 00000000-0000-7000-8000-000000000003 Алексей Иванов merged=-\nentity 00000000-0000-7000-8000-000000000004 Алексей Александрович Иванов merged=-\nentity 00000000-0000-7000-8000-000000000005 Алексей Иванов merged=-\nentity 00000000-0000-7000-8000-000000000006 Стивен Кинг merged=-\nentity 00000000-0000-7000-8000-000000000007 Стивен Кинг merged=-\nentity 00000000-0000-7000-8000-000000000008 Сергей Петрович Михайлов merged=-\nentity 00000000-0000-7000-8000-000000000009 Иван Петров merged=-\nentity 00000000-0000-7000-8000-000000000010 Иван Петрович Петров merged=-\nentity 00000000-0000-7000-8000-000000000011 Иван Сергеевич Петров merged=-\nentity 00000000-0000-7000-8000-000000000012 Аркадий Натанович Стругацкий merged=-\nentity 00000000-0000-7000-8000-000000000013 Л. Н. Толстой merged=-\nentity 00000000-0000-7000-8000-000000000014 Лев Николаевич Толстой merged=-\nentity 00000000-0000-7000-8000-000000000015 Stephen King merged=-\nentity 00000000-0000-7000-8000-000000000016 J. R. R. Tolkien merged=-\nentity 00000000-0000-7000-8000-000000000017 Kurt Vonnegut Jr. merged=-\nentity 00000000-0000-7000-8000-000000000018 Kurt Vonnegut merged=-\nfp {fp-captain v1 0} 00000000-0000-7000-8000-000000000002 D1\nfp {fp-co v1 0} 00000000-0000-7000-8000-000000000008 D1\nfp {fp-initials v1 0} 00000000-0000-7000-8000-000000000013 D1\nfp {fp-ivanov-other v1 0} 00000000-0000-7000-8000-000000000004 D1\nfp {fp-king v1 0} 00000000-0000-7000-8000-000000000006 D1\nfp {fp-king-en v1 0} 00000000-0000-7000-8000-000000000015 D1\nfp {fp-king-tagged v1 0} 00000000-0000-7000-8000-000000000007 D1\nfp {fp-nauka v1 0} 00000000-0000-7000-8000-000000000001 D1\nfp {fp-petrov v1 0} 00000000-0000-7000-8000-000000000009 D1\nfp {fp-petrov-p v1 0} 00000000-0000-7000-8000-000000000010 D1\nfp {fp-petrov-s v1 0} 00000000-0000-7000-8000-000000000011 D1\nfp {fp-right v1 0} 00000000-0000-7000-8000-000000000005 typo\nfp {fp-short v1 0} 00000000-0000-7000-8000-000000000003 D1\nfp {fp-strugatsky v1 0} 00000000-0000-7000-8000-000000000012 D1\nfp {fp-tolkien v1 0} 00000000-0000-7000-8000-000000000016 D1\nfp {fp-tolstoy v1 0} 00000000-0000-7000-8000-000000000014 D2\nfp {fp-tolstoy-upper v1 0} 00000000-0000-7000-8000-000000000014 D2\nfp {fp-typo v1 0} 00000000-0000-7000-8000-000000000005 typo\nfp {fp-vonnegut v1 0} 00000000-0000-7000-8000-000000000018 D1\nfp {fp-vonnegut-jr v1 0} 00000000-0000-7000-8000-000000000017 D1"
+  },
+  {
+    "units": null,
+    "credits": {
+      "1": "00000000-0000-7000-8000-000000000014 D2",
+      "10": "00000000-0000-7000-8000-000000000008 D1",
+      "11": "00000000-0000-7000-8000-000000000003 D1",
+      "12": "00000000-0000-7000-8000-000000000011 D1",
+      "13": "00000000-0000-7000-8000-000000000010 D1",
+      "14": "00000000-0000-7000-8000-000000000009 D1",
+      "15": "00000000-0000-7000-8000-000000000009 D1",
+      "16": "00000000-0000-7000-8000-000000000013 D1",
+      "17": "00000000-0000-7000-8000-000000000006 D1",
+      "18": "00000000-0000-7000-8000-000000000015 D1",
+      "19": "00000000-0000-7000-8000-000000000007 D1",
+      "2": "00000000-0000-7000-8000-000000000014 D2",
+      "20": "00000000-0000-7000-8000-000000000017 D1",
+      "21": "00000000-0000-7000-8000-000000000018 D1",
+      "22": "00000000-0000-7000-8000-000000000001 D1",
+      "23": "00000000-0000-0000-0000-000000000000 ",
+      "24": "00000000-0000-7000-8000-000000000002 D1",
+      "25": "00000000-0000-7000-8000-000000000012 D1",
+      "26": "00000000-0000-7000-8000-000000000016 D1",
+      "27": "00000000-0000-7000-8000-000000000004 D1",
+      "3": "00000000-0000-7000-8000-000000000005 typo",
+      "4": "00000000-0000-7000-8000-000000000005 typo",
+      "5": "00000000-0000-7000-8000-000000000005 D3:title",
+      "6": "00000000-0000-7000-8000-000000000005 D3:series",
+      "7": "00000000-0000-7000-8000-000000000005 typo",
+      "8": "00000000-0000-7000-8000-000000000008 D1",
+      "9": "00000000-0000-7000-8000-000000000005 D3:coauthor"
+    },
+    "report": {
+      "books": 25,
+      "buckets": {
+        "buckets": 6,
+        "books": 10,
+        "with_full_names": 2,
+        "with_full_names_books": 6,
+        "moved": 3,
+        "moved_by": {
+          "coauthor": 1,
+          "series": 1,
+          "title": 1
+        },
+        "moved_title_only": 1,
+        "conflicting": 1,
+        "samizdat_books": 1,
+        "samizdat_kept": 1,
+        "remaining": 7,
+        "emptied": 0,
+        "entities": 6,
+        "sizes": [
+          {
+            "label": "1",
+            "entities": 5,
+            "books": 5
+          },
+          {
+            "label": "2-5",
+            "entities": 1,
+            "books": 2
+          },
+          {
+            "label": "6-20",
+            "entities": 0,
+            "books": 0
+          },
+          {
+            "label": "21-100",
+            "entities": 0,
+            "books": 0
+          },
+          {
+            "label": "100+",
+            "entities": 0,
+            "books": 0
+          }
+        ]
+      },
+      "changes": 0,
+      "credits": 27,
+      "entities": 18,
+      "entities_by_kind": {
+        "collective": 1,
+        "person": 17
+      },
+      "fingerprints": 21,
+      "fingerprints_by_rule": {
+        "D1": 16,
+        "D2": 2,
+        "typo": 2
+      },
+      "ids": {
+        "inherited": 18,
+        "new": 0,
+        "merged": 0,
+        "orphaned": 0
+      },
+      "initials_entities": 2,
+      "legacy": {
+        "authors": 5,
+        "entities_per_author": [
+          {
+            "label": "1",
+            "entities": 5,
+            "books": 7
+          },
+          {
+            "label": "2",
+            "entities": 0,
+            "books": 0
+          },
+          {
+            "label": "3+",
+            "entities": 0,
+            "books": 0
+          }
+        ],
+        "top_split": [
+          {
+            "id": 100,
+            "entities": 1,
+            "books": 2
+          },
+          {
+            "id": 200,
+            "entities": 1,
+            "books": 2
+          },
+          {
+            "id": 201,
+            "entities": 1,
+            "books": 1
+          },
+          {
+            "id": 300,
+            "entities": 1,
+            "books": 1
+          },
+          {
+            "id": 301,
+            "entities": 1,
+            "books": 1
+          }
+        ],
+        "shared_entities": 1,
+        "authors_per_entity": [
+          {
+            "label": "1",
+            "entities": 3,
+            "books": 4
+          },
+          {
+            "label": "2",
+            "entities": 1,
+            "books": 6
+          },
+          {
+            "label": "3+",
+            "entities": 0,
+            "books": 0
+          }
+        ],
+        "top_shared": [
+          {
+            "id": "00000000-0000-7000-8000-000000000005",
+            "books": 6,
+            "legacy_authors": 2
+          }
+        ]
+      },
+      "no_entity": {
+        "placeholder": 1
+      },
+      "sizes": [
+        {
+          "label": "1",
+          "entities": 14,
+          "books": 14
+        },
+        {
+          "label": "2-5",
+          "entities": 3,
+          "books": 6
+        },
+        {
+          "label": "6-20",
+          "entities": 1,
+          "books": 6
+        },
+        {
+          "label": "21-100",
+          "entities": 0,
+          "books": 0
+        },
+        {
+          "label": "100+",
+          "entities": 0,
+          "books": 0
+        }
+      ],
+      "top": [
+        {
+          "id": "00000000-0000-7000-8000-000000000005",
+          "books": 6
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000008",
+          "books": 2
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000009",
+          "books": 2
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000014",
+          "books": 2
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000001",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000002",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000003",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000004",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000006",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000007",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000010",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000011",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000012",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000013",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000015",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000016",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000017",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000018",
+          "books": 1
+        }
+      ],
+      "typo_merges": 1,
+      "wikidata": {
+        "extract": "",
+        "named": 0,
+        "excluded": {},
+        "groups": 0,
+        "merges": {},
+        "script_conflicts": 0,
+        "shared_book": 0,
+        "references": 0,
+        "references_withheld": 0
+      }
+    },
+    "state": "credit {5 0} 00000000-0000-7000-8000-000000000005 D3:title\ncredit {6 0} 00000000-0000-7000-8000-000000000005 D3:series\ncredit {9 0} 00000000-0000-7000-8000-000000000005 D3:coauthor\nentity 00000000-0000-7000-8000-000000000001 Журнал Наука merged=-\nentity 00000000-0000-7000-8000-000000000002 Капитан merged=-\nentity 00000000-0000-7000-8000-000000000003 Алексей Иванов merged=-\nentity 00000000-0000-7000-8000-000000000004 Алексей Александрович Иванов merged=-\nentity 00000000-0000-7000-8000-000000000005 Алексей Иванов merged=-\nentity 00000000-0000-7000-8000-000000000006 Стивен Кинг merged=-\nentity 00000000-0000-7000-8000-000000000007 Стивен Кинг merged=-\nentity 00000000-0000-7000-8000-000000000008 Сергей Петрович Михайлов merged=-\nentity 00000000-0000-7000-8000-000000000009 Иван Петров merged=-\nentity 00000000-0000-7000-8000-000000000010 Иван Петрович Петров merged=-\nentity 00000000-0000-7000-8000-000000000011 Иван Сергеевич Петров merged=-\nentity 00000000-0000-7000-8000-000000000012 Аркадий Натанович Стругацкий merged=-\nentity 00000000-0000-7000-8000-000000000013 Л. Н. Толстой merged=-\nentity 00000000-0000-7000-8000-000000000014 Лев Николаевич Толстой merged=-\nentity 00000000-0000-7000-8000-000000000015 Stephen King merged=-\nentity 00000000-0000-7000-8000-000000000016 J. R. R. Tolkien merged=-\nentity 00000000-0000-7000-8000-000000000017 Kurt Vonnegut Jr. merged=-\nentity 00000000-0000-7000-8000-000000000018 Kurt Vonnegut merged=-\nfp {fp-captain v1 0} 00000000-0000-7000-8000-000000000002 D1\nfp {fp-co v1 0} 00000000-0000-7000-8000-000000000008 D1\nfp {fp-initials v1 0} 00000000-0000-7000-8000-000000000013 D1\nfp {fp-ivanov-other v1 0} 00000000-0000-7000-8000-000000000004 D1\nfp {fp-king v1 0} 00000000-0000-7000-8000-000000000006 D1\nfp {fp-king-en v1 0} 00000000-0000-7000-8000-000000000015 D1\nfp {fp-king-tagged v1 0} 00000000-0000-7000-8000-000000000007 D1\nfp {fp-nauka v1 0} 00000000-0000-7000-8000-000000000001 D1\nfp {fp-petrov v1 0} 00000000-0000-7000-8000-000000000009 D1\nfp {fp-petrov-p v1 0} 00000000-0000-7000-8000-000000000010 D1\nfp {fp-petrov-s v1 0} 00000000-0000-7000-8000-000000000011 D1\nfp {fp-right v1 0} 00000000-0000-7000-8000-000000000005 typo\nfp {fp-short v1 0} 00000000-0000-7000-8000-000000000003 D1\nfp {fp-strugatsky v1 0} 00000000-0000-7000-8000-000000000012 D1\nfp {fp-tolkien v1 0} 00000000-0000-7000-8000-000000000016 D1\nfp {fp-tolstoy v1 0} 00000000-0000-7000-8000-000000000014 D2\nfp {fp-tolstoy-upper v1 0} 00000000-0000-7000-8000-000000000014 D2\nfp {fp-typo v1 0} 00000000-0000-7000-8000-000000000005 typo\nfp {fp-vonnegut v1 0} 00000000-0000-7000-8000-000000000018 D1\nfp {fp-vonnegut-jr v1 0} 00000000-0000-7000-8000-000000000017 D1"
+  },
+  {
+    "units": [
+      {
+        "EntityID": "00000000-0000-7000-8000-000000000005",
+        "Entity": null,
+        "Absorb": [
+          {
+            "From": "00000000-0000-7000-8000-000000000004",
+            "To": "00000000-0000-7000-8000-000000000005",
+            "Method": "deterministic",
+            "Rule": "",
+            "SharedBooks": 1
+          }
+        ],
+        "Fingerprints": [
+          {
+            "Key": {
+              "Fingerprint": "fp-ivanov-other",
+              "ExtractorVersion": "v1",
+              "Ordinal": 0
+            },
+            "EntityID": "00000000-0000-7000-8000-000000000005",
+            "Method": "deterministic",
+            "Rule": "typo"
+          }
+        ],
+        "DeleteFingerprints": null,
+        "Credits": null,
+        "DeleteCredits": null,
+        "References": null,
+        "DeleteReferences": null
+      }
+    ],
+    "credits": {
+      "1": "00000000-0000-7000-8000-000000000014 D2",
+      "10": "00000000-0000-7000-8000-000000000008 D1",
+      "11": "00000000-0000-7000-8000-000000000003 D1",
+      "12": "00000000-0000-7000-8000-000000000011 D1",
+      "13": "00000000-0000-7000-8000-000000000010 D1",
+      "14": "00000000-0000-7000-8000-000000000009 D1",
+      "15": "00000000-0000-7000-8000-000000000009 D1",
+      "16": "00000000-0000-7000-8000-000000000013 D1",
+      "17": "00000000-0000-7000-8000-000000000006 D1",
+      "18": "00000000-0000-7000-8000-000000000015 D1",
+      "19": "00000000-0000-7000-8000-000000000007 D1",
+      "2": "00000000-0000-7000-8000-000000000014 D2",
+      "20": "00000000-0000-7000-8000-000000000017 D1",
+      "21": "00000000-0000-7000-8000-000000000018 D1",
+      "22": "00000000-0000-7000-8000-000000000001 D1",
+      "23": "00000000-0000-0000-0000-000000000000 ",
+      "24": "00000000-0000-7000-8000-000000000002 D1",
+      "25": "00000000-0000-7000-8000-000000000012 D1",
+      "26": "00000000-0000-7000-8000-000000000016 D1",
+      "27": "00000000-0000-7000-8000-000000000005 typo",
+      "3": "00000000-0000-7000-8000-000000000005 typo",
+      "4": "00000000-0000-7000-8000-000000000005 typo",
+      "5": "00000000-0000-7000-8000-000000000005 D3:title",
+      "6": "00000000-0000-7000-8000-000000000005 D3:series",
+      "7": "00000000-0000-7000-8000-000000000005 typo",
+      "8": "00000000-0000-7000-8000-000000000008 D1",
+      "9": "00000000-0000-7000-8000-000000000005 D3:coauthor"
+    },
+    "report": {
+      "books": 25,
+      "buckets": {
+        "buckets": 6,
+        "books": 10,
+        "with_full_names": 2,
+        "with_full_names_books": 6,
+        "moved": 3,
+        "moved_by": {
+          "coauthor": 1,
+          "series": 1,
+          "title": 1
+        },
+        "moved_title_only": 1,
+        "conflicting": 1,
+        "samizdat_books": 1,
+        "samizdat_kept": 1,
+        "remaining": 7,
+        "emptied": 0,
+        "entities": 6,
+        "sizes": [
+          {
+            "label": "1",
+            "entities": 5,
+            "books": 5
+          },
+          {
+            "label": "2-5",
+            "entities": 1,
+            "books": 2
+          },
+          {
+            "label": "6-20",
+            "entities": 0,
+            "books": 0
+          },
+          {
+            "label": "21-100",
+            "entities": 0,
+            "books": 0
+          },
+          {
+            "label": "100+",
+            "entities": 0,
+            "books": 0
+          }
+        ]
+      },
+      "changes": 2,
+      "credits": 27,
+      "entities": 17,
+      "entities_by_kind": {
+        "collective": 1,
+        "person": 16
+      },
+      "fingerprints": 21,
+      "fingerprints_by_rule": {
+        "D1": 15,
+        "D2": 2,
+        "typo": 3
+      },
+      "ids": {
+        "inherited": 17,
+        "new": 0,
+        "merged": 1,
+        "orphaned": 0
+      },
+      "initials_entities": 2,
+      "legacy": {
+        "authors": 5,
+        "entities_per_author": [
+          {
+            "label": "1",
+            "entities": 5,
+            "books": 7
+          },
+          {
+            "label": "2",
+            "entities": 0,
+            "books": 0
+          },
+          {
+            "label": "3+",
+            "entities": 0,
+            "books": 0
+          }
+        ],
+        "top_split": [
+          {
+            "id": 100,
+            "entities": 1,
+            "books": 2
+          },
+          {
+            "id": 200,
+            "entities": 1,
+            "books": 2
+          },
+          {
+            "id": 201,
+            "entities": 1,
+            "books": 1
+          },
+          {
+            "id": 300,
+            "entities": 1,
+            "books": 1
+          },
+          {
+            "id": 301,
+            "entities": 1,
+            "books": 1
+          }
+        ],
+        "shared_entities": 1,
+        "authors_per_entity": [
+          {
+            "label": "1",
+            "entities": 3,
+            "books": 4
+          },
+          {
+            "label": "2",
+            "entities": 1,
+            "books": 7
+          },
+          {
+            "label": "3+",
+            "entities": 0,
+            "books": 0
+          }
+        ],
+        "top_shared": [
+          {
+            "id": "00000000-0000-7000-8000-000000000005",
+            "books": 7,
+            "legacy_authors": 2
+          }
+        ]
+      },
+      "no_entity": {
+        "placeholder": 1
+      },
+      "sizes": [
+        {
+          "label": "1",
+          "entities": 13,
+          "books": 13
+        },
+        {
+          "label": "2-5",
+          "entities": 3,
+          "books": 6
+        },
+        {
+          "label": "6-20",
+          "entities": 1,
+          "books": 7
+        },
+        {
+          "label": "21-100",
+          "entities": 0,
+          "books": 0
+        },
+        {
+          "label": "100+",
+          "entities": 0,
+          "books": 0
+        }
+      ],
+      "top": [
+        {
+          "id": "00000000-0000-7000-8000-000000000005",
+          "books": 7
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000008",
+          "books": 2
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000009",
+          "books": 2
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000014",
+          "books": 2
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000001",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000002",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000003",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000006",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000007",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000010",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000011",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000012",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000013",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000015",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000016",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000017",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000018",
+          "books": 1
+        }
+      ],
+      "typo_merges": 1,
+      "wikidata": {
+        "extract": "",
+        "named": 0,
+        "excluded": {},
+        "groups": 0,
+        "merges": {},
+        "script_conflicts": 0,
+        "shared_book": 0,
+        "references": 0,
+        "references_withheld": 0
+      }
+    },
+    "state": "credit {5 0} 00000000-0000-7000-8000-000000000005 D3:title\ncredit {6 0} 00000000-0000-7000-8000-000000000005 D3:series\ncredit {9 0} 00000000-0000-7000-8000-000000000005 D3:coauthor\nentity 00000000-0000-7000-8000-000000000001 Журнал Наука merged=-\nentity 00000000-0000-7000-8000-000000000002 Капитан merged=-\nentity 00000000-0000-7000-8000-000000000003 Алексей Иванов merged=-\nentity 00000000-0000-7000-8000-000000000004 Алексей Александрович Иванов merged=00000000-0000-7000-8000-000000000005\nentity 00000000-0000-7000-8000-000000000005 Алексей Иванов merged=-\nentity 00000000-0000-7000-8000-000000000006 Стивен Кинг merged=-\nentity 00000000-0000-7000-8000-000000000007 Стивен Кинг merged=-\nentity 00000000-0000-7000-8000-000000000008 Сергей Петрович Михайлов merged=-\nentity 00000000-0000-7000-8000-000000000009 Иван Петров merged=-\nentity 00000000-0000-7000-8000-000000000010 Иван Петрович Петров merged=-\nentity 00000000-0000-7000-8000-000000000011 Иван Сергеевич Петров merged=-\nentity 00000000-0000-7000-8000-000000000012 Аркадий Натанович Стругацкий merged=-\nentity 00000000-0000-7000-8000-000000000013 Л. Н. Толстой merged=-\nentity 00000000-0000-7000-8000-000000000014 Лев Николаевич Толстой merged=-\nentity 00000000-0000-7000-8000-000000000015 Stephen King merged=-\nentity 00000000-0000-7000-8000-000000000016 J. R. R. Tolkien merged=-\nentity 00000000-0000-7000-8000-000000000017 Kurt Vonnegut Jr. merged=-\nentity 00000000-0000-7000-8000-000000000018 Kurt Vonnegut merged=-\nfp {fp-captain v1 0} 00000000-0000-7000-8000-000000000002 D1\nfp {fp-co v1 0} 00000000-0000-7000-8000-000000000008 D1\nfp {fp-initials v1 0} 00000000-0000-7000-8000-000000000013 D1\nfp {fp-ivanov-other v1 0} 00000000-0000-7000-8000-000000000005 typo\nfp {fp-king v1 0} 00000000-0000-7000-8000-000000000006 D1\nfp {fp-king-en v1 0} 00000000-0000-7000-8000-000000000015 D1\nfp {fp-king-tagged v1 0} 00000000-0000-7000-8000-000000000007 D1\nfp {fp-nauka v1 0} 00000000-0000-7000-8000-000000000001 D1\nfp {fp-petrov v1 0} 00000000-0000-7000-8000-000000000009 D1\nfp {fp-petrov-p v1 0} 00000000-0000-7000-8000-000000000010 D1\nfp {fp-petrov-s v1 0} 00000000-0000-7000-8000-000000000011 D1\nfp {fp-right v1 0} 00000000-0000-7000-8000-000000000005 typo\nfp {fp-short v1 0} 00000000-0000-7000-8000-000000000003 D1\nfp {fp-strugatsky v1 0} 00000000-0000-7000-8000-000000000012 D1\nfp {fp-tolkien v1 0} 00000000-0000-7000-8000-000000000016 D1\nfp {fp-tolstoy v1 0} 00000000-0000-7000-8000-000000000014 D2\nfp {fp-tolstoy-upper v1 0} 00000000-0000-7000-8000-000000000014 D2\nfp {fp-typo v1 0} 00000000-0000-7000-8000-000000000005 typo\nfp {fp-vonnegut v1 0} 00000000-0000-7000-8000-000000000018 D1\nfp {fp-vonnegut-jr v1 0} 00000000-0000-7000-8000-000000000017 D1\nmerge 00000000-0000-7000-8000-000000000004 00000000-0000-7000-8000-000000000005"
+  },
+  {
+    "units": [
+      {
+        "EntityID": "00000000-0000-7000-8000-000000000006",
+        "Entity": null,
+        "Absorb": [
+          {
+            "From": "00000000-0000-7000-8000-000000000015",
+            "To": "00000000-0000-7000-8000-000000000006",
+            "Method": "evidence",
+            "Rule": "wikidata:Q39829@wd-0123456789abcdef",
+            "SharedBooks": 1
+          }
+        ],
+        "Fingerprints": [
+          {
+            "Key": {
+              "Fingerprint": "fp-king-en",
+              "ExtractorVersion": "v1",
+              "Ordinal": 0
+            },
+            "EntityID": "00000000-0000-7000-8000-000000000006",
+            "Method": "evidence",
+            "Rule": "wikidata:Q39829@wd-0123456789abcdef"
+          }
+        ],
+        "DeleteFingerprints": null,
+        "Credits": null,
+        "DeleteCredits": null,
+        "References": [
+          {
+            "Key": {
+              "EntityID": "00000000-0000-7000-8000-000000000006",
+              "Source": "wikidata"
+            },
+            "Ref": "Q39829",
+            "Extract": "wd-0123456789abcdef",
+            "Pinned": false
+          }
+        ],
+        "DeleteReferences": null
+      },
+      {
+        "EntityID": "00000000-0000-7000-8000-000000000007",
+        "Entity": null,
+        "Absorb": null,
+        "Fingerprints": null,
+        "DeleteFingerprints": null,
+        "Credits": null,
+        "DeleteCredits": null,
+        "References": [
+          {
+            "Key": {
+              "EntityID": "00000000-0000-7000-8000-000000000007",
+              "Source": "wikidata"
+            },
+            "Ref": "Q39829",
+            "Extract": "wd-0123456789abcdef",
+            "Pinned": false
+          }
+        ],
+        "DeleteReferences": null
+      },
+      {
+        "EntityID": "00000000-0000-7000-8000-000000000016",
+        "Entity": null,
+        "Absorb": null,
+        "Fingerprints": null,
+        "DeleteFingerprints": null,
+        "Credits": null,
+        "DeleteCredits": null,
+        "References": [
+          {
+            "Key": {
+              "EntityID": "00000000-0000-7000-8000-000000000016",
+              "Source": "wikidata"
+            },
+            "Ref": "Q892",
+            "Extract": "wd-0123456789abcdef",
+            "Pinned": false
+          }
+        ],
+        "DeleteReferences": null
+      }
+    ],
+    "credits": {
+      "1": "00000000-0000-7000-8000-000000000014 D2",
+      "10": "00000000-0000-7000-8000-000000000008 D1",
+      "11": "00000000-0000-7000-8000-000000000003 D1",
+      "12": "00000000-0000-7000-8000-000000000011 D1",
+      "13": "00000000-0000-7000-8000-000000000010 D1",
+      "14": "00000000-0000-7000-8000-000000000009 D1",
+      "15": "00000000-0000-7000-8000-000000000009 D1",
+      "16": "00000000-0000-7000-8000-000000000013 D1",
+      "17": "00000000-0000-7000-8000-000000000006 D1",
+      "18": "00000000-0000-7000-8000-000000000006 wikidata:Q39829@wd-0123456789abcdef",
+      "19": "00000000-0000-7000-8000-000000000007 D1",
+      "2": "00000000-0000-7000-8000-000000000014 D2",
+      "20": "00000000-0000-7000-8000-000000000017 D1",
+      "21": "00000000-0000-7000-8000-000000000018 D1",
+      "22": "00000000-0000-7000-8000-000000000001 D1",
+      "23": "00000000-0000-0000-0000-000000000000 ",
+      "24": "00000000-0000-7000-8000-000000000002 D1",
+      "25": "00000000-0000-7000-8000-000000000012 D1",
+      "26": "00000000-0000-7000-8000-000000000016 D1",
+      "27": "00000000-0000-7000-8000-000000000005 typo",
+      "3": "00000000-0000-7000-8000-000000000005 typo",
+      "4": "00000000-0000-7000-8000-000000000005 typo",
+      "5": "00000000-0000-7000-8000-000000000005 D3:title",
+      "6": "00000000-0000-7000-8000-000000000005 D3:series",
+      "7": "00000000-0000-7000-8000-000000000005 typo",
+      "8": "00000000-0000-7000-8000-000000000008 D1",
+      "9": "00000000-0000-7000-8000-000000000005 D3:coauthor"
+    },
+    "report": {
+      "books": 25,
+      "buckets": {
+        "buckets": 6,
+        "books": 10,
+        "with_full_names": 2,
+        "with_full_names_books": 6,
+        "moved": 3,
+        "moved_by": {
+          "coauthor": 1,
+          "series": 1,
+          "title": 1
+        },
+        "moved_title_only": 1,
+        "conflicting": 1,
+        "samizdat_books": 1,
+        "samizdat_kept": 1,
+        "remaining": 7,
+        "emptied": 0,
+        "entities": 5,
+        "sizes": [
+          {
+            "label": "1",
+            "entities": 3,
+            "books": 3
+          },
+          {
+            "label": "2-5",
+            "entities": 2,
+            "books": 4
+          },
+          {
+            "label": "6-20",
+            "entities": 0,
+            "books": 0
+          },
+          {
+            "label": "21-100",
+            "entities": 0,
+            "books": 0
+          },
+          {
+            "label": "100+",
+            "entities": 0,
+            "books": 0
+          }
+        ]
+      },
+      "changes": 5,
+      "credits": 27,
+      "entities": 16,
+      "entities_by_kind": {
+        "collective": 1,
+        "person": 15
+      },
+      "fingerprints": 21,
+      "fingerprints_by_rule": {
+        "D1": 14,
+        "D2": 2,
+        "typo": 3,
+        "wikidata": 1
+      },
+      "ids": {
+        "inherited": 16,
+        "new": 0,
+        "merged": 1,
+        "orphaned": 0
+      },
+      "initials_entities": 2,
+      "legacy": {
+        "authors": 5,
+        "entities_per_author": [
+          {
+            "label": "1",
+            "entities": 5,
+            "books": 7
+          },
+          {
+            "label": "2",
+            "entities": 0,
+            "books": 0
+          },
+          {
+            "label": "3+",
+            "entities": 0,
+            "books": 0
+          }
+        ],
+        "top_split": [
+          {
+            "id": 100,
+            "entities": 1,
+            "books": 2
+          },
+          {
+            "id": 200,
+            "entities": 1,
+            "books": 2
+          },
+          {
+            "id": 201,
+            "entities": 1,
+            "books": 1
+          },
+          {
+            "id": 300,
+            "entities": 1,
+            "books": 1
+          },
+          {
+            "id": 301,
+            "entities": 1,
+            "books": 1
+          }
+        ],
+        "shared_entities": 2,
+        "authors_per_entity": [
+          {
+            "label": "1",
+            "entities": 1,
+            "books": 2
+          },
+          {
+            "label": "2",
+            "entities": 2,
+            "books": 9
+          },
+          {
+            "label": "3+",
+            "entities": 0,
+            "books": 0
+          }
+        ],
+        "top_shared": [
+          {
+            "id": "00000000-0000-7000-8000-000000000005",
+            "books": 7,
+            "legacy_authors": 2
+          },
+          {
+            "id": "00000000-0000-7000-8000-000000000006",
+            "books": 2,
+            "legacy_authors": 2
+          }
+        ]
+      },
+      "no_entity": {
+        "placeholder": 1
+      },
+      "sizes": [
+        {
+          "label": "1",
+          "entities": 11,
+          "books": 11
+        },
+        {
+          "label": "2-5",
+          "entities": 4,
+          "books": 8
+        },
+        {
+          "label": "6-20",
+          "entities": 1,
+          "books": 7
+        },
+        {
+          "label": "21-100",
+          "entities": 0,
+          "books": 0
+        },
+        {
+          "label": "100+",
+          "entities": 0,
+          "books": 0
+        }
+      ],
+      "top": [
+        {
+          "id": "00000000-0000-7000-8000-000000000005",
+          "books": 7
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000006",
+          "books": 2
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000008",
+          "books": 2
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000009",
+          "books": 2
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000014",
+          "books": 2
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000001",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000002",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000003",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000007",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000010",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000011",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000012",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000013",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000016",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000017",
+          "books": 1
+        },
+        {
+          "id": "00000000-0000-7000-8000-000000000018",
+          "books": 1
+        }
+      ],
+      "typo_merges": 1,
+      "wikidata": {
+        "extract": "wd-0123456789abcdef",
+        "named": 6,
+        "excluded": {
+          "initials": 1,
+          "namesake": 1,
+          "pseudonym": 1,
+          "short_name": 1
+        },
+        "groups": 1,
+        "merges": {
+          "cross_script": 1
+        },
+        "script_conflicts": 0,
+        "shared_book": 0,
+        "references": 3,
+        "references_withheld": 1
+      }
+    },
+    "state": "credit {5 0} 00000000-0000-7000-8000-000000000005 D3:title\ncredit {6 0} 00000000-0000-7000-8000-000000000005 D3:series\ncredit {9 0} 00000000-0000-7000-8000-000000000005 D3:coauthor\nentity 00000000-0000-7000-8000-000000000001 Журнал Наука merged=-\nentity 00000000-0000-7000-8000-000000000002 Капитан merged=-\nentity 00000000-0000-7000-8000-000000000003 Алексей Иванов merged=-\nentity 00000000-0000-7000-8000-000000000004 Алексей Александрович Иванов merged=00000000-0000-7000-8000-000000000005\nentity 00000000-0000-7000-8000-000000000005 Алексей Иванов merged=-\nentity 00000000-0000-7000-8000-000000000006 Стивен Кинг merged=-\nentity 00000000-0000-7000-8000-000000000007 Стивен Кинг merged=-\nentity 00000000-0000-7000-8000-000000000008 Сергей Петрович Михайлов merged=-\nentity 00000000-0000-7000-8000-000000000009 Иван Петров merged=-\nentity 00000000-0000-7000-8000-000000000010 Иван Петрович Петров merged=-\nentity 00000000-0000-7000-8000-000000000011 Иван Сергеевич Петров merged=-\nentity 00000000-0000-7000-8000-000000000012 Аркадий Натанович Стругацкий merged=-\nentity 00000000-0000-7000-8000-000000000013 Л. Н. Толстой merged=-\nentity 00000000-0000-7000-8000-000000000014 Лев Николаевич Толстой merged=-\nentity 00000000-0000-7000-8000-000000000015 Stephen King merged=00000000-0000-7000-8000-000000000006\nentity 00000000-0000-7000-8000-000000000016 J. R. R. Tolkien merged=-\nentity 00000000-0000-7000-8000-000000000017 Kurt Vonnegut Jr. merged=-\nentity 00000000-0000-7000-8000-000000000018 Kurt Vonnegut merged=-\nfp {fp-captain v1 0} 00000000-0000-7000-8000-000000000002 D1\nfp {fp-co v1 0} 00000000-0000-7000-8000-000000000008 D1\nfp {fp-initials v1 0} 00000000-0000-7000-8000-000000000013 D1\nfp {fp-ivanov-other v1 0} 00000000-0000-7000-8000-000000000005 typo\nfp {fp-king v1 0} 00000000-0000-7000-8000-000000000006 D1\nfp {fp-king-en v1 0} 00000000-0000-7000-8000-000000000006 wikidata:Q39829@wd-0123456789abcdef\nfp {fp-king-tagged v1 0} 00000000-0000-7000-8000-000000000007 D1\nfp {fp-nauka v1 0} 00000000-0000-7000-8000-000000000001 D1\nfp {fp-petrov v1 0} 00000000-0000-7000-8000-000000000009 D1\nfp {fp-petrov-p v1 0} 00000000-0000-7000-8000-000000000010 D1\nfp {fp-petrov-s v1 0} 00000000-0000-7000-8000-000000000011 D1\nfp {fp-right v1 0} 00000000-0000-7000-8000-000000000005 typo\nfp {fp-short v1 0} 00000000-0000-7000-8000-000000000003 D1\nfp {fp-strugatsky v1 0} 00000000-0000-7000-8000-000000000012 D1\nfp {fp-tolkien v1 0} 00000000-0000-7000-8000-000000000016 D1\nfp {fp-tolstoy v1 0} 00000000-0000-7000-8000-000000000014 D2\nfp {fp-tolstoy-upper v1 0} 00000000-0000-7000-8000-000000000014 D2\nfp {fp-typo v1 0} 00000000-0000-7000-8000-000000000005 typo\nfp {fp-vonnegut v1 0} 00000000-0000-7000-8000-000000000018 D1\nfp {fp-vonnegut-jr v1 0} 00000000-0000-7000-8000-000000000017 D1\nmerge 00000000-0000-7000-8000-000000000004 00000000-0000-7000-8000-000000000005\nmerge 00000000-0000-7000-8000-000000000015 00000000-0000-7000-8000-000000000006"
+  }
+]

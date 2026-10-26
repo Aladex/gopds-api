@@ -34,7 +34,7 @@ func (b *builder) groups() []*group {
 	for _, kg := range b.keys {
 		// A bucket every book moved out of disappears (§2.0); one merged
 		// into another component is no bucket of its own any more.
-		if kg.key.short() && kg.key.evidenceEligible() && len(kg.credits) > 0 && byRoot[kg.idx] == nil &&
+		if b.isBucketKey(kg.idx) && len(kg.credits) > 0 && byRoot[kg.idx] == nil &&
 			b.find(kg.idx) == kg.idx {
 			b.rep.Buckets.Emptied++
 		}
@@ -43,9 +43,18 @@ func (b *builder) groups() []*group {
 	for _, root := range sortedKeys(byRoot) {
 		g := byRoot[root]
 		slices.Sort(g.credits)
-		k := b.keys[root].key
-		g.bucket = k.short() && k.evidenceEligible()
+		g.bucket = b.isBucketKey(root)
 		out = append(out, g)
+	}
+	return out
+}
+
+// keysPerD2bRoot is how many keys each component has right after D2b, by
+// its root then.
+func (b *builder) keysPerD2bRoot() map[int]int {
+	out := map[int]int{}
+	for _, kg := range b.keys {
+		out[b.d2bRoot[kg.idx]]++
 	}
 	return out
 }
@@ -306,10 +315,11 @@ func (pl *planner) collectMembers(groups []*group) {
 // every book D3 moved.
 func (pl *planner) wantRows() {
 	b := pl.b
-	// A typo merge is told by the components before the Wikidata merge.
-	keysPerRoot := map[int]int{}
+	// A typo merge is told by the components before the Wikidata merge: one
+	// larger than the key's D2b component; a D2b union by that component.
+	keysPerTypo, keysPerD2b := map[int]int{}, b.keysPerD2bRoot()
 	for _, kg := range b.keys {
-		keysPerRoot[b.typoRoot[kg.idx]]++
+		keysPerTypo[b.typoRoot[kg.idx]]++
 	}
 	pl.wantFP = map[FPKey]AssignmentRow{}
 	for _, kg := range b.keys {
@@ -322,8 +332,10 @@ func (pl *planner) wantRows() {
 		switch {
 		case b.wdRule[kg.idx] != "":
 			rule, method = b.wdRule[kg.idx], MethodEvidence
-		case keysPerRoot[b.typoRoot[kg.idx]] > 1:
+		case keysPerTypo[b.typoRoot[kg.idx]] > keysPerD2b[b.d2bRoot[kg.idx]]:
 			rule = RuleTypo
+		case keysPerD2b[b.d2bRoot[kg.idx]] > 1:
+			rule = RuleD2b
 		case len(kg.fps) > 1:
 			rule = RuleD2
 		}

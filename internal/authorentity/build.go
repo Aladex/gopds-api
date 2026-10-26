@@ -111,6 +111,9 @@ type builder struct {
 	keys   []*keyGroup
 	byKey  map[string]*keyGroup
 	parent []int
+	// members are the keys of every component of more than one key, by
+	// root, kept by union; a root without an entry is its own only key.
+	members map[int][]int
 	// Evidence indexes over the automatic credits: the keys on each book,
 	// each book's title key, the books of each key per title, and per key
 	// its series and the keys it shares a book with (nil when none).
@@ -123,6 +126,12 @@ type builder struct {
 	movedTo   map[int]int // credit index → root of the full name it moved to
 	movedRule map[int]string
 
+	// d2bRoot is each key's root after D2b; d2bJoined reports a key of a
+	// component D2b joined, d2bRefused the keys of every word-sequence
+	// component it left apart.
+	d2bRoot    []int
+	d2bJoined  []bool
+	d2bRefused [][]int
 	// typoRoot is each key's root before the Wikidata merge; wdRule the
 	// rule of every key a Wikidata merge put into another component;
 	// fullBases the bases of the catalog's full names, once read.
@@ -135,14 +144,15 @@ type builder struct {
 // Build computes one pass over the input.
 func Build(in *Input) *Plan {
 	b := &builder{in: in, old: in.Old, fixed: map[int]*uuid.UUID{}, byKey: map[string]*keyGroup{},
-		bookKeys: map[int64][]int{}, titleOf: map[int64]string{}, titleKeys: map[string][]titleHit{},
-		movedTo: map[int]int{}, movedRule: map[int]string{}, wdRule: map[int]string{}}
+		members: map[int][]int{}, bookKeys: map[int64][]int{}, titleOf: map[int64]string{},
+		titleKeys: map[string][]titleHit{}, movedTo: map[int]int{}, movedRule: map[int]string{}, wdRule: map[int]string{}}
 	if b.old == nil {
 		b.old = NewState()
 	}
 	b.rep = newReport()
 	b.classify()
 	b.indexEvidence()
+	b.mergeFieldSplits()
 	b.mergeTypos()
 	b.mergeWikidata()
 	b.moveShortNameBooks()
@@ -297,6 +307,8 @@ func (b *builder) union(x, y int) {
 		rx, ry = ry, rx
 	}
 	b.parent[ry] = rx
+	b.members[rx] = slices.Concat(b.membersOf(rx), b.membersOf(ry))
+	delete(b.members, ry)
 }
 
 // titleHit is one book of a key under a title.
@@ -410,6 +422,101 @@ func (b *builder) keyEvidence(x, y int) []string {
 	return kinds
 }
 
+// minD2bWords is how few words a name D2b joins has: one word is no name
+// whose fields the source could have split. minD2bKeys is how few keys a
+// word-sequence component has: one key alone is no field split.
+const (
+	minD2bWords = 2
+	minD2bKeys  = 2
+)
+
+// mergeFieldSplits is D2b (§2.0): untagged person keys of one script and
+// suffix whose given, additional and family words read the same in that
+// order — the source put a field boundary elsewhere — are one name. Such a
+// component is joined whole or not at all: two of its keys credited on one
+// book are two people the catalog itself names, and the whole component
+// stays apart, whatever the order of its keys.
+func (b *builder) mergeFieldSplits() {
+	bySeq := map[string][]int{}
+	for _, g := range b.keys {
+		if seq, ok := g.key.wordSequence(); ok {
+			bySeq[seq] = append(bySeq[seq], g.idx)
+		}
+	}
+	r := &b.rep.D2b
+	b.d2bJoined = make([]bool, len(b.keys))
+	for _, seq := range sortedKeys(bySeq) {
+		keys := bySeq[seq]
+		n := len(keys)
+		if n < minD2bKeys {
+			continue
+		}
+		row := &r.Sizes[d2bSizeRow(n)]
+		row.Components++
+		row.Groups += n
+		row.PairEdges += b.countD2bEdges(keys)
+		if b.anyShareABook(keys) {
+			row.Refused++
+			r.Refused[D2bRefusedCoCredited]++
+			b.d2bRefused = append(b.d2bRefused, keys)
+			continue
+		}
+		for _, k := range keys[1:] {
+			b.union(keys[0], k)
+		}
+		for _, k := range keys {
+			b.d2bJoined[k] = true
+		}
+		row.Unions += n - 1
+	}
+	b.d2bRoot = make([]int, len(b.keys))
+	for i := range b.keys {
+		b.d2bRoot[i] = b.find(i)
+	}
+}
+
+// d2bSizeRow is the report row of a component of n keys.
+func d2bSizeRow(n int) int {
+	for i, s := range d2bSizes {
+		if n >= s.min && n <= s.max {
+			return i
+		}
+	}
+	return len(d2bSizes) - 1
+}
+
+// countD2bEdges counts every pair of a component by its class and returns
+// how many pairs there are.
+func (b *builder) countD2bEdges(keys []int) (edges int) {
+	for i, x := range keys {
+		for _, y := range keys[i+1:] {
+			kx, ky := &b.keys[x].key, &b.keys[y].key
+			class := D2bClassPlain
+			switch {
+			case kx.initials() || ky.initials():
+				class = D2bClassInitials
+			case kx.family == "" || kx.given == "" || ky.family == "" || ky.given == "":
+				class = D2bClassEmptyPart
+			}
+			b.rep.D2b.EdgesByClass[class]++
+			edges++
+		}
+	}
+	return edges
+}
+
+// anyShareABook reports two of the keys credited on one book.
+func (b *builder) anyShareABook(keys []int) bool {
+	for i, x := range keys {
+		for _, y := range keys[i+1:] {
+			if b.sharesABook(x, y) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // minTypoNames is how many full names of one name a typo needs: itself and
 // the one it misspells.
 const minTypoNames = 2
@@ -449,15 +556,12 @@ func (b *builder) mergeTypos() {
 		}
 		return p.y - q.y
 	})
-	members := map[int][]int{}
 	for _, e := range edges {
 		rx, ry := b.find(e.x), b.find(e.y)
-		if rx == ry || b.componentsShareABook(members, rx, ry) {
+		if rx == ry || b.componentsShareABook(rx, ry) {
 			continue
 		}
-		mx, my := membersOf(members, rx), membersOf(members, ry)
 		b.union(rx, ry)
-		members[b.find(rx)] = append(mx, my...)
 		b.rep.TypoMerges++
 	}
 }
@@ -488,18 +592,18 @@ func (b *builder) nearestTypo(x int, full []int) (best typoEdge, ties int) {
 }
 
 // membersOf are the keys of a component; a key alone is its own.
-func membersOf(members map[int][]int, root int) []int {
-	if m, ok := members[root]; ok {
+func (b *builder) membersOf(root int) []int {
+	if m, ok := b.members[root]; ok {
 		return m
 	}
 	return []int{root}
 }
 
 // componentsShareABook reports two components with keys credited on one
-// book.
-func (b *builder) componentsShareABook(members map[int][]int, rx, ry int) bool {
-	for _, x := range membersOf(members, rx) {
-		for _, y := range membersOf(members, ry) {
+// book: the D2b unions and the typo merges before it count.
+func (b *builder) componentsShareABook(rx, ry int) bool {
+	for _, x := range b.membersOf(rx) {
+		for _, y := range b.membersOf(ry) {
 			if b.sharesABook(x, y) {
 				return true
 			}
@@ -513,7 +617,7 @@ func (b *builder) componentsShareABook(members map[int][]int, rx, ry int) bool {
 func (b *builder) moveShortNameBooks() {
 	byBase := b.fullNamesByBase()
 	for _, g := range b.keys {
-		if !g.key.short() || !g.key.evidenceEligible() {
+		if !b.isBucketKey(g.idx) {
 			continue
 		}
 		b.rep.Buckets.Buckets++
@@ -527,6 +631,14 @@ func (b *builder) moveShortNameBooks() {
 		}
 	}
 	b.rep.Buckets.Remaining = b.rep.Buckets.Books - b.rep.Buckets.Moved
+}
+
+// isBucketKey reports a short name's bucket key: short, evidence-eligible,
+// and not in a component D2b joined — such a key is a full name the source
+// split into other fields, and D3 neither moves nor counts its books.
+func (b *builder) isBucketKey(k int) bool {
+	key := &b.keys[k].key
+	return key.short() && key.evidenceEligible() && !b.d2bJoined[k]
 }
 
 // moveShortNameBook decides one book of a short name: it moves when its

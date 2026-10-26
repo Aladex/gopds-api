@@ -65,8 +65,11 @@ const (
 
 // Rules of the automatic rows.
 const (
-	RuleD1   = "D1"
-	RuleD2   = "D2"
+	RuleD1 = "D1"
+	RuleD2 = "D2"
+	// RuleD2b is a name the source split into other fields: the same words
+	// in the same order (E4·D2b).
+	RuleD2b  = "D2b"
 	RuleTypo = "typo"
 	// ruleD3 prefixes the evidence kinds of a book moved out of a bucket:
 	// "D3:title", "D3:series+coauthor".

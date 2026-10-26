@@ -246,15 +246,16 @@ func (b *builder) hasPseudonyms(qid string) bool {
 // excluded is why a component named by an item stays out of its merges,
 // empty when it may merge: the item's pseudonyms (rule 3), an initial in the
 // display name (rule 4), a short name's bucket beside a full name (rule 5),
-// a namesake tag. A short or a tagged key is a component alone — the typo
-// merge joins full, untagged names only — so its root's key tells.
+// a namesake tag. A tagged key is a component alone — the typo merge joins
+// full, untagged names only, D2b untagged ones — so its root's key tells; a
+// short name's key may be in a D2b component, which stays out with it.
 func (b *builder) excluded(c *component, qid string) string {
 	switch {
 	case b.hasPseudonyms(qid):
 		return WikidataExcludedPseudonym
 	case b.initialsIn(c):
 		return WikidataExcludedInitials
-	case b.shortBesideFull(c.root):
+	case slices.ContainsFunc(c.keys, b.shortBesideFull):
 		return WikidataExcludedShortName
 	case b.keys[c.root].key.tagged != "":
 		return WikidataExcludedNamesake
