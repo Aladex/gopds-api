@@ -311,6 +311,7 @@ func (b *builder) plan() *Plan {
 		p.revivals = b.revivalOutcomes(groups)
 	}
 	b.report(p, groups, pl.members, pl.wantFP)
+	b.reportWidenedSplits(p)
 	p.Report = b.rep
 	p.Report.Changes = p.Changes()
 	return p

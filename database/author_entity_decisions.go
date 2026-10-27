@@ -101,7 +101,8 @@ type MergeDecisionInput struct {
 }
 
 // InsertMergeDecision inserts a same decision on a candidate with its
-// members and returns its id. Merge runs insert theirs through the
+// members and the books it is about (RecordMergeDecisionBooks), in the
+// caller's transaction, and returns its id. Merge runs insert theirs through the
 // compare-and-insert of E4d; this is the plain insert under it.
 func InsertMergeDecision(ctx context.Context, tx pg.DBI, in *MergeDecisionInput) (int64, error) {
 	c := &in.Candidate
@@ -120,6 +121,9 @@ func InsertMergeDecision(ctx context.Context, tx pg.DBI, in *MergeDecisionInput)
 		return 0, fmt.Errorf("inserting a merge decision: %w", err)
 	}
 	if err := insertDecisionMembers(ctx, tx, id, c.MembersA, c.MembersB); err != nil {
+		return 0, err
+	}
+	if err := RecordMergeDecisionBooks(ctx, tx, id); err != nil {
 		return 0, err
 	}
 	return id, nil
@@ -157,9 +161,24 @@ var ErrMergeDecisionNotLive = errors.New("database: the merge decision is not a 
 // RevokeMergeDecision is an administrator's revoke of a same decision, in
 // the caller's transaction: the decision is revoked and a revoke of its
 // digest, with its members, takes its place as the live row. It returns the
-// revoke's id. The next pass splits the pair (§5.2); the veto comes with
-// E4b-3.
-func RevokeMergeDecision(ctx context.Context, tx pg.DBI, decisionID, actor int64) (int64, error) {
+// revoke's id. The next pass splits the pair (§5.2), and the revoke's veto
+// keeps it apart (§4.11).
+func RevokeMergeDecision(ctx context.Context, db pg.DBI, decisionID, actor int64) (int64, error) {
+	// The revoke, its members and its veto land together or not at all: a
+	// caller without a transaction gets one.
+	if conn, ok := db.(*pg.DB); ok {
+		var id int64
+		err := conn.RunInTransaction(ctx, func(tx *pg.Tx) error {
+			var err error
+			id, err = revokeMergeDecision(ctx, tx, decisionID, actor)
+			return err
+		})
+		return id, err
+	}
+	return revokeMergeDecision(ctx, db, decisionID, actor)
+}
+
+func revokeMergeDecision(ctx context.Context, tx pg.DBI, decisionID, actor int64) (int64, error) {
 	res, err := tx.ExecContext(ctx, `
 		UPDATE public.author_entity_merge_decision SET revoked_at = now(), revoked_by_user_id = nullif(?, 0)
 		WHERE id = ? AND outcome = 'same' AND revoked_at IS NULL`, actor, decisionID)
@@ -173,7 +192,7 @@ func RevokeMergeDecision(ctx context.Context, tx pg.DBI, decisionID, actor int64
 	if _, err = tx.QueryOneContext(ctx, pg.Scan(&revokeID), `
 		INSERT INTO public.author_entity_merge_decision (digest, config_version, kind, script, item_kind, credit_id,
 			credit_ordinal, members_sha256, input_sha256, outcome, source, created_by_user_id)
-		SELECT digest, config_version, kind, script, item_kind, credit_id, credit_ordinal, members_sha256,
+		SELECT digest, NULL, kind, script, item_kind, credit_id, credit_ordinal, members_sha256,
 			input_sha256, 'revoked', 'manual', nullif(?, 0)
 		FROM public.author_entity_merge_decision WHERE id = ? RETURNING id`, actor, decisionID); err != nil {
 		return 0, fmt.Errorf("inserting the revoke: %w", err)
@@ -184,6 +203,16 @@ func RevokeMergeDecision(ctx context.Context, tx pg.DBI, decisionID, actor int64
 		SELECT ?, side, source_fingerprint, extractor_version, ordinal
 		FROM public.author_entity_merge_decision_member WHERE decision_id = ?`, revokeID, decisionID); err != nil {
 		return 0, fmt.Errorf("copying the revoked members: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO public.author_entity_merge_decision_book (decision_id, side, book_id, source_fingerprint)
+		SELECT ?, side, book_id, source_fingerprint
+		FROM public.author_entity_merge_decision_book WHERE decision_id = ?`, revokeID, decisionID); err != nil {
+		return 0, fmt.Errorf("copying the revoked decision's books: %w", err)
+	}
+	// The revoke is a durable veto (§4.11): no pass joins the pair again.
+	if _, err = recordMergeVeto(ctx, tx, revokeID, actor); err != nil {
+		return 0, err
 	}
 	return revokeID, nil
 }
@@ -267,6 +296,8 @@ func loadModelMergeMembers(ctx context.Context, db pg.DBI, s *authorentity.State
 type MergeDecisionWrite struct {
 	States   int `json:"states"`
 	Revivals int `json:"revivals"`
+	// VetoStates are the veto states written (E4b-3).
+	VetoStates int `json:"veto_states,omitempty"`
 }
 
 // WriteMergeDecisionStates stores what the pass did with each decision and

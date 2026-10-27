@@ -224,6 +224,14 @@ func deleteBooksWithLayer(tx pg.DBI, ids []int64) (int, error) {
 		return 0, nil
 	}
 	books := pg.Array(ids)
+	// The author layer exclusively, right after the books and before any
+	// row whose deletion marks an entity build: a fenced build holds the
+	// layer shared and then takes the marks SHARE, so a deletion that marked
+	// first and waited for the layer second would deadlock with it (E4b-2
+	// review). author_layer_delete_books takes it again, a no-op.
+	if err := lockAuthorLayerExclusive(context.Background(), tx); err != nil {
+		return 0, err
+	}
 	deleteRelated := []string{
 		"DELETE FROM favorite_books WHERE book_id = ANY (?)",
 		"DELETE FROM book_collection_books WHERE book_id = ANY (?)",

@@ -188,8 +188,10 @@ var (
 	// (step "start") and once it holds the census lock ("locked"); a test
 	// holds a worker there.
 	authorEntityCensusHoldHook func(runID int64, step string)
-	// authorEntityLoadHook runs after each load of the plan's snapshot.
+	// authorEntityLoadHook runs after each load of the plan's snapshot;
+	// authorEntityReadHook once the read transaction has its snapshot.
 	authorEntityLoadHook func(step string)
+	authorEntityReadHook func(tx *pg.Tx)
 )
 
 // The loads of the plan's snapshot, as authorEntityLoadHook names them.
@@ -198,6 +200,7 @@ const (
 	AuthorEntityLoadState     = "state"
 	AuthorEntityLoadWikidata  = "wikidata"
 	AuthorEntityLoadDecisions = "decisions"
+	AuthorEntityLoadVetoes    = "vetoes"
 	AuthorEntityLoadCards     = "cards"
 )
 
@@ -211,7 +214,7 @@ const authorEntityFenceRefused = "refused"
 func AuthorEntityBuildStatuses() []string {
 	return []string{AuthorEntityCensusErrorGenerate, AuthorEntityCensusErrorCardLoad, AuthorEntityCensusErrorSeal,
 		AuthorEntityCensusErrorWrite, AuthorEntityBuildErrorCensus, authorEntityFenceRefused,
-		AuthorEntityBuildErrorInputMoved}
+		AuthorEntityBuildErrorInputMoved, AuthorEntityBuildErrorVetoOverlap}
 }
 
 // loaded runs the test hook after a load of the plan's snapshot.
@@ -288,6 +291,12 @@ const authorEntityCensusRecordTimeout = 10 * time.Second
 // No statement of the apply transaction runs away.
 const authorEntityStatementTimeout = "5min"
 
+// authorEntityReadStatementTimeout bounds each statement of the plan's read
+// (E4b-2 review P3): the longest, the credits' load, takes ≈ 16 s on prod,
+// and the bound stays well below the worker's five-minute lease. A wait for
+// a lock is bounded by the worker's lock timeout, below it.
+const authorEntityReadStatementTimeout = 90 * time.Second
+
 // RunOnce does one attempt of the active pass: plans it and writes it whole,
 // or writes nothing. It reports whether there was a pass to attempt.
 func (l *AuthorEntityBuildLoop) RunOnce(ctx context.Context) (bool, error) {
@@ -305,6 +314,9 @@ func (l *AuthorEntityBuildLoop) RunOnce(ctx context.Context) (bool, error) {
 	}
 	if err != nil {
 		return true, err
+	}
+	if overlaps := p.plan.VetoOverlaps(); len(overlaps) > 0 {
+		return true, l.refuseOverlap(ctx, run.ID, overlaps)
 	}
 	if authorEntityBeforeApplyHook != nil {
 		authorEntityBeforeApplyHook()
@@ -335,6 +347,26 @@ func (l *AuthorEntityBuildLoop) RunOnce(ctx context.Context) (bool, error) {
 		Count: int(p.changes), Worker: authorEntityBuildName,
 	})
 	return true, nil
+}
+
+// AuthorEntityBuildErrorVetoOverlap is a pass refused whole because the two
+// sides of a live veto share a fingerprint: no pass can keep them apart
+// (§4.11, round 5). It stays refused until an administrator retires or
+// re-anchors the veto.
+const AuthorEntityBuildErrorVetoOverlap = "veto_overlap"
+
+// refuseOverlap fails the pass veto_overlap, its report naming each veto
+// and the fingerprints its sides share; nothing of the pass is written.
+func (l *AuthorEntityBuildLoop) refuseOverlap(ctx context.Context, runID int64, overlaps []authorentity.VetoOverlap) error {
+	raw, err := json.Marshal(map[string][]authorentity.VetoOverlap{"veto_overlaps": overlaps})
+	if err != nil {
+		return err
+	}
+	LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{
+		Name: AuthorMetadataEventEntityBuildStepFailed, Stage: AuthorMetadataStageEntityBuild, RunID: runID,
+		Status: AuthorEntityBuildErrorVetoOverlap, Count: len(overlaps), Worker: authorEntityBuildName,
+	})
+	return database.FailAuthorEntityBuildReport(ctx, l.db, runID, l.owner, AuthorEntityBuildErrorVetoOverlap, raw)
 }
 
 // refuse counts a refused attempt of the pass; the third in a row fails it.
@@ -385,8 +417,12 @@ func (l *AuthorEntityBuildLoop) readPlan(ctx context.Context) (*planInput, error
 	r := &planInput{}
 	err := l.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
 		var err error
-		if r.snapshot, err = database.SnapshotAuthorEntityPlan(ctx, tx); err != nil {
+		if r.snapshot, err = database.SnapshotAuthorEntityPlan(ctx, tx, authorEntityReadStatementTimeout,
+			l.cfg.LockTimeout); err != nil {
 			return err
+		}
+		if authorEntityReadHook != nil {
+			authorEntityReadHook(tx)
 		}
 		in, err := database.LoadAuthorEntityInput(ctx, tx)
 		if err != nil {
@@ -407,6 +443,10 @@ func (l *AuthorEntityBuildLoop) readPlan(ctx context.Context) (*planInput, error
 				return err
 			}
 			loaded(AuthorEntityLoadDecisions)
+			if in.Vetoes, in.VetoBooks, err = database.LoadMergeVetoes(ctx, tx); err != nil {
+				return err
+			}
+			loaded(AuthorEntityLoadVetoes)
 		}
 		r.loaded = time.Now()
 		r.plan = authorentity.Build(in)
@@ -590,6 +630,14 @@ func (l *AuthorEntityBuildLoop) apply(ctx context.Context, run *database.AuthorE
 				return err
 			}
 			p.decisions = w
+		}
+		// What the pass found of each live veto (E4b-3).
+		if len(p.plan.VetoStates()) > 0 {
+			n, err := database.WriteMergeVetoStates(ctx, tx, run.ID, p.plan)
+			if err != nil {
+				return err
+			}
+			p.decisions.VetoStates = n
 		}
 		// Last before the completion: whatever the attempt wrote rolls back
 		// whole when the fence refuses it.

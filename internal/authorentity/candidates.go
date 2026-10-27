@@ -564,6 +564,8 @@ func (b *builder) pairReason(it *candItem) string {
 // a bucket, a shared book, a namesake tag, a manual row, a pen name.
 func (b *builder) sidesReason(x, y *candSide) string {
 	switch {
+	case len(b.vetoOf) > 0 && b.vetoSidesOfKeys(x.keys).apart(b.vetoSidesOfKeys(y.keys)):
+		return ExcludedRevokedPair
 	case x.bucket || y.bucket:
 		return ExcludedBucketSide
 	case sharesBooks(x.books, y.books):
@@ -658,6 +660,8 @@ func (b *builder) bucketItems(sides map[int]*candSide) []*candItem {
 			for _, full := range fulls {
 				it := &candItem{kind: CandidateBucket, script: s.script, a: s, b: full, credit: ci}
 				switch {
+				case b.creditVetoedFrom(ci, full.keys):
+					it.reason = ExcludedRevokedPair
 				case len(fulls) > maxCandidatePartners:
 					it.reason = ExcludedPartnerCap
 				case slices.Contains(full.books, book):

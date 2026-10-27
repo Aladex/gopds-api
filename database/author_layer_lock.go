@@ -48,3 +48,13 @@ func lockAuthorLayerShared(ctx context.Context, conn pg.DBI) error {
 	}
 	return nil
 }
+
+// lockAuthorLayerExclusive takes the layer lock exclusively, as the deletion
+// of a book's layer does (author_layer_delete_books).
+func lockAuthorLayerExclusive(ctx context.Context, conn pg.DBI) error {
+	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_xact_lock(?, ?)`,
+		authorLayerLockClass, authorLayerLockKey); err != nil {
+		return fmt.Errorf("locking the author layer exclusively: %w", err)
+	}
+	return nil
+}

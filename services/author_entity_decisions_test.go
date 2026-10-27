@@ -35,6 +35,7 @@ func (c *entityCatalog) decideSwap() int64 {
 		SELECT d.id, m.side, m.source_fingerprint, m.extractor_version, m.ordinal
 		FROM author_entity_merge_candidate_member m JOIN author_entity_merge_decision d ON d.digest = m.digest
 		WHERE d.id = ?`, id)
+	require.NoError(c.t, database.RecordMergeDecisionBooks(context.Background(), c.db, id))
 	return id
 }
 
@@ -58,6 +59,7 @@ func (c *entityCatalog) decideBetween(x, y byte) int64 {
 			ordinal)
 		SELECT ?, side, source_fingerprint, extractor_version, ordinal
 		FROM author_entity_merge_candidate_member WHERE digest = ?`, id, digest)
+	require.NoError(c.t, database.RecordMergeDecisionBooks(context.Background(), c.db, id))
 	return id
 }
 

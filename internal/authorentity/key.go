@@ -47,6 +47,10 @@ type nameKey struct {
 	// tagged is the fingerprint of a credit with a namesake tag "(N)": such
 	// a key is its fingerprint's own, never shared (§2.0).
 	tagged string
+	// veto is the part a live veto gives the credits of a key group that
+	// held both of its sides (§4.11): the sides, apart, are key groups of
+	// their own.
+	veto string
 }
 
 // base is the key without its additional part: the short name's bucket and
@@ -80,8 +84,14 @@ func (k *nameKey) evidenceEligible() bool {
 }
 
 func (k *nameKey) String() string {
-	return k.kind + "|" + k.script + "|" + k.family + "|" + k.given + "|" + k.additional + "|" + k.suffix + "|" +
+	s := k.kind + "|" + k.script + "|" + k.family + "|" + k.given + "|" + k.additional + "|" + k.suffix + "|" +
 		k.name + "|" + k.tagged
+	// Only a veto part extends the key: without one, keys and their order
+	// are what they were before vetoes.
+	if k.veto != "" {
+		s += "|veto:" + k.veto
+	}
+	return s
 }
 
 // keyOf is a credit's key. A collective is keyed by its selected name; a

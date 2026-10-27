@@ -55,6 +55,11 @@ type Input struct {
 	Reference *Reference
 	// Decisions are the live merge decisions (E4b): same ones and revokes.
 	Decisions []MergeDecision
+	// Vetoes are the live vetoes (E4b-3); VetoBooks the raw fingerprints of
+	// every current author credit of each book a veto recorded (a book
+	// without current credits is absent).
+	Vetoes    []MergeVeto
+	VetoBooks map[int64][]string
 }
 
 // Methods of the stored rows (§3).

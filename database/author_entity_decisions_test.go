@@ -44,6 +44,10 @@ func (f *authorSchemaFixture) refused(query string, params ...interface{}) error
 func TestMergeDecisionsAreHistory(t *testing.T) {
 	f := withAuthorSchemaTx(t)
 	ctx := context.Background()
+	// The sides are credited on a book each: what the decision is about.
+	for _, fill := range []byte{0x10, 0x11} {
+		f.displayCredit(f.snapshot(&snapshotSpec{book: f.book(), extractor: "v1"}), "author", 0, "fixture", fill)
+	}
 	id, err := InsertMergeDecision(ctx, f.tx, &MergeDecisionInput{Candidate: decisionCandidate(0x10),
 		Source: authorentity.MethodModel})
 	require.NoError(t, err)
@@ -57,6 +61,10 @@ func TestMergeDecisionsAreHistory(t *testing.T) {
 	restrict(f.refused(`UPDATE author_entity_merge_decision SET kind = 'initials' WHERE id = ?`, id))
 	restrict(f.refused(`UPDATE author_entity_merge_decision_member SET side = 'b' WHERE decision_id = ?`, id))
 	restrict(f.refused(`DELETE FROM author_entity_merge_decision_member WHERE decision_id = ?`, id))
+	restrict(f.refused(`UPDATE author_entity_merge_decision_book SET side = 'b' WHERE decision_id = ?`, id))
+	restrict(f.refused(`DELETE FROM author_entity_merge_decision_book WHERE decision_id = ?`, id))
+	assert.Equal(t, 2, f.count(`SELECT count(*) FROM author_entity_merge_decision_book WHERE decision_id = ?`, id),
+		"one book a side")
 	// A second live decision of one digest is refused.
 	f.exec(`SAVEPOINT duplicate`)
 	_, err = InsertMergeDecision(ctx, f.tx, &MergeDecisionInput{Candidate: decisionCandidate(0x10), Source: "model"})
@@ -71,8 +79,17 @@ func TestMergeDecisionsAreHistory(t *testing.T) {
 		ItemKind: c.ItemKind, Outcome: authorentity.DecisionSame, MembersSHA256: c.MembersSHA256,
 		MembersA: c.MembersA, MembersB: c.MembersB}, live[0])
 
+	// A model decision of a merge configuration (E4d writes it); an
+	// administrator's revoke carries no configuration version.
+	f.exec(`ALTER TABLE author_entity_merge_decision DISABLE TRIGGER author_entity_merge_decision_history`)
+	f.exec(`UPDATE author_entity_merge_decision SET config_version = 'merge-config-v1' WHERE id = ?`, id)
+	f.exec(`ALTER TABLE author_entity_merge_decision ENABLE TRIGGER author_entity_merge_decision_history`)
 	revoke, err := RevokeMergeDecision(ctx, f.tx, id, 0)
 	require.NoError(t, err)
+	var version *string
+	_, err = f.tx.QueryOne(pg.Scan(&version), `SELECT config_version FROM author_entity_merge_decision WHERE id = ?`, revoke)
+	require.NoError(t, err)
+	assert.Nil(t, version, "the revoke kept the decision's configuration version")
 	_, err = RevokeMergeDecision(ctx, f.tx, id, 0)
 	assert.ErrorIs(t, err, ErrMergeDecisionNotLive)
 	_, err = RevokeMergeDecision(ctx, f.tx, revoke, 0)
@@ -121,4 +138,43 @@ func TestTheOwningGenerationIsTheNewestMerge(t *testing.T) {
 	f.exec(`UPDATE author_entity SET merged_into = NULL WHERE id = ?`, x)
 	logRow("model", `{"decision_ids": [8]}`)
 	assert.Empty(t, state(), "a live entity is no merge")
+}
+
+// A decision a side of which is credited on no book is refused at insert;
+// one written without its books (by hand, as before migration 65) cannot be
+// revoked into a veto: the revoke is refused whole, the decision stays live
+// and no veto is written (fail closed).
+func TestADecisionWithoutBooksIsRefused(t *testing.T) {
+	scratch := jobsDB(t)
+	ctx := context.Background()
+	setup, err := scratch.Begin()
+	require.NoError(t, err)
+	next := authorSchemaIDBase
+	f := &authorSchemaFixture{t: t, tx: setup, next: &next}
+	// Side a is credited; side b's fingerprint is credited nowhere.
+	f.displayCredit(f.snapshot(&snapshotSpec{book: f.book(), extractor: "v1"}), "author", 0, "fixture", 0x20)
+	f.exec(`SAVEPOINT refused`)
+	_, err = InsertMergeDecision(ctx, setup, &MergeDecisionInput{Candidate: decisionCandidate(0x20),
+		Source: authorentity.MethodModel})
+	require.ErrorIs(t, err, ErrMergeDecisionSideUnrecorded)
+	f.exec(`ROLLBACK TO SAVEPOINT refused`)
+	// The same decision by hand, without its books.
+	c := decisionCandidate(0x20)
+	id := f.returningID(`INSERT INTO author_entity_merge_decision (digest, kind, script, item_kind, members_sha256,
+		input_sha256, outcome, source) VALUES (?, ?, ?, ?, ?, ?, 'same', 'model') RETURNING id`,
+		c.Digest[:], c.Kind, c.Script, c.ItemKind, c.MembersSHA256[:], c.InputSHA256[:])
+	require.NoError(t, insertDecisionMembers(ctx, setup, id, c.MembersA, c.MembersB))
+	f.displayCredit(f.snapshot(&snapshotSpec{book: f.book(), extractor: "v1"}), "author", 0, "fixture", 0x21)
+	require.NoError(t, setup.Commit())
+
+	_, err = RevokeMergeDecision(ctx, scratch, id, 0)
+	require.ErrorIs(t, err, ErrMergeVetoSideUnrecorded)
+	var live, vetoes int
+	_, err = scratch.QueryOne(pg.Scan(&live), `SELECT count(*) FROM author_entity_merge_decision
+		WHERE id = ? AND revoked_at IS NULL`, id)
+	require.NoError(t, err)
+	assert.Equal(t, 1, live, "the refused revoke revoked the decision")
+	_, err = scratch.QueryOne(pg.Scan(&vetoes), `SELECT count(*) FROM author_entity_merge_veto`)
+	require.NoError(t, err)
+	assert.Zero(t, vetoes)
 }

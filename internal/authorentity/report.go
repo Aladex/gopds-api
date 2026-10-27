@@ -28,6 +28,8 @@ type Report struct {
 	Candidates CandidateReport `json:"merge_candidates"`
 	// Model is the decision step (E4b); absent from a pass without one.
 	Model *ModelReport `json:"model,omitempty"`
+	// Veto is what the live vetoes did (E4b-3); absent without a veto.
+	Veto *VetoReport `json:"veto,omitempty"`
 	// TypoMerges counts the patronymic typos merged on evidence.
 	TypoMerges int            `json:"typo_merges"`
 	NoEntity   map[string]int `json:"no_entity"`
@@ -71,8 +73,12 @@ const (
 	D2bClassEmptyPart = "empty_part"
 )
 
-// D2bRefusedCoCredited is a component two of whose keys share a book.
-const D2bRefusedCoCredited = "co_credited"
+// D2bRefusedCoCredited is a component two of whose keys share a book;
+// D2bRefusedVetoed one holding both sides of a live veto (E4b-3).
+const (
+	D2bRefusedCoCredited = "co_credited"
+	D2bRefusedVetoed     = "vetoed"
+)
 
 // d2bSizes are the rows of the D2b report by component size.
 var d2bSizes = []struct {

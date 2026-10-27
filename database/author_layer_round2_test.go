@@ -32,9 +32,10 @@ func (g *pauseAfterGenreLinks) Exec(q interface{}, p ...interface{}) (pg.Result,
 	return r, err
 }
 
-// The reviewer's B9 probe: a book of the same archive committed while the
+// The reviewer's B9 probe: a book of the same archive written while the
 // deletion runs is not part of it. The deletion deletes exactly the books it
-// locked, so it never reaches a book whose links it did not clean up.
+// locked, so it never reaches a book whose links it did not clean up; a
+// writer of the author layer now waits for it (E4b-2 review).
 func TestArchiveDeletionTargetsOnlyTheBooksItLocked(t *testing.T) {
 	s := jobsDB(t)
 	storeDB = s
@@ -67,15 +68,28 @@ func TestArchiveDeletionTargetsOnlyTheBooksItLocked(t *testing.T) {
 		t.Fatal("the deletion never finished its legacy cleanup")
 	}
 
+	// The deletion holds the author layer from right after its book locks
+	// (E4b-2 review: before any row that marks an entity build), so a writer
+	// of a book of the same archive waits for it and lands after it.
 	tx, err := s.Begin()
 	require.NoError(t, err)
 	writer := &authorSchemaFixture{t: t, tx: tx, next: f.next}
-	added, _ := writer.persistBook(authorCredit(initialsSource(t)))
-	writer.exec(`INSERT INTO opds_catalog_bgenre (book_id, genre_id) VALUES (?, ?)`, added, genre)
-	require.NoError(t, tx.Commit())
+	var added int64
+	written := make(chan error, 1)
+	go func() {
+		added, _ = writer.persistBook(authorCredit(initialsSource(t)))
+		writer.exec(`INSERT INTO opds_catalog_bgenre (book_id, genre_id) VALUES (?, ?)`, added, genre)
+		written <- tx.Commit()
+	}()
+	select {
+	case err = <-written:
+		t.Fatalf("a writer added a book while the deletion held the layer: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
 	close(paused.release)
 
 	got := <-done
+	require.NoError(t, <-written)
 	require.NoError(t, got.err, "a book added meanwhile must not enter the deletion")
 	require.Equal(t, 1, got.n)
 	var left []int64

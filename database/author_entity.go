@@ -778,10 +778,22 @@ var ErrAuthorEntityInputMoved = errors.New("database: the author entity build's 
 // SnapshotAuthorEntityPlan makes the caller's transaction the plan's one
 // snapshot, REPEATABLE READ and READ ONLY, and returns that snapshot. It
 // must be the transaction's first statement: every load after it sees
-// exactly what is visible in the snapshot.
-func SnapshotAuthorEntityPlan(ctx context.Context, tx pg.DBI) (string, error) {
+// exactly what is visible in the snapshot. Each statement of the read is
+// bounded by statementTimeout, and a wait for a lock (a DDL statement's
+// ACCESS EXCLUSIVE ahead of a load) by lockTimeout: the read never keeps
+// its snapshot, its locks and the vacuum horizon past those (SET LOCAL
+// takes no snapshot).
+func SnapshotAuthorEntityPlan(ctx context.Context, tx pg.DBI, statementTimeout, lockTimeout time.Duration) (string, error) {
 	if _, err := tx.ExecContext(ctx, `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`); err != nil {
 		return "", fmt.Errorf("opening the author entity plan's snapshot: %w", err)
+	}
+	for _, set := range []struct {
+		name  string
+		value time.Duration
+	}{{"statement_timeout", statementTimeout}, {"lock_timeout", lockTimeout}} {
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`SET LOCAL %s = %d`, set.name, set.value.Milliseconds())); err != nil {
+			return "", fmt.Errorf("bounding the author entity plan's read: %w", err)
+		}
 	}
 	var snapshot string
 	if _, err := tx.QueryOneContext(ctx, pg.Scan(&snapshot), `SELECT pg_current_snapshot()::text`); err != nil {
@@ -821,10 +833,23 @@ func FenceAuthorEntityBuild(ctx context.Context, tx pg.DBI, snapshot string) err
 
 // FailAuthorEntityBuild ends owner's pass as failed with a closed class.
 func FailAuthorEntityBuild(ctx context.Context, db pg.DBI, runID int64, owner uuid.UUID, class string) error {
+	return FailAuthorEntityBuildReport(ctx, db, runID, owner, class, nil)
+}
+
+// FailAuthorEntityBuildReport ends owner's pass as failed with a closed
+// class and, when report is not nil, a report of why.
+func FailAuthorEntityBuildReport(
+	ctx context.Context, db pg.DBI, runID int64, owner uuid.UUID, class string, report []byte,
+) error {
+	var raw *string
+	if report != nil {
+		s := string(report)
+		raw = &s
+	}
 	_, err := db.ExecContext(ctx, `
 		UPDATE public.author_entity_build_run SET status = 'failed', last_error_class = ?, finished_at = now(),
-			lease_owner = NULL, lease_expires_at = NULL
-		WHERE id = ? AND status = 'running' AND lease_owner = ?`, class, runID, owner)
+			lease_owner = NULL, lease_expires_at = NULL, report = coalesce(?::jsonb, report)
+		WHERE id = ? AND status = 'running' AND lease_owner = ?`, class, raw, runID, owner)
 	if err != nil {
 		return fmt.Errorf("failing the author entity build: %w", err)
 	}

@@ -356,6 +356,15 @@ func (b *builder) mergeSet(qid, rule string, set []*component) {
 			}
 		}
 	}
+	// Two components a live veto keeps apart: the set is left apart whole.
+	for i, x := range set {
+		for _, y := range set[i+1:] {
+			if b.vetoApart(b.find(x.root), b.find(y.root)) {
+				b.vetoRefused(VetoRefusedWikidata)
+				return
+			}
+		}
+	}
 	set = slices.Clone(set)
 	slices.SortStableFunc(set, func(x, y *component) int { return len(y.books) - len(x.books) })
 	anchor := set[0]

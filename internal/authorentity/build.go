@@ -175,6 +175,12 @@ type builder struct {
 	revived map[uuid.UUID]*revivedEntity
 	oldOf   map[int]uuid.UUID
 	oldVia  map[int]bool
+	// The live vetoes (E4b-3): their effective sides, the veto sides of each
+	// raw fingerprint (nil without a veto), and the key-group pieces a
+	// widened side split off.
+	vetoes        []*liveVeto
+	vetoOf        map[string][]vetoSide
+	widenedPieces []widenedPiece
 }
 
 // Build computes one pass over the input.
@@ -186,6 +192,7 @@ func Build(in *Input) *Plan {
 		b.old = NewState()
 	}
 	b.rep = newReport()
+	b.prepareVetoes()
 	b.classify()
 	b.indexEvidence()
 	b.mergeFieldSplits()
@@ -219,6 +226,7 @@ func (b *builder) classify() {
 		b.addToGroup(&key, i)
 	}
 	b.rep.Credits, b.rep.Books, b.rep.Fingerprints = len(cs), len(books), len(fps)
+	b.splitVetoedGroups()
 	b.orderKeys()
 	b.creditKey = make([]int, len(cs))
 	for i := range b.creditKey {
@@ -509,6 +517,14 @@ func (b *builder) mergeFieldSplits() {
 			b.d2bRefused = append(b.d2bRefused, keys)
 			continue
 		}
+		// Both sides of a live veto: the component is left apart whole.
+		if len(b.vetoOf) > 0 && b.vetoSidesOfKeys(keys).both() {
+			row.Refused++
+			r.Refused[D2bRefusedVetoed]++
+			b.rep.Veto.D2bVetoed++
+			b.d2bRefused = append(b.d2bRefused, keys)
+			continue
+		}
 		for _, k := range keys[1:] {
 			b.union(keys[0], k)
 		}
@@ -604,9 +620,15 @@ func (b *builder) mergeTypos() {
 		}
 		return p.y - q.y
 	})
+	// An edge both of its names chose comes twice; once is enough.
+	edges = slices.Compact(edges)
 	for _, e := range edges {
 		rx, ry := b.find(e.x), b.find(e.y)
 		if rx == ry || b.componentsShareABook(rx, ry) {
+			continue
+		}
+		if b.vetoApart(rx, ry) {
+			b.vetoRefused(VetoRefusedTypo)
 			continue
 		}
 		b.union(rx, ry)
@@ -699,6 +721,7 @@ func (b *builder) moveShortNameBook(ci, short int, full []int) {
 		b.rep.Buckets.SamizdatBooks++
 	}
 	targets := map[int][]string{}
+	vetoed := false
 	for _, f := range full {
 		root := b.find(f)
 		if b.rootOnBook(root, c.BookID) {
@@ -706,8 +729,16 @@ func (b *builder) moveShortNameBook(ci, short int, full []int) {
 			continue
 		}
 		if kinds := b.bookEvidence(c.BookID, short, f); len(kinds) > 0 {
+			// A book veto keeps the book from its revoked full name.
+			if b.bookVetoedTo(ci, root) {
+				vetoed = true
+				continue
+			}
 			targets[root] = mergeKinds(targets[root], kinds)
 		}
+	}
+	if vetoed && len(targets) == 0 {
+		b.rep.Veto.KeptInBucket++
 	}
 	switch {
 	case len(targets) == 0:

@@ -58,6 +58,9 @@ const (
 	ConflictD3Disagrees = "d3_disagrees"
 	// ConflictTwoTargets: decisions send one book to two full names.
 	ConflictTwoTargets = "two_targets"
+	// ConflictVetoed: the union crosses a live veto (a decision older than
+	// the veto, E4b-3).
+	ConflictVetoed = "vetoed"
 )
 
 // DecisionState is what a pass did with one decision.
@@ -235,9 +238,16 @@ func (m *modelStep) evaluate() {
 	for _, d := range same {
 		m.rep.Decisions++
 		si := m.byDigest[d.Digest]
-		switch {
+		switch reason := ""; {
 		case si == nil:
-			m.set(d.ID, DecisionLapsed, m.lapseReason(d))
+			// A candidate a live veto excludes is the decision's own pair
+			// across the veto: a conflict, not a lapse (§4.11 step 4).
+			if reason = m.lapseReason(d); reason == ExcludedRevokedPair {
+				m.set(d.ID, DecisionConflict, ConflictVetoed)
+				m.b.vetoRefused(VetoRefusedModel)
+				continue
+			}
+			m.set(d.ID, DecisionLapsed, reason)
 		case si.credit != nil:
 			m.bookDecs = append(m.bookDecs, decided{d, si})
 		default:
@@ -255,15 +265,59 @@ func (m *modelStep) evaluate() {
 			held[uf.find(si.sideA.root)] = true
 		}
 	}
+	vetoed := m.vetoedUnions(uf)
+	refused := map[int]bool{}
 	var applied []decided
 	for _, e := range m.entityDecs {
-		if held[uf.find(e.si.sideA.root)] {
+		switch root := uf.find(e.si.sideA.root); {
+		case held[root]:
 			m.set(e.d.ID, DecisionConflict, ConflictRevoked)
-			continue
+		case vetoed[root]:
+			m.set(e.d.ID, DecisionConflict, ConflictVetoed)
+			// One refused union, however many decisions proposed it.
+			if !refused[root] {
+				refused[root] = true
+				m.b.vetoRefused(VetoRefusedModel)
+			}
+		default:
+			applied = append(applied, e)
 		}
-		applied = append(applied, e)
 	}
 	m.entityDecs = applied
+}
+
+// vetoedUnions are the proposed unions (by root of uf) that would join two
+// level-0 components a live veto keeps apart: none of their decisions
+// applies.
+func (m *modelStep) vetoedUnions(uf intUnion) map[int]bool {
+	b := m.b
+	if len(b.vetoOf) == 0 {
+		return nil
+	}
+	byUnion := map[int][]int{}
+	for _, e := range m.entityDecs {
+		for _, r := range []int{e.si.sideA.root, e.si.sideB.root} {
+			u := uf.find(r)
+			if !slices.Contains(byUnion[u], r) {
+				byUnion[u] = append(byUnion[u], r)
+			}
+		}
+	}
+	out := map[int]bool{}
+	for u, roots := range byUnion {
+		acc := vetoMask{}
+		for _, r := range roots {
+			mr := b.vetoSidesOfKeys(b.membersOf(r))
+			if acc.apart(mr) {
+				out[u] = true
+				break
+			}
+			for v, s := range mr {
+				acc[v] |= s
+			}
+		}
+	}
+	return out
 }
 
 // lapseReason is why a decision's digest is not among the candidates.
@@ -373,6 +427,13 @@ func (m *modelStep) moveDecidedBooks() {
 		}
 		e := decs[0]
 		target := b.find(e.si.sideB.root)
+		if b.creditVetoedFrom(ci, b.membersOf(target)) {
+			for _, e := range decs {
+				m.set(e.d.ID, DecisionConflict, ConflictVetoed)
+			}
+			b.vetoRefused(VetoRefusedModel)
+			continue
+		}
 		if to, moved := b.movedTo[ci]; moved {
 			for _, e := range decs {
 				if to == target {
@@ -747,6 +808,9 @@ func (b *builder) resetPlanReport() {
 	r.IDs = IDReport{}
 	r.Buckets = BucketReport{MovedBy: map[string]int{}}
 	r.Wikidata.References, r.Wikidata.ReferencesWithheld = 0, 0
+	if r.Veto != nil {
+		r.Veto.KeptInBucket = 0
+	}
 }
 
 // intUnion is a small union-find over ints.

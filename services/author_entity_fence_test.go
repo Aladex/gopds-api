@@ -579,3 +579,23 @@ func TestThePlanReadsOneSnapshot(t *testing.T) {
 	restore()
 	assert.Equal(t, 1, c.build().CandidateDiff.Inserted)
 }
+
+// The plan's read transaction bounds its statements and its lock waits
+// (E4b-2 review P3): 90 s a statement, the worker's lock timeout a wait.
+func TestThePlanReadIsBounded(t *testing.T) {
+	c := newEntityCatalog(t)
+	c.seedCandidates()
+	var statement, lock, isolation string
+	defer services.SetAuthorEntityReadHook(func(tx *pg.Tx) {
+		_, err := tx.QueryOne(pg.Scan(&statement, &lock, &isolation), `SELECT current_setting('statement_timeout'),
+			current_setting('lock_timeout'), current_setting('transaction_isolation')`)
+		require.NoError(t, err)
+	})()
+	run, err := services.NewAuthorEntityAdmin(c.db).Start(context.Background(), 0)
+	require.NoError(t, err)
+	runToCompletion(t, services.NewAuthorEntityBuildLoop(c.db, services.AuthorEntityBuildConfig{
+		LockTimeout: 3 * time.Second}), c.db, run.ID)
+	assert.Equal(t, "90s", statement)
+	assert.Equal(t, "3s", lock)
+	assert.Equal(t, "repeatable read", isolation)
+}

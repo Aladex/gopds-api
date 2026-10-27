@@ -1,5 +1,7 @@
 package services
 
+import "github.com/go-pg/pg/v10"
+
 // SetAuthorEntityHooks installs the apply's test seams until the returned
 // func restores them.
 func SetAuthorEntityHooks(beforeApply func(), apply func(step string) error) (restore func()) {
@@ -33,4 +35,11 @@ func SetAuthorEntityCensusHoldHook(hook func(runID int64, step string)) (restore
 func SetAuthorEntityLoadHook(hook func(step string)) (restore func()) {
 	authorEntityLoadHook = hook
 	return func() { authorEntityLoadHook = nil }
+}
+
+// SetAuthorEntityReadHook installs the hook run in the plan's read
+// transaction once it has its snapshot, until the returned func restores it.
+func SetAuthorEntityReadHook(hook func(tx *pg.Tx)) (restore func()) {
+	authorEntityReadHook = hook
+	return func() { authorEntityReadHook = nil }
 }
