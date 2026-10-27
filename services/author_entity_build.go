@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -75,8 +76,10 @@ type AuthorEntityBuildLoop struct {
 
 // authorEntityPlan is a planned pass and what its apply wrote.
 type authorEntityPlan struct {
-	runID    int64
-	plan     *authorentity.Plan
+	runID int64
+	plan  *authorentity.Plan
+	// census is the class of a census step that failed; empty while none.
+	census   string
 	skipped  []database.AuthorEntityUnitSkip
 	changes  int64
 	attempts int
@@ -85,8 +88,11 @@ type authorEntityPlan struct {
 
 // AuthorEntityBuildTimings are the pass's durations in milliseconds.
 type AuthorEntityBuildTimings struct {
-	LoadMS  int64 `json:"load_ms"`
-	PlanMS  int64 `json:"plan_ms"`
+	LoadMS int64 `json:"load_ms"`
+	PlanMS int64 `json:"plan_ms"`
+	// CardMS is the read of the merge candidates' sample books and the
+	// seal of their cards (E4a).
+	CardMS  int64 `json:"card_ms"`
 	ApplyMS int64 `json:"apply_ms"`
 }
 
@@ -102,6 +108,10 @@ type AuthorEntityBuildReport struct {
 	UnitsSkipped int                      `json:"units_skipped"`
 	Attempts     int                      `json:"attempts"`
 	Timings      AuthorEntityBuildTimings `json:"timings"`
+	// CandidateDiff is what the pass changed in the stored merge
+	// candidates; CandidateError the class of the census step that failed.
+	CandidateDiff  database.MergeCandidateDiff `json:"merge_candidate_diff"`
+	CandidateError string                      `json:"merge_candidate_error,omitempty"`
 }
 
 // NewAuthorEntityBuildLoop builds the worker; zero fields take the defaults.
@@ -144,7 +154,56 @@ func (l *AuthorEntityBuildLoop) Run(ctx context.Context) error {
 var (
 	authorEntityBeforeApplyHook func()
 	authorEntityApplyHook       func(step string) error
+	// authorEntityWithoutCandidates makes a test's pass the one of the
+	// binary before migration 63, which had no candidate tables;
+	// authorEntityCensusHook runs at each step of the census, and an error
+	// it returns fails that step.
+	authorEntityWithoutCandidates bool
+	authorEntityCensusHook        func(step string) error
+	// authorEntityCensusHoldHook runs as a run's census write starts
+	// (step "start") and once it holds the census lock ("locked"); a test
+	// holds a worker there.
+	authorEntityCensusHoldHook func(runID int64, step string)
 )
+
+// The census of merge candidates (E4a) only observes the pass: it never
+// holds it. The candidates are generated and sealed while the pass is
+// planned and written in a transaction of their own once the pass has
+// committed, so a failing step costs the census alone: the pass lands, the
+// stored census stays as the last pass that wrote it left it, the report
+// names the step's closed class, and the next pass does the census again.
+const (
+	// The steps of the census.
+	AuthorEntityCensusCardLoad = "card_load"
+	AuthorEntityCensusSeal     = "seal"
+	AuthorEntityCensusWrite    = "write"
+	// The closed classes of a census that did not land.
+	AuthorEntityCensusErrorGenerate = authorentity.CandidateErrorGenerate
+	AuthorEntityCensusErrorCardLoad = "card_load_failed"
+	AuthorEntityCensusErrorSeal     = "seal_failed"
+	AuthorEntityCensusErrorWrite    = "write_failed"
+	// AuthorEntityCensusErrorSuperseded is a census a newer completed pass
+	// made obsolete before it was written: not written, not an error.
+	AuthorEntityCensusErrorSuperseded = "superseded"
+)
+
+// censusHold runs the test hook that holds a census write.
+func censusHold(runID int64, step string) {
+	if authorEntityCensusHoldHook != nil {
+		authorEntityCensusHoldHook(runID, step)
+	}
+}
+
+// censusStep runs the test hook of a census step.
+func censusStep(step string) error {
+	if authorEntityCensusHook != nil {
+		return authorEntityCensusHook(step)
+	}
+	return nil
+}
+
+// authorEntityCensusRecordTimeout bounds the record of a census that failed.
+const authorEntityCensusRecordTimeout = 10 * time.Second
 
 // No statement of the apply transaction runs away.
 const authorEntityStatementTimeout = "5min"
@@ -165,6 +224,16 @@ func (l *AuthorEntityBuildLoop) RunOnce(ctx context.Context) (bool, error) {
 	}
 	if err := l.apply(ctx, run, p); err != nil {
 		return true, err
+	}
+	if !authorEntityWithoutCandidates && p.census == "" {
+		l.writeCensus(ctx, run.ID, p)
+	}
+	// A superseded census is no failure: a newer pass wrote the current one.
+	if p.census != "" && p.census != AuthorEntityCensusErrorSuperseded {
+		LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{
+			Name: AuthorMetadataEventEntityBuildCensusFailed, Stage: AuthorMetadataStageEntityBuild, RunID: run.ID,
+			Status: p.census, Worker: authorEntityBuildName,
+		})
 	}
 	for _, sk := range p.skipped {
 		LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{
@@ -200,6 +269,11 @@ func (l *AuthorEntityBuildLoop) planRun(ctx context.Context, run *database.Autho
 	loaded := time.Now()
 	plan := authorentity.Build(in)
 	planned := time.Now()
+	census := ""
+	if !authorEntityWithoutCandidates {
+		census = l.sealCensus(ctx, plan)
+	}
+	sealed := time.Now()
 	LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{
 		Name: AuthorMetadataEventEntityBuildPlanned, Stage: AuthorMetadataStageEntityBuild, RunID: run.ID,
 		Count: len(plan.Units), Worker: authorEntityBuildName,
@@ -211,8 +285,82 @@ func (l *AuthorEntityBuildLoop) planRun(ctx context.Context, run *database.Autho
 	}); err != nil {
 		return nil, err
 	}
-	return &authorEntityPlan{runID: run.ID, plan: plan, attempts: attempt.Attempts, timings: AuthorEntityBuildTimings{
-		LoadMS: loaded.Sub(started).Milliseconds(), PlanMS: planned.Sub(loaded).Milliseconds()}}, nil
+	return &authorEntityPlan{runID: run.ID, plan: plan, census: census, attempts: attempt.Attempts, timings: AuthorEntityBuildTimings{
+		LoadMS: loaded.Sub(started).Milliseconds(), PlanMS: planned.Sub(loaded).Milliseconds(),
+		CardMS: sealed.Sub(planned).Milliseconds()}}, nil
+}
+
+// sealCensus reads the candidates' sample books and seals their cards; it
+// returns the class of the step that failed, empty when none did.
+func (l *AuthorEntityBuildLoop) sealCensus(ctx context.Context, plan *authorentity.Plan) string {
+	if class := plan.Report.Candidates.Error; class != "" {
+		return class
+	}
+	cards, err := database.LoadMergeCardBooks(ctx, l.db, plan.CardBookIDs())
+	if err == nil {
+		err = censusStep(AuthorEntityCensusCardLoad)
+	}
+	if err != nil {
+		return AuthorEntityCensusErrorCardLoad
+	}
+	if err = censusStep(AuthorEntityCensusSeal); err == nil {
+		err = plan.SealMergeCandidates(cards)
+	}
+	if err != nil {
+		return AuthorEntityCensusErrorSeal
+	}
+	return ""
+}
+
+// writeCensus writes the sealed census, and its diff into the committed
+// pass's report, in a transaction of its own; a failure is recorded as its
+// class in the report and leaves the stored census as it was.
+func (l *AuthorEntityBuildLoop) writeCensus(ctx context.Context, runID int64, p *authorEntityPlan) {
+	censusHold(runID, "start")
+	err := l.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		if _, err := tx.ExecContext(ctx, `SELECT set_config('statement_timeout', ?, true)`,
+			authorEntityStatementTimeout); err != nil {
+			return err
+		}
+		// Census writes are serialized, and one of a pass a later pass has
+		// completed after is not written at all.
+		if err := database.LockMergeCensus(ctx, tx, runID); err != nil {
+			return err
+		}
+		censusHold(runID, "locked")
+		diff, err := database.WriteMergeCandidates(ctx, tx, runID, p.plan)
+		if err == nil {
+			err = censusStep(AuthorEntityCensusWrite)
+		}
+		if err != nil {
+			return err
+		}
+		raw, err := json.Marshal(diff)
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE public.author_entity_build_run
+			SET report = report || jsonb_build_object('merge_candidate_diff', ?::jsonb) WHERE id = ?`, string(raw), runID)
+		return err
+	})
+	if err == nil {
+		return
+	}
+	p.census = AuthorEntityCensusErrorWrite
+	if errors.Is(err, database.ErrMergeCensusSuperseded) {
+		p.census = AuthorEntityCensusErrorSuperseded
+	}
+	// The record outlives a caller that is going away: the pass committed.
+	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), authorEntityCensusRecordTimeout)
+	defer cancel()
+	if _, recordErr := l.db.ExecContext(recordCtx, `UPDATE public.author_entity_build_run
+		SET report = report || jsonb_build_object('merge_candidate_error', ?::text) WHERE id = ?`,
+		p.census, runID); recordErr != nil {
+		LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{
+			Name: AuthorMetadataEventEntityBuildStepFailed, Stage: AuthorMetadataStageEntityBuild, RunID: runID,
+			SQLState: AuthorMetadataSQLState(recordErr), Worker: authorEntityBuildName,
+		})
+	}
 }
 
 // apply writes the whole plan, the report and the completion in one
@@ -283,7 +431,7 @@ func (l *AuthorEntityBuildLoop) complete(
 	}
 	p.timings.ApplyMS = time.Since(started).Milliseconds()
 	rep := AuthorEntityBuildReport{Report: p.plan.Report, UnselectedCredits: unselected, UnitsSkipped: len(p.skipped),
-		Attempts: p.attempts, Timings: p.timings}
+		Attempts: p.attempts, Timings: p.timings, CandidateError: p.census}
 	rep.Changes = int(p.changes)
 	raw, err := json.Marshal(rep)
 	if err != nil {

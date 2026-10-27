@@ -1013,12 +1013,15 @@ func TestTheAutopilotBuildsWhatWasSelectedBeforeItsMigration(t *testing.T) {
 		drainLocal(t, db)
 	}
 	scan("old.zip", 0, evalAuthors[7:9]...)
-	// The old binary's pass: its own insert, and the pass worked to the end.
+	// The old binary's pass: its own insert, and the pass worked to the end,
+	// with no merge candidates (their tables come with 63).
+	restore := services.WithoutAuthorEntityCandidates()
 	var pass int64
 	_, err := db.QueryOne(pg.Scan(&pass), `INSERT INTO public.author_entity_build_run (created_by_user_id) VALUES (NULL)
 		RETURNING id`)
 	require.NoError(t, err)
 	runToCompletion(t, services.NewAuthorEntityBuildLoop(db, services.AuthorEntityBuildConfig{}), db, pass)
+	restore()
 	scan("later.zip", 100, plainName)
 
 	migrateRest()

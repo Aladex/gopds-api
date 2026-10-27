@@ -24,6 +24,8 @@ type Report struct {
 	Rules map[string]int `json:"fingerprints_by_rule"`
 	// D2b is the field-split merge's components.
 	D2b D2bReport `json:"d2b"`
+	// Candidates are the merge candidates (E4a).
+	Candidates CandidateReport `json:"merge_candidates"`
 	// TypoMerges counts the patronymic typos merged on evidence.
 	TypoMerges int            `json:"typo_merges"`
 	NoEntity   map[string]int `json:"no_entity"`
@@ -167,14 +169,15 @@ const topN = 20
 
 func newReport() Report {
 	return Report{EntitiesByKind: map[string]int{}, Rules: map[string]int{}, NoEntity: map[string]int{},
-		Buckets: BucketReport{MovedBy: map[string]int{}}, Wikidata: newWikidataReport(), D2b: newD2bReport()}
+		Buckets: BucketReport{MovedBy: map[string]int{}}, Wikidata: newWikidataReport(), D2b: newD2bReport(),
+		Candidates: CandidateReport{ByKind: map[string]map[string]*CandidateCounts{}}}
 }
 
 // bookSizes are the distribution rows by books (P8 of the design).
 var bookSizes = []struct {
 	label    string
 	min, max int
-}{{"1", 1, 1}, {"2-5", 2, 5}, {"6-20", 6, 20}, {"21-100", 21, 100}, {"100+", 101, 1 << 31}}
+}{{"1", 1, 1}, {"2-5", 2, 5}, {"6-20", 6, 20}, {"21-100", 21, 100}, {sizeOver100, 101, 1 << 31}}
 
 // countSizes are the distribution rows by a small count (entities per legacy
 // author, legacy authors per entity).

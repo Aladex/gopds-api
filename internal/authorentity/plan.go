@@ -277,6 +277,11 @@ func (b *builder) plan() *Plan {
 	p.Units = append(p.Units, pl.cleanupUnits()...)
 	p.components = b.components(p.Units)
 	p.decisions = b.wdDecisions
+	// The census only observes: one that fails leaves the plan as it is.
+	if failed := isolate(func() { b.collectCandidates(p, groups) }); failed {
+		p.cand, p.cardBooks = nil, nil
+		b.rep.Candidates = CandidateReport{ByKind: map[string]map[string]*CandidateCounts{}, Error: CandidateErrorGenerate}
+	}
 	b.report(p, groups, pl.members, pl.wantFP)
 	p.Report = b.rep
 	p.Report.Changes = p.Changes()

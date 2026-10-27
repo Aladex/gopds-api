@@ -67,9 +67,12 @@ func noD2bWorkCatalog(t *testing.T) *catalog {
 	return c
 }
 
+// newReportSections are the report sections the build before D2b did not
+// have: D2b's own, and the merge candidates' (E4a), which write nothing.
+var newReportSections = []string{"d2b", "merge_candidates"}
+
 // noD2bPass is what one pass of the fixture writes and reports. The report
-// is kept as JSON without the "d2b" section, which the build before D2b did
-// not have.
+// is kept as JSON without the new sections.
 type noD2bPass struct {
 	Units   []authorentity.Unit        `json:"units"`
 	Credits map[int64]string           `json:"credits"`
@@ -99,7 +102,9 @@ func recordNoD2bPass(t *testing.T, c *catalog, s *authorentity.State) noD2bPass 
 		for _, row := range r.Sizes {
 			require.Zero(t, row.Components, "the fixture must give D2b nothing to do")
 		}
-		delete(out.Report, "d2b")
+	}
+	for _, section := range newReportSections {
+		delete(out.Report, section)
 	}
 	return out
 }
@@ -108,7 +113,7 @@ func recordNoD2bPass(t *testing.T, c *catalog, s *authorentity.State) noD2bPass 
 // same entities by the same rules, leaves the same store and reports every
 // field the build had before D2b exactly as that build did — over a first
 // pass, an unchanged second pass, a pass after a merge and a pass with a
-// Wikidata reference. Only the new "d2b" section is new.
+// Wikidata reference. Only the new sections are new.
 func TestNoD2bWorkChangesNothing(t *testing.T) {
 	next := 0
 	c := noD2bWorkCatalog(t)

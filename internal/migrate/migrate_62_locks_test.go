@@ -33,21 +33,24 @@ func TestMigration62FailsFastAndAppliesBesideOtherWriters(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	ctx := context.Background()
 
-	before := fstest.MapFS{}
+	before, through := fstest.MapFS{}, fstest.MapFS{}
 	entries, err := os.ReadDir("../../database_migrations")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		if !strings.HasSuffix(e.Name(), ".sql") || e.Name() >= "62-" {
-			// Every file before 62.
+		if !strings.HasSuffix(e.Name(), ".sql") || e.Name() >= "63-" {
+			// Every file through 62: later ones lock tables of their own.
 			continue
 		}
 		data, readErr := os.ReadFile("../../database_migrations/" + e.Name())
 		if readErr != nil {
 			t.Fatal(readErr)
 		}
-		before["database_migrations/"+e.Name()] = &fstest.MapFile{Data: data}
+		through["database_migrations/"+e.Name()] = &fstest.MapFile{Data: data}
+		if e.Name() < "62-" {
+			before["database_migrations/"+e.Name()] = &fstest.MapFile{Data: data}
+		}
 	}
 	if _, err = Run(ctx, db, before, "database_migrations", AppBaseline()); err != nil {
 		t.Fatalf("migrating to 61: %v", err)
@@ -61,7 +64,7 @@ func TestMigration62FailsFastAndAppliesBesideOtherWriters(t *testing.T) {
 		t.Fatal(err)
 	}
 	started := time.Now()
-	_, err = Run(ctx, db, os.DirFS("../.."), "database_migrations", AppBaseline())
+	_, err = Run(ctx, db, through, "database_migrations", AppBaseline())
 	elapsed := time.Since(started)
 	var pgErr pg.Error
 	if err == nil || !errors.As(err, &pgErr) || pgErr.Field('C') != "55P03" {
@@ -91,7 +94,7 @@ func TestMigration62FailsFastAndAppliesBesideOtherWriters(t *testing.T) {
 		t.Fatal(err)
 	}
 	started = time.Now()
-	result, err := Run(ctx, db, os.DirFS("../.."), "database_migrations", AppBaseline())
+	result, err := Run(ctx, db, through, "database_migrations", AppBaseline())
 	if err != nil {
 		t.Fatalf("retrying migration 62 beside the old binary's other writes: %v", err)
 	}

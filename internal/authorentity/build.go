@@ -31,6 +31,14 @@ type Plan struct {
 
 	components [][]int
 	decisions  []WikidataDecision
+	// cand is what the seal of the merge candidates reads; cardBooks the
+	// books their cards show; candidates, inputs and sample its result.
+	cand       *candidates
+	cardBooks  []int64
+	candidates []MergeCandidate
+	inputs     [][]byte
+	sample     []MergeCandidateSample
+	sealed     bool
 	refs       map[uuid.UUID]string
 	entityOf   map[int64]uuid.UUID
 	ruleOf     map[int64]string

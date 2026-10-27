@@ -122,6 +122,9 @@ const (
 	AuthorMetadataEventEntityBuildUnitSkipped AuthorMetadataEventName = "author_metadata.entity_build_unit_skipped"
 	AuthorMetadataEventEntityBuildCompleted   AuthorMetadataEventName = "author_metadata.entity_build_completed"
 	AuthorMetadataEventEntityBuildStepFailed  AuthorMetadataEventName = "author_metadata.entity_build_step_failed"
+	// CensusFailed: a step of the merge candidate census failed (Status: its
+	// closed class); the pass landed without it.
+	AuthorMetadataEventEntityBuildCensusFailed AuthorMetadataEventName = "author_metadata.entity_build_census_failed"
 
 	// Wikidata reference of the entity build (phase E4w). Started: an
 	// administrator started a fetch (RunID is the extract); ChunkImported:
@@ -175,7 +178,7 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventLLMReportRecomputed,
 		AuthorMetadataEventEntityBuildStarted, AuthorMetadataEventEntityBuildPlanned,
 		AuthorMetadataEventEntityBuildUnitSkipped, AuthorMetadataEventEntityBuildCompleted,
-		AuthorMetadataEventEntityBuildStepFailed,
+		AuthorMetadataEventEntityBuildStepFailed, AuthorMetadataEventEntityBuildCensusFailed,
 		AuthorMetadataEventWikidataFetchStarted, AuthorMetadataEventWikidataChunkImported,
 		AuthorMetadataEventWikidataPublished, AuthorMetadataEventWikidataFetchFailed,
 		AuthorMetadataEventWikidataFetchStepFailed,

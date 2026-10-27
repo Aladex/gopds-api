@@ -398,8 +398,12 @@ func TestNormalizationHistoryIsImmutable(t *testing.T) {
 			"book_contributor_credit_selection_autopilot_insert": "author_autopilot_mark()",
 			"book_contributor_credit_selection_autopilot_update": "author_autopilot_mark()",
 			"book_contributor_credit_selection_audit_immutable":  "author_metadata_reject_mutation()",
-			"contributor_normalization_job_updated_at":           "update_updated_at_column()",
-			"contributor_normalization_job_waiting":              "contributor_normalization_job_waiting()",
+			// The entity build's input marks (migration 63).
+			"contributor_normalization_result_entity_input_delete": "author_autopilot_mark()",
+			"contributor_normalization_result_entity_input_insert": "author_autopilot_mark()",
+			"contributor_normalization_result_entity_input_update": "author_autopilot_mark()",
+			"contributor_normalization_job_updated_at":             "update_updated_at_column()",
+			"contributor_normalization_job_waiting":                "contributor_normalization_job_waiting()",
 			"contributor_normalization_job_attempt_immutable": "author_metadata_reject_mutation(" +
 				"finished_at,outcome,error_class)",
 			"contributor_normalization_job_attempt_closed": "author_metadata_reject_finished()",

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"math/rand/v2"
 	"strings"
 	"time"
 
@@ -23,12 +24,25 @@ var schemaMigrationFiles = migrations.FS()
 // database, short enough that a wedged start gives up instead of hanging.
 const startupMigrationTimeout = 10 * time.Minute
 
+// A migration that takes a busy table NOWAIT fails with lock_not_available
+// while a writer holds it; a start waits and tries again, from
+// migrationLockRetryFirst doubling to migrationLockRetryMax with jitter,
+// until its deadline. Variables only so a test can make them short and see
+// each retry.
+var (
+	migrationLockRetryFirst = 2 * time.Second
+	migrationLockRetryMax   = 30 * time.Second
+	migrationLockRetryHook  func(attempt int)
+)
+
 // The closed vocabulary of the schema log fields.
 const (
 	logFieldCount    = "count"
 	logFieldFiles    = "files"
 	logFieldFile     = "file"
 	logFieldSQLState = "sqlstate"
+	logFieldAttempt  = "attempt"
+	logFieldWaitMS   = "wait_ms"
 )
 
 // schemaStartup reports what a start did to the schema.
@@ -75,9 +89,16 @@ func migrateSchemaOnStartup(ctx context.Context, db *pg.DB, files fs.FS, autoMig
 	}
 
 	// The same lock cmd/migrate takes: a second replica, or an operator's
-	// manual run, waits here and then finds nothing pending.
-	result, err := migrate.RunLocked(ctx, db, files, migrations.Dir, migrate.AppBaseline())
-	report.Applied, report.Baselined = result.Applied, result.Baselined
+	// manual run, waits here and then finds nothing pending. A file that
+	// finds a table held (lock_not_available) left nothing behind and is
+	// tried again until the start's deadline; the old replica keeps serving
+	// meanwhile, since this one is not ready before its schema is.
+	err := runWithLockRetries(ctx, func() error {
+		result, runErr := migrate.RunLocked(ctx, db, files, migrations.Dir, migrate.AppBaseline())
+		report.Applied = append(report.Applied, result.Applied...)
+		report.Baselined = append(report.Baselined, result.Baselined...)
+		return runErr
+	})
 	if err != nil {
 		var failed *migrate.FileError
 		file := ""
@@ -97,6 +118,47 @@ func migrateSchemaOnStartup(ctx context.Context, db *pg.DB, files fs.FS, autoMig
 		logging.Info("schema up to date")
 	}
 	return report, nil
+}
+
+// sqlStateLockNotAvailable is a NOWAIT lock or a lock_timeout that found
+// the table held. Each retry waits migrationLockBackoffFactor times the
+// last, split into migrationLockJitterParts: one fixed, the rest random.
+const (
+	sqlStateLockNotAvailable   = "55P03"
+	migrationLockBackoffFactor = 2
+	migrationLockJitterParts   = 2
+)
+
+// runWithLockRetries runs attempt until it succeeds, fails with anything but
+// lock_not_available, or ctx ends while it waits: then the last lock error
+// is the start's. Each retry is logged as a closed event.
+func runWithLockRetries(ctx context.Context, attempt func() error) error {
+	wait := migrationLockRetryFirst
+	for n := 1; ; n++ {
+		err := attempt()
+		if err == nil || sqlStateOf(err) != sqlStateLockNotAvailable {
+			return err
+		}
+		// Half the wait fixed, half random, so two starts do not retry in step.
+		half := wait / migrationLockJitterParts
+		pause := half + rand.N(half+1) // #nosec G404 -- a retry's jitter, not a secret
+		file := ""
+		var failed *migrate.FileError
+		if errors.As(err, &failed) {
+			file = failed.Name
+		}
+		logging.WithFields(map[string]any{logFieldFile: file, logFieldSQLState: sqlStateLockNotAvailable,
+			logFieldAttempt: n, logFieldWaitMS: pause.Milliseconds()}).Warn("schema_migration_lock_retry")
+		if migrationLockRetryHook != nil {
+			migrationLockRetryHook(n)
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(pause):
+		}
+		wait = min(migrationLockBackoffFactor*wait, migrationLockRetryMax)
+	}
 }
 
 // fileListFields renders a list of migrations as log fields.

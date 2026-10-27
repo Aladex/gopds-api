@@ -887,8 +887,12 @@ func TestAuthorMetadataSourceIsImmutable(t *testing.T) {
 			got[r.RelName+"."+r.TriggerName] = r.FunctionName + "(" + strings.TrimSuffix(r.TriggerArgs, ",") + ")"
 		}
 		assert.Equal(t, map[string]string{
-			"book_contributor_credit.book_contributor_credit_immutable":               "author_metadata_reject_mutation()",
-			"book_metadata_snapshot.book_metadata_snapshot_immutable":                 "author_metadata_reject_mutation(is_current)",
+			"book_contributor_credit.book_contributor_credit_immutable": "author_metadata_reject_mutation()",
+			"book_metadata_snapshot.book_metadata_snapshot_immutable":   "author_metadata_reject_mutation(is_current)",
+			// The entity build's input marks (migration 63).
+			"book_metadata_snapshot.book_metadata_snapshot_entity_input_delete":       "author_autopilot_mark()",
+			"book_metadata_snapshot.book_metadata_snapshot_entity_input_insert":       "author_autopilot_mark()",
+			"book_metadata_snapshot.book_metadata_snapshot_entity_input_update":       "author_entity_input_mark()",
 			"author_metadata_pilot_approval.author_metadata_pilot_approval_immutable": "author_metadata_reject_mutation()",
 			"author_metadata_run_item_attempt.author_metadata_run_item_attempt_immutable": "author_metadata_reject_mutation(" +
 				"finished_at,outcome,error_class)",
