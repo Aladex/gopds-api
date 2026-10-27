@@ -27,3 +27,10 @@ func SetAuthorEntityCensusHoldHook(hook func(runID int64, step string)) (restore
 	authorEntityCensusHoldHook = hook
 	return func() { authorEntityCensusHoldHook = nil }
 }
+
+// SetAuthorEntityLoadHook installs the hook run after each load of the
+// plan's snapshot until the returned func restores it.
+func SetAuthorEntityLoadHook(hook func(step string)) (restore func()) {
+	authorEntityLoadHook = hook
+	return func() { authorEntityLoadHook = nil }
+}

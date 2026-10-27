@@ -125,6 +125,11 @@ const (
 	// CensusFailed: a step of the merge candidate census failed (Status: its
 	// closed class); the pass landed without it.
 	AuthorMetadataEventEntityBuildCensusFailed AuthorMetadataEventName = "author_metadata.entity_build_census_failed"
+	// InputMoved: the fence refused an attempt of a pass that applies a
+	// model decision, its input changed after the plan's snapshot (Count:
+	// the refusals in a row; Status refused, or input_moved when the third
+	// failed the pass).
+	AuthorMetadataEventEntityBuildInputMoved AuthorMetadataEventName = "author_metadata.entity_build_input_moved"
 
 	// Wikidata reference of the entity build (phase E4w). Started: an
 	// administrator started a fetch (RunID is the extract); ChunkImported:
@@ -179,6 +184,7 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventEntityBuildStarted, AuthorMetadataEventEntityBuildPlanned,
 		AuthorMetadataEventEntityBuildUnitSkipped, AuthorMetadataEventEntityBuildCompleted,
 		AuthorMetadataEventEntityBuildStepFailed, AuthorMetadataEventEntityBuildCensusFailed,
+		AuthorMetadataEventEntityBuildInputMoved,
 		AuthorMetadataEventWikidataFetchStarted, AuthorMetadataEventWikidataChunkImported,
 		AuthorMetadataEventWikidataPublished, AuthorMetadataEventWikidataFetchFailed,
 		AuthorMetadataEventWikidataFetchStepFailed,
@@ -343,6 +349,9 @@ func authorMetadataEventStatuses() map[string]bool {
 	}
 	set[database.WikidataPublished], set[database.WikidataDuplicate] = true, true
 	for _, v := range AuthorAutopilotStatuses() {
+		set[v] = true
+	}
+	for _, v := range AuthorEntityBuildStatuses() {
 		set[v] = true
 	}
 	return set

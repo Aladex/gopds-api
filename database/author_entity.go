@@ -771,6 +771,54 @@ func CompleteAuthorEntityBuild(
 	return nil
 }
 
+// ErrAuthorEntityInputMoved is a fenced pass's attempt whose input changed
+// after its plan's snapshot (plan §4.9): it must not commit.
+var ErrAuthorEntityInputMoved = errors.New("database: the author entity build's input moved after its snapshot")
+
+// SnapshotAuthorEntityPlan makes the caller's transaction the plan's one
+// snapshot, REPEATABLE READ and READ ONLY, and returns that snapshot. It
+// must be the transaction's first statement: every load after it sees
+// exactly what is visible in the snapshot.
+func SnapshotAuthorEntityPlan(ctx context.Context, tx pg.DBI) (string, error) {
+	if _, err := tx.ExecContext(ctx, `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`); err != nil {
+		return "", fmt.Errorf("opening the author entity plan's snapshot: %w", err)
+	}
+	var snapshot string
+	if _, err := tx.QueryOneContext(ctx, pg.Scan(&snapshot), `SELECT pg_current_snapshot()::text`); err != nil {
+		return "", fmt.Errorf("reading the author entity plan's snapshot: %w", err)
+	}
+	return snapshot, nil
+}
+
+// FenceAuthorEntityBuild is the commit-time fence of a pass that applies a
+// model decision (plan §4.9), run in its apply transaction after the last
+// write and before the completion. It takes the mark table SHARE — waiting,
+// up to the transaction's lock timeout, for every writer that marked and
+// has not ended, and holding back new ones until the pass commits — and
+// refuses with ErrAuthorEntityInputMoved when an untaken mark is not
+// visible in the plan's snapshot: a change the plan did not see committed.
+// The marks the pass took at its start committed before its snapshot. A
+// lock timeout refuses too: a writer still holds a mark the plan may not
+// have seen.
+func FenceAuthorEntityBuild(ctx context.Context, tx pg.DBI, snapshot string) error {
+	if _, err := tx.ExecContext(ctx, `LOCK TABLE public.author_autopilot_mark IN SHARE MODE`); err != nil {
+		if sqlState(err) == "55P03" {
+			return errors.Join(ErrAuthorEntityInputMoved, err)
+		}
+		return fmt.Errorf("locking the autopilot marks: %w", err)
+	}
+	var moved bool
+	if _, err := tx.QueryOneContext(ctx, pg.Scan(&moved), `
+		SELECT EXISTS (SELECT 1 FROM public.author_autopilot_mark
+			WHERE build_run_id IS NULL AND NOT pg_visible_in_snapshot(xact, ?::pg_snapshot))`, snapshot); err != nil {
+		return fmt.Errorf("checking the autopilot marks against the plan's snapshot: %w", err)
+	}
+	if moved {
+		return ErrAuthorEntityInputMoved
+	}
+	return nil
+}
+
 // FailAuthorEntityBuild ends owner's pass as failed with a closed class.
 func FailAuthorEntityBuild(ctx context.Context, db pg.DBI, runID int64, owner uuid.UUID, class string) error {
 	_, err := db.ExecContext(ctx, `

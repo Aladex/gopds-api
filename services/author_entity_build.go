@@ -72,6 +72,13 @@ type AuthorEntityBuildLoop struct {
 	db    *pg.DB
 	cfg   AuthorEntityBuildConfig
 	owner uuid.UUID
+	// refused counts the fence's refusals in a row of one pass (E4b-2).
+	// It lives in the worker: one that restarts, or takes a pass over,
+	// counts again from zero, at worst three more attempts.
+	refused struct {
+		run int64
+		n   int
+	}
 }
 
 // authorEntityPlan is a planned pass and what its apply wrote.
@@ -86,6 +93,13 @@ type authorEntityPlan struct {
 	timings  AuthorEntityBuildTimings
 	// decisions is what the pass wrote of its decisions (E4b).
 	decisions database.MergeDecisionWrite
+	// snapshot is the plan's one snapshot; fenced is a plan that applies a
+	// model decision, which commits only if its input did not move after
+	// the snapshot (E4b-2, plan §4.9). refusals is how many attempts the
+	// fence refused before this one.
+	snapshot string
+	fenced   bool
+	refusals int
 }
 
 // AuthorEntityBuildTimings are the pass's durations in milliseconds.
@@ -119,6 +133,9 @@ type AuthorEntityBuildReport struct {
 	// DecisionWrite is what the pass wrote of its decisions' states and
 	// revivals (E4b); absent when it wrote none.
 	DecisionWrite *database.MergeDecisionWrite `json:"merge_decision_write,omitempty"`
+	// FenceRefusals is how many attempts the fence refused before this
+	// one landed (E4b-2); absent when none.
+	FenceRefusals int `json:"fence_refusals,omitempty"`
 }
 
 // NewAuthorEntityBuildLoop builds the worker; zero fields take the defaults.
@@ -171,6 +188,50 @@ var (
 	// (step "start") and once it holds the census lock ("locked"); a test
 	// holds a worker there.
 	authorEntityCensusHoldHook func(runID int64, step string)
+	// authorEntityLoadHook runs after each load of the plan's snapshot.
+	authorEntityLoadHook func(step string)
+)
+
+// The loads of the plan's snapshot, as authorEntityLoadHook names them.
+const (
+	AuthorEntityLoadInput     = "input"
+	AuthorEntityLoadState     = "state"
+	AuthorEntityLoadWikidata  = "wikidata"
+	AuthorEntityLoadDecisions = "decisions"
+	AuthorEntityLoadCards     = "cards"
+)
+
+// authorEntityFenceRefused is the status of a refusal that did not fail the
+// pass.
+const authorEntityFenceRefused = "refused"
+
+// AuthorEntityBuildStatuses are the statuses the entity build's events
+// carry: the census's closed classes, the failed census of a pass with
+// decisions, and the fence's refusal and its failure.
+func AuthorEntityBuildStatuses() []string {
+	return []string{AuthorEntityCensusErrorGenerate, AuthorEntityCensusErrorCardLoad, AuthorEntityCensusErrorSeal,
+		AuthorEntityCensusErrorWrite, AuthorEntityBuildErrorCensus, authorEntityFenceRefused,
+		AuthorEntityBuildErrorInputMoved}
+}
+
+// loaded runs the test hook after a load of the plan's snapshot.
+func loaded(step string) {
+	if authorEntityLoadHook != nil {
+		authorEntityLoadHook(step)
+	}
+}
+
+// The commit-time fence (E4b-2, plan §4.9). A pass plans from one
+// REPEATABLE READ snapshot. One that applies a model decision checks, as
+// the last step before its completion, that no input changed after that
+// snapshot (database.FenceAuthorEntityBuild); a refused attempt rolls back
+// whole and the pass is planned again from a new snapshot. The third
+// refusal in a row fails the pass AuthorEntityBuildErrorInputMoved and its
+// marks are given back, so the autopilot builds again once the input is
+// quiet. A pass that applies no decision is not fenced: it lands as before.
+const (
+	AuthorEntityBuildErrorInputMoved = "input_moved"
+	authorEntityFenceRefusals        = 3
 )
 
 // The census of merge candidates (E4a) only observes the pass: it never
@@ -248,7 +309,9 @@ func (l *AuthorEntityBuildLoop) RunOnce(ctx context.Context) (bool, error) {
 	if authorEntityBeforeApplyHook != nil {
 		authorEntityBeforeApplyHook()
 	}
-	if err := l.apply(ctx, run, p); err != nil {
+	if err := l.apply(ctx, run, p); errors.Is(err, database.ErrAuthorEntityInputMoved) {
+		return true, l.refuse(ctx, run.ID)
+	} else if err != nil {
 		return true, err
 	}
 	if !authorEntityWithoutCandidates && p.census == "" {
@@ -274,6 +337,92 @@ func (l *AuthorEntityBuildLoop) RunOnce(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
+// refuse counts a refused attempt of the pass; the third in a row fails it.
+func (l *AuthorEntityBuildLoop) refuse(ctx context.Context, runID int64) error {
+	if l.refused.run != runID {
+		l.refused.run, l.refused.n = runID, 0
+	}
+	l.refused.n++
+	status := authorEntityFenceRefused
+	if l.refused.n >= authorEntityFenceRefusals {
+		status = AuthorEntityBuildErrorInputMoved
+	}
+	LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{
+		Name: AuthorMetadataEventEntityBuildInputMoved, Stage: AuthorMetadataStageEntityBuild, RunID: runID,
+		Status: status, Count: l.refused.n, Worker: authorEntityBuildName,
+	})
+	if status == authorEntityFenceRefused {
+		return nil
+	}
+	l.refused.n = 0
+	return database.FailAuthorEntityBuild(ctx, l.db, runID, l.owner, AuthorEntityBuildErrorInputMoved)
+}
+
+// refusals is how many attempts of the pass the fence refused in a row.
+func (l *AuthorEntityBuildLoop) refusals(runID int64) int {
+	if l.refused.run != runID {
+		return 0
+	}
+	return l.refused.n
+}
+
+// planInput is what the plan read in its one snapshot.
+type planInput struct {
+	snapshot string
+	plan     *authorentity.Plan
+	cards    map[int64]authorentity.CardBookFields
+	// census is the class of a census step that failed while reading.
+	census          string
+	loaded, planned time.Time
+}
+
+// readPlan reads every input of the pass in one REPEATABLE READ READ ONLY
+// transaction whose first statement takes its snapshot (plan §4.9), and
+// plans it there: the plan, the census's card books included, is exactly
+// what that snapshot shows. The transaction is read only and holds no lock
+// a writer takes; it holds back the vacuum horizon while it runs.
+func (l *AuthorEntityBuildLoop) readPlan(ctx context.Context) (*planInput, error) {
+	r := &planInput{}
+	err := l.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		var err error
+		if r.snapshot, err = database.SnapshotAuthorEntityPlan(ctx, tx); err != nil {
+			return err
+		}
+		in, err := database.LoadAuthorEntityInput(ctx, tx)
+		if err != nil {
+			return err
+		}
+		loaded(AuthorEntityLoadInput)
+		if in.Old, err = database.LoadAuthorEntityState(ctx, tx); err != nil {
+			return err
+		}
+		loaded(AuthorEntityLoadState)
+		// The published Wikidata extract is evidence (E4w); none is none.
+		if in.Reference, err = database.LoadWikidataReference(ctx, tx, in); err != nil {
+			return err
+		}
+		loaded(AuthorEntityLoadWikidata)
+		if !authorEntityWithoutCandidates {
+			if in.Decisions, err = database.LoadMergeDecisions(ctx, tx); err != nil {
+				return err
+			}
+			loaded(AuthorEntityLoadDecisions)
+		}
+		r.loaded = time.Now()
+		r.plan = authorentity.Build(in)
+		r.planned = time.Now()
+		if !authorEntityWithoutCandidates {
+			r.cards, r.census = l.loadCards(ctx, tx, r.plan)
+			loaded(AuthorEntityLoadCards)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
 // planRun reads and plans the pass, one more attempt of it.
 func (l *AuthorEntityBuildLoop) planRun(ctx context.Context, run *database.AuthorEntityBuildRun) (*authorEntityPlan, error) {
 	attempt, err := database.BeginAuthorEntityAttempt(ctx, l.db, run.ID, l.owner, l.cfg.Lease)
@@ -281,28 +430,13 @@ func (l *AuthorEntityBuildLoop) planRun(ctx context.Context, run *database.Autho
 		return nil, err
 	}
 	started := time.Now()
-	in, err := database.LoadAuthorEntityInput(ctx, l.db)
+	r, err := l.readPlan(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if in.Old, err = database.LoadAuthorEntityState(ctx, l.db); err != nil {
-		return nil, err
-	}
-	// The published Wikidata extract is evidence (E4w); none is none.
-	if in.Reference, err = database.LoadWikidataReference(ctx, l.db, in); err != nil {
-		return nil, err
-	}
-	if !authorEntityWithoutCandidates {
-		if in.Decisions, err = database.LoadMergeDecisions(ctx, l.db); err != nil {
-			return nil, err
-		}
-	}
-	loaded := time.Now()
-	plan := authorentity.Build(in)
-	planned := time.Now()
-	census := ""
-	if !authorEntityWithoutCandidates {
-		census = l.sealCensus(ctx, plan)
+	plan, census := r.plan, r.census
+	if !authorEntityWithoutCandidates && census == "" {
+		census = sealCensus(plan, r.cards)
 	}
 	sealed := time.Now()
 	decided := sealed
@@ -326,25 +460,36 @@ func (l *AuthorEntityBuildLoop) planRun(ctx context.Context, run *database.Autho
 	}); err != nil {
 		return nil, err
 	}
-	return &authorEntityPlan{runID: run.ID, plan: plan, census: census, attempts: attempt.Attempts, timings: AuthorEntityBuildTimings{
-		LoadMS: loaded.Sub(started).Milliseconds(), PlanMS: planned.Sub(loaded).Milliseconds(),
-		CardMS: sealed.Sub(planned).Milliseconds(), DecideMS: decided.Sub(sealed).Milliseconds()}}, nil
+	return &authorEntityPlan{runID: run.ID, plan: plan, census: census, attempts: attempt.Attempts,
+		snapshot: r.snapshot, fenced: plan.Report.Model != nil && plan.Report.Model.Applied > 0,
+		refusals: l.refusals(run.ID), timings: AuthorEntityBuildTimings{
+			LoadMS: r.loaded.Sub(started).Milliseconds(), PlanMS: r.planned.Sub(r.loaded).Milliseconds(),
+			CardMS: sealed.Sub(r.planned).Milliseconds(), DecideMS: decided.Sub(sealed).Milliseconds()}}, nil
 }
 
-// sealCensus reads the candidates' sample books and seals their cards; it
+// loadCards reads the candidates' sample books in the plan's snapshot; it
 // returns the class of the step that failed, empty when none did.
-func (l *AuthorEntityBuildLoop) sealCensus(ctx context.Context, plan *authorentity.Plan) string {
-	if class := plan.Report.Candidates.Error; class != "" {
-		return class
+func (l *AuthorEntityBuildLoop) loadCards(
+	ctx context.Context, tx pg.DBI, plan *authorentity.Plan,
+) (cards map[int64]authorentity.CardBookFields, class string) {
+	if class = plan.Report.Candidates.Error; class != "" {
+		return nil, class
 	}
-	cards, err := database.LoadMergeCardBooks(ctx, l.db, plan.CardBookIDs())
+	cards, err := database.LoadMergeCardBooks(ctx, tx, plan.CardBookIDs())
 	if err == nil {
 		err = censusStep(AuthorEntityCensusCardLoad)
 	}
 	if err != nil {
-		return AuthorEntityCensusErrorCardLoad
+		return nil, AuthorEntityCensusErrorCardLoad
 	}
-	if err = censusStep(AuthorEntityCensusSeal); err == nil {
+	return cards, ""
+}
+
+// sealCensus seals the candidates' cards; it returns the class of the step
+// that failed, empty when none did.
+func sealCensus(plan *authorentity.Plan, cards map[int64]authorentity.CardBookFields) string {
+	err := censusStep(AuthorEntityCensusSeal)
+	if err == nil {
 		err = plan.SealMergeCandidates(cards)
 	}
 	if err != nil {
@@ -446,6 +591,18 @@ func (l *AuthorEntityBuildLoop) apply(ctx context.Context, run *database.AuthorE
 			}
 			p.decisions = w
 		}
+		// Last before the completion: whatever the attempt wrote rolls back
+		// whole when the fence refuses it.
+		if p.fenced {
+			if authorEntityApplyHook != nil {
+				if err := authorEntityApplyHook("fence"); err != nil {
+					return err
+				}
+			}
+			if err := database.FenceAuthorEntityBuild(ctx, tx, p.snapshot); err != nil {
+				return err
+			}
+		}
 		return l.complete(ctx, tx, run, p, started)
 	})
 }
@@ -480,7 +637,7 @@ func (l *AuthorEntityBuildLoop) complete(
 	}
 	p.timings.ApplyMS = time.Since(started).Milliseconds()
 	rep := AuthorEntityBuildReport{Report: p.plan.Report, UnselectedCredits: unselected, UnitsSkipped: len(p.skipped),
-		Attempts: p.attempts, Timings: p.timings, CandidateError: p.census}
+		Attempts: p.attempts, Timings: p.timings, CandidateError: p.census, FenceRefusals: p.refusals}
 	if p.decisions != (database.MergeDecisionWrite{}) {
 		rep.DecisionWrite = &p.decisions
 	}
