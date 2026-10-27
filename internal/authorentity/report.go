@@ -26,6 +26,8 @@ type Report struct {
 	D2b D2bReport `json:"d2b"`
 	// Candidates are the merge candidates (E4a).
 	Candidates CandidateReport `json:"merge_candidates"`
+	// Model is the decision step (E4b); absent from a pass without one.
+	Model *ModelReport `json:"model,omitempty"`
 	// TypoMerges counts the patronymic typos merged on evidence.
 	TypoMerges int            `json:"typo_merges"`
 	NoEntity   map[string]int `json:"no_entity"`
@@ -210,9 +212,12 @@ func (b *builder) report(p *Plan, groups []*group, members map[uuid.UUID][]int, 
 	r := &b.rep
 	for _, row := range wantFP {
 		rule := row.Rule
-		if IsWikidataRule(rule) {
+		switch {
+		case IsWikidataRule(rule):
 			// One rule per item: counted together.
 			rule = strings.TrimSuffix(ruleWikidata, ":")
+		case IsModelRule(rule):
+			rule = strings.TrimSuffix(ruleModel, ":")
 		}
 		r.Rules[rule]++
 	}

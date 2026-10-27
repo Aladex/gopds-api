@@ -84,6 +84,8 @@ type authorEntityPlan struct {
 	changes  int64
 	attempts int
 	timings  AuthorEntityBuildTimings
+	// decisions is what the pass wrote of its decisions (E4b).
+	decisions database.MergeDecisionWrite
 }
 
 // AuthorEntityBuildTimings are the pass's durations in milliseconds.
@@ -92,8 +94,10 @@ type AuthorEntityBuildTimings struct {
 	PlanMS int64 `json:"plan_ms"`
 	// CardMS is the read of the merge candidates' sample books and the
 	// seal of their cards (E4a).
-	CardMS  int64 `json:"card_ms"`
-	ApplyMS int64 `json:"apply_ms"`
+	CardMS int64 `json:"card_ms"`
+	// DecideMS is the decision step (E4b), absent when the pass had none.
+	DecideMS int64 `json:"decide_ms,omitempty"`
+	ApplyMS  int64 `json:"apply_ms"`
 }
 
 // AuthorEntityBuildReport is the stored report: the plan's counts, the
@@ -112,6 +116,9 @@ type AuthorEntityBuildReport struct {
 	// candidates; CandidateError the class of the census step that failed.
 	CandidateDiff  database.MergeCandidateDiff `json:"merge_candidate_diff"`
 	CandidateError string                      `json:"merge_candidate_error,omitempty"`
+	// DecisionWrite is what the pass wrote of its decisions' states and
+	// revivals (E4b); absent when it wrote none.
+	DecisionWrite *database.MergeDecisionWrite `json:"merge_decision_write,omitempty"`
 }
 
 // NewAuthorEntityBuildLoop builds the worker; zero fields take the defaults.
@@ -187,6 +194,18 @@ const (
 	AuthorEntityCensusErrorSuperseded = "superseded"
 )
 
+// A pass with merge decisions, or with entities a model union absorbed,
+// plans by its sealed census (E4b): without it the pass cannot tell which
+// decisions hold, and lapsing them all would split every model merge on a
+// passing read error. Such a pass fails closed instead: nothing is written,
+// the run fails with AuthorEntityBuildErrorCensus, and its marks are given
+// back for the next one. A pass with neither keeps E4a's rule: the census
+// never holds it.
+const AuthorEntityBuildErrorCensus = "census_failed"
+
+// errAuthorEntityCensusMissing is a pass that needs its census and has none.
+var errAuthorEntityCensusMissing = errors.New("the pass has merge decisions and no sealed census")
+
 // censusHold runs the test hook that holds a census write.
 func censusHold(runID int64, step string) {
 	if authorEntityCensusHoldHook != nil {
@@ -216,6 +235,13 @@ func (l *AuthorEntityBuildLoop) RunOnce(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	p, err := l.planRun(ctx, run)
+	if errors.Is(err, errAuthorEntityCensusMissing) {
+		LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{
+			Name: AuthorMetadataEventEntityBuildCensusFailed, Stage: AuthorMetadataStageEntityBuild, RunID: run.ID,
+			Status: AuthorEntityBuildErrorCensus, Worker: authorEntityBuildName,
+		})
+		return true, database.FailAuthorEntityBuild(ctx, l.db, run.ID, l.owner, AuthorEntityBuildErrorCensus)
+	}
 	if err != nil {
 		return true, err
 	}
@@ -266,6 +292,11 @@ func (l *AuthorEntityBuildLoop) planRun(ctx context.Context, run *database.Autho
 	if in.Reference, err = database.LoadWikidataReference(ctx, l.db, in); err != nil {
 		return nil, err
 	}
+	if !authorEntityWithoutCandidates {
+		if in.Decisions, err = database.LoadMergeDecisions(ctx, l.db); err != nil {
+			return nil, err
+		}
+	}
 	loaded := time.Now()
 	plan := authorentity.Build(in)
 	planned := time.Now()
@@ -274,6 +305,16 @@ func (l *AuthorEntityBuildLoop) planRun(ctx context.Context, run *database.Autho
 		census = l.sealCensus(ctx, plan)
 	}
 	sealed := time.Now()
+	decided := sealed
+	if plan.NeedsMergeCensus() {
+		if census != "" {
+			return nil, errAuthorEntityCensusMissing
+		}
+		if plan, err = plan.ApplyMergeDecisions(); err != nil {
+			return nil, errors.Join(errAuthorEntityCensusMissing, err)
+		}
+		decided = time.Now()
+	}
 	LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{
 		Name: AuthorMetadataEventEntityBuildPlanned, Stage: AuthorMetadataStageEntityBuild, RunID: run.ID,
 		Count: len(plan.Units), Worker: authorEntityBuildName,
@@ -287,7 +328,7 @@ func (l *AuthorEntityBuildLoop) planRun(ctx context.Context, run *database.Autho
 	}
 	return &authorEntityPlan{runID: run.ID, plan: plan, census: census, attempts: attempt.Attempts, timings: AuthorEntityBuildTimings{
 		LoadMS: loaded.Sub(started).Milliseconds(), PlanMS: planned.Sub(loaded).Milliseconds(),
-		CardMS: sealed.Sub(planned).Milliseconds()}}, nil
+		CardMS: sealed.Sub(planned).Milliseconds(), DecideMS: decided.Sub(sealed).Milliseconds()}}, nil
 }
 
 // sealCensus reads the candidates' sample books and seals their cards; it
@@ -397,6 +438,14 @@ func (l *AuthorEntityBuildLoop) apply(ctx context.Context, run *database.AuthorE
 				}
 			}
 		}
+		// What the pass did with its decisions lands with the units.
+		if len(p.plan.DecisionStates()) > 0 || len(p.plan.Revivals()) > 0 {
+			w, err := database.WriteMergeDecisionStates(ctx, tx, run.ID, p.plan)
+			if err != nil {
+				return err
+			}
+			p.decisions = w
+		}
 		return l.complete(ctx, tx, run, p, started)
 	})
 }
@@ -432,6 +481,9 @@ func (l *AuthorEntityBuildLoop) complete(
 	p.timings.ApplyMS = time.Since(started).Milliseconds()
 	rep := AuthorEntityBuildReport{Report: p.plan.Report, UnselectedCredits: unselected, UnitsSkipped: len(p.skipped),
 		Attempts: p.attempts, Timings: p.timings, CandidateError: p.census}
+	if p.decisions != (database.MergeDecisionWrite{}) {
+		rep.DecisionWrite = &p.decisions
+	}
 	rep.Changes = int(p.changes)
 	raw, err := json.Marshal(rep)
 	if err != nil {

@@ -39,6 +39,14 @@ type Plan struct {
 	inputs     [][]byte
 	sample     []MergeCandidateSample
 	sealed     bool
+	// sealedAll are the sealed items, excluded ones too; cardFailed the
+	// members of those whose card panicked; b the pass's builder; states
+	// and revivals what its decision step did (E4b).
+	sealedAll  []*sealedItem
+	cardFailed map[[32]byte]bool
+	b          *builder
+	states     []DecisionState
+	revivals   []Revival
 	refs       map[uuid.UUID]string
 	entityOf   map[int64]uuid.UUID
 	ruleOf     map[int64]string
@@ -147,6 +155,26 @@ type builder struct {
 	wdRule      map[int]string
 	wdDecisions []WikidataDecision
 	fullBases   map[string]bool
+
+	// creditKey is each credit's key group, -1 when it has none.
+	creditKey []int
+	// The decision step (E4b): modelStep is the plan after the decisions;
+	// root0 each key's level-0 root; forest the applied decisions between
+	// level-0 components; modelRule the rule of every key a model union put
+	// into another component; movedMethod the method of each moved book's
+	// row when it is not evidence.
+	modelStep   bool
+	root0       []int
+	forest      map[int][]forestEdge
+	modelRule   map[int]string
+	movedMethod map[int]string
+	// revive is the revived entity each credit's synthetic membership
+	// names, revived the revivable entities; oldOf and oldVia the stored
+	// membership the IDs were given out by (oldVia: through a credit row).
+	revive  map[int]uuid.UUID
+	revived map[uuid.UUID]*revivedEntity
+	oldOf   map[int]uuid.UUID
+	oldVia  map[int]bool
 }
 
 // Build computes one pass over the input.
@@ -164,6 +192,9 @@ func Build(in *Input) *Plan {
 	b.mergeTypos()
 	b.mergeWikidata()
 	b.moveShortNameBooks()
+	// Level 0 is the pass without model unions: every entity one absorbed
+	// is revived, so the candidates' sides are stored entities.
+	b.prepareRevival(func(*ModelMerge) bool { return true })
 	return b.plan()
 }
 
@@ -189,6 +220,15 @@ func (b *builder) classify() {
 	}
 	b.rep.Credits, b.rep.Books, b.rep.Fingerprints = len(cs), len(books), len(fps)
 	b.orderKeys()
+	b.creditKey = make([]int, len(cs))
+	for i := range b.creditKey {
+		b.creditKey[i] = -1
+	}
+	for _, g := range b.keys {
+		for _, ci := range g.credits {
+			b.creditKey[ci] = g.idx
+		}
+	}
 }
 
 // fixedByHand records a credit a manual row decides — its own row first,

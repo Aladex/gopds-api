@@ -36,3 +36,21 @@ func PanicOnCandidateSeal() (restore func()) {
 	candidateSealHook = func() { panic("a catalog value no code path expected") }
 	return func() { candidateSealHook = nil }
 }
+
+// PanicOnCardBook makes every card showing book id panic until the returned
+// func restores it.
+func PanicOnCardBook(id int64) (restore func()) {
+	candidateCardHook = func(book int64) {
+		if book == id {
+			panic("a catalog value no code path expected")
+		}
+	}
+	return func() { candidateCardHook = nil }
+}
+
+// OnDecisionStep runs fn whenever a pass enters its decision step, until
+// the returned func restores it.
+func OnDecisionStep(fn func()) (restore func()) {
+	modelStepHook = fn
+	return func() { modelStepHook = nil }
+}

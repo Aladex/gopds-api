@@ -61,33 +61,38 @@ func (b *builder) keysPerD2bRoot() map[int]int {
 
 // oldMembership is which live stored entity each current credit belonged
 // to — its credit row, else its fingerprint row — by credit index, and the
-// books of every such entity.
-func (b *builder) oldMembership() (oldOf map[int]uuid.UUID, books map[uuid.UUID]map[int64]bool) {
-	oldOf = map[int]uuid.UUID{}
+// books of every such entity. A revived entity's synthetic membership
+// (§5.2) replaces the stored one of its credits. via reports the credits a
+// credit row put in their entity.
+func (b *builder) oldMembership() (oldOf map[int]uuid.UUID, via map[int]bool, books map[uuid.UUID]map[int64]bool) {
+	oldOf, via = map[int]uuid.UUID{}, map[int]bool{}
 	books = map[uuid.UUID]map[int64]bool{}
 	for i := range b.in.Credits {
 		c := &b.in.Credits[i]
 		var id uuid.UUID
+		byCredit := false
 		if row, ok := b.old.Credits[CreditKey{CreditID: c.ID}]; ok {
 			if row.EntityID == nil {
 				continue
 			}
-			id = *row.EntityID
+			id, byCredit = *row.EntityID, true
 		} else if row, ok := b.old.Fingerprints[fpKeyOf(c)]; ok {
 			id = row.EntityID
-		} else {
+		} else if _, revived := b.revive[i]; !revived {
 			continue
 		}
-		if e, ok := b.old.Entities[id]; !ok || e.MergedInto != nil {
+		if r, revived := b.revive[i]; revived {
+			id = r
+		} else if e, ok := b.old.Entities[id]; !ok || e.MergedInto != nil {
 			continue
 		}
-		oldOf[i] = id
+		oldOf[i], via[i] = id, byCredit
 		if books[id] == nil {
 			books[id] = map[int64]bool{}
 		}
 		books[id][c.BookID] = true
 	}
-	return oldOf, books
+	return oldOf, via, books
 }
 
 // anchored are the live entities a manual row points at: never merged away.
@@ -156,7 +161,8 @@ func (b *builder) assignIDs(groups []*group) map[uuid.UUID][]MergeRow {
 // through its credits, the largest first; ties go to the stored entity with more books, then to the
 // larger group, then by ID and group order.
 func (b *builder) overlaps(groups []*group) []overlap {
-	oldOf, oldBooks := b.oldMembership()
+	oldOf, via, oldBooks := b.oldMembership()
+	b.oldOf, b.oldVia = oldOf, via
 	wdRule := b.wikidataCreditRules()
 	var pairs []overlap
 	for order, g := range groups {
@@ -214,6 +220,21 @@ func (b *builder) absorbUnmatched(pairs []overlap, taken map[uuid.UUID]bool) map
 		if p.rule != "" {
 			// The stored entity's credits came in on Wikidata evidence.
 			m.Method, m.Rule = MethodEvidence, p.rule
+		}
+		if path := b.modelPath(p.old, p.g.id, p.g); len(path) > 0 {
+			// A model union joined it (§5.1): the decision path, and what it
+			// held, for its revival.
+			m.Method, m.Rule, m.ReportID, m.Stratum = MethodModel, "", path[0].report, path[0].kind
+			for _, e := range path {
+				m.DecisionIDs = append(m.DecisionIDs, e.decision)
+			}
+			m.Members, m.MemberCredits = b.heldBy(p.old)
+		}
+		if e := b.old.Entities[p.old]; e.MergedInto != nil {
+			// A revived entity no group inherited is absorbed again. Its new
+			// path holds applied decisions only, so it is never the stored
+			// one, which held a decision not applied.
+			m.Repoint = true
 		}
 		absorb[p.g.id] = append(absorb[p.g.id], m)
 		b.rep.IDs.Merged++
@@ -277,10 +298,17 @@ func (b *builder) plan() *Plan {
 	p.Units = append(p.Units, pl.cleanupUnits()...)
 	p.components = b.components(p.Units)
 	p.decisions = b.wdDecisions
-	// The census only observes: one that fails leaves the plan as it is.
-	if failed := isolate(func() { b.collectCandidates(p, groups) }); failed {
-		p.cand, p.cardBooks = nil, nil
-		b.rep.Candidates = CandidateReport{ByKind: map[string]map[string]*CandidateCounts{}, Error: CandidateErrorGenerate}
+	p.b = b
+	// The candidates are level 0's: the decision step plans again over them.
+	if !b.modelStep {
+		// A census that fails leaves the plan as it is.
+		if failed := isolate(func() { b.collectCandidates(p, groups) }); failed {
+			p.cand, p.cardBooks = nil, nil
+			b.rep.Candidates = CandidateReport{ByKind: map[string]map[string]*CandidateCounts{}, Error: CandidateErrorGenerate}
+		}
+	}
+	if len(b.revived) > 0 {
+		p.revivals = b.revivalOutcomes(groups)
 	}
 	b.report(p, groups, pl.members, pl.wantFP)
 	p.Report = b.rep
@@ -335,6 +363,8 @@ func (pl *planner) wantRows() {
 		}
 		rule, method := RuleD1, MethodDeterministic
 		switch {
+		case b.modelRule[kg.idx] != "":
+			rule, method = b.modelRule[kg.idx], MethodModel
 		case b.wdRule[kg.idx] != "":
 			rule, method = b.wdRule[kg.idx], MethodEvidence
 		case keysPerTypo[b.typoRoot[kg.idx]] > keysPerD2b[b.d2bRoot[kg.idx]]:
@@ -357,7 +387,11 @@ func (pl *planner) wantRows() {
 		c := &b.in.Credits[ci]
 		id := pl.rootEntity[root]
 		key := CreditKey{CreditID: c.ID}
-		pl.wantCredit[key] = CreditRow{Key: key, EntityID: &id, Method: MethodEvidence, Rule: b.movedRule[ci]}
+		method := MethodEvidence
+		if m := b.movedMethod[ci]; m != "" {
+			method = m
+		}
+		pl.wantCredit[key] = CreditRow{Key: key, EntityID: &id, Method: method, Rule: b.movedRule[ci]}
 		pl.p.entityOf[c.ID], pl.p.ruleOf[c.ID] = id, b.movedRule[ci]
 	}
 }

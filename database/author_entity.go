@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"gopds-api/internal/authorentity"
@@ -201,7 +202,7 @@ func CountUnselectedAuthorCredits(ctx context.Context, db pg.DBI) (int, error) {
 func LoadAuthorEntityState(ctx context.Context, db pg.DBI) (*authorentity.State, error) {
 	s := authorentity.NewState()
 	for _, load := range []func(context.Context, pg.DBI, *authorentity.State) error{
-		loadStoredEntities, loadStoredFingerprints, loadStoredCredits, loadStoredReferences,
+		loadStoredEntities, loadStoredFingerprints, loadStoredCredits, loadStoredReferences, loadStoredModelMerges,
 	} {
 		if err := load(ctx, db, s); err != nil {
 			return nil, err
@@ -369,6 +370,14 @@ type entityUnitColumns struct {
 
 	mergeFrom, mergeTo, mergeMethod, mergeRule []string
 	mergeShared                                []int
+	// A model merge's decision path ("{1,2}"), report, stratum; a revived
+	// entity's new absorption; what each model merge's entity held.
+	mergeDecisions, mergeStratum []string
+	mergeReport                  []int64
+	mergeRepoint                 []bool
+	memFrom, memFP, memVersion   []string
+	memOrdinal, memCreditOrdinal []int
+	memCredit                    []int64
 
 	fpHex, fpVersion, fpEntity, fpMethod, fpRule []string
 	fpOrdinal                                    []int
@@ -401,6 +410,11 @@ func (c *entityUnitColumns) add(u *authorentity.Unit) {
 		c.mergeMethod = append(c.mergeMethod, m.Method)
 		c.mergeRule = append(c.mergeRule, m.Rule)
 		c.mergeShared = append(c.mergeShared, m.SharedBooks)
+		c.mergeDecisions = append(c.mergeDecisions, bigintArray(m.DecisionIDs))
+		c.mergeReport = append(c.mergeReport, m.ReportID)
+		c.mergeStratum = append(c.mergeStratum, m.Stratum)
+		c.mergeRepoint = append(c.mergeRepoint, m.Repoint)
+		c.addMembers(&m)
 	}
 	for _, a := range u.Fingerprints {
 		c.fpHex = append(c.fpHex, hex.EncodeToString([]byte(a.Key.Fingerprint)))
@@ -436,6 +450,34 @@ func (c *entityUnitColumns) add(u *authorentity.Unit) {
 		c.delRefEntity = append(c.delRefEntity, k.EntityID.String())
 		c.delRefSource = append(c.delRefSource, k.Source)
 	}
+}
+
+// addMembers adds what a model merge's absorbed entity held: a fingerprint
+// row (no credit) or a credit row (no fingerprint).
+func (c *entityUnitColumns) addMembers(m *authorentity.MergeRow) {
+	for _, k := range m.Members {
+		c.memFrom = append(c.memFrom, m.From.String())
+		c.memFP = append(c.memFP, hex.EncodeToString([]byte(k.Fingerprint)))
+		c.memVersion = append(c.memVersion, k.ExtractorVersion)
+		c.memOrdinal = append(c.memOrdinal, k.Ordinal)
+		c.memCredit = append(c.memCredit, 0)
+		c.memCreditOrdinal = append(c.memCreditOrdinal, 0)
+	}
+	for _, k := range m.MemberCredits {
+		c.memFrom = append(c.memFrom, m.From.String())
+		c.memFP, c.memVersion, c.memOrdinal = append(c.memFP, ""), append(c.memVersion, ""), append(c.memOrdinal, 0)
+		c.memCredit = append(c.memCredit, k.CreditID)
+		c.memCreditOrdinal = append(c.memCreditOrdinal, k.Ordinal)
+	}
+}
+
+// bigintArray is ids as a Postgres array literal.
+func bigintArray(ids []int64) string {
+	parts := make([]string, len(ids))
+	for i, id := range ids {
+		parts[i] = strconv.FormatInt(id, 10)
+	}
+	return "{" + strings.Join(parts, ",") + "}"
 }
 
 // writeEntityUnits writes a batch: the entities first (the assignments
@@ -476,18 +518,32 @@ func (c *entityUnitColumns) steps(runID int64) []entityWriteStep {
 			[]interface{}{pg.Array(c.entID), pg.Array(c.entKind), pg.Array(c.entDisplay), pg.Array(c.entSort),
 				pg.Array(c.entSearch), pg.Array(c.entPinned)}},
 		{len(c.mergeFrom) == 0, `
-			WITH m AS (SELECT * FROM unnest(?::uuid[], ?::uuid[], ?::text[], ?::int[], ?::text[])
-				AS m(from_id, to_id, method, shared, rule)),
+			WITH m AS (SELECT * FROM unnest(?::uuid[], ?::uuid[], ?::text[], ?::int[], ?::text[], ?::text[], ?::bigint[],
+					?::text[], ?::boolean[])
+				AS m(from_id, to_id, method, shared, rule, decisions, report, stratum, repoint)),
 			marked AS (
 				UPDATE public.author_entity e SET merged_into = m.to_id FROM m
-				WHERE e.id = m.from_id AND e.merged_into IS NULL
-				RETURNING e.id)
-			INSERT INTO public.author_entity_merge_log (from_id, to_id, method, evidence)
-			SELECT m.from_id, m.to_id, m.method, jsonb_build_object('build_run_id', ?::bigint, 'shared_books', m.shared)
-				|| CASE WHEN m.rule <> '' THEN jsonb_build_object('rule', m.rule) ELSE '{}'::jsonb END
-			FROM m WHERE m.from_id IN (SELECT id FROM marked)`,
+				WHERE e.id = m.from_id AND (e.merged_into IS NULL OR m.repoint)
+				RETURNING e.id),
+			logged AS (
+				INSERT INTO public.author_entity_merge_log (from_id, to_id, method, evidence)
+				SELECT m.from_id, m.to_id, m.method, jsonb_build_object('build_run_id', ?::bigint, 'shared_books', m.shared)
+					|| CASE WHEN m.rule <> '' THEN jsonb_build_object('rule', m.rule) ELSE '{}'::jsonb END
+					|| CASE WHEN m.method = 'model' THEN jsonb_build_object('decision_ids', m.decisions::bigint[],
+						'report_id', nullif(m.report, 0), 'stratum', m.stratum) ELSE '{}'::jsonb END
+				FROM m WHERE m.from_id IN (SELECT id FROM marked)
+				RETURNING id, from_id)
+			INSERT INTO public.author_entity_merge_member (merge_log_id, source_fingerprint, extractor_version, ordinal,
+				credit_id, credit_ordinal)
+			SELECT l.id, decode(nullif(u.f, ''), 'hex'), nullif(u.v, ''), CASE WHEN u.f <> '' THEN u.o END,
+				nullif(u.c, 0), CASE WHEN u.c <> 0 THEN u.co END
+			FROM logged l
+			JOIN unnest(?::uuid[], ?::text[], ?::text[], ?::smallint[], ?::bigint[], ?::smallint[])
+				AS u(from_id, f, v, o, c, co) ON u.from_id = l.from_id`,
 			[]interface{}{pg.Array(c.mergeFrom), pg.Array(c.mergeTo), pg.Array(c.mergeMethod), pg.Array(c.mergeShared),
-				pg.Array(c.mergeRule), runID}},
+				pg.Array(c.mergeRule), pg.Array(c.mergeDecisions), pg.Array(c.mergeReport), pg.Array(c.mergeStratum),
+				pg.Array(c.mergeRepoint), runID, pg.Array(c.memFrom), pg.Array(c.memFP), pg.Array(c.memVersion),
+				pg.Array(c.memOrdinal), pg.Array(c.memCredit), pg.Array(c.memCreditOrdinal)}},
 		{len(c.fpHex) == 0, `
 			INSERT INTO public.author_entity_assignment (source_fingerprint, extractor_version, ordinal, entity_id, method, rule)
 			SELECT decode(f, 'hex'), v, o, e, m, r

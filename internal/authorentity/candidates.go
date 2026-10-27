@@ -125,12 +125,13 @@ type CandidateCounts struct {
 }
 
 // candidateSideHook runs on every credit of a side, candidateGenerateHook
-// as generation starts, candidateSealHook as the seal does; a test makes
-// them panic.
+// as generation starts, candidateSealHook as the seal does,
+// candidateCardHook on every card book; a test makes them panic.
 var (
 	candidateSideHook     func(c *Credit)
 	candidateGenerateHook func()
 	candidateSealHook     func()
+	candidateCardHook     func(book int64)
 )
 
 // CandidateErrorGenerate is the census error class of a generation that
@@ -734,7 +735,7 @@ func (p *Plan) SealMergeCandidates(books map[int64]CardBookFields) error {
 		return ErrNoCandidates
 	}
 	if failed := isolate(func() { p.seal(books) }); failed {
-		p.candidates, p.inputs, p.sample = nil, nil, nil
+		p.candidates, p.inputs, p.sample, p.sealedAll, p.cardFailed = nil, nil, nil, nil, nil
 		return errSealFailed
 	}
 	p.sealed = true
@@ -752,11 +753,19 @@ func (p *Plan) seal(books map[int64]CardBookFields) {
 	b := p.cand.b
 	r := &cardRenderer{b: b, p: p, fields: books, byBook: b.creditsOnBooks(p.cardBooks), cards: map[int]MergeCard{}}
 	var all []*sealedItem
+	p.cardFailed = map[[32]byte]bool{}
 	for _, it := range p.cand.items {
 		si := sealItem(b, it)
 		if it.reason == "" {
-			a, b := r.card(si.sideA, si), r.card(si.sideB, nil)
-			si.input = MergeInputJSON(&a, &b)
+			if failed := isolate(func() {
+				a, b := r.card(si.sideA, si), r.card(si.sideB, nil)
+				si.input = MergeInputJSON(&a, &b)
+			}); failed {
+				// One card that panicked leaves its item out, counted (§1.5);
+				// a decision on it lapses card_failed.
+				p.dropFailedCard(si)
+				continue
+			}
 			si.inputHash = sha256.Sum256(si.input)
 			si.digest = candidateDigest(it.kind, it.script, si.members, si.inputHash)
 		}
@@ -781,6 +790,19 @@ func (p *Plan) seal(books map[int64]CardBookFields) {
 		p.inputs = append(p.inputs, si.input)
 	}
 	p.sample = b.candidateSample(all)
+	p.sealedAll = all
+}
+
+// dropFailedCard leaves out a candidate whose card panicked: it is counted
+// failed instead, in the pass's report and in the builder's, which a
+// decision step reports from.
+func (p *Plan) dropFailedCard(si *sealedItem) {
+	p.cardFailed[si.members] = true
+	for _, r := range []*CandidateReport{&p.Report.Candidates, &p.cand.b.rep.Candidates} {
+		r.ItemsFailed++
+		r.Candidates--
+	}
+	p.Report.Candidates.ByKind[si.it.kind][si.it.script].Candidates--
 }
 
 // sealItem puts an item's sides in canonical order with their members.
@@ -866,6 +888,9 @@ func (r *cardRenderer) card(s *candSide, si *sealedItem) MergeCard {
 // book is one sample book of the side of entity: its co-authors are the
 // selected names of the book's credits of other entities.
 func (r *cardRenderer) book(id int64, entity uuid.UUID) MergeCardBook {
+	if candidateCardHook != nil {
+		candidateCardHook(id)
+	}
 	var coauthors []string
 	for _, ci := range r.byBook[id] {
 		c := &r.b.in.Credits[ci]

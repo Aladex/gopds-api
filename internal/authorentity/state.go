@@ -53,6 +53,8 @@ type Input struct {
 	NewID func() uuid.UUID
 	// Reference is the Wikidata evidence (E4w); nil is none.
 	Reference *Reference
+	// Decisions are the live merge decisions (E4b): same ones and revokes.
+	Decisions []MergeDecision
 }
 
 // Methods of the stored rows (§3).
@@ -153,6 +155,17 @@ type MergeRow struct {
 	// SharedBooks is how many books of the absorbed entity the survivor
 	// took.
 	SharedBooks int
+	// DecisionIDs are a model merge's decision path (§5.1), ReportID and
+	// Stratum those of its first decision; Members and MemberCredits what
+	// the absorbed entity held: the input of its revival (§5.2).
+	DecisionIDs   []int64
+	ReportID      int64
+	Stratum       string
+	Members       []FPKey
+	MemberCredits []CreditKey
+	// Repoint is the new absorption of an entity merged already: one a
+	// revival could not give its ID back to.
+	Repoint bool
 }
 
 // SourceWikidata is the source of an entity's Wikidata item.
@@ -181,12 +194,15 @@ type State struct {
 	Credits      map[CreditKey]CreditRow
 	References   map[RefKey]ReferenceRow
 	Merges       []MergeRow
+	// ModelMerges are the owning generations of the merged entities whose
+	// newest merge is a model union, by the absorbed entity.
+	ModelMerges map[uuid.UUID]ModelMerge
 }
 
 // NewState is an empty store.
 func NewState() *State {
 	return &State{Entities: map[uuid.UUID]EntityRow{}, Fingerprints: map[FPKey]AssignmentRow{},
-		Credits: map[CreditKey]CreditRow{}, References: map[RefKey]ReferenceRow{}}
+		Credits: map[CreditKey]CreditRow{}, References: map[RefKey]ReferenceRow{}, ModelMerges: map[uuid.UUID]ModelMerge{}}
 }
 
 // Unit is the writes of one entity, applied together or not at all: the
@@ -224,18 +240,28 @@ func (u *Unit) Changes() int {
 // Apply writes the unit into an in-memory store the way the database layer
 // writes it: manual rows are never replaced or removed.
 func (u *Unit) Apply(s *State) {
+	if s.ModelMerges == nil {
+		s.ModelMerges = map[uuid.UUID]ModelMerge{}
+	}
 	if u.Entity != nil {
+		// A written entity row is live: a revived one is merged no more.
 		s.Entities[u.EntityID] = *u.Entity
+		delete(s.ModelMerges, u.EntityID)
 	}
 	for _, m := range u.Absorb {
 		row, ok := s.Entities[m.From]
-		if !ok || row.MergedInto != nil {
+		if !ok || (row.MergedInto != nil && !m.Repoint) {
 			continue
 		}
 		to := m.To
 		row.MergedInto = &to
 		s.Entities[m.From] = row
 		s.Merges = append(s.Merges, m)
+		delete(s.ModelMerges, m.From)
+		if m.Method == MethodModel {
+			s.ModelMerges[m.From] = ModelMerge{LogID: int64(len(s.Merges)), Entity: m.From, Into: m.To,
+				DecisionIDs: m.DecisionIDs, Members: m.Members, Credits: m.MemberCredits}
+		}
 	}
 	u.applyFingerprints(s)
 	u.applyCredits(s)
